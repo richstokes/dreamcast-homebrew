@@ -10,6 +10,12 @@ The project uses KallistiOS directly: `INIT_NET` for BBA discovery, DHCP, and
 ICMP echo replies; the BIOS font for the runtime-generated IP texture; and the
 low-level PowerVR API for rendering. It has no asset or kos-ports dependencies.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.elf)
+is also available.
+
 ## Build
 
 Set up the official KallistiOS Dreamcast toolchain, then source its environment

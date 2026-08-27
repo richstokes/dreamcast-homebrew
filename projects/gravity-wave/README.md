@@ -11,6 +11,12 @@ converted into aligned RGB565 and ARGB4444 data at build time, then uploaded to
 PowerVR memory during boot. No runtime disc filesystem or emulator-only feature
 is required, so the same executable is suitable for Flycast and real hardware.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.elf)
+is also available.
+
 ## Features
 
 - Infinite deterministic terrain with material-mapped slopes, a winding energy

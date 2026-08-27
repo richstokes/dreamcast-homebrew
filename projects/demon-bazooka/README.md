@@ -26,6 +26,12 @@ code. The 162 BPM title loop switches to a louder 184 BPM gameplay mix on
 descent, with denser double-kicks, heavier clipped power chords, bass, pulse-wave
 lead and arpeggio voices, noise snares, cymbals, and no external audio assets.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf)
+is also available.
+
 ## Controls
 
 - Analog stick or D-pad: move and aim

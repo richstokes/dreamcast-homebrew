@@ -7,16 +7,22 @@ or run on compatible Dreamcast hardware.
 
 ## Projects
 
-| Preview | Project |
-| --- | --- |
-| <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. |
-| <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. |
-| <img src="docs/screenshots/dreamcast-browser.png" alt="Dreamcast Browser" width="360"> | **[Dreamcast Browser](projects/dreamcast-browser/)**<br>A deliberately limited HTTPS browser supporting basic text, links, raster images, and Dreamcast keyboard, mouse, and controller input. JavaScript is not executed. |
-| <img src="docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC" width="360"> | **[Dreamcast IRC](projects/dreamcast-irc/)**<br>A Broadband Adapter IRC client with server and channel pages, fixed-size scrollback, keyboard input, and controller navigation. |
-| <img src="docs/screenshots/ping-cube.png" alt="Ping Cube" width="360"> | **[Ping Cube](projects/ping-cube/)**<br>A networking and PowerVR demo that continuously pings `8.8.8.8`, visualizes latency through the cube's color, and displays live replies, loss, and timing statistics. |
+| Preview | Project | Latest download |
+| --- | --- | --- |
+| <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.elf) |
+| <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf) |
+| <img src="docs/screenshots/dreamcast-browser.png" alt="Dreamcast Browser" width="360"> | **[Dreamcast Browser](projects/dreamcast-browser/)**<br>A deliberately limited HTTPS browser supporting basic text, links, raster images, and Dreamcast keyboard, mouse, and controller input. JavaScript is not executed. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-browser.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-browser.elf) |
+| <img src="docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC" width="360"> | **[Dreamcast IRC](projects/dreamcast-irc/)**<br>A Broadband Adapter IRC client with server and channel pages, fixed-size scrollback, keyboard input, and controller navigation. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.elf) |
+| <img src="docs/screenshots/ping-cube.png" alt="Ping Cube" width="360"> | **[Ping Cube](projects/ping-cube/)**<br>A networking and PowerVR demo that continuously pings `8.8.8.8`, visualizes latency through the cube's color, and displays live replies, loss, and timing statistics. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.elf) |
 
 Each project directory contains its own controls, dependencies, technical
 notes, and verification instructions.
+
+The CDI links are the easiest way to play: download the image and open it in
+Flycast, or burn it to CD-R for a Dreamcast that supports MIL-CD. The smaller
+ELF downloads are useful for direct emulator boot and development loaders.
+[SHA-256 checksums](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/SHA256SUMS)
+are published with every build.
 
 ## Building and running
 

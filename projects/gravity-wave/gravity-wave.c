@@ -40,7 +40,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define FAR_PLANE            1450.0f
 
 #define TERRAIN_COLS         23
-#define TERRAIN_ROWS         39
+#define TERRAIN_ROWS         40
 #define TERRAIN_SPACING_X    26.0f
 #define TERRAIN_SPACING_Z    35.0f
 #define TERRAIN_NEAR_Z       80.0f
@@ -1671,10 +1671,11 @@ static float terrain_row_z(int row) {
        leaves every vertex at a constant screen depth while its noise sample
        advances through the world, making distant cliffs appear to ripple.
        Advancing this aligned lattice one complete row at a time preserves all
-       overlapping world vertices; only an off-screen foreground row is
-       retired as a new fogged row enters at the horizon. */
+       overlapping world vertices. Start one aligned row nearer than the old
+       ceiling-based cursor so the retiring strip is already below the view;
+       the extra row keeps the original fog-distance coverage. */
     const float first_world_z =
-        ceilf((game.distance + TERRAIN_NEAR_Z) / TERRAIN_SPACING_Z) *
+        floorf((game.distance + TERRAIN_NEAR_Z) / TERRAIN_SPACING_Z) *
         TERRAIN_SPACING_Z;
     return first_world_z + (float)row * TERRAIN_SPACING_Z - game.distance;
 }
@@ -1697,19 +1698,6 @@ static void prepare_terrain(const palette_t *palette) {
                                    terrain[row][column].height,
                                    world_z},
                           &terrain[row][column].screen);
-            /* Ease the retiring foreground row beneath the viewport according
-               to world distance. Applying this continuously, rather than to
-               row index zero, prevents a visible pop when the lattice rolls. */
-            if(terrain[row][column].screen.valid) {
-                const float foreground_sink = 1.0f - smoothstepf(
-                    (local_z - (TERRAIN_NEAR_Z + TERRAIN_SPACING_Z)) /
-                    TERRAIN_SPACING_Z);
-                const float covered_y =
-                    fmaxf(terrain[row][column].screen.y, SCREEN_H + 20.0f);
-                terrain[row][column].screen.y = lerpf(
-                    terrain[row][column].screen.y, covered_y,
-                    foreground_sink);
-            }
         }
     }
 

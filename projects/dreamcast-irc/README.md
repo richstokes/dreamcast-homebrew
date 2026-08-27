@@ -15,6 +15,12 @@ a `DCIRC` reply with Dreamcast hardware and KallistiOS system details. Its
 default nickname is `DCIRC_` followed by a random three-digit number; a new
 number is generated if that nickname is already in use.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.elf)
+is also available.
+
 ## Build
 
 Source the KallistiOS environment and build with the SH-4 toolchain:

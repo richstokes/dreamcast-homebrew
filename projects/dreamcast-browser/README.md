@@ -6,6 +6,12 @@ controller fallback, basic HTML text/links, and PNG/JPEG/GIF-style raster
 images through `stb_image`. JavaScript is neither downloaded as executable code
 nor run.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-browser.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-browser.elf)
+is also available.
+
 ## Controls
 
 - `F6` or `Ctrl+L`: open the address bar
