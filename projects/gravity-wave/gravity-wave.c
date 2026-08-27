@@ -54,11 +54,13 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define BIOME_LENGTH         4300.0f
 #define SCENERY_SEGMENT      96.0f
 
-#define MUSIC_TRACK_COUNT    3
+#define MUSIC_TRACK_COUNT    5
 #define MUSIC_SECTION_COUNT  2
-#define MUSIC_SAMPLE_RATE    11025
-#define MUSIC_BARS           3
+#define MUSIC_SAMPLE_RATE    13000
+#define MUSIC_BARS           2
 #define MUSIC_BEATS          (MUSIC_BARS * 4)
+#define MUSIC_PHRASE_BARS    (MUSIC_BARS * MUSIC_SECTION_COUNT)
+#define MUSIC_MELODY_STEPS   (MUSIC_BEATS * 2)
 #define MUSIC_EDGE_SAMPLES   1024
 #define MUSIC_REST           (-127)
 #define MUSIC_TITLE_VOLUME   68
@@ -214,15 +216,18 @@ typedef struct {
     const char *name;
     float bpm;
     int root_midi;
-    int8_t chord_offsets[MUSIC_BARS];
+    int8_t chord_offsets[MUSIC_PHRASE_BARS];
     uint8_t minor_mask;
-    int8_t bass[8];
+    int8_t bass[8 * MUSIC_SECTION_COUNT];
     uint8_t arpeggio[16];
-    int8_t melody[MUSIC_BEATS * 2];
-    uint16_t kick[MUSIC_BARS];
-    uint16_t snare[MUSIC_BARS];
-    uint16_t hat[MUSIC_BARS];
+    int8_t melody[MUSIC_MELODY_STEPS * MUSIC_SECTION_COUNT];
+    uint16_t kick[MUSIC_PHRASE_BARS];
+    uint16_t snare[MUSIC_PHRASE_BARS];
+    uint16_t hat[MUSIC_PHRASE_BARS];
     int lead_profile;
+    float pulse_width;
+    float sidechain;
+    float drive;
     float pad_level;
     float bass_level;
     float arpeggio_level;
@@ -311,79 +316,146 @@ static const palette_t palettes[] = {
     }
 };
 
-/* Three compact songs are mixed into seamless stereo PCM at boot. The chord
- * language stays rooted in synthwave, while the pulse/triangle voices and
- * deliberately crunchy 11 kHz master give the score a Dreamcast-era edge. */
+/* Five original, high-energy synthwave/synthpop songs are mixed into seamless
+ * stereo PCM at boot. Each A/B pair forms a four-bar composition with its own
+ * hook, bass motion, drum programming, synth voicing, and chord sequence. */
 static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     {
-        .name = "NEON UNDERTOW",
-        .bpm = 124.0f,
-        .root_midi = 38, /* D minor: Dm, Bb, C. */
-        .chord_offsets = {0, -4, -2},
+        .name = "MIDNIGHT VECTOR",
+        .bpm = 154.0f,
+        .root_midi = 40, /* E minor: Em, C, G, D. */
+        .chord_offsets = {0, -4, 3, -2},
         .minor_mask = 0x01,
-        .bass = {0, MUSIC_REST, 0, 12, MUSIC_REST, 0, 7, MUSIC_REST},
-        .arpeggio = {0,2,3,1, 2,3,4,2, 3,4,5,3, 4,3,2,1},
-        .melody = {
-             0,MUSIC_REST, 3,MUSIC_REST, 7,MUSIC_REST, 5,3,
-             0,MUSIC_REST, 3,5, 7,MUSIC_REST,10,MUSIC_REST,
-            12,MUSIC_REST,10,7, 5,MUSIC_REST, 3,MUSIC_REST
+        .bass = {
+            0,MUSIC_REST,12,0, 7,MUSIC_REST,12,MUSIC_REST,
+            0,0,12,MUSIC_REST, 7,12,0,MUSIC_REST
         },
-        .kick = {0x1111, 0x5111, 0x1111},
-        .snare = {0x1010, 0x1010, 0x1010},
-        .hat = {0x5555, 0xd555, 0xf555},
+        .arpeggio = {0,2,3,1, 2,4,3,2, 0,3,5,2, 4,3,2,1},
+        .melody = {
+             0,MUSIC_REST, 3,7, 12,MUSIC_REST,10,7,
+             5,MUSIC_REST, 7,10, 7,5,3,MUSIC_REST,
+            12,MUSIC_REST,15,12, 10,7,5,7,
+            10,MUSIC_REST, 7,5, 3,5,0,MUSIC_REST
+        },
+        .kick = {0x1111,0x5111,0x1111,0x9511},
+        .snare = {0x1010,0x1010,0x1010,0x5010},
+        .hat = {0xaaaa,0xeeee,0xaaaa,0xffff},
         .lead_profile = 0,
-        .pad_level = 0.125f, .bass_level = 0.205f,
-        .arpeggio_level = 0.105f, .lead_level = 0.145f,
-        .kick_level = 0.285f, .snare_level = 0.155f,
-        .hat_level = 0.055f, .noise_seed = 0x8bd13a47u
+        .pulse_width = 0.42f, .sidechain = 0.72f, .drive = 0.46f,
+        .pad_level = 0.145f, .bass_level = 0.235f,
+        .arpeggio_level = 0.125f, .lead_level = 0.175f,
+        .kick_level = 0.335f, .snare_level = 0.185f,
+        .hat_level = 0.068f, .noise_seed = 0x8bd13a47u
     },
     {
-        .name = "CHROME CANOPY",
-        .bpm = 128.0f,
-        .root_midi = 40, /* E minor: Em, C, D. */
-        .chord_offsets = {0, -4, -2},
+        .name = "MAGENTA CIRCUIT",
+        .bpm = 160.0f,
+        .root_midi = 42, /* F-sharp minor: F#m, D, A, E. */
+        .chord_offsets = {0, -4, 3, -2},
         .minor_mask = 0x01,
-        .bass = {0,MUSIC_REST,MUSIC_REST,0, 12,MUSIC_REST,7,MUSIC_REST},
-        .arpeggio = {0,1,2,4, 3,2,1,2, 0,2,3,5, 4,2,1,2},
-        .melody = {
-             0,MUSIC_REST, 3,7, MUSIC_REST,3,5,MUSIC_REST,
-             0,MUSIC_REST, 7,MUSIC_REST,10,7,5,MUSIC_REST,
-            12,MUSIC_REST,10,7, 5,3,0,MUSIC_REST
+        .bass = {
+            0,0,MUSIC_REST,12, 0,7,12,7,
+            0,MUSIC_REST,0,12, 7,12,7,MUSIC_REST
         },
-        .kick = {0x0941, 0x4941, 0x0949},
-        .snare = {0x1010, 0x1010, 0x1010},
-        .hat = {0xaaaa, 0xeeee, 0xffee},
+        .arpeggio = {0,1,3,2, 4,2,5,3, 0,2,4,6, 5,3,2,1},
+        .melody = {
+             0,3,7,MUSIC_REST, 8,7,5,3,
+             0,MUSIC_REST, 5,7, 12,10,8,MUSIC_REST,
+            12,15,12,10, 8,MUSIC_REST,7,5,
+             7,8,10,12, 10,7,3,MUSIC_REST
+        },
+        .kick = {0x1151,0x5151,0x1151,0xd151},
+        .snare = {0x1010,0x1010,0x1010,0x5010},
+        .hat = {0xeeee,0xffee,0xeeee,0xffff},
         .lead_profile = 1,
-        .pad_level = 0.115f, .bass_level = 0.195f,
-        .arpeggio_level = 0.130f, .lead_level = 0.150f,
-        .kick_level = 0.275f, .snare_level = 0.165f,
-        .hat_level = 0.060f, .noise_seed = 0x31f2c96du
+        .pulse_width = 0.28f, .sidechain = 0.82f, .drive = 0.54f,
+        .pad_level = 0.125f, .bass_level = 0.245f,
+        .arpeggio_level = 0.145f, .lead_level = 0.185f,
+        .kick_level = 0.350f, .snare_level = 0.195f,
+        .hat_level = 0.074f, .noise_seed = 0x31f2c96du
     },
     {
-        .name = "RIFT BURNER",
-        .bpm = 132.0f,
-        .root_midi = 37, /* C-sharp minor: C#m, E, B. */
-        .chord_offsets = {0, 3, -2},
-        .minor_mask = 0x01,
-        .bass = {0,MUSIC_REST,12,MUSIC_REST, 0,7,12,MUSIC_REST},
-        .arpeggio = {0,3,2,4, 3,5,4,6, 5,4,3,2, 4,3,2,1},
-        .melody = {
-             0,3,7,MUSIC_REST, 12,10,7,MUSIC_REST,
-            12,10,7,3, 5,7,10,MUSIC_REST,
-            12,MUSIC_REST,15,12, 10,7,3,MUSIC_REST
+        .name = "GLASS HORIZON",
+        .bpm = 156.0f,
+        .root_midi = 36, /* C minor: Cm, Ab, Fm, Gm. */
+        .chord_offsets = {0,-4,5,7},
+        .minor_mask = 0x0d,
+        .bass = {
+            0,MUSIC_REST,7,12, 0,MUSIC_REST,12,7,
+            0,7,MUSIC_REST,12, 0,12,7,MUSIC_REST
         },
-        .kick = {0x1111, 0x5111, 0xd111},
-        .snare = {0x1010, 0x1010, 0x1010},
-        .hat = {0xaaaa, 0xffff, 0xffff},
+        .arpeggio = {0,2,4,3, 1,3,5,4, 2,4,6,5, 4,3,2,1},
+        .melody = {
+             0,MUSIC_REST, 3,7, 10,7,3,MUSIC_REST,
+             5,7,10,12, 10,MUSIC_REST,7,5,
+            12,MUSIC_REST,15,19, 15,12,10,7,
+             5,MUSIC_REST, 7,10, 12,10,7,MUSIC_REST
+        },
+        .kick = {0x0941,0x4941,0x1941,0x5949},
+        .snare = {0x1010,0x1010,0x1010,0x3010},
+        .hat = {0xaaaa,0xeeee,0xaeee,0xffee},
         .lead_profile = 2,
-        .pad_level = 0.095f, .bass_level = 0.225f,
-        .arpeggio_level = 0.115f, .lead_level = 0.175f,
-        .kick_level = 0.315f, .snare_level = 0.175f,
-        .hat_level = 0.065f, .noise_seed = 0xde71a903u
+        .pulse_width = 0.47f, .sidechain = 0.58f, .drive = 0.34f,
+        .pad_level = 0.165f, .bass_level = 0.215f,
+        .arpeggio_level = 0.135f, .lead_level = 0.180f,
+        .kick_level = 0.315f, .snare_level = 0.190f,
+        .hat_level = 0.066f, .noise_seed = 0xde71a903u
+    },
+    {
+        .name = "STATIC HEART",
+        .bpm = 166.0f,
+        .root_midi = 45, /* A minor: Am, F, C, G. */
+        .chord_offsets = {0,-4,3,-2},
+        .minor_mask = 0x01,
+        .bass = {
+            0,12,0,MUSIC_REST, 7,12,7,0,
+            0,MUSIC_REST,12,0, 7,7,12,MUSIC_REST
+        },
+        .arpeggio = {0,3,1,4, 2,5,3,6, 4,2,5,3, 1,4,2,5},
+        .melody = {
+             0,3,7,12, 10,7,5,3,
+             7,MUSIC_REST,10,12, 15,12,10,MUSIC_REST,
+            12,10,7,5, 7,10,12,15,
+            17,MUSIC_REST,15,12, 10,7,3,0
+        },
+        .kick = {0x1551,0x5551,0x1551,0xd551},
+        .snare = {0x1010,0x1010,0x1010,0x5010},
+        .hat = {0xeeee,0xffff,0xeeee,0xffff},
+        .lead_profile = 3,
+        .pulse_width = 0.22f, .sidechain = 0.88f, .drive = 0.62f,
+        .pad_level = 0.115f, .bass_level = 0.255f,
+        .arpeggio_level = 0.155f, .lead_level = 0.190f,
+        .kick_level = 0.365f, .snare_level = 0.205f,
+        .hat_level = 0.078f, .noise_seed = 0xa9417c53u
+    },
+    {
+        .name = "AFTERIMAGE RUN",
+        .bpm = 158.0f,
+        .root_midi = 38, /* D minor: Dm, Bb, F, C. */
+        .chord_offsets = {0,-4,3,-2},
+        .minor_mask = 0x01,
+        .bass = {
+            0,MUSIC_REST,0,12, 7,0,12,MUSIC_REST,
+            0,7,12,7, 0,MUSIC_REST,12,0
+        },
+        .arpeggio = {0,2,3,5, 4,2,6,3, 5,3,4,2, 6,4,3,1},
+        .melody = {
+             0,3,5,7, 12,MUSIC_REST,10,7,
+             5,7,10,12, 15,12,10,MUSIC_REST,
+            12,15,17,15, 12,10,7,5,
+             7,MUSIC_REST,10,7, 5,3,0,MUSIC_REST
+        },
+        .kick = {0x1111,0x5115,0x1111,0xd119},
+        .snare = {0x1010,0x1010,0x1010,0x7010},
+        .hat = {0xaaaa,0xfaee,0xaaaa,0xffff},
+        .lead_profile = 4,
+        .pulse_width = 0.35f, .sidechain = 0.76f, .drive = 0.50f,
+        .pad_level = 0.135f, .bass_level = 0.240f,
+        .arpeggio_level = 0.145f, .lead_level = 0.188f,
+        .kick_level = 0.345f, .snare_level = 0.198f,
+        .hat_level = 0.072f, .noise_seed = 0x52ce8bf1u
     }
 };
-
-static const uint8_t biome_soundtracks[4] = {0, 1, 2, 1};
 
 static game_t game;
 static enemy_t enemies[MAX_ENEMIES];
@@ -436,6 +508,7 @@ static int current_music_volume;
 static int pending_music_track = -1;
 static int pending_music_volume;
 static float music_section_time;
+static int music_song_loops;
 static bool audio_ready;
 
 static vec3_t player_model_point(float lx, float ly, float lz);
@@ -1198,6 +1271,8 @@ static float music_lead_voice(const soundtrack_t *track,
 
     seconds = phase * seconds_per_beat * 0.5f;
     cycles = lead_frequencies[step] * seconds;
+    cycles += fsin(TAU * (5.1f + (float)track->lead_profile * 0.31f) *
+                   seconds) * 0.012f;
     envelope = clampf(phase * 15.0f, 0.0f, 1.0f) *
                (1.0f - phase) * (1.0f - phase);
     if(track->lead_profile == 1) {
@@ -1209,6 +1284,21 @@ static float music_lead_voice(const soundtrack_t *track,
         voice = music_saw(cycles) * 0.44f +
                 fsin(TAU * cycles) * 0.33f +
                 music_pulse(cycles * 0.5f, 0.48f) * 0.18f;
+    }
+    else if(track->lead_profile == 3) {
+        voice = music_pulse(cycles, track->pulse_width) * 0.42f +
+                music_triangle(cycles * 2.0f) * 0.31f +
+                fsin(TAU * cycles * 3.0f) * 0.17f +
+                fsin(TAU * cycles) * 0.10f;
+    }
+    else if(track->lead_profile == 4) {
+        const float pwm = clampf(track->pulse_width +
+                                 fsin(TAU * seconds * 3.7f) * 0.08f,
+                                 0.14f, 0.62f);
+        voice = music_saw(cycles) * 0.37f +
+                music_pulse(cycles, pwm) * 0.36f +
+                music_triangle(cycles * 0.5f) * 0.17f +
+                fsin(TAU * cycles * 2.01f) * 0.10f;
     }
     else {
         voice = fsin(TAU * cycles) * 0.61f +
@@ -1223,7 +1313,7 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     float chord_frequencies[MUSIC_BARS][3];
     float bass_frequencies[MUSIC_BARS][8];
     float arpeggio_frequencies[MUSIC_BARS][16];
-    float lead_frequencies[MUSIC_BEATS * 2];
+    float lead_frequencies[MUSIC_MELODY_STEPS];
     uint16_t kick_patterns[MUSIC_BARS];
     uint16_t snare_patterns[MUSIC_BARS];
     uint16_t hat_patterns[MUSIC_BARS];
@@ -1251,16 +1341,15 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         *duration_out = duration;
 
     for(bar = 0; bar < MUSIC_BARS; ++bar) {
-        const int chord_bar = section == 0 ? bar :
-                              (bar == 1 ? 2 : (bar == 2 ? 1 : 0));
-        const bool minor = (track->minor_mask & (1u << chord_bar)) != 0;
-        const int root = track->root_midi + track->chord_offsets[chord_bar];
+        const int phrase_bar = section * MUSIC_BARS + bar;
+        const bool minor = (track->minor_mask & (1u << phrase_bar)) != 0;
+        const int root = track->root_midi + track->chord_offsets[phrase_bar];
         chord_frequencies[bar][0] = music_note_frequency(root + 12);
         chord_frequencies[bar][1] =
             music_note_frequency(root + 12 + (minor ? 3 : 4));
         chord_frequencies[bar][2] = music_note_frequency(root + 19);
         for(step = 0; step < 8; ++step) {
-            int bass_note = track->bass[step];
+            int bass_note = track->bass[section * 8 + step];
             if(section == 1 && bass_note == MUSIC_REST &&
                (step == 2 || step == 6))
                 bass_note = step == 2 ? 7 : 12;
@@ -1275,9 +1364,9 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             arpeggio_frequencies[bar][step] =
                 music_note_frequency(root + 12 + semitone);
         }
-        kick_patterns[bar] = track->kick[bar];
-        snare_patterns[bar] = track->snare[bar];
-        hat_patterns[bar] = track->hat[bar];
+        kick_patterns[bar] = track->kick[phrase_bar];
+        snare_patterns[bar] = track->snare[phrase_bar];
+        hat_patterns[bar] = track->hat[phrase_bar];
         if(section == 1) {
             if(bar == 1)
                 kick_patterns[bar] |= 0x4040u;
@@ -1288,12 +1377,9 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             }
         }
     }
-    for(step = 0; step < MUSIC_BEATS * 2; ++step) {
-        const int melody_step = section == 0 ? step :
-                                (step + 8) % (MUSIC_BEATS * 2);
-        int melody_note = track->melody[melody_step];
-        if(section == 1 && melody_note != MUSIC_REST && (step & 7) == 0)
-            melody_note += 12;
+    for(step = 0; step < MUSIC_MELODY_STEPS; ++step) {
+        const int melody_step = section * MUSIC_MELODY_STEPS + step;
+        const int melody_note = track->melody[melody_step];
         lead_frequencies[step] = melody_note == MUSIC_REST ? 0.0f :
             music_note_frequency(track->root_midi + 24 + melody_note);
     }
@@ -1318,6 +1404,10 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         const float drum_phase = arpeggio_phase;
         const float drum_seconds = drum_phase * seconds_per_beat * 0.25f;
         const uint16_t drum_bit = (uint16_t)(1u << drum_step);
+        const float quarter_phase = beat_in_bar - floorf(beat_in_bar);
+        const float sidechain = lerpf(
+            1.0f, 0.40f + 0.60f * smoothstepf(quarter_phase * 3.4f),
+            track->sidechain);
         float left = 0.0f;
         float right = 0.0f;
         float voice;
@@ -1327,27 +1417,32 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         int echo_step;
 
         left += (fsin(TAU * chord_frequencies[current_bar][0] *
-                      bar_seconds * 0.997f) * 0.46f +
+                      bar_seconds * 0.997f) * 0.40f +
                  fsin(TAU * chord_frequencies[current_bar][1] *
-                      bar_seconds * 1.002f) * 0.30f +
+                      bar_seconds * 1.002f) * 0.27f +
                  music_triangle(chord_frequencies[current_bar][2] *
-                                bar_seconds * 0.999f) * 0.24f) *
-                track->pad_level * pad_envelope;
+                                bar_seconds * 0.999f) * 0.20f +
+                 music_saw(chord_frequencies[current_bar][0] *
+                           bar_seconds * 0.501f) * 0.13f) *
+                track->pad_level * pad_envelope * sidechain;
         right += (fsin(TAU * chord_frequencies[current_bar][0] *
-                       bar_seconds * 1.003f) * 0.46f +
+                       bar_seconds * 1.003f) * 0.40f +
                   fsin(TAU * chord_frequencies[current_bar][1] *
-                       bar_seconds * 0.998f) * 0.30f +
+                       bar_seconds * 0.998f) * 0.27f +
                   music_triangle(chord_frequencies[current_bar][2] *
-                                 bar_seconds * 1.001f) * 0.24f) *
-                 track->pad_level * pad_envelope;
+                                 bar_seconds * 1.001f) * 0.20f +
+                  music_saw(chord_frequencies[current_bar][1] *
+                            bar_seconds * 0.499f) * 0.13f) *
+                 track->pad_level * pad_envelope * sidechain;
 
         if(bass_frequencies[current_bar][bass_step] > 0.0f) {
             envelope = clampf(bass_phase * 18.0f, 0.0f, 1.0f) *
                        (1.0f - bass_phase) * (1.0f - bass_phase);
             cycles = bass_frequencies[current_bar][bass_step] *
                      bass_phase * seconds_per_beat * 0.5f;
-            voice = music_pulse(cycles, 0.48f) * 0.54f +
-                    fsin(TAU * cycles) * 0.46f;
+            voice = music_pulse(cycles, track->pulse_width) * 0.43f +
+                    fsin(TAU * cycles) * 0.42f +
+                    music_triangle(cycles * 0.5f) * 0.15f;
             left += voice * track->bass_level * envelope;
             right += voice * track->bass_level * envelope;
         }
@@ -1358,9 +1453,10 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                    (1.0f - arpeggio_phase);
         cycles = arpeggio_frequencies[current_bar][arpeggio_step] *
                  arpeggio_phase * seconds_per_beat * 0.25f;
-        voice = music_triangle(cycles) * 0.53f +
-                music_pulse(cycles, 0.25f) * 0.31f +
-                fsin(TAU * cycles * 2.0f) * 0.16f;
+        voice = music_triangle(cycles) * 0.45f +
+                music_pulse(cycles, 0.25f) * 0.27f +
+                fsin(TAU * cycles * 2.0f) * 0.18f +
+                music_saw(cycles * 0.5f) * 0.10f;
         if((arpeggio_step ^ current_bar) & 1) {
             left += voice * track->arpeggio_level * envelope * 0.42f;
             right += voice * track->arpeggio_level * envelope;
@@ -1390,6 +1486,10 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             left += voice * track->lead_level * 0.38f;
             right += voice * track->lead_level;
         }
+        voice = music_lead_voice(track, lead_frequencies, beat - 1.5f,
+                                 seconds_per_beat, NULL) * 0.14f;
+        left += voice * track->lead_level * 0.45f;
+        right += voice * track->lead_level;
 
         if(kick_patterns[current_bar] & drum_bit) {
             const float kick_frequency = 50.0f +
@@ -1405,16 +1505,21 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             right += voice * track->kick_level * envelope;
         }
         if(snare_patterns[current_bar] & drum_bit) {
+            const float clap_burst = 0.72f + 0.18f *
+                clampf(1.0f - fabsf(drum_seconds - 0.024f) * 42.0f,
+                       0.0f, 1.0f) + 0.10f *
+                clampf(1.0f - fabsf(drum_seconds - 0.047f) * 48.0f,
+                       0.0f, 1.0f);
             envelope = clampf(drum_phase * 34.0f, 0.0f, 1.0f) *
                        (1.0f - drum_phase) * (1.0f - drum_phase);
             left += (music_noise((uint32_t)i ^ track->noise_seed ^
                                  0x51ed270bu) * 0.78f +
                      fsin(TAU * 176.0f * drum_seconds) * 0.22f) *
-                    track->snare_level * envelope;
+                    track->snare_level * envelope * clap_burst;
             right += (music_noise((uint32_t)i ^ track->noise_seed ^
                                   0xa37c91e5u) * 0.78f +
                       fsin(TAU * 181.0f * drum_seconds) * 0.22f) *
-                     track->snare_level * envelope;
+                     track->snare_level * envelope * clap_burst;
         }
         if(hat_patterns[current_bar] & drum_bit) {
             envelope = clampf(drum_phase * 42.0f, 0.0f, 1.0f) *
@@ -1444,8 +1549,14 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             left *= 0.88f * edge;
             right *= 0.88f * edge;
         }
-        left /= 1.0f + fabsf(left) * 0.48f;
-        right /= 1.0f + fabsf(right) * 0.48f;
+        left *= 1.0f + track->drive * 0.36f;
+        right *= 1.0f + track->drive * 0.36f;
+        left /= 1.0f + fabsf(left) * (0.46f + track->drive * 0.24f);
+        right /= 1.0f + fabsf(right) * (0.46f + track->drive * 0.24f);
+        left += music_noise((uint32_t)i ^ track->noise_seed ^ 0x192fc173u) *
+                (1.0f / 65536.0f);
+        right += music_noise((uint32_t)i ^ track->noise_seed ^ 0x71a2d8efu) *
+                 (1.0f / 65536.0f);
         left_samples[i] = (int16_t)(clampf(left, -1.0f, 1.0f) * 30000.0f);
         right_samples[i] = (int16_t)(clampf(right, -1.0f, 1.0f) * 30000.0f);
     }
@@ -1463,6 +1574,15 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     return handle;
 }
 
+static int choose_random_music_track(int avoid) {
+    int track = (int)(random_u32() % MUSIC_TRACK_COUNT);
+    if(MUSIC_TRACK_COUNT > 1 && track == avoid)
+        track = (track + 1 + (int)(random_u32() %
+                                  (MUSIC_TRACK_COUNT - 1))) %
+                MUSIC_TRACK_COUNT;
+    return track;
+}
+
 static void stop_music(void) {
     int bank;
     for(bank = 0; bank < 2; ++bank) {
@@ -1477,6 +1597,7 @@ static void stop_music(void) {
     pending_music_track = -1;
     pending_music_volume = 0;
     music_section_time = 0.0f;
+    music_song_loops = 0;
 }
 
 static void play_music_section(int track, int section, int volume) {
@@ -1512,6 +1633,7 @@ static void play_music_section(int track, int section, int volume) {
         pending_music_track = -1;
         music_section_time = 0.0f;
         if(previous_track != track) {
+            music_song_loops = 0;
             printf("Gravity Wave music: now playing %s.\n",
                    soundtrack_defs[track].name);
         }
@@ -1557,6 +1679,20 @@ static void update_music(float dt) {
         next_section = 0;
         next_volume = pending_music_volume;
     }
+    else if(current_music_section == MUSIC_SECTION_COUNT - 1) {
+        music_song_loops++;
+        if(music_song_loops >= 2) {
+            next_track = choose_random_music_track(current_music_track);
+            next_section = 0;
+            next_volume = current_music_volume;
+            music_song_loops = 0;
+        }
+        else {
+            next_track = current_music_track;
+            next_section = 0;
+            next_volume = current_music_volume;
+        }
+    }
     else {
         next_track = current_music_track;
         next_section = (current_music_section + 1) % MUSIC_SECTION_COUNT;
@@ -1580,6 +1716,7 @@ static void init_audio(void) {
     current_music_track = -1;
     pending_music_track = -1;
     music_section_time = 0.0f;
+    music_song_loops = 0;
     for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
         for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
             music_sections[i][section] = SFXHND_INVALID;
@@ -3309,7 +3446,8 @@ static void reset_game(void) {
     game.camera_focal = FOCAL_CRUISE;
     game.trauma = 0.0f;
     game.guardians_destroyed = 0;
-    start_music_track(biome_soundtracks[0], MUSIC_GAME_VOLUME);
+    start_music_track(choose_random_music_track(current_music_track),
+                      MUSIC_GAME_VOLUME);
     set_message("AZURE REACH", 2.4f);
     printf("Gravity Wave: new run started.\n");
 }
@@ -3915,7 +4053,8 @@ static void enter_title(void) {
     game.message_time = 0.0f;
     game.camera_focal = FOCAL_CRUISE;
     game.trauma = 0.0f;
-    start_music_track(biome_soundtracks[title_biome], MUSIC_TITLE_VOLUME);
+    start_music_track(choose_random_music_track(current_music_track),
+                      MUSIC_TITLE_VOLUME);
     printf("Gravity Wave: title backdrop %s.\n",
            palettes[title_biome].name);
 }
@@ -3946,7 +4085,7 @@ static bool update_game(const input_t *input, float dt) {
         if(title_palette != game.last_palette_index) {
             game.palette_index = title_palette;
             game.last_palette_index = title_palette;
-            start_music_track(biome_soundtracks[title_palette],
+            start_music_track(choose_random_music_track(current_music_track),
                               MUSIC_TITLE_VOLUME);
         }
         game.player_x = fsin(game.time * 0.72f) * 10.0f;
@@ -4117,8 +4256,9 @@ static bool update_game(const input_t *input, float dt) {
                 if(game.palette_index != game.last_palette_index) {
                     set_message(palettes[game.palette_index].name, 2.3f);
                     game.last_palette_index = game.palette_index;
-                    start_music_track(biome_soundtracks[game.palette_index],
-                                      MUSIC_GAME_VOLUME);
+                    start_music_track(
+                        choose_random_music_track(current_music_track),
+                        MUSIC_GAME_VOLUME);
                     play_sound(sfx_gate, 180, 128);
                 }
             }
@@ -5445,7 +5585,8 @@ int main(int argc, char **argv) {
     game.distance = GRAVITY_WAVE_AUTOTEST_DISTANCE;
     game.palette_index = ((int)(game.distance / BIOME_LENGTH)) & 3;
     game.last_palette_index = game.palette_index;
-    start_music_track(biome_soundtracks[game.palette_index], MUSIC_GAME_VOLUME);
+    start_music_track(choose_random_music_track(current_music_track),
+                      MUSIC_GAME_VOLUME);
     game.next_wave_z = game.distance + 500.0f;
     game.next_gate_z = game.distance + 680.0f;
 #ifdef GRAVITY_WAVE_AUTOTEST_GATE_VIEW

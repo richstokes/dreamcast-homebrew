@@ -45,9 +45,10 @@ is also available.
 - Vector Crown environmental arches with tapered polygonal ribs, floating
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
-- A three-track stereo chiptune/synthwave score with alternating A/B sections,
-  synthesized at boot with drums, pulse bass, chord pads, arpeggios, leads,
-  and ping-pong echo
+- Five original, randomly sequenced stereo synthwave/synthpop songs with
+  154–166 BPM alternating A/B sections, synthesized at boot with sidechained
+  chord pads, driven pulse bass, stereo arpeggios, distinct lead voices,
+  layered drum machines, clap transients, and multi-tap ping-pong echo
 - Optional Jump Pack feedback for impacts, Nova Pulses, upgrades, and guardian
   destruction, with safe play when no vibration accessory is present
 - Hardware fog, a layered gradient sky, stars, striped sun, a subtle animated
