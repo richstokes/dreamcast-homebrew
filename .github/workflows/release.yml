@@ -1,0 +1,118 @@
+name: Build Dreamcast releases
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dreamcast-continuous-release
+  cancel-in-progress: false
+
+env:
+  KOS_COMMIT: cd340378043f00cd1d05284ee0d02548d33d6054
+  KOS_PORTS_COMMIT: f4faacc42faaf552625777b7709e871a827e1055
+  MKDCDISC_COMMIT: a663882c4ac0e2123c6229af6dd596cee7a66dc1
+  TOOLCHAIN_IMAGE: pcercuei/dreamcast-toolchain@sha256:62ed5653ac1c71c7323942dda3f32033db56a4830625187681f5329f623e6c9f
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install disc-image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libisofs-dev libpng-dev meson ninja-build
+
+      - name: Install pinned SH-4 compiler toolchain
+        run: docker pull "$TOOLCHAIN_IMAGE"
+
+      - name: Check out pinned build dependencies
+        run: |
+          mkdir -p .ci
+
+          git init .ci/kos
+          git -C .ci/kos remote add origin https://github.com/KallistiOS/KallistiOS.git
+          git -C .ci/kos fetch --depth 1 origin "$KOS_COMMIT"
+          git -C .ci/kos checkout --detach FETCH_HEAD
+
+          git init .ci/kos-ports
+          git -C .ci/kos-ports remote add origin https://github.com/KallistiOS/kos-ports.git
+          git -C .ci/kos-ports fetch --depth 1 origin "$KOS_PORTS_COMMIT"
+          git -C .ci/kos-ports checkout --detach FETCH_HEAD
+          git -C .ci/kos-ports apply --check \
+            "$GITHUB_WORKSPACE/projects/dreamcast-browser/patches/kos-ports-kos23.patch"
+          git -C .ci/kos-ports apply \
+            "$GITHUB_WORKSPACE/projects/dreamcast-browser/patches/kos-ports-kos23.patch"
+
+          git init .ci/mkdcdisc
+          git -C .ci/mkdcdisc remote add origin https://gitlab.com/simulant/mkdcdisc.git
+          git -C .ci/mkdcdisc fetch --depth 1 origin "$MKDCDISC_COMMIT"
+          git -C .ci/mkdcdisc checkout --detach FETCH_HEAD
+
+      - name: Build KallistiOS and every project
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            "$TOOLCHAIN_IMAGE" \
+            sh .github/scripts/build-in-container.sh
+
+      - name: Validate Dreamcast executables
+        run: |
+          for elf in projects/*/*.elf; do
+            file "$elf" | tee /dev/stderr | grep -q 'ELF 32-bit LSB executable, Renesas SH'
+            docker run --rm \
+              --volume "$GITHUB_WORKSPACE:/workspace" \
+              --workdir /workspace \
+              "$TOOLCHAIN_IMAGE" \
+              sh-elf-readelf -h "$elf" | grep -q 'Machine:.*Renesas / SuperH SH'
+          done
+
+      - name: Build self-booting CDI images
+        run: |
+          meson setup .ci/mkdcdisc/build .ci/mkdcdisc -Dpng=enabled
+          meson compile -C .ci/mkdcdisc/build
+          .github/scripts/package-releases.sh .ci/mkdcdisc/build/mkdcdisc dist
+          sha256sum dist/*.cdi dist/*.elf > dist/SHA256SUMS
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short_sha=${GITHUB_SHA::7}
+          git tag --force continuous "$GITHUB_SHA"
+          git push --force origin refs/tags/continuous
+
+          cat > release-notes.md <<EOF
+          Automatic builds from main at commit \`$short_sha\`.
+
+          - **CDI** files are compact, self-booting Dreamcast disc images for Flycast, other Dreamcast emulators, or a CD-R.
+          - **ELF** files are included for direct loading and development workflows.
+          - Verify downloads with \`SHA256SUMS\`.
+          EOF
+
+          if gh release view continuous >/dev/null 2>&1; then
+            gh release edit continuous \
+              --title "Latest Dreamcast builds" \
+              --notes-file release-notes.md \
+              --latest
+          else
+            gh release create continuous \
+              --title "Latest Dreamcast builds" \
+              --notes-file release-notes.md \
+              --latest
+          fi
+
+          gh release upload continuous dist/* --clobber
