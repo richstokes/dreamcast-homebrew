@@ -63,6 +63,18 @@ file dreamcast-browser.elf
 sh-elf-readelf -h dreamcast-browser.elf
 ```
 
+To exercise live HTTPS navigation, Back, and scroll restoration automatically,
+build the serial-console regression variant:
+
+```sh
+make clean
+make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST
+./run-flycast.sh --skip-build
+```
+
+The test reports `HISTORY SELF-TEST PASSED` before entering the normal browser
+loop. Run `make clean && make` afterward to restore the release build.
+
 Run in Flycast with BBA emulation and the serial console:
 
 ```sh

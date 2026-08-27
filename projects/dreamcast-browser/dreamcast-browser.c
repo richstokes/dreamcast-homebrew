@@ -230,14 +230,39 @@ static void navigate_back(void) {
         redraw_needed = 1;
         return;
     }
-    entry = history[--history_count];
-    printf("browser: back -> %s (%d remaining)\n", entry.url, history_count);
+    entry = history[history_count - 1];
+    printf("browser: back -> %s (%d remaining)\n", entry.url, history_count - 1);
     if(load_page(entry.url) == 0) {
+        history_count--;
         scroll_y = entry.scroll_y;
         clamp_scroll();
         redraw_needed = 1;
     }
 }
+
+#ifdef BROWSER_HISTORY_SELF_TEST
+static void run_history_self_test(void) {
+    char original[MAX_URL];
+    int original_scroll;
+
+    snprintf(original, sizeof(original), "%s", current_url);
+    scroll_y = 64;
+    clamp_scroll();
+    original_scroll = scroll_y;
+    navigate_to("https://example.com/");
+    if(strcmp(current_url, "https://example.com/")) {
+        printf("browser: HISTORY SELF-TEST FAILED (forward navigation)\n");
+        return;
+    }
+    navigate_back();
+    if(strcmp(current_url, original) || scroll_y != original_scroll || history_count) {
+        printf("browser: HISTORY SELF-TEST FAILED (back/scroll restore)\n");
+        return;
+    }
+    printf("browser: HISTORY SELF-TEST PASSED (%s, scroll %d)\n",
+           current_url, scroll_y);
+}
+#endif
 
 static void follow_link(int link_id) {
     if(link_id < 0 || link_id >= document.link_count) return;
@@ -371,7 +396,15 @@ static int process_controller(maple_device_t *controller) {
         redraw_needed = 1;
     if(pressed & CONT_START) return 1;
     if(pressed & CONT_X) begin_address_edit();
-    if(pressed & CONT_B) navigate_back();
+    if(pressed & CONT_B) {
+        if(editing) {
+            editing = 0;
+            snprintf(address, sizeof(address), "%s", current_url);
+            snprintf(status_text, sizeof(status_text), "%s", document.title);
+        } else {
+            navigate_back();
+        }
+    }
     if(pressed & CONT_A) {
         if(editing) { editing = 0; navigate_to(address); }
         else if(focused_link >= 0) follow_link(focused_link);
@@ -414,7 +447,11 @@ int main(int argc, char **argv) {
         const uint8_t *ip = net_default_dev->ip_addr;
         printf("browser: network %s, IP %u.%u.%u.%u\n", net_default_dev->name,
                ip[0], ip[1], ip[2], ip[3]);
-        load_page(address);
+        if(load_page(address) == 0) {
+#ifdef BROWSER_HISTORY_SELF_TEST
+            run_history_self_test();
+#endif
+        }
     }
 
     while(!quit) {
