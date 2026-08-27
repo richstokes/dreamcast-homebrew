@@ -40,7 +40,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define FAR_PLANE            1450.0f
 
 #define TERRAIN_COLS         23
-#define TERRAIN_ROWS         40
+#define TERRAIN_ROWS         41
 #define TERRAIN_SPACING_X    26.0f
 #define TERRAIN_SPACING_Z    35.0f
 #define TERRAIN_NEAR_Z       80.0f
@@ -1671,12 +1671,13 @@ static float terrain_row_z(int row) {
        leaves every vertex at a constant screen depth while its noise sample
        advances through the world, making distant cliffs appear to ripple.
        Advancing this aligned lattice one complete row at a time preserves all
-       overlapping world vertices. Start one aligned row nearer than the old
-       ceiling-based cursor so the retiring strip is already below the view;
-       the extra row keeps the original fog-distance coverage. */
+       overlapping world vertices. Keep a complete foreground guard row below
+       the viewport so the retiring strip never exposes the sky; the two extra
+       rows retain the original fog-distance coverage without screen-space
+       bending or stretching. */
     const float first_world_z =
         floorf((game.distance + TERRAIN_NEAR_Z) / TERRAIN_SPACING_Z) *
-        TERRAIN_SPACING_Z;
+        TERRAIN_SPACING_Z - TERRAIN_SPACING_Z;
     return first_world_z + (float)row * TERRAIN_SPACING_Z - game.distance;
 }
 
