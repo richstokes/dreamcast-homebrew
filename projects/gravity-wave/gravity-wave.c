@@ -70,10 +70,10 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define GATE_CLEAR_RADIUS_SCALE 0.7874008f
 
 #define PLAYER_Z             44.0f
-#define PLAYER_MIN_X        -72.0f
-#define PLAYER_MAX_X         72.0f
-#define PLAYER_MIN_Y         17.0f
-#define PLAYER_MAX_Y         86.0f
+#define PLAYER_MIN_X        -84.0f
+#define PLAYER_MAX_X         84.0f
+#define PLAYER_MIN_Y         12.0f
+#define PLAYER_MAX_Y         96.0f
 
 #define ARRAY_COUNT(a)       ((int)(sizeof(a) / sizeof((a)[0])))
 
@@ -5636,6 +5636,9 @@ int main(int argc, char **argv) {
 #ifdef GRAVITY_WAVE_AUTOTEST_GATE_VIEW
         input.x = 0.0f;
         input.y = 0.0f;
+#elif defined(GRAVITY_WAVE_AUTOTEST_EXTENTS)
+        input.x = fsin(game.time * 0.58f);
+        input.y = fsin(game.time * 0.47f + 0.7f);
 #else
         input.x = fsin(game.time * 0.73f) * 0.72f;
         input.y = fsin(game.time * 0.51f + 0.7f) * 0.48f;
@@ -5664,7 +5667,8 @@ int main(int argc, char **argv) {
                 if(pvr_get_stats(&stats) == 0) {
                     printf("Gravity Wave perf: %.1f fps frame=%.2fms "
                            "reg=%.2fms render=%.2fms vbuf=%lu/%lu KiB "
-                           "shots=%d weapon=%.1fs boost=%.1fs velocity=%.1f\n",
+                           "shots=%d weapon=%.1fs boost=%.1fs velocity=%.1f "
+                           "pos=(%.1f,%.1f)\n",
                            stats.frame_rate,
                            (double)stats.frame_last_time / 1000000.0,
                            (double)stats.reg_last_time / 1000000.0,
@@ -5674,7 +5678,9 @@ int main(int argc, char **argv) {
                            active_shots,
                            (double)game.temporary_weapon_time,
                            (double)game.speed_boost_time,
-                           (double)game.speed);
+                           (double)game.speed,
+                           (double)game.player_x,
+                           (double)game.player_y);
                 }
                 last_stats_second = stats_second;
             }
