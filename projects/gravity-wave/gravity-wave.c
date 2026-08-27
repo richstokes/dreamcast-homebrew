@@ -119,6 +119,7 @@ typedef struct {
     int hp;
     int max_hp;
     float fire_timer;
+    float hit_flash;
     bool fired;
 } enemy_t;
 
@@ -144,7 +145,8 @@ typedef struct {
 typedef enum {
     PARTICLE_SPRITE,
     PARTICLE_STREAK,
-    PARTICLE_EXHAUST
+    PARTICLE_EXHAUST,
+    PARTICLE_BOSS_IMPACT
 } particle_kind_t;
 
 typedef struct {
@@ -2962,6 +2964,28 @@ static void spawn_explosion(float x, float y, float z, color3_t color,
     }
 }
 
+static void spawn_boss_impact(float x, float y, float z,
+                              color3_t color, int damage) {
+    const int spark_count = 7 + (damage > 1 ? 3 : 0);
+    int i;
+
+    spawn_particle(x, y, z - 1.5f, 0.0f, 0.0f, 0.0f,
+                   0.34f, 15.0f + (float)damage * 2.0f,
+                   color, PARTICLE_BOSS_IMPACT);
+    for(i = 0; i < spark_count; ++i) {
+        const float angle = random_unit() * TAU;
+        const float speed = 20.0f + random_unit() * 38.0f;
+        spawn_particle(x, y, z - 2.0f,
+                       fcos(angle) * speed,
+                       fsin(angle) * speed,
+                       -10.0f - random_unit() * 22.0f,
+                       0.20f + random_unit() * 0.24f,
+                       1.1f + random_unit() * 2.2f,
+                       (i % 3) == 0 ? (color3_t){1.0f,0.98f,0.78f} : color,
+                       PARTICLE_STREAK);
+    }
+}
+
 static void add_score(int base) {
     const int multiplier = 1 + (game.combo / 5 > 7 ? 7 : game.combo / 5);
     game.score += base * multiplier;
@@ -3085,6 +3109,9 @@ static void spawn_wave(float world_z) {
             guardian->active = true;
             guardian->type = 3;
             guardian->hp = 28 + game.guardians_destroyed * 6;
+#ifdef GRAVITY_WAVE_AUTOTEST_BOSS_HITS
+            guardian->hp = 1200;
+#endif
             guardian->max_hp = guardian->hp;
             guardian->radius = 24.0f;
             guardian->x = 0.0f;
@@ -3504,6 +3531,11 @@ static void update_particles(float dt) {
             particle->vy *= 1.0f - clampf(dt * 3.8f, 0.0f, 0.45f);
             particle->vz *= 1.0f - clampf(dt * 0.35f, 0.0f, 0.18f);
         }
+        else if(particle->kind == PARTICLE_BOSS_IMPACT) {
+            particle->vx = 0.0f;
+            particle->vy = 0.0f;
+            particle->vz = 0.0f;
+        }
         else {
             particle->vy -= 7.0f * dt;
             particle->vx *= 1.0f - clampf(dt * 0.7f, 0.0f, 0.4f);
@@ -3588,6 +3620,12 @@ static void update_player_shots(float dt) {
             }
 
             if(lateral_hit) {
+                const int damage = shot->damage > 0 ? shot->damage : 1;
+                const color3_t impact_color = phase_wave ?
+                    (color3_t){1.0f,0.28f,0.86f} :
+                    (shot->kind == SHOT_PLAYER_FAST ?
+                     (color3_t){0.34f,1.0f,1.0f} :
+                     (color3_t){1.0f,0.84f,0.28f});
                 if(phase_wave) {
                     shot->hit_mask |= 1u << j;
                     shot->hits_remaining--;
@@ -3597,20 +3635,26 @@ static void update_player_shots(float dt) {
                 else {
                     shot->active = false;
                 }
-                enemy->hp -= shot->damage > 0 ? shot->damage : 1;
-                spawn_particle(enemy->x, enemy->y, enemy->z,
-                               random_signed() * 18.0f,
-                               random_signed() * 18.0f,
-                               -18.0f,
-                               0.25f, 2.5f,
-                               phase_wave ?
-                               (color3_t){1.0f, 0.28f, 0.86f} :
-                               (color3_t){0.80f, 0.95f, 1.0f},
-                               PARTICLE_STREAK);
+                enemy->hp -= damage;
+                if(enemy->type == 3) {
+                    enemy->hit_flash = 0.18f;
+                    spawn_boss_impact(hit_x, hit_y, enemy->z,
+                                      impact_color, damage);
+                }
+                else {
+                    spawn_particle(hit_x, hit_y, enemy->z,
+                                   random_signed() * 18.0f,
+                                   random_signed() * 18.0f,
+                                   -18.0f,
+                                   0.25f, 2.5f, impact_color,
+                                   PARTICLE_STREAK);
+                }
                 if(enemy->hp <= 0)
                     destroy_enemy(enemy, true);
                 else
-                    play_sound(sfx_hit, 130, 128);
+                    play_sound(sfx_hit, enemy->type == 3 ? 190 : 130,
+                               (int)clampf(128.0f + hit_x * 1.2f,
+                                           20.0f, 236.0f));
                 if(!shot->active)
                     break;
             }
@@ -3656,6 +3700,7 @@ static void update_enemies(float dt) {
         enemy->phase += dt * (enemy->type == 1 ? 2.4f :
                               (enemy->type == 3 ? 1.08f : 1.55f));
         enemy->fire_timer -= dt;
+        enemy->hit_flash = fmaxf(0.0f, enemy->hit_flash - dt);
         if(enemy->type == 3) {
             const float target_z = game.distance + 455.0f;
             enemy->x = fsin(enemy->phase * 0.83f) * 43.0f;
@@ -4397,7 +4442,8 @@ static void draw_enemy_model(const enemy_t *enemy, const palette_t *palette) {
     const color3_t tint = enemy->type == 3 ?
         color_lerp((color3_t){0.96f,0.90f,0.82f}, palette->accent, 0.12f) :
         color_lerp((color3_t){0.94f,0.88f,0.88f}, palette->enemy, 0.16f);
-    draw_mesh_instance(mesh, origin, yaw, 0.0f, roll, scale, tint, false);
+    draw_mesh_instance(mesh, origin, yaw, 0.0f, roll, scale, tint,
+                       enemy->hit_flash > 0.025f);
 }
 
 static void draw_enemies(const palette_t *palette) {
@@ -5003,7 +5049,9 @@ static void draw_particles(void) {
         alpha = clampf(particle->life / particle->max_life, 0.0f, 1.0f);
         size = clampf(particle->size * game.camera_focal * point.z,
                       1.0f,
-                      particle->kind == PARTICLE_STREAK ? 13.0f : 18.0f);
+                      particle->kind == PARTICLE_STREAK ? 13.0f :
+                      (particle->kind == PARTICLE_BOSS_IMPACT ? 34.0f :
+                                                               18.0f));
         if(particle->kind == PARTICLE_STREAK) {
             screen_point_t tail;
             vec3_t tail_world = world;
@@ -5038,6 +5086,58 @@ static void draw_particles(void) {
                                             (color3_t){0.88f,0.99f,1.0f},
                                             0.34f)),
                       pack_color(0.0f, particle->color));
+        }
+        else if(particle->kind == PARTICLE_BOSS_IMPACT) {
+            const float age = 1.0f - alpha;
+            const float radius = size * (0.34f + age * 1.12f);
+            const color3_t core = color_lerp(
+                particle->color, (color3_t){1.0f,1.0f,0.90f}, 0.72f);
+            const uint32_t ring_color = pack_color(alpha * 0.88f,
+                                                    particle->color);
+            int segment;
+
+            draw_disc(&additive_header, point.x, point.y,
+                      size * (0.72f - age * 0.28f),
+                      point.z + 0.00003f, 10,
+                      pack_color(alpha, core),
+                      pack_color(0.0f, particle->color));
+            for(segment = 0; segment < 16; ++segment) {
+                const float a0 = (float)segment * TAU / 16.0f;
+                const float a1 = (float)(segment + 1) * TAU / 16.0f;
+                draw_line(&additive_header,
+                          point.x + fcos(a0) * radius,
+                          point.y + fsin(a0) * radius,
+                          point.z + 0.00004f,
+                          point.x + fcos(a1) * radius,
+                          point.y + fsin(a1) * radius,
+                          point.z + 0.00004f,
+                          1.0f + alpha * 2.4f,
+                          ring_color, ring_color);
+            }
+            draw_line(&additive_header, point.x, point.y,
+                      point.z + 0.00005f,
+                      point.x - radius * 1.35f, point.y,
+                      point.z + 0.00005f, 1.0f + alpha * 1.7f,
+                      pack_color(alpha * 0.72f, core),
+                      pack_color(0.0f, core));
+            draw_line(&additive_header, point.x, point.y,
+                      point.z + 0.00005f,
+                      point.x + radius * 1.35f, point.y,
+                      point.z + 0.00005f, 1.0f + alpha * 1.7f,
+                      pack_color(alpha * 0.72f, core),
+                      pack_color(0.0f, core));
+            draw_line(&additive_header, point.x, point.y,
+                      point.z + 0.00005f,
+                      point.x, point.y - radius * 1.35f,
+                      point.z + 0.00005f, 1.0f + alpha * 1.7f,
+                      pack_color(alpha * 0.72f, core),
+                      pack_color(0.0f, core));
+            draw_line(&additive_header, point.x, point.y,
+                      point.z + 0.00005f,
+                      point.x, point.y + radius * 1.35f,
+                      point.z + 0.00005f, 1.0f + alpha * 1.7f,
+                      pack_color(alpha * 0.72f, core),
+                      pack_color(0.0f, core));
         }
         else {
             const int sprite = particle->color.r > particle->color.b * 1.18f ?
@@ -5202,14 +5302,26 @@ static void draw_game_hud(const palette_t *palette) {
     {
         enemy_t *guardian = active_guardian();
         if(guardian) {
+            const float hit_feedback = smoothstepf(
+                guardian->hit_flash / 0.18f);
+            const color3_t guardian_bar = color_lerp(
+                palette->enemy, (color3_t){1.0f,1.0f,0.72f},
+                hit_feedback * 0.88f);
             draw_rect(&hud_header, 153.0f, 64.0f, 334.0f, 43.0f, 9.0f,
                       pack_color(0.58f, (color3_t){0.025f,0.004f,0.020f}));
             draw_text_centered(70.0f, "BIOME GUARDIAN", 2,
-                               palette->enemy, 0.96f);
+                               guardian_bar, 0.96f);
+            if(hit_feedback > 0.02f) {
+                draw_rect(&hud_header, 174.0f, 88.0f, 292.0f, 16.0f, 9.0f,
+                          pack_color(hit_feedback * 0.36f,
+                                     (color3_t){1.0f,0.96f,0.62f}));
+                draw_text(444.0f, 72.0f, "HIT", 1,
+                          (color3_t){1.0f,0.96f,0.62f}, hit_feedback);
+            }
             draw_bar(177.0f, 91.0f, 286.0f, 10.0f,
                      (float)guardian->hp /
                      (float)(guardian->max_hp > 0 ? guardian->max_hp : 1),
-                     palette->enemy);
+                     guardian_bar);
         }
     }
 
@@ -5639,6 +5751,20 @@ int main(int argc, char **argv) {
 #elif defined(GRAVITY_WAVE_AUTOTEST_EXTENTS)
         input.x = fsin(game.time * 0.58f);
         input.y = fsin(game.time * 0.47f + 0.7f);
+#elif defined(GRAVITY_WAVE_AUTOTEST_BOSS_HITS)
+        {
+            const enemy_t *guardian = active_guardian();
+            if(guardian) {
+                input.x = clampf((guardian->x - game.player_x) * 0.09f,
+                                 -1.0f, 1.0f);
+                input.y = clampf((game.player_y - guardian->y) * 0.09f,
+                                 -1.0f, 1.0f);
+            }
+            else {
+                input.x = 0.0f;
+                input.y = 0.0f;
+            }
+        }
 #else
         input.x = fsin(game.time * 0.73f) * 0.72f;
         input.y = fsin(game.time * 0.51f + 0.7f) * 0.48f;
