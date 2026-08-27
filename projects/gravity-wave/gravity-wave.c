@@ -2250,6 +2250,88 @@ static void draw_material_box(float local_x, float base_y, float world_z,
         light,light,middle,middle);
 }
 
+static void draw_furnace_louvers(float local_x, float base_y, float world_z,
+                                 float half_width, float front_depth) {
+    const float center_x = path_center(world_z) + local_x;
+    const float z = world_z - front_depth - 0.10f;
+    const color3_t hot = {1.0f,0.34f,0.055f};
+    const color3_t edge = {0.78f,0.075f,0.018f};
+    const pvr_poly_hdr_t *header =
+        &texture_headers[GRAVITY_WAVE_TEX_CANOPY_ENERGY];
+    int louver;
+
+    for(louver = 0; louver < 4; ++louver) {
+        const float y0 = base_y + (float)louver * 3.25f;
+        const float y1 = y0 + 1.45f;
+        draw_world_textured_quad(header,
+            (vec3_t){center_x - half_width,y0,z},
+            (vec3_t){center_x + half_width,y0,z},
+            (vec3_t){center_x - half_width,y1,z},
+            (vec3_t){center_x + half_width,y1,z},
+            0.0f,1.0f, 1.0f,1.0f, 0.0f,0.0f, 1.0f,0.0f,
+            pack_color(1.0f, edge), pack_color(1.0f, edge),
+            pack_color(1.0f, hot), pack_color(1.0f, hot));
+    }
+}
+
+static void draw_material_beam(float world_z,
+                               float x0, float y0, float x1, float y1,
+                               float half_width, float half_depth,
+                               int texture_id, color3_t tint);
+
+static void draw_furnace_vent(float local_x, float base_y, float world_z,
+                              int variant) {
+    const bool tall = variant == 1;
+    const float outlet_offset = tall ? 6.5f : 7.5f;
+    const float housing_height = tall ? 25.0f : 28.0f;
+    const float stack_base = base_y + housing_height + 5.0f;
+    const float stack_top = base_y + (tall ? 67.5f : 54.5f);
+    const float stack_height = stack_top - stack_base;
+    const float collar_y = stack_base + stack_height * 0.52f;
+    const color3_t iron = {0.40f,0.43f,0.45f};
+    const color3_t dark_iron = {0.25f,0.27f,0.29f};
+    const color3_t furnace = {0.63f,0.28f,0.18f};
+    int side;
+
+    /* A broad machinery plinth and armored firebox keep the assembly from
+       reading as a freestanding masonry chimney. */
+    draw_material_box(local_x, base_y, world_z,
+                      18.0f, 6.0f, 14.0f,
+                      GRAVITY_WAVE_TEX_HULL_HOSTILE, dark_iron);
+    draw_material_box(local_x, base_y + 6.0f, world_z,
+                      12.5f, housing_height - 6.0f, 10.5f,
+                      GRAVITY_WAVE_TEX_HULL_HOSTILE, furnace);
+    draw_material_box(local_x, base_y + housing_height - 5.0f, world_z,
+                      16.0f, 5.0f, 12.0f,
+                      GRAVITY_WAVE_TEX_HULL_HOSTILE,
+                      color_scale(furnace, 0.78f));
+    draw_furnace_louvers(local_x, base_y + 8.0f, world_z,
+                         8.6f, 10.5f);
+
+    /* The twin exhausts, cross-manifold, collars and flared rain caps give
+       the vent a compact refinery silhouette even at Dreamcast distance. */
+    draw_material_box(local_x, stack_base + 2.5f, world_z,
+                      outlet_offset + 4.4f, 4.0f, 5.0f,
+                      GRAVITY_WAVE_TEX_HULL_ALLIED, dark_iron);
+    for(side = -1; side <= 1; side += 2) {
+        const float pipe_x = local_x + (float)side * outlet_offset;
+        draw_material_box(pipe_x, stack_base, world_z,
+                          3.2f, stack_height, 3.4f,
+                          GRAVITY_WAVE_TEX_HULL_ALLIED, iron);
+        draw_material_box(pipe_x, collar_y, world_z,
+                          4.5f, 2.4f, 4.7f,
+                          GRAVITY_WAVE_TEX_HULL_HOSTILE, furnace);
+        draw_material_box(pipe_x, stack_top - 3.2f, world_z,
+                          4.9f, 3.2f, 5.1f,
+                          GRAVITY_WAVE_TEX_HULL_HOSTILE,
+                          color_scale(furnace, 0.84f));
+        draw_material_beam(world_z,
+            local_x + (float)side * 15.5f, base_y + 13.0f,
+            pipe_x, stack_base + 4.0f,
+            1.45f, 2.0f, GRAVITY_WAVE_TEX_HULL_ALLIED, dark_iron);
+    }
+}
+
 static void draw_material_beam(float world_z,
                                float x0, float y0, float x1, float y1,
                                float half_width, float half_depth,
@@ -2694,32 +2776,14 @@ static void draw_biome_scenery_opaque(const palette_t *palette) {
                 draw_material_box(x, base, z, 10.0f, 48.0f, 10.0f,
                                   GRAVITY_WAVE_TEX_TERRAIN_EMBER,
                                   (color3_t){0.80f,0.56f,0.40f});
-            else if(variant == 1) {
-                draw_material_box(x, base, z, 8.0f, 58.0f, 8.0f,
-                                  GRAVITY_WAVE_TEX_HULL_HOSTILE,
-                                  (color3_t){0.77f,0.52f,0.39f});
-                draw_material_box(x, base + 58.0f, z, 11.0f, 7.0f, 11.0f,
-                                  GRAVITY_WAVE_TEX_ANCIENT_MACHINE,
-                                  (color3_t){0.92f,0.68f,0.44f});
-                draw_material_box(x, base + 65.0f, z, 6.5f, 2.5f, 6.5f,
-                                  GRAVITY_WAVE_TEX_CANOPY_ENERGY,
-                                  (color3_t){1.0f,0.38f,0.10f});
-            }
+            else if(variant == 1)
+                draw_furnace_vent(x, base, z, variant);
             else if(variant == 2)
                 draw_material_arch(z, 40.0f, -1.0f, 45.0f, 3.5f,
                                    GRAVITY_WAVE_TEX_HULL_HOSTILE,
                                    (color3_t){0.83f,0.54f,0.39f});
-            else if(variant == 3) {
-                draw_material_box(x, base, z, 15.0f, 35.0f, 13.0f,
-                                  GRAVITY_WAVE_TEX_ANCIENT_MACHINE,
-                                  (color3_t){0.86f,0.60f,0.38f});
-                draw_material_box(x, base + 35.0f, z, 10.0f, 17.0f, 9.0f,
-                                  GRAVITY_WAVE_TEX_HULL_HOSTILE,
-                                  (color3_t){0.76f,0.40f,0.29f});
-                draw_material_box(x, base + 52.0f, z, 6.5f, 2.5f, 6.5f,
-                                  GRAVITY_WAVE_TEX_CANOPY_ENERGY,
-                                  (color3_t){1.0f,0.38f,0.10f});
-            }
+            else if(variant == 3)
+                draw_furnace_vent(x, base, z, variant);
             else
                 draw_material_arch(z, 49.0f, -1.0f, 57.0f, 4.2f,
                                    GRAVITY_WAVE_TEX_HULL_HOSTILE,
@@ -2847,25 +2911,32 @@ static void draw_biome_scenery_translucent(const palette_t *palette) {
         }
         else if(variant == 1 || variant == 3) {
             const float vent_y = base + (variant == 1 ? 67.5f : 54.5f);
+            const float outlet_offset = variant == 1 ? 6.5f : 7.5f;
             const float pulse = 0.92f + 0.08f *
                 fsin(game.time * 7.0f + (float)segment * 0.71f);
-            screen_point_t vent;
+            int outlet;
 
-            draw_textured_billboard(
-                &texture_headers[GRAVITY_WAVE_TEX_FIRE_SMOKE],
-                (vec3_t){path_center(z) + x, vent_y + 17.0f, z},
-                25.0f, 38.0f,
-                pack_color(0.86f * distance_fade,
-                           (color3_t){1.0f,0.83f,0.69f}));
-            if(project_world((vec3_t){path_center(z) + x,
-                                      vent_y + 1.0f, z}, &vent)) {
-                const float glow_size = clampf(
-                    7.0f * game.camera_focal * vent.z, 1.5f, 18.0f);
-                draw_disc(&additive_header, vent.x, vent.y,
-                          glow_size * pulse, vent.z + 0.00002f, 8,
-                          pack_color(0.68f * distance_fade,
-                                     (color3_t){1.0f,0.52f,0.12f}),
-                          pack_color(0.0f, (color3_t){1.0f,0.12f,0.02f}));
+            for(outlet = -1; outlet <= 1; outlet += 2) {
+                const float outlet_x = path_center(z) + x +
+                                       (float)outlet * outlet_offset;
+                screen_point_t vent;
+                draw_textured_billboard(
+                    &texture_headers[GRAVITY_WAVE_TEX_FIRE_SMOKE],
+                    (vec3_t){outlet_x, vent_y + 13.0f, z},
+                    15.0f, 29.0f,
+                    pack_color(0.82f * distance_fade,
+                               (color3_t){1.0f,0.78f,0.62f}));
+                if(project_world((vec3_t){outlet_x, vent_y + 0.7f, z},
+                                 &vent)) {
+                    const float glow_size = clampf(
+                        5.2f * game.camera_focal * vent.z, 1.2f, 15.0f);
+                    draw_disc(&additive_header, vent.x, vent.y,
+                              glow_size * pulse, vent.z + 0.00002f, 8,
+                              pack_color(0.66f * distance_fade,
+                                         (color3_t){1.0f,0.52f,0.12f}),
+                              pack_color(0.0f,
+                                         (color3_t){1.0f,0.12f,0.02f}));
+                }
             }
         }
     }
