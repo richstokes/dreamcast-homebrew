@@ -77,7 +77,8 @@ jobs:
               --volume "$GITHUB_WORKSPACE:/workspace" \
               --workdir /workspace \
               "$TOOLCHAIN_IMAGE" \
-              sh-elf-readelf -h "$elf" | grep -q 'Machine:.*Renesas / SuperH SH'
+              /opt/toolchains/dc/sh-elf/bin/sh-elf-readelf -h "$elf" \
+              | grep -q 'Machine:.*Renesas / SuperH SH'
           done
 
       - name: Build self-booting CDI images
