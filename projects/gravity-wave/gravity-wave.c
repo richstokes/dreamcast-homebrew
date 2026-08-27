@@ -139,6 +139,12 @@ typedef struct {
     uint32_t hit_mask;
 } projectile_t;
 
+typedef enum {
+    PARTICLE_SPRITE,
+    PARTICLE_STREAK,
+    PARTICLE_EXHAUST
+} particle_kind_t;
+
 typedef struct {
     bool active;
     float x, y, z;
@@ -146,7 +152,7 @@ typedef struct {
     float life, max_life;
     float size;
     color3_t color;
-    int kind;
+    particle_kind_t kind;
 } particle_t;
 
 typedef enum {
@@ -431,6 +437,8 @@ static int pending_music_track = -1;
 static int pending_music_volume;
 static float music_section_time;
 static bool audio_ready;
+
+static vec3_t player_model_point(float lx, float ly, float lz);
 
 static float clampf(float v, float lo, float hi) {
     if(v < lo)
@@ -2455,10 +2463,10 @@ static void draw_biome_scenery_opaque(const palette_t *palette) {
         const int biome = ((int)(z / BIOME_LENGTH)) & 3;
         const uint32_t h = hash_u32((uint32_t)segment * 0x9e3779b9u ^
                                     (uint32_t)biome * 0x51ed270bu);
+        const int variant = (int)((h >> 3) % 5u);
         const float side = (h & 1u) ? 1.0f : -1.0f;
         const float x = side * (70.0f + (float)((h >> 8) & 63u));
         const float base = terrain_height_local(x, z);
-        const int variant = (int)((h >> 3) % 5u);
 
         if(biome == 0) {
             if(variant == 0)
@@ -2554,6 +2562,9 @@ static void draw_biome_scenery_opaque(const palette_t *palette) {
                 draw_material_box(x, base + 58.0f, z, 11.0f, 7.0f, 11.0f,
                                   GRAVITY_WAVE_TEX_ANCIENT_MACHINE,
                                   (color3_t){0.92f,0.68f,0.44f});
+                draw_material_box(x, base + 65.0f, z, 6.5f, 2.5f, 6.5f,
+                                  GRAVITY_WAVE_TEX_CANOPY_ENERGY,
+                                  (color3_t){1.0f,0.38f,0.10f});
             }
             else if(variant == 2)
                 draw_material_arch(z, 40.0f, -1.0f, 45.0f, 3.5f,
@@ -2566,6 +2577,9 @@ static void draw_biome_scenery_opaque(const palette_t *palette) {
                 draw_material_box(x, base + 35.0f, z, 10.0f, 17.0f, 9.0f,
                                   GRAVITY_WAVE_TEX_HULL_HOSTILE,
                                   (color3_t){0.76f,0.40f,0.29f});
+                draw_material_box(x, base + 52.0f, z, 6.5f, 2.5f, 6.5f,
+                                  GRAVITY_WAVE_TEX_CANOPY_ENERGY,
+                                  (color3_t){1.0f,0.38f,0.10f});
             }
             else
                 draw_material_arch(z, 49.0f, -1.0f, 57.0f, 4.2f,
@@ -2647,6 +2661,7 @@ static void draw_biome_scenery_translucent(const palette_t *palette) {
         const int biome = ((int)(z / BIOME_LENGTH)) & 3;
         const uint32_t h = hash_u32((uint32_t)segment * 0x9e3779b9u ^
                                     (uint32_t)biome * 0x51ed270bu);
+        const int variant = (int)((h >> 3) % 5u);
         const float side = (h & 1u) ? 1.0f : -1.0f;
         const float x = side * (70.0f + (float)((h >> 8) & 63u));
         const float base = terrain_height_local(x, z);
@@ -2691,13 +2706,28 @@ static void draw_biome_scenery_translucent(const palette_t *palette) {
                            color_lerp((color3_t){0.72f,0.68f,1.0f},
                                       palette->accent, 0.22f)));
         }
-        else if(((h >> 3) % 5u) == 1u || ((h >> 3) % 5u) == 3u) {
+        else if(variant == 1 || variant == 3) {
+            const float vent_y = base + (variant == 1 ? 67.5f : 54.5f);
+            const float pulse = 0.92f + 0.08f *
+                fsin(game.time * 7.0f + (float)segment * 0.71f);
+            screen_point_t vent;
+
             draw_textured_billboard(
                 &texture_headers[GRAVITY_WAVE_TEX_FIRE_SMOKE],
-                (vec3_t){path_center(z) + x, base + 67.0f, z},
-                30.0f, 47.0f,
-                pack_color(0.90f * distance_fade,
+                (vec3_t){path_center(z) + x, vent_y + 17.0f, z},
+                25.0f, 38.0f,
+                pack_color(0.86f * distance_fade,
                            (color3_t){1.0f,0.83f,0.69f}));
+            if(project_world((vec3_t){path_center(z) + x,
+                                      vent_y + 1.0f, z}, &vent)) {
+                const float glow_size = clampf(
+                    7.0f * game.camera_focal * vent.z, 1.5f, 18.0f);
+                draw_disc(&additive_header, vent.x, vent.y,
+                          glow_size * pulse, vent.z + 0.00002f, 8,
+                          pack_color(0.68f * distance_fade,
+                                     (color3_t){1.0f,0.52f,0.12f}),
+                          pack_color(0.0f, (color3_t){1.0f,0.12f,0.02f}));
+            }
         }
     }
 }
@@ -2767,7 +2797,8 @@ static void spawn_pickup(float x, float y, float z, pickup_kind_t kind) {
 
 static void spawn_particle(float x, float y, float z,
                            float vx, float vy, float vz,
-                           float life, float size, color3_t color, int kind) {
+                           float life, float size, color3_t color,
+                           particle_kind_t kind) {
     particle_t *particle = alloc_particle();
     if(!particle)
         return;
@@ -2790,7 +2821,7 @@ static void spawn_explosion(float x, float y, float z, color3_t color,
                        fsin(angle) * speed,
                        0.42f + random_unit() * 0.72f,
                        1.4f + random_unit() * 3.5f,
-                       spark, i & 1);
+                       spark, (i & 1) ? PARTICLE_STREAK : PARTICLE_SPRITE);
     }
 }
 
@@ -2886,7 +2917,7 @@ static void damage_player(float amount) {
                        random_signed() * 22.0f,
                        0.25f + random_unit() * 0.35f,
                        1.5f + random_unit() * 2.0f,
-                       (color3_t){0.32f, 0.82f, 1.0f}, 1);
+                       (color3_t){0.32f, 0.82f, 1.0f}, PARTICLE_STREAK);
     }
 
     if(game.shield <= 0.0f) {
@@ -3330,9 +3361,16 @@ static void update_particles(float dt) {
         particle->x += particle->vx * dt;
         particle->y += particle->vy * dt;
         particle->z += particle->vz * dt;
-        particle->vy -= 7.0f * dt;
-        particle->vx *= 1.0f - clampf(dt * 0.7f, 0.0f, 0.4f);
-        particle->vz *= 1.0f - clampf(dt * 0.5f, 0.0f, 0.3f);
+        if(particle->kind == PARTICLE_EXHAUST) {
+            particle->vx *= 1.0f - clampf(dt * 3.8f, 0.0f, 0.45f);
+            particle->vy *= 1.0f - clampf(dt * 3.8f, 0.0f, 0.45f);
+            particle->vz *= 1.0f - clampf(dt * 0.35f, 0.0f, 0.18f);
+        }
+        else {
+            particle->vy -= 7.0f * dt;
+            particle->vx *= 1.0f - clampf(dt * 0.7f, 0.0f, 0.4f);
+            particle->vz *= 1.0f - clampf(dt * 0.5f, 0.0f, 0.3f);
+        }
     }
 }
 
@@ -3429,7 +3467,8 @@ static void update_player_shots(float dt) {
                                0.25f, 2.5f,
                                phase_wave ?
                                (color3_t){1.0f, 0.28f, 0.86f} :
-                               (color3_t){0.80f, 0.95f, 1.0f}, 1);
+                               (color3_t){0.80f, 0.95f, 1.0f},
+                               PARTICLE_STREAK);
                 if(enemy->hp <= 0)
                     destroy_enemy(enemy, true);
                 else
@@ -3538,7 +3577,7 @@ static void spawn_gate_clear_burst(const gate_t *gate, bool perfect) {
                        random_signed() * 24.0f,
                        0.38f + random_unit() * 0.34f,
                        1.5f + random_unit() * 2.4f,
-                       color, 1);
+                       color, PARTICLE_STREAK);
     }
 }
 
@@ -3822,20 +3861,28 @@ static void update_spawning(void) {
 
 static void spawn_exhaust(float dt, bool boosting) {
     const palette_t *palette = current_palette();
+    int side;
+
     game.exhaust_timer -= dt;
     if(game.exhaust_timer > 0.0f)
         return;
-    game.exhaust_timer = boosting ? 0.018f : 0.035f;
-    spawn_particle(game.player_x + random_signed() * 3.8f,
-                   game.player_y - 0.8f + random_signed() * 1.0f,
-                   game.distance + PLAYER_Z - 6.0f,
-                   random_signed() * 3.5f,
-                   random_signed() * 3.0f,
-                   -24.0f - random_unit() * 26.0f,
-                   boosting ? 0.58f : 0.38f,
-                   boosting ? 4.8f : 3.0f,
-                   color_lerp(palette->river,
-                              (color3_t){0.72f, 0.90f, 1.0f}, 0.45f), 0);
+    game.exhaust_timer = boosting ? 0.018f : 0.032f;
+    for(side = -1; side <= 1; side += 2) {
+        const vec3_t engine = player_model_point((float)side * 3.0f,
+                                                  -0.2f, -6.8f);
+        const float engine_local_x = engine.x - path_center(engine.z);
+        spawn_particle(engine_local_x + random_signed() * 0.22f,
+                       engine.y + random_signed() * 0.18f,
+                       engine.z - 0.35f,
+                       random_signed() * 0.75f,
+                       random_signed() * 0.55f,
+                       -18.0f - random_unit() * (boosting ? 17.0f : 9.0f),
+                       boosting ? 0.44f : 0.30f,
+                       boosting ? 1.75f : 1.12f,
+                       color_lerp(palette->river,
+                                  (color3_t){0.72f,0.90f,1.0f}, 0.58f),
+                       PARTICLE_EXHAUST);
+    }
 }
 
 static void enter_title(void) {
@@ -4288,10 +4335,26 @@ static void draw_player_glow(const palette_t *palette) {
     int side;
     for(side = -1; side <= 1; side += 2) {
         screen_point_t point;
+        screen_point_t tail;
         const vec3_t engine = player_model_point((float)side * 3.0f,
                                                   -0.2f, -6.8f);
+        const vec3_t plume_tail = player_model_point(
+            (float)side * 3.0f, -0.2f,
+            game.speed > 145.0f ? -18.0f : -12.5f);
         if(project_world(engine, &point)) {
             const float pulse = 1.0f + fsin(game.time * 26.0f) * 0.12f;
+            if(project_world(plume_tail, &tail)) {
+                const float outer_width = game.speed > 145.0f ? 10.0f : 6.5f;
+                draw_line(&additive_header, tail.x, tail.y, tail.z,
+                          point.x, point.y, point.z, outer_width * pulse,
+                          pack_color(0.0f, palette->river),
+                          pack_color(0.62f, palette->river));
+                draw_line(&additive_header, tail.x, tail.y,
+                          tail.z + 0.00001f, point.x, point.y,
+                          point.z + 0.00001f, outer_width * 0.28f,
+                          pack_color(0.0f, (color3_t){0.72f,0.90f,1.0f}),
+                          pack_color(0.94f, (color3_t){0.86f,0.98f,1.0f}));
+            }
             draw_disc(&additive_header, point.x, point.y,
                       (game.speed > 145.0f ? 13.0f : 8.5f) * pulse,
                       point.z + 0.001f, 10,
@@ -4799,8 +4862,9 @@ static void draw_particles(void) {
             continue;
         alpha = clampf(particle->life / particle->max_life, 0.0f, 1.0f);
         size = clampf(particle->size * game.camera_focal * point.z,
-                      1.0f, particle->kind ? 13.0f : 18.0f);
-        if(particle->kind) {
+                      1.0f,
+                      particle->kind == PARTICLE_STREAK ? 13.0f : 18.0f);
+        if(particle->kind == PARTICLE_STREAK) {
             screen_point_t tail;
             vec3_t tail_world = world;
             tail_world.x -= particle->vx * 0.055f;
@@ -4811,6 +4875,29 @@ static void draw_particles(void) {
                           point.x, point.y, point.z, size,
                           pack_color(0.0f, particle->color),
                           pack_color(alpha, particle->color));
+        }
+        else if(particle->kind == PARTICLE_EXHAUST) {
+            const float age = 1.0f - alpha;
+            const float visibility = smoothstepf(age / 0.14f) *
+                                     smoothstepf(alpha / 0.30f);
+            screen_point_t forward;
+            vec3_t forward_world = world;
+
+            forward_world.z += 2.0f + age * 3.0f;
+            if(project_world(forward_world, &forward))
+                draw_line(&additive_header, point.x, point.y, point.z,
+                          forward.x, forward.y, forward.z,
+                          fmaxf(1.0f, size * 0.42f),
+                          pack_color(0.0f, particle->color),
+                          pack_color(visibility * 0.46f, particle->color));
+            draw_disc(&additive_header, point.x, point.y,
+                      fmaxf(1.0f, size * lerpf(0.22f, 0.38f, age)),
+                      point.z + 0.00001f, 8,
+                      pack_color(visibility * 0.42f,
+                                 color_lerp(particle->color,
+                                            (color3_t){0.88f,0.99f,1.0f},
+                                            0.34f)),
+                      pack_color(0.0f, particle->color));
         }
         else {
             const int sprite = particle->color.r > particle->color.b * 1.18f ?
