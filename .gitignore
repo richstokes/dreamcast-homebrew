@@ -41,6 +41,8 @@ CMakeUserPresets.json
 cmake-build-*/
 build/
 out/
+dist/
+.ci/
 
 # Editor, OS, and temporary files
 .DS_Store
