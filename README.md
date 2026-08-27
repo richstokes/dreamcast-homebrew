@@ -56,28 +56,6 @@ documents the included compatibility patch and installation commands. Gravity
 Wave's generated texture sources are checked in; Python and `uv` are needed
 only when regenerating them.
 
-## Flycast networking
-
-The networked projects use Flycast's Broadband Adapter emulation. With
-`DCNet=no`, Flycast provides a private picoTCP proxy suitable for the outbound
-connections used by Dreamcast Browser and Dreamcast IRC.
-
-Stock Flycast 2.7 does not bridge the emulated Dreamcast onto the Mac's
-physical LAN. The private picoTCP address—and the address assigned through the
-DCNet VPN—cannot ordinarily be reached or pinged directly from the host or
-another LAN device. Inbound servers require port forwarding, a custom bridged
-backend, or real Dreamcast BBA hardware.
-
-Dreamcast IRC connects without TLS or SASL; do not use it to send passwords or
-other sensitive information.
-
-## Repository hygiene
-
-Generated objects, ELF files, disc images, temporary files, and other build
-outputs are intentionally untracked. Root-level `BIOS/` and `GAMES/`
-directories are also ignored because they contain user-owned runtime data and
-are not part of these projects.
-
 ## License and attribution
 
 The original project code in this repository is available under the
