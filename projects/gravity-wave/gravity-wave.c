@@ -1812,13 +1812,24 @@ static void draw_sky_opaque(const palette_t *palette) {
                   pack_color(1.0f, color_scale(star, 0.50f + twinkle * 0.50f)));
     }
 
-    draw_disc(&opaque_header, sun_x, sun_y, 32.0f, 0.000020f, 18,
+    {
+        const float sun_radius = 32.0f;
+        const float stripe_height = 2.0f;
+
+        draw_disc(&opaque_header, sun_x, sun_y, sun_radius, 0.000020f, 18,
               pack_color(1.0f, (color3_t){1.0f, 0.96f, 0.72f}),
               pack_color(1.0f, palette->accent));
-    for(i = 0; i < 5; ++i) {
-        const float stripe_y = sun_y - 20.0f + (float)i * 10.0f;
-        draw_rect(&opaque_header, sun_x - 34.0f, stripe_y, 68.0f, 2.0f,
-                  0.000021f, pack_color(1.0f, palette->sky_horizon));
+        for(i = 0; i < 5; ++i) {
+            const float stripe_y = sun_y - 20.0f + (float)i * 10.0f;
+            const float offset = stripe_y + stripe_height * 0.5f - sun_y;
+            const float half_chord = sqrtf(fmaxf(
+                0.0f, sun_radius * sun_radius - offset * offset)) - 2.0f;
+
+            if(half_chord > 0.0f)
+                draw_rect(&opaque_header, sun_x - half_chord, stripe_y,
+                          half_chord * 2.0f, stripe_height, 0.000021f,
+                          pack_color(1.0f, palette->sky_horizon));
+        }
     }
 }
 
