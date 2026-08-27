@@ -280,6 +280,7 @@ static int process_keyboard(maple_device_t *keyboard) {
                 navigate_to(address);
             } else if(key == KBD_KEY_ESCAPE) {
                 editing = 0;
+                snprintf(address, sizeof(address), "%s", current_url);
                 snprintf(status_text, sizeof(status_text), "%s", document.title);
             } else if(key == KBD_KEY_BACKSPACE && len) {
                 address[len - 1] = 0;
@@ -396,7 +397,8 @@ int main(int argc, char **argv) {
     document_make_error(&document, "Dreamcast Browser",
         "Starting network. F6 or Ctrl+L opens the address bar. Mouse, keyboard, and controller are supported.");
     snprintf(status_text, sizeof(status_text), "Starting network...");
-    render_browser(&document, 0, mouse_x, mouse_y, -1, address, 0, status_text);
+    render_browser(&document, 0, mouse_x, mouse_y, -1, address, 0, 0,
+                   status_text);
 
     if(!net_default_dev) {
         document_free(&document);

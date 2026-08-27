@@ -77,7 +77,7 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
     fill_rect(0, 0, SCREEN_W, SCREEN_H, C_PAGE);
     fill_rect(0, 0, SCREEN_W, 70, C_TEAL);
     fill_rect(6, 8, 54, 32, can_go_back ? C_BLUE : C_MUTED);
-    bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 13, SCREEN_W,
+    bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 9, SCREEN_W,
                       C_WHITE, can_go_back ? C_BLUE : C_MUTED, 16, false, "BACK");
     fill_rect(66, 8, 496, 32, editing ? C_WHITE : 0xce59);
     snprintf(bar, sizeof(bar), "%s%s", editing ? "> " : "  ", visible_address(address));
