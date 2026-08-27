@@ -29,6 +29,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 
 #define MAX_ENEMIES 24
 #define MAX_BOLTS 40
+#define MAX_POWERUPS 10
 #define MAX_PARTICLES 224
 #define MAX_SHOCKWAVES 10
 #define MAX_LIGHTNING 24
@@ -94,6 +95,21 @@ typedef struct bolt {
     vec3_t vel;
     float life;
 } bolt_t;
+
+typedef enum powerup_kind {
+    POWERUP_SPEED,
+    POWERUP_RAPID_FIRE,
+    POWERUP_TRIPLE_SHOT
+} powerup_kind_t;
+
+typedef struct powerup {
+    int active;
+    powerup_kind_t kind;
+    vec3_t pos;
+    float age;
+    float lifetime;
+    float phase;
+} powerup_t;
 
 typedef struct particle {
     int active;
@@ -202,6 +218,7 @@ static const pvr_poly_hdr_t *active_header;
 
 static enemy_t enemies[MAX_ENEMIES];
 static bolt_t bolts[MAX_BOLTS];
+static powerup_t powerups[MAX_POWERUPS];
 static particle_t particles[MAX_PARTICLES];
 static shockwave_t shockwaves[MAX_SHOCKWAVES];
 static lightning_t lightning_bolts[MAX_LIGHTNING];
@@ -223,6 +240,11 @@ static float barrage_charge;
 static float fire_cooldown;
 static float dash_cooldown;
 static float invulnerability;
+static float speed_boost_time;
+static float rapid_fire_time;
+static float triple_shot_time;
+static float powerup_banner_time;
+static powerup_kind_t powerup_banner_kind;
 static float spawn_timer;
 static float wave_transition_time;
 static float game_time;
@@ -1380,6 +1402,7 @@ static int wave_target_for(int wave) {
 static void reset_game(void) {
     memset(enemies, 0, sizeof(enemies));
     memset(bolts, 0, sizeof(bolts));
+    memset(powerups, 0, sizeof(powerups));
     memset(particles, 0, sizeof(particles));
     memset(shockwaves, 0, sizeof(shockwaves));
     memset(lightning_bolts, 0, sizeof(lightning_bolts));
@@ -1398,6 +1421,10 @@ static void reset_game(void) {
     fire_cooldown = 0.0f;
     dash_cooldown = 0.0f;
     invulnerability = 0.0f;
+    speed_boost_time = 0.0f;
+    rapid_fire_time = 0.0f;
+    triple_shot_time = 0.0f;
+    powerup_banner_time = 0.0f;
     spawn_timer = 0.5f;
     wave_transition_time = 0.0f;
     game_time = 0.0f;
@@ -1455,20 +1482,56 @@ static void spawn_enemy(void) {
     }
 }
 
-static void fire_rocket(void) {
+static int launch_rocket(vec3_t direction) {
     int index;
     for(index = 0; index < MAX_BOLTS; ++index) {
         if(!bolts[index].active) {
-            vec3_t muzzle = vadd(player_pos, vscale(player_dir, 1.28f));
+            vec3_t muzzle = vadd(player_pos, vscale(direction, 1.28f));
             muzzle.y = 1.34f;
             bolts[index].active = 1;
             bolts[index].pos = muzzle;
-            bolts[index].prev = vsub(muzzle, vscale(player_dir, 0.5f));
-            bolts[index].vel = vscale(player_dir, 13.5f);
+            bolts[index].prev = vsub(muzzle, vscale(direction, 0.5f));
+            bolts[index].vel = vscale(direction, 13.5f);
             bolts[index].life = 1.55f;
             spawn_particle(muzzle, v3(0.0f, 1.9f, 0.0f), 0.24f, 0.48f, COL_YELLOW);
-            play_sfx(sfx_fire, 205, player_pos.x);
-            fire_cooldown = 0.265f;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void fire_rocket(void) {
+    int fired = launch_rocket(player_dir);
+
+    if(fired && triple_shot_time > 0.0f) {
+        vec3_t tangent = v3(-player_dir.z, 0.0f, player_dir.x);
+        launch_rocket(vnormalize(vadd(player_dir, vscale(tangent, -0.27f))));
+        launch_rocket(vnormalize(vadd(player_dir, vscale(tangent, 0.27f))));
+    }
+    if(fired) {
+        play_sfx(sfx_fire, 205, player_pos.x);
+        fire_cooldown = rapid_fire_time > 0.0f ? 0.115f : 0.265f;
+    }
+}
+
+static void spawn_powerup(vec3_t position, int guaranteed) {
+    int index;
+    unsigned drop_roll = rng_next() % 100u;
+
+    if(!guaranteed && drop_roll >= 12u)
+        return;
+    for(index = 0; index < MAX_POWERUPS; ++index) {
+        if(!powerups[index].active) {
+            powerups[index].active = 1;
+            powerups[index].kind = (powerup_kind_t)(rng_next() % 3u);
+            powerups[index].pos = position;
+            powerups[index].pos.y = 0.18f;
+            powerups[index].age = 0.0f;
+            powerups[index].lifetime = 12.0f;
+            powerups[index].phase = rng_float() * TAU;
+            printf("Demon Bazooka: dropped powerup %d at %.1f, %.1f\n",
+                   (int)powerups[index].kind,
+                   (double)position.x, (double)position.z);
             return;
         }
     }
@@ -1476,6 +1539,7 @@ static void fire_rocket(void) {
 
 static void kill_enemy(enemy_t *enemy, int barrage) {
     int reward = enemy->kind == 0 ? 100 : (enemy->kind == 1 ? 350 : 900);
+    vec3_t death_position = enemy->pos;
     particle_burst(vadd(enemy->pos, v3(0.0f, 1.0f, 0.0f)),
                    enemy->kind == 2 ? 42 : 18,
                    enemy->kind == 2 ? 5.8f : 4.0f,
@@ -1505,6 +1569,8 @@ static void kill_enemy(enemy_t *enemy, int barrage) {
     if(enemy->kind == 2)
         try_speak_phrase(speech_burn_in_hell);
     enemy->active = 0;
+    if(!barrage)
+        spawn_powerup(death_position, enemy->kind == 2);
     if(wave_kills >= wave_target)
         begin_wave_transition();
 }
@@ -1726,6 +1792,54 @@ static cont_state_t *read_controller(void) {
     return (cont_state_t *)maple_dev_status(controller);
 }
 
+static void collect_powerup(powerup_t *powerup) {
+    static const char *names[3] = {
+        "SPEED BOOST", "RAPID FIRE", "TRIPLE BAZOOKA"
+    };
+
+    if(powerup->kind == POWERUP_SPEED)
+        speed_boost_time = clampf(speed_boost_time + 8.0f, 8.0f, 16.0f);
+    else if(powerup->kind == POWERUP_RAPID_FIRE)
+        rapid_fire_time = clampf(rapid_fire_time + 8.0f, 8.0f, 16.0f);
+    else
+        triple_shot_time = clampf(triple_shot_time + 10.0f, 10.0f, 18.0f);
+
+    powerup_banner_kind = powerup->kind;
+    powerup_banner_time = 1.65f;
+    score += 250;
+    particle_burst(vadd(powerup->pos, v3(0.0f, 0.8f, 0.0f)),
+                   24, 5.2f,
+                   powerup->kind == POWERUP_SPEED ? COL_CYAN :
+                   (powerup->kind == POWERUP_RAPID_FIRE ? COL_GOLD : COL_MAGENTA));
+    spawn_shockwave(powerup->pos, 3.2f, 0.46f,
+                    powerup->kind == POWERUP_SPEED ? COL_CYAN :
+                    (powerup->kind == POWERUP_RAPID_FIRE ? COL_GOLD : COL_MAGENTA));
+    play_sfx(sfx_dash, 220, player_pos.x);
+    printf("Demon Bazooka: collected %s\n", names[powerup->kind]);
+    powerup->active = 0;
+}
+
+static void update_powerups(float dt) {
+    int index;
+    for(index = 0; index < MAX_POWERUPS; ++index) {
+        powerup_t *powerup = &powerups[index];
+        vec3_t difference;
+        if(!powerup->active)
+            continue;
+        powerup->age += dt;
+        powerup->lifetime -= dt;
+        powerup->phase += dt * 2.8f;
+        if(powerup->lifetime <= 0.0f) {
+            powerup->active = 0;
+            continue;
+        }
+        difference = vsub(player_pos, powerup->pos);
+        difference.y = 0.0f;
+        if(vdot(difference, difference) < 1.44f)
+            collect_powerup(powerup);
+    }
+}
+
 static void update_game(float dt, const cont_state_t *state,
                         uint32_t pressed) {
     vec3_t input = v3(0.0f, 0.0f, 0.0f);
@@ -1737,6 +1851,10 @@ static void update_game(float dt, const cont_state_t *state,
     fire_cooldown -= dt;
     dash_cooldown -= dt;
     invulnerability -= dt;
+    speed_boost_time = clampf(speed_boost_time - dt, 0.0f, 18.0f);
+    rapid_fire_time = clampf(rapid_fire_time - dt, 0.0f, 18.0f);
+    triple_shot_time = clampf(triple_shot_time - dt, 0.0f, 20.0f);
+    powerup_banner_time = clampf(powerup_banner_time - dt, 0.0f, 2.0f);
     spawn_timer -= dt;
     screen_shake = clampf(screen_shake - dt * 1.8f, 0.0f, 1.0f);
     flash_amount = clampf(flash_amount - dt * 1.5f, 0.0f, 1.0f);
@@ -1755,7 +1873,8 @@ static void update_game(float dt, const cont_state_t *state,
             input = vscale(input, 1.0f / input_length);
         player_dir = vnormalize(input);
         player_dir.y = 0.0f;
-        player_vel = vadd(vscale(player_vel, 0.80f), vscale(input, 1.10f));
+        player_vel = vadd(vscale(player_vel, 0.80f),
+                          vscale(input, speed_boost_time > 0.0f ? 1.48f : 1.10f));
     }
     else {
         player_vel = vscale(player_vel, 1.0f - dt * 7.5f);
@@ -1782,6 +1901,7 @@ static void update_game(float dt, const cont_state_t *state,
         player_pos.z *= scale;
         player_vel = vscale(player_vel, 0.5f);
     }
+    update_powerups(dt);
 
     if(vlength(player_vel) > 7.0f && (rng_next() & 1u)) {
         spawn_particle(vadd(player_pos, v3(rng_signed() * 0.3f, 0.45f,
@@ -2714,6 +2834,64 @@ static void draw_bolts(void) {
     }
 }
 
+static void draw_powerups(float time) {
+    int index;
+    for(index = 0; index < MAX_POWERUPS; ++index) {
+        const powerup_t *powerup = &powerups[index];
+        float bob;
+        float pulse;
+        vec3_t center;
+        uint32_t color;
+        if(!powerup->active)
+            continue;
+        if(powerup->lifetime < 3.0f && ((int)(powerup->age * 10.0f) & 1))
+            continue;
+
+        bob = 0.78f + fsin(time * 4.6f + powerup->phase) * 0.18f;
+        pulse = 0.55f + fsin(time * 7.0f + powerup->phase) * 0.10f;
+        center = vadd(powerup->pos, v3(0.0f, bob, 0.0f));
+        color = powerup->kind == POWERUP_SPEED ? COL_CYAN :
+                (powerup->kind == POWERUP_RAPID_FIRE ? COL_GOLD : COL_MAGENTA);
+
+        draw_ring(vadd(powerup->pos, v3(0.0f, 0.04f, 0.0f)),
+                  0.70f + pulse * 0.18f, 0.12f, 16, color);
+        draw_oriented_ring(center, 0.52f, 0.10f, 12,
+                           time * 0.8f, powerup->phase,
+                           -time * 1.4f, color);
+
+        if(powerup->kind == POWERUP_SPEED) {
+            vec3_t left = vadd(center, v3(-0.48f, -0.22f, 0.0f));
+            vec3_t right = vadd(center, v3(0.48f, -0.22f, 0.0f));
+            vec3_t tip = vadd(center, v3(0.0f, 0.58f, 0.0f));
+            draw_tri_3d(left, right, tip, COL_BLUE, COL_CYAN, COL_WHITE);
+            draw_octahedron(center, 0.20f, 0.36f, COL_WHITE);
+        }
+        else if(powerup->kind == POWERUP_RAPID_FIRE) {
+            int round;
+            for(round = -1; round <= 1; ++round) {
+                vec3_t round_pos = vadd(center, v3((float)round * 0.28f,
+                                                   (float)(round & 1) * 0.12f,
+                                                   0.0f));
+                draw_box(round_pos, v3(0.10f, 0.35f, 0.10f),
+                         time * 1.5f, COL_GOLD);
+                draw_cone(vadd(round_pos, v3(0.0f, 0.35f, 0.0f)),
+                          0.24f, 0.10f, 5, COL_YELLOW);
+            }
+        }
+        else {
+            int rocket;
+            for(rocket = -1; rocket <= 1; ++rocket) {
+                vec3_t rocket_pos = vadd(center,
+                                         v3((float)rocket * 0.32f,
+                                            rocket == 0 ? 0.20f : -0.08f,
+                                            0.0f));
+                draw_octahedron(rocket_pos, 0.16f, 0.42f,
+                                rocket == 0 ? COL_WHITE : COL_MAGENTA);
+            }
+        }
+    }
+}
+
 static void draw_particles(void) {
     int index;
     active_header = &additive_header;
@@ -2767,6 +2945,7 @@ static void draw_flames(float time) {
 
 static void draw_hud(void) {
     char buffer[64];
+    char boost_buffer[64];
     int index;
     float pulse = 0.7f + fsin(game_time * 8.0f) * 0.3f;
 
@@ -2806,6 +2985,26 @@ static void draw_hud(void) {
 
     if(dash_cooldown <= 0.0f)
         draw_text(18.0f, 416.0f, 1.4f, "B DASH READY", COL_CYAN);
+    if(speed_boost_time > 0.0f || rapid_fire_time > 0.0f ||
+       triple_shot_time > 0.0f) {
+        snprintf(boost_buffer, sizeof(boost_buffer), "S%02d R%02d T%02d",
+                 (int)ceilf(speed_boost_time),
+                 (int)ceilf(rapid_fire_time),
+                 (int)ceilf(triple_shot_time));
+        draw_text(242.0f, 416.0f, 1.35f, boost_buffer, COL_GOLD);
+    }
+    if(powerup_banner_time > 0.0f) {
+        static const char *names[3] = {
+            "SPEED BOOST", "RAPID FIRE", "TRIPLE BAZOOKA"
+        };
+        uint32_t banner_color = powerup_banner_kind == POWERUP_SPEED ? COL_CYAN :
+                                (powerup_banner_kind == POWERUP_RAPID_FIRE ?
+                                 COL_GOLD : COL_MAGENTA);
+        draw_rect_2d(178.0f, 352.0f, 284.0f, 34.0f, 70.0f,
+                     color_alpha(COL_BLACK, 0.84f));
+        draw_text_centered(361.0f, 2.0f,
+                           names[powerup_banner_kind], banner_color);
+    }
     if(mode_time < 4.5f)
         draw_text_centered(392.0f, 1.55f,
                            "ANALOG MOVE  A BAZOOKA  B DASH", COL_BONE);
@@ -3014,6 +3213,7 @@ static void render_frame(float time) {
         draw_hunter(time, 1);
     }
     else {
+        draw_powerups(time);
         draw_hunter(time, 0);
         for(index = 0; index < MAX_ENEMIES; ++index) {
             if(enemies[index].active)
