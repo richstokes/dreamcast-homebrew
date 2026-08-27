@@ -44,6 +44,7 @@
 #define MAX_PAGES (MAX_CHANNELS + 1)
 #define CHANNEL_NAME_MAX 50
 #define LIST_DISPLAY_MAX 80
+#define LIST_MIN_USERS 500
 #define INPUT_MAX 240
 #define IRC_WIRE_MAX 512
 #define IRC_RECV_MAX 768
@@ -100,6 +101,7 @@ static uint32_t previous_buttons;
 static unsigned list_entries_received;
 static unsigned list_entries_displayed;
 static bool list_in_progress;
+static bool list_cancel_sent;
 static bool nickname_rng_seeded;
 
 static uint16_t rgb565(unsigned r, unsigned g, unsigned b) {
@@ -203,8 +205,9 @@ static void clamp_scroll(irc_page_t *page) {
         page->scroll_offset = maximum;
 }
 
-static void page_history_push(int page_index, line_style_t style,
-                              const char *text, size_t length) {
+static void page_history_push_internal(int page_index, line_style_t style,
+                                       const char *text, size_t length,
+                                       bool redraw) {
     irc_page_t *page;
     history_line_t *line;
     int line_index;
@@ -233,8 +236,13 @@ static void page_history_push(int page_index, line_style_t style,
     line->text[length] = '\0';
     line->style = style;
     clamp_scroll(page);
-    if(page_index == active_page)
+    if(redraw && page_index == active_page)
         screen_dirty = true;
+}
+
+static void page_history_push(int page_index, line_style_t style,
+                              const char *text, size_t length) {
+    page_history_push_internal(page_index, style, text, length, true);
 }
 
 static void page_history_add_wrapped(int page_index, line_style_t style,
@@ -377,10 +385,10 @@ static void page_history_add_remotef(int page_index, line_style_t style,
 
 static void page_history_add_remote_line(int page_index, line_style_t style,
                                          const char *text) {
-    char bios[IRC_RECV_MAX + 128];
+    char bios[UI_COLUMNS + 1];
 
     remote_text_to_bios(bios, sizeof(bios), text);
-    page_history_push(page_index, style, bios, strlen(bios));
+    page_history_push_internal(page_index, style, bios, strlen(bios), false);
 }
 
 static void draw_rectangle(int x, int y, int width, int height,
@@ -461,6 +469,12 @@ static void render_screen(void) {
     int first;
     int visible;
     int i;
+
+    /* The BIOS-font syscall and sustained BBA receive interrupts do not safely
+       overlap on this KOS/Flycast path. Freeze framebuffer work while a
+       SAFELIST stream is active, then redraw once after numeric 323. */
+    if(list_in_progress)
+        return;
 
     if(!screen_dirty && !input_dirty)
         return;
@@ -562,6 +576,7 @@ static void irc_close(void) {
     receive_length = 0;
     receive_overflow = false;
     list_in_progress = false;
+    list_cancel_sent = false;
     for(i = 1; i < irc_page_count; ++i)
         pages[i].joined = false;
     screen_dirty = true;
@@ -786,8 +801,10 @@ static void handle_irc_line(const char *wire_line) {
     int parameter_count = 0;
 
     snprintf(line, sizeof(line), "%s", wire_line);
-    if(!list_in_progress || !strstr(wire_line, " 322 ") ||
-       list_entries_received < LIST_DISPLAY_MAX) {
+    /* A full Libera LIST contains tens of thousands of 322 replies. Printing
+       every entry to the serial console while the BBA is interrupting is both
+       expensive and unnecessary; the bounded UI summary is sufficient. */
+    if(!strstr(wire_line, " 322 ")) {
         printf("IRC << %s\n", line);
     }
     cursor = line;
@@ -1015,6 +1032,7 @@ static void handle_irc_line(const char *wire_line) {
         list_entries_received = 0;
         list_entries_displayed = 0;
         list_in_progress = true;
+        list_cancel_sent = false;
         page_history_addf(0, STYLE_NOTICE, "Channel list:");
         return;
     }
@@ -1022,20 +1040,35 @@ static void handle_irc_line(const char *wire_line) {
     if(strcmp(command, "322") == 0 && parameter_count >= 3) {
         list_entries_received++;
         if(list_entries_displayed < LIST_DISPLAY_MAX) {
-            char summary[IRC_RECV_MAX + 128];
+            char summary[UI_COLUMNS + 1];
             snprintf(summary, sizeof(summary), "%s [%s] %s", parameters[1],
                      parameters[2], parameter_count >= 4 ? parameters[3] : "");
             page_history_add_remote_line(0, STYLE_CHAT, summary);
             list_entries_displayed++;
         }
+        if(list_entries_displayed == LIST_DISPLAY_MAX && !list_cancel_sent) {
+            /* Solanum SAFELIST treats another LIST during an active request as
+               cancellation. DCIRC cannot display more than this fixed cap, so
+               stop the server stream instead of receiving megabytes we drop. */
+            list_cancel_sent = true;
+            irc_sendf("LIST");
+        }
         return;
     }
 
     if(strcmp(command, "323") == 0) {
-        page_history_addf(0, STYLE_NOTICE,
-                          "End of LIST: %u received, %u shown.",
-                          list_entries_received, list_entries_displayed);
         list_in_progress = false;
+        if(list_cancel_sent) {
+            page_history_addf(0, STYLE_NOTICE,
+                              "LIST capped: %u received, %u shown.",
+                              list_entries_received, list_entries_displayed);
+        }
+        else {
+            page_history_addf(0, STYLE_NOTICE,
+                              "End of LIST: %u received, %u shown.",
+                              list_entries_received, list_entries_displayed);
+        }
+        list_cancel_sent = false;
         return;
     }
 
@@ -1049,6 +1082,7 @@ static void handle_irc_line(const char *wire_line) {
 
     if(command[0] >= '4' && command[0] <= '5' &&
        parameter_count > 0) {
+        list_in_progress = false;
         page_history_add_remotef(0, STYLE_ERROR, "%s: %s", command,
                                  parameters[parameter_count - 1]);
         return;
@@ -1101,7 +1135,9 @@ static void poll_network(void) {
     if(irc_socket < 0)
         return;
 
-    for(reads = 0; reads < 16; ++reads) {
+    /* Apply TCP backpressure during SAFELIST instead of draining a multi-MB
+       response in a single burst on a 16 MB system. */
+    for(reads = 0; reads < (list_in_progress ? 1 : 16); ++reads) {
         ssize_t received = recv(irc_socket, buffer, sizeof(buffer), MSG_DONTWAIT);
 
         if(received > 0) {
@@ -1232,6 +1268,78 @@ static void command_part_channel(char *argument) {
         channel_page_close(page_index);
 }
 
+static bool valid_list_mask(const char *mask) {
+    size_t i;
+    size_t length;
+
+    if(!mask)
+        return false;
+    length = strlen(mask);
+    if(length == 0 || length > CHANNEL_NAME_MAX ||
+       (mask[0] != '#' && mask[0] != '*' && mask[0] != '?')) {
+        return false;
+    }
+    for(i = 0; i < length; ++i) {
+        const unsigned char c = (unsigned char)mask[i];
+        if(c <= ' ' || c == ',' || c == '<' || c == '>' || c == '!')
+            return false;
+    }
+    return true;
+}
+
+static void command_list_channels(char *argument) {
+    bool exact_channel = false;
+
+    if(argument && *argument) {
+        exact_channel = valid_channel_name(argument) &&
+                        !strchr(argument, '*') && !strchr(argument, '?');
+        if(!exact_channel && !valid_list_mask(argument)) {
+            history_addf(STYLE_ERROR,
+                         "Usage: /list [#CHANNEL|#MASK*]");
+            return;
+        }
+    }
+
+    active_page = 0;
+    pages[0].scroll_offset = 0;
+    screen_dirty = true;
+    if(irc_socket < 0) {
+        page_history_addf(0, STYLE_ERROR,
+                          "Connect before requesting /list.");
+        return;
+    }
+
+    list_entries_received = 0;
+    list_entries_displayed = 0;
+    list_cancel_sent = false;
+    if(exact_channel) {
+        page_history_addf(0, STYLE_NOTICE,
+                          "Looking up %s...", argument);
+    }
+    else if(argument && *argument) {
+        page_history_addf(0, STYLE_NOTICE,
+                          "Listing popular channels matching %s...", argument);
+    }
+    else {
+        page_history_addf(0, STYLE_NOTICE,
+                          "Listing channels with over %d users...",
+                          LIST_MIN_USERS);
+    }
+
+    input_length = 0;
+    input_text[0] = '\0';
+    input_dirty = false;
+    render_screen();
+    list_in_progress = true;
+
+    if(exact_channel)
+        irc_sendf("LIST %s", argument);
+    else if(argument && *argument)
+        irc_sendf("LIST >%d,%s", LIST_MIN_USERS, argument);
+    else
+        irc_sendf("LIST >%d", LIST_MIN_USERS);
+}
+
 static void submit_input(void) {
     char utf8[INPUT_MAX * 2 + 1];
 
@@ -1268,26 +1376,7 @@ static void submit_input(void) {
             command_part_channel(argument);
         }
         else if(strcmp(input_text, "/list") == 0) {
-            active_page = 0;
-            pages[0].scroll_offset = 0;
-            screen_dirty = true;
-            if(irc_socket >= 0) {
-                list_entries_received = 0;
-                list_entries_displayed = 0;
-                list_in_progress = true;
-                page_history_addf(0, STYLE_NOTICE,
-                                  "Requesting channel list%s%s...",
-                                  argument && *argument ? ": " : "",
-                                  argument && *argument ? argument : "");
-                if(argument && *argument)
-                    irc_sendf("LIST %s", argument);
-                else
-                    irc_sendf("LIST");
-            }
-            else {
-                page_history_addf(0, STYLE_ERROR,
-                                  "Connect before requesting /list.");
-            }
+            command_list_channels(argument);
         }
         else if(strcmp(input_text, "/nick") == 0) {
             if(argument && valid_nickname(argument)) {

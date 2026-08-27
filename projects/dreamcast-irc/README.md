@@ -58,10 +58,13 @@ boot the ELF using the normal loader and provide a working BBA network setup.
 - Start quits cleanly.
 
 Available commands are `/join #CHANNEL[,#CHANNEL]`,
-`/part [#CHANNEL] [MESSAGE]`, `/list [FILTER]`, `/me ACTION`, `/nick NAME`,
+`/part [#CHANNEL] [MESSAGE]`, `/list [#CHANNEL|#MASK*]`, `/me ACTION`, `/nick NAME`,
 `/clear`, `/reconnect`, `/quit [MESSAGE]`, and `/help`. `/clear` affects only
-the current page. `/list` displays at most 80 entries on the server page so a
-large network channel list cannot displace unbounded amounts of memory.
+the current page. Bare `/list` safely requests channels with more than 500
+users; exact-channel and wildcard-mask lookups are also supported. Results are
+capped at 80 on the server page, after which DCIRC cancels the server stream.
+Framebuffer rendering pauses briefly while LIST data is arriving to avoid a
+KOS BIOS-font/BBA interrupt conflict.
 
 ## Network and security notes
 

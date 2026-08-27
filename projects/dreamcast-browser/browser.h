@@ -16,6 +16,7 @@
 #define MAX_ITEMS 512
 #define MAX_LINKS 96
 #define MAX_IMAGES 6
+#define MAX_HISTORY 8
 #define MAX_DOCUMENT_BYTES (512 * 1024)
 #define MAX_IMAGE_BYTES (24 * 1024)
 #define MAX_PAGE_IMAGE_BYTES (64 * 1024)
@@ -102,6 +103,6 @@ void document_reflow(browser_document_t *doc);
 
 void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
                     int mouse_y, int focused_link, const char *address,
-                    int editing, const char *status);
+                    int editing, int can_go_back, const char *status);
 
 #endif

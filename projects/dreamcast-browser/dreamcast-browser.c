@@ -14,6 +14,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 
 static browser_document_t document;
 static char address[MAX_URL] = "https://appsbyrich.com/";
+static char current_url[MAX_URL];
 static char status_text[96];
 static int scroll_y;
 static int mouse_x = SCREEN_W / 2;
@@ -24,6 +25,14 @@ static int redraw_needed = 1;
 static const char *loading_label;
 static uint64_t last_progress_draw;
 static unsigned progress_frame;
+
+typedef struct {
+    char url[MAX_URL];
+    int scroll_y;
+} history_entry_t;
+
+static history_entry_t history[MAX_HISTORY];
+static int history_count;
 
 static int show_transfer_progress(uint64_t received, uint64_t total,
                                   void *userdata) {
@@ -46,7 +55,7 @@ static int show_transfer_progress(uint64_t received, uint64_t total,
                  loading_label ? loading_label : "",
                  spinner[progress_frame++ & 3]);
     render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, editing, status_text);
+                   address, editing, history_count > 0, status_text);
     return 0;
 }
 
@@ -110,7 +119,27 @@ static void normalize_address(char *url, size_t size) {
     snprintf(url, size, "%s", temp);
 }
 
-static void load_page(const char *requested) {
+static void history_push_current(void) {
+    history_entry_t *entry;
+
+    if(!current_url[0]) return;
+    if(history_count && !strcmp(history[history_count - 1].url, current_url)) {
+        history[history_count - 1].scroll_y = scroll_y;
+        return;
+    }
+    if(history_count == MAX_HISTORY) {
+        memmove(&history[0], &history[1],
+                sizeof(history[0]) * (MAX_HISTORY - 1));
+        history_count--;
+    }
+    entry = &history[history_count++];
+    snprintf(entry->url, sizeof(entry->url), "%s", current_url);
+    entry->scroll_y = scroll_y;
+    printf("browser: history saved %s (%d/%d)\n",
+           entry->url, history_count, MAX_HISTORY);
+}
+
+static int load_page(const char *requested) {
     fetch_result_t result;
     char target[MAX_URL];
     char message[256];
@@ -118,10 +147,11 @@ static void load_page(const char *requested) {
 
     snprintf(target, sizeof(target), "%s", requested);
     normalize_address(target, sizeof(target));
+    snprintf(current_url, sizeof(current_url), "%s", target);
     snprintf(address, sizeof(address), "%s", target);
     snprintf(status_text, sizeof(status_text), "Connecting page...");
     render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, 0, status_text);
+                   address, 0, history_count > 0, status_text);
     redraw_needed = 0;
     begin_loading("page");
 
@@ -132,7 +162,7 @@ static void load_page(const char *requested) {
         document_make_error(&document, "Page load failed", message);
         snprintf(status_text, sizeof(status_text), "Network error");
         redraw_needed = 1;
-        return;
+        return -1;
     }
 
     if(result.status < 200 || result.status >= 400) {
@@ -144,7 +174,7 @@ static void load_page(const char *requested) {
         document_make_error(&document, "Server error", message);
         snprintf(status_text, sizeof(status_text), "HTTP %ld", response_status);
         redraw_needed = 1;
-        return;
+        return -1;
     }
 
     if(result.content_type[0] && !strstr(result.content_type, "text/html") &&
@@ -157,7 +187,7 @@ static void load_page(const char *requested) {
         document_make_error(&document, "Unsupported content", message);
         snprintf(status_text, sizeof(status_text), "Unsupported content");
         redraw_needed = 1;
-        return;
+        return -1;
     }
 
     document_free(&document);
@@ -166,12 +196,13 @@ static void load_page(const char *requested) {
     document_parse_html(&document, (const char *)result.data, result.size);
     if(result.truncated) document.truncated = 1;
     snprintf(address, sizeof(address), "%s", result.effective_url);
+    snprintf(current_url, sizeof(current_url), "%s", result.effective_url);
     fetch_result_free(&result);
     scroll_y = 0;
     focused_link = -1;
     snprintf(status_text, sizeof(status_text), "Page ready; loading images...");
     render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, 0, status_text);
+                   address, 0, history_count > 0, status_text);
     redraw_needed = 0;
 
     begin_loading("image");
@@ -180,11 +211,37 @@ static void load_page(const char *requested) {
     snprintf(status_text, sizeof(status_text), "%.82s%s", document.title,
              document.truncated ? " [shortened]" : "");
     redraw_needed = 1;
+    return 0;
+}
+
+static void navigate_to(const char *requested) {
+    char target[MAX_URL];
+
+    snprintf(target, sizeof(target), "%s", requested);
+    history_push_current();
+    load_page(target);
+}
+
+static void navigate_back(void) {
+    history_entry_t entry;
+
+    if(!history_count) {
+        snprintf(status_text, sizeof(status_text), "No previous page");
+        redraw_needed = 1;
+        return;
+    }
+    entry = history[--history_count];
+    printf("browser: back -> %s (%d remaining)\n", entry.url, history_count);
+    if(load_page(entry.url) == 0) {
+        scroll_y = entry.scroll_y;
+        clamp_scroll();
+        redraw_needed = 1;
+    }
 }
 
 static void follow_link(int link_id) {
     if(link_id < 0 || link_id >= document.link_count) return;
-    load_page(document.links[link_id]);
+    navigate_to(document.links[link_id]);
 }
 
 static void focus_next_link(void) {
@@ -220,7 +277,7 @@ static int process_keyboard(maple_device_t *keyboard) {
             size_t len = strlen(address);
             if(key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) {
                 editing = 0;
-                load_page(address);
+                navigate_to(address);
             } else if(key == KBD_KEY_ESCAPE) {
                 editing = 0;
                 snprintf(status_text, sizeof(status_text), "%s", document.title);
@@ -239,6 +296,9 @@ static int process_keyboard(maple_device_t *keyboard) {
         else if(key == KBD_KEY_TAB) focus_next_link();
         else if((key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) && focused_link >= 0)
             follow_link(focused_link);
+        else if(key == KBD_KEY_BACKSPACE ||
+                (key == KBD_KEY_LEFT && (mods.raw & KBD_MOD_ALT)))
+            navigate_back();
         else if(key == KBD_KEY_PGDOWN || key == KBD_KEY_SPACE) scroll_y += 350;
         else if(key == KBD_KEY_PGUP) scroll_y -= 350;
         else if(key == KBD_KEY_HOME) scroll_y = 0;
@@ -284,7 +344,12 @@ static int process_mouse(maple_device_t *mouse) {
     pressed = state->buttons & ~previous_buttons;
     previous_buttons = state->buttons;
     if(pressed & MOUSE_LEFTBUTTON) {
-        if(mouse_y < PAGE_TOP) begin_address_edit();
+        if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 62) navigate_back();
+        else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 566) begin_address_edit();
+        else if(mouse_y >= 8 && mouse_y < 40 && mouse_x >= 566) {
+            if(editing) { editing = 0; navigate_to(address); }
+            else load_page(address);
+        }
         else if(focused_link >= 0) follow_link(focused_link);
     }
     if(mouse_x != old_x || mouse_y != old_y || scroll_y != old_scroll ||
@@ -305,8 +370,9 @@ static int process_controller(maple_device_t *controller) {
         redraw_needed = 1;
     if(pressed & CONT_START) return 1;
     if(pressed & CONT_X) begin_address_edit();
+    if(pressed & CONT_B) navigate_back();
     if(pressed & CONT_A) {
-        if(editing) { editing = 0; load_page(address); }
+        if(editing) { editing = 0; navigate_to(address); }
         else if(focused_link >= 0) follow_link(focused_link);
     }
     if(pressed & CONT_Y) focus_next_link();
@@ -359,7 +425,7 @@ int main(int argc, char **argv) {
         network_idle_poll();
         if(redraw_needed) {
             render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                           address, editing, status_text);
+                           address, editing, history_count > 0, status_text);
             redraw_needed = 0;
         }
         thd_sleep(16);

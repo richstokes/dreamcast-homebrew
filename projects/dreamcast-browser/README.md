@@ -16,12 +16,14 @@ is also available.
 
 - `F6` or `Ctrl+L`: open the address bar
 - `Enter`: open the typed address or focused link
+- `Backspace` or `Alt+Left`: return to the previous page
 - `Esc`: cancel address editing; outside the address bar it exits
 - `Tab`: focus the next link
 - arrows, Page Up/Down, Home/End, Space: scroll
 - `F5`: reload
-- mouse: point, click links/the address bar, and use the wheel to scroll
-- controller: `X` address bar, `Y` next link, `A` open, D-pad scroll, Start exit
+- mouse: point, click Back, links, or the address bar; use the wheel to scroll
+- controller: `B` back, `X` address bar, `Y` next link, `A` open, D-pad scroll,
+  Start exit
 
 The address bar defaults to HTTPS when no scheme is entered. HTTPS verifies
 the server certificate and hostname with the bundled Mozilla CA store and will
@@ -101,3 +103,5 @@ state and transferred versus declared KiB instead of leaving a static startup
 message onscreen.
 
 This is a readable-web and small-site browser, not a modern desktop engine.
+Navigation history retains the eight most recent URLs and their scroll
+positions in a fixed-size buffer.
