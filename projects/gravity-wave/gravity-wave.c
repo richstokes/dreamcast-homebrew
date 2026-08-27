@@ -409,6 +409,7 @@ static float camera_sin_roll;
 static float camera_cos_roll;
 static float camera_shake_x;
 static float camera_shake_y;
+static float camera_route_turn;
 
 static uint32_t random_state = 0x4ae71f03u;
 static sfxhnd_t sfx_laser = SFXHND_INVALID;
@@ -537,8 +538,30 @@ static float value_noise(float x, float z, float cell) {
 }
 
 static float path_center(float world_z) {
-    return fsin(world_z * 0.00118f) * 52.0f +
-           fsin(world_z * 0.00271f + 1.35f) * 19.0f;
+    const float broad_amplitude = 0.78f +
+        fsin(world_z * 0.00031f + 1.7f) * 0.22f;
+
+    /* Three incommensurate waves create broad turns, S-bends, and tightening
+       apexes without discontinuities or expensive per-vertex noise hashes. */
+    return fsin(world_z * 0.00092f + 0.4f) * 82.0f * broad_amplitude +
+           fsin(world_z * 0.00235f + 2.1f) * 34.0f +
+           fsin(world_z * 0.0048f + 0.8f) * 11.0f;
+}
+
+static float path_elevation(float world_z) {
+    return fsin(world_z * 0.00083f + 1.1f) * 31.0f +
+           fsin(world_z * 0.0027f + 2.8f) * 15.0f +
+           fsin(world_z * 0.0049f + 0.2f) * 5.0f;
+}
+
+static float path_turn_preview(float world_z) {
+    const float near_heading = atanf(
+        (path_center(world_z + 210.0f) -
+         path_center(world_z + 30.0f)) / 180.0f);
+    const float far_heading = atanf(
+        (path_center(world_z + 430.0f) -
+         path_center(world_z + 210.0f)) / 220.0f);
+    return clampf(far_heading - near_heading, -0.16f, 0.16f);
 }
 
 static float terrain_height_biome(int biome, float local_x, float world_z) {
@@ -638,7 +661,10 @@ static void get_blended_palette(palette_t *out) {
 
 static bool project_world(vec3_t world, screen_point_t *out) {
     float dx = world.x - camera_world_x;
-    float dy = world.y - camera_world_y;
+    /* Combat and collision remain in route-local Y. Bend them into world
+       space here so every gate, projectile, landmark, and terrain vertex
+       follows the same climb or dive without desynchronizing gameplay. */
+    float dy = world.y + path_elevation(world.z) - camera_world_y;
     float dz = world.z - game.distance;
     const float yaw_x = dx * camera_cos_yaw - dz * camera_sin_yaw;
     const float yaw_z = dx * camera_sin_yaw + dz * camera_cos_yaw;
@@ -663,15 +689,24 @@ static void setup_camera(void) {
     const float lookahead = 260.0f;
     const float center_here = path_center(game.distance);
     const float center_ahead = path_center(game.distance + lookahead);
+    const float elevation_here = path_elevation(game.distance);
+    const float elevation_ahead =
+        path_elevation(game.distance + lookahead);
+    const float route_grade = atanf(
+        (elevation_ahead - elevation_here) / lookahead);
+    const float route_turn = path_turn_preview(game.distance);
     const float yaw = atanf((center_ahead - center_here) / lookahead) +
                       game.player_vx * 0.0008f;
-    const float pitch = -0.075f + game.player_vy * 0.00025f;
+    const float pitch = route_grade - 0.075f +
+                        game.player_vy * 0.00025f;
     const float shake = game.trauma * game.trauma;
     const float roll = -game.bank * 0.090f + fsin(game.barrel_roll) * 0.025f +
+                       route_turn * 0.68f +
                        fsin(game.time * 73.0f + 1.7f) * shake * 0.012f;
 
     camera_world_x = center_here + game.camera_x;
-    camera_world_y = game.camera_y + 8.5f;
+    camera_world_y = elevation_here + game.camera_y + 8.5f;
+    camera_route_turn = route_turn;
     camera_sin_yaw = fsin(yaw);
     camera_cos_yaw = fcos(yaw);
     camera_sin_pitch = fsin(pitch);
@@ -4176,7 +4211,8 @@ static void draw_enemies(const palette_t *palette) {
 }
 
 static vec3_t player_model_point(float lx, float ly, float lz) {
-    const float roll = game.bank * 0.62f + game.barrel_roll;
+    const float roll = game.bank * 0.62f + game.barrel_roll +
+                       camera_route_turn * 1.35f;
     const float pitch = clampf(-game.player_vy * 0.007f, -0.30f, 0.30f);
     const float cr = fcos(roll);
     const float sr = fsin(roll);
@@ -4194,7 +4230,8 @@ static vec3_t player_model_point(float lx, float ly, float lz) {
 static void draw_player_ship(const palette_t *palette) {
     const bool flashing = game.hit_cooldown > 0.0f &&
                           ((int)(game.hit_cooldown * 18.0f) & 1);
-    const float roll = game.bank * 0.62f + game.barrel_roll;
+    const float roll = game.bank * 0.62f + game.barrel_roll +
+                       camera_route_turn * 1.35f;
     const float pitch = clampf(-game.player_vy * 0.007f, -0.30f, 0.30f);
     const float world_z = game.distance + PLAYER_Z;
     const vec3_t origin = {path_center(world_z) + game.player_x,

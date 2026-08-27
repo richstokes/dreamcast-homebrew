@@ -19,8 +19,9 @@ is also available.
 
 ## Features
 
-- Infinite deterministic terrain with material-mapped slopes, a winding energy
-  river, canyon walls, distant ridges, and smoothly changing landforms
+- Infinite deterministic terrain wrapped around a true 3D flight route with
+  sweeping turns, S-bends, climbs, crests, valley dives, a winding energy river,
+  material-mapped canyon walls, and distant ridges
 - Four fully differentiated biomes: the flooded wreckage of Azure Reach, the
   overgrown ruins of Emerald Veil, the floating crystal fields of Violet Rift,
   and the volcanic foundries of Ember Crown
@@ -32,9 +33,9 @@ is also available.
   and 112-triangle guardian meshes with per-face lighting and emissive materials
 - Recurring biome guardians with sustained movement, spread fire, a dedicated
   boss HUD, Nova resistance, large destruction sequences, and guaranteed loot
-- Arcade flight physics with boost, brake, barrel rolls, terrain collisions,
-  structure collisions, shields, responsive FOV changes, camera trauma, and
-  three Nova Pulses per run
+- Arcade flight physics with boost, brake, barrel rolls, anticipatory turn
+  banking, terrain and structure collisions, shields, responsive FOV changes,
+  camera trauma, and three Nova Pulses per run
 - Three permanent laser levels plus magnetic Laser Core, Repair, Nova, Speed
   Boost, Fast Laser, and Phase Wave pickups dropped by defeated enemies
 - Procedural enemy formations, aimed fire, light/ace/heavy craft, escalating
