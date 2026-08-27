@@ -30,5 +30,5 @@ if [[ "${1:-}" != "--skip-build" ]]; then
 fi
 
 exec "${FLYCAST_BIN}" \
-    -config "network:EmulateBBA=yes,config:Debug.SerialConsoleEnabled=yes" \
+    -config "network:EmulateBBA=yes,network:DCNet=yes,config:Debug.SerialConsoleEnabled=yes" \
     "${PROJECT_DIR}/ping-cube.elf"
