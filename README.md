@@ -9,11 +9,11 @@ or run on compatible Dreamcast hardware.
 
 | Preview | Project |
 | --- | --- |
-| <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](my-projects/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. |
-| <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](my-projects/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. |
-| <img src="docs/screenshots/dreamcast-browser.png" alt="Dreamcast Browser" width="360"> | **[Dreamcast Browser](my-projects/dreamcast-browser/)**<br>A deliberately limited HTTPS browser supporting basic text, links, raster images, and Dreamcast keyboard, mouse, and controller input. JavaScript is not executed. |
-| <img src="docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC" width="360"> | **[Dreamcast IRC](my-projects/dreamcast-irc/)**<br>A Broadband Adapter IRC client with server and channel pages, fixed-size scrollback, keyboard input, and controller navigation. |
-| <img src="docs/screenshots/ping-cube.png" alt="Ping Cube" width="360"> | **[Ping Cube](my-projects/ping-cube/)**<br>A networking and PowerVR demo that displays the Dreamcast's DHCP-assigned address and ICMP readiness on a rotating textured cube. |
+| <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. |
+| <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. |
+| <img src="docs/screenshots/dreamcast-browser.png" alt="Dreamcast Browser" width="360"> | **[Dreamcast Browser](projects/dreamcast-browser/)**<br>A deliberately limited HTTPS browser supporting basic text, links, raster images, and Dreamcast keyboard, mouse, and controller input. JavaScript is not executed. |
+| <img src="docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC" width="360"> | **[Dreamcast IRC](projects/dreamcast-irc/)**<br>A Broadband Adapter IRC client with server and channel pages, fixed-size scrollback, keyboard input, and controller navigation. |
+| <img src="docs/screenshots/ping-cube.png" alt="Ping Cube" width="360"> | **[Ping Cube](projects/ping-cube/)**<br>A networking and PowerVR demo that displays the Dreamcast's DHCP-assigned address and ICMP readiness on a rotating textured cube. |
 
 Each project directory contains its own controls, dependencies, technical
 notes, and verification instructions.
@@ -31,13 +31,13 @@ Source the KOS environment, then build a project:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-make -C my-projects/gravity-wave
+make -C projects/gravity-wave
 ```
 
 Launch it directly in Flycast:
 
 ```sh
-./my-projects/gravity-wave/run-flycast.sh
+./projects/gravity-wave/run-flycast.sh
 ```
 
 The launchers build by default and accept `KOS_ENV` and `FLYCAST_BIN`
@@ -45,7 +45,7 @@ overrides. When the ELF already exists, use `--skip-build` or the project's
 `make run` target.
 
 Dreamcast Browser additionally requires the KOS ports for curl, mbedTLS, zlib,
-and stb_image. Its [project README](my-projects/dreamcast-browser/README.md)
+and stb_image. Its [project README](projects/dreamcast-browser/README.md)
 documents the included compatibility patch and installation commands. Gravity
 Wave's generated texture sources are checked in; Python and `uv` are needed
 only when regenerating them.
