@@ -2870,7 +2870,7 @@ static void draw_powerups(float time) {
             int round;
             for(round = -1; round <= 1; ++round) {
                 vec3_t round_pos = vadd(center, v3((float)round * 0.28f,
-                                                   (float)(round & 1) * 0.12f,
+                                                   round == 0 ? 0.12f : -0.12f,
                                                    0.0f));
                 draw_box(round_pos, v3(0.10f, 0.35f, 0.10f),
                          time * 1.5f, COL_GOLD);
@@ -2987,10 +2987,19 @@ static void draw_hud(void) {
         draw_text(18.0f, 416.0f, 1.4f, "B DASH READY", COL_CYAN);
     if(speed_boost_time > 0.0f || rapid_fire_time > 0.0f ||
        triple_shot_time > 0.0f) {
-        snprintf(boost_buffer, sizeof(boost_buffer), "S%02d R%02d T%02d",
-                 (int)ceilf(speed_boost_time),
-                 (int)ceilf(rapid_fire_time),
-                 (int)ceilf(triple_shot_time));
+        size_t used = 0;
+        boost_buffer[0] = '\0';
+        if(speed_boost_time > 0.0f)
+            used += (size_t)snprintf(boost_buffer + used,
+                                     sizeof(boost_buffer) - used,
+                                     "SPD%02d ", (int)ceilf(speed_boost_time));
+        if(rapid_fire_time > 0.0f)
+            used += (size_t)snprintf(boost_buffer + used,
+                                     sizeof(boost_buffer) - used,
+                                     "RAP%02d ", (int)ceilf(rapid_fire_time));
+        if(triple_shot_time > 0.0f)
+            snprintf(boost_buffer + used, sizeof(boost_buffer) - used,
+                     "TRI%02d", (int)ceilf(triple_shot_time));
         draw_text(242.0f, 416.0f, 1.35f, boost_buffer, COL_GOLD);
     }
     if(powerup_banner_time > 0.0f) {
@@ -3284,6 +3293,19 @@ int main(int argc, char **argv) {
     spawn_enemy();
     spawn_enemy();
     spawn_enemy();
+#endif
+#if defined(POWERUP_QA)
+    /* Force every pickup type into a safe arena for visual/runtime QA. */
+    reset_game();
+    invulnerability = 999.0f;
+    spawn_powerup(player_pos, 1);
+    powerups[0].kind = POWERUP_SPEED;
+    spawn_powerup(v3(-3.2f, 0.0f, 1.0f), 1);
+    powerups[1].kind = POWERUP_RAPID_FIRE;
+    spawn_powerup(v3(3.2f, 0.0f, 1.0f), 1);
+    powerups[2].kind = POWERUP_TRIPLE_SHOT;
+    spawn_powerup(v3(0.0f, 0.0f, -3.2f), 1);
+    powerups[3].kind = POWERUP_SPEED;
 #endif
     previous_time = timer_ms_gettime64();
 
