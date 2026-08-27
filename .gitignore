@@ -15,12 +15,16 @@
 *.iso
 *.cdi
 *.gdi
+*.chd
+*.cue
+*.nrg
 *.raw
 *.d
 *.dep
 *.map
 *.lst
 *.sym
+romdisk_tmp.c
 
 # CMake and generated build directories
 CMakeLists.txt.user
