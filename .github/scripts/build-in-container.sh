@@ -45,6 +45,7 @@ make -C "$kos_ports/curl" install
 make -C "$kos_ports/stb_image" install
 
 for project in \
+    chroma-circuit \
     demon-bazooka \
     dreamcast-browser \
     dreamcast-irc \

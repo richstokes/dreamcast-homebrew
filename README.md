@@ -1,14 +1,17 @@
 # Dreamcast Homebrew
 
 A collection of original Sega Dreamcast games, network applications, and
-technical demos built with [KallistiOS](https://kos-docs.dreamcast.wiki/).
-Each project builds as a standalone SH-4 ELF that can boot directly in Flycast
-or run on compatible Dreamcast hardware.
+technical demos. Most projects use
+[KallistiOS](https://kos-docs.dreamcast.wiki/); Chroma Circuit is a deliberately
+bare-metal SH-4 assembly production with no SDK runtime. Each project builds as
+a standalone SH-4 ELF that can boot directly in Flycast or run on compatible
+Dreamcast hardware.
 
 ## Projects
 
 | Preview | Project | Latest download |
 | --- | --- | --- |
+| <img src="docs/screenshots/chroma-circuit.png" alt="Chroma Circuit Hyperfold scene" width="360"> | **[Chroma Circuit](projects/chroma-circuit/)**<br>A four-act, 60 Hz demoscene production written entirely in SH-4 assembly, with direct PowerVR2 rendering, raw AICA synthesis, camera flybys, a live Lorenz attractor, and a four-dimensional Hyperfold finale. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/chroma-circuit.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/chroma-circuit.elf) |
 | <img src="docs/screenshots/drift-los-angeles.png" alt="Drift Los Angeles" width="360"> | **[Drift Los Angeles](projects/drift-los-angeles/)**<br>An open-city arcade street-drifting game with a C7-inspired coupe, four Los Angeles-style districts, traffic, drift chains, dense tire smoke, and recorded V8 audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.elf) |
 | <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.elf) |
 | <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf) |
@@ -27,8 +30,9 @@ are published with every build.
 
 ## Building and running
 
-The projects use the KallistiOS SH-4 toolchain. The known-working development
-baseline is:
+The projects use the Dreamcast SH-4 cross-toolchain. Most also use KallistiOS;
+Chroma Circuit invokes only `sh-elf-as`, `sh-elf-ld`, and the matching binary
+inspection tools. The known-working development baseline is:
 
 - KallistiOS 2.3.0
 - GCC 15.2.0 SH-4 toolchain
@@ -39,6 +43,13 @@ Source the KOS environment, then build a project:
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/drift-los-angeles
+```
+
+Chroma Circuit needs no KOS build and can be assembled directly:
+
+```sh
+make -C projects/chroma-circuit
+make -C projects/chroma-circuit verify
 ```
 
 Launch it directly in Flycast:

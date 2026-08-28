@@ -34,6 +34,7 @@ while IFS='|' read -r slug title; do
         --output "$cdi"
     cp "$elf" "$release_elf"
 done <<'PROJECTS'
+chroma-circuit|Chroma Circuit
 demon-bazooka|Demon Bazooka
 dreamcast-browser|Dreamcast Browser
 dreamcast-irc|Dreamcast IRC
