@@ -1,7 +1,5 @@
 # Chroma Circuit
 
-[![Chroma Circuit build](https://github.com/richstokes/dreamcast-homebrew/actions/workflows/chroma-circuit.yml/badge.svg)](https://github.com/richstokes/dreamcast-homebrew/actions/workflows/chroma-circuit.yml)
-
 ![Chroma Circuit's four-dimensional Hyperfold scene](../../docs/screenshots/chroma-circuit.png)
 
 Chroma Circuit is a standalone Dreamcast demoscene effect written entirely in
