@@ -104,16 +104,15 @@ jobs:
           - Verify downloads with \`SHA256SUMS\`.
           EOF
 
+          # Editing a release preserves its original published_at timestamp.
+          # Recreate this rolling release so GitHub's visible date matches the
+          # commit, notes, and assets produced by the current successful run.
           if gh release view continuous >/dev/null 2>&1; then
-            gh release edit continuous \
-              --title "Latest Dreamcast builds" \
-              --notes-file release-notes.md \
-              --latest
-          else
-            gh release create continuous \
-              --title "Latest Dreamcast builds" \
-              --notes-file release-notes.md \
-              --latest
+            gh release delete continuous --yes
           fi
 
-          gh release upload continuous dist/* --clobber
+          gh release create continuous dist/* \
+            --verify-tag \
+            --title "Latest Dreamcast builds" \
+            --notes-file release-notes.md \
+            --latest
