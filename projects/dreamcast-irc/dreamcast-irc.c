@@ -3,13 +3,14 @@
  *
  * The application uses the Dreamcast BBA (or an emulator's BBA) for a plain
  * TCP IRC connection and a Maple keyboard for text entry. It joins
- * #netsplit automatically after registration.
+ * #dreamcastdev automatically after registration.
  */
 
 #include <kos.h>
 #include <kos/version.h>
 
 #include <dc/biosfont.h>
+#include <dc/fs_vmu.h>
 #include <dc/maple.h>
 #include <dc/maple/controller.h>
 #include <dc/maple/keyboard.h>
@@ -41,10 +42,12 @@
 #define IRC_FALLBACK_PORT "8000"
 #endif
 #ifndef IRC_CHANNEL
-#define IRC_CHANNEL "#netsplit"
+#define IRC_CHANNEL "#dreamcastdev"
 #endif
 #define APP_NAME "DCIRC"
 #define APP_VERSION "0.1"
+#define APP_REPOSITORY \
+    "https://github.com/richstokes/dreamcast-homebrew/tree/main/projects/dreamcast-irc"
 
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
@@ -53,6 +56,16 @@
 #define HISTORY_LINES 96
 #define MAX_CHANNELS 10
 #define MAX_PAGES (MAX_CHANNELS + 1)
+#define SERVER_NAME_MAX 127
+#define SERVER_PORT_MAX 5
+#define SERVER_PORT_COUNT_MAX 2
+/* Keep this below the VMU's 12-character limit: KOS fs_vmu's internal
+   filename buffer only guarantees a terminator for shorter names. */
+#define VMU_PROFILE_FILENAME "DCIRC_CFG"
+#define VMU_PROFILE_DATA_SIZE 1024
+#define VMU_PROFILE_VERSION 1
+#define VMU_SAVE_DELAY_MS 2000
+#define VMU_RETRY_DELAY_MS 5000
 #define CHANNEL_NAME_MAX 50
 #define LIST_DISPLAY_MAX 80
 #define LIST_MIN_USERS 500
@@ -106,6 +119,23 @@ typedef struct irc_page {
     int scroll_offset;
 } irc_page_t;
 
+typedef struct __attribute__((packed)) vmu_profile_record {
+    char magic[8];
+    uint16_t version;
+    uint16_t record_size;
+    uint32_t checksum;
+    char server[SERVER_NAME_MAX + 1];
+    char ports[SERVER_PORT_COUNT_MAX][SERVER_PORT_MAX + 1];
+    char nick[16];
+    uint8_t port_count;
+    uint8_t channel_count;
+    char channels[MAX_CHANNELS][CHANNEL_NAME_MAX + 1];
+    uint8_t reserved[340];
+} vmu_profile_record_t;
+
+_Static_assert(sizeof(vmu_profile_record_t) == VMU_PROFILE_DATA_SIZE,
+               "VMU profile must occupy exactly two payload blocks");
+
 static irc_page_t pages[MAX_PAGES];
 static int irc_page_count = 1;
 static int active_page;
@@ -119,6 +149,13 @@ static unsigned connect_port_index;
 static uint64_t connection_deadline;
 static uint64_t reconnect_at;
 static unsigned reconnect_attempt;
+static char current_server[SERVER_NAME_MAX + 1] = IRC_SERVER;
+static char server_ports[SERVER_PORT_COUNT_MAX][SERVER_PORT_MAX + 1] = {
+    IRC_PRIMARY_PORT,
+    IRC_FALLBACK_PORT
+};
+static unsigned server_port_count = SERVER_PORT_COUNT_MAX;
+static bool join_default_channel_on_connect = true;
 static char connected_port[6];
 static char connect_endpoint[64];
 static char connect_last_error[96];
@@ -137,11 +174,24 @@ static unsigned list_entries_displayed;
 static bool list_in_progress;
 static bool list_cancel_sent;
 static bool nickname_rng_seeded;
+static bool profile_dirty;
+static bool profile_write_failed;
+static bool profile_save_failure_reported;
+static bool profile_invalid_reported;
+static bool profile_last_checksum_valid;
+static uint64_t profile_save_at;
+static uint32_t profile_last_checksum;
+static int profile_vmu_port = -1;
+static int profile_vmu_unit = -1;
+static vmu_profile_record_t profile_io_record;
 static char send_queue[SEND_QUEUE_SIZE];
 static size_t send_queue_length;
 static uint64_t last_receive_time;
 static bool awaiting_pong;
 static uint64_t pong_deadline;
+
+static bool valid_nickname(const char *candidate);
+static void profile_mark_dirty(void);
 
 static uint16_t rgb565(unsigned r, unsigned g, unsigned b) {
     return (uint16_t)(((r & 0xf8) << 8) |
@@ -505,6 +555,8 @@ static void render_screen(void) {
     char page_label[UI_COLUMNS + 1];
     char status[UI_COLUMNS + 1];
     char footer_text[UI_COLUMNS + 1];
+    const uint8_t page_number = (uint8_t)(active_page + 1);
+    const uint8_t page_total = (uint8_t)irc_page_count;
     int first;
     int visible;
     int i;
@@ -532,12 +584,13 @@ static void render_screen(void) {
 
     draw_text(24, 8, white, APP_NAME);
     if(active_page == 0) {
-        snprintf(page_label, sizeof(page_label), "%s  server  %d/%d",
-                 IRC_SERVER, active_page + 1, irc_page_count);
+        snprintf(page_label, sizeof(page_label), "%.32s server %u/%u",
+                 current_server, (unsigned)page_number, (unsigned)page_total);
     }
     else {
-        snprintf(page_label, sizeof(page_label), "%s  %s  %d/%d",
-                 IRC_SERVER, page->name, active_page + 1, irc_page_count);
+        snprintf(page_label, sizeof(page_label), "%.24s %.14s %u/%u",
+                 current_server, page->name, (unsigned)page_number,
+                 (unsigned)page_total);
     }
     draw_text(24, 34, cyan, page_label);
 
@@ -805,15 +858,10 @@ static const char *dns_error_name(int error) {
     }
 }
 
-static const char *const irc_ports[] = {
-    IRC_PRIMARY_PORT,
-    IRC_FALLBACK_PORT
-};
-
 static void connect_resolve_current_port(void);
 
 static void finish_tcp_connection(void) {
-    const char *port = irc_ports[connect_port_index];
+    const char *port = server_ports[connect_port_index];
     int enabled = 1;
 
     setsockopt(irc_socket, IPPROTO_TCP, TCP_NODELAY,
@@ -827,7 +875,7 @@ static void finish_tcp_connection(void) {
     page_history_addf(0, STYLE_EVENT, "Connected on port %s. Registering as %s...",
                       connected_port, nickname);
     printf("Dreamcast IRC: connected to %s:%s as %s\n",
-           IRC_SERVER, connected_port, nickname);
+           current_server, connected_port, nickname);
 
     if(irc_sendf("NICK %s", nickname) < 0 ||
        irc_sendf("USER dreamcast 0 * :Dreamcast IRC Client") < 0) {
@@ -837,7 +885,7 @@ static void finish_tcp_connection(void) {
 }
 
 static void connect_try_next_address(void) {
-    const char *port = irc_ports[connect_port_index];
+    const char *port = server_ports[connect_port_index];
 
     while(connect_next_address) {
         struct addrinfo *address = connect_next_address;
@@ -919,7 +967,7 @@ static void connect_resolve_current_port(void) {
         connect_addresses = NULL;
         connect_next_address = NULL;
     }
-    if(connect_port_index >= sizeof(irc_ports) / sizeof(irc_ports[0])) {
+    if(connect_port_index >= server_port_count) {
         schedule_reconnectf("Unable to connect (%s).",
                             connect_last_error[0] ? connect_last_error :
                             "all addresses and ports failed");
@@ -932,9 +980,10 @@ static void connect_resolve_current_port(void) {
     hints.ai_protocol = IPPROTO_TCP;
 
     page_history_addf(0, STYLE_EVENT, "Resolving %s for port %s...",
-                      IRC_SERVER, irc_ports[connect_port_index]);
+                      current_server, server_ports[connect_port_index]);
     render_screen();
-    resolver_error = getaddrinfo(IRC_SERVER, irc_ports[connect_port_index],
+    resolver_error = getaddrinfo(current_server,
+                                 server_ports[connect_port_index],
                                  &hints, &connect_addresses);
     if(resolver_error != 0) {
         snprintf(connect_last_error, sizeof(connect_last_error),
@@ -1074,17 +1123,21 @@ static void handle_irc_line(const char *wire_line) {
         connection_state = CONN_ONLINE;
         connection_deadline = 0;
         reconnect_attempt = 0;
+        if(parameter_count > 0 && valid_nickname(parameters[0]))
+            snprintf(nickname, sizeof(nickname), "%s", parameters[0]);
         if(connect_addresses) {
             freeaddrinfo(connect_addresses);
             connect_addresses = NULL;
             connect_next_address = NULL;
         }
-        page_history_addf(0, STYLE_EVENT, "Registered with %s.", IRC_SERVER);
-        if(irc_page_count == 1) {
+        page_history_addf(0, STYLE_EVENT, "Registered with %s.",
+                          current_server);
+        if(join_default_channel_on_connect && irc_page_count == 1) {
             int page_index = channel_page_open(IRC_CHANNEL);
             if(page_index >= 0)
                 active_page = page_index;
         }
+        join_default_channel_on_connect = false;
         for(i = 1; i < irc_page_count; ++i) {
             pages[i].joined = false;
             pages[i].join_pending = true;
@@ -1094,6 +1147,8 @@ static void handle_irc_line(const char *wire_line) {
             if(irc_sendf("JOIN %s", pages[i].name) < 0)
                 break;
         }
+        if(irc_page_count == 1)
+            profile_mark_dirty();
         screen_dirty = true;
         return;
     }
@@ -1124,6 +1179,16 @@ static void handle_irc_line(const char *wire_line) {
                       sender, KOS_VERSION_STRING);
             page_history_add_remotef(0, STYLE_NOTICE,
                                      "CTCP VERSION requested by %s", sender);
+        }
+        else if(irc_name_equals(parameters[0], nickname) &&
+                ((length == 12 &&
+                  memcmp(message, "\001CLIENTINFO\001", 12) == 0) ||
+                 (length == 13 &&
+                  memcmp(message, "\001CLIENT INFO\001", 13) == 0))) {
+            irc_sendf("NOTICE %s :\001CLIENTINFO VERSION CLIENTINFO | Source: "
+                      APP_REPOSITORY "\001", sender);
+            page_history_add_remotef(0, STYLE_NOTICE,
+                                     "CTCP CLIENTINFO requested by %s", sender);
         }
         else if(length > 9 && message[0] == '\001' &&
            strncmp(message + 1, "ACTION ", 7) == 0 &&
@@ -1178,6 +1243,7 @@ static void handle_irc_line(const char *wire_line) {
             pages[page_index].join_deadline = 0;
             page_history_addf(page_index, STYLE_EVENT,
                               "Joined %s. Welcome!", parameters[0]);
+            profile_mark_dirty();
         }
         else if(page_index >= 0) {
             page_history_add_remotef(page_index, STYLE_EVENT,
@@ -1196,6 +1262,7 @@ static void handle_irc_line(const char *wire_line) {
                               parameter_count >= 2 ? ": " : "",
                               parameter_count >= 2 ? parameters[1] : "");
             channel_page_close(page_index);
+            profile_mark_dirty();
         }
         else {
             page_history_add_remotef(page_index, STYLE_EVENT,
@@ -1225,6 +1292,7 @@ static void handle_irc_line(const char *wire_line) {
             page_history_addf(0, STYLE_NOTICE, "Kicked from %s by %s.",
                               parameters[0], sender);
             channel_page_close(page_index);
+            profile_mark_dirty();
         }
         return;
     }
@@ -1234,6 +1302,7 @@ static void handle_irc_line(const char *wire_line) {
                                  sender, parameters[0]);
         if(irc_name_equals(sender, nickname)) {
             snprintf(nickname, sizeof(nickname), "%s", parameters[0]);
+            profile_mark_dirty();
             screen_dirty = true;
         }
         return;
@@ -1567,6 +1636,443 @@ static void latin1_to_utf8(char *output, size_t output_size,
     output[written] = '\0';
 }
 
+static bool valid_server_name(const char *server) {
+    size_t i;
+    size_t label_length = 0;
+    size_t length;
+
+    if(!server)
+        return false;
+    length = strlen(server);
+    if(length == 0 || length > SERVER_NAME_MAX)
+        return false;
+
+    for(i = 0; i < length; ++i) {
+        const unsigned char c = (unsigned char)server[i];
+
+        if(c == '.') {
+            if(label_length == 0 || server[i - 1] == '-')
+                return false;
+            label_length = 0;
+            continue;
+        }
+        if(!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+             (c >= '0' && c <= '9') || c == '-')) {
+            return false;
+        }
+        if(label_length == 0 && c == '-')
+            return false;
+        if(++label_length > 63)
+            return false;
+    }
+    return label_length > 0 && server[length - 1] != '-';
+}
+
+static bool normalize_server_port(const char *text,
+                                  char output[SERVER_PORT_MAX + 1]) {
+    unsigned port = 0;
+    size_t i;
+
+    if(!text || !*text)
+        return false;
+    for(i = 0; text[i]; ++i) {
+        const unsigned char c = (unsigned char)text[i];
+        unsigned digit;
+
+        if(c < '0' || c > '9')
+            return false;
+        digit = (unsigned)(c - '0');
+        if(port > (65535u - digit) / 10u)
+            return false;
+        port = port * 10u + digit;
+    }
+    if(port == 0)
+        return false;
+    snprintf(output, SERVER_PORT_MAX + 1, "%u", port);
+    return true;
+}
+
+typedef enum profile_save_result {
+    PROFILE_SAVE_OK,
+    PROFILE_SAVE_NO_VMU,
+    PROFILE_SAVE_ERROR
+} profile_save_result_t;
+
+static const char profile_magic[8] = {
+    'D', 'C', 'I', 'R', 'C', 'F', 'G', '1'
+};
+
+static bool profile_string_terminated(const char *text, size_t capacity) {
+    return memchr(text, '\0', capacity) != NULL;
+}
+
+static void profile_path_for_device(const maple_device_t *device,
+                                    char *path, size_t path_size) {
+    snprintf(path, path_size, "/vmu/%c%d/%s", 'a' + device->port,
+             device->unit, VMU_PROFILE_FILENAME);
+}
+
+static bool profile_record_valid(vmu_profile_record_t *record) {
+    uint32_t stored_checksum;
+    uint32_t calculated_checksum;
+    unsigned i;
+
+    if(memcmp(record->magic, profile_magic, sizeof(profile_magic)) != 0 ||
+       record->version != VMU_PROFILE_VERSION ||
+       record->record_size != sizeof(*record)) {
+        return false;
+    }
+
+    stored_checksum = record->checksum;
+    record->checksum = 0;
+    calculated_checksum = net_crc32le((const uint8_t *)record,
+                                      sizeof(*record));
+    record->checksum = stored_checksum;
+    if(stored_checksum != calculated_checksum)
+        return false;
+
+    if(!profile_string_terminated(record->server,
+                                  sizeof(record->server)) ||
+       !profile_string_terminated(record->nick, sizeof(record->nick)) ||
+       !valid_server_name(record->server) ||
+       !valid_nickname(record->nick) ||
+       record->port_count == 0 ||
+       record->port_count > SERVER_PORT_COUNT_MAX ||
+       record->channel_count > MAX_CHANNELS) {
+        return false;
+    }
+
+    for(i = 0; i < record->port_count; ++i) {
+        char normalized[SERVER_PORT_MAX + 1];
+
+        if(!profile_string_terminated(record->ports[i],
+                                      sizeof(record->ports[i])) ||
+           !normalize_server_port(record->ports[i], normalized) ||
+           strcmp(record->ports[i], normalized) != 0) {
+            return false;
+        }
+    }
+
+    for(i = 0; i < record->channel_count; ++i) {
+        unsigned previous;
+
+        if(!profile_string_terminated(record->channels[i],
+                                      sizeof(record->channels[i])) ||
+           !valid_channel_name(record->channels[i])) {
+            return false;
+        }
+        for(previous = 0; previous < i; ++previous) {
+            if(irc_name_equals(record->channels[i],
+                               record->channels[previous])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool profile_load(void) {
+    maple_device_t *device;
+    int index = 0;
+
+    while((device = maple_enum_type(index++, MAPLE_FUNC_MEMCARD))) {
+        char path[40];
+        file_t file;
+        ssize_t received;
+        unsigned i;
+
+        if(profile_vmu_port < 0) {
+            profile_vmu_port = device->port;
+            profile_vmu_unit = device->unit;
+        }
+
+        profile_path_for_device(device, path, sizeof(path));
+        file = fs_open(path, O_RDONLY);
+        if(file == FILEHND_INVALID)
+            continue;
+
+        memset(&profile_io_record, 0, sizeof(profile_io_record));
+        received = fs_read(file, &profile_io_record,
+                           sizeof(profile_io_record));
+        fs_close(file);
+        if(received != (ssize_t)sizeof(profile_io_record) ||
+           !profile_record_valid(&profile_io_record)) {
+            printf("Dreamcast IRC: ignoring invalid VMU profile at %s\n",
+                   path);
+            profile_invalid_reported = true;
+            continue;
+        }
+
+        snprintf(current_server, sizeof(current_server), "%s",
+                 profile_io_record.server);
+        server_port_count = profile_io_record.port_count;
+        for(i = 0; i < server_port_count; ++i) {
+            snprintf(server_ports[i], sizeof(server_ports[i]), "%s",
+                     profile_io_record.ports[i]);
+        }
+        for(; i < SERVER_PORT_COUNT_MAX; ++i)
+            server_ports[i][0] = '\0';
+        snprintf(nickname, sizeof(nickname), "%s", profile_io_record.nick);
+
+        for(i = 0; i < profile_io_record.channel_count; ++i) {
+            if(channel_page_open(profile_io_record.channels[i]) < 0) {
+                printf("Dreamcast IRC: VMU channel limit reached while loading\n");
+                break;
+            }
+        }
+        active_page = 0;
+        join_default_channel_on_connect = false;
+        profile_vmu_port = device->port;
+        profile_vmu_unit = device->unit;
+        profile_last_checksum = profile_io_record.checksum;
+        profile_last_checksum_valid = true;
+        profile_invalid_reported = false;
+        printf("Dreamcast IRC: loaded VMU profile from %c%d\n",
+               'A' + device->port, device->unit);
+        return true;
+    }
+    return false;
+}
+
+static maple_device_t *profile_device_for_save(void) {
+    maple_device_t *device = NULL;
+
+    if(profile_vmu_port >= 0 && profile_vmu_unit >= 0) {
+        device = maple_enum_dev(profile_vmu_port, profile_vmu_unit);
+        if(device && !(device->info.functions & MAPLE_FUNC_MEMCARD))
+            device = NULL;
+    }
+    if(!device) {
+        device = maple_enum_type(0, MAPLE_FUNC_MEMCARD);
+        if(device) {
+            profile_vmu_port = device->port;
+            profile_vmu_unit = device->unit;
+        }
+    }
+    return device;
+}
+
+static void profile_build_record(void) {
+    const unsigned port_count = server_port_count <= SERVER_PORT_COUNT_MAX ?
+                                server_port_count : SERVER_PORT_COUNT_MAX;
+    unsigned i;
+
+    memset(&profile_io_record, 0, sizeof(profile_io_record));
+    memcpy(profile_io_record.magic, profile_magic, sizeof(profile_magic));
+    profile_io_record.version = VMU_PROFILE_VERSION;
+    profile_io_record.record_size = sizeof(profile_io_record);
+    snprintf(profile_io_record.server, sizeof(profile_io_record.server), "%s",
+             current_server);
+    profile_io_record.port_count = (uint8_t)port_count;
+    for(i = 0; i < port_count; ++i) {
+        snprintf(profile_io_record.ports[i],
+                 sizeof(profile_io_record.ports[i]), "%.5s", server_ports[i]);
+    }
+    snprintf(profile_io_record.nick, sizeof(profile_io_record.nick), "%s",
+             nickname);
+    profile_io_record.channel_count = (uint8_t)(irc_page_count - 1);
+    for(i = 1; i < (unsigned)irc_page_count; ++i) {
+        snprintf(profile_io_record.channels[i - 1],
+                 sizeof(profile_io_record.channels[i - 1]), "%s",
+                 pages[i].name);
+    }
+    profile_io_record.checksum = 0;
+    profile_io_record.checksum = net_crc32le(
+        (const uint8_t *)&profile_io_record, sizeof(profile_io_record));
+}
+
+static profile_save_result_t profile_save(bool announce) {
+    static uint8_t empty_asset;
+    maple_device_t *device;
+    vmu_pkg_t header;
+    char path[40];
+    file_t file;
+    ssize_t written;
+    int header_result;
+    int close_result;
+
+    profile_build_record();
+    if(profile_last_checksum_valid &&
+       profile_io_record.checksum == profile_last_checksum) {
+        return PROFILE_SAVE_OK;
+    }
+
+    device = profile_device_for_save();
+    if(!device)
+        return PROFILE_SAVE_NO_VMU;
+
+    memset(&header, 0, sizeof(header));
+    snprintf(header.desc_short, sizeof(header.desc_short), "DCIRC Profile");
+    snprintf(header.desc_long, sizeof(header.desc_long),
+             "DCIRC connection profile");
+    snprintf(header.app_id, sizeof(header.app_id), "DCIRC");
+    header.icon_cnt = 0;
+    header.icon_data = &empty_asset;
+    header.icon_anim_speed = 0;
+    header.eyecatch_type = VMUPKG_EC_NONE;
+    header.eyecatch_data = &empty_asset;
+    header.data_len = sizeof(profile_io_record);
+    header.data = (const uint8_t *)&profile_io_record;
+
+    profile_path_for_device(device, path, sizeof(path));
+    file = fs_open(path, O_WRONLY | O_TRUNC);
+    if(file == FILEHND_INVALID) {
+        printf("Dreamcast IRC: cannot open %s for writing: %s\n",
+               path, strerror(errno));
+        return PROFILE_SAVE_ERROR;
+    }
+
+    written = fs_write(file, &profile_io_record, sizeof(profile_io_record));
+    header_result = fs_vmu_set_header(file, &header);
+    close_result = fs_close(file);
+    if(written != (ssize_t)sizeof(profile_io_record) ||
+       header_result < 0 || close_result < 0) {
+        printf("Dreamcast IRC: VMU profile write failed at %s: %s\n",
+               path, strerror(errno));
+        return PROFILE_SAVE_ERROR;
+    }
+
+    printf("Dreamcast IRC: saved VMU profile to %c%d\n",
+           'A' + device->port, device->unit);
+    profile_last_checksum = profile_io_record.checksum;
+    profile_last_checksum_valid = true;
+    if(announce) {
+        history_addf(STYLE_NOTICE, "Profile saved to VMU %c%d.",
+                     'A' + device->port, device->unit);
+    }
+    return PROFILE_SAVE_OK;
+}
+
+static void profile_mark_dirty(void) {
+    profile_dirty = true;
+    profile_write_failed = false;
+    profile_save_failure_reported = false;
+    profile_save_at = timer_ms_gettime64() + VMU_SAVE_DELAY_MS;
+}
+
+static void poll_profile_save(void) {
+    profile_save_result_t result;
+
+    if(!profile_dirty || profile_write_failed ||
+       timer_ms_gettime64() < profile_save_at || list_in_progress ||
+       connection_state == CONN_CONNECTING ||
+       connection_state == CONN_REGISTERING) {
+        return;
+    }
+
+    result = profile_save(true);
+    if(result == PROFILE_SAVE_OK) {
+        profile_dirty = false;
+        profile_save_failure_reported = false;
+    }
+    else if(result == PROFILE_SAVE_NO_VMU) {
+        profile_save_at = timer_ms_gettime64() + VMU_RETRY_DELAY_MS;
+        if(!profile_save_failure_reported) {
+            history_addf(STYLE_NOTICE,
+                         "No VMU found; profile is not saved yet.");
+            profile_save_failure_reported = true;
+        }
+    }
+    else {
+        profile_write_failed = true;
+        if(!profile_save_failure_reported) {
+            history_addf(STYLE_ERROR,
+                         "VMU profile save failed; check free blocks.");
+            profile_save_failure_reported = true;
+        }
+    }
+}
+
+static void command_server(char *argument) {
+    char *server;
+    char *port_argument = NULL;
+    char normalized_port[SERVER_PORT_MAX + 1];
+    char *cursor;
+
+    if(!argument || !*argument) {
+        history_addf(STYLE_ERROR, "Usage: /server HOST [PORT]");
+        return;
+    }
+
+    server = argument;
+    cursor = server;
+    while(*cursor && *cursor != ' ')
+        cursor++;
+    if(*cursor) {
+        *cursor++ = '\0';
+        while(*cursor == ' ')
+            cursor++;
+        if(*cursor) {
+            char *port_end;
+
+            port_argument = cursor;
+            port_end = port_argument;
+            while(*port_end && *port_end != ' ')
+                port_end++;
+            if(*port_end) {
+                *port_end++ = '\0';
+                while(*port_end == ' ')
+                    port_end++;
+                if(*port_end) {
+                    history_addf(STYLE_ERROR,
+                                 "Usage: /server HOST [PORT]");
+                    return;
+                }
+            }
+        }
+    }
+
+    if(!valid_server_name(server)) {
+        history_addf(STYLE_ERROR, "Invalid IRC server hostname.");
+        return;
+    }
+    if(port_argument &&
+       !normalize_server_port(port_argument, normalized_port)) {
+        history_addf(STYLE_ERROR, "Port must be between 1 and 65535.");
+        return;
+    }
+
+    if(irc_socket >= 0 && connection_state != CONN_CONNECTING) {
+        irc_sendf("QUIT :Changing servers");
+        flush_send_queue();
+    }
+    irc_close();
+
+    snprintf(current_server, sizeof(current_server), "%s", server);
+    if(port_argument) {
+        snprintf(server_ports[0], sizeof(server_ports[0]), "%s",
+                 normalized_port);
+        server_ports[1][0] = '\0';
+        server_port_count = 1;
+    }
+    else {
+        snprintf(server_ports[0], sizeof(server_ports[0]), "%s",
+                 IRC_PRIMARY_PORT);
+        snprintf(server_ports[1], sizeof(server_ports[1]), "%s",
+                 IRC_FALLBACK_PORT);
+        server_port_count = SERVER_PORT_COUNT_MAX;
+    }
+
+    memset(pages, 0, sizeof(pages));
+    irc_page_count = 1;
+    active_page = 0;
+    snprintf(pages[0].name, sizeof(pages[0].name), "Server");
+    join_default_channel_on_connect = false;
+    connected_port[0] = '\0';
+    page_history_addf(0, STYLE_EVENT, "Switching to %s.", current_server);
+    if(server_port_count == 1) {
+        page_history_addf(0, STYLE_EVENT, "Port: %s", server_ports[0]);
+    }
+    else {
+        page_history_addf(0, STYLE_EVENT, "Ports: %s/%s",
+                          server_ports[0], server_ports[1]);
+    }
+    page_history_addf(0, STYLE_NOTICE,
+                      "Use /join after connecting to the new network.");
+    profile_mark_dirty();
+    irc_begin_connect(true);
+}
+
 static void command_join_channels(char *argument) {
     char *cursor = argument;
 
@@ -1620,6 +2126,7 @@ static void command_part_channel(char *argument) {
     if(irc_socket < 0 || !pages[page_index].joined) {
         page_history_addf(0, STYLE_EVENT, "Closed %s.", channel);
         channel_page_close(page_index);
+        profile_mark_dirty();
         return;
     }
 
@@ -1717,8 +2224,8 @@ static void submit_input(void) {
 
         if(strcmp(input_text, "/help") == 0) {
             history_addf(STYLE_NOTICE,
-                         "Commands: /join /part /list /me /nick /clear "
-                         "/reconnect /quit");
+                         "Commands: /server /join /part /list /me /nick "
+                         "/clear /reconnect /quit");
         }
         else if(strcmp(input_text, "/clear") == 0) {
             pages[active_page].history_start = 0;
@@ -1728,6 +2235,9 @@ static void submit_input(void) {
         }
         else if(strcmp(input_text, "/reconnect") == 0) {
             irc_begin_connect(true);
+        }
+        else if(strcmp(input_text, "/server") == 0) {
+            command_server(argument);
         }
         else if(strcmp(input_text, "/join") == 0) {
             command_join_channels(argument);
@@ -1927,6 +2437,8 @@ static void print_network_details(void) {
 }
 
 int main(int argc, char **argv) {
+    bool profile_loaded;
+
     (void)argc;
     (void)argv;
 
@@ -1940,17 +2452,42 @@ int main(int argc, char **argv) {
     snprintf(pages[0].name, sizeof(pages[0].name), "Server");
 
     print_network_details();
-    set_generated_nickname();
     history_addf(STYLE_EVENT, APP_NAME " starting.");
-    history_addf(STYLE_EVENT, "Server: %s ports %s/%s", IRC_SERVER,
-                 IRC_PRIMARY_PORT, IRC_FALLBACK_PORT);
-    history_addf(STYLE_EVENT, "Default channel: %s", IRC_CHANNEL);
+    profile_loaded = profile_load();
+    if(!profile_loaded) {
+        set_generated_nickname();
+        history_addf(STYLE_EVENT, "Using default profile.");
+    }
+    else {
+        history_addf(STYLE_EVENT, "Loaded profile from VMU %c%d.",
+                     'A' + profile_vmu_port, profile_vmu_unit);
+    }
+    if(profile_invalid_reported) {
+        history_addf(STYLE_NOTICE,
+                     "Invalid VMU profile ignored; using defaults.");
+    }
+    if(server_port_count == 1) {
+        history_addf(STYLE_EVENT, "Server: %s port %s", current_server,
+                     server_ports[0]);
+    }
+    else {
+        history_addf(STYLE_EVENT, "Server: %s ports %s/%s", current_server,
+                     server_ports[0], server_ports[1]);
+    }
+    if(profile_loaded) {
+        history_addf(STYLE_EVENT, "Saved channels: %d", irc_page_count - 1);
+    }
+    else {
+        history_addf(STYLE_EVENT, "Default channel: %s", IRC_CHANNEL);
+    }
     if(!keyboard)
         history_addf(STYLE_NOTICE, "Connect a Dreamcast keyboard to type.");
     history_addf(STYLE_NOTICE, "Type /help for commands. START quits.");
+    if(profile_loaded && irc_page_count > 1)
+        active_page = 1;
     render_screen();
 
-    irc_begin_connect(true);
+    irc_begin_connect(false);
 
     while(running) {
         poll_connection_state();
@@ -1958,6 +2495,7 @@ int main(int argc, char **argv) {
         poll_network();
         poll_keyboard();
         poll_controller();
+        poll_profile_save();
         render_screen();
         thd_sleep(2);
     }
@@ -1965,6 +2503,8 @@ int main(int argc, char **argv) {
     if(irc_socket >= 0)
         irc_sendf("QUIT :Dreamcast powering down");
     flush_send_queue();
+    if(profile_dirty)
+        profile_save(false);
     irc_close();
     printf("Dreamcast IRC: clean shutdown\n");
     return 0;
