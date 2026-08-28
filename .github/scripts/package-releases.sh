@@ -37,6 +37,7 @@ done <<'PROJECTS'
 demon-bazooka|Demon Bazooka
 dreamcast-browser|Dreamcast Browser
 dreamcast-irc|Dreamcast IRC
+drift-los-angeles|Drift Los Angeles
 gravity-wave|Gravity Wave
 ping-cube|Ping Cube
 PROJECTS

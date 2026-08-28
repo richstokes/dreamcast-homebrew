@@ -41,6 +41,7 @@ for project in \
     demon-bazooka \
     dreamcast-browser \
     dreamcast-irc \
+    drift-los-angeles \
     gravity-wave \
     ping-cube
 do
