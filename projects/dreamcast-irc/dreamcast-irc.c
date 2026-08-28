@@ -17,9 +17,11 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,9 +31,18 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#ifndef IRC_SERVER
 #define IRC_SERVER "irc.libera.chat"
-#define IRC_PORT "6667"
+#endif
+#ifndef IRC_PRIMARY_PORT
+#define IRC_PRIMARY_PORT "6667"
+#endif
+#ifndef IRC_FALLBACK_PORT
+#define IRC_FALLBACK_PORT "8000"
+#endif
+#ifndef IRC_CHANNEL
 #define IRC_CHANNEL "#netsplit"
+#endif
 #define APP_NAME "DCIRC"
 #define APP_VERSION "0.1"
 
@@ -48,6 +59,18 @@
 #define INPUT_MAX 240
 #define IRC_WIRE_MAX 512
 #define IRC_RECV_MAX 768
+#define SEND_QUEUE_SIZE 4096
+#ifndef CONNECT_TIMEOUT_MS
+#define CONNECT_TIMEOUT_MS 12000
+#endif
+#ifndef REGISTER_TIMEOUT_MS
+#define REGISTER_TIMEOUT_MS 45000
+#endif
+#define JOIN_TIMEOUT_MS 20000
+#define IDLE_PING_MS 120000
+#define PONG_TIMEOUT_MS 30000
+#define RETRY_INITIAL_MS 5000
+#define RETRY_MAX_MS 60000
 
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 
@@ -55,8 +78,8 @@ typedef enum connection_state {
     CONN_OFFLINE,
     CONN_CONNECTING,
     CONN_REGISTERING,
-    CONN_JOINING,
-    CONN_JOINED
+    CONN_ONLINE,
+    CONN_RETRY_WAIT
 } connection_state_t;
 
 typedef enum line_style {
@@ -75,6 +98,8 @@ typedef struct history_line {
 typedef struct irc_page {
     char name[CHANNEL_NAME_MAX + 1];
     bool joined;
+    bool join_pending;
+    uint64_t join_deadline;
     history_line_t history[HISTORY_LINES];
     int history_start;
     int history_count;
@@ -88,6 +113,15 @@ static char input_text[INPUT_MAX + 1];
 static size_t input_length;
 static connection_state_t connection_state = CONN_OFFLINE;
 static int irc_socket = -1;
+static struct addrinfo *connect_addresses;
+static struct addrinfo *connect_next_address;
+static unsigned connect_port_index;
+static uint64_t connection_deadline;
+static uint64_t reconnect_at;
+static unsigned reconnect_attempt;
+static char connected_port[6];
+static char connect_endpoint[64];
+static char connect_last_error[96];
 static char nickname[16];
 static unsigned nickname_attempt;
 static char receive_line[IRC_RECV_MAX];
@@ -103,6 +137,11 @@ static unsigned list_entries_displayed;
 static bool list_in_progress;
 static bool list_cancel_sent;
 static bool nickname_rng_seeded;
+static char send_queue[SEND_QUEUE_SIZE];
+static size_t send_queue_length;
+static uint64_t last_receive_time;
+static bool awaiting_pong;
+static uint64_t pong_deadline;
 
 static uint16_t rgb565(unsigned r, unsigned g, unsigned b) {
     return (uint16_t)(((r & 0xf8) << 8) |
@@ -430,10 +469,10 @@ static const char *connection_label(void) {
             return "CONNECTING";
         case CONN_REGISTERING:
             return "REGISTERING";
-        case CONN_JOINING:
-            return "JOINING";
-        case CONN_JOINED:
+        case CONN_ONLINE:
             return "ONLINE";
+        case CONN_RETRY_WAIT:
+            return "RETRYING";
         case CONN_OFFLINE:
         default:
             return "OFFLINE";
@@ -506,7 +545,7 @@ static void render_screen(void) {
              nickname[0] ? nickname : "pending");
     if(strlen(status) > 24)
         status[24] = '\0';
-    draw_text(340, 8, connection_state == CONN_JOINED ?
+    draw_text(340, 8, connection_state == CONN_ONLINE ?
               rgb565(116, 240, 153) : rgb565(255, 211, 96), status);
 
     clamp_scroll(&pages[active_page]);
@@ -572,30 +611,100 @@ static void irc_close(void) {
         close(irc_socket);
         irc_socket = -1;
     }
+    if(connect_addresses) {
+        freeaddrinfo(connect_addresses);
+        connect_addresses = NULL;
+        connect_next_address = NULL;
+    }
     connection_state = CONN_OFFLINE;
+    connection_deadline = 0;
     receive_length = 0;
     receive_overflow = false;
+    send_queue_length = 0;
+    awaiting_pong = false;
     list_in_progress = false;
     list_cancel_sent = false;
-    for(i = 1; i < irc_page_count; ++i)
+    for(i = 1; i < irc_page_count; ++i) {
         pages[i].joined = false;
+        pages[i].join_pending = false;
+        pages[i].join_deadline = 0;
+    }
     screen_dirty = true;
 }
 
-static int send_all(const char *data, size_t length) {
-    size_t sent_total = 0;
+static void add_connection_problem(const char *text) {
+    page_history_addf(0, STYLE_ERROR, "%s", text);
+    if(active_page != 0)
+        page_history_addf(active_page, STYLE_ERROR, "%s", text);
+    printf("Dreamcast IRC: %s\n", text);
+}
 
-    while(sent_total < length) {
-        ssize_t sent = send(irc_socket, data + sent_total,
-                            length - sent_total, 0);
+static uint64_t retry_delay_ms(void) {
+    uint64_t delay = RETRY_INITIAL_MS;
+    unsigned shifts = reconnect_attempt;
+
+    if(shifts > 4)
+        shifts = 4;
+    delay <<= shifts;
+    if(delay > RETRY_MAX_MS)
+        delay = RETRY_MAX_MS;
+    return delay;
+}
+
+static void schedule_reconnectf(const char *format, ...) {
+    char reason[160];
+    char message[224];
+    uint64_t delay = retry_delay_ms();
+    va_list arguments;
+
+    va_start(arguments, format);
+    vsnprintf(reason, sizeof(reason), format, arguments);
+    va_end(arguments);
+    snprintf(message, sizeof(message), "%s Retrying in %llu seconds.",
+             reason, (unsigned long long)(delay / 1000));
+    add_connection_problem(message);
+    irc_close();
+    reconnect_attempt++;
+    reconnect_at = timer_ms_gettime64() + delay;
+    connection_state = CONN_RETRY_WAIT;
+    screen_dirty = true;
+}
+
+static void fail_current_endpoint_and_continue(const char *reason);
+
+static void flush_send_queue(void) {
+    int sends = 0;
+
+    if(irc_socket < 0 || connection_state == CONN_CONNECTING)
+        return;
+
+    while(send_queue_length > 0 && sends++ < 16) {
+        ssize_t sent = send(irc_socket, send_queue, send_queue_length,
+                            MSG_DONTWAIT);
 
         if(sent < 0 && errno == EINTR)
             continue;
-        if(sent <= 0)
-            return -1;
-        sent_total += (size_t)sent;
+        if(sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+            return;
+        if(sent <= 0) {
+            const int error = errno;
+            if(connection_state == CONN_REGISTERING) {
+                char reason[128];
+
+                snprintf(reason, sizeof(reason), "send failed: %s",
+                         strerror(error));
+                fail_current_endpoint_and_continue(reason);
+            }
+            else {
+                schedule_reconnectf("Send failed: %s.", strerror(error));
+            }
+            return;
+        }
+        send_queue_length -= (size_t)sent;
+        if(send_queue_length > 0) {
+            memmove(send_queue, send_queue + sent, send_queue_length);
+        }
     }
-    return 0;
 }
 
 static int irc_sendf(const char *format, ...) {
@@ -612,22 +721,25 @@ static int irc_sendf(const char *format, ...) {
 
     if(length < 0)
         return -1;
-    if(length > (int)sizeof(line) - 3)
-        length = (int)sizeof(line) - 3;
+    if(length > (int)sizeof(line) - 3) {
+        history_addf(STYLE_ERROR,
+                     "Message is too long for one IRC line; shorten it.");
+        printf("Dreamcast IRC: refused overlong outgoing IRC line (%d bytes)\n",
+               length);
+        return -1;
+    }
 
     line[length++] = '\r';
     line[length++] = '\n';
     line[length] = '\0';
 
     printf("IRC >> %.*s\n", length - 2, line);
-    if(send_all(line, (size_t)length) < 0) {
-        const int error = errno;
-        page_history_addf(0, STYLE_ERROR, "Send failed: %s",
-                          strerror(error));
-        printf("Dreamcast IRC: send failed: %s\n", strerror(error));
-        irc_close();
+    if(send_queue_length + (size_t)length > sizeof(send_queue)) {
+        schedule_reconnectf("Outgoing IRC queue overflowed.");
         return -1;
     }
+    memcpy(send_queue + send_queue_length, line, (size_t)length);
+    send_queue_length += (size_t)length;
     return 0;
 }
 
@@ -656,16 +768,18 @@ static int request_channel_join(const char *channel, bool focus) {
                           "Already joined %s.", channel);
         return page_index;
     }
-    if(irc_socket < 0) {
+    if(connection_state != CONN_ONLINE) {
         page_history_addf(page_index, STYLE_NOTICE,
-                          "%s queued until reconnect.", channel);
+                          "%s queued until IRC registration.", channel);
         return page_index;
     }
 
     page_history_addf(page_index, STYLE_EVENT, "Joining %s...", channel);
     if(irc_sendf("JOIN %s", channel) < 0)
         return -1;
-    connection_state = CONN_JOINING;
+    pages[page_index].join_pending = true;
+    pages[page_index].join_deadline =
+        timer_ms_gettime64() + JOIN_TIMEOUT_MS;
     return page_index;
 }
 
@@ -675,27 +789,179 @@ static bool network_has_address(void) {
             net_default_dev->ip_addr[2] || net_default_dev->ip_addr[3]);
 }
 
-static int irc_connect(void) {
-    struct addrinfo hints;
-    struct addrinfo *addresses = NULL;
-    struct addrinfo *address;
-    int resolver_error;
-    int last_error = 0;
+static const char *dns_error_name(int error) {
+    switch(error) {
+        case EAI_AGAIN: return "temporary DNS failure";
+        case EAI_BADFLAGS: return "invalid DNS flags";
+        case EAI_FAIL: return "DNS server failure";
+        case EAI_FAMILY: return "unsupported address family";
+        case EAI_MEMORY: return "DNS allocation failure";
+        case EAI_NONAME: return "host not found";
+        case EAI_SERVICE: return "invalid service";
+        case EAI_SOCKTYPE: return "invalid socket type";
+        case EAI_SYSTEM: return strerror(errno);
+        case EAI_OVERFLOW: return "DNS result overflow";
+        default: return "unknown DNS error";
+    }
+}
 
-    if(irc_socket >= 0)
-        irc_sendf("QUIT :Reconnecting");
-    irc_close();
-    active_page = 0;
-    if(!network_has_address()) {
-        page_history_addf(0, STYLE_ERROR,
-                          "No IPv4 address. Enable the BBA and DHCP.");
-        printf("Dreamcast IRC: no configured network device\n");
-        return -1;
+static const char *const irc_ports[] = {
+    IRC_PRIMARY_PORT,
+    IRC_FALLBACK_PORT
+};
+
+static void connect_resolve_current_port(void);
+
+static void finish_tcp_connection(void) {
+    const char *port = irc_ports[connect_port_index];
+    int enabled = 1;
+
+    setsockopt(irc_socket, IPPROTO_TCP, TCP_NODELAY,
+               &enabled, sizeof(enabled));
+    snprintf(connected_port, sizeof(connected_port), "%s", port);
+    receive_length = 0;
+    receive_overflow = false;
+    connection_state = CONN_REGISTERING;
+    connection_deadline = timer_ms_gettime64() + REGISTER_TIMEOUT_MS;
+    last_receive_time = timer_ms_gettime64();
+    page_history_addf(0, STYLE_EVENT, "Connected on port %s. Registering as %s...",
+                      connected_port, nickname);
+    printf("Dreamcast IRC: connected to %s:%s as %s\n",
+           IRC_SERVER, connected_port, nickname);
+
+    if(irc_sendf("NICK %s", nickname) < 0 ||
+       irc_sendf("USER dreamcast 0 * :Dreamcast IRC Client") < 0) {
+        return;
+    }
+    screen_dirty = true;
+}
+
+static void connect_try_next_address(void) {
+    const char *port = irc_ports[connect_port_index];
+
+    while(connect_next_address) {
+        struct addrinfo *address = connect_next_address;
+        const struct sockaddr_in *ipv4 =
+            (const struct sockaddr_in *)address->ai_addr;
+        char ip[INET_ADDRSTRLEN] = "unknown";
+        int candidate;
+        int result;
+
+        connect_next_address = address->ai_next;
+        inet_ntop(AF_INET, &ipv4->sin_addr, ip, sizeof(ip));
+        snprintf(connect_endpoint, sizeof(connect_endpoint), "%s:%s", ip, port);
+        page_history_addf(0, STYLE_EVENT, "Trying %s:%s...", ip, port);
+        printf("Dreamcast IRC: trying %s:%s\n", ip, port);
+
+        candidate = socket(address->ai_family, address->ai_socktype,
+                           address->ai_protocol);
+        if(candidate < 0) {
+            snprintf(connect_last_error, sizeof(connect_last_error),
+                     "socket for %s:%s: %s", ip, port, strerror(errno));
+            continue;
+        }
+        if(fcntl(candidate, F_SETFL, O_NONBLOCK) < 0) {
+            snprintf(connect_last_error, sizeof(connect_last_error),
+                     "nonblocking %s:%s: %s", ip, port, strerror(errno));
+            close(candidate);
+            continue;
+        }
+
+        result = connect(candidate, address->ai_addr, address->ai_addrlen);
+        if(result == 0) {
+            irc_socket = candidate;
+            finish_tcp_connection();
+            return;
+        }
+        if(errno == EINPROGRESS) {
+            irc_socket = candidate;
+            connection_deadline = timer_ms_gettime64() + CONNECT_TIMEOUT_MS;
+            connection_state = CONN_CONNECTING;
+            screen_dirty = true;
+            return;
+        }
+
+        snprintf(connect_last_error, sizeof(connect_last_error),
+                 "%s:%s: %s", ip, port, strerror(errno));
+        printf("Dreamcast IRC: connect failed for %s\n", connect_last_error);
+        close(candidate);
     }
 
+    connect_port_index++;
+    connect_resolve_current_port();
+}
+
+static void fail_current_endpoint_and_continue(const char *reason) {
+    page_history_addf(0, STYLE_NOTICE, "%s failed: %s.",
+                      connect_endpoint, reason);
+    snprintf(connect_last_error, sizeof(connect_last_error), "%s: %s",
+             connect_endpoint, reason);
+    printf("Dreamcast IRC: %s\n", connect_last_error);
+    if(irc_socket >= 0) {
+        close(irc_socket);
+        irc_socket = -1;
+    }
+    receive_length = 0;
+    receive_overflow = false;
+    send_queue_length = 0;
+    awaiting_pong = false;
     connection_state = CONN_CONNECTING;
-    page_history_addf(0, STYLE_EVENT, "Resolving %s...", IRC_SERVER);
+    connect_port_index++;
+    connect_resolve_current_port();
+}
+
+static void connect_resolve_current_port(void) {
+    struct addrinfo hints;
+    int resolver_error;
+
+    if(connect_addresses) {
+        freeaddrinfo(connect_addresses);
+        connect_addresses = NULL;
+        connect_next_address = NULL;
+    }
+    if(connect_port_index >= sizeof(irc_ports) / sizeof(irc_ports[0])) {
+        schedule_reconnectf("Unable to connect (%s).",
+                            connect_last_error[0] ? connect_last_error :
+                            "all addresses and ports failed");
+        return;
+    }
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    page_history_addf(0, STYLE_EVENT, "Resolving %s for port %s...",
+                      IRC_SERVER, irc_ports[connect_port_index]);
     render_screen();
+    resolver_error = getaddrinfo(IRC_SERVER, irc_ports[connect_port_index],
+                                 &hints, &connect_addresses);
+    if(resolver_error != 0) {
+        snprintf(connect_last_error, sizeof(connect_last_error),
+                 "DNS %s (%d)", dns_error_name(resolver_error), resolver_error);
+        printf("Dreamcast IRC: %s\n", connect_last_error);
+        connect_port_index++;
+        connect_resolve_current_port();
+        return;
+    }
+    connect_next_address = connect_addresses;
+    connect_try_next_address();
+}
+
+static void irc_begin_connect(bool user_initiated) {
+    if(irc_socket >= 0 && connection_state != CONN_CONNECTING) {
+        irc_sendf("QUIT :Reconnecting");
+        flush_send_queue();
+    }
+    irc_close();
+    if(user_initiated) {
+        active_page = 0;
+        reconnect_attempt = 0;
+    }
+    if(!network_has_address()) {
+        schedule_reconnectf("No IPv4 address; check the BBA and DHCP.");
+        return;
+    }
 
     if(!net_default_dev->dns[0] && !net_default_dev->dns[1] &&
        !net_default_dev->dns[2] && !net_default_dev->dns[3]) {
@@ -706,71 +972,10 @@ static int irc_connect(void) {
         printf("Dreamcast IRC: DHCP supplied no DNS; using 1.1.1.1\n");
     }
 
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-
-    resolver_error = getaddrinfo(IRC_SERVER, IRC_PORT, &hints, &addresses);
-    if(resolver_error != 0) {
-        history_addf(STYLE_ERROR, "DNS lookup failed (error %d).",
-                     resolver_error);
-        printf("Dreamcast IRC: DNS lookup failed: %d\n", resolver_error);
-        irc_close();
-        return -1;
-    }
-
-    page_history_addf(0, STYLE_EVENT, "Connecting to %s:%s...",
-                      IRC_SERVER, IRC_PORT);
-    render_screen();
-
-    for(address = addresses; address; address = address->ai_next) {
-        int candidate = socket(address->ai_family, address->ai_socktype,
-                               address->ai_protocol);
-
-        if(candidate < 0) {
-            last_error = errno;
-            continue;
-        }
-
-        if(connect(candidate, address->ai_addr, address->ai_addrlen) == 0) {
-            int enabled = 1;
-            irc_socket = candidate;
-            setsockopt(irc_socket, IPPROTO_TCP, TCP_NODELAY,
-                       &enabled, sizeof(enabled));
-            break;
-        }
-
-        last_error = errno;
-        close(candidate);
-    }
-    freeaddrinfo(addresses);
-
-    if(irc_socket < 0) {
-        page_history_addf(0, STYLE_ERROR, "Connection failed: %s",
-                          strerror(last_error));
-        printf("Dreamcast IRC: connection failed: %s\n",
-               strerror(last_error));
-        irc_close();
-        return -1;
-    }
-
-    receive_length = 0;
-    receive_overflow = false;
-    connection_state = CONN_REGISTERING;
-    page_history_addf(0, STYLE_EVENT, "Connected. Registering as %s...",
-                      nickname);
-    printf("Dreamcast IRC: connected to %s:%s as %s\n",
-           IRC_SERVER, IRC_PORT, nickname);
-
-    if(irc_sendf("NICK %s", nickname) < 0 ||
-       irc_sendf("USER dreamcast 0 * :Dreamcast IRC Client") < 0) {
-        irc_close();
-        return -1;
-    }
-
-    screen_dirty = true;
-    return 0;
+    connection_state = CONN_CONNECTING;
+    connect_port_index = 0;
+    connect_last_error[0] = '\0';
+    connect_resolve_current_port();
 }
 
 static void prefix_nickname(const char *prefix, char *output,
@@ -789,6 +994,20 @@ static void prefix_nickname(const char *prefix, char *output,
         length = output_size - 1;
     memcpy(output, prefix, length);
     output[length] = '\0';
+}
+
+static bool is_join_error_numeric(const char *command) {
+    static const char *const errors[] = {
+        "403", "405", "437", "471", "473", "474", "475", "476", "477",
+        "479", "489"
+    };
+    size_t i;
+
+    for(i = 0; i < sizeof(errors) / sizeof(errors[0]); ++i) {
+        if(strcmp(command, errors[i]) == 0)
+            return true;
+    }
+    return false;
 }
 
 static void handle_irc_line(const char *wire_line) {
@@ -840,6 +1059,8 @@ static void handle_irc_line(const char *wire_line) {
     }
 
     prefix_nickname(prefix, sender, sizeof(sender));
+    last_receive_time = timer_ms_gettime64();
+    awaiting_pong = false;
 
     if(strcmp(command, "PING") == 0) {
         if(parameter_count > 0)
@@ -850,7 +1071,14 @@ static void handle_irc_line(const char *wire_line) {
     if(strcmp(command, "001") == 0) {
         int i;
 
-        connection_state = CONN_JOINING;
+        connection_state = CONN_ONLINE;
+        connection_deadline = 0;
+        reconnect_attempt = 0;
+        if(connect_addresses) {
+            freeaddrinfo(connect_addresses);
+            connect_addresses = NULL;
+            connect_next_address = NULL;
+        }
         page_history_addf(0, STYLE_EVENT, "Registered with %s.", IRC_SERVER);
         if(irc_page_count == 1) {
             int page_index = channel_page_open(IRC_CHANNEL);
@@ -859,12 +1087,13 @@ static void handle_irc_line(const char *wire_line) {
         }
         for(i = 1; i < irc_page_count; ++i) {
             pages[i].joined = false;
+            pages[i].join_pending = true;
+            pages[i].join_deadline =
+                timer_ms_gettime64() + JOIN_TIMEOUT_MS;
             page_history_addf(i, STYLE_EVENT, "Joining %s...", pages[i].name);
             if(irc_sendf("JOIN %s", pages[i].name) < 0)
                 break;
         }
-        if(irc_page_count == 1)
-            connection_state = CONN_JOINED;
         screen_dirty = true;
         return;
     }
@@ -874,6 +1103,7 @@ static void handle_irc_line(const char *wire_line) {
         set_generated_nickname();
         page_history_addf(0, STYLE_NOTICE,
                           "Nickname in use; trying %s.", nickname);
+        connection_deadline = timer_ms_gettime64() + REGISTER_TIMEOUT_MS;
         irc_sendf("NICK %s", nickname);
         return;
     }
@@ -944,7 +1174,8 @@ static void handle_irc_line(const char *wire_line) {
                 return;
             }
             pages[page_index].joined = true;
-            connection_state = CONN_JOINED;
+            pages[page_index].join_pending = false;
+            pages[page_index].join_deadline = 0;
             page_history_addf(page_index, STYLE_EVENT,
                               "Joined %s. Welcome!", parameters[0]);
         }
@@ -965,7 +1196,6 @@ static void handle_irc_line(const char *wire_line) {
                               parameter_count >= 2 ? ": " : "",
                               parameter_count >= 2 ? parameters[1] : "");
             channel_page_close(page_index);
-            connection_state = CONN_JOINED;
         }
         else {
             page_history_add_remotef(page_index, STYLE_EVENT,
@@ -995,7 +1225,6 @@ static void handle_irc_line(const char *wire_line) {
             page_history_addf(0, STYLE_NOTICE, "Kicked from %s by %s.",
                               parameters[0], sender);
             channel_page_close(page_index);
-            connection_state = CONN_JOINED;
         }
         return;
     }
@@ -1073,18 +1302,47 @@ static void handle_irc_line(const char *wire_line) {
     }
 
     if(strcmp(command, "ERROR") == 0) {
-        page_history_add_remotef(0, STYLE_ERROR, "Server error: %s",
-                                 parameter_count ? parameters[0] :
-                                 "disconnected");
-        irc_close();
+        char reason[IRC_RECV_MAX];
+
+        remote_text_to_bios(reason, sizeof(reason),
+                            parameter_count ? parameters[0] : "disconnected");
+        schedule_reconnectf("Server error: %s.", reason);
         return;
     }
 
     if(command[0] >= '4' && command[0] <= '5' &&
        parameter_count > 0) {
+        if(is_join_error_numeric(command) && parameter_count >= 2) {
+            int page_index = channel_page_find(parameters[1]);
+
+            if(page_index > 0) {
+                pages[page_index].joined = false;
+                pages[page_index].join_pending = false;
+                pages[page_index].join_deadline = 0;
+                page_history_add_remotef(page_index, STYLE_ERROR,
+                                         "Join failed (%s): %s", command,
+                                         parameters[parameter_count - 1]);
+                return;
+            }
+        }
         list_in_progress = false;
+        if(connection_state == CONN_REGISTERING ||
+           strcmp(command, "451") == 0) {
+            char reason[IRC_RECV_MAX];
+
+            remote_text_to_bios(reason, sizeof(reason),
+                                parameters[parameter_count - 1]);
+            schedule_reconnectf("Registration failed (%s): %s.",
+                                command, reason);
+            return;
+        }
         page_history_add_remotef(0, STYLE_ERROR, "%s: %s", command,
                                  parameters[parameter_count - 1]);
+        if(active_page != 0) {
+            page_history_add_remotef(active_page, STYLE_ERROR, "%s: %s",
+                                     command,
+                                     parameters[parameter_count - 1]);
+        }
         return;
     }
 
@@ -1128,11 +1386,103 @@ static void consume_received_bytes(const char *data, size_t length) {
     }
 }
 
+static void poll_connection_state(void) {
+    const uint64_t now = timer_ms_gettime64();
+    int i;
+
+    if(connection_state == CONN_RETRY_WAIT) {
+        if(now >= reconnect_at) {
+            page_history_addf(0, STYLE_EVENT, "Retrying connection now...");
+            if(active_page != 0)
+                page_history_addf(active_page, STYLE_EVENT,
+                                  "Retrying connection now...");
+            irc_begin_connect(false);
+        }
+        return;
+    }
+
+    if(connection_state == CONN_CONNECTING && irc_socket >= 0) {
+        struct pollfd descriptor;
+        int result;
+
+        descriptor.fd = irc_socket;
+        descriptor.events = POLLOUT;
+        descriptor.revents = 0;
+        result = poll(&descriptor, 1, 0);
+        if(result > 0 && (descriptor.revents & POLLOUT)) {
+            finish_tcp_connection();
+            return;
+        }
+        if(result < 0 ||
+           (result > 0 && (descriptor.revents &
+                           (POLLERR | POLLHUP | POLLNVAL)))) {
+            snprintf(connect_last_error, sizeof(connect_last_error),
+                     "%s: connection refused or reset", connect_endpoint);
+            printf("Dreamcast IRC: %s\n", connect_last_error);
+            close(irc_socket);
+            irc_socket = -1;
+            connect_try_next_address();
+            return;
+        }
+        if(now >= connection_deadline) {
+            snprintf(connect_last_error, sizeof(connect_last_error),
+                     "%s: timed out after %d seconds", connect_endpoint,
+                     CONNECT_TIMEOUT_MS / 1000);
+            page_history_addf(0, STYLE_NOTICE, "%s", connect_last_error);
+            printf("Dreamcast IRC: %s\n", connect_last_error);
+            close(irc_socket);
+            irc_socket = -1;
+            connect_try_next_address();
+        }
+        return;
+    }
+
+    if(connection_state == CONN_REGISTERING &&
+       now >= connection_deadline) {
+        char reason[96];
+
+        snprintf(reason, sizeof(reason),
+                 "IRC registration timed out after %d seconds",
+                 REGISTER_TIMEOUT_MS / 1000);
+        fail_current_endpoint_and_continue(reason);
+        return;
+    }
+
+    if(connection_state != CONN_ONLINE)
+        return;
+
+    for(i = 1; i < irc_page_count; ++i) {
+        if(pages[i].join_pending && now >= pages[i].join_deadline) {
+            pages[i].join_pending = false;
+            pages[i].join_deadline = 0;
+            page_history_addf(i, STYLE_ERROR,
+                              "Join timed out; use /join %s to retry.",
+                              pages[i].name);
+        }
+    }
+
+    if(awaiting_pong) {
+        if(now >= pong_deadline)
+            schedule_reconnectf("Server stopped responding to PING.");
+        return;
+    }
+    if(now - last_receive_time >= IDLE_PING_MS) {
+        if(irc_sendf("PING :DCIRC-%llu", (unsigned long long)now) == 0) {
+            awaiting_pong = true;
+            pong_deadline = now + PONG_TIMEOUT_MS;
+            page_history_addf(0, STYLE_NOTICE,
+                              "Connection idle; checking server...");
+        }
+    }
+}
+
 static void poll_network(void) {
     char buffer[512];
     int reads;
 
-    if(irc_socket < 0)
+    if(irc_socket < 0 ||
+       (connection_state != CONN_REGISTERING &&
+        connection_state != CONN_ONLINE))
         return;
 
     /* Apply TCP backpressure during SAFELIST instead of draining a multi-MB
@@ -1142,23 +1492,34 @@ static void poll_network(void) {
 
         if(received > 0) {
             consume_received_bytes(buffer, (size_t)received);
+            if(irc_socket < 0)
+                return;
             continue;
         }
         if(received == 0) {
-            page_history_addf(0, STYLE_ERROR,
-                              "Connection closed by the server.");
-            printf("Dreamcast IRC: server closed the connection\n");
-            irc_close();
+            if(connection_state == CONN_REGISTERING) {
+                fail_current_endpoint_and_continue(
+                    "connection closed during registration");
+            }
+            else {
+                schedule_reconnectf("Connection closed by the server.");
+            }
             return;
         }
         if(errno == EINTR)
             continue;
         if(errno != EAGAIN && errno != EWOULDBLOCK) {
             const int error = errno;
-            page_history_addf(0, STYLE_ERROR, "Receive failed: %s",
-                              strerror(error));
-            printf("Dreamcast IRC: receive failed: %s\n", strerror(error));
-            irc_close();
+            if(connection_state == CONN_REGISTERING) {
+                char reason[128];
+
+                snprintf(reason, sizeof(reason), "receive failed: %s",
+                         strerror(error));
+                fail_current_endpoint_and_continue(reason);
+            }
+            else {
+                schedule_reconnectf("Receive failed: %s.", strerror(error));
+            }
         }
         return;
     }
@@ -1264,8 +1625,7 @@ static void command_part_channel(char *argument) {
 
     latin1_to_utf8(utf8, sizeof(utf8),
                    reason && *reason ? reason : "Leaving");
-    if(irc_sendf("PART %s :%s", channel, utf8) < 0)
-        channel_page_close(page_index);
+    irc_sendf("PART %s :%s", channel, utf8);
 }
 
 static bool valid_list_mask(const char *mask) {
@@ -1303,9 +1663,9 @@ static void command_list_channels(char *argument) {
     active_page = 0;
     pages[0].scroll_offset = 0;
     screen_dirty = true;
-    if(irc_socket < 0) {
+    if(connection_state != CONN_ONLINE) {
         page_history_addf(0, STYLE_ERROR,
-                          "Connect before requesting /list.");
+                          "Finish connecting before requesting /list.");
         return;
     }
 
@@ -1367,7 +1727,7 @@ static void submit_input(void) {
             screen_dirty = true;
         }
         else if(strcmp(input_text, "/reconnect") == 0) {
-            irc_connect();
+            irc_begin_connect(true);
         }
         else if(strcmp(input_text, "/join") == 0) {
             command_join_channels(argument);
@@ -1379,7 +1739,10 @@ static void submit_input(void) {
             command_list_channels(argument);
         }
         else if(strcmp(input_text, "/nick") == 0) {
-            if(argument && valid_nickname(argument)) {
+            if(connection_state != CONN_ONLINE) {
+                history_addf(STYLE_ERROR, "Connect before changing nickname.");
+            }
+            else if(argument && valid_nickname(argument)) {
                 irc_sendf("NICK %s", argument);
             }
             else {
@@ -1405,6 +1768,7 @@ static void submit_input(void) {
                 latin1_to_utf8(utf8, sizeof(utf8),
                                argument && *argument ? argument : "Leaving");
                 irc_sendf("QUIT :%s", utf8);
+                flush_send_queue();
                 irc_close();
             }
             running = false;
@@ -1519,7 +1883,7 @@ static void poll_controller(void) {
         running = false;
     if((buttons & reconnect_chord) == reconnect_chord &&
        (previous_buttons & reconnect_chord) != reconnect_chord) {
-        irc_connect();
+        irc_begin_connect(true);
     }
     if((buttons & latest_chord) == latest_chord &&
        (previous_buttons & latest_chord) != latest_chord) {
@@ -1578,16 +1942,19 @@ int main(int argc, char **argv) {
     print_network_details();
     set_generated_nickname();
     history_addf(STYLE_EVENT, APP_NAME " starting.");
-    history_addf(STYLE_EVENT, "Server: %s:%s", IRC_SERVER, IRC_PORT);
+    history_addf(STYLE_EVENT, "Server: %s ports %s/%s", IRC_SERVER,
+                 IRC_PRIMARY_PORT, IRC_FALLBACK_PORT);
     history_addf(STYLE_EVENT, "Default channel: %s", IRC_CHANNEL);
     if(!keyboard)
         history_addf(STYLE_NOTICE, "Connect a Dreamcast keyboard to type.");
     history_addf(STYLE_NOTICE, "Type /help for commands. START quits.");
     render_screen();
 
-    irc_connect();
+    irc_begin_connect(true);
 
     while(running) {
+        poll_connection_state();
+        flush_send_queue();
         poll_network();
         poll_keyboard();
         poll_controller();
@@ -1597,6 +1964,7 @@ int main(int argc, char **argv) {
 
     if(irc_socket >= 0)
         irc_sendf("QUIT :Dreamcast powering down");
+    flush_send_queue();
     irc_close();
     printf("Dreamcast IRC: clean shutdown\n");
     return 0;

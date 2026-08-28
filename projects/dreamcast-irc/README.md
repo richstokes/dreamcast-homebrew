@@ -1,7 +1,8 @@
 # Dreamcast IRC
 
 Dreamcast IRC is a small KallistiOS client that connects over the Broadband
-Adapter to `irc.libera.chat:6667` and automatically joins `#netsplit`. It
+Adapter to `irc.libera.chat` and automatically joins `#netsplit`. It tries
+plain-text port 6667 first and port 8000 as a fallback. It
 renders a scrollable chat view with the Dreamcast BIOS font and accepts text
 from a Dreamcast keyboard. A permanent server page is followed by up to ten
 channel pages, each backed by its own 96-line fixed-size scrollback ring.
@@ -14,6 +15,14 @@ common join/part/quit/nick/kick events. Direct CTCP `VERSION` requests receive
 a `DCIRC` reply with Dreamcast hardware and KallistiOS system details. Its
 default nickname is `DCIRC_` followed by a random three-digit number; a new
 number is generated if that nickname is already in use.
+
+Connection setup is nonblocking after DNS resolution. Each resolved IPv4
+endpoint has a fixed connection deadline, IRC registration and channel joins
+have their own deadlines, and failed connections retry automatically with
+bounded exponential backoff. A fixed-size outgoing queue prevents a stalled
+network from blocking the UI. Fatal connection errors are shown on both the
+server page and the active channel page; channel-specific join errors stay on
+the affected channel page.
 
 ## Download
 
@@ -68,8 +77,8 @@ KOS BIOS-font/BBA interrupt conflict.
 
 ## Network and security notes
 
-This basic client uses unencrypted IRC on TCP port 6667 and does not implement
-SASL or NickServ authentication. Do not send passwords or other sensitive
+This basic client uses unencrypted IRC on TCP ports 6667 and 8000 and does not
+implement SASL or NickServ authentication. Do not send passwords or other
 information through it. A TLS-capable client would need a TLS library and a
 trusted certificate store in addition to this project's current KOS-only
 dependencies.
