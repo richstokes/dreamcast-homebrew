@@ -32,7 +32,14 @@ make -C "$kos_base" -j"$jobs"
 
 # Dreamcast Browser is the only project with kos-ports dependencies. Building
 # them here also proves the checked-in compatibility patch still applies.
-make -C "$kos_ports/zlib" install
+# The pinned zlib port still uses plain HTTP. GitHub Actions has intermittently
+# received a small HTML response from that endpoint with a successful HTTP
+# status, which only fails later at kos-ports' distfile validation. The
+# upstream zlib GitHub release hosts the byte-identical archive; distinfo keeps
+# enforcing its pinned SHA-256 and size after this download-site override.
+make -C "$kos_ports/zlib" \
+    DOWNLOAD_SITE=https://github.com/madler/zlib/releases/download/v1.3.2 \
+    install
 make -C "$kos_ports/mbedtls" force-install
 make -C "$kos_ports/curl" install
 make -C "$kos_ports/stb_image" install
