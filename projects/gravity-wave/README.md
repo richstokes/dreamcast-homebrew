@@ -19,9 +19,10 @@ is also available.
 
 ## Features
 
-- Infinite deterministic terrain wrapped around a true 3D flight route with
-  tight switchbacks, sustained S-bends, steep climbs, crests, valley dives, a
-  winding energy river, material-mapped canyon walls, and distant ridges
+- Infinite deterministic terrain wrapped around a designed six-phrase route
+  grammar with tight switchbacks, sustained S-bends, steep climbs, crests,
+  valley dives, a winding energy river, material-mapped canyon walls, and
+  distant ridges; later laps mirror and intensify the authored flight line
 - Four fully differentiated biomes: the flooded wreckage of Azure Reach, the
   overgrown ruins of Emerald Veil, the floating crystal fields of Violet Rift,
   and the volcanic foundries of Ember Crown
@@ -38,16 +39,17 @@ is also available.
   camera trauma, and three Nova Pulses per run
 - Three permanent laser levels plus magnetic Laser Core, Repair, Nova, Speed
   Boost, Fast Laser, and Phase Wave pickups dropped by defeated enemies
-- Procedural enemy formations, aimed fire, light/ace/heavy craft, escalating
-  speed, and increasing encounter pressure
+- Biome-authored enemy formations, aimed fire, light/ace/heavy craft,
+  escalating speed, and encounters paced around traversal recovery windows
 - Three mixed traversal challenges: animated Gravity Blooms with swept
   mechanical petals, three-stage Vector Slaloms with alternating industrial
   pylons, and two-stage Shear Runs that demand rapid over/under transitions
 - Vector Crown environmental arches with tapered polygonal ribs, floating
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
-- Five original, randomly sequenced stereo synthwave/synthpop songs with
-  154–166 BPM alternating A/B sections, synthesized at boot with sidechained
+- Five original stereo synthwave/synthpop songs with a randomized run opener
+  followed by a stable chapter-to-track progression, 154–166 BPM alternating A/B
+  sections, synthesized at boot with sidechained
   chord pads, driven pulse bass, stereo arpeggios, distinct lead voices,
   layered drum machines, clap transients, and multi-tap ping-pong echo
 - Optional Jump Pack feedback for impacts, Nova Pulses, upgrades, and guardian
@@ -96,8 +98,9 @@ when the temporary weapon expires.
 
 ## Soundtrack
 
-The title screen identifies the active track, and biome changes rotate the
-score automatically:
+The title screen identifies the active track. Each run chooses a different
+opening song, then biome changes advance predictably through the album so the
+score follows the course's dramatic progression:
 
 - **Midnight Vector** — nocturnal outrun chase theme
 - **Magenta Circuit** — bright synthpop highway theme
@@ -178,8 +181,13 @@ network configuration changes.
 
 ## Gameplay notes
 
-Enemies, pickups, traversal objectives, and structures are expressed in
-route-relative coordinates, so encounters follow the procedural flight path.
+Each biome is staged as a complete arcade chapter: an establishing formation,
+a first traversal lesson, a named landmark and development fight, a harder
+second traversal, a biome-specific guardian, then a protected reward/recovery
+window. Props repeat in recognizable districts and traversal hardware inherits
+the materials and colors of its biome. Enemies, pickups, traversal objectives,
+and structures are expressed in route-relative coordinates, so every encounter
+follows the same authored flight line.
 Destroying enemies before the chain timer expires raises the multiplier. A
 Gravity Bloom's broken inner halo marks its exact scoring aperture; Vector
 Slalom arrows mark the safe side of each pylon, while Shear Run arrows call for

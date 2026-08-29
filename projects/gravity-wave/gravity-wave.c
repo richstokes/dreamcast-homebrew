@@ -52,9 +52,20 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define MAX_PICKUPS          12
 #define STAR_COUNT           54
 #define BIOME_LENGTH         4300.0f
+#define BIOME_BLEND_LENGTH   480.0f
 #define SCENERY_SEGMENT      96.0f
-#define COURSE_TURN_LENGTH   720.0f
-#define COURSE_GRADE_LENGTH  640.0f
+#define COURSE_PHRASES_PER_BIOME 6
+#define COURSE_PHRASE_LENGTH \
+    (BIOME_LENGTH / (float)COURSE_PHRASES_PER_BIOME)
+#define COURSE_TRAVERSALS_PER_BIOME 2
+#define COURSE_WAVES_PER_BIOME 3
+#define COURSE_SIGNATURE_LOCAL_Z 2100.0f
+/* Regular craft sit another COURSE_FORMATION_LEAD units beyond their beat,
+   so a 320-unit beat recovery is roughly a 740-unit visual runway. */
+#define COURSE_GUARDIAN_WAVE_RECOVERY 320.0f
+#define COURSE_GUARDIAN_GATE_RECOVERY 900.0f
+#define COURSE_FORMATION_LEAD 420.0f
+#define COURSE_TRAVERSAL_SCENERY_CLEARANCE 96.0f
 
 #define MUSIC_TRACK_COUNT    5
 #define MUSIC_SECTION_COUNT  2
@@ -120,6 +131,7 @@ typedef struct {
     int type;
     int hp;
     int max_hp;
+    int biome;
     float fire_timer;
     float hit_flash;
     bool fired;
@@ -177,6 +189,7 @@ typedef enum {
 typedef struct {
     bool active;
     bool faulted;
+    bool announced;
     float x, y, z;
     float radius;
     float spin;
@@ -298,6 +311,11 @@ typedef struct {
     float camera_focal;
     float trauma;
     int guardians_destroyed;
+    int music_route_offset;
+    int music_chapter;
+    int last_course_act;
+    float suppressed_gate_from_z;
+    float suppressed_gate_until_z;
     uint32_t previous_buttons;
     bool previous_left_trigger;
     bool previous_right_trigger;
@@ -476,6 +494,82 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     }
 };
 
+/* Every biome is one authored six-phrase chapter. The endpoint arrays return
+   to the center during the transition phrase, so neighboring chapters share
+   both position and a zero derivative at the boundary. A complete four-biome
+   lap mirrors the horizontal composition for infinite variation without
+   randomizing its dramatic rhythm. */
+static const int8_t course_center_knots[4][COURSE_PHRASES_PER_BIOME] = {
+    { 0, -28, -62, -24,  54,  22}, /* Azure: broad wreck-channel sweep. */
+    { 0,  38, -52,  48, -44,  18}, /* Emerald: canopy switchbacks. */
+    { 0, -24, -12,  42,  18, -20}, /* Violet: restrained lateral rift. */
+    { 0,  62, -58,  70, -66,  22}  /* Ember: hard foundry chicane. */
+};
+
+static const int8_t course_grade_knots[4][COURSE_PHRASES_PER_BIOME] = {
+    { 0, -12, -35, -22,  25,  12}, /* Azure river dive and release. */
+    { 0,  25,  46,   8, -27,   9}, /* Emerald canopy crest. */
+    { 0, -34,  38, -40,  42, -12}, /* Violet crest/dive inversion. */
+    { 0,  38,  18, -34,  40,  14}  /* Ember trench and furnace climb. */
+};
+
+static const float course_traversal_offsets[COURSE_TRAVERSALS_PER_BIOME] = {
+    1050.0f, 2500.0f
+};
+
+static const traversal_kind_t
+course_traversal_kinds[4][COURSE_TRAVERSALS_PER_BIOME] = {
+    {TRAVERSAL_GRAVITY_BLOOM, TRAVERSAL_SLALOM},
+    {TRAVERSAL_SLALOM, TRAVERSAL_GRAVITY_BLOOM},
+    {TRAVERSAL_SHEAR_BARRIER, TRAVERSAL_GRAVITY_BLOOM},
+    {TRAVERSAL_SLALOM, TRAVERSAL_SHEAR_BARRIER}
+};
+
+/* Bloom exits alternate authored inside/outside lines across the first lap;
+   this keeps their staging legible without making every aperture choose the
+   same side of the screen. */
+static const int8_t course_bloom_polarity[4] = {1, -1, -1, 1};
+
+static const float course_wave_offsets[COURSE_WAVES_PER_BIOME] = {
+    420.0f, 1950.0f, 3300.0f
+};
+
+static const uint8_t course_wave_patterns[4][2] = {
+    {0, 2}, /* Azure lines establish, then cross the river channel. */
+    {1, 0}, /* Emerald orbit opens into a canopy line. */
+    {1, 2}, /* Violet orbit develops into vertical flankers. */
+    {2, 3}  /* Ember crossers develop into bomber pressure. */
+};
+
+/* Four-slot motifs repeat as recognizable districts inside each phrase.
+   Small hashed dimensions still keep individual props from cloning exactly,
+   while their silhouettes now build toward a chapter landmark. */
+static const uint8_t scenery_motifs[4][COURSE_PHRASES_PER_BIOME][4] = {
+    {
+        {0,2,0,4}, {0,4,2,0}, {1,3,1,4},
+        {2,4,0,2}, {1,0,3,0}, {0,2,0,4}
+    },
+    {
+        {0,1,0,3}, {0,2,1,0}, {3,4,3,2},
+        {4,3,4,1}, {2,0,2,3}, {0,1,3,0}
+    },
+    {
+        {0,1,0,3}, {2,0,2,1}, {3,1,3,0},
+        {4,2,4,3}, {0,3,1,2}, {1,0,2,0}
+    },
+    {
+        {0,1,0,3}, {1,3,1,0}, {2,0,1,3},
+        {1,3,0,1}, {4,0,3,1}, {0,1,0,3}
+    }
+};
+
+static const char *course_landmark_names[4] = {
+    "CARRIER GRAVEYARD",
+    "ROOT CATHEDRAL",
+    "PRISM CRUCIBLE",
+    "FURNACE GAUNTLET"
+};
+
 static game_t game;
 static enemy_t enemies[MAX_ENEMIES];
 static projectile_t player_shots[MAX_SHOTS];
@@ -530,8 +624,21 @@ static float music_section_time;
 static int music_song_loops;
 static bool audio_ready;
 
+static int course_chapter_at(float world_z);
+static float course_local_z(float world_z);
+static traversal_kind_t course_traversal_kind(int chapter, int event);
+static float traversal_span_for_kind(traversal_kind_t kind);
+static float next_course_traversal_z(float after_z);
+static float next_course_wave_z(float after_z);
+static bool course_wave_is_guardian(float world_z);
+static bool course_world_z_reserved(float world_z, float clearance);
+static enemy_t *active_guardian(void);
+
 static bool world_z_reserved_by_traversal(float world_z, float clearance) {
     int objective;
+    if(game.mode != MODE_TITLE &&
+       course_world_z_reserved(world_z, clearance))
+        return true;
     for(objective = 0; objective < MAX_GATES; ++objective) {
         const gate_t *gate = &gates[objective];
         int stage;
@@ -660,38 +767,61 @@ static float value_noise(float x, float z, float cell) {
     return lerpf(lerpf(n00, n10, fx), lerpf(n01, n11, fx), fz);
 }
 
-static float course_knot_curve(float world_z, float spacing,
-                               uint32_t salt) {
-    const float grid = world_z / spacing;
+static int course_chapter_at(float world_z) {
+    return (int)floorf(world_z / BIOME_LENGTH);
+}
+
+static float course_local_z(float world_z) {
+    const int chapter = course_chapter_at(world_z);
+    return world_z - (float)chapter * BIOME_LENGTH;
+}
+
+static void course_knot_address(int knot, int *chapter, int *phrase) {
+    int c = knot / COURSE_PHRASES_PER_BIOME;
+    int p = knot % COURSE_PHRASES_PER_BIOME;
+    if(p < 0) {
+        p += COURSE_PHRASES_PER_BIOME;
+        c--;
+    }
+    *chapter = c;
+    *phrase = p;
+}
+
+static float course_knot_value(int knot, bool grade) {
+    int chapter;
+    int phrase;
+    int lap;
+    int biome;
+    float scale;
+    float value;
+
+    course_knot_address(knot, &chapter, &phrase);
+    biome = chapter & 3;
+    lap = chapter >= 0 ? chapter / 4 : 0;
+    scale = 1.0f + (float)(lap > 3 ? 3 : lap) * 0.025f;
+    value = (float)(grade ? course_grade_knots[biome][phrase] :
+                            course_center_knots[biome][phrase]);
+    if(!grade && (lap & 1))
+        value = -value;
+    return value * scale;
+}
+
+static float course_profile_curve(float world_z, bool grade) {
+    const float grid = world_z / COURSE_PHRASE_LENGTH;
     const int knot = (int)floorf(grid);
     const float t = smoothstepf(grid - (float)knot);
-    const uint32_t first = hash_u32((uint32_t)knot * 0x9e3779b9u ^ salt);
-    const uint32_t second = hash_u32(
-        (uint32_t)(knot + 1) * 0x9e3779b9u ^ salt);
-    const float a = (float)(first & 0xffffu) * (1.0f / 32767.5f) - 1.0f;
-    const float b = (float)(second & 0xffffu) * (1.0f / 32767.5f) - 1.0f;
-    return lerpf(a, b, t);
+    return lerpf(course_knot_value(knot, grade),
+                 course_knot_value(knot + 1, grade), t);
 }
 
 static float path_center(float world_z) {
-    const float rank = clampf(world_z / 12000.0f, 0.0f, 1.0f);
-    const float turn_amplitude = 58.0f + rank * 14.0f;
-
-    /* World-anchored C1 knots form recognizable corners and S sections while
-       retaining identical vertices whenever the fixed terrain lattice rolls.
-       The amplitude/spacing cap the steepest heading near 18 degrees. */
-    return course_knot_curve(world_z, COURSE_TURN_LENGTH,
-                             0x53a9d41bu) * turn_amplitude +
-           fsin(world_z * 0.00052f + 0.65f) * 27.0f;
+    /* Authored chapter knots remain world anchored, so rolling terrain rows
+       always re-evaluate to identical vertices and cannot ripple or warp. */
+    return course_profile_curve(world_z, false);
 }
 
 static float path_elevation(float world_z) {
-    const float rank = clampf(world_z / 12000.0f, 0.0f, 1.0f);
-    const float grade_amplitude = 34.0f + rank * 10.0f;
-
-    return course_knot_curve(world_z, COURSE_GRADE_LENGTH,
-                             0xb826c45du) * grade_amplitude +
-           fsin(world_z * 0.00071f + 1.15f) * 12.0f;
+    return course_profile_curve(world_z, true);
 }
 
 static float path_heading(float world_z) {
@@ -707,6 +837,170 @@ static float path_turn_preview(float world_z) {
         (path_center(world_z + 430.0f) -
          path_center(world_z + 210.0f)) / 220.0f);
     return clampf(far_heading - near_heading, -0.24f, 0.24f);
+}
+
+static int traversal_stage_count_for_kind(traversal_kind_t kind) {
+    return kind == TRAVERSAL_GRAVITY_BLOOM ? 1 :
+           (kind == TRAVERSAL_SLALOM ? 3 : 2);
+}
+
+static float traversal_stage_spacing_for_kind(traversal_kind_t kind) {
+    return kind == TRAVERSAL_SLALOM ? 210.0f :
+           (kind == TRAVERSAL_SHEAR_BARRIER ? 230.0f : 0.0f);
+}
+
+static float traversal_span_for_kind(traversal_kind_t kind) {
+    return traversal_stage_spacing_for_kind(kind) *
+           (float)(traversal_stage_count_for_kind(kind) - 1);
+}
+
+static traversal_kind_t course_traversal_kind(int chapter, int event) {
+    const int biome = chapter & 3;
+    const int lap = chapter >= 0 ? chapter / 4 : 0;
+    const int authored_event = (lap & 1) ?
+        COURSE_TRAVERSALS_PER_BIOME - 1 - event : event;
+    return course_traversal_kinds[biome][authored_event];
+}
+
+static int nearest_course_event(float world_z, const float *offsets,
+                                int count) {
+    const float local = course_local_z(world_z);
+    float nearest_distance = 1000000.0f;
+    int nearest = 0;
+    int event;
+    for(event = 0; event < count; ++event) {
+        const float distance = fabsf(local - offsets[event]);
+        if(distance < nearest_distance) {
+            nearest_distance = distance;
+            nearest = event;
+        }
+    }
+    return nearest;
+}
+
+static float next_course_event_z(float after_z, const float *offsets,
+                                 int count) {
+    int chapter = course_chapter_at(after_z);
+    const float chapter_z = (float)chapter * BIOME_LENGTH;
+    const float local = after_z - chapter_z;
+    int event;
+    for(event = 0; event < count; ++event) {
+        if(offsets[event] >= local - 0.01f)
+            return chapter_z + offsets[event];
+    }
+    chapter++;
+    return (float)chapter * BIOME_LENGTH + offsets[0];
+}
+
+static float next_course_traversal_z(float after_z) {
+    return next_course_event_z(after_z, course_traversal_offsets,
+                               COURSE_TRAVERSALS_PER_BIOME);
+}
+
+static float next_course_wave_z(float after_z) {
+    return next_course_event_z(after_z, course_wave_offsets,
+                               COURSE_WAVES_PER_BIOME);
+}
+
+static float recover_course_wave_z(float cursor_z, float recovery_z) {
+    const int cursor_chapter = course_chapter_at(cursor_z);
+    const int cursor_event = nearest_course_event(
+        cursor_z, course_wave_offsets, COURSE_WAVES_PER_BIOME);
+    if(cursor_z >= recovery_z)
+        return cursor_z;
+    if(course_chapter_at(recovery_z) == cursor_chapter &&
+       nearest_course_event(recovery_z, course_wave_offsets,
+                            COURSE_WAVES_PER_BIOME) == cursor_event)
+        /* Delay this chapter beat instead of deleting its formation. */
+        return recovery_z;
+    return next_course_wave_z(recovery_z);
+}
+
+static bool course_wave_is_guardian(float world_z) {
+    return nearest_course_event(world_z, course_wave_offsets,
+                                COURSE_WAVES_PER_BIOME) ==
+           COURSE_WAVES_PER_BIOME - 1;
+}
+
+static bool course_world_z_reserved(float world_z, float clearance) {
+    const int center_chapter = course_chapter_at(world_z);
+    int chapter;
+    int event;
+    for(chapter = center_chapter - 1;
+        chapter <= center_chapter + 1; ++chapter) {
+        const float chapter_z = (float)chapter * BIOME_LENGTH;
+        for(event = 0; event < COURSE_TRAVERSALS_PER_BIOME; ++event) {
+            const traversal_kind_t kind =
+                course_traversal_kind(chapter, event);
+            const float start_z = chapter_z +
+                                  course_traversal_offsets[event];
+            const float end_z = start_z + traversal_span_for_kind(kind);
+            if(start_z >= game.suppressed_gate_from_z - 0.5f &&
+               start_z < game.suppressed_gate_until_z - 0.5f)
+                continue;
+            if(world_z > start_z - clearance &&
+               world_z < end_z + clearance)
+                return true;
+        }
+    }
+    return false;
+}
+
+static int course_turn_direction(float world_z) {
+    const float delta = path_center(world_z + 260.0f) -
+                        path_center(world_z - 120.0f);
+    if(fabsf(delta) < 1.0f)
+        return (course_chapter_at(world_z) & 1) ? -1 : 1;
+    return delta > 0.0f ? 1 : -1;
+}
+
+static int course_grade_direction(float world_z) {
+    const float delta = path_elevation(world_z + 260.0f) -
+                        path_elevation(world_z - 120.0f);
+    if(fabsf(delta) < 1.0f)
+        return (course_chapter_at(world_z) & 1) ? 1 : -1;
+    return delta > 0.0f ? 1 : -1;
+}
+
+static int course_phrase_at(float world_z) {
+    int phrase = (int)(course_local_z(world_z) / COURSE_PHRASE_LENGTH);
+    if(phrase < 0)
+        phrase = 0;
+    if(phrase >= COURSE_PHRASES_PER_BIOME)
+        phrase = COURSE_PHRASES_PER_BIOME - 1;
+    return phrase;
+}
+
+static int scenery_variant_for_segment(int biome, int segment,
+                                       float world_z) {
+    const int phrase = course_phrase_at(world_z);
+    int slot = segment % 4;
+    if(slot < 0)
+        slot += 4;
+    return (int)scenery_motifs[biome & 3][phrase][slot];
+}
+
+static float scenery_side_for_segment(int biome, int segment,
+                                      float world_z) {
+    const int phrase = course_phrase_at(world_z);
+    return (((segment / 2) + biome + phrase) & 1) ? 1.0f : -1.0f;
+}
+
+static bool scenery_variant_spans_lane(int biome, int variant) {
+    return (biome == 0 && (variant == 1 || variant == 3)) ||
+           (biome == 1 && variant == 2) ||
+           (biome == 2 && variant == 4) ||
+           (biome == 3 && (variant == 2 || variant == 4));
+}
+
+static bool is_signature_segment(int segment) {
+    const float world_z = (float)segment * SCENERY_SEGMENT;
+    const int chapter = course_chapter_at(world_z);
+    const float target_z = (float)chapter * BIOME_LENGTH +
+                           COURSE_SIGNATURE_LOCAL_Z;
+    const int target_segment =
+        (int)floorf(target_z / SCENERY_SEGMENT + 0.5f);
+    return segment == target_segment;
 }
 
 static float terrain_height_biome(int biome, float local_x, float world_z) {
@@ -766,9 +1060,10 @@ static float terrain_height_local(float local_x, float world_z) {
     const int biome = ((int)(world_z / BIOME_LENGTH)) & 3;
     float height = terrain_height_biome(biome, local_x, world_z);
 
-    if(local > BIOME_LENGTH - 650.0f) {
+    if(local > BIOME_LENGTH - BIOME_BLEND_LENGTH) {
         const float blend = smoothstepf(
-            (local - (BIOME_LENGTH - 650.0f)) / 650.0f);
+            (local - (BIOME_LENGTH - BIOME_BLEND_LENGTH)) /
+            BIOME_BLEND_LENGTH);
         const float next = terrain_height_biome((biome + 1) & 3,
                                                 local_x, world_z);
         height = lerpf(height, next, blend);
@@ -787,8 +1082,10 @@ static void get_blended_palette(palette_t *out) {
     const int next = (index + 1) % ARRAY_COUNT(palettes);
     float t = 0.0f;
 
-    if(local > biome_length - 650.0f)
-        t = smoothstepf((local - (biome_length - 650.0f)) / 650.0f);
+    if(local > biome_length - BIOME_BLEND_LENGTH)
+        t = smoothstepf((local -
+                         (biome_length - BIOME_BLEND_LENGTH)) /
+                        BIOME_BLEND_LENGTH);
 
     out->sky_top = color_lerp(palettes[index].sky_top, palettes[next].sky_top, t);
     out->sky_horizon = color_lerp(palettes[index].sky_horizon,
@@ -1746,7 +2043,13 @@ static void update_music(float dt) {
     else if(current_music_section == MUSIC_SECTION_COUNT - 1) {
         music_song_loops++;
         if(music_song_loops >= 2) {
-            next_track = choose_random_music_track(current_music_track);
+            /* Runs have a musical identity: the random opening song becomes
+               the score's root, then each biome advances one album track.
+               Only the attract-mode jukebox reshuffles independently. */
+            next_track = game.mode == MODE_TITLE ?
+                choose_random_music_track(current_music_track) :
+                (game.music_route_offset + game.music_chapter) %
+                MUSIC_TRACK_COUNT;
             next_section = 0;
             next_volume = current_music_volume;
             music_song_loops = 0;
@@ -2258,8 +2561,6 @@ static void draw_procedural_spires(const palette_t *palette) {
         const int segment = first_segment + i;
         const uint32_t h = hash_u32((uint32_t)segment ^ 0x6b41d52bu);
         const float z = (float)segment * 88.0f;
-        if(world_z_reserved_by_traversal(z, 52.0f))
-            continue;
         if((h & 7u) < 4u) {
             const float side = (h & 0x10u) ? 1.0f : -1.0f;
             const float x = side * (78.0f + (float)((h >> 8) & 127u));
@@ -2591,13 +2892,17 @@ static bool signature_setpiece_reserved(int biome, float world_z) {
     if(biome == 2) {
         /* The Prism Crucible's outer crystals sit 16 units down-course and
            its floating keystone extends another 49 units. */
-        return world_z_reserved_by_traversal(world_z, 52.0f) ||
-               world_z_reserved_by_traversal(world_z + 16.0f, 52.0f) ||
-               world_z_reserved_by_traversal(world_z + 49.0f, 52.0f);
+        return world_z_reserved_by_traversal(
+                   world_z, COURSE_TRAVERSAL_SCENERY_CLEARANCE) ||
+               world_z_reserved_by_traversal(
+                   world_z + 16.0f, COURSE_TRAVERSAL_SCENERY_CLEARANCE) ||
+               world_z_reserved_by_traversal(
+                   world_z + 49.0f, COURSE_TRAVERSAL_SCENERY_CLEARANCE);
     }
     for(rib = 0; rib < rib_count; ++rib) {
         if(world_z_reserved_by_traversal(
-               world_z + (float)rib * spacing, 52.0f))
+               world_z + (float)rib * spacing,
+               COURSE_TRAVERSAL_SCENERY_CLEARANCE))
             return true;
     }
     return false;
@@ -2610,7 +2915,7 @@ static bool player_hits_signature_arch(int biome, int segment,
     float spacing;
     int rib;
 
-    if(((segment % 37 + 37) % 37) != 11 || biome == 2)
+    if(!is_signature_segment(segment) || biome == 2)
         return false;
     if(signature_setpiece_reserved(biome, segment_z))
         return false;
@@ -2696,7 +3001,7 @@ static void draw_floating_rock(float local_x, float world_z,
 static void draw_signature_setpiece(int biome, int segment, float world_z,
                                     const palette_t *palette) {
     int i;
-    if((segment % 37 + 37) % 37 != 11)
+    if(!is_signature_segment(segment))
         return;
     if(signature_setpiece_reserved(biome, world_z))
         return;
@@ -2764,7 +3069,8 @@ static void draw_biome_scenery_opaque(const palette_t *palette) {
         const float retained_z = (float)retained_segment * SCENERY_SEGMENT;
         const int retained_biome =
             ((int)(retained_z / BIOME_LENGTH)) & 3;
-        if(!world_z_reserved_by_traversal(retained_z, 52.0f))
+    if(!world_z_reserved_by_traversal(
+           retained_z, COURSE_TRAVERSAL_SCENERY_CLEARANCE))
             draw_signature_setpiece(retained_biome, retained_segment,
                                     retained_z, palette);
     }
@@ -2774,12 +3080,20 @@ static void draw_biome_scenery_opaque(const palette_t *palette) {
         const int biome = ((int)(z / BIOME_LENGTH)) & 3;
         const uint32_t h = hash_u32((uint32_t)segment * 0x9e3779b9u ^
                                     (uint32_t)biome * 0x51ed270bu);
-        const int variant = (int)((h >> 3) % 5u);
-        const float side = (h & 1u) ? 1.0f : -1.0f;
+        const int variant = scenery_variant_for_segment(biome, segment, z);
+        const float side = scenery_side_for_segment(biome, segment, z);
         const float x = side * (70.0f + (float)((h >> 8) & 63u));
         const float base = terrain_height_local(x, z);
 
-        if(world_z_reserved_by_traversal(z, 52.0f))
+        /* The hero landmark owns its block. Do not stack a routine arch or
+           tower through the silhouette the player is meant to recognize. */
+        if(is_signature_segment(segment)) {
+            draw_signature_setpiece(biome, segment, z, palette);
+            continue;
+        }
+        if(world_z_reserved_by_traversal(
+               z, COURSE_TRAVERSAL_SCENERY_CLEARANCE) &&
+           scenery_variant_spans_lane(biome, variant))
             continue;
 
         if(biome == 0) {
@@ -2900,9 +3214,9 @@ static void draw_biome_scenery_translucent(const palette_t *palette) {
         const int segment = first_segment + i;
         const float z = (float)segment * SCENERY_SEGMENT;
         const int biome = ((int)(z / BIOME_LENGTH)) & 3;
-        const uint32_t h = hash_u32((uint32_t)segment * 0x9e3779b9u ^
-                                    (uint32_t)biome * 0x51ed270bu);
-        const int variant = (int)((h >> 3) % 5u);
+        if(is_signature_segment(segment))
+            continue;
+        const int variant = scenery_variant_for_segment(biome, segment, z);
         const float relative_z = z - game.distance;
         const float far_fade = 1.0f -
             smoothstepf((relative_z - 930.0f) / 360.0f);
@@ -2946,7 +3260,8 @@ static void draw_biome_scenery_translucent(const palette_t *palette) {
         }
 
         if(half_span > 0.0f && distance_fade > 0.02f &&
-           !world_z_reserved_by_traversal(z, 52.0f))
+           !world_z_reserved_by_traversal(
+               z, COURSE_TRAVERSAL_SCENERY_CLEARANCE))
             draw_material_arch_energy(z, half_span, base_y, height,
                                       thickness, primary, accent,
                                       distance_fade);
@@ -2956,19 +3271,20 @@ static void draw_biome_scenery_translucent(const palette_t *palette) {
         const int segment = first_segment + i;
         const float z = (float)segment * SCENERY_SEGMENT;
         const int biome = ((int)(z / BIOME_LENGTH)) & 3;
+        if(is_signature_segment(segment))
+            continue;
         const uint32_t h = hash_u32((uint32_t)segment * 0x9e3779b9u ^
                                     (uint32_t)biome * 0x51ed270bu);
-        const int variant = (int)((h >> 3) % 5u);
-        const float side = (h & 1u) ? 1.0f : -1.0f;
+        const int variant = scenery_variant_for_segment(biome, segment, z);
+        const float side = scenery_side_for_segment(biome, segment, z);
         const float x = side * (70.0f + (float)((h >> 8) & 63u));
         const float base = terrain_height_local(x, z);
         const float distance_fade = 1.0f -
             smoothstepf((z - game.distance - 950.0f) / 430.0f);
 
-        if(distance_fade <= 0.02f ||
-           world_z_reserved_by_traversal(z, 52.0f))
+        if(distance_fade <= 0.02f)
             continue;
-        if(biome == 0 && ((h >> 3) % 5u) == 1u) {
+        if(biome == 0 && variant == 1) {
             draw_textured_billboard(
                 &texture_headers[GRAVITY_WAVE_TEX_WATERFALL_MIST],
                 (vec3_t){path_center(z) + x - side * 8.0f,
@@ -3040,6 +3356,13 @@ static void draw_biome_scenery_translucent(const palette_t *palette) {
 static void set_message(const char *text, float seconds) {
     snprintf(game.message, sizeof(game.message), "%s", text);
     game.message_time = seconds;
+}
+
+static bool set_ambient_message(const char *text, float seconds) {
+    if(game.message_time > 0.05f)
+        return false;
+    set_message(text, seconds);
+    return true;
 }
 
 static particle_t *alloc_particle(void) {
@@ -3181,7 +3504,8 @@ static pickup_kind_t choose_random_pickup(void) {
 }
 
 static void destroy_enemy(enemy_t *enemy, bool award_score) {
-    const palette_t *palette = current_palette();
+    const palette_t *palette = enemy->type == 3 ?
+        &palettes[enemy->biome & 3] : current_palette();
     const int points = enemy->type == 3 ? 4200 :
                        (enemy->type == 2 ? 500 :
                         (enemy->type == 1 ? 220 : 100));
@@ -3189,6 +3513,7 @@ static void destroy_enemy(enemy_t *enemy, bool award_score) {
     const float drop_chance = enemy->type == 2 ? 0.42f :
                               (enemy->type == 1 ? 0.14f :
                                (game.shield < 35.0f ? 0.20f : 0.09f));
+    int i;
     if(!enemy->active)
         return;
     spawn_explosion(enemy->x, enemy->y, enemy->z,
@@ -3199,6 +3524,8 @@ static void destroy_enemy(enemy_t *enemy, bool award_score) {
     if(award_score && enemy->type == 3) {
         game.guardians_destroyed++;
         game.trauma = 1.0f;
+        for(i = 0; i < MAX_ENEMY_SHOTS; ++i)
+            enemy_shots[i].active = false;
         spawn_pickup(enemy->x - 12.0f, enemy->y, enemy->z,
                      game.weapon_level < 3 ? PICKUP_LASER_CORE : PICKUP_NOVA);
         spawn_pickup(enemy->x, enemy->y + 7.0f, enemy->z + 5.0f,
@@ -3208,6 +3535,29 @@ static void destroy_enemy(enemy_t *enemy, bool award_score) {
                      game.shield < 68.0f ? PICKUP_REPAIR :
                                            PICKUP_SPEED_BOOST);
         set_message("GUARDIAN DESTROYED", 2.4f);
+        /* Resolve the chapter cleanly. No queued formation or traversal may
+           materialize on top of the reward field while the player collects
+           the guardian's three drops. */
+        {
+            const float wave_recovery_z = game.distance +
+                COURSE_GUARDIAN_WAVE_RECOVERY;
+            const float gate_recovery_z = game.distance +
+                COURSE_GUARDIAN_GATE_RECOVERY;
+            const float old_wave_z = game.next_wave_z;
+            const float old_gate_z = game.next_gate_z;
+
+            game.next_wave_z = recover_course_wave_z(
+                game.next_wave_z, wave_recovery_z);
+            if(game.next_gate_z < gate_recovery_z) {
+                game.next_gate_z = next_course_traversal_z(gate_recovery_z);
+                game.suppressed_gate_from_z = old_gate_z;
+                game.suppressed_gate_until_z = game.next_gate_z;
+            }
+            printf("Gravity Wave course: recovery wave %.0f->%.0f "
+                   "traversal %.0f->%.0f.\n",
+                   (double)old_wave_z, (double)game.next_wave_z,
+                   (double)old_gate_z, (double)game.next_gate_z);
+        }
         play_rumble(7);
     }
     else if(award_score && drop_roll < drop_chance)
@@ -3261,39 +3611,54 @@ static void damage_player(float amount) {
     }
 }
 
-static void spawn_wave(float world_z) {
+static bool spawn_wave(float world_z) {
     const float rank = clampf(game.distance / 11500.0f, 0.0f, 1.0f);
-    const uint32_t seed = hash_u32((uint32_t)(world_z / 73.0f) ^
-                                   (uint32_t)game.wave * 0x9e3779b9u);
-    const int pattern = (int)(seed % (rank > 0.42f ? 4u : 3u));
+    const int chapter = course_chapter_at(world_z);
+    const int biome = chapter & 3;
+    const int event = nearest_course_event(
+        world_z, course_wave_offsets, COURSE_WAVES_PER_BIOME);
+    const uint32_t seed = hash_u32((uint32_t)chapter * 0x9e3779b9u ^
+                                   (uint32_t)event * 0x85ebca6bu ^
+                                   0x15c4d2a7u);
+    const int pattern = event < 2 ?
+        (int)course_wave_patterns[biome][event] : 0;
     const int count = pattern == 0 ? 5 : (pattern == 3 ? 3 : 4);
+    bool guardian_wave = event == COURSE_WAVES_PER_BIOME - 1;
+    int spawned = 0;
     int i;
 
-    if(game.wave > 0 && (game.wave & 7) == 7) {
-        enemy_t *guardian = alloc_enemy();
-        if(guardian) {
-            memset(guardian, 0, sizeof(*guardian));
-            guardian->active = true;
-            guardian->type = 3;
-            guardian->hp = 28 + game.guardians_destroyed * 6;
-#ifdef GRAVITY_WAVE_AUTOTEST_BOSS_HITS
-            guardian->hp = 1200;
+#ifdef GRAVITY_WAVE_AUTOTEST_BOSS
+    guardian_wave = true;
 #endif
-            guardian->max_hp = guardian->hp;
-            guardian->radius = 24.0f;
-            guardian->x = 0.0f;
-            guardian->y = 57.0f;
-            guardian->z = world_z + 160.0f;
-            guardian->phase = (float)(seed & 255u) * 0.01f;
-            guardian->fire_timer = 1.2f;
-            set_message("WARNING  BIOME GUARDIAN", 2.6f);
-            play_sound(sfx_gate, 240, 128);
+    if(guardian_wave) {
+        enemy_t *guardian = alloc_enemy();
+        if(!guardian) {
+            printf("Gravity Wave course: guardian pool full; retrying.\n");
+            return false;
         }
+        memset(guardian, 0, sizeof(*guardian));
+        guardian->active = true;
+        guardian->type = 3;
+        guardian->hp = 28 + game.guardians_destroyed * 6;
+#ifdef GRAVITY_WAVE_AUTOTEST_BOSS_HITS
+        guardian->hp = 1200;
+#endif
+        guardian->max_hp = guardian->hp;
+        guardian->biome = biome;
+        guardian->radius = 24.0f;
+        guardian->x = 0.0f;
+        guardian->y = 57.0f;
+        guardian->z = world_z + 160.0f;
+        guardian->phase = (float)(seed & 255u) * 0.01f;
+        guardian->fire_timer = 1.2f;
+        set_message("WARNING  CHAPTER GUARDIAN", 2.6f);
+        play_sound(sfx_gate, 240, 128);
         game.wave++;
-        return;
+        printf("Gravity Wave course: chapter %d guardian deployed.\n",
+               chapter + 1);
+        return true;
     }
 
-    game.wave++;
     for(i = 0; i < count; ++i) {
         enemy_t *enemy = alloc_enemy();
         const float centered = (float)i - (float)(count - 1) * 0.5f;
@@ -3306,27 +3671,32 @@ static void spawn_wave(float world_z) {
         enemy->radius = 5.0f;
         enemy->hp = 1;
         enemy->max_hp = 1;
+        enemy->biome = biome;
         enemy->fire_timer = 0.65f + (float)i * 0.18f;
         enemy->type = 0;
+        spawned++;
 
         if(pattern == 0) {
             enemy->x = centered * 22.0f;
             enemy->y = 38.0f + fabsf(centered) * 6.0f;
-            enemy->z = world_z + fabsf(centered) * 21.0f;
+            enemy->z = world_z + COURSE_FORMATION_LEAD +
+                       fabsf(centered) * 21.0f;
             enemy->vx = centered * -1.1f;
         }
         else if(pattern == 1) {
             const float angle = (float)i * TAU / (float)count;
             enemy->x = fcos(angle) * 34.0f;
             enemy->y = 43.0f + fsin(angle) * 20.0f;
-            enemy->z = world_z + (float)i * 28.0f;
+            enemy->z = world_z + COURSE_FORMATION_LEAD +
+                       (float)i * 28.0f;
             enemy->vx = i & 1 ? 8.0f : -8.0f;
         }
         else if(pattern == 2) {
             enemy->x = (i & 1 ? 1.0f : -1.0f) *
                        (55.0f + (float)i * 5.0f);
             enemy->y = 62.0f - (float)i * 8.0f;
-            enemy->z = world_z + (float)i * 24.0f;
+            enemy->z = world_z + COURSE_FORMATION_LEAD +
+                       (float)i * 24.0f;
             enemy->vx = enemy->x > 0.0f ? -13.0f : 13.0f;
             if(i == count - 1 && rank > 0.18f) {
                 enemy->type = 1;
@@ -3338,7 +3708,8 @@ static void spawn_wave(float world_z) {
         else {
             enemy->x = centered * 31.0f;
             enemy->y = 42.0f + (i & 1) * 15.0f;
-            enemy->z = world_z + fabsf(centered) * 18.0f;
+            enemy->z = world_z + COURSE_FORMATION_LEAD +
+                       fabsf(centered) * 18.0f;
             enemy->vx = -centered * 3.5f;
             if(i == 1) {
                 enemy->type = 2;
@@ -3350,6 +3721,14 @@ static void spawn_wave(float world_z) {
             }
         }
     }
+    if(spawned == 0) {
+        printf("Gravity Wave course: formation pool full; retrying.\n");
+        return false;
+    }
+    game.wave++;
+    printf("Gravity Wave course: chapter %d formation %d deployed (%d craft).\n",
+           chapter + 1, pattern, spawned);
+    return true;
 }
 
 static float traversal_stage_z(const gate_t *gate, int stage) {
@@ -3368,34 +3747,42 @@ static float traversal_stage_x(const gate_t *gate, int stage) {
 
 static float traversal_stage_y(const gate_t *gate, int stage) {
     if(gate->kind == TRAVERSAL_SHEAR_BARRIER)
-        return gate->y + ((stage & 1) ? 3.0f : -3.0f);
+        return gate->y -
+               (float)traversal_stage_direction(gate, stage) * 3.0f;
     return gate->y;
 }
 
-static void spawn_gate(float world_z) {
+static bool spawn_gate(float world_z) {
     gate_t *gate = alloc_gate();
-    const uint32_t seed = hash_u32((uint32_t)(world_z / 31.0f) ^
-                                   0xd38755a1u);
-    const int kind_roll = (int)((seed >> 19) % 10u);
-    const traversal_kind_t kind = kind_roll < 4 ?
-        TRAVERSAL_GRAVITY_BLOOM :
-        (kind_roll < 7 ? TRAVERSAL_SLALOM :
-                         TRAVERSAL_SHEAR_BARRIER);
-    const int stage_count = kind == TRAVERSAL_GRAVITY_BLOOM ? 1 :
-                            (kind == TRAVERSAL_SLALOM ? 3 : 2);
-    const float stage_spacing = kind == TRAVERSAL_SLALOM ? 210.0f :
-                                (kind == TRAVERSAL_SHEAR_BARRIER ?
-                                 230.0f : 0.0f);
+    const int chapter = course_chapter_at(world_z);
+    const int biome = chapter & 3;
+    const int event = nearest_course_event(
+        world_z, course_traversal_offsets, COURSE_TRAVERSALS_PER_BIOME);
+    const traversal_kind_t kind = course_traversal_kind(chapter, event);
+    const int turn_direction = course_turn_direction(world_z);
+    const int grade_direction = course_grade_direction(world_z);
+    const int traversal_direction = kind == TRAVERSAL_GRAVITY_BLOOM ?
+        course_turn_direction(world_z + 620.0f) *
+        (int)course_bloom_polarity[biome] :
+        (kind == TRAVERSAL_SHEAR_BARRIER ?
+         grade_direction * (biome == 3 ? -1 : 1) : turn_direction);
+    const int stage_count = traversal_stage_count_for_kind(kind);
+    const float stage_spacing = traversal_stage_spacing_for_kind(kind);
     const float resolved_z = world_z;
-    const uint32_t h = hash_u32((uint32_t)(resolved_z / 31.0f) ^ seed);
+    const uint32_t h = hash_u32((uint32_t)chapter * 0x9e3779b9u ^
+                                (uint32_t)event * 0x85ebca6bu ^
+                                0xd38755a1u);
     float target_x;
     float target_y;
     if(!gate)
-        return;
+        return false;
     memset(gate, 0, sizeof(*gate));
-    target_x = ((float)((int)(h & 255u) - 127)) * 0.48f;
-    target_y = clampf(terrain_height_local(target_x, resolved_z) + 34.0f +
-                      (float)((h >> 8) & 15u), 31.0f, 80.0f);
+    /* Blooms frame the exit vector of a bend; slaloms follow its entry.
+       Ember's counter-shear deliberately asks for a dive against the climb. */
+    target_x = (float)traversal_direction *
+               (event == 0 ? 18.0f : 28.0f);
+    target_y = clampf(terrain_height_local(target_x, resolved_z) + 42.0f +
+                      (float)grade_direction * 5.0f, 34.0f, 76.0f);
     gate->active = true;
     gate->x = kind == TRAVERSAL_GRAVITY_BLOOM ? target_x : 0.0f;
     gate->y = kind == TRAVERSAL_GRAVITY_BLOOM ? target_y :
@@ -3408,8 +3795,8 @@ static void spawn_gate(float world_z) {
     gate->spin = (float)(h & 255u) * (TAU / 255.0f);
     gate->result_time = 0.0f;
     gate->stage_spacing = stage_spacing;
-    gate->variant = (int)((h >> 18) & 3u);
-    gate->direction = (h & 0x10000000u) ? 1 : -1;
+    gate->variant = ((chapter & 3) + event) & 3;
+    gate->direction = traversal_direction;
     gate->stage = 0;
     gate->stage_count = stage_count;
     gate->success_mask = 0u;
@@ -3417,6 +3804,7 @@ static void spawn_gate(float world_z) {
     gate->faulted = false;
     gate->kind = kind;
     gate->result = GATE_RESULT_PENDING;
+    return true;
 }
 
 static void fire_player_weapon(void) {
@@ -3508,7 +3896,9 @@ static void fire_player_weapon(void) {
 
 static void fire_enemy_shot(enemy_t *enemy) {
     const float relative_z = enemy->z - (game.distance + PLAYER_Z);
-    const float shot_speed = enemy->type == 3 ? 138.0f : 105.0f;
+    static const float guardian_speed[4] = {132.0f,124.0f,142.0f,150.0f};
+    const float shot_speed = enemy->type == 3 ?
+        guardian_speed[enemy->biome & 3] : 105.0f;
     const float travel_time = clampf(relative_z / (game.speed + shot_speed),
                                      0.35f, 2.5f);
     const int count = enemy->type == 3 ? 3 : 1;
@@ -3538,12 +3928,17 @@ static void fire_enemy_shot(enemy_t *enemy) {
             .hit_mask = 0u
         };
     }
-    enemy->fire_timer = enemy->type == 3 ? 0.72f :
-                        (enemy->type == 2 ? 1.05f : 1.55f);
+    if(enemy->type == 3) {
+        static const float guardian_cadence[4] = {0.82f,0.92f,0.76f,0.66f};
+        enemy->fire_timer = guardian_cadence[enemy->biome & 3];
+    }
+    else
+        enemy->fire_timer = enemy->type == 2 ? 1.05f : 1.55f;
     enemy->fired = true;
 }
 
 static void trigger_bomb(void) {
+    const bool guardian_was_active = active_guardian() != NULL;
     int i;
     if(game.bombs <= 0 || game.bomb_wave > 0.0f)
         return;
@@ -3557,7 +3952,7 @@ static void trigger_bomb(void) {
             if(enemies[i].type == 3) {
                 enemies[i].hp -= 5;
                 spawn_explosion(enemies[i].x, enemies[i].y, enemies[i].z,
-                                current_palette()->accent, 22);
+                                palettes[enemies[i].biome & 3].accent, 22);
                 if(enemies[i].hp <= 0)
                     destroy_enemy(&enemies[i], true);
             }
@@ -3567,7 +3962,10 @@ static void trigger_bomb(void) {
         }
     }
     /* Keep replacement formations beyond the pulse's cleared arc. */
-    game.next_wave_z = fmaxf(game.next_wave_z, game.distance + 900.0f);
+    if(!guardian_was_active &&
+       !course_wave_is_guardian(game.next_wave_z))
+        game.next_wave_z = next_course_wave_z(
+            fmaxf(game.next_wave_z, game.distance + 900.0f));
     game.trauma = 0.82f;
     play_rumble(7);
     play_sound(sfx_explosion, 245, 128);
@@ -3605,8 +4003,8 @@ static void reset_game(void) {
     game.combo = 0;
     game.combo_timer = 0.0f;
     game.wave = 0;
-    game.next_wave_z = 520.0f;
-    game.next_gate_z = 820.0f;
+    game.next_wave_z = next_course_wave_z(0.0f);
+    game.next_gate_z = next_course_traversal_z(0.0f);
     game.palette_index = 0;
     game.last_palette_index = 0;
     game.message_time = 0.0f;
@@ -3619,8 +4017,12 @@ static void reset_game(void) {
     game.camera_focal = FOCAL_CRUISE;
     game.trauma = 0.0f;
     game.guardians_destroyed = 0;
-    start_music_track(choose_random_music_track(current_music_track),
-                      MUSIC_GAME_VOLUME);
+    game.music_route_offset = choose_random_music_track(current_music_track);
+    game.music_chapter = 0;
+    game.last_course_act = -1;
+    game.suppressed_gate_from_z = -100000.0f;
+    game.suppressed_gate_until_z = -100000.0f;
+    start_music_track(game.music_route_offset, MUSIC_GAME_VOLUME);
     set_message("AZURE REACH", 2.4f);
     printf("Gravity Wave: new run started.\n");
 }
@@ -3848,9 +4250,19 @@ static void update_enemies(float dt) {
         enemy->fire_timer -= dt;
         enemy->hit_flash = fmaxf(0.0f, enemy->hit_flash - dt);
         if(enemy->type == 3) {
-            const float target_z = game.distance + 455.0f;
-            enemy->x = fsin(enemy->phase * 0.83f) * 43.0f;
-            enemy->y = 57.0f + fsin(enemy->phase * 1.21f) * 11.0f;
+            const int biome = enemy->biome & 3;
+            static const float target_offsets[4] =
+                {455.0f,470.0f,450.0f,405.0f};
+            static const float x_ranges[4] = {43.0f,32.0f,35.0f,48.0f};
+            static const float y_centers[4] = {57.0f,50.0f,58.0f,55.0f};
+            static const float y_ranges[4] = {11.0f,9.0f,20.0f,13.0f};
+            const float target_z = game.distance + target_offsets[biome];
+            enemy->x = fsin(enemy->phase *
+                (biome == 3 ? 1.04f : (biome == 1 ? 0.68f : 0.83f))) *
+                x_ranges[biome];
+            enemy->y = y_centers[biome] +
+                fsin(enemy->phase * (biome == 2 ? 1.46f : 1.21f)) *
+                y_ranges[biome];
             enemy->z = lerpf(enemy->z, target_z, clampf(dt * 1.35f, 0.0f, 1.0f));
         }
         else {
@@ -3929,6 +4341,19 @@ static void update_gates(float dt) {
             gate, gate->stage_count > 0 ? gate->stage_count - 1 : 0);
         if(!gate->active)
             continue;
+        if(!gate->announced && gate->result == GATE_RESULT_PENDING &&
+           gate->z > player_world_z && gate->z - player_world_z < 340.0f) {
+            gate->announced = true;
+            if(gate->kind == TRAVERSAL_GRAVITY_BLOOM)
+                set_message("GRAVITY BLOOM  HOLD THE LINE", 2.1f);
+            else if(gate->kind == TRAVERSAL_SLALOM)
+                set_message("VECTOR SLALOM  FOLLOW THE BEACONS", 2.1f);
+            else
+                set_message("SHEAR RUN  CHANGE ALTITUDE", 2.1f);
+            play_sound(sfx_gate, 148, 128);
+            printf("Gravity Wave course: chapter %d traversal %d approach.\n",
+                   course_chapter_at(gate->z) + 1, (int)gate->kind);
+        }
         gate->spin += dt * direction *
                       (0.72f + (float)gate->variant * 0.07f);
         gate->result_time = fmaxf(0.0f, gate->result_time - dt);
@@ -4145,10 +4570,10 @@ static void check_scenery_collision(void) {
         const int biome = ((int)(z / BIOME_LENGTH)) & 3;
         const uint32_t h = hash_u32((uint32_t)segment * 0x9e3779b9u ^
                                     (uint32_t)biome * 0x51ed270bu);
-        const float side = (h & 1u) ? 1.0f : -1.0f;
+        const float side = scenery_side_for_segment(biome, segment, z);
         const float object_x = side * (70.0f + (float)((h >> 8) & 63u));
         const float base = terrain_height_local(object_x, z);
-        const int variant = (int)((h >> 3) % 5u);
+        const int variant = scenery_variant_for_segment(biome, segment, z);
         float arch_span = 0.0f;
         float arch_base_y = 0.0f;
         float arch_height = 0.0f;
@@ -4157,10 +4582,8 @@ static void check_scenery_collision(void) {
         float object_height = 0.0f;
         bool impact = false;
         bool signature_impact = false;
-        const bool near_regular = fabsf(player_z - z) <= 18.0f;
-
-        if(world_z_reserved_by_traversal(z, 52.0f))
-            continue;
+        const bool near_regular = fabsf(player_z - z) <= 18.0f &&
+                                  !is_signature_segment(segment);
 
         if(near_regular && biome == 0) {
             if(variant == 1) {
@@ -4223,6 +4646,12 @@ static void check_scenery_collision(void) {
             }
         }
 
+        /* Side dressing remains part of the biome during a challenge, while
+           only center-spanning collision geometry yields the readable lane. */
+        if(world_z_reserved_by_traversal(
+               z, COURSE_TRAVERSAL_SCENERY_CLEARANCE))
+            arch_span = 0.0f;
+
         if(near_regular && arch_span > 0.0f &&
            player_hits_material_arch(game.player_x, game.player_y,
                                      arch_span, arch_base_y,
@@ -4254,22 +4683,31 @@ static void check_scenery_collision(void) {
 }
 
 static void update_spawning(void) {
-    const float rank = clampf(game.distance / 11500.0f, 0.0f, 1.0f);
-    if(active_guardian()) {
-        if(game.next_wave_z < game.distance + 760.0f)
-            game.next_wave_z = game.distance + 760.0f;
+    if(active_guardian())
+        /* The guardian owns the chapter. Cursors remain parked on the next
+           authored beats; its destruction handler discards only events that
+           are genuinely inside the protected reward window. */
         return;
-    }
-    while(game.next_wave_z < game.distance + 1120.0f) {
-        spawn_wave(game.next_wave_z);
-        game.next_wave_z += 620.0f - rank * 155.0f;
+
+    while(game.next_wave_z < game.distance +
+          (course_wave_is_guardian(game.next_wave_z) ? 280.0f : 1120.0f)) {
+        if(game.next_wave_z <= game.distance + PLAYER_Z + 80.0f) {
+            game.next_wave_z = next_course_wave_z(game.next_wave_z + 1.0f);
+            continue;
+        }
+        if(!spawn_wave(game.next_wave_z))
+            break;
+        game.next_wave_z = next_course_wave_z(game.next_wave_z + 1.0f);
         if(active_guardian())
             break;
     }
+    if(active_guardian())
+        return;
     while(game.next_gate_z < game.distance + 1260.0f) {
-        spawn_gate(game.next_gate_z);
-        game.next_gate_z += 720.0f +
-                            (float)(hash_u32((uint32_t)game.next_gate_z) & 159u);
+        if(game.next_gate_z > game.distance + PLAYER_Z + 120.0f &&
+           !spawn_gate(game.next_gate_z))
+            break;
+        game.next_gate_z = next_course_traversal_z(game.next_gate_z + 1.0f);
     }
 }
 
@@ -4301,7 +4739,10 @@ static void spawn_exhaust(float dt, bool boosting) {
 
 static void enter_title(void) {
     const int title_biome = (int)(random_u32() >> 30);
-    const float title_offset = 620.0f + random_unit() * 1280.0f;
+    /* Frame each biome's authored landmark in the attract shot instead of
+       dropping the camera at an arbitrary point in its course. */
+    const float title_offset = COURSE_SIGNATURE_LOCAL_Z - 620.0f +
+                               random_unit() * 240.0f;
 
     memset(enemies, 0, sizeof(enemies));
     memset(player_shots, 0, sizeof(player_shots));
@@ -4529,13 +4970,36 @@ static bool update_game(const input_t *input, float dt) {
             if(game.mode == MODE_PLAYING) {
                 game.palette_index = ((int)(game.distance / BIOME_LENGTH)) %
                                      ARRAY_COUNT(palettes);
-                if(game.palette_index != game.last_palette_index) {
-                    set_message(palettes[game.palette_index].name, 2.3f);
-                    game.last_palette_index = game.palette_index;
-                    start_music_track(
-                        choose_random_music_track(current_music_track),
-                        MUSIC_GAME_VOLUME);
-                    play_sound(sfx_gate, 180, 128);
+                if(game.palette_index != game.last_palette_index &&
+                   !active_guardian()) {
+                    const int chapter = course_chapter_at(game.distance);
+                    if(game.music_chapter != chapter) {
+                        game.music_chapter = chapter;
+                        start_music_track(
+                            (game.music_route_offset + game.music_chapter) %
+                            MUSIC_TRACK_COUNT,
+                            MUSIC_GAME_VOLUME);
+                    }
+                    if(set_ambient_message(
+                           palettes[game.palette_index].name, 2.3f)) {
+                        game.last_palette_index = game.palette_index;
+                        play_sound(sfx_gate, 180, 128);
+                    }
+                }
+                {
+                    const int chapter = course_chapter_at(game.distance);
+                    const float local_z = course_local_z(game.distance);
+                    if(local_z >= COURSE_SIGNATURE_LOCAL_Z - 600.0f &&
+                       local_z <= COURSE_SIGNATURE_LOCAL_Z - 350.0f &&
+                       game.last_course_act != chapter &&
+                       !active_guardian() &&
+                       set_ambient_message(
+                           course_landmark_names[chapter & 3], 2.2f)) {
+                        game.last_course_act = chapter;
+                        printf("Gravity Wave course: chapter %d landmark %s.\n",
+                               chapter + 1,
+                               course_landmark_names[chapter & 3]);
+                    }
                 }
             }
         }
@@ -4664,6 +5128,8 @@ static void draw_mesh_instance(const gravity_wave_mesh_t *mesh, vec3_t origin,
 }
 
 static void draw_enemy_model(const enemy_t *enemy, const palette_t *palette) {
+    const palette_t *model_palette = enemy->type == 3 ?
+        &palettes[enemy->biome & 3] : palette;
     const gravity_wave_mesh_t *mesh = enemy->type == 3 ? &mesh_guardian :
                                 enemy->type == 2 ? &mesh_bomber :
                                 enemy->type == 1 ? &mesh_ace :
@@ -4677,8 +5143,10 @@ static void draw_enemy_model(const enemy_t *enemy, const palette_t *palette) {
     const vec3_t origin = {path_center(enemy->z) + enemy->x,
                            enemy->y, enemy->z};
     const color3_t tint = enemy->type == 3 ?
-        color_lerp((color3_t){0.96f,0.90f,0.82f}, palette->accent, 0.12f) :
-        color_lerp((color3_t){0.94f,0.88f,0.88f}, palette->enemy, 0.16f);
+        color_lerp((color3_t){0.96f,0.90f,0.82f},
+                   model_palette->accent, 0.12f) :
+        color_lerp((color3_t){0.94f,0.88f,0.88f},
+                   model_palette->enemy, 0.16f);
     draw_mesh_instance(mesh, origin, yaw, 0.0f, roll, scale, tint,
                        enemy->hit_flash > 0.025f);
 }
@@ -4733,8 +5201,11 @@ static void draw_enemy_glows(const palette_t *palette) {
         screen_point_t point;
         vec3_t engine;
         float size;
+        const palette_t *glow_palette;
         if(!enemy->active)
             continue;
+        glow_palette = enemy->type == 3 ?
+            &palettes[enemy->biome & 3] : palette;
         engine = enemy_model_point(enemy, 0.0f, 0.0f, 6.0f);
         if(!project_world(engine, &point))
             continue;
@@ -4742,8 +5213,8 @@ static void draw_enemy_glows(const palette_t *palette) {
                       1.5f, enemy->type == 3 ? 25.0f :
                       (enemy->type == 2 ? 16.0f : 9.0f));
         draw_disc(&additive_header, point.x, point.y, size, point.z + 0.00001f, 8,
-                  pack_color(0.75f, palette->enemy),
-                  pack_color(0.0f, palette->accent));
+                  pack_color(0.75f, glow_palette->enemy),
+                  pack_color(0.0f, glow_palette->accent));
         if(enemy->fire_timer > 0.0f && enemy->fire_timer < 0.55f) {
             const float charge = 1.0f - enemy->fire_timer / 0.55f;
             const vec3_t muzzle = enemy_model_point(
@@ -4752,7 +5223,7 @@ static void draw_enemy_glows(const palette_t *palette) {
                                     enemy->type == 3 ? 20.0f : 9.0f,
                                     enemy->type == 3 ? 20.0f : 9.0f,
                                     pack_color(0.30f + charge * 0.68f,
-                                               palette->enemy));
+                                               glow_palette->enemy));
         }
     }
 }
@@ -4800,10 +5271,33 @@ static vec3_t gate_polar_point(const gate_t *gate, float radius,
 
 static void draw_alternative_traversal_opaque(const gate_t *gate,
                                               const palette_t *palette) {
+    const int biome = course_chapter_at(gate->z) & 3;
+    static const int support_textures[4] = {
+        GRAVITY_WAVE_TEX_HULL_ALLIED,
+        GRAVITY_WAVE_TEX_TERRAIN_EMERALD,
+        GRAVITY_WAVE_TEX_ANCIENT_MACHINE,
+        GRAVITY_WAVE_TEX_HULL_HOSTILE
+    };
+    static const int hazard_textures[4] = {
+        GRAVITY_WAVE_TEX_CANOPY_ENERGY,
+        GRAVITY_WAVE_TEX_ANCIENT_MACHINE,
+        GRAVITY_WAVE_TEX_RIFT_ENERGY,
+        GRAVITY_WAVE_TEX_TERRAIN_EMBER
+    };
+    static const color3_t support_bases[4] = {
+        {0.34f,0.46f,0.58f}, {0.30f,0.48f,0.31f},
+        {0.40f,0.30f,0.56f}, {0.43f,0.31f,0.27f}
+    };
+    static const color3_t hazard_bases[4] = {
+        {0.20f,0.72f,0.92f}, {0.55f,0.78f,0.30f},
+        {0.73f,0.28f,0.94f}, {0.92f,0.28f,0.12f}
+    };
+    const int support_texture = support_textures[biome];
+    const int hazard_texture = hazard_textures[biome];
     const color3_t steel = color_lerp(
-        (color3_t){0.28f,0.34f,0.42f}, palette->river, 0.20f);
+        support_bases[biome], palette->river, 0.22f);
     const color3_t hazard = color_lerp(
-        (color3_t){0.52f,0.16f,0.20f}, palette->enemy, 0.24f);
+        hazard_bases[biome], palette->enemy, 0.26f);
     int stage;
 
     for(stage = 0; stage < gate->stage_count; ++stage) {
@@ -4818,42 +5312,42 @@ static void draw_alternative_traversal_opaque(const gate_t *gate,
             const float pylon_x = traversal_stage_x(gate, stage);
             draw_material_box(pylon_x, 5.0f, stage_z,
                               7.0f, 10.0f, 6.5f,
-                              GRAVITY_WAVE_TEX_HULL_HOSTILE, hazard);
+                              hazard_texture, hazard);
             draw_material_box(pylon_x, 15.0f, stage_z,
                               3.4f, 72.0f, 3.8f,
-                              GRAVITY_WAVE_TEX_HULL_ALLIED, steel);
+                              support_texture, steel);
             draw_material_box(pylon_x, 43.0f, stage_z,
                               5.1f, 3.0f, 5.2f,
-                              GRAVITY_WAVE_TEX_HULL_HOSTILE, hazard);
+                              hazard_texture, hazard);
             draw_material_box(pylon_x, 84.0f, stage_z,
                               5.6f, 4.0f, 5.7f,
-                              GRAVITY_WAVE_TEX_HULL_HOSTILE, hazard);
+                              hazard_texture, hazard);
             draw_material_beam(stage_z,
                 pylon_x, 34.0f,
                 pylon_x + (float)safe_direction * 13.0f, 39.0f,
-                1.6f, 2.0f, GRAVITY_WAVE_TEX_HULL_ALLIED, steel);
+                1.6f, 2.0f, support_texture, steel);
             draw_material_beam(stage_z,
                 pylon_x, 68.0f,
                 pylon_x + (float)safe_direction * 13.0f, 63.0f,
-                1.6f, 2.0f, GRAVITY_WAVE_TEX_HULL_ALLIED, steel);
+                1.6f, 2.0f, support_texture, steel);
         }
         else {
             const float bar_y = traversal_stage_y(gate, stage);
             draw_material_box(-106.0f, 6.0f, stage_z,
                               3.8f, 84.0f, 4.2f,
-                              GRAVITY_WAVE_TEX_HULL_ALLIED, steel);
+                              support_texture, steel);
             draw_material_box(106.0f, 6.0f, stage_z,
                               3.8f, 84.0f, 4.2f,
-                              GRAVITY_WAVE_TEX_HULL_ALLIED, steel);
+                              support_texture, steel);
             draw_material_box(0.0f, bar_y - 2.3f, stage_z,
                               108.0f, 4.6f, 4.4f,
-                              GRAVITY_WAVE_TEX_HULL_HOSTILE, hazard);
+                              hazard_texture, hazard);
             draw_material_box(-106.0f, bar_y - 5.5f, stage_z,
                               6.2f, 11.0f, 5.8f,
-                              GRAVITY_WAVE_TEX_HULL_HOSTILE, hazard);
+                              hazard_texture, hazard);
             draw_material_box(106.0f, bar_y - 5.5f, stage_z,
                               6.2f, 11.0f, 5.8f,
-                              GRAVITY_WAVE_TEX_HULL_HOSTILE, hazard);
+                              hazard_texture, hazard);
         }
     }
 }
@@ -6107,10 +6601,12 @@ int main(int argc, char **argv) {
     game.distance = GRAVITY_WAVE_AUTOTEST_DISTANCE;
     game.palette_index = ((int)(game.distance / BIOME_LENGTH)) & 3;
     game.last_palette_index = game.palette_index;
-    start_music_track(choose_random_music_track(current_music_track),
+    game.music_chapter = course_chapter_at(game.distance);
+    start_music_track((game.music_route_offset + game.music_chapter) %
+                      MUSIC_TRACK_COUNT,
                       MUSIC_GAME_VOLUME);
-    game.next_wave_z = game.distance + 500.0f;
-    game.next_gate_z = game.distance + 680.0f;
+    game.next_wave_z = next_course_wave_z(game.distance + 200.0f);
+    game.next_gate_z = next_course_traversal_z(game.distance + 200.0f);
 #ifdef GRAVITY_WAVE_AUTOTEST_GATE_VIEW
     game.next_wave_z = game.distance + 2400.0f;
     game.next_gate_z = game.distance + 4000.0f;
@@ -6120,14 +6616,20 @@ int main(int argc, char **argv) {
     gates[0].radius = 16.0f;
 #if defined(GRAVITY_WAVE_AUTOTEST_TRAVERSAL_SLALOM)
     gates[0].kind = TRAVERSAL_SLALOM;
-    gates[0].direction = 1;
+#ifndef GRAVITY_WAVE_AUTOTEST_DIRECTION
+#define GRAVITY_WAVE_AUTOTEST_DIRECTION 1
+#endif
+    gates[0].direction = GRAVITY_WAVE_AUTOTEST_DIRECTION;
     gates[0].stage_count = 3;
     gates[0].stage_spacing = 210.0f;
     gates[0].radius = 14.0f;
     printf("Gravity Wave autotest: three-stage Vector Slalom enabled.\n");
 #elif defined(GRAVITY_WAVE_AUTOTEST_TRAVERSAL_SHEAR)
     gates[0].kind = TRAVERSAL_SHEAR_BARRIER;
-    gates[0].direction = 1;
+#ifndef GRAVITY_WAVE_AUTOTEST_DIRECTION
+#define GRAVITY_WAVE_AUTOTEST_DIRECTION 1
+#endif
+    gates[0].direction = GRAVITY_WAVE_AUTOTEST_DIRECTION;
     gates[0].stage_count = 2;
     gates[0].stage_spacing = 230.0f;
     gates[0].y = 50.0f;
@@ -6213,7 +6715,8 @@ int main(int argc, char **argv) {
 #elif defined(GRAVITY_WAVE_AUTOTEST_EXTENTS)
         input.x = fsin(game.time * 0.58f);
         input.y = fsin(game.time * 0.47f + 0.7f);
-#elif defined(GRAVITY_WAVE_AUTOTEST_BOSS_HITS)
+#elif defined(GRAVITY_WAVE_AUTOTEST_BOSS_HITS) || \
+      defined(GRAVITY_WAVE_AUTOTEST_BOSS_AIM)
         {
             const enemy_t *guardian = active_guardian();
             if(guardian) {
@@ -6239,6 +6742,10 @@ int main(int argc, char **argv) {
 #endif
         running = update_game(&input, dt);
         render_frame(input.connected);
+#ifdef GRAVITY_WAVE_AUTOTEST_EXIT_SECONDS
+        if(game.time >= GRAVITY_WAVE_AUTOTEST_EXIT_SECONDS)
+            running = false;
+#endif
 #ifdef GRAVITY_WAVE_AUTOTEST
         {
             static int last_stats_second = -1;
