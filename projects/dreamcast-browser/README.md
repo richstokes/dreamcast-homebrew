@@ -18,14 +18,15 @@ is also available.
 - `Enter`: open the typed address or focused link
 - `Backspace` or `Alt+Left`: return to the previous page
 - `Shift+Backspace` or `Alt+Right`: move forward again
-- `Esc`: cancel address editing; outside the address bar it exits
+- `Esc`: cancel address editing or an active load; otherwise exit
 - `Tab`: focus the next link
 - arrows, Page Up/Down, Home/End, Space: scroll
 - `F5`: reload
 - mouse: point, click Back/Forward, links, or the address bar; use the wheel to
-  scroll
+  scroll and right-click to cancel an active load
 - controller: `B` or left trigger back, right trigger forward, `X` address bar,
-  `Y` next link, `A` open, D-pad scroll, Start exit
+  `Y` next link, `A` open, D-pad scroll, Start exit; `B` or Start cancels an
+  active load
 
 The address bar defaults to HTTPS when no scheme is entered. HTTPS verifies
 the server certificate and hostname with the bundled Mozilla CA store and will
@@ -74,8 +75,9 @@ make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST
 ./run-flycast.sh --skip-build
 ```
 
-The test reports `HISTORY SELF-TEST PASSED` before entering the normal browser
-loop. Run `make clean && make` afterward to restore the release build.
+The test reports passing asset, page-cancel, history, and image-cancel checks
+before entering the normal browser loop. Run `make clean && make` afterward to
+restore the release build.
 
 Run in Flycast with BBA emulation and the serial console:
 
@@ -115,8 +117,11 @@ avoiding a Flycast IRQ9 re-entry that otherwise appears as a KOS double-fault
 panic.
 
 While a request is active, the header shows an animated connection/download
-state and transferred versus declared KiB instead of leaving a static startup
-message onscreen.
+state, transferred versus declared KiB, and the cancel controls. `Esc`,
+controller `B`/Start, or right-click aborts the transfer. Canceling a page load
+preserves the displayed page, URL, scroll position, and Back/Forward history;
+canceling image loading keeps the parsed page and turns remaining assets into
+placeholders.
 
 This is a readable-web and small-site browser, not a modern desktop engine.
 Back and Forward history each retain up to eight URLs and their scroll positions

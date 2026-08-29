@@ -202,7 +202,10 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
                           &declared_size);
         if(code != CURLE_OK || probe_status < 200 || probe_status >= 400 ||
            declared_size < 0 || declared_size > (curl_off_t)limit) {
-            if(code == CURLE_FILESIZE_EXCEEDED ||
+            if(code == CURLE_ABORTED_BY_CALLBACK) {
+                out->cancelled = 1;
+                snprintf(out->error, sizeof(out->error), "Canceled");
+            } else if(code == CURLE_FILESIZE_EXCEEDED ||
                declared_size > (curl_off_t)limit)
                 snprintf(out->error, sizeof(out->error),
                          "Response exceeds the %lu KiB safety limit",
@@ -241,7 +244,10 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
         snprintf(out->effective_url, sizeof(out->effective_url), "%s", url);
 
     if(code != CURLE_OK && !buffer.full) {
-        if(code == CURLE_FILESIZE_EXCEEDED)
+        if(code == CURLE_ABORTED_BY_CALLBACK) {
+            out->cancelled = 1;
+            snprintf(out->error, sizeof(out->error), "Canceled");
+        } else if(code == CURLE_FILESIZE_EXCEEDED)
             snprintf(out->error, sizeof(out->error),
                      "Response exceeds the %lu KiB safety limit",
                      (unsigned long)(limit / 1024));

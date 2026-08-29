@@ -25,6 +25,18 @@ static int redraw_needed = 1;
 static const char *loading_label;
 static uint64_t last_progress_draw;
 static unsigned progress_frame;
+static uint32_t loading_controller_buttons;
+static uint32_t loading_mouse_buttons;
+static int loading_cancelled;
+
+#ifdef BROWSER_HISTORY_SELF_TEST
+static int self_test_cancel_mode;
+#endif
+
+enum {
+    LOAD_FAILED = -1,
+    LOAD_CANCELED = -2
+};
 
 typedef struct {
     char url[MAX_URL];
@@ -39,21 +51,63 @@ static int forward_count;
 static int show_transfer_progress(uint64_t received, uint64_t total,
                                   void *userdata) {
     static const char spinner[] = "|/-\\";
+    maple_device_t *device;
+    cont_state_t *controller_state;
+    mouse_state_t *mouse_state;
+    uint32_t pressed;
     uint64_t now = timer_ms_gettime64();
     (void)userdata;
+
+#ifdef BROWSER_HISTORY_SELF_TEST
+    if(self_test_cancel_mode == 1 ||
+       (self_test_cancel_mode == 2 && loading_label &&
+        !strcmp(loading_label, "image"))) {
+        self_test_cancel_mode = 0;
+        loading_cancelled = 1;
+    }
+#endif
+    device = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
+    if(device) {
+        int raw;
+        while((raw = kbd_queue_pop(device, 0)) != KBD_QUEUE_END) {
+            if((raw & 0xff) == KBD_KEY_ESCAPE) loading_cancelled = 1;
+        }
+    }
+    device = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+    controller_state = device ? maple_dev_status(device) : NULL;
+    if(controller_state) {
+        pressed = controller_state->buttons & ~loading_controller_buttons;
+        loading_controller_buttons = controller_state->buttons;
+        if(pressed & (CONT_B | CONT_START)) loading_cancelled = 1;
+    }
+    device = maple_enum_type(0, MAPLE_FUNC_MOUSE);
+    mouse_state = device ? maple_dev_status(device) : NULL;
+    if(mouse_state) {
+        pressed = mouse_state->buttons & ~loading_mouse_buttons;
+        loading_mouse_buttons = mouse_state->buttons;
+        if(pressed & MOUSE_RIGHTBUTTON) loading_cancelled = 1;
+    }
+    if(loading_cancelled) {
+        snprintf(status_text, sizeof(status_text), "Canceling %s...",
+                 loading_label ? loading_label : "request");
+        render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
+                       address, editing, back_count > 0, forward_count > 0,
+                       status_text);
+        return 1;
+    }
 
     if(last_progress_draw && now - last_progress_draw < 200) return 0;
     last_progress_draw = now;
     if(total)
         snprintf(status_text, sizeof(status_text),
-                 "Loading %s %lu/%lu KiB %c",
+                 "Loading %s %lu/%luK %c | Esc/B cancel",
                  loading_label ? loading_label : "data",
                  (unsigned long)(received / 1024),
                  (unsigned long)((total + 1023) / 1024),
                  spinner[progress_frame++ & 3]);
     else
         snprintf(status_text, sizeof(status_text),
-                 "Connecting %s %c",
+                 "Connecting %s %c | Esc/B cancel",
                  loading_label ? loading_label : "",
                  spinner[progress_frame++ & 3]);
     render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
@@ -63,8 +117,19 @@ static int show_transfer_progress(uint64_t received, uint64_t total,
 }
 
 static void begin_loading(const char *label) {
+    maple_device_t *device;
+    cont_state_t *controller_state;
+    mouse_state_t *mouse_state;
+
     loading_label = label;
     last_progress_draw = 0;
+    loading_cancelled = 0;
+    device = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+    controller_state = device ? maple_dev_status(device) : NULL;
+    loading_controller_buttons = controller_state ? controller_state->buttons : 0;
+    device = maple_enum_type(0, MAPLE_FUNC_MOUSE);
+    mouse_state = device ? maple_dev_status(device) : NULL;
+    loading_mouse_buttons = mouse_state ? mouse_state->buttons : 0;
     network_set_progress_callback(show_transfer_progress, NULL);
 }
 
@@ -147,9 +212,14 @@ static void history_push(history_entry_t *history, int *count,
 static int load_page(const char *requested) {
     fetch_result_t result;
     char target[MAX_URL];
+    char previous_url[MAX_URL];
+    char previous_address[MAX_URL];
     char message[256];
+    int images_cancelled;
     long response_status;
 
+    snprintf(previous_url, sizeof(previous_url), "%s", current_url);
+    snprintf(previous_address, sizeof(previous_address), "%s", address);
     snprintf(target, sizeof(target), "%s", requested);
     normalize_address(target, sizeof(target));
     snprintf(current_url, sizeof(current_url), "%s", target);
@@ -163,12 +233,23 @@ static int load_page(const char *requested) {
 
     if(network_fetch(target, MAX_DOCUMENT_BYTES, &result) < 0) {
         end_loading();
+        if(result.cancelled) {
+            snprintf(current_url, sizeof(current_url), "%s", previous_url);
+            snprintf(address, sizeof(address), "%s",
+                     previous_url[0] ? previous_url : previous_address);
+            snprintf(status_text, sizeof(status_text), "Canceled; page unchanged");
+            printf("browser: page load canceled; keeping %s\n",
+                   current_url[0] ? current_url : "startup page");
+            fetch_result_free(&result);
+            redraw_needed = 1;
+            return LOAD_CANCELED;
+        }
         snprintf(message, sizeof(message), "Could not load this address: %s", result.error);
         document_free(&document);
         document_make_error(&document, "Page load failed", message);
         snprintf(status_text, sizeof(status_text), "Network error");
         redraw_needed = 1;
-        return -1;
+        return LOAD_FAILED;
     }
 
     if(result.status < 200 || result.status >= 400) {
@@ -180,7 +261,7 @@ static int load_page(const char *requested) {
         document_make_error(&document, "Server error", message);
         snprintf(status_text, sizeof(status_text), "HTTP %ld", response_status);
         redraw_needed = 1;
-        return -1;
+        return LOAD_FAILED;
     }
 
     if(result.content_type[0] && !strstr(result.content_type, "text/html") &&
@@ -193,7 +274,7 @@ static int load_page(const char *requested) {
         document_make_error(&document, "Unsupported content", message);
         snprintf(status_text, sizeof(status_text), "Unsupported content");
         redraw_needed = 1;
-        return -1;
+        return LOAD_FAILED;
     }
 
     document_free(&document);
@@ -214,20 +295,31 @@ static int load_page(const char *requested) {
 
     begin_loading("image");
     document_load_images(&document);
+    images_cancelled = loading_cancelled;
     end_loading();
-    snprintf(status_text, sizeof(status_text), "%.82s%s", document.title,
-             document.truncated ? " [shortened]" : "");
+    if(images_cancelled)
+        snprintf(status_text, sizeof(status_text), "Images canceled; page ready");
+    else
+        snprintf(status_text, sizeof(status_text), "%.82s%s", document.title,
+                 document.truncated ? " [shortened]" : "");
     redraw_needed = 1;
     return 0;
 }
 
 static void navigate_to(const char *requested) {
+    history_entry_t current;
     char target[MAX_URL];
+    int result;
 
     snprintf(target, sizeof(target), "%s", requested);
-    history_push(back_history, &back_count, current_url, scroll_y, "back");
-    forward_count = 0;
-    load_page(target);
+    snprintf(current.url, sizeof(current.url), "%s", current_url);
+    current.scroll_y = scroll_y;
+    result = load_page(target);
+    if(result != LOAD_CANCELED) {
+        history_push(back_history, &back_count, current.url,
+                     current.scroll_y, "back");
+        forward_count = 0;
+    }
 }
 
 static void navigate_back(void) {
@@ -281,6 +373,7 @@ static void navigate_forward(void) {
 static void run_history_self_test(void) {
     fetch_result_t asset;
     char original[MAX_URL];
+    char original_title[MAX_TITLE];
     int original_scroll;
     int updated_scroll;
 
@@ -297,6 +390,18 @@ static void run_history_self_test(void) {
     fetch_result_free(&asset);
 
     snprintf(original, sizeof(original), "%s", current_url);
+    snprintf(original_title, sizeof(original_title), "%s", document.title);
+    snprintf(address, sizeof(address), "https://example.com/");
+    self_test_cancel_mode = 1;
+    navigate_to(address);
+    if(strcmp(current_url, original) || strcmp(address, original) ||
+       strcmp(document.title, original_title) ||
+       back_count || forward_count || self_test_cancel_mode) {
+        printf("browser: CANCEL SELF-TEST FAILED (page/history changed)\n");
+        return;
+    }
+    printf("browser: CANCEL SELF-TEST PASSED (page/history preserved)\n");
+
     scroll_y = 64;
     clamp_scroll();
     original_scroll = scroll_y;
@@ -328,6 +433,19 @@ static void run_history_self_test(void) {
     }
     printf("browser: HISTORY SELF-TEST PASSED (back/forward, scroll %d)\n",
            scroll_y);
+
+    self_test_cancel_mode = 2;
+    if(load_page("https://httpbin.org/base64/"
+                 "PGh0bWw%2BPHRpdGxlPkNhbmNlbCBJbWFnZSBUZXN0PC90aXRsZT48Ym9keT48"
+                 "aW1nIHNyYz0iL2ltYWdlL3BuZyIgYWx0PSJ0ZXN0Ij48L2JvZHk%2BPC9odG1s"
+                 "Pg%3D%3D") != 0 ||
+       self_test_cancel_mode || !loading_cancelled ||
+       strcmp(status_text, "Images canceled; page ready") ||
+       document.image_count != 1 || document.images[0].loaded != -1) {
+        printf("browser: CANCEL SELF-TEST FAILED (image cancellation)\n");
+        return;
+    }
+    printf("browser: IMAGE CANCEL SELF-TEST PASSED (page kept)\n");
 }
 #endif
 

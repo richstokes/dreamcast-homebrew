@@ -77,6 +77,7 @@ typedef struct {
     size_t size;
     long status;
     int truncated;
+    int cancelled;
     char content_type[96];
     char effective_url[MAX_URL];
     char error[160];
