@@ -39,8 +39,10 @@ is also available.
   camera trauma, and three Nova Pulses per run
 - Three permanent laser levels plus magnetic Laser Core, Repair, Nova, Speed
   Boost, Fast Laser, and Phase Wave pickups dropped by defeated enemies
-- Biome-authored enemy formations, aimed fire, light/ace/heavy craft,
-  escalating speed, and encounters paced around traversal recovery windows
+- Straight world-space weapon rays that converge on the HUD reticle, predictive
+  enemy fire, swept high-speed hit detection, and terrain-anchored impacts
+- Biome-authored enemy formations, light/ace/heavy craft, escalating speed,
+  and encounters paced around traversal recovery windows
 - Three mixed traversal challenges: animated Gravity Blooms with swept
   mechanical petals, three-stage Vector Slaloms with alternating industrial
   pylons, and two-stage Shear Runs that demand rapid over/under transitions
@@ -187,7 +189,8 @@ second traversal, a biome-specific guardian, then a protected reward/recovery
 window. Props repeat in recognizable districts and traversal hardware inherits
 the materials and colors of its biome. Enemies, pickups, traversal objectives,
 and structures are expressed in route-relative coordinates, so every encounter
-follows the same authored flight line.
+follows the same authored flight line. Fired weapons capture their launch ray
+in world space, however, so shots remain straight as the course turns or climbs.
 Destroying enemies before the chain timer expires raises the multiplier. A
 Gravity Bloom's broken inner halo marks its exact scoring aperture; Vector
 Slalom arrows mark the safe side of each pylon, while Shear Run arrows call for

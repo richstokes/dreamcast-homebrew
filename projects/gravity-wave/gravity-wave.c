@@ -83,6 +83,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define GATE_CLEAR_RADIUS_SCALE 0.7874008f
 
 #define PLAYER_Z             44.0f
+#define PLAYER_AIM_Z        440.0f
 #define PLAYER_MIN_X        -84.0f
 #define PLAYER_MAX_X         84.0f
 #define PLAYER_MIN_Y         12.0f
@@ -146,6 +147,8 @@ typedef enum {
 
 typedef struct {
     bool active;
+    /* Projectiles alone use absolute world XYZ so their launch ray remains
+       straight while the route bends beneath them. */
     float x, y, z;
     float vx, vy, vz;
     float life;
@@ -286,6 +289,7 @@ typedef struct {
     float roll_cooldown;
     float shield;
     float hit_cooldown;
+    float scenery_hit_cooldown;
     float boost;
     float fire_cooldown;
     float exhaust_timer;
@@ -633,6 +637,10 @@ static float next_course_wave_z(float after_z);
 static bool course_wave_is_guardian(float world_z);
 static bool course_world_z_reserved(float world_z, float clearance);
 static enemy_t *active_guardian(void);
+static vec3_t enemy_model_point(const enemy_t *enemy,
+                                float lx, float ly, float lz);
+static vec3_t player_model_point(float lx, float ly, float lz);
+static vec3_t segment_point_at_z(vec3_t start, vec3_t end, float world_z);
 
 static bool world_z_reserved_by_traversal(float world_z, float clearance) {
     int objective;
@@ -822,6 +830,18 @@ static float path_center(float world_z) {
 
 static float path_elevation(float world_z) {
     return course_profile_curve(world_z, true);
+}
+
+static vec3_t route_position(float local_x, float local_y, float world_z) {
+    return (vec3_t){path_center(world_z) + local_x,
+                    path_elevation(world_z) + local_y,
+                    world_z};
+}
+
+static vec3_t route_hybrid_to_world(vec3_t point) {
+    /* Renderable models already carry absolute X/Z but route-relative Y. */
+    point.y += path_elevation(point.z);
+    return point;
 }
 
 static float path_heading(float world_z) {
@@ -1101,12 +1121,9 @@ static void get_blended_palette(palette_t *out) {
     out->name = palettes[index].name;
 }
 
-static bool project_world(vec3_t world, screen_point_t *out) {
+static bool project_absolute_world(vec3_t world, screen_point_t *out) {
     float dx = world.x - camera_world_x;
-    /* Combat and collision remain in route-local Y. Bend them into world
-       space here so every gate, projectile, landmark, and terrain vertex
-       follows the same climb or dive without desynchronizing gameplay. */
-    float dy = world.y + path_elevation(world.z) - camera_world_y;
+    float dy = world.y - camera_world_y;
     float dz = world.z - game.distance;
     const float yaw_x = dx * camera_cos_yaw - dz * camera_sin_yaw;
     const float yaw_z = dx * camera_sin_yaw + dz * camera_cos_yaw;
@@ -1125,6 +1142,14 @@ static bool project_world(vec3_t world, screen_point_t *out) {
     out->y = SCREEN_CY + camera_shake_y - roll_y * game.camera_focal * out->z;
     out->valid = true;
     return true;
+}
+
+static bool project_world(vec3_t world, screen_point_t *out) {
+    /* Static scene geometry and route-bound entities carry absolute X/Z but
+       route-relative Y. Projectiles and free particles use the explicit
+       absolute-world projector above and never receive another course bend. */
+    world.y += path_elevation(world.z);
+    return project_absolute_world(world, out);
 }
 
 static void setup_camera(void) {
@@ -1339,15 +1364,13 @@ static void draw_world_textured_quad(const pvr_poly_hdr_t *header,
     }
 }
 
-static void draw_textured_billboard(const pvr_poly_hdr_t *header,
-                                    vec3_t world, float width, float height,
-                                    uint32_t color) {
-    screen_point_t center;
+static void draw_projected_textured_billboard(const pvr_poly_hdr_t *header,
+                                              screen_point_t center,
+                                              float width, float height,
+                                              uint32_t color) {
     screen_point_t a, b, c, d;
     float screen_w, screen_h;
 
-    if(!project_world(world, &center))
-        return;
     screen_w = clampf(width * game.camera_focal * center.z, 1.0f, 220.0f);
     screen_h = clampf(height * game.camera_focal * center.z, 1.0f, 220.0f);
     if(center.x + screen_w < -8.0f || center.x - screen_w > SCREEN_W + 8.0f ||
@@ -1365,6 +1388,25 @@ static void draw_textured_billboard(const pvr_poly_hdr_t *header,
                          0.0f, 0.0f, 1.0f, 0.0f,
                          0.0f, 1.0f, 1.0f, 1.0f,
                          color, color, color, color);
+}
+
+static void draw_textured_billboard(const pvr_poly_hdr_t *header,
+                                    vec3_t world, float width, float height,
+                                    uint32_t color) {
+    screen_point_t center;
+    if(project_world(world, &center))
+        draw_projected_textured_billboard(header, center, width, height,
+                                          color);
+}
+
+static void draw_absolute_textured_billboard(const pvr_poly_hdr_t *header,
+                                             vec3_t world,
+                                             float width, float height,
+                                             uint32_t color) {
+    screen_point_t center;
+    if(project_absolute_world(world, &center))
+        draw_projected_textured_billboard(header, center, width, height,
+                                          color);
 }
 
 static void draw_disc(const pvr_poly_hdr_t *header, float cx, float cy,
@@ -2909,8 +2951,9 @@ static bool signature_setpiece_reserved(int biome, float world_z) {
 }
 
 static bool player_hits_signature_arch(int biome, int segment,
-                                       float segment_z, float player_z,
-                                       float player_x, float player_y) {
+                                       float segment_z,
+                                       vec3_t previous_player_world,
+                                       vec3_t current_player_world) {
     int rib_count;
     float spacing;
     int rib;
@@ -2924,6 +2967,10 @@ static bool player_hits_signature_arch(int biome, int segment,
 
     for(rib = 0; rib < rib_count; ++rib) {
         const float rib_z = segment_z + (float)rib * spacing;
+        const vec3_t collision_point = segment_point_at_z(
+            previous_player_world, current_player_world, rib_z);
+        const float player_x = collision_point.x - path_center(rib_z);
+        const float player_y = collision_point.y - path_elevation(rib_z);
         const float half_span = biome == 0 ? 43.0f - (float)rib * 2.0f :
                                 (biome == 1 ?
                                  36.0f - (float)rib * 3.0f : 40.0f);
@@ -2934,7 +2981,7 @@ static bool player_hits_signature_arch(int biome, int segment,
         const float thickness = biome == 0 ? 2.8f :
                                 (biome == 1 ? 4.5f : 3.8f);
 
-        if(fabsf(player_z - rib_z) <= 18.0f &&
+        if(fabsf(collision_point.z - rib_z) <= 18.0f &&
            player_hits_material_arch(player_x, player_y,
                                      half_span, base_y,
                                      height, thickness))
@@ -3437,13 +3484,14 @@ static void spawn_particle(float x, float y, float z,
 
 static void spawn_explosion(float x, float y, float z, color3_t color,
                             int count) {
+    const vec3_t origin = route_position(x, y, z);
     int i;
     for(i = 0; i < count; ++i) {
         const float angle = random_unit() * TAU;
         const float lift = random_signed() * 0.75f;
         const float speed = 14.0f + random_unit() * 43.0f;
         color3_t spark = (i & 2) ? color : (color3_t){1.0f, 0.55f, 0.12f};
-        spawn_particle(x, y, z,
+        spawn_particle(origin.x, origin.y, origin.z,
                        fcos(angle) * speed,
                        lift * speed,
                        fsin(angle) * speed,
@@ -3453,18 +3501,19 @@ static void spawn_explosion(float x, float y, float z, color3_t color,
     }
 }
 
-static void spawn_boss_impact(float x, float y, float z,
-                              color3_t color, int damage) {
+static void spawn_boss_impact_world(vec3_t impact,
+                                    color3_t color, int damage) {
     const int spark_count = 7 + (damage > 1 ? 3 : 0);
     int i;
 
-    spawn_particle(x, y, z - 1.5f, 0.0f, 0.0f, 0.0f,
+    spawn_particle(impact.x, impact.y, impact.z - 1.5f,
+                   0.0f, 0.0f, 0.0f,
                    0.34f, 15.0f + (float)damage * 2.0f,
                    color, PARTICLE_BOSS_IMPACT);
     for(i = 0; i < spark_count; ++i) {
         const float angle = random_unit() * TAU;
         const float speed = 20.0f + random_unit() * 38.0f;
-        spawn_particle(x, y, z - 2.0f,
+        spawn_particle(impact.x, impact.y, impact.z - 2.0f,
                        fcos(angle) * speed,
                        fsin(angle) * speed,
                        -10.0f - random_unit() * 22.0f,
@@ -3580,6 +3629,8 @@ static void damage_player(float amount) {
     if(game.hit_cooldown > 0.0f || game.mode != MODE_PLAYING)
         return;
 
+    const vec3_t player_world = route_position(
+        game.player_x, game.player_y, game.distance + PLAYER_Z);
     game.shield -= amount;
     game.hit_cooldown = 0.82f;
     game.trauma = fmaxf(game.trauma, 0.72f);
@@ -3588,8 +3639,7 @@ static void damage_player(float amount) {
     play_sound(sfx_hit, 210, 128);
     play_rumble(6);
     for(i = 0; i < 13; ++i) {
-        spawn_particle(game.player_x, game.player_y,
-                       game.distance + PLAYER_Z,
+        spawn_particle(player_world.x, player_world.y, player_world.z,
                        random_signed() * 28.0f,
                        random_signed() * 28.0f,
                        random_signed() * 22.0f,
@@ -3807,27 +3857,50 @@ static bool spawn_gate(float world_z) {
     return true;
 }
 
+static vec3_t player_aim_target_world(void) {
+    const float target_z = game.distance + PLAYER_AIM_Z;
+    return route_position(game.player_x, game.player_y, target_z);
+}
+
+static void launch_player_projectile(projectile_t *shot,
+                                     projectile_kind_t kind,
+                                     float muzzle_x, float muzzle_y,
+                                     float muzzle_z, float forward_speed,
+                                     float life, float spin,
+                                     int damage, int hits_remaining) {
+    const vec3_t origin = route_hybrid_to_world(
+        player_model_point(muzzle_x, muzzle_y, muzzle_z));
+    const vec3_t target = player_aim_target_world();
+    const float flight_time = fmaxf(
+        (target.z - origin.z) / forward_speed, 0.05f);
+
+    *shot = (projectile_t){
+        .active = true,
+        .x = origin.x,
+        .y = origin.y,
+        .z = origin.z,
+        .vx = (target.x - origin.x) / flight_time,
+        .vy = (target.y - origin.y) / flight_time,
+        .vz = forward_speed,
+        .life = life,
+        .spin = spin,
+        .kind = kind,
+        .damage = damage,
+        .hits_remaining = hits_remaining,
+        .hit_mask = 0u
+    };
+}
+
 static void fire_player_weapon(void) {
     if(game.temporary_weapon == TEMP_WEAPON_PHASE_WAVE &&
        game.temporary_weapon_time > 0.0f) {
         projectile_t *shot = alloc_projectile(player_shots, MAX_SHOTS);
-        if(shot) {
-            *shot = (projectile_t){
-                .active = true,
-                .x = game.player_x,
-                .y = game.player_y + 0.2f,
-                .z = game.distance + PLAYER_Z + 8.0f,
-                .vx = game.player_vx * 0.08f,
-                .vy = game.player_vy * 0.05f,
-                .vz = 455.0f,
-                .life = 1.60f,
-                .spin = (game.weapon_shot_counter & 1) ? -0.17f : 0.17f,
-                .kind = SHOT_PLAYER_PHASE,
-                .damage = 2,
-                .hits_remaining = 4,
-                .hit_mask = 0u
-            };
-        }
+        if(shot)
+            launch_player_projectile(
+                shot, SHOT_PLAYER_PHASE, 0.0f, 0.2f, 8.0f,
+                455.0f, 1.60f,
+                (game.weapon_shot_counter & 1) ? -0.17f : 0.17f,
+                2, 4);
         game.weapon_shot_counter++;
         game.fire_cooldown = 0.28f;
         play_phase_wave(game.player_x);
@@ -3838,23 +3911,10 @@ static void fire_player_weapon(void) {
        game.temporary_weapon_time > 0.0f) {
         projectile_t *shot = alloc_projectile(player_shots, MAX_SHOTS);
         const float offset = (game.weapon_shot_counter & 1) ? 2.9f : -2.9f;
-        if(shot) {
-            *shot = (projectile_t){
-                .active = true,
-                .x = game.player_x + offset,
-                .y = game.player_y + 0.1f,
-                .z = game.distance + PLAYER_Z + 7.0f,
-                .vx = game.player_vx * 0.11f + offset * 0.30f,
-                .vy = game.player_vy * 0.06f,
-                .vz = 690.0f,
-                .life = 1.35f,
-                .spin = 0.0f,
-                .kind = SHOT_PLAYER_FAST,
-                .damage = 2,
-                .hits_remaining = 1,
-                .hit_mask = 0u
-            };
-        }
+        if(shot)
+            launch_player_projectile(
+                shot, SHOT_PLAYER_FAST, offset, 0.1f, 7.0f,
+                690.0f, 1.35f, 0.0f, 2, 1);
         game.weapon_shot_counter++;
         game.fire_cooldown = 0.058f;
         play_fast_laser(game.player_x + offset);
@@ -3872,21 +3932,10 @@ static void fire_player_weapon(void) {
                               ((float)index - 1.0f) * 4.2f);
         if(!shot)
             continue;
-        *shot = (projectile_t){
-            .active = true,
-            .x = game.player_x + offset,
-            .y = game.player_y + 0.1f,
-            .z = game.distance + PLAYER_Z + 7.0f,
-            .vx = game.player_vx * 0.15f + offset * 0.48f,
-            .vy = game.player_vy * 0.08f,
-            .vz = 510.0f + (float)(game.weapon_level - 1) * 45.0f,
-            .life = 1.75f,
-            .spin = 0.0f,
-            .kind = SHOT_PLAYER_LASER,
-            .damage = 1,
-            .hits_remaining = 1,
-            .hit_mask = 0u
-        };
+        launch_player_projectile(
+            shot, SHOT_PLAYER_LASER, offset, 0.1f, 7.0f,
+            510.0f + (float)(game.weapon_level - 1) * 45.0f,
+            1.75f, 0.0f, 1, 1);
     }
     game.weapon_shot_counter++;
     game.fire_cooldown = 0.155f -
@@ -3895,12 +3944,23 @@ static void fire_player_weapon(void) {
 }
 
 static void fire_enemy_shot(enemy_t *enemy) {
-    const float relative_z = enemy->z - (game.distance + PLAYER_Z);
     static const float guardian_speed[4] = {132.0f,124.0f,142.0f,150.0f};
     const float shot_speed = enemy->type == 3 ?
         guardian_speed[enemy->biome & 3] : 105.0f;
-    const float travel_time = clampf(relative_z / (game.speed + shot_speed),
-                                     0.35f, 2.5f);
+    const float player_z = game.distance + PLAYER_Z;
+    const vec3_t origin = route_hybrid_to_world(enemy_model_point(
+        enemy, 0.0f, 0.0f, enemy->type == 3 ? 15.0f : 8.0f));
+    const float travel_time = clampf(
+        (origin.z - player_z) / (game.speed + shot_speed), 0.12f, 2.8f);
+    const float target_z = player_z + game.speed * travel_time;
+    const float target_local_x = clampf(
+        game.player_x + game.player_vx * 0.20f,
+        PLAYER_MIN_X, PLAYER_MAX_X);
+    const float target_local_y = clampf(
+        game.player_y + game.player_vy * 0.12f,
+        PLAYER_MIN_Y, PLAYER_MAX_Y);
+    const vec3_t target = route_position(
+        target_local_x, target_local_y, target_z);
     const int count = enemy->type == 3 ? 3 : 1;
     int i;
 
@@ -3911,15 +3971,13 @@ static void fire_enemy_shot(enemy_t *enemy) {
             break;
         *shot = (projectile_t){
             .active = true,
-            .x = enemy->x,
-            .y = enemy->y,
-            .z = enemy->z - 3.0f,
-            .vx = (game.player_x + game.player_vx * 0.20f - enemy->x) /
-                  travel_time + spread,
-            .vy = (game.player_y + game.player_vy * 0.12f - enemy->y) /
-                  travel_time +
+            .x = origin.x,
+            .y = origin.y,
+            .z = origin.z,
+            .vx = (target.x - origin.x) / travel_time + spread,
+            .vy = (target.y - origin.y) / travel_time +
                   (enemy->type == 3 ? fabsf(spread) * 0.10f : 0.0f),
-            .vz = -shot_speed,
+            .vz = (target.z - origin.z) / travel_time,
             .life = enemy->type == 3 ? 4.2f : 3.2f,
             .spin = 0.0f,
             .kind = SHOT_ENEMY,
@@ -3993,6 +4051,7 @@ static void reset_game(void) {
     game.roll_cooldown = 0.0f;
     game.shield = 100.0f;
     game.hit_cooldown = 0.0f;
+    game.scenery_hit_cooldown = 0.0f;
     game.boost = 100.0f;
     game.fire_cooldown = 0.0f;
     game.exhaust_timer = 0.0f;
@@ -4092,25 +4151,228 @@ static void update_particles(float dt) {
     }
 }
 
+static vec3_t vec3_lerp(vec3_t a, vec3_t b, float t) {
+    return (vec3_t){lerpf(a.x, b.x, t),
+                    lerpf(a.y, b.y, t),
+                    lerpf(a.z, b.z, t)};
+}
+
+static vec3_t segment_point_at_z(vec3_t start, vec3_t end, float world_z) {
+    const float dz = end.z - start.z;
+    const float t = fabsf(dz) > 0.0001f ?
+        clampf((world_z - start.z) / dz, 0.0f, 1.0f) : 1.0f;
+    return vec3_lerp(start, end, t);
+}
+
+static float vec3_dot(vec3_t a, vec3_t b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+static vec3_t vec3_cross(vec3_t a, vec3_t b) {
+    return (vec3_t){a.y * b.z - a.z * b.y,
+                    a.z * b.x - a.x * b.z,
+                    a.x * b.y - a.y * b.x};
+}
+
+static bool swept_ellipsoid_hit(vec3_t start, vec3_t end, vec3_t center,
+                                float side_radius, float up_radius,
+                                float along_radius, float spin,
+                                float *hit_t) {
+    const vec3_t motion = {end.x - start.x,
+                           end.y - start.y,
+                           end.z - start.z};
+    const float motion_length = fsqrt(vec3_dot(motion, motion));
+    vec3_t forward;
+    vec3_t side;
+    vec3_t up;
+    vec3_t spun_side;
+    vec3_t spun_up;
+    vec3_t relative;
+    vec3_t scaled_start;
+    vec3_t scaled_motion;
+    float side_length;
+    float a;
+    float b;
+    float c;
+    float discriminant;
+    float root;
+    float cs = 1.0f;
+    float sn = 0.0f;
+
+    if(motion_length < 0.0001f) {
+        const float dx = (start.x - center.x) / side_radius;
+        const float dy = (start.y - center.y) / up_radius;
+        const float dz = (start.z - center.z) / along_radius;
+        if(dx * dx + dy * dy + dz * dz > 1.0f)
+            return false;
+        *hit_t = 0.0f;
+        return true;
+    }
+    if(fabsf(spin) > 0.0001f) {
+        cs = fcos(spin);
+        sn = fsin(spin);
+    }
+    forward = (vec3_t){motion.x / motion_length,
+                       motion.y / motion_length,
+                       motion.z / motion_length};
+    side = vec3_cross((vec3_t){0.0f,1.0f,0.0f}, forward);
+    side_length = fsqrt(vec3_dot(side, side));
+    if(side_length < 0.001f)
+        side = (vec3_t){1.0f,0.0f,0.0f};
+    else
+        side = (vec3_t){side.x / side_length,
+                        side.y / side_length,
+                        side.z / side_length};
+    up = vec3_cross(forward, side);
+    spun_side = (vec3_t){side.x * cs + up.x * sn,
+                         side.y * cs + up.y * sn,
+                         side.z * cs + up.z * sn};
+    spun_up = (vec3_t){up.x * cs - side.x * sn,
+                       up.y * cs - side.y * sn,
+                       up.z * cs - side.z * sn};
+    relative = (vec3_t){start.x - center.x,
+                        start.y - center.y,
+                        start.z - center.z};
+    scaled_start = (vec3_t){
+        vec3_dot(relative, spun_side) / side_radius,
+        vec3_dot(relative, spun_up) / up_radius,
+        vec3_dot(relative, forward) / along_radius
+    };
+    scaled_motion = (vec3_t){
+        vec3_dot(motion, spun_side) / side_radius,
+        vec3_dot(motion, spun_up) / up_radius,
+        vec3_dot(motion, forward) / along_radius
+    };
+    c = vec3_dot(scaled_start, scaled_start) - 1.0f;
+    if(c <= 0.0f) {
+        *hit_t = 0.0f;
+        return true;
+    }
+    a = vec3_dot(scaled_motion, scaled_motion);
+    b = 2.0f * vec3_dot(scaled_start, scaled_motion);
+    discriminant = b * b - 4.0f * a * c;
+    if(a < 0.000001f || discriminant < 0.0f)
+        return false;
+    root = (-b - fsqrt(discriminant)) / (2.0f * a);
+    if(root < 0.0f || root > 1.0f)
+        return false;
+    *hit_t = root;
+    return true;
+}
+
+static bool projectile_terrain_hit(vec3_t start, vec3_t end,
+                                   float *hit_t, vec3_t *impact) {
+    const vec3_t motion = {end.x - start.x,
+                           end.y - start.y,
+                           end.z - start.z};
+    const float length = fsqrt(vec3_dot(motion, motion));
+    const int steps = (int)clampf(ceilf(length / 12.0f), 1.0f, 8.0f);
+    float previous_t = 0.0f;
+    int step;
+
+    for(step = 0; step <= steps; ++step) {
+        const float t = (float)step / (float)steps;
+        const vec3_t point = vec3_lerp(start, end, t);
+        const float local_x = point.x - path_center(point.z);
+        const float local_y = point.y - path_elevation(point.z);
+        if(local_y <= terrain_height_local(local_x, point.z) + 0.8f) {
+            float low = previous_t;
+            float high = t;
+            int refine;
+            for(refine = 0; refine < 5; ++refine) {
+                const float middle = (low + high) * 0.5f;
+                const vec3_t sample = vec3_lerp(start, end, middle);
+                const float sample_x =
+                    sample.x - path_center(sample.z);
+                const float sample_y =
+                    sample.y - path_elevation(sample.z);
+                if(sample_y <= terrain_height_local(sample_x, sample.z) +
+                               0.8f)
+                    high = middle;
+                else
+                    low = middle;
+            }
+            *hit_t = high;
+            *impact = vec3_lerp(start, end, high);
+            return true;
+        }
+        previous_t = t;
+    }
+    return false;
+}
+
+static void spawn_projectile_terrain_impact(vec3_t impact,
+                                            color3_t color) {
+    int spark;
+    for(spark = 0; spark < 5; ++spark) {
+        spawn_particle(impact.x, impact.y + 0.4f, impact.z,
+                       random_signed() * 16.0f,
+                       7.0f + random_unit() * 18.0f,
+                       random_signed() * 15.0f,
+                       0.16f + random_unit() * 0.20f,
+                       1.0f + random_unit() * 1.7f,
+                       color, PARTICLE_STREAK);
+    }
+}
+
+static void resolve_player_shot_hit(projectile_t *shot, enemy_t *enemy,
+                                    int enemy_index, vec3_t impact) {
+    const bool phase_wave = shot->kind == SHOT_PLAYER_PHASE;
+    const int damage = shot->damage > 0 ? shot->damage : 1;
+    const color3_t impact_color = phase_wave ?
+        (color3_t){1.0f,0.28f,0.86f} :
+        (shot->kind == SHOT_PLAYER_FAST ?
+         (color3_t){0.34f,1.0f,1.0f} :
+         (color3_t){1.0f,0.84f,0.28f});
+    const float local_impact_x = impact.x - path_center(impact.z);
+
+    if(phase_wave) {
+        shot->hit_mask |= 1u << enemy_index;
+        shot->hits_remaining--;
+        if(shot->hits_remaining <= 0)
+            shot->active = false;
+    }
+    else {
+        shot->active = false;
+    }
+    enemy->hp -= damage;
+    if(enemy->type == 3) {
+        enemy->hit_flash = 0.18f;
+        spawn_boss_impact_world(impact, impact_color, damage);
+    }
+    else {
+        spawn_particle(impact.x, impact.y, impact.z,
+                       random_signed() * 18.0f,
+                       random_signed() * 18.0f,
+                       -18.0f, 0.25f, 2.5f,
+                       impact_color, PARTICLE_STREAK);
+    }
+    if(enemy->hp <= 0)
+        destroy_enemy(enemy, true);
+    else
+        play_sound(sfx_hit, enemy->type == 3 ? 190 : 130,
+                   (int)clampf(128.0f + local_impact_x * 1.2f,
+                               20.0f, 236.0f));
+}
+
 static void update_player_shots(float dt) {
-    int i, j;
+    int i;
     for(i = 0; i < MAX_SHOTS; ++i) {
         projectile_t *shot = &player_shots[i];
-        float previous_x;
-        float previous_y;
-        float previous_z;
+        vec3_t previous;
+        vec3_t current;
+        vec3_t collision_end;
+        vec3_t terrain_impact;
+        float terrain_t = 2.0f;
+        float segment_min_z;
+        float segment_max_z;
+        bool terrain_hit;
         bool phase_wave;
-        float z_radius;
-        float sweep_min_z;
-        float sweep_max_z;
-        float sweep_dz;
-        float phase_cos = 1.0f;
-        float phase_sin = 0.0f;
+        int j;
+
         if(!shot->active)
             continue;
-        previous_x = shot->x;
-        previous_y = shot->y;
-        previous_z = shot->z;
+        previous = (vec3_t){shot->x, shot->y, shot->z};
         shot->x += shot->vx * dt;
         shot->y += shot->vy * dt;
         shot->z += shot->vz * dt;
@@ -4121,102 +4383,108 @@ static void update_player_shots(float dt) {
             shot->active = false;
             continue;
         }
-
+        current = (vec3_t){shot->x, shot->y, shot->z};
+        terrain_hit = projectile_terrain_hit(
+            previous, current, &terrain_t, &terrain_impact);
+        collision_end = terrain_hit ? terrain_impact : current;
+        segment_min_z = fminf(previous.z, collision_end.z);
+        segment_max_z = fmaxf(previous.z, collision_end.z);
         phase_wave = shot->kind == SHOT_PLAYER_PHASE;
-        z_radius = phase_wave ? 18.0f : 15.0f;
-        sweep_min_z = fminf(previous_z, shot->z) - z_radius;
-        sweep_max_z = fmaxf(previous_z, shot->z) + z_radius;
-        sweep_dz = shot->z - previous_z;
+
         if(phase_wave) {
-            phase_cos = fcos(shot->spin);
-            phase_sin = fsin(shot->spin);
+            while(shot->active) {
+                int closest_enemy = -1;
+                float closest_t = 2.0f;
+                for(j = 0; j < MAX_ENEMIES; ++j) {
+                    enemy_t *enemy = &enemies[j];
+                    vec3_t enemy_world;
+                    float hit_t;
+                    float broad_radius;
+                    if(!enemy->active || (shot->hit_mask & (1u << j)))
+                        continue;
+                    broad_radius = 31.0f + enemy->radius;
+                    if(enemy->z < segment_min_z - broad_radius ||
+                       enemy->z > segment_max_z + broad_radius)
+                        continue;
+                    enemy_world = route_position(
+                        enemy->x, enemy->y, enemy->z);
+                    if(swept_ellipsoid_hit(
+                           previous, collision_end, enemy_world,
+                           31.0f + enemy->radius,
+                           13.5f + enemy->radius,
+                           18.0f, shot->spin, &hit_t) &&
+                       hit_t < closest_t) {
+                        closest_enemy = j;
+                        closest_t = hit_t;
+                    }
+                }
+                if(closest_enemy < 0)
+                    break;
+                resolve_player_shot_hit(
+                    shot, &enemies[closest_enemy], closest_enemy,
+                    vec3_lerp(previous, collision_end, closest_t));
+            }
+        }
+        else {
+            int closest_enemy = -1;
+            float closest_t = 2.0f;
+            for(j = 0; j < MAX_ENEMIES; ++j) {
+                enemy_t *enemy = &enemies[j];
+                vec3_t enemy_world;
+                float hit_t;
+                float broad_radius;
+                if(!enemy->active)
+                    continue;
+                broad_radius = fmaxf(enemy->radius + 2.0f, 15.0f);
+                if(enemy->z < segment_min_z - broad_radius ||
+                   enemy->z > segment_max_z + broad_radius)
+                    continue;
+                enemy_world = route_position(
+                    enemy->x, enemy->y, enemy->z);
+                if(swept_ellipsoid_hit(
+                       previous, collision_end, enemy_world,
+                       enemy->radius + 2.0f, enemy->radius + 2.0f,
+                       15.0f, 0.0f, &hit_t) && hit_t < closest_t) {
+                    closest_enemy = j;
+                    closest_t = hit_t;
+                }
+            }
+            if(closest_enemy >= 0)
+                resolve_player_shot_hit(
+                    shot, &enemies[closest_enemy], closest_enemy,
+                    vec3_lerp(previous, collision_end, closest_t));
         }
 
-        for(j = 0; j < MAX_ENEMIES; ++j) {
-            enemy_t *enemy = &enemies[j];
-            float sweep_t;
-            float hit_x;
-            float hit_y;
-            bool lateral_hit;
-            if(!enemy->active)
-                continue;
-            if(phase_wave && (shot->hit_mask & (1u << j)))
-                continue;
-            if(enemy->z < sweep_min_z || enemy->z > sweep_max_z)
-                continue;
-
-            sweep_t = fabsf(sweep_dz) > 0.0001f ?
-                clampf((enemy->z - previous_z) / sweep_dz, 0.0f, 1.0f) :
-                1.0f;
-            hit_x = lerpf(previous_x, shot->x, sweep_t);
-            hit_y = lerpf(previous_y, shot->y, sweep_t);
-            if(phase_wave) {
-                const float dx = hit_x - enemy->x;
-                const float dy = hit_y - enemy->y;
-                const float local_x = dx * phase_cos + dy * phase_sin;
-                const float local_y = -dx * phase_sin + dy * phase_cos;
-                const float radius_x = 31.0f + enemy->radius;
-                const float radius_y = 13.5f + enemy->radius;
-                lateral_hit =
-                    (local_x * local_x) / (radius_x * radius_x) +
-                    (local_y * local_y) / (radius_y * radius_y) < 1.0f;
-            }
-            else {
-                lateral_hit =
-                    fabsf(hit_x - enemy->x) < enemy->radius + 2.0f &&
-                    fabsf(hit_y - enemy->y) < enemy->radius + 2.0f;
-            }
-
-            if(lateral_hit) {
-                const int damage = shot->damage > 0 ? shot->damage : 1;
-                const color3_t impact_color = phase_wave ?
-                    (color3_t){1.0f,0.28f,0.86f} :
-                    (shot->kind == SHOT_PLAYER_FAST ?
-                     (color3_t){0.34f,1.0f,1.0f} :
-                     (color3_t){1.0f,0.84f,0.28f});
-                if(phase_wave) {
-                    shot->hit_mask |= 1u << j;
-                    shot->hits_remaining--;
-                    if(shot->hits_remaining <= 0)
-                        shot->active = false;
-                }
-                else {
-                    shot->active = false;
-                }
-                enemy->hp -= damage;
-                if(enemy->type == 3) {
-                    enemy->hit_flash = 0.18f;
-                    spawn_boss_impact(hit_x, hit_y, enemy->z,
-                                      impact_color, damage);
-                }
-                else {
-                    spawn_particle(hit_x, hit_y, enemy->z,
-                                   random_signed() * 18.0f,
-                                   random_signed() * 18.0f,
-                                   -18.0f,
-                                   0.25f, 2.5f, impact_color,
-                                   PARTICLE_STREAK);
-                }
-                if(enemy->hp <= 0)
-                    destroy_enemy(enemy, true);
-                else
-                    play_sound(sfx_hit, enemy->type == 3 ? 190 : 130,
-                               (int)clampf(128.0f + hit_x * 1.2f,
-                                           20.0f, 236.0f));
-                if(!shot->active)
-                    break;
-            }
+        if(shot->active && terrain_hit) {
+            const color3_t impact_color = phase_wave ?
+                (color3_t){1.0f,0.28f,0.86f} :
+                (shot->kind == SHOT_PLAYER_FAST ?
+                 (color3_t){0.34f,1.0f,1.0f} :
+                 (color3_t){1.0f,0.84f,0.28f});
+            shot->active = false;
+            spawn_projectile_terrain_impact(terrain_impact, impact_color);
         }
     }
 }
 
-static void update_enemy_shots(float dt) {
+static void update_enemy_shots(float dt,
+                               vec3_t previous_player_world,
+                               vec3_t current_player_world) {
     int i;
-    const float player_world_z = game.distance + PLAYER_Z;
     for(i = 0; i < MAX_ENEMY_SHOTS; ++i) {
         projectile_t *shot = &enemy_shots[i];
+        vec3_t previous;
+        vec3_t current;
+        vec3_t relative_previous;
+        vec3_t relative_current;
+        vec3_t terrain_impact;
+        float player_hit_t = 2.0f;
+        float terrain_hit_t = 2.0f;
+        bool player_hit;
+        bool terrain_hit;
         if(!shot->active)
             continue;
+        previous = (vec3_t){shot->x, shot->y, shot->z};
         shot->x += shot->vx * dt;
         shot->y += shot->vy * dt;
         shot->z += shot->vz * dt;
@@ -4225,26 +4493,305 @@ static void update_enemy_shots(float dt) {
             shot->active = false;
             continue;
         }
-        if(fabsf(shot->z - player_world_z) < 9.0f &&
-           fabsf(shot->x - game.player_x) < 5.0f &&
-           fabsf(shot->y - game.player_y) < 4.0f) {
+        current = (vec3_t){shot->x, shot->y, shot->z};
+        relative_previous = (vec3_t){
+            previous.x - previous_player_world.x,
+            previous.y - previous_player_world.y,
+            previous.z - previous_player_world.z
+        };
+        relative_current = (vec3_t){
+            current.x - current_player_world.x,
+            current.y - current_player_world.y,
+            current.z - current_player_world.z
+        };
+        player_hit = swept_ellipsoid_hit(
+            relative_previous, relative_current,
+            (vec3_t){0.0f,0.0f,0.0f},
+            5.0f, 4.0f, 9.0f, 0.0f, &player_hit_t);
+        terrain_hit = projectile_terrain_hit(
+            previous, current, &terrain_hit_t, &terrain_impact);
+        if(player_hit && player_hit_t < terrain_hit_t) {
             shot->active = false;
             damage_player(13.0f);
+        }
+        else if(terrain_hit) {
+            shot->active = false;
+            spawn_projectile_terrain_impact(
+                terrain_impact, (color3_t){1.0f,0.34f,0.18f});
         }
     }
 }
 
-static void update_enemies(float dt) {
+#ifdef GRAVITY_WAVE_AUTOTEST_COMBAT_GEOMETRY
+static bool run_combat_geometry_self_test(void) {
+    const game_t saved_game = game;
+    projectile_t test_shot;
+    vec3_t target;
+    vec3_t intercept;
+    vec3_t extended;
+    vec3_t terrain_start;
+    vec3_t terrain_end;
+    vec3_t terrain_impact;
+    vec3_t open_start;
+    vec3_t open_end;
+    float flight_time;
+    float aim_error;
+    float boundary_aim_error = 0.0f;
+    float enemy_aim_error;
+    float route_separation;
+    float hit_t;
+    float terrain_t;
+    bool crossing_hit;
+    bool crossing_miss;
+    bool moving_hit;
+    bool stationary_hit;
+    bool phase_hit;
+    bool phase_rotated_miss;
+    bool terrain_hit;
+    bool open_miss;
+    bool muzzle_forward;
+    bool boundary_aim_pass = true;
+    bool enemy_aim_pass;
+    bool hostile_sweep_pass = true;
+    bool passed;
+    int boundary;
+
+    game.distance = 14790.0f;
+    game.player_x = 17.0f;
+    game.player_y = 49.0f;
+    game.player_vy = -11.0f;
+    game.bank = 0.28f;
+    game.barrel_roll = 0.0f;
+    launch_player_projectile(&test_shot, SHOT_PLAYER_LASER,
+                             0.0f, 0.1f, 7.0f,
+                             510.0f, 1.75f, 0.0f, 1, 1);
+    target = player_aim_target_world();
+    flight_time = (target.z - test_shot.z) / test_shot.vz;
+    intercept = (vec3_t){
+        test_shot.x + test_shot.vx * flight_time,
+        test_shot.y + test_shot.vy * flight_time,
+        test_shot.z + test_shot.vz * flight_time
+    };
+    aim_error = fsqrt(
+        (intercept.x - target.x) * (intercept.x - target.x) +
+        (intercept.y - target.y) * (intercept.y - target.y) +
+        (intercept.z - target.z) * (intercept.z - target.z));
+    extended = (vec3_t){
+        test_shot.x + test_shot.vx * (flight_time + 0.60f),
+        test_shot.y + test_shot.vy * (flight_time + 0.60f),
+        test_shot.z + test_shot.vz * (flight_time + 0.60f)
+    };
+    route_separation = fsqrt(
+        (extended.x - (path_center(extended.z) +
+                       test_shot.x - path_center(test_shot.z))) *
+        (extended.x - (path_center(extended.z) +
+                       test_shot.x - path_center(test_shot.z))) +
+        (extended.y - (path_elevation(extended.z) +
+                       test_shot.y - path_elevation(test_shot.z))) *
+        (extended.y - (path_elevation(extended.z) +
+                       test_shot.y - path_elevation(test_shot.z))));
+
+    {
+        static const float boundary_starts[4] = {
+            3950.0f,8250.0f,12550.0f,16850.0f
+        };
+        for(boundary = 0; boundary < 4; ++boundary) {
+            float error;
+            game.distance = boundary_starts[boundary];
+            game.player_x = -13.0f + (float)boundary * 8.0f;
+            game.player_y = 62.0f;
+            game.player_vy = 0.0f;
+            game.bank = 0.0f;
+            launch_player_projectile(&test_shot, SHOT_PLAYER_LASER,
+                                     0.0f, 0.1f, 7.0f,
+                                     510.0f, 1.75f, 0.0f, 1, 1);
+            target = player_aim_target_world();
+            flight_time = (target.z - test_shot.z) / test_shot.vz;
+            intercept = (vec3_t){
+                test_shot.x + test_shot.vx * flight_time,
+                test_shot.y + test_shot.vy * flight_time,
+                test_shot.z + test_shot.vz * flight_time
+            };
+            error = fsqrt(
+                (intercept.x - target.x) * (intercept.x - target.x) +
+                (intercept.y - target.y) * (intercept.y - target.y) +
+                (intercept.z - target.z) * (intercept.z - target.z));
+            boundary_aim_error = fmaxf(boundary_aim_error, error);
+            if(error >= 0.01f)
+                boundary_aim_pass = false;
+        }
+    }
+
+    crossing_hit = swept_ellipsoid_hit(
+        (vec3_t){0.0f,0.0f,-20.0f},
+        (vec3_t){0.0f,0.0f,20.0f},
+        (vec3_t){0.0f,0.0f,0.0f},
+        5.0f, 4.0f, 9.0f, 0.0f, &hit_t);
+    crossing_miss = !swept_ellipsoid_hit(
+        (vec3_t){0.0f,4.2f,-20.0f},
+        (vec3_t){0.0f,4.2f,20.0f},
+        (vec3_t){0.0f,0.0f,0.0f},
+        5.0f, 4.0f, 9.0f, 0.0f, &hit_t);
+    moving_hit = swept_ellipsoid_hit(
+        (vec3_t){0.0f,0.0f,11.0f},
+        (vec3_t){0.0f,0.0f,-11.0f},
+        (vec3_t){0.0f,0.0f,0.0f},
+        5.0f, 4.0f, 9.0f, 0.0f, &hit_t);
+    stationary_hit = swept_ellipsoid_hit(
+        (vec3_t){0.0f,0.0f,0.0f},
+        (vec3_t){0.0f,0.0f,0.0f},
+        (vec3_t){0.0f,0.0f,0.0f},
+        5.0f, 4.0f, 9.0f, 0.0f, &hit_t);
+    phase_hit = swept_ellipsoid_hit(
+        (vec3_t){0.0f,0.0f,0.0f},
+        (vec3_t){0.0f,0.0f,20.0f},
+        (vec3_t){30.0f,0.0f,10.0f},
+        31.0f, 13.5f, 18.0f, 0.0f, &hit_t);
+    phase_rotated_miss = !swept_ellipsoid_hit(
+        (vec3_t){0.0f,0.0f,0.0f},
+        (vec3_t){0.0f,0.0f,20.0f},
+        (vec3_t){30.0f,0.0f,10.0f},
+        31.0f, 13.5f, 18.0f, PI * 0.5f, &hit_t);
+
+    terrain_start = route_position(
+        150.0f, terrain_height_local(150.0f, 14790.0f) + 20.0f,
+        14790.0f);
+    terrain_end = route_position(
+        150.0f, terrain_height_local(150.0f, 14850.0f) - 5.0f,
+        14850.0f);
+    terrain_hit = projectile_terrain_hit(
+        terrain_start, terrain_end, &terrain_t, &terrain_impact);
+    open_start = route_position(0.0f, 90.0f, 14790.0f);
+    open_end = route_position(0.0f, 90.0f, 14850.0f);
+    open_miss = !projectile_terrain_hit(
+        open_start, open_end, &terrain_t, &terrain_impact);
+    {
+        const enemy_t test_enemy = {
+            .active = true, .x = 0.0f, .y = 55.0f, .z = 15120.0f,
+            .phase = 0.0f, .type = 3, .biome = 3
+        };
+        const vec3_t enemy_center = route_hybrid_to_world(
+            enemy_model_point(&test_enemy, 0.0f, 0.0f, 0.0f));
+        const vec3_t enemy_muzzle = route_hybrid_to_world(
+            enemy_model_point(&test_enemy, 0.0f, 0.0f, 15.0f));
+        muzzle_forward = enemy_muzzle.z < enemy_center.z;
+    }
+    {
+        enemy_t test_enemy;
+        projectile_t *enemy_shot;
+        vec3_t predicted_player;
+        vec3_t enemy_intercept;
+        float intercept_time;
+        memset(&test_enemy, 0, sizeof(test_enemy));
+        memset(enemy_shots, 0, sizeof(enemy_shots));
+        game.distance = 14790.0f;
+        game.speed = 154.0f;
+        game.player_x = -11.0f;
+        game.player_y = 64.0f;
+        game.player_vx = 0.0f;
+        game.player_vy = 0.0f;
+        test_enemy.active = true;
+        test_enemy.x = 21.0f;
+        test_enemy.y = 58.0f;
+        test_enemy.z = game.distance + PLAYER_Z + 350.0f;
+        test_enemy.type = 0;
+        test_enemy.biome = 3;
+        fire_enemy_shot(&test_enemy);
+        enemy_shot = &enemy_shots[0];
+        intercept_time = (enemy_shot->z -
+                          (game.distance + PLAYER_Z)) /
+                         (game.speed - enemy_shot->vz);
+        enemy_intercept = (vec3_t){
+            enemy_shot->x + enemy_shot->vx * intercept_time,
+            enemy_shot->y + enemy_shot->vy * intercept_time,
+            enemy_shot->z + enemy_shot->vz * intercept_time
+        };
+        predicted_player = route_position(
+            game.player_x, game.player_y,
+            game.distance + PLAYER_Z + game.speed * intercept_time);
+        enemy_aim_error = fsqrt(
+            (enemy_intercept.x - predicted_player.x) *
+            (enemy_intercept.x - predicted_player.x) +
+            (enemy_intercept.y - predicted_player.y) *
+            (enemy_intercept.y - predicted_player.y) +
+            (enemy_intercept.z - predicted_player.z) *
+            (enemy_intercept.z - predicted_player.z));
+        enemy_aim_pass = enemy_shot->active && enemy_shot->vz < 0.0f &&
+                         enemy_aim_error < 0.05f;
+    }
+#ifdef GRAVITY_WAVE_AUTOTEST_DAMAGE
+    {
+        vec3_t previous_player;
+        vec3_t current_player;
+        projectile_t *enemy_shot = &enemy_shots[0];
+        memset(enemy_shots, 0, sizeof(enemy_shots));
+        game.mode = MODE_PLAYING;
+        game.shield = 100.0f;
+        game.hit_cooldown = 0.0f;
+        game.player_x = 0.0f;
+        game.player_y = 70.0f;
+        previous_player = route_position(0.0f, 70.0f, 1000.0f);
+        current_player = route_position(0.0f, 70.0f, 1012.0f);
+        game.distance = current_player.z - PLAYER_Z;
+        *enemy_shot = (projectile_t){
+            .active = true,
+            .x = previous_player.x,
+            .y = previous_player.y,
+            .z = previous_player.z + 8.0f,
+            .vx = (current_player.x - previous_player.x) / 0.05f,
+            .vy = (current_player.y - previous_player.y) / 0.05f,
+            .vz = -150.0f,
+            .life = 1.0f,
+            .kind = SHOT_ENEMY
+        };
+        update_enemy_shots(0.05f, previous_player, current_player);
+        hostile_sweep_pass = !enemy_shot->active &&
+                             fabsf(game.shield - 87.0f) < 0.001f;
+    }
+#endif
+
+    passed = aim_error < 0.01f && route_separation > 1.0f &&
+             crossing_hit && crossing_miss && moving_hit && stationary_hit &&
+             phase_hit && phase_rotated_miss && terrain_hit && open_miss;
+    passed = passed && muzzle_forward && boundary_aim_pass &&
+             enemy_aim_pass && hostile_sweep_pass;
+    printf("Gravity Wave combat geometry: %s aim=%.4f "
+           "boundary=%.4f enemy=%.4f route-separation=%.2f "
+           "swept=%d/%d/%d/%d phase=%d/%d terrain=%d/%d "
+           "muzzle=%d hostile=%d.\n",
+           passed ? "PASS" : "FAIL",
+           (double)aim_error, (double)boundary_aim_error,
+           (double)enemy_aim_error, (double)route_separation,
+           crossing_hit, crossing_miss, moving_hit, stationary_hit,
+           phase_hit, phase_rotated_miss, terrain_hit, open_miss,
+           muzzle_forward, hostile_sweep_pass);
+    memset(enemy_shots, 0, sizeof(enemy_shots));
+    memset(particles, 0, sizeof(particles));
+    game = saved_game;
+    return passed;
+}
+#endif
+
+static void update_enemies(float dt,
+                           vec3_t previous_player_world,
+                           vec3_t current_player_world) {
     const float rank = clampf(game.distance / 11500.0f, 0.0f, 1.0f);
     const float player_world_z = game.distance + PLAYER_Z;
     int i;
 
     for(i = 0; i < MAX_ENEMIES; ++i) {
         enemy_t *enemy = &enemies[i];
+        vec3_t previous_enemy_world;
+        vec3_t current_enemy_world;
+        vec3_t relative_previous;
+        vec3_t relative_current;
+        float ram_hit_t;
         float relative_z;
         if(!enemy->active)
             continue;
 
+        previous_enemy_world = route_position(
+            enemy->x, enemy->y, enemy->z);
         enemy->phase += dt * (enemy->type == 1 ? 2.4f :
                               (enemy->type == 3 ? 1.08f : 1.55f));
         enemy->fire_timer -= dt;
@@ -4280,9 +4827,23 @@ static void update_enemies(float dt) {
            relative_z < 410.0f + rank * 115.0f)
             fire_enemy_shot(enemy);
 
-        if(fabsf(relative_z) < enemy->radius + 5.0f &&
-           fabsf(enemy->x - game.player_x) < enemy->radius + 3.5f &&
-           fabsf(enemy->y - game.player_y) < enemy->radius + 3.0f) {
+        current_enemy_world = route_position(
+            enemy->x, enemy->y, enemy->z);
+        relative_previous = (vec3_t){
+            previous_enemy_world.x - previous_player_world.x,
+            previous_enemy_world.y - previous_player_world.y,
+            previous_enemy_world.z - previous_player_world.z
+        };
+        relative_current = (vec3_t){
+            current_enemy_world.x - current_player_world.x,
+            current_enemy_world.y - current_player_world.y,
+            current_enemy_world.z - current_player_world.z
+        };
+        if(swept_ellipsoid_hit(
+               relative_previous, relative_current,
+               (vec3_t){0.0f,0.0f,0.0f},
+               enemy->radius + 3.5f, enemy->radius + 3.0f,
+               enemy->radius + 5.0f, 0.0f, &ram_hit_t)) {
             damage_player(enemy->type == 3 ? 42.0f :
                           (enemy->type == 2 ? 34.0f : 22.0f));
             if(enemy->type == 3)
@@ -4298,7 +4859,9 @@ static void update_enemies(float dt) {
 }
 
 static void spawn_gate_clear_burst(const gate_t *gate, int stage,
-                                   bool perfect) {
+                                   bool perfect,
+                                   float crossing_x,
+                                   float crossing_y) {
     const palette_t *palette = current_palette();
     const float clear_radius = gate->radius * GATE_CLEAR_RADIUS_SCALE;
     const int count = perfect ? 24 : 18;
@@ -4316,13 +4879,14 @@ static void spawn_gate_clear_burst(const gate_t *gate, int stage,
             ((particle & 1) ? palette->river : palette->accent);
         const float origin_x = gate->kind == TRAVERSAL_GRAVITY_BLOOM ?
             gate->x + cs * clear_radius :
-            game.player_x + cs * (gate->kind == TRAVERSAL_SLALOM ?
-                                  5.0f : 12.0f);
+            crossing_x + cs * (gate->kind == TRAVERSAL_SLALOM ?
+                               5.0f : 12.0f);
         const float origin_y = gate->kind == TRAVERSAL_GRAVITY_BLOOM ?
             gate->y + sn * clear_radius :
-            game.player_y + sn * (gate->kind == TRAVERSAL_SLALOM ?
-                                  13.0f : 4.0f);
-        spawn_particle(origin_x, origin_y, stage_z,
+            crossing_y + sn * (gate->kind == TRAVERSAL_SLALOM ?
+                               13.0f : 4.0f);
+        const vec3_t origin = route_position(origin_x, origin_y, stage_z);
+        spawn_particle(origin.x, origin.y, origin.z,
                        cs * speed, sn * speed,
                        random_signed() * 24.0f,
                        0.38f + random_unit() * 0.34f,
@@ -4331,8 +4895,10 @@ static void spawn_gate_clear_burst(const gate_t *gate, int stage,
     }
 }
 
-static void update_gates(float dt) {
-    const float player_world_z = game.distance + PLAYER_Z;
+static void update_gates(float dt,
+                         vec3_t previous_player_world,
+                         vec3_t current_player_world) {
+    const float player_world_z = current_player_world.z;
     int i;
     for(i = 0; i < MAX_GATES; ++i) {
         gate_t *gate = &gates[i];
@@ -4359,13 +4925,18 @@ static void update_gates(float dt) {
         gate->result_time = fmaxf(0.0f, gate->result_time - dt);
         while(gate->result == GATE_RESULT_PENDING &&
               gate->stage < gate->stage_count &&
-              traversal_stage_z(gate, gate->stage) <= player_world_z + 2.0f) {
+              traversal_stage_z(gate, gate->stage) <= player_world_z) {
             const int stage = gate->stage;
             const int safe_direction = traversal_stage_direction(gate, stage);
+            const float stage_z = traversal_stage_z(gate, stage);
+            const vec3_t crossing = segment_point_at_z(
+                previous_player_world, current_player_world, stage_z);
+            const float crossing_x = crossing.x - path_center(stage_z);
+            const float crossing_y = crossing.y - path_elevation(stage_z);
             const float stage_x = traversal_stage_x(gate, stage);
             const float stage_y = traversal_stage_y(gate, stage);
-            const float dx = game.player_x - stage_x;
-            const float dy = game.player_y - stage_y;
+            const float dx = crossing_x - stage_x;
+            const float dy = crossing_y - stage_y;
             const float clear_radius = gate->radius * GATE_CLEAR_RADIUS_SCALE;
             bool stage_clear;
             bool stage_perfect;
@@ -4377,12 +4948,12 @@ static void update_gates(float dt) {
             }
             else if(gate->kind == TRAVERSAL_SLALOM) {
                 const float signed_clearance =
-                    game.player_x * (float)safe_direction;
+                    crossing_x * (float)safe_direction;
                 stage_clear = signed_clearance > gate->radius;
                 stage_perfect = stage_clear && signed_clearance >
                                 gate->radius + 10.0f && game.speed > 145.0f;
                 if(!stage_clear && fabsf(dx) < 6.5f &&
-                   game.player_y > 8.0f && game.player_y < 96.0f) {
+                   crossing_y > 8.0f && crossing_y < 96.0f) {
                     game.player_x = clampf(
                         game.player_x + (float)safe_direction * 7.0f,
                         PLAYER_MIN_X, PLAYER_MAX_X);
@@ -4403,7 +4974,8 @@ static void update_gates(float dt) {
                 gate->success_mask |= 1u << stage;
                 if(stage_perfect)
                     gate->perfect_mask |= 1u << stage;
-                spawn_gate_clear_burst(gate, stage, stage_perfect);
+                spawn_gate_clear_burst(
+                    gate, stage, stage_perfect, crossing_x, crossing_y);
                 play_sound(sfx_gate, stage_perfect ? 225 : 195, 128);
             }
             else {
@@ -4557,12 +5129,13 @@ static enemy_t *active_guardian(void) {
     return NULL;
 }
 
-static void check_scenery_collision(void) {
-    const float player_z = game.distance + PLAYER_Z;
+static void check_scenery_collision(vec3_t previous_player_world,
+                                    vec3_t current_player_world) {
+    const float player_z = current_player_world.z;
     const int center_segment = (int)floorf(player_z / SCENERY_SEGMENT);
     int offset;
 
-    if(game.hit_cooldown > 0.0f)
+    if(game.scenery_hit_cooldown > 0.0f)
         return;
     for(offset = -1; offset <= 1; ++offset) {
         const int segment = center_segment + offset;
@@ -4574,6 +5147,10 @@ static void check_scenery_collision(void) {
         const float object_x = side * (70.0f + (float)((h >> 8) & 63u));
         const float base = terrain_height_local(object_x, z);
         const int variant = scenery_variant_for_segment(biome, segment, z);
+        const vec3_t collision_point = segment_point_at_z(
+            previous_player_world, current_player_world, z);
+        const float collision_x = collision_point.x - path_center(z);
+        const float collision_y = collision_point.y - path_elevation(z);
         float arch_span = 0.0f;
         float arch_base_y = 0.0f;
         float arch_height = 0.0f;
@@ -4582,7 +5159,7 @@ static void check_scenery_collision(void) {
         float object_height = 0.0f;
         bool impact = false;
         bool signature_impact = false;
-        const bool near_regular = fabsf(player_z - z) <= 18.0f &&
+        const bool near_regular = fabsf(collision_point.z - z) <= 18.0f &&
                                   !is_signature_segment(segment);
 
         if(near_regular && biome == 0) {
@@ -4617,9 +5194,9 @@ static void check_scenery_collision(void) {
                     (float)((h >> 17) & 31u);
                 const float rock_radius = 11.0f +
                     (float)((h >> 22) & 7u);
-                if(fabsf(game.player_x - object_x) < rock_radius + 4.0f &&
-                   game.player_y > rock_y - rock_radius * 1.2f - 4.0f &&
-                   game.player_y < rock_y + rock_radius * 0.8f + 4.0f)
+                if(fabsf(collision_x - object_x) < rock_radius + 4.0f &&
+                   collision_y > rock_y - rock_radius * 1.2f - 4.0f &&
+                   collision_y < rock_y + rock_radius * 0.8f + 4.0f)
                     impact = true;
             }
             else if(variant == 4) {
@@ -4653,28 +5230,30 @@ static void check_scenery_collision(void) {
             arch_span = 0.0f;
 
         if(near_regular && arch_span > 0.0f &&
-           player_hits_material_arch(game.player_x, game.player_y,
+           player_hits_material_arch(collision_x, collision_y,
                                      arch_span, arch_base_y,
                                      arch_height, arch_thickness))
             impact = true;
         else if(near_regular && object_radius > 0.0f &&
-                fabsf(game.player_x - object_x) < object_radius &&
-                game.player_y > base - 4.0f &&
-                game.player_y < base + object_height)
+                fabsf(collision_x - object_x) < object_radius &&
+                collision_y > base - 4.0f &&
+                collision_y < base + object_height)
             impact = true;
 
         signature_impact = player_hits_signature_arch(
-            biome, segment, z, player_z, game.player_x, game.player_y);
+            biome, segment, z,
+            previous_player_world, current_player_world);
         if(!impact && signature_impact)
             impact = true;
 
         if(impact) {
             const float push = arch_span > 0.0f || signature_impact ?
-                (game.player_x >= 0.0f ? -1.0f : 1.0f) :
-                (game.player_x >= object_x ? 1.0f : -1.0f);
+                (collision_x >= 0.0f ? -1.0f : 1.0f) :
+                (collision_x >= object_x ? 1.0f : -1.0f);
             game.player_x = clampf(game.player_x + push * 7.0f,
                                    PLAYER_MIN_X, PLAYER_MAX_X);
             game.player_vx += push * 34.0f;
+            game.scenery_hit_cooldown = 0.46f;
             set_message("STRUCTURE IMPACT", 0.9f);
             damage_player(14.0f);
             return;
@@ -4720,15 +5299,20 @@ static void spawn_exhaust(float dt, bool boosting) {
         return;
     game.exhaust_timer = boosting ? 0.018f : 0.032f;
     for(side = -1; side <= 1; side += 2) {
-        const vec3_t engine = player_model_point((float)side * 3.0f,
-                                                  -0.2f, -6.8f);
-        const float engine_local_x = engine.x - path_center(engine.z);
-        spawn_particle(engine_local_x + random_signed() * 0.22f,
+        const vec3_t engine = route_hybrid_to_world(player_model_point(
+            (float)side * 3.0f, -0.2f, -6.8f));
+        const float back_speed =
+            -18.0f - random_unit() * (boosting ? 17.0f : 9.0f);
+        const float slope_x = (path_center(engine.z + 12.0f) -
+                               path_center(engine.z - 12.0f)) / 24.0f;
+        const float slope_y = (path_elevation(engine.z + 12.0f) -
+                               path_elevation(engine.z - 12.0f)) / 24.0f;
+        spawn_particle(engine.x + random_signed() * 0.22f,
                        engine.y + random_signed() * 0.18f,
                        engine.z - 0.35f,
-                       random_signed() * 0.75f,
-                       random_signed() * 0.55f,
-                       -18.0f - random_unit() * (boosting ? 17.0f : 9.0f),
+                       slope_x * back_speed + random_signed() * 0.75f,
+                       slope_y * back_speed + random_signed() * 0.55f,
+                       back_speed,
                        boosting ? 0.44f : 0.30f,
                        boosting ? 1.75f : 1.12f,
                        color_lerp(palette->river,
@@ -4835,12 +5419,15 @@ static bool update_game(const input_t *input, float dt) {
             enter_title();
     }
     else {
+        const vec3_t previous_player_world = route_position(
+            game.player_x, game.player_y, game.distance + PLAYER_Z);
         const float rank = clampf(game.distance / 11500.0f, 0.0f, 1.0f);
         const float target_vx = input->x * 68.0f;
         const float target_vy = -input->y * 53.0f;
         float cruise_speed = 96.0f + rank * 58.0f;
         const float response = clampf(dt * 5.8f, 0.0f, 1.0f);
         const bool speed_boost_active = game.speed_boost_time > 0.0f;
+        vec3_t current_player_world;
 
         if(input->pressed & CONT_START) {
             game.mode = MODE_PAUSED;
@@ -4930,6 +5517,8 @@ static bool update_game(const input_t *input, float dt) {
             }
 
             game.hit_cooldown -= dt;
+            game.scenery_hit_cooldown = fmaxf(
+                0.0f, game.scenery_hit_cooldown - dt);
             if(game.combo_timer > 0.0f) {
                 game.combo_timer -= dt;
                 if(game.combo_timer <= 0.0f)
@@ -4945,12 +5534,17 @@ static bool update_game(const input_t *input, float dt) {
 
             spawn_exhaust(dt, boosting);
             update_spawning();
+            current_player_world = route_position(
+                game.player_x, game.player_y, game.distance + PLAYER_Z);
             update_player_shots(dt);
-            update_enemy_shots(dt);
+            update_enemy_shots(dt, previous_player_world,
+                               current_player_world);
             if(game.mode == MODE_PLAYING)
-                update_enemies(dt);
+                update_enemies(dt, previous_player_world,
+                               current_player_world);
             if(game.mode == MODE_PLAYING) {
-                update_gates(dt);
+                update_gates(dt, previous_player_world,
+                             current_player_world);
                 update_pickups(dt);
             }
             update_particles(dt);
@@ -4964,8 +5558,13 @@ static bool update_game(const input_t *input, float dt) {
                     damage_player(9.0f);
                 }
             }
-            if(game.mode == MODE_PLAYING)
-                check_scenery_collision();
+            if(game.mode == MODE_PLAYING) {
+                current_player_world = route_position(
+                    game.player_x, game.player_y,
+                    game.distance + PLAYER_Z);
+                check_scenery_collision(previous_player_world,
+                                        current_player_world);
+            }
 
             if(game.mode == MODE_PLAYING) {
                 game.palette_index = ((int)(game.distance / BIOME_LENGTH)) %
@@ -5206,7 +5805,7 @@ static void draw_enemy_glows(const palette_t *palette) {
             continue;
         glow_palette = enemy->type == 3 ?
             &palettes[enemy->biome & 3] : palette;
-        engine = enemy_model_point(enemy, 0.0f, 0.0f, 6.0f);
+        engine = enemy_model_point(enemy, 0.0f, 0.0f, -6.0f);
         if(!project_world(engine, &point))
             continue;
         size = clampf(point.z * (enemy->type == 3 ? 5200.0f : 2800.0f),
@@ -5218,7 +5817,7 @@ static void draw_enemy_glows(const palette_t *palette) {
         if(enemy->fire_timer > 0.0f && enemy->fire_timer < 0.55f) {
             const float charge = 1.0f - enemy->fire_timer / 0.55f;
             const vec3_t muzzle = enemy_model_point(
-                enemy, 0.0f, 0.0f, enemy->type == 3 ? -15.0f : -8.0f);
+                enemy, 0.0f, 0.0f, enemy->type == 3 ? 15.0f : 8.0f);
             draw_textured_billboard(&sprite_additive_headers[2], muzzle,
                                     enemy->type == 3 ? 20.0f : 9.0f,
                                     enemy->type == 3 ? 20.0f : 9.0f,
@@ -5850,16 +6449,16 @@ static void draw_projectile_pool(const projectile_t *pool, int count,
     for(i = 0; i < count; ++i) {
         screen_point_t head, tail;
         const projectile_t *shot = &pool[i];
-        const vec3_t head_world = {path_center(shot->z) + shot->x,
-                                   shot->y, shot->z};
+        const vec3_t head_world = {shot->x, shot->y, shot->z};
         color3_t main_color;
         color3_t core_color;
         float length;
-        float tail_z;
+        float speed;
+        float tail_time;
         vec3_t tail_world;
         float width;
 
-        if(!shot->active || !project_world(head_world, &head))
+        if(!shot->active || !project_absolute_world(head_world, &head))
             continue;
 
         if(!hostile && shot->kind == SHOT_PLAYER_PHASE) {
@@ -5874,9 +6473,9 @@ static void draw_projectile_pool(const projectile_t *pool, int count,
                 fsin(game.time * 9.0f + shot->spin * 3.0f);
             int segment;
 
-            draw_textured_billboard(&sprite_additive_headers[2], head_world,
-                                    13.0f, 13.0f,
-                                    pack_color(0.52f, wave_color));
+            draw_absolute_textured_billboard(
+                &sprite_additive_headers[2], head_world,
+                13.0f, 13.0f, pack_color(0.52f, wave_color));
             for(segment = 0; segment < 6; ++segment) {
                 const float t0 = -1.0f + (float)segment * (2.0f / 6.0f);
                 const float t1 = -1.0f +
@@ -5918,10 +6517,13 @@ static void draw_projectile_pool(const projectile_t *pool, int count,
             core_color = (color3_t){0.86f, 1.0f, 1.0f};
             length = 23.0f;
         }
-        tail_z = shot->z - (hostile ? -length : length);
-        tail_world = (vec3_t){path_center(tail_z) + shot->x,
-                              shot->y, tail_z};
-        if(!project_world(tail_world, &tail))
+        speed = fsqrt(shot->vx * shot->vx + shot->vy * shot->vy +
+                      shot->vz * shot->vz);
+        tail_time = length / fmaxf(speed, 0.001f);
+        tail_world = (vec3_t){shot->x - shot->vx * tail_time,
+                              shot->y - shot->vy * tail_time,
+                              shot->z - shot->vz * tail_time};
+        if(!project_absolute_world(tail_world, &tail))
             continue;
         width = clampf(2.0f + head.z * 250.0f, 2.0f, hostile ? 8.0f : 6.0f);
         if(!hostile && shot->kind == SHOT_PLAYER_FAST)
@@ -5946,9 +6548,8 @@ static void draw_particles(void) {
         vec3_t world;
         if(!particle->active)
             continue;
-        world = (vec3_t){path_center(particle->z) + particle->x,
-                         particle->y, particle->z};
-        if(!project_world(world, &point))
+        world = (vec3_t){particle->x, particle->y, particle->z};
+        if(!project_absolute_world(world, &point))
             continue;
         alpha = clampf(particle->life / particle->max_life, 0.0f, 1.0f);
         size = clampf(particle->size * game.camera_focal * point.z,
@@ -5962,7 +6563,7 @@ static void draw_particles(void) {
             tail_world.x -= particle->vx * 0.055f;
             tail_world.y -= particle->vy * 0.055f;
             tail_world.z -= particle->vz * 0.055f;
-            if(project_world(tail_world, &tail))
+            if(project_absolute_world(tail_world, &tail))
                 draw_line(&additive_header, tail.x, tail.y, tail.z,
                           point.x, point.y, point.z, size,
                           pack_color(0.0f, particle->color),
@@ -5974,9 +6575,17 @@ static void draw_particles(void) {
                                      smoothstepf(alpha / 0.30f);
             screen_point_t forward;
             vec3_t forward_world = world;
+            const float speed = fsqrt(particle->vx * particle->vx +
+                                      particle->vy * particle->vy +
+                                      particle->vz * particle->vz);
+            const float forward_distance = 2.0f + age * 3.0f;
 
-            forward_world.z += 2.0f + age * 3.0f;
-            if(project_world(forward_world, &forward))
+            if(speed > 0.001f) {
+                forward_world.x -= particle->vx / speed * forward_distance;
+                forward_world.y -= particle->vy / speed * forward_distance;
+                forward_world.z -= particle->vz / speed * forward_distance;
+            }
+            if(project_absolute_world(forward_world, &forward))
                 draw_line(&additive_header, point.x, point.y, point.z,
                           forward.x, forward.y, forward.z,
                           fmaxf(1.0f, size * 0.42f),
@@ -6046,11 +6655,10 @@ static void draw_particles(void) {
         else {
             const int sprite = particle->color.r > particle->color.b * 1.18f ?
                                3 : 2;
-            draw_textured_billboard(&sprite_additive_headers[sprite], world,
-                                    particle->size * 2.0f,
-                                    particle->size * 2.0f,
-                                    pack_color(alpha * 0.78f,
-                                               particle->color));
+            draw_absolute_textured_billboard(
+                &sprite_additive_headers[sprite], world,
+                particle->size * 2.0f, particle->size * 2.0f,
+                pack_color(alpha * 0.78f, particle->color));
         }
     }
 }
@@ -6098,13 +6706,12 @@ static void draw_bar(float x, float y, float width, float height,
 }
 
 static void draw_reticle(const palette_t *palette) {
-    const float target_z = game.distance + 440.0f;
+    const vec3_t aim_target = player_aim_target_world();
     screen_point_t target;
     const uint32_t color = pack_color(0.64f, palette->river);
     const uint32_t dim = pack_color(0.22f, palette->river);
     const float r = 15.0f + fsin(game.time * 5.0f) * 1.5f;
-    if(!project_world((vec3_t){path_center(target_z) + game.player_x,
-                               game.player_y, target_z}, &target))
+    if(!project_absolute_world(aim_target, &target))
         return;
     draw_line(&hud_header, target.x - r, target.y - r, 9.0f,
               target.x - r * 0.35f, target.y - r, 9.0f, 1.5f, color, color);
@@ -6595,6 +7202,14 @@ int main(int argc, char **argv) {
     enter_title();
 #ifdef GRAVITY_WAVE_AUTOTEST
     reset_game();
+#ifdef GRAVITY_WAVE_AUTOTEST_COMBAT_GEOMETRY
+    if(!run_combat_geometry_self_test()) {
+        shutdown_audio();
+        release_textures();
+        pvr_shutdown();
+        return 2;
+    }
+#endif
 #ifndef GRAVITY_WAVE_AUTOTEST_DISTANCE
 #define GRAVITY_WAVE_AUTOTEST_DISTANCE 4120.0f
 #endif
