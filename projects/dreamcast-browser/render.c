@@ -11,6 +11,8 @@
 #define C_BLUE 0x1b3f
 #define C_TEAL 0x0414
 #define C_HEADING 0x9a20
+#define C_STRONG 0x0000
+#define C_EMPHASIS 0x7a2f
 #define C_MUTED 0x738e
 #define C_RULE 0xbdf7
 #define C_FOCUS 0xff28
@@ -111,6 +113,8 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
         if(item->type == ITEM_TEXT || item->type == ITEM_NOTICE) {
             if(item->style == TEXT_LINK) color = C_BLUE;
             else if(item->style == TEXT_HEADING) color = C_HEADING;
+            else if(item->style == TEXT_STRONG) color = C_STRONG;
+            else if(item->style == TEXT_EMPHASIS) color = C_EMPHASIS;
             else if(item->style == TEXT_MUTED || item->type == ITEM_NOTICE) color = C_ERROR;
             else if(item->style == TEXT_CODE) color = C_MUTED;
             draw_text(item->x, y, color, item->text);

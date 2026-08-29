@@ -7,6 +7,9 @@
 #include <strings.h>
 
 static int line_y;
+static int line_x;
+static int line_height;
+static int line_has_content;
 static int pending_space;
 
 static void add_notice(browser_document_t *doc, const char *message);
@@ -24,26 +27,53 @@ static document_item_t *new_item(browser_document_t *doc) {
     return item;
 }
 
+static void reset_line(void) {
+    line_x = PAGE_MARGIN;
+    line_height = 25;
+    line_has_content = 0;
+}
+
+static void finish_line(int force) {
+    if(line_has_content)
+        line_y += line_height;
+    else if(force)
+        line_y += 25;
+    reset_line();
+    pending_space = 0;
+}
+
 static void vertical_space(int amount) {
+    finish_line(0);
     if(amount > 0) line_y += amount;
     pending_space = 0;
 }
 
-static void add_line(browser_document_t *doc, const char *text,
-                     text_style_t style, int link_id) {
+static void add_text_run(browser_document_t *doc, const char *text, size_t len,
+                         text_style_t style, int link_id) {
     document_item_t *item;
-    if(!text[0]) return;
+    if(!len) return;
+    if(len >= MAX_TEXT) len = MAX_TEXT - 1;
     item = new_item(doc);
     if(!item) return;
     item->type = ITEM_TEXT;
     item->style = link_id >= 0 ? TEXT_LINK : style;
-    item->x = PAGE_MARGIN;
+    item->x = line_x;
     item->y = line_y;
-    item->width = (int)strlen(text) * 12;
+    item->width = (int)len * 12;
     item->height = 24;
     item->link_id = link_id;
-    snprintf(item->text, sizeof(item->text), "%s", text);
-    line_y += style == TEXT_HEADING ? 31 : 25;
+    memcpy(item->text, text, len);
+    item->text[len] = 0;
+    line_x += item->width;
+    if(style == TEXT_HEADING && line_height < 31) line_height = 31;
+    line_has_content = 1;
+}
+
+static void add_line(browser_document_t *doc, const char *text,
+                     text_style_t style, int link_id) {
+    finish_line(0);
+    add_text_run(doc, text, strlen(text), style, link_id);
+    finish_line(0);
 }
 
 static int utf8_to_latin1(const unsigned char *src, size_t remain,
@@ -100,7 +130,7 @@ static int decode_entity(const char *src, size_t len, unsigned char *value) {
 static void normalize_text(const char *src, size_t len, char *out,
                            size_t out_size, int preformatted) {
     size_t i = 0, n = 0;
-    int was_space = pending_space;
+    int was_space = preformatted ? 0 : pending_space;
     while(i < len && n + 1 < out_size) {
         unsigned char c = (unsigned char)src[i];
         size_t used = 1;
@@ -114,10 +144,11 @@ static void normalize_text(const char *src, size_t len, char *out,
         }
 
         if(!preformatted && isspace(c)) {
-            if(!was_space && n) out[n++] = ' ';
             was_space = 1;
         } else {
             if(c == '\r') c = '\n';
+            if(!preformatted && was_space && n + 1 < out_size)
+                out[n++] = ' ';
             out[n++] = (char)c;
             was_space = 0;
         }
@@ -125,36 +156,87 @@ static void normalize_text(const char *src, size_t len, char *out,
     }
     while(n && out[n - 1] == ' ' && !preformatted) n--;
     out[n] = 0;
-    pending_space = was_space;
+    if(!preformatted) pending_space = was_space;
+}
+
+static void wrap_preformatted(browser_document_t *doc, const char *text,
+                              text_style_t style, int link_id) {
+    const char *p = text;
+
+    while(*p && !doc->truncated) {
+        if(*p == '\n') {
+            finish_line(1);
+            p++;
+            continue;
+        }
+        {
+            int available = (PAGE_MARGIN + PAGE_WIDTH - line_x) / 12;
+            const char *newline = strchr(p, '\n');
+            size_t len = newline ? (size_t)(newline - p) : strlen(p);
+            size_t take;
+            if(available <= 0) {
+                finish_line(0);
+                continue;
+            }
+            take = len < (size_t)available ? len : (size_t)available;
+            add_text_run(doc, p, take, style, link_id);
+            p += take;
+            if(take < len) finish_line(0);
+        }
+    }
 }
 
 static void wrap_text(browser_document_t *doc, const char *text,
                       text_style_t style, int link_id, int preformatted) {
-    char line[48];
-    int n = 0;
     const char *p = text;
+
+    if(preformatted) {
+        wrap_preformatted(doc, text, style, link_id);
+        return;
+    }
+
     while(*p && !doc->truncated) {
+        const char *newline;
+        size_t len;
+        size_t take;
+        int available;
+
         if(*p == '\n') {
-            line[n] = 0;
-            add_line(doc, line, style, link_id);
-            n = 0;
+            finish_line(1);
             p++;
             continue;
         }
-        if(n >= 45 || (n > 35 && *p == ' ')) {
-            line[n] = 0;
-            add_line(doc, line, style, link_id);
-            n = 0;
-            while(*p == ' ') p++;
+        if(!line_has_content) while(*p == ' ') p++;
+        if(!*p) break;
+        available = (PAGE_MARGIN + PAGE_WIDTH - line_x) / 12;
+        if(available <= 0) {
+            finish_line(0);
             continue;
         }
-        line[n++] = *p++;
+        newline = strchr(p, '\n');
+        len = newline ? (size_t)(newline - p) : strlen(p);
+        if(len <= (size_t)available) {
+            add_text_run(doc, p, len, style, link_id);
+            p += len;
+            continue;
+        }
+
+        take = (size_t)available;
+        while(take && p[take] != ' ') take--;
+        if(!take) {
+            const char *space = memchr(p, ' ', len);
+            if(line_has_content && space && (size_t)(space - p) <= 48) {
+                finish_line(0);
+                continue;
+            }
+            take = (size_t)available;
+        }
+        while(take && p[take - 1] == ' ') take--;
+        add_text_run(doc, p, take, style, link_id);
+        p += take;
+        while(*p == ' ') p++;
+        finish_line(0);
     }
-    if(n) {
-        line[n] = 0;
-        add_line(doc, line, style, link_id);
-    }
-    if(!preformatted && text[0]) pending_space = 1;
 }
 
 static int attr_value(const char *tag, const char *name, char *out, size_t cap) {
@@ -257,10 +339,23 @@ void document_make_error(browser_document_t *doc, const char *title, const char 
     document_init(doc, "");
     snprintf(doc->title, sizeof(doc->title), "%s", title);
     line_y = 12;
+    reset_line();
+    pending_space = 0;
     add_line(doc, title, TEXT_HEADING, -1);
     vertical_space(8);
     wrap_text(doc, message, TEXT_NORMAL, -1, 0);
+    finish_line(0);
     doc->height = line_y + 20;
+}
+
+static text_style_t active_style(int in_pre, int in_heading,
+                                 int in_strong, int in_emphasis,
+                                 int in_code) {
+    if(in_pre || in_code) return TEXT_CODE;
+    if(in_heading) return TEXT_HEADING;
+    if(in_strong) return TEXT_STRONG;
+    if(in_emphasis) return TEXT_EMPHASIS;
+    return TEXT_NORMAL;
 }
 
 void document_parse_html(browser_document_t *doc, const char *html, size_t size) {
@@ -270,10 +365,15 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
     int in_head = 0;
     int in_title = 0;
     int in_pre = 0;
+    int in_heading = 0;
+    int in_strong = 0;
+    int in_emphasis = 0;
+    int in_code = 0;
     int current_link = -1;
-    text_style_t style = TEXT_NORMAL;
+    int adjacent_link = 0;
 
     line_y = 12;
+    reset_line();
     pending_space = 0;
     while(p < end && !doc->truncated) {
         if(*p != '<') {
@@ -284,8 +384,13 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
                 normalize_text(p, count, normalized, sizeof(normalized), in_pre);
                 if(in_title && normalized[0])
                     snprintf(doc->title, sizeof(doc->title), "%.95s", normalized);
-                else if(!in_head && normalized[0])
-                    wrap_text(doc, normalized, style, current_link, in_pre);
+                else if(!in_head && normalized[0]) {
+                    wrap_text(doc, normalized,
+                              active_style(in_pre, in_heading, in_strong,
+                                           in_emphasis, in_code),
+                              current_link, in_pre);
+                    adjacent_link = 0;
+                }
             }
             p += count;
             continue;
@@ -329,11 +434,28 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
             else if(!strcmp(name, "title")) in_title = !closing;
             else if(!strcmp(name, "pre")) {
                 vertical_space(closing ? 5 : 8);
-                in_pre = !closing;
-                style = closing ? TEXT_NORMAL : TEXT_CODE;
+                if(closing) { if(in_pre) in_pre--; }
+                else in_pre++;
+            } else if(!strcmp(name, "code")) {
+                if(closing) { if(in_code) in_code--; }
+                else in_code++;
+            } else if(!strcmp(name, "b") || !strcmp(name, "strong")) {
+                if(closing) { if(in_strong) in_strong--; }
+                else in_strong++;
+            } else if(!strcmp(name, "i") || !strcmp(name, "em")) {
+                if(closing) { if(in_emphasis) in_emphasis--; }
+                else in_emphasis++;
             } else if(!strcmp(name, "a")) {
-                if(closing) current_link = -1;
-                else if(attr_value(q, "href", attr, sizeof(attr))) current_link = add_link(doc, attr);
+                if(closing) {
+                    current_link = -1;
+                    adjacent_link = 1;
+                } else {
+                    if(adjacent_link && line_has_content && !pending_space)
+                        pending_space = 1;
+                    if(attr_value(q, "href", attr, sizeof(attr)))
+                        current_link = add_link(doc, attr);
+                    adjacent_link = 0;
+                }
             } else if(!strcmp(name, "img") && !closing && !in_head) {
                 if(attr_value(q, "src", attr, sizeof(attr))) {
                     attr_value(q, "alt", alt, sizeof(alt));
@@ -341,16 +463,25 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
                 }
             } else if(!strcmp(name, "h1") || !strcmp(name, "h2") || !strcmp(name, "h3")) {
                 vertical_space(closing ? 7 : 10);
-                style = closing ? TEXT_NORMAL : TEXT_HEADING;
+                if(closing) { if(in_heading) in_heading--; }
+                else in_heading++;
             } else if(!strcmp(name, "p") || !strcmp(name, "div") ||
                       !strcmp(name, "section") || !strcmp(name, "article") ||
                       !strcmp(name, "header") || !strcmp(name, "footer")) {
                 vertical_space(closing ? 7 : 4);
             } else if(!strcmp(name, "br")) {
-                vertical_space(25);
-            } else if(!strcmp(name, "li") && !closing) {
-                vertical_space(3);
-                wrap_text(doc, "* ", style, current_link, 0);
+                finish_line(1);
+            } else if(!strcmp(name, "li")) {
+                if(closing) {
+                    finish_line(0);
+                } else {
+                    vertical_space(3);
+                    line_x = PAGE_MARGIN + 12;
+                    add_text_run(doc, "* ", 2,
+                                 active_style(in_pre, in_heading, in_strong,
+                                              in_emphasis, in_code),
+                                 current_link);
+                }
             } else if(!strcmp(name, "hr")) {
                 document_item_t *item = new_item(doc);
                 vertical_space(5);
@@ -364,8 +495,6 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
                 }
             } else if(strcmp(name, "html") && strcmp(name, "body") &&
                       strcmp(name, "main") && strcmp(name, "span") &&
-                      strcmp(name, "b") && strcmp(name, "strong") &&
-                      strcmp(name, "i") && strcmp(name, "em") &&
                       strcmp(name, "ul") && strcmp(name, "ol") &&
                       strcmp(name, "meta") && strcmp(name, "link") &&
                       strcmp(name, "base") && strcmp(name, "input") &&
@@ -381,22 +510,23 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
         add_notice(doc, "[Page shortened: document layout limit reached]");
     if(doc->unsupported_count)
         printf("browser: ignored %d unsupported HTML elements\n", doc->unsupported_count);
+    finish_line(0);
     doc->height = line_y + 20;
 }
 
 void document_reflow(browser_document_t *doc) {
     int i;
-    int y = 12;
+    int shift = 0;
     for(i = 0; i < doc->item_count; ++i) {
         document_item_t *item = &doc->items[i];
-        item->y = y;
+        item->y += shift;
         if(item->type == ITEM_IMAGE && item->image_id >= 0) {
             browser_image_t *image = &doc->images[item->image_id];
+            int old_height = item->height;
             item->width = image->loaded > 0 ? image->width : PAGE_WIDTH;
             item->height = image->loaded > 0 ? image->height : 72;
-            y += item->height + 7;
-        } else if(item->type == ITEM_RULE) y += 10;
-        else y += item->style == TEXT_HEADING ? 31 : 25;
+            shift += item->height - old_height;
+        }
     }
-    doc->height = y + 20;
+    doc->height += shift;
 }

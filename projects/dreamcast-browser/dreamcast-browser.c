@@ -370,12 +370,144 @@ static void navigate_forward(void) {
 }
 
 #ifdef BROWSER_HISTORY_SELF_TEST
+static document_item_t *find_layout_item(browser_document_t *doc,
+                                         const char *text,
+                                         text_style_t style) {
+    int i;
+    for(i = 0; i < doc->item_count; ++i) {
+        document_item_t *item = &doc->items[i];
+        if(item->type == ITEM_TEXT && item->style == style &&
+           strstr(item->text, text))
+            return item;
+    }
+    return NULL;
+}
+
+static int run_layout_self_test(void) {
+    static const char inline_html[] =
+        "<h1>Layout test</h1>"
+        "<p>Hello <strong>bold</strong> and <em>soft</em> with "
+        "<code>code</code> and <a href='/next'>link</a>.</p>"
+        "<p><a href='/one'>LinkOne</a><a href='/two'>LinkTwo</a></p>"
+        "<p>Before image</p><img src='/tiny.png' alt='tiny'>"
+        "<p>After image</p><ul><li>First item</li><li>Second item</li></ul>"
+        "<pre>A  B\nC</pre>";
+    static const char wrapping_html[] =
+        "<p>This intentionally long paragraph contains enough ordinary words "
+        "to wrap across multiple display rows without crossing the page edge "
+        "or splitting every inline fragment onto its own row.</p>";
+    browser_document_t *test;
+    document_item_t *normal;
+    document_item_t *strong;
+    document_item_t *emphasis;
+    document_item_t *code;
+    document_item_t *link;
+    document_item_t *link_one;
+    document_item_t *link_two;
+    document_item_t *bullet;
+    document_item_t *first_item;
+    document_item_t *pre_a;
+    document_item_t *pre_c;
+    document_item_t *image_item = NULL;
+    document_item_t *after_image;
+    int after_y;
+    int i;
+
+#define LAYOUT_CHECK(condition, label) do { \
+    if(!(condition)) { \
+        printf("browser: LAYOUT SELF-TEST FAILED (%s)\n", label); \
+        document_free(test); \
+        free(test); \
+        return -1; \
+    } \
+} while(0)
+
+    test = malloc(sizeof(*test));
+    if(!test) {
+        printf("browser: LAYOUT SELF-TEST FAILED (allocation)\n");
+        return -1;
+    }
+    document_init(test, "https://example.com/");
+    document_parse_html(test, inline_html, sizeof(inline_html) - 1);
+    normal = find_layout_item(test, "Hello", TEXT_NORMAL);
+    strong = find_layout_item(test, "bold", TEXT_STRONG);
+    emphasis = find_layout_item(test, "soft", TEXT_EMPHASIS);
+    code = find_layout_item(test, "code", TEXT_CODE);
+    link = find_layout_item(test, "link", TEXT_LINK);
+    LAYOUT_CHECK(normal && strong && emphasis && code && link,
+                 "inline styles missing");
+    LAYOUT_CHECK(strong->text[0] == ' ' && emphasis->text[0] == ' ' &&
+                 code->text[0] == ' ' && link->text[0] == ' ',
+                 "inline whitespace lost");
+    LAYOUT_CHECK(normal->y == strong->y && strong->y == emphasis->y &&
+                 emphasis->y == code->y && code->y == link->y,
+                 "inline fragments changed rows");
+    LAYOUT_CHECK(normal->x < strong->x && strong->x < emphasis->x &&
+                 emphasis->x < code->x && code->x < link->x &&
+                 link->link_id >= 0,
+                 "inline run order/link");
+    link_one = find_layout_item(test, "LinkOne", TEXT_LINK);
+    link_two = find_layout_item(test, "LinkTwo", TEXT_LINK);
+    LAYOUT_CHECK(link_one && link_two && link_one->y == link_two->y &&
+                 link_two->text[0] == ' ' &&
+                 link_two->x == link_one->x + link_one->width,
+                 "adjacent link separation");
+
+    bullet = find_layout_item(test, "* ", TEXT_NORMAL);
+    first_item = find_layout_item(test, "First item", TEXT_NORMAL);
+    LAYOUT_CHECK(bullet && first_item && bullet->y == first_item->y &&
+                 bullet->x < first_item->x,
+                 "list bullet flow");
+    pre_a = find_layout_item(test, "A  B", TEXT_CODE);
+    pre_c = find_layout_item(test, "C", TEXT_CODE);
+    LAYOUT_CHECK(pre_a && pre_c && pre_c->y > pre_a->y,
+                 "preformatted spacing");
+
+    after_image = find_layout_item(test, "After image", TEXT_NORMAL);
+    for(i = 0; i < test->item_count; ++i) {
+        if(test->items[i].type == ITEM_IMAGE) {
+            image_item = &test->items[i];
+            break;
+        }
+    }
+    LAYOUT_CHECK(image_item && after_image, "image layout items");
+    after_y = after_image->y;
+    test->images[image_item->image_id].loaded = 1;
+    test->images[image_item->image_id].width = 100;
+    test->images[image_item->image_id].height = 120;
+    document_reflow(test);
+    LAYOUT_CHECK(after_image->y == after_y + 48 && image_item->height == 120,
+                 "image reflow shift");
+    after_y = after_image->y;
+    document_reflow(test);
+    LAYOUT_CHECK(after_image->y == after_y, "image reflow idempotence");
+
+    document_free(test);
+    document_init(test, "https://example.com/");
+    document_parse_html(test, wrapping_html, sizeof(wrapping_html) - 1);
+    LAYOUT_CHECK(test->item_count >= 3 &&
+                 test->items[0].y < test->items[test->item_count - 1].y,
+                 "word wrapping rows");
+    for(i = 0; i < test->item_count; ++i) {
+        LAYOUT_CHECK(test->items[i].x + test->items[i].width <=
+                     PAGE_MARGIN + PAGE_WIDTH,
+                     "item crossed page edge");
+    }
+    document_free(test);
+    free(test);
+    printf("browser: LAYOUT SELF-TEST PASSED (inline flow/styles/reflow)\n");
+#undef LAYOUT_CHECK
+    return 0;
+}
+
 static void run_history_self_test(void) {
     fetch_result_t asset;
     char original[MAX_URL];
     char original_title[MAX_TITLE];
     int original_scroll;
     int updated_scroll;
+
+    if(run_layout_self_test() < 0) return;
 
     if(network_fetch("https://httpbin.org/image/png", MAX_IMAGE_BYTES,
                      &asset) < 0 || asset.status != 200 || !asset.size ||

@@ -34,7 +34,9 @@ typedef enum {
     TEXT_HEADING,
     TEXT_LINK,
     TEXT_MUTED,
-    TEXT_CODE
+    TEXT_CODE,
+    TEXT_STRONG,
+    TEXT_EMPHASIS
 } text_style_t;
 
 typedef struct {

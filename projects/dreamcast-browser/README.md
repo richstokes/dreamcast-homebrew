@@ -2,9 +2,10 @@
 
 A small, deliberately limited web browser for Sega Dreamcast, built with
 KallistiOS. It supports secure HTTP/HTTPS, a Dreamcast keyboard and mouse,
-controller fallback, basic HTML text/links, and PNG/JPEG/GIF-style raster
-images through `stb_image`. JavaScript is neither downloaded as executable code
-nor run.
+controller fallback, flowing and word-wrapped HTML text, links, headings,
+emphasis, code, lists, preformatted text, and PNG/JPEG/GIF-style raster images
+through `stb_image`. JavaScript is neither downloaded as executable code nor
+run.
 
 ## Download
 
@@ -75,9 +76,9 @@ make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST
 ./run-flycast.sh --skip-build
 ```
 
-The test reports passing asset, page-cancel, history, and image-cancel checks
-before entering the normal browser loop. Run `make clean && make` afterward to
-restore the release build.
+The test reports passing inline layout/style/reflow, asset, page-cancel,
+history, and image-cancel checks before entering the normal browser loop. Run
+`make clean && make` afterward to restore the release build.
 
 Run in Flycast with BBA emulation and the serial console:
 
@@ -101,6 +102,9 @@ failed, or unsupported images become placeholders. Unknown HTML tags are
 ignored while their text remains visible; scripts, styles, SVG, canvas, and
 `noscript` blocks are skipped. There is no CSS layout, JavaScript, forms,
 cookies, storage, audio/video, downloads, tabs, or full Unicode font rendering.
+Supported inline text keeps flowing across semantic tags instead of forcing a
+new row, wraps at the display edge, and gives links, strong text, emphasis, and
+code distinct colors. Lists keep their marker and text together.
 
 Known oversized responses are rejected from their HTTP headers before the body
 is downloaded. Next.js image-optimizer URLs are reduced to the Dreamcast's
