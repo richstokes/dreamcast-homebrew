@@ -3,8 +3,8 @@
 Gravity Wave is an infinite 3D arcade flight game for Sega Dreamcast, inspired
 by the speed, readable combat, and cinematic staging of classic on-rails space
 shooters. Fly a richly textured aerospace fighter through a continuously
-generated world, break hostile formations, hunt biome guardians, thread energy
-gates, and build a long scoring chain.
+generated world, break hostile formations, hunt biome guardians, master varied
+traversal runs, and build a long scoring chain.
 
 The complete game is embedded in one ELF. Hand-painted source atlases are
 converted into aligned RGB565 and ARGB4444 data at build time, then uploaded to
@@ -20,8 +20,8 @@ is also available.
 ## Features
 
 - Infinite deterministic terrain wrapped around a true 3D flight route with
-  sweeping turns, S-bends, climbs, crests, valley dives, a winding energy river,
-  material-mapped canyon walls, and distant ridges
+  tight switchbacks, sustained S-bends, steep climbs, crests, valley dives, a
+  winding energy river, material-mapped canyon walls, and distant ridges
 - Four fully differentiated biomes: the flooded wreckage of Azure Reach, the
   overgrown ruins of Emerald Veil, the floating crystal fields of Violet Rift,
   and the volcanic foundries of Ember Crown
@@ -40,8 +40,9 @@ is also available.
   Boost, Fast Laser, and Phase Wave pickups dropped by defeated enemies
 - Procedural enemy formations, aimed fire, light/ace/heavy craft, escalating
   speed, and increasing encounter pressure
-- Animated Gravity Bloom accelerator gates with swept mechanical petals,
-  counter-rotating safe-zone halos, and clear-burst effects
+- Three mixed traversal challenges: animated Gravity Blooms with swept
+  mechanical petals, three-stage Vector Slaloms with alternating industrial
+  pylons, and two-stage Shear Runs that demand rapid over/under transitions
 - Vector Crown environmental arches with tapered polygonal ribs, floating
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
@@ -98,11 +99,13 @@ when the temporary weapon expires.
 The title screen identifies the active track, and biome changes rotate the
 score automatically:
 
-- **Neon Undertow** — nocturnal D-minor outrun theme
-- **Chrome Canopy** — syncopated E-minor crystalline chase theme
-- **Rift Burner** — aggressive C-sharp-minor pulse-wave theme
+- **Midnight Vector** — nocturnal outrun chase theme
+- **Magenta Circuit** — bright synthpop highway theme
+- **Glass Horizon** — crystalline neon-flight theme
+- **Static Heart** — hard-driving pulse-wave theme
+- **Afterimage Run** — high-speed finale theme
 
-All three songs use two evolving arrangements. Dual stereo AICA pairs overlap
+All five songs use two evolving arrangements. Dual stereo AICA pairs overlap
 93 ms baked fade edges, so section and track changes crossfade cleanly on phrase
 boundaries. Every song and sound effect is generated in memory during boot; no
 streamed files or disc access are needed.
@@ -175,11 +178,12 @@ network configuration changes.
 
 ## Gameplay notes
 
-Enemies, pickups, gates, and structures are expressed in route-relative
-coordinates, so encounters follow the procedural flight path. Destroying
-enemies before the chain timer expires raises the multiplier. A Gravity Bloom's
-broken inner halo marks its exact scoring aperture; clearing one while boosting
-earns a larger award. Nova
+Enemies, pickups, traversal objectives, and structures are expressed in
+route-relative coordinates, so encounters follow the procedural flight path.
+Destroying enemies before the chain timer expires raises the multiplier. A
+Gravity Bloom's broken inner halo marks its exact scoring aperture; Vector
+Slalom arrows mark the safe side of each pylon, while Shear Run arrows call for
+an alternating climb or dive. Clean, boosted lines earn larger awards. Nova
 Pulses erase enemy fire and ordinary craft, but only damage a guardian, so
 saving charges for boss patterns is usually worthwhile. Weapon upgrades last
 for the current run; collecting a max-level Laser Core converts it into score.
