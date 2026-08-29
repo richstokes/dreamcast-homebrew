@@ -1,5 +1,6 @@
 TARGET = gravity-wave.elf
-OBJS = gravity-wave.o assets/generated/texture_assets.o
+OBJS = gravity-wave.o assets/generated/texture_assets.o \
+	assets/generated/music_assets.o
 
 KOS_BUILD_SUBARCHS = pristine
 
@@ -15,11 +16,15 @@ $(TARGET): $(OBJS)
 
 gravity-wave.o: assets/generated/texture_assets.h model_data.h
 assets/generated/texture_assets.o: assets/generated/texture_assets.h
+assets/generated/music_assets.o: assets/generated/gravity_wave_music.adpcm
 
 textures:
 	uv run tools/build_textures.py --source-dir assets/source --output-dir assets/generated
 
+music:
+	./tools/build_music_asset.sh
+
 run: $(TARGET)
 	./run-flycast.sh --skip-build
 
-.PHONY: all clean run textures
+.PHONY: all clean run textures music

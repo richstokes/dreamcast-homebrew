@@ -67,14 +67,18 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define COURSE_FORMATION_LEAD 420.0f
 #define COURSE_TRAVERSAL_SCENERY_CLEARANCE 96.0f
 
-#define MUSIC_TRACK_COUNT    5
-#define MUSIC_SECTION_COUNT  2
-#define MUSIC_SAMPLE_RATE    13000
+#define MUSIC_TRACK_COUNT    8
+#define MUSIC_SECTION_COUNT  3
+#define MUSIC_SAMPLE_RATE    21500
 #define MUSIC_BARS           2
 #define MUSIC_BEATS          (MUSIC_BARS * 4)
 #define MUSIC_PHRASE_BARS    (MUSIC_BARS * MUSIC_SECTION_COUNT)
 #define MUSIC_MELODY_STEPS   (MUSIC_BEATS * 2)
 #define MUSIC_EDGE_SAMPLES   1024
+#define MUSIC_AICA_RESERVE   (256u * 1024u)
+#define MUSIC_SINE_TABLE_SIZE 2048
+#define MUSIC_ASSET_HEADER_BYTES 8u
+#define MUSIC_SYNTH_REVISION 0x2026082au
 #define MUSIC_REST           (-127)
 #define MUSIC_TITLE_VOLUME   68
 #define MUSIC_GAME_VOLUME    84
@@ -252,6 +256,7 @@ typedef struct {
     float bpm;
     int root_midi;
     int8_t chord_offsets[MUSIC_PHRASE_BARS];
+    int8_t chord_extensions[MUSIC_PHRASE_BARS];
     uint8_t minor_mask;
     int8_t bass[8 * MUSIC_SECTION_COUNT];
     uint8_t arpeggio[16];
@@ -259,8 +264,15 @@ typedef struct {
     uint16_t kick[MUSIC_PHRASE_BARS];
     uint16_t snare[MUSIC_PHRASE_BARS];
     uint16_t hat[MUSIC_PHRASE_BARS];
+    uint16_t open_hat[MUSIC_PHRASE_BARS];
+    uint16_t tom[MUSIC_PHRASE_BARS];
+    uint16_t stab[MUSIC_PHRASE_BARS];
     int lead_profile;
+    int bass_profile;
+    int arpeggio_profile;
+    int harmony_interval;
     float pulse_width;
+    float lead_gate;
     float sidechain;
     float drive;
     float pad_level;
@@ -270,6 +282,9 @@ typedef struct {
     float kick_level;
     float snare_level;
     float hat_level;
+    float open_hat_level;
+    float tom_level;
+    float stab_level;
     uint32_t noise_seed;
 } soundtrack_t;
 
@@ -357,144 +372,315 @@ static const palette_t palettes[] = {
     }
 };
 
-/* Five original, high-energy synthwave/synthpop songs are mixed into seamless
- * stereo PCM at boot. Each A/B pair forms a four-bar composition with its own
- * hook, bass motion, drum programming, synth voicing, and chord sequence. */
+/* Eight original synthwave/synthpop songs are authored by the synth below and
+ * shipped as native AICA ADPCM. Each A/B/C triptych is a six-bar miniature
+ * arrangement: an establishing groove, a hook variation, and a full-power
+ * final section. The runtime renderer remains as a verified fallback and as
+ * the source of truth used to bake the linked album image. */
 static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     {
         .name = "MIDNIGHT VECTOR",
-        .bpm = 154.0f,
-        .root_midi = 40, /* E minor: Em, C, G, D. */
-        .chord_offsets = {0, -4, 3, -2},
-        .minor_mask = 0x01,
+        .bpm = 164.0f,
+        .root_midi = 40, /* Em, Cmaj7, Gadd9, Dadd9, Am7, B7. */
+        .chord_offsets = {0,-4,3,-2,5,7},
+        .chord_extensions = {10,11,14,14,10,10},
+        .minor_mask = 0x11,
         .bass = {
             0,MUSIC_REST,12,0, 7,MUSIC_REST,12,MUSIC_REST,
-            0,0,12,MUSIC_REST, 7,12,0,MUSIC_REST
+            0,0,12,MUSIC_REST, 7,12,0,MUSIC_REST,
+            0,12,7,0, 12,7,15,12
         },
         .arpeggio = {0,2,3,1, 2,4,3,2, 0,3,5,2, 4,3,2,1},
         .melody = {
              0,MUSIC_REST, 3,7, 12,MUSIC_REST,10,7,
              5,MUSIC_REST, 7,10, 7,5,3,MUSIC_REST,
             12,MUSIC_REST,15,12, 10,7,5,7,
-            10,MUSIC_REST, 7,5, 3,5,0,MUSIC_REST
+            10,MUSIC_REST, 7,5, 3,5,0,MUSIC_REST,
+            12,15,19,15, 12,10,7,10,
+             7,11,14,17, 19,17,14,11
         },
-        .kick = {0x1111,0x5111,0x1111,0x9511},
-        .snare = {0x1010,0x1010,0x1010,0x5010},
-        .hat = {0xaaaa,0xeeee,0xaaaa,0xffff},
+        .kick = {0x1111,0x5111,0x1151,0x9511,0x5151,0xd551},
+        .snare = {0x1010,0x1010,0x1010,0x5010,0x1010,0x7010},
+        .hat = {0xaaaa,0xeeee,0xaaaa,0xffee,0xeeee,0xffff},
+        .open_hat = {0x0000,0x2002,0x0202,0x2022,0x2222,0xaaaa},
+        .tom = {0x0000,0x0000,0x0000,0x8400,0x0000,0xf000},
+        .stab = {0x1010,0x1111,0x5151,0x1111,0x5555,0xd555},
         .lead_profile = 0,
-        .pulse_width = 0.42f, .sidechain = 0.72f, .drive = 0.46f,
-        .pad_level = 0.145f, .bass_level = 0.235f,
-        .arpeggio_level = 0.125f, .lead_level = 0.175f,
-        .kick_level = 0.335f, .snare_level = 0.185f,
-        .hat_level = 0.068f, .noise_seed = 0x8bd13a47u
+        .bass_profile = 1, .arpeggio_profile = 0,
+        .harmony_interval = 7, .pulse_width = 0.38f, .lead_gate = 0.82f,
+        .sidechain = 0.78f, .drive = 0.50f,
+        .pad_level = 0.150f, .bass_level = 0.245f,
+        .arpeggio_level = 0.130f, .lead_level = 0.180f,
+        .kick_level = 0.345f, .snare_level = 0.190f,
+        .hat_level = 0.064f, .open_hat_level = 0.042f,
+        .tom_level = 0.135f, .stab_level = 0.105f,
+        .noise_seed = 0x8bd13a47u
     },
     {
         .name = "MAGENTA CIRCUIT",
-        .bpm = 160.0f,
-        .root_midi = 42, /* F-sharp minor: F#m, D, A, E. */
-        .chord_offsets = {0, -4, 3, -2},
-        .minor_mask = 0x01,
+        .bpm = 170.0f,
+        .root_midi = 42, /* F#m, Bm, Dmaj7, C#7, Amaj7, Eadd9. */
+        .chord_offsets = {0,5,-4,7,3,-2},
+        .chord_extensions = {10,10,11,10,11,14},
+        .minor_mask = 0x03,
         .bass = {
             0,0,MUSIC_REST,12, 0,7,12,7,
-            0,MUSIC_REST,0,12, 7,12,7,MUSIC_REST
+            0,MUSIC_REST,0,12, 7,12,7,MUSIC_REST,
+            0,12,0,7, 12,15,12,7
         },
         .arpeggio = {0,1,3,2, 4,2,5,3, 0,2,4,6, 5,3,2,1},
         .melody = {
              0,3,7,MUSIC_REST, 8,7,5,3,
              0,MUSIC_REST, 5,7, 12,10,8,MUSIC_REST,
             12,15,12,10, 8,MUSIC_REST,7,5,
-             7,8,10,12, 10,7,3,MUSIC_REST
+             7,11,14,17, 19,17,14,MUSIC_REST,
+            12,15,19,20, 19,15,12,10,
+             8,10,12,15, 17,15,12,MUSIC_REST
         },
-        .kick = {0x1151,0x5151,0x1151,0xd151},
-        .snare = {0x1010,0x1010,0x1010,0x5010},
-        .hat = {0xeeee,0xffee,0xeeee,0xffff},
+        .kick = {0x1151,0x5151,0x1551,0xd151,0x5551,0xf551},
+        .snare = {0x1010,0x1030,0x1010,0x1010,0x1030,0x3010},
+        .hat = {0xeeee,0xffee,0xeeee,0xffff,0xffee,0xffff},
+        .open_hat = {0x0202,0x2022,0x2222,0xaaaa,0x2222,0xaaaa},
+        .tom = {0x0000,0x0400,0x0000,0xc400,0x0800,0xf400},
+        .stab = {0x1111,0x5151,0x5555,0x5151,0x5555,0xd555},
         .lead_profile = 1,
-        .pulse_width = 0.28f, .sidechain = 0.82f, .drive = 0.54f,
-        .pad_level = 0.125f, .bass_level = 0.245f,
-        .arpeggio_level = 0.145f, .lead_level = 0.185f,
-        .kick_level = 0.350f, .snare_level = 0.195f,
-        .hat_level = 0.074f, .noise_seed = 0x31f2c96du
+        .bass_profile = 3, .arpeggio_profile = 1,
+        .harmony_interval = -5, .pulse_width = 0.26f, .lead_gate = 0.72f,
+        .sidechain = 0.86f, .drive = 0.58f,
+        .pad_level = 0.130f, .bass_level = 0.255f,
+        .arpeggio_level = 0.150f, .lead_level = 0.190f,
+        .kick_level = 0.365f, .snare_level = 0.200f,
+        .hat_level = 0.070f, .open_hat_level = 0.048f,
+        .tom_level = 0.145f, .stab_level = 0.120f,
+        .noise_seed = 0x31f2c96du
     },
     {
         .name = "GLASS HORIZON",
-        .bpm = 156.0f,
-        .root_midi = 36, /* C minor: Cm, Ab, Fm, Gm. */
-        .chord_offsets = {0,-4,5,7},
-        .minor_mask = 0x0d,
+        .bpm = 162.0f,
+        .root_midi = 36, /* Cm9, Ebmaj7, Abmaj7, Fm7, Dbmaj7, G7. */
+        .chord_offsets = {0,3,-4,5,1,7},
+        .chord_extensions = {14,11,11,10,11,10},
+        .minor_mask = 0x09,
         .bass = {
             0,MUSIC_REST,7,12, 0,MUSIC_REST,12,7,
-            0,7,MUSIC_REST,12, 0,12,7,MUSIC_REST
+            0,7,MUSIC_REST,12, 0,12,7,MUSIC_REST,
+            0,MUSIC_REST,12,7, 15,12,7,MUSIC_REST
         },
         .arpeggio = {0,2,4,3, 1,3,5,4, 2,4,6,5, 4,3,2,1},
         .melody = {
              0,MUSIC_REST, 3,7, 10,7,3,MUSIC_REST,
              5,7,10,12, 10,MUSIC_REST,7,5,
             12,MUSIC_REST,15,19, 15,12,10,7,
-             5,MUSIC_REST, 7,10, 12,10,7,MUSIC_REST
+             5,MUSIC_REST, 7,10, 12,10,7,MUSIC_REST,
+            19,15,12,10, 7,10,12,15,
+            19,MUSIC_REST,17,14, 11,14,7,MUSIC_REST
         },
-        .kick = {0x0941,0x4941,0x1941,0x5949},
-        .snare = {0x1010,0x1010,0x1010,0x3010},
-        .hat = {0xaaaa,0xeeee,0xaeee,0xffee},
+        .kick = {0x0941,0x4941,0x1941,0x5949,0x1151,0xd951},
+        .snare = {0x0100,0x2100,0x0100,0x3100,0x0100,0x7100},
+        .hat = {0xaaaa,0xeeee,0xaeee,0xffee,0xeeee,0xffff},
+        .open_hat = {0x0002,0x2002,0x0202,0x2222,0x2022,0xaaaa},
+        .tom = {0x0000,0x0000,0x0000,0x8800,0x0000,0xe800},
+        .stab = {0x0010,0x1010,0x1111,0x5151,0x1111,0xd151},
         .lead_profile = 2,
-        .pulse_width = 0.47f, .sidechain = 0.58f, .drive = 0.34f,
-        .pad_level = 0.165f, .bass_level = 0.215f,
-        .arpeggio_level = 0.135f, .lead_level = 0.180f,
-        .kick_level = 0.315f, .snare_level = 0.190f,
-        .hat_level = 0.066f, .noise_seed = 0xde71a903u
+        .bass_profile = 0, .arpeggio_profile = 2,
+        .harmony_interval = 7, .pulse_width = 0.46f, .lead_gate = 0.90f,
+        .sidechain = 0.62f, .drive = 0.38f,
+        .pad_level = 0.175f, .bass_level = 0.220f,
+        .arpeggio_level = 0.145f, .lead_level = 0.180f,
+        .kick_level = 0.325f, .snare_level = 0.190f,
+        .hat_level = 0.060f, .open_hat_level = 0.038f,
+        .tom_level = 0.120f, .stab_level = 0.090f,
+        .noise_seed = 0xde71a903u
     },
     {
         .name = "STATIC HEART",
-        .bpm = 166.0f,
-        .root_midi = 45, /* A minor: Am, F, C, G. */
-        .chord_offsets = {0,-4,3,-2},
-        .minor_mask = 0x01,
+        .bpm = 178.0f,
+        .root_midi = 45, /* Am7, Gadd9, Fmaj7, Cmaj7, Dm7, E7. */
+        .chord_offsets = {0,-2,-4,3,5,7},
+        .chord_extensions = {10,14,11,11,10,10},
+        .minor_mask = 0x11,
         .bass = {
             0,12,0,MUSIC_REST, 7,12,7,0,
-            0,MUSIC_REST,12,0, 7,7,12,MUSIC_REST
+            0,MUSIC_REST,12,0, 7,7,12,MUSIC_REST,
+            0,12,7,12, 0,15,12,7
         },
         .arpeggio = {0,3,1,4, 2,5,3,6, 4,2,5,3, 1,4,2,5},
         .melody = {
              0,3,7,12, 10,7,5,3,
              7,MUSIC_REST,10,12, 15,12,10,MUSIC_REST,
             12,10,7,5, 7,10,12,15,
-            17,MUSIC_REST,15,12, 10,7,3,0
+            17,MUSIC_REST,15,12, 10,7,3,0,
+            12,15,17,19, 20,19,17,15,
+             7,14,11,17, 19,17,14,11
         },
-        .kick = {0x1551,0x5551,0x1551,0xd551},
-        .snare = {0x1010,0x1010,0x1010,0x5010},
-        .hat = {0xeeee,0xffff,0xeeee,0xffff},
+        .kick = {0x1551,0x5551,0x1551,0xd551,0x5751,0xfdd1},
+        .snare = {0x1010,0x1810,0x1010,0x1810,0x1410,0x3010},
+        .hat = {0xeeee,0xffff,0xeeee,0xffff,0xffff,0xffff},
+        .open_hat = {0x2222,0xaaaa,0x2222,0xaaaa,0xaaaa,0xaaaa},
+        .tom = {0x0000,0x0800,0x0000,0xc800,0x0400,0xfc00},
+        .stab = {0x5151,0x5555,0x5151,0xd555,0x5555,0xf555},
         .lead_profile = 3,
-        .pulse_width = 0.22f, .sidechain = 0.88f, .drive = 0.62f,
-        .pad_level = 0.115f, .bass_level = 0.255f,
-        .arpeggio_level = 0.155f, .lead_level = 0.190f,
-        .kick_level = 0.365f, .snare_level = 0.205f,
-        .hat_level = 0.078f, .noise_seed = 0xa9417c53u
+        .bass_profile = 2, .arpeggio_profile = 3,
+        .harmony_interval = -12, .pulse_width = 0.20f, .lead_gate = 0.66f,
+        .sidechain = 0.92f, .drive = 0.68f,
+        .pad_level = 0.115f, .bass_level = 0.270f,
+        .arpeggio_level = 0.160f, .lead_level = 0.195f,
+        .kick_level = 0.385f, .snare_level = 0.215f,
+        .hat_level = 0.076f, .open_hat_level = 0.052f,
+        .tom_level = 0.155f, .stab_level = 0.135f,
+        .noise_seed = 0xa9417c53u
     },
     {
         .name = "AFTERIMAGE RUN",
-        .bpm = 158.0f,
-        .root_midi = 38, /* D minor: Dm, Bb, F, C. */
-        .chord_offsets = {0,-4,3,-2},
-        .minor_mask = 0x01,
+        .bpm = 172.0f,
+        .root_midi = 38, /* Dm9, Bbmaj7, Gm7, A7, Ebmaj7, A7. */
+        .chord_offsets = {0,-4,5,7,1,7},
+        .chord_extensions = {14,11,10,10,11,10},
+        .minor_mask = 0x05,
         .bass = {
             0,MUSIC_REST,0,12, 7,0,12,MUSIC_REST,
-            0,7,12,7, 0,MUSIC_REST,12,0
+            0,7,12,7, 0,MUSIC_REST,12,0,
+            0,12,0,7, 12,15,12,7
         },
         .arpeggio = {0,2,3,5, 4,2,6,3, 5,3,4,2, 6,4,3,1},
         .melody = {
              0,3,5,7, 12,MUSIC_REST,10,7,
              5,7,10,12, 15,12,10,MUSIC_REST,
-            12,15,17,15, 12,10,7,5,
-             7,MUSIC_REST,10,7, 5,3,0,MUSIC_REST
+             5,8,12,15, 12,8,5,MUSIC_REST,
+             7,11,14,17, 14,11,7,MUSIC_REST,
+             8,12,17,12, 8,5,1,MUSIC_REST,
+            19,MUSIC_REST,17,14, 11,14,7,MUSIC_REST
         },
-        .kick = {0x1111,0x5115,0x1111,0xd119},
-        .snare = {0x1010,0x1010,0x1010,0x7010},
-        .hat = {0xaaaa,0xfaee,0xaaaa,0xffff},
+        .kick = {0x1111,0x5115,0x1151,0xd119,0x5551,0xf559},
+        .snare = {0x1010,0x1010,0x1010,0x7010,0x1010,0x7010},
+        .hat = {0xaaaa,0xfaee,0xeeee,0xffff,0xffee,0xffff},
+        .open_hat = {0x0002,0x2022,0x2222,0xaaaa,0x2222,0xaaaa},
+        .tom = {0x0000,0x0400,0x0000,0xe400,0x0800,0xf800},
+        .stab = {0x1010,0x5151,0x1111,0xd151,0x5555,0xf555},
         .lead_profile = 4,
-        .pulse_width = 0.35f, .sidechain = 0.76f, .drive = 0.50f,
-        .pad_level = 0.135f, .bass_level = 0.240f,
-        .arpeggio_level = 0.145f, .lead_level = 0.188f,
-        .kick_level = 0.345f, .snare_level = 0.198f,
-        .hat_level = 0.072f, .noise_seed = 0x52ce8bf1u
+        .bass_profile = 1, .arpeggio_profile = 1,
+        .harmony_interval = 7, .pulse_width = 0.33f, .lead_gate = 0.76f,
+        .sidechain = 0.82f, .drive = 0.54f,
+        .pad_level = 0.140f, .bass_level = 0.250f,
+        .arpeggio_level = 0.150f, .lead_level = 0.190f,
+        .kick_level = 0.360f, .snare_level = 0.205f,
+        .hat_level = 0.070f, .open_hat_level = 0.048f,
+        .tom_level = 0.145f, .stab_level = 0.115f,
+        .noise_seed = 0x52ce8bf1u
+    },
+    {
+        .name = "NEON AFTERBURN",
+        .bpm = 176.0f,
+        .root_midi = 43, /* Gm7, Cm7, Bbmaj7, Ebmaj7, Abmaj7, D7. */
+        .chord_offsets = {0,5,3,-4,1,7},
+        .chord_extensions = {10,10,11,11,11,10},
+        .minor_mask = 0x03,
+        .bass = {
+            0,12,7,0, 12,MUSIC_REST,7,12,
+            0,MUSIC_REST,12,7, 0,15,12,MUSIC_REST,
+            0,12,0,12, 7,15,12,7
+        },
+        .arpeggio = {0,3,5,2, 6,4,2,5, 0,4,6,3, 5,2,4,1},
+        .melody = {
+             0,7,10,12, 15,12,10,7,
+             5,MUSIC_REST,7,10, 12,10,7,MUSIC_REST,
+            12,15,19,15, 12,10,7,5,
+             7,10,12,17, 15,12,10,MUSIC_REST,
+            19,17,15,12, 10,12,15,17,
+             7,11,14,17, 19,14,11,MUSIC_REST
+        },
+        .kick = {0x1551,0x5551,0x1751,0xd751,0x5d51,0xfdd1},
+        .snare = {0x1010,0x9010,0x1010,0x3010,0x1410,0x9010},
+        .hat = {0xeeee,0xffff,0xffee,0xffff,0xffff,0xffff},
+        .open_hat = {0x2222,0xaaaa,0x2222,0xaaaa,0xaaaa,0xaaaa},
+        .tom = {0x0000,0x0c00,0x0000,0xec00,0x0800,0xfc00},
+        .stab = {0x5151,0x5555,0x5555,0xd555,0x5757,0xf777},
+        .lead_profile = 5,
+        .bass_profile = 3, .arpeggio_profile = 3,
+        .harmony_interval = -5, .pulse_width = 0.24f, .lead_gate = 0.64f,
+        .sidechain = 0.90f, .drive = 0.66f,
+        .pad_level = 0.120f, .bass_level = 0.275f,
+        .arpeggio_level = 0.165f, .lead_level = 0.200f,
+        .kick_level = 0.390f, .snare_level = 0.215f,
+        .hat_level = 0.078f, .open_hat_level = 0.055f,
+        .tom_level = 0.165f, .stab_level = 0.145f,
+        .noise_seed = 0x697f40c1u
+    },
+    {
+        .name = "CHROME DEVOTION",
+        .bpm = 166.0f,
+        .root_midi = 35, /* Bmaj7, F#add9, G#m7, Emaj7, C#m7, F#7. */
+        .chord_offsets = {0,7,9,5,2,7},
+        .chord_extensions = {11,14,10,11,10,10},
+        .minor_mask = 0x14,
+        .bass = {
+            0,MUSIC_REST,12,7, 0,12,7,MUSIC_REST,
+            0,7,12,MUSIC_REST, 0,12,15,12,
+            0,12,7,12, 0,15,19,15
+        },
+        .arpeggio = {0,1,3,5, 2,4,6,3, 0,3,6,4, 5,3,2,1},
+        .melody = {
+             4,MUSIC_REST,7,11, 14,11,7,MUSIC_REST,
+             2,4,7,9, 11,MUSIC_REST,9,7,
+            11,14,16,14, 11,9,7,4,
+             7,MUSIC_REST,9,11, 14,11,9,MUSIC_REST,
+            14,16,18,19, 18,16,14,11,
+            19,MUSIC_REST,14,17, 11,14,7,MUSIC_REST
+        },
+        .kick = {0x1111,0x5111,0x1151,0x5151,0x5551,0xd551},
+        .snare = {0x1010,0x1000,0x1010,0x1000,0x0010,0x3010},
+        .hat = {0xaaaa,0xeeee,0xeeee,0xffee,0xeeee,0xffff},
+        .open_hat = {0x0000,0x2002,0x0202,0x2222,0x2222,0xaaaa},
+        .tom = {0x0000,0x0000,0x0000,0x8400,0x0000,0xe400},
+        .stab = {0x1010,0x1111,0x5151,0x5555,0x5151,0xd555},
+        .lead_profile = 6,
+        .bass_profile = 0, .arpeggio_profile = 2,
+        .harmony_interval = -12, .pulse_width = 0.40f, .lead_gate = 0.86f,
+        .sidechain = 0.72f, .drive = 0.44f,
+        .pad_level = 0.170f, .bass_level = 0.230f,
+        .arpeggio_level = 0.145f, .lead_level = 0.195f,
+        .kick_level = 0.340f, .snare_level = 0.195f,
+        .hat_level = 0.064f, .open_hat_level = 0.042f,
+        .tom_level = 0.125f, .stab_level = 0.115f,
+        .noise_seed = 0x44b1d793u
+    },
+    {
+        .name = "REDLINE PROPHECY",
+        .bpm = 174.0f,
+        .root_midi = 37, /* C#m9, Emaj7, Badd9, F#add9, Amaj7, G#7. */
+        .chord_offsets = {0,3,-2,5,-4,7},
+        .chord_extensions = {14,11,14,14,11,10},
+        .minor_mask = 0x01,
+        .bass = {
+            0,0,12,7, 0,MUSIC_REST,12,7,
+            0,12,MUSIC_REST,7, 12,15,12,MUSIC_REST,
+            0,12,7,0, 12,19,15,12
+        },
+        .arpeggio = {0,2,5,3, 6,4,2,5, 0,3,6,4, 5,3,1,4},
+        .melody = {
+            12,MUSIC_REST,7,10, 15,14,10,MUSIC_REST,
+            14,10,7,MUSIC_REST, 5,7,10,14,
+            10,14,17,22, 17,14,12,10,
+             5,7,9,12, 17,12,9,MUSIC_REST,
+             8,12,15,19, 15,12,8,MUSIC_REST,
+             7,11,14,19, 17,14,11,MUSIC_REST
+        },
+        .kick = {0x1151,0x5151,0x1551,0xd551,0x5751,0xfdd9},
+        .snare = {0x1010,0x1018,0x1810,0x1018,0x1818,0x3010},
+        .hat = {0xeeee,0xffee,0xeeee,0xffff,0xffff,0xffff},
+        .open_hat = {0x0202,0x2022,0x2222,0xaaaa,0xaaaa,0xaaaa},
+        .tom = {0x0000,0x0800,0x0000,0xe800,0x0c00,0xfc00},
+        .stab = {0x1111,0x5151,0x5555,0xd555,0x5757,0xf777},
+        .lead_profile = 7,
+        .bass_profile = 2, .arpeggio_profile = 1,
+        .harmony_interval = 7, .pulse_width = 0.29f, .lead_gate = 0.70f,
+        .sidechain = 0.88f, .drive = 0.64f,
+        .pad_level = 0.125f, .bass_level = 0.270f,
+        .arpeggio_level = 0.160f, .lead_level = 0.202f,
+        .kick_level = 0.380f, .snare_level = 0.212f,
+        .hat_level = 0.075f, .open_hat_level = 0.052f,
+        .tom_level = 0.160f, .stab_level = 0.140f,
+        .noise_seed = 0xc9135e2bu
     }
 };
 
@@ -613,8 +799,12 @@ static sfxhnd_t sfx_phase_wave = SFXHND_INVALID;
 static sfxhnd_t sfx_explosion = SFXHND_INVALID;
 static sfxhnd_t sfx_hit = SFXHND_INVALID;
 static sfxhnd_t sfx_gate = SFXHND_INVALID;
+extern const uint8_t gravity_wave_music_assets[];
+extern const uint8_t gravity_wave_music_assets_end[];
 static sfxhnd_t music_sections[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
 static float music_section_duration[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
+static uint16_t music_section_samples[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
+static uint32_t music_random_state = 0xa17ca55eu;
 static int laser_channel = -1;
 static int music_left_channels[2] = {-1, -1};
 static int music_right_channels[2] = {-1, -1};
@@ -626,7 +816,14 @@ static int pending_music_track = -1;
 static int pending_music_volume;
 static float music_section_time;
 static int music_song_loops;
+static bool music_playhead_armed;
 static bool audio_ready;
+static bool music_ready;
+static float music_sine_table[MUSIC_SINE_TABLE_SIZE];
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+static bool music_jukebox_complete;
+static bool music_jukebox_failed;
+#endif
 
 static int course_chapter_at(float world_z);
 static float course_local_z(float world_z);
@@ -751,6 +948,11 @@ static float hash_unit(int x, int z) {
 static uint32_t random_u32(void) {
     random_state = random_state * 1664525u + 1013904223u;
     return random_state;
+}
+
+static uint32_t music_random_u32(void) {
+    music_random_state = music_random_state * 22695477u + 1u;
+    return hash_u32(music_random_state);
 }
 
 static float random_unit(void) {
@@ -1619,8 +1821,29 @@ static float music_phase(float cycles) {
     return cycles - floorf(cycles);
 }
 
+static void init_music_sine_table(void) {
+    int i;
+    for(i = 0; i < MUSIC_SINE_TABLE_SIZE; ++i)
+        music_sine_table[i] = fsin(
+            TAU * (float)i / (float)MUSIC_SINE_TABLE_SIZE);
+}
+
+static float music_sine(float cycles) {
+    const float position = music_phase(cycles) *
+                           (float)MUSIC_SINE_TABLE_SIZE;
+    const int index = (int)position;
+    const int next = (index + 1) & (MUSIC_SINE_TABLE_SIZE - 1);
+    return lerpf(music_sine_table[index], music_sine_table[next],
+                 position - (float)index);
+}
+
 static float music_pulse(float cycles, float duty) {
-    return music_phase(cycles) < duty ? 1.0f : -1.0f;
+    float sample;
+    float normalization;
+    duty = clampf(duty, 0.05f, 0.95f);
+    sample = music_phase(cycles) < duty ? 1.0f - duty : -duty;
+    normalization = 1.0f / fmaxf(duty, 1.0f - duty);
+    return sample * normalization;
 }
 
 static float music_triangle(float cycles) {
@@ -1657,13 +1880,18 @@ static float music_lead_voice(const soundtrack_t *track,
     float seconds;
     float cycles;
     float envelope;
+    float gate_phase;
     float voice;
     int step;
 
-    while(beat < 0.0f)
-        beat += (float)MUSIC_BEATS;
-    while(beat >= (float)MUSIC_BEATS)
-        beat -= (float)MUSIC_BEATS;
+    /* A section owns its own echoes. Negative taps would otherwise wrap to
+       that section's future ending and create a wrong-chord phantom note at
+       the next downbeat; the outgoing buffer supplies the real decay. */
+    if(beat < 0.0f || beat >= (float)MUSIC_BEATS) {
+        if(step_out)
+            *step_out = 0;
+        return 0.0f;
+    }
     position = beat * 2.0f;
     step = (int)position;
     phase = position - (float)step;
@@ -1671,75 +1899,283 @@ static float music_lead_voice(const soundtrack_t *track,
         *step_out = step;
     if(lead_frequencies[step] <= 0.0f)
         return 0.0f;
+    if(phase >= track->lead_gate)
+        return 0.0f;
 
     seconds = phase * seconds_per_beat * 0.5f;
     cycles = lead_frequencies[step] * seconds;
-    cycles += fsin(TAU * (5.1f + (float)track->lead_profile * 0.31f) *
-                   seconds) * 0.012f;
-    envelope = clampf(phase * 15.0f, 0.0f, 1.0f) *
-               (1.0f - phase) * (1.0f - phase);
+    cycles += music_sine(
+        (5.1f + (float)track->lead_profile * 0.31f) * seconds) * 0.012f;
+    gate_phase = phase / fmaxf(track->lead_gate, 0.05f);
+    envelope = clampf(phase * 18.0f, 0.0f, 1.0f) *
+               (1.0f - gate_phase) * (1.0f - gate_phase);
     if(track->lead_profile == 1) {
         voice = music_pulse(cycles, 0.26f) * 0.54f +
-                fsin(TAU * cycles) * 0.34f +
+                music_sine(cycles) * 0.34f +
                 music_triangle(cycles * 2.0f) * 0.12f;
     }
     else if(track->lead_profile == 2) {
         voice = music_saw(cycles) * 0.44f +
-                fsin(TAU * cycles) * 0.33f +
+                music_sine(cycles) * 0.33f +
                 music_pulse(cycles * 0.5f, 0.48f) * 0.18f;
     }
     else if(track->lead_profile == 3) {
         voice = music_pulse(cycles, track->pulse_width) * 0.42f +
                 music_triangle(cycles * 2.0f) * 0.31f +
-                fsin(TAU * cycles * 3.0f) * 0.17f +
-                fsin(TAU * cycles) * 0.10f;
+                music_sine(cycles * 3.0f) * 0.17f +
+                music_sine(cycles) * 0.10f;
     }
     else if(track->lead_profile == 4) {
         const float pwm = clampf(track->pulse_width +
-                                 fsin(TAU * seconds * 3.7f) * 0.08f,
+                                 music_sine(seconds * 3.7f) * 0.08f,
                                  0.14f, 0.62f);
         voice = music_saw(cycles) * 0.37f +
                 music_pulse(cycles, pwm) * 0.36f +
                 music_triangle(cycles * 0.5f) * 0.17f +
-                fsin(TAU * cycles * 2.01f) * 0.10f;
+                music_sine(cycles * 2.01f) * 0.10f;
+    }
+    else if(track->lead_profile == 5) {
+        const float pwm = clampf(track->pulse_width +
+                                 music_sine(seconds * 5.3f) * 0.07f,
+                                 0.12f, 0.48f);
+        voice = music_saw(cycles * 0.996f) * 0.26f +
+                music_saw(cycles * 1.004f) * 0.26f +
+                music_pulse(cycles, pwm) * 0.30f +
+                music_sine(cycles) * 0.18f;
+    }
+    else if(track->lead_profile == 6) {
+        const float glass = music_sine(
+            cycles + music_sine(cycles * 2.0f) * (1.35f / TAU));
+        voice = glass * 0.48f +
+                music_sine(cycles * 2.01f) * 0.22f +
+                music_triangle(cycles * 0.5f) * 0.20f +
+                music_pulse(cycles * 0.25f, 0.46f) * 0.10f;
+    }
+    else if(track->lead_profile == 7) {
+        const float sync = music_phase(cycles * 0.505f) * 2.0f - 1.0f;
+        voice = music_pulse(cycles, track->pulse_width) * 0.34f +
+                music_saw(cycles + sync * 0.18f) * 0.36f +
+                music_triangle(cycles * 2.0f) * 0.20f +
+                music_sine(cycles * 3.0f) * 0.10f;
     }
     else {
-        voice = fsin(TAU * cycles) * 0.61f +
+        voice = music_sine(cycles) * 0.61f +
                 music_triangle(cycles * 2.0f) * 0.25f +
-                fsin(TAU * cycles * 3.01f) * 0.14f;
+                music_sine(cycles * 3.01f) * 0.14f;
     }
     return voice * envelope;
 }
 
+static float music_bass_voice(const soundtrack_t *track, float cycles) {
+    if(track->bass_profile == 1)
+        return music_pulse(cycles, track->pulse_width) * 0.36f +
+               music_saw(cycles * 0.5f) * 0.24f +
+               music_sine(cycles) * 0.40f;
+    if(track->bass_profile == 2)
+        return music_sine(
+                   cycles + music_sine(cycles * 2.0f) * (0.82f / TAU)) *
+                   0.50f +
+               music_pulse(cycles * 0.5f, 0.34f) * 0.22f +
+               music_triangle(cycles) * 0.28f;
+    if(track->bass_profile == 3) {
+        const float pwm = clampf(track->pulse_width +
+                                 music_sine(cycles * 0.031f) * 0.08f,
+                                 0.12f, 0.58f);
+        return music_pulse(cycles, pwm) * 0.42f +
+               music_saw(cycles * 0.5f) * 0.28f +
+               music_sine(cycles) * 0.30f;
+    }
+    return music_pulse(cycles, track->pulse_width) * 0.38f +
+           music_sine(cycles) * 0.42f +
+           music_triangle(cycles * 0.5f) * 0.20f;
+}
+
+static float music_arpeggio_voice(const soundtrack_t *track, float cycles) {
+    if(track->arpeggio_profile == 1)
+        return music_pulse(cycles, 0.22f) * 0.38f +
+               music_triangle(cycles) * 0.34f +
+               music_sine(cycles * 2.0f) * 0.28f;
+    if(track->arpeggio_profile == 2)
+        return music_sine(
+                   cycles + music_sine(cycles * 2.0f) * (0.74f / TAU)) *
+                   0.45f +
+               music_triangle(cycles * 0.5f) * 0.35f +
+               music_saw(cycles * 0.25f) * 0.20f;
+    if(track->arpeggio_profile == 3)
+        return music_saw(cycles) * 0.34f +
+               music_pulse(cycles * 0.5f, 0.28f) * 0.34f +
+               music_triangle(cycles * 2.0f) * 0.22f +
+               music_sine(cycles) * 0.10f;
+    return music_triangle(cycles) * 0.44f +
+           music_pulse(cycles, 0.25f) * 0.26f +
+           music_sine(cycles * 2.0f) * 0.20f +
+           music_saw(cycles * 0.5f) * 0.10f;
+}
+
+typedef struct {
+    int history;
+    int step_size;
+} music_adpcm_encoder_t;
+
+/* Public-domain YMZ/AICA encoder math used by KOS's wav2adpcm utility. AICA
+ * decodes the low nibble first, so even samples occupy the low half-byte. */
+static uint8_t music_encode_adpcm_nibble(music_adpcm_encoder_t *encoder,
+                                         int sample) {
+    static const int step_table[8] = {230,230,230,230,307,409,512,614};
+    const int difference = (sample & -8) - encoder->history;
+    const int absolute_difference = difference < 0 ? -difference : difference;
+    int magnitude = (absolute_difference * 4) / encoder->step_size;
+    int code;
+    int decoded_difference;
+
+    if(magnitude > 7)
+        magnitude = 7;
+    code = magnitude | (difference < 0 ? 8 : 0);
+    decoded_difference = ((1 + (magnitude << 1)) *
+                          encoder->step_size) >> 3;
+    decoded_difference = (int)clampf((float)decoded_difference,
+                                     0.0f, 32767.0f);
+    encoder->history += difference < 0 ? -decoded_difference :
+                                         decoded_difference;
+    encoder->history = (int)clampf((float)encoder->history,
+                                   -32768.0f, 32767.0f);
+    encoder->step_size = (step_table[magnitude] *
+                          encoder->step_size) >> 8;
+    encoder->step_size = (int)clampf((float)encoder->step_size,
+                                     127.0f, 24576.0f);
+    return (uint8_t)code;
+}
+
+static void music_encode_adpcm_sample(uint8_t *output, int sample_index,
+                                      float sample,
+                                      music_adpcm_encoder_t *encoder) {
+    const int pcm = (int)(clampf(sample, -1.0f, 1.0f) * 30000.0f);
+    const uint8_t nibble = music_encode_adpcm_nibble(encoder, pcm);
+    const int byte_index = sample_index >> 1;
+
+    if((sample_index & 1) == 0)
+        output[byte_index] = nibble;
+    else
+        output[byte_index] |= (uint8_t)(nibble << 4);
+}
+
+static int music_track_phrase_samples(const soundtrack_t *track) {
+    const float duration = 60.0f * (float)MUSIC_BEATS / track->bpm;
+    const int samples = (int)(duration * (float)MUSIC_SAMPLE_RATE + 0.5f);
+    return (samples + 32) & ~63;
+}
+
+static int music_track_section_samples(const soundtrack_t *track) {
+    return music_track_phrase_samples(track) + MUSIC_EDGE_SAMPLES;
+}
+
+static bool music_track_layout_valid(const soundtrack_t *track) {
+    const int samples = music_track_section_samples(track);
+    return samples > MUSIC_EDGE_SAMPLES && samples <= 65534 &&
+           (samples & 63) == 0;
+}
+
+static size_t music_catalog_bytes_required(void) {
+    size_t total = 0;
+    int track;
+    for(track = 0; track < MUSIC_TRACK_COUNT; ++track)
+        total += (size_t)music_track_section_samples(&soundtrack_defs[track]) *
+                 MUSIC_SECTION_COUNT;
+    return total;
+}
+
+static uint32_t music_hash_bytes(uint32_t hash, const void *data,
+                                 size_t length) {
+    const uint8_t *bytes = (const uint8_t *)data;
+    size_t i;
+    for(i = 0; i < length; ++i) {
+        hash ^= bytes[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static uint32_t music_catalog_fingerprint(void) {
+    uint32_t hash = 2166136261u;
+    const uint32_t format[] = {
+        MUSIC_SYNTH_REVISION,
+        MUSIC_TRACK_COUNT,
+        MUSIC_SECTION_COUNT,
+        MUSIC_SAMPLE_RATE,
+        MUSIC_BARS,
+        MUSIC_EDGE_SAMPLES
+    };
+    int track;
+
+    hash = music_hash_bytes(hash, format, sizeof(format));
+    for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
+        const soundtrack_t *definition = &soundtrack_defs[track];
+        const uint8_t *musical_data = (const uint8_t *)&definition->bpm;
+        const uint8_t *definition_end =
+            (const uint8_t *)definition + sizeof(*definition);
+        hash = music_hash_bytes(hash, definition->name,
+                                strlen(definition->name) + 1u);
+        hash = music_hash_bytes(hash, musical_data,
+                                (size_t)(definition_end - musical_data));
+    }
+    return hash;
+}
+
+static sfxhnd_t load_embedded_music(const uint8_t *data,
+                                    const soundtrack_t *track,
+                                    float *duration_out) {
+    const int samples = music_track_section_samples(track);
+    if(!music_track_layout_valid(track))
+        return SFXHND_INVALID;
+    if(duration_out)
+        *duration_out = (float)samples / (float)MUSIC_SAMPLE_RATE;
+    return snd_sfx_load_raw_buf((char *)data, (size_t)samples,
+                                MUSIC_SAMPLE_RATE, 4, 2);
+}
+
 static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                                      float *duration_out) {
-    float chord_frequencies[MUSIC_BARS][3];
+    float chord_frequencies[MUSIC_BARS][4];
     float bass_frequencies[MUSIC_BARS][8];
     float arpeggio_frequencies[MUSIC_BARS][16];
     float lead_frequencies[MUSIC_MELODY_STEPS];
+    float harmony_frequencies[MUSIC_MELODY_STEPS];
     uint16_t kick_patterns[MUSIC_BARS];
     uint16_t snare_patterns[MUSIC_BARS];
     uint16_t hat_patterns[MUSIC_BARS];
-    const float requested_duration = 60.0f * (float)MUSIC_BEATS / track->bpm;
-    int samples = (int)(requested_duration * (float)MUSIC_SAMPLE_RATE + 0.5f);
-    int16_t *buffer;
-    int16_t *left_samples;
-    int16_t *right_samples;
+    uint16_t open_hat_patterns[MUSIC_BARS];
+    uint16_t tom_patterns[MUSIC_BARS];
+    uint16_t stab_patterns[MUSIC_BARS];
+    int samples = music_track_section_samples(track);
+    const int phrase_samples = music_track_phrase_samples(track);
+    uint8_t *buffer;
+    uint8_t *left_samples;
+    uint8_t *right_samples;
+    music_adpcm_encoder_t left_encoder = {0,127};
+    music_adpcm_encoder_t right_encoder = {0,127};
     float duration;
     float seconds_per_beat;
+    float sum_squares = 0.0f;
+    float peak = 0.0f;
     sfxhnd_t handle;
     int bar, step, i;
 
-    samples = (samples + 15) & ~15;
-    if(samples > 65520)
-        samples = 65520;
-    buffer = malloc((size_t)samples * 2u * sizeof(*buffer));
+    /* AICA ADPCM stores two samples per byte, and KOS requires each planar
+       channel to occupy a multiple of 32 bytes. */
+    if(!music_track_layout_valid(track)) {
+        printf("Gravity Wave music: %s section %c exceeds AICA sample limit.\n",
+               track->name, 'A' + section);
+        return SFXHND_INVALID;
+    }
+    buffer = malloc((size_t)samples);
     if(!buffer)
         return SFXHND_INVALID;
+    memset(buffer, 0, (size_t)samples);
     left_samples = buffer;
-    right_samples = buffer + samples;
+    right_samples = buffer + samples / 2;
     duration = (float)samples / (float)MUSIC_SAMPLE_RATE;
-    seconds_per_beat = duration / (float)MUSIC_BEATS;
+    seconds_per_beat = (float)phrase_samples /
+                       ((float)MUSIC_SAMPLE_RATE * (float)MUSIC_BEATS);
     if(duration_out)
         *duration_out = duration;
 
@@ -1751,17 +2187,22 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         chord_frequencies[bar][1] =
             music_note_frequency(root + 12 + (minor ? 3 : 4));
         chord_frequencies[bar][2] = music_note_frequency(root + 19);
+        chord_frequencies[bar][3] = music_note_frequency(
+            root + 12 + track->chord_extensions[phrase_bar]);
         for(step = 0; step < 8; ++step) {
             int bass_note = track->bass[section * 8 + step];
             if(section == 1 && bass_note == MUSIC_REST &&
                (step == 2 || step == 6))
                 bass_note = step == 2 ? 7 : 12;
+            if(bass_note == 15 && !minor)
+                bass_note = 16;
             bass_frequencies[bar][step] =
                 bass_note == MUSIC_REST ? 0.0f :
                 music_note_frequency(root + bass_note);
         }
         for(step = 0; step < 16; ++step) {
-            const int pattern_step = section == 0 ? step : 15 - step;
+            const int pattern_step = section == 0 ? step :
+                (section == 1 ? 15 - step : (step * 5 + bar * 3) & 15);
             const int semitone = music_chord_semitone(
                 track->arpeggio[pattern_step], minor);
             arpeggio_frequencies[bar][step] =
@@ -1770,13 +2211,19 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         kick_patterns[bar] = track->kick[phrase_bar];
         snare_patterns[bar] = track->snare[phrase_bar];
         hat_patterns[bar] = track->hat[phrase_bar];
-        if(section == 1) {
+        open_hat_patterns[bar] = track->open_hat[phrase_bar];
+        tom_patterns[bar] = track->tom[phrase_bar];
+        stab_patterns[bar] = track->stab[phrase_bar];
+        if(section >= 1) {
             if(bar == 1)
                 kick_patterns[bar] |= 0x4040u;
             if(bar == MUSIC_BARS - 1) {
                 kick_patterns[bar] |= 0x8000u;
                 snare_patterns[bar] |= 0x4000u;
-                hat_patterns[bar] |= 0xffffu;
+                if(section == MUSIC_SECTION_COUNT - 1) {
+                    hat_patterns[bar] |= 0xffffu;
+                    tom_patterns[bar] |= 0xe000u;
+                }
             }
         }
     }
@@ -1785,17 +2232,26 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         const int melody_note = track->melody[melody_step];
         lead_frequencies[step] = melody_note == MUSIC_REST ? 0.0f :
             music_note_frequency(track->root_midi + 24 + melody_note);
+        harmony_frequencies[step] = melody_note == MUSIC_REST ? 0.0f :
+            music_note_frequency(track->root_midi + 24 + melody_note +
+                                 track->harmony_interval);
     }
 
     for(i = 0; i < samples; ++i) {
-        const float beat = (float)i * (float)MUSIC_BEATS / (float)samples;
-        const int current_bar = (int)(beat * 0.25f);
-        const float beat_in_bar = beat - (float)current_bar * 4.0f;
+        const float beat = (float)i * (float)MUSIC_BEATS /
+                           (float)phrase_samples;
+        const bool in_tail = i >= phrase_samples;
+        const float arrangement_beat = in_tail ?
+            (float)MUSIC_BEATS - 0.0001f : beat;
+        const int current_bar = (int)(arrangement_beat * 0.25f);
+        const float section_energy = 0.84f + (float)section * 0.13f;
+        const float beat_in_bar = arrangement_beat -
+                                  (float)current_bar * 4.0f;
         const float bar_seconds = beat_in_bar * seconds_per_beat;
         const float pad_attack = smoothstepf(beat_in_bar * 4.8f);
         const float pad_release = smoothstepf((4.0f - beat_in_bar) * 3.2f);
         const float pad_envelope = pad_attack * pad_release *
-            (0.92f + fsin(TAU * beat_in_bar * 0.25f) * 0.08f);
+            (0.92f + music_sine(beat_in_bar * 0.25f) * 0.08f);
         const float bass_position = beat_in_bar * 2.0f;
         const int bass_step = (int)bass_position;
         const float bass_phase = bass_position - (float)bass_step;
@@ -1819,35 +2275,37 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         int lead_step;
         int echo_step;
 
-        left += (fsin(TAU * chord_frequencies[current_bar][0] *
-                      bar_seconds * 0.997f) * 0.40f +
-                 fsin(TAU * chord_frequencies[current_bar][1] *
-                      bar_seconds * 1.002f) * 0.27f +
+        left += (music_sine(chord_frequencies[current_bar][0] *
+                            bar_seconds * 0.997f) * 0.34f +
+                 music_sine(chord_frequencies[current_bar][1] *
+                            bar_seconds * 1.002f) * 0.23f +
                  music_triangle(chord_frequencies[current_bar][2] *
-                                bar_seconds * 0.999f) * 0.20f +
+                                bar_seconds * 0.999f) * 0.17f +
+                 music_sine(chord_frequencies[current_bar][3] *
+                            bar_seconds * 1.001f) * 0.14f +
                  music_saw(chord_frequencies[current_bar][0] *
-                           bar_seconds * 0.501f) * 0.13f) *
-                track->pad_level * pad_envelope * sidechain;
-        right += (fsin(TAU * chord_frequencies[current_bar][0] *
-                       bar_seconds * 1.003f) * 0.40f +
-                  fsin(TAU * chord_frequencies[current_bar][1] *
-                       bar_seconds * 0.998f) * 0.27f +
+                           bar_seconds * 0.501f) * 0.12f) *
+                track->pad_level * section_energy * pad_envelope * sidechain;
+        right += (music_sine(chord_frequencies[current_bar][0] *
+                             bar_seconds * 1.003f) * 0.34f +
+                  music_sine(chord_frequencies[current_bar][1] *
+                             bar_seconds * 0.998f) * 0.23f +
                   music_triangle(chord_frequencies[current_bar][2] *
-                                 bar_seconds * 1.001f) * 0.20f +
+                                 bar_seconds * 1.001f) * 0.17f +
+                  music_sine(chord_frequencies[current_bar][3] *
+                             bar_seconds * 0.999f) * 0.14f +
                   music_saw(chord_frequencies[current_bar][1] *
-                            bar_seconds * 0.499f) * 0.13f) *
-                 track->pad_level * pad_envelope * sidechain;
+                            bar_seconds * 0.499f) * 0.12f) *
+                 track->pad_level * section_energy * pad_envelope * sidechain;
 
         if(bass_frequencies[current_bar][bass_step] > 0.0f) {
             envelope = clampf(bass_phase * 18.0f, 0.0f, 1.0f) *
                        (1.0f - bass_phase) * (1.0f - bass_phase);
             cycles = bass_frequencies[current_bar][bass_step] *
                      bass_phase * seconds_per_beat * 0.5f;
-            voice = music_pulse(cycles, track->pulse_width) * 0.43f +
-                    fsin(TAU * cycles) * 0.42f +
-                    music_triangle(cycles * 0.5f) * 0.15f;
-            left += voice * track->bass_level * envelope;
-            right += voice * track->bass_level * envelope;
+            voice = music_bass_voice(track, cycles);
+            left += voice * track->bass_level * envelope * section_energy;
+            right += voice * track->bass_level * envelope * section_energy;
         }
 
         envelope = clampf(arpeggio_phase * 24.0f, 0.0f, 1.0f) *
@@ -1856,56 +2314,96 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                    (1.0f - arpeggio_phase);
         cycles = arpeggio_frequencies[current_bar][arpeggio_step] *
                  arpeggio_phase * seconds_per_beat * 0.25f;
-        voice = music_triangle(cycles) * 0.45f +
-                music_pulse(cycles, 0.25f) * 0.27f +
-                fsin(TAU * cycles * 2.0f) * 0.18f +
-                music_saw(cycles * 0.5f) * 0.10f;
+        voice = music_arpeggio_voice(track, cycles);
         if((arpeggio_step ^ current_bar) & 1) {
-            left += voice * track->arpeggio_level * envelope * 0.42f;
-            right += voice * track->arpeggio_level * envelope;
+            left += voice * track->arpeggio_level * envelope * 0.42f *
+                    section_energy;
+            right += voice * track->arpeggio_level * envelope *
+                     section_energy;
         }
         else {
-            left += voice * track->arpeggio_level * envelope;
-            right += voice * track->arpeggio_level * envelope * 0.42f;
+            left += voice * track->arpeggio_level * envelope *
+                    section_energy;
+            right += voice * track->arpeggio_level * envelope * 0.42f *
+                     section_energy;
         }
 
-        voice = music_lead_voice(track, lead_frequencies, beat,
-                                 seconds_per_beat, &lead_step);
-        if(lead_step & 1) {
-            left += voice * track->lead_level * 0.62f;
-            right += voice * track->lead_level;
+        if(stab_patterns[current_bar] & drum_bit) {
+            const float stab_envelope = clampf(drum_phase * 30.0f,
+                                                0.0f, 1.0f) *
+                (1.0f - drum_phase) * (1.0f - drum_phase) *
+                (1.0f - drum_phase);
+            const float stab_seconds = drum_seconds;
+            const float stab_voice =
+                (music_saw(chord_frequencies[current_bar][0] *
+                           stab_seconds) * 0.28f +
+                 music_pulse(chord_frequencies[current_bar][1] *
+                             stab_seconds, 0.42f) * 0.24f +
+                 music_triangle(chord_frequencies[current_bar][2] *
+                                stab_seconds) * 0.24f +
+                 music_sine(chord_frequencies[current_bar][3] *
+                            stab_seconds) * 0.24f) *
+                track->stab_level * stab_envelope * sidechain *
+                section_energy;
+            left += stab_voice * (drum_step & 1 ? 0.58f : 1.0f);
+            right += stab_voice * (drum_step & 1 ? 1.0f : 0.58f);
         }
-        else {
-            left += voice * track->lead_level;
-            right += voice * track->lead_level * 0.62f;
+
+        if(!in_tail) {
+            voice = music_lead_voice(track, lead_frequencies, beat,
+                                     seconds_per_beat, &lead_step);
+            if(lead_step & 1) {
+                left += voice * track->lead_level * 0.62f * section_energy;
+                right += voice * track->lead_level * section_energy;
+            }
+            else {
+                left += voice * track->lead_level * section_energy;
+                right += voice * track->lead_level * 0.62f * section_energy;
+            }
         }
         voice = music_lead_voice(track, lead_frequencies, beat - 0.75f,
                                  seconds_per_beat, &echo_step) * 0.30f;
         if(echo_step & 1) {
-            left += voice * track->lead_level;
-            right += voice * track->lead_level * 0.38f;
+            left += voice * track->lead_level * section_energy;
+            right += voice * track->lead_level * 0.38f * section_energy;
         }
         else {
-            left += voice * track->lead_level * 0.38f;
-            right += voice * track->lead_level;
+            left += voice * track->lead_level * 0.38f * section_energy;
+            right += voice * track->lead_level * section_energy;
         }
         voice = music_lead_voice(track, lead_frequencies, beat - 1.5f,
                                  seconds_per_beat, NULL) * 0.14f;
-        left += voice * track->lead_level * 0.45f;
-        right += voice * track->lead_level;
+        left += voice * track->lead_level * 0.45f * section_energy;
+        right += voice * track->lead_level * section_energy;
+
+        if(section == MUSIC_SECTION_COUNT - 1) {
+            voice = music_lead_voice(track, harmony_frequencies, beat - 0.25f,
+                                     seconds_per_beat, &echo_step) * 0.24f;
+            if(echo_step & 1) {
+                left += voice * track->lead_level * 0.40f;
+                right += voice * track->lead_level;
+            }
+            else {
+                left += voice * track->lead_level;
+                right += voice * track->lead_level * 0.40f;
+            }
+        }
 
         if(kick_patterns[current_bar] & drum_bit) {
-            const float kick_frequency = 50.0f +
-                118.0f * (1.0f - drum_phase) * (1.0f - drum_phase);
+            const float kick_duration = seconds_per_beat * 0.25f;
+            const float kick_cycles = kick_duration *
+                (50.0f * drum_phase + 118.0f *
+                 (drum_phase - drum_phase * drum_phase +
+                  drum_phase * drum_phase * drum_phase / 3.0f));
             envelope = clampf(drum_phase * 30.0f, 0.0f, 1.0f) *
                        (1.0f - drum_phase) * (1.0f - drum_phase) *
                        (1.0f - drum_phase);
-            voice = fsin(TAU * kick_frequency * drum_seconds) +
+            voice = music_sine(kick_cycles) +
                     music_noise((uint32_t)i ^ track->noise_seed ^
                                 (uint32_t)section * 0x9e3779b9u) *
                     clampf((0.09f - drum_phase) * 11.0f, 0.0f, 1.0f) * 0.14f;
-            left += voice * track->kick_level * envelope;
-            right += voice * track->kick_level * envelope;
+            left += voice * track->kick_level * envelope * section_energy;
+            right += voice * track->kick_level * envelope * section_energy;
         }
         if(snare_patterns[current_bar] & drum_bit) {
             const float clap_burst = 0.72f + 0.18f *
@@ -1917,12 +2415,14 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                        (1.0f - drum_phase) * (1.0f - drum_phase);
             left += (music_noise((uint32_t)i ^ track->noise_seed ^
                                  0x51ed270bu) * 0.78f +
-                     fsin(TAU * 176.0f * drum_seconds) * 0.22f) *
-                    track->snare_level * envelope * clap_burst;
+                     music_sine(176.0f * drum_seconds) * 0.22f) *
+                    track->snare_level * envelope * clap_burst *
+                    section_energy;
             right += (music_noise((uint32_t)i ^ track->noise_seed ^
                                   0xa37c91e5u) * 0.78f +
-                      fsin(TAU * 181.0f * drum_seconds) * 0.22f) *
-                     track->snare_level * envelope * clap_burst;
+                      music_sine(181.0f * drum_seconds) * 0.22f) *
+                     track->snare_level * envelope * clap_burst *
+                     section_energy;
         }
         if(hat_patterns[current_bar] & drum_bit) {
             envelope = clampf(drum_phase * 42.0f, 0.0f, 1.0f) *
@@ -1932,7 +2432,7 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                      music_pulse(3310.0f * drum_seconds, 0.42f) * 0.62f +
                      music_noise((uint32_t)i ^ track->noise_seed ^
                                  0xc6bc2796u) * 0.38f) *
-                    track->hat_level * envelope;
+                    track->hat_level * envelope * section_energy;
             if(drum_step & 1) {
                 left += voice * 0.55f;
                 right += voice;
@@ -1942,13 +2442,36 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                 right += voice * 0.55f;
             }
         }
+        if(open_hat_patterns[current_bar] & drum_bit) {
+            envelope = clampf(drum_phase * 52.0f, 0.0f, 1.0f) *
+                       (1.0f - drum_phase) *
+                       (0.72f + (1.0f - drum_phase) * 0.28f);
+            voice = (music_noise((uint32_t)i ^ track->noise_seed ^
+                                 0x0f3a91d7u) * 0.54f +
+                     music_pulse(2670.0f * drum_seconds, 0.47f) *
+                     music_pulse(4210.0f * drum_seconds, 0.39f) * 0.46f) *
+                    track->open_hat_level * envelope * section_energy;
+            left += voice * (drum_step & 1 ? 0.72f : 1.0f);
+            right += voice * (drum_step & 1 ? 1.0f : 0.72f);
+        }
+        if(tom_patterns[current_bar] & drum_bit) {
+            const float tom_duration = seconds_per_beat * 0.25f;
+            const float tom_cycles = tom_duration *
+                (112.0f * drum_phase - 31.0f * drum_phase * drum_phase);
+            envelope = clampf(drum_phase * 24.0f, 0.0f, 1.0f) *
+                       (1.0f - drum_phase) * (1.0f - drum_phase);
+            voice = (music_sine(tom_cycles) * 0.72f +
+                     music_triangle(tom_cycles * 0.5f) * 0.28f) *
+                    track->tom_level * envelope * section_energy;
+            left += voice * (drum_step & 1 ? 0.46f : 1.0f);
+            right += voice * (drum_step & 1 ? 1.0f : 0.46f);
+        }
 
         {
-            const float edge_in = smoothstepf(
-                (float)i / (float)MUSIC_EDGE_SAMPLES);
-            const float edge_out = smoothstepf(
-                (float)(samples - 1 - i) / (float)MUSIC_EDGE_SAMPLES);
-            const float edge = fminf(edge_in, edge_out);
+            /* Every instrument already attacks from zero at the downbeat.
+               Preserve that transient; only the appended overlap tail fades. */
+            const float edge = in_tail ? smoothstepf(
+                (float)(samples - 1 - i) / (float)MUSIC_EDGE_SAMPLES) : 1.0f;
             left *= 0.88f * edge;
             right *= 0.88f * edge;
         }
@@ -1960,27 +2483,53 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                 (1.0f / 65536.0f);
         right += music_noise((uint32_t)i ^ track->noise_seed ^ 0x71a2d8efu) *
                  (1.0f / 65536.0f);
-        left_samples[i] = (int16_t)(clampf(left, -1.0f, 1.0f) * 30000.0f);
-        right_samples[i] = (int16_t)(clampf(right, -1.0f, 1.0f) * 30000.0f);
+        left = clampf(left, -1.0f, 1.0f);
+        right = clampf(right, -1.0f, 1.0f);
+        peak = fmaxf(peak, fmaxf(fabsf(left), fabsf(right)));
+        sum_squares += left * left + right * right;
+        music_encode_adpcm_sample(left_samples, i, left, &left_encoder);
+        music_encode_adpcm_sample(right_samples, i, right, &right_encoder);
     }
 
+#ifdef GRAVITY_WAVE_EXPORT_MUSIC_HEX
+    {
+        static const char hex_digits[] = "0123456789abcdef";
+        int byte;
+        printf("GW_MUSIC_SECTION %d %d %d\n",
+               (int)(track - soundtrack_defs), section, samples);
+        for(byte = 0; byte < samples; byte += 512) {
+            char line[1025];
+            int chunk;
+            const int count = samples - byte < 512 ? samples - byte : 512;
+            for(chunk = 0; chunk < count; ++chunk) {
+                line[chunk * 2] = hex_digits[buffer[byte + chunk] >> 4];
+                line[chunk * 2 + 1] =
+                    hex_digits[buffer[byte + chunk] & 15];
+            }
+            line[count * 2] = '\0';
+            printf("GWHEX %s\n", line);
+        }
+    }
+#endif
     handle = snd_sfx_load_raw_buf((char *)buffer,
-                                  (size_t)samples * 2u * sizeof(*buffer),
-                                  MUSIC_SAMPLE_RATE, 16, 2);
+                                  (size_t)samples,
+                                  MUSIC_SAMPLE_RATE, 4, 2);
     free(buffer);
     if(handle != SFXHND_INVALID) {
         printf("Gravity Wave music: rendered %s section %c "
-               "(%.2fs stereo, %lu KiB).\n",
-               track->name, section == 0 ? 'A' : 'B', (double)duration,
-               (unsigned long)(((size_t)samples * 4u + 1023u) / 1024u));
+               "(%.2fs, 21.5k ADPCM, %lu KiB, peak %.2f rms %.2f).\n",
+               track->name, 'A' + section, (double)duration,
+               (unsigned long)(((size_t)samples + 1023u) / 1024u),
+               (double)peak,
+               (double)fsqrt(sum_squares / ((float)samples * 2.0f)));
     }
     return handle;
 }
 
 static int choose_random_music_track(int avoid) {
-    int track = (int)(random_u32() % MUSIC_TRACK_COUNT);
+    int track = (int)(music_random_u32() % MUSIC_TRACK_COUNT);
     if(MUSIC_TRACK_COUNT > 1 && track == avoid)
-        track = (track + 1 + (int)(random_u32() %
+        track = (track + 1 + (int)(music_random_u32() %
                                   (MUSIC_TRACK_COUNT - 1))) %
                 MUSIC_TRACK_COUNT;
     return track;
@@ -2001,6 +2550,7 @@ static void stop_music(void) {
     pending_music_volume = 0;
     music_section_time = 0.0f;
     music_song_loops = 0;
+    music_playhead_armed = false;
 }
 
 static void play_music_section(int track, int section, int volume) {
@@ -2008,7 +2558,8 @@ static void play_music_section(int track, int section, int volume) {
     const int previous_track = current_music_track;
     const int next_bank = current_music_track < 0 ? 0 : 1 - active_music_bank;
 
-    if(!audio_ready || track < 0 || track >= MUSIC_TRACK_COUNT ||
+    if(!audio_ready || !music_ready ||
+       track < 0 || track >= MUSIC_TRACK_COUNT ||
        music_left_channels[next_bank] < 0 ||
        music_right_channels[next_bank] != music_left_channels[next_bank] + 1)
         return;
@@ -2035,18 +2586,33 @@ static void play_music_section(int track, int section, int volume) {
         active_music_bank = next_bank;
         pending_music_track = -1;
         music_section_time = 0.0f;
+        music_playhead_armed = false;
         if(previous_track != track) {
             music_song_loops = 0;
             printf("Gravity Wave music: now playing %s.\n",
                    soundtrack_defs[track].name);
         }
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+        printf("Gravity Wave music test: track=%d section=%c bank=%d "
+               "samples=%u duration=%.3f.\n",
+               track, 'A' + section, active_music_bank,
+               (unsigned int)music_section_samples[track][section],
+               (double)music_section_duration[track][section]);
+#endif
     }
 }
 
 static void start_music_track(int track, int volume) {
-    if(!audio_ready || track < 0 || track >= MUSIC_TRACK_COUNT ||
+    if(!audio_ready || !music_ready ||
+       track < 0 || track >= MUSIC_TRACK_COUNT ||
        music_sections[track][0] == SFXHND_INVALID)
         return;
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+    /* The deterministic album test owns sequencing after its explicit 0A
+       start; gameplay chapter requests must not perturb its proof. */
+    if(current_music_track >= 0)
+        return;
+#endif
     if(current_music_track < 0) {
         play_music_section(track, 0, volume);
         return;
@@ -2060,9 +2626,11 @@ static void start_music_track(int track, int volume) {
 }
 
 static void update_music(float dt) {
-    const float crossfade_time =
-        (float)MUSIC_EDGE_SAMPLES / (float)MUSIC_SAMPLE_RATE;
     float duration;
+    uint16_t sample_count;
+    uint16_t playhead = 0;
+    uint16_t transition_sample;
+    bool channel_playing = false;
     int next_track;
     int next_section;
     int next_volume;
@@ -2071,11 +2639,30 @@ static void update_music(float dt) {
         return;
     duration = music_section_duration[current_music_track]
                                      [current_music_section];
-    if(duration <= 0.0f)
+    sample_count = music_section_samples[current_music_track]
+                                          [current_music_section];
+    if(duration <= 0.0f || sample_count == 0)
         return;
     music_section_time += dt;
-    if(music_section_time < duration - crossfade_time)
+    if(music_left_channels[active_music_bank] >= 0) {
+        playhead = snd_get_pos(
+            (unsigned int)music_left_channels[active_music_bank]);
+        channel_playing = snd_is_playing(
+            (unsigned int)music_left_channels[active_music_bank]);
+    }
+    transition_sample = sample_count > MUSIC_EDGE_SAMPLES ?
+        (uint16_t)(sample_count - MUSIC_EDGE_SAMPLES) : sample_count / 2;
+    if(channel_playing && playhead < transition_sample)
+        music_playhead_armed = true;
+    if(music_playhead_armed) {
+        if(channel_playing && playhead < transition_sample)
+            return;
+        if(!channel_playing && music_section_time < duration)
+            return;
+    }
+    else if(music_section_time < duration) {
         return;
+    }
 
     if(pending_music_track >= 0) {
         next_track = pending_music_track;
@@ -2083,6 +2670,12 @@ static void update_music(float dt) {
         next_volume = pending_music_volume;
     }
     else if(current_music_section == MUSIC_SECTION_COUNT - 1) {
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+        next_track = (current_music_track + 1) % MUSIC_TRACK_COUNT;
+        next_section = 0;
+        next_volume = current_music_volume;
+        music_song_loops = 0;
+#else
         music_song_loops++;
         if(music_song_loops >= 2) {
             /* Runs have a musical identity: the random opening song becomes
@@ -2101,21 +2694,57 @@ static void update_music(float dt) {
             next_section = 0;
             next_volume = current_music_volume;
         }
+#endif
     }
     else {
         next_track = current_music_track;
         next_section = (current_music_section + 1) % MUSIC_SECTION_COUNT;
         next_volume = current_music_volume;
     }
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+    {
+        const int expected_track =
+            current_music_section == MUSIC_SECTION_COUNT - 1 ?
+            (current_music_track + 1) % MUSIC_TRACK_COUNT :
+            current_music_track;
+        const int expected_section =
+            current_music_section == MUSIC_SECTION_COUNT - 1 ? 0 :
+            current_music_section + 1;
+        const bool sequence_ok = next_track == expected_track &&
+                                 next_section == expected_section;
+        printf("Gravity Wave music test transition: %d%c -> %d%c "
+               "playhead=%u target=%u time=%.3f playing=%d armed=%d %s.\n",
+               current_music_track, 'A' + current_music_section,
+               next_track, 'A' + next_section,
+               (unsigned int)playhead, (unsigned int)transition_sample,
+               (double)music_section_time, channel_playing,
+               music_playhead_armed,
+               sequence_ok ? "OK" : "BAD_SEQUENCE");
+        if(!sequence_ok)
+            music_jukebox_failed = true;
+        if(current_music_track == MUSIC_TRACK_COUNT - 1 &&
+           current_music_section == MUSIC_SECTION_COUNT - 1 &&
+           next_track == 0 && next_section == 0)
+            music_jukebox_complete = true;
+    }
+#endif
     play_music_section(next_track, next_section, next_volume);
 }
 
 static void init_audio(void) {
     int loaded_sections = 0;
     bool channel_pairs_ok = true;
+    bool catalog_budget_ok;
+    bool catalog_layout_ok = true;
+    bool embedded_catalog_ok;
+    size_t catalog_bytes;
+    size_t embedded_bytes;
+    size_t embedded_offset = 0;
+    uint32_t aica_available;
     int i, section, bank;
 
     audio_ready = false;
+    music_ready = false;
     laser_channel = -1;
     for(bank = 0; bank < 2; ++bank) {
         music_left_channels[bank] = -1;
@@ -2126,10 +2755,12 @@ static void init_audio(void) {
     pending_music_track = -1;
     music_section_time = 0.0f;
     music_song_loops = 0;
+    music_playhead_armed = false;
     for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
         for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
             music_sections[i][section] = SFXHND_INVALID;
             music_section_duration[i][section] = 0.0f;
+            music_section_samples[i][section] = 0;
         }
     }
 
@@ -2165,14 +2796,118 @@ static void init_audio(void) {
     sfx_explosion = load_generated_sound(1, 95.0f, 0.42f);
     sfx_hit = load_generated_sound(2, 180.0f, 0.18f);
     sfx_gate = load_generated_sound(3, 520.0f, 0.34f);
+    catalog_bytes = music_catalog_bytes_required();
+    embedded_bytes = (size_t)((uintptr_t)gravity_wave_music_assets_end -
+                              (uintptr_t)gravity_wave_music_assets);
+    {
+        const uint32_t expected_fingerprint = music_catalog_fingerprint();
+        const bool embedded_size_ok =
+            embedded_bytes == catalog_bytes + MUSIC_ASSET_HEADER_BYTES;
+        const uint32_t embedded_fingerprint = embedded_size_ok ?
+            (uint32_t)gravity_wave_music_assets[0] |
+            ((uint32_t)gravity_wave_music_assets[1] << 8) |
+            ((uint32_t)gravity_wave_music_assets[2] << 16) |
+            ((uint32_t)gravity_wave_music_assets[3] << 24) : 0u;
+        const uint32_t embedded_payload_fingerprint = embedded_size_ok ?
+            (uint32_t)gravity_wave_music_assets[4] |
+            ((uint32_t)gravity_wave_music_assets[5] << 8) |
+            ((uint32_t)gravity_wave_music_assets[6] << 16) |
+            ((uint32_t)gravity_wave_music_assets[7] << 24) : 0u;
+        const uint32_t calculated_payload_fingerprint = embedded_size_ok ?
+            music_hash_bytes(2166136261u,
+                             gravity_wave_music_assets +
+                             MUSIC_ASSET_HEADER_BYTES,
+                             catalog_bytes) : 0u;
+        embedded_catalog_ok =
+            embedded_size_ok &&
+            embedded_fingerprint == expected_fingerprint &&
+            embedded_payload_fingerprint == calculated_payload_fingerprint;
+        printf("Gravity Wave music: catalog fingerprint %08lx "
+               "(embedded %08lx), payload %08lx/%08lx.\n",
+               (unsigned long)expected_fingerprint,
+               (unsigned long)embedded_fingerprint,
+               (unsigned long)embedded_payload_fingerprint,
+               (unsigned long)calculated_payload_fingerprint);
+#ifdef GRAVITY_WAVE_EXPORT_MUSIC_HEX
+        printf("GW_MUSIC_FINGERPRINT %08lx\n",
+               (unsigned long)expected_fingerprint);
+#endif
+    }
+#ifdef GRAVITY_WAVE_EXPORT_MUSIC_HEX
+    embedded_catalog_ok = false;
+#endif
+    aica_available = snd_mem_available();
     for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
-        for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
-            music_sections[i][section] = load_generated_music(
-                &soundtrack_defs[i], section,
-                &music_section_duration[i][section]);
-            if(music_sections[i][section] != SFXHND_INVALID)
-                loaded_sections++;
+        if(!music_track_layout_valid(&soundtrack_defs[i]))
+            catalog_layout_ok = false;
+    }
+    catalog_budget_ok = catalog_bytes + MUSIC_AICA_RESERVE <=
+                        (size_t)aica_available;
+    printf("Gravity Wave music: album budget %lu KiB + %lu KiB reserve "
+           "inside %lu KiB available.\n",
+           (unsigned long)((catalog_bytes + 1023u) / 1024u),
+           (unsigned long)(MUSIC_AICA_RESERVE / 1024u),
+           (unsigned long)(aica_available / 1024u));
+    printf("Gravity Wave music: %s album image (%lu/%lu KiB).\n",
+           embedded_catalog_ok ? "verified embedded" : "runtime fallback",
+           (unsigned long)((embedded_bytes + 1023u) / 1024u),
+           (unsigned long)((catalog_bytes + 1023u) / 1024u));
+    if(!embedded_catalog_ok)
+        init_music_sine_table();
+    if(channel_pairs_ok && catalog_budget_ok && catalog_layout_ok) {
+        if(embedded_catalog_ok)
+            embedded_offset = MUSIC_ASSET_HEADER_BYTES;
+        for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
+            for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
+                const int samples = music_track_section_samples(
+                    &soundtrack_defs[i]);
+                if(embedded_catalog_ok) {
+                    music_sections[i][section] = load_embedded_music(
+                        gravity_wave_music_assets + embedded_offset,
+                        &soundtrack_defs[i],
+                        &music_section_duration[i][section]);
+                    embedded_offset += (size_t)samples;
+                }
+                else {
+                    music_sections[i][section] = load_generated_music(
+                        &soundtrack_defs[i], section,
+                        &music_section_duration[i][section]);
+                }
+                if(music_sections[i][section] != SFXHND_INVALID) {
+                    music_section_samples[i][section] = (uint16_t)(
+                        music_section_duration[i][section] *
+                        (float)MUSIC_SAMPLE_RATE + 0.5f);
+                    loaded_sections++;
+                }
+            }
+            if(embedded_catalog_ok)
+                printf("Gravity Wave music: loaded %s A/B/C (%d KiB).\n",
+                       soundtrack_defs[i].name,
+                       (music_track_section_samples(&soundtrack_defs[i]) *
+                        MUSIC_SECTION_COUNT + 1023) / 1024);
         }
+    }
+    else if(!catalog_budget_ok)
+        printf("Gravity Wave music: retail AICA safety budget exceeded.\n");
+    else if(!catalog_layout_ok)
+        printf("Gravity Wave music: invalid AICA section layout.\n");
+
+    if(loaded_sections == MUSIC_TRACK_COUNT * MUSIC_SECTION_COUNT &&
+       channel_pairs_ok)
+        music_ready = true;
+    else {
+        for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
+            for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
+                if(music_sections[i][section] != SFXHND_INVALID) {
+                    snd_sfx_unload(music_sections[i][section]);
+                    music_sections[i][section] = SFXHND_INVALID;
+                    music_section_duration[i][section] = 0.0f;
+                    music_section_samples[i][section] = 0;
+                }
+            }
+        }
+        printf("Gravity Wave music: catalog or channels incomplete; "
+               "music disabled safely.\n");
     }
 
     printf("Gravity Wave audio: laser=%lu rapid=%lu phase=%lu "
@@ -7198,6 +7933,10 @@ int main(int argc, char **argv) {
                                 (uint32_t)rtc_entropy ^
                                 (uint32_t)(rtc_entropy >> 32) ^
                                 (uint32_t)pvr_get_vbl_count() * 0x9e3779b9u);
+        music_random_state = hash_u32(
+            0xa17ca55eu ^ (uint32_t)(entropy >> 7) ^
+            (uint32_t)(rtc_entropy * 0x85ebca6bu) ^
+            (uint32_t)pvr_get_vbl_count() * 0xc2b2ae35u);
     }
     enter_title();
 #ifdef GRAVITY_WAVE_AUTOTEST
@@ -7217,9 +7956,18 @@ int main(int argc, char **argv) {
     game.palette_index = ((int)(game.distance / BIOME_LENGTH)) & 3;
     game.last_palette_index = game.palette_index;
     game.music_chapter = course_chapter_at(game.distance);
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+    game.music_route_offset = 0;
+    game.music_chapter = 0;
+    music_jukebox_complete = false;
+    music_jukebox_failed = false;
+    stop_music();
+    play_music_section(0, 0, MUSIC_GAME_VOLUME);
+#else
     start_music_track((game.music_route_offset + game.music_chapter) %
                       MUSIC_TRACK_COUNT,
                       MUSIC_GAME_VOLUME);
+#endif
     game.next_wave_z = next_course_wave_z(game.distance + 200.0f);
     game.next_gate_z = next_course_traversal_z(game.distance + 200.0f);
 #ifdef GRAVITY_WAVE_AUTOTEST_GATE_VIEW
@@ -7357,6 +8105,10 @@ int main(int argc, char **argv) {
 #endif
         running = update_game(&input, dt);
         render_frame(input.connected);
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+        if(music_jukebox_complete && music_section_time >= 0.75f)
+            running = false;
+#endif
 #ifdef GRAVITY_WAVE_AUTOTEST_EXIT_SECONDS
         if(game.time >= GRAVITY_WAVE_AUTOTEST_EXIT_SECONDS)
             running = false;
@@ -7398,9 +8150,18 @@ int main(int argc, char **argv) {
 #endif
     }
 
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+    printf("Gravity Wave music test: %s full 8-track A/B/C cycle.\n",
+           music_jukebox_complete && !music_jukebox_failed ?
+           "PASS" : "FAIL");
+#endif
     printf("Gravity Wave: shutting down cleanly.\n");
     shutdown_audio();
     release_textures();
     pvr_shutdown();
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+    if(!music_jukebox_complete || music_jukebox_failed)
+        return 3;
+#endif
     return 0;
 }

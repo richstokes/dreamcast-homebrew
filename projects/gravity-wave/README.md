@@ -49,11 +49,11 @@ is also available.
 - Vector Crown environmental arches with tapered polygonal ribs, floating
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
-- Five original stereo synthwave/synthpop songs with a randomized run opener
-  followed by a stable chapter-to-track progression, 154–166 BPM alternating A/B
-  sections, synthesized at boot with sidechained
-  chord pads, driven pulse bass, stereo arpeggios, distinct lead voices,
-  layered drum machines, clap transients, and multi-tap ping-pong echo
+- Eight original stereo synthwave/synthpop songs with a randomized run opener
+  followed by a stable chapter-to-track progression, 162–178 BPM A/B/C
+  arrangements, sidechained chord pads, driven pulse and FM basses, stereo
+  arpeggios, eight lead voices, track-specific drum machines, clap transients,
+  tom fills, chord stabs, harmony lifts, and multi-tap ping-pong echo
 - Optional Jump Pack feedback for impacts, Nova Pulses, upgrades, and guardian
   destruction, with safe play when no vibration accessory is present
 - Hardware fog, a layered gradient sky, stars, striped sun, a subtle animated
@@ -108,12 +108,22 @@ score follows the course's dramatic progression:
 - **Magenta Circuit** — bright synthpop highway theme
 - **Glass Horizon** — crystalline neon-flight theme
 - **Static Heart** — hard-driving pulse-wave theme
-- **Afterimage Run** — high-speed finale theme
+- **Afterimage Run** — chromatic high-speed pursuit theme
+- **Neon Afterburn** — relentless redline chase theme
+- **Chrome Devotion** — euphoric major-key synthpop anthem
+- **Redline Prophecy** — angular final-lap assault theme
 
-All five songs use two evolving arrangements. Dual stereo AICA pairs overlap
-93 ms baked fade edges, so section and track changes crossfade cleanly on phrase
-boundaries. Every song and sound effect is generated in memory during boot; no
-streamed files or disc access are needed.
+Every song is a six-bar miniature with three evolving arrangements: A establishes
+the groove, B develops its hook, and C adds maximum drums and harmony. The music
+engine launches each new downbeat on the exact eight-beat phrase boundary while
+the outgoing section carries a 47.6 ms decay tail across dual stereo AICA pairs.
+
+The score is authored by Gravity Wave's SH-4 synth, baked to 21.5 kHz native
+stereo AICA ADPCM, and linked directly into the ELF for immediate startup. Boot
+validation checks both the source-catalog fingerprint and the complete audio
+payload before loading all 24 sections; the retail sound-RAM layout retains
+roughly 352 KiB after music and effects. No streaming, disc access, or
+emulator-only audio feature is required.
 
 ## Build and verify
 
@@ -151,6 +161,23 @@ PowerVR-compatible size, conditions wrapping material edges, applies ordered
 dithering, packs RGB565 or ARGB4444 texels, and emits 32-byte-aligned C arrays.
 See `assets/README.md` and `assets/PROMPTS.md` for the complete pipeline and art
 prompts.
+
+## Rebuild the soundtrack asset
+
+The checked-in ADPCM album makes normal builds fast and independent of a host
+audio toolchain. After changing the soundtrack definitions or synth engine in
+`gravity-wave.c` (and bumping `MUSIC_SYNTH_REVISION` for engine changes),
+regenerate the exact Dreamcast-rendered payload with:
+
+```sh
+make music
+```
+
+The bake target builds an instrumented ELF, runs all 24 sections through the
+SH-4 synth in Flycast's stable interpreter mode, verifies the manifest and byte
+counts, writes source and payload fingerprints into the linked asset, then
+restores a strict production build. Expect the one-time bake to take several
+minutes.
 
 ## Run in Flycast
 
@@ -205,8 +232,11 @@ for the current run; collecting a max-level Laser Core converts it into score.
 - SH-4 GCC 15.2.0
 - Flycast 2.7 with serial console enabled
 - Direct ELF boot, title screen, live gameplay, enemy/gate/pickup encounters,
-  guardian defeat, all four biome render paths, transitions, synthesized audio,
+  guardian defeat, all four biome render paths, transitions, embedded AICA audio,
   structure/terrain impacts, pause, retry, and game-over flow
+- All 24 music sections loaded with matching catalog/payload fingerprints,
+  352 KiB of AICA RAM free, and a deterministic 0A–7C jukebox cycle with every
+  handoff inside one 60 Hz frame of its exact phrase boundary
 - 59.9–60.0 fps in dense guardian and neon-grid scenes at 640x480, with roughly
   9–12.5 ms PVR registration time and 288 KiB of resident texture data
 
