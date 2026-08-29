@@ -12,8 +12,12 @@
 
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 
+#ifndef BROWSER_HOME_URL
+#define BROWSER_HOME_URL "https://appsbyrich.com/"
+#endif
+
 static browser_document_t document;
-static char address[MAX_URL] = "https://appsbyrich.com/";
+static char address[MAX_URL] = BROWSER_HOME_URL;
 static char current_url[MAX_URL];
 static char status_text[96];
 static int scroll_y;
@@ -281,7 +285,9 @@ static int load_page(const char *requested) {
     end_loading();
     document_init(&document, result.effective_url);
     document_parse_html(&document, (const char *)result.data, result.size);
-    if(result.truncated) document.truncated = 1;
+    if(result.truncated)
+        document_mark_shortened(&document,
+            "[Page shortened: HTML exceeded the 512 KiB safety limit]");
     snprintf(address, sizeof(address), "%s", result.effective_url);
     snprintf(current_url, sizeof(current_url), "%s", result.effective_url);
     fetch_result_free(&result);
@@ -389,8 +395,13 @@ static int run_layout_self_test(void) {
         "<p>Hello <strong>bold</strong> and <em>soft</em> with "
         "<code>code</code> and <a href='/next'>link</a>.</p>"
         "<p><a href='/one'>LinkOne</a><a href='/two'>LinkTwo</a></p>"
-        "<p>Before image</p><img src='/tiny.png' alt='tiny'>"
-        "<p>After image</p><ul><li>First item</li><li>Second item</li></ul>"
+        "<p><a href='/tail'>Linked</a>tail <a href='/punct'>Punct</a>.</p>"
+        "<!-- <a href='/hidden'>COMMENT_SHOULD_NOT_RENDER</a> -->"
+        "<p>Before image</p><img src='/tiny.png' alt='tiny' width='100' height='72'>"
+        "<img src='/decoration.png' alt=''>"
+        "<p>After image</p><ul><li><div>First item</div></li><li>Second item</li></ul>"
+        "<table><tr><td>Cell A</td><td>Cell B</td></tr>"
+        "<tr><td>Cell C</td></tr></table>"
         "<pre>A  B\nC</pre>";
     static const char wrapping_html[] =
         "<p>This intentionally long paragraph contains enough ordinary words "
@@ -404,10 +415,15 @@ static int run_layout_self_test(void) {
     document_item_t *link;
     document_item_t *link_one;
     document_item_t *link_two;
+    document_item_t *link_tail;
+    document_item_t *punctuation;
     document_item_t *bullet;
     document_item_t *first_item;
     document_item_t *pre_a;
     document_item_t *pre_c;
+    document_item_t *cell_a;
+    document_item_t *cell_b;
+    document_item_t *cell_c;
     document_item_t *image_item = NULL;
     document_item_t *after_image;
     int after_y;
@@ -436,6 +452,9 @@ static int run_layout_self_test(void) {
     link = find_layout_item(test, "link", TEXT_LINK);
     LAYOUT_CHECK(normal && strong && emphasis && code && link,
                  "inline styles missing");
+    for(i = 0; i < test->item_count; ++i)
+        LAYOUT_CHECK(!strstr(test->items[i].text, "COMMENT_SHOULD_NOT_RENDER"),
+                     "HTML comment leaked into layout");
     LAYOUT_CHECK(strong->text[0] == ' ' && emphasis->text[0] == ' ' &&
                  code->text[0] == ' ' && link->text[0] == ' ',
                  "inline whitespace lost");
@@ -452,6 +471,11 @@ static int run_layout_self_test(void) {
                  link_two->text[0] == ' ' &&
                  link_two->x == link_one->x + link_one->width,
                  "adjacent link separation");
+    link_tail = find_layout_item(test, "tail", TEXT_NORMAL);
+    punctuation = find_layout_item(test, ".", TEXT_NORMAL);
+    LAYOUT_CHECK(link_tail && link_tail->text[0] == ' ' && punctuation &&
+                 punctuation->text[0] == '.',
+                 "link/prose punctuation spacing");
 
     bullet = find_layout_item(test, "* ", TEXT_NORMAL);
     first_item = find_layout_item(test, "First item", TEXT_NORMAL);
@@ -462,6 +486,12 @@ static int run_layout_self_test(void) {
     pre_c = find_layout_item(test, "C", TEXT_CODE);
     LAYOUT_CHECK(pre_a && pre_c && pre_c->y > pre_a->y,
                  "preformatted spacing");
+    cell_a = find_layout_item(test, "Cell A", TEXT_NORMAL);
+    cell_b = find_layout_item(test, "Cell B", TEXT_NORMAL);
+    cell_c = find_layout_item(test, "Cell C", TEXT_NORMAL);
+    LAYOUT_CHECK(cell_a && cell_b && cell_c && cell_a->y == cell_b->y &&
+                 cell_a->x < cell_b->x && cell_c->y > cell_a->y,
+                 "table row/cell fallback");
 
     after_image = find_layout_item(test, "After image", TEXT_NORMAL);
     for(i = 0; i < test->item_count; ++i) {
@@ -470,7 +500,9 @@ static int run_layout_self_test(void) {
             break;
         }
     }
-    LAYOUT_CHECK(image_item && after_image, "image layout items");
+    LAYOUT_CHECK(image_item && after_image && test->image_count == 1 &&
+                 image_item->width == 100 && image_item->height == 72,
+                 "declared image dimensions");
     after_y = after_image->y;
     test->images[image_item->image_id].loaded = 1;
     test->images[image_item->image_id].width = 100;
@@ -481,6 +513,12 @@ static int run_layout_self_test(void) {
     after_y = after_image->y;
     document_reflow(test);
     LAYOUT_CHECK(after_image->y == after_y, "image reflow idempotence");
+    document_mark_shortened(test, "[Network document shortened]");
+    LAYOUT_CHECK(test->truncated &&
+                 test->items[test->item_count - 1].type == ITEM_NOTICE &&
+                 strstr(test->items[test->item_count - 1].text,
+                        "Network document shortened"),
+                 "network truncation notice");
 
     document_free(test);
     document_init(test, "https://example.com/");

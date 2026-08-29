@@ -10,6 +10,7 @@ static int line_y;
 static int line_x;
 static int line_height;
 static int line_has_content;
+static int line_indent;
 static int pending_space;
 
 static void add_notice(browser_document_t *doc, const char *message);
@@ -28,7 +29,7 @@ static document_item_t *new_item(browser_document_t *doc) {
 }
 
 static void reset_line(void) {
-    line_x = PAGE_MARGIN;
+    line_x = PAGE_MARGIN + line_indent;
     line_height = 25;
     line_has_content = 0;
 }
@@ -281,7 +282,8 @@ static int add_link(browser_document_t *doc, const char *href) {
     return doc->link_count++;
 }
 
-static void add_image(browser_document_t *doc, const char *src, const char *alt) {
+static void add_image(browser_document_t *doc, const char *src, const char *alt,
+                      int declared_width, int declared_height) {
     document_item_t *item;
     browser_image_t *image;
     char decoded[MAX_URL];
@@ -296,6 +298,18 @@ static void add_image(browser_document_t *doc, const char *src, const char *alt)
     vertical_space(5);
     image = &doc->images[doc->image_count];
     memset(image, 0, sizeof(*image));
+    if(declared_width > PAGE_WIDTH) {
+        if(declared_height > 0)
+            declared_height = declared_height * PAGE_WIDTH / declared_width;
+        declared_width = PAGE_WIDTH;
+    }
+    if(declared_height > 240) {
+        if(declared_width > 0)
+            declared_width = declared_width * 240 / declared_height;
+        declared_height = 240;
+    }
+    image->width = declared_width > 0 ? declared_width : PAGE_WIDTH;
+    image->height = declared_height > 0 ? declared_height : 72;
     snprintf(image->url, sizeof(image->url), "%s", resolved);
     snprintf(image->alt, sizeof(image->alt), "%s", alt[0] ? alt : "image");
     item = new_item(doc);
@@ -303,10 +317,21 @@ static void add_image(browser_document_t *doc, const char *src, const char *alt)
     item->type = ITEM_IMAGE;
     item->x = PAGE_MARGIN;
     item->y = line_y;
-    item->width = PAGE_WIDTH;
-    item->height = 72;
+    item->width = image->width;
+    item->height = image->height;
     item->image_id = doc->image_count++;
     line_y += item->height + 7;
+}
+
+void document_mark_shortened(browser_document_t *doc, const char *message) {
+    doc->truncated = 1;
+    if(doc->item_count >= MAX_ITEMS) return;
+    line_y = doc->height > 20 ? doc->height - 20 : 12;
+    line_indent = 0;
+    reset_line();
+    pending_space = 0;
+    add_notice(doc, message);
+    doc->height = line_y + 20;
 }
 
 static void add_notice(browser_document_t *doc, const char *message) {
@@ -339,6 +364,7 @@ void document_make_error(browser_document_t *doc, const char *title, const char 
     document_init(doc, "");
     snprintf(doc->title, sizeof(doc->title), "%s", title);
     line_y = 12;
+    line_indent = 0;
     reset_line();
     pending_space = 0;
     add_line(doc, title, TEXT_HEADING, -1);
@@ -371,20 +397,40 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
     int in_code = 0;
     int current_link = -1;
     int adjacent_link = 0;
+    int list_marker_pending = 0;
 
     line_y = 12;
+    line_indent = 0;
     reset_line();
     pending_space = 0;
     while(p < end && !doc->truncated) {
+        if(end - p >= 4 && !memcmp(p, "<!--", 4)) {
+            const char *comment_end = p + 4;
+            while(end - comment_end >= 3 && memcmp(comment_end, "-->", 3))
+                comment_end++;
+            p = end - comment_end >= 3 ? comment_end + 3 : end;
+            continue;
+        }
         if(*p != '<') {
             const char *next = memchr(p, '<', (size_t)(end - p));
             char normalized[1024];
             size_t count = next ? (size_t)(next - p) : (size_t)(end - p);
             if(!skip_depth && (!in_head || in_title)) {
+                if(adjacent_link && !in_pre) {
+                    size_t i = 0;
+                    while(i < count && isspace((unsigned char)p[i])) i++;
+                    if(i < count && (isalnum((unsigned char)p[i]) ||
+                                     (unsigned char)p[i] >= 0x80))
+                        pending_space = 1;
+                }
                 normalize_text(p, count, normalized, sizeof(normalized), in_pre);
                 if(in_title && normalized[0])
                     snprintf(doc->title, sizeof(doc->title), "%.95s", normalized);
                 else if(!in_head && normalized[0]) {
+                    if(list_marker_pending) {
+                        add_text_run(doc, "* ", 2, TEXT_NORMAL, -1);
+                        list_marker_pending = 0;
+                    }
                     wrap_text(doc, normalized,
                               active_style(in_pre, in_heading, in_strong,
                                            in_emphasis, in_code),
@@ -402,6 +448,8 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
             char name[32];
             char attr[MAX_URL];
             char alt[64] = {0};
+            int image_width = 0;
+            int image_height = 0;
             const char *q;
             size_t len;
             int closing = 0;
@@ -458,8 +506,30 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
                 }
             } else if(!strcmp(name, "img") && !closing && !in_head) {
                 if(attr_value(q, "src", attr, sizeof(attr))) {
-                    attr_value(q, "alt", alt, sizeof(alt));
-                    add_image(doc, attr, alt);
+                    char dimension[16];
+                    char aria[64] = {0};
+                    char role[24] = {0};
+                    int has_alt = attr_value(q, "alt", alt, sizeof(alt));
+                    attr_value(q, "aria-hidden", aria, sizeof(aria));
+                    attr_value(q, "role", role, sizeof(role));
+                    if((has_alt && !alt[0]) || !strcasecmp(aria, "true") ||
+                       !strcasecmp(role, "presentation") ||
+                       !strcasecmp(role, "none")) {
+                        p = close + 1;
+                        continue;
+                    }
+                    if(attr_value(q, "aria-label", aria, sizeof(aria))) {
+                        if(!strcasecmp(aria, "image unavailable")) {
+                            p = close + 1;
+                            continue;
+                        }
+                        if(!has_alt) snprintf(alt, sizeof(alt), "%s", aria);
+                    }
+                    if(attr_value(q, "width", dimension, sizeof(dimension)))
+                        image_width = atoi(dimension);
+                    if(attr_value(q, "height", dimension, sizeof(dimension)))
+                        image_height = atoi(dimension);
+                    add_image(doc, attr, alt, image_width, image_height);
                 }
             } else if(!strcmp(name, "h1") || !strcmp(name, "h2") || !strcmp(name, "h3")) {
                 vertical_space(closing ? 7 : 10);
@@ -467,20 +537,29 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
                 else in_heading++;
             } else if(!strcmp(name, "p") || !strcmp(name, "div") ||
                       !strcmp(name, "section") || !strcmp(name, "article") ||
-                      !strcmp(name, "header") || !strcmp(name, "footer")) {
+                      !strcmp(name, "header") || !strcmp(name, "footer") ||
+                      !strcmp(name, "nav") || !strcmp(name, "aside") ||
+                      !strcmp(name, "figure") || !strcmp(name, "figcaption") ||
+                      !strcmp(name, "blockquote") || !strcmp(name, "center")) {
                 vertical_space(closing ? 7 : 4);
+            } else if(!strcmp(name, "tr")) {
+                vertical_space(closing ? 2 : 3);
+            } else if(!strcmp(name, "td") || !strcmp(name, "th")) {
+                if(!closing && line_has_content && !pending_space)
+                    pending_space = 1;
             } else if(!strcmp(name, "br")) {
                 finish_line(1);
             } else if(!strcmp(name, "li")) {
                 if(closing) {
                     finish_line(0);
+                    line_indent = 0;
+                    reset_line();
+                    list_marker_pending = 0;
                 } else {
                     vertical_space(3);
-                    line_x = PAGE_MARGIN + 12;
-                    add_text_run(doc, "* ", 2,
-                                 active_style(in_pre, in_heading, in_strong,
-                                              in_emphasis, in_code),
-                                 current_link);
+                    line_indent = 12;
+                    reset_line();
+                    list_marker_pending = 1;
                 }
             } else if(!strcmp(name, "hr")) {
                 document_item_t *item = new_item(doc);
@@ -496,6 +575,16 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
             } else if(strcmp(name, "html") && strcmp(name, "body") &&
                       strcmp(name, "main") && strcmp(name, "span") &&
                       strcmp(name, "ul") && strcmp(name, "ol") &&
+                      strcmp(name, "table") && strcmp(name, "tbody") &&
+                      strcmp(name, "thead") && strcmp(name, "tfoot") &&
+                      strcmp(name, "colgroup") && strcmp(name, "col") &&
+                      strcmp(name, "caption") && strcmp(name, "font") &&
+                      strcmp(name, "small") && strcmp(name, "time") &&
+                      strcmp(name, "abbr") && strcmp(name, "cite") &&
+                      strcmp(name, "s") && strcmp(name, "del") &&
+                      strcmp(name, "ins") && strcmp(name, "sup") &&
+                      strcmp(name, "sub") && strcmp(name, "picture") &&
+                      strcmp(name, "source") &&
                       strcmp(name, "meta") && strcmp(name, "link") &&
                       strcmp(name, "base") && strcmp(name, "input") &&
                       strcmp(name, "form") && strcmp(name, "label") &&
@@ -523,8 +612,8 @@ void document_reflow(browser_document_t *doc) {
         if(item->type == ITEM_IMAGE && item->image_id >= 0) {
             browser_image_t *image = &doc->images[item->image_id];
             int old_height = item->height;
-            item->width = image->loaded > 0 ? image->width : PAGE_WIDTH;
-            item->height = image->loaded > 0 ? image->height : 72;
+            item->width = image->width > 0 ? image->width : PAGE_WIDTH;
+            item->height = image->height > 0 ? image->height : 72;
             shift += item->height - old_height;
         }
     }

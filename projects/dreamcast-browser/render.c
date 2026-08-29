@@ -131,7 +131,8 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
                              "[image omitted: %.58s]", image->alt);
                 else
                     snprintf(placeholder, sizeof(placeholder), "[loading image]");
-                draw_text(item->x + 8, y + 22, C_MUTED, placeholder);
+                if(item->width >= 96 && item->height >= 24)
+                    draw_text(item->x + 8, y + 22, C_MUTED, placeholder);
             }
         }
     }

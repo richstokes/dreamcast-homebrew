@@ -80,6 +80,15 @@ The test reports passing inline layout/style/reflow, asset, page-cancel,
 history, and image-cancel checks before entering the normal browser loop. Run
 `make clean && make` afterward to restore the release build.
 
+For a cold-boot compatibility check against another homepage, override the URL
+for that build only (the release default remains `https://appsbyrich.com/`):
+
+```sh
+make clean
+make CPPFLAGS='-DBROWSER_HOME_URL=\"https://news.ycombinator.com/\"'
+./run-flycast.sh --skip-build
+```
+
 Run in Flycast with BBA emulation and the serial console:
 
 ```sh
@@ -100,25 +109,30 @@ compressed images in total, six image slots,
 512 layout items, and 96 links. Large documents are shortened. Oversized,
 failed, or unsupported images become placeholders. Unknown HTML tags are
 ignored while their text remains visible; scripts, styles, SVG, canvas, and
-`noscript` blocks are skipped. There is no CSS layout, JavaScript, forms,
-cookies, storage, audio/video, downloads, tabs, or full Unicode font rendering.
+`noscript` blocks and HTML comments are skipped. Decorative images are omitted,
+and declared image dimensions keep small failed assets from becoming giant
+placeholders. There is no CSS layout, JavaScript, forms, cookies, storage,
+audio/video, downloads, tabs, or full Unicode font rendering.
 Supported inline text keeps flowing across semantic tags instead of forcing a
 new row, wraps at the display edge, and gives links, strong text, emphasis, and
-code distinct colors. Lists keep their marker and text together.
+code distinct colors. Lists keep their marker and text together, including when
+wrapper elements are present, and legacy table rows degrade into readable text
+rows with separated cells.
 
-Known oversized responses are rejected from their HTTP headers before the body
-is downloaded. Next.js image-optimizer URLs are reduced to the Dreamcast's
-640-pixel display width, image requests time out after eight seconds, and receive
-bursts are bounded for BBA stability. Parsed page text is shown before image
-downloads begin. If any asset is oversized, unsupported, unreachable, or times
-out, it and all remaining page images become alt-text placeholders without
-further network retries. The deliberately small 24 KiB ceiling avoids a known
-Flycast BBA failure that can occur before application-level size checks run;
-small web graphics still render normally. Image downloads require a safe,
-declared size from a header-only probe; unknown-length images become
-placeholders. The BBA IRQ is gated and a normal KOS worker polls the adapter,
-avoiding a Flycast IRQ9 re-entry that otherwise appears as a KOS double-fault
-panic.
+Oversized HTML is downloaded only to the fixed 512 KiB ceiling, then parsed as
+a clearly marked shortened page. Oversized images are rejected from their HTTP
+headers before the body is downloaded. Next.js image-optimizer URLs are reduced
+to the Dreamcast's 640-pixel display width, image requests time out after eight
+seconds, and receive bursts are bounded for BBA stability. Parsed page text is
+shown before image downloads begin. If any asset is oversized, unsupported,
+unreachable, or times out, it and all remaining page images become alt-text
+placeholders without further network retries. The deliberately small 24 KiB
+ceiling avoids a known Flycast BBA failure that can occur before
+application-level size checks run; small web graphics still render normally.
+Image downloads require a safe, declared size from a header-only probe;
+unknown-length images become placeholders. The BBA IRQ is gated and a normal
+KOS worker polls the adapter, avoiding a Flycast IRQ9 re-entry that otherwise
+appears as a KOS double-fault panic.
 
 While a request is active, the header shows an animated connection/download
 state, transferred versus declared KiB, and the cancel controls. `Esc`,

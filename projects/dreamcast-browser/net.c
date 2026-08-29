@@ -177,7 +177,10 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 8192L);
     curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE,
                      (curl_off_t)(192 * 1024));
-    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)limit);
+    /* Documents can be safely shortened by receive_data(). Images must be
+       rejected before any oversized body reaches the constrained decoder. */
+    if(limit <= MAX_IMAGE_BYTES)
+        curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)limit);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, connect_timeout);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, transfer_timeout);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 64L);

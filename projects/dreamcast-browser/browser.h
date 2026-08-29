@@ -99,6 +99,7 @@ void fetch_result_free(fetch_result_t *result);
 void document_init(browser_document_t *doc, const char *base_url);
 void document_free(browser_document_t *doc);
 void document_parse_html(browser_document_t *doc, const char *html, size_t size);
+void document_mark_shortened(browser_document_t *doc, const char *message);
 void document_make_error(browser_document_t *doc, const char *title, const char *message);
 void document_load_images(browser_document_t *doc);
 void document_reflow(browser_document_t *doc);
