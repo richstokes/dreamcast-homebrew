@@ -63,13 +63,14 @@ static void draw_cursor(int x, int y) {
 
 static const char *visible_address(const char *address) {
     size_t len = strlen(address);
-    if(len <= 38) return address;
-    return address + len - 38;
+    if(len <= 34) return address;
+    return address + len - 34;
 }
 
 void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
                     int mouse_y, int focused_link, const char *address,
-                    int editing, int can_go_back, const char *status) {
+                    int editing, int can_go_back, int can_go_forward,
+                    const char *status) {
     int i;
     char bar[64];
     char footer[96];
@@ -79,9 +80,12 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
     fill_rect(6, 8, 54, 32, can_go_back ? C_BLUE : C_MUTED);
     bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 9, SCREEN_W,
                       C_WHITE, can_go_back ? C_BLUE : C_MUTED, 16, false, "BACK");
-    fill_rect(66, 8, 496, 32, editing ? C_WHITE : 0xce59);
+    fill_rect(64, 8, 52, 32, can_go_forward ? C_BLUE : C_MUTED);
+    bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 72, SCREEN_W,
+                      C_WHITE, can_go_forward ? C_BLUE : C_MUTED, 16, false, "FWD");
+    fill_rect(122, 8, 440, 32, editing ? C_WHITE : 0xce59);
     snprintf(bar, sizeof(bar), "%s%s", editing ? "> " : "  ", visible_address(address));
-    bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 74, SCREEN_W,
+    bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 130, SCREEN_W,
                       C_INK, editing ? C_WHITE : 0xce59, 16, false, bar);
     fill_rect(570, 8, 56, 32, C_BLUE);
     bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 579, SCREEN_W,
@@ -91,7 +95,7 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
                   !strncmp(status, "Connecting ", 11)))
         snprintf(footer, sizeof(footer), "%.52s", status);
     else
-        snprintf(footer, sizeof(footer), "Backspace back | F6 address | %.18s",
+        snprintf(footer, sizeof(footer), "Alt+arrows history | F6 address | %.14s",
                  status && status[0] ? status : doc->title);
     bfont_draw_str_ex(vram_s + 44 * SCREEN_W + 14, SCREEN_W,
                       C_WHITE, C_TEAL, 16, false, footer);

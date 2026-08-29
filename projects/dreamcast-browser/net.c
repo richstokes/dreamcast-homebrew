@@ -4,6 +4,7 @@
 #include <dc/asic.h>
 #include <kos/irq.h>
 #include <kos/net.h>
+#include <kos/thread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,27 +20,35 @@ typedef struct {
 static network_progress_callback_t progress_callback;
 static void *progress_userdata;
 static int gate_bba_irq;
+static volatile int bba_poll_running;
+static volatile int bba_transfer_active;
+static kthread_t *bba_poll_thread;
 
 /* Flycast's BBA can re-assert IRQ9 while KOS is still dispatching the first
-   event, which KOS correctly reports as a double fault. Keep BBA IRQs enabled
-   only while a blocking transfer needs them; while the UI is idle, drain the
-   adapter through its standard polling hook instead. This also works on real
-   BBA hardware and leaves unrelated ASIC events alone. */
-static void set_bba_irq(int enabled) {
+   event, which KOS correctly reports as a double fault. Keep that event gated
+   and drain the adapter from a normal KOS worker instead. This also works on
+   real BBA hardware and leaves unrelated ASIC events alone. */
+static void disable_bba_irq(void) {
     uint32_t old_irq;
 
     if(!gate_bba_irq) return;
     old_irq = irq_disable();
-    if(enabled)
-        asic_evt_enable(ASIC_EVT_EXP_PCI, ASIC_IRQ_DEFAULT);
-    else
-        asic_evt_disable(ASIC_EVT_EXP_PCI, ASIC_IRQ_DEFAULT);
+    asic_evt_disable(ASIC_EVT_EXP_PCI, ASIC_IRQ_DEFAULT);
     irq_restore(old_irq);
 }
 
-void network_idle_poll(void) {
+static void poll_bba_once(void) {
     if(gate_bba_irq && net_default_dev && net_default_dev->if_rx_poll)
         net_default_dev->if_rx_poll(net_default_dev);
+}
+
+static void *bba_poll_worker(void *unused) {
+    (void)unused;
+    while(bba_poll_running) {
+        poll_bba_once();
+        thd_sleep(bba_transfer_active ? 4 : 16);
+    }
+    return NULL;
 }
 
 static int transfer_progress(void *userdata, curl_off_t download_total,
@@ -102,14 +111,26 @@ int network_init(void) {
     }
     gate_bba_irq = net_default_dev && !strcmp(net_default_dev->name, "bba");
     if(gate_bba_irq) {
-        set_bba_irq(0);
-        printf("browser: BBA idle receive uses polling (Flycast IRQ safety)\n");
+        disable_bba_irq();
+        bba_poll_running = 1;
+        bba_poll_thread = thd_create(0, bba_poll_worker, NULL);
+        if(!bba_poll_thread) {
+            bba_poll_running = 0;
+            printf("browser: could not start BBA receive worker\n");
+            return -1;
+        }
+        printf("browser: BBA receive worker uses polling (Flycast IRQ safety)\n");
     }
     return 0;
 }
 
 void network_shutdown(void) {
-    set_bba_irq(0);
+    if(bba_poll_thread) {
+        bba_poll_running = 0;
+        thd_join(bba_poll_thread, NULL);
+        bba_poll_thread = NULL;
+    }
+    disable_bba_irq();
     curl_global_cleanup();
 }
 
@@ -126,6 +147,8 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
     char error[CURL_ERROR_SIZE] = {0};
     char *content_type = NULL;
     char *effective_url = NULL;
+    curl_off_t declared_size = -1;
+    long probe_status = 0;
     long transfer_timeout = limit <= MAX_IMAGE_BYTES ? 8000L : 45000L;
     long connect_timeout = limit <= MAX_IMAGE_BYTES ? 4000L : 15000L;
 
@@ -164,10 +187,48 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
     curl_easy_setopt(curl, CURLOPT_CAINFO, "/rd/cacert.pem");
     curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
 
+    /* A BBA can receive part of a response body before libcurl applies its
+       maximum-file-size check. For small assets, perform a header-only probe
+       and refuse unknown or oversized bodies before a risky download starts. */
+    if(limit <= MAX_IMAGE_BYTES) {
+        printf("browser: HEAD %s (limit %lu bytes)\n",
+               url, (unsigned long)limit);
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+        bba_transfer_active = 1;
+        code = curl_easy_perform(curl);
+        bba_transfer_active = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &probe_status);
+        curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,
+                          &declared_size);
+        if(code != CURLE_OK || probe_status < 200 || probe_status >= 400 ||
+           declared_size < 0 || declared_size > (curl_off_t)limit) {
+            if(code == CURLE_FILESIZE_EXCEEDED ||
+               declared_size > (curl_off_t)limit)
+                snprintf(out->error, sizeof(out->error),
+                         "Response exceeds the %lu KiB safety limit",
+                         (unsigned long)(limit / 1024));
+            else if(code != CURLE_OK)
+                snprintf(out->error, sizeof(out->error), "%s",
+                         error[0] ? error : curl_easy_strerror(code));
+            else if(declared_size < 0)
+                snprintf(out->error, sizeof(out->error),
+                         "Image size was not declared; skipped safely");
+            else
+                snprintf(out->error, sizeof(out->error),
+                         "Image probe returned HTTP %ld", probe_status);
+            printf("browser: request skipped after headers: %s\n", out->error);
+            curl_easy_cleanup(curl);
+            return -1;
+        }
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
+        curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+        error[0] = 0;
+    }
+
     printf("browser: GET %s (limit %lu bytes)\n", url, (unsigned long)limit);
-    set_bba_irq(1);
+    bba_transfer_active = 1;
     code = curl_easy_perform(curl);
-    set_bba_irq(0);
+    bba_transfer_active = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &out->status);
     curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &content_type);
     curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url);

@@ -31,8 +31,10 @@ typedef struct {
     int scroll_y;
 } history_entry_t;
 
-static history_entry_t history[MAX_HISTORY];
-static int history_count;
+static history_entry_t back_history[MAX_HISTORY];
+static history_entry_t forward_history[MAX_HISTORY];
+static int back_count;
+static int forward_count;
 
 static int show_transfer_progress(uint64_t received, uint64_t total,
                                   void *userdata) {
@@ -55,7 +57,8 @@ static int show_transfer_progress(uint64_t received, uint64_t total,
                  loading_label ? loading_label : "",
                  spinner[progress_frame++ & 3]);
     render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, editing, history_count > 0, status_text);
+                   address, editing, back_count > 0, forward_count > 0,
+                   status_text);
     return 0;
 }
 
@@ -119,24 +122,26 @@ static void normalize_address(char *url, size_t size) {
     snprintf(url, size, "%s", temp);
 }
 
-static void history_push_current(void) {
+static void history_push(history_entry_t *history, int *count,
+                         const char *url, int saved_scroll,
+                         const char *name) {
     history_entry_t *entry;
 
-    if(!current_url[0]) return;
-    if(history_count && !strcmp(history[history_count - 1].url, current_url)) {
-        history[history_count - 1].scroll_y = scroll_y;
+    if(!url[0]) return;
+    if(*count && !strcmp(history[*count - 1].url, url)) {
+        history[*count - 1].scroll_y = saved_scroll;
         return;
     }
-    if(history_count == MAX_HISTORY) {
+    if(*count == MAX_HISTORY) {
         memmove(&history[0], &history[1],
                 sizeof(history[0]) * (MAX_HISTORY - 1));
-        history_count--;
+        (*count)--;
     }
-    entry = &history[history_count++];
-    snprintf(entry->url, sizeof(entry->url), "%s", current_url);
-    entry->scroll_y = scroll_y;
-    printf("browser: history saved %s (%d/%d)\n",
-           entry->url, history_count, MAX_HISTORY);
+    entry = &history[(*count)++];
+    snprintf(entry->url, sizeof(entry->url), "%s", url);
+    entry->scroll_y = saved_scroll;
+    printf("browser: %s history saved %s (%d/%d)\n",
+           name, entry->url, *count, MAX_HISTORY);
 }
 
 static int load_page(const char *requested) {
@@ -151,7 +156,8 @@ static int load_page(const char *requested) {
     snprintf(address, sizeof(address), "%s", target);
     snprintf(status_text, sizeof(status_text), "Connecting page...");
     render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, 0, history_count > 0, status_text);
+                   address, 0, back_count > 0, forward_count > 0,
+                   status_text);
     redraw_needed = 0;
     begin_loading("page");
 
@@ -202,7 +208,8 @@ static int load_page(const char *requested) {
     focused_link = -1;
     snprintf(status_text, sizeof(status_text), "Page ready; loading images...");
     render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, 0, history_count > 0, status_text);
+                   address, 0, back_count > 0, forward_count > 0,
+                   status_text);
     redraw_needed = 0;
 
     begin_loading("image");
@@ -218,22 +225,52 @@ static void navigate_to(const char *requested) {
     char target[MAX_URL];
 
     snprintf(target, sizeof(target), "%s", requested);
-    history_push_current();
+    history_push(back_history, &back_count, current_url, scroll_y, "back");
+    forward_count = 0;
     load_page(target);
 }
 
 static void navigate_back(void) {
     history_entry_t entry;
+    history_entry_t current;
 
-    if(!history_count) {
+    if(!back_count) {
         snprintf(status_text, sizeof(status_text), "No previous page");
         redraw_needed = 1;
         return;
     }
-    entry = history[history_count - 1];
-    printf("browser: back -> %s (%d remaining)\n", entry.url, history_count - 1);
+    entry = back_history[back_count - 1];
+    snprintf(current.url, sizeof(current.url), "%s", current_url);
+    current.scroll_y = scroll_y;
+    printf("browser: back -> %s (%d remaining)\n", entry.url, back_count - 1);
     if(load_page(entry.url) == 0) {
-        history_count--;
+        back_count--;
+        history_push(forward_history, &forward_count, current.url,
+                     current.scroll_y, "forward");
+        scroll_y = entry.scroll_y;
+        clamp_scroll();
+        redraw_needed = 1;
+    }
+}
+
+static void navigate_forward(void) {
+    history_entry_t entry;
+    history_entry_t current;
+
+    if(!forward_count) {
+        snprintf(status_text, sizeof(status_text), "No next page");
+        redraw_needed = 1;
+        return;
+    }
+    entry = forward_history[forward_count - 1];
+    snprintf(current.url, sizeof(current.url), "%s", current_url);
+    current.scroll_y = scroll_y;
+    printf("browser: forward -> %s (%d remaining)\n",
+           entry.url, forward_count - 1);
+    if(load_page(entry.url) == 0) {
+        forward_count--;
+        history_push(back_history, &back_count, current.url,
+                     current.scroll_y, "back");
         scroll_y = entry.scroll_y;
         clamp_scroll();
         redraw_needed = 1;
@@ -242,8 +279,22 @@ static void navigate_back(void) {
 
 #ifdef BROWSER_HISTORY_SELF_TEST
 static void run_history_self_test(void) {
+    fetch_result_t asset;
     char original[MAX_URL];
     int original_scroll;
+    int updated_scroll;
+
+    if(network_fetch("https://httpbin.org/image/png", MAX_IMAGE_BYTES,
+                     &asset) < 0 || asset.status != 200 || !asset.size ||
+       asset.size > MAX_IMAGE_BYTES ||
+       !strstr(asset.content_type, "image/png")) {
+        printf("browser: ASSET PREFLIGHT SELF-TEST FAILED\n");
+        fetch_result_free(&asset);
+        return;
+    }
+    printf("browser: ASSET PREFLIGHT SELF-TEST PASSED (%lu bytes)\n",
+           (unsigned long)asset.size);
+    fetch_result_free(&asset);
 
     snprintf(original, sizeof(original), "%s", current_url);
     scroll_y = 64;
@@ -255,12 +306,28 @@ static void run_history_self_test(void) {
         return;
     }
     navigate_back();
-    if(strcmp(current_url, original) || scroll_y != original_scroll || history_count) {
+    if(strcmp(current_url, original) || scroll_y != original_scroll ||
+       back_count || forward_count != 1) {
         printf("browser: HISTORY SELF-TEST FAILED (back/scroll restore)\n");
         return;
     }
-    printf("browser: HISTORY SELF-TEST PASSED (%s, scroll %d)\n",
-           current_url, scroll_y);
+    scroll_y = original_scroll / 2;
+    clamp_scroll();
+    updated_scroll = scroll_y;
+    navigate_forward();
+    if(strcmp(current_url, "https://example.com/") || scroll_y ||
+       back_count != 1 || forward_count) {
+        printf("browser: HISTORY SELF-TEST FAILED (forward/scroll restore)\n");
+        return;
+    }
+    navigate_back();
+    if(strcmp(current_url, original) || scroll_y != updated_scroll ||
+       back_count || forward_count != 1) {
+        printf("browser: HISTORY SELF-TEST FAILED (history round trip)\n");
+        return;
+    }
+    printf("browser: HISTORY SELF-TEST PASSED (back/forward, scroll %d)\n",
+           scroll_y);
 }
 #endif
 
@@ -322,9 +389,12 @@ static int process_keyboard(maple_device_t *keyboard) {
         else if(key == KBD_KEY_TAB) focus_next_link();
         else if((key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) && focused_link >= 0)
             follow_link(focused_link);
-        else if(key == KBD_KEY_BACKSPACE ||
+        else if((key == KBD_KEY_BACKSPACE && !(mods.raw & KBD_MOD_SHIFT)) ||
                 (key == KBD_KEY_LEFT && (mods.raw & KBD_MOD_ALT)))
             navigate_back();
+        else if((key == KBD_KEY_BACKSPACE && (mods.raw & KBD_MOD_SHIFT)) ||
+                (key == KBD_KEY_RIGHT && (mods.raw & KBD_MOD_ALT)))
+            navigate_forward();
         else if(key == KBD_KEY_PGDOWN || key == KBD_KEY_SPACE) scroll_y += 350;
         else if(key == KBD_KEY_PGUP) scroll_y -= 350;
         else if(key == KBD_KEY_HOME) scroll_y = 0;
@@ -371,6 +441,7 @@ static int process_mouse(maple_device_t *mouse) {
     previous_buttons = state->buttons;
     if(pressed & MOUSE_LEFTBUTTON) {
         if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 62) navigate_back();
+        else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 120) navigate_forward();
         else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 566) begin_address_edit();
         else if(mouse_y >= 8 && mouse_y < 40 && mouse_x >= 566) {
             if(editing) { editing = 0; navigate_to(address); }
@@ -386,6 +457,8 @@ static int process_mouse(maple_device_t *mouse) {
 
 static int process_controller(maple_device_t *controller) {
     static uint32_t previous_buttons;
+    static int previous_ltrig;
+    static int previous_rtrig;
     cont_state_t *state;
     uint32_t pressed;
     if(!controller || !(state = maple_dev_status(controller))) return 0;
@@ -410,6 +483,10 @@ static int process_controller(maple_device_t *controller) {
         else if(focused_link >= 0) follow_link(focused_link);
     }
     if(pressed & CONT_Y) focus_next_link();
+    if(state->ltrig > 64 && previous_ltrig <= 64 && !editing) navigate_back();
+    if(state->rtrig > 64 && previous_rtrig <= 64 && !editing) navigate_forward();
+    previous_ltrig = state->ltrig;
+    previous_rtrig = state->rtrig;
     if(state->buttons & CONT_DPAD_DOWN) scroll_y += 14;
     if(state->buttons & CONT_DPAD_UP) scroll_y -= 14;
     if(state->buttons & CONT_DPAD_RIGHT) scroll_y += 48;
@@ -430,7 +507,7 @@ int main(int argc, char **argv) {
     document_make_error(&document, "Dreamcast Browser",
         "Starting network. F6 or Ctrl+L opens the address bar. Mouse, keyboard, and controller are supported.");
     snprintf(status_text, sizeof(status_text), "Starting network...");
-    render_browser(&document, 0, mouse_x, mouse_y, -1, address, 0, 0,
+    render_browser(&document, 0, mouse_x, mouse_y, -1, address, 0, 0, 0,
                    status_text);
 
     if(!net_default_dev) {
@@ -461,10 +538,10 @@ int main(int argc, char **argv) {
         quit |= process_keyboard(keyboard);
         process_mouse(mouse);
         quit |= process_controller(controller);
-        network_idle_poll();
         if(redraw_needed) {
             render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                           address, editing, history_count > 0, status_text);
+                           address, editing, back_count > 0, forward_count > 0,
+                           status_text);
             redraw_needed = 0;
         }
         thd_sleep(16);

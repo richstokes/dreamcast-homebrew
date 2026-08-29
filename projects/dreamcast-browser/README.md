@@ -17,13 +17,15 @@ is also available.
 - `F6` or `Ctrl+L`: open the address bar
 - `Enter`: open the typed address or focused link
 - `Backspace` or `Alt+Left`: return to the previous page
+- `Shift+Backspace` or `Alt+Right`: move forward again
 - `Esc`: cancel address editing; outside the address bar it exits
 - `Tab`: focus the next link
 - arrows, Page Up/Down, Home/End, Space: scroll
 - `F5`: reload
-- mouse: point, click Back, links, or the address bar; use the wheel to scroll
-- controller: `B` back, `X` address bar, `Y` next link, `A` open, D-pad scroll,
-  Start exit
+- mouse: point, click Back/Forward, links, or the address bar; use the wheel to
+  scroll
+- controller: `B` or left trigger back, right trigger forward, `X` address bar,
+  `Y` next link, `A` open, D-pad scroll, Start exit
 
 The address bar defaults to HTTPS when no scheme is entered. HTTPS verifies
 the server certificate and hostname with the bundled Mozilla CA store and will
@@ -63,8 +65,8 @@ file dreamcast-browser.elf
 sh-elf-readelf -h dreamcast-browser.elf
 ```
 
-To exercise live HTTPS navigation, Back, and scroll restoration automatically,
-build the serial-console regression variant:
+To exercise live HTTPS navigation, Back/Forward, and scroll restoration
+automatically, build the serial-console regression variant:
 
 ```sh
 make clean
@@ -106,14 +108,17 @@ downloads begin. If any asset is oversized, unsupported, unreachable, or times
 out, it and all remaining page images become alt-text placeholders without
 further network retries. The deliberately small 24 KiB ceiling avoids a known
 Flycast BBA failure that can occur before application-level size checks run;
-small web graphics still render normally. BBA IRQs are gated after each request
-and the adapter is polled from the idle UI loop, avoiding a Flycast IRQ9
-re-entry that otherwise appears as a KOS double-fault panic.
+small web graphics still render normally. Image downloads require a safe,
+declared size from a header-only probe; unknown-length images become
+placeholders. The BBA IRQ is gated and a normal KOS worker polls the adapter,
+avoiding a Flycast IRQ9 re-entry that otherwise appears as a KOS double-fault
+panic.
 
 While a request is active, the header shows an animated connection/download
 state and transferred versus declared KiB instead of leaving a static startup
 message onscreen.
 
 This is a readable-web and small-site browser, not a modern desktop engine.
-Navigation history retains the eight most recent URLs and their scroll
-positions in a fixed-size buffer.
+Back and Forward history each retain up to eight URLs and their scroll positions
+in fixed-size buffers. Opening a new page after going Back clears the Forward
+history, matching conventional browser behavior.

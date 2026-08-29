@@ -87,7 +87,6 @@ typedef int (*network_progress_callback_t)(uint64_t received, uint64_t total,
 
 int network_init(void);
 void network_shutdown(void);
-void network_idle_poll(void);
 void network_set_progress_callback(network_progress_callback_t callback,
                                    void *userdata);
 int network_fetch(const char *url, size_t limit, fetch_result_t *out);
@@ -103,6 +102,7 @@ void document_reflow(browser_document_t *doc);
 
 void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
                     int mouse_y, int focused_link, const char *address,
-                    int editing, int can_go_back, const char *status);
+                    int editing, int can_go_back, int can_go_forward,
+                    const char *status);
 
 #endif
