@@ -59,27 +59,31 @@ is also available.
 - Hardware fog, a layered gradient sky, stars, striped sun, a subtle animated
   neon route grid, cyan-magenta HUD framing, additive sprites, engine ribbons,
   explosions, speed streaks, impact feedback, and vector HUD
-- Title, pause, game-over, retry, and controller hot-plug handling
+- Title, pause, game-over, retry, controller hot-plug handling on hardware, and
+  automatic gamepad-or-keyboard selection in the macOS Flycast launcher
 - A randomly selected biome backdrop every time the title screen is entered
 
 ## Controls
 
-| Control | Action |
-| --- | --- |
-| Analog stick or D-pad | Fly |
-| Hold A | Fire current weapon |
-| Hold B | Boost while energy remains |
-| Hold X | Brake |
-| Press Y | Nova Pulse |
-| L or R trigger | Barrel roll with brief damage immunity |
-| Start | Pause or resume |
+| Dreamcast controller | Flycast keyboard default | Action |
+| --- | --- | --- |
+| Analog stick or D-pad | I/J/K/L or arrow keys | Fly |
+| Hold A | Hold X | Fire current weapon |
+| Hold B | Hold C | Boost while energy remains |
+| Hold X | Hold S | Brake |
+| Press Y | Press D | Nova Pulse |
+| L or R trigger | F or V | Barrel roll with brief damage immunity |
+| Start | Return | Pause or resume |
 
-On the title screen, Start or A begins and B exits. While paused, B aborts the
-run and returns to the title. After a defeat, Start or A retries and B returns
-to the title.
+On the title screen, Start or A (Return or X on the keyboard) begins and B (C)
+exits. While paused, B (C) aborts the run and returns to the title. After a
+defeat, Start or A (Return or X) retries and B (C) returns to the title.
 
-A Dreamcast controller is required for play. Gravity Wave waits safely when one
-is missing and supports hot-plugging.
+A controller is required on real Dreamcast hardware; Gravity Wave waits safely
+when one is missing and supports hot-plugging. On macOS, the launcher assigns
+only a detected gamepad to Flycast's Dreamcast port A. If no gamepad is present
+when Flycast starts, it assigns only the keyboard instead. Custom Flycast key
+mappings still take precedence over the defaults shown above.
 
 ## Powerups
 
@@ -182,7 +186,8 @@ minutes.
 ## Run in Flycast
 
 The launcher sources the KOS environment, builds, enables Flycast's serial
-console for diagnostics, and boots the ELF by absolute path:
+console for diagnostics, selects one host input, and boots the ELF by absolute
+path:
 
 ```sh
 ./run-flycast.sh
@@ -193,6 +198,20 @@ To launch an already-built ELF:
 ```sh
 ./run-flycast.sh --skip-build
 ```
+
+On macOS, a connected HID gamepad or joystick is selected exclusively. With no
+pad connected, Flycast's default keyboard controls are selected exclusively.
+The choice is printed in the launching terminal. Connect or disconnect the pad
+before starting Flycast, or force a profile while troubleshooting:
+
+```sh
+./run-flycast.sh --input gamepad
+./run-flycast.sh --input keyboard
+```
+
+`GRAVITY_WAVE_INPUT=auto|gamepad|keyboard` provides the same override for
+scripts. Input routing is passed through Flycast's transient `-config` option;
+it does not rewrite the user's saved emulator settings.
 
 Override either dependency location when necessary:
 
@@ -231,6 +250,8 @@ for the current run; collecting a max-level Laser Core converts it into score.
 - KallistiOS 2.3.0
 - SH-4 GCC 15.2.0
 - Flycast 2.7 with serial console enabled
+- macOS no-gamepad auto-detection, keyboard-only port-A fallback, forced
+  gamepad-profile boot, and unchanged saved Flycast configuration values
 - Direct ELF boot, title screen, live gameplay, enemy/gate/pickup encounters,
   guardian defeat, all four biome render paths, transitions, embedded AICA audio,
   structure/terrain impacts, pause, retry, and game-over flow
