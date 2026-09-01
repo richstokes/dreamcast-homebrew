@@ -57,6 +57,9 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define COURSE_PHRASES_PER_BIOME 6
 #define COURSE_PHRASE_LENGTH \
     (BIOME_LENGTH / (float)COURSE_PHRASES_PER_BIOME)
+#define COURSE_ROUTE_KNOTS_PER_BIOME 10
+#define COURSE_ROUTE_KNOT_LENGTH \
+    (BIOME_LENGTH / (float)COURSE_ROUTE_KNOTS_PER_BIOME)
 #define COURSE_TRAVERSALS_PER_BIOME 2
 #define COURSE_WAVES_PER_BIOME 3
 #define COURSE_SIGNATURE_LOCAL_Z 2100.0f
@@ -78,13 +81,16 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define MUSIC_AICA_RESERVE   (256u * 1024u)
 #define MUSIC_SINE_TABLE_SIZE 2048
 #define MUSIC_ASSET_HEADER_BYTES 8u
-#define MUSIC_SYNTH_REVISION 0x2026082au
+#define MUSIC_SYNTH_REVISION 0x20260831u
 #define MUSIC_REST           (-127)
+#define MUSIC_TIE            (-126)
 #define MUSIC_TITLE_VOLUME   68
 #define MUSIC_GAME_VOLUME    84
 #define TEMP_WEAPON_SECONDS  15.0f
 #define SPEED_BOOST_SECONDS  8.0f
 #define GATE_CLEAR_RADIUS_SCALE 0.7874008f
+#define VECTOR_LANE_PYLON_HALF_WIDTH 6.4f
+#define VECTOR_LANE_PYLON_CLEARANCE  5.0f
 
 #define PLAYER_Z             44.0f
 #define PLAYER_AIM_Z        440.0f
@@ -127,6 +133,13 @@ typedef enum {
     MODE_GAME_OVER
 } game_mode_t;
 
+typedef enum {
+    TITLE_MENU_START,
+    TITLE_MENU_SOUND_TEST,
+    TITLE_MENU_EXIT,
+    TITLE_MENU_ITEM_COUNT
+} title_menu_item_t;
+
 typedef struct {
     bool active;
     float x, y, z;
@@ -141,6 +154,18 @@ typedef struct {
     float hit_flash;
     bool fired;
 } enemy_t;
+
+typedef struct {
+    const char *name;
+    int base_hp;
+    int hp_growth;
+    int shot_damage;
+    float radius;
+    float phase_speed;
+    float shot_speed;
+    float fire_cadence;
+    float model_scale;
+} guardian_profile_t;
 
 typedef enum {
     SHOT_PLAYER_LASER,
@@ -330,7 +355,6 @@ typedef struct {
     float camera_focal;
     float trauma;
     int guardians_destroyed;
-    int music_route_offset;
     int music_chapter;
     int last_course_act;
     float suppressed_gate_from_z;
@@ -372,8 +396,32 @@ static const palette_t palettes[] = {
     }
 };
 
+/* The four guardians are authored encounters rather than palette swaps. Their
+ * profile data drives durability, collision, motion tempo, weapon behavior,
+ * model proportions, HUD identity, and the deterministic diagnostics below. */
+static const guardian_profile_t guardian_profiles[4] = {
+    {
+        "TIDEBREAKER AEGIS", 30, 5, 10,
+        35.0f, 1.10f, 136.0f, 1.08f, 1.66f
+    },
+    {
+        "VERDANT BASTION", 38, 6, 14,
+        39.0f, 0.76f, 116.0f, 1.28f, 1.88f
+    },
+    {
+        "PRISM SERAPH", 34, 5, 11,
+        33.0f, 1.34f, 144.0f, 0.94f, 1.56f
+    },
+    {
+        "INFERNO MANTIS", 32, 5, 12,
+        34.0f, 1.52f, 154.0f, 0.70f, 1.62f
+    }
+};
+
+#define GUARDIAN_SHOT_STYLE_FLAG 0x100u
+
 /* Eight original synthwave/synthpop songs are authored by the synth below and
- * shipped as native AICA ADPCM. Each A/B/C triptych is a six-bar miniature
+ * shipped as native AICA ADPCM. Each A/B/C triptych is a six-bar arcade form
  * arrangement: an establishing groove, a hook variation, and a full-power
  * final section. The runtime renderer remains as a verified fallback and as
  * the source of truth used to bake the linked album image. */
@@ -392,10 +440,10 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         },
         .arpeggio = {0,2,3,1, 2,4,3,2, 0,3,5,2, 4,3,2,1},
         .melody = {
-             0,MUSIC_REST, 3,7, 12,MUSIC_REST,10,7,
-             5,MUSIC_REST, 7,10, 7,5,3,MUSIC_REST,
-            12,MUSIC_REST,15,12, 10,7,5,7,
-            10,MUSIC_REST, 7,5, 3,5,0,MUSIC_REST,
+             0,MUSIC_TIE,MUSIC_TIE,7, 12,MUSIC_TIE,10,7,
+             5,MUSIC_TIE,7,10, 7,5,3,MUSIC_TIE,
+            12,MUSIC_TIE,15,12, 10,7,5,7,
+            10,MUSIC_TIE,7,5, 3,5,0,MUSIC_TIE,
             12,15,19,15, 12,10,7,10,
              7,11,14,17, 19,17,14,11
         },
@@ -468,12 +516,12 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         },
         .arpeggio = {0,2,4,3, 1,3,5,4, 2,4,6,5, 4,3,2,1},
         .melody = {
-             0,MUSIC_REST, 3,7, 10,7,3,MUSIC_REST,
-             5,7,10,12, 10,MUSIC_REST,7,5,
-            12,MUSIC_REST,15,19, 15,12,10,7,
-             5,MUSIC_REST, 7,10, 12,10,7,MUSIC_REST,
-            19,15,12,10, 7,10,12,15,
-            19,MUSIC_REST,17,14, 11,14,7,MUSIC_REST
+             0,MUSIC_TIE,MUSIC_TIE,7, 10,MUSIC_TIE,MUSIC_TIE,MUSIC_TIE,
+             5,MUSIC_TIE,10,12, 10,MUSIC_TIE,7,MUSIC_TIE,
+            12,MUSIC_TIE,15,19, 15,MUSIC_TIE,10,7,
+             5,MUSIC_TIE,7,10, 12,MUSIC_TIE,7,MUSIC_TIE,
+            19,MUSIC_TIE,12,10, 7,10,12,15,
+            19,MUSIC_TIE,17,14, 11,MUSIC_TIE,7,MUSIC_TIE
         },
         .kick = {0x0941,0x4941,0x1941,0x5949,0x1151,0xd951},
         .snare = {0x0100,0x2100,0x0100,0x3100,0x0100,0x7100},
@@ -544,12 +592,12 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         },
         .arpeggio = {0,2,3,5, 4,2,6,3, 5,3,4,2, 6,4,3,1},
         .melody = {
-             0,3,5,7, 12,MUSIC_REST,10,7,
-             5,7,10,12, 15,12,10,MUSIC_REST,
+             0,MUSIC_TIE,5,7, 12,MUSIC_TIE,10,7,
+             5,7,10,12, 15,MUSIC_TIE,10,MUSIC_TIE,
              5,8,12,15, 12,8,5,MUSIC_REST,
              7,11,14,17, 14,11,7,MUSIC_REST,
-             8,12,17,12, 8,5,1,MUSIC_REST,
-            19,MUSIC_REST,17,14, 11,14,7,MUSIC_REST
+             8,12,17,MUSIC_TIE, 8,5,1,MUSIC_TIE,
+            19,MUSIC_TIE,17,14, 11,14,7,MUSIC_TIE
         },
         .kick = {0x1111,0x5115,0x1151,0xd119,0x5551,0xf559},
         .snare = {0x1010,0x1010,0x1010,0x7010,0x1010,0x7010},
@@ -620,12 +668,12 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         },
         .arpeggio = {0,1,3,5, 2,4,6,3, 0,3,6,4, 5,3,2,1},
         .melody = {
-             4,MUSIC_REST,7,11, 14,11,7,MUSIC_REST,
-             2,4,7,9, 11,MUSIC_REST,9,7,
-            11,14,16,14, 11,9,7,4,
-             7,MUSIC_REST,9,11, 14,11,9,MUSIC_REST,
+             4,MUSIC_TIE,7,11, 14,MUSIC_TIE,7,MUSIC_TIE,
+             2,4,7,9, 11,MUSIC_TIE,9,MUSIC_TIE,
+            11,14,16,MUSIC_TIE, 11,9,7,4,
+             7,MUSIC_TIE,9,11, 14,MUSIC_TIE,9,MUSIC_TIE,
             14,16,18,19, 18,16,14,11,
-            19,MUSIC_REST,14,17, 11,14,7,MUSIC_REST
+            19,MUSIC_TIE,14,17, 11,14,7,MUSIC_TIE
         },
         .kick = {0x1111,0x5111,0x1151,0x5151,0x5551,0xd551},
         .snare = {0x1010,0x1000,0x1010,0x1000,0x0010,0x3010},
@@ -684,23 +732,47 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     }
 };
 
-/* Every biome is one authored six-phrase chapter. The endpoint arrays return
-   to the center during the transition phrase, so neighboring chapters share
-   both position and a zero derivative at the boundary. A complete four-biome
-   lap mirrors the horizontal composition for infinite variation without
-   randomizing its dramatic rhythm. */
-static const int8_t course_center_knots[4][COURSE_PHRASES_PER_BIOME] = {
-    { 0, -28, -62, -24,  54,  22}, /* Azure: broad wreck-channel sweep. */
-    { 0,  38, -52,  48, -44,  18}, /* Emerald: canopy switchbacks. */
-    { 0, -24, -12,  42,  18, -20}, /* Violet: restrained lateral rift. */
-    { 0,  62, -58,  70, -66,  22}  /* Ember: hard foundry chicane. */
+/* Ten authored route beats sit inside each six-district biome chapter. The
+   higher spatial cadence gives the camera real corner entries, apexes and
+   releases instead of one long lateral drift per district. Cardinal-spline
+   evaluation below keeps every change continuous and world anchored. A full
+   four-biome lap mirrors the horizontal route for infinite reprise variety. */
+static const int8_t course_center_knots[4][COURSE_ROUTE_KNOTS_PER_BIOME] = {
+    /* Azure: descend through a carrier cut, then open around the wreck field. */
+    { 0, -34, -78, -66,   4,  64,  82,  36, -42, -18},
+    /* Emerald: two broad canopy switchbacks around the root cathedral. */
+    { 0,  46,  82,  34, -46, -86, -30,  58,  72,  20},
+    /* Violet: an asymmetric rift weave with a late counter-turn. */
+    { 0, -32, -70, -14,  68,  26, -58, -80,  44,  16},
+    /* Ember: the foundry's tightest chicanes and furnace-trench exit. */
+    { 0,  60,  88,  10, -78, -42,  82,  54, -84, -20}
 };
 
-static const int8_t course_grade_knots[4][COURSE_PHRASES_PER_BIOME] = {
-    { 0, -12, -35, -22,  25,  12}, /* Azure river dive and release. */
-    { 0,  25,  46,   8, -27,   9}, /* Emerald canopy crest. */
-    { 0, -34,  38, -40,  42, -12}, /* Violet crest/dive inversion. */
-    { 0,  38,  18, -34,  40,  14}  /* Ember trench and furnace climb. */
+static const int8_t course_grade_knots[4][COURSE_ROUTE_KNOTS_PER_BIOME] = {
+    { 0, -22, -48, -58, -24,  24,  52,  38, -16,  -8},
+    { 0,  30,  62,  78,  42, -12, -56, -68, -22,   8},
+    { 0, -38, -70, -16,  64,  30, -66, -28,  72, -12},
+    { 0,  40,  72,  26, -60, -24,  70,  16, -64,  12}
+};
+
+/* The valley breathes with the authored route. Narrow, high-relief beats are
+   placed on corner apexes and steep transitions; wider values create visual
+   runways before an encounter. Width is the local-X point where canyon walls
+   begin, while relief is a percentage applied to their vertical mass. */
+static const uint8_t
+course_corridor_knots[4][COURSE_ROUTE_KNOTS_PER_BIOME] = {
+    {42, 36, 29, 27, 34, 45, 38, 29, 32, 41},
+    {46, 40, 32, 28, 30, 39, 45, 34, 29, 44},
+    {39, 31, 25, 34, 28, 24, 29, 38, 26, 39},
+    {41, 33, 27, 31, 24, 29, 25, 34, 25, 40}
+};
+
+static const uint8_t
+course_relief_knots[4][COURSE_ROUTE_KNOTS_PER_BIOME] = {
+    {82, 102, 132, 145, 108, 76, 92, 136, 122, 86},
+    {72,  94, 126, 148, 136, 92, 74, 118, 142, 82},
+    {96, 128, 154, 112, 142,160,126, 98, 150, 92},
+    {88, 116, 146, 124, 164,138,158,112, 168, 94}
 };
 
 static const float course_traversal_offsets[COURSE_TRAVERSALS_PER_BIOME] = {
@@ -805,6 +877,8 @@ static sfxhnd_t music_sections[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
 static float music_section_duration[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
 static uint16_t music_section_samples[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
 static uint32_t music_random_state = 0xa17ca55eu;
+static int music_shuffle_bag[MUSIC_TRACK_COUNT];
+static int music_shuffle_cursor = MUSIC_TRACK_COUNT;
 static int laser_channel = -1;
 static int music_left_channels[2] = {-1, -1};
 static int music_right_channels[2] = {-1, -1};
@@ -814,12 +888,15 @@ static int current_music_section;
 static int current_music_volume;
 static int pending_music_track = -1;
 static int pending_music_volume;
+static bool pending_music_shuffle;
 static float music_section_time;
-static int music_song_loops;
 static bool music_playhead_armed;
 static bool audio_ready;
 static bool music_ready;
 static float music_sine_table[MUSIC_SINE_TABLE_SIZE];
+static int title_menu_item;
+static bool title_sound_test;
+static int sound_test_track;
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
 static bool music_jukebox_complete;
 static bool music_jukebox_failed;
@@ -987,10 +1064,10 @@ static float course_local_z(float world_z) {
 }
 
 static void course_knot_address(int knot, int *chapter, int *phrase) {
-    int c = knot / COURSE_PHRASES_PER_BIOME;
-    int p = knot % COURSE_PHRASES_PER_BIOME;
+    int c = knot / COURSE_ROUTE_KNOTS_PER_BIOME;
+    int p = knot % COURSE_ROUTE_KNOTS_PER_BIOME;
     if(p < 0) {
-        p += COURSE_PHRASES_PER_BIOME;
+        p += COURSE_ROUTE_KNOTS_PER_BIOME;
         c--;
     }
     *chapter = c;
@@ -1016,12 +1093,46 @@ static float course_knot_value(int knot, bool grade) {
     return value * scale;
 }
 
+static float course_cardinal_segment(float p0, float p1,
+                                     float p2, float p3, float t) {
+    const float t2 = t * t;
+    const float t3 = t2 * t;
+    /* Slightly restrained Catmull-Rom tangents avoid overshooting the canyon
+       envelope while preserving velocity through each authored apex. */
+    const float m1 = (p2 - p0) * 0.42f;
+    const float m2 = (p3 - p1) * 0.42f;
+    return (2.0f * t3 - 3.0f * t2 + 1.0f) * p1 +
+           (t3 - 2.0f * t2 + t) * m1 +
+           (-2.0f * t3 + 3.0f * t2) * p2 +
+           (t3 - t2) * m2;
+}
+
 static float course_profile_curve(float world_z, bool grade) {
-    const float grid = world_z / COURSE_PHRASE_LENGTH;
+    const float grid = world_z / COURSE_ROUTE_KNOT_LENGTH;
+    const int knot = (int)floorf(grid);
+    const float t = grid - (float)knot;
+    return course_cardinal_segment(
+        course_knot_value(knot - 1, grade),
+        course_knot_value(knot, grade),
+        course_knot_value(knot + 1, grade),
+        course_knot_value(knot + 2, grade), t);
+}
+
+static float course_environment_knot_value(int knot, bool relief) {
+    int chapter;
+    int phrase;
+    const uint8_t (*table)[COURSE_ROUTE_KNOTS_PER_BIOME] = relief ?
+        course_relief_knots : course_corridor_knots;
+    course_knot_address(knot, &chapter, &phrase);
+    return (float)table[chapter & 3][phrase];
+}
+
+static float course_environment_curve(float world_z, bool relief) {
+    const float grid = world_z / COURSE_ROUTE_KNOT_LENGTH;
     const int knot = (int)floorf(grid);
     const float t = smoothstepf(grid - (float)knot);
-    return lerpf(course_knot_value(knot, grade),
-                 course_knot_value(knot + 1, grade), t);
+    return lerpf(course_environment_knot_value(knot, relief),
+                 course_environment_knot_value(knot + 1, relief), t);
 }
 
 static float path_center(float world_z) {
@@ -1040,15 +1151,27 @@ static vec3_t route_position(float local_x, float local_y, float world_z) {
                     world_z};
 }
 
-static vec3_t route_hybrid_to_world(vec3_t point) {
-    /* Renderable models already carry absolute X/Z but route-relative Y. */
-    point.y += path_elevation(point.z);
-    return point;
-}
-
 static float path_heading(float world_z) {
     return atanf((path_center(world_z + 24.0f) -
                   path_center(world_z - 24.0f)) / 48.0f);
+}
+
+static float path_grade(float world_z) {
+    const float lateral = path_center(world_z + 24.0f) -
+                          path_center(world_z - 24.0f);
+    const float vertical = path_elevation(world_z + 24.0f) -
+                           path_elevation(world_z - 24.0f);
+    const float horizontal_run = fsqrt(48.0f * 48.0f + lateral * lateral);
+    return atanf(vertical / horizontal_run);
+}
+
+static float route_model_pitch(float anchor_z, float yaw,
+                               float pose_pitch) {
+    /* Mesh local +Z may face with or against the route. Project the course
+       grade onto that facing so player and enemy craft pitch in opposite,
+       physically correct directions while remaining rigid. */
+    return pose_pitch - path_grade(anchor_z) *
+           fcos(yaw - path_heading(anchor_z));
 }
 
 static float path_turn_preview(float world_z) {
@@ -1067,7 +1190,7 @@ static int traversal_stage_count_for_kind(traversal_kind_t kind) {
 }
 
 static float traversal_stage_spacing_for_kind(traversal_kind_t kind) {
-    return kind == TRAVERSAL_SLALOM ? 210.0f :
+    return kind == TRAVERSAL_SLALOM ? 250.0f :
            (kind == TRAVERSAL_SHEAR_BARRIER ? 230.0f : 0.0f);
 }
 
@@ -1230,8 +1353,14 @@ static float terrain_height_biome(int biome, float local_x, float world_z) {
     const float broad = value_noise(local_x + 1900.0f, world_z, 155.0f);
     const float detail = value_noise(local_x - 730.0f, world_z, 54.0f);
     const float floor_wave = fsin(world_z * 0.011f + local_x * 0.022f);
+    const float corridor_width =
+        clampf(course_environment_curve(world_z, false), 23.0f, 48.0f);
+    const float relief =
+        clampf(course_environment_curve(world_z, true) * 0.01f, 0.70f, 1.72f);
+    const float route_slope =
+        (path_center(world_z + 90.0f) - path_center(world_z - 90.0f)) /
+        180.0f;
     float height;
-    float wall_start;
     float wall_scale;
     float wall_curve;
 
@@ -1239,14 +1368,12 @@ static float terrain_height_biome(int biome, float local_x, float world_z) {
         case 1: /* Emerald Veil: broad, humid valley and ancient terraces. */
             height = -3.0f + broad * 7.5f + detail * 2.1f +
                      fsin(world_z * 0.006f + local_x * 0.012f) * 2.8f;
-            wall_start = 42.0f;
             wall_scale = 18.0f;
             wall_curve = 61.0f;
             break;
         case 2: /* Violet Rift: sharp shelves over a deep fractured floor. */
             height = -9.0f + broad * 4.2f + detail * detail * 7.2f +
                      floor_wave * 2.2f;
-            wall_start = 30.0f;
             wall_scale = 29.0f;
             wall_curve = 96.0f;
             break;
@@ -1254,24 +1381,29 @@ static float terrain_height_biome(int biome, float local_x, float world_z) {
             height = -6.5f + broad * 5.0f + detail * 3.3f +
                      fsin(world_z * 0.017f) * 1.5f;
             height = floorf(height * 0.28f) / 0.28f;
-            wall_start = 36.0f;
             wall_scale = 25.0f;
             wall_curve = 74.0f;
             break;
         default: /* Azure Reach: wet sea-cut canyon and craggy shelves. */
             height = -5.5f + broad * 6.0f + detail * 2.8f + floor_wave * 1.3f;
-            wall_start = 34.0f;
             wall_scale = 23.0f;
             wall_curve = 82.0f;
             break;
     }
 
-    if(distance_from_river > wall_start) {
-        const float wall = clampf((distance_from_river - wall_start) / 190.0f,
+    if(distance_from_river > corridor_width) {
+        const float wall = clampf(
+            (distance_from_river - corridor_width) / 175.0f,
                                   0.0f, 1.25f);
         const float ridges = 0.42f + 0.92f *
             value_noise(local_x * 1.7f + 400.0f, world_z + 810.0f, 78.0f);
-        height += wall * wall_scale + wall * wall * wall_curve * ridges;
+        /* Bank the outside shoulder of a bend. This is authored from absolute
+           route coordinates, so the silhouette remains stable as rows roll. */
+        const float turn_bank = clampf(-local_x * route_slope * 0.080f,
+                                       -9.0f, 9.0f);
+        height += wall * wall_scale * relief +
+                  wall * wall * wall_curve * ridges * relief +
+                  wall * turn_bank;
     }
 
     return height;
@@ -1873,14 +2005,17 @@ static int music_chord_semitone(int degree, bool minor) {
 
 static float music_lead_voice(const soundtrack_t *track,
                               const float *lead_frequencies,
+                              const uint8_t *lead_starts,
+                              const uint8_t *lead_ends,
                               float beat, float seconds_per_beat,
                               int *step_out) {
     float position;
-    float phase;
+    float note_position;
+    float note_duration;
     float seconds;
     float cycles;
     float envelope;
-    float gate_phase;
+    float gate_end;
     float voice;
     int step;
 
@@ -1894,30 +2029,46 @@ static float music_lead_voice(const soundtrack_t *track,
     }
     position = beat * 2.0f;
     step = (int)position;
-    phase = position - (float)step;
     if(step_out)
         *step_out = step;
     if(lead_frequencies[step] <= 0.0f)
         return 0.0f;
-    if(phase >= track->lead_gate)
+    note_position = position - (float)lead_starts[step];
+    note_duration = (float)(lead_ends[step] - lead_starts[step]);
+    gate_end = fmaxf(0.08f,
+                     note_duration - (1.0f - track->lead_gate));
+    if(note_position >= gate_end)
         return 0.0f;
 
-    seconds = phase * seconds_per_beat * 0.5f;
+    seconds = note_position * seconds_per_beat * 0.5f;
     cycles = lead_frequencies[step] * seconds;
     cycles += music_sine(
-        (5.1f + (float)track->lead_profile * 0.31f) * seconds) * 0.012f;
-    gate_phase = phase / fmaxf(track->lead_gate, 0.05f);
-    envelope = clampf(phase * 18.0f, 0.0f, 1.0f) *
-               (1.0f - gate_phase) * (1.0f - gate_phase);
+        (5.1f + (float)track->lead_profile * 0.31f) * seconds) *
+        (note_duration > 1.0f ? 0.023f : 0.012f);
+    envelope = smoothstepf(note_position * 5.2f) *
+               smoothstepf((gate_end - note_position) * 3.8f) *
+               (0.84f + 0.16f *
+                (1.0f - note_position / fmaxf(gate_end, 0.08f)));
     if(track->lead_profile == 1) {
         voice = music_pulse(cycles, 0.26f) * 0.54f +
                 music_sine(cycles) * 0.34f +
                 music_triangle(cycles * 2.0f) * 0.12f;
     }
     else if(track->lead_profile == 2) {
-        voice = music_saw(cycles) * 0.44f +
-                music_sine(cycles) * 0.33f +
-                music_pulse(cycles * 0.5f, 0.48f) * 0.18f;
+        const float breath = music_noise(
+            (uint32_t)(seconds * (float)MUSIC_SAMPLE_RATE) ^
+            track->noise_seed ^ 0x6f73a42du);
+        /* A warm breathy reed patch: a small opening scoop, rounded harmonic
+           motion, a detuned fundamental, and restrained vibrato give long
+           chorus notes a human contour without a sampled instrument. */
+        cycles -= (1.0f - smoothstepf(note_position * 3.6f)) * 0.055f;
+        voice = music_sine(cycles) * 0.50f +
+                music_sine(cycles * 1.003f + 0.13f) * 0.10f +
+                music_sine(cycles * 2.0f +
+                           music_sine(seconds * 0.72f) * 0.018f) * 0.19f +
+                music_sine(cycles * 3.0f) * 0.12f +
+                music_sine(cycles * 4.0f) * 0.05f +
+                breath * 0.02f;
     }
     else if(track->lead_profile == 3) {
         voice = music_pulse(cycles, track->pulse_width) * 0.42f +
@@ -2140,6 +2291,8 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     float arpeggio_frequencies[MUSIC_BARS][16];
     float lead_frequencies[MUSIC_MELODY_STEPS];
     float harmony_frequencies[MUSIC_MELODY_STEPS];
+    uint8_t lead_starts[MUSIC_MELODY_STEPS];
+    uint8_t lead_ends[MUSIC_MELODY_STEPS];
     uint16_t kick_patterns[MUSIC_BARS];
     uint16_t snare_patterns[MUSIC_BARS];
     uint16_t hat_patterns[MUSIC_BARS];
@@ -2230,11 +2383,34 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     for(step = 0; step < MUSIC_MELODY_STEPS; ++step) {
         const int melody_step = section * MUSIC_MELODY_STEPS + step;
         const int melody_note = track->melody[melody_step];
-        lead_frequencies[step] = melody_note == MUSIC_REST ? 0.0f :
-            music_note_frequency(track->root_midi + 24 + melody_note);
-        harmony_frequencies[step] = melody_note == MUSIC_REST ? 0.0f :
-            music_note_frequency(track->root_midi + 24 + melody_note +
-                                 track->harmony_interval);
+        if(melody_note == MUSIC_TIE && step > 0 &&
+           lead_frequencies[step - 1] > 0.0f) {
+            lead_frequencies[step] = lead_frequencies[step - 1];
+            harmony_frequencies[step] = harmony_frequencies[step - 1];
+            lead_starts[step] = lead_starts[step - 1];
+        }
+        else if(melody_note == MUSIC_REST || melody_note == MUSIC_TIE) {
+            lead_frequencies[step] = 0.0f;
+            harmony_frequencies[step] = 0.0f;
+            lead_starts[step] = (uint8_t)step;
+        }
+        else {
+            lead_frequencies[step] = music_note_frequency(
+                track->root_midi + 24 + melody_note);
+            harmony_frequencies[step] = music_note_frequency(
+                track->root_midi + 24 + melody_note +
+                track->harmony_interval);
+            lead_starts[step] = (uint8_t)step;
+        }
+    }
+    for(step = 0; step < MUSIC_MELODY_STEPS; ++step) {
+        int end = step + 1;
+        if(lead_frequencies[step] > 0.0f) {
+            while(end < MUSIC_MELODY_STEPS &&
+                  lead_starts[end] == lead_starts[step])
+                ++end;
+        }
+        lead_ends[step] = (uint8_t)end;
     }
 
     for(i = 0; i < samples; ++i) {
@@ -2245,6 +2421,8 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             (float)MUSIC_BEATS - 0.0001f : beat;
         const int current_bar = (int)(arrangement_beat * 0.25f);
         const float section_energy = 0.84f + (float)section * 0.13f;
+        const float lead_arrangement = section == 0 ? 0.80f :
+                                       (section == 1 ? 0.88f : 1.08f);
         const float beat_in_bar = arrangement_beat -
                                   (float)current_bar * 4.0f;
         const float bar_seconds = beat_in_bar * seconds_per_beat;
@@ -2350,34 +2528,48 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         }
 
         if(!in_tail) {
-            voice = music_lead_voice(track, lead_frequencies, beat,
+            voice = music_lead_voice(track, lead_frequencies,
+                                     lead_starts, lead_ends, beat,
                                      seconds_per_beat, &lead_step);
             if(lead_step & 1) {
-                left += voice * track->lead_level * 0.62f * section_energy;
-                right += voice * track->lead_level * section_energy;
+                left += voice * track->lead_level * 0.62f * section_energy *
+                        lead_arrangement;
+                right += voice * track->lead_level * section_energy *
+                         lead_arrangement;
             }
             else {
-                left += voice * track->lead_level * section_energy;
-                right += voice * track->lead_level * 0.62f * section_energy;
+                left += voice * track->lead_level * section_energy *
+                        lead_arrangement;
+                right += voice * track->lead_level * 0.62f * section_energy *
+                         lead_arrangement;
             }
         }
-        voice = music_lead_voice(track, lead_frequencies, beat - 0.75f,
+        voice = music_lead_voice(track, lead_frequencies,
+                                 lead_starts, lead_ends, beat - 0.75f,
                                  seconds_per_beat, &echo_step) * 0.30f;
         if(echo_step & 1) {
-            left += voice * track->lead_level * section_energy;
-            right += voice * track->lead_level * 0.38f * section_energy;
+            left += voice * track->lead_level * section_energy *
+                    lead_arrangement;
+            right += voice * track->lead_level * 0.38f * section_energy *
+                     lead_arrangement;
         }
         else {
-            left += voice * track->lead_level * 0.38f * section_energy;
-            right += voice * track->lead_level * section_energy;
+            left += voice * track->lead_level * 0.38f * section_energy *
+                    lead_arrangement;
+            right += voice * track->lead_level * section_energy *
+                     lead_arrangement;
         }
-        voice = music_lead_voice(track, lead_frequencies, beat - 1.5f,
+        voice = music_lead_voice(track, lead_frequencies,
+                                 lead_starts, lead_ends, beat - 1.5f,
                                  seconds_per_beat, NULL) * 0.14f;
-        left += voice * track->lead_level * 0.45f * section_energy;
-        right += voice * track->lead_level * section_energy;
+        left += voice * track->lead_level * 0.45f * section_energy *
+                lead_arrangement;
+        right += voice * track->lead_level * section_energy *
+                 lead_arrangement;
 
         if(section == MUSIC_SECTION_COUNT - 1) {
-            voice = music_lead_voice(track, harmony_frequencies, beat - 0.25f,
+            voice = music_lead_voice(track, harmony_frequencies,
+                                     lead_starts, lead_ends, beat - 0.25f,
                                      seconds_per_beat, &echo_step) * 0.24f;
             if(echo_step & 1) {
                 left += voice * track->lead_level * 0.40f;
@@ -2423,6 +2615,42 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
                       music_sine(181.0f * drum_seconds) * 0.22f) *
                      track->snare_level * envelope * clap_burst *
                      section_energy;
+        }
+        {
+            /* Short, noise-rich gated room behind each clap. It is generated
+               from the same hit position, so the ambience reads as part of
+               the snare rather than an unrelated wash over the phrase. */
+            const float sixteenth_seconds = seconds_per_beat * 0.25f;
+            const float room_duration = seconds_per_beat * 0.76f;
+            int back;
+            for(back = 0; back <= 3 && back <= drum_step; ++back) {
+                const uint16_t room_bit =
+                    (uint16_t)(1u << (drum_step - back));
+                if(snare_patterns[current_bar] & room_bit) {
+                    const float age = ((float)back + drum_phase) *
+                                      sixteenth_seconds;
+                    if(age < room_duration) {
+                        const float room_envelope =
+                            smoothstepf(age * 48.0f) *
+                            smoothstepf((room_duration - age) * 24.0f) *
+                            (1.0f - age / room_duration);
+                        const uint32_t event_seed = track->noise_seed ^
+                            (uint32_t)(current_bar * 16 + drum_step - back) *
+                            0x9e3779b9u;
+                        left += (music_noise((uint32_t)i ^ event_seed ^
+                                             0x745db2a1u) * 0.92f +
+                                 music_sine(132.0f * age) * 0.08f) *
+                                track->snare_level * room_envelope * 0.22f *
+                                section_energy;
+                        right += (music_noise((uint32_t)i ^ event_seed ^
+                                              0x319bc42du) * 0.92f +
+                                  music_sine(139.0f * age) * 0.08f) *
+                                 track->snare_level * room_envelope * 0.22f *
+                                 section_energy;
+                    }
+                    break;
+                }
+            }
         }
         if(hat_patterns[current_bar] & drum_bit) {
             envelope = clampf(drum_phase * 42.0f, 0.0f, 1.0f) *
@@ -2526,14 +2754,125 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     return handle;
 }
 
-static int choose_random_music_track(int avoid) {
-    int track = (int)(music_random_u32() % MUSIC_TRACK_COUNT);
-    if(MUSIC_TRACK_COUNT > 1 && track == avoid)
-        track = (track + 1 + (int)(music_random_u32() %
-                                  (MUSIC_TRACK_COUNT - 1))) %
-                MUSIC_TRACK_COUNT;
+static void refill_music_shuffle_bag(int avoid) {
+    int i;
+
+    for(i = 0; i < MUSIC_TRACK_COUNT; ++i)
+        music_shuffle_bag[i] = i;
+    for(i = MUSIC_TRACK_COUNT - 1; i > 0; --i) {
+        const int swap_index = (int)(music_random_u32() % (uint32_t)(i + 1));
+        const int temporary = music_shuffle_bag[i];
+        music_shuffle_bag[i] = music_shuffle_bag[swap_index];
+        music_shuffle_bag[swap_index] = temporary;
+    }
+    /* Every album pass contains all eight songs exactly once. At the seam,
+       move the previous song away from the first slot so a refill can never
+       create an audible repeat. */
+    if(MUSIC_TRACK_COUNT > 1 && music_shuffle_bag[0] == avoid) {
+        const int swap_index = 1 +
+            (int)(music_random_u32() % (MUSIC_TRACK_COUNT - 1));
+        const int temporary = music_shuffle_bag[0];
+        music_shuffle_bag[0] = music_shuffle_bag[swap_index];
+        music_shuffle_bag[swap_index] = temporary;
+    }
+    music_shuffle_cursor = 0;
+}
+
+static void seed_music_shuffle_after_track(int heard_track) {
+    int i;
+
+    /* Sound Test is an explicit seek, so start a fresh audible album pass
+       when the player leaves it. The auditioned song counts as heard and the
+       next seven automatic starts are the seven other songs exactly once. */
+    refill_music_shuffle_bag(-1);
+    for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
+        if(music_shuffle_bag[i] == heard_track) {
+            const int temporary = music_shuffle_bag[0];
+            music_shuffle_bag[0] = music_shuffle_bag[i];
+            music_shuffle_bag[i] = temporary;
+            break;
+        }
+    }
+    music_shuffle_cursor = MUSIC_TRACK_COUNT > 1 ? 1 : MUSIC_TRACK_COUNT;
+}
+
+static int peek_random_music_track(int avoid) {
+    int i;
+
+    if(music_shuffle_cursor >= MUSIC_TRACK_COUNT)
+        refill_music_shuffle_bag(avoid);
+    /* Keep the currently audible song out of the next slot. Sound Test seeds
+       a fresh pass on exit, so there is always another candidate here. */
+    if(music_shuffle_bag[music_shuffle_cursor] == avoid) {
+        for(i = music_shuffle_cursor + 1; i < MUSIC_TRACK_COUNT; ++i) {
+            if(music_shuffle_bag[i] != avoid) {
+                const int temporary = music_shuffle_bag[music_shuffle_cursor];
+                music_shuffle_bag[music_shuffle_cursor] = music_shuffle_bag[i];
+                music_shuffle_bag[i] = temporary;
+                break;
+            }
+        }
+        if(i >= MUSIC_TRACK_COUNT) {
+            /* Defensive fallback for externally forced state: the only
+               remaining entry is already audible, so count it as heard. */
+            music_shuffle_cursor++;
+            refill_music_shuffle_bag(avoid);
+        }
+    }
+    return music_shuffle_bag[music_shuffle_cursor];
+}
+
+static void commit_random_music_track(int track) {
+    if(music_shuffle_cursor < MUSIC_TRACK_COUNT &&
+       music_shuffle_bag[music_shuffle_cursor] == track)
+        music_shuffle_cursor++;
+}
+
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_SHUFFLE
+static int take_random_music_track(int avoid) {
+    const int track = peek_random_music_track(avoid);
+    commit_random_music_track(track);
     return track;
 }
+
+static bool run_music_shuffle_self_test(void) {
+    uint32_t saved_random_state = music_random_state;
+    int saved_bag[MUSIC_TRACK_COUNT];
+    int saved_cursor = music_shuffle_cursor;
+    int previous = -1;
+    bool passed = true;
+    int album;
+
+    memcpy(saved_bag, music_shuffle_bag, sizeof(saved_bag));
+    music_random_state = 0x6d2b79f5u;
+    music_shuffle_cursor = MUSIC_TRACK_COUNT;
+    for(album = 0; album < 4; ++album) {
+        unsigned int heard_mask = 0u;
+        int song;
+        for(song = 0; song < MUSIC_TRACK_COUNT; ++song) {
+            const int track = take_random_music_track(previous);
+            unsigned int track_bit;
+            if(track < 0 || track >= MUSIC_TRACK_COUNT) {
+                passed = false;
+                continue;
+            }
+            track_bit = 1u << track;
+            if(track == previous || (heard_mask & track_bit) != 0u)
+                passed = false;
+            heard_mask |= track_bit;
+            previous = track;
+        }
+        if(heard_mask != (1u << MUSIC_TRACK_COUNT) - 1u)
+            passed = false;
+    }
+    printf("Gravity Wave music shuffle test: %s (four complete album bags).\n",
+           passed ? "PASS" : "FAIL");
+    music_random_state = saved_random_state;
+    memcpy(music_shuffle_bag, saved_bag, sizeof(saved_bag));
+    music_shuffle_cursor = saved_cursor;
+    return passed;
+}
+#endif
 
 static void stop_music(void) {
     int bank;
@@ -2548,12 +2887,12 @@ static void stop_music(void) {
     current_music_volume = 0;
     pending_music_track = -1;
     pending_music_volume = 0;
+    pending_music_shuffle = false;
     music_section_time = 0.0f;
-    music_song_loops = 0;
     music_playhead_armed = false;
 }
 
-static void play_music_section(int track, int section, int volume) {
+static bool play_music_section(int track, int section, int volume) {
     sfx_play_data_t playback = {0};
     const int previous_track = current_music_track;
     const int next_bank = current_music_track < 0 ? 0 : 1 - active_music_bank;
@@ -2562,13 +2901,13 @@ static void play_music_section(int track, int section, int volume) {
        track < 0 || track >= MUSIC_TRACK_COUNT ||
        music_left_channels[next_bank] < 0 ||
        music_right_channels[next_bank] != music_left_channels[next_bank] + 1)
-        return;
+        return false;
     if(section < 0 || section >= MUSIC_SECTION_COUNT)
         section = 0;
     if(music_sections[track][section] == SFXHND_INVALID)
         section = 0;
     if(music_sections[track][section] == SFXHND_INVALID)
-        return;
+        return false;
     /* The inactive bank has been silent for almost an entire section. Start
      * the new phrase there while the active bank plays its baked fade-out. */
     snd_sfx_stop(music_left_channels[next_bank]);
@@ -2585,10 +2924,10 @@ static void play_music_section(int track, int section, int volume) {
         current_music_volume = volume;
         active_music_bank = next_bank;
         pending_music_track = -1;
+        pending_music_shuffle = false;
         music_section_time = 0.0f;
         music_playhead_armed = false;
         if(previous_track != track) {
-            music_song_loops = 0;
             printf("Gravity Wave music: now playing %s.\n",
                    soundtrack_defs[track].name);
         }
@@ -2599,7 +2938,9 @@ static void play_music_section(int track, int section, int volume) {
                (unsigned int)music_section_samples[track][section],
                (double)music_section_duration[track][section]);
 #endif
+        return true;
     }
+    return false;
 }
 
 static void start_music_track(int track, int volume) {
@@ -2619,10 +2960,47 @@ static void start_music_track(int track, int volume) {
     }
     if(current_music_track == track && current_music_volume == volume) {
         pending_music_track = -1;
+        pending_music_shuffle = false;
         return;
     }
     pending_music_track = track;
     pending_music_volume = volume;
+    pending_music_shuffle = false;
+}
+
+static bool play_next_shuffled_music(int volume) {
+    const int track = peek_random_music_track(current_music_track);
+    if(!play_music_section(track, 0, volume))
+        return false;
+    commit_random_music_track(track);
+    return true;
+}
+
+static void request_next_shuffled_music(int volume) {
+    if(!audio_ready || !music_ready)
+        return;
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+    if(current_music_track >= 0)
+        return;
+#endif
+    if(current_music_track < 0) {
+        play_next_shuffled_music(volume);
+        return;
+    }
+    /* Reserve no concrete song yet. Repeated title/run/biome requests merely
+       replace the requested volume; the bag advances only when playback at a
+       phrase boundary actually succeeds. */
+    pending_music_track = -1;
+    pending_music_volume = volume;
+    pending_music_shuffle = true;
+}
+
+static void audition_music_track(int track) {
+    /* Normal score changes wait for the phrase boundary. Sound Test is a
+       deliberate seek operation, so make it immediate and restart section A
+       without leaving the previous section playing underneath it. */
+    stop_music();
+    start_music_track(track, MUSIC_TITLE_VOLUME);
 }
 
 static void update_music(float dt) {
@@ -2634,6 +3012,7 @@ static void update_music(float dt) {
     int next_track;
     int next_section;
     int next_volume;
+    bool commits_shuffle = false;
 
     if(current_music_track < 0)
         return;
@@ -2669,30 +3048,31 @@ static void update_music(float dt) {
         next_section = 0;
         next_volume = pending_music_volume;
     }
+    else if(pending_music_shuffle) {
+        next_track = peek_random_music_track(current_music_track);
+        next_section = 0;
+        next_volume = pending_music_volume;
+        commits_shuffle = true;
+    }
     else if(current_music_section == MUSIC_SECTION_COUNT - 1) {
-#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
-        next_track = (current_music_track + 1) % MUSIC_TRACK_COUNT;
         next_section = 0;
         next_volume = current_music_volume;
-        music_song_loops = 0;
-#else
-        music_song_loops++;
-        if(music_song_loops >= 2) {
-            /* Runs have a musical identity: the random opening song becomes
-               the score's root, then each biome advances one album track.
-               Only the attract-mode jukebox reshuffles independently. */
-            next_track = game.mode == MODE_TITLE ?
-                choose_random_music_track(current_music_track) :
-                (game.music_route_offset + game.music_chapter) %
-                MUSIC_TRACK_COUNT;
-            next_section = 0;
-            next_volume = current_music_volume;
-            music_song_loops = 0;
+        if(game.mode == MODE_TITLE && title_sound_test) {
+            /* Sound Test is a true audition deck: the selected A/B/C form
+               loops until the player chooses another song or leaves. */
+            next_track = sound_test_track;
         }
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
         else {
-            next_track = current_music_track;
-            next_section = 0;
-            next_volume = current_music_volume;
+            next_track = (current_music_track + 1) % MUSIC_TRACK_COUNT;
+        }
+#else
+        else {
+            /* Each compact A/B/C song gets one complete statement before the
+               shuffle bag advances. Peek now and commit only after AICA has
+               successfully begun the next song. */
+            next_track = peek_random_music_track(current_music_track);
+            commits_shuffle = true;
         }
 #endif
     }
@@ -2728,7 +3108,9 @@ static void update_music(float dt) {
             music_jukebox_complete = true;
     }
 #endif
-    play_music_section(next_track, next_section, next_volume);
+    if(play_music_section(next_track, next_section, next_volume) &&
+       commits_shuffle)
+        commit_random_music_track(next_track);
 }
 
 static void init_audio(void) {
@@ -2753,8 +3135,8 @@ static void init_audio(void) {
     active_music_bank = 0;
     current_music_track = -1;
     pending_music_track = -1;
+    pending_music_shuffle = false;
     music_section_time = 0.0f;
-    music_song_loops = 0;
     music_playhead_armed = false;
     for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
         for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
@@ -3340,7 +3722,10 @@ static void draw_procedural_spires(const palette_t *palette) {
         const float z = (float)segment * 88.0f;
         if((h & 7u) < 4u) {
             const float side = (h & 0x10u) ? 1.0f : -1.0f;
-            const float x = side * (78.0f + (float)((h >> 8) & 127u));
+            /* Decorative skyline spires stay beyond the player's full lateral
+               envelope; close silhouettes are reserved for collidable authored
+               structures. */
+            const float x = side * (112.0f + (float)((h >> 8) & 127u));
             const float width = 5.0f + (float)((h >> 16) & 7u);
             const float height = 20.0f + (float)((h >> 20) & 31u);
             draw_spire(x, z, width, height, palette);
@@ -3685,6 +4070,73 @@ static bool signature_setpiece_reserved(int biome, float world_z) {
     return false;
 }
 
+static void prism_crystal_layout(int index, float segment_z,
+                                 float *local_x, float *world_z,
+                                 float *base_y, float *width,
+                                 float *height) {
+    const int distance = abs(index);
+    *local_x = (float)index * 23.0f;
+    *world_z = segment_z + (float)distance * 8.0f;
+    *base_y = terrain_height_local(*local_x, segment_z);
+    *width = 6.0f + (float)(index & 1) * 2.0f;
+    *height = 45.0f + (float)(2 - distance) * 10.0f;
+}
+
+static bool player_hits_prism_crucible(float segment_z,
+                                       vec3_t previous_player_world,
+                                       vec3_t current_player_world) {
+    int crystal;
+
+    for(crystal = -2; crystal <= 2; ++crystal) {
+        float crystal_x;
+        float crystal_z;
+        float base_y;
+        float width;
+        float height;
+        float local_x;
+        float local_y;
+        float height_t;
+        float tapered_radius;
+        vec3_t crossing;
+
+        prism_crystal_layout(crystal, segment_z,
+                             &crystal_x, &crystal_z, &base_y,
+                             &width, &height);
+        crossing = segment_point_at_z(previous_player_world,
+                                      current_player_world, crystal_z);
+        if(fabsf(crossing.z - crystal_z) > width + 4.0f)
+            continue;
+        local_x = crossing.x - path_center(crystal_z) - crystal_x;
+        local_y = crossing.y - path_elevation(crystal_z);
+        if(local_y < base_y - 4.0f ||
+           local_y > base_y + height + 4.0f)
+            continue;
+        height_t = clampf((local_y - base_y) / height, 0.0f, 1.0f);
+        tapered_radius = width * (1.0f - height_t) + 4.0f;
+        if(fabsf(local_x) < tapered_radius)
+            return true;
+    }
+
+    {
+        const float rock_z = segment_z + 49.0f;
+        const vec3_t crossing = segment_point_at_z(
+            previous_player_world, current_player_world, rock_z);
+        const float dx = crossing.x - path_center(rock_z);
+        const float dy = crossing.y - path_elevation(rock_z) - 82.0f;
+        const float dz = crossing.z - rock_z;
+        const float vertical_extent = dy >= 0.0f ? 14.4f : 21.6f;
+        if(dy >= -25.6f && dy <= 18.4f) {
+            const float height_t = clampf(
+                fabsf(dy) / vertical_extent, 0.0f, 1.0f);
+            const float tapered_radius =
+                18.0f * (1.0f - height_t) + 4.0f;
+            if(dx * dx + dz * dz < tapered_radius * tapered_radius)
+                return true;
+        }
+    }
+    return false;
+}
+
 static bool player_hits_signature_arch(int biome, int segment,
                                        float segment_z,
                                        vec3_t previous_player_world,
@@ -3693,10 +4145,13 @@ static bool player_hits_signature_arch(int biome, int segment,
     float spacing;
     int rib;
 
-    if(!is_signature_segment(segment) || biome == 2)
+    if(!is_signature_segment(segment))
         return false;
     if(signature_setpiece_reserved(biome, segment_z))
         return false;
+    if(biome == 2)
+        return player_hits_prism_crucible(
+            segment_z, previous_player_world, current_player_world);
     rib_count = biome == 0 ? 4 : 3;
     spacing = biome == 0 ? 22.0f : (biome == 1 ? 28.0f : 32.0f);
 
@@ -3811,13 +4266,18 @@ static void draw_signature_setpiece(int biome, int segment, float world_z,
                                (color3_t){0.67f,0.82f,0.57f});
     }
     else if(biome == 2) { /* Prism Crucible. */
-        for(i = -2; i <= 2; ++i)
-            draw_crystal((float)i * 23.0f,
-                         terrain_height_local((float)i * 23.0f, world_z),
-                         world_z + fabsf((float)i) * 8.0f,
-                         6.0f + (float)(i & 1) * 2.0f,
-                         45.0f + (float)(2 - abs(i)) * 10.0f,
-                         palette->accent);
+        for(i = -2; i <= 2; ++i) {
+            float crystal_x;
+            float crystal_z;
+            float base_y;
+            float width;
+            float height;
+            prism_crystal_layout(i, world_z,
+                                 &crystal_x, &crystal_z, &base_y,
+                                 &width, &height);
+            draw_crystal(crystal_x, base_y, crystal_z,
+                         width, height, palette->accent);
+        }
         draw_floating_rock(0.0f, world_z + 49.0f, 82.0f, 18.0f,
                            palette->ground_high);
     }
@@ -4417,6 +4877,7 @@ static bool spawn_wave(float world_z) {
 #endif
     if(guardian_wave) {
         enemy_t *guardian = alloc_enemy();
+        const guardian_profile_t *profile = &guardian_profiles[biome];
         if(!guardian) {
             printf("Gravity Wave course: guardian pool full; retrying.\n");
             return false;
@@ -4424,23 +4885,31 @@ static bool spawn_wave(float world_z) {
         memset(guardian, 0, sizeof(*guardian));
         guardian->active = true;
         guardian->type = 3;
-        guardian->hp = 28 + game.guardians_destroyed * 6;
+        guardian->hp = profile->base_hp +
+                       game.guardians_destroyed * profile->hp_growth;
 #ifdef GRAVITY_WAVE_AUTOTEST_BOSS_HITS
         guardian->hp = 1200;
 #endif
         guardian->max_hp = guardian->hp;
         guardian->biome = biome;
-        guardian->radius = 24.0f;
+        guardian->radius = profile->radius;
         guardian->x = 0.0f;
         guardian->y = 57.0f;
         guardian->z = world_z + 160.0f;
         guardian->phase = (float)(seed & 255u) * 0.01f;
-        guardian->fire_timer = 1.2f;
-        set_message("WARNING  CHAPTER GUARDIAN", 2.6f);
+        guardian->fire_timer = 1.35f;
+        /* The chapter handoff is a clean boss arena, not a stack of stale
+           formation fire sitting on top of the guardian's first telegraph. */
+        memset(enemy_shots, 0, sizeof(enemy_shots));
+        snprintf(game.message, sizeof(game.message),
+                 "WARNING  %s", profile->name);
+        game.message_time = 2.8f;
         play_sound(sfx_gate, 240, 128);
         game.wave++;
-        printf("Gravity Wave course: chapter %d guardian deployed.\n",
-               chapter + 1);
+        printf("Gravity Wave course: chapter %d guardian %s deployed "
+               "(hp=%d cadence=%.2f).\n",
+               chapter + 1, profile->name, guardian->hp,
+               (double)profile->fire_cadence);
         return true;
     }
 
@@ -4526,7 +4995,9 @@ static int traversal_stage_direction(const gate_t *gate, int stage) {
 
 static float traversal_stage_x(const gate_t *gate, int stage) {
     if(gate->kind == TRAVERSAL_SLALOM)
-        return (float)-traversal_stage_direction(gate, stage) * 32.0f;
+        /* This is the center of a clearly marked safe lane, not the position
+           of an ambiguous pole the player must guess how to pass. */
+        return (float)traversal_stage_direction(gate, stage) * 36.0f;
     return gate->x;
 }
 
@@ -4535,6 +5006,17 @@ static float traversal_stage_y(const gate_t *gate, int stage) {
         return gate->y -
                (float)traversal_stage_direction(gate, stage) * 3.0f;
     return gate->y;
+}
+
+static bool traversal_lane_contains(const gate_t *gate, int stage,
+                                    float local_x) {
+    return fabsf(local_x - traversal_stage_x(gate, stage)) < gate->radius;
+}
+
+static float traversal_lane_pylon_x(const gate_t *gate, int stage, int side) {
+    return traversal_stage_x(gate, stage) + (float)side *
+        (gate->radius + VECTOR_LANE_PYLON_HALF_WIDTH +
+         VECTOR_LANE_PYLON_CLEARANCE);
 }
 
 static bool spawn_gate(float world_z) {
@@ -4562,8 +5044,9 @@ static bool spawn_gate(float world_z) {
     if(!gate)
         return false;
     memset(gate, 0, sizeof(*gate));
-    /* Blooms frame the exit vector of a bend; slaloms follow its entry.
-       Ember's counter-shear deliberately asks for a dive against the climb. */
+    /* Blooms frame the exit vector of a bend; vector lanes weave through its
+       entry. Ember's counter-shear deliberately asks for a dive against the
+       climb. */
     target_x = (float)traversal_direction *
                (event == 0 ? 18.0f : 28.0f);
     target_y = clampf(terrain_height_local(target_x, resolved_z) + 42.0f +
@@ -4576,7 +5059,7 @@ static bool spawn_gate(float world_z) {
     gate->z = resolved_z;
     gate->radius = kind == TRAVERSAL_GRAVITY_BLOOM ?
                    14.0f + (float)((h >> 14) & 3u) :
-                   (kind == TRAVERSAL_SLALOM ? 14.0f : 9.0f);
+                   (kind == TRAVERSAL_SLALOM ? 19.0f : 9.0f);
     gate->spin = (float)(h & 255u) * (TAU / 255.0f);
     gate->result_time = 0.0f;
     gate->stage_spacing = stage_spacing;
@@ -4592,6 +5075,197 @@ static bool spawn_gate(float world_z) {
     return true;
 }
 
+#ifdef GRAVITY_WAVE_AUTOTEST_COURSE_PROFILE
+static bool run_course_profile_self_test(void) {
+    gate_t lane;
+    bool passed = true;
+    bool prism_hit;
+    bool prism_miss;
+    bool prism_rock_hit;
+    bool prism_rock_high_miss;
+    bool prism_suppressed;
+    float global_max_turn = 0.0f;
+    float global_max_grade = 0.0f;
+    int biome;
+
+    for(biome = 0; biome < 4; ++biome) {
+        const float chapter_z = (float)biome * BIOME_LENGTH;
+        float min_x = 100000.0f;
+        float max_x = -100000.0f;
+        float min_y = 100000.0f;
+        float max_y = -100000.0f;
+        float min_corridor = 100000.0f;
+        float max_corridor = -100000.0f;
+        float min_relief = 100000.0f;
+        float max_relief = -100000.0f;
+        float previous_x = path_center(chapter_z);
+        float previous_y = path_elevation(chapter_z);
+        float previous_z = chapter_z;
+        int sample;
+
+        for(sample = 0; sample <= 430; ++sample) {
+            const float z = chapter_z + (float)sample * 10.0f;
+            const float x = path_center(z);
+            const float y = path_elevation(z);
+            const float corridor = course_environment_curve(z, false);
+            const float relief = course_environment_curve(z, true);
+            if(x < min_x) min_x = x;
+            if(x > max_x) max_x = x;
+            if(y < min_y) min_y = y;
+            if(y > max_y) max_y = y;
+            if(corridor < min_corridor) min_corridor = corridor;
+            if(corridor > max_corridor) max_corridor = corridor;
+            if(relief < min_relief) min_relief = relief;
+            if(relief > max_relief) max_relief = relief;
+            if(sample > 0) {
+                const float turn = fabsf((x - previous_x) /
+                                         (z - previous_z));
+                const float grade = fabsf((y - previous_y) /
+                                          (z - previous_z));
+                if(turn > global_max_turn) global_max_turn = turn;
+                if(grade > global_max_grade) global_max_grade = grade;
+            }
+            if(path_center(z) != x || path_elevation(z) != y)
+                passed = false;
+            previous_x = x;
+            previous_y = y;
+            previous_z = z;
+        }
+        if(max_x - min_x < 100.0f || max_y - min_y < 70.0f ||
+           min_corridor < 22.5f || max_corridor > 48.5f ||
+           min_relief < 69.5f || max_relief > 172.5f)
+            passed = false;
+        printf("Gravity Wave course test: biome=%d lateral=%.1f vertical=%.1f "
+               "corridor=%.1f..%.1f relief=%.0f..%.0f%%.\n",
+               biome, (double)(max_x - min_x), (double)(max_y - min_y),
+               (double)min_corridor, (double)max_corridor,
+               (double)min_relief, (double)max_relief);
+    }
+
+    for(biome = 1; biome <= 4; ++biome) {
+        const float seam = (float)biome * BIOME_LENGTH;
+        if(fabsf(path_center(seam - 0.01f) -
+                 path_center(seam + 0.01f)) > 0.05f ||
+           fabsf(path_elevation(seam - 0.01f) -
+                 path_elevation(seam + 0.01f)) > 0.05f)
+            passed = false;
+    }
+    if(global_max_turn < 0.16f || global_max_turn > 0.62f ||
+       global_max_grade < 0.13f || global_max_grade > 0.56f)
+        passed = false;
+
+    memset(&lane, 0, sizeof(lane));
+    lane.kind = TRAVERSAL_SLALOM;
+    lane.direction = 1;
+    lane.radius = 19.0f;
+    lane.stage_count = traversal_stage_count_for_kind(lane.kind);
+    lane.stage_spacing = traversal_stage_spacing_for_kind(lane.kind);
+    if(lane.stage_count != 3 || lane.stage_spacing < 240.0f ||
+       traversal_stage_x(&lane, 0) <= 0.0f ||
+       traversal_stage_x(&lane, 1) >= 0.0f ||
+       traversal_stage_x(&lane, 2) <= 0.0f)
+        passed = false;
+    for(biome = 0; biome < lane.stage_count; ++biome) {
+        const float center = traversal_stage_x(&lane, biome);
+        int side;
+        if(center - lane.radius <= PLAYER_MIN_X ||
+           center + lane.radius >= PLAYER_MAX_X ||
+           !traversal_lane_contains(&lane, biome, center) ||
+           traversal_lane_contains(&lane, biome,
+                                   center + lane.radius + 1.0f))
+            passed = false;
+        for(side = -1; side <= 1; side += 2) {
+            const float pylon_x = traversal_lane_pylon_x(
+                &lane, biome, side);
+            const float inner_edge = fabsf(pylon_x - center) -
+                                     VECTOR_LANE_PYLON_HALF_WIDTH;
+            if(inner_edge < lane.radius +
+                            VECTOR_LANE_PYLON_CLEARANCE - 0.01f)
+                passed = false;
+        }
+    }
+    for(biome = 0; biome < 4; ++biome) {
+        int event;
+        for(event = 0; event < COURSE_TRAVERSALS_PER_BIOME; ++event) {
+            const traversal_kind_t kind = course_traversal_kind(biome, event);
+            const float start_z = (float)biome * BIOME_LENGTH +
+                                  course_traversal_offsets[event];
+            if(event == COURSE_TRAVERSALS_PER_BIOME - 1 &&
+               start_z + traversal_span_for_kind(kind) + 180.0f >=
+               (float)biome * BIOME_LENGTH +
+               course_wave_offsets[COURSE_WAVES_PER_BIOME - 1])
+                passed = false;
+            if(kind == TRAVERSAL_SLALOM) {
+                int stage;
+                lane.z = start_z;
+                lane.direction = course_turn_direction(start_z);
+                for(stage = 0; stage < lane.stage_count; ++stage) {
+                    const float stage_z = traversal_stage_z(&lane, stage);
+                    const float center = traversal_stage_x(&lane, stage);
+                    if(terrain_height_local(center, stage_z) + 6.0f >= 52.0f)
+                        passed = false;
+                }
+            }
+        }
+    }
+
+    {
+        const float target_z = 2.0f * BIOME_LENGTH +
+                               COURSE_SIGNATURE_LOCAL_Z;
+        const int signature_segment =
+            (int)floorf(target_z / SCENERY_SEGMENT + 0.5f);
+        const float signature_z =
+            (float)signature_segment * SCENERY_SEGMENT;
+        const vec3_t low_before = route_position(
+            0.0f, 35.0f, signature_z - 24.0f);
+        const vec3_t low_after = route_position(
+            0.0f, 35.0f, signature_z + 24.0f);
+        const vec3_t side_before = route_position(
+            72.0f, 35.0f, signature_z - 24.0f);
+        const vec3_t side_after = route_position(
+            72.0f, 35.0f, signature_z + 24.0f);
+        const vec3_t rock_before = route_position(
+            0.0f, 82.0f, signature_z + 25.0f);
+        const vec3_t rock_after = route_position(
+            0.0f, 82.0f, signature_z + 73.0f);
+        const vec3_t rock_high_before = route_position(
+            14.0f, 96.0f, signature_z + 25.0f);
+        const vec3_t rock_high_after = route_position(
+            14.0f, 96.0f, signature_z + 73.0f);
+        const gate_t saved_gate = gates[0];
+
+        prism_hit = player_hits_signature_arch(
+            2, signature_segment, signature_z, low_before, low_after);
+        prism_miss = !player_hits_signature_arch(
+            2, signature_segment, signature_z, side_before, side_after);
+        prism_rock_hit = player_hits_signature_arch(
+            2, signature_segment, signature_z, rock_before, rock_after);
+        prism_rock_high_miss = !player_hits_signature_arch(
+            2, signature_segment, signature_z,
+            rock_high_before, rock_high_after);
+        memset(&gates[0], 0, sizeof(gates[0]));
+        gates[0].active = true;
+        gates[0].z = signature_z;
+        gates[0].stage_count = 1;
+        prism_suppressed = !player_hits_signature_arch(
+            2, signature_segment, signature_z, low_before, low_after);
+        gates[0] = saved_gate;
+        if(!prism_hit || !prism_miss || !prism_rock_hit ||
+           !prism_rock_high_miss || !prism_suppressed)
+            passed = false;
+    }
+
+    printf("Gravity Wave course test: max turn=%.3f max grade=%.3f "
+           "vector spacing=%.0f prism=%d/%d/%d/%d/%d %s.\n",
+           (double)global_max_turn, (double)global_max_grade,
+           (double)lane.stage_spacing,
+           prism_hit, prism_miss, prism_rock_hit,
+           prism_rock_high_miss, prism_suppressed,
+           passed ? "PASS" : "FAIL");
+    return passed;
+}
+#endif
+
 static vec3_t player_aim_target_world(void) {
     const float target_z = game.distance + PLAYER_AIM_Z;
     return route_position(game.player_x, game.player_y, target_z);
@@ -4603,8 +5277,7 @@ static void launch_player_projectile(projectile_t *shot,
                                      float muzzle_z, float forward_speed,
                                      float life, float spin,
                                      int damage, int hits_remaining) {
-    const vec3_t origin = route_hybrid_to_world(
-        player_model_point(muzzle_x, muzzle_y, muzzle_z));
+    const vec3_t origin = player_model_point(muzzle_x, muzzle_y, muzzle_z);
     const vec3_t target = player_aim_target_world();
     const float flight_time = fmaxf(
         (target.z - origin.z) / forward_speed, 0.05f);
@@ -4678,56 +5351,118 @@ static void fire_player_weapon(void) {
     play_laser(game.player_x);
 }
 
+static int guardian_shot_count(int biome) {
+    return (biome & 3) == 3 ? 3 : 5;
+}
+
+static void guardian_shot_offsets(int biome, bool alternate, int index,
+                                  float *target_x, float *target_y,
+                                  float *muzzle_x, float *muzzle_y) {
+    const int style = biome & 3;
+    const float centered = (float)index -
+        (float)(guardian_shot_count(style) - 1) * 0.5f;
+
+    *target_x = 0.0f;
+    *target_y = 0.0f;
+    *muzzle_x = 0.0f;
+    *muzzle_y = 0.0f;
+    switch(style) {
+        case 0: /* Tidebreaker: a broad wing-level strafing fan. */
+            *target_x = centered * 31.0f;
+            *target_y = fabsf(centered) * 3.5f;
+            *muzzle_x = centered * 2.4f;
+            *muzzle_y = -1.0f;
+            break;
+        case 1: /* Bastion: alternating cardinal and diagonal lattices. */
+            if(index > 0) {
+                const int spoke = index - 1;
+                const float angle = (float)spoke * PI * 0.5f +
+                                    (alternate ? PI * 0.25f : 0.0f);
+                *target_x = fcos(angle) * 38.0f;
+                *target_y = fsin(angle) * 27.0f;
+                *muzzle_x = fcos(angle) * 5.5f;
+                *muzzle_y = fsin(angle) * 4.0f;
+            }
+            break;
+        case 2: /* Seraph: a climbing/falling vertical light curtain. */
+            *target_x = alternate ? 10.0f : -10.0f;
+            *target_y = centered * 29.0f;
+            *muzzle_x = alternate ? 2.5f : -2.5f;
+            *muzzle_y = centered * 2.2f;
+            break;
+        default: /* Mantis: fast diagonal pincers that reverse each volley. */
+            *target_x = centered * 46.0f;
+            *target_y = centered * (alternate ? 32.0f : -32.0f);
+            *muzzle_x = centered * 7.5f;
+            *muzzle_y = centered * (alternate ? 3.5f : -3.5f);
+            break;
+    }
+}
+
 static void fire_enemy_shot(enemy_t *enemy) {
-    static const float guardian_speed[4] = {132.0f,124.0f,142.0f,150.0f};
-    const float shot_speed = enemy->type == 3 ?
-        guardian_speed[enemy->biome & 3] : 105.0f;
+    const bool guardian = enemy->type == 3;
+    const int biome = enemy->biome & 3;
+    const guardian_profile_t *profile = &guardian_profiles[biome];
+    const float shot_speed = guardian ? profile->shot_speed : 105.0f;
     const float player_z = game.distance + PLAYER_Z;
-    const vec3_t origin = route_hybrid_to_world(enemy_model_point(
-        enemy, 0.0f, 0.0f, enemy->type == 3 ? 15.0f : 8.0f));
-    const float travel_time = clampf(
-        (origin.z - player_z) / (game.speed + shot_speed), 0.12f, 2.8f);
-    const float target_z = player_z + game.speed * travel_time;
     const float target_local_x = clampf(
         game.player_x + game.player_vx * 0.20f,
         PLAYER_MIN_X, PLAYER_MAX_X);
     const float target_local_y = clampf(
         game.player_y + game.player_vy * 0.12f,
         PLAYER_MIN_Y, PLAYER_MAX_Y);
-    const vec3_t target = route_position(
-        target_local_x, target_local_y, target_z);
-    const int count = enemy->type == 3 ? 3 : 1;
+    const int count = guardian ? guardian_shot_count(biome) : 1;
     int i;
 
     for(i = 0; i < count; ++i) {
         projectile_t *shot = alloc_projectile(enemy_shots, MAX_ENEMY_SHOTS);
-        const float spread = ((float)i - (float)(count - 1) * 0.5f) * 23.0f;
+        float target_offset_x = 0.0f;
+        float target_offset_y = 0.0f;
+        float muzzle_x = 0.0f;
+        float muzzle_y = 0.0f;
+        vec3_t origin;
+        vec3_t target;
+        float travel_time;
         if(!shot)
             break;
+        if(guardian)
+            guardian_shot_offsets(biome, enemy->fired, i,
+                                  &target_offset_x, &target_offset_y,
+                                  &muzzle_x, &muzzle_y);
+        origin = enemy_model_point(
+            enemy, muzzle_x, muzzle_y, guardian ? 15.0f : 8.0f);
+        travel_time = clampf(
+            (origin.z - player_z) / (game.speed + shot_speed), 0.12f, 2.8f);
+        target = route_position(
+            target_local_x, target_local_y,
+            player_z + game.speed * travel_time);
+        target.x += target_offset_x;
+        target.y += target_offset_y;
         *shot = (projectile_t){
             .active = true,
             .x = origin.x,
             .y = origin.y,
             .z = origin.z,
-            .vx = (target.x - origin.x) / travel_time + spread,
-            .vy = (target.y - origin.y) / travel_time +
-                  (enemy->type == 3 ? fabsf(spread) * 0.10f : 0.0f),
+            .vx = (target.x - origin.x) / travel_time,
+            .vy = (target.y - origin.y) / travel_time,
             .vz = (target.z - origin.z) / travel_time,
-            .life = enemy->type == 3 ? 4.2f : 3.2f,
+            .life = guardian ? 4.4f : 3.2f,
             .spin = 0.0f,
             .kind = SHOT_ENEMY,
-            .damage = 1,
+            .damage = guardian ? profile->shot_damage : 13,
             .hits_remaining = 1,
-            .hit_mask = 0u
+            .hit_mask = guardian ?
+                GUARDIAN_SHOT_STYLE_FLAG | (uint32_t)biome : 0u
         };
     }
-    if(enemy->type == 3) {
-        static const float guardian_cadence[4] = {0.82f,0.92f,0.76f,0.66f};
-        enemy->fire_timer = guardian_cadence[enemy->biome & 3];
+    if(guardian) {
+        enemy->fire_timer = profile->fire_cadence;
+        enemy->fired = !enemy->fired;
     }
-    else
+    else {
         enemy->fire_timer = enemy->type == 2 ? 1.05f : 1.55f;
-    enemy->fired = true;
+        enemy->fired = true;
+    }
 }
 
 static void trigger_bomb(void) {
@@ -4811,12 +5546,11 @@ static void reset_game(void) {
     game.camera_focal = FOCAL_CRUISE;
     game.trauma = 0.0f;
     game.guardians_destroyed = 0;
-    game.music_route_offset = choose_random_music_track(current_music_track);
     game.music_chapter = 0;
     game.last_course_act = -1;
     game.suppressed_gate_from_z = -100000.0f;
     game.suppressed_gate_until_z = -100000.0f;
-    start_music_track(game.music_route_offset, MUSIC_GAME_VOLUME);
+    request_next_shuffled_music(MUSIC_GAME_VOLUME);
     set_message("AZURE REACH", 2.4f);
     printf("Gravity Wave: new run started.\n");
 }
@@ -5147,7 +5881,9 @@ static void update_player_shots(float dt) {
                            previous, collision_end, enemy_world,
                            31.0f + enemy->radius,
                            13.5f + enemy->radius,
-                           18.0f, shot->spin, &hit_t) &&
+                           18.0f + (enemy->type == 3 ?
+                                   enemy->radius * 0.30f : 0.0f),
+                           shot->spin, &hit_t) &&
                        hit_t < closest_t) {
                         closest_enemy = j;
                         closest_t = hit_t;
@@ -5179,7 +5915,8 @@ static void update_player_shots(float dt) {
                 if(swept_ellipsoid_hit(
                        previous, collision_end, enemy_world,
                        enemy->radius + 2.0f, enemy->radius + 2.0f,
-                       15.0f, 0.0f, &hit_t) && hit_t < closest_t) {
+                       enemy->type == 3 ? enemy->radius * 0.72f : 15.0f,
+                       0.0f, &hit_t) && hit_t < closest_t) {
                     closest_enemy = j;
                     closest_t = hit_t;
                 }
@@ -5223,6 +5960,9 @@ static void update_enemy_shots(float dt,
         shot->x += shot->vx * dt;
         shot->y += shot->vy * dt;
         shot->z += shot->vz * dt;
+        if(shot->hit_mask & GUARDIAN_SHOT_STYLE_FLAG)
+            shot->spin += dt * (3.2f +
+                (float)(shot->hit_mask & 3u) * 0.9f);
         shot->life -= dt;
         if(shot->life <= 0.0f || shot->z < game.distance - 10.0f) {
             shot->active = false;
@@ -5247,7 +5987,7 @@ static void update_enemy_shots(float dt,
             previous, current, &terrain_hit_t, &terrain_impact);
         if(player_hit && player_hit_t < terrain_hit_t) {
             shot->active = false;
-            damage_player(13.0f);
+            damage_player((float)(shot->damage > 0 ? shot->damage : 13));
         }
         else if(terrain_hit) {
             shot->active = false;
@@ -5273,6 +6013,7 @@ static bool run_combat_geometry_self_test(void) {
     float aim_error;
     float boundary_aim_error = 0.0f;
     float enemy_aim_error;
+    float rigid_span_error = 0.0f;
     float route_separation;
     float hit_t;
     float terrain_t;
@@ -5405,11 +6146,55 @@ static bool run_combat_geometry_self_test(void) {
             .active = true, .x = 0.0f, .y = 55.0f, .z = 15120.0f,
             .phase = 0.0f, .type = 3, .biome = 3
         };
-        const vec3_t enemy_center = route_hybrid_to_world(
-            enemy_model_point(&test_enemy, 0.0f, 0.0f, 0.0f));
-        const vec3_t enemy_muzzle = route_hybrid_to_world(
-            enemy_model_point(&test_enemy, 0.0f, 0.0f, 15.0f));
+        const vec3_t enemy_center = enemy_model_point(
+            &test_enemy, 0.0f, 0.0f, 0.0f);
+        const vec3_t enemy_muzzle = enemy_model_point(
+            &test_enemy, 0.0f, 0.0f, 15.0f);
         muzzle_forward = enemy_muzzle.z < enemy_center.z;
+    }
+    {
+        enemy_t rigid_guardian;
+        vec3_t player_tail;
+        vec3_t player_nose;
+        vec3_t guardian_tail;
+        vec3_t guardian_nose;
+        float player_span;
+        float guardian_span;
+
+        game.distance = 11350.0f;
+        game.player_vy = 0.0f;
+        game.bank = 0.0f;
+        player_tail = player_model_point(0.0f, 0.0f, -13.0f);
+        player_nose = player_model_point(0.0f, 0.0f, 13.0f);
+        player_span = fsqrt(
+            (player_nose.x - player_tail.x) *
+            (player_nose.x - player_tail.x) +
+            (player_nose.y - player_tail.y) *
+            (player_nose.y - player_tail.y) +
+            (player_nose.z - player_tail.z) *
+            (player_nose.z - player_tail.z));
+
+        memset(&rigid_guardian, 0, sizeof(rigid_guardian));
+        rigid_guardian.active = true;
+        rigid_guardian.type = 3;
+        rigid_guardian.biome = 2;
+        rigid_guardian.y = 58.0f;
+        rigid_guardian.z = 11798.0f;
+        guardian_tail = enemy_model_point(
+            &rigid_guardian, 0.0f, 0.0f, -15.0f);
+        guardian_nose = enemy_model_point(
+            &rigid_guardian, 0.0f, 0.0f, 15.0f);
+        guardian_span = fsqrt(
+            (guardian_nose.x - guardian_tail.x) *
+            (guardian_nose.x - guardian_tail.x) +
+            (guardian_nose.y - guardian_tail.y) *
+            (guardian_nose.y - guardian_tail.y) +
+            (guardian_nose.z - guardian_tail.z) *
+            (guardian_nose.z - guardian_tail.z));
+        rigid_span_error = fmaxf(
+            fabsf(player_span - 26.0f),
+            fabsf(guardian_span - 30.0f *
+                   guardian_profiles[rigid_guardian.biome].model_scale));
     }
     {
         enemy_t test_enemy;
@@ -5489,20 +6274,162 @@ static bool run_combat_geometry_self_test(void) {
              crossing_hit && crossing_miss && moving_hit && stationary_hit &&
              phase_hit && phase_rotated_miss && terrain_hit && open_miss;
     passed = passed && muzzle_forward && boundary_aim_pass &&
-             enemy_aim_pass && hostile_sweep_pass;
+             enemy_aim_pass && hostile_sweep_pass &&
+             rigid_span_error < 0.02f;
     printf("Gravity Wave combat geometry: %s aim=%.4f "
            "boundary=%.4f enemy=%.4f route-separation=%.2f "
            "swept=%d/%d/%d/%d phase=%d/%d terrain=%d/%d "
-           "muzzle=%d hostile=%d.\n",
+           "muzzle=%d hostile=%d rigid=%.4f.\n",
            passed ? "PASS" : "FAIL",
            (double)aim_error, (double)boundary_aim_error,
            (double)enemy_aim_error, (double)route_separation,
            crossing_hit, crossing_miss, moving_hit, stationary_hit,
            phase_hit, phase_rotated_miss, terrain_hit, open_miss,
-           muzzle_forward, hostile_sweep_pass);
+           muzzle_forward, hostile_sweep_pass,
+           (double)rigid_span_error);
     memset(enemy_shots, 0, sizeof(enemy_shots));
     memset(particles, 0, sizeof(particles));
     game = saved_game;
+    return passed;
+}
+#endif
+
+static vec3_t guardian_motion_target(int biome, float phase,
+                                     float player_distance) {
+    vec3_t target;
+    const int style = biome & 3;
+
+    switch(style) {
+        case 0: /* A wide figure-eight over the flooded carrier channel. */
+            target.x = fsin(phase) * 52.0f;
+            target.y = 57.0f + fsin(phase * 2.0f + 0.35f) * 10.5f;
+            target.z = player_distance + 456.0f +
+                       fcos(phase * 0.55f) * 14.0f;
+            break;
+        case 1: /* A heavy bastion that looms and tracks in slow arcs. */
+            target.x = fsin(phase * 0.72f) * 24.0f +
+                       fsin(phase * 1.90f) * 8.0f;
+            target.y = 51.0f + fcos(phase * 0.85f) * 14.0f;
+            target.z = player_distance + 482.0f +
+                       fsin(phase * 0.50f) * 8.0f;
+            break;
+        case 2: /* A vertical corkscrew around the rift's firing axis. */
+            target.x = fcos(phase * 1.16f) * 36.0f;
+            target.y = 58.0f + fsin(phase * 1.16f) * 24.0f;
+            target.z = player_distance + 442.0f +
+                       fsin(phase * 2.32f) * 18.0f;
+            break;
+        default: { /* Fast pouncing reversals across the furnace trench. */
+            const float sweep = fsin(phase);
+            target.x = sweep * (0.38f + fabsf(sweep) * 0.62f) * 58.0f;
+            target.y = 55.0f + fsin(phase * 2.0f + 0.60f) * 15.0f;
+            target.z = player_distance + 405.0f + fcos(phase) * 44.0f;
+            break;
+        }
+    }
+    return target;
+}
+
+#ifdef GRAVITY_WAVE_AUTOTEST_BOSS_PROFILES
+static bool run_guardian_profile_self_test(void) {
+    const game_t saved_game = game;
+    bool passed = true;
+    int biome;
+
+    for(biome = 0; biome < 4; ++biome) {
+        const guardian_profile_t *profile = &guardian_profiles[biome];
+        enemy_t guardian;
+        vec3_t motion_a;
+        vec3_t motion_b;
+        float minimum_x = 9999.0f;
+        float maximum_x = -9999.0f;
+        float minimum_y = 9999.0f;
+        float maximum_y = -9999.0f;
+        int active_shots = 0;
+        int shot;
+        int compare;
+
+        memset(&guardian, 0, sizeof(guardian));
+        memset(enemy_shots, 0, sizeof(enemy_shots));
+        game.distance = 900.0f + (float)biome * BIOME_LENGTH;
+        game.speed = 154.0f;
+        game.player_x = -9.0f;
+        game.player_y = 58.0f;
+        game.player_vx = 0.0f;
+        game.player_vy = 0.0f;
+        guardian.active = true;
+        guardian.type = 3;
+        guardian.biome = biome;
+        guardian.phase = 0.63f;
+        guardian.x = 12.0f;
+        guardian.y = 57.0f;
+        guardian.z = game.distance + PLAYER_Z + 380.0f;
+        fire_enemy_shot(&guardian);
+
+        for(shot = 0; shot < MAX_ENEMY_SHOTS; ++shot) {
+            const projectile_t *projectile = &enemy_shots[shot];
+            if(!projectile->active)
+                continue;
+            active_shots++;
+            if(!(projectile->hit_mask & GUARDIAN_SHOT_STYLE_FLAG) ||
+               (int)(projectile->hit_mask & 3u) != biome ||
+               projectile->damage != profile->shot_damage ||
+               projectile->vz >= 0.0f)
+                passed = false;
+        }
+        if(active_shots != guardian_shot_count(biome) ||
+           fabsf(guardian.fire_timer - profile->fire_cadence) > 0.001f ||
+           !guardian.fired)
+            passed = false;
+
+        for(shot = 0; shot < guardian_shot_count(biome); ++shot) {
+            float target_x;
+            float target_y;
+            float muzzle_x;
+            float muzzle_y;
+            guardian_shot_offsets(biome, false, shot,
+                                  &target_x, &target_y,
+                                  &muzzle_x, &muzzle_y);
+            (void)muzzle_x;
+            (void)muzzle_y;
+            minimum_x = fminf(minimum_x, target_x);
+            maximum_x = fmaxf(maximum_x, target_x);
+            minimum_y = fminf(minimum_y, target_y);
+            maximum_y = fmaxf(maximum_y, target_y);
+        }
+        motion_a = guardian_motion_target(biome, 0.45f, game.distance);
+        motion_b = guardian_motion_target(biome, 1.55f, game.distance);
+        if(fabsf(motion_a.x) > 60.0f || motion_a.y < 28.0f ||
+           motion_a.y > 86.0f ||
+           motion_a.z - game.distance < 350.0f ||
+           motion_a.z - game.distance > 510.0f ||
+           fabsf(motion_b.x - motion_a.x) +
+           fabsf(motion_b.y - motion_a.y) < 8.0f)
+            passed = false;
+        for(compare = biome + 1; compare < 4; ++compare) {
+            if(strcmp(profile->name, guardian_profiles[compare].name) == 0)
+                passed = false;
+        }
+        if((biome == 0 && maximum_x - minimum_x < 120.0f) ||
+           (biome == 1 && (maximum_x - minimum_x < 70.0f ||
+                           maximum_y - minimum_y < 50.0f)) ||
+           (biome == 2 && maximum_y - minimum_y < 110.0f) ||
+           (biome == 3 && (maximum_x - minimum_x < 90.0f ||
+                           maximum_y - minimum_y < 60.0f)))
+            passed = false;
+
+        printf("Gravity Wave guardian profile %d: %s shots=%d "
+               "span=(%.0f,%.0f) motion=(%.0f,%.0f,%.0f).\n",
+               biome, profile->name, active_shots,
+               (double)(maximum_x - minimum_x),
+               (double)(maximum_y - minimum_y),
+               (double)motion_a.x, (double)motion_a.y,
+               (double)(motion_a.z - game.distance));
+    }
+    memset(enemy_shots, 0, sizeof(enemy_shots));
+    game = saved_game;
+    printf("Gravity Wave guardian profiles: %s.\n",
+           passed ? "PASS" : "FAIL");
     return passed;
 }
 #endif
@@ -5528,24 +6455,20 @@ static void update_enemies(float dt,
         previous_enemy_world = route_position(
             enemy->x, enemy->y, enemy->z);
         enemy->phase += dt * (enemy->type == 1 ? 2.4f :
-                              (enemy->type == 3 ? 1.08f : 1.55f));
+                              (enemy->type == 3 ?
+                               guardian_profiles[enemy->biome & 3].phase_speed :
+                               1.55f));
         enemy->fire_timer -= dt;
         enemy->hit_flash = fmaxf(0.0f, enemy->hit_flash - dt);
         if(enemy->type == 3) {
             const int biome = enemy->biome & 3;
-            static const float target_offsets[4] =
-                {455.0f,470.0f,450.0f,405.0f};
-            static const float x_ranges[4] = {43.0f,32.0f,35.0f,48.0f};
-            static const float y_centers[4] = {57.0f,50.0f,58.0f,55.0f};
-            static const float y_ranges[4] = {11.0f,9.0f,20.0f,13.0f};
-            const float target_z = game.distance + target_offsets[biome];
-            enemy->x = fsin(enemy->phase *
-                (biome == 3 ? 1.04f : (biome == 1 ? 0.68f : 0.83f))) *
-                x_ranges[biome];
-            enemy->y = y_centers[biome] +
-                fsin(enemy->phase * (biome == 2 ? 1.46f : 1.21f)) *
-                y_ranges[biome];
-            enemy->z = lerpf(enemy->z, target_z, clampf(dt * 1.35f, 0.0f, 1.0f));
+            static const float response[4] = {2.35f,1.55f,2.75f,3.35f};
+            const vec3_t target = guardian_motion_target(
+                biome, enemy->phase, game.distance);
+            const float follow = clampf(dt * response[biome], 0.0f, 1.0f);
+            enemy->x = lerpf(enemy->x, target.x, follow);
+            enemy->y = lerpf(enemy->y, target.y, follow);
+            enemy->z = lerpf(enemy->z, target.z, follow);
         }
         else {
             enemy->x += enemy->vx * dt;
@@ -5648,7 +6571,7 @@ static void update_gates(float dt,
             if(gate->kind == TRAVERSAL_GRAVITY_BLOOM)
                 set_message("GRAVITY BLOOM  HOLD THE LINE", 2.1f);
             else if(gate->kind == TRAVERSAL_SLALOM)
-                set_message("VECTOR SLALOM  FOLLOW THE BEACONS", 2.1f);
+                set_message("VECTOR LANES  CENTER IN CYAN", 2.1f);
             else
                 set_message("SHEAR RUN  CHANGE ALTITUDE", 2.1f);
             play_sound(sfx_gate, 148, 128);
@@ -5682,18 +6605,31 @@ static void update_gates(float dt,
                 stage_perfect = stage_clear && game.speed > 145.0f;
             }
             else if(gate->kind == TRAVERSAL_SLALOM) {
-                const float signed_clearance =
-                    crossing_x * (float)safe_direction;
-                stage_clear = signed_clearance > gate->radius;
-                stage_perfect = stage_clear && signed_clearance >
-                                gate->radius + 10.0f && game.speed > 145.0f;
-                if(!stage_clear && fabsf(dx) < 6.5f &&
-                   crossing_y > 8.0f && crossing_y < 96.0f) {
-                    game.player_x = clampf(
-                        game.player_x + (float)safe_direction * 7.0f,
-                        PLAYER_MIN_X, PLAYER_MAX_X);
-                    game.player_vx += (float)safe_direction * 30.0f;
-                    damage_player(12.0f);
+                const float lane_error = fabsf(dx);
+                const float pylon_center = gate->radius +
+                    VECTOR_LANE_PYLON_HALF_WIDTH +
+                    VECTOR_LANE_PYLON_CLEARANCE;
+                const float pylon_distance =
+                    fabsf(lane_error - pylon_center);
+                stage_clear = traversal_lane_contains(gate, stage, crossing_x);
+                stage_perfect = stage_clear &&
+                                lane_error < gate->radius * 0.42f &&
+                                game.speed > 145.0f;
+                if(!stage_clear) {
+                    if(pylon_distance <
+                       VECTOR_LANE_PYLON_HALF_WIDTH + 3.5f &&
+                       crossing_y > 8.0f && crossing_y < 96.0f) {
+                        const float push = dx > 0.0f ? -1.0f : 1.0f;
+                        game.player_x = clampf(game.player_x + push * 7.0f,
+                                               PLAYER_MIN_X, PLAYER_MAX_X);
+                        game.player_vx += push * 30.0f;
+                        damage_player(12.0f);
+                    }
+                    else {
+                        /* The navigation field is a soft hazard outside its
+                           cyan corridor, making a miss readable but survivable. */
+                        damage_player(4.0f);
+                    }
                 }
             }
             else {
@@ -5743,8 +6679,8 @@ static void update_gates(float dt,
                         set_message(perfect ? "BLOOM PERFECT" :
                                               "BLOOM CLEAR", 1.3f);
                     else if(gate->kind == TRAVERSAL_SLALOM)
-                        set_message(perfect ? "SLALOM PERFECT" :
-                                              "SLALOM CLEAR", 1.3f);
+                        set_message(perfect ? "VECTOR ROUTE PERFECT" :
+                                              "VECTOR ROUTE CLEAR", 1.3f);
                     else
                         set_message(perfect ? "SHEAR RUN PERFECT" :
                                               "SHEAR RUN CLEAR", 1.3f);
@@ -5754,7 +6690,7 @@ static void update_gates(float dt,
                 else if(gate->kind == TRAVERSAL_GRAVITY_BLOOM)
                     set_message("BLOOM MISSED", 0.8f);
                 else if(gate->kind == TRAVERSAL_SLALOM)
-                    set_message("SLALOM BROKEN", 0.8f);
+                    set_message("VECTOR LANE MISSED", 0.8f);
                 else
                     set_message("SHEAR ROUTE MISSED", 0.8f);
             }
@@ -6034,8 +6970,8 @@ static void spawn_exhaust(float dt, bool boosting) {
         return;
     game.exhaust_timer = boosting ? 0.018f : 0.032f;
     for(side = -1; side <= 1; side += 2) {
-        const vec3_t engine = route_hybrid_to_world(player_model_point(
-            (float)side * 3.0f, -0.2f, -6.8f));
+        const vec3_t engine = player_model_point(
+            (float)side * 3.0f, -0.2f, -6.8f);
         const float back_speed =
             -18.0f - random_unit() * (boosting ? 17.0f : 9.0f);
         const float slope_x = (path_center(engine.z + 12.0f) -
@@ -6089,8 +7025,9 @@ static void enter_title(void) {
     game.message_time = 0.0f;
     game.camera_focal = FOCAL_CRUISE;
     game.trauma = 0.0f;
-    start_music_track(choose_random_music_track(current_music_track),
-                      MUSIC_TITLE_VOLUME);
+    title_menu_item = TITLE_MENU_START;
+    title_sound_test = false;
+    request_next_shuffled_music(MUSIC_TITLE_VOLUME);
     printf("Gravity Wave: title backdrop %s.\n",
            palettes[title_biome].name);
 }
@@ -6121,8 +7058,6 @@ static bool update_game(const input_t *input, float dt) {
         if(title_palette != game.last_palette_index) {
             game.palette_index = title_palette;
             game.last_palette_index = title_palette;
-            start_music_track(choose_random_music_track(current_music_track),
-                              MUSIC_TITLE_VOLUME);
         }
         game.player_x = fsin(game.time * 0.72f) * 10.0f;
         game.player_y = 35.0f + fsin(game.time * 0.49f) * 3.0f;
@@ -6133,10 +7068,58 @@ static bool update_game(const input_t *input, float dt) {
                                   clampf(dt * 3.6f, 0.0f, 1.0f));
         spawn_exhaust(dt, false);
         update_particles(dt);
-        if(input->pressed & (CONT_START | CONT_A))
-            reset_game();
-        else if(input->pressed & CONT_B)
-            return false;
+        if(title_sound_test) {
+            int requested_track = sound_test_track;
+            if(input->pressed & CONT_DPAD_LEFT)
+                requested_track = (requested_track + MUSIC_TRACK_COUNT - 1) %
+                                  MUSIC_TRACK_COUNT;
+            else if(input->pressed & CONT_DPAD_RIGHT)
+                requested_track = (requested_track + 1) % MUSIC_TRACK_COUNT;
+            if(requested_track != sound_test_track) {
+                sound_test_track = requested_track;
+                audition_music_track(sound_test_track);
+                play_sound(sfx_gate, 154, 128);
+                printf("Gravity Wave sound test: %02d/%02d %s.\n",
+                       sound_test_track + 1, MUSIC_TRACK_COUNT,
+                       soundtrack_defs[sound_test_track].name);
+            }
+            if(input->pressed & CONT_A) {
+                audition_music_track(sound_test_track);
+                play_sound(sfx_gate, 154, 128);
+            }
+            else if(input->pressed & CONT_B) {
+                seed_music_shuffle_after_track(sound_test_track);
+                title_sound_test = false;
+                play_sound(sfx_gate, 132, 128);
+            }
+        }
+        else {
+            if(input->pressed & CONT_DPAD_UP) {
+                title_menu_item = (title_menu_item + TITLE_MENU_ITEM_COUNT - 1) %
+                                  TITLE_MENU_ITEM_COUNT;
+                play_sound(sfx_gate, 128, 128);
+            }
+            else if(input->pressed & CONT_DPAD_DOWN) {
+                title_menu_item = (title_menu_item + 1) %
+                                  TITLE_MENU_ITEM_COUNT;
+                play_sound(sfx_gate, 128, 128);
+            }
+            if(input->pressed & (CONT_START | CONT_A)) {
+                if(title_menu_item == TITLE_MENU_START)
+                    reset_game();
+                else if(title_menu_item == TITLE_MENU_SOUND_TEST) {
+                    title_sound_test = true;
+                    sound_test_track = current_music_track >= 0 ?
+                        current_music_track : 0;
+                    audition_music_track(sound_test_track);
+                    play_sound(sfx_gate, 154, 128);
+                }
+                else
+                    return false;
+            }
+            else if(input->pressed & CONT_B)
+                return false;
+        }
     }
     else if(game.mode == MODE_PAUSED) {
         if(input->pressed & CONT_START) {
@@ -6309,10 +7292,7 @@ static bool update_game(const input_t *input, float dt) {
                     const int chapter = course_chapter_at(game.distance);
                     if(game.music_chapter != chapter) {
                         game.music_chapter = chapter;
-                        start_music_track(
-                            (game.music_route_offset + game.music_chapter) %
-                            MUSIC_TRACK_COUNT,
-                            MUSIC_GAME_VOLUME);
+                        request_next_shuffled_music(MUSIC_GAME_VOLUME);
                     }
                     if(set_ambient_message(
                            palettes[game.palette_index].name, 2.3f)) {
@@ -6345,23 +7325,161 @@ static bool update_game(const input_t *input, float dt) {
     return true;
 }
 
+#ifdef GRAVITY_WAVE_AUTOTEST_SOUND_TEST
+static bool force_music_phrase_boundary_for_test(input_t *input) {
+    const int stopped_bank = active_music_bank;
+    const int stopped_left = music_left_channels[stopped_bank];
+    const int stopped_right = music_right_channels[stopped_bank];
+    bool running;
+
+    current_music_section = MUSIC_SECTION_COUNT - 1;
+    music_section_time =
+        music_section_duration[current_music_track][current_music_section] +
+        0.25f;
+    music_playhead_armed = false;
+    snd_sfx_stop(stopped_left);
+    snd_sfx_stop(stopped_right);
+    /* AICA stop commands are asynchronous. Temporarily detach the stopped
+       bank so the deterministic test exercises the boundary immediately
+       instead of depending on one emulator audio-service tick. */
+    music_left_channels[stopped_bank] = -1;
+    music_right_channels[stopped_bank] = -1;
+    input->pressed = 0;
+    running = update_game(input, 1.0f / 60.0f);
+    music_left_channels[stopped_bank] = stopped_left;
+    music_right_channels[stopped_bank] = stopped_right;
+    return running;
+}
+
+static bool run_title_sound_test_self_test(void) {
+    input_t input;
+    const int opening_track = current_music_track;
+    int cursor_before_loop;
+    int expected_shuffled_track;
+    int expected_track;
+    bool passed = game.mode == MODE_TITLE &&
+                  title_menu_item == TITLE_MENU_START &&
+                  !title_sound_test && opening_track >= 0;
+
+    memset(&input, 0, sizeof(input));
+    input.connected = true;
+    input.pressed = CONT_DPAD_DOWN;
+    passed = update_game(&input, 1.0f / 60.0f) && passed &&
+             title_menu_item == TITLE_MENU_SOUND_TEST;
+
+    input.pressed = CONT_A;
+    passed = update_game(&input, 1.0f / 60.0f) && passed &&
+             title_sound_test && sound_test_track == opening_track &&
+             current_music_track == opening_track;
+
+    /* Start is deliberately inert while browsing: it must never launch a run
+       when a keyboard user is trying to restart or compare a song. */
+    input.pressed = CONT_START;
+    passed = update_game(&input, 1.0f / 60.0f) && passed &&
+             title_sound_test && game.mode == MODE_TITLE;
+
+    expected_track = (opening_track + 1) % MUSIC_TRACK_COUNT;
+    input.pressed = CONT_DPAD_RIGHT;
+    passed = update_game(&input, 1.0f / 60.0f) && passed &&
+             sound_test_track == expected_track &&
+             current_music_track == expected_track &&
+             current_music_section == 0;
+
+    input.pressed = CONT_A;
+    passed = update_game(&input, 1.0f / 60.0f) && passed &&
+             title_sound_test && current_music_track == expected_track &&
+             current_music_section == 0;
+
+    /* Run the selected song across its real C-to-A boundary. Sound Test must
+       keep the UI and audio locked to the same selection without touching the
+       automatic shuffle pass. */
+    cursor_before_loop = music_shuffle_cursor;
+    passed = force_music_phrase_boundary_for_test(&input) && passed &&
+             title_sound_test && current_music_track == expected_track &&
+             current_music_section == 0 &&
+             music_shuffle_cursor == cursor_before_loop;
+
+    input.pressed = CONT_B;
+    passed = update_game(&input, 1.0f / 60.0f) && passed &&
+             !title_sound_test && game.mode == MODE_TITLE &&
+             title_menu_item == TITLE_MENU_SOUND_TEST;
+
+    /* Leaving Sound Test seeds a fresh album pass with the auditioned track
+       already heard. Overwriting a pending mode-change request cannot consume
+       the next song; only a successful phrase-boundary start commits it. */
+    expected_shuffled_track = music_shuffle_bag[music_shuffle_cursor];
+    cursor_before_loop = music_shuffle_cursor;
+    request_next_shuffled_music(MUSIC_GAME_VOLUME);
+    request_next_shuffled_music(MUSIC_TITLE_VOLUME);
+    passed = passed && pending_music_shuffle &&
+             music_shuffle_cursor == cursor_before_loop;
+    passed = force_music_phrase_boundary_for_test(&input) && passed &&
+             current_music_track == expected_shuffled_track &&
+             current_music_section == 0 &&
+             music_shuffle_cursor == cursor_before_loop + 1;
+
+    printf("Gravity Wave sound test menu: %s (%s -> %s, C/A loop, "
+           "deferred shuffle, safe Start).\n",
+           passed ? "PASS" : "FAIL",
+           soundtrack_defs[opening_track >= 0 ? opening_track : 0].name,
+           soundtrack_defs[expected_track].name);
+    return passed;
+}
+#endif
+
+static float guardian_model_roll(const enemy_t *enemy) {
+    switch(enemy->biome & 3) {
+        case 0:
+            return fsin(enemy->phase * 1.30f) * 0.14f;
+        case 1:
+            return fsin(enemy->phase * 0.55f) * 0.06f;
+        case 2:
+            return enemy->phase * 0.42f;
+        default:
+            return fsin(enemy->phase * 1.85f) * 0.32f;
+    }
+}
+
+static float guardian_model_pitch(const enemy_t *enemy) {
+    switch(enemy->biome & 3) {
+        case 0:
+            return fsin(enemy->phase * 0.80f) * 0.08f;
+        case 1:
+            return fcos(enemy->phase * 0.60f) * 0.05f;
+        case 2:
+            return fsin(enemy->phase * 1.16f) * 0.18f;
+        default:
+            return fcos(enemy->phase * 1.45f) * 0.24f;
+    }
+}
+
 static vec3_t enemy_model_point(const enemy_t *enemy,
                                 float lx, float ly, float lz) {
-    const float roll = fsin(enemy->phase * 1.6f) * 0.33f;
+    const float roll = enemy->type == 3 ? guardian_model_roll(enemy) :
+        fsin(enemy->phase * 1.6f) * 0.33f;
     const float cr = fcos(roll);
     const float sr = fsin(roll);
-    const float scale = enemy->type == 3 ? 2.15f :
+    const float scale = enemy->type == 3 ?
+                        guardian_profiles[enemy->biome & 3].model_scale :
                         (enemy->type == 2 ? 1.45f :
                          (enemy->type == 1 ? 1.12f : 0.92f));
     const float rx = (lx * cr - ly * sr) * scale;
-    const float ry = (lx * sr + ly * cr) * scale;
+    const float ry0 = (lx * sr + ly * cr) * scale;
     const float yaw = path_heading(enemy->z) + PI +
         (enemy->type == 1 ? fsin(enemy->phase) * 0.18f : 0.0f);
+    const float pitch = route_model_pitch(
+        enemy->z, yaw,
+        enemy->type == 3 ? guardian_model_pitch(enemy) : 0.0f);
+    const float cp = fcos(pitch);
+    const float sp = fsin(pitch);
+    const float rz0 = lz * scale;
+    const float ry = ry0 * cp - rz0 * sp;
+    const float rz = ry0 * sp + rz0 * cp;
     const float cy = fcos(yaw);
     const float sy = fsin(yaw);
-    const float rz = lz * scale;
     return (vec3_t){path_center(enemy->z) + enemy->x + rx * cy + rz * sy,
-                    enemy->y + ry, enemy->z - rx * sy + rz * cy};
+                    path_elevation(enemy->z) + enemy->y + ry,
+                    enemy->z - rx * sy + rz * cy};
 }
 
 static void draw_mesh_instance(const gravity_wave_mesh_t *mesh, vec3_t origin,
@@ -6371,8 +7489,9 @@ static void draw_mesh_instance(const gravity_wave_mesh_t *mesh, vec3_t origin,
     screen_point_t projected[96];
     const float cy = fcos(yaw);
     const float sy = fsin(yaw);
-    const float cp = fcos(pitch);
-    const float sp = fsin(pitch);
+    const float rigid_pitch = route_model_pitch(origin.z, yaw, pitch);
+    const float cp = fcos(rigid_pitch);
+    const float sp = fsin(rigid_pitch);
     const float cr = fcos(roll);
     const float sr = fsin(roll);
     int material;
@@ -6396,7 +7515,9 @@ static void draw_mesh_instance(const gravity_wave_mesh_t *mesh, vec3_t origin,
         transformed[i].x = origin.x + xr * cy + zp * sy;
         transformed[i].y = origin.y + yp;
         transformed[i].z = origin.z - xr * sy + zp * cy;
-        project_world(transformed[i], &projected[i]);
+        /* Rigid actors use one route elevation and grade at their origin.
+           Re-evaluating elevation per vertex shears long meshes on crests. */
+        project_absolute_world(transformed[i], &projected[i]);
     }
 
     for(material = 0; material < 4; ++material) {
@@ -6461,7 +7582,85 @@ static void draw_mesh_instance(const gravity_wave_mesh_t *mesh, vec3_t origin,
     }
 }
 
+static void draw_guardian_model(const enemy_t *enemy) {
+    const int biome = enemy->biome & 3;
+    const guardian_profile_t *profile = &guardian_profiles[biome];
+    const palette_t *palette = &palettes[biome];
+    const float yaw = path_heading(enemy->z) + PI;
+    const float pitch = guardian_model_pitch(enemy);
+    const float roll = guardian_model_roll(enemy);
+    const bool flash = enemy->hit_flash > 0.025f;
+    const vec3_t origin = {path_center(enemy->z) + enemy->x,
+                           path_elevation(enemy->z) + enemy->y,
+                           enemy->z};
+    const color3_t core_tint = color_lerp(
+        (color3_t){0.96f,0.90f,0.82f}, palette->accent, 0.12f);
+    const color3_t pod_tint = color_lerp(
+        (color3_t){0.88f,0.84f,0.80f}, palette->enemy, 0.30f);
+    int pod;
+
+    draw_mesh_instance(&mesh_guardian, origin, yaw, pitch, roll,
+                       profile->model_scale, core_tint, flash);
+    switch(biome) {
+        case 0: /* Carrier-wide outriggers create the Aegis silhouette. */
+            for(pod = -1; pod <= 1; pod += 2) {
+                const vec3_t pod_origin = enemy_model_point(
+                    enemy, (float)pod * 11.5f, -1.0f, -2.2f);
+                draw_mesh_instance(&mesh_ace, pod_origin,
+                    path_heading(pod_origin.z) + PI, pitch * 0.55f,
+                    roll + (float)pod * 0.18f, 0.58f,
+                    pod_tint, flash);
+            }
+            break;
+        case 1: /* Armored side keeps and a crown tower form the Bastion. */
+            for(pod = -1; pod <= 1; pod += 2) {
+                const vec3_t pod_origin = enemy_model_point(
+                    enemy, (float)pod * 9.5f, -2.0f, -2.8f);
+                draw_mesh_instance(&mesh_bomber, pod_origin,
+                    path_heading(pod_origin.z) + PI, pitch * 0.35f,
+                    roll + (float)pod * 0.08f, 0.56f,
+                    pod_tint, flash);
+            }
+            {
+                const vec3_t crown = enemy_model_point(
+                    enemy, 0.0f, 8.0f, -1.0f);
+                draw_mesh_instance(&mesh_interceptor, crown,
+                    path_heading(crown.z) + PI, pitch, roll + PI * 0.5f,
+                    0.50f, pod_tint, flash);
+            }
+            break;
+        case 2: /* Three independently readable shards orbit the Seraph core. */
+            for(pod = 0; pod < 3; ++pod) {
+                const float angle = enemy->phase * 0.82f +
+                                    (float)pod * TAU / 3.0f;
+                const vec3_t shard = enemy_model_point(
+                    enemy, fcos(angle) * 9.5f,
+                    fsin(angle) * 9.5f, -2.0f);
+                draw_mesh_instance(&mesh_interceptor, shard,
+                    path_heading(shard.z) + PI, pitch * 0.5f,
+                    roll + angle, 0.53f, pod_tint, flash);
+            }
+            break;
+        default: /* Opposed blades make an unmistakable furnace mantis. */
+            for(pod = -1; pod <= 1; pod += 2) {
+                const vec3_t claw = enemy_model_point(
+                    enemy, (float)pod * 8.5f,
+                    (float)pod * 6.5f, -1.0f);
+                draw_mesh_instance(&mesh_ace, claw,
+                    path_heading(claw.z) + PI,
+                    pitch + (float)pod * 0.12f,
+                    roll + (float)pod * 0.72f, 0.66f,
+                    pod_tint, flash);
+            }
+            break;
+    }
+}
+
 static void draw_enemy_model(const enemy_t *enemy, const palette_t *palette) {
+    if(enemy->type == 3) {
+        draw_guardian_model(enemy);
+        return;
+    }
     const palette_t *model_palette = enemy->type == 3 ?
         &palettes[enemy->biome & 3] : palette;
     const gravity_wave_mesh_t *mesh = enemy->type == 3 ? &mesh_guardian :
@@ -6475,7 +7674,8 @@ static void draw_enemy_model(const enemy_t *enemy, const palette_t *palette) {
     const float yaw = path_heading(enemy->z) + PI +
         (enemy->type == 1 ? fsin(enemy->phase) * 0.18f : 0.0f);
     const vec3_t origin = {path_center(enemy->z) + enemy->x,
-                           enemy->y, enemy->z};
+                           path_elevation(enemy->z) + enemy->y,
+                           enemy->z};
     const color3_t tint = enemy->type == 3 ?
         color_lerp((color3_t){0.96f,0.90f,0.82f},
                    model_palette->accent, 0.12f) :
@@ -6496,7 +7696,11 @@ static void draw_enemies(const palette_t *palette) {
 static vec3_t player_model_point(float lx, float ly, float lz) {
     const float roll = game.bank * 0.62f + game.barrel_roll +
                        camera_route_turn * 1.35f;
-    const float pitch = clampf(-game.player_vy * 0.007f, -0.30f, 0.30f);
+    const float world_z = game.distance + PLAYER_Z;
+    const float yaw = path_heading(world_z);
+    const float pitch = route_model_pitch(
+        world_z, yaw,
+        clampf(-game.player_vy * 0.007f, -0.30f, 0.30f));
     const float cr = fcos(roll);
     const float sr = fsin(roll);
     const float cp = fcos(pitch);
@@ -6505,12 +7709,11 @@ static vec3_t player_model_point(float lx, float ly, float lz) {
     const float ry0 = lx * sr + ly * cr;
     const float ry = ry0 * cp - lz * sp;
     const float rz = ry0 * sp + lz * cp;
-    const float world_z = game.distance + PLAYER_Z;
-    const float yaw = path_heading(world_z);
     const float cy = fcos(yaw);
     const float sy = fsin(yaw);
     return (vec3_t){path_center(world_z) + game.player_x + rx * cy + rz * sy,
-                    game.player_y + ry, world_z - rx * sy + rz * cy};
+                    path_elevation(world_z) + game.player_y + ry,
+                    world_z - rx * sy + rz * cy};
 }
 
 static void draw_player_ship(const palette_t *palette) {
@@ -6521,11 +7724,44 @@ static void draw_player_ship(const palette_t *palette) {
     const float pitch = clampf(-game.player_vy * 0.007f, -0.30f, 0.30f);
     const float world_z = game.distance + PLAYER_Z;
     const vec3_t origin = {path_center(world_z) + game.player_x,
-                           game.player_y, world_z};
+                           path_elevation(world_z) + game.player_y,
+                           world_z};
     const color3_t hull = color_lerp((color3_t){0.98f,0.99f,1.0f},
                                      palette->river, 0.10f);
     draw_mesh_instance(&mesh_player, origin, path_heading(world_z), pitch, roll,
                        0.88f, hull, flashing);
+}
+
+static void draw_guardian_charge_nodes(const enemy_t *enemy,
+                                       const palette_t *palette,
+                                       float charge) {
+    const int biome = enemy->biome & 3;
+    const int count = guardian_shot_count(biome);
+    const float pulse = 1.0f + fsin(game.time * 18.0f) * 0.14f;
+    int node;
+
+    for(node = 0; node < count; ++node) {
+        float target_x;
+        float target_y;
+        float muzzle_x;
+        float muzzle_y;
+        vec3_t muzzle;
+        guardian_shot_offsets(biome, enemy->fired, node,
+                              &target_x, &target_y,
+                              &muzzle_x, &muzzle_y);
+        (void)target_x;
+        (void)target_y;
+        /* Exaggerate the authored muzzle formation during the charge so the
+           player can read horizontal, radial, vertical, or diagonal danger. */
+        muzzle = enemy_model_point(
+            enemy, muzzle_x * 1.34f, muzzle_y * 1.55f, 14.5f);
+        draw_absolute_textured_billboard(
+            &sprite_additive_headers[2], muzzle,
+            (6.2f + charge * 5.2f) * pulse,
+            (6.2f + charge * 5.2f) * pulse,
+            pack_color(0.28f + charge * 0.66f,
+                       node == 0 ? palette->accent : palette->enemy));
+    }
 }
 
 static void draw_enemy_glows(const palette_t *palette) {
@@ -6541,7 +7777,7 @@ static void draw_enemy_glows(const palette_t *palette) {
         glow_palette = enemy->type == 3 ?
             &palettes[enemy->biome & 3] : palette;
         engine = enemy_model_point(enemy, 0.0f, 0.0f, -6.0f);
-        if(!project_world(engine, &point))
+        if(!project_absolute_world(engine, &point))
             continue;
         size = clampf(point.z * (enemy->type == 3 ? 5200.0f : 2800.0f),
                       1.5f, enemy->type == 3 ? 25.0f :
@@ -6549,15 +7785,28 @@ static void draw_enemy_glows(const palette_t *palette) {
         draw_disc(&additive_header, point.x, point.y, size, point.z + 0.00001f, 8,
                   pack_color(0.75f, glow_palette->enemy),
                   pack_color(0.0f, glow_palette->accent));
-        if(enemy->fire_timer > 0.0f && enemy->fire_timer < 0.55f) {
-            const float charge = 1.0f - enemy->fire_timer / 0.55f;
-            const vec3_t muzzle = enemy_model_point(
-                enemy, 0.0f, 0.0f, enemy->type == 3 ? 15.0f : 8.0f);
-            draw_textured_billboard(&sprite_additive_headers[2], muzzle,
-                                    enemy->type == 3 ? 20.0f : 9.0f,
-                                    enemy->type == 3 ? 20.0f : 9.0f,
-                                    pack_color(0.30f + charge * 0.68f,
-                                               glow_palette->enemy));
+        {
+            const float charge_window = enemy->type == 3 ?
+                fminf(0.72f,
+                      guardian_profiles[enemy->biome & 3].fire_cadence * 0.72f) :
+                0.55f;
+            if(enemy->fire_timer > 0.0f &&
+               enemy->fire_timer < charge_window) {
+                const float charge = 1.0f -
+                                     enemy->fire_timer / charge_window;
+                if(enemy->type == 3)
+                    draw_guardian_charge_nodes(
+                        enemy, glow_palette, charge);
+                else {
+                    const vec3_t muzzle = enemy_model_point(
+                        enemy, 0.0f, 0.0f, 8.0f);
+                    draw_absolute_textured_billboard(
+                        &sprite_additive_headers[2], muzzle,
+                        9.0f, 9.0f,
+                        pack_color(0.30f + charge * 0.68f,
+                                   glow_palette->enemy));
+                }
+            }
         }
     }
 }
@@ -6572,9 +7821,9 @@ static void draw_player_glow(const palette_t *palette) {
         const vec3_t plume_tail = player_model_point(
             (float)side * 3.0f, -0.2f,
             game.speed > 145.0f ? -18.0f : -12.5f);
-        if(project_world(engine, &point)) {
+        if(project_absolute_world(engine, &point)) {
             const float pulse = 1.0f + fsin(game.time * 26.0f) * 0.12f;
-            if(project_world(plume_tail, &tail)) {
+            if(project_absolute_world(plume_tail, &tail)) {
                 const float outer_width = game.speed > 145.0f ? 10.0f : 6.5f;
                 draw_line(&additive_header, tail.x, tail.y, tail.z,
                           point.x, point.y, point.z, outer_width * pulse,
@@ -6632,6 +7881,8 @@ static void draw_alternative_traversal_opaque(const gate_t *gate,
         support_bases[biome], palette->river, 0.22f);
     const color3_t hazard = color_lerp(
         hazard_bases[biome], palette->enemy, 0.26f);
+    const color3_t guide_frame = color_lerp(
+        steel, (color3_t){0.54f,0.94f,1.0f}, 0.48f);
     int stage;
 
     for(stage = 0; stage < gate->stage_count; ++stage) {
@@ -6642,28 +7893,34 @@ static void draw_alternative_traversal_opaque(const gate_t *gate,
             continue;
 
         if(gate->kind == TRAVERSAL_SLALOM) {
-            const int safe_direction = traversal_stage_direction(gate, stage);
-            const float pylon_x = traversal_stage_x(gate, stage);
-            draw_material_box(pylon_x, 5.0f, stage_z,
-                              7.0f, 10.0f, 6.5f,
-                              hazard_texture, hazard);
-            draw_material_box(pylon_x, 15.0f, stage_z,
-                              3.4f, 72.0f, 3.8f,
-                              support_texture, steel);
-            draw_material_box(pylon_x, 43.0f, stage_z,
-                              5.1f, 3.0f, 5.2f,
-                              hazard_texture, hazard);
-            draw_material_box(pylon_x, 84.0f, stage_z,
-                              5.6f, 4.0f, 5.7f,
-                              hazard_texture, hazard);
-            draw_material_beam(stage_z,
-                pylon_x, 34.0f,
-                pylon_x + (float)safe_direction * 13.0f, 39.0f,
-                1.6f, 2.0f, support_texture, steel);
-            draw_material_beam(stage_z,
-                pylon_x, 68.0f,
-                pylon_x + (float)safe_direction * 13.0f, 63.0f,
-                1.6f, 2.0f, support_texture, steel);
+            int side;
+            /* Paired pylons visibly bracket the scoring corridor. They read as
+               one lateral navigation lane rather than an unexplained obstacle. */
+            for(side = -1; side <= 1; side += 2) {
+                const float pylon_x = traversal_lane_pylon_x(
+                    gate, stage, side);
+                draw_material_box(pylon_x, 5.0f, stage_z,
+                                  VECTOR_LANE_PYLON_HALF_WIDTH,
+                                  10.0f, 6.5f,
+                                  hazard_texture, hazard);
+                draw_material_box(pylon_x, 15.0f, stage_z,
+                                  3.0f, 72.0f, 3.8f,
+                                  support_texture, guide_frame);
+                draw_material_box(pylon_x, 43.0f, stage_z,
+                                  4.7f, 3.0f, 5.2f,
+                                  hazard_texture, hazard);
+                draw_material_box(pylon_x, 84.0f, stage_z,
+                                  5.2f, 4.0f, 5.7f,
+                                  hazard_texture, hazard);
+                draw_material_beam(stage_z,
+                    pylon_x, 35.0f,
+                    pylon_x - (float)side * 9.0f, 40.0f,
+                    1.5f, 2.0f, support_texture, guide_frame);
+                draw_material_beam(stage_z,
+                    pylon_x, 67.0f,
+                    pylon_x - (float)side * 9.0f, 62.0f,
+                    1.5f, 2.0f, support_texture, guide_frame);
+            }
         }
         else {
             const float bar_y = traversal_stage_y(gate, stage);
@@ -6794,31 +8051,53 @@ static void draw_alternative_traversal(const gate_t *gate,
 
         if(gate->kind == TRAVERSAL_SLALOM) {
             const int safe_direction = traversal_stage_direction(gate, stage);
-            const float pylon_x = traversal_stage_x(gate, stage);
-            const float tip_x =
-                (float)safe_direction * (gate->radius + 20.0f);
-            const float tail_x = tip_x - (float)safe_direction * 11.0f;
+            const float lane_x = traversal_stage_x(gate, stage);
+            const float lane_left = lane_x - gate->radius;
+            const float lane_right = lane_x + gate->radius;
+            const float center_x = path_center(stage_z);
+            const float tail_x = lane_x - (float)safe_direction * 12.0f;
+            const uint32_t curtain_edge = pack_color(gain * 0.035f, hazard);
+            const uint32_t curtain_hot = pack_color(gain * 0.18f, hazard);
+            int boundary;
             int arrow;
 
-            draw_world_energy_ribbon(stage_z, stage_z - 4.6f,
-                pylon_x, 12.0f, pylon_x, 94.0f, 1.15f,
-                pack_color(gain * 0.16f, hazard),
-                pack_color(gain * (0.62f + pulse * 0.28f), hazard));
+            /* Dim outer navigation fields leave one unmistakable cyan lane.
+               The paired rails, arrows and scoring bounds all share exactly
+               the same lane_x/radius values. */
+            draw_world_quad(&additive_header,
+                (vec3_t){center_x - 104.0f,12.0f,stage_z - 4.7f},
+                (vec3_t){center_x + lane_left,12.0f,stage_z - 4.7f},
+                (vec3_t){center_x - 104.0f,94.0f,stage_z - 4.7f},
+                (vec3_t){center_x + lane_left,94.0f,stage_z - 4.7f},
+                curtain_edge,curtain_edge,curtain_hot,curtain_hot);
+            draw_world_quad(&additive_header,
+                (vec3_t){center_x + lane_right,12.0f,stage_z - 4.7f},
+                (vec3_t){center_x + 104.0f,12.0f,stage_z - 4.7f},
+                (vec3_t){center_x + lane_right,94.0f,stage_z - 4.7f},
+                (vec3_t){center_x + 104.0f,94.0f,stage_z - 4.7f},
+                curtain_edge,curtain_edge,curtain_hot,curtain_hot);
+            for(boundary = -1; boundary <= 1; boundary += 2) {
+                const float rail_x = lane_x + (float)boundary * gate->radius;
+                draw_world_energy_ribbon(stage_z, stage_z - 5.0f,
+                    rail_x, 12.0f, rail_x, 94.0f, 1.25f,
+                    pack_color(gain * 0.28f, guide),
+                    pack_color(gain * (0.74f + pulse * 0.24f), guide));
+            }
             for(arrow = 0; arrow < 3; ++arrow) {
                 const float arrow_y = 31.0f + (float)arrow * 21.0f;
                 const uint32_t tail_color = pack_color(gain * 0.16f, guide);
                 const uint32_t tip_color = pack_color(
                     gain * (0.72f + pulse * 0.24f), guide);
                 draw_world_energy_ribbon(stage_z, stage_z - 5.0f,
-                    tail_x, arrow_y - 5.5f, tip_x, arrow_y,
+                    tail_x, arrow_y - 5.5f, lane_x, arrow_y,
                     0.90f, tail_color, tip_color);
                 draw_world_energy_ribbon(stage_z, stage_z - 5.0f,
-                    tail_x, arrow_y + 5.5f, tip_x, arrow_y,
+                    tail_x, arrow_y + 5.5f, lane_x, arrow_y,
                     0.90f, tail_color, tip_color);
             }
             draw_textured_billboard(
                 &sprite_additive_headers[2],
-                (vec3_t){path_center(stage_z) + tip_x, 52.0f,
+                (vec3_t){path_center(stage_z) + lane_x, 52.0f,
                          stage_z - 5.2f},
                 7.0f + pulse * 2.0f, 7.0f + pulse * 2.0f,
                 pack_color(gain * 0.86f, guide));
@@ -7192,6 +8471,9 @@ static void draw_projectile_pool(const projectile_t *pool, int count,
         float tail_time;
         vec3_t tail_world;
         float width;
+        const bool guardian_shot = hostile &&
+            (shot->hit_mask & GUARDIAN_SHOT_STYLE_FLAG);
+        const int guardian_style = (int)(shot->hit_mask & 3u);
 
         if(!shot->active || !project_absolute_world(head_world, &head))
             continue;
@@ -7238,9 +8520,27 @@ static void draw_projectile_pool(const projectile_t *pool, int count,
         }
 
         if(hostile) {
-            main_color = palette->enemy;
-            core_color = (color3_t){1.0f, 0.68f, 0.42f};
-            length = 11.0f;
+            if(guardian_shot) {
+                static const color3_t guardian_main[4] = {
+                    {0.12f,0.78f,1.00f}, {0.46f,1.00f,0.18f},
+                    {1.00f,0.16f,0.86f}, {1.00f,0.34f,0.05f}
+                };
+                static const color3_t guardian_core[4] = {
+                    {0.90f,1.00f,1.00f}, {0.96f,1.00f,0.64f},
+                    {0.72f,0.88f,1.00f}, {1.00f,0.92f,0.48f}
+                };
+                static const float guardian_length[4] = {
+                    15.0f,12.0f,18.0f,22.0f
+                };
+                main_color = guardian_main[guardian_style];
+                core_color = guardian_core[guardian_style];
+                length = guardian_length[guardian_style];
+            }
+            else {
+                main_color = palette->enemy;
+                core_color = (color3_t){1.0f, 0.68f, 0.42f};
+                length = 11.0f;
+            }
         }
         else if(shot->kind == SHOT_PLAYER_FAST) {
             main_color = (color3_t){0.05f, 0.88f, 1.0f};
@@ -7263,6 +8563,16 @@ static void draw_projectile_pool(const projectile_t *pool, int count,
         width = clampf(2.0f + head.z * 250.0f, 2.0f, hostile ? 8.0f : 6.0f);
         if(!hostile && shot->kind == SHOT_PLAYER_FAST)
             width *= 0.72f;
+        if(guardian_shot) {
+            const float pulse = 1.0f + fsin(shot->spin * 2.0f) * 0.16f;
+            width *= guardian_style == 1 ? 1.25f :
+                     (guardian_style == 2 ? 0.90f : 1.08f);
+            draw_absolute_textured_billboard(
+                &sprite_additive_headers[2], head_world,
+                (4.8f + (float)guardian_style * 0.45f) * pulse,
+                (4.8f + (float)guardian_style * 0.45f) * pulse,
+                pack_color(0.58f, main_color));
+        }
         draw_line(&additive_header, tail.x, tail.y, tail.z,
                   head.x, head.y, head.z, width * 2.8f,
                   pack_color(0.0f, main_color),
@@ -7548,14 +8858,17 @@ static void draw_game_hud(const palette_t *palette) {
     {
         enemy_t *guardian = active_guardian();
         if(guardian) {
+            const int guardian_biome = guardian->biome & 3;
+            const palette_t *guardian_palette = &palettes[guardian_biome];
             const float hit_feedback = smoothstepf(
                 guardian->hit_flash / 0.18f);
             const color3_t guardian_bar = color_lerp(
-                palette->enemy, (color3_t){1.0f,1.0f,0.72f},
+                guardian_palette->enemy, (color3_t){1.0f,1.0f,0.72f},
                 hit_feedback * 0.88f);
             draw_rect(&hud_header, 153.0f, 64.0f, 334.0f, 43.0f, 9.0f,
                       pack_color(0.58f, (color3_t){0.025f,0.004f,0.020f}));
-            draw_text_centered(70.0f, "BIOME GUARDIAN", 2,
+            draw_text_centered(70.0f,
+                               guardian_profiles[guardian_biome].name, 2,
                                guardian_bar, 0.96f);
             if(hit_feedback > 0.02f) {
                 draw_rect(&hud_header, 174.0f, 88.0f, 292.0f, 16.0f, 9.0f,
@@ -7673,19 +8986,51 @@ static void draw_title_overlay(const palette_t *palette, bool controller) {
               1.4f, cyan, transparent);
     draw_line(&hud_header, 459.0f, 329.0f, 9.0f, 545.0f, 329.0f, 9.0f,
               1.4f, transparent, magenta);
-    if(controller)
-        draw_text_centered(344.0f, "PRESS START", 3, palette->river, pulse);
-    else
+    if(!controller) {
         draw_text_centered(344.0f, "CONNECT CONTROLLER", 2,
                            (color3_t){1.0f, 0.55f, 0.24f}, pulse);
-    draw_text_centered(383.0f, "ANALOG OR DPAD TO FLY", 2,
-                       (color3_t){0.70f, 0.82f, 0.93f}, 0.86f);
-    draw_text_centered(405.0f, "A FIRE  B BOOST  X BRAKE  Y NOVA", 1,
-                       (color3_t){0.70f, 0.82f, 0.93f}, 0.86f);
-    draw_text_centered(421.0f, "L R BARREL ROLL   START PAUSE", 1,
-                       (color3_t){0.70f, 0.82f, 0.93f}, 0.86f);
-    draw_text_centered(439.0f, "B ON TITLE TO EXIT", 1,
-                       color_scale(palette->accent, 0.85f), 0.76f);
+        draw_text_centered(383.0f, "GAMEPAD OR KEYBOARD REQUIRED", 1,
+                           (color3_t){0.70f, 0.82f, 0.93f}, 0.86f);
+    }
+    else if(title_sound_test) {
+        char track_number[24];
+        draw_text_centered(340.0f, "SOUND TEST", 2,
+                           palette->river, 0.94f);
+        draw_text_centered(370.0f, soundtrack_defs[sound_test_track].name, 2,
+                           color_lerp(title_cyan, title_magenta, 0.52f), pulse);
+        snprintf(track_number, sizeof(track_number), "TRACK %02d / %02d",
+                 sound_test_track + 1, MUSIC_TRACK_COUNT);
+        draw_text_centered(399.0f, track_number, 1,
+                           (color3_t){0.78f, 0.88f, 0.97f}, 0.88f);
+        draw_text_centered(418.0f, "LEFT RIGHT SELECT AND PLAY", 1,
+                           (color3_t){0.70f, 0.82f, 0.93f}, 0.84f);
+        draw_text_centered(438.0f, "A RESTART   B RETURN", 1,
+                           color_scale(palette->accent, 0.92f), 0.84f);
+    }
+    else {
+        const color3_t idle = {0.70f, 0.82f, 0.93f};
+        draw_text_centered(340.0f,
+                           title_menu_item == TITLE_MENU_START ?
+                           "> START FLIGHT <" : "START FLIGHT",
+                           2, title_menu_item == TITLE_MENU_START ?
+                           palette->river : idle,
+                           title_menu_item == TITLE_MENU_START ? pulse : 0.80f);
+        draw_text_centered(372.0f,
+                           title_menu_item == TITLE_MENU_SOUND_TEST ?
+                           "> SOUND TEST <" : "SOUND TEST",
+                           2, title_menu_item == TITLE_MENU_SOUND_TEST ?
+                           palette->river : idle,
+                           title_menu_item == TITLE_MENU_SOUND_TEST ?
+                           pulse : 0.80f);
+        draw_text_centered(404.0f,
+                           title_menu_item == TITLE_MENU_EXIT ?
+                           "> EXIT <" : "EXIT",
+                           2, title_menu_item == TITLE_MENU_EXIT ?
+                           palette->river : idle,
+                           title_menu_item == TITLE_MENU_EXIT ? pulse : 0.80f);
+        draw_text_centered(437.0f, "DPAD SELECT   A OR START CONFIRM", 1,
+                           color_scale(palette->accent, 0.92f), 0.80f);
+    }
 }
 
 static void draw_pause_overlay(const palette_t *palette) {
@@ -7940,13 +9285,45 @@ int main(int argc, char **argv) {
     }
     enter_title();
 #ifdef GRAVITY_WAVE_AUTOTEST
+#ifdef GRAVITY_WAVE_AUTOTEST_SOUND_TEST
+    if(!run_title_sound_test_self_test()) {
+        shutdown_audio();
+        release_textures();
+        pvr_shutdown();
+        return 6;
+    }
+#endif
     reset_game();
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_SHUFFLE
+    if(!run_music_shuffle_self_test()) {
+        shutdown_audio();
+        release_textures();
+        pvr_shutdown();
+        return 5;
+    }
+#endif
+#ifdef GRAVITY_WAVE_AUTOTEST_COURSE_PROFILE
+    if(!run_course_profile_self_test()) {
+        shutdown_audio();
+        release_textures();
+        pvr_shutdown();
+        return 4;
+    }
+#endif
 #ifdef GRAVITY_WAVE_AUTOTEST_COMBAT_GEOMETRY
     if(!run_combat_geometry_self_test()) {
         shutdown_audio();
         release_textures();
         pvr_shutdown();
         return 2;
+    }
+#endif
+#ifdef GRAVITY_WAVE_AUTOTEST_BOSS_PROFILES
+    if(!run_guardian_profile_self_test()) {
+        shutdown_audio();
+        release_textures();
+        pvr_shutdown();
+        return 3;
     }
 #endif
 #ifndef GRAVITY_WAVE_AUTOTEST_DISTANCE
@@ -7957,16 +9334,13 @@ int main(int argc, char **argv) {
     game.last_palette_index = game.palette_index;
     game.music_chapter = course_chapter_at(game.distance);
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
-    game.music_route_offset = 0;
     game.music_chapter = 0;
     music_jukebox_complete = false;
     music_jukebox_failed = false;
     stop_music();
     play_music_section(0, 0, MUSIC_GAME_VOLUME);
 #else
-    start_music_track((game.music_route_offset + game.music_chapter) %
-                      MUSIC_TRACK_COUNT,
-                      MUSIC_GAME_VOLUME);
+    request_next_shuffled_music(MUSIC_GAME_VOLUME);
 #endif
     game.next_wave_z = next_course_wave_z(game.distance + 200.0f);
     game.next_gate_z = next_course_traversal_z(game.distance + 200.0f);
@@ -7984,9 +9358,10 @@ int main(int argc, char **argv) {
 #endif
     gates[0].direction = GRAVITY_WAVE_AUTOTEST_DIRECTION;
     gates[0].stage_count = 3;
-    gates[0].stage_spacing = 210.0f;
-    gates[0].radius = 14.0f;
-    printf("Gravity Wave autotest: three-stage Vector Slalom enabled.\n");
+    gates[0].stage_spacing = traversal_stage_spacing_for_kind(
+        TRAVERSAL_SLALOM);
+    gates[0].radius = 19.0f;
+    printf("Gravity Wave autotest: three-stage Vector Lane route enabled.\n");
 #elif defined(GRAVITY_WAVE_AUTOTEST_TRAVERSAL_SHEAR)
     gates[0].kind = TRAVERSAL_SHEAR_BARRIER;
 #ifndef GRAVITY_WAVE_AUTOTEST_DIRECTION
@@ -8021,6 +9396,14 @@ int main(int argc, char **argv) {
                "phase wave" : "fast laser");
     }
 #endif
+#ifdef GRAVITY_WAVE_AUTOTEST_SOUND_TEST_VIEW
+    enter_title();
+    title_menu_item = TITLE_MENU_SOUND_TEST;
+    title_sound_test = true;
+    sound_test_track = current_music_track >= 0 ? current_music_track : 0;
+    audition_music_track(sound_test_track);
+    game.time = 0.0f;
+#endif
 #ifdef GRAVITY_WAVE_AUTOTEST_BOSS
     game.wave = 7;
     game.next_wave_z = game.distance + 310.0f;
@@ -8047,10 +9430,10 @@ int main(int argc, char **argv) {
             const int stage = gate->stage < gate->stage_count ?
                               gate->stage : gate->stage_count - 1;
 #ifdef GRAVITY_WAVE_AUTOTEST_TRAVERSAL_COLLISION
-            const float target_x = traversal_stage_x(gate, stage);
+            const float target_x = traversal_stage_x(gate, stage) +
+                                   gate->radius + 1.0f;
 #else
-            const float target_x =
-                (float)traversal_stage_direction(gate, stage) * 28.0f;
+            const float target_x = traversal_stage_x(gate, stage);
 #endif
             input.x = clampf((target_x - game.player_x) * 0.10f,
                              -1.0f, 1.0f);

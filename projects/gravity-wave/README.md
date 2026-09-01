@@ -32,11 +32,13 @@ is also available.
   dithering, bilinear filtering, and transparent foliage, mist, rift, and fire art
 - A 90-triangle textured player fighter plus distinct interceptor, ace, bomber,
   and 112-triangle guardian meshes with per-face lighting and emissive materials
-- Recurring biome guardians with sustained movement, spread fire, a dedicated
-  boss HUD, Nova resistance, large destruction sequences, and guaranteed loot
+- Four named biome guardians with distinct composite silhouettes, movement
+  language, telegraphed attack geometry, cadence, damage, durability, dedicated
+  boss HUD identity, Nova resistance, destruction sequences, and guaranteed loot
 - Arcade flight physics with boost, brake, barrel rolls, anticipatory turn
   banking, terrain and structure collisions, shields, responsive FOV changes,
-  camera trauma, and three Nova Pulses per run
+  camera trauma, rigid crest/valley model transforms, and three Nova Pulses
+  per run
 - Three permanent laser levels plus magnetic Laser Core, Repair, Nova, Speed
   Boost, Fast Laser, and Phase Wave pickups dropped by defeated enemies
 - Straight world-space weapon rays that converge on the HUD reticle, predictive
@@ -44,16 +46,18 @@ is also available.
 - Biome-authored enemy formations, light/ace/heavy craft, escalating speed,
   and encounters paced around traversal recovery windows
 - Three mixed traversal challenges: animated Gravity Blooms with swept
-  mechanical petals, three-stage Vector Slaloms with alternating industrial
-  pylons, and two-stage Shear Runs that demand rapid over/under transitions
+  mechanical petals, three-stage Vector Lanes with alternating cyan channels
+  bracketed by industrial pylons, and two-stage Shear Runs that demand rapid
+  over/under transitions
 - Vector Crown environmental arches with tapered polygonal ribs, floating
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
-- Eight original stereo synthwave/synthpop songs with a randomized run opener
-  followed by a stable chapter-to-track progression, 162–178 BPM A/B/C
-  arrangements, sidechained chord pads, driven pulse and FM basses, stereo
-  arpeggios, eight lead voices, track-specific drum machines, clap transients,
-  tom fills, chord stabs, harmony lifts, and multi-tap ping-pong echo
+- Eight original stereo synthwave/synthpop songs sequenced through a no-repeat
+  shuffle bag, with a title-screen Sound Test, 162–178 BPM A/B/C arrangements,
+  sidechained chord pads, driven pulse and FM basses, stereo arpeggios,
+  sustained hooks, eight lead voices including a breathy reed patch,
+  track-specific drum machines, gated clap rooms, tom fills, chord stabs,
+  harmony lifts, and multi-tap ping-pong echo
 - Optional Jump Pack feedback for impacts, Nova Pulses, upgrades, and guardian
   destruction, with safe play when no vibration accessory is present
 - Hardware fog, a layered gradient sky, stars, striped sun, a subtle animated
@@ -75,9 +79,13 @@ is also available.
 | L or R trigger | F or V | Barrel roll with brief damage immunity |
 | Start | Return | Pause or resume |
 
-On the title screen, Start or A (Return or X on the keyboard) begins and B (C)
-exits. While paused, B (C) aborts the run and returns to the title. After a
-defeat, Start or A (Return or X) retries and B (C) returns to the title.
+On the title screen, use the D-pad (arrow keys) to choose **Start Flight**,
+**Sound Test**, or **Exit**, then confirm with Start or A (Return or X). Sound
+Test uses Left/Right to audition all eight songs immediately from their first
+section, A (X) to restart the selected song, and B (C) to return without
+accidentally beginning a run. While paused, B (C) aborts the run and returns to
+the title. After a defeat, Start or A (Return or X) retries and B (C) returns to
+the title.
 
 A controller is required on real Dreamcast hardware; Gravity Wave waits safely
 when one is missing and supports hot-plugging. On macOS, the launcher assigns
@@ -104,9 +112,16 @@ when the temporary weapon expires.
 
 ## Soundtrack
 
-The title screen identifies the active track. Each run chooses a different
-opening song, then biome changes advance predictably through the album so the
-score follows the course's dramatic progression:
+The title screen identifies the active track and includes a Sound Test for
+auditioning the full album. Automatic playback uses a shuffled eight-song bag:
+every song starts once before any can repeat, and the first song after a
+reshuffle can never match the previous one. Songs are committed only when AICA
+actually begins playback, so interrupted or replaced transition requests never
+silently consume a selection. Leaving Sound Test treats the auditioned song as
+the first heard entry of a fresh pass, then schedules the other seven. Each
+compact A/B/C arrangement advances after one complete statement, so the
+soundtrack's variety is apparent even during shorter runs; biome transitions
+may advance the score early to punctuate the new environment.
 
 - **Midnight Vector** — nocturnal outrun chase theme
 - **Magenta Circuit** — bright synthpop highway theme
@@ -117,10 +132,11 @@ score follows the course's dramatic progression:
 - **Chrome Devotion** — euphoric major-key synthpop anthem
 - **Redline Prophecy** — angular final-lap assault theme
 
-Every song is a six-bar miniature with three evolving arrangements: A establishes
-the groove, B develops its hook, and C adds maximum drums and harmony. The music
-engine launches each new downbeat on the exact eight-beat phrase boundary while
-the outgoing section carries a 47.6 ms decay tail across dual stereo AICA pairs.
+Every song is a six-bar arcade form with three evolving arrangements: A
+establishes its groove and signature voice, B develops the hook, and C adds
+maximum drums and harmony. The music engine launches each new downbeat on the
+exact eight-beat phrase boundary while the outgoing section carries a 47.6 ms
+decay tail across dual stereo AICA pairs.
 
 The score is authored by Gravity Wave's SH-4 synth, baked to 21.5 kHz native
 stereo AICA ADPCM, and linked directly into the ELF for immediate startup. Boot
@@ -239,11 +255,12 @@ follows the same authored flight line. Fired weapons capture their launch ray
 in world space, however, so shots remain straight as the course turns or climbs.
 Destroying enemies before the chain timer expires raises the multiplier. A
 Gravity Bloom's broken inner halo marks its exact scoring aperture; Vector
-Slalom arrows mark the safe side of each pylon, while Shear Run arrows call for
-an alternating climb or dive. Clean, boosted lines earn larger awards. Nova
-Pulses erase enemy fire and ordinary craft, but only damage a guardian, so
-saving charges for boss patterns is usually worthwhile. Weapon upgrades last
-for the current run; collecting a max-level Laser Core converts it into score.
+Lanes' paired cyan rails mark the exact lane center and dim red fields mark
+the space outside it, while Shear Run arrows call for an alternating climb or
+dive. Clean, boosted lines earn larger awards. Nova Pulses erase enemy fire and
+ordinary craft, but only damage a guardian, so saving charges for boss patterns
+is usually worthwhile. Weapon upgrades last for the current run; collecting a
+max-level Laser Core converts it into score.
 
 ## Verified with
 
@@ -255,9 +272,14 @@ for the current run; collecting a max-level Laser Core converts it into score.
 - Direct ELF boot, title screen, live gameplay, enemy/gate/pickup encounters,
   guardian defeat, all four biome render paths, transitions, embedded AICA audio,
   structure/terrain impacts, pause, retry, and game-over flow
-- All 24 music sections loaded with matching catalog/payload fingerprints,
-  352 KiB of AICA RAM free, and a deterministic 0A–7C jukebox cycle with every
-  handoff inside one 60 Hz frame of its exact phrase boundary
+- All 24 music sections loaded with matching catalog/payload fingerprints and
+  352 KiB of AICA RAM free; deterministic tests cover four complete no-repeat
+  shuffle bags, deferred transition commits, Sound Test selection/restart/
+  return and C-to-A looping, plus a 0A–7C phrase-boundary jukebox cycle
+- Authored-course diagnostics across all four biomes (route continuity,
+  lateral and vertical span, peak turn/grade, corridor relief, traversal
+  clearance and Prism Crucible collision), world-space combat geometry,
+  steep-grade rigid-model spans, and all four guardian profiles
 - 59.9–60.0 fps in dense guardian and neon-grid scenes at 640x480, with roughly
   9–12.5 ms PVR registration time and 288 KiB of resident texture data
 
