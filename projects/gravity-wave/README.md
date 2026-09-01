@@ -52,13 +52,12 @@ is also available.
 - Vector Crown environmental arches with tapered polygonal ribs, floating
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
-- Eight original stereo synthwave/synthpop songs sequenced through a no-repeat
-  shuffle bag, with a title-screen Sound Test, 48–53 second song-specific forms,
-  162–178 BPM arrangements, 24-PPQN melodic events with authored duration,
-  velocity, articulation and pitch bends, straight/triplet/dotted/3+3+2 rhythmic
-  identities, sidechained chord pads, driven pulse and FM basses, optional
-  eighth/triplet/sixteenth arpeggios, eight lead voices including a breathy reed
-  patch, track-specific drum machines, and per-song stereo delay signatures
+- Eight original continuous stereo synthwave/synthpop songs sequenced through
+  a no-repeat shuffle bag, with a title-screen Sound Test, individual 36-bar
+  forms at 116–148 BPM, and roughly 61–77 seconds of playable music and effects
+  per track; vocal-formant, clipped-pulse, breath-flute, motorik, FM-mallet,
+  hard-sync brass, chorus-guitar, and angular-siren identities sit over distinct
+  harmony, bass, drum, delay, reverb, fill, and dynamic treatments
 - Optional Jump Pack feedback for impacts, Nova Pulses, upgrades, and guardian
   destruction, with safe play when no vibration accessory is present
 - Hardware fog, a layered gradient sky, stars, striped sun, a subtle animated
@@ -83,10 +82,10 @@ is also available.
 On the title screen, use the D-pad (arrow keys) to choose **Start Flight**,
 **Sound Test**, or **Exit**, then confirm with Start or A (Return or X). Sound
 Test uses Left/Right to audition all eight songs immediately from their first
-intro, shows the live song part and form position, uses A (X) to restart the
-selected song, and B (C) to return without accidentally beginning a run. While
-paused, B (C) aborts the run and returns to the title. After a defeat, Start or
-A (Return or X) retries and B (C) returns to the title.
+intro, shows the live song part and two-bar form position, uses A (X) to restart
+the selected song, and B (C) to return without accidentally beginning a run.
+While paused, B (C) aborts the run and returns to the title. After a defeat,
+Start or A (Return or X) retries and B (C) returns to the title.
 
 A controller is required on real Dreamcast hardware; Gravity Wave waits safely
 when one is missing and supports hot-plugging. On macOS, the launcher assigns
@@ -116,48 +115,67 @@ when the temporary weapon expires.
 The title screen identifies the active track and includes a Sound Test for
 auditioning the full album. Automatic playback uses a shuffled eight-song bag:
 every song starts once before any can repeat, and the first song after a
-reshuffle can never match the previous one. Songs are committed only when AICA
-actually begins playback, so interrupted or replaced transition requests never
-silently consume a selection. Leaving Sound Test treats the auditioned song as
-the first heard entry of a fresh pass, then schedules the other seven. Each song
-now owns its full 36-bar form before the bag advances. Biome and mode changes
-can alter the score's mix level at the next phrase seam, but cannot chop a verse
-or chorus into another random song.
+reshuffle can never match the previous one. The bag advances when a new full
+track is started, so replaced transition requests do not consume selections.
+Leaving Sound Test treats the auditioned song as the first heard entry of a
+fresh pass, then schedules the other seven. Each song owns its complete 36-bar
+form, effects tail, fade, and short silence before the next handoff; biome and
+mode requests can change the title/game gain but never cut a verse or chorus
+into another song. Left/Right and A in Sound Test are deliberate immediate
+seeks. Normal loops and handoffs stop and restart the stream after the authored
+silence so the AICA ADPCM predictor begins every song from a known state.
 
-- **Midnight Vector** — sparse dotted attacks and a rising-fifth headlights hook
-- **Magenta Circuit** — sixteenth pickups and a short-short-long synthpop refrain
-- **Glass Horizon** — half-time breathy lines and a falling minor-sixth answer
-- **Static Heart** — clipped repeated-note stutters and minor-second voltage
-- **Afterimage Run** — dotted chromatic slides dissolving into true triplet runs
-- **Neon Afterburn** — wide octave sirens articulated in a 3+3+2 call-and-response
-- **Chrome Devotion** — rest-heavy major-key double arches and long suspensions
-- **Redline Prophecy** — downbeat-rest fourths, tritones and a late accelerating peak
+- **Midnight Vector** — dotted headlight calls, rising fifths, a vocal-formant
+  lead, poly-brass bed, rubber bass, and the album's prominent glass arpeggio
+- **Magenta Circuit** — clipped offbeat pulse hook, FM bass, phase-distortion
+  comp, and a compact electro form with a real drop and middle eight
+- **Glass Horizon** — broad 12/8 breath-flute phrases over electric piano,
+  fretless bass, restrained drums, and sparse FM-bell answers
+- **Static Heart** — a motorik pulse ostinato, picked bass, and ring-mod replies
+  in place of the album's usual headline lead
+- **Afterimage Run** — swung half-time toms, sliding sub bass, FM mallet, muted
+  brass, and a darker harmonic-minor/Phrygian palette
+- **Neon Afterburn** — 3+3+2 hard-sync brass calls, distorted picked bass, rock
+  drums, and an arena-sized final answer without a decorative arpeggio
+- **Chrome Devotion** — chorus-guitar lead, DX-style keys and vowel pad,
+  fingered bass, borrowed-chord color, and long major-key suspensions
+- **Redline Prophecy** — angular ring-mod siren, wavetable bass, broken metallic
+  drums, and an Aeolian/Phrygian drive that opens into a Lydian bridge
 
-Each composition has three authored two-bar studio phrases: A is sparse verse
-material, B creates tension for the pre-chorus and middle eight, and C owns the
-repeatable chorus hook and harmony lift. Notes are timed as independent 24-PPQN
-events rather than being forced into a shared eighth-note template, so every
-song can control its onset pattern, duration, accent, silence, slide, scoop,
-range and contour. Eight unique 36-bar macro-arrangements vary first-hook
-arrival, chorus weight, breakdown/bridge placement, final lift and dynamic arc.
-The music engine launches every downbeat on the exact eight-beat phrase boundary
-while the outgoing section carries a 47.6 ms decay tail across dual stereo AICA
-pairs.
+`tools/render_soundtrack.py` is the production score source. It deterministically
+renders each song as one continuous 21.5 kHz stereo PCM timeline: song-specific
+sections, harmony and voice-leading; independent verse, chorus, developed verse,
+bridge/solo, final, and outro phrases; track-specific synthesis and drum roles;
+and complete-bus delay, reverb, risers, fills, mastering, and energy automation.
+Releases and effects therefore cross formal boundaries naturally instead of
+being restarted from a small bank of two-bar clips. Every master contains 36
+authored bars, a 2.6-second effects/fade tail, and an aligned silent guard for
+stream read-ahead. The current album runs from about 61 to 77 playable seconds
+per song, including that tail.
 
-Boot-time composition QA validates every event and rejects duplicate chorus
-rhythms, duplicate contours, verse-to-chorus transpositions, or pairs exceeding
-the album's overlap ceilings: 65 percent at exact attacks, 60 percent on a
-sixteenth-note grid, 72 percent on an eighth-note grid, and 80 percent for the
-longest shared contour-direction sequence. That audit deliberately ignores
-synth patch and harmony color: the hooks must remain distinguishable as
-melodies, not merely as different production presets.
+`tools/analyze_soundtrack.py` checks the rendered manifest and WAVs for signal
+integrity, clipping, DC and high-frequency seam transients, silence gaps,
+loudness jumps, form development, repeated melody/harmony signatures, false
+variety, and track-level identity. `tools/build_music_album.py` then requires all
+eight titles in canonical order, verifies 36-bar timing and exact stereo PCM16
+frame metadata, confirms at least 65,408 frames of digital-zero guard, and
+encodes every complete WAV with one uninterrupted stereo Yamaha/AICA ADPCM
+history. Its versioned `GWAM` container stores per-track byte offsets, encoded
+lengths and playable lengths plus catalog and payload fingerprints.
 
-The score is authored by Gravity Wave's SH-4 synth, baked to 21.5 kHz native
-stereo AICA ADPCM, and linked directly into the ELF for immediate startup. Boot
-validation checks both the source-catalog fingerprint and the complete audio
-payload before loading all 24 sections; the retail sound-RAM layout retains
-roughly 352 KiB after music and effects. No streaming, disc access, or
-emulator-only audio feature is required.
+The checked album is approximately 11.84 MiB and is linked into the ELF, so
+playback needs no runtime filesystem or disc reads. It is streamed from the
+embedded image into a 65,408-byte stereo AICA ring (two 32,704-byte channel
+buffers) rather than loading the entire album into 2 MiB sound RAM; KOS also
+uses a 32,704-byte SH-4-side split buffer. Effects occupy their own small AICA
+allocations. At boot, Gravity Wave verifies the container version, track table,
+runtime catalog fingerprint, payload checksum, alignment, playable lengths,
+and read-ahead guards before enabling music; the current release reports about
+1.7 MiB of AICA RAM still free after the stream and effects are loaded. A failed
+check disables only the score and leaves the game responsive. The handoff clock
+follows the greater of simulation time and unclamped KOS elapsed time, so a slow
+emulator frame cannot let real-time AICA playback outrun the next-song
+transition.
 
 ## Build and verify
 
@@ -198,20 +216,56 @@ prompts.
 
 ## Rebuild the soundtrack asset
 
-The checked-in ADPCM album makes normal builds fast and independent of a host
-audio toolchain. After changing the soundtrack definitions or synth engine in
-`gravity-wave.c` (and bumping `MUSIC_SYNTH_REVISION` for engine changes),
-regenerate the exact Dreamcast-rendered payload with:
+The checked-in ADPCM album makes normal builds fast and independent of the host
+audio toolchain. After changing `tools/render_soundtrack.py`, the track catalog,
+form timing, album format, or streaming contract, regenerate it with:
 
 ```sh
 make music
 ```
 
-The bake target builds an instrumented ELF, runs all 24 sections through the
-SH-4 synth in Flycast's stable interpreter mode, verifies the manifest and byte
-counts, writes source and payload fingerprints into the linked asset, then
-restores a strict production build. Expect the one-time bake to take several
-minutes.
+This target performs the complete release pipeline:
+
+1. `render_soundtrack.py` renders all eight production PCM masters and a rich
+   `soundtrack_manifest.json` in a temporary directory using NumPy and SciPy.
+2. `analyze_soundtrack.py` runs the signal, form, melody, harmony, transition,
+   and identity audit; hard QA errors stop the bake.
+3. A strict catalog-only Dreamcast ELF boots briefly in Flycast interpreter
+   mode (`Dynarec.Enabled=no`) and emits the exact runtime catalog fingerprint.
+4. `build_music_album.py` validates the manifest and WAV contract, continuously
+   encodes each stereo song to interleaved AICA ADPCM, builds the versioned
+   album table and checksums, then atomically installs the generated asset.
+5. A final `-Wextra -Werror` production build confirms that the generated album
+   links cleanly; the normal boot-time checks then enforce catalog agreement.
+
+`uv`, Python 3, KallistiOS, and Flycast are required for this one-time bake.
+Temporary WAVs and reports are removed automatically; expect production
+rendering and analysis to take several minutes. The host renderer and runtime
+catalog deliberately mirror the eight-song order, tempos, and two-bar display
+cells. When changing tempo or form, keep `render_soundtrack.py`,
+`soundtrack_defs`, and `music_song_forms` synchronized, then run `make music`.
+For an incompatible `GWAM` change, bump `MUSIC_ALBUM_VERSION` and the packager's
+matching `ALBUM_VERSION`. Increment `MUSIC_SYNTH_REVISION` when the runtime
+catalog interpretation changes without otherwise changing its hashed fields.
+
+To render and inspect listening masters without replacing the checked asset:
+
+```sh
+uv run --with 'numpy==2.5.2' --with 'scipy==1.18.1' \
+  tools/render_soundtrack.py --output-dir /tmp/gravity-wave-soundtrack
+
+uv run --with 'numpy==2.5.2' --with 'scipy==1.18.1' \
+  tools/analyze_soundtrack.py \
+  /tmp/gravity-wave-soundtrack/soundtrack_manifest.json \
+  --json-output /tmp/gravity-wave-soundtrack/qa.json
+```
+
+The renderer also accepts `--track`, by album number, title, or slug, and a
+lower-cost `--quick` mode for iteration. `make music` always requests the full
+production album; quick renders are intended only for listening and QA. Pass
+`--strict` to the analyzer for an optional review that promotes all warnings to
+failures; the release bake uses the normal policy, where hard errors fail and
+warnings remain visible for judgment.
 
 ## Run in Flycast
 
@@ -286,11 +340,13 @@ max-level Laser Core converts it into score.
 - Direct ELF boot, title screen, live gameplay, enemy/gate/pickup encounters,
   guardian defeat, all four biome render paths, transitions, embedded AICA audio,
   structure/terrain impacts, pause, retry, and game-over flow
-- All 24 music sections loaded with matching catalog/payload fingerprints and
-  352 KiB of AICA RAM free; deterministic tests cover four complete no-repeat
-  shuffle bags, full-form validation, deferred outro-only transition commits,
-  Sound Test selection/restart/return and outro-to-intro looping, plus a
-  complete phrase-boundary album cycle
+- Version-1 `GWAM` album validation across eight aligned continuous streams,
+  matching runtime-catalog and payload fingerprints, rendered-tail metadata,
+  playable/guard frame bounds, a 65,408-byte stereo AICA ring, clean
+  predictor-reset handoffs, and frame-by-frame polling; deterministic tests
+  cover four complete no-repeat shuffle bags, full-form validation, deferred
+  outro-only transition commits, Sound Test selection/restart/return and
+  outro-to-intro looping, plus a complete eight-track album cycle
 - Authored-course diagnostics across all four biomes (route continuity,
   lateral and vertical span, peak turn/grade, corridor relief, traversal
   clearance and Prism Crucible collision), world-space combat geometry,

@@ -13,6 +13,7 @@
 #include <dc/pvr.h>
 #include <dc/sound/sfxmgr.h>
 #include <dc/sound/sound.h>
+#include <dc/sound/stream.h>
 #include <dc/video.h>
 
 #include <math.h>
@@ -82,10 +83,19 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define MUSIC_FORM_COUNT     8
 #define MUSIC_FORM_STEP_COUNT 18
 #define MUSIC_EDGE_SAMPLES   1024
-#define MUSIC_AICA_RESERVE   (256u * 1024u)
 #define MUSIC_SINE_TABLE_SIZE 2048
-#define MUSIC_ASSET_HEADER_BYTES 8u
-#define MUSIC_SYNTH_REVISION 0x26083104u
+#define MUSIC_ALBUM_MAGIC    0x4d415747u /* "GWAM", little endian. */
+#define MUSIC_ALBUM_VERSION  1u
+#define MUSIC_ALBUM_HEADER_BYTES 32u
+#define MUSIC_ALBUM_ENTRY_BYTES 16u
+#define MUSIC_ALBUM_DATA_OFFSET \
+    (MUSIC_ALBUM_HEADER_BYTES + \
+     MUSIC_TRACK_COUNT * MUSIC_ALBUM_ENTRY_BYTES)
+#define MUSIC_STREAM_BUFFER_BYTES SND_STREAM_BUFFER_MAX_ADPCM
+#define MUSIC_STREAM_GUARD_FRAMES 65408u
+#define MUSIC_ALBUM_END_FADE_FRAMES 6450u
+#define MUSIC_ALBUM_END_SILENCE_FRAMES 3225u
+#define MUSIC_SYNTH_REVISION 0x26090101u
 #define MUSIC_REST           (-127)
 #define MUSIC_TITLE_VOLUME   68
 #define MUSIC_GAME_VOLUME    84
@@ -357,6 +367,7 @@ typedef enum {
     MUSIC_PART_VERSE_TWO,
     MUSIC_PART_BREAKDOWN,
     MUSIC_PART_BRIDGE,
+    MUSIC_PART_SOLO,
     MUSIC_PART_BUILD,
     MUSIC_PART_FINAL_CHORUS,
     MUSIC_PART_OUTRO,
@@ -476,19 +487,18 @@ static const guardian_profile_t guardian_profiles[4] = {
 
 #define GUARDIAN_SHOT_STYLE_FLAG 0x100u
 
-/* Eight original synthwave/synthpop songs are authored by the synth below and
- * shipped as native AICA ADPCM. Each lead has an explicit rhythmic fingerprint
- * rather than inheriting a shared slot pattern: attack time, duration, accent,
- * articulation, bend, contour, range and cadence are all composed per song.
- * The compact events preserve the same retail sound-RAM footprint while 24
- * PPQN supports straight, dotted, triplet, pickup and 3+3+2 phrase languages. */
+/* Runtime catalog mirror for the eight host-rendered songs. Names, tempos and
+ * form timing drive the HUD, transition scheduler and embedded-album
+ * fingerprint. The detailed event data also keeps the legacy SH-4 diagnostic
+ * exporter available, while tools/render_soundtrack.py owns the audible
+ * production masters shipped in the GWAM asset. */
 #define MUSIC_EVENT(start, duration, note, velocity, articulation, bend) \
     {start, duration, note, velocity, articulation, bend}
 static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     {
         .name = "MIDNIGHT VECTOR",
-        .bpm = 164.0f,
-        .root_midi = 40, /* Verse Em-C, pre Am-B7, chorus Em-G. */
+        .bpm = 122.0f,
+        .root_midi = 40, /* E major with a brief Lydian #4 glow. */
         .chord_offsets = {0,-4,5,7,0,3},
         .chord_extensions = {10,11,10,10,10,14},
         .minor_mask = 0x15,
@@ -556,8 +566,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     },
     {
         .name = "MAGENTA CIRCUIT",
-        .bpm = 170.0f,
-        .root_midi = 42, /* Verse F#m-Bm, pre D-C#7, chorus F#m-A. */
+        .bpm = 138.0f,
+        .root_midi = 37, /* C# Dorian with a borrowed dominant. */
         .chord_offsets = {0,5,-4,7,0,3},
         .chord_extensions = {10,10,11,10,10,14},
         .minor_mask = 0x13,
@@ -641,8 +651,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     },
     {
         .name = "GLASS HORIZON",
-        .bpm = 162.0f,
-        .root_midi = 36, /* Verse Cm-Eb, pre Ab-G7, chorus Cm-Ab. */
+        .bpm = 116.0f,
+        .root_midi = 32, /* Ab major with parallel-minor plagal color. */
         .chord_offsets = {0,3,-4,7,0,-4},
         .chord_extensions = {14,11,11,10,14,11},
         .minor_mask = 0x11,
@@ -702,8 +712,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     },
     {
         .name = "STATIC HEART",
-        .bpm = 178.0f,
-        .root_midi = 45, /* Verse Am-G, pre F-E7, chorus Am-C. */
+        .bpm = 132.0f,
+        .root_midi = 42, /* F# Dorian over a motorik tonic pedal. */
         .chord_offsets = {0,-2,-4,7,0,3},
         .chord_extensions = {10,14,11,10,10,11},
         .minor_mask = 0x11,
@@ -805,8 +815,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     },
     {
         .name = "AFTERIMAGE RUN",
-        .bpm = 172.0f,
-        .root_midi = 38, /* Verse Dm-C, pre Gm-A7, chorus Dm-C. */
+        .bpm = 126.0f,
+        .root_midi = 38, /* D harmonic minor with Phrygian b2 color. */
         .chord_offsets = {0,-2,5,7,0,-2},
         .chord_extensions = {14,11,10,10,14,11},
         .minor_mask = 0x15,
@@ -885,8 +895,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     },
     {
         .name = "NEON AFTERBURN",
-        .bpm = 176.0f,
-        .root_midi = 43, /* Verse Gm-Bb, pre Eb-D7, chorus Gm-Cm. */
+        .bpm = 148.0f,
+        .root_midi = 43, /* G Mixolydian power-chord drive. */
         .chord_offsets = {0,3,-4,7,0,5},
         .chord_extensions = {10,10,11,10,10,11},
         .minor_mask = 0x31,
@@ -954,8 +964,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     },
     {
         .name = "CHROME DEVOTION",
-        .bpm = 166.0f,
-        .root_midi = 35, /* Verse B-F#, pre E-F#7, chorus B-E. */
+        .bpm = 120.0f,
+        .root_midi = 37, /* Db major with borrowed iv and bVII. */
         .chord_offsets = {0,7,5,7,0,5},
         .chord_extensions = {11,14,11,10,11,11},
         .minor_mask = 0x00,
@@ -1019,8 +1029,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     },
     {
         .name = "REDLINE PROPHECY",
-        .bpm = 174.0f,
-        .root_midi = 37, /* Verse C#m-B, pre A-G#7, chorus C#m-F#m. */
+        .bpm = 144.0f,
+        .root_midi = 35, /* B Aeolian/Phrygian with an F-Lydian bridge. */
         .chord_offsets = {0,-2,-4,7,0,5},
         .chord_extensions = {14,11,11,10,14,11},
         .minor_mask = 0x31,
@@ -1106,171 +1116,180 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
 static const music_form_step_t
 music_song_forms[MUSIC_FORM_COUNT][MUSIC_FORM_STEP_COUNT] = {
     {
-        {0, MUSIC_PART_INTRO,        -12},
-        {0, MUSIC_PART_VERSE_ONE,     -6},
-        {0, MUSIC_PART_VERSE_ONE,     -4},
-        {1, MUSIC_PART_PRE_CHORUS,    -2},
-        {2, MUSIC_PART_CHORUS,         1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {0, MUSIC_PART_VERSE_TWO,     -5},
-        {0, MUSIC_PART_VERSE_TWO,     -3},
-        {1, MUSIC_PART_PRE_CHORUS,    -1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {2, MUSIC_PART_CHORUS,         3},
-        {0, MUSIC_PART_BREAKDOWN,    -12},
-        {1, MUSIC_PART_BRIDGE,        -7},
-        {1, MUSIC_PART_BUILD,         -1},
-        {2, MUSIC_PART_FINAL_CHORUS,   3},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {0, MUSIC_PART_OUTRO,        -10}
+        /* Midnight Vector: four-bar opening and long first verse, then the
+           rhythm section drops out for a formant-lead bridge. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {1, MUSIC_PART_BRIDGE,         0},
+        {1, MUSIC_PART_BRIDGE,         0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0},
+        {0, MUSIC_PART_OUTRO,          0}
     },
     {
-        {0, MUSIC_PART_INTRO,        -10},
-        {0, MUSIC_PART_VERSE_ONE,     -5},
-        {0, MUSIC_PART_VERSE_ONE,     -4},
-        {1, MUSIC_PART_PRE_CHORUS,    -1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {2, MUSIC_PART_CHORUS,         2},
-        {0, MUSIC_PART_VERSE_TWO,     -4},
-        {0, MUSIC_PART_VERSE_TWO,     -3},
+        /* Magenta Circuit: cold hook, compact lift, post-chorus answer and a
+           real drop before its PWM-guitar middle eight. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
         {1, MUSIC_PART_PRE_CHORUS,     0},
-        {2, MUSIC_PART_CHORUS,         2},
-        {2, MUSIC_PART_CHORUS,         3},
-        {1, MUSIC_PART_BRIDGE,        -7},
-        {0, MUSIC_PART_BREAKDOWN,    -13},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_BREAKDOWN,      0},
+        {1, MUSIC_PART_SOLO,           0},
+        {1, MUSIC_PART_SOLO,           0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0}
+    },
+    {
+        /* Glass Horizon: broad 12/8 phrases with a dedicated breath-flute
+           feature between the developed verse and condensed final refrain. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {1, MUSIC_PART_SOLO,           0},
+        {1, MUSIC_PART_SOLO,           0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0},
+        {0, MUSIC_PART_OUTRO,          0}
+    },
+    {
+        /* Static Heart: motorik lock, sudden power cut, ring-mod dialogue and
+           a six-bar final refrain over the inverted ostinato. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_BREAKDOWN,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {1, MUSIC_PART_BRIDGE,         0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0},
+        {0, MUSIC_PART_OUTRO,          0}
+    },
+    {
+        /* Afterimage Run: the storm thins into an FM-mallet question before
+           its harmony and chorus identities recombine. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_BREAKDOWN,      0},
+        {1, MUSIC_PART_SOLO,           0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0},
+        {0, MUSIC_PART_OUTRO,          0}
+    },
+    {
+        /* Neon Afterburn: 3+3+2 calls, a drum-only rupture, hard-sync solo,
+           eight-bar final arena answer and abrupt kill switch. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_BREAKDOWN,      0},
+        {1, MUSIC_PART_SOLO,           0},
+        {1, MUSIC_PART_SOLO,           0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0}
+    },
+    {
+        /* Chrome Devotion: a slow-burn intro, eight-bar first verse and an
+           instrumental devotion bridge before the final guitar/vowel duet. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {1, MUSIC_PART_BRIDGE,         0},
+        {1, MUSIC_PART_BRIDGE,         0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0},
+        {0, MUSIC_PART_OUTRO,          0}
+    },
+    {
+        /* Redline Prophecy: half-time warning, void drop, true F-Lydian
+           bridge, accelerator and a truncated final verdict. */
+        {0, MUSIC_PART_INTRO,          0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {0, MUSIC_PART_VERSE_ONE,      0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {2, MUSIC_PART_CHORUS,         0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_VERSE_TWO,      0},
+        {0, MUSIC_PART_BREAKDOWN,      0},
+        {1, MUSIC_PART_BRIDGE,         0},
+        {1, MUSIC_PART_BRIDGE,         0},
         {1, MUSIC_PART_BUILD,          0},
-        {2, MUSIC_PART_FINAL_CHORUS,   3},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {2, MUSIC_PART_FINAL_CHORUS,   5},
-        {0, MUSIC_PART_OUTRO,         -9}
-    },
-    {
-        {0, MUSIC_PART_INTRO,        -13},
-        {0, MUSIC_PART_INTRO,        -10},
-        {0, MUSIC_PART_VERSE_ONE,     -6},
-        {0, MUSIC_PART_VERSE_ONE,     -5},
-        {1, MUSIC_PART_PRE_CHORUS,    -2},
-        {2, MUSIC_PART_CHORUS,         1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {0, MUSIC_PART_VERSE_TWO,     -5},
-        {0, MUSIC_PART_VERSE_TWO,     -4},
-        {1, MUSIC_PART_PRE_CHORUS,    -1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {2, MUSIC_PART_CHORUS,         3},
-        {1, MUSIC_PART_BRIDGE,        -8},
-        {1, MUSIC_PART_BUILD,         -2},
-        {0, MUSIC_PART_BREAKDOWN,    -13},
-        {2, MUSIC_PART_FINAL_CHORUS,   3},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {0, MUSIC_PART_OUTRO,        -11}
-    },
-    {
-        /* Static Heart: the floor drops out immediately after chorus one. */
-        {0, MUSIC_PART_INTRO,        -10},
-        {0, MUSIC_PART_VERSE_ONE,     -4},
-        {0, MUSIC_PART_VERSE_ONE,     -3},
-        {1, MUSIC_PART_PRE_CHORUS,     0},
-        {2, MUSIC_PART_CHORUS,         3},
-        {2, MUSIC_PART_CHORUS,         3},
-        {0, MUSIC_PART_BREAKDOWN,    -14},
-        {0, MUSIC_PART_VERSE_TWO,     -3},
-        {0, MUSIC_PART_VERSE_TWO,     -2},
-        {1, MUSIC_PART_PRE_CHORUS,     1},
-        {2, MUSIC_PART_CHORUS,         3},
-        {2, MUSIC_PART_CHORUS,         4},
-        {1, MUSIC_PART_BRIDGE,        -6},
-        {1, MUSIC_PART_BUILD,          1},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {2, MUSIC_PART_FINAL_CHORUS,   5},
-        {2, MUSIC_PART_FINAL_CHORUS,   5},
-        {0, MUSIC_PART_OUTRO,         -8}
-    },
-    {
-        /* Afterimage Run: a spectral bridge dissolves into silence before its
-           second verse, giving the cascade a genuinely different middle. */
-        {0, MUSIC_PART_INTRO,        -12},
-        {0, MUSIC_PART_VERSE_ONE,     -6},
-        {0, MUSIC_PART_VERSE_ONE,     -4},
-        {1, MUSIC_PART_PRE_CHORUS,    -1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {2, MUSIC_PART_CHORUS,         3},
-        {1, MUSIC_PART_BRIDGE,        -6},
-        {0, MUSIC_PART_BREAKDOWN,    -15},
-        {0, MUSIC_PART_VERSE_TWO,     -5},
-        {0, MUSIC_PART_VERSE_TWO,     -3},
-        {1, MUSIC_PART_PRE_CHORUS,     0},
-        {2, MUSIC_PART_CHORUS,         3},
-        {2, MUSIC_PART_CHORUS,         3},
-        {1, MUSIC_PART_BUILD,          1},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {2, MUSIC_PART_FINAL_CHORUS,   5},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {0, MUSIC_PART_OUTRO,        -12}
-    },
-    {
-        /* Neon Afterburn: the first hook runs for six bars before verse two. */
-        {0, MUSIC_PART_INTRO,         -9},
-        {0, MUSIC_PART_VERSE_ONE,     -4},
-        {0, MUSIC_PART_VERSE_ONE,     -2},
-        {1, MUSIC_PART_PRE_CHORUS,     0},
-        {2, MUSIC_PART_CHORUS,         3},
-        {2, MUSIC_PART_CHORUS,         4},
-        {2, MUSIC_PART_CHORUS,         3},
-        {0, MUSIC_PART_VERSE_TWO,     -4},
-        {0, MUSIC_PART_VERSE_TWO,     -2},
-        {1, MUSIC_PART_PRE_CHORUS,     1},
-        {2, MUSIC_PART_CHORUS,         4},
-        {0, MUSIC_PART_BREAKDOWN,    -13},
-        {1, MUSIC_PART_BRIDGE,        -5},
-        {1, MUSIC_PART_BUILD,          2},
-        {2, MUSIC_PART_FINAL_CHORUS,   5},
-        {2, MUSIC_PART_FINAL_CHORUS,   5},
-        {2, MUSIC_PART_FINAL_CHORUS,   6},
-        {0, MUSIC_PART_OUTRO,         -7}
-    },
-    {
-        /* Chrome Devotion: a four-bar cinematic intro and no synthetic build. */
-        {0, MUSIC_PART_INTRO,        -15},
-        {0, MUSIC_PART_INTRO,        -11},
-        {0, MUSIC_PART_VERSE_ONE,     -7},
-        {0, MUSIC_PART_VERSE_ONE,     -5},
-        {1, MUSIC_PART_PRE_CHORUS,    -2},
-        {2, MUSIC_PART_CHORUS,         1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {0, MUSIC_PART_VERSE_TWO,     -6},
-        {0, MUSIC_PART_VERSE_TWO,     -4},
-        {1, MUSIC_PART_PRE_CHORUS,    -1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {2, MUSIC_PART_CHORUS,         3},
-        {0, MUSIC_PART_BREAKDOWN,    -14},
-        {1, MUSIC_PART_BRIDGE,        -8},
-        {2, MUSIC_PART_FINAL_CHORUS,   3},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {0, MUSIC_PART_OUTRO,        -13}
-    },
-    {
-        /* Redline Prophecy: the bridge interrupts the first hook; its later
-           breakdown buys silence before the final acceleration. */
-        {0, MUSIC_PART_INTRO,        -11},
-        {0, MUSIC_PART_VERSE_ONE,     -5},
-        {0, MUSIC_PART_VERSE_ONE,     -3},
-        {1, MUSIC_PART_PRE_CHORUS,    -1},
-        {2, MUSIC_PART_CHORUS,         2},
-        {2, MUSIC_PART_CHORUS,         3},
-        {1, MUSIC_PART_BRIDGE,        -7},
-        {0, MUSIC_PART_VERSE_TWO,     -4},
-        {0, MUSIC_PART_VERSE_TWO,     -2},
-        {1, MUSIC_PART_PRE_CHORUS,     1},
-        {2, MUSIC_PART_CHORUS,         3},
-        {2, MUSIC_PART_CHORUS,         4},
-        {0, MUSIC_PART_BREAKDOWN,    -15},
-        {1, MUSIC_PART_BUILD,          2},
-        {2, MUSIC_PART_FINAL_CHORUS,   4},
-        {2, MUSIC_PART_FINAL_CHORUS,   5},
-        {2, MUSIC_PART_FINAL_CHORUS,   6},
-        {0, MUSIC_PART_OUTRO,         -9}
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {2, MUSIC_PART_FINAL_CHORUS,   0},
+        {0, MUSIC_PART_OUTRO,          0}
     }
 };
 
@@ -1280,7 +1299,7 @@ static const uint8_t music_track_form[MUSIC_TRACK_COUNT] = {
 
 static const char *music_part_names[MUSIC_PART_COUNT] = {
     "INTRO", "VERSE 1", "PRE-CHORUS", "CHORUS", "VERSE 2",
-    "BREAKDOWN", "BRIDGE", "BUILD", "FINAL CHORUS", "OUTRO"
+    "BREAKDOWN", "BRIDGE", "SOLO", "BUILD", "FINAL CHORUS", "OUTRO"
 };
 
 /* Ten authored route beats sit inside each six-district biome chapter. The
@@ -1424,16 +1443,21 @@ static sfxhnd_t sfx_hit = SFXHND_INVALID;
 static sfxhnd_t sfx_gate = SFXHND_INVALID;
 extern const uint8_t gravity_wave_music_assets[];
 extern const uint8_t gravity_wave_music_assets_end[];
-static sfxhnd_t music_sections[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
-static float music_section_duration[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
-static uint16_t music_section_samples[MUSIC_TRACK_COUNT][MUSIC_SECTION_COUNT];
+static snd_stream_hnd_t music_stream = SND_STREAM_INVALID;
+static const uint8_t *music_album_payload;
+static uint32_t music_track_stream_offset[MUSIC_TRACK_COUNT];
+static uint32_t music_track_stream_bytes[MUSIC_TRACK_COUNT];
+static uint32_t music_track_playable_frames[MUSIC_TRACK_COUNT];
+static size_t music_stream_cursor;
+static size_t music_stream_limit;
+static float music_track_time;
+static uint64_t music_last_update_us;
+static bool music_stream_source_exhausted;
+static bool music_stream_error_reported;
 static uint32_t music_random_state = 0xa17ca55eu;
 static int music_shuffle_bag[MUSIC_TRACK_COUNT];
 static int music_shuffle_cursor = MUSIC_TRACK_COUNT;
 static int laser_channel = -1;
-static int music_left_channels[2] = {-1, -1};
-static int music_right_channels[2] = {-1, -1};
-static int active_music_bank;
 static int current_music_track = -1;
 static int current_music_section;
 static int current_music_form_step;
@@ -1442,8 +1466,6 @@ static int current_music_base_volume;
 static int pending_music_track = -1;
 static int pending_music_volume;
 static bool pending_music_shuffle;
-static float music_section_time;
-static bool music_playhead_armed;
 static bool audio_ready;
 static bool music_ready;
 static float music_sine_table[MUSIC_SINE_TABLE_SIZE];
@@ -3028,7 +3050,7 @@ static bool music_phrase_is_transposition(const music_lead_phrase_t *a,
  * alone miss melodies that differ by a tiny off-grid nudge, so the audit also
  * compares attack histograms at listener-sized sixteenth/eighth grids and the
  * longest common contour-direction sequence. */
-static bool music_melodic_identity_valid(void) {
+static bool __attribute__((unused)) music_melodic_identity_valid(void) {
     uint32_t rhythm_hashes[MUSIC_TRACK_COUNT];
     uint32_t contour_hashes[MUSIC_TRACK_COUNT];
     int maximum_exact_overlap = 0;
@@ -3128,15 +3150,6 @@ static bool music_melodic_identity_valid(void) {
     return valid;
 }
 
-static size_t music_catalog_bytes_required(void) {
-    size_t total = 0;
-    int track;
-    for(track = 0; track < MUSIC_TRACK_COUNT; ++track)
-        total += (size_t)music_track_section_samples(&soundtrack_defs[track]) *
-                 MUSIC_SECTION_COUNT;
-    return total;
-}
-
 static uint32_t music_hash_bytes(uint32_t hash, const void *data,
                                  size_t length) {
     const uint8_t *bytes = (const uint8_t *)data;
@@ -3156,9 +3169,17 @@ static uint32_t music_catalog_fingerprint(void) {
         MUSIC_SECTION_COUNT,
         MUSIC_SAMPLE_RATE,
         MUSIC_BARS,
-        MUSIC_EDGE_SAMPLES
+        MUSIC_EDGE_SAMPLES,
+        MUSIC_FORM_COUNT,
+        MUSIC_FORM_STEP_COUNT,
+        MUSIC_ALBUM_VERSION,
+        MUSIC_ALBUM_END_FADE_FRAMES,
+        MUSIC_ALBUM_END_SILENCE_FRAMES,
+        MUSIC_STREAM_GUARD_FRAMES
     };
     int track;
+    int profile;
+    int step;
 
     hash = music_hash_bytes(hash, format, sizeof(format));
     for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
@@ -3171,19 +3192,120 @@ static uint32_t music_catalog_fingerprint(void) {
         hash = music_hash_bytes(hash, musical_data,
                                 (size_t)(definition_end - musical_data));
     }
+    for(profile = 0; profile < MUSIC_FORM_COUNT; ++profile) {
+        for(step = 0; step < MUSIC_FORM_STEP_COUNT; ++step) {
+            const music_form_step_t *entry =
+                &music_song_forms[profile][step];
+            const uint8_t form_data[] = {
+                entry->section,
+                entry->part,
+                (uint8_t)entry->volume_delta
+            };
+            hash = music_hash_bytes(hash, form_data, sizeof(form_data));
+        }
+    }
+    hash = music_hash_bytes(hash, music_track_form,
+                            sizeof(music_track_form));
     return hash;
 }
 
-static sfxhnd_t load_embedded_music(const uint8_t *data,
-                                    const soundtrack_t *track,
-                                    float *duration_out) {
-    const int samples = music_track_section_samples(track);
-    if(!music_track_layout_valid(track))
-        return SFXHND_INVALID;
-    if(duration_out)
-        *duration_out = (float)samples / (float)MUSIC_SAMPLE_RATE;
-    return snd_sfx_load_raw_buf((char *)data, (size_t)samples,
-                                MUSIC_SAMPLE_RATE, 4, 2);
+static uint16_t music_read_u16_le(const uint8_t *data) {
+    return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+}
+
+static uint32_t music_read_u32_le(const uint8_t *data) {
+    return (uint32_t)data[0] |
+           ((uint32_t)data[1] << 8) |
+           ((uint32_t)data[2] << 16) |
+           ((uint32_t)data[3] << 24);
+}
+
+static bool load_embedded_music_album(void) {
+    const size_t embedded_bytes =
+        (size_t)((uintptr_t)gravity_wave_music_assets_end -
+                 (uintptr_t)gravity_wave_music_assets);
+    const uint8_t *asset = gravity_wave_music_assets;
+    const uint32_t expected_catalog = music_catalog_fingerprint();
+    uint32_t payload_bytes;
+    uint32_t embedded_catalog;
+    uint32_t embedded_payload_hash;
+    uint32_t calculated_payload_hash;
+    uint32_t expected_offset = 0;
+    int track;
+
+    if(embedded_bytes < MUSIC_ALBUM_DATA_OFFSET ||
+       music_read_u32_le(asset) != MUSIC_ALBUM_MAGIC ||
+       music_read_u16_le(asset + 4) != MUSIC_ALBUM_VERSION ||
+       music_read_u16_le(asset + 6) != MUSIC_TRACK_COUNT ||
+       music_read_u32_le(asset + 8) != MUSIC_SAMPLE_RATE ||
+       music_read_u32_le(asset + 12) != MUSIC_ALBUM_DATA_OFFSET) {
+        printf("Gravity Wave music: embedded album header/version invalid.\n");
+        return false;
+    }
+    embedded_catalog = music_read_u32_le(asset + 16);
+    embedded_payload_hash = music_read_u32_le(asset + 20);
+    payload_bytes = music_read_u32_le(asset + 24);
+    if(music_read_u32_le(asset + 28) != 0u ||
+       embedded_catalog != expected_catalog ||
+       payload_bytes > embedded_bytes - MUSIC_ALBUM_DATA_OFFSET ||
+       embedded_bytes != (size_t)MUSIC_ALBUM_DATA_OFFSET + payload_bytes) {
+        printf("Gravity Wave music: embedded album catalog/size invalid "
+               "(%08lx/%08lx, %lu bytes).\n",
+               (unsigned long)embedded_catalog,
+               (unsigned long)expected_catalog,
+               (unsigned long)embedded_bytes);
+        return false;
+    }
+    calculated_payload_hash = music_hash_bytes(
+        2166136261u, asset + MUSIC_ALBUM_DATA_OFFSET, payload_bytes);
+    if(embedded_payload_hash != calculated_payload_hash) {
+        printf("Gravity Wave music: embedded album payload checksum "
+               "failed (%08lx/%08lx).\n",
+               (unsigned long)embedded_payload_hash,
+               (unsigned long)calculated_payload_hash);
+        return false;
+    }
+    for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
+        const uint8_t *entry = asset + MUSIC_ALBUM_HEADER_BYTES +
+            (size_t)track * MUSIC_ALBUM_ENTRY_BYTES;
+        const uint32_t offset = music_read_u32_le(entry);
+        const uint32_t stream_bytes = music_read_u32_le(entry + 4);
+        const uint32_t playable_frames = music_read_u32_le(entry + 8);
+        const uint32_t reserved = music_read_u32_le(entry + 12);
+        const uint32_t minimum_song_frames =
+            (uint32_t)music_track_phrase_samples(&soundtrack_defs[track]) *
+            MUSIC_FORM_STEP_COUNT;
+        if(offset != expected_offset || (offset & 31u) != 0u ||
+           stream_bytes == 0u || (stream_bytes & 31u) != 0u ||
+           playable_frames < minimum_song_frames ||
+           playable_frames > stream_bytes ||
+           stream_bytes - playable_frames < MUSIC_STREAM_GUARD_FRAMES ||
+           offset > payload_bytes ||
+           stream_bytes > payload_bytes - offset || reserved != 0u) {
+            printf("Gravity Wave music: invalid album entry %d "
+                   "(off=%lu bytes=%lu play=%lu).\n",
+                   track, (unsigned long)offset,
+                   (unsigned long)stream_bytes,
+                   (unsigned long)playable_frames);
+            return false;
+        }
+        music_track_stream_offset[track] = offset;
+        music_track_stream_bytes[track] = stream_bytes;
+        music_track_playable_frames[track] = playable_frames;
+        expected_offset += stream_bytes;
+    }
+    if(expected_offset != payload_bytes) {
+        printf("Gravity Wave music: album table does not cover payload.\n");
+        return false;
+    }
+    music_album_payload = asset + MUSIC_ALBUM_DATA_OFFSET;
+    printf("Gravity Wave music: verified v%u streaming album, %lu KiB, "
+           "catalog %08lx, payload %08lx.\n",
+           (unsigned int)MUSIC_ALBUM_VERSION,
+           (unsigned long)((embedded_bytes + 1023u) / 1024u),
+           (unsigned long)embedded_catalog,
+           (unsigned long)embedded_payload_hash);
+    return true;
 }
 
 static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
@@ -3692,6 +3814,64 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     return handle;
 }
 
+static const music_form_step_t *music_form_step_at(int track, int step);
+
+static bool music_export_mode(void) {
+#if defined(GRAVITY_WAVE_EXPORT_MUSIC_HEX) || \
+    defined(GRAVITY_WAVE_EXPORT_MUSIC_CATALOG_ONLY)
+    return true;
+#else
+    return false;
+#endif
+}
+
+/* Catalog bridge for the host-side album baker. Production builds request only
+ * the runtime fingerprint and render each complete song on the host. The full
+ * A/B/C export remains available as a compatibility path for older tooling;
+ * either route writes the same versioned album container consumed below. */
+static bool export_generated_music_catalog(void) {
+    bool complete = true;
+    int track;
+    int step;
+    int section;
+
+    printf("GW_MUSIC_FINGERPRINT %08lx\n",
+           (unsigned long)music_catalog_fingerprint());
+    printf("GW_MUSIC_FORMAT %u %u %u %u %u %u %u\n",
+           (unsigned int)MUSIC_ALBUM_VERSION,
+           (unsigned int)MUSIC_SAMPLE_RATE,
+           (unsigned int)MUSIC_EDGE_SAMPLES,
+           (unsigned int)MUSIC_FORM_STEP_COUNT,
+           (unsigned int)MUSIC_ALBUM_END_FADE_FRAMES,
+           (unsigned int)MUSIC_ALBUM_END_SILENCE_FRAMES,
+           (unsigned int)MUSIC_STREAM_GUARD_FRAMES);
+#ifdef GRAVITY_WAVE_EXPORT_MUSIC_CATALOG_ONLY
+    return true;
+#endif
+    for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
+        for(step = 0; step < MUSIC_FORM_STEP_COUNT; ++step) {
+            const music_form_step_t *entry =
+                music_form_step_at(track, step);
+            printf("GW_MUSIC_FORM %d %d %u %d\n",
+                   track, step, (unsigned int)entry->section,
+                   (int)entry->volume_delta);
+        }
+    }
+    init_music_sine_table();
+    for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
+        for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
+            float duration = 0.0f;
+            sfxhnd_t handle = load_generated_music(
+                &soundtrack_defs[track], section, &duration);
+            if(handle == SFXHND_INVALID)
+                complete = false;
+            else
+                snd_sfx_unload(handle);
+        }
+    }
+    return complete;
+}
+
 static void refill_music_shuffle_bag(int avoid) {
     int i;
 
@@ -3830,16 +4010,6 @@ static const char *music_form_part_name(int track, int step) {
     return music_part_names[form_step->part];
 }
 
-static int music_form_volume(int track, int step, int base_volume) {
-    const music_form_step_t *form_step = music_form_step_at(track, step);
-    int volume = base_volume + form_step->volume_delta;
-    if(volume < 0)
-        volume = 0;
-    if(volume > 255)
-        volume = 255;
-    return volume;
-}
-
 static bool music_form_layout_valid(void) {
     int profile;
     int track;
@@ -3850,7 +4020,9 @@ static bool music_form_layout_valid(void) {
         int chorus_count = 0;
         int final_chorus_count = 0;
         int bridge_count = 0;
+        int solo_count = 0;
         int breakdown_count = 0;
+        int build_count = 0;
         int step;
 
         if(music_song_forms[profile][0].part != MUSIC_PART_INTRO ||
@@ -3873,6 +4045,7 @@ static bool music_form_layout_valid(void) {
                     break;
                 case MUSIC_PART_PRE_CHORUS:
                 case MUSIC_PART_BRIDGE:
+                case MUSIC_PART_SOLO:
                 case MUSIC_PART_BUILD:
                     expected_section = 1;
                     break;
@@ -3894,12 +4067,16 @@ static bool music_form_layout_valid(void) {
                 final_chorus_count++;
             if(entry->part == MUSIC_PART_BRIDGE)
                 bridge_count++;
+            if(entry->part == MUSIC_PART_SOLO)
+                solo_count++;
             if(entry->part == MUSIC_PART_BREAKDOWN)
                 breakdown_count++;
+            if(entry->part == MUSIC_PART_BUILD)
+                build_count++;
         }
-        if(verse_count < 4 || pre_count < 2 || chorus_count < 6 ||
-           final_chorus_count < 2 || bridge_count < 1 ||
-           breakdown_count < 1)
+        if(verse_count < 3 || pre_count < 1 || chorus_count < 4 ||
+           final_chorus_count < 2 ||
+           bridge_count + solo_count + breakdown_count + build_count < 1)
             return false;
     }
     for(profile = 0; profile < MUSIC_FORM_COUNT; ++profile) {
@@ -3928,13 +4105,8 @@ static bool music_form_layout_valid(void) {
 }
 
 static void stop_music(void) {
-    int bank;
-    for(bank = 0; bank < 2; ++bank) {
-        if(music_left_channels[bank] >= 0)
-            snd_sfx_stop(music_left_channels[bank]);
-        if(music_right_channels[bank] >= 0)
-            snd_sfx_stop(music_right_channels[bank]);
-    }
+    if(music_stream != SND_STREAM_INVALID)
+        snd_stream_stop(music_stream);
     current_music_track = -1;
     current_music_section = 0;
     current_music_form_step = 0;
@@ -3943,80 +4115,88 @@ static void stop_music(void) {
     pending_music_track = -1;
     pending_music_volume = 0;
     pending_music_shuffle = false;
-    music_section_time = 0.0f;
-    music_playhead_armed = false;
+    music_track_time = 0.0f;
+    music_last_update_us = 0;
+    music_stream_cursor = 0;
+    music_stream_limit = 0;
+    music_stream_source_exhausted = false;
+    music_stream_error_reported = false;
 }
 
-static bool play_music_section(int track, int section, int volume) {
-    sfx_play_data_t playback = {0};
+static void *music_stream_callback(snd_stream_hnd_t handle,
+                                   int bytes_requested,
+                                   int *bytes_received) {
+    const uint8_t *source;
+    size_t remaining;
+    size_t count;
+
+    if(bytes_received)
+        *bytes_received = 0;
+    if(handle != music_stream || !music_album_payload ||
+       current_music_track < 0 || bytes_requested <= 0 ||
+       music_stream_cursor >= music_stream_limit) {
+        music_stream_source_exhausted = true;
+        return NULL;
+    }
+    remaining = music_stream_limit - music_stream_cursor;
+    count = (size_t)bytes_requested < remaining ?
+            (size_t)bytes_requested : remaining;
+    source = music_album_payload +
+             music_track_stream_offset[current_music_track] +
+             music_stream_cursor;
+    music_stream_cursor += count;
+    if(count < (size_t)bytes_requested)
+        music_stream_source_exhausted = true;
+    if(bytes_received)
+        *bytes_received = (int)count;
+    return (void *)source;
+}
+
+static bool play_music_track_now(int track, int base_volume) {
     const int previous_track = current_music_track;
-    const int next_bank = current_music_track < 0 ? 0 : 1 - active_music_bank;
+    const music_form_step_t *intro;
 
     if(!audio_ready || !music_ready ||
        track < 0 || track >= MUSIC_TRACK_COUNT ||
-       music_left_channels[next_bank] < 0 ||
-       music_right_channels[next_bank] != music_left_channels[next_bank] + 1)
+       music_stream == SND_STREAM_INVALID || !music_album_payload ||
+       music_track_stream_bytes[track] == 0u)
         return false;
-    if(section < 0 || section >= MUSIC_SECTION_COUNT)
-        section = 0;
-    if(music_sections[track][section] == SFXHND_INVALID)
-        section = 0;
-    if(music_sections[track][section] == SFXHND_INVALID)
-        return false;
-    /* The inactive bank has been silent for almost an entire section. Start
-     * the new phrase there while the active bank plays its baked fade-out. */
-    snd_sfx_stop(music_left_channels[next_bank]);
-    snd_sfx_stop(music_right_channels[next_bank]);
-    playback.chn = music_left_channels[next_bank];
-    playback.idx = music_sections[track][section];
-    playback.vol = volume;
-    playback.pan = 128;
-    playback.loop = 0;
-    playback.freq = MUSIC_SAMPLE_RATE;
-    if(snd_sfx_play_ex(&playback) >= 0) {
-        current_music_track = track;
-        current_music_section = section;
-        current_music_volume = volume;
-        active_music_bank = next_bank;
-        music_section_time = 0.0f;
-        music_playhead_armed = false;
-        if(previous_track != track) {
-            printf("Gravity Wave music: now playing %s.\n",
-                   soundtrack_defs[track].name);
-        }
-#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
-        printf("Gravity Wave music test: track=%d section=%c bank=%d "
-               "samples=%u duration=%.3f.\n",
-               track, 'A' + section, active_music_bank,
-               (unsigned int)music_section_samples[track][section],
-               (double)music_section_duration[track][section]);
-#endif
-        return true;
-    }
-    return false;
-}
-
-static bool play_music_form_step(int track, int form_step, int base_volume) {
-    const music_form_step_t *entry = music_form_step_at(track, form_step);
-    const int volume = music_form_volume(track, form_step, base_volume);
-    if(!play_music_section(track, entry->section, volume))
-        return false;
-    current_music_form_step = form_step;
+    snd_stream_stop(music_stream);
+    current_music_track = track;
+    current_music_form_step = 0;
+    intro = music_form_step_at(track, 0);
+    current_music_section = intro->section;
     current_music_base_volume = base_volume;
+    current_music_volume = base_volume;
+    music_track_time = 0.0f;
+    music_last_update_us = timer_us_gettime64();
+    music_stream_cursor = 0;
+    music_stream_limit = music_track_stream_bytes[track];
+    music_stream_source_exhausted = false;
+    music_stream_error_reported = false;
+    snd_stream_start_adpcm(music_stream, MUSIC_SAMPLE_RATE, 1);
+    snd_stream_volume(music_stream, current_music_volume);
+    if(previous_track != track) {
+        printf("Gravity Wave music: now streaming %s (%lu playable frames, "
+               "%lu encoded bytes).\n",
+               soundtrack_defs[track].name,
+               (unsigned long)music_track_playable_frames[track],
+               (unsigned long)music_track_stream_bytes[track]);
+    }
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
-    printf("Gravity Wave music test: track=%d form=%02d/%02d section=%c "
-           "part=%s volume=%d.\n",
-           track, form_step + 1, MUSIC_FORM_STEP_COUNT,
-           'A' + entry->section, music_form_part_name(track, form_step),
-           volume);
+    printf("Gravity Wave music test: track=%d form=01/%02d section=%c "
+           "part=%s volume=%d stream=%lu/play=%lu.\n",
+           track, MUSIC_FORM_STEP_COUNT, 'A' + current_music_section,
+           music_form_part_name(track, 0), current_music_volume,
+           (unsigned long)music_track_stream_bytes[track],
+           (unsigned long)music_track_playable_frames[track]);
 #endif
     return true;
 }
 
 static void start_music_track(int track, int volume) {
     if(!audio_ready || !music_ready ||
-       track < 0 || track >= MUSIC_TRACK_COUNT ||
-       music_sections[track][0] == SFXHND_INVALID)
+       track < 0 || track >= MUSIC_TRACK_COUNT)
         return;
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
     /* The deterministic album test owns sequencing after its explicit 0A
@@ -4025,7 +4205,7 @@ static void start_music_track(int track, int volume) {
         return;
 #endif
     if(current_music_track < 0) {
-        if(play_music_form_step(track, 0, volume)) {
+        if(play_music_track_now(track, volume)) {
             pending_music_track = -1;
             pending_music_shuffle = false;
         }
@@ -4037,6 +4217,16 @@ static void start_music_track(int track, int volume) {
         pending_music_shuffle = false;
         return;
     }
+    if(current_music_track == track) {
+        /* Mode changes only alter the stream gain; restarting an ADPCM song
+         * mid-buffer would throw away its continuous predictor history. */
+        current_music_base_volume = volume;
+        current_music_volume = volume;
+        snd_stream_volume(music_stream, current_music_volume);
+        pending_music_track = -1;
+        pending_music_shuffle = false;
+        return;
+    }
     pending_music_track = track;
     pending_music_volume = volume;
     pending_music_shuffle = false;
@@ -4044,7 +4234,7 @@ static void start_music_track(int track, int volume) {
 
 static bool play_next_shuffled_music(int volume) {
     const int track = peek_random_music_track(current_music_track);
-    if(!play_music_form_step(track, 0, volume))
+    if(!play_music_track_now(track, volume))
         return false;
     pending_music_track = -1;
     pending_music_shuffle = false;
@@ -4072,22 +4262,20 @@ static void request_next_shuffled_music(int volume) {
 }
 
 static void audition_music_track(int track) {
-    /* Normal score changes wait for the phrase boundary. Sound Test is a
-       deliberate seek operation, so make it immediate and restart section A
-       without leaving the previous section playing underneath it. */
+    /* Normal score changes wait for the song's authored outro. Sound Test is
+       a deliberate seek, so reset the stream and ADPCM predictor immediately. */
     stop_music();
     start_music_track(track, MUSIC_TITLE_VOLUME);
 }
 
 static void update_music(float dt) {
-    float duration;
-    uint16_t sample_count;
-    uint16_t playhead = 0;
-    uint16_t transition_sample;
-    bool channel_playing = false;
-    bool clears_pending_request = false;
+    const soundtrack_t *track_definition;
+    const uint64_t now_us = timer_us_gettime64();
+    float elapsed_audio_time = 0.0f;
+    float phrase_duration;
+    float playable_duration;
+    int form_step;
     int next_track;
-    int next_form_step;
     int next_base_volume;
     bool commits_shuffle = false;
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
@@ -4096,108 +4284,105 @@ static void update_music(float dt) {
 
     if(current_music_track < 0)
         return;
-    duration = music_section_duration[current_music_track]
-                                     [current_music_section];
-    sample_count = music_section_samples[current_music_track]
-                                          [current_music_section];
-    if(duration <= 0.0f || sample_count == 0)
+    if(music_last_update_us != 0 && now_us >= music_last_update_us)
+        elapsed_audio_time = (float)(now_us - music_last_update_us) *
+                             0.000001f;
+    music_last_update_us = now_us;
+    /* The AICA advances in real time even when a slow emulator frame forces
+     * gameplay's dt through its 50 ms stability clamp. Follow whichever clock
+     * moved farther so stream polling and end-of-song handoffs cannot lag
+     * behind playback. Keeping dt as the floor also preserves deterministic
+     * accelerated tests and fixed-step builds. */
+    if(elapsed_audio_time > dt)
+        dt = elapsed_audio_time;
+    track_definition = &soundtrack_defs[current_music_track];
+    phrase_duration = (float)music_track_phrase_samples(track_definition) /
+                      (float)MUSIC_SAMPLE_RATE;
+    playable_duration =
+        (float)music_track_playable_frames[current_music_track] /
+        (float)MUSIC_SAMPLE_RATE;
+    if(phrase_duration <= 0.0f || playable_duration <= 0.0f)
         return;
-    music_section_time += dt;
-    if(music_left_channels[active_music_bank] >= 0) {
-        playhead = snd_get_pos(
-            (unsigned int)music_left_channels[active_music_bank]);
-        channel_playing = snd_is_playing(
-            (unsigned int)music_left_channels[active_music_bank]);
+    music_track_time += dt;
+    form_step = (int)(music_track_time / phrase_duration);
+    if(form_step >= MUSIC_FORM_STEP_COUNT)
+        form_step = MUSIC_FORM_STEP_COUNT - 1;
+    if(form_step > current_music_form_step) {
+        if(pending_music_shuffle &&
+           current_music_base_volume != pending_music_volume) {
+            current_music_base_volume = pending_music_volume;
+            current_music_volume = pending_music_volume;
+            snd_stream_volume(music_stream, current_music_volume);
+        }
+        current_music_form_step = form_step;
+        current_music_section =
+            music_form_step_at(current_music_track, form_step)->section;
+#ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
+        if(music_jukebox_active)
+            printf("Gravity Wave music test: track=%d form=%02d/%02d "
+                   "section=%c part=%s volume=%d.\n",
+                   current_music_track, form_step + 1,
+                   MUSIC_FORM_STEP_COUNT, 'A' + current_music_section,
+                   music_form_part_name(current_music_track, form_step),
+                   current_music_volume);
+#endif
     }
-    transition_sample = sample_count > MUSIC_EDGE_SAMPLES ?
-        (uint16_t)(sample_count - MUSIC_EDGE_SAMPLES) : sample_count / 2;
-    if(channel_playing && playhead < transition_sample)
-        music_playhead_armed = true;
-    if(music_playhead_armed) {
-        if(channel_playing && playhead < transition_sample)
-            return;
-        if(!channel_playing && music_section_time < duration)
-            return;
-    }
-    else if(music_section_time < duration) {
+    if(music_track_time < playable_duration) {
+        if(snd_stream_poll(music_stream) < 0 &&
+           !music_stream_error_reported) {
+            printf("Gravity Wave music: stream poll failed%s at %lu/%lu "
+                   "bytes.\n",
+                   music_stream_source_exhausted ?
+                       " after source exhaustion" : "",
+                   (unsigned long)music_stream_cursor,
+                   (unsigned long)music_stream_limit);
+            music_stream_error_reported = true;
+        }
         return;
     }
 
+    next_base_volume = pending_music_shuffle ?
+                       pending_music_volume : current_music_base_volume;
     if(pending_music_track >= 0) {
         next_track = pending_music_track;
-        next_form_step = 0;
         next_base_volume = pending_music_volume;
-        clears_pending_request = true;
     }
-    else if(current_music_form_step >= MUSIC_FORM_STEP_COUNT - 1) {
-        next_form_step = 0;
-        next_base_volume = pending_music_shuffle ?
-                           pending_music_volume :
-                           current_music_base_volume;
-        if(game.mode == MODE_TITLE && title_sound_test) {
-            /* Sound Test is a true audition deck: all 36 bars play in order,
-               then the selected song returns to its intro. */
-            next_track = sound_test_track;
-        }
+    else if(game.mode == MODE_TITLE && title_sound_test) {
+        /* The baked track includes its short authored fade and silence. Stop
+         * and restart here so the AICA predictor cannot leak across loops. */
+        next_track = sound_test_track;
+    }
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
-        else if(music_jukebox_active) {
-            next_track = (current_music_track + 1) % MUSIC_TRACK_COUNT;
-            completes_jukebox =
-                current_music_track == MUSIC_TRACK_COUNT - 1 &&
-                next_track == 0;
-        }
-#endif
-        else {
-            /* A song owns its complete verse/chorus form. Biome and mode
-               requests can update the mix volume immediately at a phrase
-               seam, but the next shuffle entry is not consumed until the
-               outro has actually handed off to a new intro. */
-            next_track = peek_random_music_track(current_music_track);
-            commits_shuffle = true;
-            clears_pending_request = pending_music_shuffle;
-        }
+    else if(music_jukebox_active) {
+        next_track = (current_music_track + 1) % MUSIC_TRACK_COUNT;
+        completes_jukebox = current_music_track == MUSIC_TRACK_COUNT - 1 &&
+                            next_track == 0;
     }
+#endif
     else {
-        next_track = current_music_track;
-        next_form_step = current_music_form_step + 1;
-        next_base_volume = pending_music_shuffle ?
-                           pending_music_volume :
-                           current_music_base_volume;
+        next_track = peek_random_music_track(current_music_track);
+        commits_shuffle = true;
     }
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
     if(music_jukebox_active) {
-        const int expected_track =
-            current_music_form_step == MUSIC_FORM_STEP_COUNT - 1 ?
-            (current_music_track + 1) % MUSIC_TRACK_COUNT :
-            current_music_track;
-        const int expected_form_step =
-            current_music_form_step == MUSIC_FORM_STEP_COUNT - 1 ? 0 :
-            current_music_form_step + 1;
-        const int next_section =
-            music_form_step_at(next_track, next_form_step)->section;
-        const bool sequence_ok = next_track == expected_track &&
-                                 next_form_step == expected_form_step;
-        printf("Gravity Wave music test transition: %d:%02d%c -> "
-               "%d:%02d%c "
-               "playhead=%u target=%u time=%.3f playing=%d armed=%d %s.\n",
-               current_music_track, current_music_form_step + 1,
-               'A' + current_music_section,
-               next_track, next_form_step + 1, 'A' + next_section,
-               (unsigned int)playhead, (unsigned int)transition_sample,
-               (double)music_section_time, channel_playing,
-               music_playhead_armed,
+        const bool sequence_ok =
+            next_track == (current_music_track + 1) % MUSIC_TRACK_COUNT;
+        printf("Gravity Wave music test transition: %d:OUTRO -> %d:INTRO "
+               "time=%.3f/%.3f cursor=%lu/%lu %s.\n",
+               current_music_track, next_track,
+               (double)music_track_time, (double)playable_duration,
+               (unsigned long)music_stream_cursor,
+               (unsigned long)music_stream_limit,
                sequence_ok ? "OK" : "BAD_SEQUENCE");
         if(!sequence_ok)
             music_jukebox_failed = true;
     }
 #endif
-    if(play_music_form_step(next_track, next_form_step, next_base_volume)) {
+    if(play_music_track_now(next_track, next_base_volume)) {
         if(commits_shuffle)
             commit_random_music_track(next_track);
-        if(clears_pending_request) {
-            pending_music_track = -1;
-            pending_music_shuffle = false;
-        }
+        pending_music_track = -1;
+        pending_music_shuffle = false;
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
         if(completes_jukebox)
             music_jukebox_complete = true;
@@ -4206,207 +4391,80 @@ static void update_music(float dt) {
 }
 
 static void init_audio(void) {
-    int loaded_sections = 0;
-    bool channel_pairs_ok = true;
-    bool catalog_budget_ok;
-    bool catalog_layout_ok = true;
     const bool form_layout_ok = music_form_layout_valid();
-    bool melodic_identity_ok = false;
-    bool embedded_catalog_ok;
-    size_t catalog_bytes;
-    size_t embedded_bytes;
-    size_t embedded_offset = 0;
-    uint32_t aica_available;
-    int i, section, bank;
+    bool embedded_catalog_ok = false;
+    bool export_complete = false;
 
     audio_ready = false;
     music_ready = false;
     laser_channel = -1;
-    for(bank = 0; bank < 2; ++bank) {
-        music_left_channels[bank] = -1;
-        music_right_channels[bank] = -1;
-    }
-    active_music_bank = 0;
+    music_stream = SND_STREAM_INVALID;
+    music_album_payload = NULL;
+    memset(music_track_stream_offset, 0,
+           sizeof(music_track_stream_offset));
+    memset(music_track_stream_bytes, 0,
+           sizeof(music_track_stream_bytes));
+    memset(music_track_playable_frames, 0,
+           sizeof(music_track_playable_frames));
     current_music_track = -1;
     current_music_form_step = 0;
     current_music_base_volume = 0;
     pending_music_track = -1;
     pending_music_shuffle = false;
-    music_section_time = 0.0f;
-    music_playhead_armed = false;
-    for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
-        for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
-            music_sections[i][section] = SFXHND_INVALID;
-            music_section_duration[i][section] = 0.0f;
-            music_section_samples[i][section] = 0;
-        }
-        if(!music_track_layout_valid(&soundtrack_defs[i]))
-            catalog_layout_ok = false;
-    }
-    if(catalog_layout_ok)
-        melodic_identity_ok = music_melodic_identity_valid();
-
-    if(snd_init() < 0) {
-        printf("Gravity Wave: AICA initialization failed; continuing silently.\n");
+    music_track_time = 0.0f;
+    music_last_update_us = 0;
+    music_stream_cursor = 0;
+    music_stream_limit = 0;
+    music_stream_source_exhausted = false;
+    music_stream_error_reported = false;
+    if(snd_stream_init_ex(2, MUSIC_STREAM_BUFFER_BYTES) < 0) {
+        printf("Gravity Wave: AICA stream initialization failed; "
+               "continuing silently.\n");
         return;
     }
     audio_ready = true;
 
     laser_channel = snd_sfx_chn_alloc();
-    for(bank = 0; bank < 2; ++bank) {
-        music_left_channels[bank] = snd_sfx_chn_alloc();
-        music_right_channels[bank] = snd_sfx_chn_alloc();
-        if(music_left_channels[bank] < 0 ||
-           music_right_channels[bank] != music_left_channels[bank] + 1)
-            channel_pairs_ok = false;
-    }
-    if(!channel_pairs_ok) {
-        for(bank = 0; bank < 2; ++bank) {
-            if(music_left_channels[bank] >= 0)
-                snd_sfx_chn_free(music_left_channels[bank]);
-            if(music_right_channels[bank] >= 0)
-                snd_sfx_chn_free(music_right_channels[bank]);
-            music_left_channels[bank] = -1;
-            music_right_channels[bank] = -1;
-        }
-        printf("Gravity Wave: no paired AICA channels for music.\n");
-    }
-
     sfx_laser = load_generated_sound(0, 880.0f, 0.11f);
     sfx_fast_laser = load_generated_sound(0, 1480.0f, 0.055f);
     sfx_phase_wave = load_generated_sound(4, 235.0f, 0.22f);
     sfx_explosion = load_generated_sound(1, 95.0f, 0.42f);
     sfx_hit = load_generated_sound(2, 180.0f, 0.18f);
     sfx_gate = load_generated_sound(3, 520.0f, 0.34f);
-    catalog_bytes = music_catalog_bytes_required();
-    embedded_bytes = (size_t)((uintptr_t)gravity_wave_music_assets_end -
-                              (uintptr_t)gravity_wave_music_assets);
-    {
-        const uint32_t expected_fingerprint = music_catalog_fingerprint();
-        const bool embedded_size_ok =
-            embedded_bytes == catalog_bytes + MUSIC_ASSET_HEADER_BYTES;
-        const uint32_t embedded_fingerprint = embedded_size_ok ?
-            (uint32_t)gravity_wave_music_assets[0] |
-            ((uint32_t)gravity_wave_music_assets[1] << 8) |
-            ((uint32_t)gravity_wave_music_assets[2] << 16) |
-            ((uint32_t)gravity_wave_music_assets[3] << 24) : 0u;
-        const uint32_t embedded_payload_fingerprint = embedded_size_ok ?
-            (uint32_t)gravity_wave_music_assets[4] |
-            ((uint32_t)gravity_wave_music_assets[5] << 8) |
-            ((uint32_t)gravity_wave_music_assets[6] << 16) |
-            ((uint32_t)gravity_wave_music_assets[7] << 24) : 0u;
-        const uint32_t calculated_payload_fingerprint = embedded_size_ok ?
-            music_hash_bytes(2166136261u,
-                             gravity_wave_music_assets +
-                             MUSIC_ASSET_HEADER_BYTES,
-                             catalog_bytes) : 0u;
-        embedded_catalog_ok =
-            embedded_size_ok &&
-            embedded_fingerprint == expected_fingerprint &&
-            embedded_payload_fingerprint == calculated_payload_fingerprint;
-        printf("Gravity Wave music: catalog fingerprint %08lx "
-               "(embedded %08lx), payload %08lx/%08lx.\n",
-               (unsigned long)expected_fingerprint,
-               (unsigned long)embedded_fingerprint,
-               (unsigned long)embedded_payload_fingerprint,
-               (unsigned long)calculated_payload_fingerprint);
-#ifdef GRAVITY_WAVE_EXPORT_MUSIC_HEX
-        printf("GW_MUSIC_FINGERPRINT %08lx\n",
-               (unsigned long)expected_fingerprint);
-#endif
-    }
-#ifdef GRAVITY_WAVE_EXPORT_MUSIC_HEX
-    embedded_catalog_ok = false;
-#endif
-    aica_available = snd_mem_available();
-    catalog_budget_ok = catalog_bytes + MUSIC_AICA_RESERVE <=
-                        (size_t)aica_available;
-    printf("Gravity Wave music: album budget %lu KiB + %lu KiB reserve "
-           "inside %lu KiB available.\n",
-           (unsigned long)((catalog_bytes + 1023u) / 1024u),
-           (unsigned long)(MUSIC_AICA_RESERVE / 1024u),
-           (unsigned long)(aica_available / 1024u));
-    printf("Gravity Wave music: %s album image (%lu/%lu KiB).\n",
-           embedded_catalog_ok ? "verified embedded" : "runtime fallback",
-           (unsigned long)((embedded_bytes + 1023u) / 1024u),
-           (unsigned long)((catalog_bytes + 1023u) / 1024u));
     printf("Gravity Wave music: full-song forms %s "
            "(%d profiles, %d phrases / 36 bars).\n",
            form_layout_ok ? "verified" : "INVALID",
            MUSIC_FORM_COUNT, MUSIC_FORM_STEP_COUNT);
-    if(!embedded_catalog_ok)
-        init_music_sine_table();
-    if(channel_pairs_ok && catalog_budget_ok && catalog_layout_ok &&
-       form_layout_ok && melodic_identity_ok) {
-        if(embedded_catalog_ok)
-            embedded_offset = MUSIC_ASSET_HEADER_BYTES;
-        for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
-            for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
-                const int samples = music_track_section_samples(
-                    &soundtrack_defs[i]);
-                if(embedded_catalog_ok) {
-                    music_sections[i][section] = load_embedded_music(
-                        gravity_wave_music_assets + embedded_offset,
-                        &soundtrack_defs[i],
-                        &music_section_duration[i][section]);
-                    embedded_offset += (size_t)samples;
-                }
-                else {
-                    music_sections[i][section] = load_generated_music(
-                        &soundtrack_defs[i], section,
-                        &music_section_duration[i][section]);
-                }
-                if(music_sections[i][section] != SFXHND_INVALID) {
-                    music_section_samples[i][section] = (uint16_t)(
-                        music_section_duration[i][section] *
-                        (float)MUSIC_SAMPLE_RATE + 0.5f);
-                    loaded_sections++;
-                }
-            }
-            if(embedded_catalog_ok)
-                printf("Gravity Wave music: loaded %s A/B/C (%d KiB).\n",
-                       soundtrack_defs[i].name,
-                       (music_track_section_samples(&soundtrack_defs[i]) *
-                        MUSIC_SECTION_COUNT + 1023) / 1024);
-        }
-    }
-    else if(!catalog_budget_ok)
-        printf("Gravity Wave music: retail AICA safety budget exceeded.\n");
-    else if(!catalog_layout_ok)
-        printf("Gravity Wave music: invalid AICA section layout.\n");
-    else if(!form_layout_ok)
+    if(!form_layout_ok)
         printf("Gravity Wave music: invalid full-song form layout.\n");
-    else if(!melodic_identity_ok)
-        printf("Gravity Wave music: melodic identity audit failed.\n");
-
-    if(loaded_sections == MUSIC_TRACK_COUNT * MUSIC_SECTION_COUNT &&
-       channel_pairs_ok)
-        music_ready = true;
     else {
-        for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
-            for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
-                if(music_sections[i][section] != SFXHND_INVALID) {
-                    snd_sfx_unload(music_sections[i][section]);
-                    music_sections[i][section] = SFXHND_INVALID;
-                    music_section_duration[i][section] = 0.0f;
-                    music_section_samples[i][section] = 0;
-                }
+        if(music_export_mode()) {
+            export_complete = export_generated_music_catalog();
+            printf("Gravity Wave music: catalog export %s; runtime score "
+                   "disabled for bake.\n",
+                   export_complete ? "complete" : "FAILED");
+        }
+        else {
+            embedded_catalog_ok = load_embedded_music_album();
+            if(embedded_catalog_ok) {
+                music_stream = snd_stream_alloc(
+                    music_stream_callback, MUSIC_STREAM_BUFFER_BYTES);
+                if(music_stream != SND_STREAM_INVALID)
+                    music_ready = true;
+                else
+                    printf("Gravity Wave music: stream allocation failed.\n");
             }
         }
-        printf("Gravity Wave music: catalog or channels incomplete; "
-               "music disabled safely.\n");
     }
+    if(!music_ready && !music_export_mode())
+        printf("Gravity Wave music: album or stream unavailable; "
+               "music disabled safely.\n");
 
-    printf("Gravity Wave audio: laser=%lu rapid=%lu phase=%lu "
-           "explosion=%lu gate=%lu, "
-           "%d/%d music sections, channels=%d/%d+%d/%d, "
-           "%lu KiB AICA RAM free.\n",
+    printf("Gravity Wave audio: laser=%lu rapid=%lu phase=%lu explosion=%lu "
+           "gate=%lu, stream=%d, %lu KiB AICA RAM free.\n",
            (unsigned long)sfx_laser, (unsigned long)sfx_fast_laser,
            (unsigned long)sfx_phase_wave, (unsigned long)sfx_explosion,
-           (unsigned long)sfx_gate, loaded_sections,
-           MUSIC_TRACK_COUNT * MUSIC_SECTION_COUNT,
-           music_left_channels[0], music_right_channels[0],
-           music_left_channels[1], music_right_channels[1],
+           (unsigned long)sfx_gate, music_stream,
            (unsigned long)(snd_mem_available() / 1024u));
 }
 
@@ -4453,28 +4511,24 @@ static void play_rumble(int power) {
 }
 
 static void shutdown_audio(void) {
-    int bank;
     if(!audio_ready)
         return;
     stop_music();
+    if(music_stream != SND_STREAM_INVALID) {
+        snd_stream_destroy(music_stream);
+        music_stream = SND_STREAM_INVALID;
+    }
     if(laser_channel >= 0) {
         snd_sfx_stop(laser_channel);
         snd_sfx_chn_free(laser_channel);
         laser_channel = -1;
     }
-    for(bank = 0; bank < 2; ++bank) {
-        if(music_left_channels[bank] >= 0) {
-            snd_sfx_chn_free(music_left_channels[bank]);
-            music_left_channels[bank] = -1;
-        }
-        if(music_right_channels[bank] >= 0) {
-            snd_sfx_chn_free(music_right_channels[bank]);
-            music_right_channels[bank] = -1;
-        }
-    }
     snd_sfx_unload_all();
+    snd_stream_shutdown();
     snd_shutdown();
     audio_ready = false;
+    music_ready = false;
+    music_album_payload = NULL;
 }
 
 static float terrain_row_z(int row) {
@@ -8432,37 +8486,28 @@ static bool update_game(const input_t *input, float dt) {
 
 #ifdef GRAVITY_WAVE_AUTOTEST_SOUND_TEST
 static bool force_music_phrase_boundary_for_test(input_t *input) {
-    const int stopped_bank = active_music_bank;
-    int stopped_left;
-    int stopped_right;
-    bool running;
+    const float phrase_duration = current_music_track >= 0 ?
+        (float)music_track_phrase_samples(
+            &soundtrack_defs[current_music_track]) /
+        (float)MUSIC_SAMPLE_RATE : 0.0f;
 
     if(!input || current_music_track < 0 ||
        current_music_track >= MUSIC_TRACK_COUNT ||
        current_music_section < 0 ||
        current_music_section >= MUSIC_SECTION_COUNT ||
-       stopped_bank < 0 || stopped_bank >= 2)
+       phrase_duration <= 0.0f)
         return false;
-    stopped_left = music_left_channels[stopped_bank];
-    stopped_right = music_right_channels[stopped_bank];
-    if(stopped_left < 0 || stopped_right != stopped_left + 1)
-        return false;
-    music_section_time =
-        music_section_duration[current_music_track][current_music_section] +
-        0.25f;
-    music_playhead_armed = false;
-    snd_sfx_stop(stopped_left);
-    snd_sfx_stop(stopped_right);
-    /* AICA stop commands are asynchronous. Temporarily detach the stopped
-       bank so the deterministic test exercises the boundary immediately
-       instead of depending on one emulator audio-service tick. */
-    music_left_channels[stopped_bank] = -1;
-    music_right_channels[stopped_bank] = -1;
+    if(current_music_form_step >= MUSIC_FORM_STEP_COUNT - 1) {
+        music_track_time =
+            (float)music_track_playable_frames[current_music_track] /
+            (float)MUSIC_SAMPLE_RATE + 0.25f;
+    }
+    else {
+        music_track_time =
+            (float)(current_music_form_step + 1) * phrase_duration + 0.01f;
+    }
     input->pressed = 0;
-    running = update_game(input, 1.0f / 60.0f);
-    music_left_channels[stopped_bank] = stopped_left;
-    music_right_channels[stopped_bank] = stopped_right;
-    return running;
+    return update_game(input, 1.0f / 60.0f);
 }
 
 static bool force_music_form_boundary_for_test(input_t *input,
@@ -8475,6 +8520,10 @@ static bool force_music_form_boundary_for_test(input_t *input,
     entry = music_form_step_at(current_music_track, form_step);
     current_music_form_step = form_step;
     current_music_section = entry->section;
+    music_track_time = (float)form_step *
+        (float)music_track_phrase_samples(
+            &soundtrack_defs[current_music_track]) /
+        (float)MUSIC_SAMPLE_RATE;
     return force_music_phrase_boundary_for_test(input);
 }
 
@@ -10489,7 +10538,7 @@ int main(int argc, char **argv) {
     music_jukebox_failed = false;
     music_jukebox_active = true;
     stop_music();
-    play_music_form_step(0, 0, MUSIC_GAME_VOLUME);
+    play_music_track_now(0, MUSIC_GAME_VOLUME);
 #else
     request_next_shuffled_music(MUSIC_GAME_VOLUME);
 #endif
@@ -10640,7 +10689,7 @@ int main(int argc, char **argv) {
         running = update_game(&input, dt);
         render_frame(input.connected);
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX
-        if(music_jukebox_complete && music_section_time >= 0.75f)
+        if(music_jukebox_complete && music_track_time >= 0.75f)
             running = false;
 #endif
 #ifdef GRAVITY_WAVE_AUTOTEST_EXIT_SECONDS
