@@ -1,6 +1,10 @@
 TARGET = drift-los-angeles.elf
 OBJS = drift-los-angeles.o assets/generated/texture_assets.o assets/generated/audio_assets.o assets/generated/music_asset.o
 BLENDER ?= blender
+QA_PREVIEW_DIR = assets/generated/previews/visual-qa
+QA_SHOTS = $(QA_PREVIEW_DIR)/downtown.png $(QA_PREVIEW_DIR)/coast.png $(QA_PREVIEW_DIR)/arts.png $(QA_PREVIEW_DIR)/neon.png
+QA_SEGMENT ?= 0
+QA_CAPTURE_LOCAL ?= 8.0f
 
 KOS_BUILD_SUBARCHS = pristine
 
@@ -39,4 +43,25 @@ showcase:
 	$(MAKE) CFLAGS=-DDRIFT_LA_SHOWCASE
 	./run-flycast.sh --skip-build
 
-.PHONY: all clean run showcase textures audio music model
+qa:
+	uv run tools/visual_qa.py --strict
+
+qa-build:
+	$(MAKE) clean
+	$(MAKE) CFLAGS='-O2 -Wall -Wextra -Wpedantic -Werror -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA'
+
+qa-run: qa-build
+	./run-flycast.sh --skip-build
+
+qa-capture-build:
+	$(MAKE) clean
+	$(MAKE) CFLAGS='-O2 -Wall -Wextra -Wpedantic -Werror -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA -DDRIFT_LA_CAPTURE_SEGMENT=$(QA_SEGMENT) -DDRIFT_LA_CAPTURE_LOCAL=$(QA_CAPTURE_LOCAL)'
+
+qa-capture-run: qa-capture-build
+	./run-flycast.sh --skip-build
+
+qa-visual:
+	uv run tools/visual_qa.py --strict --json $(QA_PREVIEW_DIR)/report.json \
+		--contact-sheet $(QA_PREVIEW_DIR)/contact-sheet.png $(QA_SHOTS)
+
+.PHONY: all clean run showcase qa qa-build qa-run qa-capture-build qa-capture-run qa-visual textures audio music model

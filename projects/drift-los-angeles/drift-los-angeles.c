@@ -52,6 +52,13 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define HUD_BYTES (HUD_W * HUD_H * sizeof(uint16_t))
 #define ARRAY_COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
+#ifndef DRIFT_LA_CAPTURE_LOCAL
+#define DRIFT_LA_CAPTURE_LOCAL 8.0f
+#endif
+#ifndef DRIFT_LA_CAPTURE_SPAN
+#define DRIFT_LA_CAPTURE_SPAN 4.0f
+#endif
+
 typedef struct { float x, y, z; } vec3_t;
 typedef struct { float r, g, b; } color3_t;
 typedef struct { float x, y, z; bool valid; } screen_point_t;
@@ -300,6 +307,23 @@ static pvr_poly_hdr_t hud_texture_header;
 static pvr_poly_hdr_t *active_poly_header;
 static pvr_ptr_t hud_texture;
 static uint16_t *hud_pixels;
+
+#ifdef DRIFT_LA_VISUAL_QA
+typedef struct {
+    uint32_t triangles,vertices;
+    uint32_t buildings,vehicles,pedestrians,smoke_particles,furnishing_clusters;
+} render_qa_t;
+static render_qa_t render_qa;
+static render_qa_t render_qa_peak;
+#define QA_GEOMETRY(triangle_count,vertex_count) do { \
+    render_qa.triangles+=(uint32_t)(triangle_count); \
+    render_qa.vertices+=(uint32_t)(vertex_count); \
+} while(0)
+#define QA_COUNT(member) (++render_qa.member)
+#else
+#define QA_GEOMETRY(triangle_count,vertex_count) ((void)0)
+#define QA_COUNT(member) ((void)0)
+#endif
 
 static float camera_x, camera_y, camera_z;
 static float camera_yaw;
@@ -1034,7 +1058,7 @@ static void reset_car(void) {
 static void spawn_traffic_car(traffic_t *vehicle, int slot, bool initial) {
     static const color3_t colors[] = {
         {0.88f,0.16f,0.12f}, {0.10f,0.42f,0.86f},
-        {0.58f,0.62f,0.70f}, {0.12f,0.14f,0.18f},
+        {0.58f,0.62f,0.70f}, {0.24f,0.27f,0.33f},
         {0.82f,0.58f,0.10f}, {0.16f,0.62f,0.48f},
         {0.50f,0.20f,0.65f}, {0.62f,0.64f,0.68f}
     };
@@ -1116,7 +1140,8 @@ static void start_demo(void) {
     game.mode=MODE_DEMO;
     game.demo_time=0.0f;
 #ifdef DRIFT_LA_CAPTURE_SEGMENT
-    game.demo_time=(float)(DRIFT_LA_CAPTURE_SEGMENT%4)*15.0f;
+    game.demo_time=(float)(DRIFT_LA_CAPTURE_SEGMENT%4)*15.0f+
+                   DRIFT_LA_CAPTURE_LOCAL;
 #endif
     game.demo_segment=-1;
     game.score=0.0f;
@@ -1674,7 +1699,11 @@ static bool update_game(const input_t *input, float dt) {
         car.yaw = fsin(game.time * 0.22f) * 0.04f;
     }
     else if(game.mode == MODE_DEMO) {
+#ifdef DRIFT_LA_CAPTURE_SEGMENT
+        const int segment=DRIFT_LA_CAPTURE_SEGMENT%4;
+#else
         const int segment=(int)(game.demo_time/15.0f)%4;
+#endif
         const float local=fmodf(game.demo_time,15.0f);
         const float distance=local*11.0f;
         if(input->pressed&(CONT_START|CONT_A)) {
@@ -1687,6 +1716,16 @@ static bool update_game(const input_t *input, float dt) {
         }
         else {
             game.demo_time+=dt;
+#ifdef DRIFT_LA_CAPTURE_SEGMENT
+            /* Capture builds repeat a narrow moving review take. This keeps
+               composition comparable without freezing the car underneath an
+               ever-growing smoke cloud. */
+            if(game.demo_time>=(float)segment*15.0f+DRIFT_LA_CAPTURE_LOCAL+
+                               DRIFT_LA_CAPTURE_SPAN) {
+                game.demo_time=(float)segment*15.0f+DRIFT_LA_CAPTURE_LOCAL;
+                camera_initialized=false;
+            }
+#endif
             car.lateral=fsin(local*1.15f)*3.8f;
             car.yaw_rate=fsin(local*.82f)*.28f;
             car.steer=-fsin(local*.82f)*.24f;
@@ -1811,23 +1850,35 @@ static void setup_camera(float dt) {
         return;
     }
 #endif
-    const float speed_mix=clampf(fabsf(car.longitudinal)/58.0f,0.0f,1.0f);
-    const float distance = (demo ? 6.25f : (game.camera_close ? 5.15f : 6.85f))+
-                           speed_mix*.42f;
-    const float height = (demo ? 3.35f : (game.camera_close ? 2.82f : 3.58f))+
-                         speed_mix*.12f;
-    const float follow = 1.0f - expf(-dt * 5.5f);
+    const float speed_mix=clampf(fabsf(car.longitudinal)/66.0f,0.0f,1.0f);
+    const float drift_view=clampf(
+        atan2f(car.lateral,fmaxf(fabsf(car.longitudinal),8.0f))*.62f,
+        -.30f,.30f);
+    /* A low, close chase rig is fundamental to the new composition.  The old
+       camera treated the vehicle like a map marker and spent half the 480p
+       frame on empty asphalt.  This framing keeps the hero car near one third
+       of the screen while following velocity enough to expose its side during
+       a drift instead of staring squarely at the rear fascia. */
+    const float distance = (demo ? 5.18f : (game.camera_close ? 4.48f : 5.38f))+
+                           speed_mix*.38f;
+    const float height = (demo ? 2.28f : (game.camera_close ? 2.04f : 2.34f))+
+                         speed_mix*.10f;
+    const float follow = 1.0f - expf(-dt * 6.4f);
     const bool snap = !camera_initialized;
     float yaw_delta;
-    float target_x, target_z;
+    float target_x, target_z, side_offset;
     if(!camera_initialized) {
         camera_yaw = car.yaw;
         camera_initialized = true;
     }
-    yaw_delta = wrap_angle(car.yaw+(demo?.34f+fsin(game.demo_time*.42f)*.10f:0.0f)-camera_yaw);
+    yaw_delta = wrap_angle(car.yaw+drift_view+
+        (demo?.30f+fsin(game.demo_time*.42f)*.09f:0.0f)-camera_yaw);
     camera_yaw = wrap_angle(camera_yaw + yaw_delta * follow);
     target_x = car.x - fsin(camera_yaw) * distance;
     target_z = car.z - fcos(camera_yaw) * distance;
+    side_offset=clampf(car.lateral*.026f+car.yaw_rate*.16f,-.46f,.46f);
+    target_x += fcos(camera_yaw)*side_offset;
+    target_z -= fsin(camera_yaw)*side_offset;
     if(snap || game.time < 0.1f || !isfinite(camera_x)) {
         camera_x = target_x;
         camera_z = target_z;
@@ -1838,12 +1889,12 @@ static void setup_camera(float dt) {
     camera_y += (height - camera_y) * follow;
     camera_sin_yaw = fsin(camera_yaw);
     camera_cos_yaw = fcos(camera_yaw);
-    camera_sin_pitch = fsin(demo ? -.105f : (game.camera_close ? -.080f : -.110f));
-    camera_cos_pitch = fcos(demo ? -.105f : (game.camera_close ? -.080f : -.110f));
-    camera_sin_roll = fsin(clampf(-car.yaw_rate * 0.035f, -0.065f, 0.065f));
-    camera_cos_roll = fcos(clampf(-car.yaw_rate * 0.035f, -0.065f, 0.065f));
-    camera_focal = (demo ? 476.0f : (game.camera_close ? 490.0f : 474.0f))-
-                   speed_mix*18.0f;
+    camera_sin_pitch = fsin(demo ? -.130f : (game.camera_close ? -.105f : -.130f));
+    camera_cos_pitch = fcos(demo ? -.130f : (game.camera_close ? -.105f : -.130f));
+    camera_sin_roll = fsin(clampf(-car.yaw_rate * 0.045f, -0.080f, 0.080f));
+    camera_cos_roll = fcos(clampf(-car.yaw_rate * 0.045f, -0.080f, 0.080f));
+    camera_focal = (demo ? 500.0f : (game.camera_close ? 512.0f : 498.0f))-
+                   speed_mix*12.0f;
 }
 
 static vec3_t world_to_camera(vec3_t world) {
@@ -1943,6 +1994,7 @@ static void submit_triangle(const pvr_poly_hdr_t *header,
     make_vertex(&vertices[1], b, ub, vb, cb, false);
     make_vertex(&vertices[2], c, uc, vc, cc, true);
     pvr_prim(vertices, sizeof(vertices));
+    QA_GEOMETRY(1,3);
 }
 
 static void submit_quad(const pvr_poly_hdr_t *header,
@@ -1958,6 +2010,7 @@ static void submit_quad(const pvr_poly_hdr_t *header,
     make_vertex(&vertices[2], c, uc, vc, cc, false);
     make_vertex(&vertices[3], d, ud, vd, cd, true);
     pvr_prim(vertices, sizeof(vertices));
+    QA_GEOMETRY(2,4);
 }
 
 static void draw_rect(const pvr_poly_hdr_t *header, float x, float y,
@@ -2446,6 +2499,70 @@ static void draw_facade_relief(const building_t *building) {
     }
 }
 
+static void draw_storefront_canopies(const building_t *building) {
+    const float x0=building->cx-building->width*.5f;
+    const float x1=building->cx+building->width*.5f;
+    const float z0=building->cz-building->depth*.5f;
+    const float z1=building->cz+building->depth*.5f;
+    const bool face_z=fabsf(camera_z-building->cz)>=fabsf(camera_x-building->cx);
+    const bool near_negative=face_z ? camera_z<building->cz : camera_x<building->cx;
+    const color3_t accent=district_color(building->district);
+    const uint32_t bright=pack_color(1.0f,color_scale(accent,.92f));
+    const uint32_t dark=pack_color(1.0f,color_scale(accent,.28f));
+    const uint32_t glass=pack_color(1.0f,(color3_t){.035f,.075f,.12f});
+    const float span=face_z ? building->width : building->depth;
+    const float spacing=fminf(span*.14f,5.4f);
+    int bay;
+    for(bay=-1;bay<=1;++bay) {
+        const uint32_t color=((bay+(int)(building->seed&1u))&1)?bright:dark;
+        const float offset=(float)bay*spacing;
+        if(face_z) {
+            const float face=near_negative?z0-.07f:z1+.07f;
+            const float outer=near_negative?z0-.74f:z1+.74f;
+            draw_world_quad(&world_header,
+                (vec3_t){building->cx+offset-1.65f,3.13f,face},
+                (vec3_t){building->cx+offset+1.65f,3.13f,face},
+                (vec3_t){building->cx+offset-1.65f,3.02f,outer},
+                (vec3_t){building->cx+offset+1.65f,3.02f,outer},
+                0,0,1,0,0,1,1,1,color);
+            draw_world_quad(&world_header,
+                (vec3_t){building->cx+offset-1.65f,3.02f,outer},
+                (vec3_t){building->cx+offset+1.65f,3.02f,outer},
+                (vec3_t){building->cx+offset-1.65f,2.75f,outer},
+                (vec3_t){building->cx+offset+1.65f,2.75f,outer},
+                0,0,1,0,0,1,1,1,color);
+            draw_world_quad(&world_header,
+                (vec3_t){building->cx+offset-1.38f,2.62f,face},
+                (vec3_t){building->cx+offset+1.38f,2.62f,face},
+                (vec3_t){building->cx+offset-1.38f,.14f,face},
+                (vec3_t){building->cx+offset+1.38f,.14f,face},
+                0,0,1,0,0,1,1,1,glass);
+        }
+        else {
+            const float face=near_negative?x0-.07f:x1+.07f;
+            const float outer=near_negative?x0-.74f:x1+.74f;
+            draw_world_quad(&world_header,
+                (vec3_t){face,3.13f,building->cz+offset+1.65f},
+                (vec3_t){face,3.13f,building->cz+offset-1.65f},
+                (vec3_t){outer,3.02f,building->cz+offset+1.65f},
+                (vec3_t){outer,3.02f,building->cz+offset-1.65f},
+                0,0,1,0,0,1,1,1,color);
+            draw_world_quad(&world_header,
+                (vec3_t){outer,3.02f,building->cz+offset+1.65f},
+                (vec3_t){outer,3.02f,building->cz+offset-1.65f},
+                (vec3_t){outer,2.75f,building->cz+offset+1.65f},
+                (vec3_t){outer,2.75f,building->cz+offset-1.65f},
+                0,0,1,0,0,1,1,1,color);
+            draw_world_quad(&world_header,
+                (vec3_t){face,2.62f,building->cz+offset+1.38f},
+                (vec3_t){face,2.62f,building->cz+offset-1.38f},
+                (vec3_t){face,.14f,building->cz+offset+1.38f},
+                (vec3_t){face,.14f,building->cz+offset-1.38f},
+                0,0,1,0,0,1,1,1,glass);
+        }
+    }
+}
+
 static void draw_building(const building_t *building) {
     const float x0 = building->cx - building->width * 0.5f;
     const float x1 = building->cx + building->width * 0.5f;
@@ -2464,6 +2581,7 @@ static void draw_building(const building_t *building) {
     const vec3_t view=world_to_camera((vec3_t){building->cx,y1*.5f,building->cz});
     const float depth_radius=(building->width+building->depth)*.37f+y1*.10f;
     if(view.z+depth_radius<NEAR_PLANE || view.z-depth_radius>FAR_PLANE) return;
+    QA_COUNT(buildings);
     if(building->district==DISTRICT_ARTS) {
         draw_textured_volume(building->cx,building->cz,
                              building->width,building->depth,y0,y1,
@@ -2648,6 +2766,7 @@ static void draw_building(const building_t *building) {
         if(close && building->height>7.5f) {
             draw_storefront_depth(building);
             draw_facade_relief(building);
+            draw_storefront_canopies(building);
         }
     }
     if((building->seed%3u)==0u) {
@@ -2842,6 +2961,7 @@ static void draw_pedestrian(float x, float z, float heading,
         color_scale(shirts[seed%ARRAY_COUNT(shirts)],.72f));
     const uint32_t trousers=pack_color(1.0f,(color3_t){.07f,.09f,.15f});
     const uint32_t skin=pack_color(1.0f,(color3_t){.66f,.43f,.29f});
+    QA_COUNT(pedestrians);
     draw_vertical_billboard(&world_header,x,.76f+bob,z,.21f,.72f,shirt);
     draw_vertical_billboard(&world_header,x,1.48f+bob,z,.135f,.27f,skin);
     draw_vertical_billboard(&world_header,x-.24f,1.00f+bob,z,.055f,.48f,skin);
@@ -3010,6 +3130,277 @@ static void draw_direction_arrow(float x, float z, bool along_x,
     }
 }
 
+static void draw_cross_post(float x, float base_y, float z,
+                            float half_width, float height,
+                            uint32_t color) {
+    draw_world_quad(&world_header,
+        (vec3_t){x-half_width,base_y+height,z},
+        (vec3_t){x+half_width,base_y+height,z},
+        (vec3_t){x-half_width,base_y,z},
+        (vec3_t){x+half_width,base_y,z},
+        0,0,1,0,0,1,1,1,color);
+    draw_world_quad(&world_header,
+        (vec3_t){x,base_y+height,z-half_width},
+        (vec3_t){x,base_y+height,z+half_width},
+        (vec3_t){x,base_y,z-half_width},
+        (vec3_t){x,base_y,z+half_width},
+        0,0,1,0,0,1,1,1,color);
+}
+
+static void draw_downtown_valet_cluster(float x, float z, float road_dir,
+                                        uint32_t seed) {
+    const uint32_t dark=pack_color(1.0f,(color3_t){.045f,.065f,.11f});
+    const uint32_t brass=pack_color(1.0f,(color3_t){.72f,.48f,.14f});
+    const uint32_t canopy=pack_color(1.0f,(seed&1u)?
+        (color3_t){.08f,.25f,.46f}:(color3_t){.30f,.10f,.18f});
+    const uint32_t white=pack_color(1.0f,(color3_t){.94f,.95f,.98f});
+    const float front_z=z+road_dir*1.18f;
+    const float rear_z=z-road_dir*1.18f;
+    const float stanchion_z=z+road_dir*1.55f;
+    draw_world_quad(&world_header,
+        (vec3_t){x-3.55f,3.42f,front_z},(vec3_t){x+3.55f,3.42f,front_z},
+        (vec3_t){x-3.55f,3.42f,rear_z},(vec3_t){x+3.55f,3.42f,rear_z},
+        0,0,1,0,0,1,1,1,canopy);
+    draw_world_quad(&texture_headers[DLA_TEX_DISTRICT_DOWNTOWN],
+        (vec3_t){x-3.55f,3.42f,front_z+road_dir*.025f},
+        (vec3_t){x+3.55f,3.42f,front_z+road_dir*.025f},
+        (vec3_t){x-3.55f,2.82f,front_z+road_dir*.025f},
+        (vec3_t){x+3.55f,2.82f,front_z+road_dir*.025f},
+        0,0,1,0,0,1,1,1,white);
+    draw_cross_post(x-3.12f,.08f,z-road_dir*.72f,.075f,3.26f,dark);
+    draw_cross_post(x+3.12f,.08f,z-road_dir*.72f,.075f,3.26f,dark);
+    draw_world_box(x-1.55f,.66f,z+road_dir*.62f,.56f,.58f,.42f,
+                   &world_header,dark);
+    draw_world_quad(&texture_headers[DLA_TEX_CIVIC_MICRO],
+        (vec3_t){x-2.02f,1.12f,z+road_dir*1.05f},
+        (vec3_t){x-1.08f,1.12f,z+road_dir*1.05f},
+        (vec3_t){x-2.02f,.25f,z+road_dir*1.05f},
+        (vec3_t){x-1.08f,.25f,z+road_dir*1.05f},
+        0,0,1,0,0,1,1,1,white);
+    draw_cross_post(x+.55f,.08f,stanchion_z,.055f,.74f,brass);
+    draw_cross_post(x+2.25f,.08f,stanchion_z,.055f,.74f,brass);
+    draw_world_quad(&world_header,
+        (vec3_t){x+.55f,.72f,stanchion_z},(vec3_t){x+2.25f,.72f,stanchion_z},
+        (vec3_t){x+.55f,.64f,stanchion_z},(vec3_t){x+2.25f,.64f,stanchion_z},
+        0,0,1,0,0,1,1,1,brass);
+}
+
+static void draw_surfboard(float x, float z, uint32_t color) {
+    draw_world_quad(&world_header,
+        (vec3_t){x-.29f,2.22f,z},(vec3_t){x+.29f,2.22f,z},
+        (vec3_t){x-.34f,.43f,z},(vec3_t){x+.34f,.43f,z},
+        0,0,1,0,0,1,1,1,color);
+    draw_world_triangle(&world_header,(vec3_t){x,2.72f,z},
+        (vec3_t){x-.29f,2.22f,z},(vec3_t){x+.29f,2.22f,z},color);
+    draw_world_triangle(&world_header,(vec3_t){x,.12f,z},
+        (vec3_t){x+.34f,.43f,z},(vec3_t){x-.34f,.43f,z},color);
+}
+
+static void draw_coast_rental_cluster(float x, float z, float road_dir,
+                                      uint32_t seed) {
+    static const color3_t board_colors[4]={
+        {.96f,.42f,.12f},{.08f,.68f,.86f},{.96f,.80f,.15f},{.86f,.20f,.48f}
+    };
+    const uint32_t frame=pack_color(1.0f,(color3_t){.10f,.24f,.28f});
+    const uint32_t white=pack_color(1.0f,(color3_t){.94f,.97f,.92f});
+    const uint32_t cooler=pack_color(1.0f,(color3_t){.15f,.64f,.70f});
+    const float front_z=z+road_dir*.48f;
+    int board;
+    draw_cross_post(x-3.18f,.08f,z,.065f,3.12f,frame);
+    draw_cross_post(x+3.18f,.08f,z,.065f,3.12f,frame);
+    draw_world_quad(&texture_headers[DLA_TEX_DISTRICT_COAST],
+        (vec3_t){x-3.45f,3.30f,front_z},(vec3_t){x+3.45f,3.30f,front_z},
+        (vec3_t){x-3.45f,2.47f,front_z},(vec3_t){x+3.45f,2.47f,front_z},
+        0,0,1,0,0,1,1,1,white);
+    draw_world_quad(&world_header,
+        (vec3_t){x-2.65f,2.30f,z},(vec3_t){x+2.65f,2.30f,z},
+        (vec3_t){x-2.65f,2.20f,z},(vec3_t){x+2.65f,2.20f,z},
+        0,0,1,0,0,1,1,1,frame);
+    for(board=0;board<3;++board)
+        draw_surfboard(x-1.55f+(float)board*1.55f,
+                       z+road_dir*.12f,
+                       pack_color(1.0f,board_colors[(seed+(uint32_t)board)&3u]));
+    draw_world_box(x+3.78f,.50f,z+road_dir*.10f,.48f,.42f,.58f,
+                   &world_header,cooler);
+    draw_world_quad(&world_header,
+        (vec3_t){x+3.42f,.74f,z+road_dir*.70f},
+        (vec3_t){x+4.14f,.74f,z+road_dir*.70f},
+        (vec3_t){x+3.42f,.58f,z+road_dir*.70f},
+        (vec3_t){x+4.14f,.58f,z+road_dir*.70f},
+        0,0,1,0,0,1,1,1,white);
+}
+
+static void draw_arts_service_cluster(float x, float z, float road_dir,
+                                      uint32_t seed) {
+    const uint32_t steel=pack_color(1.0f,(seed&1u)?
+        (color3_t){.08f,.34f,.32f}:(color3_t){.27f,.30f,.19f});
+    const uint32_t dark=pack_color(1.0f,(color3_t){.045f,.055f,.065f});
+    const uint32_t orange=pack_color(1.0f,(color3_t){.92f,.32f,.045f});
+    const uint32_t white=pack_color(1.0f,(color3_t){.90f,.86f,.70f});
+    const float front_z=z+road_dir*1.12f;
+    int rib;
+    draw_world_box(x-1.30f,.80f,z,.36f+1.76f,.72f,1.05f,
+                   &world_header,steel);
+    draw_world_quad(&world_header,
+        (vec3_t){x-3.44f,1.59f,z-road_dir*1.04f},
+        (vec3_t){x+.84f,1.59f,z-road_dir*1.04f},
+        (vec3_t){x-3.15f,1.45f,z+road_dir*1.04f},
+        (vec3_t){x+.55f,1.45f,z+road_dir*1.04f},
+        0,0,1,0,0,1,1,1,dark);
+    draw_world_quad(&texture_headers[DLA_TEX_GRAFFITI],
+        (vec3_t){x-3.05f,1.32f,front_z},(vec3_t){x+.45f,1.32f,front_z},
+        (vec3_t){x-3.05f,.28f,front_z},(vec3_t){x+.45f,.28f,front_z},
+        0,0,1,0,0,1,1,1,white);
+    draw_world_quad(&texture_headers[DLA_TEX_GRAFFITI],
+        (vec3_t){x-3.43f,1.32f,z-road_dir*.95f},
+        (vec3_t){x-3.43f,1.32f,z+road_dir*.95f},
+        (vec3_t){x-3.43f,.28f,z-road_dir*.95f},
+        (vec3_t){x-3.43f,.28f,z+road_dir*.95f},
+        0,0,1,0,0,1,1,1,white);
+    for(rib=0;rib<4;++rib) {
+        const float rx=x-2.85f+(float)rib*1.03f;
+        draw_world_quad(&world_header,
+            (vec3_t){rx-.035f,1.38f,front_z+road_dir*.015f},
+            (vec3_t){rx+.035f,1.38f,front_z+road_dir*.015f},
+            (vec3_t){rx-.035f,.20f,front_z+road_dir*.015f},
+            (vec3_t){rx+.035f,.20f,front_z+road_dir*.015f},
+            0,0,1,0,0,1,1,1,dark);
+    }
+    draw_world_box(x+2.70f,1.02f,z+road_dir*.20f,1.72f,.17f,.14f,
+                   &world_header,orange);
+    draw_world_triangle(&world_header,(vec3_t){x+1.35f,.12f,z+road_dir*.18f},
+        (vec3_t){x+1.75f,.85f,z+road_dir*.18f},
+        (vec3_t){x+2.10f,.12f,z+road_dir*.18f},dark);
+    draw_world_triangle(&world_header,(vec3_t){x+3.30f,.12f,z+road_dir*.18f},
+        (vec3_t){x+3.65f,.85f,z+road_dir*.18f},
+        (vec3_t){x+4.05f,.12f,z+road_dir*.18f},dark);
+    draw_world_triangle(&world_header,(vec3_t){x+1.45f,.10f,front_z+.20f*road_dir},
+        (vec3_t){x+1.72f,.78f,front_z+.20f*road_dir},
+        (vec3_t){x+1.99f,.10f,front_z+.20f*road_dir},orange);
+    draw_world_quad(&world_header,
+        (vec3_t){x+1.52f,.42f,front_z+.21f*road_dir},
+        (vec3_t){x+1.92f,.42f,front_z+.21f*road_dir},
+        (vec3_t){x+1.58f,.31f,front_z+.21f*road_dir},
+        (vec3_t){x+1.86f,.31f,front_z+.21f*road_dir},
+        0,0,1,0,0,1,1,1,white);
+}
+
+static void draw_neon_market_cluster(float x, float z, float road_dir,
+                                     uint32_t seed) {
+    const uint32_t dark=pack_color(1.0f,(color3_t){.035f,.045f,.075f});
+    const uint32_t cyan=pack_color(1.0f,(color3_t){.04f,.76f,.96f});
+    const uint32_t pink=pack_color(1.0f,(color3_t){.98f,.06f,.54f});
+    const uint32_t warm=pack_color(1.0f,(color3_t){1.0f,.58f,.12f});
+    const uint32_t white=pack_color(1.0f,(color3_t){.96f,.96f,1.0f});
+    const float front_z=z+road_dir*1.22f;
+    const float back_z=z-road_dir*1.15f;
+    int lantern,vendor;
+    draw_world_quad_colored(&world_header,
+        (vec3_t){x-3.45f,3.35f,front_z},(vec3_t){x+3.45f,3.35f,front_z},
+        (vec3_t){x-3.05f,3.12f,back_z},(vec3_t){x+3.05f,3.12f,back_z},
+        (seed&1u)?pink:cyan,(seed&1u)?cyan:pink,dark,dark);
+    draw_cross_post(x-3.05f,.08f,z-road_dir*.70f,.065f,3.10f,dark);
+    draw_cross_post(x+3.05f,.08f,z-road_dir*.70f,.065f,3.10f,dark);
+    draw_world_box(x,.72f,z+road_dir*.36f,2.75f,.62f,.58f,
+                   &world_header,dark);
+    draw_world_quad(&texture_headers[DLA_TEX_STOREFRONT_MICRO],
+        (vec3_t){x-2.64f,1.20f,z+road_dir*.95f},
+        (vec3_t){x+2.64f,1.20f,z+road_dir*.95f},
+        (vec3_t){x-2.64f,.24f,z+road_dir*.95f},
+        (vec3_t){x+2.64f,.24f,z+road_dir*.95f},
+        0,0,1,0,0,1,1,1,white);
+    draw_world_quad(&texture_headers[DLA_TEX_NEON_FACADE],
+        (vec3_t){x-2.60f,3.72f,front_z+road_dir*.02f},
+        (vec3_t){x+2.60f,3.72f,front_z+road_dir*.02f},
+        (vec3_t){x-2.60f,3.12f,front_z+road_dir*.02f},
+        (vec3_t){x+2.60f,3.12f,front_z+road_dir*.02f},
+        0,0,1,0,0,1,1,1,white);
+    draw_world_quad(&texture_headers[DLA_TEX_NEON_FACADE],
+        (vec3_t){x-3.46f,3.72f,back_z},
+        (vec3_t){x-3.46f,3.72f,front_z},
+        (vec3_t){x-3.46f,3.12f,back_z},
+        (vec3_t){x-3.46f,3.12f,front_z},
+        0,0,1,0,0,1,1,1,white);
+    draw_world_quad(&texture_headers[DLA_TEX_STOREFRONT_MICRO],
+        (vec3_t){x-2.76f,1.20f,z-road_dir*.22f},
+        (vec3_t){x-2.76f,1.20f,z+road_dir*.94f},
+        (vec3_t){x-2.76f,.24f,z-road_dir*.22f},
+        (vec3_t){x-2.76f,.24f,z+road_dir*.94f},
+        0,0,1,0,0,1,1,1,white);
+    /* A bright vending bank gives the stall a readable side elevation while
+       doubling as a close-range district landmark from the driving lane. */
+    for(vendor=-1;vendor<=1;++vendor) {
+        const float vz=z+(float)vendor*.78f;
+        const uint32_t body=((vendor+(int)(seed&1u))&1)?pink:cyan;
+        draw_world_quad(&world_header,
+            (vec3_t){x-3.50f,2.45f,vz-.34f},
+            (vec3_t){x-3.50f,2.45f,vz+.34f},
+            (vec3_t){x-3.50f,.16f,vz-.34f},
+            (vec3_t){x-3.50f,.16f,vz+.34f},
+            0,0,1,0,0,1,1,1,body);
+        draw_world_quad(&world_header,
+            (vec3_t){x-3.515f,2.05f,vz-.25f},
+            (vec3_t){x-3.515f,2.05f,vz+.25f},
+            (vec3_t){x-3.515f,.83f,vz-.25f},
+            (vec3_t){x-3.515f,.83f,vz+.25f},
+            0,0,1,0,0,1,1,1,dark);
+        draw_world_quad(&world_header,
+            (vec3_t){x-3.52f,.62f,vz-.11f},
+            (vec3_t){x-3.52f,.62f,vz+.11f},
+            (vec3_t){x-3.52f,.44f,vz-.11f},
+            (vec3_t){x-3.52f,.44f,vz+.11f},
+            0,0,1,0,0,1,1,1,warm);
+    }
+    draw_world_quad_colored(&world_header,
+        (vec3_t){x-3.53f,5.35f,z-1.72f},
+        (vec3_t){x-3.53f,5.35f,z-.12f},
+        (vec3_t){x-3.53f,2.68f,z-1.72f},
+        (vec3_t){x-3.53f,2.68f,z-.12f},
+        cyan,pink,pack_color(1.0f,color_scale((color3_t){.04f,.76f,.96f},.32f)),
+        pack_color(1.0f,color_scale((color3_t){.98f,.06f,.54f},.32f)));
+    draw_world_quad_colored(&world_header,
+        (vec3_t){x-3.53f,5.35f,z+.12f},
+        (vec3_t){x-3.53f,5.35f,z+1.72f},
+        (vec3_t){x-3.53f,2.68f,z+.12f},
+        (vec3_t){x-3.53f,2.68f,z+1.72f},
+        pink,cyan,pack_color(1.0f,color_scale((color3_t){.98f,.06f,.54f},.32f)),
+        pack_color(1.0f,color_scale((color3_t){.04f,.76f,.96f},.32f)));
+    for(lantern=-1;lantern<=1;++lantern)
+        draw_vertical_billboard(&world_header,x+(float)lantern*1.45f,
+                                2.40f,z+road_dir*.96f,.16f,.42f,
+                                lantern==0?warm:((seed&1u)?pink:cyan));
+}
+
+static void draw_district_furnishing_cluster(float x0, float x1,
+                                             float z0, float z1,
+                                             const building_t *building) {
+    const uint32_t seed=building->seed;
+    const float center_x=(x0+x1)*.5f;
+    int edge;
+    /* Both sidewalk faces own a stable furnishing site, but only the site near
+       the player is registered. This avoids camera-dependent prop teleporting
+       while ensuring that a long block never presents an empty 90 m frontage. */
+    for(edge=0;edge<2;++edge) {
+        const float x=building->district==DISTRICT_COAST ? x0+4.2f :
+            (building->district==DISTRICT_DOWNTOWN ?
+                (center_x<0.0f ? x1-4.2f : x0+4.2f) :
+                center_x+(((seed>>(9+edge))&1u) ? -12.0f : 12.0f));
+        const float z=edge ? z1-1.75f : z0+1.75f;
+        const float road_dir=edge ? 1.0f : -1.0f;
+        const float dx=x-car.x,dz=z-car.z;
+        if(dx*dx+dz*dz>90.0f*90.0f) continue;
+        QA_COUNT(furnishing_clusters);
+        if(building->district==DISTRICT_DOWNTOWN)
+            draw_downtown_valet_cluster(x,z,road_dir,seed^(uint32_t)edge);
+        else if(building->district==DISTRICT_COAST)
+            draw_coast_rental_cluster(x,z,road_dir,seed^(uint32_t)edge);
+        else if(building->district==DISTRICT_ARTS)
+            draw_arts_service_cluster(x,z,road_dir,seed^(uint32_t)edge);
+        else
+            draw_neon_market_cluster(x,z,road_dir,seed^(uint32_t)edge);
+    }
+}
+
 static void draw_block_street_detail(int cell_x, int cell_z,
                                      float x0, float x1, float z0, float z1,
                                      const building_t *building) {
@@ -3091,6 +3482,7 @@ static void draw_block_street_detail(int cell_x, int cell_z,
         for(meter=0;meter<4;++meter)
             draw_parking_meter(x0+12.0f+(float)meter*11.0f,z0+.72f,
                                building->seed>>(meter+2));
+        draw_district_furnishing_cluster(x0,x1,z0,z1,building);
     }
     if((building->seed%5u)==0u)
         draw_world_box(x1-9.2f,.65f,z0+.8f,.45f,.62f,.45f,&world_header,
@@ -3372,6 +3764,191 @@ static void draw_parked_cars(int center_x, int center_z) {
     }
 }
 
+static void draw_road_gantry(float x, float z, bool road_runs_z,
+                             district_t district, uint32_t seed) {
+    const float dx=x-car.x,dz=z-car.z;
+    const color3_t accent=district_color(district);
+    const color3_t board_color=district==DISTRICT_DOWNTOWN ?
+        (color3_t){.035f,.20f,.16f} :
+        (district==DISTRICT_COAST ? (color3_t){.04f,.28f,.32f} :
+        (district==DISTRICT_ARTS ? (color3_t){.34f,.15f,.045f} :
+                                   (color3_t){.16f,.035f,.30f}));
+    const uint32_t steel=pack_color(1.0f,(color3_t){.15f,.18f,.22f});
+    const uint32_t frame=pack_color(1.0f,color_scale(accent,.72f));
+    const uint32_t board=pack_color(1.0f,board_color);
+    const uint32_t glyph=pack_color(1.0f,(color3_t){.82f,.91f,.88f});
+    int sign;
+    if(dx*dx+dz*dz>230.0f*230.0f ||
+       !world_sphere_visible((vec3_t){x,5.0f,z},18.0f,56.0f)) return;
+
+    if(road_runs_z) {
+        draw_world_box(x-12.25f,3.35f,z,.13f,3.35f,.13f,&world_header,steel);
+        draw_world_box(x+12.25f,3.35f,z,.13f,3.35f,.13f,&world_header,steel);
+        draw_world_box(x,6.68f,z,12.38f,.13f,.13f,&world_header,steel);
+        for(sign=0;sign<2;++sign) {
+            const float sx=x+(sign==0?-4.0f:4.1f);
+            const float half=(sign==0?3.1f:2.65f);
+            draw_world_box(sx,6.03f,z,half+.12f,.75f,.095f,&world_header,frame);
+            draw_world_box(sx,6.03f,z+(camera_z<z?-.11f:.11f),half,.63f,.045f,
+                           &world_header,board);
+            draw_world_triangle(&world_header,
+                (vec3_t){sx,5.55f,z+(camera_z<z?-.17f:.17f)},
+                (vec3_t){sx-.38f,6.14f,z+(camera_z<z?-.17f:.17f)},
+                (vec3_t){sx+.38f,6.14f,z+(camera_z<z?-.17f:.17f)},glyph);
+        }
+    }
+    else {
+        draw_world_box(x,3.35f,z-12.25f,.13f,3.35f,.13f,&world_header,steel);
+        draw_world_box(x,3.35f,z+12.25f,.13f,3.35f,.13f,&world_header,steel);
+        draw_world_box(x,6.68f,z,.13f,.13f,12.38f,&world_header,steel);
+        for(sign=0;sign<2;++sign) {
+            const float sz=z+(sign==0?-4.0f:4.1f);
+            const float half=(sign==0?3.1f:2.65f);
+            draw_world_box(x,6.03f,sz,.095f,.75f,half+.12f,&world_header,frame);
+            draw_world_box(x+(camera_x<x?-.11f:.11f),6.03f,sz,.045f,.63f,half,
+                           &world_header,board);
+            draw_world_triangle(&world_header,
+                (vec3_t){x+(camera_x<x?-.17f:.17f),5.55f,sz},
+                (vec3_t){x+(camera_x<x?-.17f:.17f),6.14f,sz-.38f},
+                (vec3_t){x+(camera_x<x?-.17f:.17f),6.14f,sz+.38f},glyph);
+        }
+    }
+    /* One tiny color tab makes repeated structures district-specific even
+       before the larger sign face becomes readable in the distance. */
+    if(seed&1u)
+        draw_world_box(x,6.92f,z,road_runs_z?.72f:.10f,.08f,
+                       road_runs_z?.10f:.72f,&world_header,frame);
+}
+
+static void draw_lane_reflectors(float x, float z, bool road_runs_z,
+                                 district_t district) {
+    const uint32_t warm=pack_color(1.0f,(color3_t){1.0f,.68f,.14f});
+    const uint32_t cool=pack_color(1.0f,color_scale(district_color(district),.90f));
+    int marker;
+    for(marker=-5;marker<=5;++marker) {
+        const float along=(float)marker*8.0f;
+        const uint32_t color=(marker&1)?warm:cool;
+        if(road_runs_z) {
+            draw_world_quad(&world_header,
+                (vec3_t){x-.945f,.043f,z+along+.28f},
+                (vec3_t){x-.815f,.043f,z+along+.28f},
+                (vec3_t){x-.945f,.043f,z+along-.28f},
+                (vec3_t){x-.815f,.043f,z+along-.28f},0,0,1,0,0,1,1,1,color);
+            draw_world_quad(&world_header,
+                (vec3_t){x+.815f,.043f,z+along+.28f},
+                (vec3_t){x+.945f,.043f,z+along+.28f},
+                (vec3_t){x+.815f,.043f,z+along-.28f},
+                (vec3_t){x+.945f,.043f,z+along-.28f},0,0,1,0,0,1,1,1,color);
+        }
+        else {
+            draw_world_quad(&world_header,
+                (vec3_t){x+along-.28f,.043f,z-.815f},
+                (vec3_t){x+along+.28f,.043f,z-.815f},
+                (vec3_t){x+along-.28f,.043f,z-.945f},
+                (vec3_t){x+along+.28f,.043f,z-.945f},0,0,1,0,0,1,1,1,color);
+            draw_world_quad(&world_header,
+                (vec3_t){x+along-.28f,.043f,z+.945f},
+                (vec3_t){x+along+.28f,.043f,z+.945f},
+                (vec3_t){x+along-.28f,.043f,z+.815f},
+                (vec3_t){x+along+.28f,.043f,z+.815f},0,0,1,0,0,1,1,1,color);
+        }
+    }
+}
+
+static void draw_district_road_rhythm(float x, float z, bool road_runs_z,
+                                      district_t district) {
+    int band;
+    if(district==DISTRICT_ARTS) {
+        const uint32_t seam=pack_color(1.0f,(color3_t){.12f,.095f,.09f});
+        const uint32_t hazard=pack_color(1.0f,(color3_t){.92f,.34f,.055f});
+        for(band=-2;band<=2;++band) {
+            const float offset=(float)band*15.0f;
+            if(road_runs_z) {
+                draw_world_quad(&world_header,
+                    (vec3_t){x-11.7f,.041f,z+offset+.055f},
+                    (vec3_t){x+11.7f,.041f,z+offset+.055f},
+                    (vec3_t){x-11.7f,.041f,z+offset-.055f},
+                    (vec3_t){x+11.7f,.041f,z+offset-.055f},0,0,1,0,0,1,1,1,seam);
+                draw_world_quad(&world_header,
+                    (vec3_t){x+9.8f,.043f,z+offset+.42f},
+                    (vec3_t){x+11.2f,.043f,z+offset+.42f},
+                    (vec3_t){x+9.8f,.043f,z+offset-.42f},
+                    (vec3_t){x+11.2f,.043f,z+offset-.42f},0,0,1,0,0,1,1,1,hazard);
+            }
+            else {
+                draw_world_quad(&world_header,
+                    (vec3_t){x+offset-.055f,.041f,z+11.7f},
+                    (vec3_t){x+offset+.055f,.041f,z+11.7f},
+                    (vec3_t){x+offset-.055f,.041f,z-11.7f},
+                    (vec3_t){x+offset+.055f,.041f,z-11.7f},0,0,1,0,0,1,1,1,seam);
+                draw_world_quad(&world_header,
+                    (vec3_t){x+offset-.42f,.043f,z-9.8f},
+                    (vec3_t){x+offset+.42f,.043f,z-9.8f},
+                    (vec3_t){x+offset-.42f,.043f,z-11.2f},
+                    (vec3_t){x+offset+.42f,.043f,z-11.2f},0,0,1,0,0,1,1,1,hazard);
+            }
+        }
+    }
+    else if(district==DISTRICT_NEON) {
+        const uint32_t cyan=pack_color(1.0f,(color3_t){.04f,.74f,.94f});
+        const uint32_t pink=pack_color(1.0f,(color3_t){.92f,.035f,.52f});
+        const uint32_t seam=pack_color(1.0f,(color3_t){.14f,.085f,.17f});
+        int side;
+        for(side=-1;side<=1;side+=2) {
+            const uint32_t color=side<0?cyan:pink;
+            if(road_runs_z)
+                draw_world_quad(&world_header,
+                    (vec3_t){x+(float)side*11.42f,.043f,z+42.0f},
+                    (vec3_t){x+(float)side*11.58f,.043f,z+42.0f},
+                    (vec3_t){x+(float)side*11.42f,.043f,z-42.0f},
+                    (vec3_t){x+(float)side*11.58f,.043f,z-42.0f},
+                    0,0,1,0,0,1,1,1,color);
+            else
+                draw_world_quad(&world_header,
+                    (vec3_t){x-42.0f,.043f,z+(float)side*11.58f},
+                    (vec3_t){x+42.0f,.043f,z+(float)side*11.58f},
+                    (vec3_t){x-42.0f,.043f,z+(float)side*11.42f},
+                    (vec3_t){x+42.0f,.043f,z+(float)side*11.42f},
+                    0,0,1,0,0,1,1,1,color);
+        }
+        /* Subtle transverse pavement joints carry motion through the lower
+           frame; paired inlaid reflectors echo the district palette without
+           making the whole boulevard look like a science-fiction grid. */
+        for(side=-2;side<=2;++side) {
+            const float offset=(float)side*15.5f;
+            const uint32_t inset=(side&1)?cyan:pink;
+            if(road_runs_z) {
+                draw_world_quad(&world_header,
+                    (vec3_t){x-11.7f,.042f,z+offset+.052f},
+                    (vec3_t){x+11.7f,.042f,z+offset+.052f},
+                    (vec3_t){x-11.7f,.042f,z+offset-.052f},
+                    (vec3_t){x+11.7f,.042f,z+offset-.052f},
+                    0,0,1,0,0,1,1,1,seam);
+                draw_world_quad(&world_header,
+                    (vec3_t){x-7.45f,.045f,z+offset+.18f},
+                    (vec3_t){x-6.10f,.045f,z+offset+.18f},
+                    (vec3_t){x-7.45f,.045f,z+offset-.18f},
+                    (vec3_t){x-6.10f,.045f,z+offset-.18f},
+                    0,0,1,0,0,1,1,1,inset);
+            }
+            else {
+                draw_world_quad(&world_header,
+                    (vec3_t){x+offset-.052f,.042f,z+11.7f},
+                    (vec3_t){x+offset+.052f,.042f,z+11.7f},
+                    (vec3_t){x+offset-.052f,.042f,z-11.7f},
+                    (vec3_t){x+offset+.052f,.042f,z-11.7f},
+                    0,0,1,0,0,1,1,1,seam);
+                draw_world_quad(&world_header,
+                    (vec3_t){x+offset-.18f,.045f,z+7.45f},
+                    (vec3_t){x+offset+.18f,.045f,z+7.45f},
+                    (vec3_t){x+offset-.18f,.045f,z+6.10f},
+                    (vec3_t){x+offset+.18f,.045f,z+6.10f},
+                    0,0,1,0,0,1,1,1,inset);
+            }
+        }
+    }
+}
+
 static void draw_city(void) {
     const int center_x = (int)floorf(car.x / CITY_CELL);
     const int center_z = (int)floorf(car.z / CITY_CELL);
@@ -3527,6 +4104,29 @@ static void draw_city(void) {
         draw_direction_arrow(road_x+6.75f,segment_z+25.0f,false,-1.0f);
         draw_direction_arrow(segment_x-25.0f,road_z+6.75f,true,1.0f);
         draw_direction_arrow(segment_x+25.0f,road_z-6.75f,true,-1.0f);
+    }
+    /* Repeating depth gates and raised lane reflectors give long boulevards a
+       readable cadence at speed.  Alternating cells keep intersections open
+       while ensuring every district has a recognizable piece of road kit. */
+    for(x=-1;x<=1;++x) {
+        const int vertical_cell=center_z+x;
+        const int horizontal_cell=center_x+x;
+        const float vertical_z=((float)vertical_cell+.5f)*CITY_CELL;
+        const float horizontal_x=((float)horizontal_cell+.5f)*CITY_CELL;
+        const float vertical_x=(float)center_x*CITY_CELL;
+        const float horizontal_z=(float)center_z*CITY_CELL;
+        const district_t vertical_district=district_for_position(vertical_x,vertical_z);
+        const district_t horizontal_district=district_for_position(horizontal_x,horizontal_z);
+        draw_lane_reflectors(vertical_x,vertical_z,true,vertical_district);
+        draw_lane_reflectors(horizontal_x,horizontal_z,false,horizontal_district);
+        draw_district_road_rhythm(vertical_x,vertical_z,true,vertical_district);
+        draw_district_road_rhythm(horizontal_x,horizontal_z,false,horizontal_district);
+        if((vertical_cell&1)==0)
+            draw_road_gantry(vertical_x,vertical_z,true,vertical_district,
+                hash_u32((uint32_t)vertical_cell^0x47414e54u));
+        if((horizontal_cell&1)==0)
+            draw_road_gantry(horizontal_x,horizontal_z,false,horizontal_district,
+                hash_u32((uint32_t)horizontal_cell^0x5349474eu));
     }
     draw_road_microdetail(center_x,center_z);
     /* Animated signals mark nearby intersections and make cross streets pulse. */
@@ -3803,8 +4403,8 @@ static void draw_traffic_wheel(const traffic_t *vehicle,
 }
 
 static void draw_traffic_car(const traffic_t *vehicle) {
-    const uint32_t paint = pack_color(1.0f,color_scale(vehicle->color,.78f));
-    const uint32_t paint_top = pack_color(1.0f,color_scale(vehicle->color,.96f));
+    const uint32_t paint = pack_color(1.0f,color_scale(vehicle->color,.88f));
+    const uint32_t paint_top = pack_color(1.0f,color_scale(vehicle->color,1.03f));
     const uint32_t glass = pack_color(1.0f,(color3_t){0.25f,0.34f,0.50f});
     const uint32_t carbon = pack_color(1.0f,(color3_t){0.18f,0.19f,0.23f});
     const uint32_t metal = pack_color(1.0f,(color3_t){.48f,.52f,.58f});
@@ -3818,6 +4418,7 @@ static void draw_traffic_car(const traffic_t *vehicle) {
     const int variant=(int)((vehicle->seed>>9)%5u);
     int side, axle;
 
+    QA_COUNT(vehicles);
     draw_traffic_body(vehicle,paint,paint_top);
 
     /* Compact coupe/sedan greenhouse: two sloped screens and tapering sides. */
@@ -3962,7 +4563,13 @@ static void draw_traffic(void) {
     for(i=0;i<MAX_TRAFFIC;++i) {
         const float dx=traffic[i].x-car.x;
         const float dz=traffic[i].z-car.z;
+        const float camera_dx=traffic[i].x-camera_x;
+        const float camera_dz=traffic[i].z-camera_z;
+        const bool demo_staging_clear=game.mode!=MODE_DEMO ||
+                                      dx*dx+dz*dz>8.0f*8.0f;
         if(traffic[i].active && dx*dx+dz*dz < FAR_PLANE*FAR_PLANE &&
+           demo_staging_clear &&
+           camera_dx*camera_dx+camera_dz*camera_dz>6.0f*6.0f &&
            world_sphere_visible((vec3_t){traffic[i].x,.72f,traffic[i].z},
                                 3.1f,34.0f))
             draw_traffic_car(&traffic[i]);
@@ -4028,7 +4635,9 @@ static void draw_vehicle_lighting(void) {
     for(i=0;i<MAX_TRAFFIC;++i) {
         const traffic_t *vehicle=&traffic[i];
         const float dx=vehicle->x-car.x,dz=vehicle->z-car.z;
+        const float camera_dx=vehicle->x-camera_x,camera_dz=vehicle->z-camera_z;
         if(!vehicle->active || dx*dx+dz*dz>155.0f*155.0f ||
+           camera_dx*camera_dx+camera_dz*camera_dz<=6.0f*6.0f ||
            !world_sphere_visible((vec3_t){vehicle->x,.72f,vehicle->z},
                                  16.0f,42.0f))
             continue;
@@ -4051,7 +4660,10 @@ static void draw_vehicle_shadows(void) {
                     pack_color(.42f,black),pack_color(0.0f,black));
     for(i=0;i<MAX_TRAFFIC;++i) {
         const float dx=traffic[i].x-car.x,dz=traffic[i].z-car.z;
-        if(!traffic[i].active || dx*dx+dz*dz>115.0f*115.0f) continue;
+        const float camera_dx=traffic[i].x-camera_x;
+        const float camera_dz=traffic[i].z-camera_z;
+        if(!traffic[i].active || dx*dx+dz*dz>115.0f*115.0f ||
+           camera_dx*camera_dx+camera_dz*camera_dz<=6.0f*6.0f) continue;
         draw_world_disc(&translucent_header,
                         (vec3_t){traffic[i].x,.035f,traffic[i].z},2.05f,6,
                         pack_color(.28f,black),pack_color(0.0f,black));
@@ -4135,14 +4747,24 @@ static void draw_car_mesh(void) {
             for(corner=0;corner<3;++corner) {
                 const int index=corner==0?face->a:(corner==1?face->b:face->c);
                 const vec3_t normal=transformed_normal[index];
-                float diffuse=.58f+fmaxf(0.0f,(normal.x*-.32f+normal.y*.88f+
-                    normal.z*-.24f))*.42f;
+                const float key=fmaxf(0.0f,normal.x*-.32f+normal.y*.88f+
+                                      normal.z*-.24f);
+                float diffuse=.66f+key*.40f;
                 const float rim=1.0f-fabsf((normal.x*vx+normal.y*vy+normal.z*vz)*view_inv);
                 color3_t illumination;
-                diffuse+=rim*rim*rim*.16f;
+                diffuse+=rim*rim*rim*.18f;
+                if(material==DLA_MAT_PAINT) {
+                    /* Preserve a readable pearl-white shell in RGB565.  The
+                       earlier blue/dim response swallowed the body creases and
+                       made even correct geometry read like one black wedge. */
+                    diffuse=.78f+key*.33f+rim*rim*rim*.14f;
+                    if(normal.y>.45f) diffuse+=.055f;
+                    if(my<.34f) diffuse*=.78f;
+                }
                 if(material==DLA_MAT_GLASS) diffuse=.92f+rim*.12f;
                 if(material==DLA_MAT_LIGHTS) diffuse=1.34f;
-                if(material==DLA_MAT_METAL) diffuse=.76f+rim*.14f;
+                if(material==DLA_MAT_CARBON) diffuse=.43f+key*.13f+rim*.055f;
+                if(material==DLA_MAT_METAL) diffuse=.76f+key*.14f+rim*.16f;
                 if(game.impact_flash>0.0f) diffuse=1.25f;
                 illumination=(color3_t){diffuse*(.94f+.10f*warm),
                                         diffuse*(.96f+.04f*warm),
@@ -4201,7 +4823,7 @@ static vec3_t rotate_part_point(float center_x, float center_y, float center_z,
 
 static void draw_wheel(float local_x, float local_z, float steer,
                        float radius, float width) {
-    enum { SEGMENTS = 24 };
+    enum { SEGMENTS = 20 };
     vec3_t inner[SEGMENTS];
     vec3_t outer[SEGMENTS];
     const float half_width = width * 0.5f;
@@ -4365,6 +4987,61 @@ static void draw_car(void) {
     draw_player_brake_lights();
 }
 
+static void draw_car_environment_reflections(void) {
+    const float shimmer=.84f+.16f*fsin(game.time*.72f+car.x*.012f);
+    const color3_t cyan={.18f,.62f,1.0f};
+    const color3_t violet={.52f,.20f,1.0f};
+    const color3_t sunset={1.0f,.20f,.30f};
+    const color3_t warm={1.0f,.52f,.12f};
+    const uint32_t cyan_soft=pack_color(.10f*shimmer,cyan);
+    const uint32_t violet_soft=pack_color(.08f*shimmer,violet);
+    const uint32_t sunset_soft=pack_color(.18f*shimmer,sunset);
+    const uint32_t warm_soft=pack_color(.11f*shimmer,warm);
+    int side;
+
+    /* Small, authored second-pass highlights survive RGB565 and make the
+       pearl shell respond to the city.  They follow actual hood, glass and
+       shoulder planes; this is the restrained environment-map trick used by
+       many premium late-90s racers, not a full-screen bloom overlay. */
+    draw_world_quad_colored(&additive_header,
+        car_local_to_world(-.72f,.833f,1.78f),
+        car_local_to_world( .72f,.833f,1.78f),
+        car_local_to_world(-.42f,.839f,.82f),
+        car_local_to_world( .42f,.839f,.82f),
+        cyan_soft,violet_soft,pack_color(0.0f,cyan),pack_color(0.0f,violet));
+
+    draw_world_quad_colored(&translucent_header,
+        car_local_to_world(-.55f,1.374f,-.42f),
+        car_local_to_world( .55f,1.374f,-.42f),
+        car_local_to_world(-.70f,.904f,-1.27f),
+        car_local_to_world( .70f,.904f,-1.27f),
+        violet_soft,cyan_soft,sunset_soft,warm_soft);
+    draw_world_quad_colored(&translucent_header,
+        car_local_to_world(-.53f,1.370f,.02f),
+        car_local_to_world( .53f,1.370f,.02f),
+        car_local_to_world(-.70f,.866f,.67f),
+        car_local_to_world( .70f,.866f,.67f),
+        violet_soft,cyan_soft,warm_soft,sunset_soft);
+
+    for(side=-1;side<=1;side+=2) {
+        const float x=(float)side*1.075f;
+        const uint32_t front=side<0?cyan_soft:violet_soft;
+        const uint32_t rear=side<0?sunset_soft:warm_soft;
+        draw_world_quad_colored(&additive_header,
+            car_local_to_world(x,.765f,.72f),
+            car_local_to_world(x,.725f,.65f),
+            car_local_to_world(x,.720f,-1.46f),
+            car_local_to_world(x,.674f,-1.36f),
+            front,front,rear,pack_color(0.0f,sunset));
+    }
+    draw_world_quad_colored(&additive_header,
+        car_local_to_world(-.82f,.888f,-2.16f),
+        car_local_to_world( .82f,.888f,-2.16f),
+        car_local_to_world(-.68f,.850f,-2.31f),
+        car_local_to_world( .68f,.850f,-2.31f),
+        sunset_soft,warm_soft,pack_color(0.0f,sunset),pack_color(0.0f,warm));
+}
+
 static void draw_smoke(void) {
     int i;
     for(i = 0; i < MAX_SMOKE; ++i) {
@@ -4373,6 +5050,7 @@ static void draw_smoke(void) {
         float life_ratio,age,fade_in,alpha,radius;
         color3_t core,edge;
         if(!particle->active || !project_world((vec3_t){particle->x,particle->y,particle->z},&point)) continue;
+        QA_COUNT(smoke_particles);
         life_ratio=clampf(particle->life/particle->max_life,0.0f,1.0f);
         age=1.0f-life_ratio;
         fade_in=clampf(age*8.0f,0.0f,1.0f);
@@ -4482,57 +5160,109 @@ static void update_hud(bool connected) {
         else hud_center(226,white,"R GAS  L BRAKE  A HANDBRAKE  /  B EXIT");
     }
     else {
-        snprintf(line,sizeof(line),"%03d MPH",(int)(fabsf(car.longitudinal)*2.23694f));
-        hud_text(14,8,white,line);
+        /* The 512x256 HUD surface is an atlas.  Each group is composited into
+           a separate arcade instrument pod at native 480p, giving speed,
+           scoring and district identity real hierarchy instead of four lines
+           of debug-looking text floating over the sky. */
+        snprintf(line,sizeof(line),"%03d",(int)(fabsf(car.longitudinal)*2.23694f));
+        hud_text(374,156,white,line);
+        hud_text(374,184,amber,"MPH");
         snprintf(line,sizeof(line),"SCORE %07lu",(unsigned long)live_score);
-        hud_text(14,36,amber,line);
-        hud_text(286,8,district_hud,district_name(game.district));
+        hud_text(8,8,amber,line);
+        hud_text(310,8,district_hud,district_name(game.district));
         if((game.mode==MODE_PLAYING || game.mode==MODE_DEMO) &&
            game.drift_chain>0.0f) {
-            snprintf(line,sizeof(line),"DRIFT %05lu  x%.1f  %02d DEG",
-                (unsigned long)game.drift_chain,game.drift_multiplier,(int)game.drift_angle);
-            hud_text(14,64,magenta,line);
-            snprintf(line,sizeof(line),"HOLD %04.1f SEC  BEST %04.1f",
-                game.drift_duration,game.longest_drift);
-            hud_text(14,92,amber,line);
+            snprintf(line,sizeof(line),"DRIFT %05lu x%.1f",
+                (unsigned long)game.drift_chain,game.drift_multiplier);
+            hud_text(8,36,magenta,line);
+            snprintf(line,sizeof(line),"%04.1f SEC / %02d DEG",
+                game.drift_duration,(int)game.drift_angle);
+            hud_text(8,64,cyan,line);
         }
         if(game.mode == MODE_PAUSED) {
-            hud_center(92,cyan,"P A U S E D");
-            hud_center(120,white,"START RESUME  /  B TITLE");
+            hud_center(108,cyan,"P A U S E D");
+            hud_center(134,white,"START RESUME  /  B TITLE");
         }
         if(game.mode==MODE_PLAYING) {
             if(car.clutch_kick_timer>.02f)
-                hud_text(202,36,magenta,"CLUTCH KICK");
+                hud_text(164,8,magenta,"CLUTCH KICK");
             else if(car.handbrake_lock>.10f)
-                hud_text(202,36,amber,"HANDBRAKE");
+                hud_text(176,8,amber,"HANDBRAKE");
         }
         if(game.mode==MODE_DEMO)
-            hud_text(286,36,cyan,"DEMO");
+            hud_text(310,36,cyan,"DEMO RUN");
         if(game.district_banner>0.0f && game.mode!=MODE_PAUSED)
-            hud_center(126,district_hud,district_name(game.district));
-        if(!connected) hud_center(160,magenta,"CONTROLLER DISCONNECTED");
+            hud_center(108,district_hud,district_name(game.district));
+        if(!connected) hud_center(134,magenta,"CONTROLLER DISCONNECTED");
     }
     pvr_txr_load(hud_pixels,hud_texture,HUD_BYTES);
 }
 
-static void draw_hud_texture(void) {
-    const float x=game.mode==MODE_TITLE ? 0.0f : 18.0f;
-    const float y=game.mode==MODE_TITLE ? 0.0f : 14.0f;
-    const float width=game.mode==MODE_TITLE ? SCREEN_W : 336.0f;
-    const float height=game.mode==MODE_TITLE ? SCREEN_H : 168.0f;
-    const screen_point_t a={x,y,0.99f,true},b={x+width,y,0.99f,true};
-    const screen_point_t c={x,y+height,0.99f,true},d={x+width,y+height,0.99f,true};
+static void draw_hud_region(float x, float y, float width, float height,
+                            float source_x, float source_y,
+                            float source_width, float source_height) {
+    const float u0=source_x/(float)HUD_W;
+    const float v0=source_y/(float)HUD_H;
+    const float u1=(source_x+source_width)/(float)HUD_W;
+    const float v1=(source_y+source_height)/(float)HUD_H;
+    const screen_point_t a={x,y,.992f,true},b={x+width,y,.992f,true};
+    const screen_point_t c={x,y+height,.992f,true},d={x+width,y+height,.992f,true};
     const uint32_t white=pack_color(1.0f,(color3_t){1,1,1});
-    submit_quad(&hud_texture_header,&a,&b,&c,&d,0,0,1,0,0,1,1,1,
+    submit_quad(&hud_texture_header,&a,&b,&c,&d,u0,v0,u1,v0,u0,v1,u1,v1,
                 white,white,white,white);
 }
 
+static void draw_hud_texture(void) {
+    if(game.mode==MODE_TITLE) {
+        draw_hud_region(0,0,SCREEN_W,SCREEN_H,0,0,HUD_W,HUD_H);
+        return;
+    }
+    {
+        const color3_t accent=district_color(game.district);
+        const uint32_t panel=pack_color(.72f,(color3_t){.008f,.014f,.040f});
+        const uint32_t inset=pack_color(.38f,(color3_t){.025f,.040f,.095f});
+        const uint32_t edge=pack_color(.92f,accent);
+        const uint32_t chrome=pack_color(.72f,(color3_t){.62f,.72f,.88f});
+        /* Score chain pod. */
+        draw_rect(&hud_header,12,12,236,72,.986f,panel);
+        draw_rect(&hud_header,17,17,226,62,.987f,inset);
+        draw_rect(&hud_header,12,12,236,3,.989f,edge);
+        draw_rect(&hud_header,12,82,236,2,.989f,chrome);
+        draw_hud_region(18,17,224,64,0,0,300,88);
+
+        /* District ribbon, isolated from the score so both stay readable. */
+        draw_rect(&hud_header,260,12,176,54,.986f,panel);
+        draw_rect(&hud_header,265,17,166,44,.987f,inset);
+        draw_rect(&hud_header,260,12,176,3,.989f,edge);
+        draw_hud_region(267,17,162,46,300,0,212,64);
+
+        /* Speed pod is deliberately low and close to the car, like a late-90s
+           arcade tach module, rather than another line in the top-left list. */
+        draw_rect(&hud_header,12,392,112,72,.986f,panel);
+        draw_rect(&hud_header,17,397,102,62,.987f,inset);
+        draw_rect(&hud_header,12,392,112,3,.989f,edge);
+        draw_rect(&hud_header,12,462,112,2,.989f,chrome);
+        draw_hud_region(19,399,98,56,352,146,132,80);
+
+        if(game.district_banner>0.0f && game.mode!=MODE_PAUSED) {
+            const float alpha=clampf(game.district_banner,0.0f,1.0f)*.68f;
+            draw_rect(&hud_header,106,108,428,34,.986f,
+                      pack_color(alpha,(color3_t){.010f,.018f,.050f}));
+            draw_rect(&hud_header,106,108,428,2,.989f,edge);
+            draw_hud_region(112,110,416,30,0,100,512,42);
+        }
+    }
+}
+
 static void draw_minimap(void) {
-    const float x=548.0f,y=18.0f,size=72.0f;
+    const float x=558.0f,y=18.0f,size=64.0f;
     const color3_t accent=district_color(game.district);
     int i;
-    draw_rect(&hud_header,x-4,y-4,size+8,size+8,0.985f,
-              pack_color(0.48f,(color3_t){0.015f,0.02f,0.05f}));
+    draw_rect(&hud_header,x-6,y-6,size+12,size+12,0.985f,
+              pack_color(0.72f,(color3_t){0.008f,0.014f,0.04f}));
+    draw_rect(&hud_header,x-3,y-3,size+6,size+6,0.986f,
+              pack_color(0.34f,(color3_t){0.025f,0.04f,0.095f}));
+    draw_rect(&hud_header,x-6,y-6,size+12,3,0.988f,pack_color(.92f,accent));
     for(i=0;i<4;++i) {
         const float p=x+6.0f+(float)i*19.0f;
         draw_rect(&hud_header,p,y,2.0f,size,0.986f,
@@ -4558,19 +5288,25 @@ static void draw_minimap(void) {
 
 static void draw_speed_bar(void) {
     const float speed=clampf(fabsf(car.longitudinal)/82.0f,0.0f,1.0f);
-    draw_rect(&hud_header,18,454,182,7,0.986f,
-              pack_color(.48f,(color3_t){0.03f,0.04f,0.08f}));
-    draw_rect(&hud_header,20,456,178*speed,3,0.988f,
-              pack_color(.90f,(color3_t){0.10f+speed*.9f,0.85f-speed*.42f,1.0f-speed*.65f}));
+    int segment;
+    for(segment=0;segment<10;++segment) {
+        const float threshold=(float)(segment+1)/10.0f;
+        const color3_t active=segment<6 ? (color3_t){.08f,.86f,1.0f} :
+                              (segment<8 ? (color3_t){1.0f,.66f,.08f} :
+                                           (color3_t){1.0f,.10f,.30f});
+        draw_rect(&hud_header,19.0f+(float)segment*9.7f,451,7.0f,3.0f,.994f,
+                  speed>=threshold ? pack_color(.96f,active) :
+                                     pack_color(.30f,(color3_t){.08f,.10f,.16f}));
+    }
 }
 
 static void draw_drift_meter(void) {
     const float hold=clampf(game.drift_duration/12.0f,0.0f,1.0f);
     const float pulse=.78f+.22f*fsin(game.time*10.0f);
-    draw_rect(&hud_header,402,454,220,7,0.986f,
-              pack_color(.48f,(color3_t){0.03f,0.04f,0.08f}));
+    draw_rect(&hud_header,180,468,278,7,0.986f,
+              pack_color(.66f,(color3_t){0.01f,0.02f,0.06f}));
     if(game.drift_chain>0.0f)
-        draw_rect(&hud_header,404,456,216*hold,3,0.988f,
+        draw_rect(&hud_header,183,470,272*hold,3,0.988f,
                   pack_color(.94f,(color3_t){1.0f,.16f+.40f*hold,.65f*pulse}));
 }
 
@@ -4578,6 +5314,9 @@ static void render_frame(bool connected, float dt) {
     /* The HUD is a shared dynamic texture, so finish the preceding frame
        before a possible CPU-to-VRAM update. */
     pvr_wait_ready();
+#ifdef DRIFT_LA_VISUAL_QA
+    memset(&render_qa,0,sizeof(render_qa));
+#endif
     setup_camera(dt);
     if(game.hud_timer <= 0.0f) {
         update_hud(connected);
@@ -4606,6 +5345,7 @@ static void render_frame(bool connected, float dt) {
         draw_sun();
         draw_city_lighting();
         draw_vehicle_shadows();
+        draw_car_environment_reflections();
         draw_vehicle_lighting();
         draw_skids();
 #ifndef DRIFT_LA_CAR_CAPTURE
@@ -4623,6 +5363,22 @@ static void render_frame(bool connected, float dt) {
 #endif
     pvr_list_finish();
     pvr_scene_finish();
+#ifdef DRIFT_LA_VISUAL_QA
+    if(render_qa.triangles>render_qa_peak.triangles)
+        render_qa_peak.triangles=render_qa.triangles;
+    if(render_qa.vertices>render_qa_peak.vertices)
+        render_qa_peak.vertices=render_qa.vertices;
+    if(render_qa.buildings>render_qa_peak.buildings)
+        render_qa_peak.buildings=render_qa.buildings;
+    if(render_qa.vehicles>render_qa_peak.vehicles)
+        render_qa_peak.vehicles=render_qa.vehicles;
+    if(render_qa.pedestrians>render_qa_peak.pedestrians)
+        render_qa_peak.pedestrians=render_qa.pedestrians;
+    if(render_qa.smoke_particles>render_qa_peak.smoke_particles)
+        render_qa_peak.smoke_particles=render_qa.smoke_particles;
+    if(render_qa.furnishing_clusters>render_qa_peak.furnishing_clusters)
+        render_qa_peak.furnishing_clusters=render_qa.furnishing_clusters;
+#endif
 }
 
 static void release_graphics(void) {
@@ -4865,10 +5621,39 @@ int main(int argc, char **argv) {
                 pvr_stats_t stats;
                 last_showcase_report=second;
                 if(pvr_get_stats(&stats)==0)
+#ifdef DRIFT_LA_VISUAL_QA
+                    printf("Drift Los Angeles visual QA: t=%d district=%s fps=%.1f reg=%.2fms tri=%lu vtx=%lu bldg=%lu cars=%lu ped=%lu smoke=%lu furnish=%lu pvr=%luKiB.\n",
+                           second,district_name(game.district),stats.frame_rate,
+                           (double)stats.reg_last_time/1000000.0,
+                           (unsigned long)render_qa.triangles,
+                           (unsigned long)render_qa.vertices,
+                           (unsigned long)render_qa.buildings,
+                           (unsigned long)render_qa.vehicles,
+                           (unsigned long)render_qa.pedestrians,
+                           (unsigned long)render_qa.smoke_particles,
+                           (unsigned long)render_qa.furnishing_clusters,
+                           (unsigned long)(stats.vtx_buffer_used/1024));
+#else
                     printf("Drift Los Angeles showcase: t=%d district=%s fps=%.1f reg=%.2fms.\n",
                            second,district_name(game.district),stats.frame_rate,
                            (double)stats.reg_last_time/1000000.0);
+#endif
             }
+#ifdef DRIFT_LA_VISUAL_QA
+#ifndef DRIFT_LA_CAPTURE_SEGMENT
+            if(game.demo_time>=60.0f) {
+                printf("Drift Los Angeles visual QA: complete; peak tri=%lu vtx=%lu bldg=%lu cars=%lu ped=%lu smoke=%lu furnish=%lu.\n",
+                       (unsigned long)render_qa_peak.triangles,
+                       (unsigned long)render_qa_peak.vertices,
+                       (unsigned long)render_qa_peak.buildings,
+                       (unsigned long)render_qa_peak.vehicles,
+                       (unsigned long)render_qa_peak.pedestrians,
+                       (unsigned long)render_qa_peak.smoke_particles,
+                       (unsigned long)render_qa_peak.furnishing_clusters);
+                running=false;
+            }
+#endif
+#endif
         }
 #endif
 #ifdef DRIFT_LA_AUTOTEST

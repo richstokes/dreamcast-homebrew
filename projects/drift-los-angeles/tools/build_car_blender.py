@@ -414,7 +414,7 @@ def add_surface_details(materials: dict[str, bpy.types.Material]) -> None:
         create_polygon("Right " + label, mirror_points_x(points), carbon)
 
     bpy.ops.mesh.primitive_torus_add(
-        major_radius=.075, minor_radius=.006, major_segments=18,
+        major_radius=.075, minor_radius=.006, major_segments=12,
         minor_segments=3, location=(-1.083,-1.115,.805),
         rotation=(0.0,math.pi*.5,0.0))
     fuel_door=bpy.context.object
@@ -451,6 +451,17 @@ def add_surface_details(materials: dict[str, bpy.types.Material]) -> None:
     for points in tail_lamps:
         create_polygon("Tail lamp", points, lights, .002)
 
+    # The real C7 rear is not a white rectangle around four lamps: deep black
+    # corner vents pull the fascia inward and visually separate the lamps from
+    # the lower bumper.  These wedges remain readable in the normal chase view
+    # and eliminate the old slab-sided silhouette.
+    left_rear_corner_vent = ((-1.055,-2.604,.770),(-.970,-2.610,.590),
+                             (-.935,-2.611,.485),(-1.040,-2.606,.420),
+                             (-1.090,-2.601,.560))
+    create_polygon("Left rear corner vent", left_rear_corner_vent, carbon, .008)
+    create_polygon("Right rear corner vent", mirror_points_x(left_rear_corner_vent),
+                   carbon, .008)
+
     # Restrained lower black fascia and center exhaust group.
     create_polygon("Rear diffuser", ((-.955,-2.598,.455),(.955,-2.598,.455),
                                       (.760,-2.590,.060),(-.760,-2.590,.060)), carbon, .016, .004)
@@ -462,6 +473,11 @@ def add_surface_details(materials: dict[str, bpy.types.Material]) -> None:
                                    (.955,-2.205,.872),(-.955,-2.205,.872)), carbon, .010, .003)
     create_polygon("Center stop lamp", ((-.315,-2.218,.868),(.315,-2.218,.868),
                                         (.292,-2.224,.849),(-.292,-2.224,.849)), lights, .004)
+    left_lower_reflector = ((-.910,-2.612,.405),(-.590,-2.615,.405),
+                            (-.610,-2.616,.365),(-.890,-2.613,.365))
+    create_polygon("Tail lamp lower reflector",left_lower_reflector,lights,.002)
+    create_polygon("Tail lamp lower reflector right",
+                   mirror_points_x(left_lower_reflector),lights,.002)
 
     # Tiny crossed-color rear emblem at the visual center of the fascia.
     create_polygon("Rear badge red", ((-.025,-2.626,.842),(-.150,-2.626,.870),
@@ -471,8 +487,8 @@ def add_surface_details(materials: dict[str, bpy.types.Material]) -> None:
 
     for center_x in (-.285,-.095,.095,.285):
         bpy.ops.mesh.primitive_torus_add(
-            major_radius=.067, minor_radius=.014, major_segments=12,
-            minor_segments=4, location=(center_x,-2.625,.17),
+            major_radius=.067, minor_radius=.014, major_segments=10,
+            minor_segments=3, location=(center_x,-2.625,.17),
             rotation=(math.pi*.5,0.0,0.0))
         tip = bpy.context.object
         tip.name = "Exhaust tip"
@@ -480,7 +496,7 @@ def add_surface_details(materials: dict[str, bpy.types.Material]) -> None:
         tip.data.materials.append(metal)
         smooth_mesh(tip)
         bpy.ops.mesh.primitive_cylinder_add(
-            vertices=16,radius=.051,depth=.018,location=(center_x,-2.628,.17),
+            vertices=12,radius=.051,depth=.018,location=(center_x,-2.628,.17),
             rotation=(math.pi*.5,0.0,0.0))
         bore=bpy.context.object
         bore.name="Exhaust bore"

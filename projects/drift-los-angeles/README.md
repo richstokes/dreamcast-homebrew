@@ -19,7 +19,8 @@ It contains no manufacturer badge or copied production geometry.
   downtown towers, low-rise art-deco buildings, glass facades, concrete and
   graffiti surfaces, sunset mountains, palm trees, sidewalks, crosswalks, long
   center stripes, multi-lane dashed dividers, parking edges, and road-edge
-  markings
+  markings, direction arrows, raised lane reflectors, overhead district
+  gantries, and neighborhood-specific pavement rhythms
 - Near-plane-clipped road and pavement polygons eliminate the missing wedges
   that otherwise appear when a large street tile passes under the chase camera;
   screen-edge primitive rejection, block-frustum culling, and three-range
@@ -42,8 +43,8 @@ It contains no manufacturer badge or copied production geometry.
 - A signature landmark in every district, colored local street lighting,
   district-specific pavement, curbs, sidewalks and props, entry banners, and a
   color-changing minimap so navigation does not depend on identical blocks
-- A clean-sheet Blender-authored C7-inspired car exported as a 1,610-vertex,
-  2,954-triangle PowerVR mesh. Its construction follows the supplied
+- A clean-sheet Blender-authored C7-inspired car exported as a 1,524-vertex,
+  2,766-triangle PowerVR mesh. Its construction follows the supplied
   front/rear/side reference with a low center hood between raised fender crowns,
   rear-set cab-back greenhouse, raked windshield, sunset-reflective fastback
   glass, short rear overhang, and high rear haunches. The lower shell and canopy
@@ -55,7 +56,7 @@ It contains no manufacturer badge or copied production geometry.
   mirrors, paired high-mounted angular taillamps in coherent dark housings, front
   and rear crossed-color badges, recessed plate band, deck-hugging spoiler lip,
   splitter, diffuser, and four individually modeled metallic exhaust outlets
-- Four separately modeled 24-sided tires with five-spoke rims, brake rotors,
+- Four separately modeled 20-sided tires with five-spoke rims, brake rotors,
   hubs, five raised lug nuts and a center cap per wheel, restrained red calipers,
   animated wheel rotation, articulated front steering, door handles, panel
   seams and driver-side fuel filler, pearl-white
@@ -79,14 +80,16 @@ It contains no manufacturer badge or copied production geometry.
   parking meters, bus shelters, poster panels, hydrants, palms, curb edges,
   crosswalks, direction arrows, grated storm drains, street-name signs,
   newspaper boxes, bike racks, utility poles, transformers and sagging wire
-  runs, rooftop HVAC and aerial silhouettes, billboard structures, and
-  time-phased traffic signals
+  runs, hotel-valet canopies, surf-rental racks, graffiti dumpsters and
+  roadwork barriers, neon market stalls, vending banks, rooftop HVAC and aerial
+  silhouettes, billboard structures, and time-phased traffic signals
 - Layered blue-hour lighting with warm streetlamp pools and halos, fading
   storefront spill, neon pavement color, player and traffic headlight cones,
   dynamic red brake-lamp halos and intensity-scaled road pools, emissive signs,
-  moving warm/cool body reflections, intermittent high-RPM flame bursts from
-  the four center exhausts, and a richly painted parallax skyline behind the
-  streamed 3D city
+  a dedicated translucent/additive environment-reflection pass across the hood,
+  fastback glass, rear shoulders and spoiler, intermittent high-RPM flame bursts
+  from the four center exhausts, and a richly painted parallax skyline behind
+  the streamed 3D city
 - Drift-angle detection, live unbanked score, a six-times chain multiplier,
   hold timer, best-hold record, 2.5-second duration bonuses, and a 12-second
   on-screen endurance meter
@@ -99,7 +102,9 @@ It contains no manufacturer badge or copied production geometry.
   cameras, subtle body roll, an MPH speed display, and a traffic-aware
   street-grid minimap
 - A compact arcade HUD that keeps the city and car unobstructed while showing
-  live drift angle, multiplier, hold time, best chain, score, and district
+  live drift angle, multiplier, hold time, best chain, score, district, segmented
+  speed band and a traffic-aware minimap; its separate late-1990s arcade pods
+  are color-keyed to each neighborhood
 - A genuinely recorded V8 built as a period-correct idle/drive sample bank and
   played as hardware AICA voices alongside a real tire-squeal recording. RPM is
   damped before two long, stationary recordings crossfade over deliberately
@@ -170,6 +175,56 @@ The automated tour shortens the pop interval so the intermittent flame is
 practical to capture; normal play keeps the wider irregular interval and still
 requires strong throttle in the upper RPM band.
 
+## Quality validation
+
+The current art pass is supervised by `tools/visual_qa.py` instead of accepting
+changes by source-code complexity alone. The retained review sheet below is made
+from four direct Flycast frames after the validator passed every configured
+gate:
+
+![Four-district visual QA contact sheet](assets/screenshots/world-furnishings-v14.png)
+
+The validator parses the generated car mesh and checks dimensions, C7-like
+length/width/height ratios, triangle and material coverage, normal validity,
+all source artwork, PowerVR-compatible output dimensions, and the complete
+resident texture budget. Given emulator frames, it also measures contrast,
+saturation, palette use, crushed blacks, clipped highlights, whole-frame and
+lower-road edge energy, hero-car occupancy/readability, and pairwise district
+histogram separation. Failures return a non-zero status and the JSON report and
+annotated contact sheet make regressions inspectable.
+
+Run the static model/texture gates:
+
+```sh
+make qa
+```
+
+Build and run the complete 60-second district tour with live PowerVR polygon,
+vertex, building, vehicle, pedestrian, furnishing-cluster, smoke, frame-rate,
+and registration-time telemetry:
+
+```sh
+make qa-run
+```
+
+For a repeatable moving review take in one neighborhood, use segment 0 for
+Downtown, 1 for Pacific Coast, 2 for Arts Quarter, or 3 for Neon Strip:
+
+```sh
+make qa-capture-run QA_SEGMENT=3
+```
+
+Save the four frames as `assets/generated/previews/visual-qa/downtown.png`,
+`coast.png`, `arts.png`, and `neon.png`, then run the complete screenshot audit:
+
+```sh
+make qa-visual
+```
+
+It writes `report.json` and `contact-sheet.png` beside those captures. Generated
+review output stays ignored; intentional milestone sheets can be promoted into
+`assets/screenshots/` as this pass was.
+
 ## Controls
 
 | Control | Action |
@@ -217,7 +272,21 @@ The expected result is a 32-bit, little-endian Renesas SH ELF.
 ```
 
 The launcher builds by default, enables the Flycast serial console transiently,
-and boots the ELF by absolute path. Flycast 2.7 on Apple Silicon can
+and boots the ELF by absolute path. On macOS it checks Generic Desktop HID
+joystick/gamepad usages at launch. If a pad is connected, only the first pad is
+assigned to Dreamcast port A and keyboard input is disabled; otherwise only
+Flycast's keyboard mapping is assigned. Mouse and unused joystick slots are
+explicitly disconnected, and no saved Flycast preference is changed.
+
+Override automatic selection when testing with:
+
+```sh
+./run-flycast.sh --input gamepad
+./run-flycast.sh --input keyboard
+```
+
+`DRIFT_LA_INPUT=auto|gamepad|keyboard` provides the same override through the
+environment. Flycast 2.7 on Apple Silicon can
 occasionally fail before guest boot with a dynarec `sq_buffer` address-space
 assertion. The launcher recognizes only that exact host-side failure and retries
 it up to eight times with a short delay; other errors retain their original exit
@@ -324,9 +393,12 @@ persistent emulator or system setting.
   PVR texture memory remaining
 - Direct PowerVR captures from straight front, exact side, straight rear,
   rear three-quarter, brake-light QA, and the full chase-camera scene
+- Strict mesh, texture-memory, four-frame composition, road-detail, palette,
+  exposure, hero-readability, and district-separation validation with a retained
+  JSON report and contact sheet
 - Repeated four-district showcase cycles with the full traffic, lighting, HUD,
-  audio, road, and smoke scene active; the current detailed car pass typically
-  registers in roughly 26-32 ms in Flycast, excluding host-side screenshot stalls
+  audio, road, and smoke scene active; the current detailed pass typically
+  registers in roughly 29-34 ms in Flycast, excluding host-side screenshot stalls
 - Three simultaneous 32 kHz recorded AICA voices plus the 22.05 kHz effects and
   full-track stereo music stream, with the stream mixer averaging about 3.2 ms
   per service call in the scripted Flycast drive
