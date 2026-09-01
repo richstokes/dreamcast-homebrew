@@ -53,11 +53,12 @@ is also available.
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
 - Eight original stereo synthwave/synthpop songs sequenced through a no-repeat
-  shuffle bag, with a title-screen Sound Test, 48–53 second verse/pre-chorus/
-  chorus forms, 162–178 BPM arrangements, sidechained chord pads, driven pulse
-  and FM basses, stereo arpeggios, sustained hooks, eight lead voices including
-  a breathy reed patch, track-specific drum machines, gated clap rooms, tom
-  fills, chord stabs, harmony lifts, and multi-tap ping-pong echo
+  shuffle bag, with a title-screen Sound Test, 48–53 second song-specific forms,
+  162–178 BPM arrangements, 24-PPQN melodic events with authored duration,
+  velocity, articulation and pitch bends, straight/triplet/dotted/3+3+2 rhythmic
+  identities, sidechained chord pads, driven pulse and FM basses, optional
+  eighth/triplet/sixteenth arpeggios, eight lead voices including a breathy reed
+  patch, track-specific drum machines, and per-song stereo delay signatures
 - Optional Jump Pack feedback for impacts, Nova Pulses, upgrades, and guardian
   destruction, with safe play when no vibration accessory is present
 - Hardware fog, a layered gradient sky, stars, striped sun, a subtle animated
@@ -123,24 +124,33 @@ now owns its full 36-bar form before the bag advances. Biome and mode changes
 can alter the score's mix level at the next phrase seam, but cannot chop a verse
 or chorus into another random song.
 
-- **Midnight Vector** — sustained tonic/fifth "headlights" refrain
-- **Magenta Circuit** — offbeat pickup and bright syncopated chorus
-- **Glass Horizon** — breathy, long-line call-and-response
-- **Static Heart** — hard-driving repeated-note heartbeat hook
-- **Afterimage Run** — descending spectral cascade
-- **Neon Afterburn** — percussive octave-toggle siren
-- **Chrome Devotion** — broad, sustained major-key anthem
-- **Redline Prophecy** — angular, rest-led omen motif
+- **Midnight Vector** — sparse dotted attacks and a rising-fifth headlights hook
+- **Magenta Circuit** — sixteenth pickups and a short-short-long synthpop refrain
+- **Glass Horizon** — half-time breathy lines and a falling minor-sixth answer
+- **Static Heart** — clipped repeated-note stutters and minor-second voltage
+- **Afterimage Run** — dotted chromatic slides dissolving into true triplet runs
+- **Neon Afterburn** — wide octave sirens articulated in a 3+3+2 call-and-response
+- **Chrome Devotion** — rest-heavy major-key double arches and long suspensions
+- **Redline Prophecy** — downbeat-rest fourths, tritones and a late accelerating peak
 
 Each composition has three authored two-bar studio phrases: A is sparse verse
-material, B rises through a dominant pre-chorus that also supports the bridge,
-and C resolves to the tonic with the song's repeatable chorus hook and harmony
-lift. Three 36-bar macro-arrangements turn those phrases into intros, four-bar
-verses, pre-choruses, recurring four-bar choruses, breakdowns, bridges, builds,
-four-to-six-bar final choruses, and outros. Per-part mix automation makes the
-intro pull back and each returning chorus grow. The music engine launches every
-downbeat on the exact eight-beat phrase boundary while the outgoing section
-carries a 47.6 ms decay tail across dual stereo AICA pairs.
+material, B creates tension for the pre-chorus and middle eight, and C owns the
+repeatable chorus hook and harmony lift. Notes are timed as independent 24-PPQN
+events rather than being forced into a shared eighth-note template, so every
+song can control its onset pattern, duration, accent, silence, slide, scoop,
+range and contour. Eight unique 36-bar macro-arrangements vary first-hook
+arrival, chorus weight, breakdown/bridge placement, final lift and dynamic arc.
+The music engine launches every downbeat on the exact eight-beat phrase boundary
+while the outgoing section carries a 47.6 ms decay tail across dual stereo AICA
+pairs.
+
+Boot-time composition QA validates every event and rejects duplicate chorus
+rhythms, duplicate contours, verse-to-chorus transpositions, or pairs exceeding
+the album's overlap ceilings: 65 percent at exact attacks, 60 percent on a
+sixteenth-note grid, 72 percent on an eighth-note grid, and 80 percent for the
+longest shared contour-direction sequence. That audit deliberately ignores
+synth patch and harmony color: the hooks must remain distinguishable as
+melodies, not merely as different production presets.
 
 The score is authored by Gravity Wave's SH-4 synth, baked to 21.5 kHz native
 stereo AICA ADPCM, and linked directly into the ELF for immediate startup. Boot

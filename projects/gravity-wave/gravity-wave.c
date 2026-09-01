@@ -76,16 +76,17 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define MUSIC_BARS           2
 #define MUSIC_BEATS          (MUSIC_BARS * 4)
 #define MUSIC_PHRASE_BARS    (MUSIC_BARS * MUSIC_SECTION_COUNT)
-#define MUSIC_MELODY_STEPS   (MUSIC_BEATS * 2)
-#define MUSIC_FORM_COUNT     3
+#define MUSIC_TICKS_PER_BEAT 24
+#define MUSIC_MELODY_TICKS   (MUSIC_BEATS * MUSIC_TICKS_PER_BEAT)
+#define MUSIC_MAX_LEAD_EVENTS 20
+#define MUSIC_FORM_COUNT     8
 #define MUSIC_FORM_STEP_COUNT 18
 #define MUSIC_EDGE_SAMPLES   1024
 #define MUSIC_AICA_RESERVE   (256u * 1024u)
 #define MUSIC_SINE_TABLE_SIZE 2048
 #define MUSIC_ASSET_HEADER_BYTES 8u
-#define MUSIC_SYNTH_REVISION 0x26083102u
+#define MUSIC_SYNTH_REVISION 0x26083104u
 #define MUSIC_REST           (-127)
-#define MUSIC_TIE            (-126)
 #define MUSIC_TITLE_VOLUME   68
 #define MUSIC_GAME_VOLUME    84
 #define TEMP_WEAPON_SECONDS  15.0f
@@ -278,6 +279,35 @@ typedef struct {
     bool connected;
 } input_t;
 
+typedef enum {
+    MUSIC_ART_LEGATO,
+    MUSIC_ART_STACCATO,
+    MUSIC_ART_ACCENT,
+    MUSIC_ART_SLIDE,
+    MUSIC_ART_SCOOP,
+    MUSIC_ART_GHOST,
+    MUSIC_ART_COUNT
+} music_articulation_t;
+
+/* 24 PPQN gives the composer independent note onsets and lengths on straight
+ * eighth/sixteenth, triplet and dotted grids. It replaces the old universal
+ * eighth-note pitch slots, whose shared timing made different note sequences
+ * read as the same tune. Bend is the signed starting pitch offset in semitones;
+ * slides, scoops and accented leaps resolve it during the note attack. */
+typedef struct {
+    uint8_t start_tick;
+    uint8_t duration_ticks;
+    int8_t pitch;
+    uint8_t velocity;
+    uint8_t articulation;
+    int8_t bend;
+} music_lead_event_t;
+
+typedef struct {
+    uint8_t event_count;
+    music_lead_event_t events[MUSIC_MAX_LEAD_EVENTS];
+} music_lead_phrase_t;
+
 typedef struct {
     const char *name;
     float bpm;
@@ -287,19 +317,23 @@ typedef struct {
     uint8_t minor_mask;
     int8_t bass[8 * MUSIC_SECTION_COUNT];
     uint8_t arpeggio[16];
-    int8_t melody[MUSIC_MELODY_STEPS * MUSIC_SECTION_COUNT];
+    music_lead_phrase_t melody[MUSIC_SECTION_COUNT];
     uint16_t kick[MUSIC_PHRASE_BARS];
     uint16_t snare[MUSIC_PHRASE_BARS];
     uint16_t hat[MUSIC_PHRASE_BARS];
     uint16_t open_hat[MUSIC_PHRASE_BARS];
     uint16_t tom[MUSIC_PHRASE_BARS];
     uint16_t stab[MUSIC_PHRASE_BARS];
-    int lead_profile;
+    uint8_t lead_profile[MUSIC_SECTION_COUNT];
+    uint8_t arpeggio_steps_per_beat[MUSIC_SECTION_COUNT];
     int bass_profile;
     int arpeggio_profile;
     int harmony_interval;
     float pulse_width;
-    float lead_gate;
+    float lead_gate[MUSIC_SECTION_COUNT];
+    float lead_pan_width;
+    float echo_beats[2];
+    float echo_levels[2];
     float sidechain;
     float drive;
     float pad_level;
@@ -443,10 +477,13 @@ static const guardian_profile_t guardian_profiles[4] = {
 #define GUARDIAN_SHOT_STYLE_FLAG 0x100u
 
 /* Eight original synthwave/synthpop songs are authored by the synth below and
- * shipped as native AICA ADPCM. A is deliberately sparse verse material, B is
- * a rising pre-chorus/bridge, and C owns each song's memorable chorus hook.
- * The runtime form sequencer below reuses those studio phrases as complete
- * 36-bar songs while staying within retail Dreamcast sound RAM. */
+ * shipped as native AICA ADPCM. Each lead has an explicit rhythmic fingerprint
+ * rather than inheriting a shared slot pattern: attack time, duration, accent,
+ * articulation, bend, contour, range and cadence are all composed per song.
+ * The compact events preserve the same retail sound-RAM footprint while 24
+ * PPQN supports straight, dotted, triplet, pickup and 3+3+2 phrase languages. */
+#define MUSIC_EVENT(start, duration, note, velocity, articulation, bend) \
+    {start, duration, note, velocity, articulation, bend}
 static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     {
         .name = "MIDNIGHT VECTOR",
@@ -461,13 +498,40 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
             0,12,7,0, 12,7,15,12
         },
         .arpeggio = {0,2,3,1, 2,4,3,2, 0,3,5,2, 4,3,2,1},
+        /* Rising-fifth anthem: a late tonic pickup becomes a wide, held
+           chorus answer. Its sparse dotted attacks never use the pop-pluck
+           rhythm of Magenta Circuit or the triplets of Afterimage Run. */
         .melody = {
-             0,MUSIC_TIE,MUSIC_TIE,7, 12,MUSIC_TIE,10,7,
-             3,MUSIC_TIE,7,12, 10,MUSIC_TIE,7,MUSIC_REST,
-             5,MUSIC_TIE,MUSIC_TIE,12, 17,MUSIC_TIE,15,12,
-             7,MUSIC_TIE,11,14, 17,MUSIC_TIE,14,11,
-            12,MUSIC_TIE,MUSIC_TIE,19, 24,MUSIC_TIE,22,19,
-            15,MUSIC_TIE,19,22, 19,MUSIC_TIE,14,MUSIC_REST
+            {.event_count = 6, .events = {
+                MUSIC_EVENT(12,24, 0,196,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(42,12, 7,224,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(60,30,12,232,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(108,18,7,202,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(132,12,10,220,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(150,30,7,210,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 9, .events = {
+                MUSIC_EVENT(0,18,5,202,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(24,12,7,208,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(42,18,10,214,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(66,12,12,222,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(84,12,14,226,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(102,18,17,234,MUSIC_ART_SLIDE,-2),
+                MUSIC_EVENT(126,12,14,214,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(144,18,19,238,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(168,18,22,244,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 9, .events = {
+                MUSIC_EVENT(0,18,12,238,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(30,12,19,250,MUSIC_ART_SLIDE,-5),
+                MUSIC_EVENT(48,12,17,226,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(72,18,15,218,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(108,18,12,230,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(132,12,19,248,MUSIC_ART_ACCENT,-5),
+                MUSIC_EVENT(150,12,24,255,MUSIC_ART_SLIDE,-2),
+                MUSIC_EVENT(168,12,22,232,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(186,6,19,224,MUSIC_ART_LEGATO,0)
+            }}
         },
         .kick = {0x1111,0x5111,0x1151,0x9511,0x5151,0xd551},
         .snare = {0x1010,0x1010,0x1010,0x5010,0x1010,0x7010},
@@ -475,9 +539,13 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x0000,0x2002,0x0202,0x2022,0x2222,0xaaaa},
         .tom = {0x0000,0x0000,0x0000,0x8400,0x0000,0xf000},
         .stab = {0x1010,0x1111,0x5151,0x1111,0x5555,0xd555},
-        .lead_profile = 0,
+        .lead_profile = {0,0,5},
+        .arpeggio_steps_per_beat = {0,2,4},
         .bass_profile = 1, .arpeggio_profile = 0,
-        .harmony_interval = 7, .pulse_width = 0.38f, .lead_gate = 0.82f,
+        .harmony_interval = 7, .pulse_width = 0.38f,
+        .lead_gate = {0.96f,0.88f,0.94f},
+        .lead_pan_width = 0.30f,
+        .echo_beats = {0.50f,1.00f}, .echo_levels = {0.24f,0.10f},
         .sidechain = 0.78f, .drive = 0.50f,
         .pad_level = 0.150f, .bass_level = 0.245f,
         .arpeggio_level = 0.130f, .lead_level = 0.180f,
@@ -499,13 +567,56 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
             0,12,0,7, 12,15,12,7
         },
         .arpeggio = {0,1,3,2, 4,2,5,3, 0,2,4,6, 5,3,2,1},
+        /* Bright synthpop pickup: short-short-long cells answer on sixteenth
+           offbeats, then the chorus stamps the cell an octave higher. */
         .melody = {
-            MUSIC_REST,0,3,7, 12,MUSIC_TIE,10,7,
-             5,MUSIC_TIE,8,12, 10,8,5,MUSIC_REST,
-            MUSIC_REST,8,12,15, 19,MUSIC_TIE,15,12,
-             7,MUSIC_TIE,11,14, 17,19,23,MUSIC_REST,
-            MUSIC_REST,12,15,19, 24,MUSIC_TIE,22,19,
-            MUSIC_REST,15,19,22, 19,MUSIC_TIE,15,12
+            {.event_count = 12, .events = {
+                MUSIC_EVENT(6,6,0,196,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(18,6,3,208,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(30,18,7,226,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(54,6,3,190,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(66,6,0,202,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(78,12,5,216,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(102,6,0,198,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(114,6,3,212,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(126,18,8,232,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(150,6,7,204,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(162,6,5,198,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(174,12,3,216,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 14, .events = {
+                MUSIC_EVENT(0,6,8,208,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(12,6,8,194,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(24,12,12,226,MUSIC_ART_ACCENT,-4),
+                MUSIC_EVENT(42,6,10,210,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(54,6,12,218,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(66,18,15,236,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(90,6,12,202,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(102,6,14,214,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(114,6,17,224,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(126,12,19,242,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(144,6,17,212,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(156,6,19,224,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(168,6,23,246,MUSIC_ART_ACCENT,-4),
+                MUSIC_EVENT(180,12,19,226,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 15, .events = {
+                MUSIC_EVENT(3,6,12,226,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(12,6,12,210,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(21,18,19,248,MUSIC_ART_ACCENT,-5),
+                MUSIC_EVENT(45,6,12,220,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(54,6,15,230,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(63,21,24,255,MUSIC_ART_SLIDE,-4),
+                MUSIC_EVENT(90,6,19,208,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(99,6,12,228,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(108,6,15,234,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(117,18,22,250,MUSIC_ART_ACCENT,-3),
+                MUSIC_EVENT(141,6,19,218,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(150,6,22,232,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(159,12,24,252,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(174,6,19,214,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(183,9,15,224,MUSIC_ART_LEGATO,0)
+            }}
         },
         .kick = {0x1151,0x5151,0x1551,0xd151,0x5551,0xf551},
         .snare = {0x1010,0x1030,0x1010,0x1010,0x1030,0x3010},
@@ -513,9 +624,13 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x0202,0x2022,0x2222,0xaaaa,0x2222,0xaaaa},
         .tom = {0x0000,0x0400,0x0000,0xc400,0x0800,0xf400},
         .stab = {0x1111,0x5151,0x5555,0x5151,0x5555,0xd555},
-        .lead_profile = 1,
+        .lead_profile = {1,1,6},
+        .arpeggio_steps_per_beat = {2,4,4},
         .bass_profile = 3, .arpeggio_profile = 1,
-        .harmony_interval = -5, .pulse_width = 0.26f, .lead_gate = 0.72f,
+        .harmony_interval = -5, .pulse_width = 0.26f,
+        .lead_gate = {0.58f,0.62f,0.68f},
+        .lead_pan_width = 0.64f,
+        .echo_beats = {0.75f,1.50f}, .echo_levels = {0.34f,0.15f},
         .sidechain = 0.86f, .drive = 0.58f,
         .pad_level = 0.130f, .bass_level = 0.255f,
         .arpeggio_level = 0.150f, .lead_level = 0.190f,
@@ -537,13 +652,32 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
             0,MUSIC_REST,12,7, 15,12,7,MUSIC_REST
         },
         .arpeggio = {0,2,4,3, 1,3,5,4, 2,4,6,5, 4,3,2,1},
+        /* Half-time horizon line: very few attacks, breath-sized rests and a
+           characteristic minor-sixth reach that falls home by step. */
         .melody = {
-             0,MUSIC_TIE,MUSIC_TIE,7, 10,MUSIC_TIE,MUSIC_TIE,MUSIC_REST,
-             3,MUSIC_TIE,7,10, 14,MUSIC_TIE,10,MUSIC_REST,
-             8,MUSIC_TIE,MUSIC_TIE,12, 15,MUSIC_TIE,19,15,
-             7,MUSIC_TIE,11,14, 17,MUSIC_TIE,19,MUSIC_REST,
-            12,MUSIC_TIE,MUSIC_TIE,19, 22,MUSIC_TIE,MUSIC_TIE,MUSIC_REST,
-            20,MUSIC_TIE,24,27, 24,MUSIC_TIE,20,MUSIC_REST
+            {.event_count = 5, .events = {
+                MUSIC_EVENT(0,36,0,194,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(48,24,3,204,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(84,12,7,218,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(108,30,5,202,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(150,36,3,196,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 6, .events = {
+                MUSIC_EVENT(0,30,8,202,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(42,18,12,214,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(72,18,15,226,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(102,24,12,208,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(138,18,16,222,MUSIC_ART_SLIDE,-2),
+                MUSIC_EVENT(162,24,19,232,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 6, .events = {
+                MUSIC_EVENT(0,42,12,224,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(54,24,20,248,MUSIC_ART_SLIDE,-5),
+                MUSIC_EVENT(84,12,19,222,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(108,18,19,226,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(132,18,17,218,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(156,30,15,212,MUSIC_ART_LEGATO,0)
+            }}
         },
         .kick = {0x0941,0x4941,0x1941,0x5949,0x1151,0xd951},
         .snare = {0x0100,0x2100,0x0100,0x3100,0x0100,0x7100},
@@ -551,9 +685,13 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x0002,0x2002,0x0202,0x2222,0x2022,0xaaaa},
         .tom = {0x0000,0x0000,0x0000,0x8800,0x0000,0xe800},
         .stab = {0x0010,0x1010,0x1111,0x5151,0x1111,0xd151},
-        .lead_profile = 2,
+        .lead_profile = {2,2,2},
+        .arpeggio_steps_per_beat = {0,3,2},
         .bass_profile = 0, .arpeggio_profile = 2,
-        .harmony_interval = 7, .pulse_width = 0.46f, .lead_gate = 0.90f,
+        .harmony_interval = 7, .pulse_width = 0.46f,
+        .lead_gate = {0.98f,0.98f,0.99f},
+        .lead_pan_width = 0.18f,
+        .echo_beats = {1.00f,2.00f}, .echo_levels = {0.12f,0.05f},
         .sidechain = 0.62f, .drive = 0.38f,
         .pad_level = 0.175f, .bass_level = 0.220f,
         .arpeggio_level = 0.145f, .lead_level = 0.180f,
@@ -575,13 +713,74 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
             0,12,7,12, 0,15,12,7
         },
         .arpeggio = {0,3,1,4, 2,5,3,6, 4,2,5,3, 1,4,2,5},
+        /* Clipped heartbeat: narrow repeated-note stutters collide with a
+           minor-second voltage spike. Density and contour deliberately oppose
+           Glass Horizon's long reed lines. */
         .melody = {
-            12,MUSIC_REST,12,7, 10,7,3,MUSIC_REST,
-            10,MUSIC_REST,10,14, 17,14,12,MUSIC_REST,
-             8,12,15,12, 19,15,12,MUSIC_REST,
-             7,11,14,17, 19,19,19,MUSIC_REST,
-            12,MUSIC_REST,12,19, 22,19,15,MUSIC_REST,
-            15,MUSIC_REST,15,19, 22,19,15,MUSIC_REST
+            {.event_count = 20, .events = {
+                MUSIC_EVENT(0,3,12,230,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(6,3,12,190,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(12,3,13,222,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(24,6,12,214,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(36,3,12,228,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(42,3,12,188,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(48,6,10,208,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(60,6,7,218,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(72,3,12,224,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(78,3,13,232,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(84,6,12,202,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(96,3,10,216,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(108,3,10,226,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(114,3,10,186,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(120,6,14,234,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(132,6,13,210,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(144,3,12,228,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(150,3,13,220,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(156,6,10,202,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(174,6,7,212,MUSIC_ART_ACCENT,0)
+            }},
+            {.event_count = 18, .events = {
+                MUSIC_EVENT(3,3,15,216,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(9,3,15,190,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(15,6,16,230,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(27,3,15,210,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(39,3,17,224,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(45,3,17,192,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(51,9,19,238,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(69,3,17,206,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(81,6,20,232,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(93,3,19,214,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(99,3,19,224,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(105,3,20,238,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(117,6,19,214,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(129,3,17,206,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(141,3,19,226,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(147,3,20,240,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(159,6,22,246,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(177,9,19,218,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 20, .events = {
+                MUSIC_EVENT(0,3,12,238,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(6,3,12,198,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(12,3,24,250,MUSIC_ART_STACCATO,-12),
+                MUSIC_EVENT(24,6,19,222,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(33,3,19,204,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(42,3,20,238,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(48,6,19,218,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(60,3,15,210,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(69,3,19,230,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(78,6,20,244,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(90,3,19,202,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(96,3,15,226,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(102,3,15,194,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(114,6,22,246,MUSIC_ART_STACCATO,-3),
+                MUSIC_EVENT(126,3,20,218,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(135,3,19,210,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(144,6,15,232,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(156,3,19,220,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(165,3,20,240,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(177,9,15,216,MUSIC_ART_STACCATO,0)
+            }}
         },
         .kick = {0x1551,0x5551,0x1551,0xd551,0x5751,0xfdd1},
         .snare = {0x1010,0x1810,0x1010,0x1810,0x1410,0x3010},
@@ -589,9 +788,13 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x2222,0xaaaa,0x2222,0xaaaa,0xaaaa,0xaaaa},
         .tom = {0x0000,0x0800,0x0000,0xc800,0x0400,0xfc00},
         .stab = {0x5151,0x5555,0x5151,0xd555,0x5555,0xf555},
-        .lead_profile = 3,
+        .lead_profile = {3,3,7},
+        .arpeggio_steps_per_beat = {4,4,4},
         .bass_profile = 2, .arpeggio_profile = 3,
-        .harmony_interval = -12, .pulse_width = 0.20f, .lead_gate = 0.66f,
+        .harmony_interval = -12, .pulse_width = 0.20f,
+        .lead_gate = {0.40f,0.44f,0.46f},
+        .lead_pan_width = 0.78f,
+        .echo_beats = {0.25f,0.50f}, .echo_levels = {0.16f,0.06f},
         .sidechain = 0.92f, .drive = 0.68f,
         .pad_level = 0.115f, .bass_level = 0.270f,
         .arpeggio_level = 0.160f, .lead_level = 0.195f,
@@ -603,8 +806,8 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     {
         .name = "AFTERIMAGE RUN",
         .bpm = 172.0f,
-        .root_midi = 38, /* Verse Dm-Bb, pre Gm-A7, chorus Dm-F. */
-        .chord_offsets = {0,-4,5,7,0,3},
+        .root_midi = 38, /* Verse Dm-C, pre Gm-A7, chorus Dm-C. */
+        .chord_offsets = {0,-2,5,7,0,-2},
         .chord_extensions = {14,11,10,10,14,11},
         .minor_mask = 0x15,
         .bass = {
@@ -613,13 +816,51 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
             0,12,0,7, 12,15,12,7
         },
         .arpeggio = {0,2,3,5, 4,2,6,3, 5,3,4,2, 6,4,3,1},
+        /* Spectral cascade: dotted-eighth chromatic cells dissolve into true
+           triplet runs, with downward slides as the identifying gesture. */
         .melody = {
-            12,MUSIC_TIE,10,7, 5,MUSIC_TIE,7,8,
-            12,MUSIC_TIE,15,12, 10,8,7,MUSIC_REST,
-            17,MUSIC_TIE,15,12, 10,8,7,8,
-            19,MUSIC_TIE,17,14, 11,MUSIC_TIE,7,MUSIC_REST,
-            24,MUSIC_TIE,22,19, 17,MUSIC_TIE,19,20,
-            15,MUSIC_TIE,19,22, 27,MUSIC_TIE,19,MUSIC_REST
+            {.event_count = 10, .events = {
+                MUSIC_EVENT(0,12,17,224,MUSIC_ART_SLIDE,2),
+                MUSIC_EVENT(18,12,15,212,MUSIC_ART_SLIDE,2),
+                MUSIC_EVENT(36,12,14,202,MUSIC_ART_SLIDE,1),
+                MUSIC_EVENT(54,12,10,218,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(72,18,12,206,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(96,12,17,226,MUSIC_ART_SLIDE,2),
+                MUSIC_EVENT(114,12,15,214,MUSIC_ART_SLIDE,2),
+                MUSIC_EVENT(132,12,12,204,MUSIC_ART_SLIDE,3),
+                MUSIC_EVENT(150,12,10,218,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(168,18,7,200,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 15, .events = {
+                MUSIC_EVENT(0,6,19,228,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(8,6,17,214,MUSIC_ART_SLIDE,2),
+                MUSIC_EVENT(16,6,14,204,MUSIC_ART_SLIDE,3),
+                MUSIC_EVENT(32,6,17,218,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(40,6,14,208,MUSIC_ART_SLIDE,3),
+                MUSIC_EVENT(48,12,11,222,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(72,6,14,212,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(80,6,17,224,MUSIC_ART_ACCENT,-3),
+                MUSIC_EVENT(88,6,19,236,MUSIC_ART_SLIDE,-2),
+                MUSIC_EVENT(104,6,22,242,MUSIC_ART_ACCENT,-3),
+                MUSIC_EVENT(112,6,19,224,MUSIC_ART_SLIDE,3),
+                MUSIC_EVENT(120,6,17,214,MUSIC_ART_SLIDE,2),
+                MUSIC_EVENT(136,6,14,208,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(152,12,11,220,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(176,12,7,198,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 11, .events = {
+                MUSIC_EVENT(0,12,24,246,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(18,12,22,232,MUSIC_ART_SLIDE,2),
+                MUSIC_EVENT(36,12,19,218,MUSIC_ART_SLIDE,3),
+                MUSIC_EVENT(54,12,17,226,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(72,18,19,236,MUSIC_ART_SLIDE,-2),
+                MUSIC_EVENT(96,6,15,210,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(104,6,19,230,MUSIC_ART_ACCENT,-4),
+                MUSIC_EVENT(112,6,22,244,MUSIC_ART_SLIDE,-3),
+                MUSIC_EVENT(128,12,27,255,MUSIC_ART_ACCENT,-5),
+                MUSIC_EVENT(150,12,22,228,MUSIC_ART_SLIDE,5),
+                MUSIC_EVENT(174,12,19,216,MUSIC_ART_LEGATO,0)
+            }}
         },
         .kick = {0x1111,0x5115,0x1151,0xd119,0x5551,0xf559},
         .snare = {0x1010,0x1010,0x1010,0x7010,0x1010,0x7010},
@@ -627,9 +868,13 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x0002,0x2022,0x2222,0xaaaa,0x2222,0xaaaa},
         .tom = {0x0000,0x0400,0x0000,0xe400,0x0800,0xf800},
         .stab = {0x1010,0x5151,0x1111,0xd151,0x5555,0xf555},
-        .lead_profile = 4,
+        .lead_profile = {4,4,4},
+        .arpeggio_steps_per_beat = {3,3,4},
         .bass_profile = 1, .arpeggio_profile = 1,
-        .harmony_interval = -12, .pulse_width = 0.33f, .lead_gate = 0.76f,
+        .harmony_interval = -12, .pulse_width = 0.33f,
+        .lead_gate = {0.74f,0.66f,0.78f},
+        .lead_pan_width = 0.54f,
+        .echo_beats = {0.375f,0.75f}, .echo_levels = {0.28f,0.13f},
         .sidechain = 0.82f, .drive = 0.54f,
         .pad_level = 0.140f, .bass_level = 0.250f,
         .arpeggio_level = 0.150f, .lead_level = 0.190f,
@@ -641,23 +886,50 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     {
         .name = "NEON AFTERBURN",
         .bpm = 176.0f,
-        .root_midi = 43, /* Verse Gm-Cm, pre Eb-D7, chorus Gm-Bb. */
-        .chord_offsets = {0,5,-4,7,0,3},
+        .root_midi = 43, /* Verse Gm-Bb, pre Eb-D7, chorus Gm-Cm. */
+        .chord_offsets = {0,3,-4,7,0,5},
         .chord_extensions = {10,10,11,10,10,11},
-        .minor_mask = 0x13,
+        .minor_mask = 0x31,
         .bass = {
             0,12,7,0, 12,MUSIC_REST,7,12,
             0,MUSIC_REST,12,7, 0,15,12,MUSIC_REST,
             0,12,0,12, 7,15,12,7
         },
         .arpeggio = {0,3,5,2, 6,4,2,5, 0,4,6,3, 5,2,4,1},
+        /* Octave siren: broad 3+3+2 accents trade high and low calls across
+           the stereo field instead of tracing another stepwise pop contour. */
         .melody = {
-             0,7,12,7, 10,7,5,MUSIC_REST,
-             5,12,15,12, 8,5,3,MUSIC_REST,
-             8,15,20,15, 12,15,19,MUSIC_REST,
-             7,14,19,14, 11,14,17,MUSIC_REST,
-            12,19,12,19, 22,19,17,MUSIC_REST,
-            15,22,15,22, 19,22,15,MUSIC_REST
+            {.event_count = 6, .events = {
+                MUSIC_EVENT(0,24,0,224,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(36,24,12,242,MUSIC_ART_SLIDE,-12),
+                MUSIC_EVENT(72,18,7,214,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(96,24,12,238,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(132,24,0,218,MUSIC_ART_SLIDE,12),
+                MUSIC_EVENT(168,18,19,248,MUSIC_ART_ACCENT,-12)
+            }},
+            {.event_count = 9, .events = {
+                MUSIC_EVENT(0,18,8,218,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(24,9,20,244,MUSIC_ART_SLIDE,-12),
+                MUSIC_EVENT(36,18,15,226,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(60,9,8,202,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(72,18,19,246,MUSIC_ART_ACCENT,-11),
+                MUSIC_EVENT(96,18,7,214,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(120,9,19,242,MUSIC_ART_SLIDE,-12),
+                MUSIC_EVENT(144,18,14,224,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(168,18,17,234,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 10, .events = {
+                MUSIC_EVENT(0,18,12,238,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(30,6,24,255,MUSIC_ART_SLIDE,-12),
+                MUSIC_EVENT(36,18,12,230,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(66,6,24,220,MUSIC_ART_GHOST,-12),
+                MUSIC_EVENT(72,18,12,250,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(96,12,27,244,MUSIC_ART_STACCATO,-12),
+                MUSIC_EVENT(117,6,15,216,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(135,15,27,255,MUSIC_ART_SLIDE,-12),
+                MUSIC_EVENT(159,6,15,218,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(171,21,24,238,MUSIC_ART_LEGATO,0)
+            }}
         },
         .kick = {0x1551,0x5551,0x1751,0xd751,0x5d51,0xfdd1},
         .snare = {0x1010,0x9010,0x1010,0x3010,0x1410,0x9010},
@@ -665,9 +937,13 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x2222,0xaaaa,0x2222,0xaaaa,0xaaaa,0xaaaa},
         .tom = {0x0000,0x0c00,0x0000,0xec00,0x0800,0xfc00},
         .stab = {0x5151,0x5555,0x5555,0xd555,0x5757,0xf777},
-        .lead_profile = 5,
+        .lead_profile = {5,5,7},
+        .arpeggio_steps_per_beat = {2,4,4},
         .bass_profile = 3, .arpeggio_profile = 3,
-        .harmony_interval = -5, .pulse_width = 0.24f, .lead_gate = 0.64f,
+        .harmony_interval = -5, .pulse_width = 0.24f,
+        .lead_gate = {0.78f,0.62f,0.72f},
+        .lead_pan_width = 0.84f,
+        .echo_beats = {0.625f,1.25f}, .echo_levels = {0.31f,0.14f},
         .sidechain = 0.90f, .drive = 0.66f,
         .pad_level = 0.120f, .bass_level = 0.275f,
         .arpeggio_level = 0.165f, .lead_level = 0.200f,
@@ -689,13 +965,36 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
             0,12,7,12, 0,15,19,15
         },
         .arpeggio = {0,1,3,5, 2,4,6,3, 0,3,6,4, 5,3,2,1},
+        /* Major-key devotion theme: broad quarter/half-note double arches,
+           suspension and silence make this the album's sung anthem rather
+           than another sequenced lead riff. */
         .melody = {
-             4,MUSIC_TIE,MUSIC_TIE,7, 11,MUSIC_TIE,14,MUSIC_TIE,
-             2,MUSIC_TIE,7,11, 14,MUSIC_TIE,9,MUSIC_TIE,
-             5,MUSIC_TIE,9,12, 16,MUSIC_TIE,14,12,
-             7,MUSIC_TIE,11,14, 17,MUSIC_TIE,19,MUSIC_REST,
-            16,MUSIC_TIE,MUSIC_TIE,19, 23,MUSIC_TIE,26,MUSIC_TIE,
-            17,MUSIC_TIE,21,24, 28,MUSIC_TIE,19,MUSIC_REST
+            {.event_count = 6, .events = {
+                MUSIC_EVENT(0,36,4,206,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(48,24,7,216,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(84,12,11,228,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(108,30,7,208,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(150,18,2,194,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(174,18,7,214,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 7, .events = {
+                MUSIC_EVENT(0,24,5,208,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(30,24,9,218,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(60,24,12,232,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(90,18,16,240,MUSIC_ART_SLIDE,-4),
+                MUSIC_EVENT(120,18,14,218,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(144,18,12,210,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(168,24,19,242,MUSIC_ART_ACCENT,-5)
+            }},
+            {.event_count = 7, .events = {
+                MUSIC_EVENT(0,36,16,236,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(48,24,19,244,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(78,12,19,226,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(102,30,23,252,MUSIC_ART_LEGATO,0),
+                MUSIC_EVENT(138,18,17,228,MUSIC_ART_ACCENT,-4),
+                MUSIC_EVENT(162,12,17,220,MUSIC_ART_SLIDE,-3),
+                MUSIC_EVENT(180,12,19,224,MUSIC_ART_LEGATO,0)
+            }}
         },
         .kick = {0x1111,0x5111,0x1151,0x5151,0x5551,0xd551},
         .snare = {0x1010,0x1000,0x1010,0x1000,0x0010,0x3010},
@@ -703,9 +1002,13 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x0000,0x2002,0x0202,0x2222,0x2222,0xaaaa},
         .tom = {0x0000,0x0000,0x0000,0x8400,0x0000,0xe400},
         .stab = {0x1010,0x1111,0x5151,0x5555,0x5151,0xd555},
-        .lead_profile = 6,
+        .lead_profile = {0,6,6},
+        .arpeggio_steps_per_beat = {0,2,3},
         .bass_profile = 0, .arpeggio_profile = 2,
-        .harmony_interval = -12, .pulse_width = 0.40f, .lead_gate = 0.86f,
+        .harmony_interval = -12, .pulse_width = 0.40f,
+        .lead_gate = {0.98f,0.96f,0.98f},
+        .lead_pan_width = 0.24f,
+        .echo_beats = {1.50f,3.00f}, .echo_levels = {0.18f,0.07f},
         .sidechain = 0.72f, .drive = 0.44f,
         .pad_level = 0.170f, .bass_level = 0.230f,
         .arpeggio_level = 0.145f, .lead_level = 0.195f,
@@ -717,23 +1020,60 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
     {
         .name = "REDLINE PROPHECY",
         .bpm = 174.0f,
-        .root_midi = 37, /* Verse C#m-E, pre A-G#7, chorus C#m-A. */
-        .chord_offsets = {0,3,-4,7,0,-4},
+        .root_midi = 37, /* Verse C#m-B, pre A-G#7, chorus C#m-F#m. */
+        .chord_offsets = {0,-2,-4,7,0,5},
         .chord_extensions = {14,11,11,10,14,11},
-        .minor_mask = 0x11,
+        .minor_mask = 0x31,
         .bass = {
             0,0,12,7, 0,MUSIC_REST,12,7,
             0,12,MUSIC_REST,7, 12,15,12,MUSIC_REST,
             0,12,7,0, 12,19,15,12
         },
         .arpeggio = {0,2,5,3, 6,4,2,5, 0,3,6,4, 5,3,1,4},
+        /* Omen motif: every downbeat is withheld, then fourths, tritones and
+           a late accelerating summit cut a 3+2+3 angular silhouette. */
         .melody = {
-            12,MUSIC_REST,7,10, 15,14,10,MUSIC_REST,
-            14,MUSIC_REST,10,7, 3,MUSIC_TIE,7,10,
-             8,MUSIC_TIE,12,15, 19,MUSIC_TIE,15,12,
-             7,MUSIC_TIE,11,14, 17,MUSIC_TIE,19,MUSIC_REST,
-            12,MUSIC_REST,19,22, 15,MUSIC_TIE,14,22,
-            20,MUSIC_REST,12,15, 19,MUSIC_TIE,15,12
+            {.event_count = 9, .events = {
+                MUSIC_EVENT(12,12,12,222,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(30,6,7,202,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(48,12,13,232,MUSIC_ART_SLIDE,-1),
+                MUSIC_EVENT(72,12,6,214,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(90,6,10,194,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(108,12,3,216,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(132,12,10,230,MUSIC_ART_ACCENT,-4),
+                MUSIC_EVENT(150,6,7,202,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(168,18,2,210,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 12, .events = {
+                MUSIC_EVENT(6,12,8,210,MUSIC_ART_SCOOP,-2),
+                MUSIC_EVENT(24,6,12,220,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(42,12,15,232,MUSIC_ART_ACCENT,-3),
+                MUSIC_EVENT(60,6,9,206,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(78,12,16,238,MUSIC_ART_SLIDE,-7),
+                MUSIC_EVENT(96,6,14,212,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(114,12,11,222,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(132,6,17,236,MUSIC_ART_STACCATO,-6),
+                MUSIC_EVENT(144,6,19,244,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(156,6,17,218,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(168,6,14,208,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(180,12,19,240,MUSIC_ART_LEGATO,0)
+            }},
+            {.event_count = 14, .events = {
+                MUSIC_EVENT(12,12,12,228,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(30,6,19,246,MUSIC_ART_STACCATO,-7),
+                MUSIC_EVENT(48,12,22,250,MUSIC_ART_SLIDE,-3),
+                MUSIC_EVENT(72,12,15,222,MUSIC_ART_ACCENT,0),
+                MUSIC_EVENT(90,6,14,204,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(108,9,20,238,MUSIC_ART_STACCATO,-6),
+                MUSIC_EVENT(126,6,12,212,MUSIC_ART_GHOST,0),
+                MUSIC_EVENT(138,6,15,226,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(150,6,19,238,MUSIC_ART_ACCENT,-4),
+                MUSIC_EVENT(162,6,22,246,MUSIC_ART_STACCATO,-3),
+                MUSIC_EVENT(171,3,24,252,MUSIC_ART_ACCENT,-2),
+                MUSIC_EVENT(177,3,27,255,MUSIC_ART_SLIDE,-3),
+                MUSIC_EVENT(183,3,24,238,MUSIC_ART_STACCATO,0),
+                MUSIC_EVENT(189,3,19,220,MUSIC_ART_LEGATO,0)
+            }}
         },
         .kick = {0x1151,0x5151,0x1551,0xd551,0x5751,0xfdd9},
         .snare = {0x1010,0x1018,0x1810,0x1018,0x1818,0x3010},
@@ -741,9 +1081,14 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .open_hat = {0x0202,0x2022,0x2222,0xaaaa,0xaaaa,0xaaaa},
         .tom = {0x0000,0x0800,0x0000,0xe800,0x0c00,0xfc00},
         .stab = {0x1111,0x5151,0x5555,0xd555,0x5757,0xf777},
-        .lead_profile = 7,
+        .lead_profile = {7,7,7},
+        .arpeggio_steps_per_beat = {3,4,4},
         .bass_profile = 2, .arpeggio_profile = 1,
-        .harmony_interval = -12, .pulse_width = 0.29f, .lead_gate = 0.70f,
+        .harmony_interval = -12, .pulse_width = 0.29f,
+        .lead_gate = {0.62f,0.68f,0.72f},
+        .lead_pan_width = 0.70f,
+        .echo_beats = {0.333333f,0.666667f},
+        .echo_levels = {0.22f,0.08f},
         .sidechain = 0.88f, .drive = 0.64f,
         .pad_level = 0.125f, .bass_level = 0.270f,
         .arpeggio_level = 0.160f, .lead_level = 0.202f,
@@ -753,13 +1098,11 @@ static const soundtrack_t soundtrack_defs[MUSIC_TRACK_COUNT] = {
         .noise_seed = 0xc9135e2bu
     }
 };
+#undef MUSIC_EVENT
 
-/* Three full-length arrangements keep the album from sharing one mechanical
- * template. They all preserve the pop-song promise -- setup, two verse/lift/
- * chorus arcs, a contrasting middle eight, and a larger final chorus -- but
- * place the breakdown and bridge differently. Volume deltas supply the same
- * macro-dynamics a multitrack mix would use without duplicating the 1.4 MiB
- * phrase catalog in AICA RAM. */
+/* Every song owns a full-length arrangement. They preserve readable pop form
+ * while changing hook arrival, middle-eight placement, chorus weight and
+ * dynamic arc; no two tracks inherit one album-wide section template. */
 static const music_form_step_t
 music_song_forms[MUSIC_FORM_COUNT][MUSIC_FORM_STEP_COUNT] = {
     {
@@ -821,11 +1164,118 @@ music_song_forms[MUSIC_FORM_COUNT][MUSIC_FORM_STEP_COUNT] = {
         {2, MUSIC_PART_FINAL_CHORUS,   3},
         {2, MUSIC_PART_FINAL_CHORUS,   4},
         {0, MUSIC_PART_OUTRO,        -11}
+    },
+    {
+        /* Static Heart: the floor drops out immediately after chorus one. */
+        {0, MUSIC_PART_INTRO,        -10},
+        {0, MUSIC_PART_VERSE_ONE,     -4},
+        {0, MUSIC_PART_VERSE_ONE,     -3},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         3},
+        {2, MUSIC_PART_CHORUS,         3},
+        {0, MUSIC_PART_BREAKDOWN,    -14},
+        {0, MUSIC_PART_VERSE_TWO,     -3},
+        {0, MUSIC_PART_VERSE_TWO,     -2},
+        {1, MUSIC_PART_PRE_CHORUS,     1},
+        {2, MUSIC_PART_CHORUS,         3},
+        {2, MUSIC_PART_CHORUS,         4},
+        {1, MUSIC_PART_BRIDGE,        -6},
+        {1, MUSIC_PART_BUILD,          1},
+        {2, MUSIC_PART_FINAL_CHORUS,   4},
+        {2, MUSIC_PART_FINAL_CHORUS,   5},
+        {2, MUSIC_PART_FINAL_CHORUS,   5},
+        {0, MUSIC_PART_OUTRO,         -8}
+    },
+    {
+        /* Afterimage Run: a spectral bridge dissolves into silence before its
+           second verse, giving the cascade a genuinely different middle. */
+        {0, MUSIC_PART_INTRO,        -12},
+        {0, MUSIC_PART_VERSE_ONE,     -6},
+        {0, MUSIC_PART_VERSE_ONE,     -4},
+        {1, MUSIC_PART_PRE_CHORUS,    -1},
+        {2, MUSIC_PART_CHORUS,         2},
+        {2, MUSIC_PART_CHORUS,         3},
+        {1, MUSIC_PART_BRIDGE,        -6},
+        {0, MUSIC_PART_BREAKDOWN,    -15},
+        {0, MUSIC_PART_VERSE_TWO,     -5},
+        {0, MUSIC_PART_VERSE_TWO,     -3},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         3},
+        {2, MUSIC_PART_CHORUS,         3},
+        {1, MUSIC_PART_BUILD,          1},
+        {2, MUSIC_PART_FINAL_CHORUS,   4},
+        {2, MUSIC_PART_FINAL_CHORUS,   5},
+        {2, MUSIC_PART_FINAL_CHORUS,   4},
+        {0, MUSIC_PART_OUTRO,        -12}
+    },
+    {
+        /* Neon Afterburn: the first hook runs for six bars before verse two. */
+        {0, MUSIC_PART_INTRO,         -9},
+        {0, MUSIC_PART_VERSE_ONE,     -4},
+        {0, MUSIC_PART_VERSE_ONE,     -2},
+        {1, MUSIC_PART_PRE_CHORUS,     0},
+        {2, MUSIC_PART_CHORUS,         3},
+        {2, MUSIC_PART_CHORUS,         4},
+        {2, MUSIC_PART_CHORUS,         3},
+        {0, MUSIC_PART_VERSE_TWO,     -4},
+        {0, MUSIC_PART_VERSE_TWO,     -2},
+        {1, MUSIC_PART_PRE_CHORUS,     1},
+        {2, MUSIC_PART_CHORUS,         4},
+        {0, MUSIC_PART_BREAKDOWN,    -13},
+        {1, MUSIC_PART_BRIDGE,        -5},
+        {1, MUSIC_PART_BUILD,          2},
+        {2, MUSIC_PART_FINAL_CHORUS,   5},
+        {2, MUSIC_PART_FINAL_CHORUS,   5},
+        {2, MUSIC_PART_FINAL_CHORUS,   6},
+        {0, MUSIC_PART_OUTRO,         -7}
+    },
+    {
+        /* Chrome Devotion: a four-bar cinematic intro and no synthetic build. */
+        {0, MUSIC_PART_INTRO,        -15},
+        {0, MUSIC_PART_INTRO,        -11},
+        {0, MUSIC_PART_VERSE_ONE,     -7},
+        {0, MUSIC_PART_VERSE_ONE,     -5},
+        {1, MUSIC_PART_PRE_CHORUS,    -2},
+        {2, MUSIC_PART_CHORUS,         1},
+        {2, MUSIC_PART_CHORUS,         2},
+        {0, MUSIC_PART_VERSE_TWO,     -6},
+        {0, MUSIC_PART_VERSE_TWO,     -4},
+        {1, MUSIC_PART_PRE_CHORUS,    -1},
+        {2, MUSIC_PART_CHORUS,         2},
+        {2, MUSIC_PART_CHORUS,         3},
+        {0, MUSIC_PART_BREAKDOWN,    -14},
+        {1, MUSIC_PART_BRIDGE,        -8},
+        {2, MUSIC_PART_FINAL_CHORUS,   3},
+        {2, MUSIC_PART_FINAL_CHORUS,   4},
+        {2, MUSIC_PART_FINAL_CHORUS,   4},
+        {0, MUSIC_PART_OUTRO,        -13}
+    },
+    {
+        /* Redline Prophecy: the bridge interrupts the first hook; its later
+           breakdown buys silence before the final acceleration. */
+        {0, MUSIC_PART_INTRO,        -11},
+        {0, MUSIC_PART_VERSE_ONE,     -5},
+        {0, MUSIC_PART_VERSE_ONE,     -3},
+        {1, MUSIC_PART_PRE_CHORUS,    -1},
+        {2, MUSIC_PART_CHORUS,         2},
+        {2, MUSIC_PART_CHORUS,         3},
+        {1, MUSIC_PART_BRIDGE,        -7},
+        {0, MUSIC_PART_VERSE_TWO,     -4},
+        {0, MUSIC_PART_VERSE_TWO,     -2},
+        {1, MUSIC_PART_PRE_CHORUS,     1},
+        {2, MUSIC_PART_CHORUS,         3},
+        {2, MUSIC_PART_CHORUS,         4},
+        {0, MUSIC_PART_BREAKDOWN,    -15},
+        {1, MUSIC_PART_BUILD,          2},
+        {2, MUSIC_PART_FINAL_CHORUS,   4},
+        {2, MUSIC_PART_FINAL_CHORUS,   5},
+        {2, MUSIC_PART_FINAL_CHORUS,   6},
+        {0, MUSIC_PART_OUTRO,         -9}
     }
 };
 
 static const uint8_t music_track_form[MUSIC_TRACK_COUNT] = {
-    0, 1, 2, 1, 0, 1, 2, 0
+    0, 1, 2, 3, 4, 5, 6, 7
 };
 
 static const char *music_part_names[MUSIC_PART_COUNT] = {
@@ -2107,12 +2557,43 @@ static int music_chord_semitone(int degree, bool minor) {
     }
 }
 
+/* Integrate the authored smoothstep pitch curve instead of multiplying an
+ * instantaneous bent frequency by elapsed time. The latter differentiates to
+ * f(t)+t*f'(t), creating a large unintended pitch overshoot on octave slides. */
+static float music_glide_cycles(float start_frequency,
+                                float target_frequency,
+                                float note_position,
+                                float seconds_per_beat,
+                                float glide_rate) {
+    const float transition_beats = 1.0f / glide_rate;
+    const float difference = target_frequency - start_frequency;
+    if(note_position < transition_beats) {
+        const float t2 = note_position * note_position;
+        const float t3 = t2 * note_position;
+        const float t4 = t3 * note_position;
+        const float r2 = glide_rate * glide_rate;
+        const float integrated_smoothstep =
+            r2 * t3 - 0.5f * r2 * glide_rate * t4;
+        return seconds_per_beat *
+            (start_frequency * note_position +
+             difference * integrated_smoothstep);
+    }
+    return seconds_per_beat *
+        ((start_frequency + 0.5f * difference) * transition_beats +
+         target_frequency * (note_position - transition_beats));
+}
+
 static float music_lead_voice(const soundtrack_t *track,
                               const float *lead_frequencies,
+                              const float *glide_frequencies,
                               const uint8_t *lead_starts,
                               const uint8_t *lead_ends,
+                              const uint8_t *lead_velocities,
+                              const uint8_t *lead_articulations,
+                              const uint8_t *lead_event_numbers,
                               float beat, float seconds_per_beat,
-                              int *step_out) {
+                              int profile, float authored_gate,
+                              int *event_out) {
     float position;
     float note_position;
     float note_duration;
@@ -2120,45 +2601,94 @@ static float music_lead_voice(const soundtrack_t *track,
     float cycles;
     float envelope;
     float gate_end;
+    float gate_ratio;
+    float attack_rate;
+    float release_rate;
+    float velocity;
     float voice;
-    int step;
+    int tick;
+    int articulation;
 
     /* A section owns its own echoes. Negative taps would otherwise wrap to
        that section's future ending and create a wrong-chord phantom note at
        the next downbeat; the outgoing buffer supplies the real decay. */
     if(beat < 0.0f || beat >= (float)MUSIC_BEATS) {
-        if(step_out)
-            *step_out = 0;
+        if(event_out)
+            *event_out = 0;
         return 0.0f;
     }
-    position = beat * 2.0f;
-    step = (int)position;
-    if(step_out)
-        *step_out = step;
-    if(lead_frequencies[step] <= 0.0f)
+    position = beat * (float)MUSIC_TICKS_PER_BEAT;
+    tick = (int)position;
+    if(event_out)
+        *event_out = lead_event_numbers[tick];
+    if(lead_frequencies[tick] <= 0.0f)
         return 0.0f;
-    note_position = position - (float)lead_starts[step];
-    note_duration = (float)(lead_ends[step] - lead_starts[step]);
-    gate_end = fmaxf(0.08f,
-                     note_duration - (1.0f - track->lead_gate));
+    note_position = (position - (float)lead_starts[tick]) /
+                    (float)MUSIC_TICKS_PER_BEAT;
+    note_duration = (float)(lead_ends[tick] - lead_starts[tick]) /
+                    (float)MUSIC_TICKS_PER_BEAT;
+    articulation = lead_articulations[tick];
+    gate_ratio = clampf(authored_gate, 0.20f, 1.0f);
+    attack_rate = 18.0f;
+    release_rate = 14.0f;
+    if(articulation == MUSIC_ART_LEGATO) {
+        gate_ratio = fmaxf(gate_ratio, 0.97f);
+        attack_rate = 9.0f;
+        release_rate = 9.0f;
+    }
+    else if(articulation == MUSIC_ART_STACCATO) {
+        gate_ratio = fminf(gate_ratio, 0.52f);
+        release_rate = 22.0f;
+    }
+    else if(articulation == MUSIC_ART_ACCENT) {
+        attack_rate = 32.0f;
+        release_rate = 18.0f;
+    }
+    else if(articulation == MUSIC_ART_SLIDE ||
+            articulation == MUSIC_ART_SCOOP) {
+        gate_ratio = fmaxf(gate_ratio, 0.91f);
+        attack_rate = articulation == MUSIC_ART_SCOOP ? 7.0f : 11.0f;
+    }
+    else if(articulation == MUSIC_ART_GHOST) {
+        gate_ratio = fminf(gate_ratio, 0.64f);
+        attack_rate = 13.0f;
+    }
+    gate_end = fmaxf(1.0f / (float)MUSIC_TICKS_PER_BEAT,
+                     note_duration * gate_ratio);
     if(note_position >= gate_end)
         return 0.0f;
 
-    seconds = note_position * seconds_per_beat * 0.5f;
-    cycles = lead_frequencies[step] * seconds;
+    seconds = note_position * seconds_per_beat;
+    cycles = lead_frequencies[tick] * seconds;
+    if(glide_frequencies[tick] > 0.0f &&
+       glide_frequencies[tick] != lead_frequencies[tick]) {
+        const float glide_rate = articulation == MUSIC_ART_SCOOP ?
+                                 4.5f : 7.5f;
+        cycles = music_glide_cycles(glide_frequencies[tick],
+                                    lead_frequencies[tick],
+                                    note_position, seconds_per_beat,
+                                    glide_rate);
+    }
     cycles += music_sine(
-        (5.1f + (float)track->lead_profile * 0.31f) * seconds) *
-        (note_duration > 1.0f ? 0.023f : 0.012f);
-    envelope = smoothstepf(note_position * 5.2f) *
-               smoothstepf((gate_end - note_position) * 3.8f) *
+        (5.1f + (float)profile * 0.31f) * seconds) *
+        (note_duration > 0.75f ? 0.023f : 0.010f) *
+        smoothstepf((note_position - 0.12f) * 5.0f);
+    velocity = 0.46f + (float)lead_velocities[tick] * (0.54f / 255.0f);
+    if(articulation == MUSIC_ART_ACCENT)
+        velocity *= 1.08f;
+    else if(articulation == MUSIC_ART_GHOST)
+        velocity *= 0.58f;
+    envelope = smoothstepf(note_position * attack_rate) *
+               smoothstepf((gate_end - note_position) * release_rate) *
                (0.84f + 0.16f *
-                (1.0f - note_position / fmaxf(gate_end, 0.08f)));
-    if(track->lead_profile == 1) {
+                (1.0f - note_position / fmaxf(gate_end, 0.04f))) *
+               velocity;
+    if(profile == 1) {
         voice = music_pulse(cycles, 0.26f) * 0.54f +
                 music_sine(cycles) * 0.34f +
                 music_triangle(cycles * 2.0f) * 0.12f;
     }
-    else if(track->lead_profile == 2) {
+    else if(profile == 2) {
         const float breath = music_noise(
             (uint32_t)(seconds * (float)MUSIC_SAMPLE_RATE) ^
             track->noise_seed ^ 0x6f73a42du);
@@ -2174,13 +2704,13 @@ static float music_lead_voice(const soundtrack_t *track,
                 music_sine(cycles * 4.0f) * 0.05f +
                 breath * 0.02f;
     }
-    else if(track->lead_profile == 3) {
+    else if(profile == 3) {
         voice = music_pulse(cycles, track->pulse_width) * 0.42f +
                 music_triangle(cycles * 2.0f) * 0.31f +
                 music_sine(cycles * 3.0f) * 0.17f +
                 music_sine(cycles) * 0.10f;
     }
-    else if(track->lead_profile == 4) {
+    else if(profile == 4) {
         const float pwm = clampf(track->pulse_width +
                                  music_sine(seconds * 3.7f) * 0.08f,
                                  0.14f, 0.62f);
@@ -2189,7 +2719,7 @@ static float music_lead_voice(const soundtrack_t *track,
                 music_triangle(cycles * 0.5f) * 0.17f +
                 music_sine(cycles * 2.01f) * 0.10f;
     }
-    else if(track->lead_profile == 5) {
+    else if(profile == 5) {
         const float pwm = clampf(track->pulse_width +
                                  music_sine(seconds * 5.3f) * 0.07f,
                                  0.12f, 0.48f);
@@ -2198,7 +2728,7 @@ static float music_lead_voice(const soundtrack_t *track,
                 music_pulse(cycles, pwm) * 0.30f +
                 music_sine(cycles) * 0.18f;
     }
-    else if(track->lead_profile == 6) {
+    else if(profile == 6) {
         const float glass = music_sine(
             cycles + music_sine(cycles * 2.0f) * (1.35f / TAU));
         voice = glass * 0.48f +
@@ -2206,7 +2736,7 @@ static float music_lead_voice(const soundtrack_t *track,
                 music_triangle(cycles * 0.5f) * 0.20f +
                 music_pulse(cycles * 0.25f, 0.46f) * 0.10f;
     }
-    else if(track->lead_profile == 7) {
+    else if(profile == 7) {
         const float sync = music_phase(cycles * 0.505f) * 2.0f - 1.0f;
         voice = music_pulse(cycles, track->pulse_width) * 0.34f +
                 music_saw(cycles + sync * 0.18f) * 0.36f +
@@ -2324,10 +2854,278 @@ static int music_track_section_samples(const soundtrack_t *track) {
     return music_track_phrase_samples(track) + MUSIC_EDGE_SAMPLES;
 }
 
+static bool music_lead_phrase_valid(const soundtrack_t *track, int section) {
+    const music_lead_phrase_t *phrase = &track->melody[section];
+    int previous_end = 0;
+    int event_index;
+
+    if(phrase->event_count == 0 ||
+       phrase->event_count > MUSIC_MAX_LEAD_EVENTS)
+        return false;
+    for(event_index = 0; event_index < phrase->event_count; ++event_index) {
+        const music_lead_event_t *event = &phrase->events[event_index];
+        const int end = event->start_tick + event->duration_ticks;
+        const int midi = track->root_midi + 24 + event->pitch;
+        const int glide_midi = midi + event->bend;
+        const int harmony_midi = midi + track->harmony_interval;
+        const int harmony_glide_midi = harmony_midi + event->bend;
+        if(event->duration_ticks == 0 ||
+           event->start_tick < previous_end ||
+           end > MUSIC_MELODY_TICKS ||
+           event->velocity < 48 ||
+           event->articulation >= MUSIC_ART_COUNT ||
+           event->bend < -12 || event->bend > 12 ||
+           midi < 24 || midi > 108 ||
+           glide_midi < 24 || glide_midi > 108 ||
+           harmony_midi < 24 || harmony_midi > 108 ||
+           harmony_glide_midi < 24 || harmony_glide_midi > 108)
+            return false;
+        previous_end = end;
+    }
+    return true;
+}
+
 static bool music_track_layout_valid(const soundtrack_t *track) {
-    const int samples = music_track_section_samples(track);
-    return samples > MUSIC_EDGE_SAMPLES && samples <= 65534 &&
-           (samples & 63) == 0;
+    int samples;
+    int section;
+    if(!(track->bpm >= 120.0f && track->bpm <= 200.0f))
+        return false;
+    samples = music_track_section_samples(track);
+    if(samples <= MUSIC_EDGE_SAMPLES || samples > 65534 ||
+       (samples & 63) != 0 ||
+       track->lead_pan_width < 0.0f || track->lead_pan_width > 1.0f ||
+       track->echo_beats[0] <= 0.0f || track->echo_beats[0] > 4.0f ||
+       track->echo_beats[1] <= track->echo_beats[0] ||
+       track->echo_beats[1] > 4.0f ||
+       track->echo_levels[0] < 0.0f || track->echo_levels[0] > 0.5f ||
+       track->echo_levels[1] < 0.0f || track->echo_levels[1] > 0.5f)
+        return false;
+    for(section = 0; section < MUSIC_SECTION_COUNT; ++section) {
+        const int division = track->arpeggio_steps_per_beat[section];
+        if(track->lead_profile[section] > 7 ||
+           (division != 0 && division != 2 &&
+            division != 3 && division != 4) ||
+           track->lead_gate[section] < 0.20f ||
+           track->lead_gate[section] > 1.0f ||
+           !music_lead_phrase_valid(track, section))
+            return false;
+    }
+    return true;
+}
+
+static uint32_t music_phrase_rhythm_hash(const music_lead_phrase_t *phrase) {
+    uint32_t hash = 2166136261u;
+    int event_index;
+    for(event_index = 0; event_index < phrase->event_count; ++event_index) {
+        hash ^= phrase->events[event_index].start_tick;
+        hash *= 16777619u;
+        hash ^= phrase->events[event_index].duration_ticks;
+        hash *= 16777619u;
+    }
+    return hash ^ phrase->event_count;
+}
+
+static uint32_t music_phrase_contour_hash(const music_lead_phrase_t *phrase) {
+    uint32_t hash = 2166136261u ^ phrase->event_count;
+    int event_index;
+    for(event_index = 1; event_index < phrase->event_count; ++event_index) {
+        const int difference = phrase->events[event_index].pitch -
+                               phrase->events[event_index - 1].pitch;
+        const uint32_t direction = difference < 0 ? 1u :
+                                   (difference > 0 ? 2u : 3u);
+        const uint32_t magnitude =
+            (uint32_t)(difference < 0 ? -difference : difference);
+        hash ^= direction | ((magnitude > 12u ? 12u : magnitude) << 2);
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static int music_phrase_quantized_overlap(const music_lead_phrase_t *a,
+                                           const music_lead_phrase_t *b,
+                                           int ticks_per_bin) {
+    uint8_t a_bins[MUSIC_MELODY_TICKS / 6];
+    uint8_t b_bins[MUSIC_MELODY_TICKS / 6];
+    const int bin_count = MUSIC_MELODY_TICKS / ticks_per_bin;
+    int common = 0;
+    int event_index;
+    int bin;
+    memset(a_bins, 0, sizeof(a_bins));
+    memset(b_bins, 0, sizeof(b_bins));
+    for(event_index = 0; event_index < a->event_count; ++event_index) {
+        bin = (a->events[event_index].start_tick + ticks_per_bin / 2) /
+              ticks_per_bin;
+        if(bin >= bin_count)
+            bin = bin_count - 1;
+        a_bins[bin]++;
+    }
+    for(event_index = 0; event_index < b->event_count; ++event_index) {
+        bin = (b->events[event_index].start_tick + ticks_per_bin / 2) /
+              ticks_per_bin;
+        if(bin >= bin_count)
+            bin = bin_count - 1;
+        b_bins[bin]++;
+    }
+    for(bin = 0; bin < bin_count; ++bin)
+        common += a_bins[bin] < b_bins[bin] ? a_bins[bin] : b_bins[bin];
+    return common * 200 / (a->event_count + b->event_count);
+}
+
+static int music_phrase_contour_overlap(const music_lead_phrase_t *a,
+                                         const music_lead_phrase_t *b) {
+    uint8_t previous[MUSIC_MAX_LEAD_EVENTS];
+    uint8_t current[MUSIC_MAX_LEAD_EVENTS];
+    const int a_directions = a->event_count - 1;
+    const int b_directions = b->event_count - 1;
+    int ia;
+    int ib;
+    if(a_directions <= 0 || b_directions <= 0)
+        return 0;
+    memset(previous, 0, sizeof(previous));
+    for(ia = 1; ia <= a_directions; ++ia) {
+        const int a_interval = a->events[ia].pitch -
+                               a->events[ia - 1].pitch;
+        const int a_direction = a_interval < 0 ? -1 :
+                                (a_interval > 0 ? 1 : 0);
+        current[0] = 0;
+        for(ib = 1; ib <= b_directions; ++ib) {
+            const int b_interval = b->events[ib].pitch -
+                                   b->events[ib - 1].pitch;
+            const int b_direction = b_interval < 0 ? -1 :
+                                    (b_interval > 0 ? 1 : 0);
+            if(a_direction == b_direction)
+                current[ib] = (uint8_t)(previous[ib - 1] + 1);
+            else
+                current[ib] = previous[ib] > current[ib - 1] ?
+                              previous[ib] : current[ib - 1];
+        }
+        memcpy(previous, current, sizeof(previous));
+    }
+    return previous[b_directions] * 200 /
+           (a_directions + b_directions);
+}
+
+static bool music_phrase_is_transposition(const music_lead_phrase_t *a,
+                                          const music_lead_phrase_t *b) {
+    int pitch_delta;
+    int event_index;
+    if(a->event_count != b->event_count || a->event_count == 0)
+        return false;
+    pitch_delta = b->events[0].pitch - a->events[0].pitch;
+    for(event_index = 0; event_index < a->event_count; ++event_index) {
+        if(a->events[event_index].start_tick !=
+               b->events[event_index].start_tick ||
+           a->events[event_index].duration_ticks !=
+               b->events[event_index].duration_ticks ||
+           b->events[event_index].pitch - a->events[event_index].pitch !=
+               pitch_delta)
+            return false;
+    }
+    return true;
+}
+
+/* Composition QA intentionally ignores patch and harmony color. Exact hashes
+ * alone miss melodies that differ by a tiny off-grid nudge, so the audit also
+ * compares attack histograms at listener-sized sixteenth/eighth grids and the
+ * longest common contour-direction sequence. */
+static bool music_melodic_identity_valid(void) {
+    uint32_t rhythm_hashes[MUSIC_TRACK_COUNT];
+    uint32_t contour_hashes[MUSIC_TRACK_COUNT];
+    int maximum_exact_overlap = 0;
+    int maximum_sixteenth_overlap = 0;
+    int maximum_eighth_overlap = 0;
+    int maximum_contour_overlap = 0;
+    bool valid = true;
+    int track;
+    int other;
+
+    for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
+        const music_lead_phrase_t *verse =
+            &soundtrack_defs[track].melody[0];
+        const music_lead_phrase_t *chorus =
+            &soundtrack_defs[track].melody[2];
+        int minimum_pitch = 127;
+        int maximum_pitch = -127;
+        int leaps = 0;
+        int event_index;
+        if(!music_track_layout_valid(&soundtrack_defs[track]))
+            return false;
+        rhythm_hashes[track] = music_phrase_rhythm_hash(chorus);
+        contour_hashes[track] = music_phrase_contour_hash(chorus);
+        if(music_phrase_is_transposition(verse, chorus))
+            valid = false;
+        for(event_index = 0; event_index < chorus->event_count; ++event_index) {
+            const int pitch = chorus->events[event_index].pitch;
+            if(pitch < minimum_pitch)
+                minimum_pitch = pitch;
+            if(pitch > maximum_pitch)
+                maximum_pitch = pitch;
+            if(event_index > 0) {
+                int interval = pitch - chorus->events[event_index - 1].pitch;
+                if(interval < 0)
+                    interval = -interval;
+                if(interval >= 5)
+                    ++leaps;
+            }
+        }
+        printf("Gravity Wave melody: %s C attacks=%u range=%d leaps=%d "
+               "rhythm=%08lx contour=%08lx.\n",
+               soundtrack_defs[track].name,
+               (unsigned int)chorus->event_count,
+               maximum_pitch - minimum_pitch, leaps,
+               (unsigned long)rhythm_hashes[track],
+               (unsigned long)contour_hashes[track]);
+    }
+    for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
+        const music_lead_phrase_t *a = &soundtrack_defs[track].melody[2];
+        for(other = track + 1; other < MUSIC_TRACK_COUNT; ++other) {
+            const music_lead_phrase_t *b =
+                &soundtrack_defs[other].melody[2];
+            int common = 0;
+            int ia = 0;
+            int ib = 0;
+            int exact_overlap;
+            int sixteenth_overlap;
+            int eighth_overlap;
+            int contour_overlap;
+            while(ia < a->event_count && ib < b->event_count) {
+                if(a->events[ia].start_tick == b->events[ib].start_tick) {
+                    ++common;
+                    ++ia;
+                    ++ib;
+                }
+                else if(a->events[ia].start_tick <
+                        b->events[ib].start_tick)
+                    ++ia;
+                else
+                    ++ib;
+            }
+            exact_overlap = common * 200 /
+                            (a->event_count + b->event_count);
+            sixteenth_overlap = music_phrase_quantized_overlap(a, b, 6);
+            eighth_overlap = music_phrase_quantized_overlap(a, b, 12);
+            contour_overlap = music_phrase_contour_overlap(a, b);
+            if(exact_overlap > maximum_exact_overlap)
+                maximum_exact_overlap = exact_overlap;
+            if(sixteenth_overlap > maximum_sixteenth_overlap)
+                maximum_sixteenth_overlap = sixteenth_overlap;
+            if(eighth_overlap > maximum_eighth_overlap)
+                maximum_eighth_overlap = eighth_overlap;
+            if(contour_overlap > maximum_contour_overlap)
+                maximum_contour_overlap = contour_overlap;
+            if(rhythm_hashes[track] == rhythm_hashes[other] ||
+               contour_hashes[track] == contour_hashes[other] ||
+               exact_overlap > 65 || sixteenth_overlap > 60 ||
+               eighth_overlap > 72 || contour_overlap > 80)
+                valid = false;
+        }
+    }
+    printf("Gravity Wave melody identity: max exact=%d%% sixteenth=%d%% "
+           "eighth=%d%% contour=%d%% %s.\n",
+           maximum_exact_overlap, maximum_sixteenth_overlap,
+           maximum_eighth_overlap, maximum_contour_overlap,
+           valid ? "PASS" : "FAIL");
+    return valid;
 }
 
 static size_t music_catalog_bytes_required(void) {
@@ -2393,10 +3191,15 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     float chord_frequencies[MUSIC_BARS][4];
     float bass_frequencies[MUSIC_BARS][8];
     float arpeggio_frequencies[MUSIC_BARS][16];
-    float lead_frequencies[MUSIC_MELODY_STEPS];
-    float harmony_frequencies[MUSIC_MELODY_STEPS];
-    uint8_t lead_starts[MUSIC_MELODY_STEPS];
-    uint8_t lead_ends[MUSIC_MELODY_STEPS];
+    float lead_frequencies[MUSIC_MELODY_TICKS];
+    float harmony_frequencies[MUSIC_MELODY_TICKS];
+    float lead_glide_frequencies[MUSIC_MELODY_TICKS];
+    float harmony_glide_frequencies[MUSIC_MELODY_TICKS];
+    uint8_t lead_starts[MUSIC_MELODY_TICKS];
+    uint8_t lead_ends[MUSIC_MELODY_TICKS];
+    uint8_t lead_velocities[MUSIC_MELODY_TICKS];
+    uint8_t lead_articulations[MUSIC_MELODY_TICKS];
+    uint8_t lead_event_numbers[MUSIC_MELODY_TICKS];
     uint16_t kick_patterns[MUSIC_BARS];
     uint16_t snare_patterns[MUSIC_BARS];
     uint16_t hat_patterns[MUSIC_BARS];
@@ -2415,7 +3218,8 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     float sum_squares = 0.0f;
     float peak = 0.0f;
     sfxhnd_t handle;
-    int bar, step, i;
+    int bar, step, event_index, i;
+    int arpeggio_division;
 
     /* AICA ADPCM stores two samples per byte, and KOS requires each planar
        channel to occupy a multiple of 32 bytes. */
@@ -2433,6 +3237,7 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
     duration = (float)samples / (float)MUSIC_SAMPLE_RATE;
     seconds_per_beat = (float)phrase_samples /
                        ((float)MUSIC_SAMPLE_RATE * (float)MUSIC_BEATS);
+    arpeggio_division = track->arpeggio_steps_per_beat[section];
     if(duration_out)
         *duration_out = duration;
 
@@ -2471,50 +3276,43 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         open_hat_patterns[bar] = track->open_hat[phrase_bar];
         tom_patterns[bar] = track->tom[phrase_bar];
         stab_patterns[bar] = track->stab[phrase_bar];
-        if(section >= 1) {
-            if(bar == 1)
-                kick_patterns[bar] |= 0x4040u;
-            if(bar == MUSIC_BARS - 1) {
-                kick_patterns[bar] |= 0x8000u;
-                snare_patterns[bar] |= 0x4000u;
-                if(section == MUSIC_SECTION_COUNT - 1) {
-                    hat_patterns[bar] |= 0xffffu;
-                    tom_patterns[bar] |= 0xe000u;
-                }
-            }
-        }
+        /* Fills are authored in each song's masks. Injecting the same B/C
+           fill here was another album-wide rhythmic fingerprint. */
     }
-    for(step = 0; step < MUSIC_MELODY_STEPS; ++step) {
-        const int melody_step = section * MUSIC_MELODY_STEPS + step;
-        const int melody_note = track->melody[melody_step];
-        if(melody_note == MUSIC_TIE && step > 0 &&
-           lead_frequencies[step - 1] > 0.0f) {
-            lead_frequencies[step] = lead_frequencies[step - 1];
-            harmony_frequencies[step] = harmony_frequencies[step - 1];
-            lead_starts[step] = lead_starts[step - 1];
+    memset(lead_frequencies, 0, sizeof(lead_frequencies));
+    memset(harmony_frequencies, 0, sizeof(harmony_frequencies));
+    memset(lead_glide_frequencies, 0, sizeof(lead_glide_frequencies));
+    memset(harmony_glide_frequencies, 0, sizeof(harmony_glide_frequencies));
+    memset(lead_starts, 0, sizeof(lead_starts));
+    memset(lead_ends, 0, sizeof(lead_ends));
+    memset(lead_velocities, 0, sizeof(lead_velocities));
+    memset(lead_articulations, 0, sizeof(lead_articulations));
+    memset(lead_event_numbers, 0, sizeof(lead_event_numbers));
+    for(event_index = 0;
+        event_index < track->melody[section].event_count;
+        ++event_index) {
+        const music_lead_event_t *event =
+            &track->melody[section].events[event_index];
+        const int start = event->start_tick;
+        const int end = start + event->duration_ticks;
+        const int midi = track->root_midi + 24 + event->pitch;
+        const float frequency = music_note_frequency(midi);
+        const float harmony = music_note_frequency(
+            midi + track->harmony_interval);
+        const float glide = music_note_frequency(midi + event->bend);
+        const float harmony_glide = music_note_frequency(
+            midi + track->harmony_interval + event->bend);
+        for(step = start; step < end; ++step) {
+            lead_frequencies[step] = frequency;
+            harmony_frequencies[step] = harmony;
+            lead_glide_frequencies[step] = glide;
+            harmony_glide_frequencies[step] = harmony_glide;
+            lead_starts[step] = (uint8_t)start;
+            lead_ends[step] = (uint8_t)end;
+            lead_velocities[step] = event->velocity;
+            lead_articulations[step] = event->articulation;
+            lead_event_numbers[step] = (uint8_t)event_index;
         }
-        else if(melody_note == MUSIC_REST || melody_note == MUSIC_TIE) {
-            lead_frequencies[step] = 0.0f;
-            harmony_frequencies[step] = 0.0f;
-            lead_starts[step] = (uint8_t)step;
-        }
-        else {
-            lead_frequencies[step] = music_note_frequency(
-                track->root_midi + 24 + melody_note);
-            harmony_frequencies[step] = music_note_frequency(
-                track->root_midi + 24 + melody_note +
-                track->harmony_interval);
-            lead_starts[step] = (uint8_t)step;
-        }
-    }
-    for(step = 0; step < MUSIC_MELODY_STEPS; ++step) {
-        int end = step + 1;
-        if(lead_frequencies[step] > 0.0f) {
-            while(end < MUSIC_MELODY_STEPS &&
-                  lead_starts[end] == lead_starts[step])
-                ++end;
-        }
-        lead_ends[step] = (uint8_t)end;
     }
 
     for(i = 0; i < samples; ++i) {
@@ -2537,18 +3335,22 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
         const float bass_position = beat_in_bar * 2.0f;
         const int bass_step = (int)bass_position;
         const float bass_phase = bass_position - (float)bass_step;
-        const float arpeggio_position = beat_in_bar * 4.0f;
+        const float arpeggio_position = beat_in_bar *
+            (float)(arpeggio_division > 0 ? arpeggio_division : 1);
         const int arpeggio_step = (int)arpeggio_position;
         const float arpeggio_phase = arpeggio_position -
                                      (float)arpeggio_step;
-        const int drum_step = arpeggio_step;
-        const float drum_phase = arpeggio_phase;
+        const float drum_position = beat_in_bar * 4.0f;
+        const int drum_step = (int)drum_position;
+        const float drum_phase = drum_position - (float)drum_step;
         const float drum_seconds = drum_phase * seconds_per_beat * 0.25f;
         const uint16_t drum_bit = (uint16_t)(1u << drum_step);
         const float quarter_phase = beat_in_bar - floorf(beat_in_bar);
         const float sidechain = lerpf(
             1.0f, 0.40f + 0.60f * smoothstepf(quarter_phase * 3.4f),
             track->sidechain);
+        const float lead_crossfeed = clampf(
+            1.0f - track->lead_pan_width * 0.58f, 0.36f, 0.94f);
         float left = 0.0f;
         float right = 0.0f;
         float voice;
@@ -2590,24 +3392,27 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             right += voice * track->bass_level * envelope * section_energy;
         }
 
-        envelope = clampf(arpeggio_phase * 24.0f, 0.0f, 1.0f) *
-                   (1.0f - arpeggio_phase) *
-                   (1.0f - arpeggio_phase) *
-                   (1.0f - arpeggio_phase);
-        cycles = arpeggio_frequencies[current_bar][arpeggio_step] *
-                 arpeggio_phase * seconds_per_beat * 0.25f;
-        voice = music_arpeggio_voice(track, cycles);
-        if((arpeggio_step ^ current_bar) & 1) {
-            left += voice * track->arpeggio_level * envelope * 0.42f *
-                    section_energy;
-            right += voice * track->arpeggio_level * envelope *
-                     section_energy;
-        }
-        else {
-            left += voice * track->arpeggio_level * envelope *
-                    section_energy;
-            right += voice * track->arpeggio_level * envelope * 0.42f *
-                     section_energy;
+        if(arpeggio_division > 0) {
+            envelope = clampf(arpeggio_phase * 24.0f, 0.0f, 1.0f) *
+                       (1.0f - arpeggio_phase) *
+                       (1.0f - arpeggio_phase) *
+                       (1.0f - arpeggio_phase);
+            cycles = arpeggio_frequencies[current_bar][arpeggio_step] *
+                     arpeggio_phase * seconds_per_beat /
+                     (float)arpeggio_division;
+            voice = music_arpeggio_voice(track, cycles);
+            if((arpeggio_step ^ current_bar) & 1) {
+                left += voice * track->arpeggio_level * envelope * 0.42f *
+                        section_energy;
+                right += voice * track->arpeggio_level * envelope *
+                         section_energy;
+            }
+            else {
+                left += voice * track->arpeggio_level * envelope *
+                        section_energy;
+                right += voice * track->arpeggio_level * envelope * 0.42f *
+                         section_energy;
+            }
         }
 
         if(stab_patterns[current_bar] & drum_bit) {
@@ -2633,10 +3438,16 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
 
         if(!in_tail) {
             voice = music_lead_voice(track, lead_frequencies,
-                                     lead_starts, lead_ends, beat,
-                                     seconds_per_beat, &lead_step);
+                                     lead_glide_frequencies,
+                                     lead_starts, lead_ends,
+                                     lead_velocities, lead_articulations,
+                                     lead_event_numbers, beat,
+                                     seconds_per_beat,
+                                     track->lead_profile[section],
+                                     track->lead_gate[section], &lead_step);
             if(lead_step & 1) {
-                left += voice * track->lead_level * 0.62f * section_energy *
+                left += voice * track->lead_level * lead_crossfeed *
+                        section_energy *
                         lead_arrangement;
                 right += voice * track->lead_level * section_energy *
                          lead_arrangement;
@@ -2644,37 +3455,60 @@ static sfxhnd_t load_generated_music(const soundtrack_t *track, int section,
             else {
                 left += voice * track->lead_level * section_energy *
                         lead_arrangement;
-                right += voice * track->lead_level * 0.62f * section_energy *
+                right += voice * track->lead_level * lead_crossfeed *
+                         section_energy *
                          lead_arrangement;
             }
         }
         voice = music_lead_voice(track, lead_frequencies,
-                                 lead_starts, lead_ends, beat - 0.75f,
-                                 seconds_per_beat, &echo_step) * 0.30f;
+                                 lead_glide_frequencies,
+                                 lead_starts, lead_ends,
+                                 lead_velocities, lead_articulations,
+                                 lead_event_numbers,
+                                 beat - track->echo_beats[0],
+                                 seconds_per_beat,
+                                 track->lead_profile[section],
+                                 track->lead_gate[section], &echo_step) *
+                track->echo_levels[0];
         if(echo_step & 1) {
             left += voice * track->lead_level * section_energy *
                     lead_arrangement;
-            right += voice * track->lead_level * 0.38f * section_energy *
+            right += voice * track->lead_level * lead_crossfeed * 0.62f *
+                     section_energy *
                      lead_arrangement;
         }
         else {
-            left += voice * track->lead_level * 0.38f * section_energy *
+            left += voice * track->lead_level * lead_crossfeed * 0.62f *
+                    section_energy *
                     lead_arrangement;
             right += voice * track->lead_level * section_energy *
                      lead_arrangement;
         }
         voice = music_lead_voice(track, lead_frequencies,
-                                 lead_starts, lead_ends, beat - 1.5f,
-                                 seconds_per_beat, NULL) * 0.14f;
-        left += voice * track->lead_level * 0.45f * section_energy *
+                                 lead_glide_frequencies,
+                                 lead_starts, lead_ends,
+                                 lead_velocities, lead_articulations,
+                                 lead_event_numbers,
+                                 beat - track->echo_beats[1],
+                                 seconds_per_beat,
+                                 track->lead_profile[section],
+                                 track->lead_gate[section], NULL) *
+                track->echo_levels[1];
+        left += voice * track->lead_level * lead_crossfeed * section_energy *
                 lead_arrangement;
         right += voice * track->lead_level * section_energy *
                  lead_arrangement;
 
         if(section == MUSIC_SECTION_COUNT - 1) {
             voice = music_lead_voice(track, harmony_frequencies,
-                                     lead_starts, lead_ends, beat - 0.25f,
-                                     seconds_per_beat, &echo_step) * 0.24f;
+                                     harmony_glide_frequencies,
+                                     lead_starts, lead_ends,
+                                     lead_velocities, lead_articulations,
+                                     lead_event_numbers, beat - 0.25f,
+                                     seconds_per_beat,
+                                     track->lead_profile[section],
+                                     track->lead_gate[section], &echo_step) *
+                    0.20f;
             if(echo_step & 1) {
                 left += voice * track->lead_level * 0.40f;
                 right += voice * track->lead_level;
@@ -3068,6 +3902,24 @@ static bool music_form_layout_valid(void) {
            breakdown_count < 1)
             return false;
     }
+    for(profile = 0; profile < MUSIC_FORM_COUNT; ++profile) {
+        int other;
+        for(other = profile + 1; other < MUSIC_FORM_COUNT; ++other) {
+            bool same_form = true;
+            int step;
+            for(step = 0; step < MUSIC_FORM_STEP_COUNT; ++step) {
+                if(music_song_forms[profile][step].section !=
+                       music_song_forms[other][step].section ||
+                   music_song_forms[profile][step].part !=
+                       music_song_forms[other][step].part) {
+                    same_form = false;
+                    break;
+                }
+            }
+            if(same_form)
+                return false;
+        }
+    }
     for(track = 0; track < MUSIC_TRACK_COUNT; ++track) {
         if(music_track_form[track] >= MUSIC_FORM_COUNT)
             return false;
@@ -3359,6 +4211,7 @@ static void init_audio(void) {
     bool catalog_budget_ok;
     bool catalog_layout_ok = true;
     const bool form_layout_ok = music_form_layout_valid();
+    bool melodic_identity_ok = false;
     bool embedded_catalog_ok;
     size_t catalog_bytes;
     size_t embedded_bytes;
@@ -3387,7 +4240,11 @@ static void init_audio(void) {
             music_section_duration[i][section] = 0.0f;
             music_section_samples[i][section] = 0;
         }
+        if(!music_track_layout_valid(&soundtrack_defs[i]))
+            catalog_layout_ok = false;
     }
+    if(catalog_layout_ok)
+        melodic_identity_ok = music_melodic_identity_valid();
 
     if(snd_init() < 0) {
         printf("Gravity Wave: AICA initialization failed; continuing silently.\n");
@@ -3462,10 +4319,6 @@ static void init_audio(void) {
     embedded_catalog_ok = false;
 #endif
     aica_available = snd_mem_available();
-    for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
-        if(!music_track_layout_valid(&soundtrack_defs[i]))
-            catalog_layout_ok = false;
-    }
     catalog_budget_ok = catalog_bytes + MUSIC_AICA_RESERVE <=
                         (size_t)aica_available;
     printf("Gravity Wave music: album budget %lu KiB + %lu KiB reserve "
@@ -3484,7 +4337,7 @@ static void init_audio(void) {
     if(!embedded_catalog_ok)
         init_music_sine_table();
     if(channel_pairs_ok && catalog_budget_ok && catalog_layout_ok &&
-       form_layout_ok) {
+       form_layout_ok && melodic_identity_ok) {
         if(embedded_catalog_ok)
             embedded_offset = MUSIC_ASSET_HEADER_BYTES;
         for(i = 0; i < MUSIC_TRACK_COUNT; ++i) {
@@ -3523,6 +4376,8 @@ static void init_audio(void) {
         printf("Gravity Wave music: invalid AICA section layout.\n");
     else if(!form_layout_ok)
         printf("Gravity Wave music: invalid full-song form layout.\n");
+    else if(!melodic_identity_ok)
+        printf("Gravity Wave music: melodic identity audit failed.\n");
 
     if(loaded_sections == MUSIC_TRACK_COUNT * MUSIC_SECTION_COUNT &&
        channel_pairs_ok)
