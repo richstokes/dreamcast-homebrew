@@ -4,3 +4,7 @@
 __pycache__/
 .DS_Store
 assets/generated/previews/
+
+# Local visual-QA intermediates; retained showcase captures use descriptive names.
+assets/screenshots/visual-qa-*
+assets/screenshots/visual-qa/
