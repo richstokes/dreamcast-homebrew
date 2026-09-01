@@ -85,6 +85,13 @@ typedef struct {
     float yaw_rate;
     float steer;
     float rear_grip_scale;
+    /* Ground-speed equivalent at the driven rear tire tread. Keeping this
+       separate from chassis speed lets the rear axle spin while the front
+       brakes hold the car during a burnout. */
+    float rear_wheel_speed;
+    float rear_power_slip;
+    float burnout;
+    int drive_direction;
     float brake_light;
     float handbrake_lock;
     float clutch_kick_timer;
@@ -171,7 +178,8 @@ static skid_t skid_pool[MAX_SKIDS];
 static int smoke_cursor;
 static int exhaust_flame_cursor;
 static int skid_cursor;
-static float wheel_spin;
+static float front_wheel_spin;
+static float rear_wheel_spin;
 static uint32_t traffic_random_state = 0x7c7d41f3u;
 static uint32_t effect_random_state = 0x63d83595u;
 static vec3_t last_skid_position[2];
@@ -809,7 +817,7 @@ static void update_audio_controls(const input_t *input, float dt) {
     static const float downshift_speed[4]={15.5f,25.5f,35.5f,49.0f};
     const bool driving=game.mode==MODE_PLAYING||game.mode==MODE_DEMO;
     const float speed=driving?fabsf(car.longitudinal):0.0f;
-    const float speed_for_slip=fmaxf(speed,3.0f);
+    const float speed_for_slip=fmaxf(speed,1.15f);
     const float throttle=game.mode==MODE_DEMO?.88f:
                          (game.mode==MODE_PLAYING?input->throttle:
                           (game.mode==MODE_TITLE?.08f:0.0f));
@@ -847,10 +855,13 @@ static void update_audio_controls(const input_t *input, float dt) {
     if(audio_controls.gear<1||audio_controls.gear>5)
         audio_controls.gear=1;
 
-    rear_slip=clampf(rear_slip+car.handbrake_lock*.78f*speed_gate+
+    rear_slip=clampf(fmaxf(rear_slip,
+                           car.rear_power_slip*(.68f+.32f*throttle))+
+                     car.handbrake_lock*.78f*speed_gate+
                      clutch*.38f*speed_gate,0.0f,1.0f);
     front_slip=clampf(front_slip+input->brake*.16f*speed_gate,0.0f,1.0f);
-    wheel_rpm=speed*(60.0f/(PI*2.0f*.34f));
+    wheel_rpm=fmaxf(speed,fabsf(car.rear_wheel_speed))*
+              (60.0f/(PI*2.0f*.34f));
     launch_flare=clampf(1.0f-speed/8.0f,0.0f,1.0f)*throttle*2200.0f;
     target_rpm=wheel_rpm*total_ratios[audio_controls.gear-1]+launch_flare+
                rear_slip*throttle*1550.0f+clutch*1750.0f;
@@ -1045,8 +1056,10 @@ static void reset_car(void) {
     car.x = 0.0f;
     car.z = 16.0f;
     car.yaw = 0.0f;
+    car.drive_direction = 1;
     car.rear_grip_scale = 1.0f;
-    wheel_spin = 0.0f;
+    front_wheel_spin = 0.0f;
+    rear_wheel_spin = 0.0f;
     camera_initialized = false;
     audio_controls.rpm=900.0f;
     audio_controls.throttle=0.0f;
@@ -1430,24 +1443,59 @@ static void update_physics(const input_t *input, float dt) {
     const bool clutch_kick_pressed = (input->pressed & CONT_X) != 0;
     const bool road = is_on_road(car.x, car.z);
     const float speed_abs = fabsf(car.longitudinal);
-    const bool brake_requested=handbrake||
-        (input->brake>.045f&&car.longitudinal>.15f)||
-        (input->throttle>.045f&&car.longitudinal<-.15f);
+    const float planar_speed_abs=sqrtf(car.longitudinal*car.longitudinal+
+                                       car.lateral*car.lateral);
     const float speed_mix = clampf(speed_abs / 48.0f, 0.0f, 1.0f);
-    const float steering_limit = 0.62f - speed_mix * 0.21f;
+    const float steering_limit = 0.70f - speed_mix * 0.29f;
     const float steer_target = input->steer * steering_limit;
-    const float speed_for_slip = fmaxf(speed_abs, 3.0f);
+    const float speed_for_slip = fmaxf(speed_abs, 1.15f);
+    /* Tire forces still fade to zero at rest, but they reach useful authority
+       by walking pace. The former 1.85 m/s ramp let a full-throttle car travel
+       most of a block before the front axle could bend its path. */
+    const float lateral_force_gate=clampf(planar_speed_abs/.85f,0.0f,1.0f);
     float front_slip, rear_slip, front_force, rear_force, body_slip;
     float rear_grip = road ? 1.05f : 0.56f;
     const float front_grip = road ? 1.14f : 0.62f;
     float rear_grip_target = 1.0f;
     float clutch_strength, rotation_request, maneuver_speed, rotation_room;
     float body_slip_pre, drift_load, spin_guard, throttle_oversteer;
-    float yaw_damping, drift_amount;
+    float yaw_damping, drift_amount, donut_intent;
+    float burnout_input;
+    bool forward_driveline, brake_requested;
     bool counter_steering;
-    float engine_force, brake_force = 0.0f, drag, longitudinal_force;
+    bool rear_effect_active=false;
+    float engine_force=0.0f, service_brake=0.0f;
+    float front_brake_request=0.0f, rear_brake_request=0.0f;
+    float front_brake_force=0.0f, rear_long_request, rear_long_force;
+    float rear_long_capacity, rear_total_capacity;
+    float rear_combined_magnitude, rear_combined_scale;
+    float power_slip_target, power_breakaway_gate, power_turn_load;
+    float wheel_speed_target, motion_direction;
+    float drag, longitudinal_force;
     float du, dv, dr;
     float world_vx, world_vz;
+
+    /* An automatic arcade reverse is a selected driveline direction, not a
+       conclusion drawn from instantaneous body velocity. A rotating car can
+       briefly have negative longitudinal velocity while every driven wheel
+       is still applying forward torque. Only a deliberate opposite-pedal
+       press near rest changes direction. */
+    if(car.drive_direction==0) car.drive_direction=1;
+    if(car.drive_direction>0&&planar_speed_abs<.65f&&
+       input->brake>.18f&&input->throttle<=.08f)
+        car.drive_direction=-1;
+    else if(car.drive_direction<0&&planar_speed_abs<.65f&&
+            input->throttle>.18f&&input->brake<=.08f)
+        car.drive_direction=1;
+    forward_driveline=car.drive_direction>0;
+    burnout_input=forward_driveline?
+        clampf((input->throttle-.20f)/.65f,0.0f,1.0f)*
+        clampf((input->brake-.18f)/.62f,0.0f,1.0f):0.0f;
+    brake_requested=handbrake||
+        (forward_driveline&&input->brake>.045f&&
+         (car.longitudinal>.15f||input->throttle>.08f))||
+        (!forward_driveline&&input->throttle>.045f&&
+         car.longitudinal<-.15f);
 
     car.brake_light=approachf(car.brake_light,brake_requested?1.0f:0.0f,
                               dt*(brake_requested?14.0f:4.0f));
@@ -1490,12 +1538,103 @@ static void update_physics(const input_t *input, float dt) {
 
     car.steer = approachf(car.steer, steer_target,
         dt * (car.steer * steer_target < -0.002f ? 9.5f : 6.2f));
+
+    /* Resolve the driven axle before lateral forces so the rear tires share
+       one friction budget between acceleration and cornering. The previous
+       model added engine and brake forces directly to the chassis, which
+       made simultaneous pedals cancel algebraically: the rear wheels could
+       never rotate faster than the car and a brake-standing burnout was
+       impossible. */
+    if(forward_driveline) {
+        if(input->throttle>.001f) {
+            const float throttle_curve=input->throttle*
+                (.46f+.54f*input->throttle);
+            const float speed_ratio=clampf(speed_abs/82.0f,0.0f,1.0f);
+            const float power_curve=1.0f-.44f*speed_ratio;
+            const float drift_torque=1.0f+input->throttle*drift_load*
+                (.30f-.10f*spin_guard);
+            engine_force=throttle_curve*14500.0f*power_curve*drift_torque;
+            engine_force*=1.0f+clutch_strength*.55f;
+        }
+        if(input->brake>.02f&&
+           (car.longitudinal>.15f||input->throttle>.08f))
+            service_brake=input->brake;
+        else if(input->brake>.12f&&input->throttle<=.08f&&
+                car.longitudinal<=.5f)
+            engine_force=-input->brake*4300.0f;
+    }
+    else {
+        engine_force=-input->brake*4300.0f;
+        if(input->throttle>.05f)
+            service_brake=input->throttle*(9000.0f/13200.0f);
+    }
+
+    {
+        /* The C7-like brake balance is front-heavy. During pedal overlap the
+           rear share falls as the engine overcomes the rear brakes, while the
+           front axle retains enough static capacity to hold the chassis. */
+        const float rear_brake_share=.34f-.16f*burnout_input;
+        const float rear_load=.48f+.14f*input->throttle*
+            clampf(1.0f-speed_abs/55.0f,0.0f,1.0f);
+        front_brake_request=service_brake*13200.0f*(1.0f-rear_brake_share);
+        rear_brake_request=service_brake*13200.0f*rear_brake_share+
+                           car.handbrake_lock*2650.0f;
+        if(car.longitudinal>.15f) motion_direction=1.0f;
+        else if(car.longitudinal<-.15f) motion_direction=-1.0f;
+        else if(engine_force>.01f) motion_direction=1.0f;
+        else if(engine_force<-.01f) motion_direction=-1.0f;
+        else motion_direction=0.0f;
+
+        rear_long_capacity=mass*9.81f*rear_load*(road?1.18f:.58f);
+        rear_long_request=engine_force-motion_direction*rear_brake_request;
+        rear_long_force=clampf(rear_long_request,-rear_long_capacity,
+                               rear_long_capacity);
+        front_brake_force=-motion_direction*front_brake_request;
+
+        power_slip_target=rear_long_request>0.0f?
+            clampf((rear_long_request-rear_long_capacity*.88f)/
+                   (rear_long_capacity*.34f),0.0f,1.0f):0.0f;
+        /* Full throttle can overwhelm first gear from rest, but a straight
+           car should hook up as road speed and gearing rise. Existing body
+           slip re-opens the breakaway window so throttle still balances a
+           fast drift instead of becoming inert above launch speed. */
+        power_breakaway_gate=fmaxf(
+            clampf((28.0f-speed_abs)/16.0f,0.0f,1.0f),
+            clampf(drift_load*1.55f,0.0f,1.0f));
+        power_slip_target*=power_breakaway_gate;
+        power_slip_target=fmaxf(power_slip_target,burnout_input*.92f);
+        power_slip_target=fmaxf(power_slip_target,clutch_strength*.55f);
+        car.rear_power_slip=approachf(car.rear_power_slip,power_slip_target,
+            dt*(power_slip_target>car.rear_power_slip?7.8f:2.8f));
+        car.burnout=approachf(car.burnout,
+            burnout_input*car.rear_power_slip,
+            dt*(burnout_input>.01f?8.5f:3.2f));
+        power_turn_load=car.rear_power_slip*
+            clampf((fabsf(input->steer)-.32f)/.48f,0.0f,1.0f)*
+            clampf((15.0f-speed_abs)/12.0f,0.0f,1.0f);
+
+        wheel_speed_target=car.longitudinal;
+        if(car.rear_power_slip>.001f) {
+            const float wheel_direction=rear_long_request>=0.0f?1.0f:-1.0f;
+            wheel_speed_target+=wheel_direction*car.rear_power_slip*
+                (3.0f+31.0f*input->throttle);
+        }
+        wheel_speed_target*=1.0f-car.handbrake_lock*.94f;
+        car.rear_wheel_speed=approachf(car.rear_wheel_speed,
+            wheel_speed_target,dt*(fabsf(wheel_speed_target)>
+                                   fabsf(car.rear_wheel_speed)?48.0f:34.0f));
+
+        /* Spinning rubber has a lower resultant-force peak than a hooked-up
+           tire, but its final direction depends on both longitudinal and
+           lateral slip. The vector normalization below resolves that once
+           the rear lateral demand is known. */
+        rear_total_capacity=rear_long_capacity*
+            (1.0f-.18f*car.rear_power_slip-.40f*power_turn_load);
+    }
+
     if(car.handbrake_lock>.01f)
         rear_grip_target=1.0f-car.handbrake_lock*.86f;
     else if(clutch_strength>.01f) rear_grip_target = 0.28f;
-    else if(input->throttle>.15f&&speed_abs<45.0f&&
-            fabsf(car.steer)>.04f)
-        rear_grip_target=1.0f-.12f*input->throttle*input->throttle;
     car.rear_grip_scale=approachf(car.rear_grip_scale,rear_grip_target,
         dt*(rear_grip_target<car.rear_grip_scale?
             (handbrake?13.0f:10.0f):3.0f));
@@ -1505,10 +1644,12 @@ static void update_physics(const input_t *input, float dt) {
     rear_slip = atan2f(car.lateral - rear_arm * car.yaw_rate, speed_for_slip);
     front_force = clampf(-72000.0f * front_slip,
                          -mass * 9.81f * 0.52f * front_grip,
-                          mass * 9.81f * 0.52f * front_grip);
+                          mass * 9.81f * 0.52f * front_grip)*
+                  lateral_force_gate;
     rear_force = clampf(-65000.0f * rear_slip,
                         -mass * 9.81f * 0.48f * rear_grip,
-                         mass * 9.81f * 0.48f * rear_grip);
+                         mass * 9.81f * 0.48f * rear_grip)*
+                 lateral_force_gate;
     /* Inside the useful drift-angle window, throttle progressively spends a
        small part of the rear tire's lateral capacity. Lifting restores rear
        bite; the effect fades before the car reaches a spin angle. */
@@ -1517,35 +1658,24 @@ static void update_physics(const input_t *input, float dt) {
                        clutch_strength*.34f-throttle_oversteer*.16f,
                        0.12f,1.0f);
 
-    if(car.longitudinal >= -0.5f) {
-        const float throttle_curve=input->throttle*
-            (.46f+.54f*input->throttle);
-        const float speed_ratio=clampf(speed_abs/82.0f,0.0f,1.0f);
-        const float power_curve=1.0f-.44f*speed_ratio;
-        const float drift_torque=1.0f+input->throttle*drift_load*
-            (.30f-.10f*spin_guard);
-        /* Broad naturally aspirated V8 delivery: partial throttle remains
-           precise, full throttle carries useful torque through a long slide,
-           and the upper gears no longer run out of force against road drag. */
-        engine_force=throttle_curve*14500.0f*power_curve*drift_torque;
-        /* The flywheel/rev flare is released over a few tenths rather than
-           one frame, making the dump readable at 60 Hz and on real hardware. */
-        engine_force*=1.0f+clutch_strength*.55f;
-        if(input->brake > 0.02f && car.longitudinal > 0.5f)
-            brake_force = -input->brake * 13200.0f;
-        else if(input->brake > 0.12f && car.longitudinal <= 0.5f)
-            engine_force -= input->brake * 4600.0f;
+    /* Resolve the rear contact patch as one force vector. In a donut, large
+       lateral slip rotates some of the available force sideways instead of
+       allowing maximum forward thrust and maximum cornering independently.
+       That naturally keeps the rear circling the loaded front axle. */
+    rear_combined_magnitude=sqrtf(rear_long_force*rear_long_force+
+                                  rear_force*rear_force);
+    rear_combined_scale=rear_combined_magnitude>rear_total_capacity?
+        rear_total_capacity/rear_combined_magnitude:1.0f;
+    rear_long_force*=rear_combined_scale;
+    rear_force*=rear_combined_scale;
+    if(planar_speed_abs<.65f&&service_brake>.0f) {
+        const float held=fminf(front_brake_request,fabsf(rear_long_force));
+        front_brake_force=rear_long_force>=0.0f?-held:held;
     }
-    else {
-        engine_force = input->brake * -4300.0f;
-        if(input->throttle > 0.05f) brake_force = input->throttle * 9000.0f;
-    }
-    if(car.handbrake_lock>.01f)
-        brake_force-=2650.0f*car.handbrake_lock*
-                     (car.longitudinal>=0.0f?1.0f:-1.0f);
+
     drag = 0.42f * car.longitudinal * speed_abs +
            (road ? 66.0f : 360.0f) * car.longitudinal;
-    longitudinal_force = engine_force + brake_force - drag;
+    longitudinal_force = rear_long_force + front_brake_force - drag;
     du = longitudinal_force / mass + car.yaw_rate * car.lateral;
     dv = (front_force + rear_force) / mass - car.yaw_rate * car.longitudinal;
     dr = (front_arm * front_force - rear_arm * rear_force) / inertia;
@@ -1576,26 +1706,30 @@ static void update_physics(const input_t *input, float dt) {
     car.longitudinal = clampf(car.longitudinal + du * dt, -11.0f, 82.0f);
     car.lateral = clampf(car.lateral + dv * dt, -24.0f, 24.0f);
     car.yaw_rate = clampf(car.yaw_rate + dr * dt, -2.05f, 2.05f);
-    if(speed_abs < 3.0f)
-        car.yaw_rate += car.steer * car.longitudinal * dt * 1.35f;
     body_slip=atan2f(car.lateral,speed_for_slip);
     drift_amount=clampf((fabsf(body_slip)-0.10f)/0.52f,0.0f,1.0f);
+    donut_intent=car.rear_power_slip*
+        clampf((fabsf(car.steer)-.22f)/.30f,0.0f,1.0f)*
+        clampf((14.0f-speed_abs)/11.0f,0.0f,1.0f);
     counter_steering=speed_abs>6.0f && fabsf(car.yaw_rate)>0.12f &&
                      car.steer*car.yaw_rate<0.0f;
     yaw_damping=road?0.42f:1.25f;
-    yaw_damping+=drift_amount*0.72f;
+    yaw_damping+=drift_amount*.72f*(1.0f-.72f*donut_intent);
     if(counter_steering)
         yaw_damping+=1.25f+2.15f*fabsf(input->steer)*drift_amount;
     /* Above roughly 28 degrees, progressively trade yaw for stability. This
        keeps full throttle useful without turning it into a spin button. */
     spin_guard=clampf((fabsf(body_slip)-.48f)/.25f,0.0f,1.0f);
-    yaw_damping+=spin_guard*(1.30f+.90f*input->throttle);
+    yaw_damping+=spin_guard*(1.30f+.90f*input->throttle)*
+                 (1.0f-.84f*donut_intent);
     if(fabsf(body_slip)>.72f)
-        yaw_damping+=(fabsf(body_slip)-.72f)*3.0f;
+        yaw_damping+=(fabsf(body_slip)-.72f)*3.0f*
+                     (1.0f-.84f*donut_intent);
     car.yaw_rate *= fmaxf(0.0f,1.0f-dt*yaw_damping);
     if(spin_guard>0.0f)
         car.lateral*=fmaxf(0.0f,1.0f-dt*spin_guard*
-                           (.14f+.20f*input->throttle));
+                           (.14f+.20f*input->throttle)*
+                           (1.0f-.82f*donut_intent));
     if(counter_steering)
         car.lateral *= fmaxf(0.0f,1.0f-dt*(0.10f+0.22f*drift_amount));
     if(speed_abs < 0.15f && input->throttle < 0.02f && input->brake < 0.02f)
@@ -1606,12 +1740,39 @@ static void update_physics(const input_t *input, float dt) {
     world_vz = fcos(car.yaw) * car.longitudinal - fsin(car.yaw) * car.lateral;
     car.x += world_vx * dt;
     car.z += world_vz * dt;
-    wheel_spin = fmodf(wheel_spin + car.longitudinal * dt / 0.44f, PI * 2.0f);
+    front_wheel_spin=fmodf(front_wheel_spin+
+        car.longitudinal*dt/.44f,PI*2.0f);
+    rear_wheel_spin=fmodf(rear_wheel_spin+
+        car.rear_wheel_speed*dt/.44f,PI*2.0f);
     collide_buildings();
 
     game.drift_angle = atan2f(fabsf(car.lateral), fmaxf(fabsf(car.longitudinal), 0.8f)) * 180.0f / PI;
+    if(road&&input->throttle>.20f&&car.rear_power_slip>.18f&&
+       fabsf(car.rear_wheel_speed-car.longitudinal)>2.5f&&
+       (car.burnout>.18f||speed_abs<18.0f||game.drift_angle>10.0f)) {
+        const bool heavy=car.rear_power_slip>.62f;
+        rear_effect_active=true;
+        game.smoke_timer-=dt;
+        game.skid_timer-=dt;
+        if(game.smoke_timer<=0.0f) {
+            emit_smoke(-.94f,-1.55f);
+            emit_smoke(.94f,-1.55f);
+            if(heavy) {
+                emit_smoke(-.68f,-1.70f);
+                emit_smoke(.68f,-1.70f);
+            }
+            game.smoke_timer=heavy?.040f:.055f;
+        }
+        if(game.skid_timer<=0.0f) {
+            emit_skid(-.92f,0);
+            emit_skid(.92f,1);
+            skid_contact_valid=true;
+            game.skid_timer=.052f;
+        }
+    }
     if(road&&speed_abs>6.0f&&car.handbrake_lock>.30f&&
        game.drift_angle<=10.0f) {
+        rear_effect_active=true;
         game.smoke_timer-=dt;
         game.skid_timer-=dt;
         if(game.smoke_timer<=0.0f) {
@@ -1629,6 +1790,7 @@ static void update_physics(const input_t *input, float dt) {
     if(road && speed_abs > 8.0f && game.drift_angle > 10.0f && game.drift_angle < 72.0f) {
         const float quality = clampf((game.drift_angle - 8.0f) / 32.0f, 0.0f, 1.35f);
         const int bonus_step = (int)(game.drift_duration / 2.5f);
+        rear_effect_active=true;
         game.drift_hold = 1.15f;
         game.drift_duration += dt;
         if(game.drift_duration > game.longest_drift)
@@ -1664,7 +1826,7 @@ static void update_physics(const input_t *input, float dt) {
         }
     }
     else if(game.drift_chain > 0.0f) {
-        skid_contact_valid = false;
+        if(!rear_effect_active) skid_contact_valid = false;
         game.drift_hold -= dt;
         if(game.drift_hold <= 0.0f) {
             game.score += game.drift_chain * game.drift_multiplier;
@@ -1676,7 +1838,7 @@ static void update_physics(const input_t *input, float dt) {
         }
     }
     else {
-        skid_contact_valid = false;
+        if(!rear_effect_active) skid_contact_valid = false;
         game.drift_duration = 0.0f;
         game.drift_bonus_step = 0;
     }
@@ -1695,7 +1857,8 @@ static bool update_game(const input_t *input, float dt) {
         else if(input->pressed & CONT_B) return false;
         car.longitudinal = 8.0f;
         car.z += dt * 3.0f;
-        wheel_spin = fmodf(wheel_spin + dt * 8.0f / 0.40f, PI * 2.0f);
+        front_wheel_spin=fmodf(front_wheel_spin+dt*8.0f/.40f,PI*2.0f);
+        rear_wheel_spin=front_wheel_spin;
         car.yaw = fsin(game.time * 0.22f) * 0.04f;
     }
     else if(game.mode == MODE_DEMO) {
@@ -1761,7 +1924,9 @@ static bool update_game(const input_t *input, float dt) {
                 reset_traffic();
                 game.district_banner=3.5f;
             }
-            wheel_spin=fmodf(wheel_spin+car.longitudinal*dt/.44f,PI*2.0f);
+            front_wheel_spin=fmodf(front_wheel_spin+
+                car.longitudinal*dt/.44f,PI*2.0f);
+            rear_wheel_spin=front_wheel_spin;
             game.smoke_timer-=dt;
             game.skid_timer-=dt;
             if(game.smoke_timer<=0.0f) {
@@ -1806,7 +1971,9 @@ static bool update_game(const input_t *input, float dt) {
             }
             if(input->pressed & CONT_B) game.camera_close = !game.camera_close;
             update_physics(input, dt);
+#ifndef DRIFT_LA_PHYSICS_QA
             update_traffic(dt);
+#endif
             update_exhaust_pops(input->throttle,engine_rpm_level(),dt);
             update_effects(dt);
         }
@@ -4829,6 +4996,7 @@ static void draw_wheel(float local_x, float local_z, float steer,
     const float half_width = width * 0.5f;
     const float outer_sign = local_x < 0.0f ? -1.0f : 1.0f;
     const float center_y = radius + 0.015f;
+    const float rotation=local_z>0.0f?front_wheel_spin:rear_wheel_spin;
     const uint32_t tread = pack_color(1.0f,(color3_t){0.27f,0.29f,0.33f});
     const uint32_t sidewall = pack_color(1.0f,(color3_t){0.055f,0.06f,0.075f});
     const uint32_t rotor = pack_color(1.0f,(color3_t){0.21f,0.23f,0.27f});
@@ -4842,7 +5010,7 @@ static void draw_wheel(float local_x, float local_z, float steer,
     int i;
 
     for(i = 0; i < SEGMENTS; ++i) {
-        const float angle = wheel_spin + (float)i * PI * 2.0f / (float)SEGMENTS;
+        const float angle = rotation + (float)i * PI * 2.0f / (float)SEGMENTS;
         const float y = fsin(angle) * radius;
         const float z = fcos(angle) * radius;
         inner[i] = rotate_part_point(local_x,center_y,local_z,-half_width,y,z,steer);
@@ -4862,8 +5030,8 @@ static void draw_wheel(float local_x, float local_z, float steer,
                                outer_sign*(half_width+0.006f),0.0f,0.0f,steer);
     for(i = 0; i < SEGMENTS; ++i) {
         const int next = (i + 1) % SEGMENTS;
-        const float a0 = wheel_spin + (float)i * PI * 2.0f / (float)SEGMENTS;
-        const float a1 = wheel_spin + (float)next * PI * 2.0f / (float)SEGMENTS;
+        const float a0 = rotation + (float)i * PI * 2.0f / (float)SEGMENTS;
+        const float a1 = rotation + (float)next * PI * 2.0f / (float)SEGMENTS;
         const vec3_t p0 = rotate_part_point(local_x,center_y,local_z,
             outer_sign*(half_width+0.006f),fsin(a0)*radius,fcos(a0)*radius,steer);
         const vec3_t p1 = rotate_part_point(local_x,center_y,local_z,
@@ -4909,7 +5077,7 @@ static void draw_wheel(float local_x, float local_z, float steer,
                         0,0,1,0,0,1,1,1,rim_edge);
     }
     for(i = 0; i < 5; ++i) {
-        const float angle=wheel_spin*.15f+(float)i*PI*2.0f/5.0f;
+        const float angle=rotation*.15f+(float)i*PI*2.0f/5.0f;
         const float inner_spread=.180f,outer_spread=.065f;
         const vec3_t inner0=rotate_part_point(local_x,center_y,local_z,
             outer_sign*(half_width+0.017f),fsin(angle-inner_spread)*radius*.16f,
@@ -4938,7 +5106,7 @@ static void draw_wheel(float local_x, float local_z, float steer,
     /* Five raised lug nuts and a colored center cap survive close orbit shots
        and stop the rims reading as flat five-point decals. */
     for(i=0;i<5;++i) {
-        const float angle=wheel_spin*.15f+(float)i*PI*2.0f/5.0f;
+        const float angle=rotation*.15f+(float)i*PI*2.0f/5.0f;
         const float lug_y=fsin(angle)*radius*.105f;
         const float lug_z=fcos(angle)*radius*.105f;
         const vec3_t lug_center=rotate_part_point(local_x,center_y,local_z,
@@ -5188,6 +5356,8 @@ static void update_hud(bool connected) {
                 hud_text(164,8,magenta,"CLUTCH KICK");
             else if(car.handbrake_lock>.10f)
                 hud_text(176,8,amber,"HANDBRAKE");
+            else if(car.burnout>.18f)
+                hud_text(188,8,magenta,"BURNOUT");
         }
         if(game.mode==MODE_DEMO)
             hud_text(310,36,cyan,"DEMO RUN");
@@ -5533,6 +5703,21 @@ static int init_graphics(void) {
 int main(int argc, char **argv) {
     uint64_t previous_time;
     bool running=true;
+#ifdef DRIFT_LA_PHYSICS_QA
+    int physics_qa_phase=0;
+    int physics_qa_exit=0;
+    int burnout_smoke_start=0;
+    float burnout_max_speed=0.0f;
+    float burnout_max_wheel_delta=0.0f;
+    float burnout_max_slip=0.0f;
+    float donut_accumulated_yaw=0.0f;
+    float donut_max_radius=0.0f;
+    float donut_max_planar_speed=0.0f;
+    float donut_max_yaw_rate=0.0f;
+    float donut_max_slip=0.0f;
+    float donut_slip_integral=0.0f;
+    float donut_sample_time=0.0f;
+#endif
 #ifdef DRIFT_LA_AUTOTEST
     uint64_t audio_poll_total_us=0;
     uint64_t audio_poll_max_us=0;
@@ -5552,7 +5737,11 @@ int main(int argc, char **argv) {
     printf("Drift Los Angeles showcase: cycling all four districts for capture.\n");
 #elif defined(DRIFT_LA_AUTOTEST)
     start_run();
-#ifdef DRIFT_LA_POWERTEST
+#ifdef DRIFT_LA_PHYSICS_QA
+    memset(traffic,0,sizeof(traffic));
+    burnout_smoke_start=smoke_cursor;
+    printf("Drift Los Angeles physics QA: burnout and low-speed donut scenarios enabled.\n");
+#elif defined(DRIFT_LA_POWERTEST)
     printf("Drift Los Angeles power test: straight-line full-throttle run enabled.\n");
 #else
     printf("Drift Los Angeles autotest: scripted throttle, steering, handbrake, and clutch kick enabled.\n");
@@ -5578,7 +5767,36 @@ int main(int argc, char **argv) {
         input.connected=true;
         input.buttons=0;
         input.pressed=0;
-#ifdef DRIFT_LA_POWERTEST
+#ifdef DRIFT_LA_PHYSICS_QA
+        if(physics_qa_phase==0&&game.time>=3.0f) {
+            const int smoke_emissions=smoke_cursor-burnout_smoke_start;
+            const bool pass=burnout_max_speed<1.8f&&
+                burnout_max_wheel_delta>18.0f&&burnout_max_slip>.70f&&
+                smoke_emissions>=30;
+            printf("Drift Los Angeles physics QA: burnout %s -- chassis=%.2fm/s wheel-delta=%.2fm/s slip=%.2f smoke=%d.\n",
+                   pass?"PASS":"FAIL",burnout_max_speed,
+                   burnout_max_wheel_delta,burnout_max_slip,smoke_emissions);
+            if(!pass) physics_qa_exit=1;
+            physics_qa_phase=1;
+            reset_car();
+            memset(traffic,0,sizeof(traffic));
+            memset(smoke_pool,0,sizeof(smoke_pool));
+            memset(skid_pool,0,sizeof(skid_pool));
+            game.smoke_timer=0.0f;
+            game.skid_timer=0.0f;
+            skid_contact_valid=false;
+        }
+        if(physics_qa_phase==0) {
+            input.throttle=1.0f;
+            input.brake=1.0f;
+            input.steer=0.0f;
+        }
+        else {
+            input.throttle=1.0f;
+            input.brake=0.0f;
+            input.steer=1.0f;
+        }
+#elif defined(DRIFT_LA_POWERTEST)
         input.throttle=1.0f;
         input.brake=0.0f;
         input.steer=0.0f;
@@ -5596,6 +5814,29 @@ int main(int argc, char **argv) {
 #endif
 #endif
         running=update_game(&input,dt);
+#ifdef DRIFT_LA_PHYSICS_QA
+        if(physics_qa_phase==0) {
+            burnout_max_speed=fmaxf(burnout_max_speed,
+                                     fabsf(car.longitudinal));
+            burnout_max_wheel_delta=fmaxf(burnout_max_wheel_delta,
+                fabsf(car.rear_wheel_speed-car.longitudinal));
+            burnout_max_slip=fmaxf(burnout_max_slip,car.rear_power_slip);
+        }
+        else {
+            const float dx=car.x;
+            const float dz=car.z-16.0f;
+            const float planar_speed=sqrtf(car.longitudinal*car.longitudinal+
+                                           car.lateral*car.lateral);
+            donut_accumulated_yaw+=fabsf(car.yaw_rate)*dt;
+            donut_max_radius=fmaxf(donut_max_radius,sqrtf(dx*dx+dz*dz));
+            donut_max_planar_speed=fmaxf(donut_max_planar_speed,planar_speed);
+            donut_max_yaw_rate=fmaxf(donut_max_yaw_rate,
+                                     fabsf(car.yaw_rate));
+            donut_max_slip=fmaxf(donut_max_slip,car.rear_power_slip);
+            donut_slip_integral+=car.rear_power_slip*dt;
+            donut_sample_time+=dt;
+        }
+#endif
         update_audio_controls(&input,dt);
         audio_update_recorded_voices();
         render_frame(input.connected,dt);
@@ -5660,10 +5901,25 @@ int main(int argc, char **argv) {
         {
             static int last_report=-1;
             const int second=(int)game.time;
-            if(second>0 && second%3==0 && second!=last_report) {
+            if(second>0&&second!=last_report&&
+#ifdef DRIFT_LA_PHYSICS_QA
+               true
+#else
+               second%3==0
+#endif
+              ) {
                 pvr_stats_t stats;
                 last_report=second;
                 if(pvr_get_stats(&stats)==0)
+#ifdef DRIFT_LA_PHYSICS_QA
+                    printf("Drift Los Angeles physics QA: t=%d u=%.2f v=%.2f wheel=%.2f slip=%.2f yaw=%.2f heading=%.2f pos=%.2f,%.2f radius=%.2f fps=%.1f.\n",
+                        second,car.longitudinal,car.lateral,
+                        car.rear_wheel_speed,car.rear_power_slip,
+                        car.yaw_rate,car.yaw,car.x,car.z,
+                        sqrtf(car.x*car.x+
+                                          (car.z-16.0f)*(car.z-16.0f)),
+                        stats.frame_rate);
+#else
                     printf("Drift Los Angeles autotest: t=%d speed=%.1fmph rpm=%.0f gear=%d tire=%.2f angle=%.1f score=%lu hb=%.2f kick=%.2f fps=%.1f reg=%.2fms audio=%.2f/%.2fms vtx=%luKiB.\n",
                         second,fabsf(car.longitudinal)*2.23694f,
                         audio_controls.rpm,audio_controls.gear,
@@ -5675,18 +5931,37 @@ int main(int argc, char **argv) {
                             (double)audio_poll_count/1000.0:0.0,
                         (double)audio_poll_max_us/1000.0,
                         (unsigned long)(stats.vtx_buffer_used/1024));
+#endif
                 audio_poll_total_us=0;
                 audio_poll_max_us=0;
                 audio_poll_count=0;
             }
             if(game.time>=
-#ifdef DRIFT_LA_POWERTEST
+#ifdef DRIFT_LA_PHYSICS_QA
+               9.0f
+#elif defined(DRIFT_LA_POWERTEST)
                24.0f
 #else
                12.0f
 #endif
               ) {
+#ifdef DRIFT_LA_PHYSICS_QA
+                const float mean_slip=donut_sample_time>0.0f?
+                    donut_slip_integral/donut_sample_time:0.0f;
+                const bool pass=donut_accumulated_yaw>6.4f&&
+                    donut_max_radius<16.5f&&donut_max_planar_speed<8.5f&&
+                    donut_max_yaw_rate>.90f&&donut_max_slip>.80f&&
+                    mean_slip>.75f;
+                printf("Drift Los Angeles physics QA: donut %s -- rotation=%.2frad radius=%.2fm speed=%.2fm/s yaw-rate=%.2frad/s slip=%.2f/%.2f mean.\n",
+                       pass?"PASS":"FAIL",donut_accumulated_yaw,
+                       donut_max_radius,donut_max_planar_speed,
+                       donut_max_yaw_rate,donut_max_slip,mean_slip);
+                if(!pass) physics_qa_exit=1;
+                printf("Drift Los Angeles physics QA: %s.\n",
+                       physics_qa_exit==0?"ALL TESTS PASS":"FAILED");
+#else
                 printf("Drift Los Angeles autotest: completed scripted drive.\n");
+#endif
                 running=false;
             }
         }
@@ -5697,5 +5972,9 @@ int main(int argc, char **argv) {
     release_graphics();
     pvr_shutdown();
     printf("Drift Los Angeles shutdown complete.\n");
+#ifdef DRIFT_LA_PHYSICS_QA
+    return physics_qa_exit;
+#else
     return 0;
+#endif
 }

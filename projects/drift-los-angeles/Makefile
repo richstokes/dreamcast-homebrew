@@ -5,6 +5,7 @@ QA_PREVIEW_DIR = assets/generated/previews/visual-qa
 QA_SHOTS = $(QA_PREVIEW_DIR)/downtown.png $(QA_PREVIEW_DIR)/coast.png $(QA_PREVIEW_DIR)/arts.png $(QA_PREVIEW_DIR)/neon.png
 QA_SEGMENT ?= 0
 QA_CAPTURE_LOCAL ?= 8.0f
+STRICT_CFLAGS = -O2 -Wall -Wextra -Wpedantic -Werror
 
 KOS_BUILD_SUBARCHS = pristine
 
@@ -48,14 +49,14 @@ qa:
 
 qa-build:
 	$(MAKE) clean
-	$(MAKE) CFLAGS='-O2 -Wall -Wextra -Wpedantic -Werror -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA'
+	$(MAKE) CFLAGS='$(STRICT_CFLAGS) -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA'
 
 qa-run: qa-build
 	./run-flycast.sh --skip-build
 
 qa-capture-build:
 	$(MAKE) clean
-	$(MAKE) CFLAGS='-O2 -Wall -Wextra -Wpedantic -Werror -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA -DDRIFT_LA_CAPTURE_SEGMENT=$(QA_SEGMENT) -DDRIFT_LA_CAPTURE_LOCAL=$(QA_CAPTURE_LOCAL)'
+	$(MAKE) CFLAGS='$(STRICT_CFLAGS) -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA -DDRIFT_LA_CAPTURE_SEGMENT=$(QA_SEGMENT) -DDRIFT_LA_CAPTURE_LOCAL=$(QA_CAPTURE_LOCAL)'
 
 qa-capture-run: qa-capture-build
 	./run-flycast.sh --skip-build
@@ -64,4 +65,13 @@ qa-visual:
 	uv run tools/visual_qa.py --strict --json $(QA_PREVIEW_DIR)/report.json \
 		--contact-sheet $(QA_PREVIEW_DIR)/contact-sheet.png $(QA_SHOTS)
 
-.PHONY: all clean run showcase qa qa-build qa-run qa-capture-build qa-capture-run qa-visual textures audio music model
+physics-qa-build:
+	$(MAKE) clean
+	$(MAKE) CFLAGS='$(STRICT_CFLAGS) -DDRIFT_LA_AUTOTEST -DDRIFT_LA_PHYSICS_QA'
+
+physics-qa-run: physics-qa-build
+	DRIFT_LA_EXIT_ON_LOG='physics QA: ALL TESTS PASS.' \
+	DRIFT_LA_FAIL_ON_LOG='physics QA: FAILED.' \
+		./run-flycast.sh --skip-build --input keyboard
+
+.PHONY: all clean run showcase qa qa-build qa-run qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run textures audio music model

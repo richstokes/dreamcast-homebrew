@@ -225,6 +225,19 @@ It writes `report.json` and `contact-sheet.png` beside those captures. Generated
 review output stays ignored; intentional milestone sheets can be promoted into
 `assets/screenshots/` as this pass was.
 
+The driving model has a separate emulator-run regression suite. It performs a
+three-second brake-standing burnout followed by a six-second full-lock power
+donut and fails unless the driven rear wheels separate from chassis speed,
+produce sustained slip and smoke, hold the car during the burnout, and rotate
+the car repeatedly inside the configured low-speed radius and stability gates:
+
+```sh
+make physics-qa-run
+```
+
+The launcher watches the serial QA result, closes Flycast automatically, and
+returns a failing status when either maneuver misses a gate.
+
 ## Controls
 
 | Control | Action |
@@ -232,6 +245,8 @@ review output stays ignored; intentional milestone sheets can be promoted into
 | Analog stick or D-pad left/right | Steer |
 | R trigger or D-pad up | Accelerate |
 | L trigger or D-pad down | Brake / reverse |
+| Hold R + L together | Brake-standing rear-wheel burnout |
+| Full steering lock + R at low speed | Power donut; modulate R to balance its radius |
 | Hold A | Handbrake; rapidly locks the rear tires and pivots the car |
 | Tap X with throttle | Clutch kick; dumps a short torque/rev pulse into the rear tires |
 | B | Toggle close/wide chase camera |

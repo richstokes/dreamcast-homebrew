@@ -7,6 +7,8 @@ KOS_ENV="${KOS_ENV:-${DEFAULT_KOS_ENV}}"
 FLYCAST_BIN="${FLYCAST_BIN:-/Applications/Flycast.app/Contents/MacOS/Flycast}"
 FLYCAST_STARTUP_RETRIES="${FLYCAST_STARTUP_RETRIES:-8}"
 INPUT_MODE="${DRIFT_LA_INPUT:-auto}"
+EXIT_ON_LOG="${DRIFT_LA_EXIT_ON_LOG:-}"
+FAIL_ON_LOG="${DRIFT_LA_FAIL_ON_LOG:-}"
 SKIP_BUILD=false
 
 usage() {
@@ -120,8 +122,13 @@ FLYCAST_CONFIG="config:Debug.SerialConsoleEnabled=yes,input:device1=0,input:devi
 
 attempt=1
 flycast_log=""
+flycast_pid=""
 
 cleanup() {
+    if [[ -n "${flycast_pid}" ]] && kill -0 "${flycast_pid}" 2>/dev/null; then
+        kill -TERM "${flycast_pid}" 2>/dev/null || true
+        wait "${flycast_pid}" 2>/dev/null || true
+    fi
     if [[ -n "${flycast_log}" && -f "${flycast_log}" ]]; then
         rm -f -- "${flycast_log}"
     fi
@@ -135,10 +142,42 @@ while (( attempt <= FLYCAST_STARTUP_RETRIES )); do
     # Disabling macOS's nano allocator for this child process prevents its tiny
     # regions from fragmenting that range and avoids driver.cpp's sq_buffer
     # assertion without changing any persistent emulator setting.
-    MallocNanoZone=0 "${FLYCAST_BIN}" \
-        -config "${FLYCAST_CONFIG}" \
-        "${PROJECT_DIR}/drift-los-angeles.elf" 2>&1 | tee "${flycast_log}"
-    flycast_status="${PIPESTATUS[0]}"
+    if [[ -n "${EXIT_ON_LOG}" || -n "${FAIL_ON_LOG}" ]]; then
+        qa_result=""
+        MallocNanoZone=0 "${FLYCAST_BIN}" \
+            -config "${FLYCAST_CONFIG}" \
+            "${PROJECT_DIR}/drift-los-angeles.elf" \
+            > >(tee "${flycast_log}") 2>&1 &
+        flycast_pid="$!"
+        while kill -0 "${flycast_pid}" 2>/dev/null; do
+            if [[ -n "${FAIL_ON_LOG}" ]] &&
+               grep -Fq -- "${FAIL_ON_LOG}" "${flycast_log}"; then
+                qa_result="fail"
+                kill -TERM "${flycast_pid}" 2>/dev/null || true
+                break
+            fi
+            if [[ -n "${EXIT_ON_LOG}" ]] &&
+               grep -Fq -- "${EXIT_ON_LOG}" "${flycast_log}"; then
+                qa_result="pass"
+                kill -TERM "${flycast_pid}" 2>/dev/null || true
+                break
+            fi
+            sleep .2
+        done
+        wait "${flycast_pid}"
+        flycast_status="$?"
+        flycast_pid=""
+        if [[ "${qa_result}" == "pass" ]]; then
+            flycast_status=0
+        elif [[ "${qa_result}" == "fail" ]]; then
+            flycast_status=1
+        fi
+    else
+        MallocNanoZone=0 "${FLYCAST_BIN}" \
+            -config "${FLYCAST_CONFIG}" \
+            "${PROJECT_DIR}/drift-los-angeles.elf" 2>&1 | tee "${flycast_log}"
+        flycast_status="${PIPESTATUS[0]}"
+    fi
     set -e
 
     if (( flycast_status == 0 )); then
