@@ -53,11 +53,11 @@ is also available.
   keystones, biome-colored neon traces, and shape-matched collision
 - Distance scoring, timed chains, and multipliers up to 8x
 - Eight original stereo synthwave/synthpop songs sequenced through a no-repeat
-  shuffle bag, with a title-screen Sound Test, 162–178 BPM A/B/C arrangements,
-  sidechained chord pads, driven pulse and FM basses, stereo arpeggios,
-  sustained hooks, eight lead voices including a breathy reed patch,
-  track-specific drum machines, gated clap rooms, tom fills, chord stabs,
-  harmony lifts, and multi-tap ping-pong echo
+  shuffle bag, with a title-screen Sound Test, 48–53 second verse/pre-chorus/
+  chorus forms, 162–178 BPM arrangements, sidechained chord pads, driven pulse
+  and FM basses, stereo arpeggios, sustained hooks, eight lead voices including
+  a breathy reed patch, track-specific drum machines, gated clap rooms, tom
+  fills, chord stabs, harmony lifts, and multi-tap ping-pong echo
 - Optional Jump Pack feedback for impacts, Nova Pulses, upgrades, and guardian
   destruction, with safe play when no vibration accessory is present
 - Hardware fog, a layered gradient sky, stars, striped sun, a subtle animated
@@ -82,10 +82,10 @@ is also available.
 On the title screen, use the D-pad (arrow keys) to choose **Start Flight**,
 **Sound Test**, or **Exit**, then confirm with Start or A (Return or X). Sound
 Test uses Left/Right to audition all eight songs immediately from their first
-section, A (X) to restart the selected song, and B (C) to return without
-accidentally beginning a run. While paused, B (C) aborts the run and returns to
-the title. After a defeat, Start or A (Return or X) retries and B (C) returns to
-the title.
+intro, shows the live song part and form position, uses A (X) to restart the
+selected song, and B (C) to return without accidentally beginning a run. While
+paused, B (C) aborts the run and returns to the title. After a defeat, Start or
+A (Return or X) retries and B (C) returns to the title.
 
 A controller is required on real Dreamcast hardware; Gravity Wave waits safely
 when one is missing and supports hot-plugging. On macOS, the launcher assigns
@@ -118,25 +118,29 @@ every song starts once before any can repeat, and the first song after a
 reshuffle can never match the previous one. Songs are committed only when AICA
 actually begins playback, so interrupted or replaced transition requests never
 silently consume a selection. Leaving Sound Test treats the auditioned song as
-the first heard entry of a fresh pass, then schedules the other seven. Each
-compact A/B/C arrangement advances after one complete statement, so the
-soundtrack's variety is apparent even during shorter runs; biome transitions
-may advance the score early to punctuate the new environment.
+the first heard entry of a fresh pass, then schedules the other seven. Each song
+now owns its full 36-bar form before the bag advances. Biome and mode changes
+can alter the score's mix level at the next phrase seam, but cannot chop a verse
+or chorus into another random song.
 
-- **Midnight Vector** — nocturnal outrun chase theme
-- **Magenta Circuit** — bright synthpop highway theme
-- **Glass Horizon** — crystalline neon-flight theme
-- **Static Heart** — hard-driving pulse-wave theme
-- **Afterimage Run** — chromatic high-speed pursuit theme
-- **Neon Afterburn** — relentless redline chase theme
-- **Chrome Devotion** — euphoric major-key synthpop anthem
-- **Redline Prophecy** — angular final-lap assault theme
+- **Midnight Vector** — sustained tonic/fifth "headlights" refrain
+- **Magenta Circuit** — offbeat pickup and bright syncopated chorus
+- **Glass Horizon** — breathy, long-line call-and-response
+- **Static Heart** — hard-driving repeated-note heartbeat hook
+- **Afterimage Run** — descending spectral cascade
+- **Neon Afterburn** — percussive octave-toggle siren
+- **Chrome Devotion** — broad, sustained major-key anthem
+- **Redline Prophecy** — angular, rest-led omen motif
 
-Every song is a six-bar arcade form with three evolving arrangements: A
-establishes its groove and signature voice, B develops the hook, and C adds
-maximum drums and harmony. The music engine launches each new downbeat on the
-exact eight-beat phrase boundary while the outgoing section carries a 47.6 ms
-decay tail across dual stereo AICA pairs.
+Each composition has three authored two-bar studio phrases: A is sparse verse
+material, B rises through a dominant pre-chorus that also supports the bridge,
+and C resolves to the tonic with the song's repeatable chorus hook and harmony
+lift. Three 36-bar macro-arrangements turn those phrases into intros, four-bar
+verses, pre-choruses, recurring four-bar choruses, breakdowns, bridges, builds,
+four-to-six-bar final choruses, and outros. Per-part mix automation makes the
+intro pull back and each returning chorus grow. The music engine launches every
+downbeat on the exact eight-beat phrase boundary while the outgoing section
+carries a 47.6 ms decay tail across dual stereo AICA pairs.
 
 The score is authored by Gravity Wave's SH-4 synth, baked to 21.5 kHz native
 stereo AICA ADPCM, and linked directly into the ELF for immediate startup. Boot
@@ -274,8 +278,9 @@ max-level Laser Core converts it into score.
   structure/terrain impacts, pause, retry, and game-over flow
 - All 24 music sections loaded with matching catalog/payload fingerprints and
   352 KiB of AICA RAM free; deterministic tests cover four complete no-repeat
-  shuffle bags, deferred transition commits, Sound Test selection/restart/
-  return and C-to-A looping, plus a 0A–7C phrase-boundary jukebox cycle
+  shuffle bags, full-form validation, deferred outro-only transition commits,
+  Sound Test selection/restart/return and outro-to-intro looping, plus a
+  complete phrase-boundary album cycle
 - Authored-course diagnostics across all four biomes (route continuity,
   lateral and vertical span, peak turn/grade, corridor relief, traversal
   clearance and Prism Crucible collision), world-space combat geometry,
