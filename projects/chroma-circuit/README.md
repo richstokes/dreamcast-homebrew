@@ -8,9 +8,9 @@ other library. The executable enters at `0x8c010000` and drives the Dreamcast's
 video, PowerVR2 tile accelerator, Yamaha AICA synthesizer, Holly event
 registers, SH-4 store queues, SCIF serial port, caches, and FPU directly.
 
-The demo is a 5,376-frame, seven-act camera sequence rather than a fixed-view
+The demo is a 6,144-frame, eight-act camera sequence rather than a fixed-view
 object spin. At Dreamcast's 59.9453 Hz refresh rate the complete loop lasts
-about 89.68 seconds; each act gets 768 frames and the cuts are masked by a short
+about 102.49 seconds; each act gets 768 frames and the cuts are masked by a short
 additive white-energy flash.
 
 1. **Orbit Core** - the shot holds a wide, elevated view for two seconds, then
@@ -62,8 +62,15 @@ additive white-energy flash.
    rock, warm low-sun highlights, cloud strata, halo geometry, restrained
    handheld roll, and a reflective alpine waterline evoke photographed scale
    without textures or prerecorded camera data.
+8. **Navigator** - SH-4 generates and projects separate 13x24 upper and 7x24
+   lower polar surfaces into a detailed asymmetric teardrop craft. Dense green
+   meridians, latitude rings, and alternating diagonals expose its triangulated
+   construction; three hot dorsal ribs follow a deep forward cleft above a
+   solid near-black lower bowl. The craft completes one and a half turns while
+   pitch, roll, dolly, framing, and a moving inspection ring continuously reveal
+   the broad stern, split organic crown, sharp nose, and underbody.
 
-An original 42-bar score follows the same seven-act timeline. Orbit Core begins
+An original 48-bar score follows the same eight-act timeline. Orbit Core begins
 with a restrained F-sharp-minor add9 pad, brings in the pulse and drums as the
 camera dives, and accents the close surface skim. Neon Vault opens into the
 wide hook; Chaos Bloom fractures it into a bridge. Hyperfold answers with a
@@ -77,7 +84,10 @@ movement with wide beat-synchronized panning and an original rising progression
 that resolves into High Country. The seventh act releases that pressure into a
 broad suspended-minor air pad, open-fifth bass, slow panoramic stereo drift,
 restrained half-time percussion, and a large octave arrival over the final
-ridge before the dominant cadence resolves cleanly back to Orbit Core.
+ridge. Navigator closes the loop with an original cosmic keygen movement:
+glassy detuned lead, telemetry-like percussion, wide orbital panning, bright
+arpeggios, and a C-sharp dominant cadence that resolves cleanly back to Orbit
+Core's F-sharp minor.
 
 The busiest act, Chaos Bloom, submits 2,172 world-space triangles per frame:
 2,044 from its two ribbons and 128 from the crossed shards. Neon Vault submits
@@ -98,6 +108,14 @@ peaks at 1,336 triangles / 1,627 native parameter blocks before the shared HUD
 and transition. Even its worst complete transition frame is only 2,142
 triangles / 3,240 blocks, or 103,680 bytes—about 19.8% of the 512 KiB TA vertex
 buffer—leaving generous headroom for real-hardware submission.
+
+Navigator submits 2,162 scene-local triangles / 4,051 native parameter blocks:
+an opaque lower shell plus constant-width beams for the upper triangulation,
+underbody contours, scanner, and dorsal ribs. Including the exact shared title
+HUD and the brightest transition frame raises the peak to only 5,595 blocks or
+179,040 bytes—34.2% of the 512 KiB TA vertex buffer. Exhaustive projection of
+all 768 poses keeps camera Z positive and every hull point clear of the screen
+and title plaque.
 
 ## Demoscene inspiration
 
@@ -155,6 +173,12 @@ Chroma Circuit translates that grammar into its own textureless SH-4 terrain,
 geometry haze, palette, choreography, and AICA composition; no original mesh,
 shader, timeline, source code, text, or music is included.
 
+Navigator is an original procedural interpretation of the organic spacecraft
+silhouette in the user's supplied *Flight of the Navigator* reference stills.
+The implementation was modeled analytically from those visual cues—the
+clamshell profile, dark lower bowl, flowing dorsal ridges, and split forward
+crown—rather than copied from a production mesh, film asset, texture, or scan.
+
 ## Build
 
 The Makefile invokes the installed Dreamcast cross-binutils directly. Do not
@@ -203,9 +227,9 @@ successful boot prints:
 ```text
 CHROMA CIRCUIT // bare SH-4 entry
 MAPLE: direct A0 DMA, LEFT/RIGHT scene select
-AICA: thirteen-slot raw synthwave / DnB / trance / ambient tracker online at 112.40 BPM
+AICA: thirteen-slot raw synthwave / DnB / trance / ambient / cosmic tracker online at 112.40 BPM
 PVR2: direct registers, tile matrix, no SDK runtime
-TA: seven-act orbit + vault + chaos + hyperfold + strange form + machine dream + high country online
+TA: eight-act orbit + vault + chaos + hyperfold + strange form + machine dream + high country + navigator online
 ```
 
 The demo runs continuously with a controller optional. Press **D-pad Left** or
@@ -214,7 +238,7 @@ wraps at either end. Flycast's default keyboard mapping uses the **Left Arrow**
 and **Right Arrow** keys. Every act identifies itself in the bottom-right
 plaque as `01 ORBIT CORE`, `02 NEON VAULT`, `03 CHAOS BLOOM`,
 `04 HYPERFOLD`, `05 STRANGE FORM`, `06 MACHINE DREAM`, or
-`07 HIGH COUNTRY`. Manual jumps land just beyond the transition flash so the
+`07 HIGH COUNTRY`, or `08 NAVIGATOR`. Manual jumps land just beyond the transition flash so the
 new title and scene are visible immediately; the tracker cuts old drum tails
 and revoices the destination harmony on that same complete frame. Close
 Flycast, or press Control-C in the launching terminal, to stop it.
@@ -238,7 +262,7 @@ equivalent of a tracker/module player directly in SH-4 assembly:
   without consuming SH-4 transform time.
 - One tracker tick equals one displayed frame. Eight ticks make a row, four
   rows make a beat, and the base tempo is 112.40 BPM. Six 16-row bars fit each
-  768-frame scene exactly, for 42 bars and 672 rows per loop.
+  768-frame scene exactly, for 48 bars and 768 rows per loop.
 - The ARM7 remains in reset: SH-4 uploads the oscillator waves over G2, starts
   the complete voice bank with one `KYONEX`, then writes only pitch, pan, and
   total-level registers. A two-execute key-off/key-on sequence gives the kick
@@ -303,6 +327,11 @@ emulator audio trick, KOS's sound server, or a software PCM mixer.
   banks with its lateral path, and keeps all 625 points between 1.8 and 29.4
   camera-space units before the opaque terrain is dressed with geometry fog,
   ridge glints, sun rays, lens ghosts, and a near-frame vignette.
+- Generates Navigator's two asymmetric polar shells every frame, projects 480
+  model vertices through live yaw/pitch/roll/dolly motion into aligned caches,
+  renders the lower bowl as real depth-writing geometry, then expands the
+  triangulated upper topology and six dorsal half-ribs into constant-width
+  screen-space phosphor beams. No spacecraft mesh is stored in the ELF.
 - Uses TMU1 as a free-running hardware timer and prints a 600-frame cadence
   report over SCIF. The counter is re-primed after serial output so diagnostics
   cannot contaminate the next measurement window.
@@ -317,8 +346,8 @@ adding the usual callee-save wrappers.
 
 ## Tested configuration
 
-Tested by direct ELF boot in Flycast 2.7 with its Vulkan renderer and default
-keyboard-to-port-A controller mapping. The serial startup completed without a
+Tested by direct ELF boot in Flycast 2.7 with its Vulkan renderer and the
+launcher's no-USB keyboard-to-port-A path. The serial startup completed without a
 panic or missing resource; a diagnostic run received 600 valid Maple replies
 in 600 frames with zero malformed replies and zero DMA timeouts. Orbit Core was
 also rendered in assembly-time visual-QA builds frozen at local frames 96, 184,
@@ -335,11 +364,15 @@ bronze generator, cage flight, steel funnel, and amber machine horizon. High
 Country was frozen at local frames 96, 288, 480, and 672 to inspect the cold
 ravine, snowfield, lifted gold panorama, and thawed valley, then booted from
 local frame 32 with the timeline running to verify continuous terrain flow,
-bank, and weather cuts. All seven acts, their named bottom-right plaques, and
-their transitions remained stable through an uninterrupted full 5,376-frame
-loop, and both framebuffer sets rendered correctly. Nine consecutive
-600-frame windows—including the final twice-per-frame input sampler—reported
-zero missed vertical blanks and
+bank, and weather cuts. Navigator was frozen at local frames 48, 176, 304, and
+736 to inspect its split crown, low clamshell profile, raised shoulder lobes,
+and opposite orbital view, then booted from local frame 32 with the timeline
+running to confirm that yaw, pitch, roll, dolly, scanner, and phosphor topology
+all continue to evolve. All eight acts, their named bottom-right plaques, and
+their transitions remained stable through an uninterrupted full 6,144-frame
+loop, and both framebuffer sets rendered correctly. Twelve consecutive
+600-frame windows—including Navigator and the final twice-per-frame input
+sampler—reported zero missed vertical blanks and
 `0x077516c4` or `0x077516e0` TMU1 ticks, within 28 ticks (about 2.3
 microseconds total) of Flycast's theoretical 600-refresh interval at 59.9453
 Hz. The launcher transiently forces vertical sync on, duplicate-frame
@@ -350,16 +383,17 @@ and 480i timing paths intended for real hardware, but it has not yet been
 exercised on a physical Dreamcast.
 
 The final soundtrack was also captured from Flycast's actual paced SDL AICA
-output as 44.1 kHz signed 16-bit stereo for 97.64 seconds, comfortably longer
-than the complete 89.68-second seven-act song loop. The capture had no clipped
-or near-clipped samples, 0.210% zero-valued samples, negligible DC offset
-(0.47 and 0.64 sample units), and a peak of -12.76 dBFS. Per-act stereo RMS
-remained controlled: -31.12 dBFS for Orbit Core, -30.35 for Neon Vault, -30.18
-for Chaos Bloom, -28.73 for Hyperfold's intentional lift, -30.78 for Strange
-Form's percussion-led industrial coda, -29.91 for Machine Dream's
-generator-trance movement, and -30.59 for High Country's open-air coda. The
-same run reported `0x4b` or `0x4c` decoded rows per 600-frame window while the
-renderer continued to report zero missed vertical blanks.
+output as 44.1 kHz signed 16-bit stereo for 127.69 seconds, comfortably longer
+than the complete 102.49-second eight-act song loop. The capture had no clipped
+or near-clipped samples, 0.191% zero-valued samples, negligible DC offset
+(0.16 and 0.27 sample units), and a peak of -12.36 dBFS. Per-act stereo RMS
+remained controlled: -31.17 dBFS for Orbit Core, -30.30 for Neon Vault, -30.21
+for Chaos Bloom, -28.74 for Hyperfold's intentional lift, -30.83 for Strange
+Form's percussion-led industrial coda, -29.88 for Machine Dream's
+generator-trance movement, -30.56 for High Country's open-air release, and
+-29.84 for Navigator's cosmic/keygen finale. The same run reported `0x4b` or
+`0x4c` decoded rows and `0x49`-`0x4c` live slot-zero phase changes per 600-frame
+window while the renderer continued to report zero missed vertical blanks.
 
 Generated `.o`, `.elf`, and screenshot files are intentionally ignored. Use
 `make clean` to remove build products.

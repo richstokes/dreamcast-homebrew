@@ -13,8 +13,8 @@
 ! The ARM7 remains safely in reset while the autonomous AICA voices run. One
 ! display frame is one tracker tick and eight ticks make a sixteenth-note row,
 ! yielding roughly 112.40 BPM at the Dreamcast's 59.9453 Hz refresh. Exactly
-! 96 rows (six four-beat bars) fit each 768-frame visual act. Seven acts make
-! one 42-bar / 672-row score loop.
+! 96 rows (six four-beat bars) fit each 768-frame visual act. Eight acts make
+! one 48-bar / 768-row score loop.
 
     .equ AICA_REG_BASE,          0xa0700000
     .equ AICA_RAM_BASE,          0xa0800000
@@ -536,7 +536,7 @@ music_update:
 .Lmu_row_jump:     .long music_row_jump
 .Lmu_rows_seen:    .long music_rows_seen
 
-! Decode one of 42 twelve-byte bar descriptors. Byte zero is the chord root,
+! Decode one of 48 twelve-byte bar descriptors. Byte zero is the chord root,
 ! byte one is 1 for minor / 0 for major, bytes 2..9 are the eight lead events,
 ! byte 10 is an explicit color interval, and byte 11 is a true low bass root.
 music_decode_row:
@@ -559,7 +559,7 @@ music_decode_row:
     and     r0, r10                    ! row within 16-row bar
     mov     r4, r11
     shlr2   r11
-    shlr2   r11                        ! bar 0..41
+    shlr2   r11                        ! bar 0..47
     mov     #0, r12
     mov     #6, r0
     cmp/hs  r0, r11
@@ -585,6 +585,10 @@ music_decode_row:
     cmp/hs  r0, r11
     bf      .Lmd_scene_ready
     mov     #6, r12
+    mov     #42, r0
+    cmp/hs  r0, r11
+    bf      .Lmd_scene_ready
+    mov     #7, r12
 .Lmd_scene_ready:
     mov.l   .Lmd_current_scene, r0
     mov.l   r12, @r0
@@ -655,6 +659,10 @@ music_decode_row:
     cmp/eq  r0, r12
     bt      .Lmd_pad_level_chosen
     mov     #78, r7                    ! HIGH COUNTRY carries an epic air pad
+    mov     #6, r0
+    cmp/eq  r0, r12
+    bt      .Lmd_pad_level_chosen
+    mov     #82, r7                    ! NAVIGATOR leaves room for glassy telemetry
 .Lmd_pad_level_chosen:
 
     ! Root on slot 3.
@@ -1531,6 +1539,12 @@ music_decode_drums:
 .Lmdr_product_576: .long 576
 
 .Lmdr_elevated:
+    mov.l   .Lmdr_672, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_elevated_body
+    bra     .Lmdr_navigator
+    nop
+.Lmdr_elevated_body:
     ! HIGH COUNTRY exhales after the machine pulse: one nearly weightless bar
     ! emerges through cloud, then a restrained half-time drive grows under the
     ! gorge chase. Crashes at two-bar boundaries mark the white-field reveal,
@@ -1631,6 +1645,109 @@ music_decode_drums:
     bra     .Lmdr_done
     nop
 
+.Lmdr_navigator:
+    ! NAVIGATOR is a precise electro/keygen orbit: a sparse one-bar radar lock
+    ! gives way to an asymmetric 0-6-8-12 kick motor, backbeat, and offbeat
+    ! telemetry hats. Three hull-scan impacts divide the movement while the
+    ! four-row closing burst pushes the final C# dominant back into Orbit Core.
+    mov.l   .Lmdr_672, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_navigator_impact
+    mov.l   .Lmdr_704, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_navigator_impact
+    mov.l   .Lmdr_736, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_navigator_impact
+    bra     .Lmdr_navigator_final_test
+    nop
+.Lmdr_navigator_impact:
+    bsr     music_trigger_crash
+    nop
+
+.Lmdr_navigator_final_test:
+    mov.l   .Lmdr_764, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_navigator_intro_test
+    bsr     music_trigger_snare
+    nop
+    mov.l   .Lmdr_767, r1
+    cmp/eq  r1, r8
+    bf      .Lmdr_navigator_done
+    bsr     music_trigger_kick
+    nop
+    bsr     music_trigger_crash
+    nop
+    bra     .Lmdr_done
+    nop
+
+.Lmdr_navigator_intro_test:
+    mov.l   .Lmdr_688, r1
+    cmp/hs  r1, r8
+    bt      .Lmdr_navigator_kick_test
+    mov     r9, r0
+    cmp/eq  #0, r0
+    bt      .Lmdr_navigator_kick
+    mov     r9, r0
+    cmp/eq  #8, r0
+    bt      .Lmdr_navigator_kick
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_navigator_hat
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bt      .Lmdr_navigator_hat
+    bra     .Lmdr_navigator_done
+    nop
+
+.Lmdr_navigator_kick_test:
+    mov     r9, r0
+    cmp/eq  #0, r0
+    bt      .Lmdr_navigator_kick
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_navigator_kick
+    mov     r9, r0
+    cmp/eq  #8, r0
+    bt      .Lmdr_navigator_kick
+    mov     r9, r0
+    cmp/eq  #12, r0
+    bf      .Lmdr_navigator_snare_test
+.Lmdr_navigator_kick:
+    bsr     music_trigger_kick
+    nop
+
+.Lmdr_navigator_snare_test:
+    mov     r9, r0
+    cmp/eq  #4, r0
+    bt      .Lmdr_navigator_snare
+    mov     r9, r0
+    cmp/eq  #12, r0
+    bf      .Lmdr_navigator_hat_test
+.Lmdr_navigator_snare:
+    bsr     music_trigger_snare
+    nop
+
+.Lmdr_navigator_hat_test:
+    mov     r9, r0
+    cmp/eq  #2, r0
+    bt      .Lmdr_navigator_hat
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_navigator_hat
+    mov     r9, r0
+    cmp/eq  #10, r0
+    bt      .Lmdr_navigator_hat
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bf      .Lmdr_navigator_done
+.Lmdr_navigator_hat:
+    bsr     music_trigger_hat
+    nop
+.Lmdr_navigator_done:
+    bra     .Lmdr_done
+    nop
+
 music_trigger_kick:
     sts.l   pr, @-r15
     mov.l   .Lmdr_kick_age, r0
@@ -1697,6 +1814,12 @@ music_trigger_crash:
 .Lmdr_640:       .long 640
 .Lmdr_668:       .long 668
 .Lmdr_671:       .long 671
+.Lmdr_672:       .long 672
+.Lmdr_688:       .long 688
+.Lmdr_704:       .long 704
+.Lmdr_736:       .long 736
+.Lmdr_764:       .long 764
+.Lmdr_767:       .long 767
 .Lmdr_kick_age:  .long music_kick_age
 .Lmdr_snare_age: .long music_snare_age
 .Lmdr_hat_age:   .long music_hat_age
@@ -1708,7 +1831,8 @@ music_trigger_crash:
 ! Stereo motion is deliberately broad and slow for the first three scenes.
 ! HYPERFOLD and MACHINE DREAM exchange sides once per beat; STRANGE FORM
 ! becomes still wider and swaps every two rows with its broken percussion.
-! HIGH COUNTRY opens the image and drifts only once every two bars.
+! HIGH COUNTRY opens the image and drifts only once every two bars; NAVIGATOR
+! returns to a wide beat-synchronous orbit around its rotating wireframe hull.
 music_apply_pan:
     sts.l   pr, @-r15
     mov.l   .Lmap_current_row, r0
@@ -1723,6 +1847,9 @@ music_apply_pan:
     bra     .Lmap_phase
     nop
 .Lmap_not_orbit:
+    mov     #7, r0
+    cmp/eq  r0, r9
+    bt      .Lmap_wide_beat
     mov     #6, r0
     cmp/eq  r0, r9
     bt      .Lmap_elevated
@@ -1893,6 +2020,9 @@ music_animate_voices:
     mov.l   .Lma_strange_row, r1
     cmp/hs  r1, r10
     bf      .Lma_arp_hyperfold
+    mov.l   .Lma_navigator_row, r1
+    cmp/hs  r1, r10
+    bt      .Lma_arp_navigator
     mov.l   .Lma_elevated_row, r1
     cmp/hs  r1, r10
     bt      .Lma_arp_elevated
@@ -1916,6 +2046,14 @@ music_animate_voices:
     cmp/hs  r1, r10
     bf      .Lma_arp_accent
     mov     #72, r5                    ! octave arrival opens above the ridge
+    bra     .Lma_arp_accent
+    nop
+.Lma_arp_navigator:
+    mov     #74, r5                    ! crystalline telemetry under the hull
+    mov.l   .Lma_navigator_arrival, r1
+    cmp/hs  r1, r10
+    bf      .Lma_arp_accent
+    mov     #66, r5                    ! final scan brightens toward Orbit Core
 .Lma_arp_accent:
     mov     r10, r0
     mov     #3, r1
@@ -1960,6 +2098,8 @@ music_animate_voices:
 .Lma_product_row: .long 480
 .Lma_elevated_row:.long 576
 .Lma_elevated_arrival:.long 640
+.Lma_navigator_row:.long 672
+.Lma_navigator_arrival:.long 736
 
 music_animate_lead:
     sts.l   pr, @-r15
@@ -1994,6 +2134,8 @@ music_animate_lead:
     bt      .Lmal_product_detune
     cmp/eq  #6, r0
     bt      .Lmal_elevated_detune
+    cmp/eq  #7, r0
+    bt      .Lmal_navigator_detune
     add     #3, r5                     ! subtle hardware-slot chorus double
     bra     .Lmal_double_ready
     nop
@@ -2007,6 +2149,10 @@ music_animate_lead:
     nop
 .Lmal_elevated_detune:
     add     #2, r5                     ! nearly unison, wide and wind-softened
+    bra     .Lmal_double_ready
+    nop
+.Lmal_navigator_detune:
+    add     #8, r5                     ! glassy dual-pulse shimmer for telemetry
 .Lmal_double_ready:
     mov     #11, r4
     bsr     music_set_pitch
@@ -2018,7 +2164,13 @@ music_animate_lead:
     mov.l   .Lmal_scene, r0
     mov.l   @r0, r0
     cmp/eq  #3, r0
+    bt      .Lmal_hyperfold_level
+    cmp/eq  #7, r0
     bf      .Lmal_level_ready
+    add     #-4, r5                    ! keep NAVIGATOR's sparse hook in front
+    bra     .Lmal_level_ready
+    nop
+.Lmal_hyperfold_level:
     add     #-6, r5                    ! lift the lead over the climax drums
 .Lmal_level_ready:
     mov     #1, r4
@@ -2677,10 +2829,21 @@ music_bars:
     MUSIC_BAR MN_E4,  0,  9, MN_E2,  MN_B4,  MN_HOLD,MN_E5, MN_FS5, MN_GS5,MN_HOLD,MN_B5, MN_GS5
     MUSIC_BAR MN_B3,  1, 10, MN_B2,  MN_FS5, MN_HOLD,MN_B5, MN_A5,  MN_FS5,MN_D5, MN_FS5,MN_A5
     MUSIC_BAR MN_CS4, 0, 10, MN_CS2, MN_GS4, MN_CS5,MN_F5, MN_GS5, MN_F5, MN_DS5,MN_CS5,MN_HOLD
+
+    ! NAVIGATOR: an original cosmic/keygen epilogue. A radar-like C#m opening
+    ! expands through Amaj7 and Eadd9/B into a bright hull-scan sequence; the
+    ! last C#7 arpeggio deliberately becomes the dominant pickup to Orbit Core.
+    ! It quotes neither the film score nor any music from the reference scenes.
+    MUSIC_BAR MN_CS4, 1, 14, MN_CS2, MN_REST,MN_GS4,MN_HOLD,MN_CS5,MN_DS5,MN_HOLD,MN_GS5,MN_HOLD
+    MUSIC_BAR MN_A3,  0, 11, MN_A2,  MN_E5,  MN_HOLD,MN_CS5,MN_B4, MN_A4, MN_HOLD,MN_E5, MN_HOLD
+    MUSIC_BAR MN_E4,  0, 14, MN_B2,  MN_B4,  MN_E5,  MN_FS5,MN_GS5,MN_B5, MN_HOLD,MN_GS5,MN_FS5
+    MUSIC_BAR MN_B3,  1, 10, MN_B2,  MN_FS4, MN_B4,  MN_D5, MN_FS5,MN_A5, MN_FS5,MN_D5, MN_B4
+    MUSIC_BAR MN_D4,  0, 14, MN_D2,  MN_A4,  MN_D5,  MN_FS5,MN_A5, MN_B5, MN_A5, MN_FS5,MN_E5
+    MUSIC_BAR MN_CS4, 0, 10, MN_CS2, MN_GS4, MN_CS5,MN_F5, MN_GS5,MN_B5, MN_GS5,MN_F5, MN_CS5
 music_bars_end:
 
 msg_music_ok:
-    .asciz "AICA: thirteen-slot raw synthwave / DnB / trance / ambient tracker online at 112.40 BPM\r\n"
+    .asciz "AICA: thirteen-slot raw synthwave / DnB / trance / ambient / cosmic tracker online at 112.40 BPM\r\n"
 msg_music_fail:
     .asciz "AICA WARNING: sound path unavailable; visuals continue\r\n"
 msg_music_rows:
