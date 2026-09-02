@@ -13,7 +13,7 @@ LDFLAGS := -m shlelf -T linker.ld --gc-sections -nostdlib
 
 all: $(TARGET)
 
-chroma-circuit.o: chroma-circuit.s hyperfold.inc aica-music.inc
+chroma-circuit.o: chroma-circuit.s hyperfold.inc strange-form.inc product-form.inc elevated.inc aica-music.inc
 	$(AS) $(ASFLAGS) -o $@ $<
 
 $(TARGET): $(OBJS) linker.ld

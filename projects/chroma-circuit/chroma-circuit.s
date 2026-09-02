@@ -188,7 +188,13 @@ _start:
     ! load nor its literal, so release timing and code layout stay untouched.
     mov.l   .Lcamera_capture_frame, r9
 .else
+ .ifdef CAMERA_START_FRAME
+    ! A second QA-only hook starts at an exact frame but continues running,
+    ! making camera motion and internal grade cuts inspectable in real time.
+    mov.l   .Lcamera_start_frame, r9
+ .else
     mov     #0, r9                  ! frame counter
+ .endif
 .endif
 
 .Lmain_loop:
@@ -232,7 +238,7 @@ _start:
     cmp/eq  r0, r9
     bf      .Lmain_loop
     nop
-    mov     #0, r9                  ! four 768-frame acts, then loop cleanly
+    mov     #0, r9                  ! seven 768-frame acts, then loop cleanly
     bra     .Lmain_loop
     nop
 
@@ -243,7 +249,7 @@ _start:
 .Lmsg_maple:    .long msg_maple
 .Lmsg_pvr:      .long msg_pvr
 .Lmsg_render:   .long msg_render
-.Ltimeline_period:.long 3072
+.Ltimeline_period:.long 5376
 .Ltile0:        .long TILE0
 .Ltile1:        .long TILE1
 .Lopb0:         .long OPB0
@@ -272,6 +278,9 @@ _start:
 .Lfn_ta_finish:         .long ta_finish_and_render
 .ifdef CAMERA_CAPTURE_FRAME
 .Lcamera_capture_frame: .long CAMERA_CAPTURE_FRAME
+.endif
+.ifdef CAMERA_START_FRAME
+.Lcamera_start_frame:   .long CAMERA_START_FRAME
 .endif
 
 ! ---------------------------------------------------------------------------
@@ -571,12 +580,24 @@ maple_poll_scene_controls:
     cmp/hs  r2, r4
     bf      .Lmaple_have_scene
     mov     #3, r3
+    sub     r2, r4
+    cmp/hs  r2, r4
+    bf      .Lmaple_have_scene
+    mov     #4, r3
+    sub     r2, r4
+    cmp/hs  r2, r4
+    bf      .Lmaple_have_scene
+    mov     #5, r3
+    sub     r2, r4
+    cmp/hs  r2, r4
+    bf      .Lmaple_have_scene
+    mov     #6, r3
 .Lmaple_have_scene:
     cmp/pz  r1
     bt      .Lmaple_scene_right
     tst     r3, r3
     bf      .Lmaple_scene_left_decrement
-    mov     #3, r3
+    mov     #6, r3
     bra     .Lmaple_commit_scene
     nop
 .Lmaple_scene_left_decrement:
@@ -585,7 +606,7 @@ maple_poll_scene_controls:
     nop
 .Lmaple_scene_right:
     add     #1, r3
-    mov     #4, r0
+    mov     #7, r0
     cmp/eq  r0, r3
     bf      .Lmaple_commit_scene
     mov     #0, r3
@@ -1529,7 +1550,7 @@ draw_scene:
     sts.l   pr, @-r15
     mov.l   r9, @-r15
 
-    ! The global frame counter is wrapped at 3072 by the main loop. Convert it
+    ! The global frame counter is wrapped at 5376 by the main loop. Convert it
     ! here into a scene number and a private 0..767 local frame so every act
     ! can use the same compact time arithmetic and restart deterministically.
     mov.l   .Lscene_length, r1
@@ -1572,10 +1593,49 @@ draw_scene:
 
 .Lscene_dispatch_hyper:
     sub     r1, r9
+    cmp/hs  r1, r9
+    bt      .Lscene_dispatch_strange
     mov     #3, r0
     mov.l   .Lscene_index_ptr, r2
     mov.l   r0, @r2
     mov.l   .Lfn_scene_hyper, r0
+    jsr     @r0
+    nop
+    bra     .Lscene_dispatch_transition
+    nop
+
+.Lscene_dispatch_strange:
+    sub     r1, r9
+    cmp/hs  r1, r9
+    bt      .Lscene_dispatch_product
+    mov     #4, r0
+    mov.l   .Lscene_index_ptr, r2
+    mov.l   r0, @r2
+    mov.l   .Lfn_scene_strange, r0
+    jsr     @r0
+    nop
+    bra     .Lscene_dispatch_transition
+    nop
+
+.Lscene_dispatch_product:
+    sub     r1, r9
+    cmp/hs  r1, r9
+    bt      .Lscene_dispatch_elevated
+    mov     #5, r0
+    mov.l   .Lscene_index_ptr, r2
+    mov.l   r0, @r2
+    mov.l   .Lfn_scene_product, r0
+    jsr     @r0
+    nop
+    bra     .Lscene_dispatch_transition
+    nop
+
+.Lscene_dispatch_elevated:
+    sub     r1, r9
+    mov     #6, r0
+    mov.l   .Lscene_index_ptr, r2
+    mov.l   r0, @r2
+    mov.l   .Lfn_scene_elevated, r0
     jsr     @r0
     nop
 
@@ -1595,6 +1655,9 @@ draw_scene:
 .Lfn_scene_vault:     .long draw_scene_vault
 .Lfn_scene_wave:      .long draw_scene_wave
 .Lfn_scene_hyper:     .long draw_scene_hyperfold
+.Lfn_scene_strange:   .long draw_scene_strange_form
+.Lfn_scene_product:   .long draw_scene_product_form
+.Lfn_scene_elevated:  .long draw_scene_elevated
 .Lfn_scene_transition:.long draw_scene_transition
 
 draw_scene_orbit:
@@ -4526,7 +4589,28 @@ draw_title:
     mov     #2, r0
     cmp/eq  r0, r1
     bt      .Ltitle_wave_label
+    mov     #3, r0
+    cmp/eq  r0, r1
+    bt      .Ltitle_hyper_label
+    mov     #4, r0
+    cmp/eq  r0, r1
+    bt      .Ltitle_strange_label
+    mov     #5, r0
+    cmp/eq  r0, r1
+    bt      .Ltitle_product_label
+    mov.l   .Ltitle_elevated, r4
+    bra     .Ltitle_label_ready
+    nop
+.Ltitle_product_label:
+    mov.l   .Ltitle_product, r4
+    bra     .Ltitle_label_ready
+    nop
+.Ltitle_hyper_label:
     mov.l   .Ltitle_hyper, r4
+    bra     .Ltitle_label_ready
+    nop
+.Ltitle_strange_label:
+    mov.l   .Ltitle_strange, r4
     bra     .Ltitle_label_ready
     nop
 .Ltitle_wave_label:
@@ -4696,7 +4780,7 @@ draw_text:
 .Ltitle_panel_x1: .long 288
 .Ltitle_panel2_x0:.long 424
 .Ltitle_panel2_y0:.long 438
-.Ltitle_panel2_x1:.long 624
+.Ltitle_panel2_x1:.long 636
 .Ltitle_panel2_y1:.long 476
 .Ltitle_depth:    .long 0x40000000
 .Ltitle_cyan:     .long 0xff0080a8
@@ -4707,13 +4791,16 @@ draw_text:
 .Ltitle_vault:    .long title_vault
 .Ltitle_wave:     .long title_wave
 .Ltitle_hyper:    .long title_hyper
+.Ltitle_strange:  .long title_strange
+.Ltitle_product:  .long title_product
+.Ltitle_elevated: .long title_elevated
 .Ltitle_scene_index:.long scene_index
 .Ltitle_tech_x:   .long 436
 .Ltitle_tech_y:   .long 446
 .Ltitle_rule_x:   .long 276
 .Ltitle_rule2_x0: .long 430
 .Ltitle_rule2_y0: .long 470
-.Ltitle_rule2_x1: .long 616
+.Ltitle_rule2_x1: .long 628
 .Ltitle_rule2_y1: .long 472
 .Lfont_letters:   .long font_letters
 .Lfont_digits:    .long font_digits
@@ -4969,6 +5056,9 @@ title_orbit:.asciz "01 ORBIT CORE"
 title_vault:.asciz "02 NEON VAULT"
 title_wave: .asciz "03 CHAOS BLOOM"
 title_hyper:.asciz "04 HYPERFOLD"
+title_strange:.asciz "05 STRANGE FORM"
+title_product:.asciz "06 MACHINE DREAM"
+title_elevated:.asciz "07 HIGH COUNTRY"
 
 ! Five-bit rows, seven rows per glyph, A-Z then 0-9.
 font_letters:
@@ -5015,7 +5105,7 @@ font_digits:
 msg_boot:   .asciz "\r\nCHROMA CIRCUIT // bare SH-4 entry\r\n"
 msg_maple:  .asciz "MAPLE: direct A0 DMA, LEFT/RIGHT scene select\r\n"
 msg_pvr:    .asciz "PVR2: direct registers, tile matrix, no SDK runtime\r\n"
-msg_render: .asciz "TA: four-act orbit + vault + chaos + hyperfold online\r\n"
+msg_render: .asciz "TA: seven-act orbit + vault + chaos + hyperfold + strange form + machine dream + high country online\r\n"
 msg_ta_timeout: .asciz "PVR FATAL: TA completion timeout\r\n"
 msg_ta_fault: .asciz "PVR FATAL: TA error event\r\n"
 msg_render_timeout: .asciz "PVR FATAL: render completion timeout\r\n"
@@ -5077,7 +5167,10 @@ maple_dma_table:        .space 32
 maple_response:         .space 1024
     .align 5
 
-! The two large subsystems live in separate, heavily commented assembly
-! includes so the already substantial core renderer remains navigable.
+! The large subsystems live in separate, heavily commented assembly includes
+! so the already substantial core renderer remains navigable.
     .include "hyperfold.inc"
+    .include "strange-form.inc"
+    .include "product-form.inc"
+    .include "elevated.inc"
     .include "aica-music.inc"

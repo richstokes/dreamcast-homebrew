@@ -13,7 +13,8 @@
 ! The ARM7 remains safely in reset while the autonomous AICA voices run. One
 ! display frame is one tracker tick and eight ticks make a sixteenth-note row,
 ! yielding roughly 112.40 BPM at the Dreamcast's 59.9453 Hz refresh. Exactly
-! 96 rows (six four-beat bars) fit each 768-frame visual act.
+! 96 rows (six four-beat bars) fit each 768-frame visual act. Seven acts make
+! one 42-bar / 672-row score loop.
 
     .equ AICA_REG_BASE,          0xa0700000
     .equ AICA_RAM_BASE,          0xa0800000
@@ -535,7 +536,7 @@ music_update:
 .Lmu_row_jump:     .long music_row_jump
 .Lmu_rows_seen:    .long music_rows_seen
 
-! Decode one of 24 twelve-byte bar descriptors. Byte zero is the chord root,
+! Decode one of 42 twelve-byte bar descriptors. Byte zero is the chord root,
 ! byte one is 1 for minor / 0 for major, bytes 2..9 are the eight lead events,
 ! byte 10 is an explicit color interval, and byte 11 is a true low bass root.
 music_decode_row:
@@ -558,7 +559,7 @@ music_decode_row:
     and     r0, r10                    ! row within 16-row bar
     mov     r4, r11
     shlr2   r11
-    shlr2   r11                        ! bar 0..23
+    shlr2   r11                        ! bar 0..41
     mov     #0, r12
     mov     #6, r0
     cmp/hs  r0, r11
@@ -572,6 +573,18 @@ music_decode_row:
     cmp/hs  r0, r11
     bf      .Lmd_scene_ready
     mov     #3, r12
+    mov     #24, r0
+    cmp/hs  r0, r11
+    bf      .Lmd_scene_ready
+    mov     #4, r12
+    mov     #30, r0
+    cmp/hs  r0, r11
+    bf      .Lmd_scene_ready
+    mov     #5, r12
+    mov     #36, r0
+    cmp/hs  r0, r11
+    bf      .Lmd_scene_ready
+    mov     #6, r12
 .Lmd_scene_ready:
     mov.l   .Lmd_current_scene, r0
     mov.l   r12, @r0
@@ -629,7 +642,19 @@ music_decode_row:
     mov     #2, r0
     cmp/eq  r0, r12
     bt      .Lmd_pad_level_chosen
-    mov     #76, r7                    ! HYPERFOLD is the wide final drop
+    mov     #76, r7                    ! HYPERFOLD is the wide fourth-act drop
+    mov     #3, r0
+    cmp/eq  r0, r12
+    bt      .Lmd_pad_level_chosen
+    mov     #90, r7                    ! hard act-five drums keep their headroom
+    mov     #4, r0
+    cmp/eq  r0, r12
+    bt      .Lmd_pad_level_chosen
+    mov     #80, r7                    ! act six reopens into a broad Y2K pad
+    mov     #5, r0
+    cmp/eq  r0, r12
+    bt      .Lmd_pad_level_chosen
+    mov     #78, r7                    ! HIGH COUNTRY carries an epic air pad
 .Lmd_pad_level_chosen:
 
     ! Root on slot 3.
@@ -735,6 +760,16 @@ music_decode_row:
 .Lmd_bass_note_ready:
     bsr     music_note_pitch
     nop
+    ! Act five drops the bass an octave without a software mixer or another
+    ! AICA slot, leaving its unstable upper harmony cold and metallic.
+    mov.l   .Lmd_current_scene, r1
+    mov.l   @r1, r2
+    mov     #4, r3
+    cmp/eq  r3, r2
+    bf      .Lmd_bass_octave_ready
+    mov.l   .Lmd_octave_down, r1
+    add     r1, r0
+.Lmd_bass_octave_ready:
     mov.l   .Lmd_bass_pitch, r1
     mov.l   r0, @r1
     mov.l   .Lmd_bass_age, r1
@@ -913,7 +948,7 @@ music_decode_drums:
     mov     #0x0f, r1
     and     r1, r0
     mov     r0, r9                      ! row within bar
-    mov.l   .Lmdr_96, r1
+    mov.l   .Lmdr_early_96, r1
     cmp/hs  r1, r8
     bt      .Lmdr_not_orbit
 
@@ -1011,14 +1046,14 @@ music_decode_drums:
     nop
 
 .Lmdr_not_orbit:
-    mov.l   .Lmdr_192, r1
+    mov.l   .Lmdr_early_192, r1
     cmp/hs  r1, r8
     bt      .Lmdr_chaos
 
     ! Neon Vault opens into the song's chorus: four-on-the-floor kick, gated
     ! backbeat, offbeat hats, and one syncopated pickup per bar.
     mov     r8, r0
-    mov.l   .Lmdr_96, r1
+    mov.l   .Lmdr_early_96, r1
     cmp/eq  r1, r0
     bf      .Lmdr_vault_kick_test
     bsr     music_trigger_crash
@@ -1069,7 +1104,7 @@ music_decode_drums:
     bsr     music_trigger_hat
     nop
 .Lmdr_vault_exit:
-    mov.l   .Lmdr_191, r1
+    mov.l   .Lmdr_early_191, r1
     cmp/eq  r1, r8
     bf      .Lmdr_done
     bsr     music_trigger_snare
@@ -1079,8 +1114,13 @@ music_decode_drums:
     bra     .Lmdr_done
     nop
 
+    .align 2
+.Lmdr_early_96:  .long 96
+.Lmdr_early_191: .long 191
+.Lmdr_early_192: .long 192
+
 .Lmdr_chaos:
-    mov.l   .Lmdr_288, r1
+    mov.l   .Lmdr_chaos_288, r1
     cmp/hs  r1, r8
     bf      .Lmdr_chaos_body
     bra     .Lmdr_hyperfold
@@ -1088,7 +1128,7 @@ music_decode_drums:
 .Lmdr_chaos_body:
     ! Chaos Bloom keeps the chorus harmony but fractures the kick around the
     ! attractor. Hats stay on offbeats; every bar's final hat opens into noise.
-    mov.l   .Lmdr_192, r1
+    mov.l   .Lmdr_chaos_192, r1
     cmp/eq  r1, r8
     bf      .Lmdr_chaos_kicks
     bsr     music_trigger_crash
@@ -1150,13 +1190,13 @@ music_decode_drums:
     bsr     music_trigger_crash
     nop
 .Lmdr_chaos_exit:
-    mov.l   .Lmdr_284, r1
+    mov.l   .Lmdr_chaos_284, r1
     cmp/hs  r1, r8
     bf      .Lmdr_done
     bsr     music_trigger_snare
     nop
     mov     r8, r0
-    mov.l   .Lmdr_287, r1
+    mov.l   .Lmdr_chaos_287, r1
     cmp/eq  r1, r8
     bf      .Lmdr_done
     bsr     music_trigger_kick
@@ -1168,17 +1208,26 @@ music_decode_drums:
     rts
     nop
 
+    .align 2
+.Lmdr_chaos_192: .long 192
+.Lmdr_chaos_284: .long 284
+.Lmdr_chaos_287: .long 287
+.Lmdr_chaos_288: .long 288
+
 .Lmdr_hyperfold:
+    mov.l   .Lmdr_hyper_384, r1
+    cmp/hs  r1, r8
+    bt      .Lmdr_strange
     ! HYPERFOLD mirrors the kick around each half-bar and doubles the hat rate,
     ! so the fourth act feels like a genuine final drop rather than more Chaos.
     ! Full-spectrum impacts mark the entrance and both two-bar geometry folds.
-    mov.l   .Lmdr_288, r1
+    mov.l   .Lmdr_hyper_288, r1
     cmp/eq  r1, r8
     bt      .Lmdr_hyperfold_impact
-    mov.l   .Lmdr_320, r1
+    mov.l   .Lmdr_hyper_320, r1
     cmp/eq  r1, r8
     bt      .Lmdr_hyperfold_fold
-    mov.l   .Lmdr_352, r1
+    mov.l   .Lmdr_hyper_352, r1
     cmp/eq  r1, r8
     bt      .Lmdr_hyperfold_fold
     bra     .Lmdr_hyperfold_exit_test
@@ -1196,12 +1245,12 @@ music_decode_drums:
 
 .Lmdr_hyperfold_exit_test:
     ! A four-row snare staircase tears the score open before the loop wraps.
-    mov.l   .Lmdr_380, r1
+    mov.l   .Lmdr_hyper_380, r1
     cmp/hs  r1, r8
     bf      .Lmdr_hyperfold_kick_test
     bsr     music_trigger_snare
     nop
-    mov.l   .Lmdr_383, r1
+    mov.l   .Lmdr_hyper_383, r1
     cmp/eq  r1, r8
     bf      .Lmdr_hyperfold_done
     bsr     music_trigger_kick
@@ -1275,6 +1324,313 @@ music_decode_drums:
     bra     .Lmdr_done
     nop
 
+    .align 2
+.Lmdr_hyper_288: .long 288
+.Lmdr_hyper_320: .long 320
+.Lmdr_hyper_352: .long 352
+.Lmdr_hyper_380: .long 380
+.Lmdr_hyper_383: .long 383
+.Lmdr_hyper_384: .long 384
+
+.Lmdr_strange:
+    mov.l   .Lmdr_strange_480, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_strange_body
+    bra     .Lmdr_product
+    nop
+.Lmdr_strange_body:
+    ! STRANGE FORM changes the perceived meter without changing the tracker:
+    ! interlocked 3-3-2 kick/snare gaps create a 168.6 BPM industrial break
+    ! over the existing 112.4 BPM clock. Three crashes drive visual ignitions.
+    mov.l   .Lmdr_strange_384, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_strange_impact
+    mov.l   .Lmdr_strange_416, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_strange_impact
+    mov.l   .Lmdr_strange_448, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_strange_impact
+    bra     .Lmdr_strange_final_test
+    nop
+.Lmdr_strange_impact:
+    bsr     music_trigger_crash
+    nop
+
+.Lmdr_strange_final_test:
+    mov.l   .Lmdr_strange_476, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_strange_kick_test
+    bsr     music_trigger_snare
+    nop
+    mov.l   .Lmdr_strange_479, r1
+    cmp/eq  r1, r8
+    bf      .Lmdr_strange_done
+    bsr     music_trigger_kick
+    nop
+    bsr     music_trigger_crash
+    nop
+    bra     .Lmdr_done
+    nop
+
+.Lmdr_strange_kick_test:
+    mov     r9, r0
+    cmp/eq  #0, r0
+    bt      .Lmdr_strange_kick
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_strange_kick
+    mov     r9, r0
+    cmp/eq  #7, r0
+    bt      .Lmdr_strange_kick
+    mov     r9, r0
+    cmp/eq  #11, r0
+    bt      .Lmdr_strange_kick
+    mov     r9, r0
+    cmp/eq  #13, r0
+    bf      .Lmdr_strange_snare_test
+.Lmdr_strange_kick:
+    bsr     music_trigger_kick
+    nop
+
+.Lmdr_strange_snare_test:
+    mov     r9, r0
+    cmp/eq  #3, r0
+    bt      .Lmdr_strange_snare
+    mov     r9, r0
+    cmp/eq  #8, r0
+    bt      .Lmdr_strange_snare
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bf      .Lmdr_strange_hat_test
+.Lmdr_strange_snare:
+    bsr     music_trigger_snare
+    nop
+
+.Lmdr_strange_hat_test:
+    ! Silence only local rows 2, 6, 10, and 14; the remaining hats form a
+    ! dense broken lattice instead of Hyperfold's even eighth-note motorik.
+    mov     r9, r0
+    cmp/eq  #2, r0
+    bt      .Lmdr_strange_done
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_strange_done
+    mov     r9, r0
+    cmp/eq  #10, r0
+    bt      .Lmdr_strange_done
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bt      .Lmdr_strange_done
+    bsr     music_trigger_hat
+    nop
+.Lmdr_strange_done:
+    bra     .Lmdr_done
+    nop
+
+    .align 2
+.Lmdr_strange_384: .long 384
+.Lmdr_strange_416: .long 416
+.Lmdr_strange_448: .long 448
+.Lmdr_strange_476: .long 476
+.Lmdr_strange_479: .long 479
+.Lmdr_strange_480: .long 480
+
+.Lmdr_product:
+    mov.l   .Lmdr_product_576, r1
+    cmp/hs  r1, r8
+    bt      .Lmdr_elevated
+    ! MACHINE DREAM deliberately snaps back to a turn-of-the-millennium
+    ! four-on-the-floor pulse. Offbeat noise hats, broad stereo arpeggios, and
+    ! three two-bar impacts evoke a tiny realtime synth without quoting fr-08.
+    mov.l   .Lmdr_product_480, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_product_impact
+    mov.l   .Lmdr_product_512, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_product_impact
+    mov.l   .Lmdr_product_544, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_product_impact
+    bra     .Lmdr_product_final_test
+    nop
+.Lmdr_product_impact:
+    bsr     music_trigger_crash
+    nop
+
+.Lmdr_product_final_test:
+    mov.l   .Lmdr_product_572, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_product_kick_test
+    bsr     music_trigger_snare
+    nop
+    mov.l   .Lmdr_product_575, r1
+    cmp/eq  r1, r8
+    bf      .Lmdr_product_done
+    bsr     music_trigger_kick
+    nop
+    bsr     music_trigger_crash
+    nop
+    bra     .Lmdr_done
+    nop
+
+.Lmdr_product_kick_test:
+    mov     r9, r0
+    cmp/eq  #0, r0
+    bt      .Lmdr_product_kick
+    mov     r9, r0
+    cmp/eq  #4, r0
+    bt      .Lmdr_product_kick
+    mov     r9, r0
+    cmp/eq  #8, r0
+    bt      .Lmdr_product_kick
+    mov     r9, r0
+    cmp/eq  #12, r0
+    bf      .Lmdr_product_snare_test
+.Lmdr_product_kick:
+    bsr     music_trigger_kick
+    nop
+
+.Lmdr_product_snare_test:
+    mov     r9, r0
+    cmp/eq  #4, r0
+    bt      .Lmdr_product_snare
+    mov     r9, r0
+    cmp/eq  #12, r0
+    bf      .Lmdr_product_hat_test
+.Lmdr_product_snare:
+    bsr     music_trigger_snare
+    nop
+
+.Lmdr_product_hat_test:
+    mov     r9, r0
+    cmp/eq  #2, r0
+    bt      .Lmdr_product_hat
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_product_hat
+    mov     r9, r0
+    cmp/eq  #10, r0
+    bt      .Lmdr_product_hat
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bf      .Lmdr_product_done
+.Lmdr_product_hat:
+    bsr     music_trigger_hat
+    nop
+.Lmdr_product_done:
+    bra     .Lmdr_done
+    nop
+
+    .align 2
+.Lmdr_product_480: .long 480
+.Lmdr_product_512: .long 512
+.Lmdr_product_544: .long 544
+.Lmdr_product_572: .long 572
+.Lmdr_product_575: .long 575
+.Lmdr_product_576: .long 576
+
+.Lmdr_elevated:
+    ! HIGH COUNTRY exhales after the machine pulse: one nearly weightless bar
+    ! emerges through cloud, then a restrained half-time drive grows under the
+    ! gorge chase. Crashes at two-bar boundaries mark the white-field reveal,
+    ! knife-edge pass, and final green-gold panorama without copying Elevated's
+    ! score or vocal contour.
+    mov.l   .Lmdr_576, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_elevated_impact
+    mov.l   .Lmdr_608, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_elevated_impact
+    mov.l   .Lmdr_640, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_elevated_impact
+    bra     .Lmdr_elevated_final_test
+    nop
+.Lmdr_elevated_impact:
+    bsr     music_trigger_crash
+    nop
+
+.Lmdr_elevated_final_test:
+    mov.l   .Lmdr_668, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_elevated_intro_test
+    bsr     music_trigger_snare
+    nop
+    mov.l   .Lmdr_671, r1
+    cmp/eq  r1, r8
+    bf      .Lmdr_elevated_done
+    bsr     music_trigger_kick
+    nop
+    bsr     music_trigger_crash
+    nop
+    bra     .Lmdr_done
+    nop
+
+.Lmdr_elevated_intro_test:
+    mov.l   .Lmdr_592, r1
+    cmp/hs  r1, r8
+    bt      .Lmdr_elevated_kick_test
+    mov     r9, r0
+    cmp/eq  #0, r0
+    bt      .Lmdr_elevated_kick
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_elevated_hat
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bt      .Lmdr_elevated_hat
+    bra     .Lmdr_elevated_done
+    nop
+
+.Lmdr_elevated_kick_test:
+    mov     r9, r0
+    cmp/eq  #0, r0
+    bt      .Lmdr_elevated_kick
+    mov     r9, r0
+    cmp/eq  #8, r0
+    bt      .Lmdr_elevated_kick
+    mov.l   .Lmdr_640, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_elevated_snare_test
+    mov     r9, r0
+    cmp/eq  #12, r0
+    bf      .Lmdr_elevated_snare_test
+.Lmdr_elevated_kick:
+    bsr     music_trigger_kick
+    nop
+
+.Lmdr_elevated_snare_test:
+    mov     r9, r0
+    cmp/eq  #4, r0
+    bt      .Lmdr_elevated_snare
+    mov     r9, r0
+    cmp/eq  #12, r0
+    bf      .Lmdr_elevated_hat_test
+.Lmdr_elevated_snare:
+    bsr     music_trigger_snare
+    nop
+
+.Lmdr_elevated_hat_test:
+    mov     r9, r0
+    cmp/eq  #2, r0
+    bt      .Lmdr_elevated_hat
+    mov     r9, r0
+    cmp/eq  #6, r0
+    bt      .Lmdr_elevated_hat
+    mov     r9, r0
+    cmp/eq  #10, r0
+    bt      .Lmdr_elevated_hat
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bf      .Lmdr_elevated_done
+.Lmdr_elevated_hat:
+    bsr     music_trigger_hat
+    nop
+.Lmdr_elevated_done:
+    bra     .Lmdr_done
+    nop
+
 music_trigger_kick:
     sts.l   pr, @-r15
     mov.l   .Lmdr_kick_age, r0
@@ -1335,16 +1691,12 @@ music_trigger_crash:
     nop
 
     .align 2
-.Lmdr_96:        .long 96
-.Lmdr_191:       .long 191
-.Lmdr_192:       .long 192
-.Lmdr_284:       .long 284
-.Lmdr_287:       .long 287
-.Lmdr_288:       .long 288
-.Lmdr_320:       .long 320
-.Lmdr_352:       .long 352
-.Lmdr_380:       .long 380
-.Lmdr_383:       .long 383
+.Lmdr_576:       .long 576
+.Lmdr_592:       .long 592
+.Lmdr_608:       .long 608
+.Lmdr_640:       .long 640
+.Lmdr_668:       .long 668
+.Lmdr_671:       .long 671
 .Lmdr_kick_age:  .long music_kick_age
 .Lmdr_snare_age: .long music_snare_age
 .Lmdr_hat_age:   .long music_hat_age
@@ -1354,8 +1706,9 @@ music_trigger_crash:
 .Lmdr_kick_on_execute: .long 0x0000c283
 
 ! Stereo motion is deliberately broad and slow for the first three scenes.
-! HYPERFOLD exchanges sides once per beat at a wider pan depth: the harmony
-! appears to turn through the fourth dimension while the underlying notes hold.
+! HYPERFOLD and MACHINE DREAM exchange sides once per beat; STRANGE FORM
+! becomes still wider and swaps every two rows with its broken percussion.
+! HIGH COUNTRY opens the image and drifts only once every two bars.
 music_apply_pan:
     sts.l   pr, @-r15
     mov.l   .Lmap_current_row, r0
@@ -1370,16 +1723,37 @@ music_apply_pan:
     bra     .Lmap_phase
     nop
 .Lmap_not_orbit:
+    mov     #6, r0
+    cmp/eq  r0, r9
+    bt      .Lmap_elevated
+    mov     #5, r0
+    cmp/eq  r0, r9
+    bt      .Lmap_wide_beat
+    mov     #4, r0
+    cmp/eq  r0, r9
+    bt      .Lmap_strange
     mov     #3, r0
     cmp/eq  r0, r9
-    bt      .Lmap_hyperfold
+    bt      .Lmap_wide_beat
     shlr2   r8
     shlr2   r8                        ! one change per bar
     bra     .Lmap_phase
     nop
-.Lmap_hyperfold:
+.Lmap_wide_beat:
     mov     #1, r12
-    shlr2   r8                        ! one fold per beat
+    shlr2   r8                        ! one sweep per beat
+    bra     .Lmap_phase
+    nop
+.Lmap_strange:
+    mov     #1, r12
+    shlr    r8                         ! nervous two-row stereo alternation
+    bra     .Lmap_phase
+    nop
+.Lmap_elevated:
+    mov     #1, r12
+    shlr2   r8
+    shlr2   r8
+    shlr    r8                         ! one panoramic drift per two bars
 .Lmap_phase:
     mov     #1, r0
     and     r0, r8
@@ -1516,7 +1890,32 @@ music_animate_voices:
     mov.l   .Lma_hyperfold_row, r1
     cmp/hs  r1, r10
     bf      .Lma_arp_accent
-    mov     #68, r5                    ! final-act arpeggio steps forward
+    mov.l   .Lma_strange_row, r1
+    cmp/hs  r1, r10
+    bf      .Lma_arp_hyperfold
+    mov.l   .Lma_elevated_row, r1
+    cmp/hs  r1, r10
+    bt      .Lma_arp_elevated
+    mov.l   .Lma_product_row, r1
+    cmp/hs  r1, r10
+    bt      .Lma_arp_product
+    mov     #80, r5                    ! percussion owns act five's foreground
+    bra     .Lma_arp_accent
+    nop
+.Lma_arp_hyperfold:
+    mov     #68, r5                    ! fourth-act arpeggio steps forward
+    bra     .Lma_arp_accent
+    nop
+.Lma_arp_product:
+    mov     #70, r5                    ! bright generator pulse for act six
+    bra     .Lma_arp_accent
+    nop
+.Lma_arp_elevated:
+    mov     #86, r5                    ! a distant Jarre-like pulse in cloud
+    mov.l   .Lma_elevated_arrival, r1
+    cmp/hs  r1, r10
+    bf      .Lma_arp_accent
+    mov     #72, r5                    ! octave arrival opens above the ridge
 .Lma_arp_accent:
     mov     r10, r0
     mov     #3, r1
@@ -1557,6 +1956,10 @@ music_animate_voices:
 .Lma_quality:.long music_chord_quality
 .Lma_color:  .long music_chord_color
 .Lma_hyperfold_row:.long 288
+.Lma_strange_row: .long 384
+.Lma_product_row: .long 480
+.Lma_elevated_row:.long 576
+.Lma_elevated_arrival:.long 640
 
 music_animate_lead:
     sts.l   pr, @-r15
@@ -1583,7 +1986,28 @@ music_animate_lead:
     mov     #1, r4
     bsr     music_set_pitch
     nop
+    mov.l   .Lmal_scene, r0
+    mov.l   @r0, r0
+    cmp/eq  #4, r0
+    bt      .Lmal_strange_detune
+    cmp/eq  #5, r0
+    bt      .Lmal_product_detune
+    cmp/eq  #6, r0
+    bt      .Lmal_elevated_detune
     add     #3, r5                     ! subtle hardware-slot chorus double
+    bra     .Lmal_double_ready
+    nop
+.Lmal_strange_detune:
+    add     #12, r5                    ! abrasive close detune for the alarm lead
+    bra     .Lmal_double_ready
+    nop
+.Lmal_product_detune:
+    add     #6, r5                     ! clean but obvious V2-era supersaw width
+    bra     .Lmal_double_ready
+    nop
+.Lmal_elevated_detune:
+    add     #2, r5                     ! nearly unison, wide and wind-softened
+.Lmal_double_ready:
     mov     #11, r4
     bsr     music_set_pitch
     nop
@@ -1932,7 +2356,8 @@ music_note_pitch:
 ! r4 = slot, r5 = pitch word
 music_set_pitch:
     sts.l   pr, @-r15
-    bsr     aica_fifo_wait
+    mov.l   .Lmsp_fifo_wait, r0
+    jsr     @r0
     nop
     tst     r0, r0
     bf      .Lmsp_done
@@ -1951,7 +2376,8 @@ music_set_pitch:
 ! r4 = slot, r5 = attenuation 0 (loud) .. 255 (mute)
 music_set_tl:
     sts.l   pr, @-r15
-    bsr     aica_fifo_wait
+    mov.l   .Lmst_fifo_wait, r0
+    jsr     @r0
     nop
     tst     r0, r0
     bf      .Lmst_done
@@ -1974,7 +2400,8 @@ music_set_tl:
 ! r4 = slot, r5 = AICA pan code (0 center, 0x1f hard left, 0x0f hard right)
 music_set_pan:
     sts.l   pr, @-r15
-    bsr     aica_fifo_wait
+    mov.l   .Lmspa_fifo_wait, r0
+    jsr     @r0
     nop
     tst     r0, r0
     bf      .Lmspa_done
@@ -1995,6 +2422,9 @@ music_set_pan:
 
     .align 2
 .Lmnp_table:       .long music_pitch_table
+.Lmsp_fifo_wait:   .long aica_fifo_wait
+.Lmst_fifo_wait:   .long aica_fifo_wait
+.Lmspa_fifo_wait:  .long aica_fifo_wait
 .Lmsp_reg_base:    .long AICA_REG_BASE
 .Lmst_reg_base:    .long AICA_REG_BASE
 .Lmspa_reg_base:   .long AICA_REG_BASE
@@ -2005,7 +2435,8 @@ music_set_pan:
 ! pitch stepping, looping, and the common monitor path are all alive.
 music_monitor_position:
     sts.l   pr, @-r15
-    bsr     aica_fifo_wait
+    mov.l   .Lmmp_fifo_wait, r0
+    jsr     @r0
     nop
     tst     r0, r0
     bf      .Lmmp_done
@@ -2035,6 +2466,7 @@ music_monitor_position:
     nop
 
     .align 2
+.Lmmp_fifo_wait:   .long aica_fifo_wait
 .Lmmp_position_reg:.long AICA_MONITOR_POSITION
 .Lmmp_previous:    .long music_previous_position
 .Lmmp_moves:       .long music_position_moves
@@ -2215,10 +2647,40 @@ music_bars:
     MUSIC_BAR MN_E4,  0,  9, MN_GS2, MN_B4,  MN_E5,  MN_GS5, MN_B5,  MN_HOLD,MN_GS5, MN_E5,  MN_CS5
     MUSIC_BAR MN_B3,  1, 10, MN_B2,  MN_B4,  MN_D5,  MN_FS5, MN_A5,  MN_FS5, MN_D5,  MN_CS5, MN_B4
     MUSIC_BAR MN_CS4, 0, 10, MN_CS2, MN_GS4, MN_CS5, MN_F5,  MN_GS5, MN_F5,  MN_DS5, MN_CS5, MN_HOLD
+
+    ! STRANGE FORM: an original industrial-DnB coda. Tritones, a minor-major
+    ! seventh, and flat-nine pressure replace the clean synthwave resolution;
+    ! its F#-D-B-C# bass cycle still launches naturally into the opening loop.
+    MUSIC_BAR MN_FS4, 1,  6, MN_FS2, MN_FS5,MN_REST,MN_C5, MN_HOLD,MN_A4, MN_REST,MN_DS5,MN_REST
+    MUSIC_BAR MN_D4,  1, 11, MN_D2,  MN_F5, MN_REST,MN_B4, MN_HOLD,MN_GS4,MN_REST,MN_CS5,MN_REST
+    MUSIC_BAR MN_B3,  1,  6, MN_B2,  MN_B4, MN_D5, MN_F5, MN_REST,MN_FS5,MN_REST,MN_C5, MN_HOLD
+    MUSIC_BAR MN_CS4, 0, 13, MN_CS2, MN_GS4,MN_CS5,MN_D5, MN_REST,MN_G4, MN_REST,MN_F5, MN_REST
+    MUSIC_BAR MN_FS4, 1,  6, MN_CS2, MN_A4, MN_CS5,MN_FS5,MN_REST,MN_C5, MN_HOLD,MN_DS5,MN_REST
+    MUSIC_BAR MN_CS4, 0, 13, MN_CS2, MN_GS4,MN_CS5,MN_D5, MN_G4, MN_F5, MN_DS5,MN_CS5,MN_REST
+
+    ! MACHINE DREAM: an original Y2K generator-trance finale. A clean
+    ! F#m-E-D-A-Bm-C# ascent restores four-on-the-floor momentum after the
+    ! industrial coda, while the final dominant bar points back to Orbit Core.
+    MUSIC_BAR MN_FS4, 1, 14, MN_FS2, MN_REST,MN_CS5,MN_FS5,MN_A5, MN_HOLD,MN_FS5,MN_E5, MN_CS5
+    MUSIC_BAR MN_E4,  0, 11, MN_E2,  MN_B4,  MN_E5, MN_GS5,MN_B5, MN_HOLD,MN_GS5,MN_FS5,MN_E5
+    MUSIC_BAR MN_D4,  0, 14, MN_D2,  MN_A4,  MN_D5, MN_FS5,MN_A5, MN_HOLD,MN_FS5,MN_E5, MN_D5
+    MUSIC_BAR MN_A3,  0, 14, MN_A2,  MN_A4,  MN_CS5,MN_E5, MN_A5, MN_GS5,MN_E5, MN_CS5,MN_B4
+    MUSIC_BAR MN_B3,  1, 10, MN_B2,  MN_B4,  MN_D5, MN_FS5,MN_B5, MN_A5, MN_FS5,MN_D5, MN_CS5
+    MUSIC_BAR MN_CS4, 0, 10, MN_CS2, MN_GS4, MN_CS5,MN_F5, MN_GS5,MN_F5, MN_DS5,MN_CS5,MN_HOLD
+
+    ! HIGH COUNTRY: an original epic-electronic release of pressure. Suspended
+    ! minor colors and open fifths emerge through cloud, then a wide octave
+    ! arrival crests over the thawed panorama before C# points back to F#.
+    MUSIC_BAR MN_FS4, 1, 14, MN_FS2, MN_REST,MN_REST,MN_CS5,MN_HOLD,MN_FS5,MN_HOLD,MN_A5, MN_HOLD
+    MUSIC_BAR MN_D4,  0, 11, MN_D2,  MN_A4,  MN_HOLD,MN_D5, MN_HOLD,MN_FS5,MN_HOLD,MN_A5, MN_HOLD
+    MUSIC_BAR MN_A3,  0, 14, MN_A2,  MN_E5,  MN_HOLD,MN_CS5,MN_E5,  MN_A5, MN_HOLD,MN_E5, MN_CS5
+    MUSIC_BAR MN_E4,  0,  9, MN_E2,  MN_B4,  MN_HOLD,MN_E5, MN_FS5, MN_GS5,MN_HOLD,MN_B5, MN_GS5
+    MUSIC_BAR MN_B3,  1, 10, MN_B2,  MN_FS5, MN_HOLD,MN_B5, MN_A5,  MN_FS5,MN_D5, MN_FS5,MN_A5
+    MUSIC_BAR MN_CS4, 0, 10, MN_CS2, MN_GS4, MN_CS5,MN_F5, MN_GS5, MN_F5, MN_DS5,MN_CS5,MN_HOLD
 music_bars_end:
 
 msg_music_ok:
-    .asciz "AICA: thirteen-slot raw synthwave tracker online at 112.40 BPM\r\n"
+    .asciz "AICA: thirteen-slot raw synthwave / DnB / trance / ambient tracker online at 112.40 BPM\r\n"
 msg_music_fail:
     .asciz "AICA WARNING: sound path unavailable; visuals continue\r\n"
 msg_music_rows:
