@@ -1,0 +1,35 @@
+"""Bounded validation of raw VMS data files; never execute or unpack payloads."""
+import binascii
+import struct
+
+MAX_SAVE = 241 * 512  # Supports KOS expanded VMUs; still excludes whole-card images.
+EYECATCH_BYTES = (0, 72 * 56 * 2, 512 + 72 * 56, 32 + 72 * 56 // 2)
+
+
+def validate_vms(data):
+    """Raise ValueError for unsupported/corrupt files, retaining exact valid bytes.
+
+    Headers can start at a block offset, as recorded by the VMU directory.
+    Return the validated header offset in blocks for faithful VMU installation.
+    CRC-16/CCITT and layout match KOS vmu_pkg_build/vmu_pkg_parse.
+    """
+    if not data or len(data) > MAX_SAVE or len(data) % 512:
+        raise ValueError('Save must contain 1-241 complete VMU blocks (maximum 120.5 KiB).')
+    for offset in range(0, len(data), 512):
+        header = data[offset:offset + 128]
+        if len(header) < 128:
+            continue
+        icons, speed, eye, crc, payload = struct.unpack_from('<HHHHI', header, 64)
+        if icons > 3 or eye >= len(EYECATCH_BYTES) or payload == 0:
+            continue
+        size = 128 + icons * 512 + EYECATCH_BYTES[eye] + payload
+        end = offset + size
+        # Allow final block padding, but not appended full blocks or truncated data.
+        if end > len(data) or len(data) - end >= 512:
+            continue
+        checksum = binascii.crc_hqx(data[offset:offset + 70], 0)
+        checksum = binascii.crc_hqx(b'\0\0', checksum)
+        checksum = binascii.crc_hqx(data[offset + 72:end], checksum)
+        if checksum == crc:
+            return offset // 512
+    raise ValueError('Not a supported VMS game save, or its header/checksum is corrupt.')

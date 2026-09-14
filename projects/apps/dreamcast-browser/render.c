@@ -108,7 +108,7 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
         int y = PAGE_TOP + item->y - scroll_y;
         uint16_t color = C_INK;
         if(y + item->height < PAGE_TOP || y >= SCREEN_H) continue;
-        if(item->link_id == focused_link)
+        if(focused_link >= 0 && item->link_id == focused_link)
             fill_rect(item->x - 3, y - 1, item->width + 6, item->height, C_FOCUS);
         if(item->type == ITEM_TEXT || item->type == ITEM_NOTICE) {
             if(item->style == TEXT_LINK) color = C_BLUE;

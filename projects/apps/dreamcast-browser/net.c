@@ -20,6 +20,7 @@ typedef struct {
 static network_progress_callback_t progress_callback;
 static void *progress_userdata;
 static int gate_bba_irq;
+static CURLSH *cookie_share;
 static volatile int bba_poll_running;
 static volatile int bba_transfer_active;
 static kthread_t *bba_poll_thread;
@@ -109,6 +110,9 @@ int network_init(void) {
         printf("browser: curl_global_init failed: %s\n", curl_easy_strerror(code));
         return -1;
     }
+    cookie_share = curl_share_init();
+    if(!cookie_share) return -1;
+    curl_share_setopt(cookie_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
     gate_bba_irq = net_default_dev && !strcmp(net_default_dev->name, "bba");
     if(gate_bba_irq) {
         disable_bba_irq();
@@ -131,6 +135,7 @@ void network_shutdown(void) {
         bba_poll_thread = NULL;
     }
     disable_bba_irq();
+    if(cookie_share) { curl_share_cleanup(cookie_share); cookie_share=NULL; }
     curl_global_cleanup();
 }
 
@@ -140,7 +145,7 @@ void fetch_result_free(fetch_result_t *result) {
     memset(result, 0, sizeof(*result));
 }
 
-int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
+static int network_request(const char *url, const char *body, size_t limit, fetch_result_t *out) {
     CURL *curl;
     CURLcode code;
     receive_buffer_t buffer = {0};
@@ -161,15 +166,18 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_SHARE, cookie_share);
+    curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
+    if(body) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, receive_data);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, transfer_progress);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, body ? 0L : 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, !strncmp(url,"https://",8) ? "https" : "http,https");
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "DreamcastBrowser/0.1 (KallistiOS)");
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "gzip,deflate");
     /* Keep bursts modest for the Dreamcast BBA and reject known-oversized
@@ -231,7 +239,7 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
         error[0] = 0;
     }
 
-    printf("browser: GET %s (limit %lu bytes)\n", url, (unsigned long)limit);
+    printf("browser: %s request (limit %lu bytes)\n", body?"POST":"GET", (unsigned long)limit);
     bba_transfer_active = 1;
     code = curl_easy_perform(curl);
     bba_transfer_active = 0;
@@ -269,8 +277,44 @@ int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
     printf("browser: HTTP %ld, %lu bytes%s, type=%s\n", out->status,
            (unsigned long)out->size, out->truncated ? " (truncated)" : "",
            out->content_type[0] ? out->content_type : "unknown");
+    if(body && out->status == 303) {
+        char *next=NULL;
+        char target[MAX_URL];
+        curl_easy_getinfo(curl,CURLINFO_REDIRECT_URL,&next);
+        if(next && strlen(next)<sizeof(target) && network_same_origin(url,next)) {
+            snprintf(target,sizeof(target),"%s",next);
+            fetch_result_free(out);
+            curl_easy_cleanup(curl);
+            return network_request(target,NULL,limit,out);
+        }
+    }
     curl_easy_cleanup(curl);
     return 0;
+}
+
+int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
+    return network_request(url,NULL,limit,out);
+}
+int network_post(const char *url, const char *body, size_t limit, fetch_result_t *out) {
+    if(strncmp(url,"https://",8)) {
+        memset(out,0,sizeof(*out));
+        snprintf(out->error,sizeof(out->error),"Forms require HTTPS");
+        return -1;
+    }
+    return network_request(url,body,limit,out);
+}
+int network_same_origin(const char *a, const char *b) {
+    CURLU *ua=curl_url(), *ub=curl_url();
+    int same=1;
+    CURLUPart parts[]={CURLUPART_SCHEME,CURLUPART_HOST,CURLUPART_PORT};
+    if(!ua||!ub||curl_url_set(ua,CURLUPART_URL,a,0)||curl_url_set(ub,CURLUPART_URL,b,0)) same=0;
+    for(int i=0;same && i<3;++i) {
+        char *va=NULL,*vb=NULL;
+        if(curl_url_get(ua,parts[i],&va,CURLU_DEFAULT_PORT)||curl_url_get(ub,parts[i],&vb,CURLU_DEFAULT_PORT)||strcasecmp(va,vb)) same=0;
+        curl_free(va);curl_free(vb);
+    }
+    curl_url_cleanup(ua);curl_url_cleanup(ub);
+    return same;
 }
 
 int resolve_url(const char *base, const char *reference, char *out, size_t out_size) {

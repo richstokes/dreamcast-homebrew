@@ -14,6 +14,8 @@ include $(KOS_BASE)/Makefile.rules
 clean:
 	-rm -f $(OBJS) $(TARGET) romdisk.img
 
+dreamcast-browser.o net.o html.o images.o render.o: browser.h
+
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) $(LDLIBS)
 
@@ -24,3 +26,13 @@ update-cacert:
 	./scripts/update-cacert.sh
 
 .PHONY: all clean run update-cacert
+
+# A normal build must never package temporary integration credentials.
+.PHONY: release-check
+ifeq ($(filter -DBROWSER_FORM_SELF_TEST,$(CPPFLAGS)),)
+release-check:
+	@test ! -f romdisk/test-credentials.txt || { echo "Remove romdisk/test-credentials.txt before a normal build."; exit 1; }
+else
+release-check:
+endif
+$(OBJS): | release-check

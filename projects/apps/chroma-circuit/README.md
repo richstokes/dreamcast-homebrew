@@ -1,6 +1,6 @@
 # Chroma Circuit
 
-![Chroma Circuit's four-dimensional Hyperfold scene](../../docs/screenshots/chroma-circuit.png)
+![Chroma Circuit's four-dimensional Hyperfold scene](../../../docs/screenshots/chroma-circuit.png)
 
 Chroma Circuit is a standalone Dreamcast demoscene effect written entirely in
 SH-4 assembly. It does not link KallistiOS, a C runtime, libc, libgcc, or any
@@ -185,7 +185,7 @@ The Makefile invokes the installed Dreamcast cross-binutils directly. Do not
 source the KOS environment; no KOS build rule or compiler wrapper is used.
 
 ```sh
-cd projects/chroma-circuit
+cd projects/apps/chroma-circuit
 make
 make verify
 ```

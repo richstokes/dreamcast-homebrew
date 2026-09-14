@@ -111,7 +111,7 @@ failed, or unsupported images become placeholders. Unknown HTML tags are
 ignored while their text remains visible; scripts, styles, SVG, canvas, and
 `noscript` blocks and HTML comments are skipped. Decorative images are omitted,
 and declared image dimensions keep small failed assets from becoming giant
-placeholders. There is no CSS layout, JavaScript, forms, cookies, storage,
+placeholders. There is no CSS layout, JavaScript, persistent storage,
 audio/video, downloads, tabs, or full Unicode font rendering.
 Supported inline text keeps flowing across semantic tags instead of forcing a
 new row, wraps at the display edge, and gives links, strong text, emphasis, and
@@ -145,3 +145,24 @@ This is a readable-web and small-site browser, not a modern desktop engine.
 Back and Forward history each retain up to eight URLs and their scroll positions
 in fixed-size buffers. Opening a new page after going Back clears the Forward
 history, matching conventional browser behavior.
+
+## Basic HTML forms
+
+Same-origin HTTPS forms now support text, email, password, hidden, checkbox and
+submit inputs. Focus a field with Tab and Enter, type using a Dreamcast keyboard,
+then Enter finishes or Tab finishes and moves to the next control. Escape restores
+the previous value. Checkboxes toggle with Enter/A. Passwords display as asterisks.
+The browser keeps cookies in RAM only; exiting discards them. POST redirects use
+same-origin HTTP 303, and passwords cannot be submitted through GET forms.
+Unsupported form controls or cross-origin/insecure actions fail closed. This is
+intentionally a small form subset, not a complete HTML form engine.
+
+Registration, login, logout and filters on https://dcvmu.com have been exercised
+in Flycast against the live service. `CPPFLAGS=-DBROWSER_FORM_SELF_TEST` runs that
+regression using a disposable username and password in the ignored
+`romdisk/test-credentials.txt` (two lines). Never distribute this test build.
+Remove the credential file and `make clean && make` before building a release.
+
+`FLYCAST_ARCH=x86_64 ./run-flycast.sh` selects the Intel emulator via Rosetta if
+the installed Apple Silicon build fails its host memory-layout assertion. The
+launcher disables crash uploads transiently because forms can hold credentials.

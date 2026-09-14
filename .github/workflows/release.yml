@@ -30,6 +30,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python for service and launcher checks
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Test DCVMU service and VMU launcher
+        run: |
+          python -m pip install -r projects/dcvmu.com/service/requirements.txt
+          (cd projects/dcvmu.com/service && python -m unittest -v)
+          python -m unittest discover -s projects/dcvmu.com/client/tests -v
+
       - name: Install disc-image tools
         run: |
           sudo apt-get update
@@ -47,14 +58,19 @@ jobs:
           git -C .ci/kos fetch --depth 1 origin "$KOS_COMMIT"
           git -C .ci/kos checkout --detach FETCH_HEAD
 
+          for patch in projects/dcvmu.com/client/patches/kos-*.patch; do
+            git -C .ci/kos apply --check "$GITHUB_WORKSPACE/$patch"
+            git -C .ci/kos apply "$GITHUB_WORKSPACE/$patch"
+          done
+
           git init .ci/kos-ports
           git -C .ci/kos-ports remote add origin https://github.com/KallistiOS/kos-ports.git
           git -C .ci/kos-ports fetch --depth 1 origin "$KOS_PORTS_COMMIT"
           git -C .ci/kos-ports checkout --detach FETCH_HEAD
           git -C .ci/kos-ports apply --check \
-            "$GITHUB_WORKSPACE/projects/dreamcast-browser/patches/kos-ports-kos23.patch"
+            "$GITHUB_WORKSPACE/projects/apps/dreamcast-browser/patches/kos-ports-kos23.patch"
           git -C .ci/kos-ports apply \
-            "$GITHUB_WORKSPACE/projects/dreamcast-browser/patches/kos-ports-kos23.patch"
+            "$GITHUB_WORKSPACE/projects/apps/dreamcast-browser/patches/kos-ports-kos23.patch"
 
           git init .ci/mkdcdisc
           git -C .ci/mkdcdisc remote add origin https://gitlab.com/simulant/mkdcdisc.git
@@ -71,7 +87,8 @@ jobs:
 
       - name: Validate Dreamcast executables
         run: |
-          for elf in projects/*/*.elf; do
+          while IFS='|' read -r directory slug title; do
+            elf="$directory/$slug.elf"
             file "$elf" | tee /dev/stderr | grep -q 'ELF 32-bit LSB executable, Renesas SH'
             docker run --rm \
               --volume "$GITHUB_WORKSPACE:/workspace" \
@@ -79,7 +96,7 @@ jobs:
               "$TOOLCHAIN_IMAGE" \
               /opt/toolchains/dc/sh-elf/bin/sh-elf-readelf -h "$elf" \
               | grep -q 'Machine:.*Renesas / SuperH SH'
-          done
+          done < .github/console-projects.txt
 
       - name: Build self-booting CDI images
         run: |

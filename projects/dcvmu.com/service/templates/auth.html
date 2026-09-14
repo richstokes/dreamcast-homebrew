@@ -1,0 +1,7 @@
+{% extends 'base.html' %}{% block title %}{{ 'Register' if register else 'Log in' }}{% endblock %}{% block content %}
+<div class="form-panel"><p class="eyebrow">YOUR VMU, ONLINE</p><h1>{{ 'Create an account' if register else 'Welcome back' }}</h1><p>{{ 'Archive your saves and choose which ones to share.' if register else 'Log in to manage your Dreamcast saves.' }}</p>
+<form method="post" action="{{ '/register' if register else '/login' }}"><input type="hidden" name="csrf" value="{{ csrf }}"><p><label for="username">Username</label><br><input id="username" name="username" maxlength="24" required autocomplete="username"></p>
+{% if register %}<p><label for="email">Email</label><br><input id="email" name="email" type="email" maxlength="254" required autocomplete="email"></p>{% endif %}
+<p><label for="password">Password</label><br><input id="password" name="password" type="password" minlength="5" maxlength="128" required autocomplete="{{ 'new-password' if register else 'current-password' }}"></p>
+{% if register %}<p class="hint">Username: 3–24 letters, numbers or underscores.<br>Password: 5–128 ASCII characters. Email stays private.</p>{% endif %}
+<p><input type="submit" value="{{ 'Create account' if register else 'Log in' }}"></p></form></div>{% endblock %}

@@ -1,0 +1,8 @@
+projects/dcvmu.com/client|dcvmu-client|DCVMU
+projects/games/demon-bazooka|demon-bazooka|Demon Bazooka
+projects/games/drift-los-angeles|drift-los-angeles|Drift Los Angeles
+projects/games/gravity-wave|gravity-wave|Gravity Wave
+projects/apps/chroma-circuit|chroma-circuit|Chroma Circuit
+projects/apps/dreamcast-browser|dreamcast-browser|Dreamcast Browser
+projects/apps/dreamcast-irc|dreamcast-irc|Dreamcast IRC
+projects/apps/ping-cube|ping-cube|Ping Cube

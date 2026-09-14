@@ -60,7 +60,18 @@ typedef struct {
     char text[MAX_TEXT];
 } document_item_t;
 
+#define MAX_FORMS 8
+#define MAX_FIELDS 64
+#define MAX_FIELD_VALUE 512
+typedef struct { char action[MAX_URL]; int post; int valid; } browser_form_t;
 typedef struct {
+    char name[64], value[MAX_FIELD_VALUE], type[16];
+    int form, checked, link, item, maxlength;
+} browser_field_t;
+typedef struct {
+    browser_form_t forms[MAX_FORMS];
+    browser_field_t fields[MAX_FIELDS];
+    int form_count, field_count;
     document_item_t items[MAX_ITEMS];
     char links[MAX_LINKS][MAX_URL];
     browser_image_t images[MAX_IMAGES];
@@ -93,6 +104,9 @@ void network_shutdown(void);
 void network_set_progress_callback(network_progress_callback_t callback,
                                    void *userdata);
 int network_fetch(const char *url, size_t limit, fetch_result_t *out);
+int network_post(const char *url, const char *body, size_t limit, fetch_result_t *out);
+int network_same_origin(const char *a, const char *b);
+void document_refresh_field(browser_document_t *doc, int field);
 int resolve_url(const char *base, const char *reference, char *out, size_t out_size);
 void fetch_result_free(fetch_result_t *result);
 

@@ -1,0 +1,6 @@
+
+# Temporary emulator integration credentials (never commit).
+romdisk/test-credentials.txt
+
+romdisk/test-service.txt
+romdisk/test-ca.pem

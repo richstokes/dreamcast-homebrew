@@ -1,5 +1,6 @@
 #include "browser.h"
 
+#include <curl/curl.h>
 #include <dc/maple.h>
 #include <dc/maple/controller.h>
 #include <dc/maple/keyboard.h>
@@ -25,6 +26,9 @@ static int mouse_x = SCREEN_W / 2;
 static int mouse_y = SCREEN_H / 2;
 static int focused_link = -1;
 static int editing;
+static int editing_field = -1;
+static char field_backup[MAX_FIELD_VALUE];
+static const char *pending_post;
 static int redraw_needed = 1;
 static const char *loading_label;
 static uint64_t last_progress_draw;
@@ -235,7 +239,12 @@ static int load_page(const char *requested) {
     redraw_needed = 0;
     begin_loading("page");
 
-    if(network_fetch(target, MAX_DOCUMENT_BYTES, &result) < 0) {
+    int fetch_code = pending_post ? network_post(target,pending_post,MAX_DOCUMENT_BYTES,&result)
+                                  : network_fetch(target,MAX_DOCUMENT_BYTES,&result);
+    pending_post=NULL;
+    editing_field=-1;
+    memset(field_backup,0,sizeof(field_backup));
+    if(fetch_code < 0) {
         end_loading();
         if(result.cancelled) {
             snprintf(current_url, sizeof(current_url), "%s", previous_url);
@@ -256,7 +265,7 @@ static int load_page(const char *requested) {
         return LOAD_FAILED;
     }
 
-    if(result.status < 200 || result.status >= 400) {
+    if((result.status < 200 || result.status >= 400) && !strstr(result.content_type,"text/html")) {
         end_loading();
         response_status = result.status;
         snprintf(message, sizeof(message), "The server returned HTTP status %ld.", result.status);
@@ -619,8 +628,62 @@ static void run_history_self_test(void) {
 }
 #endif
 
+static void submit_form(int field_index) {
+    browser_field_t *clicked=&document.fields[field_index];
+    browser_form_t *form=&document.forms[clicked->form];
+    char body[32768]={0}, target[MAX_URL];
+    size_t used=0;
+    if(!form->valid || !network_same_origin(current_url,form->action) || strncmp(form->action,"https://",8)) {
+        snprintf(status_text,sizeof(status_text),"Form blocked: requires supported fields and same-origin HTTPS");
+        redraw_needed=1;return;
+    }
+    for(int i=0;i<document.field_count;++i) {
+        browser_field_t *field=&document.fields[i];
+        char *name,*value;
+        size_t needed;
+        if(field->form!=clicked->form || !field->name[0] ||
+           (!strcmp(field->type,"checkbox")&&!field->checked) ||
+           (!strcmp(field->type,"submit")&&i!=field_index))continue;
+        if(!form->post&&!strcmp(field->type,"password")) {
+            snprintf(status_text,sizeof(status_text),"Password forms require POST");redraw_needed=1;return;
+        }
+        name=curl_easy_escape(NULL,field->name,0);value=curl_easy_escape(NULL,field->value,0);
+        if(!name||!value) {curl_free(name);curl_free(value);return;}
+        needed=strlen(name)+strlen(value)+2;
+        if(used+needed>=sizeof(body)) {curl_free(name);curl_free(value);return;}
+        used+=(size_t)snprintf(body+used,sizeof(body)-used,"%s%s=%s",used?"&":"",name,value);
+        curl_free(name);memset(value,0,strlen(value));curl_free(value);
+    }
+    snprintf(target,sizeof(target),"%s",form->action);
+    if(form->post)pending_post=body;
+    else {
+        char *query=strchr(target,'?');if(query)*query=0;
+        if(strlen(target)+used+2>=sizeof(target)) {
+            snprintf(status_text,sizeof(status_text),"Form query too long");redraw_needed=1;return;
+        }
+        strcat(target,"?");strcat(target,body);
+    }
+    navigate_to(target);
+    memset(body,0,sizeof(body));
+}
+
 static void follow_link(int link_id) {
     if(link_id < 0 || link_id >= document.link_count) return;
+    if(!strncmp(document.links[link_id],"form:",5)) {
+        int index=atoi(document.links[link_id]+5);
+        browser_field_t *field;
+        if(index<0||index>=document.field_count)return;
+        field=&document.fields[index];
+        if(!strcmp(field->type,"submit"))submit_form(index);
+        else if(!strcmp(field->type,"checkbox")) {
+            field->checked=!field->checked;document_refresh_field(&document,index);
+        } else {
+            editing_field=index;
+            snprintf(field_backup,sizeof(field_backup),"%s",field->value);
+            snprintf(status_text,sizeof(status_text),"Edit %.40s: Enter/Tab done, Esc cancel",field->name);
+        }
+        redraw_needed=1;return;
+    }
     navigate_to(document.links[link_id]);
 }
 
@@ -653,6 +716,22 @@ static int process_keyboard(maple_device_t *keyboard) {
 
         redraw_needed = 1;
 
+        if(editing_field>=0) {
+            browser_field_t *field=&document.fields[editing_field];
+            size_t length=strlen(field->value);
+            if(key==KBD_KEY_ENTER||key==KBD_KEY_TAB||key==KBD_KEY_ESCAPE) {
+                if(key==KBD_KEY_ESCAPE)snprintf(field->value,sizeof(field->value),"%s",field_backup);
+                document_refresh_field(&document,editing_field);
+                editing_field=-1;memset(field_backup,0,sizeof(field_backup));
+                snprintf(status_text,sizeof(status_text),"Field saved. Tab chooses next control.");
+                if(key==KBD_KEY_TAB)focus_next_link();
+            } else if(key==KBD_KEY_BACKSPACE && length)field->value[length-1]=0;
+            else if(ascii>=32&&ascii<=126 && length<(size_t)field->maxlength && length+1<sizeof(field->value)) {
+                field->value[length]=ascii;field->value[length+1]=0;
+            }
+            if(editing_field>=0)document_refresh_field(&document,editing_field);
+            continue;
+        }
         if(editing) {
             size_t len = strlen(address);
             if(key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) {
@@ -693,7 +772,7 @@ static int process_keyboard(maple_device_t *keyboard) {
 
     /* Poll arrow state directly so Flycast navigation keys work reliably and
        holding a key scrolls smoothly instead of depending on key-repeat events. */
-    if(keyboard && !editing) {
+    if(keyboard && !editing && editing_field<0) {
         kbd_state_t *state = kbd_get_state(keyboard);
         if(state) {
             if(state->key_states[KBD_KEY_DOWN].is_down) scroll_y += 14;
@@ -724,7 +803,8 @@ static int process_mouse(maple_device_t *mouse) {
         scroll_y -= state->dz * 48;
         clamp_scroll();
     }
-    focused_link = link_at(mouse_x, mouse_y);
+    if(mouse_x != old_x || mouse_y != old_y || state->dz)
+        focused_link = link_at(mouse_x, mouse_y);
     pressed = state->buttons & ~previous_buttons;
     previous_buttons = state->buttons;
     if(pressed & MOUSE_LEFTBUTTON) {
@@ -783,6 +863,53 @@ static int process_controller(maple_device_t *controller) {
     return 0;
 }
 
+#ifdef BROWSER_FORM_SELF_TEST
+static int test_field(const char *name, const char *value) {
+    for(int i=0;i<document.field_count;++i) {
+        if(!strcmp(document.fields[i].name,name)) {
+            snprintf(document.fields[i].value,sizeof(document.fields[i].value),"%s",value);
+            document_refresh_field(&document,i); return i;
+        }
+    }
+    return -1;
+}
+static int test_submit(void) {
+    for(int i=0;i<document.field_count;++i)
+        if(!strcmp(document.fields[i].type,"submit")) { submit_form(i);return 0; }
+    return -1;
+}
+static void run_form_self_test(void) {
+    char test_user[64],test_password[129];
+    FILE *credentials=fopen("/rd/test-credentials.txt","r");
+    if(!credentials||!fgets(test_user,sizeof(test_user),credentials)||
+       !fgets(test_password,sizeof(test_password),credentials)) {
+        printf("browser: FORM SELF-TEST FAILED credentials missing\n");
+        if(credentials) fclose(credentials);
+        return;
+    }
+    fclose(credentials);
+    test_user[strcspn(test_user,"\r\n")]=0;test_password[strcspn(test_password,"\r\n")]=0;
+    if(load_page("https://dcvmu.com/register")<0||test_field("username",test_user)<0||
+       test_field("email","dcvmu-qa@example.com")<0||test_field("password",test_password)<0||test_submit()<0||
+       strcmp(current_url,"https://dcvmu.com/account"))goto fail;
+    printf("browser: REGISTER FORM PASS (HTTPS, CSRF, cookie, redirect)\n");
+    if(test_submit()<0||strcmp(current_url,"https://dcvmu.com/"))goto fail;
+    printf("browser: LOGOUT FORM PASS\n");
+    if(load_page("https://dcvmu.com/login")<0||test_field("username",test_user)<0||
+       test_field("password",test_password)<0||test_submit()<0||strcmp(current_url,"https://dcvmu.com/account"))goto fail;
+    printf("browser: LOGIN FORM PASS (authenticated account)\n");
+    if(load_page("https://dcvmu.com/")<0||test_field("game","DCVMU Test Game")<0||test_submit()<0||
+       !strstr(current_url,"game=DCVMU%20Test%20Game"))goto fail;
+    printf("browser: FILTER GET FORM PASS\n");
+    load_page("https://dcvmu.com/account");
+    memset(test_password,0,sizeof(test_password));
+    printf("browser: FORM SELF-TEST PASSED\n");return;
+fail:
+    memset(test_password,0,sizeof(test_password));
+    printf("browser: FORM SELF-TEST FAILED at %s\n",current_url);
+}
+#endif
+
 int main(int argc, char **argv) {
     maple_device_t *keyboard;
     maple_device_t *mouse;
@@ -818,6 +945,10 @@ int main(int argc, char **argv) {
 #endif
         }
     }
+
+#ifdef BROWSER_FORM_SELF_TEST
+    run_form_self_test();
+#endif
 
     while(!quit) {
         keyboard = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);

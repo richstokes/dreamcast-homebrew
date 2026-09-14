@@ -1,0 +1,27 @@
+[Unit]
+Description=DCVMU save archive
+After=network.target
+
+[Service]
+Type=simple
+User=dcvmu
+Group=dcvmu
+WorkingDirectory=/opt/dcvmu
+Environment=DCVMU_DATABASE=/var/lib/dcvmu/archive.sqlite3
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/dcvmu/.venv/bin/gunicorn --bind 127.0.0.1:8090 --workers 2 --threads 2 --timeout 90 --limit-request-line 4096 --access-logfile /dev/null --error-logfile - wsgi:app
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dcvmu
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

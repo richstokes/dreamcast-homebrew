@@ -12,10 +12,10 @@ output_dir=$2
 
 mkdir -p "$output_dir"
 
-while IFS='|' read -r slug title; do
+while IFS='|' read -r directory slug title; do
     [ -n "$slug" ] || continue
 
-    elf="projects/$slug/$slug.elf"
+    elf="$directory/$slug.elf"
     cdi="$output_dir/$slug.cdi"
     release_elf="$output_dir/$slug.elf"
 
@@ -33,12 +33,4 @@ while IFS='|' read -r slug title; do
         --author richstokes \
         --output "$cdi"
     cp "$elf" "$release_elf"
-done <<'PROJECTS'
-chroma-circuit|Chroma Circuit
-demon-bazooka|Demon Bazooka
-dreamcast-browser|Dreamcast Browser
-dreamcast-irc|Dreamcast IRC
-drift-los-angeles|Drift Los Angeles
-gravity-wave|Gravity Wave
-ping-cube|Ping Cube
-PROJECTS
+done < .github/console-projects.txt

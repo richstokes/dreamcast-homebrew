@@ -47,7 +47,7 @@
 #define APP_NAME "DCIRC"
 #define APP_VERSION "0.1"
 #define APP_REPOSITORY \
-    "https://github.com/richstokes/dreamcast-homebrew/tree/main/projects/dreamcast-irc"
+    "https://github.com/richstokes/dreamcast-homebrew/tree/main/projects/apps/dreamcast-irc"
 
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480

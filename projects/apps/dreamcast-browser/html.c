@@ -384,6 +384,26 @@ static text_style_t active_style(int in_pre, int in_heading,
     return TEXT_NORMAL;
 }
 
+void document_refresh_field(browser_document_t *doc, int index) {
+    browser_field_t *field = &doc->fields[index];
+    document_item_t *item;
+    char value[48], label[40];
+    if(field->item < 0 || field->item >= doc->item_count) return;
+    item = &doc->items[field->item];
+    snprintf(label,sizeof(label),"%.36s",field->name);
+    if(!strcmp(field->type, "password")) {
+        size_t length = strlen(field->value);
+        if(length > 36) length = 36;
+        memset(value, '*', length); value[length] = 0;
+    } else snprintf(value, sizeof(value), "%.36s", field->value);
+    if(!strcmp(field->type, "checkbox"))
+        snprintf(item->text, sizeof(item->text), "[%c] %.36s", field->checked?'X':' ', label);
+    else if(!strcmp(field->type, "submit"))
+        snprintf(item->text, sizeof(item->text), "[ %.38s ]", value[0]?value:"Submit");
+    else snprintf(item->text, sizeof(item->text), "[ %.36s%s ]", value[0]?value:"type here", strlen(field->value)>36?"...":"");
+    item->width = (int)strlen(item->text)*12;
+}
+
 void document_parse_html(browser_document_t *doc, const char *html, size_t size) {
     const char *p = html;
     const char *end = html + size;
@@ -398,6 +418,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
     int current_link = -1;
     int adjacent_link = 0;
     int list_marker_pending = 0;
+    int current_form = -1;
 
     line_y = 12;
     line_indent = 0;
@@ -478,6 +499,57 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
             }
             if(skip_depth) { p = close + 1; continue; }
 
+            if(!strcmp(name, "form")) {
+                vertical_space(5);
+                if(closing) current_form = -1;
+                else if(doc->form_count < MAX_FORMS) {
+                    browser_form_t *form = &doc->forms[doc->form_count];
+                    char method[16] = "get", decoded[MAX_URL];
+                    current_form = doc->form_count++;
+                    attr_value(q, "method", method, sizeof(method));
+                    form->post = !strcasecmp(method, "post");
+                    if(!attr_value(q, "action", attr, sizeof(attr)) || !attr[0])
+                        snprintf(attr, sizeof(attr), "%s", doc->base_url);
+                    normalize_text(attr, strlen(attr), decoded, sizeof(decoded), 1);
+                    form->valid = resolve_url(doc->base_url, decoded, form->action, sizeof(form->action)) == 0
+                        && (!strcasecmp(method,"post") || !strcasecmp(method,"get"));
+                } else { current_form=-1; doc->truncated=1; }
+                p = close + 1; continue;
+            }
+            if(!strcmp(name,"input") && !closing && current_form>=0) {
+                browser_field_t *field;
+                char raw[MAX_FIELD_VALUE], maxlength[16];
+                if(doc->field_count>=MAX_FIELDS) { doc->forms[current_form].valid=0; p=close+1; continue; }
+                field=&doc->fields[doc->field_count];
+                field->form=current_form; field->item=-1; field->link=-1;
+                field->maxlength=MAX_FIELD_VALUE-1;
+                snprintf(field->type,sizeof(field->type),"text");
+                attr_value(q,"type",field->type,sizeof(field->type));
+                attr_value(q,"name",field->name,sizeof(field->name));
+                if(attr_value(q,"value",raw,sizeof(raw)))
+                    normalize_text(raw,strlen(raw),field->value,sizeof(field->value),1);
+                if(attr_value(q,"maxlength",maxlength,sizeof(maxlength))) {
+                    int value=atoi(maxlength);
+                    if(value>=0 && value<field->maxlength) field->maxlength=value;
+                }
+                field->checked = strstr(q,"checked") != NULL;
+                if(!strcmp(field->type,"checkbox") && !field->value[0])strcpy(field->value,"on");
+                if(strcmp(field->type,"hidden")) {
+                    if(strcmp(field->type,"text") && strcmp(field->type,"email") &&
+                       strcmp(field->type,"password") && strcmp(field->type,"submit") && strcmp(field->type,"checkbox")) {
+                        doc->forms[current_form].valid=0;
+                    } else if(doc->link_count<MAX_LINKS) {
+                        vertical_space(3);
+                        field->link=doc->link_count++;
+                        snprintf(doc->links[field->link],MAX_URL,"form:%d",doc->field_count);
+                        field->item=doc->item_count;
+                        add_line(doc,"[ input ]",TEXT_LINK,field->link);
+                        document_refresh_field(doc,doc->field_count);
+                    } else doc->forms[current_form].valid=0;
+                }
+                doc->field_count++;
+                p=close+1;continue;
+            }
             if(!strcmp(name, "head")) in_head = !closing;
             else if(!strcmp(name, "title")) in_title = !closing;
             else if(!strcmp(name, "pre")) {

@@ -1,0 +1,44 @@
+--- a/kernel/arch/dreamcast/hardware/network/broadband_adapter.c
++++ b/kernel/arch/dreamcast/hardware/network/broadband_adapter.c
+@@ -712,18 +712,34 @@
+     return res;
+ }
+ 
+-static void bba_rx_process(void) {
+-    /* Call the callback to process it */
+-    eth_rx_callback(rx_pkt[rxout].rxbuff + rx_pkt[rxout].offt, rx_pkt[rxout].pkt_size);
+-
+-    rxout = (rxout + 1) % MAX_PKTS;
++/* Polling and the RX worker are both consumers of the same queue. The
++   callback may yield, so claiming a packet without serializing consumers can
++   deliver it twice and advance rxout past rxin. Do not block a polling caller
++   (which can run during exception handling); let the active consumer finish. */
++static atomic_flag rx_processing = ATOMIC_FLAG_INIT;
++
++static bool bba_rx_process(void) {
++    bool consumed = false;
++
++    if(atomic_flag_test_and_set_explicit(&rx_processing, memory_order_acquire))
++        return false;
++
++    if(rxout != rxin) {
++        eth_rx_callback(rx_pkt[rxout].rxbuff + rx_pkt[rxout].offt,
++                        rx_pkt[rxout].pkt_size);
++        rxout = (rxout + 1) % MAX_PKTS;
++        consumed = true;
++    }
++
++    atomic_flag_clear_explicit(&rx_processing, memory_order_release);
++    return consumed;
+ }
+ 
+ static void bba_rx_worker(void *dummy) {
+     (void)dummy;
+ 
+-    while(rxout != rxin)
+-        bba_rx_process();
++    while(bba_rx_process())
++        ;
+ }
+ 
+ static void bba_rx(void) {

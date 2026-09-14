@@ -1,0 +1,72 @@
+--- a/kernel/net/net_tcp.c
++++ b/kernel/net/net_tcp.c
+@@ -2244,6 +2244,9 @@
+     if(!resend) {
+         seq = sock->data.snd.nxt;
+         unacked = sock->data.snd.nxt - sock->data.snd.una;
++        /* A shrinking peer window must not wrap unsigned subtraction. */
++        if(wnd <= unacked)
++            return;
+         wnd -= unacked;
+         head = sock->data.sndbuf_head;
+     }
+@@ -2323,8 +2326,12 @@
+     }
+ 
+     sock->data.timer = timer_ms_gettime64();
+-    sock->data.sndbuf_head = head;
+-    sock->data.snd.nxt = seq;
++    /* Retransmitting into a smaller window must never move SND.NXT
++       backwards: later valid ACKs still cover previously transmitted bytes. */
++    if(!resend || SEQ_GT(seq, sock->data.snd.nxt)) {
++        sock->data.sndbuf_head = head;
++        sock->data.snd.nxt = seq;
++    }
+ }
+ 
+ #define ADDR_EQUAL(a1, a2) \
+@@ -2553,7 +2560,9 @@
+         }
+ 
+         s->data.snd.mss = mss > 1460 ? 1460 : mss;
+-        s->data.snd.wnd = htons(tcp->wnd);
++        s->data.snd.wnd = ntohs(tcp->wnd);
++        s->data.snd.wl1 = seq;
++        s->data.snd.wl2 = ack;
+ 
+         if(gotack) {
+             s->data.snd.una = ack;
+@@ -2761,12 +2770,6 @@
+         if(s->data.sndbuf_acked >= s->sndbuf_sz)
+             s->data.sndbuf_acked -= s->sndbuf_sz;
+ 
+-        if(SEQ_LT(s->data.snd.wl1, seq) ||
+-                (s->data.snd.wl1 == seq && SEQ_LE(s->data.snd.wl2, ack))) {
+-            s->data.snd.wnd = ntohs(tcp->wnd);
+-            s->data.snd.wl1 = seq;
+-            s->data.snd.wl2 = ack;
+-        }
+     }
+     else if(SEQ_GT(ack, s->data.snd.nxt)) {
+         /* This ACKs something we haven't sent, so try to correct the other side
+@@ -2774,6 +2777,20 @@
+         tcp_send_ack(s);
+         return 0;
+     }
++
++    /* RFC 9293 3.10.7.4: a valid duplicate ACK can reopen the send window.
++       Updating only when SND.UNA advances loses pure window updates. */
++    if(SEQ_LE(s->data.snd.una, ack) && SEQ_LE(ack, s->data.snd.nxt) &&
++       (SEQ_LT(s->data.snd.wl1, seq) ||
++        (s->data.snd.wl1 == seq && SEQ_LE(s->data.snd.wl2, ack)))) {
++        s->data.snd.wnd = ntohs(tcp->wnd);
++        s->data.snd.wl1 = seq;
++        s->data.snd.wl2 = ack;
++    }
++
++    if((s->state == TCP_STATE_ESTABLISHED || s->state == TCP_STATE_CLOSE_WAIT) &&
++       s->data.sndbuf_cur_sz > s->data.snd.nxt - s->data.snd.una)
++        tcp_send_data(s, 0);
+ 
+     /* We need to do a bit more processing in certain states... */
+     switch(s->state) {

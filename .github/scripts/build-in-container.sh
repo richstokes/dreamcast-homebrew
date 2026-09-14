@@ -30,7 +30,7 @@ jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')
 
 make -C "$kos_base" -j"$jobs"
 
-# Dreamcast Browser is the only project with kos-ports dependencies. Building
+# Dreamcast Browser and DCVMU use kos-ports dependencies. Building
 # them here also proves the checked-in compatibility patch still applies.
 # The pinned zlib port still uses plain HTTP. GitHub Actions has intermittently
 # received a small HTML response from that endpoint with a successful HTTP
@@ -44,15 +44,8 @@ make -C "$kos_ports/mbedtls" force-install
 make -C "$kos_ports/curl" install
 make -C "$kos_ports/stb_image" install
 
-for project in \
-    chroma-circuit \
-    demon-bazooka \
-    dreamcast-browser \
-    dreamcast-irc \
-    drift-los-angeles \
-    gravity-wave \
-    ping-cube
-do
-    make -C "$workspace/projects/$project" clean
-    make -C "$workspace/projects/$project" -j"$jobs"
-done
+while IFS='|' read -r directory slug title; do
+    [ -n "$directory" ] || continue
+    make -C "$workspace/$directory" clean
+    make -C "$workspace/$directory" -j"$jobs"
+done < "$workspace/.github/console-projects.txt"
