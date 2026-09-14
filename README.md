@@ -9,9 +9,9 @@ Dreamcast hardware.
 
 ## dcvmu.com - cloud saves for Dreamcast
 
-I made [DCVMU.com](https://dcvmu.com) because I wanted a safe place to keep a copy of my games progress!
+I made [dcvmu.com](https://dcvmu.com) because I wanted a safe place to keep a copy of my games progress!
 
-The [Dreamcast client for this service](projects/dcvmu.com/client/) uploads and downloads VMU files to and from the service. 
+The [Dreamcast client for this service](projects/dcvmu.com/client/) uploads and downloads VMU files to and from the service, directly from the Dreamcast itself. 
 
 <img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="456">
 
