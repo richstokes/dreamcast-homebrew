@@ -102,12 +102,20 @@ class ServiceTest(unittest.TestCase):
     def test_getting_started_is_omitted_for_console_browsers(self):
         desktop=self.web.get('/',headers={'User-Agent':'Mozilla/5.0'}).text
         self.assertIn('id="getting-started"',desktop)
-        self.assertIn('dcvmu-client.cdi',desktop)
+        self.assertIn('href="/getting-started"',desktop)
+        self.assertNotIn('guide-steps',desktop)
+        guide=self.web.get('/getting-started').text
+        self.assertIn('<h1>Get started on your Dreamcast</h1>',guide)
+        self.assertIn('dcvmu-client.cdi">Download Dreamcast App</a>',guide)
+        self.assertIn('guide-steps',guide)
         for agent in ('DreamcastBrowser/0.1 (KallistiOS)', 'Mozilla/3.0 (DreamKey)', 'DreamPassport/3.0'):
             console=self.web.get('/',headers={'User-Agent':agent}).text
             self.assertNotIn('getting-started',console)
             self.assertNotIn('guide-steps',console)
             self.assertIn('Browse saves',console)
+            self.assertIn('Download Dreamcast App',console)
+            guide=self.web.get('/getting-started',headers={'User-Agent':agent}).text
+            self.assertNotIn('guide-steps',guide)
 
     def test_embedded_metadata(self):
         from vmu_validation import header_metadata

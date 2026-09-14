@@ -266,6 +266,10 @@ def create_app(config=None):
         return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
                     page_num=offset//20+1, game=game, username=username)
 
+    @app.get('/getting-started')
+    def getting_started():
+        return page('getting_started.html')
+
     @app.get('/support')
     def support():
         return page('support.html')

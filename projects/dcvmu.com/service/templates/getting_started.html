@@ -1,12 +1,15 @@
-<section id="getting-started" class="getting-started" aria-labelledby="guide-title">
+{% extends 'base.html' %}{% block title %}Getting Started{% endblock %}{% block content %}
 <p class="eyebrow">FROM YOUR CONSOLE TO THE CLOUD</p>
-<h2 id="guide-title">Get started on your Dreamcast</h2>
+<h1>Get started on your Dreamcast</h1>
+<p><a class="button" href="{{ client_release_base }}/dcvmu-client.cdi">Download Dreamcast App</a></p>
+<p class="hint">CDI disc image · Latest release from GitHub</p>
+{% if not console_browser %}
 <p>You’ll need a Dreamcast, a controller, a VMU and a <strong>broadband adapter</strong> connected by Ethernet to your router. The stock dial-up modem is not supported by the client.</p>
 <div class="guide-steps">
 <div><h3>1. Create your account</h3>
 <p><a href="/register">Register here</a> with a username, password and email address. You’ll use the same login in the Dreamcast app.</p></div>
 <div><h3>2. Boot the app</h3>
-<p><a href="{{ client_release_base }}/dcvmu-client.cdi">Download the DCVMU CDI image</a> from our latest GitHub release.</p>
+<p>Use the CDI image downloaded above to start the app on your console.</p>
 <p><strong>GDEMU:</strong> add the CDI to your SD card using your usual game setup, then launch it from the menu. For other optical drive replacements, check which image formats they support.</p>
 <p><strong>CD-R:</strong> burn the CDI as a disc image, rather than copying the file onto a data disc. It is self-booting on MIL-CD-compatible Dreamcasts; no separate boot disc is needed. Some later consoles cannot boot these discs.</p>
 <p><a href="https://gdemu.wordpress.com/operation/gdemu-operation/">GDEMU setup</a> · <a href="https://dreamcast.wiki/Creating_a_bootable_Dreamcast_disc">Disc-burning guidance</a></p></div>
@@ -19,4 +22,5 @@
 <p>Follow the on-screen button prompts to select items and go back. A selects and B goes back.</p></div>
 </div>
 <p class="hint">The released CDI has been boot-tested in Flycast. Physical Dreamcast testing is still pending.</p>
-</section>
+{% else %}<p>For setup instructions, visit dcvmu.com/getting-started on a computer.</p>{% endif %}
+{% endblock %}
