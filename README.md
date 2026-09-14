@@ -12,15 +12,11 @@ Dreamcast hardware.
 [DCVMU](https://dcvmu.com) backs up and shares Dreamcast VMU saves. The
 [Dreamcast client](projects/dcvmu.com/client/) uploads saves and downloads them
 to a VMU, remembers login, and supports public/private archives. The
-[web service](projects/dcvmu.com/service/) provides registration, browsing,
-and a local backup script.
+[web service](projects/dcvmu.com/service/) lets you register and browse saves.
 
 **[Download DCVMU CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.cdi)**
 · [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf)
 · [Website](https://dcvmu.com)
-
-CDI is a self-booting disc image for a compatible Dreamcast or Flycast. ELF is
-available for development and compatible homebrew loaders. Both are built by CI.
 
 <img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="760">
 
@@ -47,8 +43,6 @@ notes, and verification instructions.
 The CDI links are the easiest way to play: download the image and open it in
 Flycast, or burn it to CD-R for a Dreamcast that supports MIL-CD. The smaller
 ELF downloads are useful for direct emulator boot and development loaders.
-[SHA-256 checksums](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/SHA256SUMS)
-are published with every build.
 
 ## Building and running
 
