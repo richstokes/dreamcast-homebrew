@@ -9,14 +9,11 @@ Dreamcast hardware.
 
 ## dcvmu.com
 
-[DCVMU](https://dcvmu.com) backs up and shares Dreamcast VMU saves. The
-[Dreamcast client](projects/dcvmu.com/client/) uploads saves and downloads them
-to a VMU, remembers login, and supports public/private archives. The
-[web service](projects/dcvmu.com/service/) lets you register and browse saves.
+I made [DCVMU.com](https://dcvmu.com) because I wanted some place I could trust to have a copy of my games progress!
 
-**[Download DCVMU CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.cdi)**
-· [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf)
-· [Website](https://dcvmu.com)
+The [Dreamcast client for this service](projects/dcvmu.com/client/) uploads and downloads VMU files to and from the service. 
+
+Check [the getting started guide](https://dcvmu.com/getting-started) for more info!
 
 <img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="456">
 
