@@ -33,3 +33,18 @@ def validate_vms(data):
         if checksum == crc:
             return offset // 512
     raise ValueError('Not a supported VMS game save, or its header/checksum is corrupt.')
+
+
+def header_metadata(header):
+    """Read only standard descriptive fields from an already validated VMS header.
+
+    Layout: KOS dc/vmu_pkg.h vmu_hdr_t. Text is conventionally Shift-JIS;
+    replacement characters tolerate nonstandard encodings without failing pages.
+    """
+    if len(header) < 128:
+        return {}
+    def text(start, end):
+        decoded = header[start:end].split(b'\0', 1)[0].decode('shift_jis', errors='replace')
+        return ''.join(c for c in decoded if c.isprintable()).strip()
+    return {'description': text(16, 48), 'vmu_label': text(0, 16),
+            'application_id': text(48, 64)}

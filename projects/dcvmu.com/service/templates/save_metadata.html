@@ -1,0 +1,7 @@
+{% if not console_browser and save.metadata and (save.metadata.description or save.metadata.vmu_label or save.metadata.application_id) %}
+<dl class="save-metadata" aria-label="Metadata from the VMU save">
+{% if save.metadata.description %}<div><dt>Save description</dt><dd>{{ save.metadata.description }}</dd></div>{% endif %}
+{% if save.metadata.vmu_label and save.metadata.vmu_label != save.metadata.description %}<div><dt>VMU label</dt><dd>{{ save.metadata.vmu_label }}</dd></div>{% endif %}
+{% if save.metadata.application_id %}<div><dt>Application ID</dt><dd>{{ save.metadata.application_id }}</dd></div>{% endif %}
+</dl>
+{% endif %}

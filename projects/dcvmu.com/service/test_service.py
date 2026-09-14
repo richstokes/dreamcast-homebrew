@@ -109,6 +109,36 @@ class ServiceTest(unittest.TestCase):
             self.assertNotIn('guide-steps',console)
             self.assertIn('Browse saves',console)
 
+    def test_embedded_metadata(self):
+        from vmu_validation import header_metadata
+        self.assertEqual(header_metadata(b''), {})
+        self.assertFalse(any(header_metadata(bytes(128)).values()))
+        for offset in (0, 1):
+            raw=bytearray(vms(offset=offset))
+            start=offset*512
+            raw[start:start+16]=b'VMU label'.ljust(16,b' ')
+            description='ソニック <script>'.encode('shift_jis')
+            raw[start+16:start+48]=description.ljust(32,b' ')
+            raw[start+48:start+64]=b'GAME_ID\0ignored!'
+            raw[start+70:start+72]=b'\0\0'
+            struct.pack_into('<H',raw,start+70,binascii.crc_hqx(raw[start:start+384],0))
+            result=self.upload(name='Metadata '+str(offset),private=str(offset),
+                               save=(io.BytesIO(raw),'save.vms','application/octet-stream'))
+            self.assertEqual(result.status_code,201)
+            sid=result.text.splitlines()[1]
+            detail='/saves/'+sid
+            for path in (detail,) if offset else ('/',detail):
+                page=self.web.get(path).text
+                self.assertIn('ソニック &lt;script&gt;',page)
+                self.assertIn('GAME_ID</dd>',page)
+                self.assertNotIn('ignored!',page)
+                console=self.web.get(path,headers={'User-Agent':'DreamcastBrowser/0.1'}).text
+                self.assertNotIn('<dl class="save-metadata"',console)
+                self.assertNotIn('GAME_ID',console)
+            if offset:
+                self.assertEqual(self.app.test_client().get(detail).status_code,404)
+                self.assertNotIn('Metadata 1',self.app.test_client().get('/').text)
+
     def test_auth_csrf(self):
         with sqlite3.connect(self.path) as db:
             self.assertTrue(db.execute('select password_hash from users').fetchone()[0].startswith('$argon2id$'))

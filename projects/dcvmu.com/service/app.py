@@ -13,7 +13,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, abort, g, redirect, render_template, request, send_file, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
-from vmu_validation import MAX_SAVE, validate_vms
+from vmu_validation import MAX_SAVE, validate_vms, header_metadata
 
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 CLIENT_RELEASE_BASE = 'https://github.com/richstokes/dreamcast-homebrew/releases/latest/download'
@@ -259,11 +259,11 @@ def create_app(config=None):
         except ValueError:
             abort(400, 'Invalid page.')
         rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,
-            length(s.data) AS size,u.username FROM saves s JOIN users u ON u.id=s.user_id
+            length(s.data) AS size,substr(s.data,s.header_offset*512+1,128) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
             WHERE private=0 AND (?='' OR s.game=? COLLATE NOCASE)
             AND (?='' OR u.username=? COLLATE NOCASE) ORDER BY updated DESC,s.id DESC LIMIT 21 OFFSET ?''',
             (game, game, username, username, offset)).fetchall()
-        return page('browse.html', saves=rows[:20], more=len(rows)>20,
+        return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
                     page_num=offset//20+1, game=game, username=username)
 
     @app.get('/support')
@@ -298,7 +298,9 @@ def create_app(config=None):
 
     @app.get('/saves/<int:sid>')
     def detail(sid):
-        return page('save.html', save=visible_save(sid))
+        row = visible_save(sid)
+        offset = row['header_offset'] * 512
+        return page('save.html', save=dict(row, metadata=header_metadata(row['data'][offset:offset+128])))
 
     @app.get('/saves/<int:sid>/download')
     def download(sid):
