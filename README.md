@@ -9,7 +9,7 @@ Dreamcast hardware.
 
 ## dcvmu.com
 
-I made [DCVMU.com](https://dcvmu.com) because I wanted some place I could trust to have a copy of my games progress!
+I made [DCVMU.com](https://dcvmu.com) because I wanted some a safe place to keep a copy of my games progress!
 
 The [Dreamcast client for this service](projects/dcvmu.com/client/) uploads and downloads VMU files to and from the service. 
 
