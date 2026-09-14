@@ -46,6 +46,8 @@ inspection tools. The known-working development baseline is:
 - GCC 15.2.0 SH-4 toolchain
 - Flycast 2.7
 
+For native macOS emulator setup, see [the Flycast build instructions](tools/flycast/README.md).
+
 Source the KOS environment, then build a project:
 
 ```sh

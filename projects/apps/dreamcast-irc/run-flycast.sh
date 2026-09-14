@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_KOS_ENV="${HOME}/.local/share/dreamcast/kos/environ.sh"
 KOS_ENV="${KOS_ENV:-${DEFAULT_KOS_ENV}}"
-FLYCAST_BIN="${FLYCAST_BIN:-/Applications/Flycast.app/Contents/MacOS/Flycast}"
+source "$PROJECT_DIR/../../../tools/flycast/resolve.sh"
 
 if [[ ! -f "${KOS_ENV}" ]]; then
     echo "KallistiOS environment not found: ${KOS_ENV}" >&2

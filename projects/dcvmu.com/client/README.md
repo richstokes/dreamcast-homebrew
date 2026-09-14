@@ -41,11 +41,9 @@ outbound proxy, attaches controllers/VMUs on ports A-C and a keyboard on
 port D, routes the Mac keyboard to that port, and enables serial diagnostics.
 Click the Flycast window to focus it, then use arrows/Tab to navigate and Enter
 to edit a field before typing. This is not LAN bridging. Set `KOS_ENV`
-or `FLYCAST_BIN` to override the installed tools. On Apple Silicon, the installed
-Flycast can fail its host memory-layout assertion before booting an ELF. The
-Intel build can be selected with `FLYCAST_ARCH=x86_64`; it requires Rosetta and
-may need a relaunch if that emulator assertion occurs. No persistent emulator
-or network settings are changed. Crash-report uploading is disabled for this
+or `FLYCAST_BIN` to override the installed tools. The [native Flycast build](../../../tools/flycast/README.md)
+fixes macOS startup crashes without Rosetta. No persistent emulator or network
+settings are changed. Crash-report uploading is disabled for this
 credential-handling application.
 
 CI publishes [CDI disc images](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.cdi)
@@ -163,16 +161,15 @@ All images remain accessible through numbered banks, including empty ones.
 
 ```sh
 ./projects/dcvmu.com/client/run-flycast.sh --list-vmus
-FLYCAST_ARCH=x86_64 ./projects/dcvmu.com/client/run-flycast.sh --bank 1
-FLYCAST_ARCH=x86_64 ./projects/dcvmu.com/client/run-flycast.sh --bank 2
+./projects/dcvmu.com/client/run-flycast.sh --bank 1
+./projects/dcvmu.com/client/run-flycast.sh --bank 2
 ```
 
 Close the current test session before opening another bank. `--list-vmus` prints
 the original image-to-slot mapping and save filenames. Normal launching prints
 the active mapping. `--vmu-image /path/to/card.bin` (repeatable) chooses explicit
 images instead of discovery; `--vmus-dir /path` overrides discovery. `--dry-run`
-prepares/reports the mapping without launching. Omit `FLYCAST_ARCH` when native
-Flycast works. All emulator settings are transient; `PerGameVmu=no` lets the
+prepares/reports the mapping without launching. All emulator settings are transient; `PerGameVmu=no` lets the
 client see the selected cards. This does not merge or expose unlimited physical
 VMUs: the Dreamcast still sees only its attached slots.
 

@@ -4,8 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_KOS_ENV="${HOME}/.local/share/dreamcast/kos/environ.sh"
 KOS_ENV="${KOS_ENV:-${DEFAULT_KOS_ENV}}"
-FLYCAST_BIN="${FLYCAST_BIN:-/Applications/Flycast.app/Contents/MacOS/Flycast}"
-FLYCAST_STARTUP_RETRIES="${FLYCAST_STARTUP_RETRIES:-8}"
+source "$PROJECT_DIR/../../../tools/flycast/resolve.sh"
 INPUT_MODE="${DRIFT_LA_INPUT:-auto}"
 EXIT_ON_LOG="${DRIFT_LA_EXIT_ON_LOG:-}"
 FAIL_ON_LOG="${DRIFT_LA_FAIL_ON_LOG:-}"
@@ -70,11 +69,6 @@ if [[ ! -x "${FLYCAST_BIN}" ]]; then
     exit 1
 fi
 
-if [[ ! "${FLYCAST_STARTUP_RETRIES}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "FLYCAST_STARTUP_RETRIES must be a positive integer." >&2
-    exit 1
-fi
-
 # KOS probes optional variables while its environment is imported.
 # shellcheck disable=SC1090
 set +u
@@ -120,7 +114,6 @@ fi
 
 FLYCAST_CONFIG="config:Debug.SerialConsoleEnabled=yes,input:device1=0,input:device2=10,input:device3=10,input:device4=10,${INPUT_CONFIG}"
 
-attempt=1
 flycast_log=""
 flycast_pid=""
 
@@ -135,63 +128,44 @@ cleanup() {
 }
 trap cleanup EXIT
 
-while (( attempt <= FLYCAST_STARTUP_RETRIES )); do
-    flycast_log="$(mktemp -t drift-los-angeles-flycast.XXXXXX)"
-    set +e
-    # Flycast's native-memory backend needs one large contiguous reservation.
-    # Disabling macOS's nano allocator for this child process prevents its tiny
-    # regions from fragmenting that range and avoids driver.cpp's sq_buffer
-    # assertion without changing any persistent emulator setting.
-    if [[ -n "${EXIT_ON_LOG}" || -n "${FAIL_ON_LOG}" ]]; then
-        qa_result=""
-        MallocNanoZone=0 "${FLYCAST_BIN}" \
-            -config "${FLYCAST_CONFIG}" \
-            "${PROJECT_DIR}/drift-los-angeles.elf" \
-            > >(tee "${flycast_log}") 2>&1 &
-        flycast_pid="$!"
-        while kill -0 "${flycast_pid}" 2>/dev/null; do
-            if [[ -n "${FAIL_ON_LOG}" ]] &&
-               grep -Fq -- "${FAIL_ON_LOG}" "${flycast_log}"; then
-                qa_result="fail"
-                kill -TERM "${flycast_pid}" 2>/dev/null || true
-                break
-            fi
-            if [[ -n "${EXIT_ON_LOG}" ]] &&
-               grep -Fq -- "${EXIT_ON_LOG}" "${flycast_log}"; then
-                qa_result="pass"
-                kill -TERM "${flycast_pid}" 2>/dev/null || true
-                break
-            fi
-            sleep .2
-        done
-        wait "${flycast_pid}"
-        flycast_status="$?"
-        flycast_pid=""
-        if [[ "${qa_result}" == "pass" ]]; then
-            flycast_status=0
-        elif [[ "${qa_result}" == "fail" ]]; then
-            flycast_status=1
+flycast_log="$(mktemp -t drift-los-angeles-flycast.XXXXXX)"
+set +e
+if [[ -n "${EXIT_ON_LOG}" || -n "${FAIL_ON_LOG}" ]]; then
+    qa_result=""
+    "${FLYCAST_BIN}" \
+        -config "${FLYCAST_CONFIG}" \
+        "${PROJECT_DIR}/drift-los-angeles.elf" \
+        > >(tee "${flycast_log}") 2>&1 &
+    flycast_pid="$!"
+    while kill -0 "${flycast_pid}" 2>/dev/null; do
+        if [[ -n "${FAIL_ON_LOG}" ]] &&
+           grep -Fq -- "${FAIL_ON_LOG}" "${flycast_log}"; then
+            qa_result="fail"
+            kill -TERM "${flycast_pid}" 2>/dev/null || true
+            break
         fi
-    else
-        MallocNanoZone=0 "${FLYCAST_BIN}" \
-            -config "${FLYCAST_CONFIG}" \
-            "${PROJECT_DIR}/drift-los-angeles.elf" 2>&1 | tee "${flycast_log}"
-        flycast_status="${PIPESTATUS[0]}"
+        if [[ -n "${EXIT_ON_LOG}" ]] &&
+           grep -Fq -- "${EXIT_ON_LOG}" "${flycast_log}"; then
+            qa_result="pass"
+            kill -TERM "${flycast_pid}" 2>/dev/null || true
+            break
+        fi
+        sleep .2
+    done
+    wait "${flycast_pid}"
+    flycast_status="$?"
+    flycast_pid=""
+    if [[ "${qa_result}" == "pass" ]]; then
+        flycast_status=0
+    elif [[ "${qa_result}" == "fail" ]]; then
+        flycast_status=1
     fi
-    set -e
+else
+    "${FLYCAST_BIN}" \
+        -config "${FLYCAST_CONFIG}" \
+        "${PROJECT_DIR}/drift-los-angeles.elf" 2>&1 | tee "${flycast_log}"
+    flycast_status="${PIPESTATUS[0]}"
+fi
+set -e
 
-    if (( flycast_status == 0 )); then
-        exit 0
-    fi
-
-    if (( attempt >= FLYCAST_STARTUP_RETRIES )) ||
-       ! grep -Eq 'Verify Failed.*sq_buffer|driver\.cpp : 349' "${flycast_log}"; then
-        exit "${flycast_status}"
-    fi
-
-    echo "Flycast hit its pre-boot dynarec address-space assertion; retrying in 2 seconds (${attempt}/${FLYCAST_STARTUP_RETRIES})." >&2
-    rm -f -- "${flycast_log}"
-    flycast_log=""
-    attempt=$((attempt + 1))
-    sleep 2
-done
+exit "${flycast_status}"

@@ -163,6 +163,6 @@ regression using a disposable username and password in the ignored
 `romdisk/test-credentials.txt` (two lines). Never distribute this test build.
 Remove the credential file and `make clean && make` before building a release.
 
-`FLYCAST_ARCH=x86_64 ./run-flycast.sh` selects the Intel emulator via Rosetta if
-the installed Apple Silicon build fails its host memory-layout assertion. The
+The [native Flycast build](../../../tools/flycast/README.md) fixes macOS startup
+crashes without Rosetta. The
 launcher disables crash uploads transiently because forms can hold credentials.

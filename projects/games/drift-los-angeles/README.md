@@ -301,18 +301,14 @@ Override automatic selection when testing with:
 ```
 
 `DRIFT_LA_INPUT=auto|gamepad|keyboard` provides the same override through the
-environment. Flycast 2.7 on Apple Silicon can
-occasionally fail before guest boot with a dynarec `sq_buffer` address-space
-assertion. The launcher recognizes only that exact host-side failure and retries
-it up to eight times with a short delay; other errors retain their original exit
-status. Launch an existing build with:
+environment. The [native Flycast build](../../../tools/flycast/README.md) fixes
+macOS startup crashes. Launch an existing build with:
 
 ```sh
 ./run-flycast.sh --skip-build
 ```
 
 Set `KOS_ENV` or `FLYCAST_BIN` to override either installed dependency.
-Set `FLYCAST_STARTUP_RETRIES` to a positive integer to change the retry limit.
 
 For a hands-off visual tour that changes district every fifteen seconds:
 
@@ -392,11 +388,7 @@ Drift Los Angeles uses no emulator-only rendering or host filesystem feature. Al
 gameplay, geometry, texture data, and HUD resources are embedded in the ELF and
 uploaded to Dreamcast VRAM at boot. The renderer uses a fixed nearby-cell budget
 and hardware fog to hide the procedural draw boundary. Serial startup and
-allocation diagnostics are available through the launcher. On macOS the
-launcher disables the nano allocator only for the Flycast child process; this
-preserves the contiguous native-memory reservation Flycast needs and avoids the
-intermittent pre-boot `sq_buffer` address-space assertion without changing a
-persistent emulator or system setting.
+allocation diagnostics are available through the launcher.
 
 ## Verified with
 
