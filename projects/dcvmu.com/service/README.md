@@ -183,3 +183,8 @@ binary bytes. A changed revision returns 409; clients must refresh before trying
 again. Uploads may send `header_offset`; it must match the validated VMS header.
 Older clients can omit it and the server detects it. Existing rows are migrated
 with their validated offsets when the service starts. Back up before deployment.
+
+Upload timestamps are server-generated UTC Unix seconds. A replacement updates
+`uploaded_at`; editing notes or visibility does not. Modern browsers display
+the viewer’s local timezone; no-JavaScript and console pages retain UTC. Legacy
+entries with an uncertain replacement history show their known first upload.

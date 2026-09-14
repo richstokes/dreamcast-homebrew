@@ -1,5 +1,6 @@
 """DCVMU: server-rendered archive and bounded, HTTPS-only VMU upload API."""
 import hashlib
+from datetime import datetime, timezone
 import io
 import os
 import re
@@ -57,8 +58,20 @@ def create_app(config=None):
                 except ValueError:
                     continue
                 db.execute('UPDATE saves SET header_offset=? WHERE id=?', (offset, sid))
+        if 'uploaded_at' not in {r[1] for r in db.execute('PRAGMA table_info(saves)')}:
+            db.execute('ALTER TABLE saves ADD COLUMN uploaded_at INTEGER')
+            # Later revisions may be metadata edits: their last upload is unknown.
+            db.execute('UPDATE saves SET uploaded_at=created WHERE revision=1')
         db.commit()
         db.execute('PRAGMA journal_mode=WAL')
+
+    @app.template_filter('utc_iso')
+    def utc_iso(value):
+        return datetime.fromtimestamp(value, timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    @app.template_filter('utc_display')
+    def utc_display(value):
+        return datetime.fromtimestamp(value, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
     def database():
         if 'db' not in g:
@@ -128,7 +141,7 @@ def create_app(config=None):
     def headers(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'same-origin'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
         if request.path == '/support':
             response.headers['Content-Security-Policy'] += "; img-src 'self' https://cdn.buymeacoffee.com"
         response.headers['Cache-Control'] = 'no-store'
@@ -258,7 +271,7 @@ def create_app(config=None):
             offset = max(0, min(int(request.args.get('page', 1)), 100000) - 1) * 20
         except ValueError:
             abort(400, 'Invalid page.')
-        rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,
+        rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,s.created,s.uploaded_at,
             length(s.data) AS size,substr(s.data,s.header_offset*512+1,128) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
             WHERE private=0 AND (?='' OR s.game=? COLLATE NOCASE)
             AND (?='' OR u.username=? COLLATE NOCASE) ORDER BY updated DESC,s.id DESC LIMIT 21 OFFSET ?''',
@@ -289,7 +302,7 @@ def create_app(config=None):
             page_num = max(1, min(int(request.args.get('page', 1)), 10))
         except ValueError:
             abort(400, 'Invalid page.')
-        rows = database().execute('SELECT id,name,game,private,revision FROM saves WHERE user_id=? ORDER BY updated DESC,id DESC LIMIT 21 OFFSET ?',
+        rows = database().execute('SELECT id,name,game,private,revision,created,uploaded_at FROM saves WHERE user_id=? ORDER BY updated DESC,id DESC LIMIT 21 OFFSET ?',
                                   (g.user['id'], (page_num-1)*20)).fetchall()
         return page('account.html', saves=rows[:20], more=len(rows)>20, page_num=page_num)
 
@@ -428,7 +441,7 @@ def create_app(config=None):
                             break
                 sid = db.execute('''INSERT INTO saves(user_id,name,filename,game,notes,private,data,sha256,created,updated)
                     VALUES (?,?,?,?,?,?,?,?,?,?)''', (g.user['id'], name, filename, game, notes, private, data, sha, now, now)).lastrowid
-            db.execute('UPDATE saves SET header_offset=? WHERE id=? AND user_id=?', (header_offset, sid, g.user['id']))
+            db.execute('UPDATE saves SET header_offset=?,uploaded_at=? WHERE id=? AND user_id=?', (header_offset, now, sid, g.user['id']))
             db.commit()
         except Exception:
             db.rollback()

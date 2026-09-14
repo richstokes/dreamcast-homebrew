@@ -293,8 +293,45 @@ class ServiceTest(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT header_offset FROM saves').fetchone()[0],1)
 
+    def test_upload_timestamps_survive_metadata_edits(self):
+        from unittest.mock import patch
+        with patch('app.time.time',return_value=1700000000):
+            result=self.upload()
+        self.assertEqual(result.status_code,201)
+        sid=result.text.splitlines()[1]
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT created,uploaded_at FROM saves WHERE id=?',(sid,)).fetchone(),(1700000000,1700000000))
+        csrf=self.csrf('/saves/'+sid)
+        result=self.web.post('/saves/'+sid+'/edit',data={'csrf':csrf,'revision':'1','game':'Changed title','notes':'Changed notes'})
+        self.assertEqual(result.status_code,303)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT uploaded_at FROM saves WHERE id=?',(sid,)).fetchone()[0],1700000000)
+        with patch('app.time.time',return_value=1700000100):
+            self.assertEqual(self.upload(mode='replace',revision='2').status_code,201)
+        for path in ('/','/account','/saves/'+sid):
+            page=self.web.get(path).text
+            self.assertIn('2023-11-14T22:15:00Z',page)
+            self.assertIn('/static/local-time.js',page)
+            console=self.web.get(path,headers={'User-Agent':'DreamcastBrowser/0.1'}).text
+            self.assertIn('2023-11-14 22:15:00 UTC',console)
+            self.assertNotIn('/static/local-time.js',console)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT created,uploaded_at FROM saves WHERE id=?',(sid,)).fetchone(),(1700000000,1700000100))
+
+    def test_legacy_upload_timestamp_migration(self):
+        self.assertEqual(self.upload().status_code,201)
+        self.assertEqual(self.upload(name='Old edited save').status_code,201)
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE saves SET revision=2 WHERE name='Old edited save'")
+            db.execute('ALTER TABLE saves DROP COLUMN uploaded_at')
+        create_app({'TESTING':True,'DATABASE':self.path})
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT uploaded_at=created FROM saves WHERE name='My save'").fetchone()[0],1)
+            self.assertIsNone(db.execute("SELECT uploaded_at FROM saves WHERE name='Old edited save'").fetchone()[0])
+        self.assertIn('First uploaded',self.web.get('/').text)
+
     def test_headers_https(self):
-        r=self.web.get('/');self.assertIn("script-src 'none'",r.headers['Content-Security-Policy'])
+        r=self.web.get('/');self.assertIn("script-src 'self'",r.headers['Content-Security-Policy'])
         self.assertEqual(r.headers['Cache-Control'],'no-store')
         r=self.app.test_client().get('/register')
         for attr in ('Secure','HttpOnly','SameSite=Lax'):self.assertIn(attr,r.headers['Set-Cookie'])
