@@ -1,11 +1,7 @@
 # Dreamcast Homebrew
 
-A collection of original Sega Dreamcast games, network applications, and
-technical demos. Most projects use
-[KallistiOS](https://kos-docs.dreamcast.wiki/); Chroma Circuit is a deliberately
-bare-metal SH-4 assembly production with no SDK runtime. Each console project builds as
-a standalone SH-4 ELF that can boot directly in Flycast or run on compatible
-Dreamcast hardware.
+A collection of my original Sega Dreamcast games, network applications, and
+technical demos.
 
 ## dcvmu.com - cloud saves for Dreamcast
 
@@ -35,17 +31,15 @@ Check [the getting started guide](https://dcvmu.com/getting-started) for more in
 | <img src="docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC" width="360"> | **[Dreamcast IRC](projects/apps/dreamcast-irc/)**<br>A Broadband Adapter IRC client with server and channel pages, fixed-size scrollback, keyboard input, and controller navigation. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdreamcast-irc.elf&name=Dreamcast%20IRC) |
 | <img src="docs/screenshots/ping-cube.png" alt="Ping Cube" width="360"> | **[Ping Cube](projects/apps/ping-cube/)**<br>A networking and PowerVR demo that continuously pings `8.8.8.8`, visualizes latency through the cube's color, and displays live replies, loss, and timing statistics. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fping-cube.elf&name=Ping%20Cube) |
 
-Each project directory contains its own controls, dependencies, technical
-notes, and verification instructions.
+Each project directory contains its own README with more info/instructions.
 
 The CDI links are the easiest way to play: download the image and open it in
-Flycast, or burn it to CD-R for a Dreamcast that supports MIL-CD. The smaller
-ELF downloads are useful for direct emulator boot and development loaders.
+an emulator, burn it to CD-R, or load on a real console with GDEMU/similar.
 
 ## Building and running
 
-The projects use the Dreamcast SH-4 cross-toolchain. Most also use KallistiOS;
-Chroma Circuit invokes only `sh-elf-as`, `sh-elf-ld`, and the matching binary
+The projects use the Dreamcast SH-4 cross-toolchain. Most also use [KallistiOS](https://kos-docs.dreamcast.wiki/);
+Chroma Circuit (written in assembly) invokes only `sh-elf-as`, `sh-elf-ld`, and the matching binary
 inspection tools. The known-working development baseline is:
 
 - KallistiOS 2.3.0
@@ -78,24 +72,18 @@ overrides. When the ELF already exists, use `--skip-build` or the project's
 
 DCVMU and Dreamcast Browser additionally require the KOS ports for curl, mbedTLS, zlib,
 and stb_image. Its [project README](projects/apps/dreamcast-browser/README.md)
-documents the included compatibility patch and installation commands. Gravity
-Wave's generated texture sources are checked in. Drift Los Angeles likewise
-ships its generated PowerVR textures, vehicle mesh, recorded audio, and music
-sources; Python, `uv`, Blender, and `afconvert` are needed only when regenerating
-those assets.
+documents the included compatibility patch and installation commands.
 
 ## Repository layout and releases
 
 - `projects/dcvmu.com/`: client and web service.
 - `projects/games/`: playable games.
 - `projects/apps/`: applications and technical demos.
-- `BIOS/` and `GAMES/`: untracked, user-owned runtime files.
 
 [The release manifest](.github/console-projects.txt) is the single list of console
 projects for CI building, validation, and ELF/CDI packaging. Every push to `main`
 tests DCVMU, builds all eight console projects with pinned SDK dependencies,
 and publishes [the rolling GitHub release](https://github.com/richstokes/dreamcast-homebrew/releases/latest).
-The website links to these artifacts; no client binary needs uploading to its server.
 
 ## License and attribution
 
