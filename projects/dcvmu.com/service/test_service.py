@@ -99,6 +99,16 @@ class ServiceTest(unittest.TestCase):
         self.assertIn(base+'cdi',account);self.assertIn(base+'elf',account)
         self.assertLess(account.index(base+'cdi'),account.index(base+'elf'))
 
+    def test_getting_started_is_omitted_for_console_browsers(self):
+        desktop=self.web.get('/',headers={'User-Agent':'Mozilla/5.0'}).text
+        self.assertIn('id="getting-started"',desktop)
+        self.assertIn('dcvmu-client.cdi',desktop)
+        for agent in ('DreamcastBrowser/0.1 (KallistiOS)', 'Mozilla/3.0 (DreamKey)', 'DreamPassport/3.0'):
+            console=self.web.get('/',headers={'User-Agent':agent}).text
+            self.assertNotIn('getting-started',console)
+            self.assertNotIn('guide-steps',console)
+            self.assertIn('Browse saves',console)
+
     def test_auth_csrf(self):
         with sqlite3.connect(self.path) as db:
             self.assertTrue(db.execute('select password_hash from users').fetchone()[0].startswith('$argon2id$'))

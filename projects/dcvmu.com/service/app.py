@@ -141,7 +141,7 @@ def create_app(config=None):
             token, csrf = new_session()
         else:
             csrf = g.session['csrf']
-        response = app.make_response(render_template(template, user=g.user, csrf=csrf, client_release_base=CLIENT_RELEASE_BASE, **context))
+        response = app.make_response(render_template(template, user=g.user, csrf=csrf, client_release_base=CLIENT_RELEASE_BASE, console_browser=any(name in request.user_agent.string.lower() for name in ('dreamcast', 'dreamkey', 'dreampassport')), **context))
         return web_response(response, token)
 
     @app.errorhandler(400)
