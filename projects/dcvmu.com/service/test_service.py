@@ -328,7 +328,8 @@ class ServiceTest(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT uploaded_at=created FROM saves WHERE name='My save'").fetchone()[0],1)
             self.assertIsNone(db.execute("SELECT uploaded_at FROM saves WHERE name='Old edited save'").fetchone()[0])
-        self.assertIn('First uploaded',self.web.get('/').text)
+        self.assertIn('<dt>Uploaded</dt>',self.web.get('/').text)
+        self.assertNotIn('First uploaded',self.web.get('/').text)
 
     def test_headers_https(self):
         r=self.web.get('/');self.assertIn("script-src 'self'",r.headers['Content-Security-Policy'])

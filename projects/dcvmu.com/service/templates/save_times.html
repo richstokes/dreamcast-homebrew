@@ -1,3 +1,3 @@
 <dl class="save-metadata save-times">
-<div><dt>{{ 'Uploaded' if save.uploaded_at else 'First uploaded' }}</dt><dd><time data-local-time datetime="{{ (save.uploaded_at or save.created)|utc_iso }}">{{ (save.uploaded_at or save.created)|utc_display }}</time></dd></div>
+<div><dt>Uploaded</dt><dd><time data-local-time datetime="{{ (save.uploaded_at or save.created)|utc_iso }}">{{ (save.uploaded_at or save.created)|utc_display }}</time></dd></div>
 </dl>
