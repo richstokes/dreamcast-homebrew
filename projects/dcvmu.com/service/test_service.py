@@ -96,8 +96,10 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(r.status_code,302)
             self.assertEqual(r.headers['Location'],base+extension)
         account=self.web.get('/account').text
-        self.assertIn(base+'cdi',account);self.assertIn(base+'elf',account)
-        self.assertLess(account.index(base+'cdi'),account.index(base+'elf'))
+        self.assertNotIn(base+'cdi',account)
+        self.assertNotIn(base+'elf',account)
+        self.assertNotIn('Enable broadband adapter emulation',account)
+        self.assertIn('/getting-started',account)
 
     def test_getting_started_is_omitted_for_console_browsers(self):
         desktop=self.web.get('/',headers={'User-Agent':'Mozilla/5.0'}).text
