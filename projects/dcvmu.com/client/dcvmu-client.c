@@ -486,7 +486,7 @@ static void run_self_test(void) {
         printf("dcvmu: SELF-TEST FAILED credentials missing\n");if(credentials)fclose(credentials);return;
     }
     fclose(credentials);username[strcspn(username,"\r\n")]=0;password[strcspn(password,"\r\n")]=0;
-    focus=2;activate();
+    screen=LOGIN;focus=2;activate();
     if(screen!=HOME)goto fail;
     focus=0;activate();
     for(selected=0;selected<save_count;++selected)if(!strcmp(saves[selected].filename,"DCVMU_TEST"))break;

@@ -170,6 +170,11 @@ int service_upload(const char *token, const char *name, const char *filename,
     char auth[128], version[24];
     long status;
     if(!curl) return -1;
+    /* Uploads follow user interaction and may outlive an idle TCP connection.
+       Use a new connection rather than risking a stalled POST on a stale one.
+       Never retry automatically: the server may already have stored the save. */
+    curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
+    curl_easy_setopt(curl, CURLOPT_FORBID_REUSE, 1L);
     mime = curl_mime_init(curl);
     if(!mime) { curl_easy_reset(curl); return -1; }
     snprintf(auth, sizeof(auth), "Authorization: Bearer %s", token);

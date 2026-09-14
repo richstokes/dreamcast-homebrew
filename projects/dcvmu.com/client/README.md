@@ -87,8 +87,9 @@ VMU mini-games (directory type `0xcc`) and empty entries are not listed.
 Every request uses HTTPS with hostname and CA verification, TLS 1.2 or newer,
 and the bundled Mozilla trust store. No insecure HTTP fallback exists. Keep
 the Dreamcast clock correct and update `romdisk/cacert.pem` alongside the
-browser's CA bundle when needed. The client reuses its HTTPS connection and
-polls BBA receive traffic in a KOS worker to avoid Flycast's IRQ re-entry bug.
+browser's CA bundle when needed. Uploads open a fresh HTTPS connection after
+menu interaction; other requests can reuse connections. The client polls BBA
+receive traffic in a KOS worker to avoid Flycast's IRQ re-entry bug.
 Requests are bounded by time and response size; cancellation
 remains available during transfers.
 
