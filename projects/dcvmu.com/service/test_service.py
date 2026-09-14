@@ -106,14 +106,14 @@ class ServiceTest(unittest.TestCase):
         self.assertNotIn('guide-steps',desktop)
         guide=self.web.get('/getting-started').text
         self.assertIn('<h1>Get started on your Dreamcast</h1>',guide)
-        self.assertIn('dcvmu-client.cdi">Download Dreamcast App</a>',guide)
+        self.assertIn('dcvmu-client.cdi">Download Dreamcast CD Image</a>',guide)
         self.assertIn('guide-steps',guide)
         for agent in ('DreamcastBrowser/0.1 (KallistiOS)', 'Mozilla/3.0 (DreamKey)', 'DreamPassport/3.0'):
             console=self.web.get('/',headers={'User-Agent':agent}).text
             self.assertNotIn('getting-started',console)
             self.assertNotIn('guide-steps',console)
             self.assertIn('Browse saves',console)
-            self.assertIn('Download Dreamcast App',console)
+            self.assertIn('Download Dreamcast CD Image',console)
             guide=self.web.get('/getting-started',headers={'User-Agent':agent}).text
             self.assertNotIn('guide-steps',guide)
 
