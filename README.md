@@ -22,6 +22,8 @@ and a local backup script.
 CDI is a self-booting disc image for a compatible Dreamcast or Flycast. ELF is
 available for development and compatible homebrew loaders. Both are built by CI.
 
+<img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="760">
+
 ## Games
 
 | Preview | Project | Latest download | Try in browser |

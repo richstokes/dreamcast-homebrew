@@ -7,3 +7,5 @@
 .save-metadata div{display:flex;gap:12px;margin:5px 0}
 .save-metadata dt{flex:0 0 120px;color:#52647a}
 .save-metadata dd{margin:0;overflow-wrap:anywhere;min-width:0}
+
+.client-screenshot{margin:24px 0}.client-screenshot img{display:block;width:100%;height:auto;border-radius:8px}.client-screenshot figcaption{margin-top:8px;font-size:14px;color:#52647a}

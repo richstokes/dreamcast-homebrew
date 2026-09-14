@@ -6,6 +6,8 @@ Requires a broadband adapter and a controller or Dreamcast keyboard. Uploading r
 chosen VMU only after confirmation. The client also writes
 its own one-block `DCVMU_AUTH` login save.
 
+<img src="../service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="760">
+
 ## Build and run
 
 Uses the installed KOS 2.3 toolchain and kos-ports curl, mbedTLS and zlib. The
