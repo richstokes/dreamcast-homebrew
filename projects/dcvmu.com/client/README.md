@@ -6,7 +6,7 @@ Requires a broadband adapter and a controller or Dreamcast keyboard. Uploading r
 chosen VMU only after confirmation. The client also writes
 its own one-block `DCVMU_AUTH` login save.
 
-<img src="../service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="760">
+<img src="../service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="456">
 
 ## Build and run
 

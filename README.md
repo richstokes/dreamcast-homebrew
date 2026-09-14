@@ -18,7 +18,7 @@ to a VMU, remembers login, and supports public/private archives. The
 · [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf)
 · [Website](https://dcvmu.com)
 
-<img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="760">
+<img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="456">
 
 ## Games
 
