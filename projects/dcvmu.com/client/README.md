@@ -36,7 +36,9 @@ sh-elf-readelf -h /Users/rich/Dropbox/code/dreamcast-dev/projects/dcvmu.com/clie
 
 The launcher transiently enables the BBA using Flycast's `DCNet=no` picoTCP
 outbound proxy, attaches controllers/VMUs on ports A-C and a keyboard on
-port D, and enables serial diagnostics. This is not LAN bridging. Set `KOS_ENV`
+port D, routes the Mac keyboard to that port, and enables serial diagnostics.
+Click the Flycast window to focus it, then use arrows/Tab to navigate and Enter
+to edit a field before typing. This is not LAN bridging. Set `KOS_ENV`
 or `FLYCAST_BIN` to override the installed tools. On Apple Silicon, the installed
 Flycast can fail its host memory-layout assertion before booting an ELF. The
 Intel build can be selected with `FLYCAST_ARCH=x86_64`; it requires Rosetta and

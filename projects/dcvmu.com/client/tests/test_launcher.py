@@ -1,5 +1,6 @@
 """Host checks for bank discovery and non-destructive persistent VMU copies."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -20,6 +21,20 @@ class LauncherTest(unittest.TestCase):
     def tearDown(self):self.temp.cleanup()
     def run_launcher(self,*args):
         return subprocess.run([sys.executable,str(SCRIPT),'--elf','/tmp/test.elf','--flycast','/bin/false',*args],env=self.env,text=True,capture_output=True)
+    def test_host_keyboard_is_routed_to_keyboard_port(self):
+        fake=self.home/'flycast'
+        fake.write_text('#!'+sys.executable+'\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+        fake.chmod(0o700)
+        result=self.run_launcher('--flycast',str(fake))
+        self.assertEqual(result.returncode,0,result.stderr)
+        command=json.loads(result.stdout.splitlines()[-1])
+        config=dict(item.split('=',1) for item in command[1].split(','))
+        keyboard_port=int(config['input:maple_sdl_keyboard'])
+        self.assertEqual(keyboard_port,3)
+        self.assertEqual(config[f'input:device{keyboard_port+1}'],'5')
+        for port in (1,2,3):
+            self.assertEqual(config[f'input:device{port}'],'0')
+
     def test_banks_cover_all_images(self):
         result=self.run_launcher('--list-vmus')
         self.assertEqual(result.returncode,0,result.stderr)

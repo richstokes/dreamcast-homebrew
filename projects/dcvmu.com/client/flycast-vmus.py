@@ -92,13 +92,15 @@ def main():
                         target.write(original)
                 (mount / f'vmu_save_{slot}.bin').symlink_to(copy)
                 print(f'{slot}: {source.name} -> persistent test copy', flush=True)
+            # Host input ports are zero-based: route the Mac keyboard to D (3),
+            # matching the emulated keyboard at device4; A-C hold VMUs.
             config = ('network:EmulateBBA=yes,network:DCNet=no,config:Debug.SerialConsoleEnabled=yes,'
                       'config:UploadCrashLogs=no,config:PerGameVmu=no,'
                       f'config:Dreamcast.VMUPath={mount},config:Dreamcast.SavePath={mount},'
                       'input:device1=0,input:device1.1=1,input:device1.2=1,'
                       'input:device2=0,input:device2.1=1,input:device2.2=1,'
                       'input:device3=0,input:device3.1=1,input:device3.2=1,'
-                      'input:device4=5,input:maple_sdl_keyboard=1')
+                      'input:device4=5,input:maple_sdl_keyboard=3')
             command = (["/usr/bin/arch", '-' + args.arch] if args.arch else []) + [args.flycast, '-config', config, str(args.elf.resolve())]
             print(f'Original images stay unchanged. Test writes are retained in {root}', flush=True)
             if not args.dry_run:
