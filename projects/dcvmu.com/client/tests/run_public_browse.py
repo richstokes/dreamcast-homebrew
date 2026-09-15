@@ -29,6 +29,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', required=True, type=ipaddress.IPv4Address)
     parser.add_argument('--log-dir', required=True, type=Path)
+    parser.add_argument('--modem', action='store_true',
+                        help='Use Flycast modem/PPP emulation instead of BBA')
     parser.add_argument('--flycast', type=Path, default=Path.home() /
                         '.local/share/dreamcast/flycast/Flycast.app/Contents/MacOS/Flycast')
     parser.add_argument('--kos-env', type=Path, default=Path.home() /
@@ -39,7 +41,7 @@ def main():
         work = Path(directory)
         for name in ('romdisk', 'tests', 'vmus'):
             (work / name).mkdir()
-        for name in ('dcvmu-client.c', 'net.c', 'auth.c', 'client.h', 'Makefile',
+        for name in ('dcvmu-client.c', 'net.c', 'modem.c', 'auth.c', 'client.h', 'Makefile',
                      'romdisk/cacert.pem', 'tests/public_browse.c'):
             shutil.copyfile(CLIENT / name, work / name)
         database = work / 'fixture.sqlite3'
@@ -119,7 +121,7 @@ def main():
         serial = args.log_dir / 'flycast.log'
         # This silent client needs no audio device. SDL audio can block the
         # emulation thread when macOS changes output devices during automation.
-        config = ('network:EmulateBBA=yes,network:DCNet=no,audio:backend=null,'
+        config = (f'network:EmulateBBA={"no" if args.modem else "yes"},network:DCNet=no,audio:backend=null,'
                   'config:Debug.SerialConsoleEnabled=yes,config:UploadCrashLogs=no,'
                   'input:device1=0,input:device1.1=1,input:device1.2=1,'
                   f'config:Dreamcast.VMUPath={work / "vmus"},config:PerGameVmu=no')
@@ -129,7 +131,7 @@ def main():
                                             str(work / 'dcvmu-client.elf')], cwd=work,
                                            stdout=output, stderr=subprocess.STDOUT)
                 try:
-                    deadline = time.monotonic() + 240
+                    deadline = time.monotonic() + (600 if args.modem else 240)
                     while time.monotonic() < deadline:
                         log = serial.read_text(errors='replace')
                         if ('PUBLIC BROWSE SELF-TEST PASSED' in log or
@@ -149,7 +151,7 @@ def main():
             thread.join(timeout=5)
         log = serial.read_text(errors='replace')
         passed = 'PUBLIC BROWSE SELF-TEST PASSED' in log and failed_page
-        summary = ('PASS' if passed else 'FAIL') + ': public browse integration in Flycast\n'
+        summary = ('PASS' if passed else 'FAIL') + f': public browse integration in Flycast ({"modem/PPP" if args.modem else "BBA"})\n'
         (args.log_dir / 'result.txt').write_text(summary)
         print(summary, end='')
         return 0 if passed else 1

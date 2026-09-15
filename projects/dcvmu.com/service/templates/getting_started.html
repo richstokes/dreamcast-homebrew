@@ -2,7 +2,7 @@
 <p class="eyebrow">FROM YOUR CONSOLE TO THE CLOUD</p>
 <h1>Get started on your Dreamcast</h1>
 <p>The goal of this service is to provide a safe place to backup your VMU saves. It also allows you to download your saves to another console, and share your files with friends!</p>
-<p>Currently requires the broadband adapter, but planning to add modem support soon!</p>
+<p>Supports broadband adapters and Dreamcast modems with a working DreamPi setup.</p>
 <p><a class="button" href="{{ client_release_base }}/dcvmu-client.cdi">Download Dreamcast CD Image</a></p>
 <p class="hint">CDI disc image · Latest release from GitHub</p>
 {% if not console_browser %}
@@ -15,7 +15,9 @@
 <p><strong>CD-R:</strong> burn the CDI as a disc image, rather than copying the file onto a data disc. It is self-booting on MIL-CD-compatible Dreamcasts; no separate boot disc is needed.</p>
 <p><a href="https://gdemu.wordpress.com/operation/gdemu-operation/">GDEMU setup</a> · <a href="https://dreamcast.wiki/Creating_a_bootable_Dreamcast_disc">Disc-burning guidance</a></p></div>
 <div><h3>3. Connect and log in</h3>
-<p>Connect the broadband adapter before starting. Your router should provide an address automatically through DHCP. Set the Dreamcast’s date and time correctly so secure connections can be verified.</p>
+<p><strong>Broadband adapter:</strong> connect it before starting. Your router should provide an address automatically through DHCP.</p>
+<p><strong>Modem / DreamPi:</strong> configure and test DreamPi with another app first. DCVMU reads your saved PlanetWeb or DreamPassport dial-up settings and connects automatically when no broadband adapter is detected. If no saved profile is available, it uses the standard DreamPi defaults. Allow time for dialing; restart the app if the connection fails.</p>
+<p>Set the Dreamcast’s date and time correctly so secure connections can be verified.</p>
 <p>Log in with your DCVMU account.</p></div>
 <div><h3>4. Upload or download a save</h3>
 <p><strong>Upload:</strong> select Upload from the main menu, choose a save and switch VMUs with left/right if needed. Add a name, game and optional notes.</p><p>Saves are public by default; or choose private to limit to your account. If a duplicate exists, you can replace it or keep another copy.</p>

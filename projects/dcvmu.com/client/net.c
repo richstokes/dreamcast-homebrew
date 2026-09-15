@@ -14,6 +14,7 @@ static kthread_t *poll_thread;
 static CURL *http_client;
 static volatile int polling;
 static int gate_bba;
+static int using_modem, curl_ready;
 static char response[16384];
 static size_t received;
 static char error[CURL_ERROR_SIZE];
@@ -42,7 +43,17 @@ static int progress(void *unused, curl_off_t total, curl_off_t done,
     return transfer_update((uint64_t)(done + uploaded), (uint64_t)(total + upload_total));
 }
 int service_net_init(void) {
-    if(curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) return -1;
+    /* INIT_NET already selects Ethernet when present. Never probe/reset the
+       modem on that path: the two adapters share the expansion interface. */
+    if(!net_default_dev) {
+        if(service_modem_init()<0) return -1;
+        using_modem=1;
+    }
+    if(curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
+        client_status("HTTPS startup failed. Restart to retry.");
+        service_net_shutdown();return -1;
+    }
+    curl_ready=1;
     gate_bba = net_default_dev && !strcmp(net_default_dev->name, "bba");
     if(gate_bba) {
         uint32_t irq = irq_disable();
@@ -50,15 +61,27 @@ int service_net_init(void) {
         irq_restore(irq);
         polling = 1;
         poll_thread = thd_create(0, poll_worker, NULL);
-        if(!poll_thread) { polling = 0; return -1; }
+        if(!poll_thread) {
+            uint32_t restore_irq=irq_disable();
+            asic_evt_enable(ASIC_EVT_EXP_PCI, ASIC_IRQ_DEFAULT);
+            irq_restore(restore_irq);gate_bba=0;
+            client_status("BBA receive startup failed. Restart to retry.");
+            service_net_shutdown();return -1;
+        }
         printf("dcvmu: BBA receive polling enabled\n");
     }
     return 0;
 }
 void service_net_shutdown(void) {
-    if(poll_thread) { polling = 0; thd_join(poll_thread, NULL); }
+    polling=0;
+    if(poll_thread) { thd_join(poll_thread, NULL); poll_thread=NULL; }
     if(http_client) { curl_easy_cleanup(http_client); http_client=NULL; }
-    curl_global_cleanup();
+    if(curl_ready) { curl_global_cleanup(); curl_ready=0; }
+    /* Preserve the existing BBA shutdown behavior: keep PCI IRQs gated until
+       system shutdown. Re-enabling them here reintroduces Flycast IRQ re-entry
+       while late TCP/Maple traffic is still arriving at the thank-you screen. */
+    gate_bba=0;
+    if(using_modem) { service_modem_shutdown(); using_modem=0; }
 }
 #ifdef DCVMU_SELF_TEST
 static int trace(CURL *handle, curl_infotype type, char *data, size_t size, void *unused) {
@@ -106,8 +129,8 @@ static CURL *request_new(const char *path) {
     if(local_test)curl_easy_setopt(curl,CURLOPT_CAINFO,"/rd/test-ca.pem");
 #endif
     curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 15000L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 60000L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, using_modem?60000L:15000L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, using_modem?300000L:60000L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 4096L);
     curl_easy_setopt(curl, CURLOPT_UPLOAD_BUFFERSIZE, 4096L);
@@ -319,8 +342,8 @@ int service_icon(const char *token,const remote_save_t *item,unsigned char heade
     download_buffer buffer={.bytes=header,.capacity=640};
     struct curl_slist *headers=authorize(curl,token);
     curl_easy_setopt(curl,CURLOPT_RANGE,range);
-    curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT_MS,5000L);
-    curl_easy_setopt(curl,CURLOPT_TIMEOUT_MS,10000L);
+    curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT_MS,using_modem?60000L:5000L);
+    curl_easy_setopt(curl,CURLOPT_TIMEOUT_MS,using_modem?90000L:10000L);
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive_download);
     curl_easy_setopt(curl,CURLOPT_WRITEDATA,&buffer);
     long status=perform(curl);

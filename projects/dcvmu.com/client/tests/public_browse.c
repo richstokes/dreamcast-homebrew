@@ -92,6 +92,10 @@ static void run_public_test(void) {
     }
     if(!renamed)goto fail;
     printf("dcvmu: KEEP BOTH AND CLOUD RENAME WITHOUT BINARY CHANGES PASS\n");
+    int was_ppp=net_default_dev && !strcmp(net_default_dev->name,"ppp");
+    service_net_shutdown();service_net_shutdown();
+    if(was_ppp && net_default_dev)goto fail;
+    printf("dcvmu: NETWORK SHUTDOWN PASS\n");
     printf("dcvmu: PUBLIC BROWSE SELF-TEST PASSED\n");
     return;
 fail:

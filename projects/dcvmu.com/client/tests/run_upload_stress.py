@@ -32,7 +32,12 @@ def main():
     parser.add_argument('--kos-env', type=Path, default=Path.home() /
                         '.local/share/dreamcast/kos/environ.sh')
     parser.add_argument('--log-dir', type=Path, required=True)
+    parser.add_argument('--modem', action='store_true', help='Use Flycast modem/PPP emulation')
+    parser.add_argument('--transfers', type=int, default=30,
+                        help='Upload count (multiple of three); each run also checks a large download')
     args = parser.parse_args()
+    if args.transfers < 3 or args.transfers % 3:
+        parser.error('--transfers must be a positive multiple of three')
     args.log_dir.mkdir(parents=True, exist_ok=True)
     results = queue.Queue()
 
@@ -41,6 +46,17 @@ def main():
 
         def log_message(self, *_args):
             pass
+
+        def do_GET(self):
+            if (self.path != '/api/v1/saves/1/download?revision=1' or
+                    self.headers.get('Authorization') != 'Bearer synthetic-test-token'):
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(DATA)))
+            self.end_headers()
+            self.wfile.write(DATA)
+            self.wfile.flush()
 
         def do_POST(self):
             try:
@@ -73,7 +89,7 @@ def main():
         work = Path(directory)
         (work / 'romdisk').mkdir()
         (work / 'vmus').mkdir()
-        for name in ('net.c', 'client.h'):
+        for name in ('net.c', 'modem.c', 'client.h'):
             shutil.copyfile(CLIENT / name, work / name)
         shutil.copyfile(CLIENT / 'tests/upload_stress.c', work / 'stress.c')
         shutil.copyfile(CLIENT / 'romdisk/cacert.pem', work / 'romdisk/cacert.pem')
@@ -93,24 +109,25 @@ def main():
             origin = f'https://{args.host}:{server.server_port}'
             (work / 'romdisk/test-service.txt').write_text(origin + '\n')
             (work / 'Makefile').write_text('''TARGET = stress.elf
-OBJS = stress.o net.o romdisk.o
+OBJS = stress.o net.o modem.o romdisk.o
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
 KOS_CSTD = -std=gnu17
-CPPFLAGS = -DDCVMU_DOWNLOAD_TEST
+STRESS_COUNT = 30
+CPPFLAGS = -DDCVMU_DOWNLOAD_TEST -DDCVMU_STRESS_COUNT=$(STRESS_COUNT)
 all: $(TARGET)
 include $(KOS_BASE)/Makefile.rules
 $(TARGET): $(OBJS)
-\tkos-cc -o $@ $(OBJS) -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm -lpthread
+\tkos-cc -o $@ $(OBJS) -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm -lpthread -lppp
 ''')
-            subprocess.run(['bash', '-c', 'source "$1" && make -C "$2" && '
+            subprocess.run(['bash', '-c', 'source "$1" && make -C "$2" "STRESS_COUNT=$3" && '
                             'file "$2/stress.elf" && sh-elf-readelf -h "$2/stress.elf"',
-                            'stress-build', str(args.kos_env.resolve()), str(work)],
+                            'stress-build', str(args.kos_env.resolve()), str(work), str(args.transfers)],
                            check=True, stdout=build_log, stderr=build_log)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         serial = args.log_dir / 'flycast.log'
-        config = ('network:EmulateBBA=yes,network:DCNet=no,'
+        config = (f'network:EmulateBBA={"no" if args.modem else "yes"},network:DCNet=no,audio:backend=null,'
                   'config:Debug.SerialConsoleEnabled=yes,config:UploadCrashLogs=no,'
                   f'config:Dreamcast.VMUPath={work / "vmus"},config:PerGameVmu=no')
         try:
@@ -119,7 +136,7 @@ $(TARGET): $(OBJS)
                                             str(work / 'stress.elf')], cwd=work,
                                            stdout=output, stderr=subprocess.STDOUT)
                 try:
-                    deadline = time.monotonic() + 240
+                    deadline = time.monotonic() + (300 + args.transfers * 60 if args.modem else 240)
                     while time.monotonic() < deadline:
                         log = serial.read_text(errors='replace')
                         if ('UPLOAD STRESS PASSED:' in log or 'UPLOAD STRESS FAILED:' in log
@@ -141,8 +158,9 @@ $(TARGET): $(OBJS)
         while not results.empty():
             verified.append(results.get_nowait())
         log = serial.read_text(errors='replace')
-        passed = 'UPLOAD STRESS PASSED: 30/30' in log and verified == list(SIZES) * 10
-        summary = f'{"PASS" if passed else "FAIL"}: {len(verified)}/30 requests, payload checks: {verified}\n'
+        passed = (f'UPLOAD STRESS PASSED: {args.transfers}/{args.transfers}' in log and
+                  'LARGE DOWNLOAD PASSED' in log and verified == list(SIZES) * (args.transfers // 3))
+        summary = f'{"PASS" if passed else "FAIL"}: {len(verified)}/{args.transfers} uploads and large download, payload checks: {verified}\n'
         (args.log_dir / 'result.txt').write_text(summary)
         print(summary, end='')
         return 0 if passed else 1

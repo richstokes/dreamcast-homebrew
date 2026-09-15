@@ -4,6 +4,10 @@
 #include <stdint.h>
 int service_net_init(void);
 void service_net_shutdown(void);
+int service_modem_init(void);
+void service_modem_shutdown(void);
+/* Redraw startup and poll cancellation on the UI thread. */
+int client_connect_update(const char *message);
 int service_login(const char *username, const char *password, char *token, size_t capacity);
 int service_resume(const char *token);
 int auth_load(char *username, char *token);

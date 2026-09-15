@@ -2,7 +2,8 @@
 
 A KallistiOS application that uploads and downloads VMU data saves with [dcvmu.com](https://dcvmu.com).
 Register on the website, then log in here with the same username and password.
-Requires a broadband adapter and a controller or Dreamcast keyboard. Uploading reads the source save without changing it. Downloads write to a
+Requires a broadband adapter **or a Dreamcast modem with a working DreamPi setup**,
+and a controller or Dreamcast keyboard. Uploading reads the source save without changing it. Downloads write to a
 chosen VMU only after confirmation. The client also writes
 its own one-block `DCVMU_AUTH` login save.
 
@@ -19,7 +20,9 @@ Apply this project's KOS networking fixes before linking, if not already applied
 source /Users/rich/.local/share/dreamcast/kos/environ.sh
 git -C "$KOS_BASE" apply /Users/rich/Dropbox/code/dreamcast-dev/projects/dcvmu.com/client/patches/kos-bba-rx-consumer.patch
 git -C "$KOS_BASE" apply /Users/rich/Dropbox/code/dreamcast-dev/projects/dcvmu.com/client/patches/kos-tcp-upload-window.patch
+git -C "$KOS_BASE" apply /Users/rich/Dropbox/code/dreamcast-dev/projects/dcvmu.com/client/patches/kos-ppp-lifecycle.patch
 make -C "$KOS_BASE/kernel" -j4
+make -C "$KOS_BASE/addons/libppp" -j4
 ```
 
 The first patch serializes the BBA polling/worker receive consumers. The second
@@ -27,6 +30,13 @@ handles TCP window updates and preserves transmitted sequence numbers during
 retransmission; see [RFC 9293 section 3.10.7.4](https://www.rfc-editor.org/rfc/rfc9293.html#section-3.10.7.4). These are portable SDK fixes, not changes to the
 service protocol. They are already applied to the SDK used for this build.
 Rebuild dependent ELFs after changing the SDK; existing binaries stay unchanged.
+
+The PPP patch initializes TCP/IP even when no Ethernet device is present,
+stops and joins the PPP receive worker before hanging up/freeing its buffers,
+clears the departed default interface and ISP credentials, and bounds stalled
+modem writes while propagating transmit errors. It is required for modem builds.
+CI already applies all `patches/kos-*.patch` files before building KOS, including
+`libppp`; no emulator-only modem code is linked into the client.
 
 ```sh
 source /Users/rich/.local/share/dreamcast/kos/environ.sh
@@ -98,6 +108,50 @@ VMU mini-games (directory type `0xcc`) and empty entries are not listed.
 
 ## Network and credentials
 
+### Modem / DreamPi
+
+BBA/LAN adapters detected by KOS take priority. Only when there is no default
+network interface does the client initialize the modem, dial, and negotiate
+PPP (the dial-up IP connection). A BBA connection failure does not trigger
+modem probing. The existing BBA receive worker and HTTPS timeouts stay the same.
+
+Set up and test DreamPi with another application first. DCVMU reads the primary
+phone number, PPP username/password, blind-dial setting and optional DNS from
+the console's saved **PlanetWeb** profile, falling back to **DreamPassport**.
+It uses the first profile with a nonempty primary phone number; it never mixes
+credentials from different profiles. If neither has a usable profile, it uses
+the KOS DreamPi example's `555` number, `dream` username and `cast` password.
+Missing username/password fields also use those defaults. ISP credentials are
+separate from your dcvmu.com account login and are not printed to the console.
+DNS normally comes from PPP negotiation; saved ISP DNS is a fallback.
+
+The other app's live connection does not carry over: DCVMU must dial again on
+each boot. It does **not** configure DreamPi, write console flash, import VMU
+browser settings, or interpret modem AT initialization strings. KOS uses DTMF
+tone dialing; pulse dialing and dial strings with pauses/waits are rejected.
+Spaces, hyphens, parentheses and periods in the number are ignored. The saved
+primary number's area code is prepended when requested. Outside-line,
+call-waiting and long-distance prefixes are not used; configure the direct
+DreamPi number. If both browsers have profiles, update PlanetWeb's first.
+
+Startup shows detection, dialing (up to 65 seconds for KOS's dial-tone/carrier
+waits), and PPP negotiation. B/Esc/Start requests cancellation; it takes effect
+after the current SDK call returns. Failures show a connection-specific error;
+restart to dial again. Exit hangs up and releases PPP. A dropped connection is
+not automatically redialed or used to retry uploads.
+
+Modem HTTPS requests allow 60 seconds to connect and five minutes overall;
+icon previews allow 90 seconds overall. The 128 KiB save-size limit and all
+certificate, hostname, download-length and SHA-256 checks remain in place.
+
+API references: [KOS PPP](https://kos-docs.dreamcast.wiki/group__networking__ppp.html),
+[KOS modem](https://kos-docs.dreamcast.wiki/group__modem.html), and the installed
+`$KOS_BASE/examples/dreamcast/modem/ppp/ppp.c` DreamPi example. Real modem,
+line-voltage and DreamPi hardware validation is still required before calling
+this hardware-verified.
+
+### HTTPS
+
 Every request uses HTTPS with hostname and CA verification, TLS 1.2 or newer,
 and the bundled Mozilla trust store. No insecure HTTP fallback exists. Keep
 the Dreamcast clock correct and update `romdisk/cacert.pem` alongside the
@@ -135,6 +189,43 @@ although local deletion is still attempted. Reinsert a removed card to erase it.
 The local launcher reserves a persistent A1 card for login, shared across VMU banks.
 
 ## Verification
+
+Modem setup/failure checks run as a temporary SH-4 ELF in Flycast, with mocked
+flash/modem/PPP responses and real KOS threads and semaphores. They cover saved
+profile precedence, defaults, DNS fallback, invalid dial settings, no modem,
+PPP initialization/credential setup failures, dial/PPP failures, cancellation,
+and idempotent cleanup. They also check that sockets initialize without a BBA:
+
+```sh
+python3 projects/dcvmu.com/client/tests/run_modem_checks.py --log-dir /tmp/dcvmu-modem-checks
+```
+
+Both HTTPS integration runners accept `--modem` to use Flycast's modem/PPP
+emulation with the `DCNet=no` picoTCP proxy; omitting it tests the existing BBA
+backend. This is emulator PPP, not a connection through physical DreamPi or LAN
+bridging. Both use isolated VMUs, synthetic data and a temporary local HTTPS
+server, keeping certificate verification enabled:
+
+```sh
+projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py \
+  --modem --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-ppp-browse
+python3 projects/dcvmu.com/client/tests/run_upload_stress.py \
+  --modem --transfers 3 --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-ppp-uploads
+```
+
+The public-browse test exercises login, paging, icons, privacy, downloads,
+VMU installation/read-back, uploads, conflict handling and renaming. The stress
+test defaults to 30 uploads across 4,608, 8,704 and 98,816-byte saves, followed by
+a 98,816-byte download with SHA-256 and byte-for-byte checks. `--transfers 3`
+tests one upload of each size, useful at modem speeds. Both runners wait for
+network shutdown before reporting success.
+
+Verified locally on 2026-09-15: full public-browse integration and the three-size
+upload/large-download check passed on both BBA and modem/PPP, including shutdown.
+The BBA 30-upload stress check and the modem settings/failure checks also passed.
+Earlier BBA runs showed intermittent Flycast/picoTCP and IRQ failures before
+passing reruns; these emulator results do not establish real-hardware reliability.
+Publish this client release alongside the updated website setup instructions.
 
 The integration build (`CPPFLAGS=-DDCVMU_SELF_TEST`) reads a temporary,
 git-ignored `romdisk/test-credentials.txt` containing a disposable test username

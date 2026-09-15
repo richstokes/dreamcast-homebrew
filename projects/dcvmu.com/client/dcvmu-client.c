@@ -154,6 +154,7 @@ static void draw(void) {
     } else if(screen==STARTUP) {
         text(24,66,INK,"Starting DCVMU...");
         text(24,150,INK,"Preparing network and checking saved login.");
+        text(24,310,INK,"B / Esc cancels after the current dial step");
     } else if(screen==AUTO_LOGIN) {
         text(24,66,BLUE,"Attempting auto login...");
         text(24,150,INK,username);
@@ -279,11 +280,9 @@ static void draw(void) {
     if(strlen(status_text)>split)text(24,438,BLUE,status_text+split+(status_text[split]==' '));
     dirty=0;
 }
-int transfer_update(uint64_t done, uint64_t total) {
+static int poll_cancel(void) {
     maple_device_t *dev=maple_enum_type(0,MAPLE_FUNC_CONTROLLER);
     cont_state_t *state=dev?maple_dev_status(dev):NULL;
-    static uint64_t last;
-    uint64_t now=timer_ms_gettime64();
     if(state) {
         uint32_t pressed=state->buttons & ~previous_buttons;
         previous_buttons=state->buttons;
@@ -292,6 +291,18 @@ int transfer_update(uint64_t done, uint64_t total) {
     dev=maple_enum_type(0,MAPLE_FUNC_KEYBOARD);
     if(dev) { int raw; while((raw=kbd_queue_pop(dev,0))!=KBD_QUEUE_END)
         if((raw&255)==KBD_KEY_ESCAPE) canceled=1; }
+    return canceled;
+}
+int client_connect_update(const char *message) {
+    poll_cancel();
+    client_status(canceled?"Cancel requested. Waiting for modem step to finish...":message);
+    draw();
+    return canceled;
+}
+int transfer_update(uint64_t done, uint64_t total) {
+    static uint64_t last;
+    uint64_t now=timer_ms_gettime64();
+    poll_cancel();
     if(now-last>200) {
         snprintf(status_text,sizeof(status_text),"HTTPS %lu/%lu KB - B/Esc cancel",(unsigned long)(done/1024),(unsigned long)((total+1023)/1024));
         draw(); last=now;
@@ -696,9 +707,8 @@ int main(int argc,char **argv) {
     (void)argc;(void)argv;
     vid_set_mode(DM_640x480,PM_RGB565);bfont_set_encoding(BFONT_CODE_ISO8859_1);
     client_status("Starting DCVMU...");draw();
-    if(!net_default_dev)client_status("No network adapter. Enable BBA, then restart.");
-    else if(service_net_init()<0)client_status("HTTPS startup failed. Restart to retry.");
-    else {online=1;client_status("Ready. HTTPS certificate checks enabled.");}
+    if(service_net_init()==0) {online=1;client_status("Ready. HTTPS certificate checks enabled.");}
+    canceled=0;
     printf("dcvmu: startup %s\n",online?"ready":"offline");
 #ifdef DCVMU_AUTH_TEST
     char test_user[25]={0},test_token[96]={0};
