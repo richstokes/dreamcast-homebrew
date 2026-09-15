@@ -6,6 +6,8 @@ import sqlite3
 import tempfile
 import unittest
 import zlib
+from html import unescape
+from urllib.parse import parse_qs, urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from app import create_app
 
@@ -83,6 +85,57 @@ class ServiceTest(unittest.TestCase):
         data={'name':'My save','filename':'TEST_SAVE','game':'Test game','notes':'<script>x</script>','private':'0','save':(io.BytesIO(vms()),'test.vms','application/octet-stream')}
         data.update(overrides)
         return self.api.post('/api/v1/saves',data=data,headers=self.auth)
+
+    def test_web_sorting_filters_and_pagination(self):
+        records = []
+        with sqlite3.connect(self.path) as db:
+            owner = db.execute("SELECT id FROM users WHERE username='tester'").fetchone()[0]
+            other = db.execute('INSERT INTO users(username,email,password_hash,created) VALUES (?,?,?,?)',
+                               ('Alpha', 'alpha@example.com', 'unused', 1)).lastrowid
+            for number in range(47):
+                name = ('alpha' if number % 2 else 'Beta') + str(number % 3)
+                user = 'tester' if number < 24 else 'Alpha'
+                uploaded = None if number % 7 == 0 else 100 + number % 5
+                created = 50 + number
+                game = 'Other' if number == 46 else 'Test game'
+                private = int(number == 45)
+                sid = db.execute('''INSERT INTO saves(user_id,name,filename,game,notes,private,data,
+                    sha256,created,updated,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                    (owner if user == 'tester' else other, name + f' {number:02}', 'TEST_SAVE',
+                     game, '', private, vms(), 'fixture', created, 1000-number, uploaded)).lastrowid
+                records.append(dict(id=sid, name=name + f' {number:02}', user=user,
+                                    date=uploaded if uploaded is not None else created,
+                                    game=game, private=private))
+        def ids(response):
+            self.assertEqual(response.status_code, 200)
+            return [int(sid) for sid in re.findall(r'<h2><a href="/saves/(\d+)"', response.text)]
+        visible = [r for r in records if not r['private']]
+        expected = {
+            'uploaded_desc': sorted(visible, key=lambda r: (r['date'], r['id']), reverse=True),
+            'uploaded_asc': sorted(visible, key=lambda r: (r['date'], r['id'])),
+            'name_asc': sorted(visible, key=lambda r: (r['name'].lower(), r['id'])),
+            'name_desc': sorted(visible, key=lambda r: (r['name'].lower(), r['id']), reverse=True),
+            'user_asc': sorted(visible, key=lambda r: (r['user'].lower(), r['name'].lower(), r['id'])),
+            'user_desc': sorted(visible, key=lambda r: (r['user'] == 'Alpha', r['name'].lower(), r['id'])),
+        }
+        for sort, ordered in expected.items():
+            with self.subTest(sort=sort):
+                pages = [self.web.get('/', query_string={'sort': sort, 'page': page}) for page in (1, 2, 3)]
+                self.assertEqual([sid for page in pages for sid in ids(page)], [r['id'] for r in ordered])
+                self.assertIn(f'value="{sort}" selected', pages[0].text)
+                for response in pages:
+                    for url in re.findall(r'href="([^"]+)">(?:Next|Previous) page', response.text):
+                        self.assertEqual(parse_qs(urlsplit(unescape(url)).query)['sort'], [sort])
+        for sort in (None, 'invalid', 's.name; DROP TABLE saves'):
+            response = self.web.get('/', query_string={} if sort is None else {'sort': sort})
+            self.assertEqual(ids(response), [r['id'] for r in expected['uploaded_desc'][:20]])
+        query = {'sort': 'name_asc', 'user': 'TeStEr', 'game': 'Test game'}
+        first = self.web.get('/', query_string=query)
+        next_url = unescape(re.search(r'href="([^"]+)">Next page', first.text)[1])
+        self.assertEqual(parse_qs(urlsplit(next_url).query), {**{k: [v] for k, v in query.items()}, 'page': ['2']})
+        self.assertEqual(ids(first) + ids(self.web.get(next_url)),
+                         [r['id'] for r in expected['name_asc'] if r['user'] == 'tester' and r['game'] == 'Test game'])
+
     def test_download_icon_ranges(self):
         for offset in (0, 1):
             with self.subTest(offset=offset):

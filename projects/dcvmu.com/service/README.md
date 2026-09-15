@@ -5,6 +5,13 @@ SQLite and Gunicorn run behind Caddy on the dedicated shared game server.
 No JavaScript is required. Dreamcast browsers get the same semantic HTML forms;
 modern browsers additionally render the responsive stylesheet.
 
+The website's browse form sorts by upload date (newest or oldest first), save
+name, or username (A–Z or Z–A). Sorting applies before the 20-save page limit,
+and filter and pagination links retain the chosen order. Upload date is the
+default; legacy saves without a recorded upload time use their creation date.
+The `sort` query parameter accepts `uploaded_desc`, `uploaded_asc`, `name_asc`,
+`name_desc`, `user_asc`, or `user_desc`; unknown values use the default.
+
 ## Local development and verification
 
 ```sh

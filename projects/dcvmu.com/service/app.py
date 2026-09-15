@@ -268,6 +268,20 @@ def create_app(config=None):
     def browse():
         game = request.args.get('game', '')[:80]
         username = request.args.get('user', '')[:24]
+        sort_options = {
+            'uploaded_desc': ('Uploaded: newest first', 'COALESCE(s.uploaded_at,s.created) DESC,s.id DESC'),
+            'uploaded_asc': ('Uploaded: oldest first', 'COALESCE(s.uploaded_at,s.created) ASC,s.id ASC'),
+            'name_asc': ('Save name: A–Z', 's.name COLLATE NOCASE ASC,s.id ASC'),
+            'name_desc': ('Save name: Z–A', 's.name COLLATE NOCASE DESC,s.id DESC'),
+            'user_asc': ('Username: A–Z', 'u.username COLLATE NOCASE ASC,s.name COLLATE NOCASE ASC,s.id ASC'),
+            'user_desc': ('Username: Z–A', 'u.username COLLATE NOCASE DESC,s.name COLLATE NOCASE ASC,s.id ASC'),
+        }
+        sort = request.args.get('sort', 'uploaded_desc')
+        if sort not in sort_options:
+            sort = 'uploaded_desc'
+        # Only these fixed SQL expressions may enter ORDER BY. Legacy saves
+        # without an upload timestamp fall back to their original creation date.
+        order = sort_options[sort][1]
         try:
             offset = max(0, min(int(request.args.get('page', 1)), 100000) - 1) * 20
         except ValueError:
@@ -275,10 +289,10 @@ def create_app(config=None):
         rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,s.created,s.uploaded_at,
             length(s.data) AS size,substr(s.data,s.header_offset*512+1,640) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
             WHERE private=0 AND (?='' OR s.game=? COLLATE NOCASE)
-            AND (?='' OR u.username=? COLLATE NOCASE) ORDER BY updated DESC,s.id DESC LIMIT 21 OFFSET ?''',
+            AND (?='' OR u.username=? COLLATE NOCASE) ORDER BY ''' + order + ' LIMIT 21 OFFSET ?',
             (game, game, username, username, offset)).fetchall()
         return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header']), has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
-                    page_num=offset//20+1, game=game, username=username)
+                    page_num=offset//20+1, game=game, username=username, sort=sort, sort_options=sort_options)
 
     @app.get('/getting-started')
     def getting_started():
