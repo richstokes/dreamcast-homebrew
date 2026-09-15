@@ -63,8 +63,13 @@ verified. CI packages a self-booting CDI using mkdcdisc; local `make` builds the
   Enter/Tab finishes; Escape cancels editing.
 - Visibility starts **public**. Toggle it to **private** before uploading if
   only your account should see or download that save.
-- Duplicate name: A/Enter replaces the existing archive entry, Y/K keeps both
-  with a numbered name, and B/Backspace returns so you can choose another name.
+- Existing backups: the client matches the original VMU filename and shows a
+  seven-row paginated picker. A/Enter selects a backup, then confirms replacement;
+  X/N keeps a new copy. B returns without replacing anything. Replacement uses
+  the chosen save ID and revision, preserves its title, and applies the upload's
+  notes and visibility. Title collisions on new copies receive a number.
+- My saves: X/N opens Rename for the selected cloud save. Edit **Save title**,
+  then select **Save title** to commit; B cancels. Public saves cannot be renamed.
 - B / Escape / Backspace returns to the previous page (Escape exits at login/main menu).
 - Start exits, retaining a remembered login. Exiting shows a thank-you screen
   after cleanup; it stays visible until you power off/reset the Dreamcast or
@@ -82,9 +87,13 @@ B/Esc cancels icon loading while leaving the list available. If a preview reques
 fails, remaining icons use placeholders; selecting a save still downloads and
 verifies the complete file before offering installation.
 
-Name is fixed to the original VMU filename. Game is fixed to the VMU's long
-description, falling back to the filename when empty. Only optional notes and
-public/private visibility can be edited. The upload is the complete padded raw VMS file.
+Save title is editable (up to 64 characters), initially prefilled with the VMU
+filename so typing is optional. Game and the original VMU filename are read-only.
+The upload screen previews the embedded game description; the service supplies
+catalog names for known filenames and decoded descriptions for unknown files.
+Titles label cloud entries and never change the VMU filename or save bytes.
+Notes and public/private visibility are also editable. The upload is the complete
+padded raw VMS file.
 VMU mini-games (directory type `0xcc`) and empty entries are not listed.
 
 ## Network and credentials
@@ -244,3 +253,15 @@ projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_
 
 Deploy the updated service before distributing the new client; public browsing
 depends on the API's `user` and `game` filters. Real BBA hardware is unverified.
+
+The isolated public-browse integration test also exercises title editing, rename
+cancellation, ID-based replacement after a concurrent rename, Keep both, and
+cloud renaming without changing save bytes. Run it with the service virtualenv:
+
+```sh
+../service/.venv/bin/python tests/run_public_browse.py --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-title-check
+```
+
+This uses temporary synthetic accounts, a local HTTPS service, isolated VMUs,
+and Flycast's `DCNet=no` picoTCP backend. It never edits production saves.
+Deploy the service before publishing this client version.

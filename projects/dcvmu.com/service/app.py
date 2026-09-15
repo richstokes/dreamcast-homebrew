@@ -14,7 +14,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, abort, g, redirect, render_template, request, send_file, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
-from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png
+from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png, game_label
 
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 CLIENT_RELEASE_BASE = 'https://github.com/richstokes/dreamcast-homebrew/releases/latest/download'
@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS saves (
  revision INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL, updated INTEGER NOT NULL,
  UNIQUE(user_id, name));
 CREATE INDEX IF NOT EXISTS saves_browse ON saves(private, updated DESC);
+CREATE INDEX IF NOT EXISTS saves_owner_filename ON saves(user_id, filename, updated DESC, id DESC);
 CREATE INDEX IF NOT EXISTS saves_owner_browse ON saves(user_id, private, updated DESC, id DESC);
 CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
 '''
@@ -63,6 +64,16 @@ def create_app(config=None):
             db.execute('ALTER TABLE saves ADD COLUMN uploaded_at INTEGER')
             # Later revisions may be metadata edits: their last upload is unknown.
             db.execute('UPDATE saves SET uploaded_at=created WHERE revision=1')
+        # One-time catalog migration: read only headers, preserving curated labels.
+        if db.execute('PRAGMA user_version').fetchone()[0] < 1:
+            for sid, filename, game, header in db.execute(
+                    'SELECT id,filename,game,substr(data,header_offset*512+1,128) FROM saves'):
+                legacy = ''.join(chr(c) if 32 <= c < 127 else ' ' for c in header[16:48]).rstrip() or filename
+                if game in (filename, legacy, header_metadata(header).get('description')):
+                    label = game_label(filename, header)
+                    if label != game:
+                        db.execute('UPDATE saves SET game=? WHERE id=?', (label, sid))
+            db.execute('PRAGMA user_version=1')
         db.commit()
         db.execute('PRAGMA journal_mode=WAL')
 
@@ -181,6 +192,12 @@ def create_app(config=None):
         if required and not value:
             abort(400, f'{name.capitalize()} is required.')
         return value
+
+    def save_title():
+        title = text_field('name', 64, True)
+        if any(ord(c) < 32 for c in title):
+            abort(400, 'Save title must be one line.')
+        return title
 
     @app.get('/healthz')
     def health():
@@ -362,17 +379,37 @@ def create_app(config=None):
         row = visible_save(sid)
         if row['user_id'] != g.user['id']:
             abort(404)
+        name = save_title() if 'name' in request.form else row['name']
         notes = text_field('notes', 500)
         if request.form.get('private', '0') not in ('0', '1'):
             abort(400, 'Invalid visibility.')
         private = 1 if request.form.get('private') == '1' else 0
         revision = request.form.get('revision', '')
-        with database() as db:
-            changed = db.execute('UPDATE saves SET notes=?,private=?,revision=revision+1,updated=? WHERE id=? AND revision=? AND user_id=?',
-                                 (notes, private, int(time.time()), sid, revision, g.user['id'])).rowcount
+        try:
+            with database() as db:
+                changed = db.execute('UPDATE saves SET name=?,notes=?,private=?,revision=revision+1,updated=? WHERE id=? AND revision=? AND user_id=?',
+                                     (name, notes, private, int(time.time()), sid, revision, g.user['id'])).rowcount
+        except sqlite3.IntegrityError:
+            abort(409, 'You already have a save with that title. Choose another title.')
         if not changed:
             abort(409, 'This save changed. Reload before editing.')
         return redirect(url_for('detail', sid=sid), 303)
+
+    @app.post('/api/v1/saves/<int:sid>/rename')
+    def api_rename(sid):
+        require_user()
+        name = save_title()
+        try:
+            with database() as db:
+                changed = db.execute('UPDATE saves SET name=?,revision=revision+1,updated=? WHERE id=? AND user_id=? AND revision=?',
+                    (name, int(time.time()), sid, g.user['id'], request.form.get('revision', ''))).rowcount
+        except sqlite3.IntegrityError:
+            abort(409, 'You already have a save with that title.')
+        if not changed:
+            if not database().execute('SELECT 1 FROM saves WHERE id=? AND user_id=?', (sid, g.user['id'])).fetchone():
+                abort(404)
+            abort(409, 'This save changed. Refresh before renaming.')
+        return 'OK\n', 200, {'Content-Type': 'text/plain'}
 
     @app.route('/saves/<int:sid>/delete', methods=['GET', 'POST'])
     def delete_save(sid):
@@ -413,6 +450,12 @@ def create_app(config=None):
                 abort(400, 'Enter an exact username (3-24 letters, numbers or underscores).')
             where += ' AND s.user_id=(SELECT id FROM users WHERE username=?)'
             params.append(owner)
+        if 'filename' in request.args:
+            filename = request.args['filename']
+            if scope != 'mine' or not re.fullmatch(r'[A-Za-z0-9_.! -]{1,12}', filename):
+                abort(400, 'Filename matching is only available for your own saves.')
+            where += ' AND s.filename=?'
+            params.append(filename)
         game = request.args.get('game', '')
         if len(game) > 80 or any(ord(c) < 32 for c in game):
             abort(400, 'Invalid game filter.')
@@ -442,7 +485,7 @@ def create_app(config=None):
     def upload():
         require_user()
         limit('upload:' + str(g.user['id']), 60, 3600)
-        name = text_field('name', 64, True)
+        name = save_title()
         filename = text_field('filename', 12, True)
         notes = text_field('notes', 500)
         if not re.fullmatch(r'[A-Za-z0-9_.! -]{1,12}', filename) or filename in ('.', '..'):
@@ -451,6 +494,9 @@ def create_app(config=None):
             abort(400, 'Invalid visibility.')
         private = int(request.form.get('private', '0'))
         mode = request.form.get('mode', 'ask')
+        modern = request.form.get('match') == 'filename'
+        if request.form.get('match', '') not in ('', 'filename'):
+            abort(400, 'Invalid match mode.')
         if mode not in ('ask', 'replace', 'keep'):
             abort(400, 'Invalid duplicate action.')
         files = request.files.getlist('save')
@@ -475,31 +521,54 @@ def create_app(config=None):
                 raise ValueError()
         except ValueError:
             abort(400, 'Invalid VMU header offset.')
-        # Match the client's display title, using only the validated save header.
-        # Submitted game labels are untrusted, including on replacement uploads.
-        title = data[header_offset * 512 + 16:header_offset * 512 + 48]
-        game = ''.join(chr(c) if 32 <= c < 127 else ' ' for c in title).rstrip() or filename
+        game = game_label(filename, data, header_offset)
         sha = hashlib.sha256(data).hexdigest()
         now = int(time.time())
         db = database()
         try:
             db.execute('BEGIN IMMEDIATE')
-            existing = db.execute('SELECT id,revision FROM saves WHERE user_id=? AND name=?',
-                                  (g.user['id'], name)).fetchone()
-            if existing and mode == 'ask':
-                db.rollback()
-                return f"CONFLICT\n{existing['revision']}\n", 409, {'Content-Type': 'text/plain'}
+            existing = None
+            if modern:
+                if mode == 'replace':
+                    try:
+                        sid = int(request.form.get('save_id', ''))
+                    except ValueError:
+                        abort(400, 'Choose the save to replace.')
+                    existing = db.execute('SELECT * FROM saves WHERE user_id=? AND id=?', (g.user['id'], sid)).fetchone()
+                    if not existing:
+                        abort(404)
+                elif mode == 'ask' and db.execute('SELECT 1 FROM saves WHERE user_id=? AND filename=?', (g.user['id'], filename)).fetchone():
+                    db.rollback()
+                    return 'MATCHES\n', 409, {'Content-Type': 'text/plain'}
+            else:
+                # Compatibility for older clients: prefer their named target,
+                # then a single filename match after a website rename. Never
+                # guess between multiple backups or replace a different filename.
+                existing = db.execute('SELECT * FROM saves WHERE user_id=? AND name=?', (g.user['id'], name)).fetchone()
+                if not existing and mode != 'keep' and name == filename:
+                    matches = db.execute('SELECT * FROM saves WHERE user_id=? AND filename=? LIMIT 2', (g.user['id'], filename)).fetchall()
+                    if len(matches) > 1:
+                        abort(409, 'Multiple backups match. Update the client to choose a save.')
+                    existing = matches[0] if matches else None
+                if existing and mode == 'ask':
+                    db.rollback()
+                    return f"CONFLICT\n{existing['revision']}\n", 409, {'Content-Type': 'text/plain'}
             if mode == 'replace':
                 if not existing or str(existing['revision']) != request.form.get('revision'):
                     db.rollback()
                     return 'Save changed. Upload again to review the current version.\n', 409
+                if filename != existing['filename']:
+                    abort(400, 'Replacement must keep the original VMU filename.')
                 sid = existing['id']
-                db.execute('''UPDATE saves SET filename=?,game=?,notes=?,private=?,data=?,sha256=?,
-                    revision=revision+1,updated=? WHERE id=? AND user_id=?''', (filename, game, notes, private, data, sha, now, sid, g.user['id']))
+                # The title and catalog identity belong to this cloud entry.
+                # Uploading new progress must not undo a website/client rename.
+                name = existing['name']
+                db.execute('''UPDATE saves SET notes=?,private=?,data=?,sha256=?,
+                    revision=revision+1,updated=? WHERE id=? AND user_id=?''', (notes, private, data, sha, now, sid, g.user['id']))
             else:
                 if db.execute('SELECT count(*) FROM saves WHERE user_id=?', (g.user['id'],)).fetchone()[0] >= 200:
                     abort(400, 'Account limit reached (200 saves).')
-                if existing:
+                if db.execute('SELECT 1 FROM saves WHERE user_id=? AND name=?', (g.user['id'], name)).fetchone():
                     base = name[:56]
                     for number in range(2, 203):
                         name = f'{base} ({number})'

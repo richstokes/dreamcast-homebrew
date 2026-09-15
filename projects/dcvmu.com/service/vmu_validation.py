@@ -7,6 +7,29 @@ MAX_SAVE = 241 * 512  # Supports KOS expanded VMUs; still excludes whole-card im
 EYECATCH_BYTES = (0, 72 * 56 * 2, 512 + 72 * 56, 32 + 72 * 56 // 2)
 
 
+def game_label(filename, data, offset=0):
+    """Server-owned catalog labels; unknown files retain their embedded description.
+
+    These are known VMU filenames, not a universal game ID or proof of origin.
+    Keep region/slot suffixes in the original filename, never rewrite save bytes.
+    """
+    names = {
+        'MVLVSCP2_SYS': 'Marvel vs. Capcom 2', 'P_STONE2_DAT': 'Power Stone 2',
+        'POWSTONE_DAT': 'Power Stone', 'SCALIBUR_MBU': 'SoulCalibur',
+        'JETGRIND_SYS': 'Jet Grind Radio', 'CRAZYTAXI_DC': 'Crazy Taxi',
+        'REZ_________': 'Rez', 'D_COP_US.TRI': 'Dynamite Cop',
+        'D_COP_PL.TRI': 'Dynamite Cop', 'FLOIGAN_.D01': 'Floigan Bros.',
+    }
+    for prefix, title in (('SONICADV_', 'Sonic Adventure'), ('SONIC2___', 'Sonic Adventure 2'),
+                          ('CHU_CHU__', 'ChuChu Rocket!'), ('S.ARCADIAD', 'Skies of Arcadia'),
+                          ('ARCADIA_ED', 'Skies of Arcadia')):
+        if filename.startswith(prefix):
+            return title
+    if filename in names:
+        return names[filename]
+    return header_metadata(data[offset * 512:offset * 512 + 128]).get('description', '') or filename
+
+
 def has_vms_icon(header_and_frame):
     """Check for a complete first frame following a stored VMS header."""
     return (len(header_and_frame) >= 640

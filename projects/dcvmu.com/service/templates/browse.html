@@ -15,7 +15,7 @@
 {% elif view == 'list' %}
 <div class="save-table-scroll" role="region" aria-label="Save list" tabindex="0">
 <table class="save-table" aria-label="Public saves">
-  <thead><tr><th scope="col">Save</th><th scope="col">Game</th><th scope="col">User</th><th scope="col">Uploaded</th><th scope="col">Blocks</th></tr></thead>
+  <thead><tr><th scope="col">Save title</th><th scope="col">Game</th><th scope="col">User</th><th scope="col">Uploaded</th><th scope="col">Blocks</th></tr></thead>
   <tbody>{% for save in saves %}
     <tr>
       <td><div class="list-save-heading">{% include 'save_icon.html' %}<div><a class="list-save-name" href="{{ url_for('detail', sid=save.id) }}">{{ save.name }}</a><div class="list-save-filename">{{ save.filename }}</div></div></div></td>

@@ -246,6 +246,80 @@ class ServiceTest(unittest.TestCase):
                 self.assertEqual(db.execute('SELECT game,notes,private FROM saves WHERE id=?',
                     (sid,)).fetchone(), ('TEST_SAVE', 'Updated notes', 1))
 
+    def test_title_edits_and_id_replacement(self):
+        first = self.upload(name='Before final boss', filename='CRAZYTAXI_DC', match='filename')
+        self.assertEqual(first.status_code, 201)
+        sid = first.text.splitlines()[1]
+        detail = '/saves/' + sid
+        with sqlite3.connect(self.path) as db:
+            before = db.execute('SELECT data,sha256,filename,game,uploaded_at FROM saves WHERE id=?', (sid,)).fetchone()
+        renamed = self.web.post(detail + '/edit', data={'csrf': self.csrf(detail), 'revision': '1',
+            'name': 'Crazy Taxi - Personal best', 'notes': 'My record', 'private': '1', 'game': 'Forged'})
+        self.assertEqual(renamed.status_code, 303)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT data,sha256,filename,game,uploaded_at FROM saves WHERE id=?', (sid,)).fetchone(), before)
+        self.assertEqual(before[3], 'Crazy Taxi')
+        self.assertEqual(self.upload(name='Different title', filename='CRAZYTAXI_DC', match='filename').text, 'MATCHES\n')
+        listed = self.api.get('/api/v1/saves?filename=CRAZYTAXI_DC', headers=self.auth)
+        self.assertEqual(len(listed.text.splitlines()), 2)
+        self.assertIn('Crazy%20Taxi%20-%20Personal%20best', listed.text)
+        self.assertEqual(self.upload(match='filename', mode='replace', save_id=sid, revision='1', filename='CRAZYTAXI_DC').status_code, 409)
+        self.assertEqual(self.upload(match='filename', mode='replace', save_id=sid, revision='2', filename='OTHER_SAVE').status_code, 400)
+        replaced = self.upload(name='Should not replace title', match='filename', mode='replace', save_id=sid,
+            revision='2', filename='CRAZYTAXI_DC', save=(io.BytesIO(vms(payload=b'new progress')), 'new.vms', 'application/octet-stream'))
+        self.assertEqual(replaced.status_code, 201)
+        self.assertEqual(replaced.text.splitlines()[1:3], [sid, 'Crazy Taxi - Personal best'])
+        self.assertEqual(self.web.get(detail+'/download').data, vms(payload=b'new progress'))
+        rename = '/api/v1/saves/' + sid + '/rename'
+        self.assertEqual(self.api.post(rename, headers=self.auth, data={'name': 'Final title', 'revision': '3'}).status_code, 200)
+        self.assertEqual(self.api.post(rename, headers=self.auth, data={'name': 'Stale', 'revision': '3'}).status_code, 409)
+        for invalid in ('', 'x'*65, 'two\nlines', 'two\tcolumns'):
+            self.assertEqual(self.api.post(rename, headers=self.auth, data={'name': invalid, 'revision': '4'}).status_code, 400)
+        self.assertEqual(self.app.test_client().post(rename, data={'name': 'No auth', 'revision': '4'}).status_code, 401)
+        self.register('other')
+        login = self.web.post('/api/v1/login', data={'username':'other','password':'a-long-test-password'})
+        other = {'Authorization':'Bearer '+login.text.strip()}
+        self.assertEqual(self.api.post(rename, headers=other, data={'name': 'Not mine', 'revision': '4'}).status_code, 404)
+        self.assertEqual(self.api.post('/api/v1/saves', headers=other, data={
+            'name':'Not mine','filename':'CRAZYTAXI_DC','match':'filename','mode':'replace',
+            'save_id':sid,'revision':'4','save':(io.BytesIO(vms()),'save.vms','application/octet-stream')}).status_code, 404)
+
+    def test_filename_matches_titles_and_legacy_clients(self):
+        sid = self.upload(name='TEST_SAVE').text.splitlines()[1]
+        rename = '/api/v1/saves/'+sid+'/rename'
+        self.assertEqual(self.api.post(rename, headers=self.auth, data={'name':'Renamed','revision':'1'}).status_code,200)
+        self.assertEqual(self.upload(name='TEST_SAVE').text, 'CONFLICT\n2\n')
+        self.assertEqual(self.upload(name='TEST_SAVE',mode='replace',revision='2').text.splitlines()[2], 'Renamed')
+        # Explicit Keep both works despite identical titles and VMU filenames.
+        for i in range(8):
+            self.assertEqual(self.upload(name='Renamed', match='filename', mode='keep').status_code,201)
+        self.assertEqual(self.upload(name='TEST_SAVE').status_code,409)  # Old client cannot choose among backups.
+        pages = [self.api.get('/api/v1/saves', headers=self.auth,
+                    query_string={'filename':'TEST_SAVE','page':i}).text.splitlines() for i in (0,1)]
+        self.assertEqual([p[0] for p in pages], ['MORE\t1','MORE\t0'])
+        self.assertEqual(len(pages[0])+len(pages[1])-2,9)
+        self.assertEqual(self.api.get('/api/v1/saves?filename=OTHER',headers=self.auth).text,'MORE\t0\n')
+        self.assertEqual(self.api.get('/api/v1/saves?scope=public&filename=TEST_SAVE',headers=self.auth).status_code,400)
+        self.assertEqual(self.api.post(rename, headers=self.auth, data={'name':'Renamed (2)','revision':'3'}).status_code,409)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT name,revision FROM saves WHERE id=?',(sid,)).fetchone(),('Renamed',3))
+
+    def test_catalog_preserves_curated_game_and_title(self):
+        sid = self.upload(name='Hand picked title',filename='POWSTONE_DAT').text.splitlines()[1]
+        legacy = self.upload(name='Personal best',filename='CRAZYTAXI_DC').text.splitlines()[1]
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT game FROM saves WHERE id=?',(sid,)).fetchone()[0],'Power Stone')
+            db.execute('UPDATE saves SET game=? WHERE id=?',('Curated label',sid))
+            db.execute('UPDATE saves SET game=filename WHERE id=?',(legacy,))
+            before = db.execute('SELECT name,filename,data,sha256,revision,uploaded_at,header_offset FROM saves WHERE id=?',(legacy,)).fetchone()
+            db.execute('PRAGMA user_version=0')
+        create_app({'TESTING':True,'DATABASE':self.path})
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT name,game FROM saves WHERE id=?',(sid,)).fetchone(),('Hand picked title','Curated label'))
+            self.assertEqual(db.execute('SELECT game FROM saves WHERE id=?',(legacy,)).fetchone()[0],'Crazy Taxi')
+            self.assertEqual(db.execute('SELECT name,filename,data,sha256,revision,uploaded_at,header_offset FROM saves WHERE id=?',(legacy,)).fetchone(),before)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],1)
+
     def test_upload_game_comes_from_header(self):
         for offset in (0, 1):
             data = bytearray(vms(offset=offset))

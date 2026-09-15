@@ -234,3 +234,35 @@ Upload timestamps are server-generated UTC Unix seconds. A replacement updates
 `uploaded_at`; editing notes or visibility does not. Modern browsers display
 the viewer’s local timezone; no-JavaScript and console pages retain UTC. Legacy
 entries with an uncertain replacement history show their known first upload.
+
+
+## Save titles and replacement identity
+
+`name` remains the API/database field for the owner-editable **Save title**
+(1–64 characters, one line). Website Edit details accepts it alongside notes
+and visibility. `POST /api/v1/saves/<id>/rename` accepts bearer authentication,
+`name`, and `revision`, and returns `OK` on success. Both enforce ownership,
+reject stale revisions and title collisions with 409, and leave save bytes,
+SHA-256, filename, game, and upload timestamp untouched. Display titles remain
+unique within an account; Keep both adds a numerical suffix when needed.
+
+Game labels are server-managed. `game_label` maps known VMU filenames to catalog
+names, falling back to the decoded embedded description or original filename.
+The VMU application-ID/description fields are not universal game identifiers.
+One startup migration normalizes legacy automatically generated game labels but preserves
+curated labels and every title. Metadata edits cannot set Game or VMU filename.
+
+New client uploads send `match=filename`. With `mode=ask`, an existing owned
+filename returns `409 MATCHES\n` without changing anything. The client lists
+candidates through `GET /api/v1/saves?scope=mine&filename=<exact-name>&page=0`.
+Filename filtering uses an owner/filename index and the same seven-row pagination;
+it is rejected for public scope. `mode=replace` must include the selected
+`save_id` and current `revision`, and must retain the original filename. It keeps
+the existing title and catalog label, while replacing bytes, notes, and visibility.
+`mode=keep` explicitly creates another entry. No title edit affects matching.
+
+Legacy clients can still use name matching. Their default title equals the VMU
+filename; if a website rename removed that title, a unique filename match is used.
+Multiple filename matches return 409 and require an updated client to choose.
+A legacy replacement also cannot change the original VMU filename. Deploy the
+service first; old APIs and the nine-column download list remain compatible.

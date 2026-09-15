@@ -16,7 +16,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 #define ORANGE 0xa9a1
 #define BLUE 0x1a75
 
-typedef enum { STARTUP, AUTO_LOGIN, LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, PUBLIC_SEARCH, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED } screen_t;
+typedef enum { STARTUP, AUTO_LOGIN, LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, PUBLIC_SEARCH, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED, RENAME } screen_t;
 typedef struct { int port, unit; vmu_dir_t entry; char filename[13]; } save_t;
 static save_t saves[MAX_FILES];
 /* Only cache the visible page: 14 KiB, independent of card capacity. */
@@ -70,6 +70,8 @@ static int card_ids[8], card_count, card_filter = -1;
 static screen_t screen = STARTUP;
 static remote_save_t remote_saves[7];
 static int remote_count,remote_more,remote_page,remote_public,remote_selected;
+static int remote_matching, replacement_id;
+static char cloud_title[65];
 static char browse_user[25], browse_game[81];
 static int target_index,target_id,target_exists,target_old_size;
 static vmu_root_t target_root;
@@ -121,6 +123,8 @@ static char *field_value(size_t *capacity) {
         if(edit_field==0){*capacity=sizeof(browse_user);return browse_user;}
         *capacity=sizeof(browse_game);return browse_game;
     }
+    if(screen==RENAME){*capacity=sizeof(cloud_title);return cloud_title;}
+    if(screen==DETAILS && edit_field==0){*capacity=sizeof(save_name);return save_name;}
     *capacity=sizeof(notes); return notes;
 }
 static void draw(void) {
@@ -179,7 +183,8 @@ static void draw(void) {
         text(24,382,INK,"A edit / search   B/Esc menu");
     } else if(screen==DOWNLOADS) {
         char line[100];
-        if(remote_public)snprintf(line,sizeof(line),"Public: %s - page %d",browse_user,remote_page+1);
+        if(remote_matching)snprintf(line,sizeof(line),"Choose backup to replace - page %d",remote_page+1);
+        else if(remote_public)snprintf(line,sizeof(line),"Public: %s - page %d",browse_user,remote_page+1);
         else snprintf(line,sizeof(line),"My saves - page %d",remote_page+1);
         text(24,66,INK,line);
         if(!remote_count) {
@@ -188,12 +193,21 @@ static void draw(void) {
         }
         for(i=0;i<remote_count;++i) {
             draw_icon(&remote_icons[i],24,106+i*34);
-            snprintf(line,sizeof(line),"%c %.22s / %.17s",i==remote_selected?'>':' ',remote_saves[i].name,remote_saves[i].game);
+            snprintf(line,sizeof(line),"%c %.41s",i==remote_selected?'>':' ',remote_saves[i].name);
             text(64,108+i*34,i==remote_selected?BLUE:INK,line);
         }
+        if(remote_count)text(24,326,INK,remote_saves[remote_selected].game);
         snprintf(line,sizeof(line),"%s%sY/R refresh",remote_page?"Left: previous   ":"",remote_more?"Right: next   ":"");
         text(24,354,INK,line);
-        text(24,382,INK,remote_public?"A select   B/Esc change search":"A select   B/Esc menu");
+        text(24,382,INK,remote_matching?"A choose   X/N keep new   B back":remote_public?"A select   B/Esc change search":"A download   X/N rename   B/Esc menu");
+    } else if(screen==RENAME) {
+        text(24,66,INK,"Rename cloud save");
+        row(0,"Save title",cloud_title,0);
+        row(1,"Game (fixed)",remote_saves[remote_selected].game,0);
+        row(2,"VMU filename",remote_saves[remote_selected].filename,0);
+        action_row(3,"Save title","");
+        text(24,328,INK,"A edit / save   B cancel");
+        text(24,366,INK,"Only the archive title changes.");
     } else if(screen==DESTINATION) {
         char line[100];text(24,66,INK,"Choose destination VMU");
         snprintf(line,sizeof(line),"%.32s (%d blocks)",remote_saves[remote_selected].filename,remote_saves[remote_selected].size/512);
@@ -235,19 +249,21 @@ static void draw(void) {
         text(24,382,INK,"Y/R rescan   B/Esc menu   Start exits");
     } else if(screen==DETAILS) {
         text(24,66,INK,"Upload details");
+        text(24,88,BLUE,saves[selected].filename);
         draw_save_icon(selected,568,62);
-        row(0,"Name (fixed)",save_name,0); row(1,"Game (fixed)",game,0); row(2,"Notes",notes,0);
+        row(0,"Save title",save_name,0); row(1,"Game (fixed)",game,0); row(2,"Notes",notes,0);
         row(3,"Visibility",private_save?"PRIVATE - only you":"PUBLIC - everyone",0);
         action_row(4,"Upload","");
         text(24,328,INK,"A edit / toggle / upload   B back");
         text(24,366,INK,"Duplicates always ask before replacing.");
     } else if(screen==CONFLICT) {
-        text(24,66,ORANGE,"A save with this name already exists.");
+        text(24,66,ORANGE,"Replace this cloud backup?");
+        text(24,88,BLUE,remote_saves[remote_selected].name);
         text(24,112,INK,"Choose what to do with your upload:");
         action_row(1,"Replace existing", "A button / Enter");
         action_row(2,"Keep both", "Y button / K");
-        text(24,268,INK,"B / Backspace: return and rename");
-        text(24,308,INK,"Replace uses these notes and visibility.");
+        text(24,268,INK,"B / Backspace: choose another backup");
+        text(24,308,INK,"Keeps its title; uses new notes/visibility.");
     } else {
         text(24,80,BLUE,"Save uploaded successfully.");
         text(24,132,INK,"Visit dcvmu.com to view your archive.");
@@ -345,16 +361,19 @@ static void choose_save(void) {
         game[32]=0; for(j=31;j>=0&&game[j]==' ';--j)game[j]=0;
         if(!game[0])snprintf(game,sizeof(game),"%s",s->filename);
     }
-    notes[0]=0;private_save=0;revision=0;focus=2;screen=DETAILS;
+    notes[0]=0;private_save=0;revision=0;replacement_id=remote_matching=0;focus=0;screen=DETAILS;
     printf("dcvmu: read %s (%d bytes), VMU unchanged\n",s->filename,save_size);
-    client_status("Add notes and choose visibility before uploading.");
+    client_status("Set a title, notes and visibility before upload.");
 }
 static void upload(const char *mode) {
     int result;
     canceled=0;client_status("Connecting securely...");draw();
     result=service_upload(token,save_name,saves[selected].filename,game,notes,private_save,
-                          save_data,(size_t)save_size,saves[selected].entry.hdroff,mode,&revision);
-    if(result==1) { screen=CONFLICT;focus=1;client_status("Nothing overwritten. Choose an action."); }
+                          save_data,(size_t)save_size,saves[selected].entry.hdroff,mode,replacement_id,&revision);
+    if(result==1 || result==2) {
+        remote_matching=1;remote_public=0;remote_page=0;replacement_id=0;
+        if(load_downloads()<0){screen=DETAILS;remote_matching=0;}
+    }
     else if(result==0) { screen=SUCCESS;free(save_data);save_data=NULL; }
     dirty=1;
 }
@@ -383,8 +402,11 @@ static void sign_out(void) {
 static int load_downloads(void) {
     remote_save_t items[7]={0};int count=0,more=0;
     canceled=0;client_status("Loading saves...");draw();
-    int listed=service_list(token,remote_public?browse_user:NULL,remote_public?browse_game:NULL,
-                            remote_page,items,&count,&more);
+    int listed=remote_matching?service_matches(token,saves[selected].filename,remote_page,items,&count,&more):
+        service_list(token,remote_public?browse_user:NULL,remote_public?browse_game:NULL,remote_page,items,&count,&more);
+    if(listed==0 && remote_matching)for(int i=0;i<count;++i)if(strcmp(items[i].user,username)) {
+        client_status("Unexpected backup owner. Refresh and retry.");return -1;
+    }
     if(listed==0) {
         /* Commit only a complete list. Failed/canceled page turns keep the
            previous list, selection and icons available for a retry. */
@@ -398,7 +420,7 @@ static int load_downloads(void) {
             dirty=1;draw();
         }
         client_status(!remote_count?(remote_public?"No public saves match. Check username and game.":"You have no saves on this page."):
-                      canceled?"Icon loading canceled. Select a save.":"Select a save to download.");
+                      remote_matching?"Choose a backup, or X/N to keep a new copy.":canceled?"Icon loading canceled. Select a save.":"Select a save to download.");
     }
     dirty=1;return listed;
 }
@@ -500,32 +522,49 @@ static void activate(void) {
         } else client_status("Enter username and password.");
     } else if(screen==HOME) {
         if(focus==0){screen=FILES;scan();}
-        else if(focus==1){remote_page=remote_public=0;load_downloads();}
+        else if(focus==1){remote_page=remote_public=remote_matching=0;load_downloads();}
         else if(focus==2){screen=PUBLIC_SEARCH;focus=0;client_status("Enter the save owner's username.");}
         else sign_out();
     } else if(screen==PUBLIC_SEARCH) {
         if(focus<2)edit_begin(focus);
-        else {remote_page=0;remote_public=1;load_downloads();}
+        else {remote_page=0;remote_public=1;remote_matching=0;load_downloads();}
     } else if(screen==DOWNLOADS) {
-        if(remote_count) {
+        if(remote_matching) {
+            if(remote_count){replacement_id=remote_saves[remote_selected].id;revision=remote_saves[remote_selected].revision;screen=CONFLICT;focus=1;}
+        } else if(remote_count) {
             canceled=0;free(save_data);save_data=NULL;
             if(service_download(token,&remote_saves[remote_selected],&save_data)==0) {
                 screen=DESTINATION;destination_cards();client_status("Select a destination. Nothing written yet.");
             }
         }
+    } else if(screen==RENAME) {
+        if(focus==0)edit_begin(0);
+        else if(cloud_title[0]) {
+            canceled=0;
+            if(service_rename(token,&remote_saves[remote_selected],cloud_title)==0) {
+                screen=DOWNLOADS;load_downloads();client_status("Save title updated. VMU unchanged.");
+            }
+        } else client_status("Enter a save title.");
     } else if(screen==DESTINATION)prepare_install();
     else if(screen==INSTALL_CONFIRM) {
         if(focus==0)screen=DESTINATION;else install_download();
     } else if(screen==INSTALLED) {free(save_data);save_data=NULL;screen=HOME;focus=0;}
     else if(screen==FILES)choose_save();
     else if(screen==DETAILS) {
-        if(focus==2)edit_begin(focus);
+        if(focus==0 || focus==2)edit_begin(focus);
         else if(focus==3)private_save=!private_save;
         else if(save_name[0]&&game[0])upload("ask");
-        else client_status("Name and game are required.");
+        else client_status("A save title is required.");
     } else if(screen==CONFLICT)upload("replace");
     else {screen=FILES;scan();}
     dirty=1;
+}
+static void cloud_action(void) {
+    if(screen!=DOWNLOADS)return;
+    if(remote_matching){replacement_id=0;upload("keep");return;}
+    if(remote_public || !remote_count)return;
+    snprintf(cloud_title,sizeof(cloud_title),"%s",remote_saves[remote_selected].name);
+    screen=RENAME;focus=0;client_status("Edit the title, then choose Save title.");
 }
 static void move(int delta) {
     if(screen==FILES && save_count)selected=(selected+delta+save_count)%save_count;
@@ -535,17 +574,24 @@ static void move(int delta) {
     else if(screen==HOME)focus=(focus+delta+4)%4;
     else if(screen==PUBLIC_SEARCH)focus=(focus+delta+3)%3;
     else if(screen==LOGIN)focus=(focus+delta+3)%3;
-    else if(screen==DETAILS)focus=2+(focus-2+delta+3)%3;
+    else if(screen==RENAME)focus=focus==0?3:0;
+    else if(screen==DETAILS) {
+        static const int fields[]={0,2,3,4};int index=0;
+        while(index<3 && fields[index]!=focus)++index;
+        focus=fields[(index+delta+4)%4];
+    }
     dirty=1;
 }
 static void back(void) {
     if(edit_field>=0)edit_end(1);
     else if(screen==INSTALL_CONFIRM)screen=DESTINATION;
     else if(screen==DESTINATION || screen==INSTALLED){screen=DOWNLOADS;free(save_data);save_data=NULL;free(target_old);target_old=NULL;}
+    else if(screen==RENAME){screen=DOWNLOADS;client_status("Rename canceled.");}
+    else if(screen==DOWNLOADS && remote_matching){screen=DETAILS;remote_matching=0;replacement_id=0;focus=0;}
     else if(screen==DOWNLOADS && remote_public){screen=PUBLIC_SEARCH;focus=2;client_status("Edit the search or find saves again.");}
     else if(screen==PUBLIC_SEARCH){screen=HOME;focus=2;client_status("");}
     else if(screen==FILES || screen==DOWNLOADS || screen==SUCCESS){screen=HOME;focus=0;client_status("");}
-    else if(screen==CONFLICT){screen=DETAILS;focus=2;}
+    else if(screen==CONFLICT){screen=DOWNLOADS;replacement_id=0;}
     else if(screen==DETAILS) {screen=FILES;free(save_data);save_data=NULL;}
     dirty=1;
 }
@@ -569,12 +615,13 @@ static void run_self_test(void) {
         printf("dcvmu: PUBLIC UPLOAD SELF-TEST PASS\n");
         choose_save();upload("ask");
     }
+    if(screen==DOWNLOADS && remote_matching)activate();
     if(screen!=CONFLICT||revision<1)goto fail;
     int previous_revision=revision;
     printf("dcvmu: DUPLICATE CONFLICT SELF-TEST PASS\n");
     private_save=1;upload("replace");if(screen!=SUCCESS)goto fail;
     printf("dcvmu: PRIVATE REPLACE SELF-TEST PASS\n");
-    choose_save();upload("ask");if(screen!=CONFLICT||revision!=previous_revision+1)goto fail;
+    choose_save();upload("ask");if(screen==DOWNLOADS && remote_matching)activate();if(screen!=CONFLICT||revision!=previous_revision+1)goto fail;
     upload("keep");if(screen!=SUCCESS)goto fail;
     printf("dcvmu: KEEP BOTH SELF-TEST PASS\n");
     printf("dcvmu: SELF-TEST PASSED\n");return;
@@ -730,7 +777,7 @@ int main(int argc,char **argv) {
             if(pressed&CONT_DPAD_DOWN)move(1);
             if((pressed&CONT_A)&&online)activate();
             if(pressed&CONT_B)back();
-            if((pressed&CONT_X)&&screen==HOME)sign_out();
+            if(pressed&CONT_X){if(screen==HOME)sign_out();else cloud_action();}
             if(pressed&CONT_Y) {if(screen==DOWNLOADS)refresh_downloads();
                 else if(screen==DESTINATION)destination_cards();else if(screen==FILES)scan();else if(screen==CONFLICT)upload("keep");}
         }
@@ -757,6 +804,7 @@ int main(int argc,char **argv) {
                     if(screen==DOWNLOADS)refresh_downloads();
                     else if(screen==DESTINATION)destination_cards();else if(screen==FILES)scan();
                 }
+                else if(key==KBD_KEY_N)cloud_action();
                 else if(key==KBD_KEY_L&&screen==HOME)sign_out();
                 else if(key==KBD_KEY_K&&screen==CONFLICT)upload("keep");
             }

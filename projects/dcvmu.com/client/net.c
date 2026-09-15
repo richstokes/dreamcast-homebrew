@@ -162,7 +162,7 @@ static void part(curl_mime *mime, const char *key, const char *value) {
 }
 int service_upload(const char *token, const char *name, const char *filename,
                    const char *game, const char *notes, int private_save,
-                   const void *data, size_t size, int header_offset, const char *mode, int *revision) {
+                   const void *data, size_t size, int header_offset, const char *mode, int save_id, int *revision) {
     if(auth_is_save(filename,data,size)){client_status("Login saves cannot be uploaded.");return -1;}
     CURL *curl = request_new("/api/v1/saves");
     curl_mime *mime;
@@ -182,6 +182,8 @@ int service_upload(const char *token, const char *name, const char *filename,
     headers = curl_slist_append(headers, auth);
     headers = curl_slist_append(headers, "Expect:");
     part(mime, "name", name); part(mime, "filename", filename);
+    part(mime, "match", "filename");
+    if(save_id>0){snprintf(version,sizeof(version),"%d",save_id);part(mime,"save_id",version);}
     part(mime, "game", game); part(mime, "notes", notes);
     part(mime, "private", private_save ? "1" : "0"); part(mime, "mode", mode);
     snprintf(version, sizeof(version), "%d", header_offset); part(mime, "header_offset", version);
@@ -194,6 +196,7 @@ int service_upload(const char *token, const char *name, const char *filename,
     status = perform(curl);
     curl_mime_free(mime); curl_slist_free_all(headers); curl_easy_reset(curl);
     memset(auth, 0, sizeof(auth));
+    if(status == 409 && !strcmp(response, "MATCHES\n"))return 2;
     if(status == 409 && !strncmp(response, "CONFLICT\n", 9)) {
         *revision = atoi(response + 9); return 1;
     }
@@ -235,7 +238,7 @@ static struct curl_slist *authorize(CURL *curl,const char *token) {
     memset(auth,0,sizeof(auth));curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
     return headers;
 }
-int service_list(const char *token,const char *owner,const char *game_filter,int page,remote_save_t *items,int *count,int *more) {
+static int list_filtered(const char *token,const char *owner,const char *game_filter,const char *filename,int page,remote_save_t *items,int *count,int *more) {
     *count=0;*more=0;
     if(owner && (strlen(owner)<3 || strlen(owner)>24 ||
        strspn(owner,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")!=strlen(owner))) {
@@ -247,6 +250,10 @@ int service_list(const char *token,const char *owner,const char *game_filter,int
     char path[400];snprintf(path,sizeof(path),"/api/v1/saves?scope=%s&page=%d%s%s&game=%s",
         owner?"public":"mine",page,owner?"&user=":"",owner?owner:"",escaped);
     curl_free(escaped);
+    if(filename) {
+        char *file=curl_easy_escape(NULL,filename,0);if(!file)return -1;
+        size_t used=strlen(path);snprintf(path+used,sizeof(path)-used,"&filename=%s",file);curl_free(file);
+    }
     CURL *curl=request_new(path);if(!curl)return -1;
     struct curl_slist *headers=authorize(curl,token);
     long status=perform(curl);curl_slist_free_all(headers);
@@ -282,6 +289,7 @@ int service_list(const char *token,const char *owner,const char *game_filter,int
             *count=0;*more=0;curl_easy_reset(curl);
             client_status("Service returned another user. Update service.");return -1;
         }
+        if(filename && strcmp(filename,out->filename))goto invalid;
         ++*count;
     }
     curl_easy_reset(curl);return 0;
@@ -321,6 +329,24 @@ int service_icon(const char *token,const remote_save_t *item,unsigned char heade
        downloaded and SHA-256 checked separately before installation. */
     if(status!=206 || buffer.size!=640){memset(header,0,640);return -1;}
     return 0;
+}
+int service_list(const char *token,const char *owner,const char *game_filter,int page,remote_save_t *items,int *count,int *more) {
+    return list_filtered(token,owner,game_filter,NULL,page,items,count,more);
+}
+int service_matches(const char *token,const char *filename,int page,remote_save_t *items,int *count,int *more) {
+    return list_filtered(token,NULL,NULL,filename,page,items,count,more);
+}
+int service_rename(const char *token,const remote_save_t *item,const char *title) {
+    char path[100];snprintf(path,sizeof(path),"/api/v1/saves/%d/rename",item->id);
+    CURL *curl=request_new(path);if(!curl)return -1;
+    char *escaped=curl_easy_escape(curl,title,0);if(!escaped){curl_easy_reset(curl);return -1;}
+    char body[400];snprintf(body,sizeof(body),"name=%s&revision=%d",escaped,item->revision);curl_free(escaped);
+    struct curl_slist *headers=authorize(curl,token);
+    curl_easy_setopt(curl,CURLOPT_POSTFIELDS,body);
+    long status=perform(curl);curl_slist_free_all(headers);curl_easy_reset(curl);
+    if(status==200 && !strcmp(response,"OK\n"))return 0;
+    client_status(status==409?"Title taken or save changed. Refresh and retry.":"Could not rename this save. Refresh and retry.");
+    return -1;
 }
 int service_download(const char *token,const remote_save_t *item,void **data) {
     *data=NULL;

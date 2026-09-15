@@ -48,6 +48,50 @@ static void run_public_test(void) {
     back();focus=2;activate();strcpy(browse_user,"sharer");strcpy(browse_game,"stone");focus=2;activate();
     refresh_downloads();if(screen!=DOWNLOADS || remote_page || remote_count!=3)goto fail;
     printf("dcvmu: PUBLIC SEARCH EMPTY PRIVACY AND REFRESH PASS\n");
+    back();back();focus=0;activate();
+    for(selected=0;selected<save_count;++selected)if(!strcmp(saves[selected].filename,"SAVE_4"))break;
+    if(selected==save_count)goto fail;
+    choose_save();if(screen!=DETAILS || focus!=0)goto fail;
+    activate();if(edit_field!=0)goto fail;
+    while(save_name[0])edit_char('\b');
+    for(const char *p="Before final boss";*p;++p)edit_char(*p);
+    edit_end(0);move(1);if(focus!=2)goto fail; /* Fixed game is skipped. */
+    focus=4;activate();if(screen!=SUCCESS)goto fail;
+    choose_save();upload("ask");
+    if(screen!=DOWNLOADS || !remote_matching || remote_count!=1)goto fail;
+    remote_save_t original=remote_saves[0];
+    if(strcmp(original.name,"Before final boss"))goto fail;
+    /* A concurrent metadata rename invalidates the pending replacement. */
+    activate();if(screen!=CONFLICT || replacement_id!=original.id)goto fail;
+    if(service_rename(token,&original,"Renamed elsewhere")<0)goto fail;
+    upload("replace");if(screen!=CONFLICT)goto fail;
+    back();refresh_downloads();activate();
+    if(revision!=original.revision+1)goto fail;
+    upload("replace");if(screen!=SUCCESS)goto fail;
+    remote_save_t matches[7];int count,more;
+    if(service_matches(token,"SAVE_4",0,matches,&count,&more)<0 || count!=1 || more ||
+       matches[0].id!=original.id || strcmp(matches[0].name,"Renamed elsewhere") ||
+       strcmp(matches[0].sha256,original.sha256))goto fail;
+    printf("dcvmu: CUSTOM TITLE AND STALE ID REPLACEMENT PASS\n");
+    choose_save();upload("ask");if(screen!=DOWNLOADS || !remote_matching)goto fail;
+    cloud_action();if(screen!=SUCCESS)goto fail; /* Keep a new copy. */
+    screen=HOME;focus=1;activate();
+    if(screen!=DOWNLOADS || remote_matching || remote_count!=3)goto fail;
+    for(remote_selected=0;remote_selected<remote_count;++remote_selected)
+        if(remote_saves[remote_selected].id==original.id)break;
+    if(remote_selected==remote_count)goto fail;
+    cloud_action();if(screen!=RENAME || focus!=0)goto fail;
+    activate();edit_char('x');back();if(strcmp(cloud_title,"Renamed elsewhere"))goto fail;
+    activate();while(cloud_title[0])edit_char('\b');
+    for(const char *p="Client renamed title";*p;++p)edit_char(*p);
+    edit_end(0);move(1);activate();if(screen!=DOWNLOADS)goto fail;
+    if(service_matches(token,"SAVE_4",0,matches,&count,&more)<0 || count!=2 || more)goto fail;
+    int renamed=0;for(int i=0;i<count;++i)if(matches[i].id==original.id) {
+        if(strcmp(matches[i].name,"Client renamed title") || strcmp(matches[i].sha256,original.sha256))goto fail;
+        renamed=1;
+    }
+    if(!renamed)goto fail;
+    printf("dcvmu: KEEP BOTH AND CLOUD RENAME WITHOUT BINARY CHANGES PASS\n");
     printf("dcvmu: PUBLIC BROWSE SELF-TEST PASSED\n");
     return;
 fail:

@@ -36,7 +36,7 @@ int main(void) {
         size_t size = sizes[i % 3];
         printf("UPLOAD STRESS BEGIN %d size=%u\n", i, (unsigned)size);
         if(service_upload("synthetic-test-token", "stress", "DCVMU_TEST",
-                          "Test", "", 1, data, size, 0, "ask", &revision))
+                          "Test", "", 1, data, size, 0, "ask", 0, &revision))
             break;
         ++passed;
     }
