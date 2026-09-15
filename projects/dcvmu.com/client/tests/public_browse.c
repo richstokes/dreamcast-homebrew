@@ -3,7 +3,7 @@ static void run_public_test(void) {
     FILE *fixture=fopen("/rd/test-service.txt","r");
     if(!fixture){printf("dcvmu: PUBLIC BROWSE SELF-TEST FAILED: local fixture required\n");return;}
     fclose(fixture);
-    strcpy(username,"reader");strcpy(password,"local-fixture-password");
+    strcpy(username,"ReAdEr");strcpy(password,"local-fixture-password");
     screen=LOGIN;focus=2;activate();if(screen!=HOME)goto fail;
     move(-1);if(focus!=3)goto fail;
     move(-1);activate();if(screen!=PUBLIC_SEARCH || focus!=0)goto fail;

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 #define MAX_FILES 1600
@@ -404,7 +405,7 @@ static int load_downloads(void) {
     canceled=0;client_status("Loading saves...");draw();
     int listed=remote_matching?service_matches(token,saves[selected].filename,remote_page,items,&count,&more):
         service_list(token,remote_public?browse_user:NULL,remote_public?browse_game:NULL,remote_page,items,&count,&more);
-    if(listed==0 && remote_matching)for(int i=0;i<count;++i)if(strcmp(items[i].user,username)) {
+    if(listed==0 && remote_matching)for(int i=0;i<count;++i)if(strcasecmp(items[i].user,username)) {
         client_status("Unexpected backup owner. Refresh and retry.");return -1;
     }
     if(listed==0) {
