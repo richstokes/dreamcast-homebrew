@@ -42,3 +42,23 @@
 .client-screenshot{margin:24px 0}.client-screenshot img{display:block;width:100%;height:auto;border-radius:8px}.client-screenshot figcaption{margin-top:8px;font-size:14px;color:#52647a}
 
 .button.danger,input[type=submit].danger{background:#a32121;border-color:#a32121}.button.danger:hover,input[type=submit].danger:hover{background:#7e1919}
+
+.browse-filters{gap:12px}
+.browse-filters label{flex:1 1 140px;min-width:0}
+.browse-filters .sort-control{flex:1.4 1 220px}
+.browse-filters .view-control{flex:.6 1 90px}
+.browse-filters label input,.browse-filters label select{width:100%}
+.save-table-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:white}
+.save-table-scroll:focus-visible{outline:3px solid #ee905a;outline-offset:3px}
+.save-table{width:100%;min-width:760px;border-collapse:collapse;table-layout:fixed;font-size:13px;line-height:1.5}
+.save-table th{padding:12px 14px;background:#e8edf5;text-align:left;font-size:12px;color:#52647a}
+.save-table th:nth-child(1){width:38%}.save-table th:nth-child(2){width:20%}.save-table th:nth-child(3){width:13%}.save-table th:nth-child(4){width:21%}.save-table th:nth-child(5){width:8%}
+.save-table td{padding:12px 14px;border-top:1px solid #e8edf3;overflow-wrap:anywhere;vertical-align:middle}
+.save-table tbody tr:hover,.save-table tbody tr:focus-within{background:#f5f7fa}
+.save-table a{text-decoration:none}.save-table a:hover{text-decoration:underline}
+.list-save-heading{display:flex;align-items:center;gap:12px}.list-save-heading>div{min-width:0}
+.list-save-heading .save-icon{width:40px;height:40px;flex-basis:40px}
+.list-save-name{font-weight:bold;color:var(--ink)}
+.list-save-filename{margin-top:4px;font:11px/1.5 monospace;color:var(--muted)}
+.save-table time{color:var(--muted);font-size:12px}
+.save-table .list-save-size,.save-table th:last-child{text-align:right}

@@ -7,7 +7,11 @@ modern browsers additionally render the responsive stylesheet.
 
 The website's browse form sorts by upload date (newest or oldest first), save
 name, or username (A–Z or Z–A). Sorting applies before the 20-save page limit,
-and filter and pagination links retain the chosen order. Upload date is the
+and filter and pagination links retain the chosen order and Cards/List view.
+List uses a compact table with save, game, user, upload date, and block count.
+Changing either dropdown applies the form immediately in modern browsers; Apply
+remains available without JavaScript. The `view` query parameter accepts `cards`
+(the default) or `list`. Upload date is the
 default; legacy saves without a recorded upload time use their creation date.
 The `sort` query parameter accepts `uploaded_desc`, `uploaded_asc`, `name_asc`,
 `name_desc`, `user_asc`, or `user_desc`; unknown values use the default.

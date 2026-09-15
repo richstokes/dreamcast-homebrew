@@ -279,6 +279,9 @@ def create_app(config=None):
         sort = request.args.get('sort', 'uploaded_desc')
         if sort not in sort_options:
             sort = 'uploaded_desc'
+        view = request.args.get('view', 'cards')
+        if view not in ('cards', 'list'):
+            view = 'cards'
         # Only these fixed SQL expressions may enter ORDER BY. Legacy saves
         # without an upload timestamp fall back to their original creation date.
         order = sort_options[sort][1]
@@ -292,7 +295,7 @@ def create_app(config=None):
             AND (?='' OR u.username=? COLLATE NOCASE) ORDER BY ''' + order + ' LIMIT 21 OFFSET ?',
             (game, game, username, username, offset)).fetchall()
         return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header']), has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
-                    page_num=offset//20+1, game=game, username=username, sort=sort, sort_options=sort_options)
+                    page_num=offset//20+1, game=game, username=username, sort=sort, sort_options=sort_options, view=view)
 
     @app.get('/getting-started')
     def getting_started():

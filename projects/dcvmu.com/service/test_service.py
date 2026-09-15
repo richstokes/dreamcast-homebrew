@@ -108,7 +108,7 @@ class ServiceTest(unittest.TestCase):
                                     game=game, private=private))
         def ids(response):
             self.assertEqual(response.status_code, 200)
-            return [int(sid) for sid in re.findall(r'<h2><a href="/saves/(\d+)"', response.text)]
+            return [int(sid) for sid in re.findall(r'(?:<h2><a|<a class="list-save-name") href="/saves/(\d+)"', response.text)]
         visible = [r for r in records if not r['private']]
         expected = {
             'uploaded_desc': sorted(visible, key=lambda r: (r['date'], r['id']), reverse=True),
@@ -118,23 +118,46 @@ class ServiceTest(unittest.TestCase):
             'user_asc': sorted(visible, key=lambda r: (r['user'].lower(), r['name'].lower(), r['id'])),
             'user_desc': sorted(visible, key=lambda r: (r['user'] == 'Alpha', r['name'].lower(), r['id'])),
         }
-        for sort, ordered in expected.items():
-            with self.subTest(sort=sort):
-                pages = [self.web.get('/', query_string={'sort': sort, 'page': page}) for page in (1, 2, 3)]
-                self.assertEqual([sid for page in pages for sid in ids(page)], [r['id'] for r in ordered])
-                self.assertIn(f'value="{sort}" selected', pages[0].text)
-                for response in pages:
-                    for url in re.findall(r'href="([^"]+)">(?:Next|Previous) page', response.text):
-                        self.assertEqual(parse_qs(urlsplit(unescape(url)).query)['sort'], [sort])
+        for view in ('cards', 'list'):
+            for sort, ordered in expected.items():
+                with self.subTest(sort=sort, view=view):
+                    pages = [self.web.get('/', query_string={'sort': sort, 'view': view, 'page': page}) for page in (1, 2, 3)]
+                    self.assertEqual([sid for page in pages for sid in ids(page)], [r['id'] for r in ordered])
+                    self.assertIn(f'value="{sort}" selected', pages[0].text)
+                    self.assertIn(f'value="{view}" selected', pages[0].text)
+                    self.assertEqual('<table class="save-table"' in pages[0].text, view == 'list')
+                    for response in pages:
+                        for url in re.findall(r'href="([^"]+)">(?:Next|Previous) page', response.text):
+                            params = parse_qs(urlsplit(unescape(url)).query)
+                            self.assertEqual(params['sort'], [sort])
+                            self.assertEqual(params['view'], [view])
         for sort in (None, 'invalid', 's.name; DROP TABLE saves'):
             response = self.web.get('/', query_string={} if sort is None else {'sort': sort})
             self.assertEqual(ids(response), [r['id'] for r in expected['uploaded_desc'][:20]])
-        query = {'sort': 'name_asc', 'user': 'TeStEr', 'game': 'Test game'}
+        query = {'sort': 'name_asc', 'user': 'TeStEr', 'game': 'Test game', 'view': 'list'}
         first = self.web.get('/', query_string=query)
         next_url = unescape(re.search(r'href="([^"]+)">Next page', first.text)[1])
         self.assertEqual(parse_qs(urlsplit(next_url).query), {**{k: [v] for k, v in query.items()}, 'page': ['2']})
         self.assertEqual(ids(first) + ids(self.web.get(next_url)),
                          [r['id'] for r in expected['name_asc'] if r['user'] == 'tester' and r['game'] == 'Test game'])
+
+    def test_browse_view_fallback_empty_and_console(self):
+        empty = self.web.get('/?view=list&sort=name_asc&user=nobody')
+        self.assertIn('No matching saves', empty.text)
+        self.assertNotIn('<table', empty.text)
+        self.assertEqual(self.upload().status_code, 201)
+        fallback = self.web.get('/?view=invalid')
+        self.assertIn('value="cards" selected', fallback.text)
+        self.assertIn('class="save-card"', fallback.text)
+        desktop = self.web.get('/?view=list').text
+        self.assertIn('/static/browse.js', desktop)
+        self.assertIn('data-local-time', desktop)
+        self.assertIn('value="Apply"', desktop)
+        for agent in ('DreamKey', 'DreamPassport', 'Dreamcast'):
+            console = self.web.get('/?view=list', headers={'User-Agent': agent}).text
+            self.assertNotIn('/static/browse.js', console)
+            self.assertIn('<table class="save-table"', console)
+            self.assertIn('value="Apply"', console)
 
     def test_download_icon_ranges(self):
         for offset in (0, 1):
