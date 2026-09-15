@@ -286,7 +286,7 @@ class ServiceTest(unittest.TestCase):
         reader = {'Authorization': 'Bearer ' + token}
         self.assertEqual(self.api.post('/api/v1/saves', headers=reader, data={
             'name': 'Unrelated', 'filename': 'OTHER',
-            'save': (io.BytesIO(vms()), 'test.vms')}).status_code, 201)
+            'save': (io.BytesIO(vms()), 'test.vms', 'application/octet-stream')}).status_code, 201)
 
         def listing(page, **filters):
             response = self.api.get('/api/v1/saves', headers=reader, query_string={
