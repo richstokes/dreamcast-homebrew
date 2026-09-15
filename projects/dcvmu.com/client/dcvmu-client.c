@@ -16,7 +16,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 #define ORANGE 0xa9a1
 #define BLUE 0x1a75
 
-typedef enum { STARTUP, AUTO_LOGIN, LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED } screen_t;
+typedef enum { STARTUP, AUTO_LOGIN, LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, PUBLIC_SEARCH, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED } screen_t;
 typedef struct { int port, unit; vmu_dir_t entry; char filename[13]; } save_t;
 static save_t saves[MAX_FILES];
 /* Only cache the visible page: 14 KiB, independent of card capacity. */
@@ -70,6 +70,7 @@ static int card_ids[8], card_count, card_filter = -1;
 static screen_t screen = STARTUP;
 static remote_save_t remote_saves[7];
 static int remote_count,remote_more,remote_page,remote_public,remote_selected;
+static char browse_user[25], browse_game[81];
 static int target_index,target_id,target_exists,target_old_size;
 static vmu_root_t target_root;
 static void *target_old;
@@ -116,6 +117,10 @@ static char *field_value(size_t *capacity) {
         if(edit_field==0) { *capacity=sizeof(username); return username; }
         *capacity=sizeof(password); return password;
     }
+    if(screen==PUBLIC_SEARCH) {
+        if(edit_field==0){*capacity=sizeof(browse_user);return browse_user;}
+        *capacity=sizeof(browse_game);return browse_game;
+    }
     *capacity=sizeof(notes); return notes;
 }
 static void draw(void) {
@@ -160,19 +165,35 @@ static void draw(void) {
         text(24,66,INK,"What would you like to do?");
         action_row(0,"Upload a save","VMU to account");
         action_row(1,"Download a save","Account to VMU");
-        action_row(2,"Sign out","");
+        action_row(2,"Browse Public Saves","");
+        action_row(3,"Sign out","");
         text(24,310,INK,"A / Enter select   Start exits");
+    } else if(screen==PUBLIC_SEARCH) {
+        text(24,66,INK,"Browse Public Saves");
+        row(0,"Username",browse_user,0);
+        row(1,"Game (optional)",browse_game,0);
+        action_row(2,"Find saves","");
+        text(24,250,INK,"Discover saves at dcvmu.com first.");
+        text(24,282,INK,"Enter the owner's exact username here.");
+        text(24,314,INK,"Game matches part of the game title.");
+        text(24,382,INK,"A edit / search   B/Esc menu");
     } else if(screen==DOWNLOADS) {
-        char line[100];snprintf(line,sizeof(line),"%s - page %d",remote_public?"Public saves":"My saves",remote_page+1);
+        char line[100];
+        if(remote_public)snprintf(line,sizeof(line),"Public: %s - page %d",browse_user,remote_page+1);
+        else snprintf(line,sizeof(line),"My saves - page %d",remote_page+1);
         text(24,66,INK,line);
-        if(!remote_count)text(24,116,INK,"No saves on this page.");
+        if(!remote_count) {
+            text(24,116,INK,"No saves on this page.");
+            if(remote_public)text(24,152,INK,"B: check username or change game filter.");
+        }
         for(i=0;i<remote_count;++i) {
             draw_icon(&remote_icons[i],24,106+i*34);
-            snprintf(line,sizeof(line),"%c %.24s / %.15s",i==remote_selected?'>':' ',remote_saves[i].name,remote_saves[i].user);
+            snprintf(line,sizeof(line),"%c %.22s / %.17s",i==remote_selected?'>':' ',remote_saves[i].name,remote_saves[i].game);
             text(64,108+i*34,i==remote_selected?BLUE:INK,line);
         }
-        text(24,354,INK,"Left/Right page  Y/R My/Public saves");
-        text(24,382,INK,"A select   B/Esc back");
+        snprintf(line,sizeof(line),"%s%sY/R refresh",remote_page?"Left: previous   ":"",remote_more?"Right: next   ":"");
+        text(24,354,INK,line);
+        text(24,382,INK,remote_public?"A select   B/Esc change search":"A select   B/Esc menu");
     } else if(screen==DESTINATION) {
         char line[100];text(24,66,INK,"Choose destination VMU");
         snprintf(line,sizeof(line),"%.32s (%d blocks)",remote_saves[remote_selected].filename,remote_saves[remote_selected].size/512);
@@ -286,13 +307,15 @@ static void scan(void) {
     printf("dcvmu: scanned %d data saves\n",save_count);
     client_status(save_count?"Select a save to upload.":"No saves. Y/R rescans inserted VMUs.");
 }
-static void load_downloads(void);
+static int load_downloads(void);
 static void switch_card(int delta) {
     if(screen==DOWNLOADS) {
+        int previous_page=remote_page;
         if(delta<0 && remote_page>0)--remote_page;
         else if(delta>0 && remote_more)++remote_page;
         else return;
-        load_downloads();return;
+        if(load_downloads()<0)remote_page=previous_page;
+        return;
     }
     int index=0;
     if(screen!=FILES)return;
@@ -357,13 +380,16 @@ static void sign_out(void) {
     remembered=0;memset(token,0,sizeof(token));screen=LOGIN;focus=0;dirty=1;
     client_status(result==0?"Signed out; saved login removed.":"Signed out. Reinsert VMU to remove login save.");
 }
-static void load_downloads(void) {
-    remote_count=0;remote_selected=0;
-    memset(remote_icons,0,sizeof(remote_icons));
+static int load_downloads(void) {
+    remote_save_t items[7]={0};int count=0,more=0;
     canceled=0;client_status("Loading saves...");draw();
-    int listed=service_list(token,remote_public,remote_page,remote_saves,&remote_count,&remote_more);
-    screen=DOWNLOADS;
+    int listed=service_list(token,remote_public?browse_user:NULL,remote_public?browse_game:NULL,
+                            remote_page,items,&count,&more);
     if(listed==0) {
+        /* Commit only a complete list. Failed/canceled page turns keep the
+           previous list, selection and icons available for a retry. */
+        memcpy(remote_saves,items,sizeof(items));remote_count=count;remote_more=more;remote_selected=0;
+        memset(remote_icons,0,sizeof(remote_icons));screen=DOWNLOADS;
         client_status("Loading save icons...");draw();
         for(int i=0;i<remote_count;++i) {
             unsigned char header[640];
@@ -371,9 +397,14 @@ static void load_downloads(void) {
             decode_icon(&remote_icons[i],header,sizeof(header));
             dirty=1;draw();
         }
-        client_status(canceled?"Icon loading canceled. Select a save.":"Select a save to download.");
+        client_status(!remote_count?(remote_public?"No public saves match. Check username and game.":"You have no saves on this page."):
+                      canceled?"Icon loading canceled. Select a save.":"Select a save to download.");
     }
-    screen=DOWNLOADS;dirty=1;
+    dirty=1;return listed;
+}
+static void refresh_downloads(void) {
+    int previous_page=remote_page;remote_page=0;
+    if(load_downloads()<0)remote_page=previous_page;
 }
 static void destination_cards(void) {
     card_count=0;target_index=0;
@@ -470,7 +501,11 @@ static void activate(void) {
     } else if(screen==HOME) {
         if(focus==0){screen=FILES;scan();}
         else if(focus==1){remote_page=remote_public=0;load_downloads();}
+        else if(focus==2){screen=PUBLIC_SEARCH;focus=0;client_status("Enter the save owner's username.");}
         else sign_out();
+    } else if(screen==PUBLIC_SEARCH) {
+        if(focus<2)edit_begin(focus);
+        else {remote_page=0;remote_public=1;load_downloads();}
     } else if(screen==DOWNLOADS) {
         if(remote_count) {
             canceled=0;free(save_data);save_data=NULL;
@@ -497,7 +532,8 @@ static void move(int delta) {
     else if(screen==DOWNLOADS && remote_count)remote_selected=(remote_selected+delta+remote_count)%remote_count;
     else if(screen==DESTINATION && card_count)target_index=(target_index+delta+card_count)%card_count;
     else if(screen==INSTALL_CONFIRM)focus=(focus+delta+2)%2;
-    else if(screen==HOME)focus=(focus+delta+3)%3;
+    else if(screen==HOME)focus=(focus+delta+4)%4;
+    else if(screen==PUBLIC_SEARCH)focus=(focus+delta+3)%3;
     else if(screen==LOGIN)focus=(focus+delta+3)%3;
     else if(screen==DETAILS)focus=2+(focus-2+delta+3)%3;
     dirty=1;
@@ -506,7 +542,9 @@ static void back(void) {
     if(edit_field>=0)edit_end(1);
     else if(screen==INSTALL_CONFIRM)screen=DESTINATION;
     else if(screen==DESTINATION || screen==INSTALLED){screen=DOWNLOADS;free(save_data);save_data=NULL;free(target_old);target_old=NULL;}
-    else if(screen==FILES || screen==DOWNLOADS || screen==SUCCESS){screen=HOME;focus=0;}
+    else if(screen==DOWNLOADS && remote_public){screen=PUBLIC_SEARCH;focus=2;client_status("Edit the search or find saves again.");}
+    else if(screen==PUBLIC_SEARCH){screen=HOME;focus=2;client_status("");}
+    else if(screen==FILES || screen==DOWNLOADS || screen==SUCCESS){screen=HOME;focus=0;client_status("");}
     else if(screen==CONFLICT){screen=DETAILS;focus=2;}
     else if(screen==DETAILS) {screen=FILES;free(save_data);save_data=NULL;}
     dirty=1;
@@ -544,7 +582,7 @@ fail:printf("dcvmu: SELF-TEST FAILED screen=%d status=%s\n",screen,status_text);
 }
 #endif
 
-#ifdef DCVMU_DOWNLOAD_TEST
+#if defined(DCVMU_DOWNLOAD_TEST) && !defined(DCVMU_PUBLIC_TEST)
 static void run_download_test(void) {
     FILE *credentials=fopen("/rd/test-credentials.txt","r");
     if(!credentials)return;
@@ -587,13 +625,22 @@ static void run_download_test(void) {
     back();back();if(screen!=HOME)goto fail;
     focus=0;activate();if(screen!=FILES)goto fail;
     back();if(screen!=HOME)goto fail;
-    remote_public=1;remote_page=0;load_downloads();
+    focus=2;activate();if(screen!=PUBLIC_SEARCH)goto fail;
+    strcpy(browse_user,username);focus=2;activate();
     if(remote_count!=7 || remote_more)goto fail;
+    back();if(screen!=PUBLIC_SEARCH)goto fail;
     back();if(screen!=HOME)goto fail;
     printf("dcvmu: DOWNLOAD NAVIGATION AND PUBLIC LIST PASS\n");
     sign_out();printf("dcvmu: DOWNLOAD SELF-TEST PASSED\n");return;
 fail:printf("dcvmu: DOWNLOAD SELF-TEST FAILED screen=%d status=%s\n",screen,status_text);
 }
+#endif
+
+#ifdef DCVMU_PUBLIC_TEST
+#ifndef DCVMU_DOWNLOAD_TEST
+#error "PUBLIC_TEST requires DOWNLOAD_TEST and the isolated HTTPS fixture"
+#endif
+#include "tests/public_browse.c"
 #endif
 
 int main(int argc,char **argv) {
@@ -653,8 +700,11 @@ int main(int argc,char **argv) {
     if(card_filter!=1 || save_count!=total) return 6;
     printf("dcvmu: VMU SWITCH SELF-TEST PASS (%d saves on A1, empty A2)\n",total);
 #endif
-#ifdef DCVMU_DOWNLOAD_TEST
+#if defined(DCVMU_DOWNLOAD_TEST) && !defined(DCVMU_PUBLIC_TEST)
     if(online)run_download_test();
+#endif
+#ifdef DCVMU_PUBLIC_TEST
+    if(online)run_public_test();
 #endif
     while(!quit) {
         maple_device_t *dev=maple_enum_type(0,MAPLE_FUNC_CONTROLLER);
@@ -681,7 +731,7 @@ int main(int argc,char **argv) {
             if((pressed&CONT_A)&&online)activate();
             if(pressed&CONT_B)back();
             if((pressed&CONT_X)&&screen==HOME)sign_out();
-            if(pressed&CONT_Y) {if(screen==DOWNLOADS){remote_public=!remote_public;remote_page=0;load_downloads();}
+            if(pressed&CONT_Y) {if(screen==DOWNLOADS)refresh_downloads();
                 else if(screen==DESTINATION)destination_cards();else if(screen==FILES)scan();else if(screen==CONFLICT)upload("keep");}
         }
         dev=maple_enum_type(0,MAPLE_FUNC_KEYBOARD);
@@ -704,7 +754,7 @@ int main(int argc,char **argv) {
                 else if(key==KBD_KEY_ENTER&&online)activate();
                 else if(key==KBD_KEY_BACKSPACE)back();
                 else if(key==KBD_KEY_R) {
-                    if(screen==DOWNLOADS){remote_public=!remote_public;remote_page=0;load_downloads();}
+                    if(screen==DOWNLOADS)refresh_downloads();
                     else if(screen==DESTINATION)destination_cards();else if(screen==FILES)scan();
                 }
                 else if(key==KBD_KEY_L&&screen==HOME)sign_out();

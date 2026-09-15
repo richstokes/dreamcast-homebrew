@@ -193,6 +193,25 @@ percent-encoded fields: id, revision, original filename, archive name, game,
 username, byte size, SHA-256, and VMS header offset in blocks. My saves includes
 private entries owned by the caller; public excludes every private entry.
 
+New Dreamcast clients use
+`GET /api/v1/saves?scope=public&user=<username>&game=<title-substring>&page=0`.
+`user` is an exact, case-insensitive username (3-24 ASCII letters, digits or
+underscores); an explicitly empty or invalid username returns 400. It is only
+accepted with `scope=public`. Unknown and private-only accounts return an empty
+list, and public mode excludes even the caller's own private saves. Optional
+`game` is a literal, case-insensitive substring of at most 80 characters; `%` and
+`_` are literal characters. URL-encode query values.
+
+Filtering happens before pagination. Results sort by `updated DESC, id DESC`
+and fetch only eight rows to determine whether the next seven-row page exists.
+The indexed owner lookup limits console searches to one account's maximum 200
+saves (29 pages); it does not scan every user's archive or count all results.
+Offset pagination is bounded by that account limit; concurrent edits can shift
+page boundaries, so the client's refresh action restarts at page zero. Revisit
+cursor pagination if the account cap is substantially increased. The unfiltered
+public endpoint remains available for older clients. Deploy these service changes
+before releasing the new client; the new index is created at service startup.
+
 `GET /api/v1/saves/<id>/download?revision=<revision>` requires bearer
 authentication, enforces the same privacy rules as the website, and returns exact
 binary bytes. A changed revision returns 409; clients must refresh before trying

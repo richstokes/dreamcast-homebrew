@@ -273,6 +273,69 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(self.api.get('/api/v1/saves?'+query,headers=other).status_code,400)
         self.assertEqual(self.upload(header_offset='1').status_code,400)
 
+    def test_public_owner_search_filters_before_pagination(self):
+        from urllib.parse import unquote
+        self.upload(name='Private', private='1')
+        for i in range(8):
+            self.assertEqual(self.upload(name='Public ' + str(i)).status_code, 201)
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE saves SET game='Power Stone',updated=123")
+        self.register('reader')
+        token = self.api.post('/api/v1/login', data={
+            'username': 'reader', 'password': 'a-long-test-password'}).text.strip()
+        reader = {'Authorization': 'Bearer ' + token}
+        self.assertEqual(self.api.post('/api/v1/saves', headers=reader, data={
+            'name': 'Unrelated', 'filename': 'OTHER',
+            'save': (io.BytesIO(vms()), 'test.vms')}).status_code, 201)
+
+        def listing(page, **filters):
+            response = self.api.get('/api/v1/saves', headers=reader, query_string={
+                'scope': 'public', 'user': 'TeStEr', 'page': page, **filters})
+            self.assertEqual(response.status_code, 200)
+            lines = response.text.splitlines()
+            return lines[0], [[unquote(c) for c in row.split('\t')] for row in lines[1:]]
+
+        first_more, first = listing(0, game='stone')
+        last_more, last = listing(1, game='STONE')
+        self.assertEqual((first_more, last_more), ('MORE\t1', 'MORE\t0'))
+        self.assertEqual((len(first), len(last)), (7, 1))
+        self.assertEqual([row[3] for row in first + last], ['Public ' + str(i) for i in reversed(range(8))])
+        self.assertTrue(all(row[5] == 'tester' for row in first + last))
+        sid = first[0][0]
+        self.assertEqual(self.api.get('/api/v1/saves/' + sid + '/download?revision=1', headers=reader).data, vms())
+        for filters in ({'user': 'test'}, {'user': 'nobody'}, {'game': 'Missing'},
+                        {'game': '%'}, {'game': '_'}):
+            self.assertEqual(listing(0, **filters), ('MORE\t0', []))
+        # Public mode excludes the caller's own private entries too.
+        own = self.api.get('/api/v1/saves?scope=public&user=tester', headers=self.auth)
+        self.assertNotIn('Private', own.text)
+        for query in ({'user': ''}, {'user': 'te'}, {'user': 'tester%'},
+                      {'user': 'a' * 25}, {'game': 'x' * 81}, {'game': '\n'},
+                      {'scope': 'mine', 'user': 'tester'}):
+            response = self.api.get('/api/v1/saves', headers=reader,
+                                    query_string={'scope': 'public', **query})
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.app.test_client().get('/api/v1/saves?scope=public&user=tester').status_code, 401)
+
+    def test_public_owner_at_account_capacity(self):
+        self.upload()
+        with sqlite3.connect(self.path) as db:
+            for i in range(199):
+                db.execute('INSERT INTO saves(user_id,name,filename,game,notes,private,data,sha256,created,updated) '
+                           'SELECT user_id,?,filename,game,notes,private,data,sha256,created,updated FROM saves WHERE id=1',
+                           ('Save ' + str(i),))
+        ids = []
+        for page in range(29):
+            response = self.api.get('/api/v1/saves', headers=self.auth,
+                                    query_string={'scope': 'public', 'user': 'tester', 'page': page})
+            self.assertEqual(response.status_code, 200)
+            lines = response.text.splitlines()
+            self.assertEqual(lines[0], 'MORE\t' + ('1' if page < 28 else '0'))
+            self.assertEqual(len(lines)-1, 7 if page < 28 else 4)
+            ids.extend(row.split('\t')[0] for row in lines[1:])
+        self.assertEqual(len(set(ids)), 200)
+        self.assertEqual(self.api.get('/api/v1/saves?scope=public&user=tester&page=29', headers=self.auth).text, 'MORE\t0\n')
+
     def test_ci_client_downloads(self):
         base='https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.'
         for extension in ('elf','cdi'):

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS saves (
  revision INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL, updated INTEGER NOT NULL,
  UNIQUE(user_id, name));
 CREATE INDEX IF NOT EXISTS saves_browse ON saves(private, updated DESC);
+CREATE INDEX IF NOT EXISTS saves_owner_browse ON saves(user_id, private, updated DESC, id DESC);
 CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
 '''
 
@@ -387,6 +388,21 @@ def create_app(config=None):
         except ValueError:
             abort(400, 'Invalid page.')
         where, params = ('s.user_id=?', [g.user['id']]) if scope == 'mine' else ('s.private=0', [])
+        # Keep the unfiltered v1 endpoint for older clients. New console clients
+        # supply an exact owner, bounding this search to the 200-save account cap.
+        if 'user' in request.args:
+            owner = request.args['user']
+            if scope != 'public' or not re.fullmatch(r'[A-Za-z0-9_]{3,24}', owner):
+                abort(400, 'Enter an exact username (3-24 letters, numbers or underscores).')
+            where += ' AND s.user_id=(SELECT id FROM users WHERE username=?)'
+            params.append(owner)
+        game = request.args.get('game', '')
+        if len(game) > 80 or any(ord(c) < 32 for c in game):
+            abort(400, 'Invalid game filter.')
+        if game:
+            # Literal substring: percent and underscore are not wildcards.
+            where += ' AND instr(lower(s.game),lower(?))>0'
+            params.append(game)
         rows = database().execute(
             'SELECT s.id,s.revision,s.filename,s.name,s.game,u.username,length(s.data) AS size,s.sha256,s.header_offset '
             'FROM saves s JOIN users u ON u.id=s.user_id WHERE ' + where +

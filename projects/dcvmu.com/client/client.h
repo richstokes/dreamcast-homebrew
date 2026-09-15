@@ -20,7 +20,9 @@ typedef struct {
     int id, revision, size, header_offset;
     char filename[13], name[65], game[81], user[25], sha256[65];
 } remote_save_t;
-int service_list(const char *token, int public_saves, int page, remote_save_t *items, int *count, int *more);
+/* owner == NULL lists my saves; public browsing requires an exact owner. */
+int service_list(const char *token, const char *owner, const char *game_filter, int page,
+                 remote_save_t *items, int *count, int *more);
 int service_download(const char *token, const remote_save_t *item, void **data);
 /* Fetch only the VMS header and first icon frame; never writes a VMU. */
 int service_icon(const char *token, const remote_save_t *item, unsigned char header[640]);

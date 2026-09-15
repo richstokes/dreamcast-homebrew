@@ -152,9 +152,26 @@ application functions; real controller and real hardware testing remains open.
 ## Upload and download navigation
 
 After manual or remembered login, the main menu offers **Upload a save**,
-**Download a save**, and **Sign out**. Upload retains the existing VMU picker.
-Download starts with **My saves**, including private saves. Y/R toggles public
-saves; Left/Right changes pages. A/Enter downloads the selected entry over HTTPS,
+**Download a save**, **Browse Public Saves**, and **Sign out**. Upload retains the existing VMU picker.
+Download opens **My saves**, including private saves.
+
+To get someone else's saves, find them on dcvmu.com first and note the owner's
+username. Choose **Browse Public Saves**, enter that exact username (case does
+not matter), optionally enter part of a game title, and select **Find saves**.
+Both fields support the controller's on-screen keyboard and a Dreamcast keyboard.
+Only that account's public saves appear, even when searching your own username.
+An unknown username, private-only account, or unmatched game shows an empty list;
+B/Esc returns to the populated search form so you can correct it.
+
+Lists show seven saves with icons and game titles per page, newest updates first.
+Left/Right changes pages; available directions appear below the list. Y/R refreshes
+from page one using the same search. Failed/canceled page requests retain the
+previous page, selection and icons. Public browsing requires an owner; there is
+no global public-feed toggle. The current 200-save account limit means at most
+29 pages per owner, with just one page cached in Dreamcast memory. Changes made
+on the website while browsing can shift entries between pages; refresh to restart.
+
+A/Enter downloads the selected entry over HTTPS,
 checks its expected length and SHA-256, then opens the destination VMU picker.
 Y/R rescans destination cards. No card is written while browsing or downloading.
 
@@ -212,3 +229,18 @@ For a local HTTPS fixture, git-ignored `romdisk/test-service.txt` supplies its
 origin and `romdisk/test-ca.pem` its test CA. Certificate verification stays on.
 Remove all `romdisk/test-*` files and clean-rebuild before releasing. Launcher
 host checks: `python3 -m unittest discover -s projects/dcvmu.com/client/tests`.
+
+The public-browser integration test builds in a temporary directory and runs
+the actual local Flask service over verified HTTPS with synthetic accounts and
+isolated VMUs. It exercises username editing/canceling, owner privacy, game
+filtering, next/previous pages, failed-page recovery, empty results, rejection
+of an unfiltered service response, and another user's download/install/read-back.
+Run it using the service's Python environment and this Mac's LAN IPv4 address:
+
+```sh
+projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py \
+  --host 192.168.1.200 --log-dir /tmp/dcvmu-public-browse
+```
+
+Deploy the updated service before distributing the new client; public browsing
+depends on the API's `user` and `game` filters. Real BBA hardware is unverified.

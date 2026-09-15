@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define SERVICE "https://dcvmu.com"
 static kthread_t *poll_thread;
@@ -74,7 +75,7 @@ static CURL *request_new(const char *path) {
     if(!http_client) http_client=curl_easy_init();
     curl=http_client;
     if(curl)curl_easy_reset(curl);
-    char url[256];
+    char url[640];
     if(!curl) { client_status("Could not allocate HTTPS client."); return NULL; }
     const char *origin=SERVICE;
 #ifdef DCVMU_DOWNLOAD_TEST
@@ -234,12 +235,21 @@ static struct curl_slist *authorize(CURL *curl,const char *token) {
     memset(auth,0,sizeof(auth));curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
     return headers;
 }
-int service_list(const char *token,int public_saves,int page,remote_save_t *items,int *count,int *more) {
-    char path[96];snprintf(path,sizeof(path),"/api/v1/saves?scope=%s&page=%d",public_saves?"public":"mine",page);
+int service_list(const char *token,const char *owner,const char *game_filter,int page,remote_save_t *items,int *count,int *more) {
+    *count=0;*more=0;
+    if(owner && (strlen(owner)<3 || strlen(owner)>24 ||
+       strspn(owner,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")!=strlen(owner))) {
+        client_status("Enter a username: 3-24 letters, numbers or _.");return -1;
+    }
+    if(game_filter && strlen(game_filter)>80)return -1;
+    char *escaped=curl_easy_escape(NULL,game_filter?game_filter:"",0);
+    if(!escaped){client_status("Could not allocate search request.");return -1;}
+    char path[400];snprintf(path,sizeof(path),"/api/v1/saves?scope=%s&page=%d%s%s&game=%s",
+        owner?"public":"mine",page,owner?"&user=":"",owner?owner:"",escaped);
+    curl_free(escaped);
     CURL *curl=request_new(path);if(!curl)return -1;
     struct curl_slist *headers=authorize(curl,token);
     long status=perform(curl);curl_slist_free_all(headers);
-    *count=0;*more=0;
     if(status!=200){curl_easy_reset(curl);return -1;}
     char *state,*line=strtok_r(response,"\n",&state);
     if(!line || (strcmp(line,"MORE\t0") && strcmp(line,"MORE\t1")))goto invalid;
@@ -267,11 +277,16 @@ int service_list(const char *token,int public_saves,int page,remote_save_t *item
         if(out->id<=0||out->revision<=0||out->size<512||out->size>131072||out->size%512||
            out->header_offset<0||out->header_offset>=out->size/512||strlen(out->sha256)!=64||
            strspn(out->sha256,"0123456789abcdef")!=64||auth_is_save(out->filename,NULL,0))goto invalid;
+        /* Fail closed if an older service ignores the owner filter. */
+        if(owner && strcasecmp(owner,out->user)) {
+            *count=0;*more=0;curl_easy_reset(curl);
+            client_status("Service returned another user. Update service.");return -1;
+        }
         ++*count;
     }
     curl_easy_reset(curl);return 0;
 invalid:
-    *count=0;curl_easy_reset(curl);client_status("Invalid save list from service.");return -1;
+    *count=0;*more=0;curl_easy_reset(curl);client_status("Invalid save list from service.");return -1;
 }
 typedef struct {unsigned char *bytes;size_t size,capacity;} download_buffer;
 static size_t receive_download(char *data,size_t size,size_t count,void *context) {
