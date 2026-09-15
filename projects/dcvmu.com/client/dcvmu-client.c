@@ -97,20 +97,24 @@ static void row(int index, const char *label, const char *value, int masked) {
     snprintf(line, sizeof(line), "%c %s: %s", focus==index?'>':' ', label, value);
     text(24, 116+index*36, focus==index?BLUE:INK, line);
 }
+static void action_row(int index, const char *label, const char *hint) {
+    char line[100];
+    snprintf(line, sizeof(line), "%c %s%s%s", focus==index?'>':' ', label,
+             hint[0]?": ":"!", hint);
+    text(24, 116+index*36, focus==index?BLUE:INK, line);
+}
 static char *field_value(size_t *capacity) {
     if(screen==LOGIN) {
         if(edit_field==0) { *capacity=sizeof(username); return username; }
         *capacity=sizeof(password); return password;
     }
-    if(edit_field==0) { *capacity=sizeof(save_name); return save_name; }
-    if(edit_field==1) { *capacity=sizeof(game); return game; }
     *capacity=sizeof(notes); return notes;
 }
 static void draw(void) {
     int i;
     vid_waitvbl();
     for(i=0;i<640*480;++i) vram_s[i]=PAPER;
-    text(24, 18, ORANGE, "DCVMU / DREAMCAST SAVE ARCHIVE");
+    text(24, 18, ORANGE, "DCVMU.com / Cloud Saves for Dreamcast");
     if(edit_field>=0) {
         size_t capacity; char *value=field_value(&capacity), display[501];
         (void)capacity;
@@ -132,15 +136,15 @@ static void draw(void) {
     } else if(screen==LOGIN) {
         text(24,66,INK,"Log in - register first at dcvmu.com");
         row(0,"Username",username,0); row(1,"Password",password,1);
-        row(2,"Log in","",0);
+        action_row(2,"Log in","");
         text(24,274,INK,"D-pad choose / A edit or continue");
         text(24,310,INK,"Keyboard: arrows, Enter, Tab");
         text(24,346,INK,"Login token saved to VMU; password in RAM.");
     } else if(screen==HOME) {
         text(24,66,INK,"What would you like to do?");
-        row(0,"Upload a save","VMU to account",0);
-        row(1,"Download a save","Account to VMU",0);
-        row(2,"Sign out","",0);
+        action_row(0,"Upload a save","VMU to account");
+        action_row(1,"Download a save","Account to VMU");
+        action_row(2,"Sign out","");
         text(24,310,INK,"A / Enter select   Start exits");
     } else if(screen==DOWNLOADS) {
         char line[100];snprintf(line,sizeof(line),"%s - page %d",remote_public?"Public saves":"My saves",remote_page+1);
@@ -194,16 +198,16 @@ static void draw(void) {
     } else if(screen==DETAILS) {
         text(24,66,INK,"Upload details");
         draw_save_icon(selected,568,62);
-        row(0,"Name",save_name,0); row(1,"Game",game,0); row(2,"Notes",notes,0);
+        row(0,"Name (fixed)",save_name,0); row(1,"Game (fixed)",game,0); row(2,"Notes",notes,0);
         row(3,"Visibility",private_save?"PRIVATE - only you":"PUBLIC - everyone",0);
-        row(4,"Upload","",0);
+        action_row(4,"Upload","");
         text(24,328,INK,"A edit / toggle / upload   B back");
         text(24,366,INK,"Duplicates always ask before replacing.");
     } else if(screen==CONFLICT) {
         text(24,66,ORANGE,"A save with this name already exists.");
         text(24,112,INK,"Choose what to do with your upload:");
-        row(1,"Replace existing", "A button / Enter",0);
-        row(2,"Keep both", "Y button / K",0);
+        action_row(1,"Replace existing", "A button / Enter");
+        action_row(2,"Keep both", "Y button / K");
         text(24,268,INK,"B / Backspace: return and rename");
         text(24,308,INK,"Replace uses these notes and visibility.");
     } else {
@@ -301,9 +305,9 @@ static void choose_save(void) {
         game[32]=0; for(j=31;j>=0&&game[j]==' ';--j)game[j]=0;
         if(!game[0])snprintf(game,sizeof(game),"%s",s->filename);
     }
-    notes[0]=0;private_save=0;revision=0;focus=0;screen=DETAILS;
+    notes[0]=0;private_save=0;revision=0;focus=2;screen=DETAILS;
     printf("dcvmu: read %s (%d bytes), VMU unchanged\n",s->filename,save_size);
-    client_status("Review the game title before uploading.");
+    client_status("Add notes and choose visibility before uploading.");
 }
 static void upload(const char *mode) {
     int result;
@@ -452,7 +456,7 @@ static void activate(void) {
     } else if(screen==INSTALLED) {free(save_data);save_data=NULL;screen=HOME;focus=0;}
     else if(screen==FILES)choose_save();
     else if(screen==DETAILS) {
-        if(focus<3)edit_begin(focus);
+        if(focus==2)edit_begin(focus);
         else if(focus==3)private_save=!private_save;
         else if(save_name[0]&&game[0])upload("ask");
         else client_status("Name and game are required.");
@@ -467,7 +471,7 @@ static void move(int delta) {
     else if(screen==INSTALL_CONFIRM)focus=(focus+delta+2)%2;
     else if(screen==HOME)focus=(focus+delta+3)%3;
     else if(screen==LOGIN)focus=(focus+delta+3)%3;
-    else if(screen==DETAILS)focus=(focus+delta+5)%5;
+    else if(screen==DETAILS)focus=2+(focus-2+delta+3)%3;
     dirty=1;
 }
 static void back(void) {
@@ -475,7 +479,7 @@ static void back(void) {
     else if(screen==INSTALL_CONFIRM)screen=DESTINATION;
     else if(screen==DESTINATION || screen==INSTALLED){screen=DOWNLOADS;free(save_data);save_data=NULL;free(target_old);target_old=NULL;}
     else if(screen==FILES || screen==DOWNLOADS || screen==SUCCESS){screen=HOME;focus=0;}
-    else if(screen==CONFLICT)screen=DETAILS;
+    else if(screen==CONFLICT){screen=DETAILS;focus=2;}
     else if(screen==DETAILS) {screen=FILES;free(save_data);save_data=NULL;}
     dirty=1;
 }
@@ -686,7 +690,7 @@ int main(int argc,char **argv) {
        until the console is powered off/reset or the emulator is closed. */
     vid_waitvbl();
     for(int i=0;i<640*480;++i)vram_s[i]=PAPER;
-    text(24,18,ORANGE,"DCVMU / DREAMCAST SAVE ARCHIVE");
+    text(24,18,ORANGE,"DCVMU.com / Cloud Saves for Dreamcast");
     text(24,144,BLUE,"Thank you for using DCVMU!");
     text(24,192,INK,"See you next time at dcvmu.com.");
     text(24,288,INK,"You can now turn off your Dreamcast");

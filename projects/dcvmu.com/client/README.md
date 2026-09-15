@@ -77,9 +77,9 @@ The picker and details page show the save's embedded 32x32 colour icon (first
 animation frame). Missing or malformed icons use an outline marker. Icons are
 read from the VMU and cached only for the current page; rescanning refreshes them.
 
-Name is the archive name; the original 12-byte VMU filename is preserved
-separately. The game field starts from the VMU's long description and can be
-corrected. Notes are optional. The upload is the complete padded raw VMS file.
+Name is fixed to the original VMU filename. Game is fixed to the VMU's long
+description, falling back to the filename when empty. Only optional notes and
+public/private visibility can be edited. The upload is the complete padded raw VMS file.
 VMU mini-games (directory type `0xcc`) and empty entries are not listed.
 
 ## Network and credentials

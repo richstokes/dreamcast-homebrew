@@ -36,7 +36,9 @@ save must be reviewed again before deletion.
 
 The Dreamcast client uploads a selected data file, original filename, archive
 name, game title, optional notes and public/private choice. Game descriptions
-can be corrected before upload or on the save's website page. Browse filters
+are derived by the service from the validated VMS header (filename fallback),
+using the client's printable ASCII display rules. Submitted game fields are ignored.
+Only notes and visibility can be edited on the save's website page. Browse filters
 match game/user names case-insensitively, with 20 saves per page. Private saves
 appear only in their owner's account and return 404 to everyone else, including
 on the download URL. VMS downloads preserve the raw file byte-for-byte; restoring
@@ -65,7 +67,7 @@ endpoints require HTTPS. Passwords/tokens must never be put into URLs or logs.
 | `POST /api/v1/saves` | Bearer authorization, multipart fields below. HTTP 201: `OK`, numeric save ID, final archive name on separate lines. |
 
 Upload fields: `save` binary file, `filename` (original VMU name, max 12), `name`
-(max 64), `game` (max 80), `notes` (max 500), `private` (`0` or `1`), and `mode`
+(max 64), `game` (legacy, ignored), `notes` (max 500), `private` (`0` or `1`), and `mode`
 (`ask`, `replace`, or `keep`). `replace` also requires `revision`. A normal
 conflict is HTTP 409 with `CONFLICT` and the revision on separate lines. Other
 400/401/409/413/429 responses contain a readable error. The client deliberately

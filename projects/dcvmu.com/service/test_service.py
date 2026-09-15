@@ -41,6 +41,33 @@ class ServiceTest(unittest.TestCase):
         data={'name':'My save','filename':'TEST_SAVE','game':'Test game','notes':'<script>x</script>','private':'0','save':(io.BytesIO(vms()),'test.vms','application/octet-stream')}
         data.update(overrides)
         return self.api.post('/api/v1/saves',data=data,headers=self.auth)
+    def test_game_identity_is_fixed(self):
+        sid = self.upload(game='Forged game').text.splitlines()[1]
+        detail = '/saves/' + sid
+        self.assertNotIn('name="game"', self.web.get(detail).text)
+        for revision, extra in ((1, {}), (2, {'game': 'Forged edit'})):
+            response = self.web.post(detail + '/edit', data={
+                'csrf': self.csrf(detail), 'revision': str(revision),
+                'notes': 'Updated notes', 'private': '1', **extra})
+            self.assertEqual(response.status_code, 303)
+            with sqlite3.connect(self.path) as db:
+                self.assertEqual(db.execute('SELECT game,notes,private FROM saves WHERE id=?',
+                    (sid,)).fetchone(), ('TEST_SAVE', 'Updated notes', 1))
+
+    def test_upload_game_comes_from_header(self):
+        for offset in (0, 1):
+            data = bytearray(vms(offset=offset))
+            start = offset * 512
+            data[start+16:start+48] = b'Actual game'.ljust(32, b'\0')
+            data[start+70:start+72] = b'\0\0'
+            struct.pack_into('<H', data, start+70, binascii.crc_hqx(data[start:start+384], 0))
+            result = self.upload(name='Header ' + str(offset), game='Forged game',
+                save=(io.BytesIO(data), 'test.vms', 'application/octet-stream'))
+            self.assertEqual(result.status_code, 201)
+            with sqlite3.connect(self.path) as db:
+                self.assertEqual(db.execute('SELECT game FROM saves WHERE id=?',
+                    (result.text.splitlines()[1],)).fetchone()[0], 'Actual game')
+
     def test_delete_save(self):
         for private in ('0','1'):
             sid=self.upload(name='Delete '+private,private=private).text.splitlines()[1]
@@ -209,7 +236,7 @@ class ServiceTest(unittest.TestCase):
         self.assertIn('&lt;script&gt;',self.web.get('/saves/'+sid).text)
         csrf=self.csrf('/saves/'+sid)
         self.assertEqual(self.web.post('/saves/'+sid+'/edit',data={'csrf':csrf,'revision':'1','game':'New game','notes':'shared'}).status_code,303)
-        self.assertIn('My save',guest.get('/?game=New+game&user=tester').text)
+        self.assertIn('My save',guest.get('/?game=TEST_SAVE&user=tester').text)
         self.assertEqual(guest.get('/saves/'+sid+'/download').status_code,200)
         self.assertEqual(self.web.post('/saves/'+sid+'/edit',data={'csrf':csrf,'revision':'1','game':'stale'}).status_code,409)
         self.register('otheruser')

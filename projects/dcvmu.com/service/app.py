@@ -331,15 +331,14 @@ def create_app(config=None):
         row = visible_save(sid)
         if row['user_id'] != g.user['id']:
             abort(404)
-        game = text_field('game', 80, True)
         notes = text_field('notes', 500)
         if request.form.get('private', '0') not in ('0', '1'):
             abort(400, 'Invalid visibility.')
         private = 1 if request.form.get('private') == '1' else 0
         revision = request.form.get('revision', '')
         with database() as db:
-            changed = db.execute('UPDATE saves SET game=?,notes=?,private=?,revision=revision+1,updated=? WHERE id=? AND revision=? AND user_id=?',
-                                 (game, notes, private, int(time.time()), sid, revision, g.user['id'])).rowcount
+            changed = db.execute('UPDATE saves SET notes=?,private=?,revision=revision+1,updated=? WHERE id=? AND revision=? AND user_id=?',
+                                 (notes, private, int(time.time()), sid, revision, g.user['id'])).rowcount
         if not changed:
             abort(409, 'This save changed. Reload before editing.')
         return redirect(url_for('detail', sid=sid), 303)
@@ -399,7 +398,6 @@ def create_app(config=None):
         limit('upload:' + str(g.user['id']), 60, 3600)
         name = text_field('name', 64, True)
         filename = text_field('filename', 12, True)
-        game = text_field('game', 80, True)
         notes = text_field('notes', 500)
         if not re.fullmatch(r'[A-Za-z0-9_.! -]{1,12}', filename) or filename in ('.', '..'):
             abort(400, 'Invalid VMU filename.')
@@ -431,6 +429,10 @@ def create_app(config=None):
                 raise ValueError()
         except ValueError:
             abort(400, 'Invalid VMU header offset.')
+        # Match the client's display title, using only the validated save header.
+        # Submitted game labels are untrusted, including on replacement uploads.
+        title = data[header_offset * 512 + 16:header_offset * 512 + 48]
+        game = ''.join(chr(c) if 32 <= c < 127 else ' ' for c in title).rstrip() or filename
         sha = hashlib.sha256(data).hexdigest()
         now = int(time.time())
         db = database()
