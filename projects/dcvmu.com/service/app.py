@@ -344,6 +344,24 @@ def create_app(config=None):
             abort(409, 'This save changed. Reload before editing.')
         return redirect(url_for('detail', sid=sid), 303)
 
+    @app.route('/saves/<int:sid>/delete', methods=['GET', 'POST'])
+    def delete_save(sid):
+        require_user()
+        row = visible_save(sid)
+        if row['user_id'] != g.user['id']:
+            abort(404)
+        if request.method == 'GET':
+            return page('delete_save.html', save=row)
+        if request.form.get('confirm') != 'yes':
+            abort(400, 'Confirm deletion before continuing.')
+        with database() as db:
+            changed = db.execute(
+                'DELETE FROM saves WHERE id=? AND user_id=? AND revision=?',
+                (sid, g.user['id'], request.form.get('revision', ''))).rowcount
+        if not changed:
+            abort(409, 'This save changed. Reload and review it before deleting.')
+        return redirect(url_for('account'), 303)
+
     @app.get('/api/v1/saves')
     def api_saves():
         require_user()

@@ -9,3 +9,5 @@
 .save-metadata dd{margin:0;overflow-wrap:anywhere;min-width:0}
 
 .client-screenshot{margin:24px 0}.client-screenshot img{display:block;width:100%;height:auto;border-radius:8px}.client-screenshot figcaption{margin-top:8px;font-size:14px;color:#52647a}
+
+.button.danger,input[type=submit].danger{background:#a32121;border-color:#a32121}.button.danger:hover,input[type=submit].danger:hover{background:#7e1919}

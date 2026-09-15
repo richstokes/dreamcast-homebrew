@@ -29,6 +29,11 @@ Registration asks for username, password and email. Usernames are case-insensiti
 console keyboard compatibility. Emails remain private; this version does not
 send verification or password-reset email. Protect your password accordingly.
 
+Owners can delete saves from the website details page after confirming. Modern
+browsers show a confirmation dialog; browsers without JavaScript use a confirmation
+page. Deletion is permanent and rejects stale revisions so a replaced or edited
+save must be reviewed again before deletion.
+
 The Dreamcast client uploads a selected data file, original filename, archive
 name, game title, optional notes and public/private choice. Game descriptions
 can be corrected before upload or on the save's website page. Browse filters

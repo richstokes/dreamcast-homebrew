@@ -66,7 +66,9 @@ verified. CI packages a self-booting CDI using mkdcdisc; local `make` builds the
 - Duplicate name: A/Enter replaces the existing archive entry, Y/K keeps both
   with a numbered name, and B/Backspace returns so you can choose another name.
 - B / Escape / Backspace returns to the previous page (Escape exits at login/main menu).
-- Start exits, retaining a remembered login.
+- Start exits, retaining a remembered login. Exiting shows a thank-you screen
+  after cleanup; it stays visible until you power off/reset the Dreamcast or
+  close the emulator. Escape at login/main menu uses the same exit screen.
 - X / L at the main menu signs out, revokes the token and removes its VMU save.
 - B / Escape cancels an active network transfer. A failed or canceled request
   may already have reached the server; check your account before retrying.
@@ -90,6 +92,14 @@ menu interaction; other requests can reuse connections. The client polls BBA
 receive traffic in a KOS worker to avoid Flycast's IRQ re-entry bug.
 Requests are bounded by time and response size; cancellation
 remains available during transfers.
+
+For intermittent upload timeouts in Flycast, install the current
+[native Flycast build](../../../tools/flycast/README.md#tcp-upload-fix).
+Flycast 2.7's picoTCP proxy can acknowledge an upload but leave its bytes
+queued instead of forwarding them to the HTTPS server. The local build fixes
+that asynchronous read/write stall; changing the ELF or raising its timeout
+alone cannot fix it. A synthetic local HTTPS regression test is documented
+with the emulator patch.
 
 Passwords stay in RAM and are cleared after login. A random, revocable token and
 username are stored in the one-block `DCVMU_AUTH` save on an available VMU.

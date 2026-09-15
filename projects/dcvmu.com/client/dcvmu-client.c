@@ -626,7 +626,7 @@ int main(int argc,char **argv) {
         cont_state_t *state=dev?maple_dev_status(dev):NULL;
         uint32_t pressed=state?state->buttons&~previous_buttons:0;
         if(state)previous_buttons=state->buttons;
-        if(pressed&CONT_START)quit=1;
+        if(pressed&CONT_START)break;
         if(edit_field>=0) {
             if(pressed&CONT_DPAD_UP)osk_y=(osk_y+5)%6;
             if(pressed&CONT_DPAD_DOWN)osk_y=(osk_y+1)%6;
@@ -661,7 +661,7 @@ int main(int argc,char **argv) {
                     else if(key==KBD_KEY_ESCAPE)edit_end(1);
                     else if(key==KBD_KEY_BACKSPACE)edit_char('\b');
                     else edit_char(ascii);
-                } else if(key==KBD_KEY_ESCAPE){if(screen==LOGIN||screen==HOME)quit=1;else back();}
+                } else if(key==KBD_KEY_ESCAPE){if(screen==LOGIN||screen==HOME){quit=1;break;}else back();}
                 else if(key==KBD_KEY_LEFT)switch_card(-1);
                 else if(key==KBD_KEY_RIGHT)switch_card(1);
                 else if(key==KBD_KEY_UP)move(-1);
@@ -682,5 +682,15 @@ int main(int argc,char **argv) {
     if(online&&token[0]&&!remembered){canceled=0;service_logout(token);}
     memset(password,0,sizeof(password));memset(token,0,sizeof(token));memset(edit_backup,0,sizeof(edit_backup));
     free(target_old);free(save_data);if(online)service_net_shutdown();
-    printf("dcvmu: clean shutdown\n");return 0;
+    /* Returning from main tears down video. Keep the final frame displayed
+       until the console is powered off/reset or the emulator is closed. */
+    vid_waitvbl();
+    for(int i=0;i<640*480;++i)vram_s[i]=PAPER;
+    text(24,18,ORANGE,"DCVMU / DREAMCAST SAVE ARCHIVE");
+    text(24,144,BLUE,"Thank you for using DCVMU!");
+    text(24,192,INK,"See you next time at dcvmu.com.");
+    text(24,288,INK,"You can now turn off your Dreamcast");
+    text(24,320,INK,"or close the emulator.");
+    printf("dcvmu: clean shutdown - thank-you screen\n");
+    for(;;)thd_sleep(1000);
 }

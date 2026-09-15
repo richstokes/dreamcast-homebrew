@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a native Flycast with the macOS document-open startup fix.
+# Build a native Flycast with the startup and TCP proxy fixes.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REVISION=5aa091fde632fb332c8d8c34e280d62dc951954c
@@ -20,7 +20,7 @@ fi
     echo "Unexpected source revision in $WORK_DIR/source; choose a fresh FLYCAST_BUILD_DIR." >&2; exit 1;
 }
 git -C "$WORK_DIR/source" submodule update --init --recursive --depth 1
-for patch in macos-build.patch macos-startup.patch; do
+for patch in macos-build.patch macos-startup.patch picotcp-upload-drain.patch; do
     if git -C "$WORK_DIR/source" apply --check "$TOOLS_DIR/$patch" 2>/dev/null; then
         git -C "$WORK_DIR/source" apply "$TOOLS_DIR/$patch"
     else

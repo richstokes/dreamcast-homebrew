@@ -41,6 +41,47 @@ class ServiceTest(unittest.TestCase):
         data={'name':'My save','filename':'TEST_SAVE','game':'Test game','notes':'<script>x</script>','private':'0','save':(io.BytesIO(vms()),'test.vms','application/octet-stream')}
         data.update(overrides)
         return self.api.post('/api/v1/saves',data=data,headers=self.auth)
+    def test_delete_save(self):
+        for private in ('0','1'):
+            sid=self.upload(name='Delete '+private,private=private).text.splitlines()[1]
+            detail='/saves/'+sid
+            url=detail+'/delete'
+            self.assertIn('delete-save-link',self.web.get(detail).text)
+            self.assertIn('Cancel',self.web.get(url).text)
+            data={'csrf':self.csrf(url),'revision':'1','confirm':'yes'}
+            self.assertEqual(self.web.get(detail+'/download').status_code,200)
+            self.assertEqual(self.web.post(url,data=dict(data,confirm='no')).status_code,400)
+            self.assertEqual(self.web.post(url,data=dict(data,csrf='')).status_code,403)
+            self.assertEqual(self.web.post(url,data=data,headers={'Origin':'https://evil.example'}).status_code,403)
+            self.assertEqual(self.web.post(detail+'/edit',data=dict(data,game='Updated')).status_code,303)
+            self.assertEqual(self.web.post(url,data=data).status_code,409)
+            self.assertEqual(self.web.get(detail+'/download').status_code,200)
+            result=self.web.post(url,data=dict(data,revision='2'))
+            self.assertEqual(result.status_code,303)
+            self.assertEqual(result.location,'/account')
+            for path in (detail,detail+'/download',url):
+                self.assertEqual(self.web.get(path).status_code,404)
+            self.assertEqual(self.api.get('/api/v1/saves/'+sid+'/download?revision=2',headers=self.auth).status_code,404)
+            self.assertNotIn('Delete '+private,self.web.get('/account').text)
+            self.assertNotIn('Delete '+private,self.web.get('/').text)
+            self.assertEqual(self.web.post(url,data=dict(data,revision='2')).status_code,404)
+
+    def test_delete_save_owner_only(self):
+        ids=[self.upload(name='Owner '+private,private=private).text.splitlines()[1] for private in ('0','1')]
+        guest=self.app.test_client()
+        self.assertNotIn('delete-save-link',guest.get('/saves/'+ids[0]).text)
+        for sid in ids:
+            self.assertNotEqual(guest.post('/saves/'+sid+'/delete',data={'confirm':'yes','revision':'1'}).status_code,303)
+        self.register('other')
+        csrf=self.csrf('/account')
+        self.assertNotIn('delete-save-link',self.web.get('/saves/'+ids[0]).text)
+        for sid in ids:
+            url='/saves/'+sid+'/delete'
+            self.assertEqual(self.web.get(url).status_code,404)
+            self.assertEqual(self.web.post(url,data={'csrf':csrf,'confirm':'yes','revision':'1'}).status_code,404)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM saves').fetchone()[0],2)
+
     def test_remembered_login_and_auth_save_rejection(self):
         r=self.api.post('/api/v1/login',data={'username':'tester','password':'a-long-test-password','remember':'1'})
         headers={'Authorization':'Bearer '+r.text.strip()}
