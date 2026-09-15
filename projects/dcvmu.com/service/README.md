@@ -6,7 +6,8 @@ No JavaScript is required. Dreamcast browsers get the same semantic HTML forms;
 modern browsers additionally render the responsive stylesheet.
 
 The website's Game and User filters match case-insensitive substrings: `Sonic`
-finds `Sonic Adventure`, and `test` finds `tester`. Both filters apply together
+finds `Sonic Adventure`, and `test` finds `tester`. Game searches the game name,
+save title, and VMU filename, so `MVL` also finds `MVLVSCP2_SYS`. Both filters apply together
 before pagination; `%` and `_` are literal characters, not wildcards.
 
 The website's browse form sorts by upload date (newest or oldest first), save
@@ -15,10 +16,25 @@ and filter and pagination links retain the chosen order and Cards/List view.
 List uses a compact table with save, game, user, upload date, and block count.
 Changing either dropdown applies the form immediately in modern browsers; Apply
 remains available without JavaScript. The `view` query parameter accepts `cards`
-(the default) or `list`. Upload date is the
+(the default) or `list`. A valid explicit view is remembered in a browser cookie
+for one year, including for guests and browsers without JavaScript. Visits without
+a `view` parameter use that preference; an explicit parameter takes precedence.
+Invalid values fall back to Cards and do not overwrite the saved preference.
+The preference stays in that browser and does not sync between devices.
+Upload date is the
 default; legacy saves without a recorded upload time use their creation date.
 The `sort` query parameter accepts `uploaded_desc`, `uploaded_asc`, `name_asc`,
 `name_desc`, `user_asc`, or `user_desc`; unknown values use the default.
+
+The top-right Dark mode switch works without JavaScript. Signed-in users save
+Light/Dark to their account, so their selection follows them across browsers.
+An account preference takes precedence over the browser cookie; accounts without
+one use the browser preference, or Light by default. Guests remember their choice
+in a one-year cookie. Theme updates use the same CSRF protection as other forms.
+The existing database gains a nullable `users.theme` column on service startup.
+Dark mode recolors the header swirl and brand accents to `#516A9A`; this is an
+approximation of the European blue variant, not a verified official Sega hex
+specification. Text accents use lighter blues for contrast on dark surfaces.
 
 ## Local development and verification
 

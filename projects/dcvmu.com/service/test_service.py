@@ -152,7 +152,8 @@ class ServiceTest(unittest.TestCase):
                     ('Literal save', '100%_Complete', 0)):
                 db.execute('''INSERT INTO saves(user_id,name,filename,game,notes,private,data,
                     sha256,created,updated) VALUES (?,?,?,?,?,?,?,?,?,?)''',
-                    (owner, title, 'TEST_SAVE', game, '', private, vms(), 'fixture', 1, 1))
+                    (owner, title, 'TESTSAVE', game, '', private, vms(), 'fixture', 1, 1))
+            db.execute("UPDATE saves SET filename='MVLVSCP2_SYS' WHERE name='Other save'")
         for view in ('cards', 'list'):
             for filters, expected in (
                     ({'game': 'sOnIc'}, {'Adventure save', 'Sequel save'}),
@@ -161,7 +162,13 @@ class ServiceTest(unittest.TestCase):
                     ({'game': 'Sonic', 'user': 'nobody'}, set()),
                     ({'game': 'missing'}, set()),
                     ({'game': '%'}, {'Literal save'}),
-                    ({'game': '_'}, {'Literal save'}),
+                    ({'game': '_'}, {'Literal save', 'Other save'}),
+                    ({'game': 'qUeL', 'user': 'EsT'}, {'Sequel save'}),
+                    ({'game': 'qUeL', 'user': 'nobody'}, set()),
+                    ({'game': 'mVl'}, {'Other save'}),
+                    ({'game': 'mVl', 'user': 'nobody'}, set()),
+                    ({'game': 'secret'}, set()),
+                    ({'game': 'save'}, {'Adventure save', 'Sequel save', 'Other save', 'Literal save'}),
                     ({'user': '_'}, set()),
                     ({'user': '%'}, set()),
                     ({'game': "' OR 1=1 --"}, set())):
@@ -759,6 +766,58 @@ class ServiceTest(unittest.TestCase):
             self.assertIsNone(db.execute("SELECT uploaded_at FROM saves WHERE name='Old edited save'").fetchone()[0])
         self.assertIn('<dt>Uploaded</dt>',self.web.get('/').text)
         self.assertNotIn('First uploaded',self.web.get('/').text)
+
+    def test_theme_profile_persists_across_login_and_overrides_cookie(self):
+        response = self.web.post('/preferences/theme', data={
+            'csrf': self.csrf('/account'), 'theme': 'dark',
+            'return_to': '/?view=list&game=Sonic'})
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers['Location'], '/?view=list&game=Sonic')
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT theme FROM users WHERE username='tester'").fetchone()[0], 'dark')
+        other = self.app.test_client()
+        other.set_cookie('dcvmu_theme', 'light')
+        csrf = re.search(r'name="csrf" value="([^"]+)"', other.get('/login').text)[1]
+        self.assertEqual(other.post('/login', data={'csrf': csrf, 'username': 'tester',
+                         'password': 'a-long-test-password'}).status_code, 303)
+        for path in ('/', '/account', '/getting-started', '/?view=list'):
+            self.assertIn('data-theme="dark"', other.get(path).text)
+            self.assertIn('brand-swirl-blue.svg', other.get(path).text)
+        self.web.post('/preferences/theme', data={'csrf': self.csrf('/'), 'theme': 'light'})
+        self.assertIn('data-theme="light"', other.get('/').text)
+
+    def test_guest_theme_cookie_validation_and_csrf(self):
+        guest = self.app.test_client()
+        guest.set_cookie('dcvmu_theme', 'invalid')
+        initial = guest.get('/')
+        self.assertIn('data-theme="light"', initial.text)
+        csrf = re.search(r'name="csrf" value="([^"]+)"', initial.text)[1]
+        self.assertEqual(guest.post('/preferences/theme', data={'theme': 'dark'}).status_code, 403)
+        self.assertEqual(guest.post('/preferences/theme', data={'csrf': csrf, 'theme': 'invalid'}).status_code, 400)
+        self.assertEqual(guest.post('/preferences/theme', data={'csrf': csrf, 'theme': 'dark'},
+                         headers={'Origin': 'https://other.example'}).status_code, 403)
+        for destination in ('https://other.example', '//other.example', '/\\other.example'):
+            response = guest.post('/preferences/theme', data={
+                'csrf': csrf, 'theme': 'dark', 'return_to': destination})
+            self.assertEqual(response.headers['Location'], '/')
+        for attribute in ('Max-Age=31536000', 'Secure', 'HttpOnly', 'SameSite=Lax'):
+            self.assertIn(attribute, response.headers['Set-Cookie'])
+        for agent in ('Mozilla/5.0', 'DreamcastBrowser/0.1'):
+            html = guest.get('/', headers={'User-Agent': agent}).text
+            self.assertIn('data-theme="dark"', html)
+            self.assertIn('aria-checked="true"', html)
+        with sqlite3.connect(self.path) as db:
+            self.assertIsNone(db.execute('SELECT theme FROM users').fetchone()[0])
+
+    def test_legacy_theme_migration_preserves_account(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute('ALTER TABLE users DROP COLUMN theme')
+        create_app({'TESTING': True, 'DATABASE': self.path})
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT username,theme FROM users').fetchone(), ('tester', None))
+            db.execute("UPDATE users SET theme='dark'")
+        create_app({'TESTING': True, 'DATABASE': self.path})
+        self.assertIn('data-theme="dark"', self.web.get('/account').text)
 
     def test_headers_https(self):
         r=self.web.get('/');self.assertIn("script-src 'self'",r.headers['Content-Security-Policy'])

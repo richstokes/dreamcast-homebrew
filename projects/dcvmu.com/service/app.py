@@ -52,6 +52,8 @@ def create_app(config=None):
     with sqlite3.connect(app.config['DATABASE']) as db:
         db.executescript(SCHEMA)
         db.execute('BEGIN IMMEDIATE')
+        if 'theme' not in {r[1] for r in db.execute('PRAGMA table_info(users)')}:
+            db.execute("ALTER TABLE users ADD COLUMN theme TEXT CHECK(theme IN ('light', 'dark'))")
         if 'header_offset' not in {r[1] for r in db.execute('PRAGMA table_info(saves)')}:
             db.execute('ALTER TABLE saves ADD COLUMN header_offset INTEGER NOT NULL DEFAULT 0')
             for sid, data in db.execute('SELECT id,data FROM saves').fetchall():
@@ -138,7 +140,7 @@ def create_app(config=None):
         g.session = database().execute(
             'SELECT * FROM sessions WHERE hash=? AND kind=? AND expires>?',
             (digest(token), kind, int(time.time()))).fetchone() if token else None
-        g.user = database().execute('SELECT id,username FROM users WHERE id=?',
+        g.user = database().execute('SELECT id,username,theme FROM users WHERE id=?',
                                   (g.session['user_id'],)).fetchone() if g.session else None
         if request.method == 'POST':
             limit('post:' + (request.remote_addr or ''), 180, 600)
@@ -166,7 +168,10 @@ def create_app(config=None):
             token, csrf = new_session()
         else:
             csrf = g.session['csrf']
-        response = app.make_response(render_template(template, user=g.user, csrf=csrf, client_release_base=CLIENT_RELEASE_BASE, console_browser=any(name in request.user_agent.string.lower() for name in ('dreamcast', 'dreamkey', 'dreampassport')), **context))
+        theme = (g.user['theme'] if g.user else None) or request.cookies.get('dcvmu_theme', 'light')
+        if theme not in ('light', 'dark'):
+            theme = 'light'
+        response = app.make_response(render_template(template, theme=theme, user=g.user, csrf=csrf, client_release_base=CLIENT_RELEASE_BASE, console_browser=any(name in request.user_agent.string.lower() for name in ('dreamcast', 'dreamkey', 'dreampassport')), **context))
         return web_response(response, token)
 
     @app.errorhandler(400)
@@ -198,6 +203,24 @@ def create_app(config=None):
         if any(ord(c) < 32 for c in title):
             abort(400, 'Save title must be one line.')
         return title
+
+    @app.post('/preferences/theme')
+    def set_theme():
+        theme = request.form.get('theme')
+        if theme not in ('light', 'dark'):
+            abort(400, 'Invalid theme.')
+        destination = request.form.get('return_to', '/')
+        # Only return to local paths, preserving browse filters and pagination.
+        if (not destination.startswith('/') or destination.startswith('//')
+                or '\\' in destination or any(ord(c) < 32 for c in destination)):
+            destination = '/'
+        if g.user:
+            with database() as db:
+                db.execute('UPDATE users SET theme=? WHERE id=?', (theme, g.user['id']))
+        response = redirect(destination, 303)
+        response.set_cookie('dcvmu_theme', theme, max_age=365 * 86400,
+                            secure=True, httponly=True, samesite='Lax')
+        return response
 
     @app.get('/healthz')
     def health():
@@ -296,7 +319,8 @@ def create_app(config=None):
         sort = request.args.get('sort', 'uploaded_desc')
         if sort not in sort_options:
             sort = 'uploaded_desc'
-        view = request.args.get('view', 'cards')
+        requested_view = request.args.get('view')
+        view = request.args.get('view', request.cookies.get('dcvmu_browse_view', 'cards'))
         if view not in ('cards', 'list'):
             view = 'cards'
         # Only these fixed SQL expressions may enter ORDER BY. Legacy saves
@@ -308,11 +332,16 @@ def create_app(config=None):
             abort(400, 'Invalid page.')
         rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,s.created,s.uploaded_at,
             length(s.data) AS size,substr(s.data,s.header_offset*512+1,640) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
-            WHERE private=0 AND (?='' OR instr(lower(s.game),lower(?))>0)
+            WHERE private=0 AND (?='' OR instr(lower(s.game),lower(?))>0
+                OR instr(lower(s.name),lower(?))>0 OR instr(lower(s.filename),lower(?))>0)
             AND (?='' OR instr(lower(u.username),lower(?))>0) ORDER BY ''' + order + ' LIMIT 21 OFFSET ?',
-            (game, game, username, username, offset)).fetchall()
-        return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header']), has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
+            (game, game, game, game, username, username, offset)).fetchall()
+        response = page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header']), has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
                     page_num=offset//20+1, game=game, username=username, sort=sort, sort_options=sort_options, view=view)
+        if requested_view in ('cards', 'list'):
+            response.set_cookie('dcvmu_browse_view', view, max_age=365 * 86400,
+                                secure=True, httponly=True, samesite='Lax')
+        return response
 
     @app.get('/getting-started')
     def getting_started():
