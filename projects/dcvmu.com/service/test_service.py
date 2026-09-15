@@ -134,12 +134,42 @@ class ServiceTest(unittest.TestCase):
         for sort in (None, 'invalid', 's.name; DROP TABLE saves'):
             response = self.web.get('/', query_string={} if sort is None else {'sort': sort})
             self.assertEqual(ids(response), [r['id'] for r in expected['uploaded_desc'][:20]])
-        query = {'sort': 'name_asc', 'user': 'TeStEr', 'game': 'Test game', 'view': 'list'}
+        query = {'sort': 'name_asc', 'user': 'EsT', 'game': 'EsT gA', 'view': 'list'}
         first = self.web.get('/', query_string=query)
         next_url = unescape(re.search(r'href="([^"]+)">Next page', first.text)[1])
         self.assertEqual(parse_qs(urlsplit(next_url).query), {**{k: [v] for k, v in query.items()}, 'page': ['2']})
         self.assertEqual(ids(first) + ids(self.web.get(next_url)),
                          [r['id'] for r in expected['name_asc'] if r['user'] == 'tester' and r['game'] == 'Test game'])
+
+    def test_web_partial_filters(self):
+        with sqlite3.connect(self.path) as db:
+            owner = db.execute("SELECT id FROM users WHERE username='tester'").fetchone()[0]
+            for title, game, private in (
+                    ('Adventure save', 'Sonic Adventure', 0),
+                    ('Sequel save', 'Sonic Adventure 2', 0),
+                    ('Other save', 'Crazy Taxi', 0),
+                    ('Secret save', 'Sonic Adventure', 1),
+                    ('Literal save', '100%_Complete', 0)):
+                db.execute('''INSERT INTO saves(user_id,name,filename,game,notes,private,data,
+                    sha256,created,updated) VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                    (owner, title, 'TEST_SAVE', game, '', private, vms(), 'fixture', 1, 1))
+        for view in ('cards', 'list'):
+            for filters, expected in (
+                    ({'game': 'sOnIc'}, {'Adventure save', 'Sequel save'}),
+                    ({'game': 'VENT', 'user': 'EsT'}, {'Adventure save', 'Sequel save'}),
+                    ({'game': 'Sonic Adventure 2', 'user': 'TeStEr'}, {'Sequel save'}),
+                    ({'game': 'Sonic', 'user': 'nobody'}, set()),
+                    ({'game': 'missing'}, set()),
+                    ({'game': '%'}, {'Literal save'}),
+                    ({'game': '_'}, {'Literal save'}),
+                    ({'user': '_'}, set()),
+                    ({'user': '%'}, set()),
+                    ({'game': "' OR 1=1 --"}, set())):
+                with self.subTest(view=view, filters=filters):
+                    response = self.web.get('/', query_string={'view': view, **filters})
+                    self.assertEqual(response.status_code, 200)
+                    titles = re.findall(r'(?:<h2><a|<a class="list-save-name") href="/saves/\d+">([^<]+)</a>', response.text)
+                    self.assertEqual(set(titles), expected)
 
     def test_browse_view_fallback_empty_and_console(self):
         empty = self.web.get('/?view=list&sort=name_asc&user=nobody')

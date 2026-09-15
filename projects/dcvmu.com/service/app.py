@@ -308,8 +308,8 @@ def create_app(config=None):
             abort(400, 'Invalid page.')
         rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,s.created,s.uploaded_at,
             length(s.data) AS size,substr(s.data,s.header_offset*512+1,640) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
-            WHERE private=0 AND (?='' OR s.game=? COLLATE NOCASE)
-            AND (?='' OR u.username=? COLLATE NOCASE) ORDER BY ''' + order + ' LIMIT 21 OFFSET ?',
+            WHERE private=0 AND (?='' OR instr(lower(s.game),lower(?))>0)
+            AND (?='' OR instr(lower(u.username),lower(?))>0) ORDER BY ''' + order + ' LIMIT 21 OFFSET ?',
             (game, game, username, username, offset)).fetchall()
         return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header']), has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
                     page_num=offset//20+1, game=game, username=username, sort=sort, sort_options=sort_options, view=view)
