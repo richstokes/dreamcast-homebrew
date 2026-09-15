@@ -45,6 +45,15 @@ on the download URL. VMS downloads preserve the raw file byte-for-byte; restorin
 a save to a VMU requires a compatible import tool. The client does not restore
 saves or write VMUs.
 
+Browse cards, account cards and save details show the save's embedded 32×32
+color icon at 64×64 with crisp pixel scaling. Animated icons use the first frame;
+saves without icons keep a text-only heading. PNG previews are generated from
+the stored VMS palette and pixels, including transparency and block-offset
+headers, without changing the download. The `/saves/<id>/icon.png` endpoint
+enforces save visibility and uses `no-store`, including for public icons, so
+changing a save to private cannot leave a reusable cached preview. No JavaScript,
+database migration or extra image library is required.
+
 Duplicate identity is **account + archive name**. The server returns a conflict
 without changing anything. The client offers replacement, a numbered second
 copy, or returning to change the name. Replacement requires the conflict's

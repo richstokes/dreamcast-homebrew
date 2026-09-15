@@ -73,9 +73,14 @@ verified. CI packages a self-booting CDI using mkdcdisc; local `make` builds the
 - B / Escape cancels an active network transfer. A failed or canceled request
   may already have reached the server; check your account before retrying.
 
-The picker and details page show the save's embedded 32x32 colour icon (first
-animation frame). Missing or malformed icons use an outline marker. Icons are
-read from the VMU and cached only for the current page; rescanning refreshes them.
+The upload picker, upload details and download list show the save's embedded
+32x32 colour icon (first animation frame). Missing or malformed icons use an
+outline marker. Upload icons are read from the VMU; download icons use authenticated
+HTTPS byte-range requests for just the 640-byte header and first frame. Icons are
+cached only for the current page and refreshed when loading another page or scope.
+B/Esc cancels icon loading while leaving the list available. If a preview request
+fails, remaining icons use placeholders; selecting a save still downloads and
+verifies the complete file before offering installation.
 
 Name is fixed to the original VMU filename. Game is fixed to the VMU's long
 description, falling back to the filename when empty. Only optional notes and
@@ -103,8 +108,10 @@ with the emulator patch.
 
 Passwords stay in RAM and are cleared after login. A random, revocable token and
 username are stored in the one-block `DCVMU_AUTH` save on an available VMU.
-The client restores and validates it at startup; remembered sessions expire
-90 days after login. If no VMU has space, login still works for the current run
+The client restores and validates it at startup, showing **Attempting auto login...**
+instead of the login form while checking the saved session. Success opens the
+main menu directly; a failed attempt returns to the login form with an error.
+Remembered sessions expire 90 days after login. If no VMU has space, login still works for the current run
 and the client reports that remembering failed. Keep the same VMU attached on
 subsequent runs. Offline restore failures preserve the save for a later retry;
 expired/revoked tokens require a new login.

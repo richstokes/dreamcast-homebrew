@@ -14,7 +14,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, abort, g, redirect, render_template, request, send_file, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
-from vmu_validation import MAX_SAVE, validate_vms, header_metadata
+from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png
 
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 CLIENT_RELEASE_BASE = 'https://github.com/richstokes/dreamcast-homebrew/releases/latest/download'
@@ -272,11 +272,11 @@ def create_app(config=None):
         except ValueError:
             abort(400, 'Invalid page.')
         rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,s.created,s.uploaded_at,
-            length(s.data) AS size,substr(s.data,s.header_offset*512+1,128) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
+            length(s.data) AS size,substr(s.data,s.header_offset*512+1,640) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
             WHERE private=0 AND (?='' OR s.game=? COLLATE NOCASE)
             AND (?='' OR u.username=? COLLATE NOCASE) ORDER BY updated DESC,s.id DESC LIMIT 21 OFFSET ?''',
             (game, game, username, username, offset)).fetchall()
-        return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
+        return page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header']), has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
                     page_num=offset//20+1, game=game, username=username)
 
     @app.get('/getting-started')
@@ -302,9 +302,9 @@ def create_app(config=None):
             page_num = max(1, min(int(request.args.get('page', 1)), 10))
         except ValueError:
             abort(400, 'Invalid page.')
-        rows = database().execute('SELECT id,name,game,private,revision,created,uploaded_at FROM saves WHERE user_id=? ORDER BY updated DESC,id DESC LIMIT 21 OFFSET ?',
+        rows = database().execute('SELECT id,name,game,private,revision,created,uploaded_at,substr(data,header_offset*512+1,640) AS vms_header FROM saves WHERE user_id=? ORDER BY updated DESC,id DESC LIMIT 21 OFFSET ?',
                                   (g.user['id'], (page_num-1)*20)).fetchall()
-        return page('account.html', saves=rows[:20], more=len(rows)>20, page_num=page_num)
+        return page('account.html', saves=[dict(row, has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20, page_num=page_num)
 
     def visible_save(sid):
         row = database().execute('SELECT s.*,u.username FROM saves s JOIN users u ON u.id=s.user_id WHERE s.id=?',
@@ -317,7 +317,20 @@ def create_app(config=None):
     def detail(sid):
         row = visible_save(sid)
         offset = row['header_offset'] * 512
-        return page('save.html', save=dict(row, metadata=header_metadata(row['data'][offset:offset+128])))
+        header = row['data'][offset:offset+640]
+        return page('save.html', save=dict(row, metadata=header_metadata(header), has_icon=has_vms_icon(header)))
+
+    @app.get('/saves/<int:sid>/icon.png')
+    def save_icon(sid):
+        row = visible_save(sid)
+        try:
+            offset = validate_vms(row['data']) * 512
+        except ValueError:
+            abort(404)
+        png = first_icon_png(row['data'][offset:offset+640])
+        if png is None:
+            abort(404)
+        return send_file(io.BytesIO(png), mimetype='image/png')
 
     @app.get('/saves/<int:sid>/download')
     def download(sid):

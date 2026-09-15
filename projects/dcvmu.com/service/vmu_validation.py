@@ -1,9 +1,45 @@
 """Bounded validation of raw VMS data files; never execute or unpack payloads."""
 import binascii
 import struct
+import zlib
 
 MAX_SAVE = 241 * 512  # Supports KOS expanded VMUs; still excludes whole-card images.
 EYECATCH_BYTES = (0, 72 * 56 * 2, 512 + 72 * 56, 32 + 72 * 56 // 2)
+
+
+def has_vms_icon(header_and_frame):
+    """Check for a complete first frame following a stored VMS header."""
+    return (len(header_and_frame) >= 640
+            and 1 <= struct.unpack_from('<H', header_and_frame, 64)[0] <= 3)
+
+
+def first_icon_png(header_and_frame):
+    """Encode the first 32x32 icon as PNG, or return None if absent/truncated.
+
+    Input starts at the validated header (dc/vmu_pkg.h), not the file start.
+    The 16 little-endian ARGB4444 colors precede packed, high-nibble-first
+    pixels. Later animation frames and eyecatch artwork are never rendered.
+    PNG uses only stdlib code and preserves all four alpha bits.
+    """
+    if not has_vms_icon(header_and_frame):
+        return None
+    palette = [bytes(((color >> 8 & 15) * 17, (color >> 4 & 15) * 17,
+                      (color & 15) * 17, (color >> 12) * 17))
+               for color in struct.unpack_from('<16H', header_and_frame, 96)]
+    scanlines = bytearray()
+    for y in range(32):
+        scanlines.append(0)  # PNG filter: None.
+        for packed in header_and_frame[128 + y * 16:144 + y * 16]:
+            scanlines.extend(palette[packed >> 4])
+            scanlines.extend(palette[packed & 15])
+
+    def chunk(kind, data):
+        return (struct.pack('>I', len(data)) + kind + data
+                + struct.pack('>I', binascii.crc32(kind + data)))
+
+    return (b'\x89PNG\r\n\x1a\n'
+            + chunk(b'IHDR', struct.pack('>IIBBBBB', 32, 32, 8, 6, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(scanlines)) + chunk(b'IEND', b''))
 
 
 def validate_vms(data):

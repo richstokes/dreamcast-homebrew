@@ -22,4 +22,6 @@ typedef struct {
 } remote_save_t;
 int service_list(const char *token, int public_saves, int page, remote_save_t *items, int *count, int *more);
 int service_download(const char *token, const remote_save_t *item, void **data);
+/* Fetch only the VMS header and first icon frame; never writes a VMU. */
+int service_icon(const char *token, const remote_save_t *item, unsigned char header[640]);
 #endif

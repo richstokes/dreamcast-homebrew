@@ -282,6 +282,31 @@ static size_t receive_download(char *data,size_t size,size_t count,void *context
     memcpy(buffer->bytes+buffer->size,data,bytes);buffer->size+=bytes;
     return bytes;
 }
+int service_icon(const char *token,const remote_save_t *item,unsigned char header[640]) {
+    memset(header,0,640);
+    if(item->size<512 || item->size>131072 || item->header_offset<0 ||
+       item->header_offset>=item->size/512)return -1;
+    int offset=item->header_offset*512;
+    /* A short save cannot contain a complete icon. */
+    if(item->size-offset<640)return 0;
+    char path[96],range[32];
+    snprintf(path,sizeof(path),"/api/v1/saves/%d/download?revision=%d",item->id,item->revision);
+    snprintf(range,sizeof(range),"%d-%d",offset,offset+639);
+    CURL *curl=request_new(path);if(!curl)return -1;
+    download_buffer buffer={.bytes=header,.capacity=640};
+    struct curl_slist *headers=authorize(curl,token);
+    curl_easy_setopt(curl,CURLOPT_RANGE,range);
+    curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT_MS,5000L);
+    curl_easy_setopt(curl,CURLOPT_TIMEOUT_MS,10000L);
+    curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive_download);
+    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&buffer);
+    long status=perform(curl);
+    curl_slist_free_all(headers);curl_easy_reset(curl);
+    /* Reject ignored ranges and incomplete previews. The full save is still
+       downloaded and SHA-256 checked separately before installation. */
+    if(status!=206 || buffer.size!=640){memset(header,0,640);return -1;}
+    return 0;
+}
 int service_download(const char *token,const remote_save_t *item,void **data) {
     *data=NULL;
     if(item->size<512||item->size>131072||item->size%512)return -1;

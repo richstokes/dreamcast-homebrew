@@ -16,13 +16,33 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 #define ORANGE 0xa9a1
 #define BLUE 0x1a75
 
-typedef enum { LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED } screen_t;
+typedef enum { STARTUP, AUTO_LOGIN, LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED } screen_t;
 typedef struct { int port, unit; vmu_dir_t entry; char filename[13]; } save_t;
 static save_t saves[MAX_FILES];
 /* Only cache the visible page: 14 KiB, independent of card capacity. */
-static struct { int key, valid; uint16_t pixels[32*32]; } icons[7];
+typedef struct { int key, valid; uint16_t pixels[32*32]; } save_icon_t;
+static save_icon_t icons[7], remote_icons[7];
 static int icon_cache_ready;
 static unsigned little16(const unsigned char *p) {return p[0]|((unsigned)p[1]<<8);}
+static void decode_icon(save_icon_t *icon,const unsigned char *h,size_t size) {
+    icon->valid=0;
+    if(size<640 || little16(h+64)<1 || little16(h+64)>3)return;
+    for(int pixel=0;pixel<1024;++pixel) {
+        unsigned pair=h[128+pixel/2];
+        unsigned color=little16(h+96+2*((pixel&1)?pair&15:pair>>4));
+        unsigned a=color>>12,r=(color>>8)&15,g=(color>>4)&15,b=color&15;
+        unsigned red=(r*31*a/15+((PAPER>>11)&31)*(15-a))/15;
+        unsigned green=(g*63*a/15+((PAPER>>5)&63)*(15-a))/15;
+        unsigned blue=(b*31*a/15+(PAPER&31)*(15-a))/15;
+        icon->pixels[pixel]=(red<<11)|(green<<5)|blue;
+    }
+    icon->valid=1;
+}
+static void draw_icon(const save_icon_t *icon,int x,int y) {
+    for(int py=0;py<32;++py)for(int px=0;px<32;++px)
+        vram_s[(y+py)*640+x+px]=icon->valid?icon->pixels[py*32+px]:
+            (px>=3&&px<=28&&py>=3&&py<=28&&(px==3||px==28||py==3||py==28)?BLUE:PAPER);
+}
 static void draw_save_icon(int index,int x,int y) {
     int slot=index%7;
     if(!icon_cache_ready){for(int j=0;j<7;++j)icons[j].key=-1;icon_cache_ready=1;}
@@ -35,31 +55,19 @@ static void draw_save_icon(int index,int x,int y) {
             if(size>0 && offset+128+512<=(size_t)size && !auth_is_save(s->filename,raw,size)) {
                 const unsigned char *h=(unsigned char *)raw+offset;
                 unsigned frames=little16(h+64);
-                if(frames>=1 && frames<=3 && offset+128+512*frames<=(size_t)size) {
-                    for(int pixel=0;pixel<1024;++pixel) {
-                        unsigned pair=h[128+pixel/2];
-                        unsigned color=little16(h+96+2*((pixel&1)?pair&15:pair>>4));
-                        unsigned a=color>>12,r=(color>>8)&15,g=(color>>4)&15,b=color&15;
-                        unsigned red=(r*31*a/15+((PAPER>>11)&31)*(15-a))/15;
-                        unsigned green=(g*63*a/15+((PAPER>>5)&63)*(15-a))/15;
-                        unsigned blue=(b*31*a/15+(PAPER&31)*(15-a))/15;
-                        icons[slot].pixels[pixel]=(red<<11)|(green<<5)|blue;
-                    }
-                    icons[slot].valid=1;
-                }
+                if(frames>=1 && frames<=3 && offset+128+512*frames<=(size_t)size)
+                    decode_icon(&icons[slot],h,size-offset);
             }
             memset(raw,0,size);free(raw);
         }
     }
-    for(int py=0;py<32;++py)for(int px=0;px<32;++px)
-        vram_s[(y+py)*640+x+px]=icons[slot].valid?icons[slot].pixels[py*32+px]:
-            (px>=3&&px<=28&&py>=3&&py<=28&&(px==3||px==28||py==3||py==28)?BLUE:PAPER);
+    draw_icon(&icons[slot],x,y);
 }
 
 static int save_count, selected, focus, private_save, revision;
 static int remembered;
 static int card_ids[8], card_count, card_filter = -1;
-static screen_t screen;
+static screen_t screen = STARTUP;
 static remote_save_t remote_saves[7];
 static int remote_count,remote_more,remote_page,remote_public,remote_selected;
 static int target_index,target_id,target_exists,target_old_size;
@@ -133,6 +141,14 @@ static void draw(void) {
         }
         text(24,356,INK,"A add   X erase   Y done   B cancel");
         text(24,386,INK,"Enter done / Esc cancel / Tab done");
+    } else if(screen==STARTUP) {
+        text(24,66,INK,"Starting DCVMU...");
+        text(24,150,INK,"Preparing network and checking saved login.");
+    } else if(screen==AUTO_LOGIN) {
+        text(24,66,BLUE,"Attempting auto login...");
+        text(24,150,INK,username);
+        text(24,198,INK,"Checking your saved VMU session.");
+        text(24,310,INK,"B / Esc cancel");
     } else if(screen==LOGIN) {
         text(24,66,INK,"Log in - register first at dcvmu.com");
         row(0,"Username",username,0); row(1,"Password",password,1);
@@ -151,8 +167,9 @@ static void draw(void) {
         text(24,66,INK,line);
         if(!remote_count)text(24,116,INK,"No saves on this page.");
         for(i=0;i<remote_count;++i) {
-            snprintf(line,sizeof(line),"%c %.25s / %.15s",i==remote_selected?'>':' ',remote_saves[i].name,remote_saves[i].user);
-            text(24,108+i*34,i==remote_selected?BLUE:INK,line);
+            draw_icon(&remote_icons[i],24,106+i*34);
+            snprintf(line,sizeof(line),"%c %.24s / %.15s",i==remote_selected?'>':' ',remote_saves[i].name,remote_saves[i].user);
+            text(64,108+i*34,i==remote_selected?BLUE:INK,line);
         }
         text(24,354,INK,"Left/Right page  Y/R My/Public saves");
         text(24,382,INK,"A select   B/Esc back");
@@ -341,10 +358,21 @@ static void sign_out(void) {
     client_status(result==0?"Signed out; saved login removed.":"Signed out. Reinsert VMU to remove login save.");
 }
 static void load_downloads(void) {
-    canceled=0;client_status("Loading saves...");draw();
     remote_count=0;remote_selected=0;
-    if(service_list(token,remote_public,remote_page,remote_saves,&remote_count,&remote_more)==0)
-        client_status("Select a save to download.");
+    memset(remote_icons,0,sizeof(remote_icons));
+    canceled=0;client_status("Loading saves...");draw();
+    int listed=service_list(token,remote_public,remote_page,remote_saves,&remote_count,&remote_more);
+    screen=DOWNLOADS;
+    if(listed==0) {
+        client_status("Loading save icons...");draw();
+        for(int i=0;i<remote_count;++i) {
+            unsigned char header[640];
+            if(service_icon(token,&remote_saves[i],header)<0)break;
+            decode_icon(&remote_icons[i],header,sizeof(header));
+            dirty=1;draw();
+        }
+        client_status(canceled?"Icon loading canceled. Select a save.":"Select a save to download.");
+    }
     screen=DOWNLOADS;dirty=1;
 }
 static void destination_cards(void) {
@@ -596,11 +624,14 @@ int main(int argc,char **argv) {
     client_status("VMU login persistence test passed.");
 #else
     if(online && auth_load(username,token)==0) {
+        screen=AUTO_LOGIN;
+        client_status("Connecting securely to dcvmu.com...");draw();
+        printf("dcvmu: attempting auto login\n");
         int restored=service_resume(token);
         if(restored==0){remembered=1;screen=HOME;focus=0;client_status("Restored saved VMU login.");}
-        else {if(restored==-2)auth_forget();memset(token,0,sizeof(token));
+        else {if(restored==-2)auth_forget();memset(token,0,sizeof(token));screen=LOGIN;
             client_status(restored==-2?"Saved login expired. Please log in.":"Could not restore login. Check connection.");}
-    }
+    } else screen=LOGIN;
 #endif
 #ifdef DCVMU_SELF_TEST
     if(online)run_self_test();

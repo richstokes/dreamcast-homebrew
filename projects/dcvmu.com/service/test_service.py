@@ -5,18 +5,60 @@ import re
 import sqlite3
 import tempfile
 import unittest
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from app import create_app
 
-def vms(payload=b'x'*256, icons=0, eye=0, offset=0):
+def vms(payload=b'x'*256, icons=0, eye=0, offset=0, palette=None, frames=None):
     eye_bytes=(0,8064,4544,2048)[eye]
     data=bytearray(128+icons*512+eye_bytes+len(payload))
     data[:16]=b'Test save       '
     struct.pack_into('<HHHHI',data,64,icons,1,eye,0,len(payload))
+    if palette is not None:
+        struct.pack_into('<16H', data, 96, *palette)
+    if frames is not None:
+        assert len(frames) == icons * 512
+        data[128:128+len(frames)] = frames
     data[-len(payload):]=payload
     struct.pack_into('<H',data,70,binascii.crc_hqx(data,0))
     data=bytes(offset*512)+bytes(data)
     return data+bytes((-len(data))%512)
+
+
+class IconTest(unittest.TestCase):
+    def test_png_pixels_palette_alpha_and_first_frame(self):
+        from vmu_validation import first_icon_png
+        palette = [0xF123, 0x8ABC, 0x0456, 0xFFFF] + [0] * 12
+        first = b'\x01\x23' + bytes(14) + b'\x32' * 16 + bytes(480)
+        for icons in (1, 2, 3):
+            raw = vms(icons=icons, palette=palette,
+                      frames=first + b'\xFF' * ((icons-1)*512))
+            png = first_icon_png(raw)
+            self.assertEqual(png[:8], b'\x89PNG\r\n\x1a\n')
+            chunks = {}
+            cursor = 8
+            while cursor < len(png):
+                size = struct.unpack_from('>I', png, cursor)[0]
+                kind = png[cursor+4:cursor+8]
+                body = png[cursor+8:cursor+8+size]
+                crc = struct.unpack_from('>I', png, cursor+8+size)[0]
+                self.assertEqual(crc, binascii.crc32(kind+body))
+                chunks[kind] = body
+                cursor += size+12
+            self.assertEqual(set(chunks), {b'IHDR', b'IDAT', b'IEND'})
+            self.assertEqual(struct.unpack('>IIBBBBB', chunks[b'IHDR']), (32,32,8,6,0,0,0))
+            pixels = zlib.decompress(chunks[b'IDAT'])
+            self.assertEqual(len(pixels), 32 * 129)
+            self.assertEqual(pixels[:17], bytes([0, 17,34,51,255, 170,187,204,136,
+                                               68,85,102,0, 255,255,255,255]))
+            self.assertEqual(pixels[129:138], bytes([0, 255,255,255,255, 68,85,102,0]))
+            self.assertTrue(all(pixels[y*129] == 0 for y in range(32)))
+
+    def test_missing_invalid_and_truncated_icon(self):
+        from vmu_validation import first_icon_png, has_vms_icon
+        for raw in (b'', bytes(128), vms(), vms(icons=4), vms(icons=1)[:639]):
+            self.assertFalse(has_vms_icon(raw))
+            self.assertIsNone(first_icon_png(raw))
 
 class ServiceTest(unittest.TestCase):
     def setUp(self):
@@ -41,6 +83,80 @@ class ServiceTest(unittest.TestCase):
         data={'name':'My save','filename':'TEST_SAVE','game':'Test game','notes':'<script>x</script>','private':'0','save':(io.BytesIO(vms()),'test.vms','application/octet-stream')}
         data.update(overrides)
         return self.api.post('/api/v1/saves',data=data,headers=self.auth)
+    def test_download_icon_ranges(self):
+        for offset in (0, 1):
+            with self.subTest(offset=offset):
+                save = vms(icons=3, offset=offset)
+                result = self.upload(name='Icon ' + str(offset), private='1',
+                    header_offset=str(offset), save=(io.BytesIO(save), 'icon.vms', 'application/octet-stream'))
+                self.assertEqual(result.status_code, 201)
+                sid = result.text.splitlines()[1]
+                url = '/api/v1/saves/' + sid + '/download'
+                start = offset * 512
+                headers = dict(self.auth, Range=f'bytes={start}-{start+639}')
+                preview = self.api.get(url + '?revision=1', headers=headers)
+                self.assertEqual(preview.status_code, 206)
+                self.assertEqual(preview.data, save[start:start+640])
+                self.assertEqual(preview.headers['Content-Range'], f'bytes {start}-{start+639}/{len(save)}')
+                self.assertEqual(self.api.get(url + '?revision=0', headers=headers).status_code, 409)
+                self.assertEqual(self.api.get(url + '?revision=1',
+                    headers={'Range': headers['Range']}).status_code, 401)
+                self.register('reader' + str(offset))
+                reader = self.app.test_client()
+                login = reader.post('/api/v1/login', data={
+                    'username': 'reader' + str(offset), 'password': 'a-long-test-password'})
+                self.assertEqual(reader.get(url + '?revision=1', headers={
+                    'Authorization': 'Bearer ' + login.text.strip(),
+                    'Range': headers['Range']}).status_code, 404)
+
+    def test_icon_visibility_offsets_and_replacement(self):
+        from vmu_validation import first_icon_png
+        guest = self.app.test_client()
+        for offset in (0, 1):
+            raw = vms(icons=3, offset=offset, eye=2, palette=[0xF123]*16,
+                      frames=b'\x00'*512 + b'\x11'*1024)
+            response = self.upload(name='Icon '+str(offset), private=str(offset),
+                save=(io.BytesIO(raw), 'test.vms', 'application/octet-stream'))
+            self.assertEqual(response.status_code, 201)
+            sid = response.text.splitlines()[1]
+            detail = '/saves/'+sid
+            url = detail+'/icon.png'
+            icon = self.web.get(url)
+            self.assertEqual(icon.status_code, 200)
+            self.assertEqual(icon.mimetype, 'image/png')
+            self.assertEqual(icon.headers['Cache-Control'], 'no-store')
+            self.assertEqual(icon.headers['X-Content-Type-Options'], 'nosniff')
+            self.assertEqual(icon.data, first_icon_png(raw[offset*512:]))
+            self.assertEqual(self.web.get(detail+'/download').data, raw)
+            for path in (detail, '/account'):
+                self.assertIn('src="'+url+'"', self.web.get(path).text)
+            self.assertEqual(guest.get(url).status_code, 404 if offset else 200)
+            self.assertEqual('src="'+url+'"' in guest.get('/').text, not offset)
+            if not offset:
+                updated = vms(icons=1, palette=[0xFABC]*16)
+                response = self.upload(name='Icon 0', mode='replace', revision='1',
+                    private='1', save=(io.BytesIO(updated), 'test.vms', 'application/octet-stream'))
+                self.assertEqual(response.status_code, 201)
+                self.assertEqual(guest.get(url).status_code, 404)
+                self.assertEqual(self.web.get(url).data, first_icon_png(updated))
+            else:
+                self.register('other')
+                self.assertEqual(self.web.get(url).status_code, 404)
+
+    def test_icon_absent_deleted_and_corrupt(self):
+        sid = self.upload().text.splitlines()[1]
+        detail = '/saves/'+sid
+        url = detail+'/icon.png'
+        self.assertEqual(self.web.get(url).status_code, 404)
+        for path in ('/', '/account', detail):
+            self.assertNotIn('class="save-icon"', self.web.get(path).text)
+        with sqlite3.connect(self.path) as db:
+            db.execute('UPDATE saves SET data=? WHERE id=?', (bytes(1024), sid))
+        self.assertEqual(self.web.get(url).status_code, 404)
+        self.assertEqual(self.web.post(detail+'/delete', data={
+            'csrf':self.csrf(detail), 'revision':'1', 'confirm':'yes'}).status_code, 303)
+        self.assertEqual(self.web.get(url).status_code, 404)
+        self.assertEqual(self.web.get('/saves/999999/icon.png').status_code, 404)
     def test_game_identity_is_fixed(self):
         sid = self.upload(game='Forged game').text.splitlines()[1]
         detail = '/saves/' + sid
