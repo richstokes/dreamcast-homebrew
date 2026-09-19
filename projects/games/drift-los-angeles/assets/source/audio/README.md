@@ -24,12 +24,9 @@ Freesound user **Ears68**.
 - Project WAV SHA-256:
   `740556ccc4a789c1aeeec4b5918daf036a3024fb4d6da78265b382710a2ed4a9`
 
-Both project copies were decoded from Freesound's high-quality previews,
-downsampled to 32 kHz, and retained in stereo. The builder extracts measured
-stationary regions, removes DC, and applies equal-power loop crossfades. It also
-applies circular macro-leveling and conservative peak ceilings, then rejects an
-engine loop when its circular 200 ms loudness windows reveal a slow dropout or
-repeating volume pulse.
+Both project copies were decoded from Freesound's high-quality previews and
+downsampled to 32 kHz stereo. `tools/build_audio_assets.py` extracts seamless
+loops from them.
 
 `v8-engine-rev.wav` is the superseded CC0 recording **“v8 engine rev.wav”** by
 Freesound user **overmedium** (<https://freesound.org/people/overmedium/sounds/651534/>).
@@ -49,10 +46,7 @@ field recording **“Distant car tire screetch”** by Freesound user
   `7470401554d27b30a791e6573e587281bb4d9c74efb81f99d5c017767be436a5`
 
 The project copy was decoded from Freesound's high-quality preview and
-downsampled from 44.1 kHz to 32 kHz stereo. The build tool isolates its clean
-squeal body, removes DC, crossfades the loop boundary, and normalizes it. The
-runtime varies its playback rate and blends it with slip-driven scrub detail so
-it can sustain naturally through a long drift.
+downsampled to 32 kHz stereo.
 
 # Music source
 
@@ -66,9 +60,5 @@ it can sustain naturally through a long drift.
 - Project Ogg SHA-256:
   `e384208fc0bed123b68fd31e28df2d7bc3e8463551e49d681d700b2c21565e5d`
 
-`tools/build_music_asset.py` decodes the master at 22.05 kHz stereo, removes
-the small measured DC offset, and encodes it as G.711 mu-law. The resulting
-4.04 MiB embedded bank preserves the complete arrangement and stereo image at
-one byte per channel sample. Runtime decoding is only two table lookups per
-frame, which is considerably cheaper than the superseded procedural music
-synth and leaves the SH-4 budget available to the city renderer and physics.
+`tools/build_music_asset.py` encodes it as a 22.05 kHz stereo mu-law bank
+(about 4 MiB) embedded in the game.

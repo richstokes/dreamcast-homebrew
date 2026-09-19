@@ -7,11 +7,6 @@ connection details on the six faces of a rotating 3D cube. Replies below 50 ms
 tint the cube green; progressively slower replies move it toward red, and a
 timeout makes it red.
 
-The project uses KallistiOS directly: `INIT_NET` for adapter discovery, DHCP and
-ICMP echo replies; `libppp` for dial-up; the BIOS font for the runtime-generated
-face textures; and the low-level PowerVR API for rendering. It has no asset or
-kos-ports dependencies.
-
 ## What each face shows
 
 | Face | Contents |
@@ -54,11 +49,9 @@ make
 
 This produces `ping-cube.elf`, which Flycast can launch directly.
 
-The dial-up path needs the `kos-ppp-lifecycle.patch` from
-[`projects/dcvmu.com/client/patches`](../../dcvmu.com/client/patches). It lets
-KOS initialize TCP/IP when no Ethernet adapter is present, and stops and joins
-the PPP receive worker before the modem buffers are freed. CI applies it before
-building KOS; apply it to a local SDK the same way, then rebuild `libppp`:
+Dial-up support needs the `kos-ppp-lifecycle.patch` from
+[`projects/dcvmu.com/client/patches`](../../dcvmu.com/client/patches) applied to
+your KOS tree, followed by a `libppp` rebuild:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
@@ -74,66 +67,32 @@ make -C "$KOS_BASE/addons/libppp" -j4
 ./run-flycast.sh --modem   # Dreamcast modem over Flycast's PPP peer
 ```
 
-The run script enables Flycast's network backends transiently, so it does not
-rewrite the user's saved emulator settings. DCNet is used for the BBA because
-Flycast's local picoTCP backend synthesizes ICMP replies rather than measuring
-the real route to `8.8.8.8`. Set `KOS_ENV` or `FLYCAST_BIN` if either dependency
-is installed somewhere else.
-
-When an address is assigned, the cube shows `ICMP ECHO READY`. No application
-socket is needed for ping: KallistiOS validates ICMP echo requests and sends
-echo replies from its IPv4 receive path.
+The script does not change saved Flycast settings. Set `KOS_ENV` or
+`FLYCAST_BIN` if either dependency is installed somewhere else.
 
 ## Dial-up (modem / DreamPi)
 
-An Ethernet adapter always wins. The BBA and the modem share the expansion
-port, so the modem is probed only when `INIT_NET` found no default interface;
-a BBA that fails DHCP does not fall back to dialing.
+A Broadband Adapter is always preferred; the modem is used only when no
+Ethernet adapter is found.
 
 Set up and test DreamPi (or an equivalent PPP answering setup) with another
-application first — Ping Cube never configures DreamPi, writes console flash or
-interprets modem AT initialization strings. It reads the primary phone number,
-PPP username/password, blind-dial flag and optional DNS from the console's
-saved **PlanetWeb** ISP profile, falling back to **DreamPassport**. The first
-profile with a nonempty primary number wins; credentials are never mixed
-between profiles. With no usable profile it uses the KOS DreamPi example's
-`555` number and `dream` / `cast` login. ISP credentials are cleared from RAM
-after use and are never printed.
+application first. Ping Cube reads the phone number and PPP login from the
+console's saved **PlanetWeb** ISP profile, falling back to **DreamPassport**,
+and then to the DreamPi defaults (`555`, `dream` / `cast`). Only tone dialing
+is supported.
 
-KOS dials DTMF tones only: pulse dialing and dial strings containing pauses or
-waits are rejected rather than silently dialed differently. Spaces, hyphens,
-parentheses and periods are ignored, and the saved area code is prepended when
-the profile asks for it.
+Dialing can take up to 65 seconds. Failures leave a short reason on the front
+face (`NO DIAL TONE`, `NO CARRIER`, `PPP FAILED`, …); restart to dial again. A
+dropped link is not redialed. A healthy ~150 ms modem link shows as orange
+rather than green.
 
-Detection, dialing (up to 65 seconds for the KOS dial-tone and carrier waits)
-and PPP negotiation run on a worker thread, so the cube keeps rendering and the
-console panel logs each step. Failures leave a short reason on the front face
-(`NO DIAL TONE`, `NO CARRIER`, `PPP FAILED`, …); restart to dial again. A
-dropped link is not automatically redialed — pings simply start timing out and
-the cube turns red.
+Real modem and DreamPi hardware validation is still outstanding; the dial-up
+path has been tested with Flycast's emulated modem.
 
-Latency colouring is unchanged on dial-up, so a healthy ~150 ms modem link
-shows as orange rather than green. That is an honest reading of the route, not
-a fault.
+### Flycast and LAN pings
 
-### Flycast network reachability
-
-Flycast 2.7 does not provide a bridged BBA backend. Its `Use DCNet` mode joins
-the Dreamcast to the DCNet VPN (typically producing a `172.20.4.x` address),
-while disabling DCNet selects Flycast's embedded picoTCP proxy (a private
-`192.168.169.x` network). Both modes can provide outbound connectivity, but
-neither places the emulated BBA on the Mac's physical LAN. Consequently, a
-different device on the LAN cannot ping the address shown by stock Flycast,
-even though Ping Cube itself correctly handles ICMP echo requests.
-
-True LAN ping requires a layer-2-capable Flycast backend (for example a future
-TAP/vmnet bridge) or real Dreamcast BBA hardware. Merely changing the guest IP
-or turning off DCNet does not create that bridge.
-
-`--modem` uses Flycast's emulated modem, which answers any number and hands out
-a `192.168.167.x` PPP address through picoTCP. That verifies the dial, PPP and
-ICMP paths, but real modem, phone-line and DreamPi hardware validation is still
-outstanding.
+Flycast does not bridge the emulated BBA onto your LAN, so other devices cannot
+ping the address the cube shows. That needs real BBA hardware.
 
 ## Credits
 

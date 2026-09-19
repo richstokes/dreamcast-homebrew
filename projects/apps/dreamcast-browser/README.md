@@ -45,10 +45,8 @@ not negotiate a protocol older than TLS 1.2.
 ## Build dependencies
 
 The project uses the official KOS ports for `curl`, `mbedtls`, `zlib`, and
-`stb_image`. The KOS 2.3/ports versions used here need two small compatibility
-fixes: enabling KOS's `/dev/urandom` for mbedTLS, and compiling the C-compatible
-stb implementation without an optional SH-4 G++ binary. Apply the included
-patch, then install the ports from a sourced KOS environment:
+`stb_image`. Apply the included compatibility patch, then install the ports
+from a sourced KOS environment:
 
 ```sh
 git -C "$KOS_PORTS" apply \
@@ -58,124 +56,58 @@ make -C "$KOS_PORTS/curl" install
 make -C "$KOS_PORTS/stb_image" install
 ```
 
-If a port is already current, its normal `install` target exits without
-rebuilding; use `force-install` after changing its configuration.
-
 Refresh the CA bundle occasionally (this needs host internet access):
 
 ```sh
 make update-cacert
 ```
 
-Build and inspect the target:
+## Build
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make
-file dreamcast-browser.elf
-sh-elf-readelf -h dreamcast-browser.elf
 ```
 
-To exercise live HTTPS navigation, Back/Forward, and scroll restoration
-automatically, build the serial-console regression variant:
+Self-test builds are available with `make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST`
+and `-DBROWSER_FORM_SELF_TEST`; results are printed to the serial console. Run
+`make clean && make` afterward to restore the release build, and never
+distribute a form self-test build because it embeds test credentials.
 
-```sh
-make clean
-make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST
-./run-flycast.sh --skip-build
-```
-
-The test reports passing inline layout/style/reflow, asset, page-cancel,
-history, image-cancel, and keyboard checks before entering the normal browser
-loop. The keyboard checks drive the real key handler through focus stepping,
-viewport-relative Tab, the two-press Esc exit guard, help, address-bar editing,
-and field editing on a synthetic page, then restore the live page. Run
-`make clean && make` afterward to restore the release build.
-
-For a cold-boot compatibility check against another homepage, override the URL
-for that build only (the release default remains `https://appsbyrich.com/`):
-
-```sh
-make clean
-make CPPFLAGS='-DBROWSER_HOME_URL=\"https://news.ycombinator.com/\"'
-./run-flycast.sh --skip-build
-```
-
-Run in Flycast with BBA emulation and the serial console:
+## Run in Flycast
 
 ```sh
 ./run-flycast.sh
 ```
 
-Flycast's `DCNet=no` picoTCP proxy permits the browser to make outbound
-connections. It is not bridged networking. The launcher transiently attaches
-an emulated Dreamcast keyboard on Maple port A, mouse on port B, and controller
-on port C; it does not overwrite the devices in Flycast's saved configuration.
-Click inside the Flycast window once if macOS has not given it input focus.
+The launcher attaches an emulated Dreamcast keyboard, mouse, and controller
+without changing Flycast's saved configuration. Click inside the Flycast window
+once if macOS has not given it input focus.
 
-## Deliberate limits and graceful degradation
-
-Dreamcast has 16 MB of main RAM, so the browser places hard bounds on remote
-content: 512 KiB per HTML response, 24 KiB compressed per image, 64 KiB of
-compressed images in total, six image slots,
-512 layout items, and 96 links. Large documents are shortened. Oversized,
-failed, or unsupported images become placeholders. Unknown HTML tags are
-ignored while their text remains visible; scripts, styles, SVG, canvas, and
-`noscript` blocks and HTML comments are skipped. Decorative images are omitted,
-and declared image dimensions keep small failed assets from becoming giant
-placeholders. There is no CSS layout, JavaScript, persistent storage,
-audio/video, downloads, tabs, or full Unicode font rendering.
-Supported inline text keeps flowing across semantic tags instead of forcing a
-new row, wraps at the display edge, and gives links, strong text, emphasis, and
-code distinct colors. Lists keep their marker and text together, including when
-wrapper elements are present, and legacy table rows degrade into readable text
-rows with separated cells.
-
-Oversized HTML is downloaded only to the fixed 512 KiB ceiling, then parsed as
-a clearly marked shortened page. Oversized images are rejected from their HTTP
-headers before the body is downloaded. Next.js image-optimizer URLs are reduced
-to the Dreamcast's 640-pixel display width, image requests time out after eight
-seconds, and receive bursts are bounded for BBA stability. Parsed page text is
-shown before image downloads begin. If any asset is oversized, unsupported,
-unreachable, or times out, it and all remaining page images become alt-text
-placeholders without further network retries. The deliberately small 24 KiB
-ceiling avoids a known Flycast BBA failure that can occur before
-application-level size checks run; small web graphics still render normally.
-Image downloads require a safe, declared size from a header-only probe;
-unknown-length images become placeholders. The BBA IRQ is gated and a normal
-KOS worker polls the adapter, avoiding a Flycast IRQ9 re-entry that otherwise
-appears as a KOS double-fault panic.
-
-While a request is active, the header shows an animated connection/download
-state, transferred versus declared KiB, and the cancel controls. `Esc`,
-controller `B`/Start, or right-click aborts the transfer. Canceling a page load
-preserves the displayed page, URL, scroll position, and Back/Forward history;
-canceling image loading keeps the parsed page and turns remaining assets into
-placeholders.
+## Limits
 
 This is a readable-web and small-site browser, not a modern desktop engine.
-Back and Forward history each retain up to eight URLs and their scroll positions
-in fixed-size buffers. Opening a new page after going Back clears the Forward
-history, matching conventional browser behavior.
+There is no CSS layout, JavaScript, persistent storage, audio/video, downloads,
+tabs, or full Unicode font rendering.
 
-## Basic HTML forms
+The Dreamcast has 16 MB of main RAM, so remote content is bounded: 512 KiB per
+HTML page, 24 KiB per image, six images per page, and 96 links. Larger pages
+are shortened, and oversized, failed, or unsupported images become alt-text
+placeholders. Back and Forward each remember up to eight pages.
 
-Same-origin HTTPS forms now support text, email, password, hidden, checkbox and
-submit inputs. Focus a field with Tab and Enter, type using a Dreamcast keyboard,
-then Enter finishes or Tab finishes and moves to the next control. Editing keys
-work inside a field and the insertion point is shown between the brackets.
-Escape restores the previous value. Checkboxes toggle with Enter/A. Passwords display as asterisks.
-The browser keeps cookies in RAM only; exiting discards them. POST redirects use
-same-origin HTTP 303, and passwords cannot be submitted through GET forms.
-Unsupported form controls or cross-origin/insecure actions fail closed. This is
-intentionally a small form subset, not a complete HTML form engine.
+Any active load can be canceled with `Esc`, controller `B`/Start, or
+right-click, keeping the current page.
 
-Registration, login, logout and filters on https://dcvmu.com have been exercised
-in Flycast against the live service. `CPPFLAGS=-DBROWSER_FORM_SELF_TEST` runs that
-regression using a disposable username and password in the ignored
-`romdisk/test-credentials.txt` (two lines). Never distribute this test build.
-Remove the credential file and `make clean && make` before building a release.
+## Forms
 
-The [native Flycast build](../../../tools/flycast/README.md) fixes macOS startup
-crashes without Rosetta. The
-launcher disables crash uploads transiently because forms can hold credentials.
+Same-origin HTTPS forms support text, email, password, hidden, checkbox, and
+submit inputs. Focus a field with Tab and Enter, type, then press Enter to
+finish or Tab to move on; Escape restores the previous value. Passwords display
+as asterisks, and cookies are kept in RAM only. Registration, login, and logout
+on https://dcvmu.com work.
+
+## Credits
+
+Powered by [KallistiOS](https://kos-docs.dreamcast.wiki/), the independent
+Dreamcast SDK. KallistiOS is distributed under its BSD-like KOS license and
+requires attribution.
