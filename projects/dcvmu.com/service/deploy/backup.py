@@ -62,7 +62,7 @@ def main():
     parser.add_argument('--destination', type=Path,
                         default=Path.home() / 'Dropbox' / 'DCVMU_Backups',
                         help='Backup directory (default: ~/Dropbox/DCVMU_Backups)')
-    parser.add_argument('--host', default='root@dcvmu.com', help='SSH destination')
+    parser.add_argument('--host', default='root@netsplit.vip', help='SSH destination')
     args = parser.parse_args()
     if not args.host or args.host.startswith('-') or any(c.isspace() for c in args.host):
         parser.error('Invalid SSH destination')

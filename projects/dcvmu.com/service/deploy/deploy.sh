@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-remote=${DCVMU_DEPLOY_HOST:-root@dcvmu.com}
+# Shared ingress/port registration: richstokes/infra, servers/netsplit.vip.
+# This script owns only the DCVMU application and its base systemd unit.
+remote=${DCVMU_DEPLOY_HOST:-root@netsplit.vip}
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cd "$project_dir"

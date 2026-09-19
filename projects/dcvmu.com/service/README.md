@@ -116,11 +116,23 @@ after a successful write, so clients should not replay mutations automatically.
 
 ## Deploy
 
+Shared server configuration is owned by
+[infra/servers/netsplit.vip](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip).
+That is the source of truth for Caddy, domains, backend port allocations and
+host operations. This project owns the service build/deploy script, base
+systemd unit, application settings and SQLite backup/restore.
+
 ```sh
 ./deploy/deploy.sh
-ssh root@dcvmu.com 'systemctl status dcvmu --no-pager'
+ssh root@netsplit.vip 'systemctl status dcvmu --no-pager'
 curl --fail https://dcvmu.com/healthz
 ```
+
+The SSH default is `root@netsplit.vip` (the same host as `dcvmu.com`); override
+it with `DCVMU_DEPLOY_HOST`. The public URL stays `https://dcvmu.com`.
+From a sibling infra checkout, `python3 servers/netsplit.vip/manage.py deploy dcvmu`
+dispatches this same script. Register new applications and ingress changes in
+infra; app deployment must preserve its shared configuration.
 
 Source is installed under `/opt/dcvmu` and the live database is
 `/var/lib/dcvmu/archive.sqlite3`. Deployment preserves the database and keeps
@@ -128,9 +140,9 @@ the previous source in `/opt/dcvmu-previous.tar.gz`. Schema migrations run at
 service startup, so back up first, and deploy the service before releasing a
 client that depends on new API behavior.
 
-The server is shared with another service behind the same Caddy ingress;
-restart only `dcvmu` (see `voxel-game-xp/docs/SHARED_HOSTING.md` for the ingress
-setup). Inspect errors with
+The server is shared with Valley Rangers and other applications. Keep Gunicorn
+on `127.0.0.1:8090` behind the infra-managed Caddy ingress and restart only
+`dcvmu` for application changes. Inspect errors with
 `journalctl -u dcvmu -u caddy --since '10 minutes ago'`.
 
 Client binaries are not hosted here: GitHub Actions publishes
