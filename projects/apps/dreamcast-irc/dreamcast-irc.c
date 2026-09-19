@@ -1,13 +1,14 @@
 /*
  * Dreamcast IRC -- a small KallistiOS IRC client for irc.libera.chat.
  *
- * The application uses the Dreamcast BBA (or an emulator's BBA) for a plain
+ * The application uses the Dreamcast BBA or modem/DreamPi for a plain
  * TCP IRC connection and a Maple keyboard for text entry. It joins
  * #dreamcastdev automatically after registration.
  */
 
 #include <kos.h>
 #include <kos/version.h>
+#include "modem.h"
 
 #include <dc/biosfont.h>
 #include <dc/fs_vmu.h>
@@ -89,6 +90,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 
 typedef enum connection_state {
     CONN_OFFLINE,
+    CONN_DIALING,
     CONN_CONNECTING,
     CONN_REGISTERING,
     CONN_ONLINE,
@@ -165,6 +167,7 @@ static char receive_line[IRC_RECV_MAX];
 static size_t receive_length;
 static bool receive_overflow;
 static bool running = true;
+static bool modem_selected;
 static bool screen_dirty = true;
 static bool input_dirty;
 static maple_device_t *keyboard;
@@ -515,6 +518,8 @@ static uint16_t style_color(line_style_t style) {
 
 static const char *connection_label(void) {
     switch(connection_state) {
+        case CONN_DIALING:
+            return "DIALING";
         case CONN_CONNECTING:
             return "CONNECTING";
         case CONN_REGISTERING:
@@ -690,6 +695,34 @@ static void add_connection_problem(const char *text) {
     if(active_page != 0)
         page_history_addf(active_page, STYLE_ERROR, "%s", text);
     printf("Dreamcast IRC: %s\n", text);
+}
+
+void irc_modem_status(const char *message) {
+    page_history_addf(0, STYLE_NOTICE, "%s", message);
+}
+
+int irc_modem_progress(const char *message) {
+    static char previous_message[128];
+#ifdef IRC_TEST_CANCEL_DIAL
+    static int dial_updates;
+    if(strstr(message,"Dialing DreamPi") && ++dial_updates==2)running=false;
+#endif
+    maple_device_t *controller=maple_enum_type(0,MAPLE_FUNC_CONTROLLER);
+    cont_state_t *state=controller?maple_dev_status(controller):NULL;
+    if(state && (state->buttons&CONT_START))running=false;
+    maple_device_t *kbd=maple_enum_type(0,MAPLE_FUNC_KEYBOARD);
+    if(kbd) {
+        int event;
+        while((event=kbd_queue_pop(kbd,false))!=KBD_QUEUE_END)
+            if((event&255)==KBD_KEY_ESCAPE)running=false;
+    }
+    if(!running)message="Exiting after the current modem step finishes...";
+    if(strcmp(message,previous_message)) {
+        snprintf(previous_message,sizeof(previous_message),"%s",message);
+        irc_modem_status(message);
+        render_screen();
+    }
+    return !running;
 }
 
 static uint64_t retry_delay_ms(void) {
@@ -870,7 +903,7 @@ static void finish_tcp_connection(void) {
     receive_length = 0;
     receive_overflow = false;
     connection_state = CONN_REGISTERING;
-    connection_deadline = timer_ms_gettime64() + REGISTER_TIMEOUT_MS;
+    connection_deadline = timer_ms_gettime64() + REGISTER_TIMEOUT_MS * (modem_selected?2:1);
     last_receive_time = timer_ms_gettime64();
     page_history_addf(0, STYLE_EVENT, "Connected on port %s. Registering as %s...",
                       connected_port, nickname);
@@ -923,7 +956,7 @@ static void connect_try_next_address(void) {
         }
         if(errno == EINPROGRESS) {
             irc_socket = candidate;
-            connection_deadline = timer_ms_gettime64() + CONNECT_TIMEOUT_MS;
+            connection_deadline = timer_ms_gettime64() + CONNECT_TIMEOUT_MS * (modem_selected?2:1);
             connection_state = CONN_CONNECTING;
             screen_dirty = true;
             return;
@@ -998,6 +1031,7 @@ static void connect_resolve_current_port(void) {
 }
 
 static void irc_begin_connect(bool user_initiated) {
+    if(!running)return;
     if(irc_socket >= 0 && connection_state != CONN_CONNECTING) {
         irc_sendf("QUIT :Reconnecting");
         flush_send_queue();
@@ -1007,8 +1041,22 @@ static void irc_begin_connect(bool user_initiated) {
         active_page = 0;
         reconnect_attempt = 0;
     }
+    if(modem_selected) {
+        /* IRC-only failures reuse PPP. Explicit reconnect also repairs a PPP
+           session whose peer stopped responding without dropping carrier. */
+        if(user_initiated || !irc_modem_online()) {
+            irc_modem_shutdown();
+            connection_state=CONN_DIALING;
+            active_page=0;
+            page_history_addf(0,STYLE_NOTICE,"Start/Esc exits after the current dial step.");
+            if(irc_modem_connect()<0) {
+                if(running)schedule_reconnectf("Modem connection failed; check DreamPi/settings.");
+                return;
+            }
+        }
+    }
     if(!network_has_address()) {
-        schedule_reconnectf("No IPv4 address; check the BBA and DHCP.");
+        schedule_reconnectf("No IPv4 address; check the adapter and network setup.");
         return;
     }
 
@@ -1018,7 +1066,7 @@ static void irc_begin_connect(bool user_initiated) {
         net_default_dev->dns[1] = 1;
         net_default_dev->dns[2] = 1;
         net_default_dev->dns[3] = 1;
-        printf("Dreamcast IRC: DHCP supplied no DNS; using 1.1.1.1\n");
+        printf("Dreamcast IRC: network supplied no DNS; using 1.1.1.1\n");
     }
 
     connection_state = CONN_CONNECTING;
@@ -1158,7 +1206,7 @@ static void handle_irc_line(const char *wire_line) {
         set_generated_nickname();
         page_history_addf(0, STYLE_NOTICE,
                           "Nickname in use; trying %s.", nickname);
-        connection_deadline = timer_ms_gettime64() + REGISTER_TIMEOUT_MS;
+        connection_deadline = timer_ms_gettime64() + REGISTER_TIMEOUT_MS * (modem_selected?2:1);
         irc_sendf("NICK %s", nickname);
         return;
     }
@@ -1496,7 +1544,7 @@ static void poll_connection_state(void) {
         if(now >= connection_deadline) {
             snprintf(connect_last_error, sizeof(connect_last_error),
                      "%s: timed out after %d seconds", connect_endpoint,
-                     CONNECT_TIMEOUT_MS / 1000);
+                     CONNECT_TIMEOUT_MS * (modem_selected?2:1) / 1000);
             page_history_addf(0, STYLE_NOTICE, "%s", connect_last_error);
             printf("Dreamcast IRC: %s\n", connect_last_error);
             close(irc_socket);
@@ -1512,7 +1560,7 @@ static void poll_connection_state(void) {
 
         snprintf(reason, sizeof(reason),
                  "IRC registration timed out after %d seconds",
-                 REGISTER_TIMEOUT_MS / 1000);
+                 REGISTER_TIMEOUT_MS * (modem_selected?2:1) / 1000);
         fail_current_endpoint_and_continue(reason);
         return;
     }
@@ -2436,6 +2484,10 @@ static void print_network_details(void) {
     }
 }
 
+#ifdef IRC_SELF_TEST
+#include "tests/network.c"
+#endif
+
 int main(int argc, char **argv) {
     bool profile_loaded;
 
@@ -2450,6 +2502,8 @@ int main(int argc, char **argv) {
     bfont_set_encoding(BFONT_CODE_ISO8859_1);
     keyboard = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
     snprintf(pages[0].name, sizeof(pages[0].name), "Server");
+    /* Keep Ethernet priority; never probe/reset the modem on a BBA machine. */
+    modem_selected=net_default_dev==NULL;
 
     print_network_details();
     history_addf(STYLE_EVENT, APP_NAME " starting.");
@@ -2490,12 +2544,19 @@ int main(int argc, char **argv) {
     irc_begin_connect(false);
 
     while(running) {
+        if(modem_selected && irc_modem_active() && !irc_modem_online()) {
+            schedule_reconnectf("Modem carrier lost.");
+            irc_modem_shutdown();
+        }
         poll_connection_state();
         flush_send_queue();
         poll_network();
         poll_keyboard();
         poll_controller();
         poll_profile_save();
+#ifdef IRC_SELF_TEST
+        network_self_test();
+#endif
         render_screen();
         thd_sleep(2);
     }
@@ -2506,6 +2567,13 @@ int main(int argc, char **argv) {
     if(profile_dirty)
         profile_save(false);
     irc_close();
+    irc_modem_shutdown();
+#ifdef IRC_SELF_TEST
+    if(modem_selected && net_default_dev) {
+        printf("IRC NETWORK TEST FAILED: PPP not released\n");
+        return 1;
+    }
+#endif
     printf("Dreamcast IRC: clean shutdown\n");
     return 0;
 }

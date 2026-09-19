@@ -25,7 +25,17 @@ set +u
 source "${KOS_ENV}"
 set -u
 
-if [[ "${1:-}" != "--skip-build" ]]; then
+SKIP_BUILD=no
+EMULATE_BBA=yes
+for argument in "$@"; do
+    case "$argument" in
+        --skip-build) SKIP_BUILD=yes ;;
+        --modem) EMULATE_BBA=no ;;
+        --help) echo "Usage: $0 [--skip-build] [--modem]"; exit 0 ;;
+        *) echo "Unknown option: $argument" >&2; exit 1 ;;
+    esac
+done
+if [[ "$SKIP_BUILD" != yes ]]; then
     make -C "${PROJECT_DIR}"
 fi
 
@@ -33,5 +43,5 @@ fi
 # keyboard, with the host keyboard forwarded to it. picoTCP provides outbound
 # access to Libera.Chat without changing the user's saved Flycast settings.
 exec "${FLYCAST_BIN}" \
-    -config "network:EmulateBBA=yes,network:DCNet=no,input:device2=5,input:maple_sdl_keyboard=1,config:Debug.SerialConsoleEnabled=yes" \
+    -config "network:EmulateBBA=${EMULATE_BBA},network:DCNet=no,input:device2=5,input:maple_sdl_keyboard=1,config:Debug.SerialConsoleEnabled=yes" \
     "${PROJECT_DIR}/dreamcast-irc.elf"

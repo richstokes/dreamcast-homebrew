@@ -1,7 +1,8 @@
 # Dreamcast IRC
 
-Dreamcast IRC is a small KallistiOS client that connects over the Broadband
-Adapter. By default it connects to `irc.libera.chat` and automatically joins
+Dreamcast IRC is a small KallistiOS client that connects over a Broadband
+Adapter or a Dreamcast modem with a working DreamPi setup. By default it
+connects to `irc.libera.chat` and automatically joins
 `#dreamcastdev`, trying plain-text port 6667 first and port 8000 as a fallback. It
 renders a scrollable chat view with the Dreamcast BIOS font and accepts text
 from a Dreamcast keyboard. A permanent server page is followed by up to ten
@@ -45,6 +46,18 @@ is also available.
 
 ## Build
 
+Modem support requires the repository's
+[PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch).
+Apply it once to your KOS tree from this project directory, then rebuild KOS
+and PPP (CI does this automatically):
+
+```sh
+source "$HOME/.local/share/dreamcast/kos/environ.sh"
+git -C "$KOS_BASE" apply "$PWD/../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch"
+make -C "$KOS_BASE/kernel" -j4
+make -C "$KOS_BASE/addons/libppp" -j4
+```
+
 Source the KallistiOS environment and build with the SH-4 toolchain:
 
 ```sh
@@ -58,17 +71,49 @@ This produces `dreamcast-irc.elf`, which Flycast can boot directly.
 
 ```sh
 ./run-flycast.sh
+# Exercise the modem/PPP path instead of BBA:
+./run-flycast.sh --modem
 ```
 
 The launcher makes transient Flycast settings only. It enables the emulated
-BBA with Flycast's local picoTCP proxy, keeps a controller on port A, adds a
-Dreamcast keyboard on port B, forwards host keyboard input, and enables serial
+BBA by default with Flycast's local picoTCP proxy, keeps a controller on port A,
+adds a Dreamcast keyboard on port B, forwards host keyboard input, and enables serial
 diagnostics in the launching terminal. It does not modify the saved Flycast
 configuration.
 
 Flycast's picoTCP backend gives the Dreamcast outbound Internet access, which
 is all this client needs. It is not a bridged LAN connection. On real hardware,
-boot the ELF using the normal loader and provide a working BBA network setup.
+boot the ELF using the normal loader and provide a working BBA or DreamPi setup.
+
+`--modem` uses Flycast's modem emulation, not a physical DreamPi.
+`--skip-build` works with either mode.
+
+## Modem / DreamPi
+
+Configure and test DreamPi with another app first. A Broadband Adapter is
+always preferred; the modem is used only when no Ethernet adapter is found.
+
+The client dials on startup using the console's saved PlanetWeb ISP settings,
+falling back to DreamPassport, and then to the DreamPi defaults (`555`,
+`dream` / `cast`). Only tone dialing is supported.
+
+Dialing can take about 65 seconds before timing out, with progress shown on
+the server page. Carrier loss triggers an automatic redial and channel rejoin.
+`/reconnect` or A+B hangs up and redials.
+
+Real Dreamcast/DreamPi hardware testing is still required.
+
+## Tests
+
+The network test runs a private IRC server and a temporary ELF in Flycast; no
+public IRC network is contacted. From the repository root, supply the Mac's
+LAN IPv4 address:
+
+```sh
+python3 projects/apps/dreamcast-irc/tests/run_network.py --host <Mac-LAN-IP>
+python3 projects/apps/dreamcast-irc/tests/run_network.py --modem --host <Mac-LAN-IP>
+python3 projects/apps/dreamcast-irc/tests/run_network.py --modem --cancel-dial --host <Mac-LAN-IP>
+```
 
 ## Controls
 
