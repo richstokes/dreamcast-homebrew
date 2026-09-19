@@ -25,10 +25,30 @@ set +u
 source "${KOS_ENV}"
 set -u
 
-if [[ "${1:-}" != "--skip-build" ]]; then
+SKIP_BUILD=no
+# Flycast emulates either the Broadband Adapter or the modem, never both, so
+# --modem turns the BBA off and lets the demo dial Flycast's PPP peer instead.
+NETWORK="network:EmulateBBA=yes,network:DCNet=yes"
+
+for argument in "$@"; do
+    case "${argument}" in
+        --skip-build)
+            SKIP_BUILD=yes
+            ;;
+        --modem)
+            NETWORK="network:EmulateBBA=no,network:DCNet=no"
+            ;;
+        *)
+            echo "Usage: ${0##*/} [--skip-build] [--modem]" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "${SKIP_BUILD}" != yes ]]; then
     make -C "${PROJECT_DIR}"
 fi
 
 exec "${FLYCAST_BIN}" \
-    -config "network:EmulateBBA=yes,network:DCNet=yes,config:Debug.SerialConsoleEnabled=yes" \
+    -config "${NETWORK},config:Debug.SerialConsoleEnabled=yes" \
     "${PROJECT_DIR}/ping-cube.elf"
