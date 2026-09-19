@@ -13,8 +13,8 @@
 ! The ARM7 remains safely in reset while the autonomous AICA voices run. One
 ! display frame is one tracker tick and eight ticks make a sixteenth-note row,
 ! yielding roughly 112.40 BPM at the Dreamcast's 59.9453 Hz refresh. Exactly
-! 96 rows (six four-beat bars) fit each 768-frame visual act. Eight acts make
-! one 48-bar / 768-row score loop.
+! 96 rows (six four-beat bars) fit each 768-frame visual act. Nine acts make
+! one 54-bar / 864-row score loop.
 
     .equ AICA_REG_BASE,          0xa0700000
     .equ AICA_RAM_BASE,          0xa0800000
@@ -536,7 +536,7 @@ music_update:
 .Lmu_row_jump:     .long music_row_jump
 .Lmu_rows_seen:    .long music_rows_seen
 
-! Decode one of 48 twelve-byte bar descriptors. Byte zero is the chord root,
+! Decode one of 54 twelve-byte bar descriptors. Byte zero is the chord root,
 ! byte one is 1 for minor / 0 for major, bytes 2..9 are the eight lead events,
 ! byte 10 is an explicit color interval, and byte 11 is a true low bass root.
 music_decode_row:
@@ -559,7 +559,7 @@ music_decode_row:
     and     r0, r10                    ! row within 16-row bar
     mov     r4, r11
     shlr2   r11
-    shlr2   r11                        ! bar 0..47
+    shlr2   r11                        ! bar 0..53
     mov     #0, r12
     mov     #6, r0
     cmp/hs  r0, r11
@@ -589,6 +589,10 @@ music_decode_row:
     cmp/hs  r0, r11
     bf      .Lmd_scene_ready
     mov     #7, r12
+    mov     #48, r0
+    cmp/hs  r0, r11
+    bf      .Lmd_scene_ready
+    mov     #8, r12
 .Lmd_scene_ready:
     mov.l   .Lmd_current_scene, r0
     mov.l   r12, @r0
@@ -663,6 +667,10 @@ music_decode_row:
     cmp/eq  r0, r12
     bt      .Lmd_pad_level_chosen
     mov     #82, r7                    ! NAVIGATOR leaves room for glassy telemetry
+    mov     #7, r0
+    cmp/eq  r0, r12
+    bt      .Lmd_pad_level_chosen
+    mov     #72, r7                    ! EVENT HORIZON is carried by a vast pad
 .Lmd_pad_level_chosen:
 
     ! Root on slot 3.
@@ -769,12 +777,17 @@ music_decode_row:
     bsr     music_note_pitch
     nop
     ! Act five drops the bass an octave without a software mixer or another
-    ! AICA slot, leaving its unstable upper harmony cold and metallic.
+    ! AICA slot, leaving its unstable upper harmony cold and metallic. The
+    ! EVENT HORIZON finale reuses the same sub-octave as a gravitational drone.
     mov.l   .Lmd_current_scene, r1
     mov.l   @r1, r2
     mov     #4, r3
     cmp/eq  r3, r2
+    bt      .Lmd_bass_octave_drop
+    mov     #8, r3
+    cmp/eq  r3, r2
     bf      .Lmd_bass_octave_ready
+.Lmd_bass_octave_drop:
     mov.l   .Lmd_octave_down, r1
     add     r1, r0
 .Lmd_bass_octave_ready:
@@ -1646,6 +1659,12 @@ music_decode_drums:
     nop
 
 .Lmdr_navigator:
+    mov.l   .Lmdr_768, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_navigator_body
+    bra     .Lmdr_horizon
+    nop
+.Lmdr_navigator_body:
     ! NAVIGATOR is a precise electro/keygen orbit: a sparse one-bar radar lock
     ! gives way to an asymmetric 0-6-8-12 kick motor, backbeat, and offbeat
     ! telemetry hats. Three hull-scan impacts divide the movement while the
@@ -1748,6 +1767,81 @@ music_decode_drums:
     bra     .Lmdr_done
     nop
 
+.Lmdr_horizon:
+    ! EVENT HORIZON is a vast half-time finale: the kick lands on the bar and
+    ! the "and" of three, one snare answers on beat three, and sparse hats
+    ! only tick on the off-beats. Crashes mark the arrival of each two-bar
+    ! phrase; the final four rows roll into the C# dominant that restarts the
+    ! loop, exactly like the preceding acts.
+    mov.l   .Lmdr_768, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_horizon_impact
+    mov.l   .Lmdr_800, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_horizon_impact
+    mov.l   .Lmdr_832, r1
+    cmp/eq  r1, r8
+    bt      .Lmdr_horizon_impact
+    bra     .Lmdr_horizon_final_test
+    nop
+.Lmdr_horizon_impact:
+    bsr     music_trigger_crash
+    nop
+
+.Lmdr_horizon_final_test:
+    mov.l   .Lmdr_860, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_horizon_kick_test
+    bsr     music_trigger_snare
+    nop
+    mov.l   .Lmdr_863, r1
+    cmp/eq  r1, r8
+    bf      .Lmdr_horizon_done
+    bsr     music_trigger_kick
+    nop
+    bsr     music_trigger_crash
+    nop
+    bra     .Lmdr_done
+    nop
+
+.Lmdr_horizon_kick_test:
+    mov     r9, r0
+    cmp/eq  #0, r0
+    bt      .Lmdr_horizon_kick
+    mov     r9, r0
+    cmp/eq  #10, r0
+    bf      .Lmdr_horizon_snare_test
+.Lmdr_horizon_kick:
+    bsr     music_trigger_kick
+    nop
+
+.Lmdr_horizon_snare_test:
+    mov     r9, r0
+    cmp/eq  #8, r0
+    bf      .Lmdr_horizon_hat_test
+    bsr     music_trigger_snare
+    nop
+
+.Lmdr_horizon_hat_test:
+    mov.l   .Lmdr_784, r1
+    cmp/hs  r1, r8
+    bf      .Lmdr_horizon_done         ! the opening bar is drums-only kick
+    mov     r9, r0
+    cmp/eq  #4, r0
+    bt      .Lmdr_horizon_hat
+    mov     r9, r0
+    cmp/eq  #12, r0
+    bt      .Lmdr_horizon_hat
+    mov     r9, r0
+    cmp/eq  #14, r0
+    bf      .Lmdr_horizon_done
+.Lmdr_horizon_hat:
+    bsr     music_trigger_hat
+    nop
+.Lmdr_horizon_done:
+    bra     .Lmdr_done
+    nop
+
 music_trigger_kick:
     sts.l   pr, @-r15
     mov.l   .Lmdr_kick_age, r0
@@ -1820,6 +1914,12 @@ music_trigger_crash:
 .Lmdr_736:       .long 736
 .Lmdr_764:       .long 764
 .Lmdr_767:       .long 767
+.Lmdr_768:       .long 768
+.Lmdr_784:       .long 784
+.Lmdr_800:       .long 800
+.Lmdr_832:       .long 832
+.Lmdr_860:       .long 860
+.Lmdr_863:       .long 863
 .Lmdr_kick_age:  .long music_kick_age
 .Lmdr_snare_age: .long music_snare_age
 .Lmdr_hat_age:   .long music_hat_age
@@ -1833,6 +1933,7 @@ music_trigger_crash:
 ! becomes still wider and swaps every two rows with its broken percussion.
 ! HIGH COUNTRY opens the image and drifts only once every two bars; NAVIGATOR
 ! returns to a wide beat-synchronous orbit around its rotating wireframe hull.
+! EVENT HORIZON shares HIGH COUNTRY's slow panoramic drift.
 music_apply_pan:
     sts.l   pr, @-r15
     mov.l   .Lmap_current_row, r0
@@ -1847,6 +1948,9 @@ music_apply_pan:
     bra     .Lmap_phase
     nop
 .Lmap_not_orbit:
+    mov     #8, r0
+    cmp/eq  r0, r9
+    bt      .Lmap_elevated
     mov     #7, r0
     cmp/eq  r0, r9
     bt      .Lmap_wide_beat
@@ -2049,11 +2153,22 @@ music_animate_voices:
     bra     .Lma_arp_accent
     nop
 .Lma_arp_navigator:
+    mov.l   .Lma_horizon_row, r1
+    cmp/hs  r1, r10
+    bt      .Lma_arp_horizon
     mov     #74, r5                    ! crystalline telemetry under the hull
     mov.l   .Lma_navigator_arrival, r1
     cmp/hs  r1, r10
     bf      .Lma_arp_accent
     mov     #66, r5                    ! final scan brightens toward Orbit Core
+    bra     .Lma_arp_accent
+    nop
+.Lma_arp_horizon:
+    mov     #90, r5                    ! a distant pulse falling into the hole
+    mov.l   .Lma_horizon_arrival, r1
+    cmp/hs  r1, r10
+    bf      .Lma_arp_accent
+    mov     #76, r5                    ! the octave arrival pierces the collapse
 .Lma_arp_accent:
     mov     r10, r0
     mov     #3, r1
@@ -2100,6 +2215,8 @@ music_animate_voices:
 .Lma_elevated_arrival:.long 640
 .Lma_navigator_row:.long 672
 .Lma_navigator_arrival:.long 736
+.Lma_horizon_row:.long 768
+.Lma_horizon_arrival:.long 832
 
 music_animate_lead:
     sts.l   pr, @-r15
@@ -2136,7 +2253,13 @@ music_animate_lead:
     bt      .Lmal_elevated_detune
     cmp/eq  #7, r0
     bt      .Lmal_navigator_detune
+    cmp/eq  #8, r0
+    bt      .Lmal_horizon_detune
     add     #3, r5                     ! subtle hardware-slot chorus double
+    bra     .Lmal_double_ready
+    nop
+.Lmal_horizon_detune:
+    add     #16, r5                    ! slow, huge beating for the gravity lead
     bra     .Lmal_double_ready
     nop
 .Lmal_strange_detune:
@@ -2840,10 +2963,21 @@ music_bars:
     MUSIC_BAR MN_B3,  1, 10, MN_B2,  MN_FS4, MN_B4,  MN_D5, MN_FS5,MN_A5, MN_FS5,MN_D5, MN_B4
     MUSIC_BAR MN_D4,  0, 14, MN_D2,  MN_A4,  MN_D5,  MN_FS5,MN_A5, MN_B5, MN_A5, MN_FS5,MN_E5
     MUSIC_BAR MN_CS4, 0, 10, MN_CS2, MN_GS4, MN_CS5,MN_F5, MN_GS5,MN_B5, MN_GS5,MN_F5, MN_CS5
+
+    ! EVENT HORIZON: an original slow-motion finale. Navigator's C#7 resolves
+    ! onto a vast F#m add9, sinks through Dmaj7 and Bm7 into a Neapolitan
+    ! Gmaj7 as the camera falls, then a wide octave F#m arrival over the
+    ! collapse before the last C#7 bar hands the loop back to Orbit Core.
+    MUSIC_BAR MN_FS4, 1, 14, MN_FS2, MN_REST,MN_REST,MN_CS5, MN_HOLD,MN_FS5, MN_HOLD,MN_HOLD,MN_HOLD
+    MUSIC_BAR MN_D4,  0, 11, MN_D2,  MN_A4,  MN_HOLD,MN_HOLD,MN_FS5, MN_HOLD,MN_E5,  MN_HOLD,MN_HOLD
+    MUSIC_BAR MN_B3,  1, 10, MN_B2,  MN_D5,  MN_HOLD,MN_HOLD,MN_FS5, MN_HOLD,MN_HOLD,MN_A5,  MN_HOLD
+    MUSIC_BAR MN_G4,  0, 11, MN_G2,  MN_B4,  MN_HOLD,MN_D5,  MN_HOLD,MN_G5,  MN_HOLD,MN_FS5, MN_HOLD
+    MUSIC_BAR MN_FS4, 1, 14, MN_FS2, MN_FS5, MN_HOLD,MN_HOLD,MN_HOLD,MN_CS5, MN_HOLD,MN_A4,  MN_HOLD
+    MUSIC_BAR MN_CS4, 0, 10, MN_CS2, MN_GS4, MN_CS5, MN_F5,  MN_GS5, MN_HOLD,MN_F5,  MN_DS5, MN_CS5
 music_bars_end:
 
 msg_music_ok:
-    .asciz "AICA: thirteen-slot raw synthwave / DnB / trance / ambient / cosmic tracker online at 112.40 BPM\r\n"
+    .asciz "AICA: thirteen-slot raw synthwave / DnB / trance / ambient / cosmic / gravity tracker online at 112.40 BPM\r\n"
 msg_music_fail:
     .asciz "AICA WARNING: sound path unavailable; visuals continue\r\n"
 msg_music_rows:

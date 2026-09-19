@@ -8,9 +8,9 @@ other library. The executable enters at `0x8c010000` and drives the Dreamcast's
 video, PowerVR2 tile accelerator, Yamaha AICA synthesizer, Holly event
 registers, SH-4 store queues, SCIF serial port, caches, and FPU directly.
 
-The demo is a 6,144-frame, eight-act camera sequence rather than a fixed-view
+The demo is a 6,912-frame, nine-act camera sequence rather than a fixed-view
 object spin. At Dreamcast's 59.9453 Hz refresh rate the complete loop lasts
-about 102.49 seconds; each act gets 768 frames and the cuts are masked by a short
+about 115.30 seconds; each act gets 768 frames and the cuts are masked by a short
 additive white-energy flash.
 
 1. **Orbit Core** - the shot holds a wide, elevated view for two seconds, then
@@ -69,8 +69,20 @@ additive white-energy flash.
    solid near-black lower bowl. The craft completes one and a half turns while
    pitch, roll, dolly, framing, and a moving inspection ring continuously reveal
    the broad stern, split organic crown, sharp nose, and underbody.
+9. **Event Horizon** - a gravitationally lensed black hole. SH-4 rebuilds a
+   1,056-vertex accretion disk every frame and bends each vertex, and each of
+   320 background stars, through the point-mass lens equation
+   `theta = (beta +/- sqrt(beta^2 + 4 thetaE^2)) / 2`. The primary image lifts
+   the far side of the disk into the arch standing over the shadow; the same
+   mesh submitted through the secondary solution draws the thin mirrored arc
+   beneath it. Keplerian differential rotation drives two turbulence
+   harmonics, Doppler beaming brightens the approaching limb, and stars
+   brighten and stretch tangentially as they cross the Einstein radius. The
+   camera falls from 60 to 26 radii, dips through the disk plane so the arch
+   flips from above the hole to below it, climbs to a 34-degree overview, and
+   then the mass parameter grows until the horizon swallows the frame.
 
-An original 48-bar score follows the same eight-act timeline. Orbit Core begins
+An original 54-bar score follows the same nine-act timeline. Orbit Core begins
 with a restrained F-sharp-minor add9 pad, brings in the pulse and drums as the
 camera dives, and accents the close surface skim. Neon Vault opens into the
 wide hook; Chaos Bloom fractures it into a bridge. Hyperfold answers with a
@@ -86,8 +98,10 @@ broad suspended-minor air pad, open-fifth bass, slow panoramic stereo drift,
 restrained half-time percussion, and a large octave arrival over the final
 ridge. Navigator closes the loop with an original cosmic keygen movement:
 glassy detuned lead, telemetry-like percussion, wide orbital panning, bright
-arpeggios, and a C-sharp dominant cadence that resolves cleanly back to Orbit
-Core's F-sharp minor.
+arpeggios, and a C-sharp dominant cadence. Event Horizon receives that cadence
+as a vast half-time finale: a loud four-voice pad, sub-octave bass, a widely
+detuned slow lead, a Neapolitan G-major-seven bar as the camera falls, and one
+last C-sharp dominant that resolves cleanly back to Orbit Core's F-sharp minor.
 
 The busiest act, Chaos Bloom, submits 2,172 world-space triangles per frame:
 2,044 from its two ribbons and 128 from the crossed shards. Neon Vault submits
@@ -116,6 +130,16 @@ HUD and the brightest transition frame raises the peak to only 5,595 blocks or
 179,040 bytes—34.2% of the 512 KiB TA vertex buffer. Exhaustive projection of
 all 768 poses keeps camera Z positive and every hull point clear of the screen
 and title plaque.
+
+Event Horizon is the heaviest act by triangle count but cheap in TA traffic
+because both disk images are long closed strips: 4,656 scene-local triangles
+(1,920 per lens image, 640 star, 128 photon-ring, 46 shadow-disc, 2 backdrop)
+in 5,346 native parameter blocks, about 167 KiB or 33% of the 512 KiB vertex
+buffer before the shared HUD. Its mesh is generated in camera-relative azimuth
+with `psi = alpha - 0.85 sin(alpha)`, concentrating segments behind the hole
+so the Einstein arch stays smooth even edge-on. The opaque shadow disc writes
+reciprocal-Z `1/D`: near-side disk vertices pass in front of it, while far-side
+light the lens cannot lift clear of the shadow is hidden, with no CPU sorting.
 
 ## Demoscene inspiration
 
@@ -179,6 +203,12 @@ The implementation was modeled analytically from those visual cues—the
 clamshell profile, dark lower bowl, flowing dorsal ridges, and split forward
 crown—rather than copied from a production mesh, film asset, texture, or scan.
 
+Event Horizon follows the look popularised by the Thorne/Double Negative
+renderings for *Interstellar* and by the 2019 EHT image, but it is not a ray
+tracer and copies no frame: it is an original thin-lens approximation (lens
+strength 2.2 M/D rather than a Schwarzschild geodesic integrator) applied to
+ordinary Gouraud triangles, with its own palette, choreography, and score.
+
 ## Build
 
 The Makefile invokes the installed Dreamcast cross-binutils directly. Do not
@@ -227,9 +257,9 @@ successful boot prints:
 ```text
 CHROMA CIRCUIT // bare SH-4 entry
 MAPLE: direct A0 DMA, LEFT/RIGHT scene select
-AICA: thirteen-slot raw synthwave / DnB / trance / ambient / cosmic tracker online at 112.40 BPM
+AICA: thirteen-slot raw synthwave / DnB / trance / ambient / cosmic / gravity tracker online at 112.40 BPM
 PVR2: direct registers, tile matrix, no SDK runtime
-TA: eight-act orbit + vault + chaos + hyperfold + strange form + machine dream + high country + navigator online
+TA: nine-act orbit + vault + chaos + hyperfold + strange form + machine dream + high country + navigator + event horizon online
 ```
 
 The demo runs continuously with a controller optional. Press **D-pad Left** or
@@ -238,7 +268,7 @@ wraps at either end. Flycast's default keyboard mapping uses the **Left Arrow**
 and **Right Arrow** keys. Every act identifies itself in the bottom-right
 plaque as `01 ORBIT CORE`, `02 NEON VAULT`, `03 CHAOS BLOOM`,
 `04 HYPERFOLD`, `05 STRANGE FORM`, `06 MACHINE DREAM`, or
-`07 HIGH COUNTRY`, or `08 NAVIGATOR`. Manual jumps land just beyond the transition flash so the
+`07 HIGH COUNTRY`, `08 NAVIGATOR`, or `09 EVENT HORIZON`. Manual jumps land just beyond the transition flash so the
 new title and scene are visible immediately; the tracker cuts old drum tails
 and revoices the destination harmony on that same complete frame. Close
 Flycast, or press Control-C in the launching terminal, to stop it.
@@ -262,7 +292,7 @@ equivalent of a tracker/module player directly in SH-4 assembly:
   without consuming SH-4 transform time.
 - One tracker tick equals one displayed frame. Eight ticks make a row, four
   rows make a beat, and the base tempo is 112.40 BPM. Six 16-row bars fit each
-  768-frame scene exactly, for 48 bars and 768 rows per loop.
+  768-frame scene exactly, for 54 bars and 864 rows per loop.
 - The ARM7 remains in reset: SH-4 uploads the oscillator waves over G2, starts
   the complete voice bank with one `KYONEX`, then writes only pitch, pan, and
   total-level registers. A two-execute key-off/key-on sequence gives the kick
@@ -394,6 +424,15 @@ generator-trance movement, -30.56 for High Country's open-air release, and
 -29.84 for Navigator's cosmic/keygen finale. The same run reported `0x4b` or
 `0x4c` decoded rows and `0x49`-`0x4c` live slot-zero phase changes per 600-frame
 window while the renderer continued to report zero missed vertical blanks.
+
+Event Horizon was added after the measurements above. It was frozen in Flycast
+at local frames 200, 300, 600, 660, 670, 690, 700, 710, and 728 to inspect the
+arch, plane crossing, overview, and collapse, then run live from the end of
+Navigator through the act and the wrap into Orbit Core: every 600-frame window
+reported zero missed vertical blanks, `0x077516e0` TMU1 ticks, and `0x4b`/`0x4c`
+tracker rows. The full nine-act loop and the new movement's audio levels have
+not been re-captured or re-measured, and the eight-act audio figures above
+predate it.
 
 Generated `.o`, `.elf`, and screenshot files are intentionally ignored. Use
 `make clean` to remove build products.

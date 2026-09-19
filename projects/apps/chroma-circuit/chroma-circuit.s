@@ -238,7 +238,7 @@ _start:
     cmp/eq  r0, r9
     bf      .Lmain_loop
     nop
-    mov     #0, r9                  ! eight 768-frame acts, then loop cleanly
+    mov     #0, r9                  ! nine 768-frame acts, then loop cleanly
     bra     .Lmain_loop
     nop
 
@@ -249,7 +249,7 @@ _start:
 .Lmsg_maple:    .long msg_maple
 .Lmsg_pvr:      .long msg_pvr
 .Lmsg_render:   .long msg_render
-.Ltimeline_period:.long 6144
+.Ltimeline_period:.long 6912
 .Ltile0:        .long TILE0
 .Ltile1:        .long TILE1
 .Lopb0:         .long OPB0
@@ -596,12 +596,16 @@ maple_poll_scene_controls:
     cmp/hs  r2, r4
     bf      .Lmaple_have_scene
     mov     #7, r3
+    sub     r2, r4
+    cmp/hs  r2, r4
+    bf      .Lmaple_have_scene
+    mov     #8, r3
 .Lmaple_have_scene:
     cmp/pz  r1
     bt      .Lmaple_scene_right
     tst     r3, r3
     bf      .Lmaple_scene_left_decrement
-    mov     #7, r3
+    mov     #8, r3
     bra     .Lmaple_commit_scene
     nop
 .Lmaple_scene_left_decrement:
@@ -610,7 +614,7 @@ maple_poll_scene_controls:
     nop
 .Lmaple_scene_right:
     add     #1, r3
-    mov     #8, r0
+    mov     #9, r0
     cmp/eq  r0, r3
     bf      .Lmaple_commit_scene
     mov     #0, r3
@@ -1649,10 +1653,23 @@ draw_scene:
 
 .Lscene_dispatch_navigator:
     sub     r1, r9
+    cmp/hs  r1, r9
+    bt      .Lscene_dispatch_horizon
     mov     #7, r0
     mov.l   .Lscene_index_ptr, r2
     mov.l   r0, @r2
     mov.l   .Lfn_scene_navigator, r0
+    jsr     @r0
+    nop
+    bra     .Lscene_dispatch_transition
+    nop
+
+.Lscene_dispatch_horizon:
+    sub     r1, r9
+    mov     #8, r0
+    mov.l   .Lscene_index_ptr, r2
+    mov.l   r0, @r2
+    mov.l   .Lfn_scene_horizon, r0
     jsr     @r0
     nop
 
@@ -1676,6 +1693,7 @@ draw_scene:
 .Lfn_scene_product:   .long draw_scene_product_form
 .Lfn_scene_elevated:  .long draw_scene_elevated
 .Lfn_scene_navigator: .long draw_scene_navigator
+.Lfn_scene_horizon:   .long draw_scene_event_horizon
 .Lfn_scene_transition:.long draw_scene_transition
 
 draw_scene_orbit:
@@ -4619,6 +4637,13 @@ draw_title:
     mov     #6, r0
     cmp/eq  r0, r1
     bt      .Ltitle_elevated_label
+    mov     #7, r0
+    cmp/eq  r0, r1
+    bt      .Ltitle_navigator_label
+    mov.l   .Ltitle_horizon, r4
+    bra     .Ltitle_label_ready
+    nop
+.Ltitle_navigator_label:
     mov.l   .Ltitle_navigator, r4
     bra     .Ltitle_label_ready
     nop
@@ -4820,6 +4845,7 @@ draw_text:
 .Ltitle_product:  .long title_product
 .Ltitle_elevated: .long title_elevated
 .Ltitle_navigator:.long title_navigator
+.Ltitle_horizon:  .long title_horizon
 .Ltitle_scene_index:.long scene_index
 .Ltitle_tech_x:   .long 436
 .Ltitle_tech_y:   .long 446
@@ -5086,6 +5112,7 @@ title_strange:.asciz "05 STRANGE FORM"
 title_product:.asciz "06 MACHINE DREAM"
 title_elevated:.asciz "07 HIGH COUNTRY"
 title_navigator:.asciz "08 NAVIGATOR"
+title_horizon:.asciz "09 EVENT HORIZON"
 
 ! Five-bit rows, seven rows per glyph, A-Z then 0-9.
 font_letters:
@@ -5132,7 +5159,7 @@ font_digits:
 msg_boot:   .asciz "\r\nCHROMA CIRCUIT // bare SH-4 entry\r\n"
 msg_maple:  .asciz "MAPLE: direct A0 DMA, LEFT/RIGHT scene select\r\n"
 msg_pvr:    .asciz "PVR2: direct registers, tile matrix, no SDK runtime\r\n"
-msg_render: .asciz "TA: eight-act orbit + vault + chaos + hyperfold + strange form + machine dream + high country + navigator online\r\n"
+msg_render: .asciz "TA: nine-act orbit + vault + chaos + hyperfold + strange form + machine dream + high country + navigator + event horizon online\r\n"
 msg_ta_timeout: .asciz "PVR FATAL: TA completion timeout\r\n"
 msg_ta_fault: .asciz "PVR FATAL: TA error event\r\n"
 msg_render_timeout: .asciz "PVR FATAL: render completion timeout\r\n"
@@ -5201,4 +5228,5 @@ maple_response:         .space 1024
     .include "product-form.inc"
     .include "elevated.inc"
     .include "navigator.inc"
+    .include "event-horizon.inc"
     .include "aica-music.inc"
