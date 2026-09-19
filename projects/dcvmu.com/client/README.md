@@ -32,6 +32,18 @@ After login, the main menu offers **Upload a save**, **Download a save**,
   dcvmu.com first) and optionally part of a game title, then select
   **Find saves**. Only that account's public saves appear.
 
+**Custom icons:** choose **Customise my VMU** in your website account to draw or
+import artwork, then find the saved icon set under **Download a save** here.
+Select a VMU and confirm installation of `ICONDATA_VMS`. Replacing an icon set
+asks first and keeps game saves. Restart the Dreamcast/VMU to see the menu icons;
+the optional hidden 3D BIOS animation is included in the file. Custom icon files
+are excluded from the upload list; archive an existing set using the card importer.
+
+**Imported saves:** the website's **Import a memory card** accepts `.bin`, `.vmu`,
+`.dcm` and `.dci`. Selected files appear in **My saves**, ready to install. Their
+bytes and header offsets are preserved; original directory timestamps and
+copy-protection flags are not restored.
+
 Do not remove the VMU or power off while a save is being written.
 
 ## Controls
@@ -135,10 +147,18 @@ and add `--modem` to use Flycast's modem emulation:
 
 ```sh
 python3 projects/dcvmu.com/client/tests/run_modem_checks.py
-projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py --host <Mac-LAN-IP>
+projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-public-test
+projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py --tools --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-tools-test
 python3 projects/dcvmu.com/client/tests/run_upload_stress.py --host <Mac-LAN-IP>
 python3 -m unittest discover -s projects/dcvmu.com/client/tests
 ```
+
+The `--tools` test creates icons through the studio and saves through the card
+importer, then checks HTTPS downloads, cancellation, installation, replacement,
+header offsets and preservation of existing saves in Flycast. It also verifies
+that the upload list excludes icons/login files. Add `--modem` for modem testing.
+Real-hardware icon display and the BIOS animation still need verification on a
+physical Dreamcast/VMU.
 
 Add `--tools --log-dir /tmp/dcvmu-tools-test` to `run_public_browse.py` to verify
 custom icon downloads and card-imported saves on isolated VMUs.

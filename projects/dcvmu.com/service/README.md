@@ -25,6 +25,24 @@ card imports work without JavaScript. The drawing studio needs a modern browser.
 - The card importer previews `.bin`, `.vmu`, `.dcm` and `.dci` files, then imports
   selected saves or custom icons without replacing existing cloud backups.
 
+The studio (`/studio`) draws or converts images to 32×32, 16-colour Dreamcast
+menu icons and monochrome VMU icons, with live previews and undo. Each set takes
+two blocks and can optionally enable the hidden 3D BIOS animation. Save it to
+your account, then install from **Download a save** in the updated client.
+
+The importer (`/import`) accepts one standard 128 KiB card bank or one Nexus
+DCI file. File bytes and VMS header offsets are preserved; original directory
+timestamps and copy-protection flags are not restored by the client. Mini-games,
+unsupported filenames, damaged/cross-linked files and login saves are excluded
+with reasons shown. It never restores a whole card or changes the source image.
+
+Both tools default to private entries. Import previews belong to their owner
+and expire after 30 minutes. Only validated file payloads are staged, never the
+original card or excluded login data. A new preview replaces the previous one;
+completion or **Discard preview** removes it. Expired previews are purged on
+subsequent import requests. A selection imports in one transaction: reaching
+the account limit leaves both the archive and preview unchanged.
+
 Limits: 200 saves per account, each at most 120.5 KiB (241 VMU blocks), and 60
 upload attempts per hour. Uploads must be a single valid VMS data save with a
 correct CRC; whole-card images, archives, `ICONDATA_VMS`, and the client's
@@ -75,6 +93,10 @@ title, game, username, byte size, SHA-256, and VMS header offset in blocks.
 Icon-aware clients send `include_icons=1` when listing or downloading saves.
 `GET /api/v1/saves/<id>/icon-header?revision=<revision>` provides the custom
 icon preview in the client's VMS header format. Older clients only see data saves.
+Icon entries have filename `ICONDATA_VMS` and header offset zero. They use a
+special icon format, not a VMS header or data CRC. The preview response is
+640 bytes and applies normal access/revision checks; downloads always return
+the original file bytes. Older clients cannot download icons without opting in.
 
 Errors are 400/401/409/413/429 with a readable message. A response can be lost
 after a successful write, so clients should not replay mutations automatically.

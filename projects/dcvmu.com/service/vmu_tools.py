@@ -7,7 +7,7 @@ import base64
 import re
 import struct
 
-from vmu_validation import MAX_SAVE, validate_vms, game_label, first_icon_png
+from vmu_validation import MAX_SAVE, validate_vms, game_label, first_icon_png, has_vms_icon
 
 ICON_NAME = 'ICONDATA_VMS'
 UNLOCK = bytes.fromhex('da69d0dac74ef836189279682db53086')
@@ -109,6 +109,7 @@ def _entry(entry, data=None, reason=''):
             item['game'] = game_label(filename, data, offset)
             item['name'] = item['game'][:64] or filename
         item['data'] = base64.b64encode(data).decode('ascii')
+        item['has_icon'] = item['kind'] == 'icon' or has_vms_icon(data[offset*512:offset*512+640])
     except ValueError as error:
         item['reason'] = str(error)
     return item

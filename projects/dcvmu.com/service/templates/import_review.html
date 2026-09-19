@@ -5,8 +5,9 @@
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="import-list">
 {% for entry in entries %}<article class="import-entry {{ 'unavailable' if entry.reason else '' }}">
+{% if entry.has_icon %}<img class="import-thumbnail" src="{{ url_for('import_icon', batch=batch, index=loop.index0) }}" width="48" height="48" alt="" loading="lazy">{% endif %}
 {% if not entry.reason %}<label class="import-choice"><input type="checkbox" name="entry" value="{{ loop.index0 }}"> <strong>{{ entry.name }}</strong></label>{% else %}<strong>{{ entry.filename or 'Unnamed file' }}</strong>{% endif %}
-<p class="hint">{{ entry.filename }} · {{ entry.blocks }} blocks{% if entry.kind == 'icon' %} · Custom icons{% endif %}</p>
+<p class="hint">{{ entry.filename }} · {{ entry.blocks }} {{ 'block' if entry.blocks == 1 else 'blocks' }}{% if entry.kind == 'icon' %} · Custom icons{% endif %}</p>
 {% if entry.reason %}<p>{{ entry.reason }}</p>{% elif entry.filename in existing %}<p class="hint">Already in your archive. This import will be kept as another backup.</p>{% endif %}
 </article>{% else %}<div class="empty">This card is empty.</div>{% endfor %}
 </div>

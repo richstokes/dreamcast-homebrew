@@ -456,6 +456,8 @@ def create_app(config=None):
     def import_image():
         require_user()
         if request.method == 'GET':
+            with database() as db:
+                db.execute('DELETE FROM imports WHERE expires<=?', (int(time.time()),))
             return page('import.html')
         limit('import:' + str(g.user['id']), 30, 3600)
         files = request.files.getlist('image')

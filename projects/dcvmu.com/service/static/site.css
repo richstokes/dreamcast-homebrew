@@ -95,5 +95,6 @@ button:focus-visible{outline:3px solid var(--focus);outline-offset:3px}button:di
 .icon-detail{display:flex;gap:28px;margin:24px 0}.icon-art{image-rendering:pixelated;border:1px solid var(--line);background:white}
 .import-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:24px 0}.import-entry{padding:18px 22px;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:0}.import-entry p{margin:8px 0 0}.import-entry.unavailable{background:var(--panel-soft);color:var(--muted)}
 .import-choice{display:flex;gap:12px;align-items:center}.import-choice input{flex-shrink:0}.cancel-import{margin-top:18px}
+.import-thumbnail{float:right;margin:0 0 12px 14px;image-rendering:pixelated}
 @media(max-width:850px){.studio-layout{grid-template-columns:minmax(0,1fr)}.studio-settings{display:flex;flex-direction:column}.studio-previews{order:0}.import-list{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:400px){.studio-previews{gap:12px}.console-icon-preview{width:110px;height:120px}.vmu-shell{padding:18px 10px 8px}.vmu-lcd{padding:4px 10px}.studio-layout .form-panel{padding:16px}}
