@@ -51,9 +51,13 @@ separate card importer or studio for custom icons. Login saves remain excluded.
 
 ## Local development
 
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
+Keep dependency versions in `requirements.txt` and use uv to manage the virtual
+environment and package installation.
+
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+uv venv --python python3 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python -m unittest -v
 DCVMU_DATABASE=/tmp/dcvmu-dev.sqlite3 .venv/bin/gunicorn --bind 127.0.0.1:8090 wsgi:app
 ```
@@ -130,6 +134,10 @@ curl --fail https://dcvmu.com/healthz
 
 The SSH default is `root@netsplit.vip` (the same host as `dcvmu.com`); override
 it with `DCVMU_DEPLOY_HOST`. The public URL stays `https://dcvmu.com`.
+Deployment requires `uv` in `PATH` locally and in the remote root SSH session.
+It installs requirements with uv into the existing `.venv` on each side,
+creating a virtual environment only if needed. The systemd Gunicorn path is
+unchanged. Host-level tool installation is managed through infra's runbook.
 From a sibling infra checkout, `python3 servers/netsplit.vip/manage.py deploy dcvmu`
 dispatches this same script. Register new applications and ingress changes in
 infra; app deployment must preserve its shared configuration.

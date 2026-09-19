@@ -4,15 +4,24 @@ project_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Shared ingress/port registration: richstokes/infra, servers/netsplit.vip.
 # This script owns only the DCVMU application and its base systemd unit.
 remote=${DCVMU_DEPLOY_HOST:-root@netsplit.vip}
+command -v uv >/dev/null || { echo 'Install uv before deploying DCVMU.' >&2; exit 1; }
+# Fail before uploading/replacing app files if the shared host needs uv installed.
+ssh "$remote" 'command -v uv >/dev/null' || {
+  echo 'uv must be in the remote SSH PATH; see infra/servers/netsplit.vip.' >&2
+  exit 1
+}
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cd "$project_dir"
+if [ ! -x .venv/bin/python ]; then uv venv --python python3 .venv; fi
+uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python -m unittest -v
 # Explicit source manifest prevents uploading credentials, database or local caches.
 COPYFILE_DISABLE=1 tar --no-xattrs -czf "$stage/service.tar.gz" app.py vmu_validation.py vmu_tools.py wsgi.py requirements.txt templates static deploy/dcvmu.service
 scp "$stage/service.tar.gz" "$remote:/tmp/dcvmu-service.tar.gz"
 ssh "$remote" bash -s <<'REMOTE'
 set -euo pipefail
+command -v uv >/dev/null
 if ! id -u dcvmu >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/dcvmu --shell /usr/sbin/nologin dcvmu
 fi
@@ -29,8 +38,8 @@ tar --no-same-owner -xzf /tmp/dcvmu-service.tar.gz -C /opt/dcvmu
 # readable by the unprivileged service, regardless of archive permissions.
 find /opt/dcvmu/static /opt/dcvmu/templates -type d -exec chmod 755 {} +
 find /opt/dcvmu/static /opt/dcvmu/templates -type f -exec chmod 644 {} +
-if [ ! -x /opt/dcvmu/.venv/bin/pip ]; then python3 -m venv /opt/dcvmu/.venv; fi
-/opt/dcvmu/.venv/bin/pip --disable-pip-version-check install -q -r /opt/dcvmu/requirements.txt
+if [ ! -x /opt/dcvmu/.venv/bin/python ]; then uv venv --python /usr/bin/python3 /opt/dcvmu/.venv; fi
+uv pip install --python /opt/dcvmu/.venv/bin/python -q -r /opt/dcvmu/requirements.txt
 install -m 644 /opt/dcvmu/deploy/dcvmu.service /etc/systemd/system/dcvmu.service
 systemctl daemon-reload
 systemctl enable dcvmu.service
