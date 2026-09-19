@@ -65,7 +65,7 @@ def first_icon_png(header_and_frame):
             + chunk(b'IDAT', zlib.compress(scanlines)) + chunk(b'IEND', b''))
 
 
-def validate_vms(data):
+def validate_vms(data, expected_offset=None):
     """Raise ValueError for unsupported/corrupt files, retaining exact valid bytes.
 
     Headers can start at a block offset, as recorded by the VMU directory.
@@ -74,7 +74,10 @@ def validate_vms(data):
     """
     if not data or len(data) > MAX_SAVE or len(data) % 512:
         raise ValueError('Save must contain 1-241 complete VMU blocks (maximum 120.5 KiB).')
-    for offset in range(0, len(data), 512):
+    offsets = range(0, len(data), 512) if expected_offset is None else (expected_offset * 512,)
+    for offset in offsets:
+        if offset < 0 or offset >= len(data):
+            continue
         header = data[offset:offset + 128]
         if len(header) < 128:
             continue

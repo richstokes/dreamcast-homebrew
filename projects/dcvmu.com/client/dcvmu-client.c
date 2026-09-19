@@ -223,16 +223,18 @@ static void draw(void) {
         if(!card_count)text(24,150,INK,"No VMUs attached. Insert one and rescan.");
         text(24,382,INK,"A select   Y/R rescan   B/Esc back");
     } else if(screen==INSTALL_CONFIRM) {
-        char line[100];text(24,66,ORANGE,target_exists?"Replace the existing VMU save?":"Install this save on the VMU?");
+        int custom=!strcmp(remote_saves[remote_selected].filename,DCVMU_ICON_FILE);
+        char line[100];text(24,66,ORANGE,custom?(target_exists?"Replace this VMU's custom icons?":"Apply custom icons to this VMU?"):(target_exists?"Replace the existing VMU save?":"Install this save on the VMU?"));
         snprintf(line,sizeof(line),"%.12s -> VMU %c%d",remote_saves[remote_selected].filename,'A'+target_id/6,target_id%6);
         text(24,112,INK,line);
-        text(24,150,INK,target_exists?"The existing save will be overwritten.":"Other saves will not be changed.");
+        text(24,150,INK,custom?"Changes the VMU and Dreamcast menu icons.":target_exists?"The existing save will be overwritten.":"Other saves will not be changed.");
+        if(custom)text(24,180,INK,"Game saves are kept. Restart to see icons.");
         text(24,222,focus==0?BLUE:INK,focus==0?"> Cancel":"  Cancel");
         text(24,258,focus==1?BLUE:INK,focus==1?(target_exists?"> Replace save":"> Install save"):(target_exists?"  Replace save":"  Install save"));
         text(24,330,INK,"Keep the VMU inserted while writing.");
         text(24,382,INK,"Up/Down choose   A confirm   B/Esc back");
     } else if(screen==INSTALLED) {
-        text(24,80,BLUE,"Save installed and verified.");
+        text(24,80,BLUE,!strcmp(remote_saves[remote_selected].filename,DCVMU_ICON_FILE)?"Custom icons installed and verified.":"Save installed and verified.");
         text(24,150,INK,remote_saves[remote_selected].filename);
         text(24,230,INK,"A / Enter main menu   B / Esc downloads");
     } else if(screen==FILES) {
@@ -325,7 +327,7 @@ static void scan(void) {
             if(entries[i].filetype!=0x33 || !entries[i].filesize) continue;
             char filename[13];memcpy(filename,entries[i].filename,12);filename[12]=0;
             for(int j=11;j>=0 && filename[j]==' ';--j)filename[j]=0;
-            if(auth_is_save(filename,NULL,0))continue;
+            if(auth_is_save(filename,NULL,0) || !strcmp(filename,DCVMU_ICON_FILE))continue;
             out=&saves[save_count++]; out->port=dev->port; out->unit=dev->unit; out->entry=entries[i];
             memcpy(out->filename,entries[i].filename,12); out->filename[12]=0;
             for(int j=11;j>=0 && out->filename[j]==' ';--j) out->filename[j]=0;
@@ -641,7 +643,7 @@ fail:printf("dcvmu: SELF-TEST FAILED screen=%d status=%s\n",screen,status_text);
 }
 #endif
 
-#if defined(DCVMU_DOWNLOAD_TEST) && !defined(DCVMU_PUBLIC_TEST)
+#if defined(DCVMU_DOWNLOAD_TEST) && !defined(DCVMU_PUBLIC_TEST) && !defined(DCVMU_TOOLS_TEST)
 static void run_download_test(void) {
     FILE *credentials=fopen("/rd/test-credentials.txt","r");
     if(!credentials)return;
@@ -702,6 +704,13 @@ fail:printf("dcvmu: DOWNLOAD SELF-TEST FAILED screen=%d status=%s\n",screen,stat
 #include "tests/public_browse.c"
 #endif
 
+#ifdef DCVMU_TOOLS_TEST
+#ifndef DCVMU_DOWNLOAD_TEST
+#error "TOOLS_TEST requires DOWNLOAD_TEST and the isolated HTTPS fixture"
+#endif
+#include "tests/vmu_tools.c"
+#endif
+
 int main(int argc,char **argv) {
     int quit=0,online=0;
     (void)argc;(void)argv;
@@ -758,11 +767,14 @@ int main(int argc,char **argv) {
     if(card_filter!=1 || save_count!=total) return 6;
     printf("dcvmu: VMU SWITCH SELF-TEST PASS (%d saves on A1, empty A2)\n",total);
 #endif
-#if defined(DCVMU_DOWNLOAD_TEST) && !defined(DCVMU_PUBLIC_TEST)
+#if defined(DCVMU_DOWNLOAD_TEST) && !defined(DCVMU_PUBLIC_TEST) && !defined(DCVMU_TOOLS_TEST)
     if(online)run_download_test();
 #endif
 #ifdef DCVMU_PUBLIC_TEST
     if(online)run_public_test();
+#endif
+#ifdef DCVMU_TOOLS_TEST
+    if(online)run_tools_test();
 #endif
     while(!quit) {
         maple_device_t *dev=maple_enum_type(0,MAPLE_FUNC_CONTROLLER);

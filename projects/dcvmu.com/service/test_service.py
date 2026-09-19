@@ -710,6 +710,51 @@ class ServiceTest(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT private,revision FROM saves').fetchone(),(1,1))
 
+    def test_year_long_web_login_and_activity_renewal(self):
+        import hashlib, time
+        from unittest.mock import patch
+        year = 365 * 86400
+        now = int(time.time())
+        cookie = self.web.get_cookie('dcvmu_session')
+        self.assertGreaterEqual(cookie.max_age, year - 5)
+        self.assertTrue(cookie.secure)
+        self.assertTrue(cookie.http_only)
+        token_hash = hashlib.sha256(cookie.value.encode()).hexdigest()
+        with sqlite3.connect(self.path) as db:
+            expires = db.execute('SELECT expires FROM sessions WHERE hash=?', (token_hash,)).fetchone()[0]
+            api_expiry = db.execute("SELECT expires FROM sessions WHERE kind='api'").fetchone()[0]
+        self.assertGreaterEqual(expires, now + year - 5)
+        self.assertLessEqual(api_expiry, now + 86400)
+        self.assertNotIn('dcvmu_session=', self.web.get('/account').headers.get('Set-Cookie', ''))
+        with patch('app.time.time', return_value=now + 30 * 86400):
+            response = self.web.get('/account')
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('Max-Age=31536000', response.headers['Set-Cookie'])
+        with sqlite3.connect(self.path) as db:
+            renewed = db.execute('SELECT expires FROM sessions WHERE hash=?', (token_hash,)).fetchone()[0]
+        self.assertEqual(renewed, now + 30 * 86400 + year)
+        with patch('app.time.time', return_value=renewed + 1):
+            self.assertEqual(self.web.get('/account').status_code, 401)
+
+    def test_legacy_web_session_upgrade_and_logout(self):
+        import hashlib, time
+        token = self.web.get_cookie('dcvmu_session').value
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with sqlite3.connect(self.path) as db:
+            db.execute('UPDATE sessions SET expires=? WHERE hash=?', (int(time.time()) + 3600, token_hash))
+        response = self.web.get('/account')
+        self.assertIn('Max-Age=31536000', response.headers['Set-Cookie'])
+        csrf = self.csrf('/account')
+        response = self.web.post('/logout', data={'csrf': csrf})
+        self.assertEqual(response.status_code, 303)
+        self.assertIn('Max-Age=0', response.headers['Set-Cookie'])
+        replay = self.app.test_client()
+        replay.set_cookie('dcvmu_session', token)
+        self.assertEqual(replay.get('/account').status_code, 401)
+        guest = self.app.test_client()
+        guest.get('/login')
+        self.assertLessEqual(guest.get_cookie('dcvmu_session').max_age, 3600)
+
     def test_token_kinds_and_session_rotation(self):
         web_cookie=self.web.get_cookie('dcvmu_session').value
         self.assertEqual(self.api.get('/api/v1/me',headers={'Authorization':'Bearer '+web_cookie}).status_code,401)

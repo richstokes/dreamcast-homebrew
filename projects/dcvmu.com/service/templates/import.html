@@ -1,0 +1,11 @@
+{% extends 'base.html' %}{% block title %}Import a memory card{% endblock %}{% block content %}
+<p class="eyebrow">BRING YOUR COLLECTION</p><h1>Import a memory card</h1>
+<p>Choose a card image, inspect its contents, then select the files to add to your archive.</p>
+<section class="form-panel"><h2>Choose a file</h2><form method="post" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<p><label>Memory-card image or Nexus file<br><input type="file" name="image" accept=".bin,.vmu,.dcm,.dci" required></label></p>
+<p class="hint">Flycast/raw .bin or .vmu, Nexus .dcm (one 128 KiB card bank), or a single .dci file.</p>
+<input type="submit" value="Inspect contents"></form></section>
+<p>Game saves and custom VMU icons are supported. Mini-games, damaged files and DCVMU login credentials are excluded. Your original file stays unchanged.</p>
+<p>Existing cloud backups are kept. You choose visibility before importing; private is the default.</p>
+{% endblock %}

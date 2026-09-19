@@ -1,5 +1,7 @@
 """DCVMU: server-rendered archive and bounded, HTTPS-only VMU upload API."""
 import hashlib
+import base64
+import json
 from datetime import datetime, timezone
 import io
 import os
@@ -15,8 +17,11 @@ from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, abort, g, redirect, render_template, request, send_file, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png, game_label
+from vmu_tools import (ICON_NAME, MAX_IMAGE, UNLOCK, build_icondata, validate_icondata,
+                       icon_header, icon_png, extract_image, is_login)
 
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
+WEB_SESSION_SECONDS = 365 * 86400
 CLIENT_RELEASE_BASE = 'https://github.com/richstokes/dreamcast-homebrew/releases/latest/download'
 DUMMY_HASH = PASSWORDS.hash(secrets.token_urlsafe(32))
 SCHEMA = '''
@@ -36,6 +41,9 @@ CREATE INDEX IF NOT EXISTS saves_browse ON saves(private, updated DESC);
 CREATE INDEX IF NOT EXISTS saves_owner_filename ON saves(user_id, filename, updated DESC, id DESC);
 CREATE INDEX IF NOT EXISTS saves_owner_browse ON saves(user_id, private, updated DESC, id DESC);
 CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS imports (
+ id TEXT PRIMARY KEY, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+ expires INTEGER NOT NULL, contents TEXT NOT NULL);
 '''
 
 
@@ -52,6 +60,8 @@ def create_app(config=None):
     with sqlite3.connect(app.config['DATABASE']) as db:
         db.executescript(SCHEMA)
         db.execute('BEGIN IMMEDIATE')
+        if 'kind' not in {r[1] for r in db.execute('PRAGMA table_info(saves)')}:
+            db.execute("ALTER TABLE saves ADD COLUMN kind TEXT NOT NULL DEFAULT 'data' CHECK(kind IN ('data','icon'))")
         if 'theme' not in {r[1] for r in db.execute('PRAGMA table_info(users)')}:
             db.execute("ALTER TABLE users ADD COLUMN theme TEXT CHECK(theme IN ('light', 'dark'))")
         if 'header_offset' not in {r[1] for r in db.execute('PRAGMA table_info(saves)')}:
@@ -119,12 +129,17 @@ def create_app(config=None):
         with database() as db:
             db.execute('DELETE FROM sessions WHERE expires < ?', (int(time.time()),))
             db.execute('INSERT INTO sessions VALUES (?,?,?,?,?)',
-                       (digest(token), user_id, csrf, int(time.time()) + (90 * 86400 if remembered else 86400 if user_id else 3600), kind))
+                       (digest(token), user_id, csrf, int(time.time()) + (WEB_SESSION_SECONDS if user_id and kind == 'web' else 90 * 86400 if remembered else 86400 if user_id else 3600), kind))
         return token, csrf
 
     def web_response(response, token=None):
         if token:
-            response.set_cookie('dcvmu_session', token, max_age=86400, secure=True,
+            session = database().execute("SELECT expires FROM sessions WHERE hash=? AND kind='web'",
+                                         (digest(token),)).fetchone()
+            if session is None:
+                return response
+            max_age = max(0, session['expires'] - int(time.time()))
+            response.set_cookie('dcvmu_session', token, max_age=max_age, secure=True,
                                 httponly=True, samesite='Lax', path='/')
         return response
 
@@ -159,6 +174,19 @@ def create_app(config=None):
         if request.path == '/support':
             response.headers['Content-Security-Policy'] += "; img-src 'self' https://cdn.buymeacoffee.com"
         response.headers['Cache-Control'] = 'no-store'
+        # Renew active website logins at most daily, including old 24-hour sessions.
+        # Never overwrite a login rotation or logout cookie, or renew API tokens.
+        if (g.get('user') and g.get('session') and g.session['kind'] == 'web'
+                and response.status_code < 400
+                and not any(cookie.startswith('dcvmu_session=')
+                            for cookie in response.headers.getlist('Set-Cookie'))):
+            now = int(time.time())
+            if g.session['expires'] <= now + WEB_SESSION_SECONDS - 86400:
+                with database() as db:
+                    renewed = db.execute("UPDATE sessions SET expires=? WHERE hash=? AND kind='web' AND expires>?",
+                                         (now + WEB_SESSION_SECONDS, g.session['hash'], now)).rowcount
+                if renewed:
+                    return web_response(response, request.cookies.get('dcvmu_session'))
         return response
 
     def page(template, **context):
@@ -330,14 +358,21 @@ def create_app(config=None):
             offset = max(0, min(int(request.args.get('page', 1)), 100000) - 1) * 20
         except ValueError:
             abort(400, 'Invalid page.')
-        rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,s.created,s.uploaded_at,
+        total_saves = database().execute('''SELECT count(*) FROM saves s JOIN users u ON u.id=s.user_id
+            WHERE s.private=0 AND (?='' OR instr(lower(s.game),lower(?))>0
+                OR instr(lower(s.name),lower(?))>0 OR instr(lower(s.filename),lower(?))>0)
+            AND (?='' OR instr(lower(u.username),lower(?))>0)''',
+            (game, game, game, game, username, username)).fetchone()[0]
+        total_pages = max(1, (total_saves + 19) // 20)
+        offset = min(offset, (total_pages - 1) * 20)
+        rows = database().execute('''SELECT s.id,s.name,s.game,s.notes,s.filename,s.updated,s.created,s.uploaded_at,s.kind,
             length(s.data) AS size,substr(s.data,s.header_offset*512+1,640) AS vms_header,u.username FROM saves s JOIN users u ON u.id=s.user_id
             WHERE private=0 AND (?='' OR instr(lower(s.game),lower(?))>0
                 OR instr(lower(s.name),lower(?))>0 OR instr(lower(s.filename),lower(?))>0)
             AND (?='' OR instr(lower(u.username),lower(?))>0) ORDER BY ''' + order + ' LIMIT 21 OFFSET ?',
             (game, game, game, game, username, username, offset)).fetchall()
-        response = page('browse.html', saves=[dict(row, metadata=header_metadata(row['vms_header']), has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
-                    page_num=offset//20+1, game=game, username=username, sort=sort, sort_options=sort_options, view=view)
+        response = page('browse.html', saves=[dict(row, metadata={} if row['kind']=='icon' else header_metadata(row['vms_header']), has_icon=row['kind']=='icon' or has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20,
+                    page_num=offset//20+1, total_pages=total_pages, total_saves=total_saves, game=game, username=username, sort=sort, sort_options=sort_options, view=view)
         if requested_view in ('cards', 'list'):
             response.set_cookie('dcvmu_browse_view', view, max_age=365 * 86400,
                                 secure=True, httponly=True, samesite='Lax')
@@ -366,9 +401,126 @@ def create_app(config=None):
             page_num = max(1, min(int(request.args.get('page', 1)), 10))
         except ValueError:
             abort(400, 'Invalid page.')
-        rows = database().execute('SELECT id,name,game,private,revision,created,uploaded_at,substr(data,header_offset*512+1,640) AS vms_header FROM saves WHERE user_id=? ORDER BY updated DESC,id DESC LIMIT 21 OFFSET ?',
+        rows = database().execute('SELECT id,name,game,private,revision,created,uploaded_at,kind,substr(data,header_offset*512+1,640) AS vms_header FROM saves WHERE user_id=? ORDER BY updated DESC,id DESC LIMIT 21 OFFSET ?',
                                   (g.user['id'], (page_num-1)*20)).fetchall()
-        return page('account.html', saves=[dict(row, has_icon=has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20, page_num=page_num)
+        return page('account.html', saves=[dict(row, has_icon=row['kind']=='icon' or has_vms_icon(row['vms_header'])) for row in rows[:20]], more=len(rows)>20, page_num=page_num)
+
+    def store_new_save(db, name, filename, data, kind, offset, private, notes=''):
+        """Caller owns a write transaction; all tools keep existing backups."""
+        if db.execute('SELECT count(*) FROM saves WHERE user_id=?', (g.user['id'],)).fetchone()[0] >= 200:
+            abort(400, 'Account limit reached (200 saves). Nothing was imported.')
+        base = name[:56]
+        for number in range(1, 203):
+            title = name if number == 1 else f'{base} ({number})'
+            if not db.execute('SELECT 1 FROM saves WHERE user_id=? AND name=?', (g.user['id'], title)).fetchone():
+                break
+        now = int(time.time())
+        game = 'VMU customisation' if kind == 'icon' else game_label(filename, data, offset)
+        return db.execute('''INSERT INTO saves(user_id,name,filename,game,notes,private,data,sha256,
+            created,updated,uploaded_at,kind,header_offset) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (g.user['id'], title, filename, game, notes, private, data, hashlib.sha256(data).hexdigest(),
+             now, now, now, kind, offset)).lastrowid
+
+    @app.route('/studio', methods=['GET', 'POST'])
+    def studio():
+        require_user()
+        if request.method == 'GET':
+            return page('studio.html')
+        limit('upload:' + str(g.user['id']), 60, 3600)
+        name = save_title()
+        if request.form.get('private', '0') not in ('0', '1') or request.form.get('unlock', '0') not in ('0', '1'):
+            abort(400, 'Invalid icon options.')
+        try:
+            data = build_icondata(request.form.get('label', ''), request.form.get('mono', ''),
+                                  request.form.get('pixels', ''), request.form.get('palette', ''),
+                                  request.form.get('unlock') == '1')
+        except ValueError as error:
+            abort(400, str(error))
+        with database() as db:
+            db.execute('BEGIN IMMEDIATE')
+            sid = store_new_save(db, name, ICON_NAME, data, 'icon', 0,
+                                 int(request.form.get('private', '0')), text_field('notes', 500))
+        return redirect(url_for('detail', sid=sid), 303)
+
+    def pending_import(batch):
+        require_user()
+        db = database()
+        with db:
+            db.execute('DELETE FROM imports WHERE expires<=?', (int(time.time()),))
+        row = db.execute('SELECT * FROM imports WHERE id=? AND user_id=?', (batch, g.user['id'])).fetchone()
+        if not row:
+            abort(404, 'This import expired or was already completed. Choose the card image again.')
+        return json.loads(row['contents'])
+
+    @app.route('/import', methods=['GET', 'POST'])
+    def import_image():
+        require_user()
+        if request.method == 'GET':
+            return page('import.html')
+        limit('import:' + str(g.user['id']), 30, 3600)
+        files = request.files.getlist('image')
+        if len(files) != 1 or set(request.files) != {'image'}:
+            abort(400, 'Choose one memory-card image or Nexus file.')
+        try:
+            rows = extract_image(files[0].read(MAX_IMAGE + 1), files[0].filename or '')
+        except ValueError as error:
+            abort(400, str(error))
+        batch = secrets.token_urlsafe(32)
+        with database() as db:
+            db.execute('DELETE FROM imports WHERE expires<=? OR user_id=?', (int(time.time()), g.user['id']))
+            db.execute('INSERT INTO imports VALUES (?,?,?,?)',
+                       (batch, g.user['id'], int(time.time()) + 1800, json.dumps(rows)))
+        return redirect(url_for('review_import', batch=batch), 303)
+
+    @app.route('/import/<batch>', methods=['GET', 'POST'])
+    def review_import(batch):
+        rows = pending_import(batch)
+        if request.method == 'GET':
+            existing = {r[0] for r in database().execute('SELECT filename FROM saves WHERE user_id=?', (g.user['id'],))}
+            return page('import_review.html', entries=rows, batch=batch, existing=existing,
+                        available=sum('data' in row for row in rows))
+        selected = request.form.getlist('entry')
+        if request.form.get('private', '0') not in ('0', '1'):
+            abort(400, 'Invalid visibility.')
+        if not selected or len(selected) != len(set(selected)):
+            abort(400, 'Select at least one file, once per file.')
+        try:
+            indices = [int(index) for index in selected]
+            if (len(indices) != len(set(indices)) or
+                    any(i < 0 or i >= len(rows) or 'data' not in rows[i] for i in indices)):
+                raise ValueError()
+        except ValueError:
+            abort(400, 'Select only the supported files shown in the preview.')
+        limit('upload:' + str(g.user['id']), 60, 3600)
+        with database() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('DELETE FROM imports WHERE id=? AND user_id=? AND expires>?',
+                              (batch, g.user['id'], int(time.time()))).rowcount:
+                abort(409, 'This import expired or was already completed.')
+            for index in indices:
+                row = rows[index]
+                store_new_save(db, row['name'], row['filename'], base64.b64decode(row['data']),
+                               row['kind'], row['header_offset'], int(request.form.get('private', '0')))
+        return redirect(url_for('account', imported=len(indices)), 303)
+
+    @app.get('/import/<batch>/<int:index>/icon.png')
+    def import_icon(batch, index):
+        rows = pending_import(batch)
+        if index >= len(rows) or 'data' not in rows[index]:
+            abort(404)
+        row = rows[index]
+        data = base64.b64decode(row['data'])
+        png = icon_png(data) if row['kind'] == 'icon' else first_icon_png(data[row['header_offset']*512:])
+        if not png:
+            abort(404)
+        return send_file(io.BytesIO(png), mimetype='image/png')
+
+    @app.post('/import/<batch>/cancel')
+    def cancel_import(batch):
+        require_user()
+        with database() as db:
+            db.execute('DELETE FROM imports WHERE id=? AND user_id=?', (batch, g.user['id']))
+        return redirect(url_for('import_image'), 303)
 
     def visible_save(sid):
         row = database().execute('SELECT s.*,u.username FROM saves s JOIN users u ON u.id=s.user_id WHERE s.id=?',
@@ -382,16 +534,22 @@ def create_app(config=None):
         row = visible_save(sid)
         offset = row['header_offset'] * 512
         header = row['data'][offset:offset+640]
-        return page('save.html', save=dict(row, metadata=header_metadata(header), has_icon=has_vms_icon(header)))
+        return page('save.html', save=dict(row, metadata={} if row['kind']=='icon' else header_metadata(header),
+                    has_icon=row['kind']=='icon' or has_vms_icon(header),
+                    mono_icon=row['kind']=='icon' and bool(validate_icondata(row['data'])[0]),
+                    unlocked=row['kind']=='icon' and row['data'][704:720] == UNLOCK))
 
     @app.get('/saves/<int:sid>/icon.png')
     def save_icon(sid):
         row = visible_save(sid)
         try:
-            offset = validate_vms(row['data']) * 512
+            if row['kind'] == 'icon':
+                png = icon_png(row['data'], request.args.get('screen') == 'vmu')
+            else:
+                offset = validate_vms(row['data']) * 512
+                png = first_icon_png(row['data'][offset:offset+640])
         except ValueError:
             abort(404)
-        png = first_icon_png(row['data'][offset:offset+640])
         if png is None:
             abort(404)
         return send_file(io.BytesIO(png), mimetype='image/png')
@@ -400,7 +558,7 @@ def create_app(config=None):
     def download(sid):
         row = visible_save(sid)
         return send_file(io.BytesIO(row['data']), as_attachment=True,
-                         download_name=row['filename'] + '.vms', mimetype='application/octet-stream')
+                         download_name=row['filename'] if row['kind']=='icon' else row['filename'] + '.vms', mimetype='application/octet-stream')
 
     @app.post('/saves/<int:sid>/edit')
     def edit(sid):
@@ -471,6 +629,8 @@ def create_app(config=None):
         except ValueError:
             abort(400, 'Invalid page.')
         where, params = ('s.user_id=?', [g.user['id']]) if scope == 'mine' else ('s.private=0', [])
+        if request.args.get('include_icons') != '1':
+            where += " AND s.kind='data'"
         # Keep the unfiltered v1 endpoint for older clients. New console clients
         # supply an exact owner, bounding this search to the 200-save account cap.
         if 'user' in request.args:
@@ -506,9 +666,21 @@ def create_app(config=None):
     def api_download(sid):
         require_user()
         row = visible_save(sid)
+        if row['kind'] == 'icon' and request.args.get('include_icons') != '1':
+            abort(400, 'Update your client to install custom VMU icons.')
         if request.args.get('revision') != str(row['revision']):
             abort(409, 'Save changed. Refresh the list before downloading.')
         return send_file(io.BytesIO(row['data']), mimetype='application/octet-stream')
+
+    @app.get('/api/v1/saves/<int:sid>/icon-header')
+    def api_icon_header(sid):
+        require_user()
+        row = visible_save(sid)
+        if row['kind'] != 'icon':
+            abort(404)
+        if request.args.get('revision') != str(row['revision']):
+            abort(409, 'Icon set changed. Refresh the list.')
+        return send_file(io.BytesIO(icon_header(row['data'])), mimetype='application/octet-stream')
 
     @app.post('/api/v1/saves')
     def upload():
@@ -516,6 +688,8 @@ def create_app(config=None):
         limit('upload:' + str(g.user['id']), 60, 3600)
         name = save_title()
         filename = text_field('filename', 12, True)
+        if filename.upper() == ICON_NAME:
+            abort(400, 'Use the VMU studio or memory-card importer for custom icons.')
         notes = text_field('notes', 500)
         if not re.fullmatch(r'[A-Za-z0-9_.! -]{1,12}', filename) or filename in ('.', '..'):
             abort(400, 'Invalid VMU filename.')
@@ -542,7 +716,7 @@ def create_app(config=None):
             detected_header_offset = validate_vms(data)
         except ValueError as error:
             abort(400, str(error))
-        if filename.upper() == 'DCVMU_AUTH' or data[48:64].rstrip(b'\0') == b'DCVMU_AUTH' or b'DCVMU-AUTH-V1' in data:
+        if is_login(filename, data):
             abort(400, 'DCVMU login saves cannot be uploaded.')
         try:
             header_offset = int(request.form.get('header_offset', str(detected_header_offset)))

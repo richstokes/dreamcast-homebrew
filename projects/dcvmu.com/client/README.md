@@ -140,6 +140,9 @@ python3 projects/dcvmu.com/client/tests/run_upload_stress.py --host <Mac-LAN-IP>
 python3 -m unittest discover -s projects/dcvmu.com/client/tests
 ```
 
+Add `--tools --log-dir /tmp/dcvmu-tools-test` to `run_public_browse.py` to verify
+custom icon downloads and card-imported saves on isolated VMUs.
+
 Self-test builds (`CPPFLAGS=-DDCVMU_SELF_TEST` and similar) read disposable
 credentials from git-ignored `romdisk/test-*` files. Never distribute one, and
 never run the test fixtures against personal VMUs; remove those files and run

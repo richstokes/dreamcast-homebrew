@@ -7,7 +7,7 @@ trap 'rm -rf "$stage"' EXIT
 cd "$project_dir"
 .venv/bin/python -m unittest -v
 # Explicit source manifest prevents uploading credentials, database or local caches.
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$stage/service.tar.gz" app.py vmu_validation.py wsgi.py requirements.txt templates static deploy/dcvmu.service
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$stage/service.tar.gz" app.py vmu_validation.py vmu_tools.py wsgi.py requirements.txt templates static deploy/dcvmu.service
 scp "$stage/service.tar.gz" "$remote:/tmp/dcvmu-service.tar.gz"
 ssh "$remote" bash -s <<'REMOTE'
 set -euo pipefail
@@ -19,6 +19,7 @@ install -d -o root -g root -m 755 /opt/dcvmu
 if [ -f /opt/dcvmu/app.py ]; then
   backup_files=(app.py wsgi.py requirements.txt templates static)
   if [ -f /opt/dcvmu/vmu_validation.py ]; then backup_files+=(vmu_validation.py); fi
+  if [ -f /opt/dcvmu/vmu_tools.py ]; then backup_files+=(vmu_tools.py); fi
   tar -czf /opt/dcvmu-previous.tar.gz -C /opt/dcvmu "${backup_files[@]}"
 fi
 tar --no-same-owner -xzf /tmp/dcvmu-service.tar.gz -C /opt/dcvmu

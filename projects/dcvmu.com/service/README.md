@@ -1,8 +1,8 @@
 # DCVMU service
 
 [dcvmu.com](https://dcvmu.com) hosts a small server-rendered VMU save archive.
-Flask, SQLite and Gunicorn run behind Caddy. No JavaScript is required, so
-Dreamcast browsers get the same HTML forms as modern ones.
+Flask, SQLite and Gunicorn run behind Caddy. Browsing, account management and
+card imports work without JavaScript. The drawing studio needs a modern browser.
 
 ## What it does
 
@@ -20,11 +20,16 @@ Dreamcast browsers get the same HTML forms as modern ones.
 - Re-uploading a save with the same VMU filename offers to replace an existing
   backup or keep both. Replaced bytes are not retained.
 - Dark mode and the Cards/List preference work without JavaScript.
+- Browse pagination shows the current page, total pages and filtered save count.
+- The VMU studio creates custom Dreamcast-menu and VMU-screen icons.
+- The card importer previews `.bin`, `.vmu`, `.dcm` and `.dci` files, then imports
+  selected saves or custom icons without replacing existing cloud backups.
 
 Limits: 200 saves per account, each at most 120.5 KiB (241 VMU blocks), and 60
 upload attempts per hour. Uploads must be a single valid VMS data save with a
 correct CRC; whole-card images, archives, `ICONDATA_VMS`, and the client's
-`DCVMU_AUTH` login save are rejected.
+`DCVMU_AUTH` login save are rejected by the normal upload endpoint. Use the
+separate card importer or studio for custom icons. Login saves remain excluded.
 
 ## Local development
 
@@ -67,15 +72,19 @@ List parameters: `scope=mine|public` and `page`. Public scope takes an exact
 tab-separated rows of percent-encoded fields: id, revision, original filename,
 title, game, username, byte size, SHA-256, and VMS header offset in blocks.
 
+Icon-aware clients send `include_icons=1` when listing or downloading saves.
+`GET /api/v1/saves/<id>/icon-header?revision=<revision>` provides the custom
+icon preview in the client's VMS header format. Older clients only see data saves.
+
 Errors are 400/401/409/413/429 with a readable message. A response can be lost
 after a successful write, so clients should not replay mutations automatically.
 
 ## Security
 
 - Passwords are hashed with Argon2id; plaintext passwords are never stored.
-- Session tokens are random 256-bit values stored only as SHA-256 hashes. Web
-  and API sessions are separate and expire after 24 hours, or 90 days for a
-  remembered VMU login.
+- Session tokens are random 256-bit values stored only as SHA-256 hashes. Website logins last
+  one year and renew on activity at most once per day. API sessions are separate
+  and expire after 24 hours, or 90 days for a remembered VMU login.
 - Cookies are Secure, HttpOnly and SameSite=Lax, and every web mutation checks a
   CSRF value.
 - Login, registration and uploads are rate limited, and request sizes and

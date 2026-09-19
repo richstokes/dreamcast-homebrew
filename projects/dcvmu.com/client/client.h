@@ -2,6 +2,7 @@
 #define DCVMU_CLIENT_H
 #include <stddef.h>
 #include <stdint.h>
+#define DCVMU_ICON_FILE "ICONDATA_VMS"
 int service_net_init(void);
 void service_net_shutdown(void);
 int service_modem_init(void);

@@ -270,7 +270,7 @@ static int list_filtered(const char *token,const char *owner,const char *game_fi
     if(game_filter && strlen(game_filter)>80)return -1;
     char *escaped=curl_easy_escape(NULL,game_filter?game_filter:"",0);
     if(!escaped){client_status("Could not allocate search request.");return -1;}
-    char path[400];snprintf(path,sizeof(path),"/api/v1/saves?scope=%s&page=%d%s%s&game=%s",
+    char path[400];snprintf(path,sizeof(path),"/api/v1/saves?include_icons=1&scope=%s&page=%d%s%s&game=%s",
         owner?"public":"mine",page,owner?"&user=":"",owner?owner:"",escaped);
     curl_free(escaped);
     if(filename) {
@@ -307,6 +307,7 @@ static int list_filtered(const char *token,const char *owner,const char *game_fi
         if(out->id<=0||out->revision<=0||out->size<512||out->size>131072||out->size%512||
            out->header_offset<0||out->header_offset>=out->size/512||strlen(out->sha256)!=64||
            strspn(out->sha256,"0123456789abcdef")!=64||auth_is_save(out->filename,NULL,0))goto invalid;
+        if(!strcmp(out->filename,DCVMU_ICON_FILE) && out->header_offset!=0)goto invalid;
         /* Fail closed if an older service ignores the owner filter. */
         if(owner && strcasecmp(owner,out->user)) {
             *count=0;*more=0;curl_easy_reset(curl);
@@ -333,15 +334,16 @@ int service_icon(const char *token,const remote_save_t *item,unsigned char heade
     if(item->size<512 || item->size>131072 || item->header_offset<0 ||
        item->header_offset>=item->size/512)return -1;
     int offset=item->header_offset*512;
-    /* A short save cannot contain a complete icon. */
-    if(item->size-offset<640)return 0;
+    int custom=!strcmp(item->filename,DCVMU_ICON_FILE);
+    /* Custom artwork is adapted by the service; its file has no VMS header. */
+    if(!custom && item->size-offset<640)return 0;
     char path[96],range[32];
-    snprintf(path,sizeof(path),"/api/v1/saves/%d/download?revision=%d",item->id,item->revision);
+    snprintf(path,sizeof(path),"/api/v1/saves/%d/%s?revision=%d",item->id,custom?"icon-header":"download",item->revision);
     snprintf(range,sizeof(range),"%d-%d",offset,offset+639);
     CURL *curl=request_new(path);if(!curl)return -1;
     download_buffer buffer={.bytes=header,.capacity=640};
     struct curl_slist *headers=authorize(curl,token);
-    curl_easy_setopt(curl,CURLOPT_RANGE,range);
+    if(!custom)curl_easy_setopt(curl,CURLOPT_RANGE,range);
     curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT_MS,using_modem?60000L:5000L);
     curl_easy_setopt(curl,CURLOPT_TIMEOUT_MS,using_modem?90000L:10000L);
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive_download);
@@ -350,7 +352,7 @@ int service_icon(const char *token,const remote_save_t *item,unsigned char heade
     curl_slist_free_all(headers);curl_easy_reset(curl);
     /* Reject ignored ranges and incomplete previews. The full save is still
        downloaded and SHA-256 checked separately before installation. */
-    if(status!=206 || buffer.size!=640){memset(header,0,640);return -1;}
+    if(status!=(custom?200:206) || buffer.size!=640){memset(header,0,640);return -1;}
     return 0;
 }
 int service_list(const char *token,const char *owner,const char *game_filter,int page,remote_save_t *items,int *count,int *more) {
@@ -374,7 +376,7 @@ int service_rename(const char *token,const remote_save_t *item,const char *title
 int service_download(const char *token,const remote_save_t *item,void **data) {
     *data=NULL;
     if(item->size<512||item->size>131072||item->size%512)return -1;
-    char path[96];snprintf(path,sizeof(path),"/api/v1/saves/%d/download?revision=%d",item->id,item->revision);
+    char path[112];snprintf(path,sizeof(path),"/api/v1/saves/%d/download?include_icons=1&revision=%d",item->id,item->revision);
     CURL *curl=request_new(path);if(!curl)return -1;
     download_buffer buffer={.bytes=malloc(item->size),.capacity=item->size};
     if(!buffer.bytes)return -1;
@@ -389,6 +391,14 @@ int service_download(const char *token,const remote_save_t *item,void **data) {
     if(mbedtls_sha256(buffer.bytes,buffer.size,digest,0)!=0)goto fail;
     for(int i=0;i<32;++i)snprintf(hex+i*2,3,"%02x",digest[i]);
     if(strcmp(hex,item->sha256)||auth_is_save(item->filename,buffer.bytes,buffer.size))goto fail;
+    if(!strcmp(item->filename,DCVMU_ICON_FILE)) {
+        uint32_t mono,color;
+        memcpy(&mono,buffer.bytes+16,4);memcpy(&color,buffer.bytes+20,4);
+        if(item->header_offset || (!mono && !color) ||
+           (mono && (mono<24 || mono>buffer.size-128)) ||
+           (color && (buffer.size<544 || color<24 || color>buffer.size-544)) ||
+           (mono && color && mono<color+544 && color<mono+128))goto fail;
+    }
     *data=buffer.bytes;return 0;
 fail:
     memset(buffer.bytes,0,buffer.size);free(buffer.bytes);

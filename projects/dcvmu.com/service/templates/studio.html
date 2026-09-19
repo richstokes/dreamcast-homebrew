@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}VMU studio{% endblock %}
+{% block content %}
+<p class="eyebrow">MAKE IT YOURS</p><h1>VMU studio</h1>
+<p>Draw a pair of icons for your memory card. Save them to your account, then install them from <strong>Download a save</strong> in the latest Dreamcast client.</p>
+<p class="hint">Both icons are 32 × 32 pixels. The Dreamcast menu uses 16 colours; the VMU uses black and white. Each set takes 2 blocks.</p>
+<noscript><p class="notice">The drawing studio needs JavaScript in a modern browser. You can still <a href="/import">import an existing card</a> without it.</p></noscript>
+<form id="studio-form" action="/studio" method="post">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mono" id="mono-data"><input type="hidden" name="pixels" id="pixel-data"><input type="hidden" name="palette" id="palette-data">
+<div class="studio-layout">
+<section class="studio-editor form-panel">
+<h2>Draw your icons</h2>
+<div class="tool-row" role="group" aria-label="Choose icon"><button type="button" id="edit-colour" aria-pressed="true">Dreamcast menu</button><button type="button" id="edit-mono" aria-pressed="false">VMU screen</button></div>
+<canvas id="pixel-editor" width="512" height="512" tabindex="0" role="img" aria-label="32 by 32 pixel editor. Use arrow keys to move, Space to paint, Delete to erase." aria-describedby="drawing-help"></canvas>
+<p id="drawing-help" class="hint">Drag to draw. Use arrows and Space to paint with a keyboard; Delete erases.</p>
+<div id="palette" class="pixel-palette" role="group" aria-label="Drawing colours"></div>
+<p id="colour-control"><label>Selected colour <input type="color" id="custom-colour" value="#ff6600"></label></p>
+<div class="tool-row"><button type="button" id="undo">Undo</button><button type="button" id="clear-icon">Clear icon</button><button type="button" id="derive-mono">Make VMU icon from colour</button></div>
+<p><label>Start from an image<br><input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/gif"></label></p>
+<p class="hint">PNG, JPEG, WebP or GIF, up to 8 MB. The image is fitted into a square and converted in your browser. Only the finished pixels are saved.</p>
+<p id="studio-status" role="status" aria-live="polite"></p>
+</section>
+<section class="studio-settings">
+<div class="studio-previews" aria-label="Icon previews">
+<figure><div class="console-icon-preview"><canvas id="colour-preview" width="32" height="32" aria-label="Dreamcast menu preview"></canvas></div><figcaption>Dreamcast menu</figcaption></figure>
+<figure><div class="vmu-shell"><div class="vmu-lcd"><canvas id="mono-preview" width="32" height="32" aria-label="VMU screen preview"></canvas></div><span class="vmu-buttons" aria-hidden="true">✚ &nbsp; ● ●</span></div><figcaption>VMU screen</figcaption></figure>
+</div>
+<div class="form-panel"><h2>Save your icon set</h2>
+<p><label>Title<br><input name="name" maxlength="64" value="My VMU icons" required></label></p>
+<p><label>VMU label<br><input name="label" maxlength="16" pattern="[ -~]{1,16}" value="MY VMU" required></label><br><span class="hint">Up to 16 letters, numbers or ASCII symbols.</span></p>
+<p><label>Notes<br><input name="notes" maxlength="500"></label></p>
+<p><label><input type="checkbox" name="unlock" value="1"> Enable the hidden 3D Dreamcast menu animation</label></p>
+<p class="hint">An optional BIOS feature activated while this card is connected.</p>
+<p><label><input type="checkbox" name="private" value="1" checked> Private — only you can view or download</label></p>
+<button class="button" id="save-icons" type="submit" disabled>Save to my account</button>
+<p class="hint">Installing asks before replacing an icon set already on your VMU.</p>
+</div></section></div></form>
+<script src="{{ url_for('static', filename='studio.js') }}" defer></script>
+{% endblock %}

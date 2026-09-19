@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% block title %}Review card contents{% endblock %}{% block content %}
+<p class="eyebrow">CARD CONTENTS</p><h1>Choose what to keep</h1>
+<p>{{ available }} supported {{ 'file' if available == 1 else 'files' }} found. Select the files to import. This preview expires in 30 minutes.</p>
+<form method="post" action="{{ url_for('review_import', batch=batch) }}">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="import-list">
+{% for entry in entries %}<article class="import-entry {{ 'unavailable' if entry.reason else '' }}">
+{% if not entry.reason %}<label class="import-choice"><input type="checkbox" name="entry" value="{{ loop.index0 }}"> <strong>{{ entry.name }}</strong></label>{% else %}<strong>{{ entry.filename or 'Unnamed file' }}</strong>{% endif %}
+<p class="hint">{{ entry.filename }} · {{ entry.blocks }} blocks{% if entry.kind == 'icon' %} · Custom icons{% endif %}</p>
+{% if entry.reason %}<p>{{ entry.reason }}</p>{% elif entry.filename in existing %}<p class="hint">Already in your archive. This import will be kept as another backup.</p>{% endif %}
+</article>{% else %}<div class="empty">This card is empty.</div>{% endfor %}
+</div>
+{% if available %}<p><label><input type="checkbox" name="private" value="1" checked> Private — only you can view or download these files</label></p><input type="submit" value="Import selected files">{% endif %}
+</form>
+<form class="cancel-import" method="post" action="{{ url_for('cancel_import', batch=batch) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Discard preview</button></form>
+{% endblock %}
