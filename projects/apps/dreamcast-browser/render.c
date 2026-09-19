@@ -63,18 +63,78 @@ static void draw_cursor(int x, int y) {
     }
 }
 
-static const char *visible_address(const char *address) {
+#define ADDRESS_COLUMNS 33
+#define ADDRESS_TEXT_X 154
+
+static void draw_address(const browser_view_t *view) {
+    const char *address = view->address;
     size_t len = strlen(address);
-    if(len <= 34) return address;
-    return address + len - 34;
+    size_t start = len > ADDRESS_COLUMNS ? len - ADDRESS_COLUMNS : 0;
+    uint16_t field = view->editing ? C_WHITE : 0xce59;
+    char visible[ADDRESS_COLUMNS + 1];
+
+    fill_rect(122, 8, 440, 32, field);
+    if(view->editing) {
+        size_t caret = (size_t)view->address_caret;
+        if(caret > len) caret = len;
+        if(caret < start) start = caret;
+        bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 130, SCREEN_W,
+                          C_INK, field, 16, false, ">");
+        snprintf(visible, sizeof(visible), "%s", address + start);
+        if(view->address_selected && visible[0]) {
+            bfont_draw_str_ex(vram_s + 12 * SCREEN_W + ADDRESS_TEXT_X, SCREEN_W,
+                              C_WHITE, C_BLUE, 16, false, visible);
+        } else {
+            bfont_draw_str_ex(vram_s + 12 * SCREEN_W + ADDRESS_TEXT_X, SCREEN_W,
+                              C_INK, field, 16, false, visible);
+            fill_rect(ADDRESS_TEXT_X + (int)(caret - start) * 12, 12, 2,
+                      BFONT_HEIGHT, C_INK);
+        }
+    } else {
+        snprintf(visible, sizeof(visible), "%s", address + start);
+        bfont_draw_str_ex(vram_s + 12 * SCREEN_W + ADDRESS_TEXT_X, SCREEN_W,
+                          C_INK, field, 16, false, visible);
+    }
 }
 
-void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
-                    int mouse_y, int focused_link, const char *address,
-                    int editing, int can_go_back, int can_go_forward,
-                    const char *status) {
+static void draw_help(void) {
+    static const char *const lines[] = {
+        "KEYBOARD SHORTCUTS",
+        "Tab, Shift+Tab    Next/previous link or field",
+        "Enter             Open link, edit or use field",
+        "Up/Down arrows    Scroll a line",
+        "Space, Shift+Spc  Scroll a screen down/up",
+        "PgDn/PgUp         Scroll a screen down/up",
+        "Home/End          Top/bottom of page",
+        "Backspace, Alt+<  Back",
+        "Shift+Bksp, Alt+> Forward",
+        "F6, Ctrl+L        Edit address (Enter opens)",
+        "F5, Ctrl+R        Reload   Alt+Home: home page",
+        "Esc               Clear focus or cancel a load",
+        "Esc, Esc          Exit the browser",
+        "Editing: arrows, Home/End, Del, Ctrl+A all,",
+        "  Ctrl+W/Ctrl+Bksp word, Ctrl+U to start",
+        "Press any key to close this help",
+    };
+    const int count = (int)(sizeof(lines) / sizeof(lines[0]));
+    const int top = PAGE_TOP + 4;
     int i;
-    char bar[64];
+
+    fill_rect(14, top, SCREEN_W - 28, count * BFONT_HEIGHT + 16, C_BLUE);
+    fill_rect(18, top + 4, SCREEN_W - 36, count * BFONT_HEIGHT + 8, C_WHITE);
+    for(i = 0; i < count; ++i)
+        bfont_draw_str_ex(vram_s + (top + 8 + i * BFONT_HEIGHT) * SCREEN_W + 26,
+                          SCREEN_W, i == 0 ? C_HEADING : C_INK, C_WHITE, 16,
+                          false, lines[i]);
+}
+
+void render_browser(const browser_document_t *doc, const browser_view_t *view) {
+    int i;
+    int scroll_y = view->scroll_y;
+    int focused_link = view->focused_link;
+    int can_go_back = view->can_go_back;
+    int can_go_forward = view->can_go_forward;
+    const char *status = view->status;
     char footer[96];
 
     fill_rect(0, 0, SCREEN_W, SCREEN_H, C_PAGE);
@@ -85,20 +145,22 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
     fill_rect(64, 8, 52, 32, can_go_forward ? C_BLUE : C_MUTED);
     bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 72, SCREEN_W,
                       C_WHITE, can_go_forward ? C_BLUE : C_MUTED, 16, false, "FWD");
-    fill_rect(122, 8, 440, 32, editing ? C_WHITE : 0xce59);
-    snprintf(bar, sizeof(bar), "%s%s", editing ? "> " : "  ", visible_address(address));
-    bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 130, SCREEN_W,
-                      C_INK, editing ? C_WHITE : 0xce59, 16, false, bar);
+    draw_address(view);
     fill_rect(570, 8, 56, 32, C_BLUE);
     bfont_draw_str_ex(vram_s + 12 * SCREEN_W + 579, SCREEN_W,
                       C_WHITE, C_BLUE, 16, false, "GO");
 
     if(status && (!strncmp(status, "Loading ", 8) ||
-                  !strncmp(status, "Connecting ", 11)))
-        snprintf(footer, sizeof(footer), "%.52s", status);
-    else
-        snprintf(footer, sizeof(footer), "Alt+arrows history | F6 address | %.14s",
+                  !strncmp(status, "Connecting ", 11) ||
+                  !strncmp(status, "Canceling ", 10))) {
+        snprintf(footer, sizeof(footer), "%.51s", status);
+    } else {
+        /* Leave room for a permanent, right-aligned help hint. */
+        snprintf(footer, sizeof(footer), "%.42s",
                  status && status[0] ? status : doc->title);
+        bfont_draw_str_ex(vram_s + 44 * SCREEN_W + 542, SCREEN_W,
+                          C_WHITE, C_TEAL, 16, false, "F1 Help");
+    }
     bfont_draw_str_ex(vram_s + 44 * SCREEN_W + 14, SCREEN_W,
                       C_WHITE, C_TEAL, 16, false, footer);
     fill_rect(0, 68, SCREEN_W, 2, C_BLUE);
@@ -147,7 +209,8 @@ void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
         fill_rect(SCREEN_W - 7, PAGE_TOP + 4, 3, track, C_RULE);
         fill_rect(SCREEN_W - 8, thumb_y, 5, thumb, C_BLUE);
     }
-    draw_cursor(mouse_x, mouse_y);
+    if(view->show_help) draw_help();
+    draw_cursor(view->mouse_x, view->mouse_y);
     /* Swap only during vertical blank so scanout never sees a half-cleared UI. */
     vid_waitvbl();
     vid_flip(-1);

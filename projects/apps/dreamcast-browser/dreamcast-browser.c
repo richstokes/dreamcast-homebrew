@@ -1,5 +1,6 @@
 #include "browser.h"
 
+#include <ctype.h>
 #include <curl/curl.h>
 #include <dc/maple.h>
 #include <dc/maple/controller.h>
@@ -36,6 +37,11 @@ static unsigned progress_frame;
 static uint32_t loading_controller_buttons;
 static uint32_t loading_mouse_buttons;
 static int loading_cancelled;
+static int address_caret;
+static int address_selected;
+static int show_help;
+static int exit_armed;
+static int escape_released;
 
 #ifdef BROWSER_HISTORY_SELF_TEST
 static int self_test_cancel_mode;
@@ -55,6 +61,24 @@ static history_entry_t back_history[MAX_HISTORY];
 static history_entry_t forward_history[MAX_HISTORY];
 static int back_count;
 static int forward_count;
+
+static void redraw(void) {
+    browser_view_t view = {
+        .scroll_y = scroll_y,
+        .mouse_x = mouse_x,
+        .mouse_y = mouse_y,
+        .focused_link = focused_link,
+        .address = address,
+        .editing = editing,
+        .address_caret = address_caret,
+        .address_selected = address_selected,
+        .can_go_back = back_count > 0,
+        .can_go_forward = forward_count > 0,
+        .show_help = show_help,
+        .status = status_text
+    };
+    render_browser(&document, &view);
+}
 
 static int show_transfer_progress(uint64_t received, uint64_t total,
                                   void *userdata) {
@@ -98,9 +122,7 @@ static int show_transfer_progress(uint64_t received, uint64_t total,
     if(loading_cancelled) {
         snprintf(status_text, sizeof(status_text), "Canceling %s...",
                  loading_label ? loading_label : "request");
-        render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                       address, editing, back_count > 0, forward_count > 0,
-                       status_text);
+        redraw();
         return 1;
     }
 
@@ -118,9 +140,7 @@ static int show_transfer_progress(uint64_t received, uint64_t total,
                  "Connecting %s %c | Esc/B cancel",
                  loading_label ? loading_label : "",
                  spinner[progress_frame++ & 3]);
-    render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, editing, back_count > 0, forward_count > 0,
-                   status_text);
+    redraw();
     return 0;
 }
 
@@ -181,10 +201,217 @@ static int link_at(int x, int screen_y) {
     return -1;
 }
 
+static int page_step(void) {
+    return SCREEN_H - PAGE_TOP - 48;
+}
+
+/* Returns 0 when the link has no laid-out text or image to focus. */
+static int link_bounds(int link, int *top, int *bottom) {
+    int i;
+    int found = 0;
+    for(i = 0; i < document.item_count; ++i) {
+        const document_item_t *item = &document.items[i];
+        if(item->link_id != link) continue;
+        if(!found || item->y < *top) *top = item->y;
+        if(!found || item->y + item->height > *bottom)
+            *bottom = item->y + item->height;
+        found = 1;
+    }
+    return found;
+}
+
+static int link_on_screen(int link) {
+    int top, bottom;
+    return link_bounds(link, &top, &bottom) && bottom > scroll_y &&
+           top < scroll_y + SCREEN_H - PAGE_TOP;
+}
+
+static void scroll_link_into_view(int link) {
+    int top, bottom;
+    int visible = SCREEN_H - PAGE_TOP;
+    if(!link_bounds(link, &top, &bottom)) return;
+    if(top < scroll_y + 8) {
+        scroll_y = top - 48;
+    } else if(bottom > scroll_y + visible - 8) {
+        scroll_y = bottom - visible + 48;
+        if(scroll_y > top - 8) scroll_y = top - 8;
+    }
+    clamp_scroll();
+}
+
+static void describe_focus(void) {
+    const char *target;
+    if(focused_link < 0 || focused_link >= document.link_count) return;
+    target = document.links[focused_link];
+    if(!strncmp(target, "form:", 5)) {
+        int index = atoi(target + 5);
+        const browser_field_t *field;
+        if(index < 0 || index >= document.field_count) return;
+        field = &document.fields[index];
+        if(!strcmp(field->type, "submit"))
+            snprintf(status_text, sizeof(status_text), "Button %.20s: Enter submits",
+                     field->value[0] ? field->value : "Submit");
+        else if(!strcmp(field->type, "checkbox"))
+            snprintf(status_text, sizeof(status_text), "Checkbox %.18s: Enter toggles",
+                     field->name);
+        else
+            snprintf(status_text, sizeof(status_text), "Field %.21s: Enter edits",
+                     field->name);
+        return;
+    }
+    /* HTTPS is the default, so spend the narrow footer on the rest. */
+    if(!strncmp(target, "https://", 8)) target += 8;
+    snprintf(status_text, sizeof(status_text), "Link: %.80s", target);
+}
+
+/* Moves keyboard focus through links and form controls in document order.
+   When the focused link has been scrolled away, start from the viewport. */
+static void focus_step(int direction) {
+    int next = -1;
+    int i;
+    int visible = SCREEN_H - PAGE_TOP;
+
+    if(focused_link >= 0 && focused_link < document.link_count &&
+       link_on_screen(focused_link)) {
+        for(i = 1; i <= document.link_count; ++i) {
+            int candidate = ((focused_link + direction * i) % document.link_count +
+                             document.link_count) % document.link_count;
+            int top, bottom;
+            if(link_bounds(candidate, &top, &bottom)) {
+                next = candidate;
+                break;
+            }
+        }
+    } else if(direction > 0) {
+        for(i = 0; i < document.item_count && next < 0; ++i) {
+            const document_item_t *item = &document.items[i];
+            if(item->link_id >= 0 && item->y + item->height > scroll_y)
+                next = item->link_id;
+        }
+        for(i = 0; i < document.item_count && next < 0; ++i)
+            if(document.items[i].link_id >= 0) next = document.items[i].link_id;
+    } else {
+        for(i = document.item_count - 1; i >= 0 && next < 0; --i) {
+            const document_item_t *item = &document.items[i];
+            if(item->link_id >= 0 && item->y < scroll_y + visible)
+                next = item->link_id;
+        }
+        for(i = document.item_count - 1; i >= 0 && next < 0; --i)
+            if(document.items[i].link_id >= 0) next = document.items[i].link_id;
+    }
+
+    redraw_needed = 1;
+    if(next < 0) {
+        snprintf(status_text, sizeof(status_text), "No links on this page");
+        return;
+    }
+    focused_link = next;
+    scroll_link_into_view(next);
+    describe_focus();
+}
+
+static int is_word_char(char c) {
+    return isalnum((unsigned char)c);
+}
+
+/* Shared single-line editing for the address bar and text fields. When
+   selected is non-NULL and set, the whole text is selected: typing replaces
+   it and deletion clears it. */
+static void edit_line(char *text, size_t size, size_t limit, int *caret,
+                      int *selected, kbd_key_t key, kbd_mods_t mods,
+                      char ascii) {
+    size_t len = strlen(text);
+    size_t pos = *caret < 0 ? len : (size_t)*caret;
+    int ctrl = (mods.raw & KBD_MOD_CTRL) != 0;
+    int all = selected && *selected;
+
+    if(pos > len) pos = len;
+    if(selected) *selected = 0;
+
+    if(key == KBD_KEY_A && ctrl) {
+        if(selected) *selected = 1;
+        pos = len;
+    } else if(all && (key == KBD_KEY_BACKSPACE || key == KBD_KEY_DEL ||
+                      (ctrl && (key == KBD_KEY_U || key == KBD_KEY_W)))) {
+        text[0] = 0;
+        pos = 0;
+    } else if(key == KBD_KEY_LEFT) {
+        if(all) pos = 0;
+        else if(ctrl) {
+            while(pos && !is_word_char(text[pos - 1])) pos--;
+            while(pos && is_word_char(text[pos - 1])) pos--;
+        } else if(pos) pos--;
+    } else if(key == KBD_KEY_RIGHT) {
+        if(all) pos = len;
+        else if(ctrl) {
+            while(pos < len && !is_word_char(text[pos])) pos++;
+            while(pos < len && is_word_char(text[pos])) pos++;
+        } else if(pos < len) pos++;
+    } else if(key == KBD_KEY_HOME) {
+        pos = 0;
+    } else if(key == KBD_KEY_END) {
+        pos = len;
+    } else if(ctrl && (key == KBD_KEY_BACKSPACE || key == KBD_KEY_W)) {
+        size_t from = pos;
+        while(from && !is_word_char(text[from - 1])) from--;
+        while(from && is_word_char(text[from - 1])) from--;
+        memmove(text + from, text + pos, len - pos + 1);
+        pos = from;
+    } else if(ctrl && key == KBD_KEY_U) {
+        memmove(text, text + pos, len - pos + 1);
+        pos = 0;
+    } else if(key == KBD_KEY_BACKSPACE) {
+        if(pos) {
+            memmove(text + pos - 1, text + pos, len - pos + 1);
+            pos--;
+        }
+    } else if(key == KBD_KEY_DEL) {
+        if(pos < len) memmove(text + pos, text + pos + 1, len - pos);
+    } else if(!ctrl && !(mods.raw & KBD_MOD_ALT) && ascii >= 32 && ascii <= 126) {
+        if(all) {
+            text[0] = 0;
+            len = pos = 0;
+        }
+        if(len < limit && len + 1 < size) {
+            memmove(text + pos + 1, text + pos, len - pos + 1);
+            text[pos++] = ascii;
+        }
+    } else if(all) {
+        *selected = 1; /* Unrelated keys keep the selection. */
+    }
+    *caret = (int)pos;
+}
+
 static void begin_address_edit(void) {
     editing = 1;
     focused_link = -1;
-    snprintf(status_text, sizeof(status_text), "Type URL, Enter to open, Esc to cancel");
+    show_help = 0;
+    address_caret = (int)strlen(address);
+    address_selected = 1;
+    snprintf(status_text, sizeof(status_text), "Type a URL: Enter opens, Esc cancels");
+    redraw_needed = 1;
+}
+
+static void cancel_address_edit(void) {
+    editing = 0;
+    address_selected = 0;
+    snprintf(address, sizeof(address), "%s", current_url);
+    snprintf(status_text, sizeof(status_text), "%s", document.title);
+    redraw_needed = 1;
+}
+
+static void finish_field_edit(int restore) {
+    browser_field_t *field;
+    if(editing_field < 0 || editing_field >= document.field_count) {
+        editing_field = -1;
+        return;
+    }
+    field = &document.fields[editing_field];
+    if(restore) snprintf(field->value, sizeof(field->value), "%s", field_backup);
+    field->caret = -1;
+    document_refresh_field(&document, editing_field);
+    editing_field = -1;
+    memset(field_backup, 0, sizeof(field_backup));
     redraw_needed = 1;
 }
 
@@ -226,6 +453,10 @@ static int load_page(const char *requested) {
     int images_cancelled;
     long response_status;
 
+    finish_field_edit(0);
+    editing = 0;
+    address_selected = 0;
+    show_help = 0;
     snprintf(previous_url, sizeof(previous_url), "%s", current_url);
     snprintf(previous_address, sizeof(previous_address), "%s", address);
     snprintf(target, sizeof(target), "%s", requested);
@@ -233,17 +464,13 @@ static int load_page(const char *requested) {
     snprintf(current_url, sizeof(current_url), "%s", target);
     snprintf(address, sizeof(address), "%s", target);
     snprintf(status_text, sizeof(status_text), "Connecting page...");
-    render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, 0, back_count > 0, forward_count > 0,
-                   status_text);
+    redraw();
     redraw_needed = 0;
     begin_loading("page");
 
     int fetch_code = pending_post ? network_post(target,pending_post,MAX_DOCUMENT_BYTES,&result)
                                   : network_fetch(target,MAX_DOCUMENT_BYTES,&result);
     pending_post=NULL;
-    editing_field=-1;
-    memset(field_backup,0,sizeof(field_backup));
     if(fetch_code < 0) {
         end_loading();
         if(result.cancelled) {
@@ -303,9 +530,7 @@ static int load_page(const char *requested) {
     scroll_y = 0;
     focused_link = -1;
     snprintf(status_text, sizeof(status_text), "Page ready; loading images...");
-    render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                   address, 0, back_count > 0, forward_count > 0,
-                   status_text);
+    redraw();
     redraw_needed = 0;
 
     begin_loading("image");
@@ -680,28 +905,123 @@ static void follow_link(int link_id) {
         } else {
             editing_field=index;
             snprintf(field_backup,sizeof(field_backup),"%s",field->value);
-            snprintf(status_text,sizeof(status_text),"Edit %.40s: Enter/Tab done, Esc cancel",field->name);
+            field->caret=(int)strlen(field->value);
+            document_refresh_field(&document,index);
+            snprintf(status_text,sizeof(status_text),"Edit %.14s: Enter done, Esc undo",field->name);
         }
         redraw_needed=1;return;
     }
     navigate_to(document.links[link_id]);
 }
 
-static void focus_next_link(void) {
-    int start = focused_link;
-    int i;
-    if(!document.link_count) return;
-    focused_link = (focused_link + 1) % document.link_count;
-    for(i = 0; i < document.item_count; ++i) {
-        if(document.items[i].link_id == focused_link) {
-            scroll_y = document.items[i].y - 100;
-            clamp_scroll();
-            break;
-        }
+static void reload_page(void) {
+    int saved_scroll = scroll_y;
+    if(load_page(address) == 0) {
+        scroll_y = saved_scroll;
+        clamp_scroll();
     }
-    if(start != focused_link)
-        snprintf(status_text, sizeof(status_text), "Link: %.80s", document.links[focused_link]);
+}
+
+static void disarm_exit(void) {
+    if(!exit_armed) return;
+    exit_armed = 0;
+    snprintf(status_text, sizeof(status_text), "%s", document.title);
+}
+
+/* Esc first clears link focus, then needs a second, separate press to exit
+   so a stray or held Esc cannot close the browser. */
+static int handle_escape(void) {
+    if(focused_link >= 0) {
+        focused_link = -1;
+        snprintf(status_text, sizeof(status_text), "%s", document.title);
+        return 0;
+    }
+    if(exit_armed) return escape_released;
+    exit_armed = 1;
+    escape_released = 0;
+    snprintf(status_text, sizeof(status_text), "Press Esc again to exit");
+    return 0;
+}
+
+static void process_field_key(kbd_key_t key, kbd_mods_t mods, char ascii) {
+    browser_field_t *field = &document.fields[editing_field];
+    if(key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER ||
+       key == KBD_KEY_TAB || key == KBD_KEY_ESCAPE) {
+        finish_field_edit(key == KBD_KEY_ESCAPE);
+        snprintf(status_text, sizeof(status_text),
+                 key == KBD_KEY_ESCAPE ? "Edit undone" : "Field saved; Tab moves on");
+        if(key == KBD_KEY_TAB) focus_step(mods.raw & KBD_MOD_SHIFT ? -1 : 1);
+        return;
+    }
+    edit_line(field->value, sizeof(field->value), (size_t)field->maxlength,
+              &field->caret, NULL, key, mods, ascii);
+    document_refresh_field(&document, editing_field);
+}
+
+static void process_address_key(kbd_key_t key, kbd_mods_t mods, char ascii) {
+    if(key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) {
+        if(!address[0]) cancel_address_edit();
+        else navigate_to(address);
+    } else if(key == KBD_KEY_ESCAPE) {
+        cancel_address_edit();
+    } else if(key == KBD_KEY_F6 || (key == KBD_KEY_L && (mods.raw & KBD_MOD_CTRL))) {
+        address_caret = (int)strlen(address);
+        address_selected = 1;
+    } else {
+        edit_line(address, sizeof(address), sizeof(address) - 1, &address_caret,
+                  &address_selected, key, mods, ascii);
+    }
+}
+
+/* Handles one queued key press; returns 1 when the browser should exit. */
+static int handle_key(kbd_key_t key, kbd_mods_t mods, char ascii) {
+    int ctrl = (mods.raw & KBD_MOD_CTRL) != 0;
+    int alt = (mods.raw & KBD_MOD_ALT) != 0;
+    int shift = (mods.raw & KBD_MOD_SHIFT) != 0;
+
     redraw_needed = 1;
+
+    if(editing_field >= 0) {
+        process_field_key(key, mods, ascii);
+        return 0;
+    }
+    if(editing) {
+        process_address_key(key, mods, ascii);
+        return 0;
+    }
+    if(show_help) {
+        show_help = 0; /* Any key dismisses help without acting. */
+        return 0;
+    }
+    if(key != KBD_KEY_ESCAPE) disarm_exit();
+
+    if(key == KBD_KEY_F1 || ascii == '?')
+        show_help = 1;
+    else if(key == KBD_KEY_F6 || (key == KBD_KEY_L && ctrl))
+        begin_address_edit();
+    else if(key == KBD_KEY_F5 || (key == KBD_KEY_R && ctrl))
+        reload_page();
+    else if(key == KBD_KEY_TAB)
+        focus_step(shift ? -1 : 1);
+    else if(key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) {
+        if(focused_link >= 0) follow_link(focused_link);
+        else snprintf(status_text, sizeof(status_text), "Tab selects a link; F1 for help");
+    }
+    else if((key == KBD_KEY_BACKSPACE && !shift) || (key == KBD_KEY_LEFT && alt))
+        navigate_back();
+    else if((key == KBD_KEY_BACKSPACE && shift) || (key == KBD_KEY_RIGHT && alt))
+        navigate_forward();
+    else if(key == KBD_KEY_HOME && alt)
+        navigate_to(BROWSER_HOME_URL);
+    else if(key == KBD_KEY_PGDOWN || (key == KBD_KEY_SPACE && !shift))
+        scroll_y += page_step();
+    else if(key == KBD_KEY_PGUP || (key == KBD_KEY_SPACE && shift))
+        scroll_y -= page_step();
+    else if(key == KBD_KEY_HOME) scroll_y = 0;
+    else if(key == KBD_KEY_END) scroll_y = max_scroll();
+    else if(key == KBD_KEY_ESCAPE && handle_escape()) return 1;
+    clamp_scroll();
+    return 0;
 }
 
 static int process_keyboard(maple_device_t *keyboard) {
@@ -713,61 +1033,7 @@ static int process_keyboard(maple_device_t *keyboard) {
         kbd_leds_t leds = { .raw = (raw >> 16) & 0xff };
         kbd_state_t *state = maple_dev_status(keyboard);
         char ascii = state ? kbd_key_to_ascii(key, state->region, mods, leds) : 0;
-
-        redraw_needed = 1;
-
-        if(editing_field>=0) {
-            browser_field_t *field=&document.fields[editing_field];
-            size_t length=strlen(field->value);
-            if(key==KBD_KEY_ENTER||key==KBD_KEY_TAB||key==KBD_KEY_ESCAPE) {
-                if(key==KBD_KEY_ESCAPE)snprintf(field->value,sizeof(field->value),"%s",field_backup);
-                document_refresh_field(&document,editing_field);
-                editing_field=-1;memset(field_backup,0,sizeof(field_backup));
-                snprintf(status_text,sizeof(status_text),"Field saved. Tab chooses next control.");
-                if(key==KBD_KEY_TAB)focus_next_link();
-            } else if(key==KBD_KEY_BACKSPACE && length)field->value[length-1]=0;
-            else if(ascii>=32&&ascii<=126 && length<(size_t)field->maxlength && length+1<sizeof(field->value)) {
-                field->value[length]=ascii;field->value[length+1]=0;
-            }
-            if(editing_field>=0)document_refresh_field(&document,editing_field);
-            continue;
-        }
-        if(editing) {
-            size_t len = strlen(address);
-            if(key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) {
-                editing = 0;
-                navigate_to(address);
-            } else if(key == KBD_KEY_ESCAPE) {
-                editing = 0;
-                snprintf(address, sizeof(address), "%s", current_url);
-                snprintf(status_text, sizeof(status_text), "%s", document.title);
-            } else if(key == KBD_KEY_BACKSPACE && len) {
-                address[len - 1] = 0;
-            } else if(ascii >= 32 && ascii <= 126 && len + 1 < sizeof(address)) {
-                address[len] = ascii;
-                address[len + 1] = 0;
-            }
-            continue;
-        }
-
-        if(key == KBD_KEY_F6 || (key == KBD_KEY_L && (mods.raw & KBD_MOD_CTRL)))
-            begin_address_edit();
-        else if(key == KBD_KEY_F5) load_page(address);
-        else if(key == KBD_KEY_TAB) focus_next_link();
-        else if((key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER) && focused_link >= 0)
-            follow_link(focused_link);
-        else if((key == KBD_KEY_BACKSPACE && !(mods.raw & KBD_MOD_SHIFT)) ||
-                (key == KBD_KEY_LEFT && (mods.raw & KBD_MOD_ALT)))
-            navigate_back();
-        else if((key == KBD_KEY_BACKSPACE && (mods.raw & KBD_MOD_SHIFT)) ||
-                (key == KBD_KEY_RIGHT && (mods.raw & KBD_MOD_ALT)))
-            navigate_forward();
-        else if(key == KBD_KEY_PGDOWN || key == KBD_KEY_SPACE) scroll_y += 350;
-        else if(key == KBD_KEY_PGUP) scroll_y -= 350;
-        else if(key == KBD_KEY_HOME) scroll_y = 0;
-        else if(key == KBD_KEY_END) scroll_y = max_scroll();
-        else if(key == KBD_KEY_ESCAPE) return 1;
-        clamp_scroll();
+        if(handle_key(key, mods, ascii)) return 1;
     }
 
     /* Poll arrow state directly so Flycast navigation keys work reliably and
@@ -775,8 +1041,12 @@ static int process_keyboard(maple_device_t *keyboard) {
     if(keyboard && !editing && editing_field<0) {
         kbd_state_t *state = kbd_get_state(keyboard);
         if(state) {
-            if(state->key_states[KBD_KEY_DOWN].is_down) scroll_y += 14;
-            if(state->key_states[KBD_KEY_UP].is_down) scroll_y -= 14;
+            if(exit_armed && !state->key_states[KBD_KEY_ESCAPE].is_down)
+                escape_released = 1;
+            if(!show_help) {
+                if(state->key_states[KBD_KEY_DOWN].is_down) scroll_y += 14;
+                if(state->key_states[KBD_KEY_UP].is_down) scroll_y -= 14;
+            }
             clamp_scroll();
         }
     }
@@ -807,13 +1077,19 @@ static int process_mouse(maple_device_t *mouse) {
         focused_link = link_at(mouse_x, mouse_y);
     pressed = state->buttons & ~previous_buttons;
     previous_buttons = state->buttons;
+    if(pressed) disarm_exit();
+    if(show_help && pressed) {
+        show_help = 0;
+        redraw_needed = 1;
+        return 0;
+    }
     if(pressed & MOUSE_LEFTBUTTON) {
         if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 62) navigate_back();
         else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 120) navigate_forward();
         else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 566) begin_address_edit();
         else if(mouse_y >= 8 && mouse_y < 40 && mouse_x >= 566) {
-            if(editing) { editing = 0; navigate_to(address); }
-            else load_page(address);
+            if(editing) navigate_to(address);
+            else reload_page();
         }
         else if(focused_link >= 0) follow_link(focused_link);
     }
@@ -835,22 +1111,24 @@ static int process_controller(maple_device_t *controller) {
     if(pressed || (state->buttons & (CONT_DPAD_DOWN | CONT_DPAD_UP |
                                     CONT_DPAD_RIGHT | CONT_DPAD_LEFT)))
         redraw_needed = 1;
+    if(pressed) disarm_exit();
+    if(show_help) {
+        if(pressed) show_help = 0;
+        previous_ltrig = state->ltrig;
+        previous_rtrig = state->rtrig;
+        return 0;
+    }
     if(pressed & CONT_START) return 1;
     if(pressed & CONT_X) begin_address_edit();
     if(pressed & CONT_B) {
-        if(editing) {
-            editing = 0;
-            snprintf(address, sizeof(address), "%s", current_url);
-            snprintf(status_text, sizeof(status_text), "%s", document.title);
-        } else {
-            navigate_back();
-        }
+        if(editing) cancel_address_edit();
+        else navigate_back();
     }
     if(pressed & CONT_A) {
-        if(editing) { editing = 0; navigate_to(address); }
+        if(editing) navigate_to(address);
         else if(focused_link >= 0) follow_link(focused_link);
     }
-    if(pressed & CONT_Y) focus_next_link();
+    if(pressed & CONT_Y) focus_step(1);
     if(state->ltrig > 64 && previous_ltrig <= 64 && !editing) navigate_back();
     if(state->rtrig > 64 && previous_rtrig <= 64 && !editing) navigate_forward();
     previous_ltrig = state->ltrig;
@@ -862,6 +1140,159 @@ static int process_controller(maple_device_t *controller) {
     clamp_scroll();
     return 0;
 }
+
+#ifdef BROWSER_HISTORY_SELF_TEST
+static int press(kbd_key_t key, uint8_t modifiers, char ascii) {
+    kbd_mods_t mods = { .raw = modifiers };
+    return handle_key(key, mods, ascii);
+}
+
+/* Exercises the keyboard paths that have no other automated coverage:
+   focus stepping, the Esc exit guard, help, and line editing. */
+static void run_keyboard_self_test(void) {
+#define FILLER10 "<p>filler line</p><p>filler line</p><p>filler line</p>" \
+                 "<p>filler line</p><p>filler line</p><p>filler line</p>" \
+                 "<p>filler line</p><p>filler line</p><p>filler line</p>" \
+                 "<p>filler line</p>"
+    static const char page_html[] =
+        "<h1>Keyboard test</h1><p><a href='/first'>First link</a></p>"
+        FILLER10 FILLER10
+        "<p><a href='/middle'>Middle link</a></p>"
+        FILLER10 FILLER10
+        "<p><a href='/last'>Last link</a></p>"
+        "<form action='https://example.com/f' method='post'>"
+        "<input name='q' value='abc'></form>";
+    browser_document_t *saved;
+    int field_link = -1;
+    int field_index;
+    int bottom_focus;
+    int i;
+
+#define KEY_CHECK(condition, label) do { \
+    if(!(condition)) { \
+        printf("browser: KEYBOARD SELF-TEST FAILED (%s) " \
+               "focus=%d scroll=%d/%d links=%d\n", label, focused_link, \
+               scroll_y, max_scroll(), document.link_count); \
+        goto restore; \
+    } \
+} while(0)
+
+    saved = malloc(sizeof(*saved));
+    if(!saved) {
+        printf("browser: KEYBOARD SELF-TEST FAILED (allocation)\n");
+        return;
+    }
+    memcpy(saved, &document, sizeof(document));
+    document_init(&document, "https://example.com/");
+    document_parse_html(&document, page_html, sizeof(page_html) - 1);
+    scroll_y = 0;
+    focused_link = -1;
+    editing = 0;
+    editing_field = -1;
+    show_help = 0;
+    exit_armed = 0;
+    escape_released = 0;
+    for(i = 0; i < document.link_count; ++i)
+        if(!strncmp(document.links[i], "form:", 5)) field_link = i;
+    KEY_CHECK(document.link_count >= 4 && field_link >= 0 &&
+              document.height > SCREEN_H - PAGE_TOP, "test page shape");
+
+    KEY_CHECK(!press(KBD_KEY_TAB, 0, 0) && focused_link == 0, "Tab focuses first link");
+    KEY_CHECK(!press(KBD_KEY_TAB, KBD_MOD_LSHIFT, 0) &&
+              focused_link == document.link_count - 1 &&
+              link_on_screen(focused_link), "Shift+Tab wraps and scrolls");
+    KEY_CHECK(!press(KBD_KEY_TAB, 0, 0) && focused_link == 0 &&
+              link_on_screen(0), "Tab wraps to the first link");
+
+    press(KBD_KEY_END, 0, 0);
+    KEY_CHECK(scroll_y == max_scroll() && !link_on_screen(0), "End scrolls to bottom");
+    press(KBD_KEY_TAB, 0, 0);
+    bottom_focus = focused_link;
+    KEY_CHECK(bottom_focus > 0 && link_on_screen(bottom_focus),
+              "Tab resumes from the viewport");
+    press(KBD_KEY_HOME, 0, 0);
+    press(KBD_KEY_TAB, 0, 0);
+    KEY_CHECK(focused_link == 0 && link_on_screen(0),
+              "Home then Tab returns to the top link");
+
+    KEY_CHECK(!press(KBD_KEY_ESCAPE, 0, 0) && focused_link == -1 && !exit_armed,
+              "Esc clears focus first");
+    KEY_CHECK(!press(KBD_KEY_ESCAPE, 0, 0) && exit_armed, "Esc arms exit");
+    KEY_CHECK(!press(KBD_KEY_ESCAPE, 0, 0), "held Esc does not exit");
+    escape_released = 1;
+    KEY_CHECK(press(KBD_KEY_ESCAPE, 0, 0), "second Esc exits");
+    exit_armed = escape_released = 0;
+
+    press(KBD_KEY_F1, 0, 0);
+    KEY_CHECK(show_help, "F1 opens help");
+    press(KBD_KEY_TAB, 0, 0);
+    KEY_CHECK(!show_help && focused_link == -1, "any key closes help without acting");
+
+    press(KBD_KEY_SPACE, 0, ' ');
+    KEY_CHECK(scroll_y == page_step(), "Space scrolls a screen down");
+    press(KBD_KEY_SPACE, KBD_MOD_LSHIFT, ' ');
+    KEY_CHECK(!scroll_y, "Shift+Space scrolls back up");
+
+    press(KBD_KEY_F6, 0, 0);
+    KEY_CHECK(editing && address_selected &&
+              address_caret == (int)strlen(address), "F6 selects the address");
+    press(KBD_KEY_X, 0, 'x');
+    KEY_CHECK(!address_selected && !strcmp(address, "x"), "typing replaces the selection");
+    press(KBD_KEY_Y, 0, 'y');
+    press(KBD_KEY_Z, 0, 'z');
+    KEY_CHECK(!strcmp(address, "xyz") && address_caret == 3, "address insertion");
+    press(KBD_KEY_LEFT, 0, 0);
+    press(KBD_KEY_LEFT, 0, 0);
+    press(KBD_KEY_BACKSPACE, 0, 0);
+    KEY_CHECK(!strcmp(address, "yz") && address_caret == 0, "caret motion and backspace");
+    press(KBD_KEY_DEL, 0, 0);
+    KEY_CHECK(!strcmp(address, "z") && address_caret == 0, "delete at the caret");
+    press(KBD_KEY_END, 0, 0);
+    press(KBD_KEY_A, 0, 'a');
+    press(KBD_KEY_B, 0, 'b');
+    KEY_CHECK(!strcmp(address, "zab") && address_caret == 3, "End then insertion");
+    press(KBD_KEY_W, KBD_MOD_LCTRL, 'w');
+    KEY_CHECK(!address[0] && !address_caret, "Ctrl+W deletes the word");
+    press(KBD_KEY_A, KBD_MOD_LCTRL, 'a');
+    KEY_CHECK(address_selected, "Ctrl+A selects all");
+    press(KBD_KEY_ESCAPE, 0, 0);
+    KEY_CHECK(!editing && !strcmp(address, current_url), "Esc restores the address");
+
+    focused_link = field_link;
+    press(KBD_KEY_ENTER, 0, 0);
+    KEY_CHECK(editing_field >= 0 &&
+              document.fields[editing_field].caret == 3, "Enter edits a field");
+    field_index = editing_field;
+    press(KBD_KEY_D, 0, 'd');
+    KEY_CHECK(!strcmp(document.fields[editing_field].value, "abcd"), "field insertion");
+    press(KBD_KEY_HOME, 0, 0);
+    press(KBD_KEY_X, KBD_MOD_LSHIFT, 'X');
+    KEY_CHECK(!strcmp(document.fields[editing_field].value, "Xabcd") &&
+              strstr(document.items[document.fields[editing_field].item].text,
+                     "X|abcd"), "field caret rendering");
+    press(KBD_KEY_ESCAPE, 0, 0);
+    KEY_CHECK(editing_field == -1 &&
+              !strcmp(document.fields[field_index].value, "abc") &&
+              document.fields[field_index].caret == -1, "Esc undoes the field edit");
+    printf("browser: KEYBOARD SELF-TEST PASSED (focus, help, editing, exit guard)\n");
+
+restore:
+    document_free(&document);
+    memcpy(&document, saved, sizeof(document));
+    free(saved);
+    scroll_y = 0;
+    focused_link = -1;
+    editing = 0;
+    editing_field = -1;
+    show_help = exit_armed = escape_released = 0;
+    address_selected = 0;
+    snprintf(address, sizeof(address), "%s", current_url);
+    clamp_scroll();
+    redraw_needed = 1;
+#undef KEY_CHECK
+#undef FILLER10
+}
+#endif
 
 #ifdef BROWSER_FORM_SELF_TEST
 static int test_field(const char *name, const char *value) {
@@ -920,10 +1351,9 @@ int main(int argc, char **argv) {
 
     init_video();
     document_make_error(&document, "Dreamcast Browser",
-        "Starting network. F6 or Ctrl+L opens the address bar. Mouse, keyboard, and controller are supported.");
+        "Starting network. F6 or Ctrl+L opens the address bar, Tab moves between links, and F1 lists every keyboard shortcut. Mouse and controller are also supported.");
     snprintf(status_text, sizeof(status_text), "Starting network...");
-    render_browser(&document, 0, mouse_x, mouse_y, -1, address, 0, 0, 0,
-                   status_text);
+    redraw();
 
     if(!net_default_dev) {
         document_free(&document);
@@ -946,6 +1376,10 @@ int main(int argc, char **argv) {
         }
     }
 
+#ifdef BROWSER_HISTORY_SELF_TEST
+    run_keyboard_self_test();
+#endif
+
 #ifdef BROWSER_FORM_SELF_TEST
     run_form_self_test();
 #endif
@@ -958,9 +1392,7 @@ int main(int argc, char **argv) {
         process_mouse(mouse);
         quit |= process_controller(controller);
         if(redraw_needed) {
-            render_browser(&document, scroll_y, mouse_x, mouse_y, focused_link,
-                           address, editing, back_count > 0, forward_count > 0,
-                           status_text);
+            redraw();
             redraw_needed = 0;
         }
         thd_sleep(16);

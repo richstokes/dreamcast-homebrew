@@ -67,6 +67,7 @@ typedef struct { char action[MAX_URL]; int post; int valid; } browser_form_t;
 typedef struct {
     char name[64], value[MAX_FIELD_VALUE], type[16];
     int form, checked, link, item, maxlength;
+    int caret; /* insertion point while being edited, otherwise -1 */
 } browser_field_t;
 typedef struct {
     browser_form_t forms[MAX_FORMS];
@@ -118,9 +119,21 @@ void document_make_error(browser_document_t *doc, const char *title, const char 
 void document_load_images(browser_document_t *doc);
 void document_reflow(browser_document_t *doc);
 
-void render_browser(const browser_document_t *doc, int scroll_y, int mouse_x,
-                    int mouse_y, int focused_link, const char *address,
-                    int editing, int can_go_back, int can_go_forward,
-                    const char *status);
+typedef struct {
+    int scroll_y;
+    int mouse_x;
+    int mouse_y;
+    int focused_link;
+    const char *address;
+    int editing;
+    int address_caret;
+    int address_selected;
+    int can_go_back;
+    int can_go_forward;
+    int show_help;
+    const char *status;
+} browser_view_t;
+
+void render_browser(const browser_document_t *doc, const browser_view_t *view);
 
 #endif

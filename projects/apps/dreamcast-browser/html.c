@@ -400,6 +400,22 @@ void document_refresh_field(browser_document_t *doc, int index) {
         snprintf(item->text, sizeof(item->text), "[%c] %.36s", field->checked?'X':' ', label);
     else if(!strcmp(field->type, "submit"))
         snprintf(item->text, sizeof(item->text), "[ %.38s ]", value[0]?value:"Submit");
+    else if(field->caret >= 0) {
+        /* Show a 34-column window that keeps the insertion point visible. */
+        size_t length = strlen(field->value);
+        size_t caret = (size_t)field->caret > length ? length : (size_t)field->caret;
+        size_t start = caret > 33 ? caret - 33 : 0;
+        size_t shown = length - start > 34 ? 34 : length - start;
+        char window[40];
+        if(!strcmp(field->type, "password")) memset(window, '*', shown);
+        else memcpy(window, field->value + start, shown);
+        memmove(window + (caret - start) + 1, window + (caret - start),
+                shown - (caret - start));
+        window[caret - start] = '|';
+        window[shown + 1] = 0;
+        snprintf(item->text, sizeof(item->text), "[ %s%s%s ]", start ? "..." : "",
+                 window, start + shown < length ? "..." : "");
+    }
     else snprintf(item->text, sizeof(item->text), "[ %.36s%s ]", value[0]?value:"type here", strlen(field->value)>36?"...":"");
     item->width = (int)strlen(item->text)*12;
 }
@@ -521,7 +537,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size)
                 char raw[MAX_FIELD_VALUE], maxlength[16];
                 if(doc->field_count>=MAX_FIELDS) { doc->forms[current_form].valid=0; p=close+1; continue; }
                 field=&doc->fields[doc->field_count];
-                field->form=current_form; field->item=-1; field->link=-1;
+                field->form=current_form; field->item=-1; field->link=-1; field->caret=-1;
                 field->maxlength=MAX_FIELD_VALUE-1;
                 snprintf(field->type,sizeof(field->type),"text");
                 attr_value(q,"type",field->type,sizeof(field->type));

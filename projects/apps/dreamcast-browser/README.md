@@ -15,14 +15,23 @@ is also available.
 
 ## Controls
 
-- `F6` or `Ctrl+L`: open the address bar
-- `Enter`: open the typed address or focused link
+- `F1` or `?`: show every keyboard shortcut; any key closes the list
+- `F6` or `Ctrl+L`: open the address bar with the current URL selected
+- `Enter`: open the typed address, or open, edit or toggle the focused control
 - `Backspace` or `Alt+Left`: return to the previous page
 - `Shift+Backspace` or `Alt+Right`: move forward again
-- `Esc`: cancel address editing or an active load; otherwise exit
-- `Tab`: focus the next link
-- arrows, Page Up/Down, Home/End, Space: scroll
-- `F5`: reload
+- `Alt+Home`: return to the home page
+- `Esc`: cancel address or field editing, cancel an active load, or clear link
+  focus; with nothing left to cancel, a second, separate `Esc` exits
+- `Tab` and `Shift+Tab`: focus the next or previous link or form control,
+  scrolling it into view; after scrolling away, focus resumes from what is on
+  screen rather than from the link that was left behind
+- arrows, Page Up/Down, Home/End, Space, `Shift+Space`: scroll
+- `F5` or `Ctrl+R`: reload, keeping the scroll position
+- while editing the address bar or a form field: Left/Right (with `Ctrl` for
+  whole words), Home/End, Delete, `Ctrl+A` to select all, `Ctrl+W` or
+  `Ctrl+Backspace` to delete the previous word, and `Ctrl+U` to delete back to
+  the start; the insertion point is drawn in place
 - mouse: point, click Back/Forward, links, or the address bar; use the wheel to
   scroll and right-click to cancel an active load
 - controller: `B` or left trigger back, right trigger forward, `X` address bar,
@@ -77,7 +86,10 @@ make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST
 ```
 
 The test reports passing inline layout/style/reflow, asset, page-cancel,
-history, and image-cancel checks before entering the normal browser loop. Run
+history, image-cancel, and keyboard checks before entering the normal browser
+loop. The keyboard checks drive the real key handler through focus stepping,
+viewport-relative Tab, the two-press Esc exit guard, help, address-bar editing,
+and field editing on a synthetic page, then restore the live page. Run
 `make clean && make` afterward to restore the release build.
 
 For a cold-boot compatibility check against another homepage, override the URL
@@ -150,8 +162,9 @@ history, matching conventional browser behavior.
 
 Same-origin HTTPS forms now support text, email, password, hidden, checkbox and
 submit inputs. Focus a field with Tab and Enter, type using a Dreamcast keyboard,
-then Enter finishes or Tab finishes and moves to the next control. Escape restores
-the previous value. Checkboxes toggle with Enter/A. Passwords display as asterisks.
+then Enter finishes or Tab finishes and moves to the next control. Editing keys
+work inside a field and the insertion point is shown between the brackets.
+Escape restores the previous value. Checkboxes toggle with Enter/A. Passwords display as asterisks.
 The browser keeps cookies in RAM only; exiting discards them. POST redirects use
 same-origin HTTP 303, and passwords cannot be submitted through GET forms.
 Unsupported form controls or cross-origin/insecure actions fail closed. This is
