@@ -1,6 +1,8 @@
 *.o
 *.elf
 romdisk.img
+tests/host-tests
+tests/host-tests.dSYM/
 
 # Temporary emulator integration credentials (never commit).
 romdisk/test-credentials.txt

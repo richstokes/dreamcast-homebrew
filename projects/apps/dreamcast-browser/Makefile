@@ -1,5 +1,6 @@
 TARGET = dreamcast-browser.elf
-OBJS = dreamcast-browser.o net.o html.o images.o render.o romdisk.o
+OBJS = dreamcast-browser.o net.o html.o images.o render.o osk.o address.o \
+       bookmarks.o storage.o romdisk.o
 
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
@@ -14,7 +15,9 @@ include $(KOS_BASE)/Makefile.rules
 clean:
 	-rm -f $(OBJS) $(TARGET) romdisk.img
 
-dreamcast-browser.o net.o html.o images.o render.o: browser.h
+dreamcast-browser.o net.o html.o images.o render.o osk.o address.o bookmarks.o \
+    storage.o: browser.h
+dreamcast-browser.o storage.o: storage.h
 
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) $(LDLIBS)
@@ -25,7 +28,11 @@ run: $(TARGET)
 update-cacert:
 	./scripts/update-cacert.sh
 
-.PHONY: all clean run update-cacert
+# Parser, keyboard, address-bar, and bookmark tests on the host compiler.
+host-test:
+	$(MAKE) -C tests
+
+.PHONY: all clean run update-cacert host-test
 
 # A normal build must never package temporary integration credentials.
 .PHONY: release-check

@@ -325,10 +325,18 @@ int resolve_url(const char *base, const char *reference, char *out, size_t out_s
     if(!reference || !reference[0] || reference[0] == '#') return -1;
     if(!strncmp(reference, "javascript:", 11) || !strncmp(reference, "data:", 5) ||
        !strncmp(reference, "mailto:", 7)) return -1;
+    /* Internal pages; their actions are refused unless shown internally. */
+    if(!strncmp(reference, "about:", 6)) {
+        if(strlen(reference) >= out_size) return -1;
+        snprintf(out, out_size, "%s", reference);
+        return 0;
+    }
 
     url = curl_url();
     if(!url) return -1;
-    code = curl_url_set(url, CURLUPART_URL, base, 0);
+    /* Internal pages have no web base, so only absolute links resolve. */
+    code = strncmp(base, "http://", 7) && strncmp(base, "https://", 8) ?
+           CURLUE_OK : curl_url_set(url, CURLUPART_URL, base, 0);
     if(code == CURLUE_OK)
         code = curl_url_set(url, CURLUPART_URL, reference, 0);
     if(code == CURLUE_OK)
