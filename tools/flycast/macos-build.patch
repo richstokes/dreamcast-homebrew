@@ -2,17 +2,7 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 365c023..a5bb204 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -532,6 +532,9 @@ if(NOT LIBRETRO)
- 			find_package(SDL2 2.0.18)
- 		endif()
- 		if(NOT SDL2_FOUND)
-+			if(APPLE)
-+				enable_language(OBJC)
-+			endif()
- 			set(SDL_TEST_ENABLED_BY_DEFAULT OFF)
- 			add_subdirectory(core/deps/SDL EXCLUDE_FROM_ALL)
- 			set(SDL2_FOUND 1)
-@@ -1561,3 +1564,5 @@ if(${CMAKE_GENERATOR} MATCHES "^Xcode.*|^Visual Studio.*")
+@@ -1561,3 +1561,5 @@ if(${CMAKE_GENERATOR} MATCHES "^Xcode.*|^Visual Studio.*")
  	file(GLOB_RECURSE SRC_FILES *.h *.cpp *.c *.cc *.mm)
  	source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC_FILES})
  endif()

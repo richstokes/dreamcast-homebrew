@@ -8,37 +8,34 @@ Apple Silicon runs natively; Rosetta is not needed.
 To build and install:
 
 ```sh
-brew install cmake pkg-config
+brew install cmake pkg-config sdl2
 ./tools/flycast/build-macos.sh
 ./projects/dcvmu.com/client/run-flycast.sh
 ```
 
-Xcode command-line tools are required. The build uses OpenGL and Flycast's bundled
-SDL. It leaves the application in `/Applications` alone. Sources and build
+Xcode command-line tools are required. The build uses OpenGL and the host SDL
+library. It leaves the application in `/Applications` alone. Sources and build
 products stay outside this repository; only the patch and builder are tracked.
 The installed app depends on the Homebrew libraries used during the build.
 
 ## Pinned revision
 
 The build uses Flycast master at
-[`dd7a5f0`](https://github.com/flyinghead/flycast/commit/dd7a5f06201a4f8960ed162e2c6a5b61659bb9cd),
-which is newer than v2.7 and includes two fixes these projects rely on:
+[`628bd3d`](https://github.com/flyinghead/flycast/commit/628bd3dbb160ea2750230fc6b00c0bb8173cb1f6),
+which is newer than v2.7 and includes three fixes these projects rely on:
 
 - [#2492](https://github.com/flyinghead/flycast/pull/2492): opening a game at
   launch on macOS no longer trips the SH-4 recompiler's `sq_buffer` assertion.
+- [#2500](https://github.com/flyinghead/flycast/pull/2500): that fix no longer
+  crashes with Homebrew's `sdl2`, which is the sdl2-compat shim over SDL3.
 - [#2497](https://github.com/flyinghead/flycast/pull/2497): uploads through the
   TCP proxy (`DCNet=no`) no longer stall and time out. Raising the client
   timeout or retrying does not help on older builds, including v2.7; rebuild
   with the command above. Real BBA hardware does not use this proxy.
 
-`macos-build.patch` is the only local change. It lets the command-line CMake
-build compile the bundled SDL's Objective-C sources, and turns off precompiled
-headers for the `flycast` target, which cannot be shared between C++ and
-Objective-C++ sources.
-
-Homebrew's `sdl2` is now the sdl2-compat shim over SDL3, and with it the #2492
-fix crashes when a game is passed on the command line, so the build does not
-use the host SDL.
+`macos-build.patch` is the only local change: it turns off precompiled headers
+for the `flycast` target, which the command-line CMake build cannot share
+between C++ and Objective-C++ sources.
 
 ## Upload regression test
 

@@ -2,7 +2,7 @@
 # Build a native Flycast from the pinned upstream revision.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REVISION=dd7a5f06201a4f8960ed162e2c6a5b61659bb9cd
+REVISION=628bd3dbb160ea2750230fc6b00c0bb8173cb1f6
 WORK_DIR="${FLYCAST_BUILD_DIR:-${HOME}/Library/Caches/dreamcast-flycast-${REVISION:0:7}}"
 INSTALL_DIR="${HOME}/.local/share/dreamcast/flycast"
 
@@ -10,6 +10,7 @@ INSTALL_DIR="${HOME}/.local/share/dreamcast/flycast"
 for tool in git cmake pkg-config; do
     command -v "$tool" >/dev/null || { echo "Missing $tool. Install the build dependencies described in tools/flycast/README.md." >&2; exit 1; }
 done
+pkg-config --exists sdl2 || { echo 'SDL2 development files are required (brew install sdl2).' >&2; exit 1; }
 SDK_DIR="$(xcrun --show-sdk-path)"
 mkdir -p "$WORK_DIR"
 if [[ ! -d "$WORK_DIR/source/.git" ]]; then
@@ -29,7 +30,7 @@ else
 fi
 cmake -S "$WORK_DIR/source" -B "$WORK_DIR/build" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
-    -DUSE_HOST_SDL=OFF -DUSE_HOST_LIBZIP=OFF -DUSE_VULKAN=OFF \
+    -DUSE_HOST_SDL=ON -DUSE_HOST_LIBZIP=OFF -DUSE_VULKAN=OFF \
     -DUSE_BREAKPAD=OFF -DUSE_LUA=OFF -DENABLE_LOG=OFF \
     -DFLYCAST_PRESEED_DARWIN_XCODE_CHECKS=OFF \
     -DZLIB_LIBRARY="$SDK_DIR/usr/lib/libz.tbd"
