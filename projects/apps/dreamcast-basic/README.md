@@ -106,20 +106,42 @@ without `DIM`.
   `LEN ASC VAL INSTR CHR$ STR$ LEFT$ RIGHT$ MID$` (also as a statement)
   `STRING$ SPACE$ UCASE$ LCASE$ LTRIM$ RTRIM$ HEX$ OCT$ DATE$ TIME$`.
 
+Listings from other period dialects mostly run as written: keywords may be
+packed against their operands (`FORX=1TO9`, `IFA$="Y"THENPRINT"OK"`), `RND()`
+needs no argument, and HP BASIC's `#` for "not equal" and `GOTO X OF 100,200`
+are understood.
+
 Not supported: `SUB`/`FUNCTION` procedures, `SELECT CASE`, user types, file
 I/O, `GET`/`PUT` sprites and `ON ERROR`. `POKE`, `OUT`, `WAIT`, `WIDTH` and
 `VIEW` are accepted and ignored so old listings keep running.
 
 ## Bundled examples
 
-Press F2. `STARTREK`, `LUNAR`, `HAMURABI`, `ACEYDUCY`, `BAGELS`, `WORD`,
-`MUGWUMP`, `AMAZING`, `LIFE`, `TICTAC`, `BOMBS`, `HILO`, `LOVE` and `SINEWAVE`
-are unmodified listings from David Ahl's *BASIC Computer Games*, which he
-released into the public domain, as transcribed by the
-[basic-computer-games](https://github.com/coding-horror/basic-computer-games)
-project. `SHAPES`, `MANDEL`, `PLASMA`, `BOUNCE`, `PADDLE`, `MUSIC` and `MAZE`
-were written for this project to exercise graphics, palette animation, sound,
-`INKEY$` and the controller.
+Press F2.
+
+- **From *BASIC Computer Games*:** `STARTREK`, `LUNAR`, `HAMURABI`,
+  `ACEYDUCY`, `BAGELS`, `WORD`, `MUGWUMP`, `AMAZING`, `LIFE`, `TICTAC`,
+  `BOMBS`, `HILO`, `LOVE` and `SINEWAVE` are unmodified listings from David
+  Ahl's book, which he released into the public domain, as transcribed by the
+  [basic-computer-games](https://github.com/coding-horror/basic-computer-games)
+  project.
+- **`WUMPUS`:** Gregory Yob's 1973 *Hunt the Wumpus* in its original HP BASIC,
+  from [original-hunt-the-wumpus](https://github.com/RayKV423/original-hunt-the-wumpus).
+  The only edit is `RND(0)` to `RND(1)`; HP's `#` (not equal) and
+  `GOTO X OF 100,200` run as written.
+- **`ELIZA`:** Jeff Shrager's BASIC version of Weizenbaum's ELIZA as printed in
+  *Creative Computing*, July-August 1977, from
+  [this transcription](https://gist.github.com/dmberry/3f84d0f81ddb5dc8f054),
+  unmodified. Type in capitals; `SHUT UP` ends the session.
+- **`OREGON`:** the 1978 *Oregon Trail* by Rawitsch, Heinemann and
+  Dillenberger as published in *Creative Computing*, in the lightly adapted
+  [oregon-trail-1978-basic](https://github.com/LiquidFox1776/oregon-trail-1978-basic)
+  transcription (MIT), unmodified. Its timed "type bang" shooting uses
+  `CLK(0)`, which returns the clock in seconds here. Answer in lower case.
+- **Written for this project:** `SNAKE`, `BREAKOUT` and `CONWAY` (Conway's Game
+  of Life with a random soup or a Gosper glider gun) are games in `SCREEN 13`
+  for the keyboard or controller; `SHAPES`, `MANDEL`, `PLASMA`, `BOUNCE`,
+  `MUSIC` and `MAZE` exercise graphics, palette animation, sound and `INKEY$`.
 
 ## Building and running
 

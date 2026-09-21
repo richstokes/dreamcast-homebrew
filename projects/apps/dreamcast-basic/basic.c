@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 #include "av.h"
@@ -49,7 +50,7 @@
     X(SPACES, "SPACE$") X(UCASES, "UCASE$") X(LCASES, "LCASE$") \
     X(LTRIMS, "LTRIM$") X(RTRIMS, "RTRIM$") X(HEXS, "HEX$") \
     X(OCTS, "OCT$") X(INKEYS, "INKEY$") X(INPUTS, "INPUT$") \
-    X(DATES, "DATE$") X(TIMES, "TIME$") X(TIMER, "TIMER") \
+    X(DATES, "DATE$") X(TIMES, "TIME$") X(TIMER, "TIMER") X(CLK, "CLK") \
     X(POINT, "POINT") X(POS, "POS") X(CSRLIN, "CSRLIN") X(TAB, "TAB") \
     X(SPC, "SPC") X(PEEK, "PEEK") X(FRE, "FRE") X(CINT, "CINT") \
     X(CLNG, "CLNG") X(CSNG, "CSNG") X(CDBL, "CDBL") X(STICK, "STICK") \
@@ -361,6 +362,56 @@ static const char *apply_deftype(const char *p, char kind) {
     return p;
 }
 
+static bool line_mentions(const char *p, const char *word) {
+    const size_t n = strlen(word);
+    bool quoted = false;
+
+    for(; *p && *p != '\r' && *p != '\n'; ++p) {
+        if(*p == '"')
+            quoted = !quoted;
+        else if(!quoted && strncasecmp(p, word, n) == 0)
+            return true;
+    }
+    return false;
+}
+
+/*
+ * Old listings also pack the keyword that starts a statement against what
+ * follows: FORX=1TO9, IFMID$(A$,1,1)="Y"THEN..., PRINTA. Returns the length
+ * of such a keyword at the front of `name`, or 0. What follows must look like
+ * a period variable (one or two characters), a number or another keyword, so
+ * that names such as FORTUNE, IFLAG and PRINTER$ stay variables.
+ */
+static size_t crunched_statement(const char *name, const char *rest) {
+    static const char *const starters[] = {
+        "FOR", "IF", "PRINT", "GOSUB", "GOTO", "NEXT", "INPUT", "READ",
+        "LET", "DIM", "ON", NULL
+    };
+    int k;
+
+    while(*rest == ' ')
+        ++rest;
+    for(k = 0; starters[k]; ++k) {
+        const size_t n = strlen(starters[k]);
+        const char *tail = name + n;
+        size_t tail_length;
+
+        if(strncmp(name, starters[k], n) != 0 || !*tail)
+            continue;
+        tail_length = strcspn(tail, "$%");
+        if(!find_keyword(tail) && tail_length > 2 &&
+           strspn(tail, "0123456789") != strlen(tail))
+            continue;
+        if(k == 0)
+            return *rest == '=' && line_mentions(rest, "TO") ? n : 0;
+        if(k == 1)
+            return line_mentions(rest, "THEN") || line_mentions(rest, "GOTO") ?
+                   n : 0;
+        return *rest != '=' ? n : 0;
+    }
+    return 0;
+}
+
 static void tokenize_line(const char *p, int source_line) {
     /* Old listings pack keywords against their operands: 1TO3, X>1ANDY<2. */
     static const char *const infix[] = {
@@ -369,7 +420,7 @@ static void tokenize_line(const char *p, int source_line) {
     };
     static const char *const jumps[] = {"THEN", "ELSE", "GOTO", "GOSUB", NULL};
     const int first_token = ntoks;
-    bool after_operand = false;
+    bool after_operand = false, statement_start = true;
     line_t *line;
 
     if(nlines == cap_lines) {
@@ -462,11 +513,21 @@ static void tokenize_line(const char *p, int source_line) {
             }
             if(*p == '$' || *p == '%')
                 name[length++] = *p++;
-            else if(*p == '!' || *p == '#')
-                ++p;
+            else if(*p == '!' ||
+                    (*p == '#' && !isalnum((unsigned char)p[1]) &&
+                     p[1] != '"' && p[1] != '('))
+                ++p;        /* a type suffix; L#M is HP BASIC's L<>M */
             name[length] = '\0';
             keyword = find_keyword(name);
 
+            if(!keyword && statement_start) {
+                const size_t n = crunched_statement(name, p);
+                if(n) {
+                    name[n] = '\0';
+                    keyword = find_keyword(name);
+                    p = start + n;
+                }
+            }
             if(!keyword) {
                 const char *const *list = after_operand ? infix : jumps;
                 for(k = 0; list[k] && !split; ++k) {
@@ -536,7 +597,7 @@ static void tokenize_line(const char *p, int source_line) {
             ++p;
             if(c == '?') {
                 emit(T_KW, KW_PRINT, 0, 0);
-                after_operand = false;
+                after_operand = statement_start = false;
                 continue;
             }
             if((c == '<' && *p == '=') || (c == '=' && *p == '<')) {
@@ -551,10 +612,18 @@ static void tokenize_line(const char *p, int source_line) {
                 id = P_NE;
                 ++p;
             }
+            else if(c == '#' && after_operand) {
+                id = P_NE;      /* HP BASIC */
+            }
             emit(T_PUNCT, id, 0, 0);
             operand = c == ')';
         }
         after_operand = operand;
+        statement_start = ntoks > first_token &&
+            ((toks[ntoks - 1].type == T_PUNCT && toks[ntoks - 1].id == ':') ||
+             (toks[ntoks - 1].type == T_KW &&
+              (toks[ntoks - 1].id == KW_THEN ||
+               toks[ntoks - 1].id == KW_ELSE)));
     }
     emit(T_EOL, 0, 0, 0);
     ++nlines;
@@ -1035,7 +1104,7 @@ static val_t call_function(int id) {
     switch(id) {
         case KW_RND:
             x = 1;
-            if(accept_punct('(')) {
+            if(accept_punct('(') && !accept_punct(')')) {
                 x = num_expr();
                 expect_punct(')');
             }
@@ -1242,6 +1311,10 @@ static val_t call_function(int id) {
             expect_punct(',');
             n = logical_x(x);
             a = num_val(scr_point(n, logical_y(num_expr())));
+            break;
+        case KW_CLK:
+            num_expr();
+            a = num_val(plat_clock_seconds());
             break;
         case KW_POS:
             num_expr();
@@ -2753,7 +2826,31 @@ static bool statement(void) {
             }
             return true;
         case KW_GOTO:
-            jump_to_line(parse_target());
+            if((toks[pc].type == T_NUM || toks[pc].type == T_VAR) &&
+               (toks[pc + 1].type == T_EOL || toks[pc + 1].type == T_END ||
+                (toks[pc + 1].type == T_PUNCT && toks[pc + 1].id == ':') ||
+                (toks[pc + 1].type == T_KW && toks[pc + 1].id == KW_ELSE))) {
+                jump_to_line(parse_target());
+                return true;
+            }
+            /* HP BASIC's computed jump: GOTO X OF 100,200,300 */
+            i = int_expr();
+            if(!at_name("OF"))
+                syntax_error();
+            ++pc;
+            {
+                int index = 1, target = -1;
+                do {
+                    if(index++ == i)
+                        target = parse_target();
+                    else if(toks[pc].type == T_NUM || toks[pc].type == T_VAR)
+                        ++pc;
+                    else
+                        syntax_error();
+                } while(accept_punct(','));
+                if(target >= 0)
+                    jump_to_line(target);
+            }
             return true;
         case KW_GOSUB:
             do_gosub(parse_target());

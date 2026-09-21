@@ -89,6 +89,8 @@ void plat_poll(void) {
     now_seconds += 0.0002;
     if(++idle_polls > 300000) {
         printf("\n[host: program is not reading input; stopping]\n");
+        if(getenv("HOST_FINAL_SNAP"))
+            save_ppm(getenv("HOST_FINAL_SNAP"));
         exit(3);
     }
 }
