@@ -1,0 +1,10 @@
+SAVED AND LOADED
+ 1 
+ 4 
+ 9 
+Dreamcast BASIC: Program ended - press any key to return to the editor
+
+[host: input exhausted]
+--- saved file
+10 PRINT "SAVED AND LOADED"
+20 FOR I=1 TO 3:PRINT I*I:NEXT

@@ -50,6 +50,9 @@ jobs:
       - name: Test Dreamcast Browser parser and UI logic
         run: make -C projects/apps/dreamcast-browser/tests
 
+      - name: Test Dreamcast BASIC interpreter, games, and editor
+        run: make -C projects/apps/dreamcast-basic/tests check
+
       - name: Install disc-image tools
         run: |
           sudo apt-get update

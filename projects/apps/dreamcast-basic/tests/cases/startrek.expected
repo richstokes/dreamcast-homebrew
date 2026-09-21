@@ -1,0 +1,231 @@
+
+
+
+
+
+
+
+
+
+
+
+                                    ,------*------,
+                    ,-------------   '---  ------'
+                     '-------- --'      / /
+                         ,---' '-------/ /--,
+                          '----------------'
+
+                    THE USS ENTERPRISE --- NCC-1701
+
+
+
+
+
+YOUR ORDERS ARE AS FOLLOWS:
+     DESTROY THE 18 KLINGON WARSHIPS WHICH HAVE INVADED
+   THE GALAXY BEFORE THEY CAN ATTACK FEDERATION HEADQUARTERS
+   ON STARDATE 3730   THIS GIVES YOU 30 DAYS.  THERE ARE 
+   7 STARBASES IN THE GALAXY FOR RESUPPLYING YOUR SHIP
+
+
+YOUR MISSION BEGINS WITH YOUR STARSHIP LOCATED
+IN THE GALACTIC QUADRANT, 'VEGA I'.
+
+---------------------------------
+  *                                     STARDATE           3700 
+                                        CONDITION          GREEN
+                              *         QUADRANT           4 , 1 
+                                        SECTOR             8 , 8 
+              *                         PHOTON TORPEDOES   10 
+                                        TOTAL ENERGY       3000 
+      *           *   *                 SHIELDS            0 
+          *                  <*>        KLINGONS REMAINING 18 
+---------------------------------
+COMMAND? SRS
+---------------------------------
+  *                                     STARDATE           3700 
+                                        CONDITION          GREEN
+                              *         QUADRANT           4 , 1 
+                                        SECTOR             8 , 8 
+              *                         PHOTON TORPEDOES   10 
+                                        TOTAL ENERGY       3000 
+      *           *   *                 SHIELDS            0 
+          *                  <*>        KLINGONS REMAINING 18 
+---------------------------------
+COMMAND? LRS
+LONG RANGE SCAN FOR QUADRANT 4 , 1 
+-------------------
+: *** : 003 : 004 :
+-------------------
+: *** : 007 : 003 :
+-------------------
+: *** : 106 : 005 :
+-------------------
+COMMAND? COM
+COMPUTER ACTIVE AND AWAITING COMMAND? 0
+
+
+        COMPUTER RECORD OF GALAXY FOR QUADRANT 4 , 1 
+
+       1     2     3     4     5     6     7     8
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 1    ***   ***   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 2    ***   ***   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 3    003   004   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 4    007   003   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 5    106   005   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 6    ***   ***   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 7    ***   ***   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+ 8    ***   ***   ***   ***   ***   ***   ***   ***
+     ----- ----- ----- ----- ----- ----- ----- -----
+
+COMMAND? SHE
+ENERGY AVAILABLE = 3000 NUMBER OF UNITS TO SHIELDS? 500
+DEFLECTOR CONTROL ROOM REPORT:
+  'SHIELDS NOW AT 500 UNITS PER YOUR COMMAND.'
+COMMAND? NAV
+COURSE (0-9)? 3
+WARP FACTOR (0-8)? 2
+WARP ENGINES SHUT DOWN AT SECTOR 4 , 8 DUE TO BAD NAVAGATION
+---------------------------------
+  *                                     STARDATE           3701 
+                                        CONDITION          GREEN
+                              *         QUADRANT           4 , 1 
+                             <*>        SECTOR             4 , 8 
+              *                         PHOTON TORPEDOES   10 
+                                        TOTAL ENERGY       2974 
+      *           *   *                 SHIELDS            500 
+          *                             KLINGONS REMAINING 18 
+---------------------------------
+COMMAND? PHA
+SCIENCE OFFICER SPOCK REPORTS  'SENSORS SHOW NO ENEMY SHIPS
+                                IN THIS QUADRANT'
+COMMAND? 100
+ENTER ONE OF THE FOLLOWING:
+  NAV  (TO SET COURSE)
+  SRS  (FOR SHORT RANGE SENSOR SCAN)
+  LRS  (FOR LONG RANGE SENSOR SCAN)
+  PHA  (TO FIRE PHASERS)
+  TOR  (TO FIRE PHOTON TORPEDOES)
+  SHE  (TO RAISE OR LOWER SHIELDS)
+  DAM  (FOR DAMAGE CONTROL REPORTS)
+  COM  (TO CALL ON LIBRARY-COMPUTER)
+  XXX  (TO RESIGN YOUR COMMAND)
+
+COMMAND? TOR
+PHOTON TORPEDO COURSE (1-9)? 5
+TORPEDO TRACK:
+                4 , 7 
+                4 , 6 
+                4 , 5 
+                4 , 4 
+                4 , 3 
+                4 , 2 
+                4 , 1 
+TORPEDO MISSED
+COMMAND? DAM
+
+DEVICE             STATE OF REPAIR
+WARP ENGINES              0 
+SHORT RANGE SENSORS       0 
+LONG RANGE SENSORS        0 
+PHASER CONTROL            0 
+PHOTON TUBES              0 
+DAMAGE CONTROL            0 
+SHIELD CONTROL            0 
+LIBRARY-COMPUTER          0 
+
+COMMAND? COM
+COMPUTER ACTIVE AND AWAITING COMMAND? 2
+
+SCIENCE OFFICER SPOCK REPORTS  'SENSORS SHOW NO ENEMY SHIPS
+                                IN THIS QUADRANT'
+COMMAND? NAV
+COURSE (0-9)? 1
+WARP FACTOR (0-8)? 1
+DAMAGE CONTROL REPORT:  DAMAGE CONTROL DAMAGED
+
+
+NOW ENTERING VEGA II QUADRANT . . .
+
+---------------------------------
+                                        STARDATE           3702 
+          *       *                     CONDITION          GREEN
+                                        QUADRANT           4 , 2 
+                             <*>        SECTOR             4 , 8 
+                              *         PHOTON TORPEDOES   9 
+                                        TOTAL ENERGY       2954 
+                                        SHIELDS            500 
+                                        KLINGONS REMAINING 18 
+---------------------------------
+COMMAND? SRS
+---------------------------------
+                                        STARDATE           3702 
+          *       *                     CONDITION          GREEN
+                                        QUADRANT           4 , 2 
+                             <*>        SECTOR             4 , 8 
+                              *         PHOTON TORPEDOES   9 
+                                        TOTAL ENERGY       2954 
+                                        SHIELDS            500 
+                                        KLINGONS REMAINING 18 
+---------------------------------
+COMMAND? XXX
+THERE WERE 18 KLINGON BATTLE CRUISERS LEFT AT
+THE END OF YOUR MISSION.
+
+
+THE FEDERATION IS IN NEED OF A NEW STARSHIP COMMANDER
+FOR A SIMILAR MISSION -- IF THERE IS A VOLUNTEER,
+LET HIM STEP FORWARD AND ENTER 'AYE'? AYE
+
+
+
+
+
+
+
+
+
+
+
+                                    ,------*------,
+                    ,-------------   '---  ------'
+                     '-------- --'      / /
+                         ,---' '-------/ /--,
+                          '----------------'
+
+                    THE USS ENTERPRISE --- NCC-1701
+
+
+
+
+
+YOUR ORDERS ARE AS FOLLOWS:
+     DESTROY THE 16 KLINGON WARSHIPS WHICH HAVE INVADED
+   THE GALAXY BEFORE THEY CAN ATTACK FEDERATION HEADQUARTERS
+   ON STARDATE 2433   THIS GIVES YOU 33 DAYS.  THERE ARE 
+   4 STARBASES IN THE GALAXY FOR RESUPPLYING YOUR SHIP
+
+
+YOUR MISSION BEGINS WITH YOUR STARSHIP LOCATED
+IN THE GALACTIC QUADRANT, 'POLLUX I'.
+
+---------------------------------
+          *                             STARDATE           2400 
+          *                             CONDITION          GREEN
+                             <*>        QUADRANT           8 , 1 
+              *                         SECTOR             3 , 8 
+                                        PHOTON TORPEDOES   10 
+                                        TOTAL ENERGY       3000 
+                                        SHIELDS            0 
+                                        KLINGONS REMAINING 16 
+---------------------------------
+COMMAND? 
+[host: input exhausted]

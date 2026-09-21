@@ -1,0 +1,61 @@
+                                LUNAR
+              CREATIVE COMPUTING MORRISTOWN, NEW JERSEY
+
+
+
+THIS IS A COMPUTER SIMULATION OF AN APOLLO LUNAR
+LANDING CAPSULE.
+
+
+THE ON-BOARD COMPUTER HAS FAILED (IT WAS MADE BY
+XEROX) SO YOU HAVE TO LAND THE CAPSULE MANUALLY.
+
+SET BURN RATE OF RETRO ROCKETS TO ANY VALUE BETWEEN
+0 (FREE FALL) AND 200 (MAXIMUM BURN) POUNDS PER SECOND.
+SET NEW BURN RATE EVERY 10 SECONDS.
+
+CAPSULE WEIGHT 32,500 LBS; FUEL WEIGHT 16,000 LBS.
+
+
+
+GOOD LUCK
+
+SEC           MI + FT       MPH           LB FUEL       BURN RATE
+
+ 0             120  0        3600          16500        ? 0
+ 10            109  5016     3636          16500        ? 0
+ 20            99  4224      3672          16500        ? 0
+ 30            89  2904      3708          16500        ? 0
+ 40            79  1056      3744          16500        ? 0
+ 50            68  3960      3780          16500        ? 0
+ 60            58  1056      3816          16500        ? 0
+ 70            47  2904      3852          16500        ? 150
+ 80            37  1137      3586.55       15000        ? 200
+ 90            27  4153      3197.48       13000        ? 200
+ 100           19  2530      2778.557      11000        ? 200
+ 110           12  2017      2325.268      9000         ? 100
+ 120           6  1217       2102.033      8000         ? 50
+ 130           0  2780       2004.42       7500         ? 20
+ON MOON AT 130.9462 SECONDS - IMPACT VELOCITY 2002.715 MPH
+SORRY THERE WERE NO SURVIVORS. YOU BLEW IT!
+IN FACT, YOU BLASTED A NEW LUNAR CRATER 454.6163 FEET DEEP!
+
+
+
+TRY AGAIN??
+
+SET BURN RATE OF RETRO ROCKETS TO ANY VALUE BETWEEN
+0 (FREE FALL) AND 200 (MAXIMUM BURN) POUNDS PER SECOND.
+SET NEW BURN RATE EVERY 10 SECONDS.
+
+CAPSULE WEIGHT 32,500 LBS; FUEL WEIGHT 16,000 LBS.
+
+
+
+GOOD LUCK
+
+SEC           MI + FT       MPH           LB FUEL       BURN RATE
+
+ 0             120  0        3600          16500        ? 10
+ 10            109  5160     3616.334      16400        ? 
+[host: input exhausted]

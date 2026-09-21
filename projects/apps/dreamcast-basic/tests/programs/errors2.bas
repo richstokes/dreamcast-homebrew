@@ -1,0 +1,2 @@
+PRINT "NO LINE NUMBERS"
+X = 1 / 0

@@ -1,0 +1,39 @@
+' PADDLE - keep the ball in play. Left/Right arrows, D-pad or the stick.
+SCREEN 13
+KEY OFF
+RANDOMIZE TIMER
+PX = 140: BX = 160: BY = 60: DX = 2: DY = 2: SCORE = 0: LIVES = 3
+PLAY "MB"
+LINE (0, 10)-(319, 199), 9, B
+DO
+  LOCATE 1, 1: PRINT "SCORE"; SCORE; " LIVES"; LIVES; " ";
+  K$ = INKEY$
+  IF K$ = CHR$(27) THEN EXIT DO
+  IF LEN(K$) = 2 THEN
+    IF ASC(RIGHT$(K$, 1)) = 75 THEN PX = PX - 14
+    IF ASC(RIGHT$(K$, 1)) = 77 THEN PX = PX + 14
+  END IF
+  S = STICK(0) - 128
+  IF ABS(S) > 30 THEN PX = PX + S / 16
+  IF PX < 2 THEN PX = 2
+  IF PX > 277 THEN PX = 277
+  LINE (2, 186)-(317, 191), 0, BF
+  LINE (PX, 186)-(PX + 40, 191), 14, BF
+  CIRCLE (BX, BY), 3, 0
+  BX = BX + DX: BY = BY + DY
+  IF BX < 6 OR BX > 313 THEN DX = -DX: BX = BX + DX: SOUND 440, .5
+  IF BY < 16 THEN DY = -DY: BY = BY + DY: SOUND 440, .5
+  IF BY > 181 AND BY < 187 AND BX >= PX - 3 AND BX <= PX + 43 AND DY > 0 THEN
+    DY = -DY: SCORE = SCORE + 1: SOUND 880, .5
+    DX = DX + (BX - PX - 20) / 20
+    IF SCORE MOD 5 = 0 THEN DY = DY - .5
+  END IF
+  IF BY > 196 THEN
+    LIVES = LIVES - 1: SOUND 110, 6
+    BX = 160: BY = 60: DX = 2: DY = 2
+  END IF
+  CIRCLE (BX, BY), 3, 15
+  T = TIMER: WHILE TIMER - T < .016: WEND
+LOOP WHILE LIVES > 0
+SCREEN 0
+PRINT "GAME OVER - SCORE"; SCORE

@@ -1,0 +1,9 @@
+BEFORE
+NUMBER? abc
+?Redo from start
+NUMBER? 3,4
+?Redo from start
+NUMBER? 2
+ 0 
+
+[Division by zero in line 50]
