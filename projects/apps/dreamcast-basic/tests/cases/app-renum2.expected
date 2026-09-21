@@ -1,0 +1,13 @@
+GOTO 7
+SUBEND
+Dreamcast BASIC: Program ended - press any key to return to the editor
+
+[host: input exhausted]
+--- saved TARGETS.BAS
+10 ON 2 GOTO 20,30 , 40
+20 PRINT "BAD"
+30 IF A1=0 THEN 50 ELSE 20
+40 DATA GOTO 7, 9
+50 RESTORE 40:READ A$:PRINT A$:GOSUB 70:GO TO 60
+60 PRINT "END":END
+70 PRINT "SUB";:RETURN:GOTO 999

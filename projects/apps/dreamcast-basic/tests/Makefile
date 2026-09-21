@@ -3,7 +3,7 @@ CC ?= cc
 # Contraction is off so transcripts match across compilers and CPUs.
 CFLAGS ?= -std=gnu11 -O1 -g -Wall -Wextra -ffp-contract=off \
           -fsanitize=address,undefined
-SOURCES = host.c ../basic.c ../screen.c ../av.c ../app.c
+SOURCES = host.c ../basic.c ../screen.c ../av.c ../app.c ../renum.c
 HEADERS = $(wildcard ../*.h)
 
 all: host-basic

@@ -99,7 +99,7 @@ static int special_key(const char *name) {
         {"HOME", K_HOME}, {"END", K_END}, {"PGUP", K_PGUP},
         {"PGDN", K_PGDN}, {"INS", K_INS}, {"DEL", K_DEL},
         {"CTRL_HOME", K_CTRL_HOME}, {"CTRL_END", K_CTRL_END}, {"F1", K_F1},
-        {"F2", K_F2}, {"F5", K_F5}, {"F6", K_F6}, {"F7", K_F7},
+        {"F2", K_F2}, {"F3", K_F3}, {"F4", K_F4}, {"F5", K_F5}, {"F6", K_F6}, {"F7", K_F7},
         {"F9", K_F9}, {"ESC", 27}, {"ENTER", 13}, {"BS", 8}, {"TAB", 9},
         {"CTRL_C", 3}, {"CTRL_Y", 25}, {"LBRACE", '{'}
     };

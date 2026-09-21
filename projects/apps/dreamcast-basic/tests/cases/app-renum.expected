@@ -1,0 +1,16 @@
+HELLO 1 
+HELLO 2 
+HELLO 3 
+GOTO 1 in a string
+SUB
+Dreamcast BASIC: Program ended - press any key to return to the editor
+
+[host: input exhausted]
+--- saved HELLO.BAS
+10 N=N+1:PRINT "HELLO";N
+20 IF N<3 THEN GOTO 10
+
+30 PRINT "GOTO 1 in a string":REM GOTO 1
+40 GOSUB 60
+50 END
+60 PRINT "SUB":RETURN

@@ -30,6 +30,8 @@ Plug a Dreamcast keyboard into any port. Type a program and press **F5**.
 | **F7** | Load from the VMU (pick from a list, or type a name) |
 | F1 | Help |
 | F2 | Load one of the bundled examples |
+| F3 | Toggle automatic line numbering (on by default) |
+| F4 | Renumber the program |
 | F9 | New program |
 | Esc or Ctrl+C | Stop a running program |
 | Ctrl+Y | Delete the current line |
@@ -40,6 +42,27 @@ reminders. While a program runs it shows the line being executed (both the
 BASIC line number and the editor line), and after an error the editor returns
 with the cursor on the offending line. `KEY OFF` hides the bar for full-screen
 graphics.
+
+### Line numbers
+
+Line numbers are optional, and the editor provides GW-BASIC's `AUTO` and
+`RENUM` as keys rather than commands:
+
+- **Auto numbering (F3).** Press Enter on a numbered line and the next line
+  starts with the next number: ten more, or halfway to the following line when
+  inserting between two. Typing your own number replaces the suggestion, and
+  Enter on a line holding only the suggestion removes it. Unnumbered programs
+  are left alone.
+- **Renumber (F4).** Renumbers the program 10, 20, 30... in the order shown and
+  rewrites every target after `GOTO`, `GOSUB`, `THEN`, `ELSE`, `RESTORE` and in
+  `ON ... GOTO` lists, leaving strings, remarks and `DATA` untouched. Targets
+  that match no line keep their number and are counted in the status bar.
+- A program with **no** line numbers can still `GOTO 3`: the number then means
+  the editor line shown in the left margin. F4 turns such a program into a
+  conventionally numbered one, converting those targets. Labels (`Top:` ...
+  `GOTO Top`) avoid numbers altogether.
+
+Lines run in the order they appear in the editor, not sorted by number.
 
 Each program is its own VMU file, `NAME.BAS` (names are up to eight
 characters), with a "BASIC program" description and icon in the Dreamcast file
@@ -123,7 +146,7 @@ make -C projects/apps/dreamcast-basic/tests check
 That runs conformance programs for the language, graphics (verified through
 `POINT()`), sound (the queued tones are logged) and errors, plays scripted
 sessions of the bundled games, and drives the editor through
-type/save/new/load/run, comparing each transcript with `tests/cases/*.expected`.
+type/save/new/load/run, auto numbering and renumbering, comparing each transcript with `tests/cases/*.expected`.
 `UPDATE=1 tests/run-tests.sh` regenerates the expectations, and
 `tests/ppm2png.py` converts the harness's `{SNAP}` screen dumps. CI runs the
 suite on every push.

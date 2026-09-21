@@ -1,6 +1,6 @@
 TARGET = dreamcast-basic.elf
-OBJS = dreamcast-basic.o app.o basic.o screen.o av.o romdisk.o
-HEADERS = app.h av.h basic.h font8x16.h platform.h screen.h
+OBJS = dreamcast-basic.o app.o basic.o renum.o screen.o av.o romdisk.o
+HEADERS = app.h av.h basic.h font8x16.h platform.h renum.h screen.h
 
 KOS_BUILD_SUBARCHS = pristine
 # The bundled example programs are served from /rd.

@@ -12,6 +12,7 @@
 
 #include "basic.h"
 #include "platform.h"
+#include "renum.h"
 #include "screen.h"
 
 #define MAX_LINES 6000
@@ -33,6 +34,9 @@ static int top_row, left_col;       /* scroll position */
 static bool modified;
 static char program_name[PLAT_NAME_MAX + 1];
 static char notice[160];
+static bool auto_number = true;
+/* Where Enter just typed a line number, so typing one replaces it. */
+static int auto_row = -1, auto_length;
 
 /* ------------------------------------------------------------------------ */
 /* Document                                                                  */
@@ -130,8 +134,8 @@ static void draw_status(void) {
     }
     else {
         snprintf(text, sizeof(text),
-                 " Ln %d, Col %d  F1 Help F2 Examples F5 Run F6 Save F7 Load"
-                 " F9 New", cur_row + 1, cur_col + 1);
+                 " Ln %d Col %d  F1 Help F2 Demos F3 Auto F4 Renum F5 Run F6 Save"
+                 " F7 Load F9 New", cur_row + 1, cur_col + 1);
     }
     scr_set_status(text);
 }
@@ -432,9 +436,13 @@ static void show_help(void) {
     static const char *const body[] = {
         "Type a BASIC program, then press F5 to run it.",
         "",
-        "F1  This help            F6  Save to VMU",
-        "F2  Load an example      F7  Load from VMU",
-        "F5  Run the program      F9  New program",
+        "F1  This help            F5  Run the program",
+        "F2  Load an example      F6  Save to VMU",
+        "F3  Auto numbering       F7  Load from VMU",
+        "F4  Renumber             F9  New program",
+        "",
+        "With F3 on, Enter after a numbered line types the next",
+        "number. F4 renumbers by tens and fixes every GOTO.",
         "",
         "Ctrl+Y deletes a line. Esc or Ctrl+C stops a running",
         "program. Line numbers are optional: GOTO and GOSUB take",
@@ -539,6 +547,78 @@ static void split_line(void) {
     modified = true;
 }
 
+/* AUTO: the number for a line following `row`, or -1 if none fits. */
+static long next_auto_number(int row) {
+    const long current = renum_line_number(text_lines[row]);
+    long candidate, following = -1;
+    int i;
+
+    if(current < 0)
+        return -1;
+    for(i = row + 2; i < line_count && following < 0; ++i)
+        following = renum_line_number(text_lines[i]);
+    candidate = current + 10;
+    if(following >= 0 && candidate >= following)
+        candidate = following - current >= 2 ?
+                    current + (following - current) / 2 : -1;
+    return candidate;
+}
+
+static bool only_a_number(const char *line) {
+    if(renum_line_number(line) < 0)
+        return false;
+    while(*line == ' ' || isdigit((unsigned char)*line))
+        ++line;
+    return *line == '\0';
+}
+
+static void enter_key(void) {
+    char number[24];
+    long next;
+    int i;
+
+    if(auto_number && only_a_number(text_lines[cur_row])) {
+        /* Enter on a bare auto number ends the run, like a list editor. */
+        text_lines[cur_row][0] = '\0';
+        cur_col = 0;
+        modified = true;
+        return;
+    }
+    split_line();
+    if(!auto_number || isdigit((unsigned char)text_lines[cur_row][0]))
+        return;
+    next = next_auto_number(cur_row - 1);
+    if(next < 0) {
+        if(renum_line_number(text_lines[cur_row - 1]) >= 0)
+            snprintf(notice, sizeof(notice),
+                     "No line number fits here - F4 renumbers");
+        return;
+    }
+    snprintf(number, sizeof(number), "%ld ", next);
+    for(i = 0; number[i]; ++i)
+        insert_char(number[i]);
+    auto_row = cur_row;
+    auto_length = i;
+}
+
+static void renumber(void) {
+    const int unresolved = renum_program(text_lines, line_count,
+                                         MAX_LINE_LEN + 1);
+    if(unresolved < 0) {
+        snprintf(notice, sizeof(notice),
+                 "Renumber failed: a line would be too long");
+        return;
+    }
+    modified = true;
+    cur_col = want_col = 0;
+    if(unresolved)
+        snprintf(notice, sizeof(notice),
+                 "Renumbered; %d target%s matched no line and kept its number",
+                 unresolved, unresolved == 1 ? "" : "s");
+    else
+        snprintf(notice, sizeof(notice), "Renumbered by tens");
+}
+
 static void remove_line(int row) {
     free(text_lines[row]);
     memmove(&text_lines[row], &text_lines[row + 1],
@@ -565,9 +645,11 @@ static bool join_lines(int row) {
 static void edit_key(int key) {
     char *line = text_lines[cur_row];
     const int length = (int)strlen(line);
+    const int pending_row = auto_row, pending_length = auto_length;
     bool vertical = false;
 
     notice[0] = '\0';
+    auto_row = -1;
     switch(key) {
         case K_LEFT:
             if(cur_col > 0)
@@ -619,7 +701,7 @@ static void edit_key(int key) {
             cur_col = (int)strlen(text_lines[cur_row]);
             break;
         case 13:
-            split_line();
+            enter_key();
             break;
         case 8:
             if(cur_col > 0) {
@@ -658,8 +740,16 @@ static void edit_key(int key) {
             } while(cur_col % TAB_WIDTH);
             break;
         default:
-            if(key >= 32 && key < 127)
-                insert_char(key);
+            if(key < 32 || key >= 127)
+                break;
+            if(isdigit(key) && pending_row == cur_row &&
+               cur_col == pending_length &&
+               (int)strlen(line) == pending_length) {
+                /* Typing a number over the automatic one replaces it. */
+                line[0] = '\0';
+                cur_col = 0;
+            }
+            insert_char(key);
             break;
     }
     if(vertical) {
@@ -700,6 +790,14 @@ void app_step(void) {
             break;
         case K_F2:
             load_program(true);
+            break;
+        case K_F3:
+            auto_number = !auto_number;
+            snprintf(notice, sizeof(notice), "Auto line numbering %s",
+                     auto_number ? "on" : "off");
+            break;
+        case K_F4:
+            renumber();
             break;
         case K_F5:
             run_program();

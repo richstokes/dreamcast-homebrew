@@ -1,0 +1,13 @@
+A
+MID
+B
+C
+Dreamcast BASIC: Program ended - press any key to return to the editor
+
+[host: input exhausted]
+--- saved AUTO.BAS
+10 PRINT "A"
+15 PRINT "MID"
+20 PRINT "B"
+100 PRINT "C"
+
