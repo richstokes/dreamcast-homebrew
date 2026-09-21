@@ -1929,8 +1929,75 @@ static void profile_build_record(void) {
         (const uint8_t *)&profile_io_record, sizeof(profile_io_record));
 }
 
+/* 32x32 save icon: '.' background, 'o' outline, 'W' bubble, '#' channel mark. */
+static const char profile_icon_art[32][33] = {
+    "................................",
+    "................................",
+    "................................",
+    ".....oooooooooooooooooooooo.....",
+    "...ooWWWWWWWWWWWWWWWWWWWWWWoo...",
+    "...oWWWWWWWWWWWWWWWWWWWWWWWWo...",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWW################WWWWWo..",
+    "..oWWWWW################WWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWW################WWWWWo..",
+    "..oWWWWW################WWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "..oWWWWWWWW##WWWWW##WWWWWWWWWo..",
+    "...oWWWWWWWWWWWWWWWWWWWWWWWWo...",
+    "...ooWWWWWWWWWWWWWWWWWWWWWWoo...",
+    ".....ooWWWWWWoooooooooooooo.....",
+    ".......oWWWWo...................",
+    ".......oWWWo....................",
+    ".......oWWo.....................",
+    ".......oWo......................",
+    ".......oo.......................",
+    ".......o........................",
+    "................................",
+    "................................",
+    "................................"
+};
+
+static const char profile_icon_keys[] = ".oW#";
+
+/* ARGB4444, indexed by position in profile_icon_keys. */
+static const uint16_t profile_icon_palette[] = {
+    0xf125, 0xf002, 0xffff, 0xff71
+};
+
+static void profile_icon_build(vmu_pkg_t *header, uint8_t *pixels) {
+    unsigned x;
+    unsigned y;
+
+    memcpy(header->icon_pal, profile_icon_palette,
+           sizeof(profile_icon_palette));
+    for(y = 0; y < 32; ++y) {
+        for(x = 0; x < 32; x += 2) {
+            const char *left = strchr(profile_icon_keys,
+                                      profile_icon_art[y][x]);
+            const char *right = strchr(profile_icon_keys,
+                                       profile_icon_art[y][x + 1]);
+
+            pixels[y * 16 + x / 2] =
+                (uint8_t)(((left - profile_icon_keys) << 4) |
+                          (right - profile_icon_keys));
+        }
+    }
+    header->icon_cnt = 1;
+    header->icon_data = pixels;
+    header->icon_anim_speed = 0;
+}
+
 static profile_save_result_t profile_save(bool announce) {
     static uint8_t empty_asset;
+    static uint8_t icon_pixels[512];
     maple_device_t *device;
     vmu_pkg_t header;
     char path[40];
@@ -1954,9 +2021,7 @@ static profile_save_result_t profile_save(bool announce) {
     snprintf(header.desc_long, sizeof(header.desc_long),
              "DCIRC connection profile");
     snprintf(header.app_id, sizeof(header.app_id), "DCIRC");
-    header.icon_cnt = 0;
-    header.icon_data = &empty_asset;
-    header.icon_anim_speed = 0;
+    profile_icon_build(&header, icon_pixels);
     header.eyecatch_type = VMUPKG_EC_NONE;
     header.eyecatch_data = &empty_asset;
     header.data_len = sizeof(profile_io_record);
