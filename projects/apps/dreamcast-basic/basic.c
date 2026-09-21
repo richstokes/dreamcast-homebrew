@@ -27,7 +27,7 @@
     X(GOTO, "GOTO") X(GOSUB, "GOSUB") X(GO, "GO") X(RETURN, "RETURN") \
     X(ON, "ON") X(OFF, "OFF") X(DATA, "DATA") X(READ, "READ") \
     X(RESTORE, "RESTORE") X(DIM, "DIM") X(DEF, "DEF") X(REM, "REM") \
-    X(STOP, "STOP") X(SYSTEM, "SYSTEM") X(RANDOMIZE, "RANDOMIZE") \
+    X(STOP, "STOP") X(RUN, "RUN") X(SYSTEM, "SYSTEM") X(RANDOMIZE, "RANDOMIZE") \
     X(CLS, "CLS") X(LOCATE, "LOCATE") X(COLOR, "COLOR") \
     X(SCREEN, "SCREEN") X(WIDTH, "WIDTH") X(PSET, "PSET") \
     X(PRESET, "PRESET") X(CIRCLE, "CIRCLE") X(PAINT, "PAINT") \
@@ -147,6 +147,7 @@ static int ntoks, cap_toks;
 static line_t *lines;
 static int nlines, cap_lines;
 static int *sorted_lines;
+static bool any_line_numbers;
 static str_t *consts;
 static int nconsts, cap_consts;
 static sym_t *syms;
@@ -1863,6 +1864,11 @@ static int parse_target(void) {
 
     if(toks[pc].type == T_NUM) {
         line = find_line_number((int)toks[pc].n);
+        /* In a program without line numbers, the numbers the editor shows
+           beside each line stand in for them. */
+        if(line < 0 && !any_line_numbers && toks[pc].n >= 1 &&
+           toks[pc].n <= nlines)
+            line = (int)toks[pc].n - 1;
         if(line < 0)
             fail("Undefined line number %d", (int)toks[pc].n);
     }
@@ -2674,6 +2680,13 @@ static bool statement(void) {
         case KW_STOP:
         case KW_SYSTEM:
             return false;
+        case KW_RUN:
+            skip_statement();
+            clear_variables();
+            nframes = 0;
+            data_at = 0;
+            jump_to_line(0);
+            return true;
         case KW_FOR:
             do_for();
             return true;
@@ -2927,8 +2940,11 @@ static void load_program(const char *source) {
     emit(T_END, 0, 0, 0);
 
     sorted_lines = xrealloc(NULL, sizeof(int) * (size_t)(nlines + 1));
-    for(i = 0; i < nlines; ++i)
+    any_line_numbers = false;
+    for(i = 0; i < nlines; ++i) {
         sorted_lines[i] = i;
+        any_line_numbers = any_line_numbers || lines[i].number >= 0;
+    }
     qsort(sorted_lines, (size_t)nlines, sizeof(int), compare_line_numbers);
     scan_definitions();
 }

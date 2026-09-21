@@ -60,7 +60,9 @@ without `DIM`.
 - **Program flow:** `GOTO`, `GOSUB`/`RETURN`, `ON x GOTO/GOSUB`, `FOR`/`NEXT`
   (including `NEXT J, I`), `WHILE`/`WEND`, `DO`/`LOOP` with `WHILE`/`UNTIL`,
   `EXIT FOR`/`EXIT DO`, single-line and block `IF`/`ELSEIF`/`ELSE`/`END IF`,
-  `END`, `STOP`. Targets are line numbers or `Label:` names.
+  `END`, `STOP`, `RUN` (restart). Targets are line numbers or `Label:` names;
+  in a program with no line numbers at all, `GOTO 1` means the editor's line 1,
+  as shown in the left margin.
 - **Data:** `LET`, `DIM`, `ERASE`, `CLEAR`, `SWAP`, `DATA`/`READ`/`RESTORE`,
   `DEF FN`, `CONST`, `DEFINT`/`DEFSNG`/`DEFDBL`/`DEFSTR`, `RANDOMIZE`.
 - **Text:** `PRINT` with zones, `TAB`, `SPC` and `USING`; `INPUT`,
