@@ -48,7 +48,7 @@ def main():
             pass
 
         def do_GET(self):
-            if (self.path != '/api/v1/saves/1/download?revision=1' or
+            if (self.path != '/api/v1/saves/1/download?include_icons=1&revision=1' or
                     self.headers.get('Authorization') != 'Bearer synthetic-test-token'):
                 self.send_error(404)
                 return
