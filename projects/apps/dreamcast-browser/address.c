@@ -117,7 +117,7 @@ int address_resolve(const char *text, const char *search_prefix, char *out,
     if(n >= out_size) return -1;
     for(i = 0; i < length; ++i) {
         unsigned char c = (unsigned char)start[i];
-        char encoded[8];
+        char encoded[16];
         size_t count;
         if(isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
             encoded[0] = (char)c;

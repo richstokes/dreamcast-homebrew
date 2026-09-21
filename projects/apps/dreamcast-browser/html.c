@@ -368,7 +368,7 @@ static void normalize_url(const char *src, size_t len, char *out, size_t out_siz
     while(i < len) {
         unsigned long cp;
         size_t used = 0;
-        char encoded[13];
+        char encoded[16];
         size_t count = 0;
 
         if(src[i] == '&' && (used = decode_entity(src + i + 1, len - i - 1, 1, &cp)))

@@ -187,7 +187,7 @@ size_t bookmarks_page_html(const bookmark_list_t *list, const char *candidate_ur
     if(list->count) {
         append(out, out_size, &n, "<ul>");
         for(i = 0; i < list->count; ++i) {
-            char remove[64];
+            char remove[96];
             append(out, out_size, &n, "<li><a href=\"");
             append_escaped(out, out_size, &n, list->items[i].url);
             append(out, out_size, &n, "\">");
