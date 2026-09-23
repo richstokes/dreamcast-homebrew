@@ -24,8 +24,8 @@ It contains no manufacturer badge or copied production geometry.
 - Drift scoring with a six-times chain multiplier, hold timer, and duration
   bonuses
 - Long skid marks, layered tire smoke, and high-RPM exhaust flames
-- A recorded V8 engine and tire squeal, plus a full racing soundtrack by
-  MintoDog
+- A recorded V8 engine and tire squeal, plus an original three-track outrun
+  soundtrack in the style of 1980s synth records
 - Compact arcade HUD with a traffic-aware minimap
 - Title screen, automated demo tour, pause, and controller hot-plugging
 
@@ -128,8 +128,11 @@ build does not need a host audio tool. To rebuild them:
 make audio
 ```
 
-`make music` rebuilds only the soundtrack (it uses macOS `afconvert`). Source
-links and licenses are recorded in `assets/source/audio/README.md`.
+`make music` rebuilds only the soundtrack: `tools/compose_soundtrack.py`
+renders the three songs from their notation, then `tools/build_music_asset.py`
+packs them into a 4-bit ADPCM playlist bank (both run through `uv`). Rendered
+WAV previews land in `assets/generated/previews/soundtrack/`. Source links and
+licenses are recorded in `assets/source/audio/README.md`.
 
 ## Regenerate the car mesh
 
@@ -158,6 +161,7 @@ Lumamorph](https://freesound.org/people/Lumamorph/sounds/636066/) under CC BY
 Ears68](https://freesound.org/people/Ears68/sounds/144454/) under CC BY 3.0.
 The tire recording is [“Distant car tire screetch” by
 Sadiquecat](https://freesound.org/people/Sadiquecat/sounds/737192/) under CC0.
-Music is [“Pure Raceway” by
-MintoDog](https://opengameart.org/content/pure-raceway), released under CC0.
+The soundtrack (“Blue Hour Boulevard”, “Pacific Coast Highway” and “Neon
+Strip”) is original to this project, composed and synthesized in
+`tools/compose_soundtrack.py`.
 Conversion and loop-processing details are in `assets/source/audio/README.md`.

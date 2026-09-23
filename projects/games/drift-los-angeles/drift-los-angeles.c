@@ -237,7 +237,10 @@ typedef struct {
     uint32_t road_phase;
     uint32_t traffic_phase;
     uint32_t ambience_phase;
+    uint32_t music_track;
     uint32_t music_frame;
+    int music_predictor[2];
+    int music_step_index[2];
     uint32_t noise_state;
     uint32_t seen_backfire_serial;
     uint32_t seen_impact_serial;
@@ -290,7 +293,19 @@ typedef struct {
 static snd_stream_hnd_t audio_stream=SND_STREAM_INVALID;
 static int16_t audio_samples[16384] __attribute__((aligned(32)));
 static int16_t audio_sine_lut[AUDIO_SINE_LUT_SIZE];
-static int16_t audio_mulaw_lut[256];
+/* IMA ADPCM tables for the soundtrack bank; tools/build_music_asset.py
+   encodes with bit-identical arithmetic. */
+static const int16_t audio_adpcm_steps[89]={
+    7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,
+    73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,
+    449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,
+    2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,
+    7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,
+    24623,27086,29794,32767
+};
+static const int8_t audio_adpcm_index_delta[16]={
+    -1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8
+};
 static audio_controls_t audio_controls={
     .rpm=900.0f,
     .engine_load=.12f,
@@ -379,12 +394,29 @@ static inline float audio_soft_clip(float sample) {
     return sample*(1.0f-.12f*sample*sample);
 }
 
-static int16_t audio_decode_mulaw(uint8_t encoded) {
-    const uint8_t value=(uint8_t)~encoded;
-    int sample=(((int)value&15)<<3)+0x84;
-    sample<<=((int)value>>4)&7;
-    sample-=0x84;
-    return (int16_t)((value&0x80u)?-sample:sample);
+static inline int audio_decode_adpcm(unsigned code, int *predictor, int *index) {
+    const int step=audio_adpcm_steps[*index];
+    int diff=step>>3;
+    if(code&4u) diff+=step;
+    if(code&2u) diff+=step>>1;
+    if(code&1u) diff+=step>>2;
+    *predictor+=(code&8u)?-diff:diff;
+    if(*predictor>32767) *predictor=32767;
+    else if(*predictor<-32768) *predictor=-32768;
+    *index+=audio_adpcm_index_delta[code];
+    if(*index<0) *index=0;
+    else if(*index>88) *index=88;
+    return *predictor;
+}
+
+static void audio_start_music_track(audio_synth_t *synth, uint32_t track) {
+    synth->music_track=track%DLA_MUSIC_TRACK_COUNT;
+    synth->music_frame=0u;
+    synth->music_predictor[0]=synth->music_predictor[1]=0;
+    synth->music_step_index[0]=synth->music_step_index[1]=0;
+    printf("Drift Los Angeles: now playing \"%s\" (%u/%u).\n",
+           dla_music_tracks[synth->music_track].title,
+           (unsigned)synth->music_track+1u,(unsigned)DLA_MUSIC_TRACK_COUNT);
 }
 
 static void audio_trigger_backfire(float strength) {
@@ -649,13 +681,18 @@ static void *audio_callback(snd_stream_hnd_t hnd, int bytes, int *actual) {
                           synth->impact_envelope*.14f,0.0f,.20f);
         music_target*=1.0f-music_duck;
         synth->music_gain+=(music_target-synth->music_gain)*.00045f;
-        music_left=(float)audio_mulaw_lut[
-            dla_music_mulaw[synth->music_frame*DLA_MUSIC_CHANNELS]]*
-            (1.0f/32768.0f)*synth->music_gain;
-        music_right=(float)audio_mulaw_lut[
-            dla_music_mulaw[synth->music_frame*DLA_MUSIC_CHANNELS+1u]]*
-            (1.0f/32768.0f)*synth->music_gain;
-        if(++synth->music_frame>=DLA_MUSIC_FRAMES) synth->music_frame=0u;
+        {
+            const dla_music_track_t *track=&dla_music_tracks[synth->music_track];
+            const unsigned packed=dla_music_adpcm[track->offset+synth->music_frame];
+            music_left=(float)audio_decode_adpcm(packed&15u,
+                &synth->music_predictor[0],&synth->music_step_index[0])*
+                (1.0f/32768.0f)*synth->music_gain;
+            music_right=(float)audio_decode_adpcm(packed>>4,
+                &synth->music_predictor[1],&synth->music_step_index[1])*
+                (1.0f/32768.0f)*synth->music_gain;
+            if(++synth->music_frame>=track->frames)
+                audio_start_music_track(synth,synth->music_track+1u);
+        }
 
         mix_left=tire_left+road_left+wind_left+transmission+city_ambience+
                  traffic*(1.0f-audio_controls.traffic_pan)*.72f+
@@ -700,7 +737,6 @@ static void init_audio(void) {
     for(i=0;i<AUDIO_SINE_LUT_SIZE;++i)
         audio_sine_lut[i]=(int16_t)(fsin((float)i*PI*2.0f/
                                         (float)AUDIO_SINE_LUT_SIZE)*32767.0f);
-    for(i=0;i<256;++i) audio_mulaw_lut[i]=audio_decode_mulaw((uint8_t)i);
     if(snd_stream_init_ex(2,4*1024)<0) {
         printf("Drift Los Angeles: audio stream initialization failed; continuing silent.\n");
         return;
@@ -722,8 +758,14 @@ static void init_audio(void) {
                                   DLA_TIRE_SQUEAL_FRAMES)) ++recorded_voices;
     snd_stream_volume(audio_stream,AUDIO_STREAM_BUS_VOLUME);
     snd_stream_start(audio_stream,AUDIO_RATE,1);
-    printf("Drift Los Angeles: %d recorded 32 kHz AICA engine/tire voices plus 22 kHz effects and %.1fs stereo soundtrack ready.\n",
-           recorded_voices,(double)DLA_MUSIC_FRAMES/(double)DLA_MUSIC_RATE);
+    {
+        uint32_t frames=0u;
+        for(i=0;i<(int)DLA_MUSIC_TRACK_COUNT;++i) frames+=dla_music_tracks[i].frames;
+        printf("Drift Los Angeles: %d recorded 32 kHz AICA engine/tire voices plus 22 kHz effects and a %u-track, %.1fs stereo soundtrack ready.\n",
+               recorded_voices,(unsigned)DLA_MUSIC_TRACK_COUNT,
+               (double)frames/(double)DLA_MUSIC_RATE);
+    }
+    audio_start_music_track(&audio_synth,0u);
 }
 
 static void shutdown_audio(void) {

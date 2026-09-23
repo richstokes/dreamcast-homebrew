@@ -48,17 +48,17 @@ field recording **“Distant car tire screetch”** by Freesound user
 The project copy was decoded from Freesound's high-quality preview and
 downsampled to 32 kHz stereo.
 
-# Music source
+# Music
 
-`music/pure_raceway_bpm160.ogg` is the complete 96-second loopable track
-**“Pure Raceway”** by OpenGameArt user **MintoDog**.
+The soundtrack is original to this project and has no recorded source. Its
+notation, instruments and mix all live in `tools/compose_soundtrack.py`, which
+synthesizes three mid-1980s-style outrun tracks:
 
-- Source: <https://opengameart.org/content/pure-raceway>
-- Original publication date: February 6, 2024
-- License: [Creative Commons CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
-- Original description: upbeat 160 BPM synth music composed for a racing game
-- Project Ogg SHA-256:
-  `e384208fc0bed123b68fd31e28df2d7bc3e8463551e49d681d700b2c21565e5d`
+| # | Title | Key / tempo | Character |
+| --- | --- | --- | --- |
+| 1 | Blue Hour Boulevard | A minor, 112 BPM | Octave-pumping bass, Jupiter-style brass hook, gated snare |
+| 2 | Pacific Coast Highway | D minor, 104 BPM | Moroder sixteenth bass, DX-style electric piano, glide lead |
+| 3 | Neon Strip | E minor, 126 BPM | Hard-sync lead, Fairlight-style orchestra hits, four-on-the-floor |
 
-`tools/build_music_asset.py` encodes it as a 22.05 kHz stereo mu-law bank
-(about 4 MiB) embedded in the game.
+The game plays them in order as a looping playlist. `tools/build_music_asset.py`
+encodes them as one 22.05 kHz stereo 4-bit IMA ADPCM bank (about 4.9 MiB).

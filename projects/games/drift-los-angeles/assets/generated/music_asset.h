@@ -4,10 +4,23 @@
 
 #include <stdint.h>
 
+/* Stereo 4-bit IMA ADPCM: one byte per frame, left in the low nibble. */
 #define DLA_MUSIC_RATE 22050u
-#define DLA_MUSIC_CHANNELS 2u
-#define DLA_MUSIC_FRAMES 2116736u
-#define DLA_MUSIC_BYTES 4233472u
-extern const uint8_t dla_music_mulaw[];
+#define DLA_MUSIC_TRACK_COUNT 3u
+#define DLA_MUSIC_BYTES 5106183u
+
+typedef struct {
+    uint32_t offset;
+    uint32_t frames;
+    const char *title;
+} dla_music_track_t;
+
+static const dla_music_track_t dla_music_tracks[DLA_MUSIC_TRACK_COUNT]={
+    {0u, 1758330u, "Blue Hour Boulevard"},
+    {1758330u, 1736523u, "Pacific Coast Highway"},
+    {3494853u, 1611330u, "Neon Strip"},
+};
+
+extern const uint8_t dla_music_adpcm[];
 
 #endif

@@ -1,117 +1,194 @@
 #!/usr/bin/env python3
-"""Encode Drift Los Angeles's mastered stereo music loop for the Dreamcast mixer."""
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["numpy>=1.26", "numba>=0.59"]
+# ///
+"""Pack Drift Los Angeles's soundtrack into a 4-bit IMA ADPCM playlist bank.
+
+Reads the manifest written by tools/compose_soundtrack.py. Each stereo frame
+is one byte: the low nibble is the left channel, the high nibble the right.
+Every track starts from a fresh decoder state (predictor 0, step index 0), so
+the game can begin any track at its first byte.
+"""
 
 from __future__ import annotations
 
 import argparse
-import aifc
-import audioop
 import hashlib
-import subprocess
-import tempfile
+import json
+import wave
 from pathlib import Path
 
+import numpy as np
+from numba import njit
 
 MUSIC_RATE = 22_050
-MUSIC_CHANNELS = 2
-MUSIC_WIDTH = 2
+
+STEP_TABLE = np.array([
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41,
+    45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209,
+    230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876,
+    963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749,
+    3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630,
+    9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385,
+    24623, 27086, 29794, 32767,
+], np.int64)
+INDEX_TABLE = np.array([-1, -1, -1, -1, 2, 4, 6, 8] * 2, np.int64)
 
 
-def decode_with_afconvert(source: Path) -> tuple[int, bytes]:
-    """Decode any Core Audio input to fixed-rate, big-endian AIFF PCM."""
-    with tempfile.TemporaryDirectory(prefix="drift-los-angeles-music-") as directory:
-        decoded = Path(directory) / "music.aiff"
-        subprocess.run(
-            [
-                "afconvert",
-                "-f",
-                "AIFF",
-                "-d",
-                f"BEI16@{MUSIC_RATE}",
-                "-c",
-                str(MUSIC_CHANNELS),
-                str(source),
-                str(decoded),
-            ],
-            check=True,
-        )
-        with aifc.open(str(decoded), "rb") as stream:
-            if stream.getnchannels() != MUSIC_CHANNELS:
-                raise ValueError("decoded music is not stereo")
-            if stream.getframerate() != MUSIC_RATE:
-                raise ValueError("decoded music has the wrong sample rate")
-            if stream.getsampwidth() != MUSIC_WIDTH:
-                raise ValueError("decoded music is not 16-bit PCM")
-            if stream.getcomptype() != b"NONE":
-                raise ValueError("decoded music is still compressed")
-            frames = stream.getnframes()
-            big_endian_pcm = stream.readframes(frames)
-
-    # audioop consumes native/little-endian 16-bit samples on the host.
-    little_endian_pcm = audioop.byteswap(big_endian_pcm, MUSIC_WIDTH)
-    return frames, little_endian_pcm
+@njit(cache=True)
+def _step(code, predictor, index, steps, indices):
+    """One IMA decode step, bit-identical to the game's decoder."""
+    step = steps[index]
+    diff = step >> 3
+    if code & 4:
+        diff += step
+    if code & 2:
+        diff += step >> 1
+    if code & 1:
+        diff += step >> 2
+    if code & 8:
+        predictor -= diff
+    else:
+        predictor += diff
+    if predictor > 32767:
+        predictor = 32767
+    elif predictor < -32768:
+        predictor = -32768
+    index += indices[code]
+    if index < 0:
+        index = 0
+    elif index > 88:
+        index = 88
+    return predictor, index
 
 
-def build(source: Path, output_dir: Path) -> None:
+@njit(cache=True)
+def _encode(samples, steps, indices):
+    """Encode one channel, choosing each code with one sample of lookahead."""
+    count = samples.shape[0]
+    codes = np.zeros(count, np.uint8)
+    predictor = 0
+    index = 0
+    for i in range(count):
+        best_code = 0
+        best_cost = 1 << 62
+        for code in range(16):
+            p1, i1 = _step(code, predictor, index, steps, indices)
+            e1 = p1 - samples[i]
+            cost = e1 * e1
+            if i + 1 < count:
+                ahead = 1 << 62
+                for code2 in range(16):
+                    p2, _ = _step(code2, p1, i1, steps, indices)
+                    e2 = p2 - samples[i + 1]
+                    if e2 * e2 < ahead:
+                        ahead = e2 * e2
+                cost += ahead
+            if cost < best_cost:
+                best_cost = cost
+                best_code = code
+        codes[i] = best_code
+        predictor, index = _step(best_code, predictor, index, steps, indices)
+    return codes
+
+
+@njit(cache=True)
+def _decode(codes, steps, indices):
+    out = np.empty(codes.shape[0], np.int64)
+    predictor = 0
+    index = 0
+    for i in range(codes.shape[0]):
+        predictor, index = _step(int(codes[i]), predictor, index, steps, indices)
+        out[i] = predictor
+    return out
+
+
+def read_track(path: Path) -> np.ndarray:
+    with wave.open(str(path), "rb") as stream:
+        if stream.getnchannels() != 2 or stream.getsampwidth() != 2:
+            raise ValueError(f"{path}: expected 16-bit stereo")
+        if stream.getframerate() != MUSIC_RATE:
+            raise ValueError(f"{path}: expected {MUSIC_RATE} Hz")
+        pcm = np.frombuffer(stream.readframes(stream.getnframes()), "<i2")
+    return pcm.reshape(-1, 2).T.astype(np.int64)
+
+
+def c_string(text: str) -> str:
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def build(manifest: Path, output_dir: Path) -> None:
+    tracks = json.loads(manifest.read_text(encoding="utf-8"))
     output_dir.mkdir(parents=True, exist_ok=True)
-    frames, pcm = decode_with_afconvert(source)
-    if frames < MUSIC_RATE * 8:
-        raise ValueError("music source is too short to function as a soundtrack")
+    payload = bytearray()
+    entries = []
+    for track in tracks:
+        pcm = read_track(manifest.parent / track["file"])
+        if pcm.shape[1] < MUSIC_RATE * 8:
+            raise ValueError(f"{track['file']} is too short for a soundtrack")
+        left = _encode(pcm[0], STEP_TABLE, INDEX_TABLE)
+        right = _encode(pcm[1], STEP_TABLE, INDEX_TABLE)
+        decoded = np.stack([_decode(left, STEP_TABLE, INDEX_TABLE),
+                            _decode(right, STEP_TABLE, INDEX_TABLE)])
+        noise = decoded - pcm
+        snr = 10 * np.log10(np.sum(pcm.astype(np.float64) ** 2) /
+                            max(np.sum(noise.astype(np.float64) ** 2), 1))
+        entries.append((len(payload), pcm.shape[1], track["title"]))
+        payload += (left | (right << 4)).astype(np.uint8).tobytes()
+        print(f"music: {track['title']}: {pcm.shape[1] / MUSIC_RATE:.1f}s, ADPCM SNR {snr:.1f} dB")
 
-    # G.711 mu-law keeps far more low-level musical detail than linear 8-bit
-    # PCM while requiring only one byte per stereo sample. Runtime decoding is
-    # two table lookups per frame, leaving the SH-4 free for physics/rendering.
-    average = audioop.avg(pcm, MUSIC_WIDTH)
-    pcm = audioop.bias(pcm, MUSIC_WIDTH, -average)
-    encoded = audioop.lin2ulaw(pcm, MUSIC_WIDTH)
-    if len(encoded) != frames * MUSIC_CHANNELS:
-        raise RuntimeError("unexpected mu-law payload length")
-
+    rows = "\n".join(f"    {{{offset}u, {frames}u, {c_string(title)}}},"
+                     for offset, frames, title in entries)
     header = f"""/* Generated by tools/build_music_asset.py. Do not edit. */
 #ifndef DRIFT_LA_MUSIC_ASSET_H
 #define DRIFT_LA_MUSIC_ASSET_H
 
 #include <stdint.h>
 
+/* Stereo 4-bit IMA ADPCM: one byte per frame, left in the low nibble. */
 #define DLA_MUSIC_RATE {MUSIC_RATE}u
-#define DLA_MUSIC_CHANNELS {MUSIC_CHANNELS}u
-#define DLA_MUSIC_FRAMES {frames}u
-#define DLA_MUSIC_BYTES {len(encoded)}u
-extern const uint8_t dla_music_mulaw[];
+#define DLA_MUSIC_TRACK_COUNT {len(entries)}u
+#define DLA_MUSIC_BYTES {len(payload)}u
+
+typedef struct {{
+    uint32_t offset;
+    uint32_t frames;
+    const char *title;
+}} dla_music_track_t;
+
+static const dla_music_track_t dla_music_tracks[DLA_MUSIC_TRACK_COUNT]={{
+{rows}
+}};
+
+extern const uint8_t dla_music_adpcm[];
 
 #endif
 """
     assembly = """/* Generated by tools/build_music_asset.py. Do not edit. */
     .section .rodata
     .align 5
-    .global _dla_music_mulaw
-    .type _dla_music_mulaw, @object
-_dla_music_mulaw:
-    .incbin \"assets/generated/music_asset.mulaw\"
-    .size _dla_music_mulaw, . - _dla_music_mulaw
+    .global _dla_music_adpcm
+    .type _dla_music_adpcm, @object
+_dla_music_adpcm:
+    .incbin \"assets/generated/music_asset.adpcm\"
+    .size _dla_music_adpcm, . - _dla_music_adpcm
 """
-
     (output_dir / "music_asset.h").write_text(header, encoding="utf-8")
     (output_dir / "music_asset.S").write_text(assembly, encoding="utf-8")
-    (output_dir / "music_asset.mulaw").write_bytes(encoded)
-
-    decoded = audioop.ulaw2lin(encoded, MUSIC_WIDTH)
-    rms = audioop.rms(decoded, MUSIC_WIDTH) / 32768.0
-    peak = audioop.max(decoded, MUSIC_WIDTH) / 32768.0
-    digest = hashlib.sha256(encoded).hexdigest()
-    print(
-        f"music: {frames} frames, {frames / MUSIC_RATE:.3f}s, stereo "
-        f"{MUSIC_RATE} Hz mu-law, RMS {rms:.3f}, peak {peak:.3f}"
-    )
-    print(f"music: {len(encoded) / (1024 * 1024):.2f} MiB, SHA-256 {digest}")
+    (output_dir / "music_asset.adpcm").write_bytes(bytes(payload))
+    total = sum(frames for _, frames, _ in entries)
+    digest = hashlib.sha256(payload).hexdigest()
+    print(f"music: {len(entries)} tracks, {total / MUSIC_RATE:.1f}s, "
+          f"{len(payload) / (1024 * 1024):.2f} MiB, SHA-256 {digest}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", required=True, type=Path)
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
-    build(args.source.resolve(), args.output_dir.resolve())
+    build(args.manifest.resolve(), args.output_dir.resolve())
 
 
 if __name__ == "__main__":
