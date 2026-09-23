@@ -19,12 +19,12 @@ all: $(TARGET)
 include $(KOS_BASE)/Makefile.rules
 
 clean:
-	-rm -f $(OBJS) $(TARGET) tools/render_math_qa.o render-math-qa.elf
+	-rm -f $(OBJS) $(TARGET) tools/render_math_qa.o render-math-qa.elf tools/render_visibility_qa.o render-visibility-qa.elf
 
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) -lm
 
-drift-los-angeles.o: assets/generated/texture_assets.h assets/generated/audio_assets.h assets/generated/music_asset.h model_data.h render_math.h $(SH4ZAM_HEADERS)
+drift-los-angeles.o: assets/generated/texture_assets.h assets/generated/audio_assets.h assets/generated/music_asset.h model_data.h render_math.h render_visibility.h $(SH4ZAM_HEADERS)
 assets/generated/texture_assets.o: assets/generated/texture_assets.h
 assets/generated/audio_assets.o: assets/generated/audio_assets.h
 assets/generated/music_asset.o: assets/generated/music_asset.S assets/generated/music_asset.adpcm
@@ -73,6 +73,15 @@ math-qa-build:
 	-rm -f tools/render_math_qa.o render-math-qa.elf
 	$(MAKE) render-math-qa.elf CFLAGS='$(STRICT_CFLAGS)'
 
+tools/render_visibility_qa.o: tools/render_visibility_qa.c render_visibility.h
+
+render-visibility-qa.elf: tools/render_visibility_qa.o
+	kos-cc -o $@ $< -lm
+
+visibility-qa-build:
+	-rm -f tools/render_visibility_qa.o render-visibility-qa.elf
+	$(MAKE) render-visibility-qa.elf CFLAGS='$(STRICT_CFLAGS)'
+
 qa-build:
 	$(MAKE) clean
 	$(MAKE) CFLAGS='$(STRICT_CFLAGS) -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA'
@@ -113,4 +122,4 @@ physics-qa-run: physics-qa-build
 	DRIFT_LA_FAIL_ON_LOG='physics QA: FAILED.' \
 		./run-flycast.sh --skip-build --input keyboard
 
-.PHONY: all clean run showcase qa qa-tools math-qa-build qa-build qa-run geometry-qa-build geometry-qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model
+.PHONY: all clean run showcase qa qa-tools math-qa-build visibility-qa-build qa-build qa-run geometry-qa-build geometry-qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model

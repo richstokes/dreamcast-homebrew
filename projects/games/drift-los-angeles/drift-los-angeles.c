@@ -30,6 +30,7 @@
 #include "assets/generated/texture_assets.h"
 #include "model_data.h"
 #include "render_math.h"
+#include "render_visibility.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -401,6 +402,7 @@ static float camera_sin_pitch, camera_cos_pitch;
 static float camera_sin_roll, camera_cos_roll;
 static float camera_focal = 430.0f;
 static bool camera_initialized;
+static dla_frustum_t scene_frustum;
 
 static void draw_traffic_car(const traffic_t *vehicle);
 
@@ -2926,9 +2928,12 @@ static void draw_building(const building_t *building) {
     const bool nearby=dx*dx+dz*dz<110.0f*110.0f;
     const bool close=dx*dx+dz*dz<82.0f*82.0f;
     const bool facade_nearby=dx*dx+dz*dz<138.0f*138.0f;
-    const vec3_t view=world_to_camera((vec3_t){building->cx,y1*.5f,building->cz});
-    const float depth_radius=(building->width+building->depth)*.37f+y1*.10f;
-    if(view.z+depth_radius<NEAR_PLANE || view.z-depth_radius>FAR_PLANE) return;
+    /* Include the 14 m cap and 3.09 m pavilion/cornice projection. A
+       centre/depth estimate can reject a visible wall as the camera turns. */
+    const float bounds_top=y1+14.0f;
+    if(!dla_frustum_aabb_visible(&scene_frustum,
+        building->cx,bounds_top*.5f,building->cz,
+        building->width*.5f+3.2f,bounds_top*.5f,building->depth*.5f+3.2f)) return;
     QA_COUNT(buildings);
     if(building->district==DISTRICT_ARTS) {
         draw_textured_volume(building->cx,building->cz,
@@ -4122,43 +4127,48 @@ static void draw_crosswalk(int cell_x, int cell_z) {
         0,0,.78f,0,0,1,.78f,1,worn);
 }
 
-static void draw_road_microdetail(int center_x, int center_z) {
-    const float road_x=(float)center_x*CITY_CELL;
-    const float road_z=(float)center_z*CITY_CELL;
+static void draw_road_microdetail(int center_x, int center_z,
+                                  int road_cell_x, int road_cell_z) {
+    const float road_x=(float)road_cell_x*CITY_CELL;
+    const float road_z=(float)road_cell_z*CITY_CELL;
     const uint32_t neutral=pack_color(1.0f,(color3_t){.60f,.64f,.70f});
     int offset;
     for(offset=-2;offset<=2;++offset) {
         const float along=((float)(center_z+offset)+.5f)*CITY_CELL;
         const float across=((float)(center_x+offset)+.5f)*CITY_CELL;
-        const float jitter=(float)((int)(hash_u32((uint32_t)(center_x+offset)*0x9e37u^
-                                                   (uint32_t)(center_z-offset)*0x85ebu)&7u)-3);
-        const pvr_poly_hdr_t *vertical=&texture_headers[(offset&1) ?
+        /* Seed each patch from its world road/segment, never the moving
+           window offset: crossing an intersection must not move old patches. */
+        const float vertical_jitter=(float)((int)(hash_u32((uint32_t)road_cell_x*0x9e37u^
+                                            (uint32_t)(center_z+offset)*0x85ebu)&7u)-3);
+        const float horizontal_jitter=(float)((int)(hash_u32((uint32_t)(center_x+offset)*0x9e37u^
+                                            (uint32_t)road_cell_z*0x85ebu)&7u)-3);
+        const pvr_poly_hdr_t *vertical=&texture_headers[((center_z+offset)&1) ?
             DLA_TEX_STREET_REPAIR : DLA_TEX_STREET_UTILITY];
-        const pvr_poly_hdr_t *horizontal=&texture_headers[(offset&1) ?
+        const pvr_poly_hdr_t *horizontal=&texture_headers[((center_x+offset)&1) ?
             DLA_TEX_STREET_UTILITY : DLA_TEX_STREET_REPAIR];
         draw_world_quad(vertical,
-            (vec3_t){road_x+9.8f,.034f,along+1.8f+jitter},
-            (vec3_t){road_x+6.2f,.034f,along+1.8f+jitter},
-            (vec3_t){road_x+9.8f,.034f,along-1.8f+jitter},
-            (vec3_t){road_x+6.2f,.034f,along-1.8f+jitter},
+            (vec3_t){road_x+9.8f,.034f,along+1.8f+vertical_jitter},
+            (vec3_t){road_x+6.2f,.034f,along+1.8f+vertical_jitter},
+            (vec3_t){road_x+9.8f,.034f,along-1.8f+vertical_jitter},
+            (vec3_t){road_x+6.2f,.034f,along-1.8f+vertical_jitter},
             0,0,1,0,0,1,1,1,neutral);
         draw_world_quad(horizontal,
-            (vec3_t){across-1.8f+jitter,.035f,road_z-6.2f},
-            (vec3_t){across+1.8f+jitter,.035f,road_z-6.2f},
-            (vec3_t){across-1.8f+jitter,.035f,road_z-9.8f},
-            (vec3_t){across+1.8f+jitter,.035f,road_z-9.8f},
+            (vec3_t){across-1.8f+horizontal_jitter,.035f,road_z-6.2f},
+            (vec3_t){across+1.8f+horizontal_jitter,.035f,road_z-6.2f},
+            (vec3_t){across-1.8f+horizontal_jitter,.035f,road_z-9.8f},
+            (vec3_t){across+1.8f+horizontal_jitter,.035f,road_z-9.8f},
             0,0,1,0,0,1,1,1,neutral);
         draw_world_quad(&texture_headers[DLA_TEX_STREET_REPAIR],
-            (vec3_t){road_x-5.0f,.036f,along+6.0f-jitter*.4f},
-            (vec3_t){road_x-9.2f,.036f,along+5.2f-jitter*.4f},
-            (vec3_t){road_x-4.5f,.036f,along+2.1f-jitter*.4f},
-            (vec3_t){road_x-8.7f,.036f,along+1.3f-jitter*.4f},
+            (vec3_t){road_x-5.0f,.036f,along+6.0f-vertical_jitter*.4f},
+            (vec3_t){road_x-9.2f,.036f,along+5.2f-vertical_jitter*.4f},
+            (vec3_t){road_x-4.5f,.036f,along+2.1f-vertical_jitter*.4f},
+            (vec3_t){road_x-8.7f,.036f,along+1.3f-vertical_jitter*.4f},
             0,0,1,0,0,1,1,1,neutral);
         draw_world_quad(&texture_headers[DLA_TEX_STREET_UTILITY],
-            (vec3_t){across-6.0f+jitter*.4f,.037f,road_z+9.2f},
-            (vec3_t){across-5.2f+jitter*.4f,.037f,road_z+5.0f},
-            (vec3_t){across-2.1f+jitter*.4f,.037f,road_z+8.7f},
-            (vec3_t){across-1.3f+jitter*.4f,.037f,road_z+4.5f},
+            (vec3_t){across-6.0f+horizontal_jitter*.4f,.037f,road_z+9.2f},
+            (vec3_t){across-5.2f+horizontal_jitter*.4f,.037f,road_z+5.0f},
+            (vec3_t){across-2.1f+horizontal_jitter*.4f,.037f,road_z+8.7f},
+            (vec3_t){across-1.3f+horizontal_jitter*.4f,.037f,road_z+4.5f},
             0,0,1,0,0,1,1,1,neutral);
     }
 }
@@ -4427,6 +4437,10 @@ static void draw_district_road_rhythm(float x, float z, bool road_runs_z,
 static void draw_city(void) {
     const int center_x = (int)floorf(car.x / CITY_CELL);
     const int center_z = (int)floorf(car.z / CITY_CELL);
+    /* Roads lie on grid boundaries; containing block indices change in the
+       middle of a road when the car drifts across its centerline. */
+    const int road_cell_x=dla_nearest_road_cell(car.x,CITY_CELL);
+    const int road_cell_z=dla_nearest_road_cell(car.z,CITY_CELL);
     int x, z;
     /* Asphalt is the shared base; raised blocks leave wide road corridors. */
     for(z = center_z - GROUND_RADIUS; z <= center_z + GROUND_RADIUS; ++z) {
@@ -4467,20 +4481,18 @@ static void draw_city(void) {
             const int pad_texture=(building.district==DISTRICT_DOWNTOWN ||
                                    building.district==DISTRICT_NEON) ?
                                   DLA_TEX_PAVERS : DLA_TEX_SIDEWALK;
-            const vec3_t block_view=world_to_camera((vec3_t){
-                (x0+x1)*.5f,12.0f,(z0+z1)*.5f});
-            const float block_radius=66.0f;
-            const float frustum_half=(SCREEN_CX+72.0f)*
-                fmaxf(block_view.z,NEAR_PLANE)/camera_focal+51.0f;
+            /* This gate covers the entire block, including street furniture
+               and the Downtown landmark's 25.2 m rooftop spire. */
+            const float block_top=building.height+26.0f;
             if(building.district==DISTRICT_COAST&&x<=-3) continue;
             draw_world_quad(&texture_headers[pad_texture],
                 (vec3_t){x0,.06f,z1},(vec3_t){x1,.06f,z1},
                 (vec3_t){x0,.06f,z0},(vec3_t){x1,.06f,z0},
                 0,0,10,0,0,10,10,10,
                 pack_color(1.0f,pad));
-            if(block_view.z+block_radius<NEAR_PLANE ||
-               block_view.z-block_radius>FAR_PLANE ||
-               fabsf(block_view.x)>frustum_half)
+            if(!dla_frustum_aabb_visible(&scene_frustum,
+                building.cx,block_top*.5f,building.cz,
+                CITY_CELL*.5f,block_top*.5f,CITY_CELL*.5f))
                 continue;
             if(building.exists) {
                 draw_building(&building);
@@ -4509,7 +4521,7 @@ static void draw_city(void) {
                     (vec3_t){road_x+side*1.00f,.025f,center-42},
                     .84f,0,1,0,.84f,1,1,1,
                     pack_color(1.0f,(color3_t){1.0f,.90f,.66f}));
-                if(x==center_x && abs(z-center_z)<=1) {
+                if(x==road_cell_x && abs(z-center_z)<=1) {
                     int dash;
                     draw_world_quad(&world_header,
                         (vec3_t){road_x+side*13.15f,.027f,center+42},
@@ -4545,7 +4557,7 @@ static void draw_city(void) {
                     (vec3_t){center+42,.026f,road_z+side*.75f},
                     .84f,0,1,0,.84f,1,1,1,
                     pack_color(1.0f,(color3_t){1.0f,.90f,.66f}));
-                if(z==center_z && abs(x-center_x)<=1) {
+                if(z==road_cell_z && abs(x-center_x)<=1) {
                     int dash;
                     draw_world_quad(&world_header,
                         (vec3_t){center-42,.028f,road_z+side*13.38f},
@@ -4573,8 +4585,8 @@ static void draw_city(void) {
     for(x=-1;x<=1;++x) {
         const float segment_z=((float)(center_z+x)+.5f)*CITY_CELL;
         const float segment_x=((float)(center_x+x)+.5f)*CITY_CELL;
-        const float road_x=(float)center_x*CITY_CELL;
-        const float road_z=(float)center_z*CITY_CELL;
+        const float road_x=(float)road_cell_x*CITY_CELL;
+        const float road_z=(float)road_cell_z*CITY_CELL;
         draw_direction_arrow(road_x-6.75f,segment_z-25.0f,false,1.0f);
         draw_direction_arrow(road_x+6.75f,segment_z+25.0f,false,-1.0f);
         draw_direction_arrow(segment_x-25.0f,road_z+6.75f,true,1.0f);
@@ -4588,8 +4600,8 @@ static void draw_city(void) {
         const int horizontal_cell=center_x+x;
         const float vertical_z=((float)vertical_cell+.5f)*CITY_CELL;
         const float horizontal_x=((float)horizontal_cell+.5f)*CITY_CELL;
-        const float vertical_x=(float)center_x*CITY_CELL;
-        const float horizontal_z=(float)center_z*CITY_CELL;
+        const float vertical_x=(float)road_cell_x*CITY_CELL;
+        const float horizontal_z=(float)road_cell_z*CITY_CELL;
         const district_t vertical_district=district_for_position(vertical_x,vertical_z);
         const district_t horizontal_district=district_for_position(horizontal_x,horizontal_z);
         draw_lane_reflectors(vertical_x,vertical_z,true,vertical_district);
@@ -4603,7 +4615,7 @@ static void draw_city(void) {
             draw_road_gantry(horizontal_x,horizontal_z,false,horizontal_district,
                 hash_u32((uint32_t)horizontal_cell^0x5349474eu));
     }
-    draw_road_microdetail(center_x,center_z);
+    draw_road_microdetail(center_x,center_z,road_cell_x,road_cell_z);
     /* Animated signals mark nearby intersections and make cross streets pulse. */
     for(z=center_z-2;z<=center_z+2;++z) {
         for(x=center_x-2;x<=center_x+2;++x) {
@@ -4716,32 +4728,40 @@ static void draw_coast_water_lighting(int center_z) {
     }
 }
 
-static void draw_road_reflections(int center_x, int center_z) {
-    const color3_t accent=district_color(game.district);
+static void draw_road_reflections(int center_x, int center_z,
+                                   int road_cell_x, int road_cell_z) {
     const color3_t warm={1.0f,.48f,.12f};
     int offset,side;
     for(offset=-2;offset<=2;++offset) {
-        const float along=((float)(center_z+offset)+.5f)*CITY_CELL;
-        const float across=((float)(center_x+offset)+.5f)*CITY_CELL;
-        const float vertical_x=(float)center_x*CITY_CELL;
-        const float horizontal_z=(float)center_z*CITY_CELL;
+        const int vertical_segment=center_z+offset;
+        const int horizontal_segment=center_x+offset;
+        const float along=((float)vertical_segment+.5f)*CITY_CELL;
+        const float across=((float)horizontal_segment+.5f)*CITY_CELL;
+        const float vertical_x=(float)road_cell_x*CITY_CELL;
+        const float horizontal_z=(float)road_cell_z*CITY_CELL;
+        const color3_t vertical_accent=district_color(district_for_position(vertical_x,along));
+        const color3_t horizontal_accent=district_color(district_for_position(across,horizontal_z));
         for(side=-1;side<=1;side+=2) {
-            const color3_t color=((offset+side)&1)?accent:warm;
-            const float lane=(float)side*(5.0f+(float)((offset+3)&1)*3.6f);
+            /* Like the road patches, reflections belong to world segments,
+               not to offsets in the player's moving draw window. */
+            const color3_t vertical_color=((vertical_segment+side)&1)?vertical_accent:warm;
+            const color3_t horizontal_color=((horizontal_segment+side)&1)?horizontal_accent:warm;
+            const float vertical_lane=(float)side*(5.0f+(float)((vertical_segment+3)&1)*3.6f);
+            const float horizontal_lane=(float)side*(5.0f+(float)((horizontal_segment+3)&1)*3.6f);
             draw_world_quad_colored(&additive_header,
-                (vec3_t){vertical_x+lane-.52f,.040f,along+12.0f},
-                (vec3_t){vertical_x+lane+.52f,.040f,along+12.0f},
-                (vec3_t){vertical_x+lane-.18f,.040f,along-12.0f},
-                (vec3_t){vertical_x+lane+.18f,.040f,along-12.0f},
-                pack_color(0.0f,color),pack_color(0.0f,color),
-                pack_color(.115f,color),pack_color(.115f,color));
+                (vec3_t){vertical_x+vertical_lane-.52f,.040f,along+12.0f},
+                (vec3_t){vertical_x+vertical_lane+.52f,.040f,along+12.0f},
+                (vec3_t){vertical_x+vertical_lane-.18f,.040f,along-12.0f},
+                (vec3_t){vertical_x+vertical_lane+.18f,.040f,along-12.0f},
+                pack_color(0.0f,vertical_color),pack_color(0.0f,vertical_color),
+                pack_color(.115f,vertical_color),pack_color(.115f,vertical_color));
             draw_world_quad_colored(&additive_header,
-                (vec3_t){across-12.0f,.041f,horizontal_z+lane-.52f},
-                (vec3_t){across+12.0f,.041f,horizontal_z+lane-.18f},
-                (vec3_t){across-12.0f,.041f,horizontal_z+lane+.52f},
-                (vec3_t){across+12.0f,.041f,horizontal_z+lane+.18f},
-                pack_color(0.0f,color),pack_color(.10f,color),
-                pack_color(0.0f,color),pack_color(.10f,color));
+                (vec3_t){across-12.0f,.041f,horizontal_z+horizontal_lane-.52f},
+                (vec3_t){across+12.0f,.041f,horizontal_z+horizontal_lane-.18f},
+                (vec3_t){across-12.0f,.041f,horizontal_z+horizontal_lane+.52f},
+                (vec3_t){across+12.0f,.041f,horizontal_z+horizontal_lane+.18f},
+                pack_color(0.0f,horizontal_color),pack_color(.10f,horizontal_color),
+                pack_color(0.0f,horizontal_color),pack_color(.10f,horizontal_color));
         }
     }
 }
@@ -4782,7 +4802,8 @@ static void draw_city_lighting(void) {
                 draw_traffic_signal_glow(x,z);
         }
     }
-    draw_road_reflections(center_x,center_z);
+    draw_road_reflections(center_x,center_z,
+        dla_nearest_road_cell(car.x,CITY_CELL),dla_nearest_road_cell(car.z,CITY_CELL));
     draw_district_landmark_lighting();
     if(center_x<=-1) draw_coast_water_lighting(center_z);
 }
@@ -5828,6 +5849,18 @@ static void render_frame(bool connected, float dt) {
     memset(&render_qa,0,sizeof(render_qa));
 #endif
     setup_camera(dt);
+    {
+        const dla_frustum_camera_t view={
+            .x=camera_x,.y=camera_y,.z=camera_z,
+            .sin_yaw=camera_sin_yaw,.cos_yaw=camera_cos_yaw,
+            .sin_pitch=camera_sin_pitch,.cos_pitch=camera_cos_pitch,
+            .sin_roll=camera_sin_roll,.cos_roll=camera_cos_roll,
+            .focal=camera_focal,.center_x=SCREEN_CX,.center_y=SCREEN_CY,
+            .width=SCREEN_W,.height=SCREEN_H,
+            .near_z=NEAR_PLANE,.far_z=FAR_PLANE,.margin=72.0f
+        };
+        dla_frustum_setup(&scene_frustum,&view);
+    }
     palm_draw_count=0;
     if(game.hud_timer <= 0.0f) {
         update_hud(connected);

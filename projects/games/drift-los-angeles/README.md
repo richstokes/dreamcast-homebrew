@@ -160,6 +160,12 @@ make model
 60-second district tour with telemetry, and `make physics-qa-run` runs the
 burnout and donut regression suite in Flycast.
 
+`make visibility-qa-build` builds `render-visibility-qa.elf`. Boot it in Flycast
+or on a Dreamcast and check for `Render visibility QA: PASS`. It reproduces the
+turning-camera building disappearance, compares box culling against an
+independent corner reference, and checks road selection across signed grid
+boundaries.
+
 `make qa-benchmark` records the full district tour, exits Flycast when the
 aggregate telemetry arrives, and checks a **30 FPS average** target. The log
 and JSON report are saved to `assets/generated/previews/visual-qa/benchmark.log`
@@ -207,8 +213,8 @@ cache keeps each vertex's frequently used fields together on SH4 cache lines.
 Vertices now go straight to PowerVR through the store queues, and the car shades
 only vertices referenced by front-facing faces. Wheel transforms reuse their
 rotation pairs, and fixed scene colors are folded at their call sites. These
-changes improved the four-district tour from 32.00 to 50.18 FPS in Flycast with
-the same artwork and VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
+changes and the visibility corrections give a **47.97 FPS** four-district tour
+in Flycast with the upgraded artwork and unchanged VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
 for the measurements, limits and reproducible checks.
 
 Build the standalone numerical checks with `make math-qa-build`, then boot

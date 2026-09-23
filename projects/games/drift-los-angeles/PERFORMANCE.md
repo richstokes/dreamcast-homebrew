@@ -1,6 +1,6 @@
 # Rendering performance
 
-The current renderer averages **50.18 FPS** in the complete Flycast tour with
+The current renderer averages **47.97 FPS** in the complete Flycast tour with
 the upgraded artwork. The measurements below separate the SH4ZAM integration
 from the subsequent submission, geometry and final color sweeps.
 
@@ -190,3 +190,34 @@ matches the previous renderer: 1,801 frames, 9,157,359 triangles and 23,182,243
 vertices, with identical peaks. The strict build, all 31 host QA tests, asset
 audit and Flycast driving regressions passed. Logs and reports are retained
 locally under `assets/generated/previews/visual-qa/final-color-sweep/`.
+
+
+## Visibility correctness fix
+
+The earlier renderer could cull an entire visible block during a turn. For
+Downtown cell `(-1,0)`, with the player at `(-10,80)` and camera yaw −21° / roll
++.08, the old centre/radius estimate rejected a building whose corner was at
+screen **(193,225)**. Camera-relative frustum planes now test full block and
+building bounds, including rooftop caps, projecting pavilions and landmarks.
+A matched camera-pose comparison in Flycast restored the missing building.
+
+Road geometry previously used the containing block index to choose a road.
+Crossing a centreline could therefore switch lane markings, arrows and road
+props to the next street. Nearest-road indices now remain stable across the
+centreline. Road patches and reflections also use world segment coordinates
+for their patterns, so moving the draw window does not reposition them.
+
+`make visibility-qa-build` produces a standalone SH-4 regression program.
+All **16,257 checks** passed in Flycast, including 16,200 independent box/corner
+comparisons, the actual bad camera pose, frustum tangencies and signed road
+boundaries. The strict build, 31 host QA checks and asset audit also passed.
+Correctly restored geometry means the previous whole-tour geometry totals are
+not an equality target for this fix. Artwork, draw distance and VRAM allocations
+are unchanged. Evidence is retained locally under
+`assets/generated/previews/visual-qa/visibility-fix/`.
+
+The final full tour rendered **2,880 frames in 60.038410 seconds = 47.9693 FPS**,
+above the 30 FPS average target. Peak submission was 6,841 triangles / 16,531
+vertices. The prior 50.1811 FPS result predates these corrections and was
+omitting some visible geometry. The final driving regressions passed and the
+normal playable build was restored. Real Dreamcast timing remains unverified.
