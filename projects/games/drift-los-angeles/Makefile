@@ -8,6 +8,9 @@ QA_SHOTS = $(QA_PREVIEW_DIR)/downtown.png $(QA_PREVIEW_DIR)/coast.png $(QA_PREVI
 QA_SEGMENT ?= 0
 QA_CAPTURE_LOCAL ?= 8.0f
 STRICT_CFLAGS = -O2 -Wall -Wextra -Wpedantic -Werror
+SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
+    third_party/sh4zam/include/sh4zam/inline/*.h \
+    third_party/sh4zam/include/sh4zam/inline/sh4/*.h)
 
 KOS_BUILD_SUBARCHS = pristine
 
@@ -16,12 +19,12 @@ all: $(TARGET)
 include $(KOS_BASE)/Makefile.rules
 
 clean:
-	-rm -f $(OBJS) $(TARGET)
+	-rm -f $(OBJS) $(TARGET) tools/render_math_qa.o render-math-qa.elf
 
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) -lm
 
-drift-los-angeles.o: assets/generated/texture_assets.h assets/generated/audio_assets.h assets/generated/music_asset.h model_data.h
+drift-los-angeles.o: assets/generated/texture_assets.h assets/generated/audio_assets.h assets/generated/music_asset.h model_data.h render_math.h $(SH4ZAM_HEADERS)
 assets/generated/texture_assets.o: assets/generated/texture_assets.h
 assets/generated/audio_assets.o: assets/generated/audio_assets.h
 assets/generated/music_asset.o: assets/generated/music_asset.S assets/generated/music_asset.adpcm
@@ -60,6 +63,15 @@ qa-tools:
 	uv run tools/test_graphics_qa.py
 	uv run tools/test_pvr_texture.py
 
+tools/render_math_qa.o: tools/render_math_qa.c render_math.h $(SH4ZAM_HEADERS)
+
+render-math-qa.elf: tools/render_math_qa.o
+	kos-cc -o $@ $< -lm
+
+math-qa-build:
+	-rm -f tools/render_math_qa.o render-math-qa.elf
+	$(MAKE) render-math-qa.elf CFLAGS='$(STRICT_CFLAGS)'
+
 qa-build:
 	$(MAKE) clean
 	$(MAKE) CFLAGS='$(STRICT_CFLAGS) -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA'
@@ -92,4 +104,4 @@ physics-qa-run: physics-qa-build
 	DRIFT_LA_FAIL_ON_LOG='physics QA: FAILED.' \
 		./run-flycast.sh --skip-build --input keyboard
 
-.PHONY: all clean run showcase qa qa-tools qa-build qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model
+.PHONY: all clean run showcase qa qa-tools math-qa-build qa-build qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model

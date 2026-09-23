@@ -198,6 +198,21 @@ also consume the PVR vertex buffer. The mesh audit checks the renderer's
 body proportions, noncollapsed texture UVs, atlas bounds, AO values and
 material face ranges. Each material has separate vertices for cached shading.
 
+## SH4 rendering acceleration
+
+The renderer uses pinned, vendored [SH4ZAM](https://sh4zam.com/) headers for
+batched camera transforms, positive-depth reciprocals, reflection normalization
+and paired sine/cosine. No extra SDK installation is required. The car's draw
+cache keeps each vertex's frequently used fields together on SH4 cache lines.
+The comparison improved the four-district tour from 32.00 to 34.64 FPS in
+Flycast with the same artwork and VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
+for the measurements, limits and reproducible checks.
+
+Build the standalone numerical checks with `make math-qa-build`, then boot
+`render-math-qa.elf` in Flycast or on a Dreamcast. It prints maximum errors and
+`Render math QA: PASS` to the serial console. Run `make physics-qa-run` and
+`make qa-benchmark` for the driving regression and full graphics tour.
+
 ## Credits
 
 Powered by [KallistiOS](https://kos-docs.dreamcast.wiki/), the independent Sega

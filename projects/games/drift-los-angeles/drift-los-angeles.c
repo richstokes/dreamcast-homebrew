@@ -29,6 +29,7 @@
 #include "assets/generated/music_asset.h"
 #include "assets/generated/texture_assets.h"
 #include "model_data.h"
+#include "render_math.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -327,12 +328,20 @@ static uint32_t graphics_texture_bytes;
 static uint32_t graphics_vram_free;
 #define GRAPHICS_VERTEX_BUFFER_BYTES (768u * 1024u)
 #define MAX_CAR_MESH_VERTICES 4096
-static screen_point_t car_projected[MAX_CAR_MESH_VERTICES];
-static vec3_t car_world[MAX_CAR_MESH_VERTICES];
-static uint32_t car_colors[MAX_CAR_MESH_VERTICES];
-static uint32_t car_reflect_colors[MAX_CAR_MESH_VERTICES];
-static float car_reflect_uv[MAX_CAR_MESH_VERTICES][2];
-static uint8_t car_materials[MAX_CAR_MESH_VERTICES];
+/* SH4 has a 16 KiB direct-mapped operand cache. Separate 4096-element
+   arrays put the per-vertex writes in competing cache lines. Keep draw data
+   together in the first 32-byte line and transform metadata in the second. */
+typedef struct {
+    screen_point_t projected;
+    uint32_t color,reflect_color;
+    float reflect_uv[2];
+    vec3_t world;
+    uint8_t material;
+    uint8_t padding[19];
+} car_render_vertex_t;
+_Static_assert(sizeof(car_render_vertex_t)==64,"car cache record must span two lines");
+_Static_assert(offsetof(car_render_vertex_t,world)==32,"car draw data must fit one line");
+static _Alignas(32) car_render_vertex_t car_render[MAX_CAR_MESH_VERTICES];
 static bool car_visible_faces[4096];
 static vec3_t car_face_normals[4096];
 typedef struct { float x,z,scale,depth; } palm_draw_t;
@@ -1220,8 +1229,8 @@ static void start_demo(void) {
 }
 
 static vec3_t car_local_to_world(float x, float y, float z) {
-    const float c = fcos(car.yaw);
-    const float s = fsin(car.yaw);
+    const shz_sincos_t rotation=shz_sincosf(car.yaw);
+    const float c=rotation.cos,s=rotation.sin;
     return (vec3_t){car.x + x * c + z * s, y,
                     car.z - x * s + z * c};
 }
@@ -2126,6 +2135,7 @@ static vec3_t world_to_camera(vec3_t world) {
     const float dx = world.x - camera_x;
     const float dy = world.y - camera_y;
     const float dz = world.z - camera_z;
+#ifdef DRIFT_LA_SCALAR_RENDER_MATH
     const float yaw_x = dx * camera_cos_yaw - dz * camera_sin_yaw;
     const float yaw_z = dx * camera_sin_yaw + dz * camera_cos_yaw;
     const float pitch_y = dy * camera_cos_pitch - yaw_z * camera_sin_pitch;
@@ -2133,6 +2143,10 @@ static vec3_t world_to_camera(vec3_t world) {
     const float roll_x = yaw_x * camera_cos_roll - pitch_y * camera_sin_roll;
     const float roll_y = yaw_x * camera_sin_roll + pitch_y * camera_cos_roll;
     return (vec3_t){roll_x,roll_y,pitch_z};
+#else
+    const shz_vec3_t rotated=dla_rotate_camera(dx,dy,dz);
+    return (vec3_t){rotated.x,rotated.y,rotated.z};
+#endif
 }
 
 static bool project_camera(vec3_t camera, screen_point_t *out) {
@@ -2140,7 +2154,7 @@ static bool project_camera(vec3_t camera, screen_point_t *out) {
         out->valid = false;
         return false;
     }
-    out->z=1.0f/camera.z;
+    out->z=dla_depth_reciprocal(camera.z);
     out->x=SCREEN_CX+camera.x*camera_focal*out->z;
     out->y=SCREEN_CY-camera.y*camera_focal*out->z;
     out->valid = true;
@@ -4715,8 +4729,8 @@ static void draw_city_lighting(void) {
 
 static vec3_t traffic_point(const traffic_t *vehicle,
                             float x, float y, float z) {
-    const float c = fcos(vehicle->yaw);
-    const float s = fsin(vehicle->yaw);
+    const shz_sincos_t rotation=shz_sincosf(vehicle->yaw);
+    const float c=rotation.cos,s=rotation.sin;
     return (vec3_t){vehicle->x + x*c + z*s, y,
                     vehicle->z - x*s + z*c};
 }
@@ -4725,7 +4739,8 @@ static void draw_traffic_box(const traffic_t *vehicle,
                              float center_x, float center_y, float center_z,
                              float half_x, float half_y, float half_z,
                              const pvr_poly_hdr_t *header, uint32_t color) {
-    const float c=fcos(vehicle->yaw),s=fsin(vehicle->yaw);
+    const shz_sincos_t rotation=shz_sincosf(vehicle->yaw);
+    const float c=rotation.cos,s=rotation.sin;
     const float dx=camera_x-vehicle->x,dz=camera_z-vehicle->z;
     const float local_camera_x=dx*c-dz*s;
     const float local_camera_z=dx*s+dz*c;
@@ -5002,7 +5017,8 @@ static void draw_traffic(void) {
 
 static vec3_t oriented_world_point(float x, float z, float yaw,
                                    float lx, float y, float lz) {
-    const float c=fcos(yaw),s=fsin(yaw);
+    const shz_sincos_t rotation=shz_sincosf(yaw);
+    const float c=rotation.cos,s=rotation.sin;
     return (vec3_t){x+lx*c+lz*s,y,z-lx*s+lz*c};
 }
 
@@ -5119,7 +5135,8 @@ static void draw_skids(void) {
 }
 
 static void draw_car_mesh(void) {
-    const float c=fcos(car.yaw), s=fsin(car.yaw);
+    const shz_sincos_t rotation=shz_sincosf(car.yaw);
+    const float c=rotation.cos,s=rotation.sin;
     const float body_roll=clampf(-car.lateral*.0065f-car.yaw_rate*.028f,-.050f,.050f);
     static bool materials_ready;
     int material,i;
@@ -5141,7 +5158,7 @@ static void draw_car_mesh(void) {
                 n.x=-n.x; n.y=-n.y; n.z=-n.z;
             }
             car_face_normals[i]=n;
-            car_materials[f->a]=car_materials[f->b]=car_materials[f->c]=f->material;
+            car_render[f->a].material=car_render[f->b].material=car_render[f->c].material=f->material;
         }
         materials_ready=true;
     }
@@ -5154,7 +5171,7 @@ static void draw_car_mesh(void) {
         vec3_t n={nx*c+v->nz*s,ny,-nx*s+v->nz*c};
         vec3_t world={car.x+x*c+v->z*s,y,car.z-x*s+v->z*c};
         float vx=camera_x-world.x,vy=camera_y-world.y,vz=camera_z-world.z;
-        const float inv=1.0f/sqrtf(fmaxf(vx*vx+vy*vy+vz*vz,.0001f));
+        const float inv=dla_reflection_inv_length(vx*vx+vy*vy+vz*vz);
         float facing,key,sky,rim,reflectivity;
         color3_t light;
         vx*=inv; vy*=inv; vz*=inv;
@@ -5166,7 +5183,7 @@ static void draw_car_mesh(void) {
         light=(color3_t){(.25f+sky*.27f+key*.33f)*v->ao,
                          (.29f+sky*.29f+key*.25f)*v->ao,
                          (.38f+sky*.31f+key*.18f)*v->ao};
-        material=car_materials[i];
+        material=car_render[i].material;
         reflectivity=(.045f+rim*rim*rim*.23f)*v->ao;
         if(material==DLA_MAT_GLASS) {
             light=(color3_t){.42f,.49f,.61f};
@@ -5176,14 +5193,14 @@ static void draw_car_mesh(void) {
         else if(material==DLA_MAT_LIGHTS) light=(color3_t){1.0f,.92f,.90f};
         else if(material==DLA_MAT_METAL) light=color_scale(light,.85f);
         if(game.impact_flash>0.0f) light=(color3_t){1.0f,.90f,.85f};
-        car_world[i]=world;
-        project_world(world,&car_projected[i]);
-        car_colors[i]=pack_color(1.0f,light);
-        car_reflect_colors[i]=pack_color(reflectivity,(color3_t){.84f,.90f,1.0f});
+        car_render[i].world=world;
+        project_world(world,&car_render[i].projected);
+        car_render[i].color=pack_color(1.0f,light);
+        car_render[i].reflect_color=pack_color(reflectivity,(color3_t){.84f,.90f,1.0f});
         /* Hemisphere environment lookup is world-oriented, so highlights move
            with steering and camera motion without per-vertex atan2. */
-        car_reflect_uv[i][0]=clampf(.5f+(2.0f*facing*n.x-vx)*.48f,.01f,.99f);
-        car_reflect_uv[i][1]=clampf(.5f-(2.0f*facing*n.y-vy)*.48f,.01f,.99f);
+        car_render[i].reflect_uv[0]=clampf(.5f+(2.0f*facing*n.x-vx)*.48f,.01f,.99f);
+        car_render[i].reflect_uv[1]=clampf(.5f-(2.0f*facing*n.y-vy)*.48f,.01f,.99f);
     }
     memset(car_visible_faces,0,sizeof(car_visible_faces));
     for(material=0;material<5;++material) {
@@ -5201,15 +5218,15 @@ static void draw_car_mesh(void) {
             const vec3_t local=car_face_normals[i];
             const float nx=local.x-local.y*body_roll,ny=local.y+local.x*body_roll;
             const vec3_t n={nx*c+local.z*s,ny,-nx*s+local.z*c};
-            const vec3_t view={camera_x-car_world[f->a].x,camera_y-car_world[f->a].y,
-                               camera_z-car_world[f->a].z};
+            const vec3_t view={camera_x-car_render[f->a].world.x,camera_y-car_render[f->a].world.y,
+                               camera_z-car_render[f->a].world.z};
             if(n.x*view.x+n.y*view.y+n.z*view.z<0.0f ||
-               !car_projected[f->a].valid || !car_projected[f->b].valid ||
-               !car_projected[f->c].valid ||
-               !screen_triangle_visible(&car_projected[f->a],&car_projected[f->b],&car_projected[f->c])) continue;
+               !car_render[f->a].projected.valid || !car_render[f->b].projected.valid ||
+               !car_render[f->c].projected.valid ||
+               !screen_triangle_visible(&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected)) continue;
             car_visible_faces[i]=true;
-            submit_triangle(header,&car_projected[f->a],&car_projected[f->b],&car_projected[f->c],
-                a->u,a->v,b->u,b->v,d->u,d->v,car_colors[f->a],car_colors[f->b],car_colors[f->c]);
+            submit_triangle(header,&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected,
+                a->u,a->v,b->u,b->v,d->u,d->v,car_render[f->a].color,car_render[f->b].color,car_render[f->c].color);
         }
     }
 }
@@ -5247,7 +5264,8 @@ static void draw_player_brake_lights(void) {
 
 static vec3_t rotate_part_point(float center_x, float center_y, float center_z,
                                 float x, float y, float z, float local_yaw) {
-    const float pc = fcos(local_yaw), ps = fsin(local_yaw);
+    const shz_sincos_t rotation=shz_sincosf(local_yaw);
+    const float pc=rotation.cos,ps=rotation.sin;
     const float px = center_x + x*pc + z*ps;
     const float pz = center_z - x*ps + z*pc;
     return car_local_to_world(px, center_y+y, pz);
@@ -5428,11 +5446,11 @@ static void draw_car_environment_reflections(void) {
         for(i=dla_car_material_ranges[material].first_face;i<end;++i) {
             const dla_mesh_face_t *f=&dla_car_mesh.faces[i];
             if(!car_visible_faces[i]) continue;
-            submit_triangle(&reflection_header,&car_projected[f->a],&car_projected[f->b],&car_projected[f->c],
-                car_reflect_uv[f->a][0],car_reflect_uv[f->a][1],
-                car_reflect_uv[f->b][0],car_reflect_uv[f->b][1],
-                car_reflect_uv[f->c][0],car_reflect_uv[f->c][1],
-                car_reflect_colors[f->a],car_reflect_colors[f->b],car_reflect_colors[f->c]);
+            submit_triangle(&reflection_header,&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected,
+                car_render[f->a].reflect_uv[0],car_render[f->a].reflect_uv[1],
+                car_render[f->b].reflect_uv[0],car_render[f->b].reflect_uv[1],
+                car_render[f->c].reflect_uv[0],car_render[f->c].reflect_uv[1],
+                car_render[f->a].reflect_color,car_render[f->b].reflect_color,car_render[f->c].reflect_color);
         }
     }
 }
@@ -5724,6 +5742,9 @@ static void render_frame(bool connected, float dt) {
         update_hud(connected);
         game.hud_timer = 0.10f;
     }
+    dla_load_camera_rotation(camera_sin_yaw,camera_cos_yaw,
+                             camera_sin_pitch,camera_cos_pitch,
+                             camera_sin_roll,camera_cos_roll);
     pvr_set_bg_color(0.02f,0.02f,0.08f);
     pvr_scene_begin();
     begin_poly_list(PVR_LIST_OP_POLY);
