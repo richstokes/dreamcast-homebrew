@@ -10,6 +10,10 @@
  * KOS's dial and PPP calls block for up to a minute, so they run on a worker
  * thread while the cube keeps rendering. Cancellation takes effect between
  * SDK calls; the worker is never killed while it holds modem or PPP locks.
+ *
+ * A dropped link is detected from the modem losing carrier or from PPP
+ * leaving its network phase; the render thread then starts a fresh worker,
+ * which hangs up and dials again.
  */
 
 #include "ping-cube.h"
@@ -28,8 +32,38 @@ static const char *volatile failure = "";
 static volatile int cancel_requested;
 static volatile int worker_running;
 static volatile int connection_rate;
+static volatile int failure_retryable;
+static volatile int link_monitored;
+static volatile int link_lost;
 static int modem_owned;
 static int ppp_owned;
+
+/* A do-nothing PPP "protocol" whose only job is to hear phase changes. PPP
+   protocol 0 is reserved, so no packet is ever delivered to it. */
+static int monitor_input(ppp_protocol_t *self, const uint8_t *buf,
+                         size_t length) {
+    (void)self;
+    (void)buf;
+    (void)length;
+    return 0;
+}
+
+static void monitor_enter_phase(ppp_protocol_t *self, int old_phase,
+                                int new_phase) {
+    (void)self;
+    (void)old_phase;
+
+    if(link_monitored && (new_phase == PPP_PHASE_TERMINATE ||
+                          new_phase == PPP_PHASE_DEAD))
+        link_lost = 1;
+}
+
+static ppp_protocol_t link_monitor = {
+    .name = "ping-cube-monitor",
+    .code = 0,
+    .input = monitor_input,
+    .enter_phase = monitor_enter_phase
+};
 
 static int has_phone(const flashrom_ispcfg_t *cfg) {
     return (cfg->valid_fields & FLASHROM_ISP_PHONE1) && cfg->phone1[0];
@@ -84,8 +118,11 @@ static int has_address(const uint8_t address[4]) {
 }
 
 static void hang_up(void) {
+    link_monitored = 0;
+
     /* Requires the ppp lifecycle patch (see README): stop and join the PPP
-       receive thread before the modem buffers are freed. */
+       receive thread before the modem buffers are freed. The shutdown also
+       unregisters link_monitor. */
     if(ppp_owned) {
         ppp_shutdown();
         ppp_owned = 0;
@@ -109,6 +146,12 @@ static void *modem_worker(void *unused) {
     netif_t *netif;
 
     (void)unused;
+
+    /* A redial starts from whatever the previous connection left behind. */
+    hang_up();
+    link_lost = 0;
+    connection_rate = 0;
+    failure_retryable = 0;
 
     if(!modem_init()) {
         failure = "NO BBA OR MODEM";
@@ -147,6 +190,8 @@ static void *modem_worker(void *unused) {
         ppp_owned = 1;
         result = ppp_set_login(login, password);
     }
+    if(result == 0)
+        result = ppp_add_protocol(&link_monitor);
     memset(login, 0, sizeof(login));
     memset(password, 0, sizeof(password));
 
@@ -164,6 +209,7 @@ static void *modem_worker(void *unused) {
     if(result < 0) {
         failure = result == -2 ? "NO DIAL TONE" :
                   result == -3 ? "DIAL FAILED" : "NO CARRIER";
+        failure_retryable = 1;
         goto failed;
     }
 
@@ -176,12 +222,14 @@ static void *modem_worker(void *unused) {
     stage = MODEM_STAGE_NEGOTIATING;
     if(ppp_connect() < 0) {
         failure = "PPP FAILED";
+        failure_retryable = 1;
         goto failed;
     }
 
     netif = net_default_dev;
     if(!netif || strcmp(netif->name, "ppp") || !has_address(netif->ip_addr)) {
         failure = "NO PPP ADDRESS";
+        failure_retryable = 1;
         goto failed;
     }
 
@@ -194,12 +242,15 @@ static void *modem_worker(void *unused) {
            netif->gateway[0], netif->gateway[1],
            netif->gateway[2], netif->gateway[3]);
 
+    link_lost = 0;
+    link_monitored = 1;
     stage = MODEM_STAGE_READY;
     worker_running = 0;
     return NULL;
 
 canceled:
     failure = "CANCELED";
+    failure_retryable = 0;
 failed:
     printf("Ping Cube: modem link failed: %s\n", failure);
     hang_up();
@@ -209,6 +260,13 @@ failed:
 }
 
 int modem_link_start(void) {
+    /* The previous worker has already returned; reap it before replacing it. */
+    if(worker) {
+        thd_join(worker, NULL);
+        worker = NULL;
+    }
+
+    cancel_requested = 0;
     stage = MODEM_STAGE_DETECTING;
     worker_running = 1;
     worker = thd_create(0, modem_worker, NULL);
@@ -233,6 +291,16 @@ const char *modem_link_failure(void) {
 
 int modem_link_rate(void) {
     return connection_rate;
+}
+
+int modem_link_retryable(void) {
+    return stage == MODEM_STAGE_FAILED && failure_retryable;
+}
+
+int modem_link_dropped(void) {
+    if(stage != MODEM_STAGE_READY || worker_running)
+        return 0;
+    return link_lost || !modem_is_connected();
 }
 
 void modem_link_cancel(void) {

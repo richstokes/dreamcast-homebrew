@@ -9,7 +9,9 @@
  *
  * Each of the six cube faces carries a different panel of link information,
  * drawn with the BIOS font into its own texture and mapped with the low-level
- * PowerVR API. The analog triggers speed up and slow down the rotation.
+ * PowerVR API. The D-pad picks the ping target, A snaps a face to the camera,
+ * B resumes the tumble and the analog triggers change its speed. Attached
+ * VMUs show the latest latency and a small graph (see vmu-display.c).
  */
 
 #include <kos.h>
@@ -55,6 +57,14 @@
 #define SPIN_ACCELERATION 1.6f
 #define SPIN_MAXIMUM 8.0f
 #define TRIGGER_DEADZONE 16
+/* How quickly the cube eases toward a snapped face, per second. */
+#define SNAP_RATE 6.0f
+#define PI_F 3.14159265f
+#define TWO_PI_F 6.28318531f
+
+/* Dial-up redials wait a little longer after each failed attempt. */
+#define REDIAL_STEP_MS 10000
+#define REDIAL_MAXIMUM_MS 60000
 
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 
@@ -95,6 +105,13 @@ typedef enum link_kind {
     LINK_MODEM
 } link_kind_t;
 
+typedef enum ping_target_id {
+    TARGET_GOOGLE,
+    TARGET_CLOUDFLARE,
+    TARGET_GATEWAY,
+    TARGET_COUNT
+} ping_target_id_t;
+
 typedef struct face_panel {
     char line[FACE_LINES][FACE_TEXT_MAX + 1];
     uint16_t color[FACE_LINES];
@@ -132,6 +149,30 @@ static const float face_uv[4][2] = {
     {1.0f, 1.0f}
 };
 
+/* Orientation (yaw, pitch) that turns each face squarely and upright toward
+   the camera, and the order A steps through them. */
+static const float face_snap_angles[FACE_COUNT][2] = {
+    [FACE_FRONT]  = {0.0f,           0.0f},
+    [FACE_RIGHT]  = {PI_F * 0.5f,    0.0f},
+    [FACE_BACK]   = {PI_F,           0.0f},
+    [FACE_LEFT]   = {PI_F * 1.5f,    0.0f},
+    [FACE_TOP]    = {0.0f,          -PI_F * 0.5f},
+    [FACE_BOTTOM] = {0.0f,           PI_F * 0.5f}
+};
+
+static const int face_snap_order[FACE_COUNT] = {
+    FACE_FRONT, FACE_RIGHT, FACE_BACK, FACE_LEFT, FACE_TOP, FACE_BOTTOM
+};
+
+static const char *const face_names[FACE_COUNT] = {
+    [FACE_FRONT]  = "IP",
+    [FACE_RIGHT]  = "ROUTE",
+    [FACE_BACK]   = "NAMES",
+    [FACE_LEFT]   = "ADAPTER",
+    [FACE_TOP]    = "PING",
+    [FACE_BOTTOM] = "SESSION"
+};
+
 /* Baselines for the six text rows of a face panel. */
 static const int face_text_rows[FACE_LINES] = {24, 64, 108, 150, 192, 222};
 
@@ -146,7 +187,15 @@ static pvr_poly_hdr_t console_header;
 static uint16_t *console_pixels;
 static uint16_t *console_background;
 
-static const uint8_t ping_target[4] = {8, 8, 8, 8};
+static const uint8_t public_targets[TARGET_GATEWAY][4] = {
+    {8, 8, 8, 8},
+    {1, 1, 1, 1}
+};
+static const char *const target_names[TARGET_COUNT] = {
+    "GOOGLE DNS", "CLOUDFLARE DNS", "GATEWAY"
+};
+static int target_index = TARGET_GOOGLE;
+static const char *last_send_problem;
 static const uint8_t ping_payload[] = "PING CUBE DREAMCAST";
 static pending_ping_t pending_pings[PING_PENDING_SLOTS];
 static char ping_log[CONSOLE_LOG_LINES][48];
@@ -167,9 +216,15 @@ static modem_stage_t modem_stage = MODEM_STAGE_IDLE;
 static uint64_t uptime_seconds;
 static float spin_speed = 1.0f;
 static unsigned spin_hundredths = 100;
+static int snapped;
+static int snap_face = FACE_FRONT;
 static int exiting;
+static uint64_t redial_at_ms;
+static int redial_attempts;
 
-/* Written by KOS's network receive path and consumed by the render thread. */
+/* Written by KOS's network receive path and consumed by the render thread.
+   reply_filter is the packed address the current pings go to (0 = none). */
+static volatile uint32_t reply_filter;
 static volatile uint32_t reply_event;
 static volatile uint16_t reply_sequence;
 static volatile uint32_t reply_delta_us;
@@ -330,6 +385,16 @@ static const char *link_status_text(void) {
             case MODEM_STAGE_NEGOTIATING:
                 return "PPP NEGOTIATION";
             case MODEM_STAGE_FAILED:
+                if(redial_at_ms) {
+                    static char countdown[FACE_TEXT_MAX + 1];
+                    uint64_t now_ms = timer_ms_gettime64();
+                    uint64_t wait_ms = redial_at_ms > now_ms
+                        ? redial_at_ms - now_ms : 0;
+
+                    snprintf(countdown, sizeof(countdown), "REDIAL IN %lus",
+                             (unsigned long)((wait_ms + 999) / 1000));
+                    return countdown;
+                }
                 return modem_link_failure();
             case MODEM_STAGE_READY:
                 break;
@@ -352,6 +417,49 @@ static void link_address_text(char *buffer, size_t size) {
         snprintf(buffer, size, "CONNECTING");
     else
         snprintf(buffer, size, "NO ADDRESS");
+}
+
+/* Address of the current ping target, or <0 when the gateway is unknown. */
+static int resolve_target(uint8_t address[4]) {
+    netif_t *netif;
+
+    if(target_index != TARGET_GATEWAY) {
+        memcpy(address, public_targets[target_index], 4);
+        return 0;
+    }
+
+    netif = active_netif();
+    if(!netif || !has_address(netif->gateway))
+        return -1;
+
+    memcpy(address, netif->gateway, 4);
+    return 0;
+}
+
+static void target_label(char *buffer, size_t size) {
+    uint8_t address[4];
+
+    if(resolve_target(address) == 0)
+        format_address(buffer, size, address);
+    else
+        snprintf(buffer, size, "GATEWAY");
+}
+
+static uint32_t pack_address(const uint8_t address[4]) {
+    uint32_t packed;
+
+    memcpy(&packed, address, sizeof(packed));
+    return packed;
+}
+
+/* A healthy dial-up link is several times slower than Ethernet, so grade
+   latency against what each link can realistically do. */
+static uint32_t latency_good_ms(void) {
+    return link_kind == LINK_MODEM ? 200 : 50;
+}
+
+static uint32_t latency_bad_ms(void) {
+    return link_kind == LINK_MODEM ? 700 : 300;
 }
 
 /* ------------------------------------------------------------------ */
@@ -457,11 +565,13 @@ static void build_adapter_panel(face_panel_t *panel) {
 
 static void build_ping_panel(face_panel_t *panel) {
     char latency[FACE_TEXT_MAX + 1];
+    char label[FACE_TEXT_MAX + 1];
     uint32_t completed = received_count + timeout_count;
     uint32_t loss_percent = completed ? (timeout_count * 100) / completed : 0;
 
-    set_line(panel, 0, COLOR_TITLE, "PING 8.8.8.8");
-    set_line(panel, 1, COLOR_LABEL, "LATEST REPLY");
+    target_label(label, sizeof(label));
+    set_line(panel, 0, COLOR_TITLE, "PING %s", label);
+    set_line(panel, 1, COLOR_LABEL, "%s", target_names[target_index]);
 
     switch(latest_result) {
         case PING_RESULT_REPLY:
@@ -499,14 +609,17 @@ static void build_ping_panel(face_panel_t *panel) {
 
 static void build_session_panel(face_panel_t *panel) {
     set_line(panel, 0, COLOR_TITLE, "SESSION");
-    set_line(panel, 1, COLOR_LABEL, "UPTIME");
-    set_line(panel, 2, COLOR_VALUE, "%02lu:%02lu:%02lu",
+    set_line(panel, 1, COLOR_VALUE, "UPTIME %02lu:%02lu:%02lu",
              (unsigned long)(uptime_seconds / 3600),
              (unsigned long)((uptime_seconds / 60) % 60),
              (unsigned long)(uptime_seconds % 60));
-    set_line(panel, 3, COLOR_LABEL, "SPIN SPEED");
-    set_line(panel, 4, COLOR_VALUE, "x%u.%02u",
-             spin_hundredths / 100, spin_hundredths % 100);
+    if(snapped)
+        set_line(panel, 2, COLOR_VALUE, "SNAP %s", face_names[snap_face]);
+    else
+        set_line(panel, 2, COLOR_VALUE, "SPIN x%u.%02u",
+                 spin_hundredths / 100, spin_hundredths % 100);
+    set_line(panel, 3, COLOR_LABEL, "< > PING TARGET");
+    set_line(panel, 4, COLOR_LABEL, "A SNAP  B SPIN");
     set_line(panel, 5, COLOR_DIM, "L SLOWER  R FASTER");
 }
 
@@ -515,10 +628,10 @@ static void build_face_panel(int face, face_panel_t *panel) {
 
     switch(face) {
         case FACE_FRONT:  build_identity_panel(panel); break;
-        /* The cube turns front, left, back, right: IP, route, DNS, adapter. */
-        case FACE_LEFT:   build_route_panel(panel);    break;
+        /* The cube turns front, right, back, left: IP, route, DNS, adapter. */
+        case FACE_RIGHT:  build_route_panel(panel);    break;
         case FACE_BACK:   build_name_panel(panel);     break;
-        case FACE_RIGHT:  build_adapter_panel(panel);  break;
+        case FACE_LEFT:   build_adapter_panel(panel);  break;
         case FACE_TOP:    build_ping_panel(panel);     break;
         default:          build_session_panel(panel);  break;
     }
@@ -646,6 +759,7 @@ static void console_link_summary(char *buffer, size_t size) {
 static void update_console_texture(void) {
     char line[64];
     char summary[32];
+    char label[FACE_TEXT_MAX + 1];
     uint32_t completed = received_count + timeout_count;
     uint32_t loss_percent = completed ? (timeout_count * 100) / completed : 0;
     uint32_t average_tenths = received_count
@@ -655,7 +769,9 @@ static void update_console_texture(void) {
 
     memcpy(console_pixels, console_background, CONSOLE_BYTES);
 
-    snprintf(line, sizeof(line), "PING 8.8.8.8 FROM %.15s", console_source_ip);
+    target_label(label, sizeof(label));
+    snprintf(line, sizeof(line), "PING %.15s FROM %.15s", label,
+             console_source_ip);
     draw_console_text(10, line, rgb565(40, 128, 102));
 
     snprintf(line, sizeof(line), "TX %lu  RX %lu  LOSS %lu%%  AVG %lu.%lu MS",
@@ -822,17 +938,19 @@ static color_tint_t ping_color(void) {
     color_tint_t tint;
 
     if(latest_result == PING_RESULT_REPLY) {
-        float latency_ms = (float)latest_reply_us * 0.001f;
+        const float latency_ms = (float)latest_reply_us * 0.001f;
+        const float good_ms = (float)latency_good_ms();
+        const float bad_ms = (float)latency_bad_ms();
 
-        if(latency_ms < 50.0f) {
-            float amount = latency_ms / 50.0f;
+        if(latency_ms < good_ms) {
+            float amount = latency_ms / good_ms;
 
             tint.r = 0.14f + amount * 0.20f;
             tint.g = 1.00f;
             tint.b = 0.16f - amount * 0.02f;
         }
         else {
-            float amount = (latency_ms - 50.0f) / 250.0f;
+            float amount = (latency_ms - good_ms) / (bad_ms - good_ms);
 
             if(amount > 1.0f)
                 amount = 1.0f;
@@ -860,13 +978,14 @@ static color_tint_t ping_color(void) {
 /* ICMP                                                                 */
 /* ------------------------------------------------------------------ */
 
+
 static void ping_reply_callback(const uint8_t *ip, uint16_t sequence,
                                 uint64_t delta_us, uint8_t ttl,
                                 const uint8_t *data, size_t length) {
     (void)data;
     (void)length;
 
-    if(memcmp(ip, ping_target, sizeof(ping_target)) != 0)
+    if(!reply_filter || pack_address(ip) != reply_filter)
         return;
 
     reply_sequence = sequence;
@@ -883,11 +1002,29 @@ static pending_ping_t *find_pending_ping(uint16_t sequence) {
     return NULL;
 }
 
+/* Statistics belong to one target, so they restart when it changes. */
+static void reset_ping_stats(void) {
+    memset(pending_pings, 0, sizeof(pending_pings));
+    transmitted_count = 0;
+    received_count = 0;
+    timeout_count = 0;
+    total_reply_us = 0;
+    latest_reply_us = 0;
+    minimum_reply_us = 0;
+    maximum_reply_us = 0;
+    latest_result = PING_RESULT_WAITING;
+    last_send_problem = NULL;
+    vmu_graph_reset();
+    face_dirty |= (1u << FACE_TOP);
+    console_dirty = 1;
+}
+
 static void process_ping_reply(uint32_t *handled_event) {
     pending_ping_t *pending;
     uint16_t sequence;
     uint32_t delta_us;
     uint8_t ttl;
+    char label[FACE_TEXT_MAX + 1];
 
     if(*handled_event == reply_event)
         return;
@@ -898,9 +1035,12 @@ static void process_ping_reply(uint32_t *handled_event) {
     *handled_event = reply_event;
     pending = find_pending_ping(sequence);
 
-    if(pending)
-        pending->active = 0;
+    /* A late reply to a ping that already timed out, or one sent to the
+       previous target, is not counted. */
+    if(!pending)
+        return;
 
+    pending->active = 0;
     received_count++;
     total_reply_us += delta_us;
     latest_reply_us = delta_us;
@@ -909,18 +1049,21 @@ static void process_ping_reply(uint32_t *handled_event) {
     if(delta_us > maximum_reply_us)
         maximum_reply_us = delta_us;
     latest_result = PING_RESULT_REPLY;
+    vmu_graph_push((int32_t)(delta_us / 1000));
     face_dirty |= (1u << FACE_TOP);
     add_ping_log("#%04u  %lu.%lu ms  ttl=%u  reply",
                  sequence,
                  (unsigned long)(delta_us / 1000),
                  (unsigned long)((delta_us / 100) % 10), ttl);
-    printf("Ping Cube: reply from 8.8.8.8 seq=%u ttl=%u time=%lu.%lu ms\n",
-           sequence, ttl,
+    target_label(label, sizeof(label));
+    printf("Ping Cube: reply from %s seq=%u ttl=%u time=%lu.%lu ms\n",
+           label, sequence, ttl,
            (unsigned long)(delta_us / 1000),
            (unsigned long)((delta_us / 100) % 10));
 }
 
 static void process_ping_timeouts(uint64_t now_ms) {
+    char label[FACE_TEXT_MAX + 1];
     int i;
 
     for(i = 0; i < PING_PENDING_SLOTS; ++i) {
@@ -930,12 +1073,26 @@ static void process_ping_timeouts(uint64_t now_ms) {
             pending->active = 0;
             timeout_count++;
             latest_result = PING_RESULT_TIMEOUT;
+            vmu_graph_push(-1);
             face_dirty |= (1u << FACE_TOP);
             add_ping_log("#%04u  timeout after %u ms",
                          pending->sequence, PING_TIMEOUT_MS);
-            printf("Ping Cube: timeout from 8.8.8.8 seq=%u after %u ms\n",
-                   pending->sequence, PING_TIMEOUT_MS);
+            target_label(label, sizeof(label));
+            printf("Ping Cube: timeout from %s seq=%u after %u ms\n",
+                   label, pending->sequence, PING_TIMEOUT_MS);
         }
+    }
+}
+
+/* Log a send problem once rather than four times a second. */
+static void report_send_problem(uint16_t sequence, const char *problem) {
+    latest_result = PING_RESULT_ERROR;
+    face_dirty |= (1u << FACE_TOP);
+
+    if(problem != last_send_problem) {
+        last_send_problem = problem;
+        add_ping_log("#%04u  %s", sequence, problem);
+        printf("Ping Cube: seq=%u %s\n", sequence, problem);
     }
 }
 
@@ -943,12 +1100,16 @@ static void send_ping(uint64_t now_ms) {
     netif_t *netif = active_netif();
     pending_ping_t *pending;
     uint16_t sequence = next_ping_sequence++;
+    uint8_t target[4];
     int result;
 
     if(!netif) {
-        latest_result = PING_RESULT_ERROR;
-        face_dirty |= (1u << FACE_TOP);
-        add_ping_log("#%04u  no network device", sequence);
+        report_send_problem(sequence, "no network device");
+        return;
+    }
+
+    if(resolve_target(target) < 0) {
+        report_send_problem(sequence, "no gateway address");
         return;
     }
 
@@ -956,30 +1117,40 @@ static void send_ping(uint64_t now_ms) {
     pending->sequence = sequence;
     pending->sent_ms = now_ms;
     pending->active = 1;
+    reply_filter = pack_address(target);
 
-    result = net_icmp_send_echo(netif, ping_target, PING_IDENTIFIER, sequence,
+    result = net_icmp_send_echo(netif, target, PING_IDENTIFIER, sequence,
                                 ping_payload, sizeof(ping_payload) - 1);
     if(result < 0) {
         pending->active = 0;
-        latest_result = PING_RESULT_ERROR;
-        face_dirty |= (1u << FACE_TOP);
-        add_ping_log("#%04u  send failed (%d)", sequence, result);
-        printf("Ping Cube: ICMP send failed for seq=%u (%d)\n",
-               sequence, result);
+        report_send_problem(sequence, "send failed");
         return;
     }
 
+    last_send_problem = NULL;
     transmitted_count++;
     face_dirty |= (1u << FACE_TOP);
     console_dirty = 1;
 }
 
+static void select_target(int step) {
+    char label[FACE_TEXT_MAX + 1];
+
+    target_index = (target_index + step + TARGET_COUNT) % TARGET_COUNT;
+    reply_filter = 0;
+    reset_ping_stats();
+
+    target_label(label, sizeof(label));
+    add_ping_log("target %s (%s)", label, target_names[target_index]);
+    printf("Ping Cube: target %s (%s)\n", label, target_names[target_index]);
+}
+
 /* ------------------------------------------------------------------ */
-/* Input                                                                */
+/* Input and motion                                                     */
 /* ------------------------------------------------------------------ */
 
 typedef struct controls {
-    int start;
+    uint32_t buttons;
     int left_trigger;
     int right_trigger;
 } controls_t;
@@ -988,8 +1159,7 @@ static controls_t read_controls(void) {
     controls_t controls = {0, 0, 0};
 
     MAPLE_FOREACH_BEGIN(MAPLE_FUNC_CONTROLLER, cont_state_t, state)
-        if(state->buttons & CONT_START)
-            controls.start = 1;
+        controls.buttons |= state->buttons;
         if(state->ltrig > controls.left_trigger)
             controls.left_trigger = state->ltrig;
         if(state->rtrig > controls.right_trigger)
@@ -1026,6 +1196,76 @@ static void update_spin_speed(const controls_t *controls, float delta_seconds) {
         spin_hundredths = hundredths;
         face_dirty |= (1u << FACE_BOTTOM);
         console_dirty = 1;
+    }
+}
+
+static float wrap_angle(float angle) {
+    while(angle >= TWO_PI_F)
+        angle -= TWO_PI_F;
+    while(angle < 0.0f)
+        angle += TWO_PI_F;
+    return angle;
+}
+
+/* Signed shortest turn from one angle to another, in (-pi, pi]. */
+static float angle_difference(float from, float to) {
+    float difference = wrap_angle(to - from);
+
+    return difference > PI_F ? difference - TWO_PI_F : difference;
+}
+
+/* The face whose centre is currently nearest the camera. */
+static int nearest_face(float pitch, float yaw) {
+    screen_point_t transformed[8];
+    float best_depth = -1.0f;
+    int best = FACE_FRONT;
+    int face;
+    int corner;
+
+    transform_cube(pitch, yaw, transformed);
+
+    for(face = 0; face < FACE_COUNT; ++face) {
+        float depth = 0.0f;
+
+        /* z holds 1/distance, so larger is closer. */
+        for(corner = 0; corner < 4; ++corner)
+            depth += transformed[cube_faces[face][corner]].z;
+
+        if(depth > best_depth) {
+            best_depth = depth;
+            best = face;
+        }
+    }
+
+    return best;
+}
+
+/* A snaps to the face in view, then steps through the rest; B resumes the
+   tumble from wherever the cube is. */
+static void handle_snap_buttons(uint32_t pressed, float pitch, float yaw) {
+    int i;
+
+    if(pressed & CONT_A) {
+        if(!snapped) {
+            snapped = 1;
+            snap_face = nearest_face(pitch, yaw);
+        }
+        else {
+            for(i = 0; i < FACE_COUNT; ++i) {
+                if(face_snap_order[i] == snap_face)
+                    break;
+            }
+            snap_face = face_snap_order[(i + 1) % FACE_COUNT];
+        }
+
+        face_dirty |= (1u << FACE_BOTTOM);
+        printf("Ping Cube: snap to %s face\n", face_names[snap_face]);
+    }
+
+    if((pressed & CONT_B) && snapped) {
+        snapped = 0;
+        face_dirty |= (1u << FACE_BOTTOM);
+        printf("Ping Cube: resume spinning\n");
     }
 }
 
@@ -1097,6 +1337,7 @@ static void poll_modem_stage(void) {
 
     modem_stage = stage;
     face_dirty = FACE_ALL_DIRTY;
+    refresh_source_ip();
 
     switch(stage) {
         case MODEM_STAGE_DETECTING:
@@ -1110,7 +1351,7 @@ static void poll_modem_stage(void) {
                          modem_link_rate());
             break;
         case MODEM_STAGE_READY:
-            refresh_source_ip();
+            redial_attempts = 0;
             report_interface();
             add_ping_log("ppp up as %s", console_source_ip);
             break;
@@ -1123,20 +1364,117 @@ static void poll_modem_stage(void) {
     }
 }
 
+static void start_redial(void) {
+    redial_attempts++;
+    redial_at_ms = 0;
+    add_ping_log("redial attempt %d", redial_attempts);
+    printf("Ping Cube: redial attempt %d\n", redial_attempts);
+
+    /* Record the restart locally so that even a failure fast enough to
+       finish before the next frame registers as a new stage change. */
+    modem_stage = MODEM_STAGE_DETECTING;
+    face_dirty = FACE_ALL_DIRTY;
+    refresh_source_ip();
+
+    if(modem_link_start() < 0)
+        add_ping_log("could not start the modem worker");
+}
+
+/* Redial straight away when an established link drops, and retry failed
+   dials that might succeed later after a growing pause. Missing hardware and
+   unusable dial settings are not retried. */
+static void manage_redial(uint64_t now_ms) {
+    uint64_t delay_ms;
+
+    if(link_kind != LINK_MODEM || exiting || modem_link_busy())
+        return;
+
+    if(modem_stage == MODEM_STAGE_READY && modem_link_dropped()) {
+        add_ping_log("link dropped; redialing");
+        printf("Ping Cube: modem link dropped\n");
+        start_redial();
+        return;
+    }
+
+    if(modem_stage != MODEM_STAGE_FAILED || !modem_link_retryable())
+        return;
+
+    if(!redial_at_ms) {
+        delay_ms = (uint64_t)REDIAL_STEP_MS * (uint64_t)(redial_attempts + 1);
+        if(delay_ms > REDIAL_MAXIMUM_MS)
+            delay_ms = REDIAL_MAXIMUM_MS;
+        redial_at_ms = now_ms + delay_ms;
+        face_dirty |= (1u << FACE_FRONT) | (1u << FACE_LEFT);
+        add_ping_log("redialing in %lu s", (unsigned long)(delay_ms / 1000));
+        return;
+    }
+
+    if(now_ms >= redial_at_ms)
+        start_redial();
+}
+
+/* ------------------------------------------------------------------ */
+/* VMU                                                                  */
+/* ------------------------------------------------------------------ */
+
+static void update_vmu(uint64_t now_ms) {
+    char headline[8] = "----";
+    const char *unit = "";
+    const char *title = "PING CUBE";
+
+    if(exiting) {
+        snprintf(headline, sizeof(headline), "BYE");
+    }
+    else if(link_ready()) {
+        title = target_index == TARGET_GOOGLE ? "8.8.8.8" :
+                target_index == TARGET_CLOUDFLARE ? "1.1.1.1" : "GATEWAY";
+
+        switch(latest_result) {
+            case PING_RESULT_REPLY:
+                snprintf(headline, sizeof(headline), "%lu",
+                         (unsigned long)(latest_reply_us / 1000));
+                unit = "MS";
+                break;
+            case PING_RESULT_TIMEOUT:
+                snprintf(headline, sizeof(headline), "LOST");
+                break;
+            case PING_RESULT_ERROR:
+                snprintf(headline, sizeof(headline), "ERR");
+                break;
+            default:
+                snprintf(headline, sizeof(headline), "...");
+                break;
+        }
+    }
+    else if(link_kind == LINK_MODEM) {
+        title = "MODEM";
+        snprintf(headline, sizeof(headline), "%s",
+                 modem_stage == MODEM_STAGE_DIALING ? "DIAL" :
+                 modem_stage == MODEM_STAGE_NEGOTIATING ? "PPP" :
+                 modem_stage == MODEM_STAGE_FAILED
+                     ? (redial_at_ms ? "WAIT" : "FAIL")
+                     : "FIND");
+    }
+
+    vmu_display_draw(title, headline, unit, (int)latency_good_ms(), now_ms);
+}
+
 int main(int argc, char **argv) {
     const uint64_t start_time = timer_ms_gettime64();
     uint64_t last_frame_ms = start_time;
     uint64_t next_ping_ms = start_time + PING_INTERVAL_MS;
     uint32_t handled_reply_event = reply_event;
+    uint32_t previous_buttons = 0;
     net_echo_cb previous_echo_callback;
     float yaw = 0.55f;
     float pitch_phase = -0.16f;
+    float pitch = fsin(-0.16f) * 1.05f - 0.15f;
 
     (void)argc;
     (void)argv;
 
     add_ping_log("icmp console initialized");
-    add_ping_log("target 8.8.8.8 every 250 ms");
+    add_ping_log("every 250 ms; d-pad picks target");
 
     pvr_init_defaults();
     pvr_set_bg_color(0.015f, 0.035f, 0.065f);
@@ -1166,15 +1504,19 @@ int main(int argc, char **argv) {
         float delta_seconds = (float)(now_ms - last_frame_ms) * 0.001f;
         const uint64_t elapsed_seconds = (now_ms - start_time) / 1000;
         const controls_t controls = read_controls();
-        float angle_x;
+        const uint32_t pressed = controls.buttons & ~previous_buttons;
+        float ease;
+        float target_pitch;
 
+        previous_buttons = controls.buttons;
         last_frame_ms = now_ms;
         if(delta_seconds > 0.1f)
             delta_seconds = 0.1f;
 
-        if(controls.start && !exiting) {
+        if((controls.buttons & CONT_START) && !exiting) {
             exiting = 1;
             face_dirty = FACE_ALL_DIRTY;
+            printf("Ping Cube: Start pressed; exiting\n");
             if(modem_link_busy()) {
                 modem_link_cancel();
                 add_ping_log("exiting after the current dial step");
@@ -1187,13 +1529,23 @@ int main(int argc, char **argv) {
         if(exiting && !modem_link_busy())
             break;
 
+        if(!exiting && (pressed & CONT_DPAD_RIGHT))
+            select_target(1);
+        if(!exiting && (pressed & CONT_DPAD_LEFT))
+            select_target(-1);
+        handle_snap_buttons(pressed, pitch, yaw);
+
         poll_modem_stage();
+        manage_redial(now_ms);
         process_ping_reply(&handled_reply_event);
         process_ping_timeouts(now_ms);
 
         if(elapsed_seconds != uptime_seconds) {
             uptime_seconds = elapsed_seconds;
             face_dirty |= (1u << FACE_BOTTOM);
+            /* Keep the redial countdown ticking. */
+            if(redial_at_ms)
+                face_dirty |= (1u << FACE_FRONT) | (1u << FACE_LEFT);
         }
 
         if(!exiting && link_ready() && now_ms >= next_ping_ms) {
@@ -1205,24 +1557,37 @@ int main(int argc, char **argv) {
         }
 
         update_spin_speed(&controls, delta_seconds);
-        yaw += 0.28f * spin_speed * delta_seconds;
-        pitch_phase += 0.16f * spin_speed * delta_seconds;
-        if(yaw > 6.2831853f)
-            yaw -= 6.2831853f;
-        if(pitch_phase > 6.2831853f)
-            pitch_phase -= 6.2831853f;
-        /* Tumbling on both axes brings the top and bottom panels into view. */
-        angle_x = fsin(pitch_phase) * 1.05f - 0.15f;
+        ease = delta_seconds * SNAP_RATE;
+        if(ease > 1.0f)
+            ease = 1.0f;
+
+        if(snapped) {
+            yaw += angle_difference(yaw, face_snap_angles[snap_face][0]) *
+                   ease;
+            target_pitch = face_snap_angles[snap_face][1];
+        }
+        else {
+            yaw += 0.28f * spin_speed * delta_seconds;
+            pitch_phase = wrap_angle(pitch_phase +
+                                     0.16f * spin_speed * delta_seconds);
+            /* Tumbling on both axes brings the top and bottom panels into
+               view. */
+            target_pitch = fsin(pitch_phase) * 1.05f - 0.15f;
+        }
+        yaw = wrap_angle(yaw);
+        pitch += (target_pitch - pitch) * ease;
 
         if(face_dirty)
             update_dirty_faces();
         if(console_dirty)
             update_console_texture();
+        update_vmu(now_ms);
 
-        draw_scene(angle_x, yaw, ping_color());
+        draw_scene(pitch, yaw, ping_color());
     }
 
     net_icmp_echo_cb = previous_echo_callback;
+    vmu_display_clear();
 
     if(link_kind == LINK_MODEM)
         modem_link_shutdown();
