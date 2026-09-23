@@ -32,10 +32,15 @@
 
 #define TEXTURE_SIZE 256
 #define TEXTURE_BYTES (TEXTURE_SIZE * TEXTURE_SIZE * sizeof(uint16_t))
+/* The console fills the 640x480 screen. Only the top 512x384 of its 512x512
+   texture is drawn, so text keeps a uniform 1.25x scale in both directions. */
 #define CONSOLE_WIDTH 512
-#define CONSOLE_HEIGHT 256
+#define CONSOLE_HEIGHT 384
+#define CONSOLE_TEXTURE_HEIGHT 512
 #define CONSOLE_BYTES (CONSOLE_WIDTH * CONSOLE_HEIGHT * sizeof(uint16_t))
-#define CONSOLE_LOG_LINES 5
+#define CONSOLE_TEXTURE_BYTES \
+    (CONSOLE_WIDTH * CONSOLE_TEXTURE_HEIGHT * sizeof(uint16_t))
+#define CONSOLE_LOG_LINES 9
 #define PING_INTERVAL_MS 250
 #define PING_TIMEOUT_MS 2500
 #define PING_PENDING_SLOTS 16
@@ -772,7 +777,7 @@ static void update_console_texture(void) {
     target_label(label, sizeof(label));
     snprintf(line, sizeof(line), "PING %.15s FROM %.15s", label,
              console_source_ip);
-    draw_console_text(10, line, rgb565(40, 128, 102));
+    draw_console_text(20, line, rgb565(40, 128, 102));
 
     snprintf(line, sizeof(line), "TX %lu  RX %lu  LOSS %lu%%  AVG %lu.%lu MS",
              (unsigned long)transmitted_count,
@@ -780,7 +785,7 @@ static void update_console_texture(void) {
              (unsigned long)loss_percent,
              (unsigned long)(average_tenths / 10),
              (unsigned long)(average_tenths % 10));
-    draw_console_text(38, line, rgb565(31, 92, 77));
+    draw_console_text(48, line, rgb565(31, 92, 77));
 
     if(latest_result == PING_RESULT_REPLY) {
         uint32_t latest_tenths = latest_reply_us / 100;
@@ -798,15 +803,15 @@ static void update_console_texture(void) {
     else {
         snprintf(line, sizeof(line), "LATEST --.- MS  STATUS WAITING");
     }
-    draw_console_text(66, line, rgb565(40, 112, 91));
+    draw_console_text(76, line, rgb565(40, 112, 91));
 
     console_link_summary(summary, sizeof(summary));
     snprintf(line, sizeof(line), "VIA %s  SPIN x%u.%02u",
              summary, spin_hundredths / 100, spin_hundredths % 100);
-    draw_console_text(94, line, rgb565(35, 104, 118));
+    draw_console_text(104, line, rgb565(35, 104, 118));
 
     for(i = 0; i < CONSOLE_LOG_LINES; ++i)
-        draw_console_text(122 + i * 26, ping_log[i], rgb565(28, 79, 69));
+        draw_console_text(132 + i * 26, ping_log[i], rgb565(28, 79, 69));
 
     pvr_txr_load(console_pixels, console_texture, CONSOLE_BYTES);
     console_dirty = 0;
@@ -822,13 +827,13 @@ static int make_console_texture(void) {
 
     fill_console_background(console_background);
 
-    console_texture = pvr_mem_malloc(CONSOLE_BYTES);
+    console_texture = pvr_mem_malloc(CONSOLE_TEXTURE_BYTES);
     if(!console_texture)
         return -1;
 
     pvr_poly_cxt_txr(&context, PVR_LIST_OP_POLY,
                      PVR_TXRFMT_RGB565 | PVR_TXRFMT_NONTWIDDLED,
-                     CONSOLE_WIDTH, CONSOLE_HEIGHT, console_texture,
+                     CONSOLE_WIDTH, CONSOLE_TEXTURE_HEIGHT, console_texture,
                      PVR_FILTER_BILINEAR);
     context.gen.culling = PVR_CULLING_NONE;
     context.depth.comparison = PVR_DEPTHCMP_GREATER;
@@ -871,10 +876,16 @@ static void transform_cube(float angle_x, float angle_y,
 
 static void draw_console_panel(void) {
     static const float positions[4][2] = {
-        {24.0f, 104.0f},
-        {616.0f, 104.0f},
-        {24.0f, 400.0f},
-        {616.0f, 400.0f}
+        {0.0f, 0.0f},
+        {640.0f, 0.0f},
+        {0.0f, 480.0f},
+        {640.0f, 480.0f}
+    };
+    static const float console_uv[4][2] = {
+        {0.0f, 0.0f},
+        {1.0f, 0.0f},
+        {0.0f, (float)CONSOLE_HEIGHT / CONSOLE_TEXTURE_HEIGHT},
+        {1.0f, (float)CONSOLE_HEIGHT / CONSOLE_TEXTURE_HEIGHT}
     };
     pvr_vertex_t vertex;
     int corner;
@@ -885,8 +896,8 @@ static void draw_console_panel(void) {
         vertex.x = positions[corner][0];
         vertex.y = positions[corner][1];
         vertex.z = 0.02f;
-        vertex.u = face_uv[corner][0];
-        vertex.v = face_uv[corner][1];
+        vertex.u = console_uv[corner][0];
+        vertex.v = console_uv[corner][1];
         vertex.argb = PVR_PACK_COLOR(1.0f, 0.58f, 0.58f, 0.58f);
         vertex.oargb = 0;
         pvr_prim(&vertex, sizeof(vertex));
