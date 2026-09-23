@@ -98,6 +98,63 @@ Restore a normal build afterward with a sourced KOS environment:
 make clean && make
 ```
 
-Page fetches remain synchronous and accept cancellation while loading. Network
-latency, TLS work, and image decode are separate from the measured editing path.
-The improved display/input handling does not add CSS or JavaScript support.
+The follow-up usability work moves HTTP/TLS to a serialized worker while the
+main thread continues processing input and frames. Text appears before optional
+image downloads. Parsing and image decoding remain bounded main-thread work;
+this does not add a CSS or JavaScript engine.
+
+## Real-site usability follow-up
+
+The same emulator was exercised with BBC News, Wikipedia's Dreamcast article,
+Hacker News and DuckDuckGo Lite. Reader mode is on by default when semantic
+article/main content is present; `F7` restores the full document from retained
+HTML. Optional images use `F4`, so slow or unsupported images do not delay text.
+
+- BBC News places its heading and first headline on the first screen. Opening
+  a headline renders the article; unloaded image placeholders occupy one small
+  row rather than several screens of empty image space.
+- Wikipedia's 1,200,498-byte Dreamcast response produces 6,159 layout items and
+  2,136 working links without shortening. `#Hardware` scrolls to the section
+  without a second HTTP request. The document occupies 2,376 KiB of static RAM;
+  the post-load heap report shows 2,462 KiB allocated and 9,014 KiB available.
+  Three Page Down redraws composed in about 9.2–12.0 ms each, with about 1.5 ms
+  for presentation. This is a spot check, not a whole-page latency distribution.
+- Hacker News keeps its thirtieth story, footer links, More link and search
+  field active beyond the old 96-link cutoff.
+- Typing `dreamcast homebrew` in the address bar returns DuckDuckGo Lite
+  search results. `Ctrl+Enter` now submits focused form fields, including
+  buttonless search forms; HTTPS GET searches may cross origins.
+
+The final 320-item benchmark remains comparable: 8,063 µs for a full compose,
+10,407 µs with the on-screen keyboard, 673 µs for the address caret, 5,307 µs
+for a 14-pixel scroll and 323 µs for mouse movement. Enlarging the document
+limits does not make address-only redraws scan the page.
+
+The local streaming fixture exercises editing, scrolling, cancellation,
+replacement navigation, history, same-document section navigation and reload,
+reader switching, image cancellation and form policies. Host parser/input tests
+pass 48,857 checks, image tests pass 106 checks, and both pass ASan/UBSan. All
+57 guest loading checks pass, including latest-request handling in the gap
+between worker completion and deferred navigation. The
+fixture also verifies that unsupported SVG and a failed image HEAD request do
+not prevent a following valid PNG from loading. See the README for commands.
+
+## SDK TCP lock correction
+
+Repeated HTTPS navigation exposed a receive/poll/cleanup deadlock in the
+checked-out SDK. TCP receive held `tcp_sem` while notifying the poll mutex;
+polling held that mutex while trying to acquire a read lock; socket cleanup
+could hold the writer gate while waiting for existing readers. In that state
+the UI remained responsive but the HTTP worker could not finish or cancel.
+
+`scripts/fix-kos-tcp-poll.sh` applies `patches/kos-tcp-poll-lock.patch`, moving
+the receive notification outside both TCP locks, and rebuilds only the TCP
+object and SDK archives. Descriptor/event values are copied before unlocking,
+so notification does not dereference a socket that cleanup may have freed.
+The patched SDK passed the streaming suite and the live-site navigation above.
+
+A rapid sequence of requests also temporarily retains TCP buffers during the
+SDK's 30-second TIME_WAIT period. An idle observation returned heap allocation
+from about 2,098 KiB to 299 KiB; this transient retention is separate from the
+worker/source lifetimes. These results use Flycast's outbound picoTCP proxy,
+not LAN bridging, and have not been measured on physical Dreamcast hardware.

@@ -9,7 +9,14 @@ int resolve_url(const char *base, const char *reference, char *out, size_t out_s
     const char *slash;
     size_t origin;
 
-    if(!reference || !reference[0] || reference[0] == '#') return -1;
+    if(!reference || !reference[0]) return -1;
+    if(reference[0] == '#') {
+        const char *fragment = strchr(base, '#');
+        size_t length = fragment ? (size_t)(fragment - base) : strlen(base);
+        if(length + strlen(reference) >= out_size) return -1;
+        snprintf(out, out_size, "%.*s%s", (int)length, base, reference);
+        return 0;
+    }
     if(!strncmp(reference, "about:", 6)) {
         snprintf(out, out_size, "%s", reference);
         return 0;

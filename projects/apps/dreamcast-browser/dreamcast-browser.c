@@ -11,6 +11,10 @@
 #include <dc/video.h>
 #include <kos.h>
 #include <kos/sem.h>
+#include <kos/mm.h>
+#include <arch/arch.h>
+#include <arch/stack.h>
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,8 +52,6 @@ static int redraw_needed = 1;
 static const char *loading_label;
 static uint64_t last_progress_draw;
 static unsigned progress_frame;
-static uint32_t loading_controller_buttons;
-static uint32_t loading_mouse_buttons;
 static int loading_cancelled;
 static int address_caret;
 static int address_selected;
@@ -66,6 +68,53 @@ static bookmark_list_t bookmarks;
 static char bookmark_candidate_url[MAX_URL];
 static char bookmark_candidate_title[BOOKMARK_TITLE];
 static int storage_enabled = 1;
+
+/* Keep one bounded source buffer for reader/full-page switching. */
+static fetch_result_t page_source;
+static int prefer_reader = 1;
+static int images_requested;
+typedef enum { PENDING_NONE, PENDING_NAVIGATE, PENDING_BACK, PENDING_FORWARD,
+               PENDING_RELOAD, PENDING_READER, PENDING_IMAGES, PENDING_INTERNAL } pending_action_t;
+static struct {
+    pending_action_t action;
+    char url[MAX_URL];
+    char body[32768];
+    int post;
+} pending;
+
+#ifdef BROWSER_LOADING_SELF_TEST
+static void loading_test_tick(void);
+#endif
+static void load_page_images(void);
+static int process_keyboard(maple_device_t *keyboard);
+static int process_mouse(maple_device_t *mouse);
+static void process_controller(maple_device_t *controller);
+
+static void memory_report(const char *stage) {
+    struct mallinfo info = mallinfo();
+    uintptr_t top = _arch_mem_top - THD_KERNEL_STACK_SIZE;
+    uintptr_t used = (uintptr_t)mm_sbrk(0);
+    size_t free_bytes = info.fordblks + (top > used ? top - used : 0);
+    printf("browser: memory %s: allocated %lu KiB, available %lu KiB, document %lu KiB\n",
+           stage, (unsigned long)info.uordblks / 1024,
+           (unsigned long)free_bytes / 1024, (unsigned long)sizeof(document) / 1024);
+}
+
+/* Navigation during a transfer replaces the pending intent and cancels the
+   current transfer. It is dispatched only after the worker has been joined. */
+static int defer_action(pending_action_t action, const char *url, const char *body) {
+    /* A newer action can arrive after cancellation has joined the worker but
+       before the main loop dispatches the previous pending action. It still
+       replaces that intent instead of running ahead of stale navigation. */
+    if(!loading_label && pending.action == PENDING_NONE) return 0;
+    pending.action = action;
+    snprintf(pending.url, sizeof(pending.url), "%s", url ? url : "");
+    memset(pending.body, 0, sizeof(pending.body));
+    pending.post = body != NULL;
+    if(body) snprintf(pending.body, sizeof(pending.body), "%s", body);
+    if(loading_label) loading_cancelled = 1;
+    return 1;
+}
 
 #ifdef BROWSER_HISTORY_SELF_TEST
 static int self_test_cancel_mode;
@@ -224,13 +273,16 @@ static void redraw(void) {
 static int show_transfer_progress(uint64_t received, uint64_t total,
                                   void *userdata) {
     static const char spinner[] = "|/-\\";
-    maple_device_t *device;
-    cont_state_t *controller_state;
-    mouse_state_t *mouse_state;
-    uint32_t pressed;
-    uint64_t now = timer_ms_gettime64();
+    uint64_t now;
     (void)userdata;
 
+    /* Called only by the main-thread network wait loop. The HTTP worker
+       never renders, drains Maple queues, or mutates the visible document. */
+    wait_for_vblank();
+    wait_for_maple_poll();
+    quit_requested |= process_keyboard(maple_enum_type(0, MAPLE_FUNC_KEYBOARD));
+    process_mouse(maple_enum_type(0, MAPLE_FUNC_MOUSE));
+    process_controller(maple_enum_type(0, MAPLE_FUNC_CONTROLLER));
 #ifdef BROWSER_HISTORY_SELF_TEST
     if(self_test_cancel_mode == 1 ||
        (self_test_cancel_mode == 2 && loading_label &&
@@ -239,66 +291,36 @@ static int show_transfer_progress(uint64_t received, uint64_t total,
         loading_cancelled = 1;
     }
 #endif
-    device = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
-    if(device) {
-        int raw;
-        while((raw = kbd_queue_pop(device, 0)) != KBD_QUEUE_END) {
-            if((raw & 0xff) == KBD_KEY_ESCAPE) loading_cancelled = 1;
-        }
+#ifdef BROWSER_LOADING_SELF_TEST
+    loading_test_tick();
+#endif
+    if(quit_requested) loading_cancelled = 1;
+    now = timer_ms_gettime64();
+    if(!editing && editing_field < 0 && !show_help &&
+       (!last_progress_draw || now - last_progress_draw >= 200)) {
+        last_progress_draw = now;
+        if(loading_cancelled)
+            snprintf(status_text, sizeof(status_text), "Canceling %s...", loading_label);
+        else if(total)
+            snprintf(status_text, sizeof(status_text),
+                     "Loading %s %lu/%luK %c | Esc/B cancel", loading_label,
+                     (unsigned long)(received / 1024),
+                     (unsigned long)((total + 1023) / 1024),
+                     spinner[progress_frame++ & 3]);
+        else
+            snprintf(status_text, sizeof(status_text),
+                     "Connecting %s %c | Esc/B cancel", loading_label,
+                     spinner[progress_frame++ & 3]);
+        redraw_needed = 1;
     }
-    device = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
-    controller_state = device ? maple_dev_status(device) : NULL;
-    if(controller_state) {
-        pressed = controller_state->buttons & ~loading_controller_buttons;
-        loading_controller_buttons = controller_state->buttons;
-        if(pressed & (CONT_B | CONT_START)) loading_cancelled = 1;
-    }
-    device = maple_enum_type(0, MAPLE_FUNC_MOUSE);
-    mouse_state = device ? maple_dev_status(device) : NULL;
-    if(mouse_state) {
-        pressed = mouse_state->buttons & ~loading_mouse_buttons;
-        loading_mouse_buttons = mouse_state->buttons;
-        if(pressed & MOUSE_RIGHTBUTTON) loading_cancelled = 1;
-    }
-    if(loading_cancelled) {
-        snprintf(status_text, sizeof(status_text), "Canceling %s...",
-                 loading_label ? loading_label : "request");
-        redraw();
-        return 1;
-    }
-
-    if(last_progress_draw && now - last_progress_draw < 200) return 0;
-    last_progress_draw = now;
-    if(total)
-        snprintf(status_text, sizeof(status_text),
-                 "Loading %s %lu/%luK %c | Esc/B cancel",
-                 loading_label ? loading_label : "data",
-                 (unsigned long)(received / 1024),
-                 (unsigned long)((total + 1023) / 1024),
-                 spinner[progress_frame++ & 3]);
-    else
-        snprintf(status_text, sizeof(status_text),
-                 "Connecting %s %c | Esc/B cancel",
-                 loading_label ? loading_label : "",
-                 spinner[progress_frame++ & 3]);
-    redraw();
-    return 0;
+    if(redraw_needed) { redraw_needed = 0; redraw(); }
+    return loading_cancelled;
 }
 
 static void begin_loading(const char *label) {
-    maple_device_t *device;
-    cont_state_t *controller_state;
-    mouse_state_t *mouse_state;
-
     loading_label = label;
     last_progress_draw = 0;
     loading_cancelled = 0;
-    device = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
-    controller_state = device ? maple_dev_status(device) : NULL;
-    loading_controller_buttons = controller_state ? controller_state->buttons : 0;
-    device = maple_enum_type(0, MAPLE_FUNC_MOUSE);
-    mouse_state = device ? maple_dev_status(device) : NULL;
-    loading_mouse_buttons = mouse_state ? mouse_state->buttons : 0;
     network_set_progress_callback(show_transfer_progress, NULL);
 }
 
@@ -652,6 +674,8 @@ static int load_internal(const char *url, const char *previous_url) {
         snprintf(bookmark_candidate_title, sizeof(bookmark_candidate_title), "%.*s",
                  (int)sizeof(bookmark_candidate_title) - 1, document.title);
     }
+    fetch_result_free(&page_source);
+    images_requested = 0;
     document_free(&document);
     if(found) {
         storage_describe(note, sizeof(note));
@@ -673,13 +697,12 @@ static int load_internal(const char *url, const char *previous_url) {
     return found ? 0 : LOAD_FAILED;
 }
 
-static int load_request(const char *requested, const char *post_body) {
+static int load_request_ex(const char *requested, const char *post_body, int force_reload) {
     fetch_result_t result;
     char target[MAX_URL];
     char previous_url[MAX_URL];
     char previous_address[MAX_URL];
     char message[256];
-    int images_cancelled;
     long response_status;
 
     finish_field_edit(0);
@@ -691,8 +714,29 @@ static int load_request(const char *requested, const char *post_body) {
     snprintf(previous_address, sizeof(previous_address), "%s", address);
     snprintf(target, sizeof(target), "%s", requested);
     normalize_address(target, sizeof(target));
+    /* In-page navigation never needs another HTTP request. */
+    const char *fragment = strchr(target, '#');
+    size_t target_base = strcspn(target, "#"), current_base = strcspn(current_url, "#");
+    if(!force_reload && !post_body && (fragment || strchr(current_url, '#')) &&
+       target_base == current_base &&
+       !strncmp(target, current_url, target_base)) {
+        int y = fragment ? document_anchor_y(&document, fragment) : 0;
+        if(y < 0) {
+            snprintf(address, sizeof(address), "%s", current_url);
+            snprintf(status_text, sizeof(status_text), "Section unavailable in this view; F7 switches view");
+            redraw_needed = 1;
+            return LOAD_CANCELED;
+        }
+        snprintf(current_url, sizeof(current_url), "%s", target);
+        snprintf(address, sizeof(address), "%s", target);
+        scroll_y = y;
+        clamp_scroll();
+        focused_link = -1;
+        snprintf(status_text, sizeof(status_text), "%.90s", document.title);
+        redraw_needed = 1;
+        return 0;
+    }
     if(!strncmp(target, "about:", 6)) return load_internal(target, previous_url);
-    snprintf(current_url, sizeof(current_url), "%s", target);
     snprintf(address, sizeof(address), "%s", target);
     snprintf(status_text, sizeof(status_text), "Connecting page...");
     redraw();
@@ -701,11 +745,11 @@ static int load_request(const char *requested, const char *post_body) {
 
     int fetch_code = post_body ? network_post(target, post_body, MAX_DOCUMENT_BYTES, &result)
                                : network_fetch(target, MAX_DOCUMENT_BYTES, &result);
-    if(fetch_code < 0) {
+    if(fetch_code < 0 || loading_cancelled) {
         end_loading();
-        if(result.cancelled) {
+        if(result.cancelled || loading_cancelled) {
             snprintf(current_url, sizeof(current_url), "%s", previous_url);
-            snprintf(address, sizeof(address), "%s",
+            if(!editing) snprintf(address, sizeof(address), "%s",
                      previous_url[0] ? previous_url : previous_address);
             snprintf(status_text, sizeof(status_text), "Canceled; page unchanged");
             printf("browser: page load canceled; keeping %s\n",
@@ -715,6 +759,10 @@ static int load_request(const char *requested, const char *post_body) {
             return LOAD_CANCELED;
         }
         snprintf(message, sizeof(message), "Could not load this address: %s", result.error);
+        fetch_result_free(&result);
+        fetch_result_free(&page_source);
+        snprintf(current_url, sizeof(current_url), "%s", target);
+        if(editing_field >= 0) finish_field_edit(0);
         document_free(&document);
         document_make_error(&document, "Page load failed", message);
         snprintf(status_text, sizeof(status_text), "Network error");
@@ -727,6 +775,9 @@ static int load_request(const char *requested, const char *post_body) {
         response_status = result.status;
         snprintf(message, sizeof(message), "The server returned HTTP status %ld.", result.status);
         fetch_result_free(&result);
+        fetch_result_free(&page_source);
+        snprintf(current_url, sizeof(current_url), "%s", target);
+        if(editing_field >= 0) finish_field_edit(0);
         document_free(&document);
         document_make_error(&document, "Server error", message);
         snprintf(status_text, sizeof(status_text), "HTTP %ld", response_status);
@@ -740,6 +791,9 @@ static int load_request(const char *requested, const char *post_body) {
         end_loading();
         snprintf(message, sizeof(message), "Unsupported page type: %.90s", result.content_type);
         fetch_result_free(&result);
+        fetch_result_free(&page_source);
+        snprintf(current_url, sizeof(current_url), "%s", target);
+        if(editing_field >= 0) finish_field_edit(0);
         document_free(&document);
         document_make_error(&document, "Unsupported content", message);
         snprintf(status_text, sizeof(status_text), "Unsupported content");
@@ -747,34 +801,40 @@ static int load_request(const char *requested, const char *post_body) {
         return LOAD_FAILED;
     }
 
+    if(editing_field >= 0) finish_field_edit(0);
     document_free(&document);
     end_loading();
+    fetch_result_free(&page_source);
+    page_source = result;
     document_init(&document, result.effective_url);
-    document_parse_html(&document, (const char *)result.data, result.size,
-                        result.content_type);
+    document_parse_html_mode(&document, (const char *)result.data, result.size,
+                             result.content_type, prefer_reader);
     if(result.truncated)
         document_mark_shortened(&document,
-            "[Page shortened: HTML exceeded the 512 KiB safety limit]");
-    snprintf(address, sizeof(address), "%s", result.effective_url);
+            "[Download limit reached: part of this page is unavailable]");
+    if(!editing) snprintf(address, sizeof(address), "%s", result.effective_url);
     snprintf(current_url, sizeof(current_url), "%s", result.effective_url);
-    fetch_result_free(&result);
     scroll_y = 0;
+    fragment = strchr(current_url, '#');
+    if(fragment) {
+        int y = document_anchor_y(&document, fragment);
+        if(y >= 0) scroll_y = y;
+    }
+    clamp_scroll();
     focused_link = -1;
-    snprintf(status_text, sizeof(status_text), "Page ready; loading images...");
-    redraw();
-    redraw_needed = 0;
-
-    begin_loading("image");
-    document_load_images(&document);
-    images_cancelled = loading_cancelled;
-    end_loading();
-    if(images_cancelled)
-        snprintf(status_text, sizeof(status_text), "Images canceled; page ready");
-    else
-        snprintf(status_text, sizeof(status_text), "%.82s%s", document.title,
-                 document.truncated ? " [shortened]" : "");
+    images_requested = 0;
+    snprintf(status_text, sizeof(status_text), "%s%s | F7 view | F4 images",
+             document.reader_active ? "Reader" : "Page ready",
+             document.truncated ? " [shortened]" : "");
+    printf("browser: page ready: %d items, %d links, reader %d, shortened %d\n",
+           document.item_count, document.link_count, document.reader_active, document.truncated);
+    memory_report("page ready");
     redraw_needed = 1;
     return 0;
+}
+
+static int load_request(const char *requested, const char *post_body) {
+    return load_request_ex(requested, post_body, 0);
 }
 
 static int load_page(const char *requested) {
@@ -782,6 +842,7 @@ static int load_page(const char *requested) {
 }
 
 static void navigate_request(const char *requested, const char *post_body) {
+    if(defer_action(PENDING_NAVIGATE, requested, post_body)) return;
     history_entry_t current;
     char target[MAX_URL];
     int result;
@@ -872,6 +933,7 @@ static void refresh_internal_page(void) {
 /* Actions exist only on internal pages, so a web page cannot exit the
    browser or change bookmarks by linking to them. */
 static void handle_internal_link(const char *link) {
+    if(defer_action(PENDING_INTERNAL, link, NULL)) return;
     int action = !strcmp(link, "about:bookmark-add") || !strcmp(link, "about:exit") ||
                  !strncmp(link, "about:bookmark-remove?", 22);
     if(!action) {
@@ -900,6 +962,7 @@ static void handle_internal_link(const char *link) {
 }
 
 static void navigate_back(void) {
+    if(defer_action(PENDING_BACK, NULL, NULL)) return;
     history_entry_t entry;
     history_entry_t current;
 
@@ -923,6 +986,7 @@ static void navigate_back(void) {
 }
 
 static void navigate_forward(void) {
+    if(defer_action(PENDING_FORWARD, NULL, NULL)) return;
     history_entry_t entry;
     history_entry_t current;
 
@@ -970,7 +1034,7 @@ static int run_layout_self_test(void) {
         "<!-- <a href='/hidden'>COMMENT_SHOULD_NOT_RENDER</a> -->"
         "<p>Before image</p><img src='/tiny.png' alt='tiny' width='100' height='72'>"
         "<img src='/decoration.png' alt=''>"
-        "<p>After image</p><ul><li><div>First item</div></li><li>Second item</li></ul>"
+        "<p id='after-image'>After image</p><ul><li><div>First item</div></li><li>Second item</li></ul>"
         "<table><tr><td>Cell A</td><td>Cell B</td></tr>"
         "<tr><td>Cell C</td></tr></table>"
         "<pre>A  B\nC</pre>";
@@ -1081,6 +1145,8 @@ static int run_layout_self_test(void) {
     document_reflow(test);
     LAYOUT_CHECK(after_image->y == after_y + 48 && image_item->height == 120,
                  "image reflow shift");
+    LAYOUT_CHECK(document_anchor_y(test, "#after-image") == after_image->y,
+                 "section target follows image reflow");
     after_y = after_image->y;
     document_reflow(test);
     LAYOUT_CHECK(after_image->y == after_y, "image reflow idempotence");
@@ -1103,8 +1169,33 @@ static int run_layout_self_test(void) {
                      "item crossed page edge");
     }
     document_free(test);
+    document_init(test, "https://example.com/");
+    {
+        static const char reader_html[] =
+            "<title>Reader test</title><nav>MENU_SHOULD_NOT_RENDER</nav>"
+            "<main id=content><header><h1>Article heading</h1></header>"
+            "<div><div><p>First paragraph</p></div></div>"
+            "<div hidden>HIDDEN_SHOULD_NOT_RENDER</div><p>Second paragraph</p>"
+            "<form action=/search><input name=q><button>Search</button></form>"
+            "</main><footer>FOOTER_SHOULD_NOT_RENDER</footer>";
+        document_item_t *first, *second;
+        document_parse_html_mode(test, reader_html, sizeof(reader_html) - 1, NULL, 1);
+        LAYOUT_CHECK(test->reader_available && test->reader_active &&
+                     !strcmp(test->title, "Reader test") && test->field_count == 2 &&
+                     test->forms[0].valid, "reader title and form retained");
+        LAYOUT_CHECK(document_anchor_y(test, "content") == test->items[0].y,
+                     "reader main section target");
+        for(i = 0; i < test->item_count; ++i)
+            LAYOUT_CHECK(!strstr(test->items[i].text, "SHOULD_NOT_RENDER"),
+                         "reader or hidden element leaked into layout");
+        first = find_layout_item(test, "First paragraph", TEXT_NORMAL);
+        second = find_layout_item(test, "Second paragraph", TEXT_NORMAL);
+        LAYOUT_CHECK(first && second && second->y - first->y <= 32,
+                     "nested block spacing compact");
+    }
+    document_free(test);
     free(test);
-    printf("browser: LAYOUT SELF-TEST PASSED (inline flow/styles/reflow)\n");
+    printf("browser: LAYOUT SELF-TEST PASSED (inline/reader/anchors/reflow)\n");
 #undef LAYOUT_CHECK
     return 0;
 }
@@ -1179,8 +1270,12 @@ static void run_history_self_test(void) {
     if(load_page("https://httpbin.org/base64/"
                  "PGh0bWw%2BPHRpdGxlPkNhbmNlbCBJbWFnZSBUZXN0PC90aXRsZT48Ym9keT48"
                  "aW1nIHNyYz0iL2ltYWdlL3BuZyIgYWx0PSJ0ZXN0Ij48L2JvZHk%2BPC9odG1s"
-                 "Pg%3D%3D") != 0 ||
-       self_test_cancel_mode || !loading_cancelled ||
+                 "Pg%3D%3D") != 0) {
+        printf("browser: CANCEL SELF-TEST FAILED (image page)\n");
+        return;
+    }
+    load_page_images();
+    if(self_test_cancel_mode || !loading_cancelled ||
        strcmp(status_text, "Images canceled; page ready") ||
        document.image_count != 1 || document.images[0].loaded != -1) {
         printf("browser: CANCEL SELF-TEST FAILED (image cancellation)\n");
@@ -1243,10 +1338,10 @@ static int build_form_body(int field_index, char *body, size_t size, size_t *out
     size_t used = 0;
     int i;
 
-    if(!form->valid || !network_same_origin(current_url, form->action) ||
+    if(!form->valid || (form->post && !network_same_origin(current_url, form->action)) ||
        strncmp(form->action, "https://", 8)) {
         snprintf(status_text, sizeof(status_text),
-                 "Form blocked: requires supported fields and same-origin HTTPS");
+                 "Form blocked: supported HTTPS required; POST must stay on site");
         redraw_needed = 1;
         return -1;
     }
@@ -1325,7 +1420,7 @@ static void begin_field_edit(int index, int want_osk) {
     } else {
         snprintf(field_backup, sizeof(field_backup), "%s", field->value);
         field->caret = (int)strlen(field->value);
-        snprintf(status_text, sizeof(status_text), "Edit %.14s: Enter done, Esc undo",
+        snprintf(status_text, sizeof(status_text), "Edit %.14s: Enter done, Ctrl+Enter submits",
                  field->name);
         if(want_osk) open_osk();
     }
@@ -1353,9 +1448,54 @@ static void follow_link(int link_id, int want_osk) {
     else navigate_to(link);
 }
 
+static void toggle_reader(void) {
+    if(defer_action(PENDING_READER, NULL, NULL)) return;
+    if(!page_source.data || !document.reader_available) {
+        snprintf(status_text, sizeof(status_text), "No separate article area on this page");
+        redraw_needed = 1;
+        return;
+    }
+    finish_field_edit(0);
+    prefer_reader = !document.reader_active;
+    document_free(&document);
+    document_init(&document, page_source.effective_url);
+    document_parse_html_mode(&document, (const char *)page_source.data, page_source.size,
+                             page_source.content_type, prefer_reader);
+    if(page_source.truncated)
+        document_mark_shortened(&document, "[Download limit reached: part of this page is unavailable]");
+    scroll_y = 0;
+    focused_link = -1;
+    images_requested = 0;
+    snprintf(status_text, sizeof(status_text), "%s%s | F7 view | F4 images",
+             document.reader_active ? "Reader" : "Full page",
+             document.truncated ? " [shortened]" : "");
+    redraw_needed = 1;
+}
+
+static void load_page_images(void) {
+    if(defer_action(PENDING_IMAGES, NULL, NULL)) return;
+    if(images_requested || !document.image_count) {
+        snprintf(status_text, sizeof(status_text), "%s",
+                 images_requested ? "Images already attempted; reload to try again" : "No images on this page");
+        redraw_needed = 1;
+        return;
+    }
+    images_requested = 1;
+    memory_report("before images");
+    begin_loading("image");
+    document_load_images(&document);
+    end_loading();
+    clamp_scroll();
+    snprintf(status_text, sizeof(status_text), "%s",
+             loading_cancelled ? "Images canceled; page ready" : "Images ready; skipped files keep placeholders");
+    memory_report("after images");
+    redraw_needed = 1;
+}
+
 static void reload_page(void) {
+    if(defer_action(PENDING_RELOAD, NULL, NULL)) return;
     int saved_scroll = scroll_y;
-    if(load_page(address) == 0) {
+    if(load_request_ex(address, NULL, 1) == 0) {
         scroll_y = saved_scroll;
         clamp_scroll();
     }
@@ -1411,6 +1551,20 @@ static void process_select_key(browser_field_t *field, kbd_key_t key, char ascii
 static void process_field_key(kbd_key_t key, kbd_mods_t mods, char ascii) {
     browser_field_t *field = &document.fields[editing_field];
     int shift = (mods.raw & KBD_MOD_SHIFT) != 0;
+    if((mods.raw & KBD_MOD_CTRL) &&
+       (key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER)) {
+        int submit = editing_field;
+        for(int i = 0; i < document.field_count; ++i) {
+            if(document.fields[i].form == field->form &&
+               !document.fields[i].disabled && document_field_is_submit(&document.fields[i])) {
+                submit = i;
+                break;
+            }
+        }
+        finish_field_edit(0);
+        submit_form(submit);
+        return;
+    }
     if(!strcmp(field->type, "textarea") && shift &&
        (key == KBD_KEY_ENTER || key == KBD_KEY_PAD_ENTER)) {
         insert_char(field->value, sizeof(field->value), (size_t)field->maxlength,
@@ -1457,6 +1611,10 @@ static int handle_key(kbd_key_t key, kbd_mods_t mods, char ascii) {
 
     redraw_needed = 1;
 
+    if(loading_label && key == KBD_KEY_ESCAPE && !editing && editing_field < 0) {
+        loading_cancelled = 1;
+        return 0;
+    }
     if(editing_field >= 0) {
         process_field_key(key, mods, ascii);
         return 0;
@@ -1481,6 +1639,10 @@ static int handle_key(kbd_key_t key, kbd_mods_t mods, char ascii) {
         toggle_bookmarks_page();
     else if(key == KBD_KEY_B && ctrl)
         toggle_toolbar();
+    else if(key == KBD_KEY_F7)
+        toggle_reader();
+    else if(key == KBD_KEY_F4)
+        load_page_images();
     else if(key == KBD_KEY_F5 || (key == KBD_KEY_R && ctrl))
         reload_page();
     else if(key == KBD_KEY_TAB)
@@ -1626,6 +1788,7 @@ static int process_mouse(maple_device_t *mouse) {
         redraw_needed = 1;
         return 0;
     }
+    if(loading_label && (pressed & MOUSE_RIGHTBUTTON)) loading_cancelled = 1;
     if(pressed & MOUSE_LEFTBUTTON) {
         /* Without a keyboard, text entry needs the on-screen keyboard. */
         int want_osk = !keyboard_attached();
@@ -1792,6 +1955,14 @@ static void process_controller(maple_device_t *controller) {
            the on-screen keyboard instead of acting on the page. */
         if(pressed || left_trigger || right_trigger) open_osk();
         return;
+    }
+    if(loading_label && (pressed & CONT_B)) {
+        loading_cancelled = 1;
+        pressed &= ~CONT_B;
+    }
+    if(state->buttons & CONT_Y) {
+        if(left_trigger) { toggle_reader(); return; }
+        if(right_trigger) { load_page_images(); return; }
     }
     if(pressed & CONT_START) toggle_bookmarks_page();
     if(pressed & CONT_X) begin_address_edit(1);
@@ -2525,6 +2696,42 @@ fail:
 }
 #endif
 
+static void dispatch_pending(void) {
+    pending_action_t action = pending.action;
+    char url[MAX_URL];
+    char *body = NULL;
+    if(action == PENDING_NONE || loading_label) return;
+    snprintf(url, sizeof(url), "%s", pending.url);
+    if(pending.post) {
+        body = strdup(pending.body);
+        if(!body) {
+            pending.action = PENDING_NONE;
+            memset(pending.body, 0, sizeof(pending.body));
+            snprintf(status_text, sizeof(status_text), "Not enough memory to submit form");
+            redraw_needed = 1;
+            return;
+        }
+    }
+    pending.action = PENDING_NONE;
+    pending.post = 0;
+    memset(pending.body, 0, sizeof(pending.body));
+    switch(action) {
+    case PENDING_NAVIGATE: navigate_request(url, body); break;
+    case PENDING_BACK: navigate_back(); break;
+    case PENDING_FORWARD: navigate_forward(); break;
+    case PENDING_RELOAD: reload_page(); break;
+    case PENDING_READER: toggle_reader(); break;
+    case PENDING_IMAGES: load_page_images(); break;
+    case PENDING_INTERNAL: handle_internal_link(url); break;
+    default: break;
+    }
+    if(body) { memset(body, 0, strlen(body)); free(body); }
+}
+
+#ifdef BROWSER_LOADING_SELF_TEST
+#include "tests/loading_self_test.inc"
+#endif
+
 int main(int argc, char **argv) {
     maple_device_t *keyboard;
     maple_device_t *mouse;
@@ -2585,6 +2792,9 @@ int main(int argc, char **argv) {
 #ifdef BROWSER_FORM_SELF_TEST
     run_form_self_test();
 #endif
+#ifdef BROWSER_LOADING_SELF_TEST
+    run_loading_self_test();
+#endif
 
 #ifdef BROWSER_PROFILE
     /* Startup, network loads, and the synthetic tests aren't interactive frames. */
@@ -2625,6 +2835,7 @@ int main(int argc, char **argv) {
             PROF_ADD(prof_input_us);
         }
         quit |= quit_requested;
+        if(!quit) dispatch_pending();
         if(redraw_needed) {
             redraw_needed = 0;
             compose();
@@ -2658,6 +2869,8 @@ int main(int argc, char **argv) {
     }
 
     frame_clock_shutdown();
+    fetch_result_free(&page_source);
+    memset(pending.body, 0, sizeof(pending.body));
     document_free(&document);
     network_shutdown();
     printf("browser: clean shutdown\n");

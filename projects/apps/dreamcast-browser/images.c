@@ -1,9 +1,18 @@
 #include "browser.h"
 
+#include <kos/timer.h>
 #include <stb_image/stb_image.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+
+/* Decoding the old three-megapixel limit could allocate 9 MiB for RGB alone.
+   Leave room for stb's intermediate buffers, TLS, the page, and the display. */
+#define MAX_IMAGE_SOURCE_DIM 1024
+#define MAX_IMAGE_SOURCE_PIXELS (512 * 1024)
+#define PAGE_IMAGE_TIMEOUT_MS 12000
+#define IMAGE_TIMEOUT_MS 8000
 
 static uint16_t rgb565(unsigned char r, unsigned char g, unsigned char b) {
     return (uint16_t)(((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3));
@@ -42,18 +51,42 @@ static void select_dreamcast_image_size(char *url, size_t capacity) {
 }
 
 static void skip_remaining_images(browser_document_t *doc, int first) {
-    int i;
+    int i, skipped = 0;
     for(i = first; i < doc->image_count; ++i)
-        doc->images[i].loaded = -1;
+        if(!doc->images[i].loaded) {
+            doc->images[i].loaded = -1;
+            skipped++;
+        }
     document_touch(doc);
-    if(first < doc->image_count)
+    if(skipped)
         printf("browser: stopped asset loading; %d remaining image(s) use placeholders\n",
-               doc->image_count - first);
+               skipped);
+}
+
+static int unsupported_url(const char *url) {
+    static const char *extensions[] = {".svg", ".svgz", ".webp", ".avif"};
+    size_t path_length = strcspn(url, "?#");
+    size_t i;
+    for(i = 0; i < sizeof(extensions) / sizeof(extensions[0]); ++i) {
+        size_t length = strlen(extensions[i]);
+        if(path_length >= length &&
+           !strncasecmp(url + path_length - length, extensions[i], length))
+            return 1;
+    }
+    return 0;
+}
+
+static int decoder_out_of_memory(void) {
+    const char *reason = stbi_failure_reason();
+    return reason && (strstr(reason, "outofmem") ||
+                      strstr(reason, "Out of memory") ||
+                      strstr(reason, "out of memory"));
 }
 
 void document_load_images(browser_document_t *doc) {
     int i;
     size_t remaining = MAX_PAGE_IMAGE_BYTES;
+    uint64_t deadline = timer_ms_gettime64() + PAGE_IMAGE_TIMEOUT_MS;
     for(i = 0; i < doc->image_count; ++i) {
         browser_image_t *image = &doc->images[i];
         fetch_result_t result;
@@ -62,6 +95,28 @@ void document_load_images(browser_document_t *doc) {
         int target_w, target_h;
         int x, y;
         size_t fetch_limit;
+        unsigned timeout;
+        uint64_t now;
+        int fetched;
+        int valid_info;
+
+        /* Each slot gets one attempt per page. Repeated requests never leak
+           an existing bitmap or restart an exhausted download budget. */
+        if(image->loaded) continue;
+
+        if(unsupported_url(image->url)) {
+            image->loaded = -1;
+            document_touch(doc);
+            printf("browser: unsupported image format skipped: %s\n", image->url);
+            continue;
+        }
+
+        now = timer_ms_gettime64();
+        if(now >= deadline) {
+            printf("browser: page image time budget exhausted\n");
+            skip_remaining_images(doc, i);
+            break;
+        }
 
         if(remaining < MIN_IMAGE_FETCH_BYTES) {
             image->loaded = -1;
@@ -73,36 +128,63 @@ void document_load_images(browser_document_t *doc) {
 
         select_dreamcast_image_size(image->url, sizeof(image->url));
         fetch_limit = remaining < MAX_IMAGE_BYTES ? remaining : MAX_IMAGE_BYTES;
-        if(network_fetch(image->url, fetch_limit, &result) < 0) {
+        timeout = (unsigned)(deadline - now);
+        if(timeout > IMAGE_TIMEOUT_MS) timeout = IMAGE_TIMEOUT_MS;
+        fetched = network_fetch_image(image->url, fetch_limit, timeout, &result);
+        remaining -= result.size < remaining ? result.size : remaining;
+        if(fetched < 0) {
+            int stop = result.cancelled || result.out_of_memory;
             image->loaded = -1;
             document_touch(doc);
             printf("browser: image skipped (%s): %s\n", image->url, result.error);
-            skip_remaining_images(doc, i + 1);
-            break;
+            fetch_result_free(&result);
+            if(stop) {
+                skip_remaining_images(doc, i + 1);
+                break;
+            }
+            continue;
         }
-        remaining -= result.size;
         if(result.status < 200 || result.status >= 300 || result.truncated ||
-           !stbi_info_from_memory(result.data, (int)result.size,
-                                  &source_w, &source_h, &channels) ||
-           source_w < 1 || source_h < 1 || source_w > 2048 || source_h > 2048 ||
-           (long long)source_w * source_h > 3000000) {
+           !result.data || !result.size ||
+           !strncasecmp(result.content_type, "image/svg+xml", 13)) {
+            image->loaded = -1;
+            document_touch(doc);
+            printf("browser: unsupported image response: %s\n", image->url);
+            fetch_result_free(&result);
+            continue;
+        }
+        valid_info = stbi_info_from_memory(result.data, (int)result.size,
+                                           &source_w, &source_h, &channels);
+        if(!valid_info ||
+           source_w < 1 || source_h < 1 ||
+           source_w > MAX_IMAGE_SOURCE_DIM || source_h > MAX_IMAGE_SOURCE_DIM ||
+           (long long)source_w * source_h > MAX_IMAGE_SOURCE_PIXELS) {
+            int stop = !valid_info && decoder_out_of_memory();
             image->loaded = -1;
             document_touch(doc);
             printf("browser: unsupported or oversized image: %s\n", image->url);
             fetch_result_free(&result);
-            skip_remaining_images(doc, i + 1);
-            break;
+            if(stop) {
+                skip_remaining_images(doc, i + 1);
+                break;
+            }
+            continue;
         }
 
         decoded = stbi_load_from_memory(result.data, (int)result.size,
                                         &source_w, &source_h, &channels, 3);
         fetch_result_free(&result);
         if(!decoded) {
+            int stop = decoder_out_of_memory();
             image->loaded = -1;
             document_touch(doc);
-            printf("browser: image decode failed: %s\n", stbi_failure_reason());
-            skip_remaining_images(doc, i + 1);
-            break;
+            printf("browser: image decode failed: %s\n",
+                   stbi_failure_reason() ? stbi_failure_reason() : "unknown format");
+            if(stop) {
+                skip_remaining_images(doc, i + 1);
+                break;
+            }
+            continue;
         }
 
         target_w = source_w;

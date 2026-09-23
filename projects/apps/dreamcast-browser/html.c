@@ -6,6 +6,8 @@
 #include <string.h>
 #include <strings.h>
 
+#define READER_IMAGE_PLACEHOLDER_HEIGHT 32
+
 typedef enum {
     ENCODING_UTF8,
     ENCODING_WINDOWS_1252
@@ -13,6 +15,7 @@ typedef enum {
 
 typedef struct {
     int skip_depth;
+    int hidden;
     int in_head;
     int in_title;
     int title_started;
@@ -40,6 +43,10 @@ static int line_height;
 static int line_has_content;
 static int line_indent;
 static int pending_space;
+static int pending_gap;
+static int merge_barrier;
+static uint32_t anchor_targets[MAX_ANCHORS];
+static int anchor_target_count;
 static text_encoding_t encoding = ENCODING_UTF8;
 
 static void add_notice(browser_document_t *doc, const char *message);
@@ -515,6 +522,7 @@ static int attr_value(const char *tag, const char *name, char *out, size_t cap) 
 
 static int attr_lower(const char *tag, const char *name, char *out, size_t cap) {
     int found = attr_value(tag, name, out, cap);
+    if(!found) return 0;
     for(; *out; ++out) *out = (char)tolower((unsigned char)*out);
     return found;
 }
@@ -552,8 +560,11 @@ static int attr_url(const char *tag, const char *name, char *out, size_t cap) {
 
 static document_item_t *new_item(browser_document_t *doc) {
     document_item_t *item;
-    if(doc->item_count >= MAX_ITEMS) {
+    /* Keep the last eight slots for visible limit notices, including a later
+       network-size notice. A full layout must still explain why it ends. */
+    if(doc->item_count >= MAX_ITEMS - 8) {
         doc->truncated = 1;
+        doc->limit_flags |= DOCUMENT_LIMIT_LAYOUT;
         return NULL;
     }
     item = &doc->items[doc->item_count++];
@@ -580,19 +591,45 @@ static void finish_line(int force) {
 
 static void vertical_space(int amount) {
     finish_line(0);
-    if(amount > 0) line_y += amount;
+    /* Nested empty blocks share their largest margin instead of accumulating
+       one blank strip per wrapper. Apply it only when content arrives. */
+    if(amount > pending_gap) pending_gap = amount;
     pending_space = 0;
+}
+
+static void apply_gap(void) {
+    line_y += pending_gap;
+    pending_gap = 0;
 }
 
 static void add_text_run(browser_document_t *doc, const char *text, size_t len,
                          text_style_t style, int link_id) {
     document_item_t *item;
+    text_style_t actual_style = link_id >= 0 ? TEXT_LINK : style;
     if(!len) return;
     if(len >= MAX_TEXT) len = MAX_TEXT - 1;
+    /* Modern HTML often wraps single words in many spans. Adjacent pieces
+       of the same styled run need one item, while anchor boundaries remain
+       distinct so their item indices keep pointing at the right text. */
+    item = doc->item_count ? &doc->items[doc->item_count - 1] : NULL;
+    if(!merge_barrier && item && item->type == ITEM_TEXT &&
+       item->style == actual_style && item->link_id == link_id &&
+       item->y == line_y + pending_gap && item->x + item->width == line_x) {
+        size_t previous = strlen(item->text);
+        if(previous + len < sizeof(item->text)) {
+            memcpy(item->text + previous, text, len);
+            item->text[previous + len] = 0;
+            item->width += (int)len * 12;
+            line_x += (int)len * 12;
+            return;
+        }
+    }
     item = new_item(doc);
     if(!item) return;
+    merge_barrier = 0;
+    apply_gap();
     item->type = ITEM_TEXT;
-    item->style = link_id >= 0 ? TEXT_LINK : style;
+    item->style = actual_style;
     item->x = line_x;
     item->y = line_y;
     item->width = (int)len * 12;
@@ -678,7 +715,8 @@ static void wrap_text(browser_document_t *doc, const char *text,
         while(take && p[take] != ' ') take--;
         if(!take) {
             const char *space = memchr(p, ' ', len);
-            if(line_has_content && space && (size_t)(space - p) <= 48) {
+            size_t word = space ? (size_t)(space - p) : len;
+            if(line_has_content && word <= (size_t)(PAGE_WIDTH / 12)) {
                 finish_line(0);
                 continue;
             }
@@ -694,9 +732,12 @@ static void wrap_text(browser_document_t *doc, const char *text,
 
 static int add_link(browser_document_t *doc, const char *url) {
     char resolved[MAX_URL];
-    if(doc->link_count >= MAX_LINKS ||
-       resolve_url(doc->base_url, url, resolved, sizeof(resolved)) < 0)
+    if(resolve_url(doc->base_url, url, resolved, sizeof(resolved)) < 0)
         return -1;
+    if(doc->link_count >= MAX_LINKS) {
+        doc->limit_flags |= DOCUMENT_LIMIT_LINKS;
+        return -1;
+    }
     snprintf(doc->links[doc->link_count], MAX_URL, "%s", resolved);
     return doc->link_count++;
 }
@@ -708,7 +749,7 @@ static void add_image(browser_document_t *doc, const char *url, const char *alt,
     char resolved[MAX_URL];
 
     if(doc->image_count >= MAX_IMAGES) {
-        add_notice(doc, "[Additional images omitted: page image limit reached]");
+        doc->limit_flags |= DOCUMENT_LIMIT_IMAGES;
         return;
     }
     if(resolve_url(doc->base_url, url, resolved, sizeof(resolved)) < 0) return;
@@ -721,6 +762,7 @@ static void add_image(browser_document_t *doc, const char *url, const char *alt,
         resolved[4] = 's';
     }
     vertical_space(5);
+    apply_gap();
     image = &doc->images[doc->image_count];
     memset(image, 0, sizeof(*image));
     if(declared_width > PAGE_WIDTH) {
@@ -742,8 +784,11 @@ static void add_image(browser_document_t *doc, const char *url, const char *alt,
     item->type = ITEM_IMAGE;
     item->x = PAGE_MARGIN;
     item->y = line_y;
-    item->width = image->width;
-    item->height = image->height;
+    /* Optional images should not push reader text off-screen before the
+       user asks for them. Keep the declared dimensions on the image itself
+       for full-page layout and replace this compact row only after decoding. */
+    item->width = doc->reader_active ? PAGE_WIDTH : image->width;
+    item->height = doc->reader_active ? READER_IMAGE_PLACEHOLDER_HEIGHT : image->height;
     item->image_id = doc->image_count++;
     line_y += item->height + 7;
 }
@@ -755,21 +800,38 @@ void document_mark_shortened(browser_document_t *doc, const char *message) {
     line_indent = 0;
     reset_line();
     pending_space = 0;
+    pending_gap = 0;
     add_notice(doc, message);
     doc->height = line_y + 20;
     document_touch(doc);
 }
 
 static void add_notice(browser_document_t *doc, const char *message) {
-    document_item_t *item = new_item(doc);
-    if(!item) return;
-    item->type = ITEM_NOTICE;
-    item->style = TEXT_MUTED;
-    item->x = PAGE_MARGIN;
-    item->y = line_y;
-    item->height = 24;
-    snprintf(item->text, sizeof(item->text), "%s", message);
-    line_y += 27;
+    const char *p = message;
+    finish_line(0);
+    apply_gap();
+    while(*p && doc->item_count < MAX_ITEMS) {
+        document_item_t *item = &doc->items[doc->item_count++];
+        size_t count = strlen(p), take = count;
+        if(take > PAGE_WIDTH / 12) {
+            take = PAGE_WIDTH / 12;
+            while(take && p[take] != ' ') take--;
+            if(!take) take = PAGE_WIDTH / 12;
+        }
+        memset(item, 0, sizeof(*item));
+        item->type = ITEM_NOTICE;
+        item->style = TEXT_MUTED;
+        item->link_id = item->image_id = -1;
+        item->x = PAGE_MARGIN;
+        item->y = line_y;
+        item->height = 24;
+        item->width = (int)take * 12;
+        memcpy(item->text, p, take);
+        item->text[take] = 0;
+        line_y += 27;
+        p += take;
+        while(*p == ' ') p++;
+    }
 }
 
 /* One serial for all documents and mutations. Initialization must not read
@@ -804,6 +866,7 @@ void document_make_error(browser_document_t *doc, const char *title, const char 
     line_indent = 0;
     reset_line();
     pending_space = 0;
+    pending_gap = 0;
     add_line(doc, title, TEXT_HEADING, -1);
     vertical_space(8);
     wrap_text(doc, message, TEXT_NORMAL, -1, 0);
@@ -920,12 +983,13 @@ void document_select_option(browser_document_t *doc, int index, int option) {
 }
 
 static browser_field_t *new_field(browser_document_t *doc, int form,
-                                  const char *type, const char *tag) {
+                                  const char *type, const char *tag, int hidden) {
     browser_field_t *field;
     char maxlength[16];
 
     if(doc->field_count >= MAX_FIELDS) {
         doc->forms[form].valid = 0;
+        doc->limit_flags |= DOCUMENT_LIMIT_FORMS;
         return NULL;
     }
     field = &doc->fields[doc->field_count];
@@ -937,6 +1001,7 @@ static browser_field_t *new_field(browser_document_t *doc, int form,
     field->selected = -1;
     field->maxlength = MAX_FIELD_VALUE - 1;
     field->disabled = attr_present(tag, "disabled");
+    field->hidden = hidden;
     snprintf(field->type, sizeof(field->type), "%s", type);
     attr_value(tag, "name", field->name, sizeof(field->name));
     if(attr_value(tag, "maxlength", maxlength, sizeof(maxlength))) {
@@ -951,9 +1016,10 @@ static browser_field_t *new_field(browser_document_t *doc, int form,
 static void show_control(browser_document_t *doc, int index, int inline_control) {
     browser_field_t *field = &doc->fields[index];
 
-    if(field->disabled) return;
+    if(field->disabled || field->hidden) return;
     if(doc->link_count >= MAX_LINKS) {
         doc->forms[field->form].valid = 0;
+        doc->limit_flags |= DOCUMENT_LIMIT_LINKS | DOCUMENT_LIMIT_FORMS;
         return;
     }
     field->link = doc->link_count++;
@@ -1018,7 +1084,11 @@ static void start_option(browser_document_t *doc, parse_state_t *st, const char 
     browser_field_t *field = &doc->fields[st->current_select];
     browser_option_t *option;
     finish_option(doc, st);
-    if(doc->option_count >= MAX_OPTIONS) return;
+    if(doc->option_count >= MAX_OPTIONS) {
+        doc->limit_flags |= DOCUMENT_LIMIT_FORMS;
+        doc->forms[field->form].valid = 0;
+        return;
+    }
     option = &doc->options[doc->option_count];
     memset(option, 0, sizeof(*option));
     st->option_has_value = attr_form_value(tag, "value", option->value,
@@ -1051,7 +1121,7 @@ static void handle_input(browser_document_t *doc, parse_state_t *st, const char 
        strcmp(type, "range"))
         snprintf(type, sizeof(type), "text");
 
-    field = new_field(doc, st->current_form, type, tag);
+    field = new_field(doc, st->current_form, type, tag, st->hidden);
     if(!field) return;
     attr_form_value(tag, "value", field->value, sizeof(field->value));
     if(!strcmp(type, "checkbox") || !strcmp(type, "radio")) {
@@ -1080,7 +1150,7 @@ static const char *handle_textarea(browser_document_t *doc, parse_state_t *st,
     resume = resume ? resume + 1 : end;
     if(st->current_form < 0) return content; /* Parse it as ordinary text. */
 
-    field = new_field(doc, st->current_form, "textarea", tag);
+    field = new_field(doc, st->current_form, "textarea", tag, st->hidden);
     if(!field) return resume;
     normalize_text_ex(content, (size_t)(finish - content), field->value,
                       sizeof(field->value), 1, 1);
@@ -1115,6 +1185,9 @@ static void render_text_node(browser_document_t *doc, parse_state_t *st,
     size_t done = 0;
 
     if(st->skip_depth || (st->in_head && !st->in_title)) return;
+    if(st->hidden &&
+       !(st->current_select >= 0 && doc->fields[st->current_select].hidden) &&
+       !(st->current_button >= 0 && doc->fields[st->current_button].hidden)) return;
     if(st->adjacent_link && !st->in_pre && st->current_select < 0 &&
        st->current_button < 0) {
         size_t i = 0;
@@ -1150,12 +1223,17 @@ static void render_text_node(browser_document_t *doc, parse_state_t *st,
             used = normalize_text_ex(p + done, chunk, normalized, sizeof(normalized),
                                      st->in_pre, entities);
             if(!st->in_head && normalized[0]) {
+                int trailing_space = pending_space;
                 if(st->list_marker_pending) {
                     add_text_run(doc, "* ", 2, TEXT_NORMAL, -1);
                     st->list_marker_pending = 0;
                 }
                 wrap_text(doc, normalized, active_style(st), st->current_link,
                           st->in_pre);
+                /* Line wrapping consumes layout whitespace; the original
+                   text node's trailing space still separates the next inline
+                   element even when this node wrapped onto another row. */
+                pending_space = trailing_space;
                 st->adjacent_link = 0;
             }
         }
@@ -1190,10 +1268,327 @@ static int is_ignored_tag(const char *name) {
     return 0;
 }
 
+/* A tiny bounded tokenizer shared with reader selection and hidden-subtree
+   skipping. Quoted '>' must not terminate a tag. */
+static const char *tag_end(const char *start, const char *end) {
+    char quote = 0;
+    for(; start < end; ++start) {
+        if(quote) { if(*start == quote) quote = 0; }
+        else if(*start == '\'' || *start == '"') quote = *start;
+        else if(*start == '>') return start;
+    }
+    return NULL;
+}
+
+static int void_tag(const char *name) {
+    return !strcmp(name, "area") || !strcmp(name, "base") ||
+           !strcmp(name, "br") || !strcmp(name, "col") ||
+           !strcmp(name, "embed") || !strcmp(name, "hr") ||
+           !strcmp(name, "img") || !strcmp(name, "input") ||
+           !strcmp(name, "link") || !strcmp(name, "meta") ||
+           !strcmp(name, "param") || !strcmp(name, "source") ||
+           !strcmp(name, "track") || !strcmp(name, "wbr");
+}
+
+static const char *tag_name(const char *p, const char *end, char *name,
+                             size_t capacity, int *closing) {
+    size_t n = 0;
+    while(p < end && isspace((unsigned char)*p)) p++;
+    *closing = p < end && *p == '/';
+    if(*closing) p++;
+    while(p < end && isspace((unsigned char)*p)) p++;
+    while(p < end && !isspace((unsigned char)*p) && *p != '/' && *p != '>') {
+        if(n + 1 < capacity) name[n++] = (char)tolower((unsigned char)*p);
+        p++;
+    }
+    name[n] = 0;
+    return p;
+}
+
+static int raw_tag(const char *name) {
+    return !strcmp(name, "script") || !strcmp(name, "style") ||
+           !strcmp(name, "textarea") || !strcmp(name, "title");
+}
+
+/* Returns just after the matching close; an incomplete response extends to
+   end. Only equal tag names affect nesting, so void tags cannot trap us. */
+static const char *subtree_end(const char *p, const char *end, const char *name) {
+    unsigned depth = 1;
+    int raw = raw_tag(name);
+    while(p < end) {
+        const char *start = raw ? find_ci(p, (size_t)(end - p), "</") :
+                                 memchr(p, '<', (size_t)(end - p));
+        const char *close;
+        char child[32];
+        int closing;
+        if(!start) break;
+        if(!raw && end - start >= 4 && !memcmp(start, "<!--", 4)) {
+            const char *finish = find_ci(start + 4, (size_t)(end - start - 4), "-->");
+            p = finish ? finish + 3 : end;
+            continue;
+        }
+        close = tag_end(start + 1, end);
+        if(!close) break;
+        tag_name(start + 1, close, child, sizeof(child), &closing);
+        p = close + 1;
+        if(!strcmp(name, child)) {
+            if(closing) { if(!--depth) return p; }
+            else if(!raw) depth++;
+        } else if(!raw && !closing && raw_tag(child)) {
+            p = subtree_end(p, end, child);
+        }
+    }
+    return end;
+}
+
+/* Honor a small, deterministic subset of visibility without pretending to
+   implement a CSS cascade. 'display:none' must be its own declaration. */
+static int hidden_element(const char *attributes) {
+    char style[512];
+    const char *p;
+    if(attr_present(attributes, "hidden")) return 1;
+    if(!attr_lower(attributes, "style", style, sizeof(style))) return 0;
+    p = style;
+    while(*p) {
+        const char *end = strchr(p, ';');
+        const char *colon;
+        const char *key_end;
+        if(!end) end = p + strlen(p);
+        while(p < end && isspace((unsigned char)*p)) p++;
+        colon = memchr(p, ':', (size_t)(end - p));
+        key_end = colon;
+        if(colon) {
+            const char *value = colon + 1;
+            while(key_end > p && isspace((unsigned char)key_end[-1])) key_end--;
+            while(value < end && isspace((unsigned char)*value)) value++;
+            if(key_end - p == 7 && !memcmp(p, "display", 7) &&
+               end - value >= 4 && !memcmp(value, "none", 4) &&
+               (value + 4 == end || isspace((unsigned char)value[4]) || value[4] == '!'))
+                return 1;
+        }
+        p = *end ? end + 1 : end;
+    }
+    return 0;
+}
+
+static int attribute_token(const char *attributes, const char *attribute,
+                            const char *token) {
+    const char *value, *end;
+    size_t length, token_length = strlen(token);
+    if(!find_attribute(attributes, attribute, &value, &length)) return 0;
+    end = value + length;
+    while(value < end) {
+        const char *start;
+        while(value < end && isspace((unsigned char)*value)) value++;
+        start = value;
+        while(value < end && !isspace((unsigned char)*value)) value++;
+        if((size_t)(value - start) == token_length &&
+           !strncasecmp(start, token, token_length)) return 1;
+    }
+    return 0;
+}
+
+static int article_body(const char *attributes) {
+    /* These are established semantic/CMS content markers, not URL rules;
+       arbitrary class substrings such as "post-content-menu" never match. */
+    static const char *const classes[] = {
+        "entry-content", "post-content", "article-body", "article__body",
+        "mw-parser-output"
+    };
+    size_t i;
+    if(attribute_token(attributes, "itemprop", "articleBody")) return 1;
+    for(i = 0; i < sizeof(classes) / sizeof(classes[0]); ++i)
+        if(attribute_token(attributes, "class", classes[i])) return 1;
+    return 0;
+}
+
+static int reader_navigation(const char *name, const char *attributes) {
+    return !strcmp(name, "nav") || !strcmp(name, "aside") || !strcmp(name, "footer") ||
+           attribute_token(attributes, "role", "navigation") ||
+           attribute_token(attributes, "role", "complementary") ||
+           attribute_token(attributes, "role", "menu") ||
+           attribute_token(attributes, "role", "menubar") ||
+           attribute_token(attributes, "role", "toolbar") ||
+           attribute_token(attributes, "class", "infobox");
+}
+
+static int fragment_decode(const char *text, char *out, size_t capacity);
+
+static uint32_t anchor_hash(const char *text) {
+    uint32_t hash = 2166136261u;
+    while(*text) hash = (hash ^ (unsigned char)*text++) * 16777619u;
+    return hash;
+}
+
+/* A small hash set ranks the anchors actually referenced by the document.
+   Hash collisions only preserve an extra incidental ID, never misdirect a
+   navigation: the final lookup still compares the complete target name. */
+static void remember_fragment_target(const char *attributes) {
+    char href[MAX_URL], name[MAX_ANCHOR_NAME];
+    const char *fragment;
+    uint32_t hash;
+    int i;
+    if(!attr_url(attributes, "href", href, sizeof(href)) ||
+       !(fragment = strchr(href, '#')) ||
+       !fragment_decode(fragment + 1, name, sizeof(name)) || !name[0]) return;
+    hash = anchor_hash(name);
+    for(i = 0; i < anchor_target_count; ++i)
+        if(anchor_targets[i] == hash) return;
+    if(anchor_target_count < MAX_ANCHORS) anchor_targets[anchor_target_count++] = hash;
+}
+
+static void reader_region(const char *html, const char *end,
+                           const char **begin, const char **finish) {
+    const char *p = html;
+    const char *main_start = NULL, *main_end = NULL;
+    const char *article_start = NULL, *article_end = NULL;
+    const char *body_start = NULL, *body_end = NULL;
+    size_t article_size = 0;
+    size_t body_size = 0;
+    int article_count = 0;
+    *begin = *finish = NULL;
+    while(p < end) {
+        const char *start = memchr(p, '<', (size_t)(end - p));
+        const char *close, *attrs;
+        char name[32], attributes[2048], role[32];
+        size_t length;
+        int closing;
+        if(!start) break;
+        if(end - start >= 4 && !memcmp(start, "<!--", 4)) {
+            const char *comment = find_ci(start + 4, (size_t)(end - start - 4), "-->");
+            p = comment ? comment + 3 : end;
+            continue;
+        }
+        close = tag_end(start + 1, end);
+        if(!close) break;
+        attrs = tag_name(start + 1, close, name, sizeof(name), &closing);
+        p = close + 1;
+        if(closing) continue;
+        length = (size_t)(close - attrs);
+        if(length >= sizeof(attributes)) length = sizeof(attributes) - 1;
+        memcpy(attributes, attrs, length);
+        attributes[length] = 0;
+        if(raw_tag(name) || !strcmp(name, "template") || !strcmp(name, "svg") ||
+           !strcmp(name, "canvas") || hidden_element(attributes)) {
+            if(!void_tag(name)) p = subtree_end(p, end, name);
+            continue;
+        }
+        if(!strcmp(name, "a")) remember_fragment_target(attributes);
+        role[0] = 0;
+        attr_lower(attributes, "role", role, sizeof(role));
+        if(!strcmp(name, "main") || !strcmp(role, "main")) {
+            if(!main_start) {
+                main_start = start;
+                main_end = subtree_end(p, end, name);
+            }
+        }
+        if(!strcmp(name, "article")) {
+            const char *after = subtree_end(p, end, name);
+            size_t size = (size_t)(after - start);
+            if(size > article_size) {
+                article_size = size;
+                article_start = start;
+                article_end = after;
+            }
+            article_count++;
+        }
+        if(article_body(attributes)) {
+            const char *after = subtree_end(p, end, name);
+            size_t size = (size_t)(after - start);
+            if(size > body_size) {
+                body_size = size;
+                body_start = start;
+                body_end = after;
+            }
+        }
+    }
+    if(body_start) { *begin = body_start; *finish = body_end; }
+    else if(article_start && (!main_start || article_count == 1)) {
+        *begin = article_start; *finish = article_end;
+    } else if(main_start) { *begin = main_start; *finish = main_end; }
+}
+
+static int fragment_decode(const char *text, char *out, size_t capacity) {
+    size_t n = 0;
+    while(*text) {
+        unsigned char ch = (unsigned char)*text++;
+        if(ch == '%' && text[0] && text[1] &&
+           isxdigit((unsigned char)text[0]) && isxdigit((unsigned char)text[1])) {
+            int high = isdigit((unsigned char)text[0]) ? text[0] - '0' :
+                       tolower((unsigned char)text[0]) - 'a' + 10;
+            int low = isdigit((unsigned char)text[1]) ? text[1] - '0' :
+                      tolower((unsigned char)text[1]) - 'a' + 10;
+            ch = (unsigned char)(high * 16 + low);
+            text += 2;
+        }
+        if(!ch || n + 1 >= capacity) return 0;
+        out[n++] = (char)ch;
+    }
+    out[n] = 0;
+    return 1;
+}
+
+static void add_anchor(browser_document_t *doc, const char *attributes,
+                        const char *attribute, unsigned priority) {
+    char encoded[MAX_URL], name[MAX_ANCHOR_NAME];
+    int i, slot;
+    uint32_t hash;
+    if(!attr_url(attributes, attribute, encoded, sizeof(encoded)) || !encoded[0]) return;
+    if(!fragment_decode(encoded, name, sizeof(name))) {
+        doc->limit_flags |= DOCUMENT_LIMIT_ANCHORS;
+        return;
+    }
+    for(i = 0; i < doc->anchor_count; ++i)
+        if(!strcmp(doc->anchors[i].name, name)) return;
+    hash = anchor_hash(name);
+    for(i = 0; i < anchor_target_count; ++i)
+        if(anchor_targets[i] == hash && priority < 2) { priority = 2; break; }
+    slot = doc->anchor_count;
+    if(doc->anchor_count >= MAX_ANCHORS) {
+        doc->limit_flags |= DOCUMENT_LIMIT_ANCHORS;
+        slot = -1;
+        for(i = 0; i < doc->anchor_count; ++i) {
+            if(doc->anchors[i].priority < priority &&
+               (slot < 0 || doc->anchors[i].priority < doc->anchors[slot].priority))
+                slot = i;
+        }
+        if(slot < 0) return;
+    } else {
+        doc->anchor_count++;
+    }
+    copy_text(doc->anchors[slot].name, MAX_ANCHOR_NAME, name);
+    doc->anchors[slot].item = doc->item_count;
+    doc->anchors[slot].priority = priority;
+    merge_barrier = 1;
+}
+
+int document_anchor_y(const browser_document_t *doc, const char *fragment) {
+    char name[MAX_ANCHOR_NAME];
+    int i;
+    if(!fragment) return -1;
+    if(*fragment == '#') fragment++;
+    if(!*fragment) return 0;
+    if(!fragment_decode(fragment, name, sizeof(name))) return -1;
+    for(i = 0; i < doc->anchor_count; ++i) {
+        if(!strcmp(doc->anchors[i].name, name)) {
+            int item = doc->anchors[i].item;
+            return item < doc->item_count ? doc->items[item].y : doc->height;
+        }
+    }
+    return !strcasecmp(name, "top") ? 0 : -1;
+}
+
 void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                          const char *content_type) {
+    document_parse_html_mode(doc, html, size, content_type, 0);
+}
+
+void document_parse_html_mode(browser_document_t *doc, const char *html, size_t size,
+                              const char *content_type, int reader_requested) {
     const char *p = html;
     const char *end = html + size;
+    const char *reader_start = NULL, *reader_end = NULL;
+    const char *hidden_end = NULL;
     parse_state_t st;
 
     memset(&st, 0, sizeof(st));
@@ -1207,6 +1602,14 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
     line_indent = 0;
     reset_line();
     pending_space = 0;
+    pending_gap = 0;
+    merge_barrier = 0;
+    anchor_target_count = 0;
+
+    if(!content_type || strncasecmp(content_type, "text/plain", 10))
+        reader_region(html, end, &reader_start, &reader_end);
+    doc->reader_available = reader_start != NULL;
+    doc->reader_active = reader_requested && doc->reader_available;
 
     /* Plain text is shown verbatim: no tags, no character references. */
     if(content_type && !strncasecmp(content_type, "text/plain", 10)) {
@@ -1216,6 +1619,10 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
     }
 
     while(p < end && !doc->truncated) {
+        if(hidden_end && p >= hidden_end) {
+            st.hidden = 0;
+            hidden_end = NULL;
+        }
         if(end - p >= 4 && !memcmp(p, "<!--", 4)) {
             const char *comment_end = p + 4;
             while(end - comment_end >= 3 && memcmp(comment_end, "-->", 3))
@@ -1226,21 +1633,26 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
         if(*p != '<') {
             const char *next = memchr(p, '<', (size_t)(end - p));
             size_t count = next ? (size_t)(next - p) : (size_t)(end - p);
-            render_text_node(doc, &st, p, count, 1);
+            if(!doc->reader_active || st.in_title ||
+               (p >= reader_start && p < reader_end))
+                render_text_node(doc, &st, p, count, 1);
             p += count;
             continue;
         }
 
         {
-            const char *close = memchr(p, '>', (size_t)(end - p));
+            const char *start = p;
+            const char *close = tag_end(p + 1, end);
             char tag[2048];
             char name[32];
             char attr[MAX_URL];
             const char *q;
             size_t len;
             int closing = 0;
+            int self_closing;
             int ni = 0;
             if(!close) break;
+            self_closing = close > p && close[-1] == '/';
             len = (size_t)(close - p - 1);
             if(len >= sizeof(tag)) len = sizeof(tag) - 1;
             memcpy(tag, p + 1, len);
@@ -1255,14 +1667,40 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                 name[ni++] = (char)tolower((unsigned char)*q++);
             name[ni] = 0;
 
-            if(!strcmp(name, "script") || !strcmp(name, "style") ||
-               !strcmp(name, "svg") || !strcmp(name, "canvas") ||
-               !strcmp(name, "noscript") || !strcmp(name, "template")) {
-                if(closing && st.skip_depth) st.skip_depth--;
-                else if(!closing) st.skip_depth++;
+            if(!closing && (!strcmp(name, "script") ||
+               !strcmp(name, "style") || !strcmp(name, "svg") ||
+               !strcmp(name, "canvas") || !strcmp(name, "template") ||
+               (doc->reader_active && reader_navigation(name, q)))) {
+                if(!void_tag(name) && !self_closing) p = subtree_end(p, end, name);
                 continue;
             }
-            if(st.skip_depth) continue;
+
+            /* Metadata survives selecting only the article/main region. */
+            if(!strcmp(name, "head")) { st.in_head = !closing; continue; }
+            if(!strcmp(name, "body")) { st.in_head = 0; continue; }
+            if(!strcmp(name, "title")) { st.in_title = !closing; continue; }
+            if(!strcmp(name, "base") && !closing && !st.base_seen) {
+                char resolved[MAX_URL];
+                st.base_seen = 1;
+                if(attr_url(q, "href", attr, sizeof(attr)) &&
+                   !resolve_url(doc->base_url, attr, resolved, sizeof(resolved)))
+                    snprintf(doc->base_url, sizeof(doc->base_url), "%s", resolved);
+                continue;
+            }
+            if(doc->reader_active && (start < reader_start || start >= reader_end))
+                continue;
+            if(!closing && !st.hidden && hidden_element(q)) {
+                /* Invisible controls still participate in form submission.
+                   Keep parsing form structure while suppressing its layout. */
+                hidden_end = void_tag(name) || self_closing ? p : subtree_end(p, end, name);
+                st.hidden = 1;
+            }
+            if(!closing && !st.in_head && !st.hidden) {
+                unsigned priority = name[0] == 'h' && name[1] >= '1' &&
+                                    name[1] <= '6' && !name[2] ? 3 : 0;
+                add_anchor(doc, q, "id", priority);
+                if(!strcmp(name, "a")) add_anchor(doc, q, "name", 3);
+            }
 
             /* Inside a <select>, only its options matter. */
             if(st.current_select >= 0) {
@@ -1279,7 +1717,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
             }
 
             if(!strcmp(name, "form")) {
-                vertical_space(5);
+                if(!st.hidden) vertical_space(5);
                 if(st.current_button >= 0) finish_button(doc, &st);
                 if(closing) st.current_form = -1;
                 else if(doc->form_count < MAX_FORMS) {
@@ -1296,7 +1734,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                                   (!strcmp(method, "post") || !strcmp(method, "get"));
                 } else {
                     st.current_form = -1;
-                    doc->truncated = 1;
+                    doc->limit_flags |= DOCUMENT_LIMIT_FORMS;
                 }
                 continue;
             }
@@ -1309,7 +1747,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                 continue;
             }
             if(!strcmp(name, "select") && !closing && st.current_form >= 0) {
-                browser_field_t *field = new_field(doc, st.current_form, "select", q);
+                browser_field_t *field = new_field(doc, st.current_form, "select", q, st.hidden);
                 if(field) {
                     field->option_first = doc->option_count;
                     st.current_select = doc->field_count++;
@@ -1323,7 +1761,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                     char type[16] = "submit";
                     attr_lower(q, "type", type, sizeof(type));
                     if(!type[0] || !strcmp(type, "submit")) {
-                        browser_field_t *field = new_field(doc, st.current_form, "submit", q);
+                        browser_field_t *field = new_field(doc, st.current_form, "submit", q, st.hidden);
                         if(field) {
                             attr_form_value(q, "value", field->value,
                                             sizeof(field->value));
@@ -1335,16 +1773,9 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                 continue;
             }
 
-            if(!strcmp(name, "head")) st.in_head = !closing;
-            else if(!strcmp(name, "body")) st.in_head = 0;
-            else if(!strcmp(name, "title")) st.in_title = !closing;
-            else if(!strcmp(name, "base") && !closing && !st.base_seen) {
-                char resolved[MAX_URL];
-                st.base_seen = 1;
-                if(attr_url(q, "href", attr, sizeof(attr)) &&
-                   !resolve_url(doc->base_url, attr, resolved, sizeof(resolved)))
-                    snprintf(doc->base_url, sizeof(doc->base_url), "%s", resolved);
-            } else if(!strcmp(name, "pre")) {
+            if(st.hidden) continue;
+
+            if(!strcmp(name, "pre")) {
                 vertical_space(closing ? 5 : 8);
                 if(closing) { if(st.in_pre) st.in_pre--; }
                 else st.in_pre++;
@@ -1427,6 +1858,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                 document_item_t *item = new_item(doc);
                 vertical_space(5);
                 if(item) {
+                    apply_gap();
                     item->type = ITEM_RULE;
                     item->x = PAGE_MARGIN;
                     item->y = line_y;
@@ -1444,8 +1876,16 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
 
     if(st.current_select >= 0) finish_select(doc, &st);
     if(st.current_button >= 0) finish_button(doc, &st);
-    if(doc->truncated)
-        add_notice(doc, "[Page shortened: document layout limit reached]");
+    if(doc->limit_flags & DOCUMENT_LIMIT_LAYOUT)
+        add_notice(doc, "[Page shortened: layout limit reached]");
+    if(doc->limit_flags & DOCUMENT_LIMIT_LINKS)
+        add_notice(doc, "[Link limit: some links are unavailable]");
+    if(doc->limit_flags & DOCUMENT_LIMIT_ANCHORS)
+        add_notice(doc, "[Some section targets could not be stored]");
+    if(doc->limit_flags & DOCUMENT_LIMIT_FORMS)
+        add_notice(doc, "[Form limit: some controls are unavailable]");
+    if(doc->limit_flags & DOCUMENT_LIMIT_IMAGES)
+        add_notice(doc, "[Additional images omitted: page image limit]");
 #ifndef BROWSER_QUIET
     if(doc->unsupported_count)
         printf("browser: ignored %d unsupported HTML elements\n", doc->unsupported_count);
@@ -1464,8 +1904,11 @@ void document_reflow(browser_document_t *doc) {
         if(item->type == ITEM_IMAGE && item->image_id >= 0) {
             browser_image_t *image = &doc->images[item->image_id];
             int old_height = item->height;
-            item->width = image->width > 0 ? image->width : PAGE_WIDTH;
-            item->height = image->height > 0 ? image->height : 72;
+            int compact = doc->reader_active && image->loaded <= 0;
+            item->width = compact ? PAGE_WIDTH :
+                          image->width > 0 ? image->width : PAGE_WIDTH;
+            item->height = compact ? READER_IMAGE_PLACEHOLDER_HEIGHT :
+                           image->height > 0 ? image->height : 72;
             shift += item->height - old_height;
         }
     }

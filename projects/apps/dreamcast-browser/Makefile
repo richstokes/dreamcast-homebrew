@@ -18,6 +18,7 @@ clean:
 dreamcast-browser.o net.o html.o images.o render.o osk.o address.o bookmarks.o \
     storage.o: browser.h
 dreamcast-browser.o storage.o: storage.h
+dreamcast-browser.o: tests/loading_self_test.inc
 
 $(TARGET): $(OBJS) $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a
 	kos-cc -o $@ $(OBJS) $(LDLIBS)

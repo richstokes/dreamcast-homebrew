@@ -15,6 +15,12 @@ static void parse(const char *html) {
     parse_as(html, strlen(html), NULL);
 }
 
+static void parse_reader(const char *html, int requested) {
+    document_free(&doc);
+    document_init(&doc, "https://example.com/dir/page.html");
+    document_parse_html_mode(&doc, html, strlen(html), NULL, requested);
+}
+
 /* The laid-out page as text: runs on one row are joined, rows by '\n'. */
 static const char *page_text(void) {
     static char text[65536];
@@ -232,6 +238,200 @@ static void test_structure(void) {
     CHECK_STR(page_text(), "shown");
 }
 
+static void test_reader_and_hidden(void) {
+    const char *html = "<head><title>A useful article</title><base href='/articles/'></head>"
+        "<header>Site header<nav><a href='/menu'>Menu</a></nav></header>"
+        "<main id=content><header><h1>Heading</h1></header><nav>Tools</nav>"
+        "<p>Article <b>body</b> text.</p><aside>Related</aside>"
+        "<form action=search><input name=q value=sega><button>Search</button></form>"
+        "<footer>Article links</footer></main><footer>Site footer</footer>";
+    parse_reader(html, 1);
+    CHECK(doc.reader_available && doc.reader_active);
+    CHECK_STR(doc.title, "A useful article");
+    CHECK(strstr(page_text(), "Heading") && strstr(page_text(), "Article body text."));
+    CHECK(!strstr(page_text(), "Menu") && !strstr(page_text(), "Tools") &&
+          !strstr(page_text(), "Related") && !strstr(page_text(), "footer"));
+    CHECK(doc.form_count == 1 && doc.forms[0].valid && doc.field_count == 2);
+    CHECK_STR(doc.forms[0].action, "https://example.com/articles/search");
+    CHECK(document_anchor_y(&doc, "content") == doc.items[0].y);
+    parse_reader(html, 0);
+    CHECK(doc.reader_available && !doc.reader_active);
+    CHECK(strstr(page_text(), "Site header") && strstr(page_text(), "Related") &&
+          strstr(page_text(), "Site footer"));
+    parse_reader("<p>No semantic region</p>", 1);
+    CHECK(!doc.reader_available && !doc.reader_active);
+    CHECK_STR(page_text(), "No semantic region");
+    parse_reader("<article>Short</article><article><h2>Main story</h2>"
+                 "A much longer article goes here.</article>", 1);
+    CHECK(doc.reader_active && !strstr(page_text(), "Short") &&
+          strstr(page_text(), "Main story"));
+    parse_reader("<div role=main><p>Useful</p></div><p>Other</p>", 1);
+    CHECK_STR(page_text(), "Useful");
+    parse_reader("<main hidden>Invisible</main><main>Real</main>", 1);
+    CHECK_STR(page_text(), "Real");
+    parse_reader("<main><header>Language menu</header><div class='article-body-menu'>Tools</div>"
+                 "<article><div itemprop='articleBody'><h1>Story</h1><p>Article text</p>"
+                 "<div role=navigation>Links</div><table class=infobox><tr><td>Specs</td>"
+                 "</tr></table></div></article><aside>Related</aside></main>", 1);
+    CHECK_STR(page_text(), "Story\nArticle text");
+    parse_reader("<main><p>Index</p><article>First story</article>"
+                 "<article>Second story</article></main>", 1);
+    CHECK_STR(page_text(), "Index\nFirst story\nSecond story");
+    parse("<div hidden><p>Hidden <br><img src=x></p><div>Nested</div></div>"
+          "<p>Before <span style='color:red; DISPLAY : none !important'>Gone</span>after</p>"
+          "<input hidden><svg/><p title='quoted > marker'>Visible</p>"
+          "<p style='--display:none'>Kept</p><noscript>Fallback</noscript>"
+          "<script>const x = '<main>'; const y = '<';</script><p>End</p>");
+    CHECK_STR(page_text(), "Before after\nVisible\nKept\nFallback\nEnd");
+    CHECK(doc.image_count == 0 && !doc.reader_available);
+    parse("<form action=/f><div hidden><input name=token value=secret>"
+          "<select name=choice><option selected>one</option></select>"
+          "<textarea name=note>retained</textarea></div>"
+          "<input style='display:none' name=trap value=''><button>Send</button></form>");
+    CHECK(doc.form_count == 1 && doc.forms[0].valid && doc.field_count == 5);
+    CHECK_STR(field_named("token")->value, "secret");
+    CHECK_STR(field_named("choice")->value, "one");
+    CHECK_STR(field_named("note")->value, "retained");
+    CHECK(field_named("token")->item == -1 && field_named("choice")->item == -1 &&
+          field_named("trap")->item == -1);
+    CHECK_STR(page_text(), "[ Send ]");
+    parse("<div><div><div><p>One</p></div></div></div><div><p>Two</p></div>");
+    CHECK(doc.item_count == 2 && doc.items[1].y - doc.items[0].y <= 32);
+}
+
+static void test_anchors(void) {
+    int y;
+    parse("<a href='#chapter'>Skip</a><p>Intro</p><img src=a.png height=20>"
+          "<h2 id=chapter>Chapter</h2><a name='old'>Legacy</a>"
+          "<p id='caf&#233;'>Unicode</p><p id='space here'>Space</p>"
+          "<p id=chapter>Duplicate</p><div hidden id=gone>Hidden</div>");
+    CHECK_STR(doc.links[0], "https://example.com/dir/page.html#chapter");
+    CHECK(doc.anchor_count == 4);
+    y = document_anchor_y(&doc, "#chapter");
+    CHECK(y > 0 && document_anchor_y(&doc, "old") > y);
+    CHECK(document_anchor_y(&doc, "caf%C3%A9") > y);
+    CHECK(document_anchor_y(&doc, "space%20here") > y);
+    CHECK(document_anchor_y(&doc, "gone") == -1 && document_anchor_y(&doc, "missing") == -1);
+    CHECK(document_anchor_y(&doc, "#") == 0 && document_anchor_y(&doc, "top") == 0);
+    doc.images[0].height += 80;
+    document_reflow(&doc);
+    CHECK(document_anchor_y(&doc, "chapter") == y + 80);
+}
+
+static void test_reader_image_placeholders(void) {
+    const char *html = "<main><p>Before</p><img src=large.png width=400 height=200>"
+                       "<p id=after>After image</p><img src=other.png width=120 height=180>"
+                       "<p id=end>End</p></main>";
+    document_item_t *first = NULL, *second = NULL;
+    int initial_after, initial_end, initial_height, i;
+    parse_reader(html, 1);
+    for(i = 0; i < doc.item_count; ++i) {
+        if(doc.items[i].image_id == 0) first = &doc.items[i];
+        if(doc.items[i].image_id == 1) second = &doc.items[i];
+    }
+    CHECK(first && second);
+    if(!first || !second) return;
+    CHECK(first->width == PAGE_WIDTH && first->height == 32 &&
+          second->width == PAGE_WIDTH && second->height == 32);
+    CHECK(doc.images[0].width == 400 && doc.images[0].height == 200 &&
+          doc.images[1].width == 120 && doc.images[1].height == 180);
+    initial_after = document_anchor_y(&doc, "after");
+    initial_end = document_anchor_y(&doc, "end");
+    initial_height = doc.height;
+
+    /* A decoded image grows its row; all following text and section targets
+       move by exactly that delta, while an unsuccessful image stays small. */
+    doc.images[0].loaded = 1;
+    doc.images[0].width = 320;
+    doc.images[0].height = 120;
+    doc.images[1].loaded = -1;
+    document_reflow(&doc);
+    CHECK(first->width == 320 && first->height == 120);
+    CHECK(second->width == PAGE_WIDTH && second->height == 32);
+    CHECK(document_anchor_y(&doc, "after") == initial_after + 88 &&
+          document_anchor_y(&doc, "end") == initial_end + 88 &&
+          doc.height == initial_height + 88);
+    document_reflow(&doc);
+    CHECK(document_anchor_y(&doc, "end") == initial_end + 88 &&
+          doc.height == initial_height + 88);
+
+    parse_reader(html, 0);
+    doc.images[0].loaded = -1;
+    document_reflow(&doc);
+    for(i = 0; i < doc.item_count; ++i) {
+        if(doc.items[i].image_id == 0)
+            CHECK(doc.items[i].width == 400 && doc.items[i].height == 200);
+        if(doc.items[i].image_id == 1)
+            CHECK(doc.items[i].width == 120 && doc.items[i].height == 180);
+    }
+}
+
+static void test_inline_wrapping(void) {
+    int i;
+    parse("<p>Words words words words words words words words the <b>Sega</b> "
+          "Dreamcast is a <a href='/first'>first</a> generation <em>console</em>.</p>");
+    CHECK(strstr(page_text(), "the Sega") || strstr(page_text(), "the\nSega"));
+    CHECK(strstr(page_text(), "first generation") || strstr(page_text(), "first\ngeneration"));
+    CHECK(strstr(page_text(), "console."));
+    parse("<p>123456789012345678901234567890123456789012345 <b>wholeword</b></p>");
+    CHECK_STR(page_text(), "123456789012345678901234567890123456789012345\nwholeword");
+    for(i = 0; i < doc.item_count; ++i)
+        CHECK(doc.items[i].x + doc.items[i].width <= PAGE_MARGIN + PAGE_WIDTH);
+}
+
+static void test_capacity_and_notices(void) {
+    static char html[250000];
+    size_t n = 0;
+    int i;
+    for(i = 0; i < 200; ++i)
+        n += (size_t)snprintf(html + n, sizeof(html) - n,
+                             "<p><a href='/story/%d'>Story %d</a></p>", i, i);
+    snprintf(html + n, sizeof(html) - n,
+             "<a href='/next'>More</a><form action='/search'><input name=q></form>");
+    parse(html);
+    CHECK(!doc.truncated && !doc.limit_flags && doc.link_count == 202);
+    CHECK_STR(doc.links[200], "https://example.com/next");
+    CHECK(doc.field_count == 1 && doc.fields[0].link >= 0 && doc.forms[0].valid);
+    parse("<a href='/same'>One</a><a href='/same'>Two</a>");
+    CHECK(doc.link_count == 2 && doc.items[0].link_id != doc.items[1].link_id);
+
+    n = 0;
+    for(i = 0; i < MAX_LINKS + 4; ++i)
+        n += (size_t)snprintf(html + n, sizeof(html) - n,
+                             "<a href='/link/%d'>Link</a><br>", i);
+    parse(html);
+    CHECK(doc.link_count == MAX_LINKS && (doc.limit_flags & DOCUMENT_LIMIT_LINKS));
+    CHECK(strstr(page_text(), "some links are unavailable") != NULL);
+
+    n = 0;
+    for(i = 0; i < MAX_ITEMS + 10; ++i)
+        n += (size_t)snprintf(html + n, sizeof(html) - n, "<p>item</p>");
+    parse(html);
+    CHECK(doc.truncated && (doc.limit_flags & DOCUMENT_LIMIT_LAYOUT));
+    CHECK(doc.item_count <= MAX_ITEMS && strstr(page_text(), "layout limit reached"));
+    document_mark_shortened(&doc, "[Response shortened: download size limit reached]");
+    CHECK(strstr(page_text(), "download size limit reached") != NULL);
+    for(i = 0; i < doc.item_count; ++i)
+        CHECK(doc.items[i].x + doc.items[i].width <= PAGE_MARGIN + PAGE_WIDTH);
+
+    n = 0;
+    for(i = 0; i < MAX_ANCHORS + 2; ++i)
+        n += (size_t)snprintf(html + n, sizeof(html) - n, "<p id=a%d>Anchor</p>", i);
+    parse(html);
+    CHECK(doc.anchor_count == MAX_ANCHORS && (doc.limit_flags & DOCUMENT_LIMIT_ANCHORS));
+    CHECK(strstr(page_text(), "section targets") != NULL);
+
+    n = (size_t)snprintf(html, sizeof(html), "<a href='#late-note'>Note</a>");
+    for(i = 0; i < MAX_ANCHORS + 2; ++i)
+        n += (size_t)snprintf(html + n, sizeof(html) - n, "<p id=incidental%d>Text</p>", i);
+    snprintf(html + n, sizeof(html) - n,
+             "<p id=late-note>Footnote</p><h2 id=late-heading>Section</h2>");
+    parse(html);
+    CHECK(document_anchor_y(&doc, "late-note") > 0);
+    CHECK(document_anchor_y(&doc, "late-heading") > document_anchor_y(&doc, "late-note"));
+    CHECK(!doc.truncated && doc.anchor_count == MAX_ANCHORS);
+}
+
 static void test_checkbox_and_radio(void) {
     browser_field_t *a;
     browser_field_t *b;
@@ -398,6 +598,11 @@ void html_tests(void) {
     test_attributes();
     test_urls();
     test_structure();
+    test_reader_and_hidden();
+    test_anchors();
+    test_reader_image_placeholders();
+    test_inline_wrapping();
+    test_capacity_and_notices();
     test_checkbox_and_radio();
     test_buttons();
     test_textarea();

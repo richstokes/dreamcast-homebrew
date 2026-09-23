@@ -308,13 +308,13 @@ static void draw_address(const browser_view_t *view) {
 static const char *const help_lines[] = {
     "KEYBOARD SHORTCUTS",
     "Tab, Shift+Tab    Next/previous link or field",
-    "Enter             Open link, edit or use field",
+    "Enter open/edit; Ctrl+Enter submits a form",
     "Arrows, Home/End  Scroll a line, top/bottom",
     "Space, PgDn/PgUp  Scroll a screen down/up",
     "Backspace, Alt+<  Back",
     "Shift+Bksp, Alt+> Forward",
     "F6, Ctrl+L        Address bar: URL or search",
-    "F5, Ctrl+R        Reload   Alt+Home: home page",
+    "F5/Ctrl+R reload; F4 images; F7 reader view",
     "Ctrl+B            Hide or show the address bar",
     "Ctrl+D, Ctrl+Sh+B Bookmark page, bookmarks",
     "Esc               Clear focus or cancel a load",
@@ -462,9 +462,12 @@ static void draw_page(const browser_document_t *doc, const browser_view_t *view)
                     snprintf(placeholder, sizeof(placeholder),
                              "[image omitted: %.58s]", image->alt);
                 else
-                    snprintf(placeholder, sizeof(placeholder), "[loading image]");
+                    snprintf(placeholder, sizeof(placeholder), "[F4 image] %.64s", image->alt);
+                int columns = (item->width - 16) / BFONT_THIN_WIDTH;
+                if(columns >= 0 && columns < (int)sizeof(placeholder)) placeholder[columns] = 0;
                 if(item->width >= 96 && item->height >= 24)
-                    draw_text(item->x + 8, y + 22, C_MUTED, placeholder);
+                    draw_text(item->x + 8, y + (item->height < 68 ? (item->height - 24) / 2 : 22),
+                              C_MUTED, placeholder);
             }
         }
     }

@@ -5,8 +5,10 @@
 #include <kos/irq.h>
 #include <kos/net.h>
 #include <kos/thread.h>
+#include <arch/timer.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 
 typedef struct {
@@ -15,6 +17,7 @@ typedef struct {
     size_t capacity;
     size_t limit;
     int full;
+    int out_of_memory;
 } receive_buffer_t;
 
 static network_progress_callback_t progress_callback;
@@ -52,16 +55,29 @@ static void *bba_poll_worker(void *unused) {
     return NULL;
 }
 
+/* Only one transfer runs at a time. Curl and TLS live on this worker;
+   the calling UI thread retains ownership of rendering and Maple input. */
+typedef struct {
+    const char *url, *body;
+    size_t limit;
+    unsigned timeout_ms;
+    fetch_result_t *result;
+    atomic_uint received, total;
+    atomic_int cancel, done;
+    int code;
+} transfer_job_t;
+
 static int transfer_progress(void *userdata, curl_off_t download_total,
                              curl_off_t downloaded, curl_off_t upload_total,
                              curl_off_t uploaded) {
-    (void)userdata;
+    transfer_job_t *job = userdata;
+    int cancel;
     (void)upload_total;
     (void)uploaded;
-    if(!progress_callback) return 0;
-    return progress_callback(downloaded > 0 ? (uint64_t)downloaded : 0,
-                             download_total > 0 ? (uint64_t)download_total : 0,
-                             progress_userdata);
+    atomic_store_explicit(&job->received, downloaded > 0 ? (uint32_t)downloaded : 0, memory_order_relaxed);
+    atomic_store_explicit(&job->total, download_total > 0 ? (uint32_t)download_total : 0, memory_order_relaxed);
+    cancel = atomic_load_explicit(&job->cancel, memory_order_relaxed);
+    return cancel;
 }
 
 void network_set_progress_callback(network_progress_callback_t callback,
@@ -93,7 +109,7 @@ static size_t receive_data(char *ptr, size_t size, size_t count, void *userdata)
         while(next < buffer->size + bytes + 1) next *= 2;
         if(next > buffer->limit + 1) next = buffer->limit + 1;
         grown = realloc(buffer->data, next);
-        if(!grown) return 0;
+        if(!grown) { buffer->out_of_memory = 1; return 0; }
         buffer->data = grown;
         buffer->capacity = next;
     }
@@ -145,7 +161,9 @@ void fetch_result_free(fetch_result_t *result) {
     memset(result, 0, sizeof(*result));
 }
 
-static int network_request(const char *url, const char *body, size_t limit, fetch_result_t *out) {
+static int network_request_worker(const char *url, const char *body, size_t limit,
+                                  fetch_result_t *out, transfer_job_t *job,
+                                  uint64_t deadline) {
     CURL *curl;
     CURLcode code;
     receive_buffer_t buffer = {0};
@@ -154,13 +172,15 @@ static int network_request(const char *url, const char *body, size_t limit, fetc
     char *effective_url = NULL;
     curl_off_t declared_size = -1;
     long probe_status = 0;
-    long transfer_timeout = limit <= MAX_IMAGE_BYTES ? 8000L : 45000L;
+    uint64_t now = timer_ms_gettime64();
+    long transfer_timeout = (long)(deadline > now ? deadline - now : 1);
     long connect_timeout = limit <= MAX_IMAGE_BYTES ? 4000L : 15000L;
 
     memset(out, 0, sizeof(*out));
     buffer.limit = limit;
     curl = curl_easy_init();
     if(!curl) {
+        out->out_of_memory = 1;
         snprintf(out->error, sizeof(out->error), "Could not create HTTP client");
         return -1;
     }
@@ -173,6 +193,8 @@ static int network_request(const char *url, const char *body, size_t limit, fetc
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, transfer_progress);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, job);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, body ? 0L : 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
@@ -213,6 +235,7 @@ static int network_request(const char *url, const char *body, size_t limit, fetc
                           &declared_size);
         if(code != CURLE_OK || probe_status < 200 || probe_status >= 400 ||
            declared_size < 0 || declared_size > (curl_off_t)limit) {
+            out->out_of_memory = code == CURLE_OUT_OF_MEMORY;
             if(code == CURLE_ABORTED_BY_CALLBACK) {
                 out->cancelled = 1;
                 snprintf(out->error, sizeof(out->error), "Canceled");
@@ -237,6 +260,11 @@ static int network_request(const char *url, const char *body, size_t limit, fetc
         curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
         curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
         error[0] = 0;
+        /* HEAD and GET share one deadline, rather than each spending the
+           entire image allowance. */
+        now = timer_ms_gettime64();
+        transfer_timeout = (long)(deadline > now ? deadline - now : 1);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, transfer_timeout);
     }
 
     printf("browser: %s request (limit %lu bytes)\n", body?"POST":"GET", (unsigned long)limit);
@@ -255,6 +283,8 @@ static int network_request(const char *url, const char *body, size_t limit, fetc
         snprintf(out->effective_url, sizeof(out->effective_url), "%s", url);
 
     if(code != CURLE_OK && !buffer.full) {
+        out->size = buffer.size; /* Charge failed image downloads to the budget. */
+        out->out_of_memory = buffer.out_of_memory || code == CURLE_OUT_OF_MEMORY;
         if(code == CURLE_ABORTED_BY_CALLBACK) {
             out->cancelled = 1;
             snprintf(out->error, sizeof(out->error), "Canceled");
@@ -285,15 +315,86 @@ static int network_request(const char *url, const char *body, size_t limit, fetc
             snprintf(target,sizeof(target),"%s",next);
             fetch_result_free(out);
             curl_easy_cleanup(curl);
-            return network_request(target,NULL,limit,out);
+            return network_request_worker(target,NULL,limit,out,job,deadline);
         }
     }
     curl_easy_cleanup(curl);
     return 0;
 }
 
+static void *transfer_worker(void *userdata) {
+    transfer_job_t *job = userdata;
+    int code = network_request_worker(job->url, job->body, job->limit,
+                                     job->result, job,
+                                     timer_ms_gettime64() + job->timeout_ms);
+    job->code = code;
+    atomic_store_explicit(&job->done, 1, memory_order_release);
+    return NULL;
+}
+
+static int network_request(const char *url, const char *body, size_t limit,
+                           unsigned timeout_ms, fetch_result_t *out) {
+    transfer_job_t job = { .url = url, .body = body, .limit = limit,
+                           .timeout_ms = timeout_ms, .result = out };
+    kthread_attr_t attr = { .stack_size = 64 * 1024, .label = "browser HTTP" };
+    /* The UI can submit another form while this one is in flight. Curl
+       borrows POSTFIELDS, so never lend it the form editor's scratch buffer. */
+    char *body_copy = body ? strdup(body) : NULL;
+    if(body && !body_copy) {
+        memset(out, 0, sizeof(*out));
+        out->out_of_memory = 1;
+        snprintf(out->error, sizeof(out->error), "Not enough memory for form data");
+        return -1;
+    }
+    job.body = body_copy;
+    kthread_t *worker = thd_create_ex(&attr, transfer_worker, &job);
+    if(!worker) {
+        if(body_copy) { memset(body_copy, 0, strlen(body_copy)); free(body_copy); }
+        memset(out, 0, sizeof(*out));
+        out->out_of_memory = 1;
+        snprintf(out->error, sizeof(out->error), "Not enough memory for HTTP worker");
+        return -1;
+    }
+#ifdef BROWSER_PROFILE
+    uint64_t report_at = timer_ms_gettime64() + 10000;
+#endif
+    for(;;) {
+#ifdef BROWSER_PROFILE
+        if(timer_ms_gettime64() >= report_at) {
+            printf("PROF HTTP worker state %d wait %s pc %lx received %u cancel %d\n",
+                   worker->state, worker->wait_msg ? worker->wait_msg : "none",
+                   (unsigned long)worker->context.pc, atomic_load(&job.received), atomic_load(&job.cancel));
+            report_at = timer_ms_gettime64() + 10000;
+        }
+#endif
+        uint32_t received = atomic_load_explicit(&job.received, memory_order_relaxed);
+        uint32_t total = atomic_load_explicit(&job.total, memory_order_relaxed);
+        int done = atomic_load_explicit(&job.done, memory_order_acquire);
+        if(done) break;
+        if(progress_callback && progress_callback(received, total, progress_userdata)) {
+            atomic_store_explicit(&job.cancel, 1, memory_order_relaxed);
+        }
+        thd_sleep(1); /* The UI callback normally waits for the next frame. */
+    }
+    thd_join(worker, NULL);
+    if(body_copy) { memset(body_copy, 0, strlen(body_copy)); free(body_copy); }
+    /* A replacement navigation can arrive on the same frame as completion. */
+    if(atomic_load_explicit(&job.cancel, memory_order_relaxed) && !out->cancelled) {
+        fetch_result_free(out);
+        out->cancelled = 1;
+        snprintf(out->error, sizeof(out->error), "Canceled");
+        return -1;
+    }
+    return job.code;
+}
+
 int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
-    return network_request(url,NULL,limit,out);
+    return network_request(url, NULL, limit,
+                           limit <= MAX_IMAGE_BYTES ? 8000 : 45000, out);
+}
+int network_fetch_image(const char *url, size_t limit, unsigned timeout_ms,
+                        fetch_result_t *out) {
+    return network_request(url, NULL, limit, timeout_ms ? timeout_ms : 1, out);
 }
 int network_post(const char *url, const char *body, size_t limit, fetch_result_t *out) {
     if(strncmp(url,"https://",8)) {
@@ -301,7 +402,7 @@ int network_post(const char *url, const char *body, size_t limit, fetch_result_t
         snprintf(out->error,sizeof(out->error),"Forms require HTTPS");
         return -1;
     }
-    return network_request(url,body,limit,out);
+    return network_request(url,body,limit,45000,out);
 }
 int network_same_origin(const char *a, const char *b) {
     CURLU *ua=curl_url(), *ub=curl_url();
@@ -322,7 +423,7 @@ int resolve_url(const char *base, const char *reference, char *out, size_t out_s
     CURLUcode code;
     char *resolved = NULL;
 
-    if(!reference || !reference[0] || reference[0] == '#') return -1;
+    if(!reference || !reference[0]) return -1;
     if(!strncmp(reference, "javascript:", 11) || !strncmp(reference, "data:", 5) ||
        !strncmp(reference, "mailto:", 7)) return -1;
     /* Internal pages; their actions are refused unless shown internally. */
@@ -352,6 +453,11 @@ int resolve_url(const char *base, const char *reference, char *out, size_t out_s
         return -1;
     }
 
+    if(strlen(resolved) >= out_size) {
+        curl_free(resolved);
+        curl_url_cleanup(url);
+        return -1;
+    }
     snprintf(out, out_size, "%s", resolved);
     curl_free(resolved);
     curl_url_cleanup(url);

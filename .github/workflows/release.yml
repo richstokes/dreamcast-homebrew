@@ -75,6 +75,13 @@ jobs:
             git -C .ci/kos apply "$GITHUB_WORKSPACE/$patch"
           done
 
+          for patch in \
+            projects/apps/dreamcast-browser/patches/kos-keyboard-attach.patch \
+            projects/apps/dreamcast-browser/patches/kos-tcp-poll-lock.patch; do
+            git -C .ci/kos apply --check "$GITHUB_WORKSPACE/$patch"
+            git -C .ci/kos apply "$GITHUB_WORKSPACE/$patch"
+          done
+
           git init .ci/kos-ports
           git -C .ci/kos-ports remote add origin https://github.com/KallistiOS/kos-ports.git
           git -C .ci/kos-ports fetch --depth 1 origin "$KOS_PORTS_COMMIT"

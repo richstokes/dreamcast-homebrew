@@ -13,11 +13,13 @@
 #define MAX_URL 512
 #define MAX_TITLE 96
 #define MAX_TEXT 96
-#define MAX_ITEMS 512
-#define MAX_LINKS 96
+#define MAX_ITEMS 8192
+#define MAX_LINKS 2304
+#define MAX_ANCHORS 1024
+#define MAX_ANCHOR_NAME 128
 #define MAX_IMAGES 6
 #define MAX_HISTORY 8
-#define MAX_DOCUMENT_BYTES (512 * 1024)
+#define MAX_DOCUMENT_BYTES (2 * 1024 * 1024)
 #define MAX_IMAGE_BYTES (24 * 1024)
 #define MAX_PAGE_IMAGE_BYTES (64 * 1024)
 #define MIN_IMAGE_FETCH_BYTES (4 * 1024)
@@ -68,7 +70,7 @@ typedef struct { char action[MAX_URL]; int post; int valid; } browser_form_t;
 typedef struct {
     char name[64], value[MAX_FIELD_VALUE], type[16];
     char label[48]; /* visible text of a submit button */
-    int form, checked, link, item, maxlength, disabled;
+    int form, checked, link, item, maxlength, disabled, hidden;
     int caret; /* insertion point while being edited, otherwise -1 */
     int option_first, option_count, selected; /* <select> options */
 } browser_field_t;
@@ -77,6 +79,18 @@ typedef struct {
     char label[48];
 } browser_option_t;
 typedef struct {
+    char name[MAX_ANCHOR_NAME];
+    int item; /* First following layout item; remains valid after image reflow. */
+    unsigned priority; /* Referenced targets/headings displace incidental IDs. */
+} browser_anchor_t;
+enum {
+    DOCUMENT_LIMIT_LAYOUT = 1,
+    DOCUMENT_LIMIT_LINKS = 2,
+    DOCUMENT_LIMIT_ANCHORS = 4,
+    DOCUMENT_LIMIT_FORMS = 8,
+    DOCUMENT_LIMIT_IMAGES = 16
+};
+typedef struct {
     browser_form_t forms[MAX_FORMS];
     browser_field_t fields[MAX_FIELDS];
     browser_option_t options[MAX_OPTIONS];
@@ -84,12 +98,17 @@ typedef struct {
     document_item_t items[MAX_ITEMS];
     char links[MAX_LINKS][MAX_URL];
     browser_image_t images[MAX_IMAGES];
+    browser_anchor_t anchors[MAX_ANCHORS];
+    int anchor_count;
     int item_count;
     int link_count;
     int image_count;
     int height;
     int truncated;
     int unsupported_count;
+    unsigned limit_flags;
+    int reader_available;
+    int reader_active;
     /* Bumped by every change to the laid-out page, so the renderer can
        tell when the page area must be redrawn. */
     unsigned generation;
@@ -105,6 +124,7 @@ typedef struct {
     long status;
     int truncated;
     int cancelled;
+    int out_of_memory;
     char content_type[96];
     char effective_url[MAX_URL];
     char error[160];
@@ -118,6 +138,8 @@ void network_shutdown(void);
 void network_set_progress_callback(network_progress_callback_t callback,
                                    void *userdata);
 int network_fetch(const char *url, size_t limit, fetch_result_t *out);
+int network_fetch_image(const char *url, size_t limit, unsigned timeout_ms,
+                        fetch_result_t *out);
 int network_post(const char *url, const char *body, size_t limit, fetch_result_t *out);
 int network_same_origin(const char *a, const char *b);
 void document_refresh_field(browser_document_t *doc, int field);
@@ -133,6 +155,12 @@ void document_free(browser_document_t *doc);
 /* content_type may be NULL; its charset and text/plain type are honored. */
 void document_parse_html(browser_document_t *doc, const char *html, size_t size,
                          const char *content_type);
+/* Reader mode selects a main/article region when one exists; otherwise the
+   full page is retained. The caller keeps the source for reversible toggles. */
+void document_parse_html_mode(browser_document_t *doc, const char *html, size_t size,
+                              const char *content_type, int reader_requested);
+/* fragment may start with '#'; returns -1 if no matching anchor exists. */
+int document_anchor_y(const browser_document_t *doc, const char *fragment);
 void document_mark_shortened(browser_document_t *doc, const char *message);
 void document_make_error(browser_document_t *doc, const char *title, const char *message);
 void document_load_images(browser_document_t *doc);

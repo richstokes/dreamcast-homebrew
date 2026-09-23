@@ -1,0 +1,42 @@
+diff --git a/kernel/net/net_tcp.c b/kernel/net/net_tcp.c
+--- a/kernel/net/net_tcp.c
++++ b/kernel/net/net_tcp.c
+@@ -2974,6 +2974,8 @@
+     struct tcp_sock *s;
+     int rv = -1;
+     uint16_t c;
++    short poll_ev = 0;
++    file_t poll_fd = -1;
+ 
+     switch(domain) {
+         case AF_INET:
+@@ -3052,19 +3054,22 @@
+                 break;
+         }
+ 
+-        short poll_ev = s->poll_pending;
+-        file_t poll_fd = s->sock;
++        poll_ev = s->poll_pending;
++        poll_fd = s->sock;
+         s->poll_pending = 0;
+ 
+         mutex_unlock(&s->mutex);
+-
+-        /* Fire poll wakeups after releasing sock->mutex to avoid the
+-           poll-mutex / sock->mutex ABBA deadlock. */
+-        if(poll_ev)
+-            __poll_event_trigger(poll_fd, poll_ev);
+     }
+ 
+     rwsem_read_unlock(&tcp_sem);
++
++    /* poll() holds its global mutex while taking tcp_sem for a readiness
++       check. A waiting writer blocks new readers, so retaining our read lock
++       while taking the poll mutex can deadlock all three threads. Only the
++       copied descriptor and event bits survive releasing the socket locks;
++       never dereference s here, since cleanup may already have freed it. */
++    if(poll_ev)
++        __poll_event_trigger(poll_fd, poll_ev);
+ 
+     /* If we get in here, something went wrong... Send a RST. */
+     if(rv && !(flags & TCP_FLAG_RST)) {

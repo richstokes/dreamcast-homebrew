@@ -32,6 +32,9 @@ is also available.
   screen rather than from the link that was left behind
 - arrows, Page Up/Down, Home/End, Space, `Shift+Space`: scroll
 - `F5` or `Ctrl+R`: reload, keeping the scroll position
+- `F7`: switch between reader and full-page views
+- `F4`: load this page's images; text is usable immediately without waiting for them
+- `Ctrl+Enter` while editing a field: submit its form, including search forms with no button
 - while editing the address bar or a form field: Left/Right (with `Ctrl` for
   whole words), Home/End, Delete, `Ctrl+A` to select all, `Ctrl+W` or
   `Ctrl+Backspace` to delete the previous word, and `Ctrl+U` to delete back to
@@ -42,7 +45,8 @@ is also available.
   clicking a text box opens the on-screen keyboard
 - controller: `A` open or edit, `B` or left trigger back, right trigger
   forward, `X` address bar, `Y` next link, D-pad scroll, Start for bookmarks and
-  the menu (which also has Exit); `B` or Start cancels an active load
+  the menu (which also has Exit); `B` cancels an active load. Hold `Y` and
+  press the left trigger for reader/full-page view or the right trigger for images
 - on-screen keyboard: D-pad picks a key, `A` types it, `B` deletes, `X` types a
   space, `Y` is Shift (for one character), the triggers move the cursor, and
   Start finishes. A controller button during keyboard editing brings it up
@@ -89,6 +93,21 @@ object and SDK archives, preserving local networking changes. Existing ELFs
 need relinking afterward; this project's Makefile tracks the SDK archive.
 If a newer SDK has already fixed the bug differently, the script stops without
 changing it.
+
+The checked-out SDK also needs the TCP poll lock-order repair. A receive
+notification can otherwise deadlock with polling and socket cleanup after
+several page loads, leaving even cancellation waiting forever:
+
+```sh
+./scripts/fix-kos-tcp-poll.sh
+```
+
+This script moves poll notifications outside both TCP locks, rebuilds only
+the TCP object and SDK archives, and preserves the other local SDK changes.
+It is safe to rerun and stops without changes if the source does not match.
+Relink the browser after applying either SDK repair.
+Release CI applies both repairs after the shared DCVMU networking patches,
+before building its pinned SDK.
 
 Refresh the CA bundle occasionally (this needs host internet access):
 
@@ -183,26 +202,80 @@ UTF-8 or windows-1252 (from the HTTP header, a `<meta>` tag, or detection) are
 decoded, and typographic punctuation such as curly quotes, dashes, and
 ellipses becomes its ASCII equivalent. Other characters show as `?`.
 
-The Dreamcast has 16 MB of main RAM, so remote content is bounded: 512 KiB per
-HTML page, 24 KiB per image, six images per page, and 96 links. Larger pages
-are shortened, and oversized, failed, or unsupported images become alt-text
-placeholders. Insecure images on HTTPS pages are requested over HTTPS instead.
-Back and Forward each remember up to eight pages.
+The Dreamcast has 16 MB of main RAM, so remote content stays bounded: 2 MiB per
+HTML response, 8,192 layout items, 2,304 links and 1,024 section targets. Pages
+show notices when a limit omits content or controls. Referenced sections and
+headings take precedence over incidental HTML IDs. Back and Forward each remember
+up to eight pages.
 
-Any active load can be canceled with `Esc`, controller `B`/Start, or
-right-click, keeping the current page.
+Images are optional (`F4`), with at most six slots, 24 KiB per download and
+64 KiB per page. Each request gets at most eight seconds, within a twelve-second
+page budget. The decoder rejects sources above 1,024 pixels in either dimension
+or 524,288 total pixels before allocating the bitmap. Failed, oversized and
+unsupported images keep placeholders while later images are still attempted;
+cancellation, memory exhaustion or the shared budget stops the batch. Reloading
+allows another attempt. Insecure images on HTTPS pages use HTTPS instead.
+
+Any active load can be canceled with `Esc`, controller `B`, or right-click,
+keeping the current page. HTTP/TLS runs on one worker thread while the main
+thread continues handling keyboard, mouse, controller and rendering. You can
+scroll the previous page, edit an address or replace a pending navigation.
+Completion preserves a new address draft; canceled navigation does not alter
+history. Parsing and bounded image decoding still run on the main thread.
+
+## Reading pages
+
+Reader view is preferred when a page identifies a main/article body. It uses
+HTML semantics and common CMS content markers, hides navigation and sidebars,
+and collapses excessive nested block spacing. `F7` restores the full view from
+the retained HTML without downloading it again; it also restores infobox/specs
+tables omitted by reader view. This is a heuristic, so use full view if useful
+content is missing. HTML `hidden` and inline `display:none` are honored in both
+views, while hidden form values remain available for submission. Local section
+links scroll directly rather than fetching the page again.
 
 ## Forms
 
-Same-origin HTTPS forms support text-like inputs (text, email, password,
+HTTPS forms support text-like inputs (text, email, password,
 search, URL, number, date, and similar types, all typed as text), hidden
 inputs, checkboxes, radio buttons, drop-down lists, text areas, and submit
 buttons, including `<button>` and image buttons. File uploads are not
 supported, so a form containing one is blocked. Focus a field with Tab and
 Enter, type, then press Enter to finish or Tab to move on; Escape restores the
-previous value. Values are submitted as UTF-8. Passwords display as asterisks,
+previous value. `Ctrl+Enter` submits from a field, using the first enabled submit
+button if one exists. GET search forms may navigate to another HTTPS site;
+POST must stay on the same origin, and password fields cannot use GET.
+Values are submitted as UTF-8. Passwords display as asterisks,
 and cookies are kept in RAM only. Registration, login, and logout on
 https://dcvmu.com work.
+
+## Slow-loading regression fixtures
+
+The fixture server needs only Python's standard library:
+
+```sh
+python3 tests/serve_fixtures.py --check
+python3 tests/serve_fixtures.py --bind HOST_LAN_IP --delay 2
+```
+
+Open `http://HOST_LAN_IP:8765/` in the Dreamcast browser. Use the Mac's LAN
+address, not `127.0.0.1`: loopback belongs to the guest. Flycast's local picoTCP
+proxy connects outward to the host; this does not enable LAN bridging. The
+server exits after fifteen minutes by default (`--duration` changes it), and
+never logs query strings or form contents. `/slow` and `/image-page` exercise
+streaming, cancellation and editing; `/` covers reader view, section links,
+more than 96 links and a valid image after failed images.
+
+For automated guest checks, keep the fixture server running and build:
+
+```sh
+make clean
+make CPPFLAGS='-DBROWSER_LOADING_SELF_TEST -DBROWSER_PERF_SELF_TEST -DBROWSER_FIXTURE_BASE=\"http://HOST_LAN_IP:8765\"'
+./run-flycast.sh --skip-build
+```
+
+Look for `LOADING SELF-TEST PASSED` in the serial output. The test uses fixture
+data and does not write VMU bookmarks. Restore a release with `make clean && make`.
 
 ## Credits
 
