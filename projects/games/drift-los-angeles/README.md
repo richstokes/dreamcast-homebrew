@@ -15,12 +15,17 @@ It contains no manufacturer badge or copied production geometry.
 - An endless, streamed open city with no world edge or loading screens
 - Four distinct neighborhoods, each with its own landmark, lighting, and street
   furniture: Downtown Core, Pacific Coast, Arts Quarter, and Neon Strip
-- A detailed C7-inspired coupe with working lights, steering, and wheels
+- A detailed C7-inspired coupe with hard-edge normals, baked ambient occlusion,
+  view-dependent paint/glass reflections, working lights, steering, and wheels
 - Drift physics with throttle oversteer, clutch kicks, handbrake initiation,
   burnouts, and power donuts
 - Thirty-six traffic cars that obey lanes and signals, plus pedestrians and
   dense street life
-- Blue-hour lighting with streetlamps, neon, headlights, and brake lamps
+- Modular storefronts, upper floors and cornices with mipmapped architecture
+- Blue-hour lighting with soft headlights, oriented tire/contact shadows,
+  curved streetlamps and neon
+- Detailed palm fronds, dimensional tree crowns, Art Deco roof tiers and
+  sawtooth warehouse roofs
 - Drift scoring with a six-times chain multiplier, hold timer, and duration
   bonuses
 - Long skid marks, layered tire smoke, and high-RPM exhaust flames
@@ -118,6 +123,12 @@ make textures
 ```
 
 This needs `uv`. The ImageGen prompts are preserved in `assets/PROMPTS.md`.
+The target also rebuilds the reproducible architecture crops and procedural
+effect sprites. Run `make architecture` to extract separate upper-wall,
+storefront and cornice modules from the source paintings, or `make effects`
+to regenerate smoke, contact-shadow and palm alpha sprites independently.
+The final converter emits aligned, twiddled 16-bit textures, including
+mip levels for selected world materials and ARGB4444 alpha for effect sprites.
 
 ## Rebuild the audio
 
@@ -145,9 +156,47 @@ make model
 
 ## QA
 
-`make qa` checks the car mesh and texture budget, `make qa-run` runs a
+`make qa` checks the car mesh and texture inventory, `make qa-run` runs a
 60-second district tour with telemetry, and `make physics-qa-run` runs the
 burnout and donut regression suite in Flycast.
+
+`make qa-benchmark` records the full district tour, exits Flycast when the
+aggregate telemetry arrives, and checks a **30 FPS average** target. The log
+and JSON report are saved to `assets/generated/previews/visual-qa/benchmark.log`
+and `benchmark.log.json`; override the log location with `QA_LOG=/path/to/run.log`.
+The average uses rendered frame count divided by real elapsed time, including
+frame waits and audio work. Periodic PVR FPS and registration-time samples are
+reported separately. Emulator results do not establish real-hardware performance.
+
+An existing log can be checked with:
+
+```sh
+uv run tools/analyze_render_log.py /path/to/run.log
+```
+
+The parser requires aggregate telemetry and at least 30 measured seconds;
+older logs containing only FPS samples cannot establish a whole-run average.
+`make qa-tools` runs regression checks for the log parser, mesh audit and
+PowerVR texture/mipmap packing.
+
+Texture bytes are an inventory rather than a fixed 4 MiB allowance: the
+Dreamcast's 8 MiB VRAM also holds framebuffers, vertex buffers and tile bins.
+The benchmark reports successful resident allocations and remaining VRAM.
+
+The September 2026 graphics upgrade completed the 60-second four-district
+Flycast tour at **32.00 FPS average** (1,922 frames / 60.062 seconds), compared
+with 27.20 FPS before the upgrade under the same host configuration. This is
+an average target, not a locked minimum: individual sampled intervals can
+fall below 30 FPS. Textures and HUD occupy 3,965,248 bytes (3.78 MiB), with
+1,144,648 bytes (1.09 MiB) free after PVR allocations and a 768 KiB vertex
+buffer. The benchmark kept game audio synthesis enabled and used Flycast's
+null host-audio backend. Real Dreamcast hardware remains to be measured.
+
+Vertex-count telemetry gives a lower bound on stream bytes; polygon headers
+also consume the PVR vertex buffer. The mesh audit checks the renderer's
+4,096-vertex and 4,096-face limits after UV/normal/material splits, welded
+body proportions, noncollapsed texture UVs, atlas bounds, AO values and
+material face ranges. Each material has separate vertices for cached shading.
 
 ## Credits
 

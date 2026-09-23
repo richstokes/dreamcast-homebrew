@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["Pillow>=10,<13"]
 # ///
-"""Convert Drift Los Angeles's source atlases to PVR-ready RGB565 C arrays."""
+"""Convert Drift Los Angeles's source atlases to PVR-ready RGB565/ARGB4444 C arrays."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageOps, ImageFilter
+from pvr_texture import pack_texture
 
 
 @dataclass(frozen=True)
@@ -23,51 +24,62 @@ class TextureSpec:
     tileable: bool = False
     contrast: float = 1.0
     brightness: float = 1.0
+    alpha: bool = False
+    mipmap: bool = False
 
 
 SPECS = (
-    TextureSpec("asphalt", "street-surface-atlas-v3.png", (0, 0), 256, True, 1.12, 1.12),
-    TextureSpec("sidewalk", "street-surface-atlas-v3.png", (1, 0), 128, True, 1.10, 1.08),
-    TextureSpec("pavers", "street-surface-atlas-v3.png", (0, 1), 128, True, 1.10, 1.08),
+    TextureSpec("asphalt", "street-surface-atlas-v3.png", (0, 0), 256, True, .70, 1.02, mipmap=True),
+    TextureSpec("sidewalk", "street-surface-atlas-v3.png", (1, 0), 128, True, 1.10, 1.08, mipmap=True),
+    TextureSpec("pavers", "street-surface-atlas-v3.png", (0, 1), 128, True, 1.10, 1.08, mipmap=True),
     TextureSpec("road_marks", "street-surface-atlas-v3.png", (1, 1), 128, False, 1.12, 1.08),
-    TextureSpec("stucco", "city-material-atlas.png", (1, 0), 128, True, 1.02),
-    TextureSpec("glass_facade", "city-material-atlas.png", (0, 1), 128, True, 1.12),
+    TextureSpec("stucco", "city-material-atlas.png", (1, 0), 128, True, 1.02, mipmap=True),
+    TextureSpec("glass_facade", "city-material-atlas.png", (0, 1), 128, True, 1.12, mipmap=True),
     TextureSpec("graffiti", "city-material-atlas.png", (1, 1), 128, True, 1.10),
     TextureSpec("car_paint", "vehicle-material-atlas.png", (0, 0), 128, True, 1.08, 1.52),
     TextureSpec("car_glass", "vehicle-material-atlas.png", (1, 0), 128, True, 1.10),
     TextureSpec("car_carbon", "vehicle-material-atlas.png", (0, 1), 128, True, 1.08),
     TextureSpec("car_lights", "vehicle-material-atlas.png", (1, 1), 128, False, 1.12),
+    TextureSpec("car_reflection", "skyline-backdrop-v4.png", None, 128),
     TextureSpec("storefront", "night-city-detail-atlas.png", (0, 0), 128, False, 1.12),
     TextureSpec("billboard", "night-city-detail-atlas.png", (1, 0), 128, False, 1.10),
-    TextureSpec("lit_windows", "night-city-detail-atlas.png", (0, 1), 128, True, 1.14),
+    TextureSpec("lit_windows", "night-city-detail-atlas.png", (0, 1), 128, True, 1.14, mipmap=True),
     TextureSpec("neon_facade", "night-city-detail-atlas.png", (1, 1), 128, False, 1.12),
     TextureSpec("district_coast", "district-material-atlas.png", (0, 0), 128, False, 1.10),
     TextureSpec("district_downtown", "district-material-atlas.png", (1, 0), 128, False, 1.12),
     TextureSpec("district_arts", "district-material-atlas.png", (0, 1), 128, False, 1.12),
     TextureSpec("district_neon", "district-material-atlas.png", (1, 1), 128, False, 1.14),
-    TextureSpec("facade_downtown", "facade-atlas-v3.png", (0, 0), 256, False, 1.12, 1.12),
-    TextureSpec("facade_coast", "facade-atlas-v3.png", (1, 0), 256, False, 1.08, 1.08),
-    TextureSpec("facade_arts", "facade-atlas-v3.png", (0, 1), 256, False, 1.10, 1.08),
-    TextureSpec("facade_neon", "facade-atlas-v3.png", (1, 1), 256, False, 1.14, 1.12),
-    TextureSpec("facade_downtown_alt", "facade-variants-v5.png", (0, 0), 256, False, 1.12, 1.10),
-    TextureSpec("facade_coast_alt", "facade-variants-v5.png", (1, 0), 256, False, 1.08, 1.08),
-    TextureSpec("facade_arts_alt", "facade-variants-v5.png", (0, 1), 256, False, 1.10, 1.08),
-    TextureSpec("facade_neon_alt", "facade-variants-v5.png", (1, 1), 256, False, 1.12, 1.10),
+    TextureSpec("facade_downtown", "facade-upper-downtown-base.png", None, 256, True, .95, mipmap=True),
+    TextureSpec("facade_coast", "facade-upper-coast-base.png", None, 256, True, .95, mipmap=True),
+    TextureSpec("facade_arts", "facade-upper-arts-base.png", None, 256, True, .95, mipmap=True),
+    TextureSpec("facade_neon", "facade-upper-neon-base.png", None, 256, True, .95, mipmap=True),
+    TextureSpec("facade_downtown_alt", "facade-upper-downtown-alt.png", None, 256, True, .95, mipmap=True),
+    TextureSpec("facade_coast_alt", "facade-upper-coast-alt.png", None, 256, True, .95, mipmap=True),
+    TextureSpec("facade_arts_alt", "facade-upper-arts-alt.png", None, 256, True, .95, mipmap=True),
+    TextureSpec("facade_neon_alt", "facade-upper-neon-alt.png", None, 256, True, .95, mipmap=True),
     TextureSpec("street_utility", "street-microdetail-v5.png", (0, 0), 128, False, 1.12, 1.06),
     TextureSpec("street_repair", "street-microdetail-v5.png", (1, 0), 128, False, 1.10, 1.04),
     TextureSpec("storefront_micro", "street-microdetail-v5.png", (0, 1), 128, False, 1.10, 1.06),
     TextureSpec("civic_micro", "street-microdetail-v5.png", (1, 1), 128, False, 1.10, 1.06),
+    TextureSpec("facade_storefront_downtown", "facade-storefront-downtown-base.png", None, (256, 128)),
+    TextureSpec("facade_storefront_coast", "facade-storefront-coast-base.png", None, (256, 128)),
+    TextureSpec("facade_storefront_arts", "facade-storefront-arts-base.png", None, (256, 128)),
+    TextureSpec("facade_storefront_neon", "facade-storefront-neon-base.png", None, (256, 128)),
+    TextureSpec("facade_storefront_downtown_alt", "facade-storefront-downtown-alt.png", None, (256, 128)),
+    TextureSpec("facade_storefront_coast_alt", "facade-storefront-coast-alt.png", None, (256, 128)),
+    TextureSpec("facade_storefront_arts_alt", "facade-storefront-arts-alt.png", None, (256, 128)),
+    TextureSpec("facade_storefront_neon_alt", "facade-storefront-neon-alt.png", None, (256, 128)),
+    TextureSpec("facade_cornice_downtown", "facade-cornice-downtown.png", None, (256, 16)),
+    TextureSpec("facade_cornice_coast", "facade-cornice-coast.png", None, (256, 16)),
+    TextureSpec("facade_cornice_arts", "facade-cornice-arts.png", None, (256, 16)),
+    TextureSpec("facade_cornice_neon", "facade-cornice-neon.png", None, (256, 16)),
     TextureSpec("sky_backdrop", "skyline-backdrop-v4.png", None, (512, 256), False, 1.08, 1.06),
+    TextureSpec("effect_light", "effect-light.png", None, 128, alpha=True),
+    TextureSpec("effect_palm", "effect-palm.png", None, 128, alpha=True, mipmap=True),
+    TextureSpec("effect_shadow", "effect-shadow.png", None, 128, alpha=True),
+    TextureSpec("effect_smoke", "effect-smoke.png", None, 256, alpha=True),
     TextureSpec("title_art", "title-key-art-v2.png", None, (512, 256), False, 1.06),
 )
-
-BAYER_4X4 = (
-    (0, 8, 2, 10),
-    (12, 4, 14, 6),
-    (3, 11, 1, 9),
-    (15, 7, 13, 5),
-)
-
 
 def crop_quadrant(image: Image.Image, quadrant: tuple[int, int]) -> Image.Image:
     half_w = image.width // 2
@@ -112,12 +124,28 @@ def make_pearl_white(image: Image.Image) -> Image.Image:
     luminance = ImageEnhance.Contrast(ImageOps.grayscale(image)).enhance(0.72)
     pixels = []
     for value in luminance.get_flattened_data():
-        pearl = 176 + value * 68 // 255
+        pearl = 180 + value * 38 // 255
         pixels.append((min(255, pearl + 5), min(255, pearl + 6),
                        min(255, pearl + 10)))
     result = Image.new("RGB", image.size)
     result.putdata(pixels)
     return result
+
+
+def make_reflection(image: Image.Image) -> Image.Image:
+    """Broad environment features, sampled by reflected world-space normals."""
+    sky = ImageOps.fit(image, (128, 76)).filter(ImageFilter.GaussianBlur(3))
+    result = Image.new("RGB", (128, 128), (20, 24, 34))
+    result.paste(sky, (0, 0))
+    draw = ImageDraw.Draw(result)
+    for y in range(76, 128):
+        t = (y - 76) / 52
+        draw.line((0, y, 127, y), fill=(int(47-29*t), int(43-23*t), int(60-30*t)))
+    # Reflected windows form broad ribbons, never baked into the base glass.
+    for x in (9, 30, 67, 105):
+        draw.rectangle((x, 48, x+3, 77), fill=(123, 139, 166))
+        draw.rectangle((x+4, 64, x+11, 70), fill=(156, 108, 74))
+    return ImageEnhance.Color(result.filter(ImageFilter.GaussianBlur(2))).enhance(.45)
 
 
 def make_vehicle_lights(image: Image.Image) -> Image.Image:
@@ -153,24 +181,6 @@ def make_vehicle_lights(image: Image.Image) -> Image.Image:
     return result
 
 
-def quantize(value: int, levels: int, x: int, y: int) -> int:
-    normalized = value * levels / 255.0
-    threshold = (BAYER_4X4[y & 3][x & 3] - 7.5) / 16.0
-    return max(0, min(levels, int(normalized + 0.5 + threshold)))
-
-
-def pack_rgb565(image: Image.Image) -> list[int]:
-    rgb = image.convert("RGB")
-    return [
-        (quantize(r, 31, x, y) << 11)
-        | (quantize(g, 63, x, y) << 5)
-        | quantize(b, 31, x, y)
-        for y in range(rgb.height)
-        for x in range(rgb.width)
-        for r, g, b in (rgb.getpixel((x, y)),)
-    ]
-
-
 def c_array(name: str, values: list[int]) -> str:
     rows = []
     for offset in range(0, len(values), 12):
@@ -189,23 +199,28 @@ def build(source_dir: Path, output_dir: Path) -> None:
 
     for spec in SPECS:
         with Image.open(source_dir / spec.source) as atlas:
-            source = atlas.convert("RGB")
+            source = atlas.convert("RGBA" if spec.alpha else "RGB")
             texture = crop_quadrant(source, spec.quadrant) if spec.quadrant else source
             size = (spec.size, spec.size) if isinstance(spec.size, int) else spec.size
-            texture = ImageOps.fit(
-                texture, size, Image.Resampling.LANCZOS, centering=(0.5, 0.48)
-            )
+            texture = (texture.resize(size, Image.Resampling.LANCZOS)
+                       if spec.name == "effect_palm" else ImageOps.fit(
+                           texture, size, Image.Resampling.LANCZOS, centering=(0.5, 0.48)))
             if spec.name == "car_paint":
                 texture = make_pearl_white(texture)
+            elif spec.name == "car_glass":
+                texture = Image.new("RGB", size, (34, 47, 64))
+            elif spec.name == "car_reflection":
+                texture = make_reflection(texture)
             else:
                 texture = ImageEnhance.Contrast(texture).enhance(spec.contrast)
                 texture = ImageEnhance.Brightness(texture).enhance(spec.brightness)
                 if spec.name == "car_lights":
                     texture = make_vehicle_lights(texture)
-            if spec.tileable:
+            if spec.tileable and not spec.name.startswith("facade_"):
                 texture = make_tileable(texture)
             texture.save(previews / f"{spec.name}.png", optimize=True)
-            built.append((spec, pack_rgb565(texture)))
+            built.append((spec, pack_texture(texture, "ARGB4444" if spec.alpha else "RGB565",
+                mipmap=spec.mipmap, wrap=spec.tileable)))
 
     header = """/* Generated by tools/build_textures.py. Do not edit. */
 #ifndef DRIFT_LA_TEXTURE_ASSETS_H
@@ -218,6 +233,8 @@ typedef struct {
     uint16_t width;
     uint16_t height;
     uint32_t byte_size;
+    uint8_t alpha;
+    uint8_t mipmap;
 } dla_texture_asset_t;
 
 typedef enum {
@@ -233,7 +250,7 @@ typedef enum {
     source += "const dla_texture_asset_t dla_texture_assets[DLA_TEXTURE_COUNT] = {\n"
     for spec, values in built:
         size = (spec.size, spec.size) if isinstance(spec.size, int) else spec.size
-        source += f"    {{ pixels_{spec.name}, {size[0]}, {size[1]}, {len(values) * 2}u }},\n"
+        source += f"    {{ pixels_{spec.name}, {size[0]}, {size[1]}, {len(values) * 2}u, {int(spec.alpha)}, {int(spec.mipmap)} }},\n"
     source += "};\n"
 
     (output_dir / "texture_assets.h").write_text(header, encoding="utf-8")

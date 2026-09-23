@@ -322,6 +322,22 @@ static pvr_ptr_t texture_vram[DLA_TEXTURE_COUNT];
 static pvr_poly_hdr_t texture_headers[DLA_TEXTURE_COUNT];
 static pvr_poly_hdr_t backdrop_header;
 static pvr_poly_hdr_t title_header;
+static pvr_poly_hdr_t reflection_header;
+static uint32_t graphics_texture_bytes;
+static uint32_t graphics_vram_free;
+#define GRAPHICS_VERTEX_BUFFER_BYTES (768u * 1024u)
+#define MAX_CAR_MESH_VERTICES 4096
+static screen_point_t car_projected[MAX_CAR_MESH_VERTICES];
+static vec3_t car_world[MAX_CAR_MESH_VERTICES];
+static uint32_t car_colors[MAX_CAR_MESH_VERTICES];
+static uint32_t car_reflect_colors[MAX_CAR_MESH_VERTICES];
+static float car_reflect_uv[MAX_CAR_MESH_VERTICES][2];
+static uint8_t car_materials[MAX_CAR_MESH_VERTICES];
+static bool car_visible_faces[4096];
+static vec3_t car_face_normals[4096];
+typedef struct { float x,z,scale,depth; } palm_draw_t;
+static palm_draw_t palm_draws[64];
+static int palm_draw_count;
 static pvr_poly_hdr_t world_header;
 static pvr_poly_hdr_t translucent_header;
 static pvr_poly_hdr_t additive_header;
@@ -2388,11 +2404,20 @@ static void draw_world_box(float cx, float cy, float cz,
         {cx-hx,cy+hy,cz-hz},{cx+hx,cy+hy,cz-hz},
         {cx-hx,cy-hy,cz-hz},{cx+hx,cy-hy,cz-hz}
     };
-    draw_world_quad(header,p[0],p[1],p[2],p[3],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[5],p[4],p[7],p[6],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[4],p[0],p[6],p[2],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[1],p[5],p[3],p[7],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[4],p[5],p[0],p[1],0,0,1,0,0,1,1,1,color);
+    /* These boxes are opaque solids. Reject their hidden faces before the
+       four-vertex camera transform and near-plane clipping work. */
+    if(camera_z>cz+hz)
+        draw_world_quad(header,p[0],p[1],p[2],p[3],0,0,1,0,0,1,1,1,color);
+    if(camera_z<cz-hz)
+        draw_world_quad(header,p[5],p[4],p[7],p[6],0,0,1,0,0,1,1,1,color);
+    if(camera_x<cx-hx)
+        draw_world_quad(header,p[4],p[0],p[6],p[2],0,0,1,0,0,1,1,1,color);
+    if(camera_x>cx+hx)
+        draw_world_quad(header,p[1],p[5],p[3],p[7],0,0,1,0,0,1,1,1,color);
+    if(camera_y>cy+hy)
+        draw_world_quad(header,p[4],p[5],p[0],p[1],0,0,1,0,0,1,1,1,color);
+    if(camera_y<cy-hy)
+        draw_world_quad(header,p[2],p[3],p[6],p[7],0,0,1,0,0,1,1,1,color);
 }
 
 static void draw_vertical_billboard(const pvr_poly_hdr_t *header,
@@ -2436,15 +2461,17 @@ static void draw_sun(void) {
               pack_color(0.0f,(color3_t){1.0f,.18f,.08f}));
 }
 
-static void draw_textured_volume(float cx, float cz,
+static void draw_volume_walls(float cx, float cz,
                                  float width, float depth,
                                  float y0, float y1, int texture,
                                  uint32_t front, uint32_t side) {
     const float x0=cx-width*.5f,x1=cx+width*.5f;
     const float z0=cz-depth*.5f,z1=cz+depth*.5f;
-    const float ux=fmaxf(1.0f,width/18.0f);
-    const float uz=fmaxf(1.0f,depth/18.0f);
-    const float v=fmaxf(.30f,(y1-y0)/15.0f);
+    const bool shop=texture>=DLA_TEX_FACADE_STOREFRONT_DOWNTOWN && texture<=DLA_TEX_FACADE_STOREFRONT_NEON_ALT;
+    const float module_width=shop?8.0f:16.0f;
+    const float ux=fmaxf(.25f,width/module_width);
+    const float uz=fmaxf(.25f,depth/module_width);
+    const float v=texture>=DLA_TEX_FACADE_STOREFRONT_DOWNTOWN ? 1.0f : fmaxf(.10f,(y1-y0)/12.0f);
     const pvr_poly_hdr_t *header=&texture_headers[texture];
     if(camera_z<=cz)
         draw_world_quad(header,(vec3_t){x0,y1,z0},(vec3_t){x1,y1,z0},
@@ -2462,41 +2489,53 @@ static void draw_textured_volume(float cx, float cz,
         draw_world_quad(header,(vec3_t){x1,y1,z0},(vec3_t){x1,y1,z1},
                         (vec3_t){x1,y0,z0},(vec3_t){x1,y0,z1},
                         0,0,uz,0,0,v,uz,v,front);
-    draw_world_quad(&world_header,(vec3_t){x0,y1,z1},(vec3_t){x1,y1,z1},
-                    (vec3_t){x0,y1,z0},(vec3_t){x1,y1,z0},
-                    0,0,1,0,0,1,1,1,
-                    pack_color(1.0f,(color3_t){.07f,.075f,.105f}));
+}
+
+static void draw_textured_volume(float cx,float cz,float width,float depth,
+                                 float y0,float y1,int texture,uint32_t front,uint32_t side) {
+    const bool facade=texture>=DLA_TEX_FACADE_DOWNTOWN && texture<=DLA_TEX_FACADE_NEON_ALT;
+    const float roof_y=facade?fmaxf(y0,y1-.48f):y1;
+    float wall_y=y0;
+    if(facade && y0<.2f) {
+        const float shop_top=fminf(4.6f,roof_y);
+        const int shop=DLA_TEX_FACADE_STOREFRONT_DOWNTOWN+texture-DLA_TEX_FACADE_DOWNTOWN;
+        draw_volume_walls(cx,cz,width,depth,y0,shop_top,shop,front,side);
+        wall_y=shop_top;
+    }
+    if(roof_y>wall_y)
+        draw_volume_walls(cx,cz,width,depth,wall_y,roof_y,texture,front,side);
+    if(facade) {
+        /* A continuous roof band caps each module. No shopfront or roof imagery
+           is repeated through the upper-floor texture. */
+        const uint32_t trim=pack_color(1.0f,(color3_t){.22f,.25f,.30f});
+        const uint32_t trim_side=pack_color(1.0f,(color3_t){.14f,.17f,.22f});
+        const int cornice=DLA_TEX_FACADE_CORNICE_DOWNTOWN+(texture-DLA_TEX_FACADE_DOWNTOWN)%4;
+        draw_volume_walls(cx,cz,width+.18f,depth+.18f,roof_y,y1,cornice,trim,trim_side);
+    }
+    draw_world_quad(&world_header,
+        (vec3_t){cx-width*.5f,y1,cz+depth*.5f},(vec3_t){cx+width*.5f,y1,cz+depth*.5f},
+        (vec3_t){cx-width*.5f,y1,cz-depth*.5f},(vec3_t){cx+width*.5f,y1,cz-depth*.5f},
+        0,0,1,0,0,1,1,1,pack_color(1.0f,(color3_t){.06f,.075f,.105f}));
 }
 
 static void draw_upper_volume(const building_t *building,
-                              float width, float depth, float height,
-                              float offset_x, float offset_z) {
-    const float x0=building->cx+offset_x-width*.5f;
-    const float x1=building->cx+offset_x+width*.5f;
-    const float z0=building->cz+offset_z-depth*.5f;
-    const float z1=building->cz+offset_z+depth*.5f;
-    const float y0=building->height;
-    const float y1=y0+height;
-    const float ux=width/18.0f,uz=depth/18.0f,v=height/16.0f;
-    const pvr_poly_hdr_t *header=&texture_headers[building->texture];
-    const uint32_t bright=pack_color(1.0f,(color3_t){.88f,.91f,1.0f});
-    const uint32_t side=pack_color(1.0f,(color3_t){.68f,.72f,.84f});
-    draw_world_quad(header,(vec3_t){x0,y1,z0},(vec3_t){x1,y1,z0},
-                    (vec3_t){x0,y0,z0},(vec3_t){x1,y0,z0},
-                    0,0,ux,0,0,v,ux,v,bright);
-    draw_world_quad(header,(vec3_t){x1,y1,z1},(vec3_t){x0,y1,z1},
-                    (vec3_t){x1,y0,z1},(vec3_t){x0,y0,z1},
-                    0,0,ux,0,0,v,ux,v,side);
-    draw_world_quad(header,(vec3_t){x0,y1,z1},(vec3_t){x0,y1,z0},
-                    (vec3_t){x0,y0,z1},(vec3_t){x0,y0,z0},
-                    0,0,uz,0,0,v,uz,v,side);
-    draw_world_quad(header,(vec3_t){x1,y1,z0},(vec3_t){x1,y1,z1},
-                    (vec3_t){x1,y0,z0},(vec3_t){x1,y0,z1},
-                    0,0,uz,0,0,v,uz,v,bright);
-    draw_world_quad(&world_header,(vec3_t){x0,y1,z1},(vec3_t){x1,y1,z1},
-                    (vec3_t){x0,y1,z0},(vec3_t){x1,y1,z0},
-                    0,0,1,0,0,1,1,1,
-                    pack_color(1.0f,(color3_t){.055f,.065f,.11f}));
+                              float width,float depth,float height,float offset_x,float offset_z) {
+    if(building->district==DISTRICT_DOWNTOWN && (building->seed&1u)) {
+        const float middle=building->height+height*.63f;
+        draw_textured_volume(building->cx+offset_x,building->cz+offset_z,width,depth,
+            building->height,middle,building->texture,
+            pack_color(1.0f,(color3_t){.78f,.82f,.91f}),
+            pack_color(1.0f,(color3_t){.57f,.64f,.76f}));
+        draw_textured_volume(building->cx+offset_x,building->cz+offset_z,
+            width*.64f,depth*.64f,middle,building->height+height,building->texture,
+            pack_color(1.0f,(color3_t){.80f,.83f,.90f}),
+            pack_color(1.0f,(color3_t){.61f,.67f,.77f}));
+        return;
+    }
+    draw_textured_volume(building->cx+offset_x,building->cz+offset_z,width,depth,
+        building->height,building->height+height,building->texture,
+        pack_color(1.0f,(color3_t){.79f,.83f,.91f}),
+        pack_color(1.0f,(color3_t){.59f,.66f,.78f}));
 }
 
 static void draw_warehouse_roof(const building_t *building) {
@@ -2508,6 +2547,32 @@ static void draw_warehouse_roof(const building_t *building) {
     const float ridge=building->height+3.8f+(float)((building->seed>>8)&3u);
     const uint32_t lit=pack_color(1.0f,(color3_t){.30f,.15f,.10f});
     const uint32_t dark=pack_color(1.0f,(color3_t){.12f,.10f,.11f});
+    if((building->seed&3u)==0u) {
+        int bay;
+        const float pitch=(z1-z0)/3.0f;
+        const uint32_t glazing=pack_color(1.0f,(color3_t){.12f,.23f,.29f});
+        /* North-light factory roofs break the warehouse skyline into an
+           identifiable industrial silhouette with three glazed sawteeth. */
+        for(bay=0;bay<3;++bay) {
+            const float back=z0+(float)bay*pitch,front=back+pitch;
+            draw_world_quad(&world_header,
+                (vec3_t){x0,ridge,front},(vec3_t){x1,ridge,front},
+                (vec3_t){x0,roof,back},(vec3_t){x1,roof,back},
+                0,0,1,0,0,1,1,1,dark);
+            if(camera_z>front)
+                draw_world_quad(&world_header,
+                    (vec3_t){x1,ridge,front},(vec3_t){x0,ridge,front},
+                    (vec3_t){x1,roof,front},(vec3_t){x0,roof,front},
+                    0,0,1,0,0,1,1,1,glazing);
+            if(camera_x<x0)
+                draw_world_triangle(&world_header,(vec3_t){x0,roof,back},
+                    (vec3_t){x0,roof,front},(vec3_t){x0,ridge,front},lit);
+            else if(camera_x>x1)
+                draw_world_triangle(&world_header,(vec3_t){x1,roof,front},
+                    (vec3_t){x1,roof,back},(vec3_t){x1,ridge,front},lit);
+        }
+        return;
+    }
     draw_world_triangle(&world_header,(vec3_t){x0,roof,z0},
         (vec3_t){x0,roof,z1},(vec3_t){x0,ridge,building->cz},lit);
     draw_world_triangle(&world_header,(vec3_t){x1,roof,z1},
@@ -2991,68 +3056,195 @@ static void draw_building(const building_t *building) {
                        pack_color(1.0f,(color3_t){.30f,.34f,.42f}));
 }
 
-static void draw_palm(float x, float z, float scale) {
-    const float height = 8.5f * scale;
+static void draw_palm(float x,float z,float scale) {
+    const float height=8.5f*scale;
     const vec3_t view=world_to_camera((vec3_t){x,height*.5f,z});
-    const uint32_t trunk = pack_color(1.0f,(color3_t){0.29f,0.18f,0.12f});
-    const uint32_t leaves = pack_color(1.0f,(color3_t){0.04f,0.18f,0.11f});
-    if(view.z+height<NEAR_PLANE || view.z-height>FAR_PLANE) return;
-    draw_world_quad(&world_header,
-        (vec3_t){x-.18f*scale,height,z},(vec3_t){x+.18f*scale,height,z},
-        (vec3_t){x-.30f*scale,0.1f,z},(vec3_t){x+.30f*scale,0.1f,z},
-        0,0,1,0,0,1,1,1,trunk);
-    draw_world_quad(&world_header,
-        (vec3_t){x,height,z-.18f*scale},(vec3_t){x,height,z+.18f*scale},
-        (vec3_t){x,0.1f,z-.30f*scale},(vec3_t){x,0.1f,z+.30f*scale},
-        0,0,1,0,0,1,1,1,trunk);
-    draw_world_triangle(&world_header,(vec3_t){x,height,z},
-        (vec3_t){x-3.7f*scale,height+.6f*scale,z-1.0f*scale},
-        (vec3_t){x-1.0f*scale,height-.15f*scale,z},leaves);
-    draw_world_triangle(&world_header,(vec3_t){x,height,z},
-        (vec3_t){x+3.7f*scale,height+.4f*scale,z+.8f*scale},
-        (vec3_t){x+1.0f*scale,height-.2f*scale,z},leaves);
-    draw_world_triangle(&world_header,(vec3_t){x,height,z},
-        (vec3_t){x-.7f*scale,height+.5f*scale,z+3.8f*scale},
-        (vec3_t){x,height-.2f*scale,z+1.0f*scale},leaves);
-    draw_world_triangle(&world_header,(vec3_t){x,height,z},
-        (vec3_t){x+.8f*scale,height+.6f*scale,z-3.8f*scale},
-        (vec3_t){x,height-.2f*scale,z-1.0f*scale},leaves);
+    int segment,side;
+    if(!world_sphere_visible((vec3_t){x,height*.5f,z},height*.75f,32.0f)) return;
+    if(palm_draw_count<(int)ARRAY_COUNT(palm_draws))
+        palm_draws[palm_draw_count++]=(palm_draw_t){x,z,scale,view.z};
+    /* Tapered, gently leaning trunk with directional face lighting. */
+    for(segment=0;segment<3;++segment) {
+        const float t0=(float)segment/3.0f,t1=(float)(segment+1)/3.0f;
+        const float r0=(.28f-.12f*t0)*scale,r1=(.28f-.12f*t1)*scale;
+        for(side=0;side<4;++side) {
+            const float a=(float)side*PI*.5f,b=(float)(side+1)*PI*.5f;
+            const uint32_t color=pack_color(1.0f,(color3_t){.26f+.025f*side,.20f+.018f*side,.14f+.012f*side});
+            draw_world_quad(&world_header,
+                (vec3_t){x+.35f*t1*t1*scale+fcos(a)*r1,t1*height,z+fsin(a)*r1},
+                (vec3_t){x+.35f*t1*t1*scale+fcos(b)*r1,t1*height,z+fsin(b)*r1},
+                (vec3_t){x+.35f*t0*t0*scale+fcos(a)*r0,t0*height+.04f,z+fsin(a)*r0},
+                (vec3_t){x+.35f*t0*t0*scale+fcos(b)*r0,t0*height+.04f,z+fsin(b)*r0},
+                0,0,1,0,0,1,1,1,color);
+        }
+    }
+}
+
+static void draw_palm_foliage(void) {
+    int i,frond,segment;
+    for(i=0;i<palm_draw_count;++i) {
+        const palm_draw_t *p=&palm_draws[i];
+        const int fronds=p->depth>210.0f?5:8;
+        const int segments=p->depth>145.0f?1:3;
+        const float scale=p->scale, y=8.5f*scale;
+        const float twist=fsin(p->x*.17f+p->z*.23f)*.7f;
+        const float sway=fsin(game.time*.8f+p->x*.03f)*.12f;
+        for(frond=0;frond<fronds;++frond) {
+            const float angle=(float)frond*PI*2.0f/(float)fronds+twist;
+            const float dx=fcos(angle),dz=fsin(angle);
+            const float width=.95f*scale;
+            const uint32_t tint=pack_color(1.0f,(color3_t){.64f+.18f*fmaxf(0,dx),.73f,.72f});
+            for(segment=0;segment<segments;++segment) {
+                const float t0=(float)segment/(float)segments,t1=(float)(segment+1)/(float)segments;
+                const float l0=4.4f*scale*t0,l1=4.4f*scale*t1;
+                const float h0=y+scale*(2.4f*t0-3.4f*t0*t0)+sway*t0;
+                const float h1=y+scale*(2.4f*t1-3.4f*t1*t1)+sway*t1;
+                const float x=p->x+.35f*scale;
+                draw_world_quad(&texture_headers[DLA_TEX_EFFECT_PALM],
+                    (vec3_t){x+dx*l1-dz*width,h1,p->z+dz*l1+dx*width},
+                    (vec3_t){x+dx*l1+dz*width,h1,p->z+dz*l1-dx*width},
+                    (vec3_t){x+dx*l0-dz*width,h0,p->z+dz*l0+dx*width},
+                    (vec3_t){x+dx*l0+dz*width,h0,p->z+dz*l0-dx*width},
+                    0,1.0f-t1,1,1.0f-t1,0,1.0f-t0,1,1.0f-t0,tint);
+            }
+        }
+    }
+}
+
+/* A four-sided tapered sweep makes thin poles and trunks solid from every
+   angle. Hidden faces are rejected before camera transforms or clipping. */
+static void draw_street_swept_segment(vec3_t start, vec3_t end,
+                                      float lower_radius, float upper_radius,
+                                      color3_t tone) {
+    static const float sign_u[4]={1.0f,-1.0f,-1.0f,1.0f};
+    static const float sign_z[4]={1.0f,1.0f,-1.0f,-1.0f};
+    const float dx=end.x-start.x,dy=end.y-start.y;
+    const float inv=1.0f/sqrtf(fmaxf(dx*dx+dy*dy,.0001f));
+    const float ux=dy*inv,uy=-dx*inv;
+    vec3_t lower[4],upper[4];
+    int side;
+    for(side=0;side<4;++side) {
+        lower[side]=(vec3_t){start.x+ux*sign_u[side]*lower_radius,
+                             start.y+uy*sign_u[side]*lower_radius,
+                             start.z+sign_z[side]*lower_radius};
+        upper[side]=(vec3_t){end.x+ux*sign_u[side]*upper_radius,
+                             end.y+uy*sign_u[side]*upper_radius,
+                             end.z+sign_z[side]*upper_radius};
+    }
+    for(side=0;side<4;++side) {
+        const int next=(side+1)&3;
+        const float nu=(sign_u[side]+sign_u[next])*.5f;
+        const float nz=(sign_z[side]+sign_z[next])*.5f;
+        const float mx=(lower[side].x+lower[next].x+upper[side].x+upper[next].x)*.25f;
+        const float my=(lower[side].y+lower[next].y+upper[side].y+upper[next].y)*.25f;
+        const float mz=(lower[side].z+lower[next].z+upper[side].z+upper[next].z)*.25f;
+        const float facing=(camera_x-mx)*nu*ux+(camera_y-my)*nu*uy+(camera_z-mz)*nz;
+        const float shade=.79f+fmaxf(0.0f,nu*(-ux*.32f+uy*.86f)-nz*.24f)*.28f;
+        if(facing<=0.0f) continue;
+        draw_world_quad(&world_header,lower[side],lower[next],upper[side],upper[next],
+                        0,0,1,0,0,1,1,1,pack_color(1.0f,color_scale(tone,shade)));
+    }
 }
 
 static void draw_streetlamp_opaque(float x, float z, district_t district) {
     const vec3_t view=world_to_camera((vec3_t){x,3.5f,z});
-    const uint32_t pole=pack_color(1.0f,(color3_t){.10f,.12f,.17f});
-    const uint32_t fixture=pack_color(1.0f,(color3_t){.30f,.24f,.15f});
-    const uint32_t bulb=pack_color(1.0f,district_color(district));
-    if(view.z<2.25f) return;
-    draw_world_box(x,3.55f,z,.10f,3.45f,.10f,&world_header,pole);
-    draw_world_box(x+.48f,6.92f,z,.58f,.065f,.11f,&world_header,fixture);
-    draw_world_box(x+.98f,6.78f,z,.27f,.11f,.16f,&world_header,bulb);
-    draw_world_box(x,6.92f,z,.18f,.10f,.18f,&world_header,fixture);
+    const float frustum=(SCREEN_CX+24.0f)*fmaxf(view.z,NEAR_PLANE)/camera_focal+1.5f;
+    const color3_t accent=district_color(district);
+    const color3_t metal={.14f+accent.r*.035f,.17f+accent.g*.025f,.21f+accent.b*.025f};
+    const uint32_t fixture=pack_color(1.0f,(color3_t){.23f,.245f,.26f});
+    const uint32_t bulb=pack_color(1.0f,(color3_t){1.0f,.84f,.56f});
+    const bool close=view.z<62.0f;
+    if(view.z<NEAR_PLANE-1.0f || view.z>FAR_PLANE+1.0f || fabsf(view.x)>frustum) return;
+    /* The changing tangent describes a swan-neck arm, rather than stacked
+       boxes. Its end and the underside lens retain the existing light anchor. */
+    draw_street_swept_segment((vec3_t){x,.12f,z},(vec3_t){x,6.12f,z},.13f,.072f,metal);
+    if(close) {
+        draw_street_swept_segment((vec3_t){x,6.12f,z},(vec3_t){x+.13f,6.59f,z},.072f,.067f,metal);
+        draw_street_swept_segment((vec3_t){x+.13f,6.59f,z},(vec3_t){x+.48f,6.87f,z},.067f,.057f,metal);
+        draw_street_swept_segment((vec3_t){x+.48f,6.87f,z},(vec3_t){x+.98f,6.94f,z},.057f,.047f,metal);
+        draw_world_box(x,.20f,z,.21f,.16f,.21f,&world_header,fixture);
+    }
+    else {
+        draw_street_swept_segment((vec3_t){x,6.12f,z},(vec3_t){x+.25f,6.73f,z},.072f,.063f,metal);
+        draw_street_swept_segment((vec3_t){x+.25f,6.73f,z},(vec3_t){x+.98f,6.94f,z},.063f,.047f,metal);
+    }
+    draw_world_box(x+.98f,6.89f,z,.32f,.105f,.19f,&world_header,fixture);
+    draw_world_quad(&world_header,
+        (vec3_t){x+.73f,6.78f,z-.135f},(vec3_t){x+1.23f,6.78f,z-.135f},
+        (vec3_t){x+.73f,6.78f,z+.135f},(vec3_t){x+1.23f,6.78f,z+.135f},
+        0,0,1,0,0,1,1,1,bulb);
+}
+
+static void draw_street_crown_face(vec3_t a, vec3_t b, vec3_t c,
+                                    vec3_t center, color3_t leaf) {
+    const vec3_t ab={b.x-a.x,b.y-a.y,b.z-a.z};
+    const vec3_t ac={c.x-a.x,c.y-a.y,c.z-a.z};
+    const vec3_t mid={(a.x+b.x+c.x)/3.0f,(a.y+b.y+c.y)/3.0f,(a.z+b.z+c.z)/3.0f};
+    vec3_t normal={ab.y*ac.z-ab.z*ac.y,ab.z*ac.x-ab.x*ac.z,ab.x*ac.y-ab.y*ac.x};
+    float shade,length;
+    if(normal.x*(mid.x-center.x)+normal.y*(mid.y-center.y)+normal.z*(mid.z-center.z)<0.0f) {
+        normal.x=-normal.x;
+        normal.y=-normal.y;
+        normal.z=-normal.z;
+    }
+    if(normal.x*(camera_x-mid.x)+normal.y*(camera_y-mid.y)+normal.z*(camera_z-mid.z)<=0.0f) return;
+    /* The L1 normalization keeps this very small diffuse bake free of per-face
+       square roots. Top foliage catches the cool sky; undersides stay shaded. */
+    length=fmaxf(fabsf(normal.x)+fabsf(normal.y)+fabsf(normal.z),.0001f);
+    shade=.63f+fmaxf(0.0f,(-.32f*normal.x+.86f*normal.y-.24f*normal.z)/length)*.48f;
+    draw_world_triangle(&world_header,a,b,c,pack_color(1.0f,color_scale(leaf,shade)));
 }
 
 static void draw_street_tree(float x, float z, district_t district,
                              uint32_t seed) {
+    static const float ring_x[6]={1.0f,.5f,-.5f,-1.0f,-.5f,.5f};
+    static const float ring_z[6]={0.0f,.8660254f,.8660254f,0.0f,-.8660254f,-.8660254f};
     const float height=4.3f+(float)(seed&3u)*.22f;
+    const vec3_t center={x,height,z};
+    const vec3_t view=world_to_camera(center);
+    const float frustum=(SCREEN_CX+24.0f)*fmaxf(view.z,NEAR_PLANE)/camera_focal+2.6f;
     const color3_t accent=district_color(district);
-    const uint32_t trunk=pack_color(1.0f,(color3_t){.25f,.15f,.085f});
-    const uint32_t planter=pack_color(1.0f,color_scale(accent,.38f));
-    const uint32_t leaf_a=pack_color(1.0f,
-        district==DISTRICT_NEON ? (color3_t){.09f,.27f,.25f} :
-                                  (color3_t){.075f,.30f,.15f});
-    const uint32_t leaf_b=pack_color(1.0f,
-        district==DISTRICT_COAST ? (color3_t){.12f,.42f,.28f} :
-                                   (color3_t){.11f,.36f,.18f});
-    draw_world_box(x,.30f,z,.68f,.28f,.68f,&world_header,planter);
-    draw_world_box(x,height*.48f,z,.13f,height*.45f,.13f,&world_header,trunk);
-    draw_world_triangle(&world_header,(vec3_t){x,height+2.0f,z},
-        (vec3_t){x-2.2f,height-.15f,z},(vec3_t){x,height-1.45f,z},leaf_a);
-    draw_world_triangle(&world_header,(vec3_t){x,height+2.0f,z},
-        (vec3_t){x,height-1.45f,z},(vec3_t){x+2.2f,height-.15f,z},leaf_b);
-    draw_world_triangle(&world_header,(vec3_t){x,height+1.8f,z},
-        (vec3_t){x,height-.25f,z-2.0f},(vec3_t){x,height-1.35f,z},leaf_b);
-    draw_world_triangle(&world_header,(vec3_t){x,height+1.8f,z},
-        (vec3_t){x,height-1.35f,z},(vec3_t){x,height-.25f,z+2.0f},leaf_a);
+    const color3_t bark={.29f,.205f,.13f};
+    const color3_t leaf=district==DISTRICT_NEON ? (color3_t){.15f,.36f,.29f} :
+                        district==DISTRICT_COAST ? (color3_t){.18f,.43f,.27f} :
+                                                     (color3_t){.15f,.39f,.20f};
+    const vec3_t top={x+.12f,height+1.75f,z-.09f};
+    const vec3_t bottom={x-.08f,height-1.35f,z+.06f};
+    const int rings=view.z<55.0f?3:(view.z<100.0f?2:1);
+    vec3_t crown[3][6];
+    int ring,side;
+    if(view.z<NEAR_PLANE-2.6f || view.z>FAR_PLANE+2.6f || fabsf(view.x)>frustum) return;
+    if(view.z<100.0f)
+        draw_world_box(x,.30f,z,.68f,.28f,.68f,&world_header,
+                       pack_color(1.0f,color_scale(accent,.38f)));
+    draw_street_swept_segment((vec3_t){x,.55f,z},
+                              (vec3_t){x+.10f,height-.62f,z},.16f,.075f,bark);
+    /* A closed, irregular crown retains volume while the camera orbits.  The
+       near mesh has lower/middle/upper rings; distant silhouettes shed rings
+       and the tiny planter instead of drawing two crossed diamond cards. */
+    for(ring=0;ring<rings;++ring) {
+        const float y=rings==1?height+.05f:
+                      rings==2?height+(ring==0?-.68f:.78f):
+                               height+(ring==0?-.88f:(ring==1?.18f:1.08f));
+        const float radius=rings==1?2.10f:
+                           rings==2?(ring==0?1.74f:1.66f):
+                                    (ring==0?1.40f:(ring==1?2.10f:1.34f));
+        for(side=0;side<6;++side) {
+            const float irregular=.94f+(float)((seed>>(side*3))&3u)*.035f;
+            crown[ring][side]=(vec3_t){x+ring_x[side]*radius*irregular,
+                y+(float)((seed>>(side*2+4))&3u)*.035f,
+                z+ring_z[side]*radius*irregular*.90f};
+        }
+    }
+    for(side=0;side<6;++side) {
+        const int next=(side+1)%6;
+        draw_street_crown_face(bottom,crown[0][next],crown[0][side],center,leaf);
+        for(ring=0;ring<rings-1;++ring) {
+            draw_street_crown_face(crown[ring][side],crown[ring][next],crown[ring+1][side],center,leaf);
+            draw_street_crown_face(crown[ring][next],crown[ring+1][next],crown[ring+1][side],center,leaf);
+        }
+        draw_street_crown_face(top,crown[rings-1][side],crown[rings-1][next],center,leaf);
+    }
 }
 
 static void draw_bus_shelter(float x, float z, district_t district,
@@ -4355,8 +4547,9 @@ static void draw_city(void) {
 static void draw_streetlamp_glow(float x, float z, uint32_t seed,
                                  district_t district) {
     const vec3_t view=world_to_camera((vec3_t){x,3.5f,z});
-    const float flicker=.90f+.10f*fsin(game.time*5.0f+(float)(seed&31u));
-    const color3_t color=district_color(district);
+    const float flicker=clampf((245.0f-view.z)/150.0f,0.0f,1.0f);
+    (void)seed;
+    const color3_t color=district==DISTRICT_COAST ? (color3_t){.78f,.87f,1.0f} : (color3_t){1.0f,.69f,.38f};
     screen_point_t bulb;
     if(view.z<2.25f) return;
     draw_world_disc(&additive_header,(vec3_t){x+.55f,.038f,z},7.4f,6,
@@ -4532,20 +4725,38 @@ static void draw_traffic_box(const traffic_t *vehicle,
                              float center_x, float center_y, float center_z,
                              float half_x, float half_y, float half_z,
                              const pvr_poly_hdr_t *header, uint32_t color) {
-    vec3_t p[8];
-    p[0]=traffic_point(vehicle,center_x-half_x,center_y+half_y,center_z+half_z);
-    p[1]=traffic_point(vehicle,center_x+half_x,center_y+half_y,center_z+half_z);
-    p[2]=traffic_point(vehicle,center_x-half_x,center_y-half_y,center_z+half_z);
-    p[3]=traffic_point(vehicle,center_x+half_x,center_y-half_y,center_z+half_z);
-    p[4]=traffic_point(vehicle,center_x-half_x,center_y+half_y,center_z-half_z);
-    p[5]=traffic_point(vehicle,center_x+half_x,center_y+half_y,center_z-half_z);
-    p[6]=traffic_point(vehicle,center_x-half_x,center_y-half_y,center_z-half_z);
-    p[7]=traffic_point(vehicle,center_x+half_x,center_y-half_y,center_z-half_z);
-    draw_world_quad(header,p[0],p[1],p[2],p[3],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[5],p[4],p[7],p[6],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[4],p[0],p[6],p[2],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[1],p[5],p[3],p[7],0,0,1,0,0,1,1,1,color);
-    draw_world_quad(header,p[4],p[5],p[0],p[1],0,0,1,0,0,1,1,1,color);
+    const float c=fcos(vehicle->yaw),s=fsin(vehicle->yaw);
+    const float dx=camera_x-vehicle->x,dz=camera_z-vehicle->z;
+    const float local_camera_x=dx*c-dz*s;
+    const float local_camera_z=dx*s+dz*c;
+    vec3_t p[8]={
+        {center_x-half_x,center_y+half_y,center_z+half_z},
+        {center_x+half_x,center_y+half_y,center_z+half_z},
+        {center_x-half_x,center_y-half_y,center_z+half_z},
+        {center_x+half_x,center_y-half_y,center_z+half_z},
+        {center_x-half_x,center_y+half_y,center_z-half_z},
+        {center_x+half_x,center_y+half_y,center_z-half_z},
+        {center_x-half_x,center_y-half_y,center_z-half_z},
+        {center_x+half_x,center_y-half_y,center_z-half_z}
+    };
+    int i;
+    for(i=0;i<8;++i) {
+        const float x=p[i].x,z=p[i].z;
+        p[i].x=vehicle->x+x*c+z*s;
+        p[i].z=vehicle->z-x*s+z*c;
+    }
+    if(local_camera_z>center_z+half_z)
+        draw_world_quad(header,p[0],p[1],p[2],p[3],0,0,1,0,0,1,1,1,color);
+    if(local_camera_z<center_z-half_z)
+        draw_world_quad(header,p[5],p[4],p[7],p[6],0,0,1,0,0,1,1,1,color);
+    if(local_camera_x<center_x-half_x)
+        draw_world_quad(header,p[4],p[0],p[6],p[2],0,0,1,0,0,1,1,1,color);
+    if(local_camera_x>center_x+half_x)
+        draw_world_quad(header,p[1],p[5],p[3],p[7],0,0,1,0,0,1,1,1,color);
+    if(camera_y>center_y+half_y)
+        draw_world_quad(header,p[4],p[5],p[0],p[1],0,0,1,0,0,1,1,1,color);
+    if(camera_y<center_y-half_y)
+        draw_world_quad(header,p[2],p[3],p[6],p[7],0,0,1,0,0,1,1,1,color);
 }
 
 static void draw_traffic_body(const traffic_t *vehicle,
@@ -4612,11 +4823,15 @@ static void draw_traffic_wheel(const traffic_t *vehicle,
 }
 
 static void draw_traffic_car(const traffic_t *vehicle) {
-    const uint32_t paint = pack_color(1.0f,color_scale(vehicle->color,.88f));
-    const uint32_t paint_top = pack_color(1.0f,color_scale(vehicle->color,1.03f));
-    const uint32_t glass = pack_color(1.0f,(color3_t){0.25f,0.34f,0.50f});
-    const uint32_t carbon = pack_color(1.0f,(color3_t){0.18f,0.19f,0.23f});
-    const uint32_t metal = pack_color(1.0f,(color3_t){.48f,.52f,.58f});
+    const float sun=.5f+.5f*fcos(vehicle->yaw+.7f);
+    const color3_t body={vehicle->color.r*(.48f+.14f*sun),
+                         vehicle->color.g*(.52f+.12f*sun),
+                         vehicle->color.b*(.64f+.08f*sun)};
+    const uint32_t paint=pack_color(1.0f,body);
+    const uint32_t paint_top=pack_color(1.0f,color_scale(body,1.23f));
+    const uint32_t glass=pack_color(1.0f,(color3_t){.55f,.64f,.78f});
+    const uint32_t carbon=pack_color(1.0f,(color3_t){.075f,.085f,.115f});
+    const uint32_t metal=pack_color(1.0f,(color3_t){.36f,.40f,.48f});
     const float brake=clampf(vehicle->brake_light,0.0f,1.0f);
     const uint32_t tail=pack_color(1.0f,(color3_t){.58f+.42f*brake,
         .24f+.68f*brake,.20f+.58f*brake});
@@ -4793,22 +5008,13 @@ static vec3_t oriented_world_point(float x, float z, float yaw,
 
 static void draw_headlight_cone(float x, float z, float yaw,
                                 float length, float alpha) {
-    const color3_t cool={.58f,.78f,1.0f};
-    draw_world_quad_colored(&additive_header,
-        oriented_world_point(x,z,yaw,-.72f,.045f,1.75f),
-        oriented_world_point(x,z,yaw,.72f,.045f,1.75f),
-        oriented_world_point(x,z,yaw,-3.8f,.045f,length),
-        oriented_world_point(x,z,yaw,3.8f,.045f,length),
-        pack_color(alpha,cool),pack_color(alpha,cool),
-        pack_color(0.0f,cool),pack_color(0.0f,cool));
-    draw_world_quad_colored(&additive_header,
-        oriented_world_point(x,z,yaw,-.48f,.047f,1.8f),
-        oriented_world_point(x,z,yaw,.48f,.047f,1.8f),
-        oriented_world_point(x,z,yaw,-1.8f,.047f,length*.68f),
-        oriented_world_point(x,z,yaw,1.8f,.047f,length*.68f),
-        pack_color(alpha*.86f,(color3_t){.82f,.90f,1.0f}),
-        pack_color(alpha*.86f,(color3_t){.82f,.90f,1.0f}),
-        pack_color(0.0f,cool),pack_color(0.0f,cool));
+    const uint32_t color=pack_color(alpha*1.8f,(color3_t){.67f,.79f,1.0f});
+    draw_world_quad(&texture_headers[DLA_TEX_EFFECT_LIGHT],
+        oriented_world_point(x,z,yaw,-4.0f,.046f,length),
+        oriented_world_point(x,z,yaw, 4.0f,.046f,length),
+        oriented_world_point(x,z,yaw,-.70f,.046f,1.9f),
+        oriented_world_point(x,z,yaw, .70f,.046f,1.9f),
+        0,0,1,0,0,1,1,1,color);
 }
 
 static void draw_brake_lamp_glow(float x, float z, float yaw,
@@ -4846,6 +5052,7 @@ static void draw_vehicle_lighting(void) {
         const float dx=vehicle->x-car.x,dz=vehicle->z-car.z;
         const float camera_dx=vehicle->x-camera_x,camera_dz=vehicle->z-camera_z;
         if(!vehicle->active || dx*dx+dz*dz>155.0f*155.0f ||
+           (game.mode==MODE_DEMO && dx*dx+dz*dz<=64.0f) ||
            camera_dx*camera_dx+camera_dz*camera_dz<=6.0f*6.0f ||
            !world_sphere_visible((vec3_t){vehicle->x,.72f,vehicle->z},
                                  16.0f,42.0f))
@@ -4862,20 +5069,29 @@ static void draw_vehicle_lighting(void) {
     }
 }
 
+static void draw_contact_shadow(float x,float z,float yaw,float scale,float opacity) {
+    const uint32_t color=pack_color(opacity,(color3_t){1,1,1});
+    draw_world_quad(&texture_headers[DLA_TEX_EFFECT_SHADOW],
+        oriented_world_point(x,z,yaw,-1.45f*scale,.036f,3.20f*scale),
+        oriented_world_point(x,z,yaw, 1.45f*scale,.036f,3.20f*scale),
+        oriented_world_point(x,z,yaw,-1.45f*scale,.036f,-3.20f*scale),
+        oriented_world_point(x,z,yaw, 1.45f*scale,.036f,-3.20f*scale),
+        0,0,1,0,0,1,1,1,color);
+}
+
 static void draw_vehicle_shadows(void) {
     int i;
-    const color3_t black={.004f,.005f,.009f};
-    draw_world_disc(&translucent_header,(vec3_t){car.x,.036f,car.z},2.35f,10,
-                    pack_color(.42f,black),pack_color(0.0f,black));
+    draw_contact_shadow(car.x,car.z,car.yaw,1.0f,.92f);
     for(i=0;i<MAX_TRAFFIC;++i) {
-        const float dx=traffic[i].x-car.x,dz=traffic[i].z-car.z;
-        const float camera_dx=traffic[i].x-camera_x;
-        const float camera_dz=traffic[i].z-camera_z;
-        if(!traffic[i].active || dx*dx+dz*dz>115.0f*115.0f ||
-           camera_dx*camera_dx+camera_dz*camera_dz<=6.0f*6.0f) continue;
-        draw_world_disc(&translucent_header,
-                        (vec3_t){traffic[i].x,.035f,traffic[i].z},2.05f,6,
-                        pack_color(.28f,black),pack_color(0.0f,black));
+        const traffic_t *v=&traffic[i];
+        const float dx=v->x-car.x,dz=v->z-car.z;
+        const float camera_dx=v->x-camera_x,camera_dz=v->z-camera_z;
+        const float distance=sqrtf(dx*dx+dz*dz);
+        if(!v->active || distance>125.0f ||
+           camera_dx*camera_dx+camera_dz*camera_dz<=36.0f ||
+           (game.mode==MODE_DEMO && distance<=8.0f) ||
+           !world_sphere_visible((vec3_t){v->x,.1f,v->z},3.5f,24.0f)) continue;
+        draw_contact_shadow(v->x,v->z,v->yaw,.84f,.78f*clampf((125.0f-distance)/45.0f,0.0f,1.0f));
     }
 }
 
@@ -4903,90 +5119,97 @@ static void draw_skids(void) {
 }
 
 static void draw_car_mesh(void) {
-    enum { MAX_CAR_MESH_VERTICES = 4096 };
-    static vec3_t transformed[MAX_CAR_MESH_VERTICES];
-    static vec3_t transformed_normal[MAX_CAR_MESH_VERTICES];
-    static screen_point_t projected[MAX_CAR_MESH_VERTICES];
-    const float c = fcos(car.yaw);
-    const float s = fsin(car.yaw);
-    const float body_roll=clampf(-car.lateral*.0065f-car.yaw_rate*.028f,
-                                 -.050f,.050f);
-    int material, i;
+    const float c=fcos(car.yaw), s=fsin(car.yaw);
+    const float body_roll=clampf(-car.lateral*.0065f-car.yaw_rate*.028f,-.050f,.050f);
+    static bool materials_ready;
+    int material,i;
     _Static_assert(DLA_COUNT_OF(dla_car_vertices)<=MAX_CAR_MESH_VERTICES,
                    "player car mesh exceeds renderer scratch capacity");
-    for(i = 0; i < dla_car_mesh.vertex_count; ++i) {
-        const dla_mesh_vertex_t *v = &dla_car_mesh.vertices[i];
-        const float rolled_x=v->x-v->y*body_roll;
-        const float rolled_y=v->y+v->x*body_roll;
-        const float rolled_nx=v->nx-v->ny*body_roll;
-        const float rolled_ny=v->ny+v->nx*body_roll;
-        transformed[i] = (vec3_t){car.x + rolled_x*c + v->z*s,
-                                  rolled_y,
-                                  car.z - rolled_x*s + v->z*c};
-        transformed_normal[i] = (vec3_t){rolled_nx*c+v->nz*s,
-                                         rolled_ny,
-                                         -rolled_nx*s+v->nz*c};
-        project_world(transformed[i], &projected[i]);
-    }
-    for(material = 0; material < 5; ++material) {
-        const int texture = material == DLA_MAT_PAINT ? DLA_TEX_CAR_PAINT :
-                            material == DLA_MAT_GLASS ? DLA_TEX_CAR_GLASS :
-                            material == DLA_MAT_CARBON ? DLA_TEX_CAR_CARBON :
-                            material == DLA_MAT_LIGHTS ? DLA_TEX_CAR_LIGHTS :
-                                                        DLA_TEX_CAR_CARBON;
-        const pvr_poly_hdr_t *material_header = material == DLA_MAT_METAL ?
-                                                  &world_header :
-                                                  &texture_headers[texture];
-        for(i = 0; i < dla_car_mesh.face_count; ++i) {
-            const dla_mesh_face_t *face = &dla_car_mesh.faces[i];
-            const dla_mesh_vertex_t *a, *b, *cc;
-            float mx,my,mz,vx,vy,vz,view_inv,warm;
-            uint32_t colors[3];
-            int corner;
-            if(face->material != material || !projected[face->a].valid ||
-               !projected[face->b].valid || !projected[face->c].valid) continue;
-            mx=(transformed[face->a].x+transformed[face->b].x+transformed[face->c].x)/3.0f;
-            my=(transformed[face->a].y+transformed[face->b].y+transformed[face->c].y)/3.0f;
-            mz=(transformed[face->a].z+transformed[face->b].z+transformed[face->c].z)/3.0f;
-            vx=camera_x-mx;
-            vy=camera_y-my;
-            vz=camera_z-mz;
-            view_inv=1.0f/sqrtf(fmaxf(vx*vx+vy*vy+vz*vz,.0001f));
-            warm=.5f+.5f*fsin(game.time*1.1f+car.x*.018f+car.z*.014f);
-            for(corner=0;corner<3;++corner) {
-                const int index=corner==0?face->a:(corner==1?face->b:face->c);
-                const vec3_t normal=transformed_normal[index];
-                const float key=fmaxf(0.0f,normal.x*-.32f+normal.y*.88f+
-                                      normal.z*-.24f);
-                float diffuse=.66f+key*.40f;
-                const float rim=1.0f-fabsf((normal.x*vx+normal.y*vy+normal.z*vz)*view_inv);
-                color3_t illumination;
-                diffuse+=rim*rim*rim*.18f;
-                if(material==DLA_MAT_PAINT) {
-                    /* Preserve a readable pearl-white shell in RGB565.  The
-                       earlier blue/dim response swallowed the body creases and
-                       made even correct geometry read like one black wedge. */
-                    diffuse=.78f+key*.33f+rim*rim*rim*.14f;
-                    if(normal.y>.45f) diffuse+=.055f;
-                    if(my<.34f) diffuse*=.78f;
-                }
-                if(material==DLA_MAT_GLASS) diffuse=.92f+rim*.12f;
-                if(material==DLA_MAT_LIGHTS) diffuse=1.34f;
-                if(material==DLA_MAT_CARBON) diffuse=.43f+key*.13f+rim*.055f;
-                if(material==DLA_MAT_METAL) diffuse=.76f+key*.14f+rim*.16f;
-                if(game.impact_flash>0.0f) diffuse=1.25f;
-                illumination=(color3_t){diffuse*(.94f+.10f*warm),
-                                        diffuse*(.96f+.04f*warm),
-                                        diffuse*(1.07f-.07f*warm)};
-                colors[corner]=pack_color(1.0f,illumination);
+    _Static_assert(DLA_COUNT_OF(dla_car_faces)<=DLA_COUNT_OF(car_visible_faces),
+                   "player car face visibility capacity exceeded");
+    if(!materials_ready) {
+        for(i=0;i<dla_car_mesh.face_count;++i) {
+            const dla_mesh_face_t *f=&dla_car_mesh.faces[i];
+            const dla_mesh_vertex_t *a=&dla_car_mesh.vertices[f->a];
+            const dla_mesh_vertex_t *b=&dla_car_mesh.vertices[f->b];
+            const dla_mesh_vertex_t *c=&dla_car_mesh.vertices[f->c];
+            const vec3_t ab={b->x-a->x,b->y-a->y,b->z-a->z};
+            const vec3_t ac={c->x-a->x,c->y-a->y,c->z-a->z};
+            vec3_t n={ab.y*ac.z-ab.z*ac.y,ab.z*ac.x-ab.x*ac.z,ab.x*ac.y-ab.y*ac.x};
+            if(n.x*(a->nx+b->nx+c->nx)+n.y*(a->ny+b->ny+c->ny)+
+               n.z*(a->nz+b->nz+c->nz)<0.0f) {
+                n.x=-n.x; n.y=-n.y; n.z=-n.z;
             }
-            a = &dla_car_mesh.vertices[face->a];
-            b = &dla_car_mesh.vertices[face->b];
-            cc = &dla_car_mesh.vertices[face->c];
-            submit_triangle(material_header,
-                &projected[face->a],&projected[face->b],&projected[face->c],
-                a->u,a->v,b->u,b->v,cc->u,cc->v,
-                colors[0],colors[1],colors[2]);
+            car_face_normals[i]=n;
+            car_materials[f->a]=car_materials[f->b]=car_materials[f->c]=f->material;
+        }
+        materials_ready=true;
+    }
+    /* Transform and light each seam-split vertex once, not per triangle corner.
+       The same cache feeds the opaque material and transparent reflection pass. */
+    for(i=0;i<dla_car_mesh.vertex_count;++i) {
+        const dla_mesh_vertex_t *v=&dla_car_mesh.vertices[i];
+        const float x=v->x-v->y*body_roll, y=v->y+v->x*body_roll;
+        const float nx=v->nx-v->ny*body_roll, ny=v->ny+v->nx*body_roll;
+        vec3_t n={nx*c+v->nz*s,ny,-nx*s+v->nz*c};
+        vec3_t world={car.x+x*c+v->z*s,y,car.z-x*s+v->z*c};
+        float vx=camera_x-world.x,vy=camera_y-world.y,vz=camera_z-world.z;
+        const float inv=1.0f/sqrtf(fmaxf(vx*vx+vy*vy+vz*vz,.0001f));
+        float facing,key,sky,rim,reflectivity;
+        color3_t light;
+        vx*=inv; vy*=inv; vz*=inv;
+        facing=clampf(n.x*vx+n.y*vy+n.z*vz,0.0f,1.0f);
+        rim=1.0f-facing;
+        key=fmaxf(0.0f,n.x*-.48f+n.y*.64f+n.z*-.60f);
+        sky=clampf(n.y*.5f+.5f,0.0f,1.0f);
+        /* Cool hemisphere fill, warm low sun, and baked cavity occlusion. */
+        light=(color3_t){(.25f+sky*.27f+key*.33f)*v->ao,
+                         (.29f+sky*.29f+key*.25f)*v->ao,
+                         (.38f+sky*.31f+key*.18f)*v->ao};
+        material=car_materials[i];
+        reflectivity=(.045f+rim*rim*rim*.23f)*v->ao;
+        if(material==DLA_MAT_GLASS) {
+            light=(color3_t){.42f,.49f,.61f};
+            reflectivity=.35f+rim*rim*.43f;
+        }
+        else if(material==DLA_MAT_CARBON) light=color_scale(light,.39f);
+        else if(material==DLA_MAT_LIGHTS) light=(color3_t){1.0f,.92f,.90f};
+        else if(material==DLA_MAT_METAL) light=color_scale(light,.85f);
+        if(game.impact_flash>0.0f) light=(color3_t){1.0f,.90f,.85f};
+        car_world[i]=world;
+        project_world(world,&car_projected[i]);
+        car_colors[i]=pack_color(1.0f,light);
+        car_reflect_colors[i]=pack_color(reflectivity,(color3_t){.84f,.90f,1.0f});
+        /* Hemisphere environment lookup is world-oriented, so highlights move
+           with steering and camera motion without per-vertex atan2. */
+        car_reflect_uv[i][0]=clampf(.5f+(2.0f*facing*n.x-vx)*.48f,.01f,.99f);
+        car_reflect_uv[i][1]=clampf(.5f-(2.0f*facing*n.y-vy)*.48f,.01f,.99f);
+    }
+    memset(car_visible_faces,0,sizeof(car_visible_faces));
+    for(material=0;material<5;++material) {
+        const int texture=material==DLA_MAT_PAINT?DLA_TEX_CAR_PAINT:
+            material==DLA_MAT_GLASS?DLA_TEX_CAR_GLASS:
+            material==DLA_MAT_LIGHTS?DLA_TEX_CAR_LIGHTS:DLA_TEX_CAR_CARBON;
+        const pvr_poly_hdr_t *header=material==DLA_MAT_METAL?&world_header:&texture_headers[texture];
+        const int end=dla_car_material_ranges[material].first_face+
+                      dla_car_material_ranges[material].face_count;
+        for(i=dla_car_material_ranges[material].first_face;i<end;++i) {
+            const dla_mesh_face_t *f=&dla_car_mesh.faces[i];
+            const dla_mesh_vertex_t *a=&dla_car_mesh.vertices[f->a];
+            const dla_mesh_vertex_t *b=&dla_car_mesh.vertices[f->b];
+            const dla_mesh_vertex_t *d=&dla_car_mesh.vertices[f->c];
+            const vec3_t local=car_face_normals[i];
+            const float nx=local.x-local.y*body_roll,ny=local.y+local.x*body_roll;
+            const vec3_t n={nx*c+local.z*s,ny,-nx*s+local.z*c};
+            const vec3_t view={camera_x-car_world[f->a].x,camera_y-car_world[f->a].y,
+                               camera_z-car_world[f->a].z};
+            if(n.x*view.x+n.y*view.y+n.z*view.z<0.0f ||
+               !car_projected[f->a].valid || !car_projected[f->b].valid ||
+               !car_projected[f->c].valid ||
+               !screen_triangle_visible(&car_projected[f->a],&car_projected[f->b],&car_projected[f->c])) continue;
+            car_visible_faces[i]=true;
+            submit_triangle(header,&car_projected[f->a],&car_projected[f->b],&car_projected[f->c],
+                a->u,a->v,b->u,b->v,d->u,d->v,car_colors[f->a],car_colors[f->b],car_colors[f->c]);
         }
     }
 }
@@ -5198,86 +5421,52 @@ static void draw_car(void) {
 }
 
 static void draw_car_environment_reflections(void) {
-    const float shimmer=.84f+.16f*fsin(game.time*.72f+car.x*.012f);
-    const color3_t cyan={.18f,.62f,1.0f};
-    const color3_t violet={.52f,.20f,1.0f};
-    const color3_t sunset={1.0f,.20f,.30f};
-    const color3_t warm={1.0f,.52f,.12f};
-    const uint32_t cyan_soft=pack_color(.10f*shimmer,cyan);
-    const uint32_t violet_soft=pack_color(.08f*shimmer,violet);
-    const uint32_t sunset_soft=pack_color(.18f*shimmer,sunset);
-    const uint32_t warm_soft=pack_color(.11f*shimmer,warm);
-    int side;
-
-    /* Small, authored second-pass highlights survive RGB565 and make the
-       pearl shell respond to the city.  They follow actual hood, glass and
-       shoulder planes; this is the restrained environment-map trick used by
-       many premium late-90s racers, not a full-screen bloom overlay. */
-    draw_world_quad_colored(&additive_header,
-        car_local_to_world(-.72f,.833f,1.78f),
-        car_local_to_world( .72f,.833f,1.78f),
-        car_local_to_world(-.42f,.839f,.82f),
-        car_local_to_world( .42f,.839f,.82f),
-        cyan_soft,violet_soft,pack_color(0.0f,cyan),pack_color(0.0f,violet));
-
-    draw_world_quad_colored(&translucent_header,
-        car_local_to_world(-.55f,1.374f,-.42f),
-        car_local_to_world( .55f,1.374f,-.42f),
-        car_local_to_world(-.70f,.904f,-1.27f),
-        car_local_to_world( .70f,.904f,-1.27f),
-        violet_soft,cyan_soft,sunset_soft,warm_soft);
-    draw_world_quad_colored(&translucent_header,
-        car_local_to_world(-.53f,1.370f,.02f),
-        car_local_to_world( .53f,1.370f,.02f),
-        car_local_to_world(-.70f,.866f,.67f),
-        car_local_to_world( .70f,.866f,.67f),
-        violet_soft,cyan_soft,warm_soft,sunset_soft);
-
-    for(side=-1;side<=1;side+=2) {
-        const float x=(float)side*1.075f;
-        const uint32_t front=side<0?cyan_soft:violet_soft;
-        const uint32_t rear=side<0?sunset_soft:warm_soft;
-        draw_world_quad_colored(&additive_header,
-            car_local_to_world(x,.765f,.72f),
-            car_local_to_world(x,.725f,.65f),
-            car_local_to_world(x,.720f,-1.46f),
-            car_local_to_world(x,.674f,-1.36f),
-            front,front,rear,pack_color(0.0f,sunset));
+    int material,i;
+    for(material=DLA_MAT_PAINT;material<=DLA_MAT_GLASS;++material) {
+        const int end=dla_car_material_ranges[material].first_face+
+                      dla_car_material_ranges[material].face_count;
+        for(i=dla_car_material_ranges[material].first_face;i<end;++i) {
+            const dla_mesh_face_t *f=&dla_car_mesh.faces[i];
+            if(!car_visible_faces[i]) continue;
+            submit_triangle(&reflection_header,&car_projected[f->a],&car_projected[f->b],&car_projected[f->c],
+                car_reflect_uv[f->a][0],car_reflect_uv[f->a][1],
+                car_reflect_uv[f->b][0],car_reflect_uv[f->b][1],
+                car_reflect_uv[f->c][0],car_reflect_uv[f->c][1],
+                car_reflect_colors[f->a],car_reflect_colors[f->b],car_reflect_colors[f->c]);
+        }
     }
-    draw_world_quad_colored(&additive_header,
-        car_local_to_world(-.82f,.888f,-2.16f),
-        car_local_to_world( .82f,.888f,-2.16f),
-        car_local_to_world(-.68f,.850f,-2.31f),
-        car_local_to_world( .68f,.850f,-2.31f),
-        sunset_soft,warm_soft,pack_color(0.0f,sunset),pack_color(0.0f,warm));
 }
 
 static void draw_smoke(void) {
     int i;
-    for(i = 0; i < MAX_SMOKE; ++i) {
-        const smoke_t *particle = &smoke_pool[i];
-        screen_point_t point;
-        float life_ratio,age,fade_in,alpha,radius;
-        color3_t core,edge;
-        if(!particle->active || !project_world((vec3_t){particle->x,particle->y,particle->z},&point)) continue;
+    for(i=0;i<MAX_SMOKE;++i) {
+        const smoke_t *particle=&smoke_pool[i];
+        screen_point_t p;
+        float life,age,radius,alpha,angle,rx,ry,u,v;
+        uint32_t color;
+        if(!particle->active || !project_world((vec3_t){particle->x,particle->y,particle->z},&p)) continue;
+        life=clampf(particle->life/particle->max_life,0.0f,1.0f);
+        age=1.0f-life;
+        radius=clampf(particle->size*camera_focal*p.z,1.8f,54.0f);
+        if(p.x+radius*1.42f<0 || p.x-radius*1.42f>SCREEN_W ||
+           p.y+radius*1.42f<0 || p.y-radius*1.42f>SCREEN_H) continue;
+        alpha=clampf(age*7.0f,0.0f,1.0f)*life*.64f;
+        alpha*=clampf((180.0f-1.0f/p.z)/100.0f,0.0f,1.0f);
+        if(alpha<.008f) continue;
+        angle=(float)i*2.399963f+age*((i&1)?-.65f:.65f);
+        rx=fcos(angle)*radius; ry=fsin(angle)*radius;
+        u=(float)(i&1)*.5f+.004f;
+        v=(float)((i>>1)&1)*.5f+.004f;
+        color=pack_color(alpha,(color3_t){.70f-age*.12f,.73f-age*.11f,.80f-age*.10f});
+        {
+            const screen_point_t a={p.x-rx+ry,p.y-ry-rx,p.z,true};
+            const screen_point_t b={p.x+rx+ry,p.y+ry-rx,p.z,true};
+            const screen_point_t c={p.x-rx-ry,p.y-ry+rx,p.z,true};
+            const screen_point_t d={p.x+rx-ry,p.y+ry+rx,p.z,true};
+            submit_quad(&texture_headers[DLA_TEX_EFFECT_SMOKE],&a,&b,&c,&d,
+                u,v,u+.492f,v,u,v+.492f,u+.492f,v+.492f,color,color,color,color);
+        }
         QA_COUNT(smoke_particles);
-        life_ratio=clampf(particle->life/particle->max_life,0.0f,1.0f);
-        age=1.0f-life_ratio;
-        fade_in=clampf(age*8.0f,0.0f,1.0f);
-        alpha=fade_in*clampf(life_ratio*1.45f,0.0f,1.0f)*.74f;
-        radius = clampf(particle->size * camera_focal * point.z,1.8f,64.0f);
-        core=(color3_t){.86f-age*.21f,.89f-age*.20f,.96f-age*.18f};
-        edge=(color3_t){.34f-age*.12f,.38f-age*.12f,.46f-age*.12f};
-        draw_disc(&translucent_header,point.x,point.y,radius,point.z+0.00001f,6,
-                  pack_color(alpha,core),pack_color(0.0f,edge));
-        /* A sparse bright core keeps the plume dimensional without doubling
-           every smoke particle's translucent polygon cost. */
-        if((i&7)==0&&age<.42f&&radius>3.5f)
-            draw_disc(&translucent_header,point.x-radius*.10f,
-                      point.y-radius*.07f,radius*.53f,point.z+.000025f,4,
-                      pack_color(alpha*(.55f-age*.42f),
-                                 (color3_t){.96f,.97f,1.0f}),
-                      pack_color(0.0f,(color3_t){.62f,.68f,.78f}));
     }
 }
 
@@ -5530,6 +5719,7 @@ static void render_frame(bool connected, float dt) {
     memset(&render_qa,0,sizeof(render_qa));
 #endif
     setup_camera(dt);
+    palm_draw_count=0;
     if(game.hud_timer <= 0.0f) {
         update_hud(connected);
         game.hud_timer = 0.10f;
@@ -5549,6 +5739,9 @@ static void render_frame(bool connected, float dt) {
     }
     pvr_list_finish();
 
+    begin_poly_list(PVR_LIST_PT_POLY);
+    if(game.mode!=MODE_TITLE) draw_palm_foliage();
+    pvr_list_finish();
     begin_poly_list(PVR_LIST_TR_POLY);
     if(game.mode==MODE_TITLE)
         draw_rect(&hud_header,0,306,SCREEN_W,174,.97f,
@@ -5613,7 +5806,8 @@ static int init_graphics(void) {
     vid_set_enabled(0);
     vid_set_mode(DM_640x480,PM_RGB565);
     vid_set_dithering(true);
-    params.vertex_buf_size=768*1024;
+    params.vertex_buf_size=GRAPHICS_VERTEX_BUFFER_BYTES;
+    params.opb_sizes[PVR_LIST_PT_POLY]=PVR_BINSIZE_16;
     if(pvr_init(&params)<0) {
         printf("Drift Los Angeles: PowerVR initialization failed.\n");
         vid_set_enabled(1);
@@ -5630,7 +5824,7 @@ static int init_graphics(void) {
             vid_set_enabled(1);
             return -1;
         }
-        pvr_txr_load_ex(asset->pixels,texture_vram[i],asset->width,asset->height,PVR_TXRLOAD_16BPP);
+        pvr_txr_load(asset->pixels,texture_vram[i],asset->byte_size);
         texture_bytes+=asset->byte_size;
     }
     hud_pixels=aligned_alloc(32,HUD_BYTES);
@@ -5646,6 +5840,7 @@ static int init_graphics(void) {
     pvr_txr_load(hud_pixels,hud_texture,HUD_BYTES);
 
     pvr_set_zclip(0.0000001f);
+    PVR_SET(PVR_PT_ALPHA_REF,64); /* Retain thin, mip-filtered palm leaflets. */
     /* Violet marine haze keeps distant districts readable against the sunset
        instead of crushing whole towers into featureless black silhouettes. */
     pvr_fog_table_color(1.0f,0.18f,0.10f,0.24f);
@@ -5676,8 +5871,11 @@ static int init_graphics(void) {
 
     for(i=0;i<DLA_TEXTURE_COUNT;++i) {
         const dla_texture_asset_t *asset=&dla_texture_assets[i];
-        pvr_poly_cxt_txr(&context,PVR_LIST_OP_POLY,PVR_TXRFMT_RGB565,
+        pvr_poly_cxt_txr(&context,i==DLA_TEX_EFFECT_PALM?PVR_LIST_PT_POLY:(asset->alpha?PVR_LIST_TR_POLY:PVR_LIST_OP_POLY),
+                         asset->alpha?PVR_TXRFMT_ARGB4444:PVR_TXRFMT_RGB565,
                          asset->width,asset->height,texture_vram[i],PVR_FILTER_BILINEAR);
+        context.txr.mipmap=asset->mipmap;
+        context.txr.mipmap_bias=PVR_MIPBIAS_NORMAL;
         context.gen.shading=PVR_SHADE_GOURAUD;
         context.gen.culling=PVR_CULLING_NONE;
         context.gen.fog_type=PVR_FOG_TABLE;
@@ -5685,6 +5883,24 @@ static int init_graphics(void) {
         context.depth.write=PVR_DEPTHWRITE_ENABLE;
         context.txr.env=PVR_TXRENV_MODULATE;
         context.txr.uv_clamp=PVR_UVCLAMP_NONE;
+        if(asset->alpha) {
+            context.gen.alpha=true;
+            context.gen.fog_type=PVR_FOG_DISABLE;
+            context.depth.write=PVR_DEPTHWRITE_DISABLE;
+            context.blend.src=PVR_BLEND_SRCALPHA;
+            context.blend.dst=PVR_BLEND_INVSRCALPHA;
+            context.txr.alpha=PVR_TXRALPHA_ENABLE;
+            context.txr.env=PVR_TXRENV_MODULATEALPHA;
+            context.txr.uv_clamp=PVR_UVCLAMP_UV;
+        }
+        if(i==DLA_TEX_EFFECT_LIGHT)
+            context.blend.dst=PVR_BLEND_ONE;
+        if(i==DLA_TEX_EFFECT_PALM) {
+            context.gen.fog_type=PVR_FOG_TABLE;
+            context.depth.write=PVR_DEPTHWRITE_ENABLE;
+            context.blend.src=PVR_BLEND_ONE;
+            context.blend.dst=PVR_BLEND_ZERO;
+        }
         pvr_poly_compile(&texture_headers[i],&context);
     }
 
@@ -5701,6 +5917,22 @@ static int init_graphics(void) {
         context.txr.env=PVR_TXRENV_MODULATE;
         context.txr.uv_clamp=PVR_UVCLAMP_UV;
         pvr_poly_compile(&title_header,&context);
+    }
+
+    {
+        const dla_texture_asset_t *asset=&dla_texture_assets[DLA_TEX_CAR_REFLECTION];
+        pvr_poly_cxt_txr(&context,PVR_LIST_TR_POLY,PVR_TXRFMT_RGB565,
+            asset->width,asset->height,texture_vram[DLA_TEX_CAR_REFLECTION],PVR_FILTER_BILINEAR);
+        context.gen.alpha=true;
+        context.gen.culling=PVR_CULLING_NONE;
+        context.depth.comparison=PVR_DEPTHCMP_GEQUAL;
+        context.depth.write=PVR_DEPTHWRITE_DISABLE;
+        context.blend.src=PVR_BLEND_SRCALPHA;
+        context.blend.dst=PVR_BLEND_ONE;
+        context.txr.env=PVR_TXRENV_MODULATEALPHA;
+        context.txr.alpha=PVR_TXRALPHA_DISABLE;
+        context.txr.uv_clamp=PVR_UVCLAMP_UV;
+        pvr_poly_compile(&reflection_header,&context);
     }
 
     pvr_poly_cxt_col(&context,PVR_LIST_TR_POLY);
@@ -5735,6 +5967,8 @@ static int init_graphics(void) {
     context.txr.uv_clamp=PVR_UVCLAMP_UV;
     pvr_poly_compile(&hud_texture_header,&context);
 
+    graphics_texture_bytes=texture_bytes+HUD_BYTES;
+    graphics_vram_free=pvr_mem_available();
     printf("Drift Los Angeles: PowerVR ready, %lu KiB textures, %lu KiB VRAM free.\n",
            (unsigned long)((texture_bytes+HUD_BYTES+1023)/1024),
            (unsigned long)(pvr_mem_available()/1024));
@@ -5744,6 +5978,10 @@ static int init_graphics(void) {
 
 int main(int argc, char **argv) {
     uint64_t previous_time;
+#ifdef DRIFT_LA_VISUAL_QA
+    uint64_t benchmark_start;
+    uint32_t benchmark_frames=0;
+#endif
     bool running=true;
 #ifdef DRIFT_LA_PHYSICS_QA
     int physics_qa_phase=0;
@@ -5791,6 +6029,9 @@ int main(int argc, char **argv) {
 #endif
     init_audio();
     previous_time=timer_us_gettime64();
+#ifdef DRIFT_LA_VISUAL_QA
+    benchmark_start=previous_time;
+#endif
     while(running) {
         const uint64_t now=timer_us_gettime64();
         float dt=(float)(now-previous_time)*0.000001f;
@@ -5882,6 +6123,9 @@ int main(int argc, char **argv) {
         update_audio_controls(&input,dt);
         audio_update_recorded_voices();
         render_frame(input.connected,dt);
+#ifdef DRIFT_LA_VISUAL_QA
+        ++benchmark_frames;
+#endif
 #ifdef DRIFT_LA_AUTOTEST
         {
             const uint64_t audio_poll_start=timer_us_gettime64();
@@ -5925,6 +6169,13 @@ int main(int argc, char **argv) {
 #ifdef DRIFT_LA_VISUAL_QA
 #ifndef DRIFT_LA_CAPTURE_SEGMENT
             if(game.demo_time>=60.0f) {
+                const uint64_t elapsed=timer_us_gettime64()-benchmark_start;
+                printf("Drift Los Angeles benchmark: frames=%lu elapsed_us=%llu average_fps=%.2f peak_tri=%lu peak_vtx=%lu texture_bytes=%lu vram_free=%lu vertex_buffer_bytes=%lu.\n",
+                    (unsigned long)benchmark_frames,(unsigned long long)elapsed,
+                    (double)benchmark_frames*1000000.0/(double)elapsed,
+                    (unsigned long)render_qa_peak.triangles,(unsigned long)render_qa_peak.vertices,
+                    (unsigned long)graphics_texture_bytes,(unsigned long)graphics_vram_free,
+                    (unsigned long)GRAPHICS_VERTEX_BUFFER_BYTES);
                 printf("Drift Los Angeles visual QA: complete; peak tri=%lu vtx=%lu bldg=%lu cars=%lu ped=%lu smoke=%lu furnish=%lu.\n",
                        (unsigned long)render_qa_peak.triangles,
                        (unsigned long)render_qa_peak.vertices,

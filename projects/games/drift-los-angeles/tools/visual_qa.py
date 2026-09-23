@@ -26,6 +26,7 @@ from statistics import mean, pstdev
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps, ImageStat
+from pvr_texture import texture_byte_size
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -33,7 +34,9 @@ MODEL_PATH = PROJECT_DIR / "model_data.h"
 TEXTURE_TOOL_PATH = PROJECT_DIR / "tools" / "build_textures.py"
 SOURCE_DIR = PROJECT_DIR / "assets" / "source"
 HUD_BYTES = 512 * 256 * 2
-VRAM_ART_BUDGET = 4 * 1024 * 1024
+HARDWARE_VRAM_BYTES = 8 * 1024 * 1024
+MAX_CAR_MESH_VERTICES = 4096
+MAX_CAR_MESH_FACES = 4096
 
 
 @dataclass
@@ -63,34 +66,35 @@ def load_texture_specs() -> tuple[Any, ...]:
     return tuple(module.SPECS)
 
 
-def parse_model() -> dict[str, Any]:
-    source = MODEL_PATH.read_text(encoding="utf-8")
+def parse_model(path: Path = MODEL_PATH) -> dict[str, Any]:
+    source = path.read_text(encoding="utf-8")
     vertex_source = source.split(
         "static const dla_mesh_vertex_t dla_car_vertices[] = {", 1
     )[1].split("};", 1)[0]
     face_source = source.split(
         "static const dla_mesh_face_t dla_car_faces[] = {", 1
     )[1].split("};", 1)[0]
-    number = r"[-+ ]?(?:\d+(?:\.\d*)?|\.\d+)f?"
-    vertex_pattern = re.compile(
-        rf"\{{\s*({number}),\s*({number}),\s*({number}),\s*"
-        rf"({number}),\s*({number}),\s*({number}),\s*({number}),\s*({number})\s*\}}"
-    )
-    face_pattern = re.compile(r"\{\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\}")
     vertices = [
-        tuple(float(value.rstrip("f")) for value in match.groups())
-        for match in vertex_pattern.finditer(vertex_source)
+        tuple(float(value.strip().removesuffix("f")) for value in row.split(","))
+        for row in re.findall(r"\{([^{}]+)\}", vertex_source)
     ]
-    faces = [tuple(int(value) for value in match.groups())
-             for match in face_pattern.finditer(face_source)]
+    faces = [tuple(int(value.strip()) for value in row.split(","))
+             for row in re.findall(r"\{([^{}]+)\}", face_source)]
     if not vertices or not faces:
         raise RuntimeError("model_data.h did not contain a parseable car mesh")
+    if len({len(vertex) for vertex in vertices}) != 1 or len(vertices[0]) not in (8, 9):
+        raise RuntimeError("expected xyz, uv, normal and optional AO in each vertex")
+    if any(len(face) != 4 for face in faces):
+        raise RuntimeError("expected three vertex indices and a material in each face")
+    if any(not math.isfinite(value) for vertex in vertices for value in vertex):
+        raise RuntimeError("model contains a non-finite vertex attribute")
 
     xs = [vertex[0] for vertex in vertices]
     ys = [vertex[1] for vertex in vertices]
     zs = [vertex[2] for vertex in vertices]
-    material_faces = [0] * 8
-    material_vertices: list[set[int]] = [set() for _ in range(8)]
+    material_faces = [0] * 5
+    material_vertices: list[set[int]] = [set() for _ in range(5)]
+    collapsed_uv_faces = [0] * 5
     parents = list(range(len(vertices)))
 
     def find(index: int) -> int:
@@ -105,20 +109,50 @@ def parse_model() -> dict[str, Any]:
             parents[right_root] = left_root
 
     invalid_normals = 0
+    invalid_ao = 0
     for vertex in vertices:
         normal_length = math.sqrt(sum(component * component for component in vertex[5:8]))
         if not 0.92 <= normal_length <= 1.08:
             invalid_normals += 1
+        if len(vertex) == 9 and not 0.0 <= vertex[8] <= 1.0:
+            invalid_ao += 1
     for a, b, c, material in faces:
-        if max(a, b, c) >= len(vertices):
+        if min(a, b, c) < 0 or max(a, b, c) >= len(vertices):
             raise RuntimeError("model face index exceeds exported vertex count")
-        if material >= len(material_faces):
+        if material < 0 or material >= len(material_faces):
             raise RuntimeError(f"model uses unsupported material id {material}")
         material_faces[material] += 1
         material_vertices[material].update((a, b, c))
+        ua, va = vertices[a][3:5]
+        ub, vb = vertices[b][3:5]
+        uc, vc = vertices[c][3:5]
+        if abs((ub - ua) * (vc - va) - (uc - ua) * (vb - va)) < 1e-10:
+            collapsed_uv_faces[material] += 1
         if material == 0:
             union(a, b)
             union(b, c)
+
+    # Carbon intentionally tiles its weave; metal is untextured. Paint,
+    # glass and lamps each address one atlas and must remain within it.
+    atlas_vertices = set().union(*(material_vertices[index] for index in (0, 1, 3)))
+    invalid_uvs = sum(any(not -0.00001 <= value <= 1.00001
+                          for value in vertices[index][3:5])
+                      for index in atlas_vertices)
+    shared_material_vertices = sum(
+        sum(index in indices for indices in material_vertices) > 1
+        for index in range(len(vertices))
+    )
+
+    # UV seams and hard normals intentionally duplicate a geometric vertex.
+    # Weld only the painted shell for the connectivity/proportions check;
+    # keep the original split count when checking the renderer scratch limit.
+    positions: dict[tuple[float, ...], int] = {}
+    for index in material_vertices[0]:
+        position = tuple(round(value, 5) for value in vertices[index][:3])
+        if position in positions:
+            union(index, positions[position])
+        else:
+            positions[position] = index
 
     width = max(xs) - min(xs)
     height = max(ys) - min(ys)
@@ -129,7 +163,11 @@ def parse_model() -> dict[str, Any]:
     paint_components: dict[int, set[int]] = {}
     for index in material_vertices[0]:
         paint_components.setdefault(find(index), set()).add(index)
-    body_indices = max(paint_components.values(), key=len)
+    if not paint_components:
+        raise RuntimeError("model has no painted body shell")
+    body_indices = max(paint_components.values(), key=lambda indices: len({
+        vertices[index][:3] for index in indices
+    }))
     body = [vertices[index] for index in body_indices]
     body_width = max(vertex[0] for vertex in body) - min(vertex[0] for vertex in body)
     # The greenhouse is intentionally a separate glass component, so overall
@@ -137,6 +175,25 @@ def parse_model() -> dict[str, Any]:
     # continuous shell (excluding mirrors and trim).
     body_height = height
     body_length = max(vertex[2] for vertex in body) - min(vertex[2] for vertex in body)
+    if body_width <= 0.0:
+        raise RuntimeError("painted body shell has zero width")
+    range_match = re.search(
+        r"dla_car_material_ranges\s*\[[^]]*\]\s*=\s*\{(.*?)\};", source, re.S
+    )
+    invalid_material_ranges = False
+    if range_match:
+        ranges = [tuple(map(int, values)) for values in re.findall(
+            r"\{\s*(\d+)\s*,\s*(\d+)\s*\}", range_match.group(1)
+        )]
+        cursor = 0
+        invalid_material_ranges = len(ranges) != 5
+        for material, (first, count) in enumerate(ranges):
+            if first != cursor or first + count > len(faces):
+                invalid_material_ranges = True
+            if any(face[3] != material for face in faces[first:first + count]):
+                invalid_material_ranges = True
+            cursor = first + count
+        invalid_material_ranges |= cursor != len(faces)
     return {
         "vertices": len(vertices),
         "triangles": len(faces),
@@ -148,8 +205,18 @@ def parse_model() -> dict[str, Any]:
         "body_length": round(body_length, 4),
         "length_width_ratio": round(body_length / body_width, 4),
         "height_width_ratio": round(body_height / body_width, 4),
-        "material_triangles": material_faces[:5],
+        "renderer_vertex_capacity": MAX_CAR_MESH_VERTICES,
+        "renderer_face_capacity": MAX_CAR_MESH_FACES,
+        "material_triangles": material_faces,
+        "shared_material_vertices": shared_material_vertices,
         "invalid_normals": invalid_normals,
+        "invalid_uvs": invalid_uvs,
+        "collapsed_uv_triangles_by_material": collapsed_uv_faces,
+        "invalid_ao": invalid_ao,
+        "ao_range": [min(vertex[8] if len(vertex) == 9 else 1.0 for vertex in vertices),
+                     max(vertex[8] if len(vertex) == 9 else 1.0 for vertex in vertices)],
+        "has_material_ranges": range_match is not None,
+        "invalid_material_ranges": invalid_material_ranges,
     }
 
 
@@ -159,11 +226,19 @@ def audit_textures() -> dict[str, Any]:
     source_files: dict[str, tuple[int, int]] = {}
     invalid_output_dimensions: list[str] = []
     missing_sources: list[str] = []
+    mipmapped_textures: list[str] = []
+    alpha_textures: list[str] = []
     for texture in specs:
         size = (texture.size, texture.size) if isinstance(texture.size, int) else texture.size
-        total_bytes += size[0] * size[1] * 2
-        if any(value <= 0 or value & (value - 1) for value in size):
-            invalid_output_dimensions.append(f"{texture.name}:{size[0]}x{size[1]}")
+        mipmap = getattr(texture, "mipmap", False)
+        if mipmap:
+            mipmapped_textures.append(texture.name)
+        if getattr(texture, "alpha", False):
+            alpha_textures.append(texture.name)
+        try:
+            total_bytes += texture_byte_size(*size, mipmap=mipmap)
+        except ValueError as error:
+            invalid_output_dimensions.append(f"{texture.name}:{size[0]}x{size[1]}: {error}")
         source_path = SOURCE_DIR / texture.source
         if not source_path.is_file():
             missing_sources.append(texture.source)
@@ -173,11 +248,19 @@ def audit_textures() -> dict[str, Any]:
                 source_files[texture.source] = image.size
     return {
         "texture_count": len(specs),
+        "mipmapped_textures": mipmapped_textures,
+        "alpha_textures": alpha_textures,
         "source_count": len(source_files),
         "source_dimensions": source_files,
         "pvr_bytes_including_hud": total_bytes,
         "pvr_mib_including_hud": round(total_bytes / (1024 * 1024), 3),
-        "budget_mib": round(VRAM_ART_BUDGET / (1024 * 1024), 3),
+        "hardware_vram_bytes": HARDWARE_VRAM_BYTES,
+        "allocation_validation": (
+            "Static bytes are an inventory, not an available-texture budget. "
+            "Framebuffers, PVR vertex buffers and tile bins share the 8 MiB VRAM. "
+            "Confirm successful runtime allocations and free VRAM with "
+            "analyze_render_log.py after the full scene has initialized."
+        ),
         "invalid_output_dimensions": invalid_output_dimensions,
         "missing_sources": sorted(set(missing_sources)),
     }
@@ -274,22 +357,33 @@ def evaluate(report: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     model = report["model"]
     textures = report["textures"]
-    if model["vertices"] < 1500:
-        failures.append("hero car has fewer than 1,500 vertices")
-    if not 2600 <= model["triangles"] <= 6500:
-        failures.append("hero car triangle count is outside the 2,600..6,500 target")
+    if not 1 <= model["vertices"] <= MAX_CAR_MESH_VERTICES:
+        failures.append("hero car exceeds the renderer's 4,096-vertex scratch capacity")
+    if not 1 <= model["triangles"] <= MAX_CAR_MESH_FACES:
+        failures.append("hero car exceeds the renderer's 4,096-face visibility capacity")
     if not 2.30 <= model["length_width_ratio"] <= 2.62:
         failures.append("hero car length/width ratio is outside sports-coupe bounds")
     if not 0.52 <= model["height_width_ratio"] <= 0.72:
         failures.append("hero car height/width ratio is outside low-coupe bounds")
     if any(count == 0 for count in model["material_triangles"]):
         failures.append("hero car does not exercise every renderer material")
+    if model["shared_material_vertices"]:
+        failures.append(f"hero car shares {model['shared_material_vertices']} vertices between materials; cached shading requires material splits")
     if model["invalid_normals"]:
         failures.append(f"hero car has {model['invalid_normals']} invalid normals")
-    if textures["pvr_bytes_including_hud"] > VRAM_ART_BUDGET:
-        failures.append("resident texture set exceeds the 4 MiB art budget")
+    if model["invalid_uvs"]:
+        failures.append(f"hero car has {model['invalid_uvs']} UVs outside its material atlas")
+    collapsed_textured = sum(model["collapsed_uv_triangles_by_material"][:4])
+    if collapsed_textured:
+        failures.append(f"hero car has {collapsed_textured} textured triangles with collapsed UVs")
+    if model["invalid_ao"]:
+        failures.append(f"hero car has {model['invalid_ao']} AO values outside 0..1")
+    if model["invalid_material_ranges"]:
+        failures.append("hero car material ranges do not cover the matching faces exactly")
+    if textures["pvr_bytes_including_hud"] >= HARDWARE_VRAM_BYTES:
+        failures.append("textures alone exhaust the Dreamcast's 8 MiB VRAM")
     if textures["invalid_output_dimensions"]:
-        failures.append("one or more PVR texture dimensions are not powers of two")
+        failures.append("one or more texture dimensions violate PVR size/mipmap requirements")
     if textures["missing_sources"]:
         failures.append("one or more texture source files are missing")
 

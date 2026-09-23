@@ -2,6 +2,7 @@ TARGET = drift-los-angeles.elf
 OBJS = drift-los-angeles.o assets/generated/texture_assets.o assets/generated/audio_assets.o assets/generated/music_asset.o
 BLENDER ?= blender
 QA_PREVIEW_DIR = assets/generated/previews/visual-qa
+QA_LOG ?= $(QA_PREVIEW_DIR)/benchmark.log
 SOUNDTRACK_DIR = assets/generated/previews/soundtrack
 QA_SHOTS = $(QA_PREVIEW_DIR)/downtown.png $(QA_PREVIEW_DIR)/coast.png $(QA_PREVIEW_DIR)/arts.png $(QA_PREVIEW_DIR)/neon.png
 QA_SEGMENT ?= 0
@@ -25,7 +26,13 @@ assets/generated/texture_assets.o: assets/generated/texture_assets.h
 assets/generated/audio_assets.o: assets/generated/audio_assets.h
 assets/generated/music_asset.o: assets/generated/music_asset.S assets/generated/music_asset.adpcm
 
-textures:
+architecture:
+	uv run tools/build_architecture.py --source-dir assets/source --output-dir assets/source
+
+effects:
+	uv run tools/build_effect_textures.py --output-dir assets/source
+
+textures: architecture effects
 	uv run tools/build_textures.py --source-dir assets/source --output-dir assets/generated
 
 audio: music
@@ -49,12 +56,21 @@ showcase:
 qa:
 	uv run tools/visual_qa.py --strict
 
+qa-tools:
+	uv run tools/test_graphics_qa.py
+	uv run tools/test_pvr_texture.py
+
 qa-build:
 	$(MAKE) clean
 	$(MAKE) CFLAGS='$(STRICT_CFLAGS) -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA'
 
 qa-run: qa-build
 	./run-flycast.sh --skip-build
+
+qa-benchmark: qa-build
+	mkdir -p "$(dir $(QA_LOG))"
+	bash -o pipefail -c 'DRIFT_LA_EXIT_ON_LOG="Drift Los Angeles benchmark:" ./run-flycast.sh --skip-build --input keyboard 2>&1 | tee "$(QA_LOG)"'
+	uv run tools/analyze_render_log.py "$(QA_LOG)" --json "$(QA_LOG).json"
 
 qa-capture-build:
 	$(MAKE) clean
@@ -76,4 +92,4 @@ physics-qa-run: physics-qa-build
 	DRIFT_LA_FAIL_ON_LOG='physics QA: FAILED.' \
 		./run-flycast.sh --skip-build --input keyboard
 
-.PHONY: all clean run showcase qa qa-build qa-run qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run textures audio music model
+.PHONY: all clean run showcase qa qa-tools qa-build qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model

@@ -6,9 +6,9 @@ Run through Blender, not the host Python interpreter:
     blender --background --python tools/build_car_blender.py -- \
         --header model_data.h --preview-dir assets/generated/previews/blender-car
 
-The model uses a subdivided, closed control cage and Boolean wheel openings.
-This keeps its primary volumes continuous; lights and trim are separate inset
-parts instead of coplanar decals layered over an arbitrary faceted shell.
+The model uses an authored longitudinal loft and Boolean wheel openings.
+Surface charts, split normals and local ambient occlusion are baked into the
+export, so the game uses the same material boundaries as the Blender mesh.
 """
 
 from __future__ import annotations
@@ -19,7 +19,9 @@ import sys
 from pathlib import Path
 
 import bpy
+import bmesh
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 
 PAINT = 0
@@ -27,6 +29,7 @@ GLASS = 1
 CARBON = 2
 LIGHTS = 3
 METAL = 4
+MAX_EXPORT_VERTICES = 4096
 
 MATERIAL_IDS = {
     "DLA Paint": PAINT,
@@ -553,10 +556,142 @@ def material_id_for(obj: bpy.types.Object, mesh: bpy.types.Mesh,
     return MATERIAL_IDS[name]
 
 
-def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int, int, int]]]:
+def surface_axes(normal: Vector) -> tuple[int, int]:
+    """Choose a chart plane that cannot collapse this polygon's UV area."""
+    dominant = max(range(3), key=lambda axis: abs(normal[axis]))
+    # Top: width/length; side: length/height; fascia: width/height.
+    return ((1, 2), (0, 2), (0, 1))[dominant]
+
+
+def author_surface_charts(obj: bpy.types.Object) -> None:
+    """Store actual corner UVs and hard edges on the reproducible source mesh.
+
+    The body has separate hood/roof, side and fascia charts.  Details use their
+    own surface-aligned charts, while lamps keep their dedicated atlas cells.
+    These materials are reusable surfaces, rather than a unique painted car
+    atlas: overlapping charts are intentional, collapsed triangles are not.
+    """
+    mesh = obj.data
+    # Boolean arch cuts leave a few non-planar n-gons.  Give each of their
+    # triangles its own corner UVs before choosing a surface chart.  Paper-thin
+    # solidify side faces with no measurable area cannot contribute pixels.
+    editable = bmesh.new()
+    editable.from_mesh(mesh)
+    ngons = [face for face in editable.faces if len(face.verts) > 4]
+    if ngons:
+        bmesh.ops.triangulate(editable, faces=ngons, ngon_method="BEAUTY")
+    empty_faces = [face for face in editable.faces if face.calc_area() < 1e-8]
+    if empty_faces:
+        bmesh.ops.delete(editable, geom=empty_faces, context="FACES_ONLY")
+    editable.to_mesh(mesh)
+    editable.free()
+    mesh.update()
+    normal_matrix = obj.matrix_world.to_3x3().inverted().transposed()
+    positions = [obj.matrix_world @ vertex.co for vertex in mesh.vertices]
+    uv_layer = mesh.uv_layers.get("DLA Surface") or mesh.uv_layers.new(name="DLA Surface")
+    mesh.uv_layers.active = uv_layer
+    adjacent: dict[int, list[Vector]] = {}
+    for polygon in mesh.polygons:
+        for loop_index in polygon.loop_indices:
+            edge_index = mesh.loops[loop_index].edge_index
+            adjacent.setdefault(edge_index, []).append(polygon.normal.copy())
+    crease_cosine = math.cos(math.radians(42.0))
+    for edge in mesh.edges:
+        normals = adjacent.get(edge.index, [])
+        edge.use_edge_sharp = (len(normals) == 2 and
+                               normals[0].dot(normals[1]) < crease_cosine)
+
+    for polygon in mesh.polygons:
+        normal = (normal_matrix @ polygon.normal).normalized()
+        axes = surface_axes(normal)
+        material = material_id_for(obj, mesh, polygon)
+        bounds = [(min(point[axis] for point in positions),
+                   max(point[axis] for point in positions)) for axis in axes]
+        name = obj.name.lower()
+        for loop_index in polygon.loop_indices:
+            point = positions[mesh.loops[loop_index].vertex_index]
+            # Preserve a consistent scale between matching body panels.  The
+            # side chart includes height, unlike the former top-down projection.
+            if material in (PAINT, GLASS):
+                if axes == (0, 1):
+                    u, v = .5 + point.x / 2.5, (2.82 - point.y) / 5.55
+                elif axes == (1, 2):
+                    u, v = (point.y + 2.73) / 5.55, (1.43 - point.z) / 1.43
+                else:
+                    u, v = .5 + point.x / 2.5, (1.43 - point.z) / 1.43
+            elif material == CARBON:
+                # Repeated weave keeps trim density independent of part size.
+                u, v = point[axes[0]] * 1.6, -point[axes[1]] * 1.6
+            else:
+                u = (point[axes[0]] - bounds[0][0]) / max(bounds[0][1] - bounds[0][0], 1e-6)
+                v = 1.0 - (point[axes[1]] - bounds[1][0]) / max(bounds[1][1] - bounds[1][0], 1e-6)
+                if material == LIGHTS:
+                    if name.startswith("headlamp lens"):
+                        u, v = .535 + u * .430, .035 + v * .430
+                    elif name.startswith("tail lamp"):
+                        u, v = .035 + u * .440, .035 + v * .440
+                    elif name.endswith("side marker"):
+                        u, v = .80 + u * .04, .84 + v * .04
+                    else:
+                        # Small red trim samples a compact red patch with a
+                        # finite footprint, rather than a zero-area UV point.
+                        u, v = .145 + u * .018, .145 + v * .018
+            uv_layer.data[loop_index].uv = (u, v)
+    mesh.update()
+
+
+def build_occlusion_tree() -> BVHTree:
+    """Include the preview wheels as occluders, but never as exported geometry."""
+    positions: list[Vector] = []
+    triangles: list[tuple[int, int, int]] = []
     depsgraph = bpy.context.evaluated_depsgraph_get()
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        mesh.calc_loop_triangles()
+        base = len(positions)
+        positions.extend(obj.matrix_world @ vertex.co for vertex in mesh.vertices)
+        triangles.extend(tuple(base + index for index in triangle.vertices)
+                         for triangle in mesh.loop_triangles)
+        evaluated.to_mesh_clear()
+    return BVHTree.FromPolygons(positions, triangles, all_triangles=True)
+
+
+def bake_occlusion(tree: BVHTree, position: Vector, normal: Vector) -> float:
+    """Bake soft, short-range cavity shading with a cosine-weighted hemisphere."""
+    helper = Vector((0.0, 0.0, 1.0)) if abs(normal.z) < .85 else Vector((0.0, 1.0, 0.0))
+    tangent = normal.cross(helper).normalized()
+    bitangent = normal.cross(tangent)
+    origin = position + normal * .009
+    occlusion = 0.0
+    sample_count = 32
+    radius = .48
+    for index in range(sample_count):
+        radius_squared = (index + .5) / sample_count
+        angle = index * 2.399963229728653
+        radial = math.sqrt(radius_squared)
+        direction = (tangent * (math.cos(angle) * radial) +
+                     bitangent * (math.sin(angle) * radial) +
+                     normal * math.sqrt(1.0 - radius_squared))
+        _hit, _normal, _face, distance = tree.ray_cast(origin, direction, radius)
+        if distance is not None:
+            occlusion += 1.0 - (distance / radius) ** 2
+    return max(.62, 1.0 - .52 * occlusion / sample_count)
+
+
+def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int, int, int]]]:
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH" and bool(obj.get("export_kos", False)):
+            author_surface_charts(obj)
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    occlusion_tree = build_occlusion_tree()
     vertices: list[tuple[float, ...]] = []
     faces: list[tuple[int, int, int, int]] = []
+    vertex_indices: dict[tuple[float, ...], int] = {}
+    occlusion_cache: dict[tuple[float, ...], float] = {}
     for obj in sorted(bpy.context.scene.objects,key=lambda item:item.name):
         if obj.type != "MESH" or not bool(obj.get("export_kos",False)):
             continue
@@ -564,51 +699,55 @@ def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int,
         mesh = evaluated.to_mesh()
         mesh.calc_loop_triangles()
         normal_matrix = obj.matrix_world.to_3x3().inverted().transposed()
-        base = len(vertices)
         object_vertex_start=len(vertices)
         object_face_start=len(faces)
-        world_positions=[obj.matrix_world @ vertex.co for vertex in mesh.vertices]
-        if obj.name.startswith("Tail lamp") or obj.name.startswith("Headlamp lens"):
-            tail_min_x=min(position.x for position in world_positions)
-            tail_max_x=max(position.x for position in world_positions)
-            tail_min_z=min(position.z for position in world_positions)
-            tail_max_z=max(position.z for position in world_positions)
-        for vertex,position in zip(mesh.vertices,world_positions):
-            normal = (normal_matrix @ vertex.normal).normalized()
-            # Blender x/y/z -> game lateral/vertical/longitudinal.
-            game_position = (position.x, position.z, position.y)
-            game_normal = (normal.x, normal.z, normal.y)
-            if obj.name.startswith("Tail lamp"):
-                # Project the complete red-ring/dark-center atlas cell into the
-                # lamp polygon.  There is no rectangular geometry outside it.
-                x_ratio=(position.x-tail_min_x)/max(tail_max_x-tail_min_x,1e-5)
-                z_ratio=(position.z-tail_min_z)/max(tail_max_z-tail_min_z,1e-5)
-                u=.035+x_ratio*.440
-                v=.035+(1.0-z_ratio)*.440
-            elif obj.name.startswith("Headlamp lens"):
-                x_ratio=(position.x-tail_min_x)/max(tail_max_x-tail_min_x,1e-5)
-                z_ratio=(position.z-tail_min_z)/max(tail_max_z-tail_min_z,1e-5)
-                u=.535+x_ratio*.430
-                v=.035+(1.0-z_ratio)*.430
-            elif "badge red" in obj.name.lower():
-                u,v=.16,.16
-            elif obj.name.endswith("side marker"):
-                u,v=.82,.86
-            elif obj.name == "Center stop lamp":
-                u,v=.125,.125
-            else:
-                u=.5+position.x*.25
-                v=.5-position.y*.18
-            vertices.append((*game_position,u,v,*game_normal))
+        uv_layer = mesh.uv_layers.active
+        if uv_layer is None:
+            raise RuntimeError(f"{obj.name}: missing authored UV layer")
         for triangle in mesh.loop_triangles:
+            if triangle.area < 1e-8:
+                continue
             material = material_id_for(obj,mesh,mesh.polygons[triangle.polygon_index])
-            a,b,c = (base+index for index in triangle.vertices)
+            indices = []
+            for loop_index in triangle.loops:
+                loop = mesh.loops[loop_index]
+                position = obj.matrix_world @ mesh.vertices[loop.vertex_index].co
+                normal = (normal_matrix @ mesh.corner_normals[loop_index].vector).normalized()
+                u, v = uv_layer.data[loop_index].uv
+                ao_key = tuple(round(value, 6) for value in (*position, *normal))
+                if material == LIGHTS:
+                    ao = 1.0
+                else:
+                    if ao_key not in occlusion_cache:
+                        occlusion_cache[ao_key] = bake_occlusion(occlusion_tree, position, normal)
+                    ao = occlusion_cache[ao_key]
+                # Blender x/y/z -> game lateral/vertical/longitudinal.  Material
+                # is part of the dedup key so cached runtime shading is unique.
+                exported = (position.x, position.z, position.y, u, v,
+                            normal.x, normal.z, normal.y, ao)
+                key = (material, *(round(value, 5) for value in exported))
+                if key not in vertex_indices:
+                    vertex_indices[key] = len(vertices)
+                    vertices.append(exported)
+                indices.append(vertex_indices[key])
+            a,b,c = indices
+            rounded_positions = [Vector(tuple(round(value, 5) for value in vertices[index][:3]))
+                                 for index in indices]
+            edge_a = rounded_positions[1] - rounded_positions[0]
+            edge_b = rounded_positions[2] - rounded_positions[0]
+            if edge_a.cross(edge_b).length_squared < 1e-16:
+                continue
             faces.append((a,b,c,material))
         print(f"  export {obj.name}: {len(vertices)-object_vertex_start} vertices, "
               f"{len(faces)-object_face_start} triangles")
         evaluated.to_mesh_clear()
-    if len(vertices) > 65535:
-        raise RuntimeError(f"mesh has {len(vertices)} vertices; uint16 indices cannot address it")
+    used_indices = sorted({index for face in faces for index in face[:3]})
+    remap = {previous: current for current, previous in enumerate(used_indices)}
+    vertices = [vertices[index] for index in used_indices]
+    faces = [(remap[a], remap[b], remap[c], material) for a, b, c, material in faces]
+    if len(vertices) > MAX_EXPORT_VERTICES:
+        raise RuntimeError(f"mesh has {len(vertices)} vertices; renderer limit is {MAX_EXPORT_VERTICES}")
+    faces.sort(key=lambda face: face[3])
     return vertices,faces
 
 
@@ -621,8 +760,9 @@ def write_header(path: Path, vertices: list[tuple[float, ...]],
         "",
         "#include <stdint.h>",
         "",
-        "typedef struct { float x, y, z; float u, v; float nx, ny, nz; } dla_mesh_vertex_t;",
+        "typedef struct { float x, y, z; float u, v; float nx, ny, nz; float ao; } dla_mesh_vertex_t;",
         "typedef struct { uint16_t a, b, c; uint8_t material; } dla_mesh_face_t;",
+        "typedef struct { uint16_t first_face, face_count; } dla_mesh_material_range_t;",
         "typedef struct {",
         "    const dla_mesh_vertex_t *vertices;",
         "    const dla_mesh_face_t *faces;",
@@ -637,12 +777,19 @@ def write_header(path: Path, vertices: list[tuple[float, ...]],
         "static const dla_mesh_vertex_t dla_car_vertices[] = {",
     ]
     for vertex in vertices:
-        x,y,z,u,v,nx,ny,nz=vertex
+        x,y,z,u,v,nx,ny,nz,ao=vertex
         lines.append(f"    {{ {x: .5f}f, {y: .5f}f, {z: .5f}f, {u:.5f}f, {v:.5f}f,"
-                     f" {nx: .5f}f, {ny: .5f}f, {nz: .5f}f }},")
+                     f" {nx: .5f}f, {ny: .5f}f, {nz: .5f}f, {ao:.5f}f }},")
     lines.extend(("};","","static const dla_mesh_face_t dla_car_faces[] = {"))
     for a,b,c,material in faces:
         lines.append(f"    {{ {a:4d}, {b:4d}, {c:4d}, {material} }},")
+    lines.extend(("};", "", "/* Contiguous material batches; every vertex belongs to one material. */",
+                  "static const dla_mesh_material_range_t dla_car_material_ranges[5] = {"))
+    first_face = 0
+    for material in range(5):
+        count = sum(face[3] == material for face in faces)
+        lines.append(f"    {{ {first_face}, {count} }},")
+        first_face += count
     lines.extend((
         "};","","static const dla_mesh_t dla_car_mesh = {",
         "    dla_car_vertices, dla_car_faces,",
