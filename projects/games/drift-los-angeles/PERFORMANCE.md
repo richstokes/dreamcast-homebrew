@@ -1,8 +1,8 @@
 # Rendering performance
 
-The current renderer averages **48.97 FPS** in the complete Flycast tour with
+The current renderer averages **50.18 FPS** in the complete Flycast tour with
 the upgraded artwork. The measurements below separate the SH4ZAM integration
-from the subsequent submission and geometry sweep.
+from the subsequent submission, geometry and final color sweeps.
 
 ## SH4ZAM integration
 
@@ -158,3 +158,35 @@ Use `make geometry-qa-build` to produce the ELF without launching it. To compare
 submission paths, clean and build with
 `-O2 -Wall -Wextra -Wpedantic -Werror -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA -DDRIFT_LA_GEOMETRY_QA -DDRIFT_LA_STAGED_SUBMISSION`.
 Clean and rebuild without QA defines before returning to the playable build.
+
+## Final color sweep and stopping point
+
+Measured on 2026-09-23 against the game at `f003d6e`, with the same full tour,
+compiler flags and Flycast configuration. Only color inlining was retained.
+
+| Candidate | Frames | Elapsed seconds | Average FPS | Decision |
+| --- | ---: | ---: | ---: | --- |
+| Previous renderer | 2,940 | 60.036474 | 48.9702 | Baseline |
+| Cache traffic rotations | 2,934 | 60.046588 | 48.8621 | Reverted |
+| Inline color packing | 3,013 | 60.042540 | 50.1811 | Kept |
+| Color packing plus wheel-ring cache | 3,014 | 60.037792 | 50.2017 | Wheel cache reverted |
+
+Forcing the small `pack_color` helper inline exposes its constant arguments to
+the compiler. Of 258 call sites, 159 have entirely literal arguments; their
+clamps, conversions and channel packing can fold. The expression and dynamic
+color behavior are unchanged. This improves average FPS by **2.47%** while
+reducing the benchmark ELF's text segment by **464 bytes**, with unchanged
+data/BSS and VRAM allocations. Artwork and scene detail are unchanged.
+
+The traffic cache did not improve throughput. The wheel cache added only
+0.0206 FPS over color inlining while introducing persistent tables and scratch
+storage, so it was also removed. This is the stopping point for this sweep:
+the remaining city/box caching ideas require more complexity without a clear
+expected benefit. These remain emulator results; hardware profiling is the
+useful next step before more speculative optimization.
+
+A repeat timed tour reproduced 50.1811 FPS exactly. Fixed-step geometry still
+matches the previous renderer: 1,801 frames, 9,157,359 triangles and 23,182,243
+vertices, with identical peaks. The strict build, all 31 host QA tests, asset
+audit and Flycast driving regressions passed. Logs and reports are retained
+locally under `assets/generated/previews/visual-qa/final-color-sweep/`.

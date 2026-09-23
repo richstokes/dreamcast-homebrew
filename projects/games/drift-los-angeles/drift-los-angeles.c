@@ -875,7 +875,8 @@ static float effect_random_unit(void) {
     return (float)((effect_random_u32()>>8)&0xffffu)*(1.0f/65535.0f);
 }
 
-static uint32_t pack_color(float alpha, color3_t color) {
+/* Let fixed scene colors fold at the call site, including their clamps. */
+static inline __attribute__((always_inline)) uint32_t pack_color(float alpha, color3_t color) {
     return PVR_PACK_COLOR(clampf(alpha, 0.0f, 1.0f),
                           clampf(color.r, 0.0f, 1.0f),
                           clampf(color.g, 0.0f, 1.0f),

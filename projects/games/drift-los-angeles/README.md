@@ -206,8 +206,9 @@ and paired sine/cosine. No extra SDK installation is required. The car's draw
 cache keeps each vertex's frequently used fields together on SH4 cache lines.
 Vertices now go straight to PowerVR through the store queues, and the car shades
 only vertices referenced by front-facing faces. Wheel transforms reuse their
-rotation pairs. These changes improved the four-district tour from 32.00 to
-48.97 FPS in Flycast with the same artwork and VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
+rotation pairs, and fixed scene colors are folded at their call sites. These
+changes improved the four-district tour from 32.00 to 50.18 FPS in Flycast with
+the same artwork and VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
 for the measurements, limits and reproducible checks.
 
 Build the standalone numerical checks with `make math-qa-build`, then boot
