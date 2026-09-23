@@ -204,14 +204,24 @@ The renderer uses pinned, vendored [SH4ZAM](https://sh4zam.com/) headers for
 batched camera transforms, positive-depth reciprocals, reflection normalization
 and paired sine/cosine. No extra SDK installation is required. The car's draw
 cache keeps each vertex's frequently used fields together on SH4 cache lines.
-The comparison improved the four-district tour from 32.00 to 34.64 FPS in
-Flycast with the same artwork and VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
+Vertices now go straight to PowerVR through the store queues, and the car shades
+only vertices referenced by front-facing faces. Wheel transforms reuse their
+rotation pairs. These changes improved the four-district tour from 32.00 to
+48.97 FPS in Flycast with the same artwork and VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
 for the measurements, limits and reproducible checks.
 
 Build the standalone numerical checks with `make math-qa-build`, then boot
 `render-math-qa.elf` in Flycast or on a Dreamcast. It prints maximum errors and
 `Render math QA: PASS` to the serial console. Run `make physics-qa-run` and
 `make qa-benchmark` for the driving regression and full graphics tour.
+
+`make geometry-qa-run` runs the tour with a fixed 30 Hz simulation step and
+prints whole-tour triangle/vertex totals. Compare two captured logs with
+`uv run tools/compare_geometry_logs.py before.log after.log`. This checks
+geometry counts independently of renderer throughput; it does not measure FPS
+or compare pixel colors. For a submission-path comparison, clean and add
+`-DDRIFT_LA_STAGED_SUBMISSION` to the geometry QA CFLAGS. Rebuild without QA
+defines to return to normal play.
 
 ## Credits
 

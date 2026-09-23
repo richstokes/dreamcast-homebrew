@@ -337,7 +337,8 @@ typedef struct {
     float reflect_uv[2];
     vec3_t world;
     uint8_t material;
-    uint8_t padding[19];
+    bool referenced;
+    uint8_t padding[18];
 } car_render_vertex_t;
 _Static_assert(sizeof(car_render_vertex_t)==64,"car cache record must span two lines");
 _Static_assert(offsetof(car_render_vertex_t,world)==32,"car draw data must fit one line");
@@ -356,6 +357,16 @@ static pvr_poly_hdr_t *active_poly_header;
 static pvr_ptr_t hud_texture;
 static uint16_t *hud_pixels;
 
+#if defined(DRIFT_LA_GEOMETRY_QA) && !defined(DRIFT_LA_VISUAL_QA)
+#error "DRIFT_LA_GEOMETRY_QA requires DRIFT_LA_VISUAL_QA"
+#endif
+#if defined(DRIFT_LA_GEOMETRY_QA) && !defined(DRIFT_LA_SHOWCASE)
+#error "DRIFT_LA_GEOMETRY_QA requires the complete DRIFT_LA_SHOWCASE tour"
+#endif
+#if defined(DRIFT_LA_GEOMETRY_QA) && defined(DRIFT_LA_CAPTURE_SEGMENT)
+#error "DRIFT_LA_GEOMETRY_QA cannot use a looping capture segment"
+#endif
+
 #ifdef DRIFT_LA_VISUAL_QA
 typedef struct {
     uint32_t triangles,vertices;
@@ -363,9 +374,19 @@ typedef struct {
 } render_qa_t;
 static render_qa_t render_qa;
 static render_qa_t render_qa_peak;
+#ifdef DRIFT_LA_GEOMETRY_QA
+static uint64_t geometry_qa_triangles,geometry_qa_vertices;
+#define QA_TOTAL_GEOMETRY(triangle_count,vertex_count) do { \
+    geometry_qa_triangles+=(uint32_t)(triangle_count); \
+    geometry_qa_vertices+=(uint32_t)(vertex_count); \
+} while(0)
+#else
+#define QA_TOTAL_GEOMETRY(triangle_count,vertex_count) ((void)0)
+#endif
 #define QA_GEOMETRY(triangle_count,vertex_count) do { \
     render_qa.triangles+=(uint32_t)(triangle_count); \
     render_qa.vertices+=(uint32_t)(vertex_count); \
+    QA_TOTAL_GEOMETRY(triangle_count,vertex_count); \
 } while(0)
 #define QA_COUNT(member) (++render_qa.member)
 #else
@@ -2210,7 +2231,7 @@ static void submit_header(const pvr_poly_hdr_t *header) {
     active_poly_header = (pvr_poly_hdr_t *)header;
 }
 
-static void make_vertex(pvr_vertex_t *vertex, const screen_point_t *point,
+static inline void make_vertex(pvr_vertex_t *vertex, const screen_point_t *point,
                         float u, float v, uint32_t color, bool end) {
     vertex->flags = end ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
     vertex->x = point->x;
@@ -2222,17 +2243,35 @@ static void make_vertex(pvr_vertex_t *vertex, const screen_point_t *point,
     vertex->oargb = 0;
 }
 
+#ifndef DRIFT_LA_STAGED_SUBMISSION
+/* Immediate-mode lists own the store queues between begin/finish. Fill every
+   word of the write-only target, then commit before requesting the next one.
+   Keep headers ahead of vertex targets; this path is not a DMA RAM buffer. */
+static inline void submit_vertex(const screen_point_t *point,
+                                 float u,float v,uint32_t color,bool end) {
+    pvr_vertex_t *vertex=pvr_dr_target();
+    make_vertex(vertex,point,u,v,color,end);
+    pvr_dr_commit(vertex);
+}
+#endif
+
 static void submit_triangle(const pvr_poly_hdr_t *header,
                             const screen_point_t *a, const screen_point_t *b,
                             const screen_point_t *c,
                             float ua, float va, float ub, float vb, float uc, float vc,
                             uint32_t ca, uint32_t cb, uint32_t cc) {
-    pvr_vertex_t vertices[3];
     submit_header(header);
+#ifdef DRIFT_LA_STAGED_SUBMISSION
+    pvr_vertex_t vertices[3];
     make_vertex(&vertices[0], a, ua, va, ca, false);
     make_vertex(&vertices[1], b, ub, vb, cb, false);
     make_vertex(&vertices[2], c, uc, vc, cc, true);
     pvr_prim(vertices, sizeof(vertices));
+#else
+    submit_vertex(a,ua,va,ca,false);
+    submit_vertex(b,ub,vb,cb,false);
+    submit_vertex(c,uc,vc,cc,true);
+#endif
     QA_GEOMETRY(1,3);
 }
 
@@ -2242,13 +2281,20 @@ static void submit_quad(const pvr_poly_hdr_t *header,
                         float ua, float va, float ub, float vb,
                         float uc, float vc, float ud, float vd,
                         uint32_t ca, uint32_t cb, uint32_t cc, uint32_t cd) {
-    pvr_vertex_t vertices[4];
     submit_header(header);
+#ifdef DRIFT_LA_STAGED_SUBMISSION
+    pvr_vertex_t vertices[4];
     make_vertex(&vertices[0], a, ua, va, ca, false);
     make_vertex(&vertices[1], b, ub, vb, cb, false);
     make_vertex(&vertices[2], c, uc, vc, cc, false);
     make_vertex(&vertices[3], d, ud, vd, cd, true);
     pvr_prim(vertices, sizeof(vertices));
+#else
+    submit_vertex(a,ua,va,ca,false);
+    submit_vertex(b,ub,vb,cb,false);
+    submit_vertex(c,uc,vc,cc,false);
+    submit_vertex(d,ud,vd,cd,true);
+#endif
     QA_GEOMETRY(2,4);
 }
 
@@ -2314,49 +2360,62 @@ static int clip_depth_plane(const clip_vertex_t *input, int count,
     return out_count;
 }
 
+/* Keep clipping storage out of the ordinary quad path. Only depth-rejected
+   quads enter this helper; its first test also discards fully hidden geometry. */
+static __attribute__((noinline)) void draw_clipped_camera_quad(
+                            const pvr_poly_hdr_t *header,
+                            const vec3_t camera[4],
+                            float ua, float va, float ub, float vb,
+                            float uc, float vc, float ud, float vd,
+                            uint32_t color) {
+    clip_vertex_t first[4],second[8];
+    screen_point_t projected[8];
+    float min_z=FAR_PLANE+1.0f,max_z=0.0f;
+    int count,i;
+    for(i=0;i<4;++i) {
+        min_z=fminf(min_z,camera[i].z);
+        max_z=fmaxf(max_z,camera[i].z);
+    }
+    /* Only near-plane crossings need a clipped fan. Distant geometry is
+       intentionally culled as a whole, just as it was before clipping. */
+    if(max_z<NEAR_PLANE || min_z>=NEAR_PLANE) return;
+    first[0]=(clip_vertex_t){camera[0],ua,va};
+    first[1]=(clip_vertex_t){camera[1],ub,vb};
+    first[2]=(clip_vertex_t){camera[2],ud,vd};
+    first[3]=(clip_vertex_t){camera[3],uc,vc};
+    count=clip_depth_plane(first,4,second,NEAR_PLANE,true);
+    if(count<3) return;
+    for(i=0;i<count;++i) {
+        if(!project_camera(second[i].point,&projected[i])) return;
+    }
+    for(i=1;i<count-1;++i)
+        if(screen_triangle_visible(&projected[0],&projected[i],&projected[i+1]))
+            submit_triangle(header,&projected[0],&projected[i],&projected[i+1],
+                            second[0].u,second[0].v,
+                            second[i].u,second[i].v,
+                            second[i+1].u,second[i+1].v,
+                            color,color,color);
+}
+
 static void draw_world_quad(const pvr_poly_hdr_t *header,
                             vec3_t a, vec3_t b, vec3_t c, vec3_t d,
                             float ua, float va, float ub, float vb,
                             float uc, float vc, float ud, float vd,
                             uint32_t color) {
     screen_point_t sa, sb, sc, sd;
-    clip_vertex_t first[8],second[8];
-    screen_point_t projected[8];
-    float min_z=FAR_PLANE+1.0f,max_z=0.0f;
-    int count,i;
-    first[0]=(clip_vertex_t){world_to_camera(a),ua,va};
-    first[1]=(clip_vertex_t){world_to_camera(b),ub,vb};
-    first[2]=(clip_vertex_t){world_to_camera(d),ud,vd};
-    first[3]=(clip_vertex_t){world_to_camera(c),uc,vc};
-    if(project_camera(first[0].point,&sa) &&
-       project_camera(first[1].point,&sb) &&
-       project_camera(first[3].point,&sc) &&
-       project_camera(first[2].point,&sd)) {
+    /* Preserve the boundary order used by the clipped fan: a, b, d, c. */
+    const vec3_t camera[4]={world_to_camera(a),world_to_camera(b),
+                            world_to_camera(d),world_to_camera(c)};
+    if(project_camera(camera[0],&sa) &&
+       project_camera(camera[1],&sb) &&
+       project_camera(camera[3],&sc) &&
+       project_camera(camera[2],&sd)) {
         if(!screen_quad_visible(&sa,&sb,&sc,&sd)) return;
         submit_quad(header, &sa,&sb,&sc,&sd, ua,va,ub,vb,uc,vc,ud,vd,
                     color,color,color,color);
     }
-    else {
-        for(i=0;i<4;++i) {
-            min_z=fminf(min_z,first[i].point.z);
-            max_z=fmaxf(max_z,first[i].point.z);
-        }
-        /* Only near-plane crossings need a clipped fan. Distant geometry is
-           intentionally culled as a whole, just as it was before clipping. */
-        if(max_z<NEAR_PLANE || min_z>=NEAR_PLANE) return;
-        count=clip_depth_plane(first,4,second,NEAR_PLANE,true);
-        if(count<3) return;
-        for(i=0;i<count;++i) {
-            if(!project_camera(second[i].point,&projected[i])) return;
-        }
-        for(i=1;i<count-1;++i)
-            if(screen_triangle_visible(&projected[0],&projected[i],&projected[i+1]))
-                submit_triangle(header,&projected[0],&projected[i],&projected[i+1],
-                                second[0].u,second[0].v,
-                                second[i].u,second[i].v,
-                                second[i+1].u,second[i+1].v,
-                                color,color,color);
-    }
+    else
+        draw_clipped_camera_quad(header,camera,ua,va,ub,vb,uc,vc,ud,vd,color);
 }
 
 static void draw_world_quad_colored(const pvr_poly_hdr_t *header,
@@ -5162,47 +5221,68 @@ static void draw_car_mesh(void) {
         }
         materials_ready=true;
     }
-    /* Transform and light each seam-split vertex once, not per triangle corner.
-       The same cache feeds the opaque material and transparent reflection pass. */
+    /* Keep the original world-space backface arithmetic. Geometry only needs
+       its world position until a front-facing face references the vertex. */
     for(i=0;i<dla_car_mesh.vertex_count;++i) {
         const dla_mesh_vertex_t *v=&dla_car_mesh.vertices[i];
         const float x=v->x-v->y*body_roll, y=v->y+v->x*body_roll;
-        const float nx=v->nx-v->ny*body_roll, ny=v->ny+v->nx*body_roll;
-        vec3_t n={nx*c+v->nz*s,ny,-nx*s+v->nz*c};
-        vec3_t world={car.x+x*c+v->z*s,y,car.z-x*s+v->z*c};
-        float vx=camera_x-world.x,vy=camera_y-world.y,vz=camera_z-world.z;
-        const float inv=dla_reflection_inv_length(vx*vx+vy*vy+vz*vz);
-        float facing,key,sky,rim,reflectivity;
-        color3_t light;
-        vx*=inv; vy*=inv; vz*=inv;
-        facing=clampf(n.x*vx+n.y*vy+n.z*vz,0.0f,1.0f);
-        rim=1.0f-facing;
-        key=fmaxf(0.0f,n.x*-.48f+n.y*.64f+n.z*-.60f);
-        sky=clampf(n.y*.5f+.5f,0.0f,1.0f);
-        /* Cool hemisphere fill, warm low sun, and baked cavity occlusion. */
-        light=(color3_t){(.25f+sky*.27f+key*.33f)*v->ao,
-                         (.29f+sky*.29f+key*.25f)*v->ao,
-                         (.38f+sky*.31f+key*.18f)*v->ao};
-        material=car_render[i].material;
-        reflectivity=(.045f+rim*rim*rim*.23f)*v->ao;
-        if(material==DLA_MAT_GLASS) {
-            light=(color3_t){.42f,.49f,.61f};
-            reflectivity=.35f+rim*rim*.43f;
-        }
-        else if(material==DLA_MAT_CARBON) light=color_scale(light,.39f);
-        else if(material==DLA_MAT_LIGHTS) light=(color3_t){1.0f,.92f,.90f};
-        else if(material==DLA_MAT_METAL) light=color_scale(light,.85f);
-        if(game.impact_flash>0.0f) light=(color3_t){1.0f,.90f,.85f};
-        car_render[i].world=world;
-        project_world(world,&car_render[i].projected);
-        car_render[i].color=pack_color(1.0f,light);
-        car_render[i].reflect_color=pack_color(reflectivity,(color3_t){.84f,.90f,1.0f});
-        /* Hemisphere environment lookup is world-oriented, so highlights move
-           with steering and camera motion without per-vertex atan2. */
-        car_render[i].reflect_uv[0]=clampf(.5f+(2.0f*facing*n.x-vx)*.48f,.01f,.99f);
-        car_render[i].reflect_uv[1]=clampf(.5f-(2.0f*facing*n.y-vy)*.48f,.01f,.99f);
+        car_render[i].world=(vec3_t){car.x+x*c+v->z*s,y,car.z-x*s+v->z*c};
+        car_render[i].referenced=false;
     }
     memset(car_visible_faces,0,sizeof(car_visible_faces));
+    for(i=0;i<dla_car_mesh.face_count;++i) {
+        const dla_mesh_face_t *f=&dla_car_mesh.faces[i];
+        const vec3_t local=car_face_normals[i];
+        const float nx=local.x-local.y*body_roll,ny=local.y+local.x*body_roll;
+        const vec3_t n={nx*c+local.z*s,ny,-nx*s+local.z*c};
+        const vec3_t view={camera_x-car_render[f->a].world.x,camera_y-car_render[f->a].world.y,
+                           camera_z-car_render[f->a].world.z};
+        if(n.x*view.x+n.y*view.y+n.z*view.z<0.0f) continue;
+        /* Provisional face candidates become submitted-face flags below. */
+        car_visible_faces[i]=true;
+        car_render[f->a].referenced=car_render[f->b].referenced=car_render[f->c].referenced=true;
+    }
+    for(i=0;i<dla_car_mesh.vertex_count;++i) {
+        const dla_mesh_vertex_t *v=&dla_car_mesh.vertices[i];
+        vec3_t n,world;
+        float nx,ny;
+        color3_t light;
+        if(!car_render[i].referenced) continue;
+        nx=v->nx-v->ny*body_roll; ny=v->ny+v->nx*body_roll;
+        n=(vec3_t){nx*c+v->nz*s,ny,-nx*s+v->nz*c};
+        world=car_render[i].world;
+        material=car_render[i].material;
+        if(material==DLA_MAT_GLASS) light=(color3_t){.42f,.49f,.61f};
+        else if(material==DLA_MAT_LIGHTS) light=(color3_t){1.0f,.92f,.90f};
+        else {
+            const float key=fmaxf(0.0f,n.x*-.48f+n.y*.64f+n.z*-.60f);
+            const float sky=clampf(n.y*.5f+.5f,0.0f,1.0f);
+            /* Cool hemisphere fill, warm low sun, and baked cavity occlusion. */
+            light=(color3_t){(.25f+sky*.27f+key*.33f)*v->ao,
+                             (.29f+sky*.29f+key*.25f)*v->ao,
+                             (.38f+sky*.31f+key*.18f)*v->ao};
+            if(material==DLA_MAT_CARBON) light=color_scale(light,.39f);
+            else if(material==DLA_MAT_METAL) light=color_scale(light,.85f);
+        }
+        if(game.impact_flash>0.0f) light=(color3_t){1.0f,.90f,.85f};
+        project_world(world,&car_render[i].projected);
+        car_render[i].color=pack_color(1.0f,light);
+        /* Only paint and glass are submitted by the reflection pass. */
+        if(material==DLA_MAT_PAINT || material==DLA_MAT_GLASS) {
+            float vx=camera_x-world.x,vy=camera_y-world.y,vz=camera_z-world.z;
+            const float inv=dla_reflection_inv_length(vx*vx+vy*vy+vz*vz);
+            float facing,rim,reflectivity;
+            vx*=inv; vy*=inv; vz*=inv;
+            facing=clampf(n.x*vx+n.y*vy+n.z*vz,0.0f,1.0f);
+            rim=1.0f-facing;
+            reflectivity=(.045f+rim*rim*rim*.23f)*v->ao;
+            if(material==DLA_MAT_GLASS) reflectivity=.35f+rim*rim*.43f;
+            car_render[i].reflect_color=pack_color(reflectivity,(color3_t){.84f,.90f,1.0f});
+            /* Preserve the world-oriented hemisphere environment lookup. */
+            car_render[i].reflect_uv[0]=clampf(.5f+(2.0f*facing*n.x-vx)*.48f,.01f,.99f);
+            car_render[i].reflect_uv[1]=clampf(.5f-(2.0f*facing*n.y-vy)*.48f,.01f,.99f);
+        }
+    }
     for(material=0;material<5;++material) {
         const int texture=material==DLA_MAT_PAINT?DLA_TEX_CAR_PAINT:
             material==DLA_MAT_GLASS?DLA_TEX_CAR_GLASS:
@@ -5215,13 +5295,10 @@ static void draw_car_mesh(void) {
             const dla_mesh_vertex_t *a=&dla_car_mesh.vertices[f->a];
             const dla_mesh_vertex_t *b=&dla_car_mesh.vertices[f->b];
             const dla_mesh_vertex_t *d=&dla_car_mesh.vertices[f->c];
-            const vec3_t local=car_face_normals[i];
-            const float nx=local.x-local.y*body_roll,ny=local.y+local.x*body_roll;
-            const vec3_t n={nx*c+local.z*s,ny,-nx*s+local.z*c};
-            const vec3_t view={camera_x-car_render[f->a].world.x,camera_y-car_render[f->a].world.y,
-                               camera_z-car_render[f->a].world.z};
-            if(n.x*view.x+n.y*view.y+n.z*view.z<0.0f ||
-               !car_render[f->a].projected.valid || !car_render[f->b].projected.valid ||
+            if(!car_visible_faces[i]) continue;
+            /* Reflections may only consume faces that reach submission. */
+            car_visible_faces[i]=false;
+            if(!car_render[f->a].projected.valid || !car_render[f->b].projected.valid ||
                !car_render[f->c].projected.valid ||
                !screen_triangle_visible(&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected)) continue;
             car_visible_faces[i]=true;
@@ -5262,13 +5339,21 @@ static void draw_player_brake_lights(void) {
         .125f,.125f,.125f,.125f,.125f,.125f,.125f,.125f,tint);
 }
 
-static vec3_t rotate_part_point(float center_x, float center_y, float center_z,
-                                float x, float y, float z, float local_yaw) {
-    const shz_sincos_t rotation=shz_sincosf(local_yaw);
-    const float pc=rotation.cos,ps=rotation.sin;
-    const float px = center_x + x*pc + z*ps;
-    const float pz = center_z - x*ps + z*pc;
-    return car_local_to_world(px, center_y+y, pz);
+typedef struct {
+    float center_x,center_y,center_z;
+    float car_x,car_z;
+    shz_sincos_t car_rotation,part_rotation;
+} wheel_transform_t;
+
+static inline vec3_t rotate_part_point(const wheel_transform_t *transform,
+                                       float x, float y, float z) {
+    const float pc=transform->part_rotation.cos,ps=transform->part_rotation.sin;
+    const float c=transform->car_rotation.cos,s=transform->car_rotation.sin;
+    /* Retain the original two-stage arithmetic and floating-point order. */
+    const float px=transform->center_x+x*pc+z*ps;
+    const float pz=transform->center_z-x*ps+z*pc;
+    return (vec3_t){transform->car_x+px*c+pz*s,transform->center_y+y,
+                    transform->car_z-px*s+pz*c};
 }
 
 static void draw_wheel(float local_x, float local_z, float steer,
@@ -5279,6 +5364,11 @@ static void draw_wheel(float local_x, float local_z, float steer,
     const float half_width = width * 0.5f;
     const float outer_sign = local_x < 0.0f ? -1.0f : 1.0f;
     const float center_y = radius + 0.015f;
+    const wheel_transform_t transform={
+        .center_x=local_x,.center_y=center_y,.center_z=local_z,
+        .car_x=car.x,.car_z=car.z,
+        .car_rotation=shz_sincosf(car.yaw),.part_rotation=shz_sincosf(steer)
+    };
     const float rotation=local_z>0.0f?front_wheel_spin:rear_wheel_spin;
     const uint32_t tread = pack_color(1.0f,(color3_t){0.27f,0.29f,0.33f});
     const uint32_t sidewall = pack_color(1.0f,(color3_t){0.055f,0.06f,0.075f});
@@ -5296,8 +5386,8 @@ static void draw_wheel(float local_x, float local_z, float steer,
         const float angle = rotation + (float)i * PI * 2.0f / (float)SEGMENTS;
         const float y = fsin(angle) * radius;
         const float z = fcos(angle) * radius;
-        inner[i] = rotate_part_point(local_x,center_y,local_z,-half_width,y,z,steer);
-        outer[i] = rotate_part_point(local_x,center_y,local_z, half_width,y,z,steer);
+        inner[i] = rotate_part_point(&transform,-half_width,y,z);
+        outer[i] = rotate_part_point(&transform, half_width,y,z);
     }
 
     for(i = 0; i < SEGMENTS; ++i) {
@@ -5309,81 +5399,81 @@ static void draw_wheel(float local_x, float local_z, float steer,
             tread);
     }
 
-    center = rotate_part_point(local_x,center_y,local_z,
-                               outer_sign*(half_width+0.006f),0.0f,0.0f,steer);
+    center = rotate_part_point(&transform,
+                               outer_sign*(half_width+0.006f),0.0f,0.0f);
     for(i = 0; i < SEGMENTS; ++i) {
         const int next = (i + 1) % SEGMENTS;
         const float a0 = rotation + (float)i * PI * 2.0f / (float)SEGMENTS;
         const float a1 = rotation + (float)next * PI * 2.0f / (float)SEGMENTS;
-        const vec3_t p0 = rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.006f),fsin(a0)*radius,fcos(a0)*radius,steer);
-        const vec3_t p1 = rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.006f),fsin(a1)*radius,fcos(a1)*radius,steer);
+        const vec3_t p0 = rotate_part_point(&transform,
+            outer_sign*(half_width+0.006f),fsin(a0)*radius,fcos(a0)*radius);
+        const vec3_t p1 = rotate_part_point(&transform,
+            outer_sign*(half_width+0.006f),fsin(a1)*radius,fcos(a1)*radius);
         draw_world_triangle(&world_header,center,p0,p1,sidewall);
     }
 
     /* Layered brake rotor, restrained red caliper, machined rim lip, and five
        tapered spokes.  Separate depth planes keep the face legible at 480p. */
     {
-        const vec3_t rotor_center=rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.010f),0.0f,0.0f,steer);
+        const vec3_t rotor_center=rotate_part_point(&transform,
+            outer_sign*(half_width+0.010f),0.0f,0.0f);
         for(i=0;i<SEGMENTS;++i) {
             const float a0=(float)i*PI*2.0f/(float)SEGMENTS;
             const float a1=(float)(i+1)*PI*2.0f/(float)SEGMENTS;
-            const vec3_t p0=rotate_part_point(local_x,center_y,local_z,
-                outer_sign*(half_width+0.010f),fsin(a0)*radius*.61f,fcos(a0)*radius*.61f,steer);
-            const vec3_t p1=rotate_part_point(local_x,center_y,local_z,
-                outer_sign*(half_width+0.010f),fsin(a1)*radius*.61f,fcos(a1)*radius*.61f,steer);
+            const vec3_t p0=rotate_part_point(&transform,
+                outer_sign*(half_width+0.010f),fsin(a0)*radius*.61f,fcos(a0)*radius*.61f);
+            const vec3_t p1=rotate_part_point(&transform,
+                outer_sign*(half_width+0.010f),fsin(a1)*radius*.61f,fcos(a1)*radius*.61f);
             draw_world_triangle(&world_header,rotor_center,p0,p1,rotor);
         }
     }
     draw_world_quad(&world_header,
-        rotate_part_point(local_x,center_y,local_z,outer_sign*(half_width+0.013f),-.040f,-.21f,steer),
-        rotate_part_point(local_x,center_y,local_z,outer_sign*(half_width+0.013f), .040f,-.21f,steer),
-        rotate_part_point(local_x,center_y,local_z,outer_sign*(half_width+0.013f),-.040f,-.08f,steer),
-        rotate_part_point(local_x,center_y,local_z,outer_sign*(half_width+0.013f), .040f,-.08f,steer),
+        rotate_part_point(&transform,outer_sign*(half_width+0.013f),-.040f,-.21f),
+        rotate_part_point(&transform,outer_sign*(half_width+0.013f), .040f,-.21f),
+        rotate_part_point(&transform,outer_sign*(half_width+0.013f),-.040f,-.08f),
+        rotate_part_point(&transform,outer_sign*(half_width+0.013f), .040f,-.08f),
         0,0,1,0,0,1,1,1,caliper);
 
     for(i=0;i<SEGMENTS;++i) {
         const int next=(i+1)%SEGMENTS;
         const float a0=(float)i*PI*2.0f/(float)SEGMENTS;
         const float a1=(float)next*PI*2.0f/(float)SEGMENTS;
-        const vec3_t inner0=rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.015f),fsin(a0)*radius*.70f,fcos(a0)*radius*.70f,steer);
-        const vec3_t outer0=rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.015f),fsin(a0)*radius*.82f,fcos(a0)*radius*.82f,steer);
-        const vec3_t inner1=rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.015f),fsin(a1)*radius*.70f,fcos(a1)*radius*.70f,steer);
-        const vec3_t outer1=rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.015f),fsin(a1)*radius*.82f,fcos(a1)*radius*.82f,steer);
+        const vec3_t inner0=rotate_part_point(&transform,
+            outer_sign*(half_width+0.015f),fsin(a0)*radius*.70f,fcos(a0)*radius*.70f);
+        const vec3_t outer0=rotate_part_point(&transform,
+            outer_sign*(half_width+0.015f),fsin(a0)*radius*.82f,fcos(a0)*radius*.82f);
+        const vec3_t inner1=rotate_part_point(&transform,
+            outer_sign*(half_width+0.015f),fsin(a1)*radius*.70f,fcos(a1)*radius*.70f);
+        const vec3_t outer1=rotate_part_point(&transform,
+            outer_sign*(half_width+0.015f),fsin(a1)*radius*.82f,fcos(a1)*radius*.82f);
         draw_world_quad(&world_header,inner0,outer0,inner1,outer1,
                         0,0,1,0,0,1,1,1,rim_edge);
     }
     for(i = 0; i < 5; ++i) {
         const float angle=rotation*.15f+(float)i*PI*2.0f/5.0f;
         const float inner_spread=.180f,outer_spread=.065f;
-        const vec3_t inner0=rotate_part_point(local_x,center_y,local_z,
+        const vec3_t inner0=rotate_part_point(&transform,
             outer_sign*(half_width+0.017f),fsin(angle-inner_spread)*radius*.16f,
-            fcos(angle-inner_spread)*radius*.16f,steer);
-        const vec3_t inner1=rotate_part_point(local_x,center_y,local_z,
+            fcos(angle-inner_spread)*radius*.16f);
+        const vec3_t inner1=rotate_part_point(&transform,
             outer_sign*(half_width+0.017f),fsin(angle+inner_spread)*radius*.16f,
-            fcos(angle+inner_spread)*radius*.16f,steer);
-        const vec3_t outer0=rotate_part_point(local_x,center_y,local_z,
+            fcos(angle+inner_spread)*radius*.16f);
+        const vec3_t outer0=rotate_part_point(&transform,
             outer_sign*(half_width+0.017f),fsin(angle-outer_spread)*radius*.72f,
-            fcos(angle-outer_spread)*radius*.72f,steer);
-        const vec3_t outer1=rotate_part_point(local_x,center_y,local_z,
+            fcos(angle-outer_spread)*radius*.72f);
+        const vec3_t outer1=rotate_part_point(&transform,
             outer_sign*(half_width+0.017f),fsin(angle+outer_spread)*radius*.72f,
-            fcos(angle+outer_spread)*radius*.72f,steer);
+            fcos(angle+outer_spread)*radius*.72f);
         draw_world_quad(&world_header,inner0,outer0,inner1,outer1,
                         0,0,1,0,0,1,1,1,rim);
     }
     for(i = 0; i < 8; ++i) {
         const float a0 = (float)i*PI*2.0f/8.0f;
         const float a1 = (float)(i+1)*PI*2.0f/8.0f;
-        const vec3_t p0 = rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.019f),fsin(a0)*radius*.15f,fcos(a0)*radius*.15f,steer);
-        const vec3_t p1 = rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.019f),fsin(a1)*radius*.15f,fcos(a1)*radius*.15f,steer);
+        const vec3_t p0 = rotate_part_point(&transform,
+            outer_sign*(half_width+0.019f),fsin(a0)*radius*.15f,fcos(a0)*radius*.15f);
+        const vec3_t p1 = rotate_part_point(&transform,
+            outer_sign*(half_width+0.019f),fsin(a1)*radius*.15f,fcos(a1)*radius*.15f);
         draw_world_triangle(&world_header,center,p0,p1,hub);
     }
     /* Five raised lug nuts and a colored center cap survive close orbit shots
@@ -5392,33 +5482,33 @@ static void draw_wheel(float local_x, float local_z, float steer,
         const float angle=rotation*.15f+(float)i*PI*2.0f/5.0f;
         const float lug_y=fsin(angle)*radius*.105f;
         const float lug_z=fcos(angle)*radius*.105f;
-        const vec3_t lug_center=rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.024f),lug_y,lug_z,steer);
+        const vec3_t lug_center=rotate_part_point(&transform,
+            outer_sign*(half_width+0.024f),lug_y,lug_z);
         int edge;
         for(edge=0;edge<6;++edge) {
             const float a0=(float)edge*PI/3.0f;
             const float a1=(float)(edge+1)*PI/3.0f;
-            const vec3_t p0=rotate_part_point(local_x,center_y,local_z,
+            const vec3_t p0=rotate_part_point(&transform,
                 outer_sign*(half_width+0.024f),lug_y+fsin(a0)*radius*.050f,
-                lug_z+fcos(a0)*radius*.050f,steer);
-            const vec3_t p1=rotate_part_point(local_x,center_y,local_z,
+                lug_z+fcos(a0)*radius*.050f);
+            const vec3_t p1=rotate_part_point(&transform,
                 outer_sign*(half_width+0.024f),lug_y+fsin(a1)*radius*.050f,
-                lug_z+fcos(a1)*radius*.050f,steer);
+                lug_z+fcos(a1)*radius*.050f);
             draw_world_triangle(&world_header,lug_center,p0,p1,lug);
         }
     }
     {
-        const vec3_t badge_center=rotate_part_point(local_x,center_y,local_z,
-            outer_sign*(half_width+0.026f),0.0f,0.0f,steer);
+        const vec3_t badge_center=rotate_part_point(&transform,
+            outer_sign*(half_width+0.026f),0.0f,0.0f);
         for(i=0;i<8;++i) {
             const float a0=(float)i*PI/4.0f;
             const float a1=(float)(i+1)*PI/4.0f;
-            const vec3_t p0=rotate_part_point(local_x,center_y,local_z,
+            const vec3_t p0=rotate_part_point(&transform,
                 outer_sign*(half_width+0.026f),fsin(a0)*radius*.070f,
-                fcos(a0)*radius*.070f,steer);
-            const vec3_t p1=rotate_part_point(local_x,center_y,local_z,
+                fcos(a0)*radius*.070f);
+            const vec3_t p1=rotate_part_point(&transform,
                 outer_sign*(half_width+0.026f),fsin(a1)*radius*.070f,
-                fcos(a1)*radius*.070f,steer);
+                fcos(a1)*radius*.070f);
             draw_world_triangle(&world_header,badge_center,p0,p1,center_badge);
         }
     }
@@ -5827,6 +5917,7 @@ static int init_graphics(void) {
     vid_set_enabled(0);
     vid_set_mode(DM_640x480,PM_RGB565);
     vid_set_dithering(true);
+    params.dma_enabled=false; /* Vertices are submitted directly through SQ. */
     params.vertex_buf_size=GRAPHICS_VERTEX_BUFFER_BYTES;
     params.opb_sizes[PVR_LIST_PT_POLY]=PVR_BINSIZE_16;
     if(pvr_init(&params)<0) {
@@ -6058,7 +6149,13 @@ int main(int argc, char **argv) {
         float dt=(float)(now-previous_time)*0.000001f;
         input_t input=poll_input();
         previous_time=now;
+#ifdef DRIFT_LA_GEOMETRY_QA
+        /* Reproduce simulation states regardless of renderer throughput. This
+           validation mode is deliberately separate from the timed benchmark. */
+        dt=1.0f/30.0f;
+#else
         dt=clampf(dt,0.001f,0.050f);
+#endif
 #ifdef DRIFT_LA_SHOWCASE
         input.connected=true;
         input.buttons=0;
@@ -6191,12 +6288,22 @@ int main(int argc, char **argv) {
 #ifndef DRIFT_LA_CAPTURE_SEGMENT
             if(game.demo_time>=60.0f) {
                 const uint64_t elapsed=timer_us_gettime64()-benchmark_start;
+#ifdef DRIFT_LA_GEOMETRY_QA
+                printf("Drift Los Angeles geometry QA: complete; frames=%lu step_hz=30 simulated_seconds=%.6f total_tri=%llu total_vtx=%llu peak_tri=%lu peak_vtx=%lu elapsed_us=%llu.\n",
+                    (unsigned long)benchmark_frames,(double)game.demo_time,
+                    (unsigned long long)geometry_qa_triangles,
+                    (unsigned long long)geometry_qa_vertices,
+                    (unsigned long)render_qa_peak.triangles,
+                    (unsigned long)render_qa_peak.vertices,
+                    (unsigned long long)elapsed);
+#else
                 printf("Drift Los Angeles benchmark: frames=%lu elapsed_us=%llu average_fps=%.2f peak_tri=%lu peak_vtx=%lu texture_bytes=%lu vram_free=%lu vertex_buffer_bytes=%lu.\n",
                     (unsigned long)benchmark_frames,(unsigned long long)elapsed,
                     (double)benchmark_frames*1000000.0/(double)elapsed,
                     (unsigned long)render_qa_peak.triangles,(unsigned long)render_qa_peak.vertices,
                     (unsigned long)graphics_texture_bytes,(unsigned long)graphics_vram_free,
                     (unsigned long)GRAPHICS_VERTEX_BUFFER_BYTES);
+#endif
                 printf("Drift Los Angeles visual QA: complete; peak tri=%lu vtx=%lu bldg=%lu cars=%lu ped=%lu smoke=%lu furnish=%lu.\n",
                        (unsigned long)render_qa_peak.triangles,
                        (unsigned long)render_qa_peak.vertices,

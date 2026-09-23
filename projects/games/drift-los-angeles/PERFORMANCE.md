@@ -1,4 +1,10 @@
-# SH4ZAM rendering performance
+# Rendering performance
+
+The current renderer averages **48.97 FPS** in the complete Flycast tour with
+the upgraded artwork. The measurements below separate the SH4ZAM integration
+from the subsequent submission and geometry sweep.
+
+## SH4ZAM integration
 
 Measured on 2026-09-23 against game revision `6f16e9d` using the same
 60-second four-district tour, 640×480 scene, assets and compiler flags.
@@ -87,3 +93,68 @@ and add `-DDRIFT_LA_SCALAR_RENDER_MATH` to the strict QA CFLAGS. That switch
 retains the new cache layout and paired trig; compare the original revision
 above to reproduce the complete before/after change. Clean and rebuild without
 QA defines before returning to the normal playable build.
+
+## Submission and geometry sweep
+
+Measured on 2026-09-23 against `dfe5349`, using the same emulator, transient
+flags, compiler flags, scene and 60-second elapsed-time benchmark above.
+Each row adds one change to the preceding row.
+
+| Build | Frames | Elapsed seconds | Average FPS |
+| --- | ---: | ---: | ---: |
+| SH4ZAM baseline | 2,080 | 60.045497 | 34.6404 |
+| Direct store-queue vertex submission | 2,250 | 60.039675 | 37.4752 |
+| Separate uncommon quad clipping path | 2,256 | 60.044142 | 37.5724 |
+| Shade only referenced car vertices/materials | 2,875 | 60.037413 | 47.8868 |
+| Reuse wheel rotation pairs | 2,940 | 60.036474 | 48.9702 |
+
+This sweep improves the average by **41.4%** over the SH4ZAM baseline. As with
+the first table, changing throughput changes which animated states are sampled;
+small per-row differences are not precise isolated measurements. The result
+remains an emulator average, not a real-Dreamcast guarantee.
+A final complete timed run reproduced the last row exactly.
+
+- Write each complete 32-byte vertex directly into a PowerVR store queue and
+  commit it, avoiding the stack array and subsequent `pvr_prim` copy. Headers
+  still precede vertices, and the renderer explicitly uses immediate mode.
+  `DRIFT_LA_STAGED_SUBMISSION` retains the old submission path for comparisons.
+- Move near-plane clipping storage and UV setup out of the common quad path.
+  Clipped vertex order, UV interpolation and depth rejection are unchanged.
+- Perform the existing car backface test before projection and shading. Only
+  vertices referenced by candidate faces need that work, and only paint/glass
+  need reflection calculations. The reference flag fits existing cache-record
+  padding, so this pass adds no car-cache RAM. Reflections still use only faces
+  that reach final submission.
+- Compute the car and steering sine/cosine pairs once per wheel, preserving
+  the two-stage transform arithmetic and every wheel detail.
+
+No textures, mesh detail, draw distances or particle limits were reduced.
+The texture/HUD allocation and free VRAM remain 3,965,248 and 1,144,648 bytes.
+
+### Deterministic geometry comparison
+
+`make geometry-qa-run` fixes simulation updates at 1/30 second and reports
+whole-tour triangles/vertices, peaks and frame count. This separate mode
+deliberately omits the benchmark aggregate, so the FPS analyzer rejects it.
+It checks geometry counts, not pixel equality or throughput.
+
+The instrumented `dfe5349` baseline, optimized direct submission and optimized
+staged submission all produced exactly **1,801 frames, 9,157,359 triangles and
+23,182,243 vertices**, with peaks of **6,542 triangles / 15,966 vertices**.
+Each completed all four districts over 60.032761 simulated seconds. The
+strict build, 31 host QA tests, asset audit and Flycast burnout/donut regression
+passed. The car, reflections, wheels, smoke and streets were also inspected
+in Flycast. Logs and parsed reports are retained locally under
+`assets/generated/previews/visual-qa/render-sweep/` (ignored generated evidence).
+
+Capture a reference and changed build with identical geometry-QA defines,
+then run:
+
+```sh
+uv run tools/compare_geometry_logs.py before.log after.log
+```
+
+Use `make geometry-qa-build` to produce the ELF without launching it. To compare
+submission paths, clean and build with
+`-O2 -Wall -Wextra -Wpedantic -Werror -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA -DDRIFT_LA_GEOMETRY_QA -DDRIFT_LA_STAGED_SUBMISSION`.
+Clean and rebuild without QA defines before returning to the playable build.

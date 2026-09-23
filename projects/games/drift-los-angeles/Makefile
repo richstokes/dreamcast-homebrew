@@ -62,6 +62,7 @@ qa:
 qa-tools:
 	uv run tools/test_graphics_qa.py
 	uv run tools/test_pvr_texture.py
+	uv run tools/test_compare_geometry_logs.py
 
 tools/render_math_qa.o: tools/render_math_qa.c render_math.h $(SH4ZAM_HEADERS)
 
@@ -78,6 +79,14 @@ qa-build:
 
 qa-run: qa-build
 	./run-flycast.sh --skip-build
+
+geometry-qa-build:
+	$(MAKE) clean
+	$(MAKE) CFLAGS='$(STRICT_CFLAGS) -DDRIFT_LA_SHOWCASE -DDRIFT_LA_VISUAL_QA -DDRIFT_LA_GEOMETRY_QA'
+
+geometry-qa-run: geometry-qa-build
+	DRIFT_LA_EXIT_ON_LOG='Drift Los Angeles geometry QA: complete;' \
+		./run-flycast.sh --skip-build --input keyboard
 
 qa-benchmark: qa-build
 	mkdir -p "$(dir $(QA_LOG))"
@@ -104,4 +113,4 @@ physics-qa-run: physics-qa-build
 	DRIFT_LA_FAIL_ON_LOG='physics QA: FAILED.' \
 		./run-flycast.sh --skip-build --input keyboard
 
-.PHONY: all clean run showcase qa qa-tools math-qa-build qa-build qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model
+.PHONY: all clean run showcase qa qa-tools math-qa-build qa-build qa-run geometry-qa-build geometry-qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model
