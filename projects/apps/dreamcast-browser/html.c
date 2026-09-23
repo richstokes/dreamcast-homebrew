@@ -757,6 +757,7 @@ void document_mark_shortened(browser_document_t *doc, const char *message) {
     pending_space = 0;
     add_notice(doc, message);
     doc->height = line_y + 20;
+    document_touch(doc);
 }
 
 static void add_notice(browser_document_t *doc, const char *message) {
@@ -771,8 +772,18 @@ static void add_notice(browser_document_t *doc, const char *message) {
     line_y += 27;
 }
 
+/* One serial for all documents and mutations. Initialization must not read
+   the old object: callers may hand us fresh, uninitialized malloc memory.
+   A shared serial also distinguishes replacement documents in the renderer. */
+void document_touch(browser_document_t *doc) {
+    static unsigned generation;
+    if(++generation == 0) ++generation;
+    doc->generation = generation;
+}
+
 void document_init(browser_document_t *doc, const char *base_url) {
     memset(doc, 0, sizeof(*doc));
+    document_touch(doc);
     snprintf(doc->base_url, sizeof(doc->base_url), "%s", base_url ? base_url : "");
     snprintf(doc->title, sizeof(doc->title), "Untitled page");
 }
@@ -783,6 +794,7 @@ void document_free(browser_document_t *doc) {
         free(doc->images[i].pixels);
         doc->images[i].pixels = NULL;
     }
+    document_touch(doc);
 }
 
 void document_make_error(browser_document_t *doc, const char *title, const char *message) {
@@ -797,6 +809,7 @@ void document_make_error(browser_document_t *doc, const char *title, const char 
     wrap_text(doc, message, TEXT_NORMAL, -1, 0);
     finish_line(0);
     doc->height = line_y + 20;
+    document_touch(doc);
 }
 
 static text_style_t active_style(const parse_state_t *st) {
@@ -871,6 +884,7 @@ void document_refresh_field(browser_document_t *doc, int index) {
                  window[0] ? window : "type here", length > 36 ? "..." : "");
     }
     item->width = (int)strlen(item->text) * 12;
+    document_touch(doc);
 }
 
 void document_toggle_field(browser_document_t *doc, int index) {
@@ -1438,6 +1452,7 @@ void document_parse_html(browser_document_t *doc, const char *html, size_t size,
 #endif
     finish_line(0);
     doc->height = line_y + 20;
+    document_touch(doc);
 }
 
 void document_reflow(browser_document_t *doc) {
@@ -1455,4 +1470,5 @@ void document_reflow(browser_document_t *doc) {
         }
     }
     doc->height += shift;
+    document_touch(doc);
 }

@@ -33,9 +33,29 @@ which is newer than v2.7 and includes three fixes these projects rely on:
   timeout or retrying does not help on older builds, including v2.7; rebuild
   with the command above. Real BBA hardware does not use this proxy.
 
-`macos-build.patch` is the only local change: it turns off precompiled headers
-for the `flycast` target, which the command-line CMake build cannot share
-between C++ and Objective-C++ sources.
+Two local patches are applied by the builder:
+
+- `macos-build.patch` turns off precompiled headers for the `flycast` target,
+  which the command-line CMake build cannot share between C++ and Objective-C++.
+- `keyboard-input.patch` preserves short keyboard presses until the Dreamcast
+  reads them. Upstream keeps only the keys currently held, so a press and release
+  arriving between guest polls disappears. The patch queues keys together with
+  their modifiers and consumes one transition per actual Maple keyboard read.
+  This applies to local Dreamcast keyboards; arcade, controller mappings, and
+  GGPO retain their existing input path.
+
+Keyboard queues reset on menu changes, device removal/remapping, savestate loads,
+and guest keyboard resets. Each port holds at most 256 transitions; overflow
+releases guest keys and resynchronizes to the current host state. Very large
+synthetic bursts beyond this limit may be shortened. Held keys still use the
+guest's normal repeat behavior.
+
+The focused keyboard regression tests run automatically before each build, or
+independently with a C++17 compiler and Git, without cloning Flycast:
+
+```sh
+./tools/flycast/test-keyboard-input.sh
+```
 
 ## Upload regression test
 

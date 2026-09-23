@@ -90,9 +90,14 @@ typedef struct {
     int height;
     int truncated;
     int unsupported_count;
+    /* Bumped by every change to the laid-out page, so the renderer can
+       tell when the page area must be redrawn. */
+    unsigned generation;
     char title[MAX_TITLE];
     char base_url[MAX_URL];
 } browser_document_t;
+
+void document_touch(browser_document_t *doc);
 
 typedef struct {
     unsigned char *data;
@@ -199,6 +204,7 @@ typedef struct {
     int address_selected;
     int can_go_back;
     int can_go_forward;
+    int toolbar; /* address bar and status footer are shown */
     int show_help;
     int osk_open;
     int osk_row;
@@ -207,10 +213,19 @@ typedef struct {
     const char *status;
 } browser_view_t;
 
+/* Frames are composed in main RAM and only the rows that changed since the
+   previous frame are drawn and copied to video RAM (render.c). */
+void render_frame(const browser_document_t *doc, const browser_view_t *view);
+int render_present_ready(void);
+void render_present(void);
+void render_invalidate(void);
+/* The composed frame, SCREEN_W * SCREEN_H RGB565 pixels (for tests). */
+const uint16_t *render_frame_pixels(void);
+void render_browser(const browser_document_t *doc, const browser_view_t *view);
+/* Draws every row and copies the whole frame, for benchmarks and tests. */
 void render_draw(const browser_document_t *doc, const browser_view_t *view);
 #ifdef BROWSER_FRAME_DUMP
 void render_dump_frame(const char *label);
 #endif
-void render_browser(const browser_document_t *doc, const browser_view_t *view);
 
 #endif

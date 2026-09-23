@@ -52,6 +52,46 @@ static const char *field_text(const browser_field_t *field) {
     return doc.items[field->item].text;
 }
 
+static void test_document_generations(void) {
+    browser_document_t *first = malloc(sizeof(*first));
+    browser_document_t *second = malloc(sizeof(*second));
+    unsigned initial, changed, replacement;
+    CHECK(first != NULL && second != NULL);
+    if(!first || !second) {
+        free(first);
+        free(second);
+        return;
+    }
+
+    /* Initializing an allocation must not depend on its previous contents.
+       Equal nonzero poison makes accidental per-object serials collide. */
+    memset(first, 0xa5, sizeof(*first));
+    memset(second, 0xa5, sizeof(*second));
+    document_init(first, "https://first.test/");
+    initial = first->generation;
+    CHECK(initial != 0 && first->item_count == 0 && first->image_count == 0);
+    CHECK_STR(first->base_url, "https://first.test/");
+    document_touch(first);
+    changed = first->generation;
+    CHECK(changed != initial);
+
+    /* Independent documents must not collide after a mutation, and reuse
+       of the same object must invalidate its previous rendered page. */
+    document_init(second, "https://second.test/");
+    CHECK(second->generation != initial && second->generation != changed);
+    first->height = 1000;
+    document_init(first, "https://replacement.test/");
+    replacement = first->generation;
+    CHECK(replacement != initial && replacement != changed &&
+          replacement != second->generation);
+    CHECK(first->height == 0);
+    document_free(first);
+    CHECK(first->generation != replacement && first->generation != second->generation);
+    document_free(second);
+    free(first);
+    free(second);
+}
+
 static void test_entities(void) {
     parse("<p>A&mdash;B &ndash; &lsquo;x&rsquo; &ldquo;y&rdquo; wait&hellip;</p>");
     CHECK_STR(page_text(), "A--B - 'x' \"y\" wait...");
@@ -348,6 +388,7 @@ static void test_random_documents(void) {
 }
 
 void html_tests(void) {
+    test_document_generations();
     test_entities();
     test_utf8();
     test_charset();

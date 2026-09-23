@@ -18,7 +18,9 @@ is also available.
 
 - `F1` or `?`: show every keyboard shortcut; any key closes the list
 - `F6` or `Ctrl+L`: open the address bar with the current URL selected
-- `Ctrl+D`: bookmark this page; `Ctrl+B`: open or close the bookmarks page
+- `Ctrl+B`: hide or show the address bar and status line, giving the page the
+  full screen; the bar returns while editing an address or loading a page
+- `Ctrl+D`: bookmark this page; `Ctrl+Shift+B`: open or close the bookmarks page
 - `Enter`: open the typed address, or open, edit or toggle the focused control
 - `Backspace` or `Alt+Left`: return to the previous page
 - `Shift+Backspace` or `Alt+Right`: move forward again
@@ -54,7 +56,7 @@ not negotiate a protocol older than TLS 1.2.
 
 ## Bookmarks
 
-Start or `Ctrl+B` opens the bookmarks page, which offers to bookmark the page
+Start or `Ctrl+Shift+B` opens the bookmarks page, which offers to bookmark the page
 you came from and lists up to sixteen bookmarks, each with a remove link.
 Bookmarks are saved to the first VMU found as `DCBROWSE.BMK` and reloaded at
 startup; without a VMU they last until the browser exits. The page's actions
@@ -73,6 +75,20 @@ make -C "$KOS_PORTS/mbedtls" force-install
 make -C "$KOS_PORTS/curl" install
 make -C "$KOS_PORTS/stb_image" install
 ```
+
+The installed KOS revision also needs the keyboard-attachment fix before
+building. It corrects a pointer calculation that otherwise clears memory
+outside the keyboard state:
+
+```sh
+./scripts/fix-kos-keyboard.sh
+```
+
+The script is safe to rerun, accepts `KOS_ENV`, and rebuilds only the keyboard
+object and SDK archives, preserving local networking changes. Existing ELFs
+need relinking afterward; this project's Makefile tracks the SDK archive.
+If a newer SDK has already fixed the bug differently, the script stops without
+changing it.
 
 Refresh the CA bundle occasionally (this needs host internet access):
 
@@ -98,8 +114,11 @@ make -C tests
 Self-test builds are available with `make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST`
 and `-DBROWSER_FORM_SELF_TEST`; results are printed to the serial console. The
 history self-test also covers keyboard, on-screen keyboard, form control,
-bookmark, and VMU behavior (restoring any existing bookmark file) and prints a
-render benchmark. Adding `-DBROWSER_FRAME_DUMP` prints a frame over serial;
+bookmark, and VMU behavior (restoring any existing bookmark file), checks that
+incremental frames match full redraws pixel for pixel, and prints a render
+benchmark. Adding `-DBROWSER_PROFILE` prints aggregate main-loop timings (frame wait,
+Maple poll, interrupt-to-wake delay, input, draw, present) every two seconds,
+without logging typed characters or URLs. Adding `-DBROWSER_FRAME_DUMP` prints a frame over serial;
 `scripts/frames-to-png.py <log> <directory>` turns it into a PNG. Run
 `make clean && make` afterward to restore the release build, and never
 distribute a form self-test build because it embeds test credentials.
@@ -113,6 +132,47 @@ distribute a form self-test build because it embeds test credentials.
 The launcher attaches an emulated Dreamcast keyboard, mouse, and controller
 without changing Flycast's saved configuration. Click inside the Flycast window
 once if macOS has not given it input focus.
+
+## Frame loop and rendering
+
+The main loop sleeps until the vertical blank interrupt, waits for that
+frame's Maple poll to finish so key presses are read the frame they happen,
+handles input, and composes the frame in main RAM. Only the rows that changed
+since the previous frame are redrawn and copied to the back buffer (a line
+scroll shifts the page in RAM and draws just the exposed band), then the
+buffers are flipped. Nothing is drawn into a buffer until the vertical blank
+after it was flipped away from, so frames never tear.
+
+The vblank interrupt resumes a waiting frame immediately, avoiding an extra
+scheduler tick. Relative mouse motion is consumed once per Maple report,
+including frames where device discovery skips a poll. Drawing skips layers
+outside the changed rows, so typing in the address bar never traverses the
+page underneath it.
+
+The launcher enables `config:rend.EmulateFramebuffer=yes` for this CPU-rendered
+application. Flycast then refreshes idle pages regularly and displays buffer
+flips without extra guest VRAM writes. This is a transient emulator option;
+real Dreamcast hardware uses the same ordinary double-buffered renderer.
+
+## Profiling and input regression checks
+
+```sh
+./scripts/profile.sh /tmp/browser-profile.log
+python3 scripts/analyze-profile.py /tmp/browser-profile.log
+```
+
+The profile build starts on the local bookmarks page, checks keyboard editing
+and mouse report consumption, compares incremental rendering with full redraws,
+and runs a fixed 320-item render benchmark. No remote test server is required.
+`--expect-keys N` on the analyzer checks the total key events in completed
+reporting windows (include shortcut keys in N, and wait for the last two-second
+report before exiting). The log reports guest microseconds; idle frame counts
+are not FPS measurements. Full and incremental render benchmarks both measure
+composition only, excluding video copies and display waits.
+
+After profiling, source KOS and run `make clean && make` to restore the normal
+home page and release build. See [performance notes](PERFORMANCE.md) for the
+measured results and the Flycast keyboard fix.
 
 ## Limits
 

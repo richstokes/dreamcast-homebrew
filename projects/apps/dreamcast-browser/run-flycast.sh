@@ -28,6 +28,8 @@ FLYCAST_COMMAND=("${FLYCAST_BIN}")
 if [[ -n "${FLYCAST_ARCH:-}" ]]; then
     FLYCAST_COMMAND=(/usr/bin/arch "-${FLYCAST_ARCH}" "${FLYCAST_BIN}")
 fi
+# The browser writes a CPU framebuffer. Refresh it every vblank so idle
+# pages still pump host input regularly; this is a transient emulator option.
 exec "${FLYCAST_COMMAND[@]}" \
-    -config "network:EmulateBBA=yes,network:DCNet=no,config:Debug.SerialConsoleEnabled=yes,config:UploadCrashLogs=no,input:device1=5,input:device1.1=10,input:device1.2=10,input:device2=6,input:device2.1=10,input:device2.2=10,input:device3=0,input:device3.1=1,input:device3.2=1,input:maple_sdl_keyboard=0,input:maple_sdl_mouse=1" \
+    -config "network:EmulateBBA=yes,network:DCNet=no,config:Debug.SerialConsoleEnabled=yes,config:UploadCrashLogs=no,config:rend.EmulateFramebuffer=yes,input:device1=5,input:device1.1=10,input:device1.2=10,input:device2=6,input:device2.1=10,input:device2.2=10,input:device3=0,input:device3.1=1,input:device3.2=1,input:maple_sdl_keyboard=0,input:maple_sdl_mouse=1" \
     "${PROJECT_DIR}/dreamcast-browser.elf"

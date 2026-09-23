@@ -1,0 +1,246 @@
+diff --git a/core/hw/maple/maple_cfg.cpp b/core/hw/maple/maple_cfg.cpp
+index e9790b6..d2068bd 100644
+--- a/core/hw/maple/maple_cfg.cpp
++++ b/core/hw/maple/maple_cfg.cpp
+@@ -9,6 +9,8 @@
+ #include "serialize.h"
+ #include "input/maplelink.h"
+ #include "input/mouse.h"
++#include "input/keyboard_transition_queue.h"
++#include "network/ggpo.h"
+ 
+ MapleInputState mapleInputState[4];
+ extern bool maple_ddt_pending_reset;
+@@ -195,6 +197,14 @@ void MapleConfigMap::GetMouseInput(u8& buttons, int& x, int& y, int& wheel)
+ 
+ void MapleConfigMap::GetKeyboardInput(u8& shift, u8 keys[6])
+ {
++	const int port = playerNum();
++	if (settings.platform.isConsole() && !ggpo::active())
++	{
++		if (keyboardTransitionBuffer.read(port, shift, keys))
++			return;
++	}
++	else
++		keyboardTransitionBuffer.reset(port);
+ 	const MapleInputState& inputState = mapleInputState[playerNum()];
+ 	shift = inputState.keyboard.shift;
+ 	memcpy(keys, inputState.keyboard.key, sizeof(inputState.keyboard.key));
+@@ -487,6 +497,7 @@ void mcfg_CreateDevices()
+ // Don't destroy the JVS MIE if full is false
+ void mcfg_DestroyDevices(bool full)
+ {
++	keyboardTransitionBuffer.resetAll();
+ 	for (int i = 0; i < MAPLE_PORTS; i++)
+ 		for (int j = 0; j <= 5; j++)
+ 		{
+diff --git a/core/hw/maple/maple_devs.cpp b/core/hw/maple/maple_devs.cpp
+index 9402444..b454fd9 100755
+--- a/core/hw/maple/maple_devs.cpp
++++ b/core/hw/maple/maple_devs.cpp
+@@ -10,6 +10,7 @@
+ #include "hw/aica/sgc_if.h"
+ #include "cfg/option.h"
+ #include "input/maplelink.h"
++#include "input/keyboard_transition_queue.h"
+ #include <zlib.h>
+ #include <cerrno>
+ #include <ctime>
+@@ -1215,6 +1216,7 @@ struct maple_keyboard : maple_base
+ 			return MDRS_DataTransfer;
+ 
+ 		case MDC_DeviceReset:
++			keyboardTransitionBuffer.reset(player_num);
+ 			return MDRS_DeviceReply;
+ 
+ 		case MDC_DeviceKill:
+diff --git a/core/input/keyboard_device.h b/core/input/keyboard_device.h
+index 38a088e..af4a7ef 100644
+--- a/core/input/keyboard_device.h
++++ b/core/input/keyboard_device.h
+@@ -20,6 +20,8 @@
+ #include "types.h"
+ #include "cfg/option.h"
+ #include "gamepad_device.h"
++#include "keyboard_transition_queue.h"
++#include "network/ggpo.h"
+ #include "ui/gui.h"
+ #include "hw/maple/maple_devs.h"
+ #include "oslib/i18n.h"
+@@ -173,6 +175,14 @@ protected:
+ 				kb_shift[port] |= modifier_keys;
+ 			}
+ 		}
++		if (portIsValid)
++		{
++			if (settings.platform.isConsole() && config::MapleMainDevices[port] == MDT_Keyboard
++					&& !ggpo::active() && !gui_is_open() && !gui_keyboard_captured())
++				keyboardTransitionBuffer.push(port, kb_shift[port], kb_key[port]);
++			else
++				keyboardTransitionBuffer.reset(port);
++		}
+ 		if (gui_keyboard_captured())
+ 		{
+ 			// chat: disable the keyboard controller. Only accept emu keys (menu, escape...)
+@@ -190,6 +200,21 @@ protected:
+ 	}
+ 
+ public:
++	~KeyboardDevice() override
++	{
++		keyboardTransitionBuffer.reset(maple_port());
++	}
++
++	void set_maple_port(int port) override
++	{
++		if (port != maple_port())
++		{
++			keyboardTransitionBuffer.reset(maple_port());
++			keyboardTransitionBuffer.reset(port);
++		}
++		GamepadDevice::set_maple_port(port);
++	}
++
+ 	const char *get_button_name(u32 code) override
+ 	{
+ 		switch (code)
+diff --git a/core/ui/gui.cpp b/core/ui/gui.cpp
+index 614739a..1d0de5c 100644
+--- a/core/ui/gui.cpp
++++ b/core/ui/gui.cpp
+@@ -24,6 +24,7 @@
+ #include "network/net_handshake.h"
+ #include "network/ice.h"
+ #include "input/gamepad_device.h"
++#include "input/keyboard_transition_queue.h"
+ #include "gui_util.h"
+ #include "imgread/common.h"
+ #include "emulator.h"
+@@ -1645,6 +1646,8 @@ void gui_togglePause()
+ 
+ void gui_setState(GuiState newState)
+ {
++	if (newState != gui_state)
++		keyboardTransitionBuffer.resetAll();
+ 	gui_state = newState;
+ 	if (newState == GuiState::Closed)
+ 	{
+diff --git a/core/input/keyboard_transition_queue.h b/core/input/keyboard_transition_queue.h
+new file mode 100644
+index 0000000..ab28118
+--- /dev/null
++++ b/core/input/keyboard_transition_queue.h
+@@ -0,0 +1,113 @@
++/* Preserve short host keyboard transitions until the guest actually polls.
++ * GPL-2.0-or-later, as part of Flycast. */
++#pragma once
++
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <mutex>
++
++class KeyboardTransitionBuffer
++{
++public:
++	static constexpr std::size_t PortCount = 4;
++	static constexpr std::size_t Capacity = 256;
++
++	void push(int port, std::uint8_t modifiers, const std::uint8_t keys[6])
++	{
++		if (!validPort(port))
++			return;
++		State state;
++		state.modifiers = modifiers;
++		std::memcpy(state.keys.data(), keys, state.keys.size());
++		std::lock_guard<std::mutex> lock(mutex);
++		Channel& channel = channels[port];
++		channel.active = true;
++		if (state == channel.latest)
++			return;
++		channel.latest = state;
++		if (channel.count == Capacity)
++		{
++			// Discard an excessive backlog, but deliver a release before the
++			// current state so an overflow can never leave a guest key stuck.
++			channel.head = channel.count = 0;
++			append(channel, {});
++			if (state == State{})
++				return;
++		}
++		append(channel, state);
++	}
++
++	// Only the Maple GetCondition handler consumes a transition. A frame
++	// snapshot must not remove it: some guests skip keyboard polls for frames.
++	bool read(int port, std::uint8_t& modifiers, std::uint8_t keys[6])
++	{
++		if (!validPort(port))
++			return false;
++		std::lock_guard<std::mutex> lock(mutex);
++		Channel& channel = channels[port];
++		if (!channel.active)
++			return false;
++		if (channel.count != 0)
++		{
++			channel.delivered = channel.pending[channel.head];
++			channel.head = (channel.head + 1) % Capacity;
++			channel.count--;
++		}
++		modifiers = channel.delivered.modifiers;
++		std::memcpy(keys, channel.delivered.keys.data(), channel.delivered.keys.size());
++		return true;
++	}
++
++	void reset(int port)
++	{
++		if (!validPort(port))
++			return;
++		std::lock_guard<std::mutex> lock(mutex);
++		channels[port] = {};
++	}
++
++	void resetAll()
++	{
++		std::lock_guard<std::mutex> lock(mutex);
++		for (Channel& channel : channels)
++			channel = {};
++	}
++
++private:
++	struct State
++	{
++		std::uint8_t modifiers = 0;
++		std::array<std::uint8_t, 6> keys{};
++
++		bool operator==(const State& other) const
++		{
++			return modifiers == other.modifiers && keys == other.keys;
++		}
++	};
++
++	struct Channel
++	{
++		std::array<State, Capacity> pending{};
++		State latest{}, delivered{};
++		std::size_t head = 0, count = 0;
++		bool active = false;
++	};
++
++	static bool validPort(int port)
++	{
++		return port >= 0 && port < static_cast<int>(PortCount);
++	}
++
++	static void append(Channel& channel, const State& state)
++	{
++		channel.pending[(channel.head + channel.count) % Capacity] = state;
++		channel.count++;
++	}
++
++	std::mutex mutex;
++	std::array<Channel, PortCount> channels{};
++};
++
++inline KeyboardTransitionBuffer keyboardTransitionBuffer;

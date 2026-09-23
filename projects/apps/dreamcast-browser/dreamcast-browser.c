@@ -7,8 +7,10 @@
 #include <dc/maple/controller.h>
 #include <dc/maple/keyboard.h>
 #include <dc/maple/mouse.h>
+#include <dc/vblank.h>
 #include <dc/video.h>
 #include <kos.h>
+#include <kos/sem.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +18,11 @@
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 
 #ifndef BROWSER_HOME_URL
+#ifdef BROWSER_PERF_SELF_TEST
+#define BROWSER_HOME_URL "about:bookmarks"
+#else
 #define BROWSER_HOME_URL "https://appsbyrich.com/"
+#endif
 #endif
 
 /* Address-bar text that is not a location is searched here. */
@@ -48,6 +54,7 @@ static int loading_cancelled;
 static int address_caret;
 static int address_selected;
 static int show_help;
+static int toolbar_hidden;
 static int exit_armed;
 static int escape_released;
 static int quit_requested;
@@ -79,6 +86,16 @@ static history_entry_t forward_history[MAX_HISTORY];
 static int back_count;
 static int forward_count;
 
+/* Ctrl+B hides the toolbar for a full-height page; it comes back while
+   the address is being edited or a page is loading. */
+static int toolbar_shown(void) {
+    return !toolbar_hidden || editing || loading_label != NULL;
+}
+
+static int page_top(void) {
+    return toolbar_shown() ? PAGE_TOP : 0;
+}
+
 static void current_view(browser_view_t *out) {
     browser_view_t view = {
         .scroll_y = scroll_y,
@@ -91,6 +108,7 @@ static void current_view(browser_view_t *out) {
         .address_selected = address_selected,
         .can_go_back = back_count > 0,
         .can_go_forward = forward_count > 0,
+        .toolbar = toolbar_shown(),
         .show_help = show_help,
         .osk_open = osk_open,
         .osk_row = osk_row,
@@ -101,10 +119,106 @@ static void current_view(browser_view_t *out) {
     *out = view;
 }
 
-static void redraw(void) {
+/* Frame clock. The main loop sleeps until the vertical blank interrupt
+   rather than polling on a timer, so input is sampled and frames are
+   presented once per display refresh with no scheduler-tick rounding. */
+static semaphore_t frame_signal;
+static int vblank_handle = -1;
+#ifdef BROWSER_PROFILE
+static volatile uint32_t prof_vblank_at;
+#endif
+
+static void on_vblank(uint32_t code, void *data) {
+    kthread_t *frame_thread = data;
+    int waiting = sem_count(&frame_signal) < 0;
+    (void)code;
+#ifdef BROWSER_PROFILE
+    prof_vblank_at = (uint32_t)timer_us_gettime64();
+#endif
+    sem_signal(&frame_signal);
+    /* Signaling makes the thread runnable, but KOS otherwise waits for its
+       next 10 ms scheduler tick. Resume a frame waiter as this IRQ returns. */
+    if(waiting) thd_schedule_next(frame_thread);
+}
+
+static void frame_clock_init(void) {
+    sem_init(&frame_signal, 0);
+    vblank_handle = vblank_handler_add(on_vblank, thd_get_current());
+    if(vblank_handle < 0)
+        printf("browser: no vblank handler; falling back to timed frames\n");
+}
+
+static void frame_clock_shutdown(void) {
+    if(vblank_handle >= 0) vblank_handler_remove(vblank_handle);
+    vblank_handle = -1;
+    sem_destroy(&frame_signal);
+}
+
+/* Blocks until the next vertical blank, coalescing any that passed while
+   the loop was busy so a long page load is not followed by a burst. */
+static void wait_for_vblank(void) {
+    if(vblank_handle < 0) {
+        vid_waitvbl();
+        return;
+    }
+    sem_wait(&frame_signal);
+    while(sem_trywait(&frame_signal) == 0)
+        ;
+}
+
+/* KOS polls every Maple device at each vertical blank; its DMA completes
+   about a millisecond later and only then queues new key presses. Waiting
+   for it means this frame's input is this frame's, not the previous one's. */
+static void wait_for_maple_poll(void) {
+    uint64_t deadline = timer_us_gettime64() + 4000;
+    while(maple_state.dma_in_progress && timer_us_gettime64() < deadline)
+        thd_pass();
+}
+
+#ifdef BROWSER_PROFILE
+static uint64_t prof_draw_us, prof_present_us, prof_wait_us, prof_input_us, prof_report_at;
+static uint64_t prof_poll_us, prof_wake_us;
+static unsigned prof_wake_max;
+static unsigned prof_frames, prof_iters, prof_keys, prof_draw_max, prof_iter_max;
+#define PROF_BEGIN uint64_t prof_t0 = timer_us_gettime64()
+#define PROF_ADD(acc) (acc += timer_us_gettime64() - prof_t0)
+#else
+#define PROF_BEGIN (void)0
+#define PROF_ADD(acc) (void)0
+#endif
+
+/* Composes the changed rows now; presenting waits for the display. */
+static void compose(void) {
     browser_view_t view;
     current_view(&view);
-    render_browser(&document, &view);
+#ifdef BROWSER_PROFILE
+    {
+        uint64_t t0 = timer_us_gettime64(), t1;
+        render_frame(&document, &view);
+        t1 = timer_us_gettime64();
+        prof_draw_us += t1 - t0;
+        if(t1 - t0 > prof_draw_max) prof_draw_max = (unsigned)(t1 - t0);
+    }
+#else
+    render_frame(&document, &view);
+#endif
+}
+
+static void present(void) {
+    PROF_BEGIN;
+    /* The buffer flipped away from last time is scanned out until the next
+       vertical blank; sleep through that rather than spin. */
+    while(!render_present_ready()) wait_for_vblank();
+    render_present();
+    PROF_ADD(prof_present_us);
+#ifdef BROWSER_PROFILE
+    prof_frames++;
+#endif
+}
+
+static void redraw(void) {
+    compose();
+    present();
 }
 
 static int show_transfer_progress(uint64_t received, uint64_t total,
@@ -202,12 +316,14 @@ static void init_video(void) {
     double_buffered = *vid_mode;
     double_buffered.fb_count = 2;
     vid_set_mode_ex(&double_buffered);
+    /* Show the (blank) second buffer so the first frame is drawn off screen. */
+    vid_flip(-1);
 }
 
 /* While the on-screen keyboard covers the bottom of the page, allow
    scrolling far enough to lift the last rows above it. */
 static int max_scroll(void) {
-    int visible = SCREEN_H - PAGE_TOP - (osk_open ? SCREEN_H - OSK_TOP : 0);
+    int visible = SCREEN_H - page_top() - (osk_open ? SCREEN_H - OSK_TOP : 0);
     return document.height > visible ? document.height - visible : 0;
 }
 
@@ -219,8 +335,8 @@ static void clamp_scroll(void) {
 
 static int link_at(int x, int screen_y) {
     int i;
-    int page_y = screen_y - PAGE_TOP + scroll_y;
-    if(screen_y < PAGE_TOP || (osk_open && screen_y >= OSK_TOP)) return -1;
+    int page_y = screen_y - page_top() + scroll_y;
+    if(screen_y < page_top() || (osk_open && screen_y >= OSK_TOP)) return -1;
     for(i = 0; i < document.item_count; ++i) {
         const document_item_t *item = &document.items[i];
         if(item->link_id >= 0 && x >= item->x && x <= item->x + item->width &&
@@ -231,7 +347,7 @@ static int link_at(int x, int screen_y) {
 }
 
 static int page_step(void) {
-    return SCREEN_H - PAGE_TOP - 48;
+    return SCREEN_H - page_top() - 48;
 }
 
 /* Returns 0 when the link has no laid-out text or image to focus. */
@@ -252,12 +368,12 @@ static int link_bounds(int link, int *top, int *bottom) {
 static int link_on_screen(int link) {
     int top, bottom;
     return link_bounds(link, &top, &bottom) && bottom > scroll_y &&
-           top < scroll_y + SCREEN_H - PAGE_TOP;
+           top < scroll_y + SCREEN_H - page_top();
 }
 
 static void scroll_link_into_view(int link) {
     int top, bottom;
-    int visible = SCREEN_H - PAGE_TOP;
+    int visible = SCREEN_H - page_top();
     if(!link_bounds(link, &top, &bottom)) return;
     if(top < scroll_y + 8) {
         scroll_y = top - 48;
@@ -298,7 +414,7 @@ static void describe_focus(void) {
 static void focus_step(int direction) {
     int next = -1;
     int i;
-    int visible = SCREEN_H - PAGE_TOP;
+    int visible = SCREEN_H - page_top();
 
     if(focused_link >= 0 && focused_link < document.link_count &&
        link_on_screen(focused_link)) {
@@ -431,7 +547,7 @@ static void close_osk(void) {
 /* Keeps the field being edited visible above the on-screen keyboard. */
 static void reveal_editing_field(void) {
     int top, bottom;
-    int visible = (osk_open ? OSK_TOP : SCREEN_H) - PAGE_TOP;
+    int visible = (osk_open ? OSK_TOP : SCREEN_H) - page_top();
     const browser_field_t *field;
     if(editing_field < 0) return;
     field = &document.fields[editing_field];
@@ -696,6 +812,14 @@ static void open_typed_address(void) {
 }
 
 static void navigate_back(void);
+
+static void toggle_toolbar(void) {
+    toolbar_hidden = !toolbar_hidden;
+    clamp_scroll();
+    snprintf(status_text, sizeof(status_text), "%s",
+             toolbar_hidden ? "Address bar hidden; Ctrl+B shows it" : document.title);
+    redraw_needed = 1;
+}
 
 static void toggle_bookmarks_page(void) {
     if(!strcmp(current_url, BOOKMARKS_URL) && back_count) navigate_back();
@@ -1353,8 +1477,10 @@ static int handle_key(kbd_key_t key, kbd_mods_t mods, char ascii) {
         begin_address_edit(0);
     else if(key == KBD_KEY_D && ctrl)
         bookmark_current_page();
-    else if(key == KBD_KEY_B && ctrl)
+    else if(key == KBD_KEY_B && ctrl && shift)
         toggle_bookmarks_page();
+    else if(key == KBD_KEY_B && ctrl)
+        toggle_toolbar();
     else if(key == KBD_KEY_F5 || (key == KBD_KEY_R && ctrl))
         reload_page();
     else if(key == KBD_KEY_TAB)
@@ -1389,6 +1515,9 @@ static int process_keyboard(maple_device_t *keyboard) {
         kbd_leds_t leds = { .raw = (raw >> 16) & 0xff };
         kbd_state_t *state = maple_dev_status(keyboard);
         char ascii = state ? kbd_key_to_ascii(key, state->region, mods, leds) : 0;
+#ifdef BROWSER_PROFILE
+        prof_keys++;
+#endif
         if(handle_key(key, mods, ascii)) return 1;
     }
 
@@ -1458,13 +1587,25 @@ static void osk_activate(void) {
 
 static int process_mouse(maple_device_t *mouse) {
     static uint32_t previous_buttons;
-    mouse_state_t *state;
+    mouse_state_t sample, *shared;
+    const mouse_state_t *state = &sample;
+    irq_mask_t irqs;
     uint32_t pressed;
     int old_x = mouse_x;
     int old_y = mouse_y;
     int old_scroll = scroll_y;
     int old_focus = focused_link;
-    if(!mouse || !(state = maple_dev_status(mouse))) return 0;
+    if(!mouse) return 0;
+    /* Autodetection can skip a device's poll for a frame. Consume relative
+       motion once, keeping button state until the next Maple reply. */
+    irqs = irq_disable();
+    shared = maple_dev_status(mouse);
+    if(shared) {
+        sample = *shared;
+        shared->dx = shared->dy = shared->dz = 0;
+    }
+    irq_restore(irqs);
+    if(!shared) return 0;
     mouse_x += state->dx;
     mouse_y += state->dy;
     if(mouse_x < 0) mouse_x = 0;
@@ -1496,20 +1637,74 @@ static int process_mouse(maple_device_t *mouse) {
                 osk_activate();
             }
         }
-        else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 62) navigate_back();
-        else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 120) navigate_forward();
-        else if(mouse_y >= 8 && mouse_y < 40 && mouse_x < 566) begin_address_edit(want_osk);
-        else if(mouse_y >= 8 && mouse_y < 40 && mouse_x >= 566) {
+        else if(!toolbar_shown() || mouse_y < 8 || mouse_y >= 40) {
+            if(focused_link >= 0) follow_link(focused_link, want_osk);
+        }
+        else if(mouse_x < 62) navigate_back();
+        else if(mouse_x < 120) navigate_forward();
+        else if(mouse_x < 566) begin_address_edit(want_osk);
+        else {
             if(editing) open_typed_address();
             else reload_page();
         }
-        else if(focused_link >= 0) follow_link(focused_link, want_osk);
     }
     if(mouse_x != old_x || mouse_y != old_y || scroll_y != old_scroll ||
        focused_link != old_focus || pressed)
         redraw_needed = 1;
     return 0;
 }
+
+#if defined(BROWSER_HISTORY_SELF_TEST) || defined(BROWSER_PERF_SELF_TEST)
+/* A repeated read of one Maple report must not repeat its relative motion
+   or turn a held button into a fresh click. */
+static void run_mouse_self_test(void) {
+    mouse_state_t sample = { .dx = 7, .dy = -3, .dz = 1 };
+    maple_driver_t driver = { 0 };
+    maple_device_t mouse = { .valid = 1, .drv = &driver, .status = &sample };
+    int saved_x = mouse_x, saved_y = mouse_y, saved_scroll = scroll_y;
+    int saved_height = document.height, saved_focus = focused_link;
+    int saved_help = show_help, saved_exit = exit_armed;
+    int saved_released = escape_released;
+    int ok;
+
+    mouse_x = 100;
+    mouse_y = 200;
+    scroll_y = 200;
+    document.height = SCREEN_H + 512;
+    show_help = 0;
+    process_mouse(&mouse);
+    ok = mouse_x == 107 && mouse_y == 197 && scroll_y == 152;
+    process_mouse(&mouse);
+    ok &= mouse_x == 107 && mouse_y == 197 && scroll_y == 152;
+    sample.dx = -2;
+    sample.dy = 4;
+    sample.dz = -1;
+    process_mouse(&mouse);
+    ok &= mouse_x == 105 && mouse_y == 201 && scroll_y == 200;
+
+    show_help = 1;
+    sample.buttons = MOUSE_LEFTBUTTON;
+    process_mouse(&mouse);
+    ok &= !show_help;
+    show_help = 1;
+    process_mouse(&mouse);
+    ok &= show_help && sample.buttons == MOUSE_LEFTBUTTON;
+    sample.buttons = 0;
+    process_mouse(&mouse);
+
+    mouse_x = saved_x;
+    mouse_y = saved_y;
+    scroll_y = saved_scroll;
+    document.height = saved_height;
+    focused_link = saved_focus;
+    show_help = saved_help;
+    exit_armed = saved_exit;
+    escape_released = saved_released;
+    redraw_needed = 1;
+    printf("browser: MOUSE SELF-TEST %s (relative motion, skipped polls, held buttons)\n",
+           ok ? "PASSED" : "FAILED");
+}
+#endif
 
 #define DPAD_MASK (CONT_DPAD_UP | CONT_DPAD_DOWN | CONT_DPAD_LEFT | CONT_DPAD_RIGHT)
 
@@ -1612,7 +1807,7 @@ static void process_controller(maple_device_t *controller) {
     clamp_scroll();
 }
 
-#ifdef BROWSER_HISTORY_SELF_TEST
+#if defined(BROWSER_HISTORY_SELF_TEST) || defined(BROWSER_PERF_SELF_TEST)
 static int press(kbd_key_t key, uint8_t modifiers, char ascii) {
     kbd_mods_t mods = { .raw = modifiers };
     return handle_key(key, mods, ascii);
@@ -1926,8 +2121,12 @@ static void run_bookmark_self_test(void) {
 
     press(KBD_KEY_D, KBD_MOD_LCTRL, 'd');
     UI_CHECK(!bookmarks.count, "Ctrl+D ignores internal pages");
+    press(KBD_KEY_B, KBD_MOD_LCTRL | KBD_MOD_LSHIFT, 'B');
+    UI_CHECK(!strcmp(current_url, original), "Ctrl+Shift+B returns to the page");
     press(KBD_KEY_B, KBD_MOD_LCTRL, 'b');
-    UI_CHECK(!strcmp(current_url, original), "Ctrl+B returns to the page");
+    UI_CHECK(toolbar_hidden && !toolbar_shown() && page_top() == 0, "Ctrl+B hides the toolbar");
+    press(KBD_KEY_B, KBD_MOD_LCTRL, 'b');
+    UI_CHECK(!toolbar_hidden && page_top() == PAGE_TOP, "Ctrl+B shows the toolbar");
     press(KBD_KEY_D, KBD_MOD_LCTRL, 'd');
     UI_CHECK(bookmarks.count == 1 && !strcmp(bookmarks.items[0].url, original),
              "Ctrl+D bookmarks the page");
@@ -2038,6 +2237,161 @@ static void run_vmu_self_test(void) {
         printf("browser: VMU SELF-TEST restored the previous bookmark file\n");
 }
 
+#undef UI_CHECK
+#endif
+
+#if defined(BROWSER_HISTORY_SELF_TEST) || defined(BROWSER_PERF_SELF_TEST)
+/* Every incremental frame must match a full redraw of the same state, or
+   the dirty-row tracking has missed something. */
+static int render_check(const char *step, browser_document_t *page,
+                        const browser_view_t *view, uint16_t *snapshot) {
+    const uint16_t *pixels = render_frame_pixels();
+    int y;
+    render_frame(page, view);
+    memcpy(snapshot, pixels, (size_t)SCREEN_W * SCREEN_H * sizeof(uint16_t));
+    render_invalidate();
+    render_frame(page, view);
+    for(y = 0; y < SCREEN_H; ++y) {
+        if(memcmp(snapshot + y * SCREEN_W, pixels + y * SCREEN_W,
+                  SCREEN_W * sizeof(uint16_t))) {
+            printf("browser: RENDER SELF-TEST FAILED (%s: row %d differs)\n", step, y);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void run_render_self_test(void) {
+    static const int scroll_steps[] = { 14, 14, -14, 48, -48, 200, -3, 1, 400, -400, 0 };
+    static const int mouse_steps[][2] = {
+        { 0, 0 }, { 639, 479 }, { 300, 65 }, { 300, 75 }, { 636, 300 }, { 12, 316 },
+        { 320, 240 }, { 320, 241 }, { 5, 479 }
+    };
+    browser_document_t *page = malloc(sizeof(*page));
+    uint16_t *snapshot = malloc((size_t)SCREEN_W * SCREEN_H * sizeof(uint16_t));
+    static char html[16384];
+    char typed[MAX_URL];
+    browser_view_t view;
+    size_t n = 0;
+    size_t i;
+    int ok = 1;
+
+    if(!page || !snapshot) {
+        free(page);
+        free(snapshot);
+        printf("browser: RENDER SELF-TEST SKIPPED (no memory)\n");
+        return;
+    }
+    memset(page, 0, sizeof(*page));
+    for(i = 0; i < 30 && n < sizeof(html) - 256; ++i)
+        n += (size_t)snprintf(html + n, sizeof(html) - n,
+                              "<h2>Section %u</h2><p>Paragraph %u has <a href='/%u'>a link"
+                              "</a>, <b>bold</b> and <code>code</code> text that wraps "
+                              "across the full width of the page.</p><hr>",
+                              (unsigned)i, (unsigned)i, (unsigned)i);
+    document_init(page, "https://example.com/");
+    document_parse_html(page, html, n, NULL);
+    snprintf(typed, sizeof(typed), "https://example.com/");
+    current_view(&view);
+    view.address = typed;
+    view.status = "Render self-test";
+    view.scroll_y = 0;
+    view.mouse_x = 320;
+    view.mouse_y = 240;
+    view.focused_link = -1;
+    view.editing = 0;
+    view.osk_open = 0;
+    view.show_help = 0;
+    render_invalidate();
+    ok &= render_check("baseline", page, &view, snapshot);
+
+    /* Address bar editing. */
+    view.editing = 1;
+    view.address_selected = 1;
+    view.address_caret = (int)strlen(typed);
+    ok &= render_check("select all", page, &view, snapshot);
+    view.address_selected = 0;
+    typed[0] = 0;
+    view.address_caret = 0;
+    ok &= render_check("clear", page, &view, snapshot);
+    for(i = 0; i < 40 && ok; ++i) {
+        typed[i] = (char)('a' + (int)(i % 26));
+        typed[i + 1] = 0;
+        view.address_caret = (int)i + 1;
+        ok &= render_check("typing", page, &view, snapshot);
+    }
+    view.address_caret = 3;
+    ok &= render_check("caret move", page, &view, snapshot);
+    view.status = "Type a URL or search: Enter opens";
+    ok &= render_check("status", page, &view, snapshot);
+    view.editing = 0;
+    view.can_go_back = !view.can_go_back;
+    ok &= render_check("toolbar buttons", page, &view, snapshot);
+
+    /* Scrolling by small and large amounts, with the cursor in the page. */
+    for(i = 0; scroll_steps[i] && ok; ++i) {
+        view.scroll_y += scroll_steps[i];
+        if(view.scroll_y < 0) view.scroll_y = 0;
+        ok &= render_check("scroll", page, &view, snapshot);
+    }
+    view.scroll_y = 100;
+    view.focused_link = 2;
+    ok &= render_check("focus", page, &view, snapshot);
+    view.scroll_y = 114;
+    view.mouse_y = 260;
+    ok &= render_check("scroll and mouse", page, &view, snapshot);
+    for(i = 0; i < sizeof(mouse_steps) / sizeof(mouse_steps[0]) && ok; ++i) {
+        view.mouse_x = mouse_steps[i][0];
+        view.mouse_y = mouse_steps[i][1];
+        ok &= render_check("mouse", page, &view, snapshot);
+    }
+    view.mouse_y = 400;
+    view.scroll_y += 20;
+    ok &= render_check("scroll under cursor", page, &view, snapshot);
+    view.scroll_y -= 33;
+    ok &= render_check("scroll back", page, &view, snapshot);
+
+    /* On-screen keyboard, help, and page changes. */
+    view.osk_open = 1;
+    ok &= render_check("osk open", page, &view, snapshot);
+    view.osk_column = 3;
+    ok &= render_check("osk key", page, &view, snapshot);
+    view.osk_shift = 1;
+    ok &= render_check("osk shift", page, &view, snapshot);
+    view.scroll_y += 14;
+    ok &= render_check("scroll with osk", page, &view, snapshot);
+    view.osk_open = 0;
+    ok &= render_check("osk close", page, &view, snapshot);
+    view.show_help = 1;
+    ok &= render_check("help", page, &view, snapshot);
+    view.scroll_y += 14;
+    ok &= render_check("scroll with help", page, &view, snapshot);
+    view.show_help = 0;
+    ok &= render_check("help off", page, &view, snapshot);
+    snprintf(page->items[3].text, sizeof(page->items[3].text), "Changed text");
+    document_touch(page);
+    ok &= render_check("page change", page, &view, snapshot);
+    view.toolbar = 0;
+    ok &= render_check("toolbar hidden", page, &view, snapshot);
+    view.scroll_y += 14;
+    ok &= render_check("scroll without toolbar", page, &view, snapshot);
+    view.mouse_y = 30;
+    ok &= render_check("mouse without toolbar", page, &view, snapshot);
+    view.toolbar = 1;
+    ok &= render_check("toolbar shown", page, &view, snapshot);
+    view.scroll_y = 0;
+    view.mouse_x = 100;
+    view.mouse_y = 20;
+    typed[2] = 'Z';
+    ok &= render_check("everything", page, &view, snapshot);
+
+    if(ok) printf("browser: RENDER SELF-TEST PASSED (incremental frames match full redraws)\n");
+    document_free(page);
+    free(page);
+    free(snapshot);
+    render_invalidate();
+}
+
 /* Times drawing a fixed, text-heavy page so results compare across builds. */
 static void run_render_benchmark(void) {
     static char html[16384];
@@ -2059,14 +2413,52 @@ static void run_render_benchmark(void) {
     view.scroll_y = 200;
     view.focused_link = 3;
     start = timer_us_gettime64();
-    for(i = 0; i < 60; ++i) render_draw(page, &view);
+    for(i = 0; i < 60; ++i) {
+        render_invalidate();
+        render_frame(page, &view);
+    }
     printf("browser: RENDER BENCHMARK page %lu us/frame",
            (unsigned long)((timer_us_gettime64() - start) / 60));
     view.osk_open = 1;
     start = timer_us_gettime64();
-    for(i = 0; i < 60; ++i) render_draw(page, &view);
-    printf(", with keyboard %lu us/frame (drawing only, %d items)\n",
+    for(i = 0; i < 60; ++i) {
+        render_invalidate();
+        render_frame(page, &view);
+    }
+    printf(", with keyboard %lu us/frame (compose only, %d items)\n",
            (unsigned long)((timer_us_gettime64() - start) / 60), page->item_count);
+    /* Incremental frames: only the rows that changed are drawn. */
+    view.osk_open = 0;
+    view.editing = 1;
+    view.address = "https://example.com/";
+    render_draw(page, &view);
+    start = timer_us_gettime64();
+    for(i = 0; i < 60; ++i) {
+        view.address_caret = i & 7;
+        render_frame(page, &view);
+    }
+    printf("browser: RENDER BENCHMARK incremental: address caret %lu us/frame",
+           (unsigned long)((timer_us_gettime64() - start) / 60));
+    start = timer_us_gettime64();
+    for(i = 0; i < 60; ++i) {
+        view.scroll_y = 200 + (i & 1 ? 14 : 0);
+        render_frame(page, &view);
+    }
+    printf(", scroll 14px %lu us/frame",
+           (unsigned long)((timer_us_gettime64() - start) / 60));
+    start = timer_us_gettime64();
+    for(i = 0; i < 60; ++i) {
+        view.mouse_x = 300 + i;
+        view.mouse_y = 300 + (i & 1);
+        render_frame(page, &view);
+    }
+    printf(", mouse move %lu us/frame\n",
+           (unsigned long)((timer_us_gettime64() - start) / 60));
+    view.address = address;
+    view.editing = 0;
+    view.scroll_y = 200;
+    view.mouse_x = mouse_x;
+    view.mouse_y = mouse_y;
 #ifdef BROWSER_FRAME_DUMP
     osk_row = 2;
     osk_column = 3;
@@ -2142,6 +2534,7 @@ int main(int argc, char **argv) {
     (void)argv;
 
     init_video();
+    frame_clock_init();
     storage_load_bookmarks(&bookmarks);
     document_make_error(&document, "Dreamcast Browser",
         "Starting network. With a keyboard, F6 opens the address bar and F1 lists "
@@ -2172,33 +2565,99 @@ int main(int argc, char **argv) {
     }
 
 #ifdef BROWSER_HISTORY_SELF_TEST
-    run_render_benchmark();
     run_keyboard_self_test();
+    run_mouse_self_test();
     run_ui_self_test();
     run_bookmark_self_test();
     run_live_form_self_test();
     run_vmu_self_test();
 #endif
 
+#ifdef BROWSER_PERF_SELF_TEST
+    run_keyboard_self_test();
+    run_mouse_self_test();
+#endif
+#if defined(BROWSER_HISTORY_SELF_TEST) || defined(BROWSER_PERF_SELF_TEST)
+    run_render_benchmark();
+    run_render_self_test();
+#endif
+
 #ifdef BROWSER_FORM_SELF_TEST
     run_form_self_test();
 #endif
 
+#ifdef BROWSER_PROFILE
+    /* Startup, network loads, and the synthetic tests aren't interactive frames. */
+    prof_iters = prof_frames = prof_keys = prof_draw_max = prof_iter_max = 0;
+    prof_input_us = prof_draw_us = prof_present_us = prof_wait_us = 0;
+    prof_poll_us = prof_wake_us = prof_wake_max = 0;
+    prof_report_at = 0;
+#endif
     while(!quit) {
-        keyboard = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
-        mouse = maple_enum_type(0, MAPLE_FUNC_MOUSE);
-        controller = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
-        quit |= process_keyboard(keyboard);
-        process_mouse(mouse);
-        process_controller(controller);
+#ifdef BROWSER_PROFILE
+        uint64_t iter_start = timer_us_gettime64();
+#endif
+        {
+            PROF_BEGIN;
+            wait_for_vblank();
+            PROF_ADD(prof_wait_us);
+#ifdef BROWSER_PROFILE
+            {
+                unsigned wake = (unsigned)((uint32_t)timer_us_gettime64() - prof_vblank_at);
+                prof_wake_us += wake;
+                if(wake > prof_wake_max) prof_wake_max = wake;
+            }
+#endif
+        }
+        {
+            PROF_BEGIN;
+            wait_for_maple_poll();
+            PROF_ADD(prof_poll_us);
+        }
+        {
+            PROF_BEGIN;
+            keyboard = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
+            mouse = maple_enum_type(0, MAPLE_FUNC_MOUSE);
+            controller = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+            quit |= process_keyboard(keyboard);
+            process_mouse(mouse);
+            process_controller(controller);
+            PROF_ADD(prof_input_us);
+        }
         quit |= quit_requested;
         if(redraw_needed) {
-            redraw();
             redraw_needed = 0;
+            compose();
+            present();
         }
-        thd_sleep(16);
+#ifdef BROWSER_PROFILE
+        {
+            uint64_t now = timer_us_gettime64();
+            unsigned iter = (unsigned)(now - iter_start);
+            prof_iters++;
+            if(iter > prof_iter_max) prof_iter_max = iter;
+            if(!prof_report_at) prof_report_at = now + 2000000;
+            if(now >= prof_report_at) {
+                printf("PROF iters %u frames %u keys %u | wait %lu us/it poll %lu us/it wake %lu us/it (max %u) input %lu us/it draw %lu us/frame (max %u) present %lu us/frame | iter max %u us\n",
+                       prof_iters, prof_frames, prof_keys,
+                       (unsigned long)(prof_wait_us / (prof_iters ? prof_iters : 1)),
+                       (unsigned long)(prof_poll_us / (prof_iters ? prof_iters : 1)),
+                       (unsigned long)(prof_wake_us / (prof_iters ? prof_iters : 1)), prof_wake_max,
+                       (unsigned long)(prof_input_us / (prof_iters ? prof_iters : 1)),
+                       (unsigned long)(prof_draw_us / (prof_frames ? prof_frames : 1)), prof_draw_max,
+                       (unsigned long)(prof_present_us / (prof_frames ? prof_frames : 1)),
+                       prof_iter_max);
+                printf("PROF state editing %d address_length %u\n", editing, (unsigned)strlen(address));
+                prof_iters = prof_frames = prof_keys = prof_draw_max = prof_iter_max = 0;
+                prof_input_us = prof_draw_us = prof_present_us = prof_wait_us = 0;
+                prof_poll_us = prof_wake_us = prof_wake_max = 0;
+                prof_report_at = now + 2000000;
+            }
+        }
+#endif
     }
 
+    frame_clock_shutdown();
     document_free(&document);
     network_shutdown();
     printf("browser: clean shutdown\n");

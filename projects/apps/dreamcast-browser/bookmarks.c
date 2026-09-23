@@ -199,7 +199,7 @@ size_t bookmarks_page_html(const bookmark_list_t *list, const char *candidate_ur
         append(out, out_size, &n, "</ul>");
     } else {
         append(out, out_size, &n,
-               "<p>No bookmarks yet. On any page, press Start or Ctrl+B and "
+               "<p>No bookmarks yet. On any page, press Start or Ctrl+Shift+B and "
                "choose Bookmark this page, or press Ctrl+D.</p>");
     }
     append(out, out_size, &n, "<p>");
@@ -214,6 +214,6 @@ size_t bookmarks_page_html(const bookmark_list_t *list, const char *candidate_ur
            "<p>In a text box: D-pad picks a key, A types it, B deletes, "
            "X space, Y shift, L/R move the cursor, Start finishes.</p>"
            "<h2>Keyboard</h2>"
-           "<p>Ctrl+D bookmark this page | Ctrl+B bookmarks | F1 all shortcuts</p>");
+           "<p>Ctrl+D bookmark this page | Ctrl+Shift+B bookmarks | F1 all shortcuts</p>");
     return n;
 }

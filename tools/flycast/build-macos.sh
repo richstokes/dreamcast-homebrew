@@ -23,11 +23,14 @@ fi
     echo "Unexpected source revision in $WORK_DIR/source; choose a fresh FLYCAST_BUILD_DIR." >&2; exit 1;
 }
 git -C "$WORK_DIR/source" submodule update --init --recursive --depth 1
-if git -C "$WORK_DIR/source" apply --check "$TOOLS_DIR/macos-build.patch" 2>/dev/null; then
-    git -C "$WORK_DIR/source" apply "$TOOLS_DIR/macos-build.patch"
-else
-    git -C "$WORK_DIR/source" apply --reverse --check "$TOOLS_DIR/macos-build.patch"
-fi
+for patch in macos-build.patch keyboard-input.patch; do
+    if git -C "$WORK_DIR/source" apply --check "$TOOLS_DIR/$patch" 2>/dev/null; then
+        git -C "$WORK_DIR/source" apply "$TOOLS_DIR/$patch"
+    else
+        git -C "$WORK_DIR/source" apply --reverse --check "$TOOLS_DIR/$patch"
+    fi
+done
+"$TOOLS_DIR/test-keyboard-input.sh"
 cmake -S "$WORK_DIR/source" -B "$WORK_DIR/build" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
     -DUSE_HOST_SDL=ON -DUSE_HOST_LIBZIP=OFF -DUSE_VULKAN=OFF \

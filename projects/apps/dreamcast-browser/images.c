@@ -45,6 +45,7 @@ static void skip_remaining_images(browser_document_t *doc, int first) {
     int i;
     for(i = first; i < doc->image_count; ++i)
         doc->images[i].loaded = -1;
+    document_touch(doc);
     if(first < doc->image_count)
         printf("browser: stopped asset loading; %d remaining image(s) use placeholders\n",
                doc->image_count - first);
@@ -64,6 +65,7 @@ void document_load_images(browser_document_t *doc) {
 
         if(remaining < MIN_IMAGE_FETCH_BYTES) {
             image->loaded = -1;
+            document_touch(doc);
             printf("browser: page image budget exhausted\n");
             skip_remaining_images(doc, i + 1);
             break;
@@ -73,6 +75,7 @@ void document_load_images(browser_document_t *doc) {
         fetch_limit = remaining < MAX_IMAGE_BYTES ? remaining : MAX_IMAGE_BYTES;
         if(network_fetch(image->url, fetch_limit, &result) < 0) {
             image->loaded = -1;
+            document_touch(doc);
             printf("browser: image skipped (%s): %s\n", image->url, result.error);
             skip_remaining_images(doc, i + 1);
             break;
@@ -84,6 +87,7 @@ void document_load_images(browser_document_t *doc) {
            source_w < 1 || source_h < 1 || source_w > 2048 || source_h > 2048 ||
            (long long)source_w * source_h > 3000000) {
             image->loaded = -1;
+            document_touch(doc);
             printf("browser: unsupported or oversized image: %s\n", image->url);
             fetch_result_free(&result);
             skip_remaining_images(doc, i + 1);
@@ -95,6 +99,7 @@ void document_load_images(browser_document_t *doc) {
         fetch_result_free(&result);
         if(!decoded) {
             image->loaded = -1;
+            document_touch(doc);
             printf("browser: image decode failed: %s\n", stbi_failure_reason());
             skip_remaining_images(doc, i + 1);
             break;
@@ -116,6 +121,7 @@ void document_load_images(browser_document_t *doc) {
         if(!image->pixels) {
             stbi_image_free(decoded);
             image->loaded = -1;
+            document_touch(doc);
             printf("browser: not enough memory for image: %s\n", image->url);
             skip_remaining_images(doc, i + 1);
             break;
@@ -133,6 +139,7 @@ void document_load_images(browser_document_t *doc) {
         image->width = target_w;
         image->height = target_h;
         image->loaded = 1;
+        document_touch(doc);
         printf("browser: image %dx%d -> %dx%d\n", source_w, source_h, target_w, target_h);
     }
     printf("browser: page image budget used %lu/%lu KiB\n",
