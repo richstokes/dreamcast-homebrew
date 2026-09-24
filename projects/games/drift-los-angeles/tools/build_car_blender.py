@@ -507,6 +507,32 @@ def add_surface_details(materials: dict[str, bpy.types.Material]) -> None:
         bore.data.materials.append(carbon)
 
 
+def add_interior(materials: dict[str, bpy.types.Material]) -> None:
+    """Cabin furniture seen through the translucent greenhouse: floor, dash,
+    two bucket seats with headrests, a steering wheel and a console."""
+    carbon = materials["DLA Carbon"]
+    metal = materials["DLA Metal"]
+    # Floor and rear deck close the cabin so nothing behind the car shows through.
+    create_polygon("Cabin floor", ((-.62,.70,.40),(.62,.70,.40),(.62,-1.40,.40),(-.62,-1.40,.40)), carbon, .02)
+    create_polygon("Rear deck", ((-.60,-1.00,.80),(.60,-1.00,.80),(.62,-1.40,.84),(-.62,-1.40,.84)), carbon, .03)
+    # Dashboard: a thick wedge under the windshield base with a raised binnacle.
+    create_polygon("Dashboard", ((-.64,.72,.78),(.64,.72,.78),(.60,.30,.86),(-.60,.30,.86)), carbon, .16)
+    create_polygon("Dash fascia", ((-.60,.30,.86),(.60,.30,.86),(.58,.28,.60),(-.58,.28,.60)), carbon, .04)
+    create_polygon("Binnacle", ((-.52,.32,.90),(-.20,.32,.90),(-.20,.20,.94),(-.52,.20,.94)), carbon, .06)
+    create_polygon("Centre console", ((-.12,.30,.62),(.12,.30,.62),(.12,-.60,.58),(-.12,-.60,.58)), carbon, .10)
+    # Steering wheel: an eight-sided rim disc and a hub on a short column.
+    rim = tuple((-.36+.17*math.cos(a), .12-.02*math.sin(a)*0.0, .80+.17*math.sin(a))
+                for a in (i*math.pi/4 for i in range(8)))
+    create_polygon("Steering wheel", rim, metal, .03)
+    create_polygon("Steering hub", ((-.42,.14,.86),(-.30,.14,.86),(-.30,.14,.74),(-.42,.14,.74)), carbon, .04)
+    for side, label in ((-1.0,"Driver"),(1.0,"Passenger")):
+        x = side*.36
+        create_polygon(f"{label} seat base", ((x-.24,-.12,.50),(x+.24,-.12,.50),(x+.24,-.62,.52),(x-.24,-.62,.52)), carbon, .14)
+        create_polygon(f"{label} seat back", ((x-.24,-.60,.52),(x+.24,-.60,.52),(x+.22,-.74,1.02),(x-.22,-.74,1.02)), carbon, .12)
+        create_polygon(f"{label} headrest", ((x-.13,-.72,1.04),(x+.13,-.72,1.04),(x+.13,-.78,1.20),(x-.13,-.78,1.20)), carbon, .10)
+        create_polygon(f"{label} bolster", ((x-.28,-.14,.58),(x+.28,-.14,.58),(x+.28,-.30,.58),(x-.28,-.30,.58)), carbon, .06)
+
+
 def add_qa_wheels(materials: dict[str, bpy.types.Material]) -> None:
     tire_material = make_material("QA Tire", (.018,.020,.025,1.0), roughness=.80)
     rim_material = make_material("QA Rim", (.30,.33,.38,1.0), metallic=.70, roughness=.25)
@@ -852,6 +878,7 @@ def main() -> None:
     }
     create_body(materials["DLA Paint"],materials["DLA Glass"],materials["DLA Carbon"])
     add_surface_details(materials)
+    add_interior(materials)
     add_qa_wheels(materials)
     vertices,faces=collect_export_mesh()
     write_header(args.header.resolve(),vertices,faces)

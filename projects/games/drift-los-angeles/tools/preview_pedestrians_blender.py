@@ -71,11 +71,22 @@ def render(output: Path, count: int) -> None:
     camera = bpy.data.objects.new("Preview camera", camera_data)
     bpy.context.collection.objects.link(camera)
     scene.camera = camera
-    width = count * .9
-    centre = Vector((width * .5 - .45, 0.0, .95))
+    # Frame whatever was imported: pedestrians, vehicles or anything else.
+    lo = Vector((1e9, 1e9, 1e9))
+    hi = Vector((-1e9, -1e9, -1e9))
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        for corner in obj.bound_box:
+            world = obj.matrix_world @ Vector(corner)
+            lo = Vector((min(lo.x, world.x), min(lo.y, world.y), min(lo.z, world.z)))
+            hi = Vector((max(hi.x, world.x), max(hi.y, world.y), max(hi.z, world.z)))
+    width = max(hi.x - lo.x, 1.0)
+    centre = (lo + hi) * .5
+    centre = Vector((centre.x, centre.y, (lo.z + hi.z) * .5))
     views = (
-        ("front", Vector((centre.x - 2.0, -9.0, 2.4))),
-        ("rear", Vector((centre.x + 2.0, 9.0, 2.4))),
+        ("front", Vector((centre.x - width * .25, -9.0 - width, (hi.z - lo.z) * 1.6))),
+        ("rear", Vector((centre.x + width * .25, 9.0 + width, (hi.z - lo.z) * 1.6))),
     )
     frames = []
     for name, location in views:
@@ -89,9 +100,10 @@ def render(output: Path, count: int) -> None:
         bpy.ops.render.render(write_still=True)
         frames.append(frame)
     # A close portrait of the first two figures checks the face and clothing texels.
-    camera.location = Vector((.45, -4.0, 1.35))
-    camera_data.ortho_scale = 2.2
-    point_camera(camera, Vector((.45, 0.0, 1.05)))
+    span = min(width, 2.5 * (hi.z - lo.z))
+    camera.location = Vector((lo.x + span * .5, -4.0 - width, (lo.z + hi.z) * .6))
+    camera_data.ortho_scale = span + .4
+    point_camera(camera, Vector((lo.x + span * .5, 0.0, (lo.z + hi.z) * .55)))
     scene.render.resolution_x = 1200
     scene.render.resolution_y = 900
     frame = output.with_name(f"{output.stem}-closeup.png")

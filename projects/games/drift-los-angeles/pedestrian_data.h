@@ -4,22 +4,26 @@
 
 #include <stdint.h>
 
+#ifndef DLA_RIG_TYPES_DEFINED
+#define DLA_RIG_TYPES_DEFINED
 /* Positions are relative to the owning part's pivot; UVs address the
    part's default atlas region. */
-typedef struct { float x, y, z; float u, v; float nx, ny, nz; } dla_ped_vertex_t;
-typedef struct { uint16_t a, b, c; } dla_ped_face_t;
+typedef struct { float x, y, z; float u, v; float nx, ny, nz; } dla_rig_vertex_t;
+typedef struct { uint16_t a, b, c; } dla_rig_face_t;
 typedef struct {
     int8_t parent;
     uint8_t slot;
     float pivot_x, pivot_y, pivot_z;
     uint16_t first_vertex, vertex_count, first_face, face_count;
-} dla_ped_part_t;
+} dla_rig_part_t;
 typedef struct {
-    const dla_ped_vertex_t *vertices;
-    const dla_ped_face_t *faces;
-    const dla_ped_part_t *parts;
+    const dla_rig_vertex_t *vertices;
+    const dla_rig_face_t *faces;
+    const dla_rig_part_t *parts;
     uint16_t vertex_count, face_count, part_count;
-} dla_ped_mesh_t;
+} dla_rig_mesh_t;
+#define DLA_RIG_MAX_PARTS 24
+#endif
 
 enum { DLA_PED_TORSO, DLA_PED_HIPS, DLA_PED_HEAD, DLA_PED_HAIR_SHORT, DLA_PED_HAIR_LONG, DLA_PED_CAP, DLA_PED_UPPER_ARM_L, DLA_PED_FOREARM_L, DLA_PED_HAND_L, DLA_PED_UPPER_ARM_R, DLA_PED_FOREARM_R, DLA_PED_HAND_R, DLA_PED_THIGH_L, DLA_PED_SHIN_L, DLA_PED_SHOE_L, DLA_PED_THIGH_R, DLA_PED_SHIN_R, DLA_PED_SHOE_R, DLA_PED_PART_COUNT };
 enum { DLA_PED_SLOT_SKIN, DLA_PED_SLOT_SHIRT, DLA_PED_SLOT_TROUSERS, DLA_PED_SLOT_HAIR, DLA_PED_SLOT_ACCENT, DLA_PED_SLOT_SHOE, DLA_PED_SLOT_SLEEVE, DLA_PED_SLOT_FOREARM, DLA_PED_SLOT_SHIN };
@@ -27,8 +31,8 @@ enum { DLA_PED_SLOT_SKIN, DLA_PED_SLOT_SHIRT, DLA_PED_SLOT_TROUSERS, DLA_PED_SLO
 #define DLA_PED_ATLAS_REGION (0.250000f)
 #define DLA_PED_HEAD_TOP (1.7850f)
 
-/* Detail level 0: 466 vertices, 548 triangles. */
-static const dla_ped_vertex_t dla_ped_vertices_0[466] = {
+/* dla_ped_lod0: 466 vertices, 548 triangles. */
+static const dla_rig_vertex_t dla_ped_lod0_vertices[466] = {
     { 0.0000f, 0.4900f, -0.0700f, 0.0059f, 0.2559f, 0.0000f, 0.0000f, -1.0000f },
     { 0.0601f, 0.4900f, -0.0495f, 0.0356f, 0.2559f, 0.6357f, 0.0000f, -0.7719f },
     { 0.0850f, 0.4900f, -0.0000f, 0.0654f, 0.2559f, 1.0000f, 0.0000f, -0.0000f },
@@ -496,7 +500,7 @@ static const dla_ped_vertex_t dla_ped_vertices_0[466] = {
     { 0.0560f, -0.0800f, -0.0750f, 0.6191f, 0.8691f, 1.0000f, 0.0000f, 0.0000f },
     { 0.0560f, -0.0800f, 0.1650f, 0.5059f, 0.8691f, 1.0000f, 0.0000f, 0.0000f },
 };
-static const dla_ped_face_t dla_ped_faces_0[548] = {
+static const dla_rig_face_t dla_ped_lod0_faces[548] = {
     {0,10,9}, {0,1,10}, {1,11,10}, {1,2,11}, {2,12,11}, {2,3,12},
     {3,13,12}, {3,4,13}, {4,14,13}, {4,5,14}, {5,15,14}, {5,6,15},
     {6,16,15}, {6,7,16}, {7,17,16}, {7,8,17}, {9,19,18}, {9,10,19},
@@ -590,7 +594,7 @@ static const dla_ped_face_t dla_ped_faces_0[548] = {
     {450,452,451}, {450,453,452}, {454,456,455}, {454,457,456}, {458,460,459}, {458,461,460},
     {462,464,463}, {462,465,464},
 };
-static const dla_ped_part_t dla_ped_parts_0[DLA_PED_PART_COUNT] = {
+static const dla_rig_part_t dla_ped_lod0_parts[DLA_PED_PART_COUNT] = {
     { -1, DLA_PED_SLOT_SHIRT, 0.0000f, 0.9800f, 0.0000f, 0, 37, 0, 56 },
     { 0, DLA_PED_SLOT_TROUSERS, 0.0000f, 0.9800f, 0.0000f, 37, 19, 56, 24 },
     { 0, DLA_PED_SLOT_SKIN, 0.0000f, 1.4600f, 0.0000f, 56, 55, 80, 88 },
@@ -611,8 +615,8 @@ static const dla_ped_part_t dla_ped_parts_0[DLA_PED_PART_COUNT] = {
     { 16, DLA_PED_SLOT_SHOE, 0.1000f, 0.0800f, 0.0000f, 442, 24, 536, 12 },
 };
 
-/* Detail level 1: 286 vertices, 312 triangles. */
-static const dla_ped_vertex_t dla_ped_vertices_1[286] = {
+/* dla_ped_lod1: 286 vertices, 312 triangles. */
+static const dla_rig_vertex_t dla_ped_lod1_vertices[286] = {
     { 0.0000f, 0.4900f, -0.0700f, 0.0059f, 0.2559f, 0.0000f, 0.0000f, -1.0000f },
     { 0.0736f, 0.4900f, -0.0350f, 0.0456f, 0.2559f, 0.8188f, 0.0000f, -0.5740f },
     { 0.0736f, 0.4900f, 0.0350f, 0.0853f, 0.2559f, 0.8188f, 0.0000f, 0.5740f },
@@ -900,7 +904,7 @@ static const dla_ped_vertex_t dla_ped_vertices_1[286] = {
     { 0.0560f, -0.0800f, -0.0750f, 0.6191f, 0.8691f, 1.0000f, 0.0000f, 0.0000f },
     { 0.0560f, -0.0800f, 0.1650f, 0.5059f, 0.8691f, 1.0000f, 0.0000f, 0.0000f },
 };
-static const dla_ped_face_t dla_ped_faces_1[312] = {
+static const dla_rig_face_t dla_ped_lod1_faces[312] = {
     {0,8,7}, {0,1,8}, {1,9,8}, {1,2,9}, {2,10,9}, {2,3,10},
     {3,11,10}, {3,4,11}, {4,12,11}, {4,5,12}, {5,13,12}, {5,6,13},
     {7,15,14}, {7,8,15}, {8,16,15}, {8,9,16}, {9,17,16}, {9,10,17},
@@ -954,7 +958,7 @@ static const dla_ped_face_t dla_ped_faces_1[312] = {
     {262,264,263}, {262,265,264}, {266,268,267}, {266,269,268}, {270,272,271}, {270,273,272},
     {274,276,275}, {274,277,276}, {278,280,279}, {278,281,280}, {282,284,283}, {282,285,284},
 };
-static const dla_ped_part_t dla_ped_parts_1[DLA_PED_PART_COUNT] = {
+static const dla_rig_part_t dla_ped_lod1_parts[DLA_PED_PART_COUNT] = {
     { -1, DLA_PED_SLOT_SHIRT, 0.0000f, 0.9800f, 0.0000f, 0, 22, 0, 30 },
     { 0, DLA_PED_SLOT_TROUSERS, 0.0000f, 0.9800f, 0.0000f, 22, 15, 30, 18 },
     { 0, DLA_PED_SLOT_SKIN, 0.0000f, 1.4600f, 0.0000f, 37, 36, 48, 54 },
@@ -975,9 +979,9 @@ static const dla_ped_part_t dla_ped_parts_1[DLA_PED_PART_COUNT] = {
     { 16, DLA_PED_SLOT_SHOE, 0.1000f, 0.0800f, 0.0000f, 262, 24, 300, 12 },
 };
 
-static const dla_ped_mesh_t dla_pedestrian_lods[2] = {
-    { dla_ped_vertices_0, dla_ped_faces_0, dla_ped_parts_0, 466, 548, DLA_PED_PART_COUNT },
-    { dla_ped_vertices_1, dla_ped_faces_1, dla_ped_parts_1, 286, 312, DLA_PED_PART_COUNT },
+static const dla_rig_mesh_t dla_pedestrian_lods[2] = {
+    { dla_ped_lod0_vertices, dla_ped_lod0_faces, dla_ped_lod0_parts, 466, 548, DLA_PED_PART_COUNT },
+    { dla_ped_lod1_vertices, dla_ped_lod1_faces, dla_ped_lod1_parts, 286, 312, DLA_PED_PART_COUNT },
 };
 
 #endif

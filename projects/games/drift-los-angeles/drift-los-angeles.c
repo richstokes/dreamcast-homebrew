@@ -30,6 +30,7 @@
 #include "assets/generated/texture_assets.h"
 #include "model_data.h"
 #include "pedestrian_data.h"
+#include "vehicle_data.h"
 #include "render_math.h"
 #include "render_visibility.h"
 
@@ -143,6 +144,7 @@ typedef struct {
     float speed;
     float cruise_speed;
     float brake_light;
+    float spin;
     int axis;
     int direction;
     color3_t color;
@@ -390,6 +392,7 @@ static int ped_shadow_count;
 static int palm_draw_count;
 static pvr_poly_hdr_t world_header;
 static pvr_poly_hdr_t translucent_header;
+static pvr_poly_hdr_t car_glass_header;
 static pvr_poly_hdr_t additive_header;
 static pvr_poly_hdr_t hud_header;
 static pvr_poly_hdr_t hud_texture_header;
@@ -1620,6 +1623,7 @@ static void update_traffic(float dt) {
             vehicle->z += (float)vehicle->direction * vehicle->speed * dt;
         else
             vehicle->x += (float)vehicle->direction * vehicle->speed * dt;
+        vehicle->spin = fmodf(vehicle->spin + vehicle->speed * dt / .34f, PI * 2.0f);
 
         {
             const float dx = car.x - vehicle->x;
@@ -3272,10 +3276,11 @@ static void draw_textured_volume(float cx,float cz,float width,float depth,
         const int cornice=DLA_TEX_FACADE_CORNICE_DOWNTOWN+(texture-DLA_TEX_FACADE_DOWNTOWN)%4;
         draw_volume_walls(cx,cz,width+.18f,depth+.18f,roof_y,y1,cornice,trim,trim_side);
     }
-    draw_world_quad(&world_header,
-        (vec3_t){cx-width*.5f,y1,cz+depth*.5f},(vec3_t){cx+width*.5f,y1,cz+depth*.5f},
-        (vec3_t){cx-width*.5f,y1,cz-depth*.5f},(vec3_t){cx+width*.5f,y1,cz-depth*.5f},
-        0,0,1,0,0,1,1,1,pack_color(1.0f,(color3_t){.06f,.075f,.105f}));
+    if(camera_y>y1)
+        draw_world_quad(&world_header,
+            (vec3_t){cx-width*.5f,y1,cz+depth*.5f},(vec3_t){cx+width*.5f,y1,cz+depth*.5f},
+            (vec3_t){cx-width*.5f,y1,cz-depth*.5f},(vec3_t){cx+width*.5f,y1,cz-depth*.5f},
+            0,0,1,0,0,1,1,1,pack_color(1.0f,(color3_t){.06f,.075f,.105f}));
 }
 
 static void draw_upper_volume(const building_t *building,
@@ -3405,194 +3410,198 @@ static void draw_storefront_depth(const building_t *building) {
     }
 }
 
-static void draw_rooftop_detail(const building_t *building) {
-    const float x0=building->cx-building->width*.5f;
-    const float x1=building->cx+building->width*.5f;
-    const float z0=building->cz-building->depth*.5f;
-    const float z1=building->cz+building->depth*.5f;
-    const float base=building->height+.05f;
-    const float top=building->height+.64f;
-    const float y=building->height+.34f;
+static void draw_rooftop_detail(float cx, float cz, float width, float depth,
+                                float height, uint32_t seed) {
+    const float x0=cx-width*.5f,x1=cx+width*.5f;
+    const float z0=cz-depth*.5f,z1=cz+depth*.5f;
+    const float base=height+.05f;
+    const float top=height+.64f;
+    const float y=height+.34f;
     const uint32_t parapet=pack_color(1.0f,(color3_t){.11f,.13f,.18f});
     const uint32_t plant=pack_color(1.0f,(color3_t){.20f,.23f,.27f});
     const uint32_t duct=pack_color(1.0f,(color3_t){.35f,.34f,.32f});
-    draw_world_quad(&world_header,(vec3_t){x0,top,z0},(vec3_t){x1,top,z0},
-                    (vec3_t){x0,base,z0},(vec3_t){x1,base,z0},
-                    0,0,1,0,0,1,1,1,parapet);
-    draw_world_quad(&world_header,(vec3_t){x1,top,z1},(vec3_t){x0,top,z1},
-                    (vec3_t){x1,base,z1},(vec3_t){x0,base,z1},
-                    0,0,1,0,0,1,1,1,parapet);
-    draw_world_quad(&world_header,(vec3_t){x0,top,z1},(vec3_t){x0,top,z0},
-                    (vec3_t){x0,base,z1},(vec3_t){x0,base,z0},
-                    0,0,1,0,0,1,1,1,parapet);
-    draw_world_quad(&world_header,(vec3_t){x1,top,z0},(vec3_t){x1,top,z1},
-                    (vec3_t){x1,base,z0},(vec3_t){x1,base,z1},
-                    0,0,1,0,0,1,1,1,parapet);
-    if((building->seed&1u)!=0u) return;
-    draw_world_box(building->cx-building->width*.16f,y+.55f,
-                   building->cz-building->depth*.12f,2.10f,.52f,1.55f,
+    if(camera_z<cz)
+        draw_world_quad(&world_header,(vec3_t){x0,top,z0},(vec3_t){x1,top,z0},
+                        (vec3_t){x0,base,z0},(vec3_t){x1,base,z0},
+                        0,0,1,0,0,1,1,1,parapet);
+    else
+        draw_world_quad(&world_header,(vec3_t){x1,top,z1},(vec3_t){x0,top,z1},
+                        (vec3_t){x1,base,z1},(vec3_t){x0,base,z1},
+                        0,0,1,0,0,1,1,1,parapet);
+    if(camera_x<cx)
+        draw_world_quad(&world_header,(vec3_t){x0,top,z1},(vec3_t){x0,top,z0},
+                        (vec3_t){x0,base,z1},(vec3_t){x0,base,z0},
+                        0,0,1,0,0,1,1,1,parapet);
+    else
+        draw_world_quad(&world_header,(vec3_t){x1,top,z0},(vec3_t){x1,top,z1},
+                        (vec3_t){x1,base,z0},(vec3_t){x1,base,z1},
+                        0,0,1,0,0,1,1,1,parapet);
+    if((seed&1u)!=0u) return;
+    draw_world_box(cx-width*.16f,y+.55f,cz-depth*.12f,2.10f,.52f,1.55f,
                    &world_header,plant);
-    draw_world_box(building->cx+building->width*.10f,y+.38f,
-                   building->cz+building->depth*.14f,1.40f,.34f,1.05f,
+    draw_world_box(cx+width*.10f,y+.38f,cz+depth*.14f,1.40f,.34f,1.05f,
                    &world_header,duct);
-    draw_world_box(building->cx+building->width*.10f,y+.92f,
-                   building->cz+building->depth*.14f,.62f,.55f,.62f,
+    draw_world_box(cx+width*.10f,y+.92f,cz+depth*.14f,.62f,.55f,.62f,
                    &world_header,parapet);
 }
 
-static void draw_facade_relief(const building_t *building) {
-    const float x0=building->cx-building->width*.5f;
-    const float x1=building->cx+building->width*.5f;
-    const float z0=building->cz-building->depth*.5f;
-    const float z1=building->cz+building->depth*.5f;
-    const bool north=camera_z<building->cz;
-    const bool west=camera_x<building->cx;
-    const float face_z=north?z0-.24f:z1+.24f;
-    const float face_x=west?x0-.24f:x1+.24f;
-    const color3_t accent=district_color(building->district);
-    const uint32_t shadow=pack_color(1.0f,(color3_t){.045f,.055f,.085f});
-    const uint32_t canopy=pack_color(1.0f,color_scale(accent,.70f));
-    const int alternate=district_facade_texture(building->district,
-                                                 building->seed^0xa511e9b3u);
-    int bay, level;
+/* ------------------------------------------------------------------------
+   Perimeter lots. Each block face is split into two to four buildings of
+   their own height, facade, tint and setback, so the street wall reads as a
+   row of separate properties and the roofline steps. The block's own volume
+   becomes the tower or warehouse rising behind them. Collision keeps using
+   the whole block footprint; lot insets are cosmetic.
+   ------------------------------------------------------------------------ */
+#define LOT_DEPTH 14.0f
+#define MAX_SIDE_LOTS 4
 
-    /* Narrow vertical mullions add real parallax without the long near-plane
-       crossings that a block-wide horizontal molding can create. */
-    for(bay=-2;bay<=2;++bay) {
-        const float bx=building->cx+(float)bay*building->width*.155f;
-        const float bz=building->cz+(float)bay*building->depth*.155f;
-        draw_world_quad(&world_header,
-            (vec3_t){bx-.075f,7.75f,face_z},(vec3_t){bx+.075f,7.75f,face_z},
-            (vec3_t){bx-.075f,.25f,face_z},(vec3_t){bx+.075f,.25f,face_z},
-            0,0,1,0,0,1,1,1,shadow);
-        draw_world_quad(&world_header,
-            (vec3_t){face_x,7.75f,bz+.075f},(vec3_t){face_x,7.75f,bz-.075f},
-            (vec3_t){face_x,.25f,bz+.075f},(vec3_t){face_x,.25f,bz-.075f},
-            0,0,1,0,0,1,1,1,shadow);
-    }
+typedef struct {
+    float start, span, height, inset;
+    int texture;
+    color3_t tint;
+    uint32_t seed;
+} lot_t;
 
-    /* Only the camera-facing wall receives short, flat cornice strips.  Side
-       boxes can straddle the near plane and stretch into screen-wide streaks. */
-    for(level=0;level<3;++level) {
-        const float y=7.25f+(float)level*4.65f;
-        if(y>building->height-.8f) break;
-        for(bay=-1;bay<=1;++bay) {
-            const uint32_t band=(level&1)?canopy:shadow;
-            if(fabsf(camera_z-building->cz)>=fabsf(camera_x-building->cx)) {
-                const float bx=building->cx+(float)bay*building->width*.225f;
-                const float half=building->width*.105f;
-                const vec3_t view_a=world_to_camera((vec3_t){bx-half,y,face_z});
-                const vec3_t view_b=world_to_camera((vec3_t){bx+half,y,face_z});
-                if(view_a.z>12.0f && view_b.z>12.0f)
-                    draw_world_quad(&world_header,
-                        (vec3_t){bx-half,y+.055f,face_z},
-                        (vec3_t){bx+half,y+.055f,face_z},
-                        (vec3_t){bx-half,y-.055f,face_z},
-                        (vec3_t){bx+half,y-.055f,face_z},
-                        0,0,1,0,0,1,1,1,band);
-            }
-            else {
-                const float bz=building->cz+(float)bay*building->depth*.225f;
-                const float half=building->depth*.105f;
-                const vec3_t view_a=world_to_camera((vec3_t){face_x,y,bz+half});
-                const vec3_t view_b=world_to_camera((vec3_t){face_x,y,bz-half});
-                if(view_a.z>12.0f && view_b.z>12.0f)
-                    draw_world_quad(&world_header,
-                        (vec3_t){face_x,y+.055f,bz+half},
-                        (vec3_t){face_x,y+.055f,bz-half},
-                        (vec3_t){face_x,y-.055f,bz+half},
-                        (vec3_t){face_x,y-.055f,bz-half},
-                        0,0,1,0,0,1,1,1,band);
-            }
-        }
-    }
-
-    /* One lower pavilion per close block breaks the sixty-metre monolith into
-       a main tower, street wing, recessed entrance and illuminated canopy. */
-    if(building->seed&1u) {
-        const float wing_z=north?z0-1.45f:z1+1.45f;
-        draw_textured_volume(building->cx+building->width*.23f,wing_z,
-                             building->width*.31f,3.1f,.12f,
-                             fminf(10.5f,building->height-.4f),alternate,
-                             pack_color(1.0f,(color3_t){.92f,.95f,1.0f}),
-                             pack_color(1.0f,(color3_t){.68f,.73f,.84f}));
-        draw_world_box(building->cx-building->width*.16f,3.4f,
-                       north?z0-.92f:z1+.92f,building->width*.15f,.14f,.88f,
-                       &world_header,canopy);
-    }
-    else {
-        const float wing_x=west?x0-1.45f:x1+1.45f;
-        draw_textured_volume(wing_x,building->cz-building->depth*.23f,
-                             3.1f,building->depth*.31f,.12f,
-                             fminf(10.5f,building->height-.4f),alternate,
-                             pack_color(1.0f,(color3_t){.92f,.95f,1.0f}),
-                             pack_color(1.0f,(color3_t){.68f,.73f,.84f}));
-        draw_world_box(west?x0-.92f:x1+.92f,3.4f,
-                       building->cz+building->depth*.16f,.88f,.14f,
-                       building->depth*.15f,&world_header,canopy);
+static void lot_height_range(district_t district, float *low, float *high) {
+    switch(district) {
+        case DISTRICT_COAST: *low=6.5f; *high=16.0f; break;
+        case DISTRICT_ARTS: *low=6.5f; *high=15.0f; break;
+        case DISTRICT_NEON: *low=8.0f; *high=24.0f; break;
+        default: *low=10.0f; *high=34.0f; break;
     }
 }
 
-static void draw_storefront_canopies(const building_t *building) {
+/* Sides 0/1 are the south/north faces running along x and span the whole
+   block; sides 2/3 are west/east and run between the corner lots. */
+static int block_side_lots(const building_t *b, int side, bool merged, lot_t *lots) {
+    static const color3_t tints[6]={{1.0f,1.0f,1.0f},{.96f,.90f,.80f},{.80f,.86f,1.0f},
+                                    {.92f,.80f,.72f},{.82f,.82f,.86f},{1.0f,.94f,.90f}};
+    const float length=side<2?b->width:b->depth-2.0f*LOT_DEPTH;
+    const uint32_t seed=hash_u32(b->seed^(uint32_t)(side+1)*0x68e31da4u);
+    const int count=merged?1:2+(int)(seed%3u);
+    float low,high,weights[MAX_SIDE_LOTS],total=0.0f,cursor=0.0f;
+    int i;
+    lot_height_range(b->district,&low,&high);
+    for(i=0;i<count;++i) {
+        weights[i]=.7f+(float)((seed>>(4+i*3))&7u)/7.0f;
+        total+=weights[i];
+    }
+    for(i=0;i<count;++i) {
+        lot_t *lot=&lots[i];
+        const uint32_t ls=hash_u32(seed^(uint32_t)(i+1)*0x9e3779b9u);
+        lot->start=cursor;
+        lot->span=length*weights[i]/total;
+        cursor+=lot->span;
+        lot->height=low+(high-low)*(float)(ls&255u)/255.0f;
+        /* Corner lots stand a little taller so blocks turn their corners. */
+        if(!merged&&(i==0||i==count-1))
+            lot->height*=1.0f+(float)((ls>>8)&3u)*.08f;
+        if(merged) lot->height=(low+high)*.5f;
+        lot->inset=merged?0.0f:(float)((ls>>10)&3u)*.16f;
+        lot->texture=district_facade_texture(b->district,ls>>3);
+        lot->tint=tints[(ls>>12)%6u];
+        lot->seed=ls;
+    }
+    return count;
+}
+
+static void draw_lot_rooftop(float cx, float cz, float width, float depth,
+                             float height, uint32_t seed, district_t district) {
+    const uint32_t plant=pack_color(1.0f,(color3_t){.22f,.24f,.28f});
+    const uint32_t tank=pack_color(1.0f,(color3_t){.26f,.18f,.12f});
+    const uint32_t legs=pack_color(1.0f,(color3_t){.12f,.13f,.14f});
+    const uint32_t frame=pack_color(1.0f,(color3_t){.10f,.12f,.16f});
+    const float ox=((float)((seed>>16)&7u)/7.0f-.5f)*(width-4.0f);
+    const float oz=((float)((seed>>19)&7u)/7.0f-.5f)*(depth-4.0f);
+    switch((seed>>22)&7u) {
+        case 0: case 1:
+            draw_world_box(cx+ox,height+.42f,cz+oz,1.10f,.40f,.80f,&world_header,plant);
+            break;
+        case 2:
+            if(district==DISTRICT_COAST) break;
+            draw_world_box(cx+ox,height+3.6f,cz+oz,1.35f,1.05f,1.35f,&world_header,tank);
+            draw_world_box(cx+ox-.9f,height+1.3f,cz+oz-.9f,.07f,1.3f,.07f,&world_header,legs);
+            draw_world_box(cx+ox+.9f,height+1.3f,cz+oz-.9f,.07f,1.3f,.07f,&world_header,legs);
+            draw_world_box(cx+ox-.9f,height+1.3f,cz+oz+.9f,.07f,1.3f,.07f,&world_header,legs);
+            draw_world_box(cx+ox+.9f,height+1.3f,cz+oz+.9f,.07f,1.3f,.07f,&world_header,legs);
+            break;
+        case 3: {
+            /* Rooftop billboard facing the street. */
+            const bool along_x=width>=depth;
+            const float sx=along_x?3.4f:.10f,sz=along_x?.10f:3.4f;
+            draw_world_box(cx,height+2.9f,cz,sx,1.15f,sz,&world_header,frame);
+            draw_world_box(cx-(along_x?2.6f:0.0f),height+.9f,cz-(along_x?0.0f:2.6f),.07f,.9f,.07f,&world_header,frame);
+            draw_world_box(cx+(along_x?2.6f:0.0f),height+.9f,cz+(along_x?0.0f:2.6f),.07f,.9f,.07f,&world_header,frame);
+            if(along_x)
+                draw_world_quad(&texture_headers[DLA_TEX_BILLBOARD],
+                    (vec3_t){cx-3.3f,height+4.0f,cz+(camera_z<cz?-.14f:.14f)},
+                    (vec3_t){cx+3.3f,height+4.0f,cz+(camera_z<cz?-.14f:.14f)},
+                    (vec3_t){cx-3.3f,height+1.8f,cz+(camera_z<cz?-.14f:.14f)},
+                    (vec3_t){cx+3.3f,height+1.8f,cz+(camera_z<cz?-.14f:.14f)},
+                    0,0,1,0,0,1,1,1,pack_color(1.0f,(color3_t){1,1,1}));
+            else
+                draw_world_quad(&texture_headers[DLA_TEX_BILLBOARD],
+                    (vec3_t){cx+(camera_x<cx?-.14f:.14f),height+4.0f,cz+3.3f},
+                    (vec3_t){cx+(camera_x<cx?-.14f:.14f),height+4.0f,cz-3.3f},
+                    (vec3_t){cx+(camera_x<cx?-.14f:.14f),height+1.8f,cz+3.3f},
+                    (vec3_t){cx+(camera_x<cx?-.14f:.14f),height+1.8f,cz-3.3f},
+                    0,0,1,0,0,1,1,1,pack_color(1.0f,(color3_t){1,1,1}));
+            break;
+        }
+        case 4:
+            draw_world_box(cx+ox,height+1.9f,cz+oz,.05f,1.9f,.05f,&world_header,legs);
+            break;
+        default:
+            break;
+    }
+}
+
+static void draw_block_lots(const building_t *building, float distance_sq) {
     const float x0=building->cx-building->width*.5f;
     const float x1=building->cx+building->width*.5f;
     const float z0=building->cz-building->depth*.5f;
     const float z1=building->cz+building->depth*.5f;
-    const bool face_z=fabsf(camera_z-building->cz)>=fabsf(camera_x-building->cx);
-    const bool near_negative=face_z ? camera_z<building->cz : camera_x<building->cx;
-    const color3_t accent=district_color(building->district);
-    const uint32_t bright=pack_color(1.0f,color_scale(accent,.92f));
-    const uint32_t dark=pack_color(1.0f,color_scale(accent,.28f));
-    const uint32_t glass=pack_color(1.0f,(color3_t){.035f,.075f,.12f});
-    const float span=face_z ? building->width : building->depth;
-    const float spacing=fminf(span*.14f,5.4f);
-    int bay;
-    for(bay=-1;bay<=1;++bay) {
-        const uint32_t color=((bay+(int)(building->seed&1u))&1)?bright:dark;
-        const float offset=(float)bay*spacing;
-        if(face_z) {
-            const float face=near_negative?z0-.07f:z1+.07f;
-            const float outer=near_negative?z0-.74f:z1+.74f;
-            draw_world_quad(&world_header,
-                (vec3_t){building->cx+offset-1.65f,3.13f,face},
-                (vec3_t){building->cx+offset+1.65f,3.13f,face},
-                (vec3_t){building->cx+offset-1.65f,3.02f,outer},
-                (vec3_t){building->cx+offset+1.65f,3.02f,outer},
-                0,0,1,0,0,1,1,1,color);
-            draw_world_quad(&world_header,
-                (vec3_t){building->cx+offset-1.65f,3.02f,outer},
-                (vec3_t){building->cx+offset+1.65f,3.02f,outer},
-                (vec3_t){building->cx+offset-1.65f,2.75f,outer},
-                (vec3_t){building->cx+offset+1.65f,2.75f,outer},
-                0,0,1,0,0,1,1,1,color);
-            draw_world_quad(&world_header,
-                (vec3_t){building->cx+offset-1.38f,2.62f,face},
-                (vec3_t){building->cx+offset+1.38f,2.62f,face},
-                (vec3_t){building->cx+offset-1.38f,.14f,face},
-                (vec3_t){building->cx+offset+1.38f,.14f,face},
-                0,0,1,0,0,1,1,1,glass);
+    const bool merged=distance_sq>190.0f*190.0f;
+    const bool props=distance_sq<125.0f*125.0f;
+    const bool all_sides=distance_sq<120.0f*120.0f;
+    const float shade=.80f+(float)(building->seed&15u)*.011f;
+    int side;
+    for(side=0;side<4;++side) {
+        lot_t lots[MAX_SIDE_LOTS];
+        int count,i;
+        /* Beyond the near range the far sides hide behind the near ones. */
+        if(!all_sides) {
+            const bool facing=side==0?camera_z<z0:side==1?camera_z>z1:
+                              side==2?camera_x<x0:camera_x>x1;
+            if(!facing) continue;
         }
-        else {
-            const float face=near_negative?x0-.07f:x1+.07f;
-            const float outer=near_negative?x0-.74f:x1+.74f;
-            draw_world_quad(&world_header,
-                (vec3_t){face,3.13f,building->cz+offset+1.65f},
-                (vec3_t){face,3.13f,building->cz+offset-1.65f},
-                (vec3_t){outer,3.02f,building->cz+offset+1.65f},
-                (vec3_t){outer,3.02f,building->cz+offset-1.65f},
-                0,0,1,0,0,1,1,1,color);
-            draw_world_quad(&world_header,
-                (vec3_t){outer,3.02f,building->cz+offset+1.65f},
-                (vec3_t){outer,3.02f,building->cz+offset-1.65f},
-                (vec3_t){outer,2.75f,building->cz+offset+1.65f},
-                (vec3_t){outer,2.75f,building->cz+offset-1.65f},
-                0,0,1,0,0,1,1,1,color);
-            draw_world_quad(&world_header,
-                (vec3_t){face,2.62f,building->cz+offset+1.38f},
-                (vec3_t){face,2.62f,building->cz+offset-1.38f},
-                (vec3_t){face,.14f,building->cz+offset+1.38f},
-                (vec3_t){face,.14f,building->cz+offset-1.38f},
-                0,0,1,0,0,1,1,1,glass);
+        count=block_side_lots(building,side,merged,lots);
+        for(i=0;i<count;++i) {
+            const lot_t *lot=&lots[i];
+            const float half=lot->span*.5f;
+            const uint32_t front=pack_color(1.0f,color_scale(lot->tint,shade));
+            const uint32_t flank=pack_color(1.0f,color_scale(
+                (color3_t){lot->tint.r*.83f,lot->tint.g*.87f,lot->tint.b*.98f},shade));
+            float cx,cz,w,d;
+            if(side==0) {
+                cx=x0+lot->start+half; cz=z0+lot->inset+LOT_DEPTH*.5f;
+                w=lot->span; d=LOT_DEPTH;
+            }
+            else if(side==1) {
+                cx=x1-lot->start-half; cz=z1-lot->inset-LOT_DEPTH*.5f;
+                w=lot->span; d=LOT_DEPTH;
+            }
+            else if(side==2) {
+                cz=z0+LOT_DEPTH+lot->start+half; cx=x0+lot->inset+LOT_DEPTH*.5f;
+                w=LOT_DEPTH; d=lot->span;
+            }
+            else {
+                cz=z1-LOT_DEPTH-lot->start-half; cx=x1-lot->inset-LOT_DEPTH*.5f;
+                w=LOT_DEPTH; d=lot->span;
+            }
+            draw_textured_volume(cx,cz,w,d,.10f,lot->height,lot->texture,front,flank);
+            if(props)
+                draw_lot_rooftop(cx,cz,w,d,lot->height,lot->seed,building->district);
         }
     }
 }
@@ -3620,26 +3629,30 @@ static void draw_building(const building_t *building) {
         building->width*.5f+3.2f,bounds_top*.5f,building->depth*.5f+3.2f)) return;
     QA_COUNT(buildings);
     if(building->district==DISTRICT_ARTS) {
+        /* The warehouse fills the block; the lot ring hides its lower walls. */
         draw_textured_volume(building->cx,building->cz,
-                             building->width,building->depth,y0,y1,
+                             building->width,building->depth,4.6f,y1,
                              facade,front,side);
+        draw_rooftop_detail(building->cx,building->cz,building->width,
+                            building->depth,y1,building->seed);
     }
     else {
-        const float podium_top=fminf(y1,
-            building->district==DISTRICT_COAST ? 6.8f : 9.2f);
         const float width_scale=.60f+(float)((building->seed>>8)&3u)*.035f;
         const float depth_scale=.60f+(float)((building->seed>>10)&3u)*.035f;
         const float offset_x=((int)((building->seed>>14)&3u)-1.5f)*1.35f;
         const float offset_z=((int)((building->seed>>16)&3u)-1.5f)*1.35f;
-        draw_textured_volume(building->cx,building->cz,
-                             building->width,building->depth,y0,podium_top,
+        /* The tower rises from the courtyard behind the street-wall lots. */
+        draw_textured_volume(building->cx+offset_x,building->cz+offset_z,
+                             building->width*width_scale,
+                             building->depth*depth_scale,4.6f,y1,
                              facade,front,side);
-        if(y1>podium_top+.5f)
-            draw_textured_volume(building->cx+offset_x,building->cz+offset_z,
-                                 building->width*width_scale,
-                                 building->depth*depth_scale,podium_top,y1,
-                                 facade,front,side);
+        if(nearby)
+            draw_rooftop_detail(building->cx+offset_x,building->cz+offset_z,
+                                building->width*width_scale,
+                                building->depth*depth_scale,y1,building->seed);
     }
+    draw_block_lots(building,dx*dx+dz*dz);
+    (void)y0;
 
     if((building->district==DISTRICT_DOWNTOWN ||
         building->district==DISTRICT_NEON) && y1>34.0f &&
@@ -3799,12 +3812,8 @@ static void draw_building(const building_t *building) {
                                    (bay&1)?pink:cyan);
             }
         }
-        draw_rooftop_detail(building);
-        if(close && building->height>7.5f) {
+        if(close && building->height>7.5f)
             draw_storefront_depth(building);
-            draw_facade_relief(building);
-            draw_storefront_canopies(building);
-        }
     }
     if((building->seed%3u)==0u) {
         const uint32_t rooftop=pack_color(1.0f,(color3_t){.18f,.21f,.27f});
@@ -4122,7 +4131,119 @@ static void draw_traffic_signal_opaque(int cell_x, int cell_z) {
    ------------------------------------------------------------------------ */
 #define PED_LOD0_DISTANCE 32.0f
 #define PED_LOD1_DISTANCE 92.0f
-#define MAX_PED_PART_VERTICES 128
+#define MAX_RIG_PART_VERTICES 160
+
+/* Per-part appearance for one drawn rig: a tint, an atlas column shift and
+   whether the part is drawn or lit at all. */
+typedef struct {
+    color3_t tint[DLA_RIG_MAX_PARTS];
+    float du[DLA_RIG_MAX_PARTS];
+    bool skip[DLA_RIG_MAX_PARTS];
+    bool unlit[DLA_RIG_MAX_PARTS];
+} rig_style_t;
+
+/* Joint pitch angles about each part's pivot, plus a whole-rig pitch about
+   root_centre_y so a tumble reads as a somersault. */
+typedef struct {
+    float root_pitch, root_y, root_centre_y;
+    float angle[DLA_RIG_MAX_PARTS];
+} rig_pose_t;
+
+static screen_point_t rig_points[MAX_RIG_PART_VERTICES];
+static uint32_t rig_colors[MAX_RIG_PART_VERTICES];
+static float rig_facing[MAX_RIG_PART_VERTICES];
+
+static void rig_style_reset(rig_style_t *style) {
+    int i;
+    for(i=0;i<DLA_RIG_MAX_PARTS;++i) {
+        style->tint[i]=(color3_t){1.0f,1.0f,1.0f};
+        style->du[i]=0.0f;
+        style->skip[i]=false;
+        style->unlit[i]=false;
+    }
+}
+
+/* Draws an articulated rig: parts are pitched about their pivots down the
+   parent chain, scaled, yawed, lit per vertex and submitted as textured
+   triangles. Backfaces are dropped unless a corner still faces the camera. */
+static void draw_rig(const dla_rig_mesh_t *mesh, const pvr_poly_hdr_t *header,
+                     float x, float y, float z, float yaw, float scale,
+                     const rig_pose_t *pose, const rig_style_t *style) {
+    const shz_sincos_t yaw_rotation=shz_sincosf(yaw);
+    const float c=yaw_rotation.cos,s=yaw_rotation.sin;
+    float part_cos[DLA_RIG_MAX_PARTS],part_sin[DLA_RIG_MAX_PARTS];
+    float part_ty[DLA_RIG_MAX_PARTS],part_tz[DLA_RIG_MAX_PARTS];
+    int part;
+    for(part=0;part<mesh->part_count;++part) {
+        const dla_rig_part_t *p=&mesh->parts[part];
+        const shz_sincos_t r=shz_sincosf(pose->angle[part]);
+        if(p->parent<0) {
+            const shz_sincos_t root=shz_sincosf(pose->root_pitch);
+            const float d=p->pivot_y-pose->root_centre_y;
+            part_cos[part]=root.cos*r.cos-root.sin*r.sin;
+            part_sin[part]=root.cos*r.sin+root.sin*r.cos;
+            part_ty[part]=pose->root_centre_y+pose->root_y+root.cos*d;
+            part_tz[part]=-root.sin*d;
+        }
+        else {
+            const dla_rig_part_t *parent=&mesh->parts[p->parent];
+            const float pc=part_cos[p->parent],ps=part_sin[p->parent];
+            const float dy=p->pivot_y-parent->pivot_y;
+            const float dz=p->pivot_z-parent->pivot_z;
+            part_cos[part]=pc*r.cos-ps*r.sin;
+            part_sin[part]=pc*r.sin+ps*r.cos;
+            part_ty[part]=part_ty[p->parent]+pc*dy+ps*dz;
+            part_tz[part]=part_tz[p->parent]-ps*dy+pc*dz;
+        }
+    }
+    for(part=0;part<mesh->part_count;++part) {
+        const dla_rig_part_t *p=&mesh->parts[part];
+        const float pc=part_cos[part],ps=part_sin[part];
+        const float ty=part_ty[part],tz=part_tz[part];
+        const color3_t tint=style->tint[part];
+        const float du=style->du[part];
+        const bool unlit=style->unlit[part];
+        int i;
+        if(style->skip[part]||p->face_count==0||p->vertex_count>MAX_RIG_PART_VERTICES) continue;
+        for(i=0;i<p->vertex_count;++i) {
+            const dla_rig_vertex_t *v=&mesh->vertices[p->first_vertex+i];
+            const float my=(ty+pc*v->y+ps*v->z)*scale;
+            const float mz=(tz-ps*v->y+pc*v->z)*scale;
+            const float mx=(v->x+p->pivot_x)*scale;
+            const vec3_t world={x+mx*c+mz*s,y+my,z-mx*s+mz*c};
+            const float ny=pc*v->ny+ps*v->nz;
+            const float lz=-ps*v->ny+pc*v->nz;
+            const float nx=v->nx*c+lz*s,nz=-v->nx*s+lz*c;
+            float shade=1.0f;
+            if(!unlit) {
+                const float key=fmaxf(0.0f,nx*-.48f+ny*.64f+nz*-.60f);
+                shade=fminf(1.0f,.36f+(ny*.5f+.5f)*.28f+key*.40f);
+            }
+            rig_facing[i]=nx*(camera_x-world.x)+ny*(camera_y-world.y)+
+                          nz*(camera_z-world.z);
+            /* Tints and shade never exceed one, so skip pack_color's clamps. */
+            rig_colors[i]=0xff000000u|((uint32_t)(tint.r*shade*255.0f)<<16)|
+                          ((uint32_t)(tint.g*shade*255.0f)<<8)|
+                          (uint32_t)(tint.b*shade*255.0f);
+            project_world(world,&rig_points[i]);
+        }
+        for(i=0;i<p->face_count;++i) {
+            const dla_rig_face_t *f=&mesh->faces[p->first_face+i];
+            const int a=f->a-p->first_vertex,b=f->b-p->first_vertex,
+                      d=f->c-p->first_vertex;
+            const dla_rig_vertex_t *va,*vb,*vd;
+            if(rig_facing[a]<=0.0f&&rig_facing[b]<=0.0f&&rig_facing[d]<=0.0f) continue;
+            if(!rig_points[a].valid||!rig_points[b].valid||!rig_points[d].valid) continue;
+            if(!screen_triangle_visible(&rig_points[a],&rig_points[b],&rig_points[d])) continue;
+            va=&mesh->vertices[f->a];
+            vb=&mesh->vertices[f->b];
+            vd=&mesh->vertices[f->c];
+            submit_triangle(header,&rig_points[a],&rig_points[b],&rig_points[d],
+                            va->u+du,va->v,vb->u+du,vb->v,vd->u+du,vd->v,
+                            rig_colors[a],rig_colors[b],rig_colors[d]);
+        }
+    }
+}
 
 typedef struct {
     color3_t skin, shirt, trousers, hair, shoe, accent;
@@ -4131,14 +4252,7 @@ typedef struct {
     float height;
 } pedestrian_look_t;
 
-typedef struct {
-    float root_pitch, root_y;
-    float angle[DLA_PED_PART_COUNT];
-} pedestrian_joints_t;
-
-static screen_point_t ped_points[MAX_PED_PART_VERTICES];
-static uint32_t ped_colors[MAX_PED_PART_VERTICES];
-static float ped_facing[MAX_PED_PART_VERTICES];
+typedef rig_pose_t pedestrian_joints_t;
 
 static pedestrian_look_t pedestrian_look(uint32_t seed) {
     static const color3_t skins[5]={{1.0f,.82f,.68f},{.96f,.74f,.58f},
@@ -4168,45 +4282,51 @@ static pedestrian_look_t pedestrian_look(uint32_t seed) {
 }
 
 /* Which colour and atlas column each body part takes for this figure. */
-static void pedestrian_part_style(const pedestrian_look_t *look, int part,
-                                  int slot, color3_t *tint, float *du) {
-    *du=0.0f;
-    switch(slot) {
-        case DLA_PED_SLOT_SKIN:
-            *tint=look->skin;
-            if(part==DLA_PED_HEAD) *du=(float)look->face*DLA_PED_ATLAS_REGION;
-            break;
-        case DLA_PED_SLOT_SHIRT:
-            *tint=look->shirt;
-            *du=(float)look->style*DLA_PED_ATLAS_REGION;
-            break;
-        case DLA_PED_SLOT_TROUSERS: *tint=look->trousers; break;
-        case DLA_PED_SLOT_HAIR: *tint=look->hair; break;
-        case DLA_PED_SLOT_ACCENT: *tint=look->accent; break;
-        case DLA_PED_SLOT_SHOE: *tint=look->shoe; break;
-        case DLA_PED_SLOT_SLEEVE: *tint=look->shirt; break;
-        case DLA_PED_SLOT_FOREARM:
-            /* Hoodies and jackets cover the forearm with the sleeve cell. */
-            if(look->style==1||look->style==2) {
-                *tint=look->shirt;
-                *du=-DLA_PED_ATLAS_REGION;
-            }
-            else *tint=look->skin;
-            break;
-        default:
-            if(look->shorts) {
-                *tint=look->skin;
-                *du=-2.0f*DLA_PED_ATLAS_REGION;
-            }
-            else *tint=look->trousers;
-            break;
+static void pedestrian_style(const pedestrian_look_t *look,
+                             const dla_rig_mesh_t *mesh, rig_style_t *style) {
+    int part;
+    rig_style_reset(style);
+    for(part=0;part<mesh->part_count;++part) {
+        color3_t tint=look->skin;
+        float du=0.0f;
+        switch(mesh->parts[part].slot) {
+            case DLA_PED_SLOT_SKIN:
+                if(part==DLA_PED_HEAD) du=(float)look->face*DLA_PED_ATLAS_REGION;
+                break;
+            case DLA_PED_SLOT_SHIRT:
+                tint=look->shirt;
+                du=(float)look->style*DLA_PED_ATLAS_REGION;
+                break;
+            case DLA_PED_SLOT_TROUSERS: tint=look->trousers; break;
+            case DLA_PED_SLOT_HAIR: tint=look->hair; break;
+            case DLA_PED_SLOT_ACCENT: tint=look->accent; break;
+            case DLA_PED_SLOT_SHOE: tint=look->shoe; break;
+            case DLA_PED_SLOT_SLEEVE: tint=look->shirt; break;
+            case DLA_PED_SLOT_FOREARM:
+                /* Hoodies and jackets cover the forearm with the sleeve cell. */
+                if(look->style==1||look->style==2) {
+                    tint=look->shirt;
+                    du=-DLA_PED_ATLAS_REGION;
+                }
+                break;
+            default:
+                if(look->shorts) du=-2.0f*DLA_PED_ATLAS_REGION;
+                else tint=look->trousers;
+                break;
+        }
+        style->tint[part]=tint;
+        style->du[part]=du;
     }
+    style->skip[DLA_PED_HAIR_SHORT]=look->topper!=0;
+    style->skip[DLA_PED_HAIR_LONG]=look->topper!=1;
+    style->skip[DLA_PED_CAP]=look->topper!=2;
 }
 
 /* Positive pitch swings a hanging limb forward. */
 static void pedestrian_walk_joints(pedestrian_joints_t *joints, float phase) {
     const float s=fsin(phase),c=fcos(phase);
     memset(joints,0,sizeof(*joints));
+    joints->root_centre_y=.90f;
     joints->root_y=fabsf(s)*.025f;
     joints->angle[DLA_PED_TORSO]=-.06f;
     joints->angle[DLA_PED_HEAD]=.04f;
@@ -4231,6 +4351,7 @@ static void pedestrian_ragdoll_joints(pedestrian_joints_t *joints,
     const float settle=p->grounded?clampf(p->settle,0.0f,1.0f):0.0f;
     const float flail=fsin(p->tumble*1.7f)*.35f;
     memset(joints,0,sizeof(*joints));
+    joints->root_centre_y=.90f;
     joints->root_pitch=p->tumble;
     joints->root_y=p->y-.77f*settle;
     joints->angle[DLA_PED_HEAD]=lerpf(-.30f,-.10f,settle);
@@ -4247,86 +4368,12 @@ static void pedestrian_ragdoll_joints(pedestrian_joints_t *joints,
 static void draw_pedestrian_model(const pedestrian_look_t *look,
                                   float x, float z, float yaw,
                                   const pedestrian_joints_t *joints, int lod) {
-    const dla_ped_mesh_t *mesh=&dla_pedestrian_lods[lod];
-    const pvr_poly_hdr_t *header=&texture_headers[DLA_TEX_PEDESTRIAN];
-    const shz_sincos_t yaw_rotation=shz_sincosf(yaw);
-    const float c=yaw_rotation.cos,s=yaw_rotation.sin;
-    const float height=look->height;
-    float part_cos[DLA_PED_PART_COUNT],part_sin[DLA_PED_PART_COUNT];
-    float part_ty[DLA_PED_PART_COUNT],part_tz[DLA_PED_PART_COUNT];
-    int part;
+    const dla_rig_mesh_t *mesh=&dla_pedestrian_lods[lod];
+    rig_style_t style;
     QA_COUNT(pedestrians);
-    /* Compose each part's pitch about its pivot down the parent chain. The
-       root spins about the body centre so a tumble reads as a whole-body
-       somersault. */
-    for(part=0;part<mesh->part_count;++part) {
-        const dla_ped_part_t *p=&mesh->parts[part];
-        const shz_sincos_t r=shz_sincosf(joints->angle[part]);
-        if(p->parent<0) {
-            const shz_sincos_t root=shz_sincosf(joints->root_pitch);
-            const float d=p->pivot_y-.90f;
-            part_cos[part]=root.cos*r.cos-root.sin*r.sin;
-            part_sin[part]=root.cos*r.sin+root.sin*r.cos;
-            part_ty[part]=.90f+joints->root_y+root.cos*d;
-            part_tz[part]=-root.sin*d;
-        }
-        else {
-            const dla_ped_part_t *parent=&mesh->parts[p->parent];
-            const float pc=part_cos[p->parent],ps=part_sin[p->parent];
-            const float dy=p->pivot_y-parent->pivot_y;
-            const float dz=p->pivot_z-parent->pivot_z;
-            part_cos[part]=pc*r.cos-ps*r.sin;
-            part_sin[part]=pc*r.sin+ps*r.cos;
-            part_ty[part]=part_ty[p->parent]+pc*dy+ps*dz;
-            part_tz[part]=part_tz[p->parent]-ps*dy+pc*dz;
-        }
-    }
-    for(part=0;part<mesh->part_count;++part) {
-        const dla_ped_part_t *p=&mesh->parts[part];
-        const float pc=part_cos[part],ps=part_sin[part];
-        const float ty=part_ty[part],tz=part_tz[part];
-        color3_t tint;
-        float du;
-        int i;
-        if(p->face_count==0||p->vertex_count>MAX_PED_PART_VERTICES) continue;
-        if(part==DLA_PED_HAIR_SHORT&&look->topper!=0) continue;
-        if(part==DLA_PED_HAIR_LONG&&look->topper!=1) continue;
-        if(part==DLA_PED_CAP&&look->topper!=2) continue;
-        pedestrian_part_style(look,part,p->slot,&tint,&du);
-        for(i=0;i<p->vertex_count;++i) {
-            const dla_ped_vertex_t *v=&mesh->vertices[p->first_vertex+i];
-            const float my=(ty+pc*v->y+ps*v->z)*height;
-            const float mz=(tz-ps*v->y+pc*v->z)*height;
-            const float mx=(v->x+p->pivot_x)*height;
-            const vec3_t world={x+mx*c+mz*s,my,z-mx*s+mz*c};
-            const float ny=pc*v->ny+ps*v->nz;
-            const float lz=-ps*v->ny+pc*v->nz;
-            const float nx=v->nx*c+lz*s,nz=-v->nx*s+lz*c;
-            const float key=fmaxf(0.0f,nx*-.48f+ny*.64f+nz*-.60f);
-            const float shade=fminf(1.0f,.36f+(ny*.5f+.5f)*.28f+key*.40f);
-            ped_facing[i]=nx*(camera_x-world.x)+ny*(camera_y-world.y)+
-                          nz*(camera_z-world.z);
-            ped_colors[i]=pack_color(1.0f,color_scale(tint,shade));
-            project_world(world,&ped_points[i]);
-        }
-        for(i=0;i<p->face_count;++i) {
-            const dla_ped_face_t *f=&mesh->faces[p->first_face+i];
-            const int a=f->a-p->first_vertex,b=f->b-p->first_vertex,
-                      d=f->c-p->first_vertex;
-            const dla_ped_vertex_t *va,*vb,*vd;
-            /* Smooth tubes: keep any face with a camera-facing corner so the
-               silhouette never opens up. */
-            if(ped_facing[a]<=0.0f&&ped_facing[b]<=0.0f&&ped_facing[d]<=0.0f) continue;
-            if(!ped_points[a].valid||!ped_points[b].valid||!ped_points[d].valid) continue;
-            if(!screen_triangle_visible(&ped_points[a],&ped_points[b],&ped_points[d])) continue;
-            va=&mesh->vertices[f->a];
-            vb=&mesh->vertices[f->b];
-            vd=&mesh->vertices[f->c];
-            submit_triangle(header,&ped_points[a],&ped_points[b],&ped_points[d],
-                            va->u+du,va->v,vb->u+du,vb->v,vd->u+du,vd->v,
-                            ped_colors[a],ped_colors[b],ped_colors[d]);
-        }
-    }
+    pedestrian_style(look,mesh,&style);
+    draw_rig(mesh,&texture_headers[DLA_TEX_PEDESTRIAN],x,0.0f,z,yaw,
+             look->height,joints,&style);
 }
 
 /* Distant figures keep the flat six-quad silhouette, tinted like the model. */
@@ -5716,265 +5763,38 @@ static vec3_t traffic_point(const traffic_t *vehicle,
                     vehicle->z - x*s + z*c};
 }
 
-static void draw_traffic_box(const traffic_t *vehicle,
-                             float center_x, float center_y, float center_z,
-                             float half_x, float half_y, float half_z,
-                             const pvr_poly_hdr_t *header, uint32_t color) {
-    const shz_sincos_t rotation=shz_sincosf(vehicle->yaw);
-    const float c=rotation.cos,s=rotation.sin;
-    const float dx=camera_x-vehicle->x,dz=camera_z-vehicle->z;
-    const float local_camera_x=dx*c-dz*s;
-    const float local_camera_z=dx*s+dz*c;
-    vec3_t p[8]={
-        {center_x-half_x,center_y+half_y,center_z+half_z},
-        {center_x+half_x,center_y+half_y,center_z+half_z},
-        {center_x-half_x,center_y-half_y,center_z+half_z},
-        {center_x+half_x,center_y-half_y,center_z+half_z},
-        {center_x-half_x,center_y+half_y,center_z-half_z},
-        {center_x+half_x,center_y+half_y,center_z-half_z},
-        {center_x-half_x,center_y-half_y,center_z-half_z},
-        {center_x+half_x,center_y-half_y,center_z-half_z}
-    };
-    int i;
-    for(i=0;i<8;++i) {
-        const float x=p[i].x,z=p[i].z;
-        p[i].x=vehicle->x+x*c+z*s;
-        p[i].z=vehicle->z-x*s+z*c;
-    }
-    if(local_camera_z>center_z+half_z)
-        draw_world_quad(header,p[0],p[1],p[2],p[3],0,0,1,0,0,1,1,1,color);
-    if(local_camera_z<center_z-half_z)
-        draw_world_quad(header,p[5],p[4],p[7],p[6],0,0,1,0,0,1,1,1,color);
-    if(local_camera_x<center_x-half_x)
-        draw_world_quad(header,p[4],p[0],p[6],p[2],0,0,1,0,0,1,1,1,color);
-    if(local_camera_x>center_x+half_x)
-        draw_world_quad(header,p[1],p[5],p[3],p[7],0,0,1,0,0,1,1,1,color);
-    if(camera_y>center_y+half_y)
-        draw_world_quad(header,p[4],p[5],p[0],p[1],0,0,1,0,0,1,1,1,color);
-    if(camera_y<center_y-half_y)
-        draw_world_quad(header,p[2],p[3],p[6],p[7],0,0,1,0,0,1,1,1,color);
-}
-
-static void draw_traffic_body(const traffic_t *vehicle,
-                              uint32_t paint, uint32_t highlight) {
-    const vec3_t fl=traffic_point(vehicle,-.78f,.16f,2.16f);
-    const vec3_t fr=traffic_point(vehicle, .78f,.16f,2.16f);
-    const vec3_t ftl=traffic_point(vehicle,-.88f,.67f,1.91f);
-    const vec3_t ftr=traffic_point(vehicle, .88f,.67f,1.91f);
-    const vec3_t rl=traffic_point(vehicle,-.80f,.16f,-2.10f);
-    const vec3_t rr=traffic_point(vehicle, .80f,.16f,-2.10f);
-    const vec3_t rtl=traffic_point(vehicle,-.91f,.68f,-1.96f);
-    const vec3_t rtr=traffic_point(vehicle, .91f,.68f,-1.96f);
-    draw_world_quad(&world_header,ftl,ftr,fl,fr,0,0,1,0,0,1,1,1,paint);
-    draw_world_quad(&world_header,rtr,rtl,rr,rl,0,0,1,0,0,1,1,1,paint);
-    draw_world_quad(&world_header,rtl,ftl,rl,fl,0,0,1,0,0,1,1,1,paint);
-    draw_world_quad(&world_header,ftr,rtr,fr,rr,0,0,1,0,0,1,1,1,paint);
-    draw_world_quad(&world_header,
-        traffic_point(vehicle,-.88f,.68f,1.91f),
-        traffic_point(vehicle, .88f,.68f,1.91f),
-        traffic_point(vehicle,-.78f,.73f,.97f),
-        traffic_point(vehicle, .78f,.73f,.97f),
-        0,0,1,0,0,1,1,1,highlight);
-    draw_world_quad(&world_header,
-        traffic_point(vehicle,-.77f,.72f,-1.04f),
-        traffic_point(vehicle, .77f,.72f,-1.04f),
-        traffic_point(vehicle,-.91f,.69f,-1.96f),
-        traffic_point(vehicle, .91f,.69f,-1.96f),
-        0,0,1,0,0,1,1,1,highlight);
-}
-
-static void draw_traffic_wheel(const traffic_t *vehicle,
-                               float local_x, float local_z,
-                               bool detailed) {
-    const uint32_t tire=pack_color(1.0f,(color3_t){.035f,.038f,.048f});
-    const uint32_t rim=pack_color(1.0f,(color3_t){.44f,.48f,.56f});
-    const float radius=.37f,center_y=.39f;
-    if(detailed) {
-        const vec3_t center=traffic_point(vehicle,local_x,center_y,local_z);
-        int i;
-        for(i=0;i<6;++i) {
-            const float a0=(float)i*PI/3.0f;
-            const float a1=(float)(i+1)*PI/3.0f;
-            const vec3_t p0=traffic_point(vehicle,local_x,
-                center_y+fsin(a0)*radius,local_z+fcos(a0)*radius);
-            const vec3_t p1=traffic_point(vehicle,local_x,
-                center_y+fsin(a1)*radius,local_z+fcos(a1)*radius);
-            draw_world_triangle(&world_header,center,p0,p1,tire);
-        }
-        draw_world_quad(&world_header,
-            traffic_point(vehicle,local_x,center_y+radius*.31f,local_z+radius*.31f),
-            traffic_point(vehicle,local_x,center_y+radius*.31f,local_z-radius*.31f),
-            traffic_point(vehicle,local_x,center_y-radius*.31f,local_z+radius*.31f),
-            traffic_point(vehicle,local_x,center_y-radius*.31f,local_z-radius*.31f),
-            0,0,1,0,0,1,1,1,rim);
-    }
-    else {
-        draw_world_quad(&world_header,
-            traffic_point(vehicle,local_x,center_y+radius,local_z+radius),
-            traffic_point(vehicle,local_x,center_y+radius,local_z-radius),
-            traffic_point(vehicle,local_x,center_y-radius,local_z+radius),
-            traffic_point(vehicle,local_x,center_y-radius,local_z-radius),
-            0,0,1,0,0,1,1,1,tire);
+/* Body type, tint and detail level for a traffic or parked car. The five
+   lofted bodies come from vehicle_data.h; taxis add the roof sign. */
+static int vehicle_kind(const traffic_t *vehicle) {
+    switch((vehicle->seed>>9)%5u) {
+        case 1: return DLA_VEHICLE_HATCHBACK;
+        case 2: return DLA_VEHICLE_SUV;
+        case 3: return DLA_VEHICLE_PICKUP;
+        case 4: return DLA_VEHICLE_VAN;
+        default: return DLA_VEHICLE_SEDAN;
     }
 }
 
 static void draw_traffic_car(const traffic_t *vehicle) {
-    const float sun=.5f+.5f*fcos(vehicle->yaw+.7f);
-    const color3_t body={vehicle->color.r*(.48f+.14f*sun),
-                         vehicle->color.g*(.52f+.12f*sun),
-                         vehicle->color.b*(.64f+.08f*sun)};
-    const uint32_t paint=pack_color(1.0f,body);
-    const uint32_t paint_top=pack_color(1.0f,color_scale(body,1.23f));
-    const uint32_t glass=pack_color(1.0f,(color3_t){.55f,.64f,.78f});
-    const uint32_t carbon=pack_color(1.0f,(color3_t){.075f,.085f,.115f});
-    const uint32_t metal=pack_color(1.0f,(color3_t){.36f,.40f,.48f});
-    const float brake=clampf(vehicle->brake_light,0.0f,1.0f);
-    const uint32_t tail=pack_color(1.0f,(color3_t){.58f+.42f*brake,
-        .24f+.68f*brake,.20f+.58f*brake});
-    const float dx=vehicle->x-car.x,dz=vehicle->z-car.z;
+    const float dx=vehicle->x-camera_x,dz=vehicle->z-camera_z;
     const float distance_sq=dx*dx+dz*dz;
-    const bool detailed=distance_sq<48.0f*48.0f;
-    const bool medium=distance_sq<105.0f*105.0f;
-    const int variant=(int)((vehicle->seed>>9)%5u);
-    int side, axle;
-
+    const int lod=distance_sq<45.0f*45.0f?0:(distance_sq<130.0f*130.0f?1:2);
+    const dla_rig_mesh_t *mesh=&dla_vehicle_lods[vehicle_kind(vehicle)][lod];
+    const bool taxi=(vehicle->seed%6u)==0u;
+    rig_style_t style;
+    rig_pose_t pose;
     QA_COUNT(vehicles);
-    draw_traffic_body(vehicle,paint,paint_top);
-
-    /* Compact coupe/sedan greenhouse: two sloped screens and tapering sides. */
-    draw_world_quad(&texture_headers[DLA_TEX_CAR_GLASS],
-        traffic_point(vehicle,-0.78f,.72f,.98f),traffic_point(vehicle,.78f,.72f,.98f),
-        traffic_point(vehicle,-0.57f,1.27f,.36f),traffic_point(vehicle,.57f,1.27f,.36f),
-        0,1,1,1,0,0,1,0,glass);
-    draw_world_quad(&texture_headers[DLA_TEX_CAR_GLASS],
-        traffic_point(vehicle,-0.57f,1.27f,-.63f),traffic_point(vehicle,.57f,1.27f,-.63f),
-        traffic_point(vehicle,-0.77f,.72f,-1.05f),traffic_point(vehicle,.77f,.72f,-1.05f),
-        0,0,1,0,0,1,1,1,glass);
-    draw_world_quad(&texture_headers[DLA_TEX_CAR_GLASS],
-        traffic_point(vehicle,-0.57f,1.27f,.36f),traffic_point(vehicle,-0.57f,1.27f,-.63f),
-        traffic_point(vehicle,-0.78f,.72f,.98f),traffic_point(vehicle,-0.77f,.72f,-1.05f),
-        0,0,1,0,0,1,1,1,glass);
-    draw_world_quad(&texture_headers[DLA_TEX_CAR_GLASS],
-        traffic_point(vehicle,.57f,1.27f,-.63f),traffic_point(vehicle,.57f,1.27f,.36f),
-        traffic_point(vehicle,.77f,.72f,-1.05f),traffic_point(vehicle,.78f,.72f,.98f),
-        0,0,1,0,0,1,1,1,glass);
-    draw_world_quad(&world_header,
-        traffic_point(vehicle,-.57f,1.28f,-.63f),traffic_point(vehicle,.57f,1.28f,-.63f),
-        traffic_point(vehicle,-.57f,1.28f,.36f),traffic_point(vehicle,.57f,1.28f,.36f),
-        0,0,1,0,0,1,1,1,paint_top);
-
-    if(medium && variant==1) {
-        /* Touring wagon: longer roof, rear quarter glass and roof rails. */
-        draw_traffic_box(vehicle,0.0f,1.22f,-.76f,.60f,.08f,.62f,
-                         &world_header,paint_top);
-        draw_traffic_box(vehicle,-.50f,1.37f,-.36f,.035f,.035f,.88f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,.50f,1.37f,-.36f,.035f,.035f,.88f,
-                         &world_header,carbon);
-    }
-    else if(medium && variant==2) {
-        /* Boxier crossover profile with a high rear cabin and bright rails. */
-        draw_traffic_box(vehicle,0.0f,1.28f,-.68f,.64f,.18f,.70f,
-                         &world_header,paint_top);
-        draw_traffic_box(vehicle,0.0f,1.30f,-1.39f,.58f,.14f,.055f,
-                         &texture_headers[DLA_TEX_CAR_GLASS],glass);
-        draw_traffic_box(vehicle,-.51f,1.50f,-.40f,.035f,.035f,.90f,
-                         &world_header,metal);
-        draw_traffic_box(vehicle,.51f,1.50f,-.40f,.035f,.035f,.90f,
-                         &world_header,metal);
-    }
-    else if(medium && variant==3) {
-        /* Street pickup/ute silhouette: dark bed, cover and roll hoop. */
-        draw_traffic_box(vehicle,0.0f,.76f,-1.25f,.72f,.08f,.72f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,-.58f,1.04f,-.72f,.045f,.30f,.045f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,.58f,1.04f,-.72f,.045f,.30f,.045f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,0.0f,1.30f,-.72f,.60f,.045f,.045f,
-                         &world_header,carbon);
-    }
-    else if(medium && variant==4) {
-        /* Compact delivery van: a tall cargo volume, split rear doors and
-           colored waist stripe provide a genuinely different street shape. */
-        const uint32_t cargo=pack_color(1.0f,color_scale(vehicle->color,.88f));
-        draw_traffic_box(vehicle,0.0f,1.24f,-.72f,.78f,.57f,1.13f,
-                         &world_header,cargo);
-        draw_traffic_box(vehicle,0.0f,1.27f,-1.875f,.035f,.49f,.025f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,0.0f,.78f,-.78f,.805f,.075f,1.04f,
-                         &world_header,paint_top);
-        draw_traffic_box(vehicle,-.80f,1.31f,-.55f,.028f,.40f,.78f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,.80f,1.31f,-.55f,.028f,.40f,.78f,
-                         &world_header,carbon);
-    }
-
-    for(side=-1;side<=1;side+=2) {
-        for(axle=-1;axle<=1;axle+=2) {
-            const float x=(float)side*.965f;
-            const float z=(float)axle*1.30f;
-            draw_traffic_wheel(vehicle,x,z,detailed);
-        }
-    }
-    draw_traffic_box(vehicle,0.0f,.25f,2.08f,.82f,.10f,.08f,
-                     &world_header,carbon);
-    draw_traffic_box(vehicle,0.0f,.25f,-2.08f,.82f,.10f,.08f,
-                     &world_header,carbon);
-    if((vehicle->seed%6u)==0u) {
-        draw_traffic_box(vehicle,0.0f,1.38f,-.02f,.34f,.10f,.24f,
-                         &world_header,
-                         pack_color(1.0f,(color3_t){1.0f,.72f,.14f}));
-    }
-    if(detailed) {
-        const uint32_t mirror=pack_color(1.0f,color_scale(vehicle->color,.58f));
-        const uint32_t plate=pack_color(1.0f,(color3_t){.76f,.78f,.68f});
-        draw_traffic_box(vehicle,-1.04f,.91f,.37f,.14f,.09f,.18f,
-                         &world_header,mirror);
-        draw_traffic_box(vehicle,1.04f,.91f,.37f,.14f,.09f,.18f,
-                         &world_header,mirror);
-        draw_traffic_box(vehicle,0.0f,.31f,2.17f,.32f,.11f,.035f,
-                         &world_header,plate);
-        draw_traffic_box(vehicle,0.0f,.31f,-2.17f,.32f,.11f,.035f,
-                         &world_header,plate);
-        draw_traffic_box(vehicle,-.925f,.49f,.02f,.026f,.035f,.82f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,.925f,.49f,.02f,.026f,.035f,.82f,
-                         &world_header,carbon);
-        draw_traffic_box(vehicle,-.944f,.72f,-.35f,.026f,.035f,.16f,
-                         &world_header,metal);
-        draw_traffic_box(vehicle,.944f,.72f,-.35f,.026f,.035f,.16f,
-                         &world_header,metal);
-        if((vehicle->seed&3u)==1u) {
-            draw_traffic_box(vehicle,-.47f,1.39f,-.10f,.035f,.035f,.66f,
-                             &world_header,carbon);
-            draw_traffic_box(vehicle,.47f,1.39f,-.10f,.035f,.035f,.66f,
-                             &world_header,carbon);
-        }
-        if((vehicle->seed&7u)==2u) {
-            draw_traffic_box(vehicle,0.0f,.92f,-1.86f,.76f,.055f,.20f,
-                             &world_header,carbon);
-            draw_traffic_box(vehicle,-.64f,.77f,-1.78f,.045f,.18f,.045f,
-                             &world_header,carbon);
-            draw_traffic_box(vehicle,.64f,.77f,-1.78f,.045f,.18f,.045f,
-                             &world_header,carbon);
-        }
-    }
-
-    /* Two white forward lamps and two red rear lamps. */
-    for(side=-1;side<=1;side+=2) {
-        const float x=(float)side*.56f;
-        draw_world_quad(&texture_headers[DLA_TEX_CAR_LIGHTS],
-            traffic_point(vehicle,x-.22f,.58f,2.125f),traffic_point(vehicle,x+.22f,.58f,2.125f),
-            traffic_point(vehicle,x-.18f,.39f,2.125f),traffic_point(vehicle,x+.18f,.39f,2.125f),
-            .58f,.05f,.98f,.05f,.58f,.54f,.98f,.54f,
-            pack_color(1.0f,(color3_t){.88f,.94f,1.0f}));
-        draw_world_quad(&texture_headers[DLA_TEX_CAR_LIGHTS],
-            traffic_point(vehicle,x+.22f,.58f,-2.125f),traffic_point(vehicle,x-.22f,.58f,-2.125f),
-            traffic_point(vehicle,x+.18f,.39f,-2.125f),traffic_point(vehicle,x-.18f,.39f,-2.125f),
-            .02f,.02f,.48f,.02f,.02f,.48f,.48f,.48f,
-            tail);
-    }
+    rig_style_reset(&style);
+    style.tint[DLA_VEH_BODY]=color_scale(vehicle->color,1.25f);
+    style.unlit[DLA_VEH_FRONT]=true;
+    style.unlit[DLA_VEH_REAR]=true;
+    style.skip[DLA_VEH_TAXI_SIGN]=!taxi;
+    style.unlit[DLA_VEH_TAXI_SIGN]=true;
+    memset(&pose,0,sizeof(pose));
+    pose.angle[DLA_VEH_WHEEL_FL]=pose.angle[DLA_VEH_WHEEL_FR]=
+    pose.angle[DLA_VEH_WHEEL_RL]=pose.angle[DLA_VEH_WHEEL_RR]=vehicle->spin;
+    draw_rig(mesh,&texture_headers[DLA_TEX_VEHICLE],vehicle->x,0.0f,vehicle->z,
+             vehicle->yaw,1.0f,&pose,&style);
 }
 
 static void draw_traffic(void) {
@@ -6188,7 +6008,7 @@ static void draw_car_mesh(void) {
         n=(vec3_t){nx*c+v->nz*s,ny,-nx*s+v->nz*c};
         world=car_render[i].world;
         material=car_render[i].material;
-        if(material==DLA_MAT_GLASS) light=(color3_t){.42f,.49f,.61f};
+        if(material==DLA_MAT_GLASS) light=(color3_t){.30f,.36f,.48f};
         else if(material==DLA_MAT_LIGHTS) light=(color3_t){1.0f,.92f,.90f};
         else {
             const float key=fmaxf(0.0f,n.x*-.48f+n.y*.64f+n.z*-.60f);
@@ -6238,6 +6058,8 @@ static void draw_car_mesh(void) {
                !car_render[f->c].projected.valid ||
                !screen_triangle_visible(&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected)) continue;
             car_visible_faces[i]=true;
+            /* Glass waits for the translucent pass so the cabin shows through. */
+            if(material==DLA_MAT_GLASS) continue;
             submit_triangle(header,&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected,
                 a->u,a->v,b->u,b->v,d->u,d->v,car_render[f->a].color,car_render[f->b].color,car_render[f->c].color);
         }
@@ -6462,6 +6284,25 @@ static void draw_car(void) {
     draw_wheel( .97f,-1.55f, 0.0f, .45f, .32f);
     draw_car_mesh();
     draw_player_brake_lights();
+}
+
+static void draw_car_glass(void) {
+    const int material=DLA_MAT_GLASS;
+    const int end=dla_car_material_ranges[material].first_face+
+                  dla_car_material_ranges[material].face_count;
+    int i;
+    for(i=dla_car_material_ranges[material].first_face;i<end;++i) {
+        const dla_mesh_face_t *f=&dla_car_mesh.faces[i];
+        const dla_mesh_vertex_t *a=&dla_car_mesh.vertices[f->a];
+        const dla_mesh_vertex_t *b=&dla_car_mesh.vertices[f->b];
+        const dla_mesh_vertex_t *d=&dla_car_mesh.vertices[f->c];
+        if(!car_visible_faces[i]) continue;
+        submit_triangle(&car_glass_header,&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected,
+            a->u,a->v,b->u,b->v,d->u,d->v,
+            (car_render[f->a].color&0x00ffffffu)|0xa8000000u,
+            (car_render[f->b].color&0x00ffffffu)|0xa8000000u,
+            (car_render[f->c].color&0x00ffffffu)|0xa8000000u);
+    }
 }
 
 static void draw_car_environment_reflections(void) {
@@ -6810,6 +6651,7 @@ static void render_frame(bool connected, float dt) {
         draw_city_lighting();
         draw_vehicle_shadows();
         draw_pedestrian_shadows();
+        draw_car_glass();
         draw_car_environment_reflections();
         draw_vehicle_lighting();
         draw_skids();
@@ -6994,6 +6836,26 @@ static int init_graphics(void) {
         context.txr.alpha=PVR_TXRALPHA_DISABLE;
         context.txr.uv_clamp=PVR_UVCLAMP_UV;
         pvr_poly_compile(&reflection_header,&context);
+    }
+
+    {
+        /* The greenhouse is drawn translucent so the cabin shows through; the
+           reflection pass then layers the environment over it. */
+        const dla_texture_asset_t *asset=&dla_texture_assets[DLA_TEX_CAR_GLASS];
+        pvr_poly_cxt_txr(&context,PVR_LIST_TR_POLY,PVR_TXRFMT_RGB565,
+            asset->width,asset->height,texture_vram[DLA_TEX_CAR_GLASS],PVR_FILTER_BILINEAR);
+        context.gen.alpha=true;
+        context.gen.shading=PVR_SHADE_GOURAUD;
+        context.gen.culling=PVR_CULLING_NONE;
+        context.gen.fog_type=PVR_FOG_DISABLE;
+        context.depth.comparison=PVR_DEPTHCMP_GEQUAL;
+        context.depth.write=PVR_DEPTHWRITE_DISABLE;
+        context.blend.src=PVR_BLEND_SRCALPHA;
+        context.blend.dst=PVR_BLEND_INVSRCALPHA;
+        context.txr.env=PVR_TXRENV_MODULATEALPHA;
+        context.txr.alpha=PVR_TXRALPHA_DISABLE;
+        context.txr.uv_clamp=PVR_UVCLAMP_NONE;
+        pvr_poly_compile(&car_glass_header,&context);
     }
 
     pvr_poly_cxt_col(&context,PVR_LIST_TR_POLY);

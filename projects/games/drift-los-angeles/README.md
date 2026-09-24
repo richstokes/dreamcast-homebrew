@@ -21,11 +21,18 @@ is also available.
 - An endless, streamed open city with no world edge or loading screens
 - Four distinct neighborhoods, each with its own landmark, lighting, and street
   furniture: Downtown Core, Pacific Coast, Arts Quarter, and Neon Strip
+- Every block is a ring of two to four street-wall properties per side, each
+  with its own height, facade, tint, setback, cornice and rooftop (plant, water
+  tank, billboard or mast), with the block's tower or warehouse rising behind
 - A detailed C7-inspired coupe with hard-edge normals, baked ambient occlusion,
-  view-dependent paint/glass reflections, working lights, steering, and wheels
+  view-dependent paint/glass reflections, working lights, steering, and wheels,
+  and a modelled cabin (dash, seats, wheel) visible through translucent glass
 - Drift physics with throttle oversteer, clutch kicks, handbrake initiation,
   burnouts, and power donuts
-- Thirty-six traffic cars that obey lanes and signals, plus dense street life
+- Thirty-six traffic cars that obey lanes and signals, lofted as five real body
+  types (sedan, hatchback, SUV, van, pickup, plus taxis) with spinning spoked
+  wheels, lamps, grilles and plates at three detail levels; parked cars share
+  the same models
 - Articulated pedestrians: sixteen-part textured bodies with faces, hair,
   caps, glasses, four outfit styles, denim and shoes, each tinted from its
   seed and walking a knee-and-elbow cycle, with two mesh detail levels and a
@@ -167,6 +174,18 @@ is checked in so Blender is not needed for a normal build. To regenerate it:
 make model
 ```
 
+## Regenerate the vehicles
+
+Traffic and parked cars are authored procedurally in `tools/build_vehicles.py`
+from cross-section stations, sharing the rig format and tintable-atlas
+approach of the pedestrians (`tools/rig_export.py`). The generated
+`assets/source/vehicle-atlas.png` and `vehicle_data.h` are checked in:
+
+```sh
+make vehicles
+make textures
+```
+
 ## Regenerate the pedestrians
 
 The pedestrian atlas and the two-level articulated mesh are authored
@@ -235,8 +254,16 @@ null host-audio backend. Real Dreamcast hardware remains to be measured.
 The articulated pedestrians add a 256x256 mipmapped atlas (170 KiB) and up to
 about 480 triangles per close figure. With them, the same tour averaged
 **46.54 FPS** (2,794 frames / 60.034 seconds) with a peak of 7,014 triangles
-per frame; textures and HUD now occupy 4,140,032 bytes (3.95 MiB) with
-969,832 bytes free after allocation.
+per frame.
+
+The world upgrade that followed (lofted traffic vehicles with a second
+256x256 atlas, per-lot street walls on every block, and the player car's cabin
+behind translucent glass) averaged **37.13 FPS** (2,230 frames / 60.052
+seconds) with a peak of 7,312 triangles per frame. The cost is mostly CPU
+vertex work rather than fill, so distant blocks draw only their camera-facing
+sides and merge their lots, roofs are skipped below the camera, and far cars
+drop their wheels and mirrors. Textures and HUD occupy 4,314,816 bytes (4.12
+MiB) with 795,016 bytes free after allocation.
 
 Vertex-count telemetry gives a lower bound on stream bytes; polygon headers
 also consume the PVR vertex buffer. The mesh audit checks the renderer's

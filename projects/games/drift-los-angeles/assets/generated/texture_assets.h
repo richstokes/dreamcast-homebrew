@@ -64,8 +64,9 @@ typedef enum {
     DLA_TEX_EFFECT_SHADOW = 47,
     DLA_TEX_EFFECT_SMOKE = 48,
     DLA_TEX_PEDESTRIAN = 49,
-    DLA_TEX_TITLE_ART = 50,
-    DLA_TEXTURE_COUNT = 51
+    DLA_TEX_VEHICLE = 50,
+    DLA_TEX_TITLE_ART = 51,
+    DLA_TEXTURE_COUNT = 52
 } dla_texture_id_t;
 
 extern const dla_texture_asset_t dla_texture_assets[DLA_TEXTURE_COUNT];
