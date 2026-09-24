@@ -20,6 +20,7 @@ Captured from the Dreamcast build running in Flycast.
 ## Build and play
 
 ```sh
+git submodule update --init --recursive
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/apps/pico8-dreamcast -j8
 ./projects/apps/pico8-dreamcast/run-flycast.sh --skip-build
@@ -32,7 +33,9 @@ no persistent network changes. The runtime and cartridges are checked in;
 HTTPS additionally links the `curl` / `mbedtls` kos-ports and KOS's `libppp`.
 The baseline is KOS 2.3.0 / SH-4 GCC 15.2.0. Build/link use `kos-c++` and KOS's
 `Makefile.rules`; Z8lua's `.c` sources must also compile as C++.
-SH4ZAM 0.9.0's C headers are vendored; no separate SH4ZAM install is required.
+SH4ZAM 0.9.0 is pinned as a Git submodule at `third_party/sh4zam`; the selected
+C headers require no separate SH4ZAM build or SDK installation. See the
+[integration notes](third_party/SH4ZAM.md).
 
 If needed, install the `mbedtls` and `curl` kos-ports from the sourced environment:
 `make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`.

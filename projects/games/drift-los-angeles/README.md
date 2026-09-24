@@ -77,9 +77,11 @@ the title. From the pause screen, B returns to the title.
 
 ## Build
 
-Source the installed KallistiOS environment and run `make`:
+Initialize the pinned dependencies from this project directory, source the
+installed KallistiOS environment and run `make`:
 
 ```sh
+git submodule update --init --recursive -- third_party/sh4zam
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make
 ```
@@ -212,9 +214,11 @@ material face ranges. Each material has separate vertices for cached shading.
 
 ## SH4 rendering acceleration
 
-The renderer uses pinned, vendored [SH4ZAM](https://sh4zam.com/) headers for
+The renderer uses [SH4ZAM](https://sh4zam.com/) headers from the pinned Git
+submodule at `third_party/sh4zam` for
 batched camera transforms, positive-depth reciprocals, reflection normalization
-and paired sine/cosine. No extra SDK installation is required. The car's draw
+and paired sine/cosine. No extra SDK installation is required; see the
+[integration notes](third_party/SH4ZAM.md). The car's draw
 cache keeps each vertex's frequently used fields together on SH4 cache lines.
 Vertices now go straight to PowerVR through the store queues, and the car shades
 only vertices referenced by front-facing faces. Wheel transforms reuse their
