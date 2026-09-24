@@ -11,12 +11,24 @@
 //
 
 #include "synth.h"
+#if defined(__DREAMCAST__)
+#include "audio_math.h"
+#endif
 
 #include <cmath>     // std::fabs, std::fmod
 #include <cstdlib>   // rand
 
 namespace z8
 {
+
+static float phase_fraction(float phase)
+{
+#if defined(__DREAMCAST__)
+    return dc_audio_phase(phase);
+#else
+    return std::fmod(phase, 1.f);
+#endif
+}
 
 // Simple random function returning float in range [-1, 1]
 static float rand_float()
@@ -29,7 +41,7 @@ float synth::waveform(synth_param &params)
     using std::fabs, std::fmod;
 
     float advance = params.phi;
-    float t = fmod(advance, 1.f);
+    float t = phase_fraction(advance);
     float ret = 0.f;
 
     bool noiz = params.filters & 0x2;
@@ -60,7 +72,7 @@ float synth::waveform(synth_param &params)
         case INST_SAW:
             ret = (t < 0.5f ? t : t - 1.f);
             // slight offset looping on 2x period
-            if (buzz) ret = ret * 0.83f - (fabs(fmod(advance, 2.f) - 1.0f) < 0.5 ? 0.085f : 0.0f);
+            if (buzz) ret = ret * 0.83f - (fabs((2.f * phase_fraction(advance * 0.5f)) - 1.0f) < 0.5 ? 0.085f : 0.0f);
             return 0.653f * ret;
         case INST_SQUARE:
             return t < (buzz ? 0.4f : 0.5f) ? 0.25f : -0.25f;
@@ -102,14 +114,14 @@ float synth::waveform(synth_param &params)
             // the ratio between the frequency seems to be around 110 for c2
             // but it is 97 for c0 and 127 for c5, not sure how to adjust that
             ret = 2.f - fabs(8.f * t - 4.f);
-            ret += 1.f - fabs(4.f * fmod(advance * 109.f/110.f, 1.f) - 2.f);
+            ret += 1.f - fabs(4.f * phase_fraction(advance * 109.f/110.f) - 2.f);
             if (buzz)
             {
                 // original triangle has freq 1, 3, 5, 7, 9 ...
                 // add waves at 2, 6, 10, 14
-                ret += 0.25f - fabs(1.f * fmod(advance * 2.0f + 0.5f, 1.f) - 0.5f);
+                ret += 0.25f - fabs(1.f * phase_fraction(advance * 2.0f + 0.5f) - 0.5f);
                 // add waves at 4, 12, 20, 28
-                ret += 0.125f - fabs(0.5f * fmod(advance * 4.0f, 1.f) - 0.25f);
+                ret += 0.125f - fabs(0.5f * phase_fraction(advance * 4.0f) - 0.25f);
             }
             return ret / 6.f;
         }

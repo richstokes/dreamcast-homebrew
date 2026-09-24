@@ -577,7 +577,11 @@ void luaV_finishOp (lua_State *L) {
 
 //turn off optimizations for this method.
 //OP_FORLOOP doesn't correctly detect wrapping in certain cases if optimization is on and aggressive
-#if __clang__
+#if defined(__DREAMCAST__)
+// Dreamcast: fix32 addition/subtraction use unsigned wrapping explicitly, and
+// the build retains -fwrapv. Boundary-loop regressions cover OP_FORLOOP below.
+void luaV_execute (lua_State *L) {
+#elif __clang__
 [[clang::optnone]]
 void luaV_execute (lua_State *L) {
 #elif __GNUC__
@@ -984,4 +988,3 @@ void luaV_execute (lua_State *L) {
     }
   }
 }
-

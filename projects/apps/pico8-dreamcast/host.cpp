@@ -9,12 +9,22 @@
 #include "host.h"
 #include "filehelpers.h"
 #include "platform.h"
+#include "video_convert.h"
 
 namespace {
 pvr_ptr_t texture = nullptr;
 pvr_poly_hdr_t polygon;
 alignas(32) uint16_t pixels[128 * 128];
 alignas(32) int16_t samples[4096];
+// KOS rounds stream requests to 2048-byte sectors. A 4096-byte ring gives
+// 1024-sample refills instead of the old 2048-sample synthesis stalls.
+constexpr size_t audio_buffer_bytes = 4096;
+alignas(32) uint8_t previous_pixels[8192];
+uint16_t previous_colors[16];
+bool frame_valid = false;
+uint8_t previous_mode = 0;
+int previous_size = 0;
+uint64_t submitted_frames = 0;
 snd_stream_hnd_t stream = SND_STREAM_INVALID;
 Audio* synth = nullptr;
 bool initialized = false, sound_initialized = false, sound_enabled = false;
@@ -64,6 +74,7 @@ void dc_set_launcher(bool enabled) { launcher = enabled; }
 bool dc_download_requested() { bool result = download_requested; download_requested = false; return result; }
 uint64_t dc_audio_samples() { return sample_count; }
 uint64_t dc_audio_nonzero() { return nonzero_count; }
+uint64_t dc_video_frames() { return submitted_frames; }
 void dc_set_test_input(uint8_t buttons) { test_input = true; test_buttons = buttons; }
 void dc_set_test_pad(uint32_t buttons) { test_pad = true; test_pad_state.buttons = buttons; }
 bool dc_menu_requested() {
@@ -71,7 +82,7 @@ bool dc_menu_requested() {
     menu_requested = false;
     return value;
 }
-void dc_reset_input() { previous_buttons = 0; deadline = 0; release_input = true; }
+void dc_reset_input() { previous_buttons = 0; deadline = 0; release_input = true; frame_valid = false; }
 void dc_poll_audio() { if (stream != SND_STREAM_INVALID) snd_stream_poll(stream); }
 void dc_audio_enable(bool enabled) { sound_enabled = enabled; }
 
@@ -92,9 +103,10 @@ void Host::oneTimeSetup(Audio* audio) {
     pvr_poly_compile(&polygon, &context);
     pvr_set_bg_color(0.008f, 0.016f, 0.031f);
     initialized = true;
-    if (snd_stream_init_ex(1, 8192) == 0) {
+    frame_valid = false;
+    if (snd_stream_init_ex(1, audio_buffer_bytes) == 0) {
         sound_initialized = true;
-        stream = snd_stream_alloc(audio_callback, 8192);
+        stream = snd_stream_alloc(audio_callback, audio_buffer_bytes);
         if (stream != SND_STREAM_INVALID) {
             snd_stream_start(stream, 22050, 0);
             snd_stream_volume(stream, 220);
@@ -170,23 +182,21 @@ void Host::changeStretch() {}
 void Host::forceStretch(StretchOption option) { display_size = option == StretchToFit ? 480 : 384; }
 
 void Host::drawFrame(uint8_t* framebuffer, uint8_t* palette, uint8_t mode) {
-    // Transform coordinates before the PVR nearest-neighbour upscale.
-    for (int y = 0; y < 128; ++y) for (int x = 0; x < 128; ++x) {
-        int sx = x, sy = y;
-        switch (mode) {
-            case 1: sx /= 2; break;
-            case 2: sy /= 2; break;
-            case 3: sx /= 2; sy /= 2; break;
-            case 129: sx = 127-x; break;
-            case 130: sy = 127-y; break;
-            case 131: case 134: sx = 127-x; sy = 127-y; break;
-            case 133: sx = y; sy = 127-x; break;
-            case 135: sx = 127-y; sy = x; break;
-        }
-        uint8_t packed = framebuffer[sy * 64 + sx / 2];
-        auto color = _paletteColors[palette[(packed >> ((sx & 1) * 4)) & 15] & 0x8f];
-        pixels[y * 128 + x] = ((color.Red >> 3) << 11) | ((color.Green >> 2) << 5) | (color.Blue >> 3);
+    uint16_t colors[16];
+    for (unsigned i = 0; i < 16; ++i) {
+        auto color = _paletteColors[palette[i] & 0x8f];
+        colors[i] = ((color.Red >> 3) << 11) | ((color.Green >> 2) << 5) | (color.Blue >> 3);
     }
+    // 30-Hz carts yield twice per draw. Retain the displayed PVR frame when
+    // pixels, palette, transform and scale are unchanged; still tick the VM
+    // and service input/audio at the normal rate. Modal screens invalidate it.
+    if (frame_valid && previous_mode == mode && previous_size == display_size &&
+        !memcmp(previous_colors, colors, sizeof(colors)) &&
+        !memcmp(previous_pixels, framebuffer, sizeof(previous_pixels))) return;
+    memcpy(previous_colors, colors, sizeof(colors));
+    memcpy(previous_pixels, framebuffer, sizeof(previous_pixels));
+    previous_mode = mode; previous_size = display_size; frame_valid = true;
+    dc_convert_frame(pixels, framebuffer, colors, mode);
     pvr_wait_ready();
     pvr_txr_load(pixels, texture, sizeof(pixels));
     pvr_scene_begin();
@@ -205,6 +215,7 @@ void Host::drawFrame(uint8_t* framebuffer, uint8_t* palette, uint8_t mode) {
     }
     pvr_list_finish();
     pvr_scene_finish();
+    ++submitted_frames;
 }
 
 bool Host::shouldFillAudioBuff() { return false; }

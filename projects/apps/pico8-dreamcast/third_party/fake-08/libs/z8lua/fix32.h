@@ -117,8 +117,10 @@ struct fix32
     inline fix32 operator -() const { return frombits(-m_bits); }
     inline fix32 operator ~() const { return frombits(~m_bits); }
 
-    inline fix32 operator +(fix32 x) const { return frombits(m_bits + x.m_bits); }
-    inline fix32 operator -(fix32 x) const { return frombits(m_bits - x.m_bits); }
+    // Explicit modulo-2^32 arithmetic preserves FORLOOP's wrap detection under
+    // optimization (signed overflow otherwise allows that check to disappear).
+    inline fix32 operator +(fix32 x) const { return frombits(uint32_t(m_bits) + uint32_t(x.m_bits)); }
+    inline fix32 operator -(fix32 x) const { return frombits(uint32_t(m_bits) - uint32_t(x.m_bits)); }
     inline fix32 operator &(fix32 x) const { return frombits(m_bits & x.m_bits); }
     inline fix32 operator |(fix32 x) const { return frombits(m_bits | x.m_bits); }
     inline fix32 operator ^(fix32 x) const { return frombits(m_bits ^ x.m_bits); }

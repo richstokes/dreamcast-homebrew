@@ -32,6 +32,7 @@ no persistent network changes. The runtime and cartridges are checked in;
 HTTPS additionally links the `curl` / `mbedtls` kos-ports and KOS's `libppp`.
 The baseline is KOS 2.3.0 / SH-4 GCC 15.2.0. Build/link use `kos-c++` and KOS's
 `Makefile.rules`; Z8lua's `.c` sources must also compile as C++.
+SH4ZAM 0.9.0's C headers are vendored; no separate SH4ZAM install is required.
 
 If needed, install the `mbedtls` and `curl` kos-ports from the sourced environment:
 `make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`.
@@ -187,6 +188,40 @@ desktop session; it is not a headless unit test.
 For visual inspection, `./run-flycast.sh --smoke-test` leaves test execution
 visible. Use `make clean` to remove generated objects and ELF/ROM-disk outputs.
 Normal `make` never enables scripted controls.
+
+## Performance and profiling
+
+The Dreamcast build optimizes the Lua dispatch loop after fixing its signed
+wraparound checks, converts two RGB565 pixels per store, and uses packed sprite
+and patterned-shape rasterizers. Unchanged frames retain the displayed PowerVR
+image while VM/input/audio processing continues. Palette, transform and scale
+changes force a redraw, as does returning from a modal screen.
+
+[SH4ZAM](https://sh4zam.com/) supplies SH-4 truncation for oscillator phases.
+Audio also caches exact note frequencies/rates and per-buffer metadata. These
+changes preserve the reference PCM hashes; PICO-8's fixed-point math remains
+exact and global fast-math is disabled. AICA uses 1,024-sample refills to reduce
+individual synthesis stalls. Heavy scenes can still miss audio deadlines.
+See [before/after measurements and remaining limits](VALIDATION.md#sh4-optimization-results).
+
+```sh
+# From this project directory, with KOS sourced:
+uv run tests/run_smoke.py --kernels   # Rendering and exact PCM regressions
+uv run tests/run_smoke.py --profile --log build/profile.log
+uv run tests/analyze_profile.py build/profile.log --elf pico8-profile.elf
+```
+
+The separate profile ELF samples the active player's program counter from the
+KOS scheduler (100 Hz in the tested SDK), using 16-byte buckets. Its report
+attributes samples to symbols; inlining, bucket boundaries and scheduler timing
+make it statistical rather than an exact cycle count. Keep the matching ELF
+with each log and analyze it before rebuilding. The ordinary smoke ELF reports
+elapsed guest time, VM/video/audio time, submitted frames, and median/95th/max
+tick duration without the PC sampler. VM ticks are not game FPS: `_update`
+cartridges run game logic every other tick. Normal release builds contain no
+sampler or scripted test loop.
+
+## Network regression tests
 
 The network suite creates short-lived TLS servers on the Mac, with generated
 test certificates trusted **only in its separate test ELF**. It tests real

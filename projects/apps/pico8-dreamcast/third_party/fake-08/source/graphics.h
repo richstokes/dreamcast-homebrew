@@ -6,6 +6,9 @@
 #include "PicoRam.h"
 #include <fix32.h>
 using namespace z8;
+#if defined(__DREAMCAST__)
+#include "sprite_blit.h"
+#endif
 
 
 class Graphics {
@@ -13,6 +16,9 @@ class Graphics {
 	uint8_t fontSpriteData[128 * 64];
 
 	PicoRam* _memory;
+#if defined(__DREAMCAST__)
+    DcSpriteBlitter _dcSpriteBlitter;
+#endif
 
 	void copySpriteToScreen(
 		uint8_t* spritebuffer,
@@ -190,4 +196,3 @@ class Graphics {
 	std::tuple<uint8_t, uint8_t> cursor(int x, int y, uint8_t col);
 
 };
-

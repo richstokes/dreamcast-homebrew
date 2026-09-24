@@ -91,6 +91,10 @@ class Audio {
     PicoRam* _memory;
     audioState_t _audioState;
     bool _paused;
+#if defined(__DREAMCAST__)
+    // Notes may be poked between callbacks, so invalidate once per buffer.
+    int16_t _lastAudibleNote[64];
+#endif
 
     void set_music_pattern(int pattern);
     void update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth, 

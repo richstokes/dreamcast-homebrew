@@ -17,6 +17,9 @@ using namespace std;
 #include "stringToDataHelpers.h"
 
 #include "logger.h"
+#if defined(__DREAMCAST__)
+#include "pen_span.h"
+#endif
 
 #include <fix32.h>
 using namespace z8;
@@ -136,6 +139,11 @@ void Graphics::copySpriteToScreen(
 		scr_h -= nclip;
 	}
 	uint8_t lastScreenBuffByte = 0;
+#if defined(__DREAMCAST__)
+    if (!flip_x && !flip_y && hwState.colorBitmask == 0xff &&
+        _dcSpriteBlitter.draw(spritebuffer, screenBuffer, drawState.drawPaletteMap,
+                             spr_x, spr_y, scr_x, scr_y, scr_w, scr_h)) return;
+#endif
 	int lastScreenBuffIdx = -1;
 
 	bool startWithHalf = false;
@@ -768,6 +776,17 @@ void Graphics::_private_h_line(int x1, int x2, int y){
         memset(p + minx / 2, color * 0x11, (maxx - minx + 1) / 2);
 	}
 	else {
+#if defined(__DREAMCAST__)
+        // Short spans cost less through the scalar path than preparing four
+        // palette/mask entries; amortize that setup over at least eight pixels.
+        if (minx >= 0 && maxx < 128 && y >= 0 && y < 128 && maxx - minx >= 7) {
+            dc_pen_span(screenBuffer, minx, maxx, y, drawState.color,
+                drawState.fillPattern[0] | (uint16_t(drawState.fillPattern[1]) << 8),
+                drawState.fillPatternTransparencyBit & 1, hwState.colorBitmask,
+                drawState.drawPaletteMap);
+            return;
+        }
+#endif
 		for (int x = minx; x <= maxx; x++){
 			_setPixelFromPen(x, y);
 		}

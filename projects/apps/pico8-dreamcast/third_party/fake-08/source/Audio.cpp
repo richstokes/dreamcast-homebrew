@@ -12,6 +12,9 @@
 #include <cmath>
 #include <float.h>
 #include <cassert>
+#if defined(__DREAMCAST__)
+#include "audio_math.h"
+#endif
 
 //playback implementation based on zepto8's
 //https://github.com/samhocevar/zepto8/blob/master/src/pico8/sfx.cpp
@@ -350,7 +353,7 @@ void Audio::launch_sfx(int16_t sfx, int16_t chan, float offset, float length, bo
     _audioState._sfxChannels[chan].main_sfx.prev_vol = 0.f;
 }
 
-static float key_to_freq(float key)
+static float key_to_freq(int key)
 {
     using std::exp2;
 #if defined(__DREAMCAST__)
@@ -361,8 +364,7 @@ static float key_to_freq(float key)
         for (int i = 0; i < 64; ++i) values[i] = 440.f * exp2((float(i) - 33.f) / 12.f);
         return values;
     }();
-    int index = int(key);
-    if (index >= 0 && index < 64 && key == float(index)) return frequencies[index];
+    if (key >= 0 && key < 64) return frequencies[key];
 #endif
     return 440.f * exp2((key - 33.f) / 12.f);
 }
@@ -409,7 +411,18 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
 
     // PICO-8 exports instruments as 22050 Hz WAV files with 183 samples
     // per speed unit per note, so this is how much we should advance
+#if defined(__DREAMCAST__)
+    // Preserve the exact double-precision result and accumulation; only the
+    // repeated division moves out of the per-sample path.
+    static const auto rates = [] {
+        std::array<double, 256> result{};
+        for (int i = 1; i < 256; ++i) result[i] = 22050.0 / (183.0 * i);
+        return result;
+    }();
+    double const offset_per_second = rates[speed];
+#else
     double const offset_per_second = 22050.0 / (183.0 * speed);
+#endif
     double const offset_per_frame = offset_per_second * inv_frames_per_second;
     double next_offset = offset + offset_per_frame;
     double next_time = time + offset_per_frame;
@@ -444,6 +457,15 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
         // if not a music sfx, check where is the last note to early stop
         if (!is_music)
         {
+#if defined(__DREAMCAST__)
+            if (_lastAudibleNote[index] < 0) {
+                int last_note = 0;
+                for (int n = 0; n < 32; ++n)
+                    if (sfx_data.notes[n].getVolume() > 0) last_note = n + 1;
+                _lastAudibleNote[index] = last_note;
+            }
+            end_time = std::min(end_time, float(_lastAudibleNote[index]));
+#else
             int last_note = 0;
             for (int n = 0; n < 32; ++n)
             {
@@ -453,13 +475,15 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
                 }
             }
             end_time = std::min(end_time, float(last_note));
+#endif
         }
     }
 
     if (offset < 32)
     {
-        int const note_id = (int)floor(offset);
-        int const next_note_id = (int)floor(next_offset);
+        // Playback offsets are nonnegative: truncation is exactly floor here.
+        int const note_id = (int)offset;
+        int const next_note_id = (int)next_offset;
 
         uint8_t key = sfx_data.notes[note_id].getKey();
         float volume = sfx_data.notes[note_id].getVolume() / 7.f;
@@ -476,10 +500,10 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
                 break;
             case FX_SLIDE:
             {
-                float t = (float)fmod(offset, 1.0);
+                float t = (float)(offset - note_id);
                 // From the documentation: "Slide to the next note and volume",
                 // but it's actually _from_ the _prev_ note and volume.
-                freq = lerp(key_to_freq((float)cur_sfx.prev_key), freq, t);
+                freq = lerp(key_to_freq(cur_sfx.prev_key), freq, t);
                 if (cur_sfx.prev_vol > 0.f)
                     volume = lerp(cur_sfx.prev_vol, volume, t);
                 break;
@@ -494,13 +518,13 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
                 break;
             }
             case FX_DROP:
-                freq *= 1.f - (float)fmod(offset, 1.0);
+                freq *= 1.f - (float)(offset - note_id);
                 break;
             case FX_FADE_IN:
-                volume *= (float)fmod(offset, 1.0);
+                volume *= (float)(offset - note_id);
                 break;
             case FX_FADE_OUT:
-                volume *= 1.f - (float)fmod(offset, 1.0);
+                volume *= 1.f - (float)(offset - note_id);
                 break;
             case FX_ARP_FAST:
             case FX_ARP_SLOW:
@@ -601,6 +625,9 @@ void Audio::FillAudioBuffer(void *audioBuffer, size_t offset, size_t size){
         }
         return;
     }
+#if defined(__DREAMCAST__)
+    std::fill(std::begin(_lastAudibleNote), std::end(_lastAudibleNote), int16_t(-1));
+#endif
 
     for (size_t i = 0; i < size; ++i){
         int32_t sample = 0;
@@ -703,7 +730,7 @@ void Audio::FillAudioBuffer(void *audioBuffer, size_t offset, size_t size){
                         if (channel_state.main_sfx.offset < main_sfx_base_offset) restart_custom = true;
                         // also need to restart if custom_sfx.sfx == -1 (it has ended) and main_sfx.offset is changing integer
                         if (channel_state.custom_sfx.sfx == -1 && 
-                            std::floor(main_sfx_base_offset) != std::floor(channel_state.main_sfx.offset)) 
+                            int(main_sfx_base_offset) != int(channel_state.main_sfx.offset))
                             restart_custom = true;
 
                         if (restart_custom)
@@ -735,7 +762,11 @@ void Audio::FillAudioBuffer(void *audioBuffer, size_t offset, size_t size){
                 }
                 channel_state.fade = 1.0f;
                 // reset phi between notes so we don't get very big values that would lose precision
+#if defined(__DREAMCAST__)
+                new_synth.phi = dc_audio_phase(new_synth.phi);
+#else
                 new_synth.phi = std::fmod(new_synth.phi, 1.0f);
+#endif
             }
             last_synth = new_synth;
 
@@ -771,14 +802,26 @@ void Audio::FillAudioBuffer(void *audioBuffer, size_t offset, size_t size){
             if (_memory->hwState.lowpass & (1 << (chan + 4))) chan_damp1_value = 1.0f;
             if (_memory->hwState.lowpass & (1 << chan)) chan_damp2_value = 1.0f;
             
-            if (chan_reverb1_value > 0.0f) 
-                value += chan_reverb1_value * channel_state.reverb_2[channel_state.reverb_index % 366] * 0.5f;
-            if (chan_reverb2_value > 0.0f) 
-                value += chan_reverb2_value * channel_state.reverb_4[channel_state.reverb_index % 732] * 0.5f;
+#if defined(__DREAMCAST__)
+            // Keep the shared cursor in the 732-sample ring. Both delay lines
+            // retain exactly the same samples without per-sample integer division.
+            int reverb4 = channel_state.reverb_index;
+            int reverb2 = reverb4 >= 366 ? reverb4 - 366 : reverb4;
+#else
+            int reverb2 = channel_state.reverb_index % 366;
+            int reverb4 = channel_state.reverb_index % 732;
+#endif
+            if (chan_reverb1_value > 0.0f)
+                value += chan_reverb1_value * channel_state.reverb_2[reverb2] * 0.5f;
+            if (chan_reverb2_value > 0.0f)
+                value += chan_reverb2_value * channel_state.reverb_4[reverb4] * 0.5f;
 
-            channel_state.reverb_2[channel_state.reverb_index % 366] = value;
-            channel_state.reverb_4[channel_state.reverb_index % 732] = value;
+            channel_state.reverb_2[reverb2] = value;
+            channel_state.reverb_4[reverb4] = value;
             ++channel_state.reverb_index;
+#if defined(__DREAMCAST__)
+            if (channel_state.reverb_index == 732) channel_state.reverb_index = 0;
+#endif
 
             float value_damp1 = channel_state.damp1.run(value);
             if (chan_damp1_value > 0.0f) value = lerp(value, value_damp1, chan_damp1_value);
@@ -822,6 +865,9 @@ void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
         }
         return;
     }
+#if defined(__DREAMCAST__)
+    std::fill(std::begin(_lastAudibleNote), std::end(_lastAudibleNote), int16_t(-1));
+#endif
 
     for (size_t i = 0; i < size; ++i){
         float channel_mix = 0.0f;
@@ -919,7 +965,7 @@ void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
                     {
                         if (channel_state.main_sfx.offset < main_sfx_base_offset) restart_custom = true;
                         if (channel_state.custom_sfx.sfx == -1 && 
-                            std::floor(main_sfx_base_offset) != std::floor(channel_state.main_sfx.offset)) 
+                            int(main_sfx_base_offset) != int(channel_state.main_sfx.offset))
                             restart_custom = true;
 
                         if (restart_custom)
@@ -949,7 +995,11 @@ void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
                     channel_state.fade_synth = last_synth;
                 }
                 channel_state.fade = 1.0f;
+#if defined(__DREAMCAST__)
+                new_synth.phi = dc_audio_phase(new_synth.phi);
+#else
                 new_synth.phi = std::fmod(new_synth.phi, 1.0f);
+#endif
             }
             last_synth = new_synth;
 
@@ -983,14 +1033,26 @@ void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
             if (_memory->hwState.lowpass & (1 << (chan + 4))) chan_damp1_value = 1.0f;
             if (_memory->hwState.lowpass & (1 << chan)) chan_damp2_value = 1.0f;
             
-            if (chan_reverb1_value > 0.0f) 
-                value += chan_reverb1_value * channel_state.reverb_2[channel_state.reverb_index % 366] * 0.5f;
-            if (chan_reverb2_value > 0.0f) 
-                value += chan_reverb2_value * channel_state.reverb_4[channel_state.reverb_index % 732] * 0.5f;
+#if defined(__DREAMCAST__)
+            // Keep the shared cursor in the 732-sample ring. Both delay lines
+            // retain exactly the same samples without per-sample integer division.
+            int reverb4 = channel_state.reverb_index;
+            int reverb2 = reverb4 >= 366 ? reverb4 - 366 : reverb4;
+#else
+            int reverb2 = channel_state.reverb_index % 366;
+            int reverb4 = channel_state.reverb_index % 732;
+#endif
+            if (chan_reverb1_value > 0.0f)
+                value += chan_reverb1_value * channel_state.reverb_2[reverb2] * 0.5f;
+            if (chan_reverb2_value > 0.0f)
+                value += chan_reverb2_value * channel_state.reverb_4[reverb4] * 0.5f;
 
-            channel_state.reverb_2[channel_state.reverb_index % 366] = value;
-            channel_state.reverb_4[channel_state.reverb_index % 732] = value;
+            channel_state.reverb_2[reverb2] = value;
+            channel_state.reverb_4[reverb4] = value;
             ++channel_state.reverb_index;
+#if defined(__DREAMCAST__)
+            if (channel_state.reverb_index == 732) channel_state.reverb_index = 0;
+#endif
 
             float value_damp1 = channel_state.damp1.run(value);
             if (chan_damp1_value > 0.0f) value = lerp(value, value_damp1, chan_damp1_value);

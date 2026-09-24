@@ -10,9 +10,11 @@ for argument in "$@"; do
     case "$argument" in
         --skip-build) SKIP_BUILD=yes ;;
         --smoke-test) TARGET=pico8-smoke.elf ;;
+        --profile) TARGET=pico8-profile.elf ;;
+        --kernels) TARGET=pico8-kernels.elf ;;
         --network-test) TARGET=pico8-network-test.elf ;;
         --modem) NETWORK="network:EmulateBBA=no,network:DCNet=no" ;;
-        *) echo "Usage: ${0##*/} [--skip-build] [--smoke-test|--network-test] [--modem]" >&2; exit 1 ;;
+        *) echo "Usage: ${0##*/} [--skip-build] [--smoke-test|--network-test|--profile|--kernels] [--modem]" >&2; exit 1 ;;
     esac
 done
 [[ -f "$KOS_ENV" ]] || { echo "KOS environment missing: $KOS_ENV" >&2; exit 1; }

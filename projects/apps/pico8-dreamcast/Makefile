@@ -14,6 +14,7 @@ all: $(TARGET)
 LIBS = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lpthread -lppp -lm
 # Bound individual PNG allocations, including deflate expansion.
 CPPFLAGS += -DLODEPNG_MAX_ALLOC=1048576
+CPPFLAGS += -I. -Ithird_party/sh4zam/include
 include $(KOS_BASE)/Makefile.rules
 
 build/%.o: %.cpp
@@ -41,7 +42,25 @@ build/main-smoke.o: main.cpp platform.h
 	@mkdir -p build
 	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -DDC_SMOKE_TEST -c $< -o $@
 
-pico8-smoke.elf: $(filter-out build/main.o,$(OBJS)) build/main-smoke.o
+pico8-smoke.elf: $(filter-out build/main.o,$(OBJS)) build/main-smoke.o build/tests/kernels.o
+	kos-c++ -O3 -flto -Wl,--gc-sections -o $@ $^ $(LIBS)
+	kos-objcopy --only-keep-debug $@ build/$@.debug
+	kos-objcopy --strip-debug $@
+
+build/main-profile.o: main.cpp platform.h tests/profile.h
+	@mkdir -p build
+	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -DDC_SMOKE_TEST -DDC_PROFILE -c $< -o $@
+
+pico8-profile.elf: $(filter-out build/main.o,$(OBJS)) build/main-profile.o build/tests/profile.o build/tests/kernels.o
+	kos-c++ -O3 -flto -Wl,--gc-sections -o $@ $^ $(LIBS)
+	kos-objcopy --only-keep-debug $@ build/$@.debug
+	kos-objcopy --strip-debug $@
+
+build/main-kernels.o: main.cpp platform.h tests/kernels.h
+	@mkdir -p build
+	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -DDC_KERNEL_TEST -c $< -o $@
+
+pico8-kernels.elf: $(filter-out build/main.o,$(OBJS)) build/main-kernels.o build/tests/kernels.o
 	kos-c++ -O3 -flto -Wl,--gc-sections -o $@ $^ $(LIBS)
 	kos-objcopy --only-keep-debug $@ build/$@.debug
 	kos-objcopy --strip-debug $@
@@ -78,8 +97,12 @@ network-test:
 	uv run tests/run_network.py
 
 clean:
+	$(RM) build/main-profile.o build/tests/profile.o pico8-profile.elf
+	$(RM) build/main-kernels.o build/tests/kernels.o pico8-kernels.elf
 	$(RM) $(OBJS) build/main-smoke.o build/main-net.o build/download-screen-net.o build/tests/network_smoke.o build/network-romdisk.o pico8-network-test.elf pico8-smoke.elf $(TARGET) romdisk.img romdisk_tmp.c romdisk_tmp.o
 
 -include $(OBJS:.o=.d)
 -include build/main-smoke.d build/main-net.d build/download-screen-net.d build/tests/network_smoke.d
+-include build/main-profile.d build/tests/profile.d
+-include build/main-kernels.d build/tests/kernels.d
 .PHONY: all run clean check smoke-test network-test FORCE

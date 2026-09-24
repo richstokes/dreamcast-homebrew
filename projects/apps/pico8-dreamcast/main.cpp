@@ -1,10 +1,14 @@
 #include <kos.h>
 #include <memory>
+#include <algorithm>
+#include <array>
 #include "vm.h"
 #include "logger.h"
 #include "platform.h"
 #include "fontdata.h"
 #include "download.h"
+#include "tests/profile.h"
+#include "tests/kernels.h"
 #ifdef DC_NETWORK_TEST
 bool dc_network_smoke(Host&, Vm&);
 #endif
@@ -29,6 +33,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET | INIT_FS_RND);
 }
 
 #ifdef DC_SMOKE_TEST
+#include "tests/performance_checks.h"
 static uint32_t framebuffer_hash(Vm& vm) {
     uint32_t hash = 2166136261u;
     for (int i = 0; i < 8192; ++i) hash = (hash ^ vm.GetPicoInteralFb()[i]) * 16777619u;
@@ -37,16 +42,20 @@ static uint32_t framebuffer_hash(Vm& vm) {
 
 static bool smoke(Host& host, Vm& vm) {
     auto carts = host.listcarts();
-    bool passed = carts.size() == 5;
+    bool passed = carts.size() == 5 && dc_kernel_checks() && dc_frame_cache_checks(host);
     printf("PICO8_TEST: BEGIN carts=%u\n", unsigned(carts.size()));
     for (const auto& cart : carts) {
         dc_set_test_input(0);
         bool ok = load(vm, cart);
         uint32_t first_hash = 0, last_hash = 0;
         uint64_t audio_start = dc_audio_samples(), sound_start = dc_audio_nonzero();
+        uint64_t video_start = dc_video_frames();
+        std::array<uint32_t, 360> frame_times{};
         uint64_t start = timer_ms_gettime64(), step_us = 0, video_us = 0, audio_us = 0;
         unsigned changes = 0, completed = 0;
+        dc_profile_begin();
         for (unsigned frame = 0; ok && frame < 360; ++frame) {
+            uint64_t frame_start = timer_us_gettime64();
             // Leave title screens, then exercise both actions and all directions.
             uint8_t buttons = frame == 35 || frame == 70 ? (P8_KEY_O | P8_KEY_X) : 0;
             if (frame > 110) {
@@ -70,6 +79,7 @@ static bool smoke(Host& host, Vm& vm) {
             timing = timer_us_gettime64();
             dc_poll_audio();
             audio_us += timer_us_gettime64() - timing;
+            frame_times[frame] = timer_us_gettime64() - frame_start;
             ++completed;
         }
         ok = ok && completed == 360 && changes > 0;
@@ -80,6 +90,11 @@ static bool smoke(Host& host, Vm& vm) {
             (unsigned long long)(dc_audio_nonzero()-sound_start),
             (unsigned long long)(timer_ms_gettime64()-start), vm.GetBiosError().c_str());
         passed &= ok;
+        std::sort(frame_times.begin(), frame_times.end());
+        printf("PICO8_TEST: PACING rendered=%llu p50_us=%lu p95_us=%lu max_us=%lu\n",
+            (unsigned long long)(dc_video_frames()-video_start), (unsigned long)frame_times[180],
+            (unsigned long)frame_times[342], (unsigned long)frame_times[359]);
+        dc_profile_end(cart.c_str());
         printf("PICO8_TEST: TIMING vm_us=%llu video_us=%llu audio_us=%llu\n",
             (unsigned long long)step_us, (unsigned long long)video_us, (unsigned long long)audio_us);
     }
@@ -88,6 +103,10 @@ static bool smoke(Host& host, Vm& vm) {
     for (int i = 0; api && i < 5; ++i) api = vm.Step() && vm.GetBiosError().empty();
     printf("PICO8_TEST: %s API %s\n", api ? "PASS" : "FAIL", vm.GetBiosError().c_str());
     passed &= api;
+    bool optimized = dc_video_conversion_check() && load(vm, "/rd/tests/performance.p8");
+    for (int i = 0; optimized && i < 5; ++i) optimized = vm.Step() && vm.GetBiosError().empty();
+    printf("PICO8_TEST: %s PERFORMANCE_CONFORMANCE %s\n", optimized ? "PASS" : "FAIL", vm.GetBiosError().c_str());
+    passed &= optimized;
     // Exercise the actual Lua picker and pause/resume input path.
     bool picker = load(vm, "/rd/launcher.p8");
     for (int i = 0; picker && i < 10; ++i) picker = vm.Step();
@@ -139,8 +158,10 @@ static int run_player() {
     {
         Vm vm(&host, memory.get(), &graphics, &input, &audio);
         vm.SetCartList(host.listcarts());
-#if defined(DC_SMOKE_TEST) || defined(DC_NETWORK_TEST)
-#ifdef DC_NETWORK_TEST
+#if defined(DC_SMOKE_TEST) || defined(DC_NETWORK_TEST) || defined(DC_KERNEL_TEST)
+#ifdef DC_KERNEL_TEST
+        bool passed = dc_kernel_checks() && dc_frame_cache_checks(host);
+#elif defined(DC_NETWORK_TEST)
         bool passed = dc_network_smoke(host, vm);
 #else
         bool passed = smoke(host, vm);

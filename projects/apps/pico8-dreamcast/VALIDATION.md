@@ -11,9 +11,11 @@ No real Dreamcast hardware was available for this run.
 - `sh-elf-readelf -h`: ELF32, little-endian, SuperH, entry `0x8c010000`.
 - `sh-elf-nm -C` confirms `luaV_execute`, `pvr_scene_begin`, `snd_stream_poll`,
   `curl_easy_perform`, `mbedtls_ssl_handshake`, and `ppp_connect`.
-- Linked text/data/BSS: 2,905,469 / 10,776 / 106,048 bytes. This is not a
+- Linked text/data/BSS: 2,903,809 / 10,776 / 114,272 bytes. This is not a
   measurement of peak heap/stack consumption.
 - Normal player boots to the five-game picker; layout inspected in Flycast.
+  The optimized release was also inspected after this pass; all five choices
+  and the download controls were visible. Serial: `/tmp/pico8-optimized-release-boot.log`.
 - Serial showed no KOS panic, unhandled exception or missing sample resource.
 - KOS Ethernet and random-device support are initialized at boot. Modem dialing
   and HTTPS are only started by submitting a URL. Bundled games work offline.
@@ -21,7 +23,7 @@ No real Dreamcast hardware was available for this run.
   is approximately 3.1 MiB, below Flycast's 16 MiB file-size limit.
 
 Normal ELF SHA-256 for this validation:
-`ee3d7efd10cfceb1699d2517547d6c1a16fec62f8481e17a9411ffdf56a4095f`.
+`18d471869309d626083cf0832cfc1c5a0317964406d088624a64d7123d677b8d`.
 Build timestamps and later source changes can change this value.
 
 ## Initial cartridge performance baseline
@@ -42,11 +44,11 @@ PICO-8 input boundary, so this does not certify a physical controller mapping.
 
 These measurements include title screens, gameplay, audio, rendering and the
 test's framebuffer hashing. They are not whole-game benchmarks or hardware
-measurements. **This version is not full speed for these samples.** The core
+measurements. **The initial version was not full speed for these samples.** The core
 expects 60 VM ticks per second. Games using `_update` execute their game logic
 only every other tick, so VM tick rates must not be presented as game FPS.
-The player currently slows game time when overloaded; further SH-4 profiling
-and optimization are needed, especially for action games and audio-heavy scenes.
+The player slows game time when overloaded. See the subsequent optimization
+results below for the current timings and remaining limits.
 
 Additional results:
 
@@ -70,6 +72,97 @@ native-app keyboard events did not reach Flycast's SDL control mapping in this
 session, so manual controller input and the physical trigger chord remain
 unverified. Audio generation was checked by nonzero sample counts and AICA
 stream initialization, not by a recorded listening comparison.
+
+## SH4 optimization results
+
+A fresh baseline was recorded immediately before this optimization pass, then
+the same 360-tick scripted workload was run with audio enabled after the changes.
+These are elapsed **guest** timings from Flycast; they are not measurements on
+a retail Dreamcast and include cartridge startup, frame hashing, audio and
+frame pacing. The normal benchmark has no PC sampler enabled.
+
+| Cartridge | Before (ms) | After (ms) | Before ticks/s | After ticks/s | Speedup |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anteform | 7,781 | 6,628 | 46.3 | 54.3 | 1.17x |
+| Bull Sheep | 23,603 | 8,759 | 15.3 | 41.1 | 2.69x |
+| Elephant in the Room | 25,379 | 13,384 | 14.2 | 26.9 | 1.90x |
+| Picolumia | 20,103 | 8,556 | 17.9 | 42.1 | 2.35x |
+| Pikoralli | 25,288 | 7,710 | 14.2 | 46.7 | 3.28x |
+
+Serial logs: `/tmp/pico8-perf-before.log` and
+`/tmp/pico8-perf-verified.log`. All five games passed, with 27 / 325 / 180 /
+55 / 243 framebuffer changes. Randomized games can produce different final
+framebuffer hashes across runs; these results are one measured run, not a
+statistical performance guarantee. Repeated development runs showed the same
+large improvement, with timing variation.
+
+**The 60-tick target is still not sustained by every game.** Tick rates are
+not game FPS; `_update` games run logic every other tick. Anteform's first
+tick includes approximately 655 ms of startup work. Post-change median / 95th
+percentile tick durations, including pacing and audio, were:
+
+| Cartridge | Median (ms) | 95th percentile (ms) | PVR frames submitted / 360 ticks |
+| --- | ---: | ---: | ---: |
+| Anteform | 15.3 | 36.6 | 28 |
+| Bull Sheep | 26.3 | 41.6 | 326 |
+| Elephant in the Room | 36.5 | 93.7 | 181 |
+| Picolumia | 15.7 | 65.6 | 70 |
+| Pikoralli | 16.6 | 37.9 | 244 |
+
+Fewer submissions reflect unchanged pixels being retained; VM and input ticks
+are not skipped. Palette-only changes can produce extra submissions even when
+the packed framebuffer hash stays unchanged. Long ticks can still cause audio
+underruns. This pass does not certify glitch-free audio or real-hardware speed.
+
+The changes were guided by before/after scheduler PC profiles. Upstream's Lua
+dispatch function had explicitly disabled compiler optimization; it now uses
+O3 after making fixed-point addition/subtraction explicitly wrap. Rendering
+uses pairwise RGB565 conversion, packed sprite blits, inlined pixel access and
+patterned pen spans. It skips identical PowerVR frames. Audio uses SH4ZAM's
+guarded truncation, exact cached rates and metadata, bounded reverb cursors,
+and smaller AICA refills. No approximate game math or global fast-math is used.
+
+Rendering and audio regression results:
+
+- RGB565 conversion agrees with the original algorithm for all supported
+  display transforms and representative unsupported mode values.
+- Packed pixel access preserves the adjacent pixel for all 256 input byte
+  values. Randomized sprite comparisons cover palettes, transparency, odd/even
+  destination alignment and overlapping-memory fallback.
+- 512 patterned-span comparisons agree with individual `pset` operations
+  across camera, clip, palettes, transparency and read/write color masks.
+- Frame-cache checks cover unchanged frames, framebuffer edits, palette-only
+  changes, transforms, scale changes and modal-screen invalidation.
+- All 12 audio fixtures retain their original PCM hashes: eight waveforms,
+  effects, loops, filters, half rate, music, custom instruments and live RAM edits.
+  Total synthesis time for the same 147,456 output samples fell from 3,764,981
+  to 2,692,233 guest microseconds (28.5% less). Per-fixture reductions were
+  approximately 18–34%; sample counts and 22,050 Hz output were unchanged.
+- Optimized VM tests pass at both signed 16.16 loop boundaries, with fractional
+  steps, empty loops, arithmetic wrap, recursion, tables, closures and coroutines.
+  Existing API, picker/pause, session saves and all five cartridge tests pass.
+
+`uv run tests/run_smoke.py --kernels` additionally passed after adding the
+frame-cache checks (`/tmp/pico8-optimized-kernels.log`). The release ELF excludes
+the sampler and scripted tests. All 33 vendored SH4ZAM C headers match the
+pinned upstream revision byte for byte, and the MIT notice is embedded.
+The final full smoke rerun includes frame-cache checks and the short-span
+fallback threshold; it ends with `PASS ALL` and clean exit status 0.
+
+The remaining active-thread profile is dominated by Lua execution/table access,
+audio mixing, and drawing primitives in Elephant. Getting these games to a
+consistent 60-tick target will need further core work and measurements on real
+hardware; SH4ZAM floating-point routines cannot replace PICO-8's exact fixed-point
+operations without risking compatibility.
+
+Networking was rerun after the host/audio changes. The full BBA suite passed,
+including public GitHub, certificate/error cases and URL-screen launch
+(`/tmp/pico8-optimized-bba.log`). A fresh modem run passed text/PNG downloads,
+public GitHub, repeated dialing, launcher input and URL-screen launch, with
+clean exit (`/tmp/pico8-optimized-modem-retry.log`). An earlier modem run stalled
+during the public download and was interrupted; the cause was not established.
+The successful fresh run does not establish that intermittent network stalls
+are impossible. No SDK/network implementation changes were made in this pass.
 
 ## Bundle integrity
 
