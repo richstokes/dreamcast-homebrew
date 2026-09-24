@@ -144,8 +144,10 @@ Rendering and audio regression results:
 
 `uv run tests/run_smoke.py --kernels` additionally passed after adding the
 frame-cache checks (`/tmp/pico8-optimized-kernels.log`). The release ELF excludes
-the sampler and scripted tests. All 33 SH4ZAM C headers match the
-pinned upstream revision byte for byte, and the MIT notice is embedded.
+the sampler and scripted tests. At the time of these measurements, all 33
+SH4ZAM C headers matched upstream revision
+`0fd3a1e1fa0809d33198c062632b1494ec2f57df` byte for byte, and the MIT notice
+was embedded. Builds now fetch the latest upstream `master`.
 The final full smoke rerun includes frame-cache checks and the short-span
 fallback threshold; it ends with `PASS ALL` and clean exit status 0.
 

@@ -77,11 +77,10 @@ the title. From the pause screen, B returns to the title.
 
 ## Build
 
-Initialize the pinned dependencies from this project directory, source the
-installed KallistiOS environment and run `make`:
+From this project directory, source the installed KallistiOS environment and
+run `make`. The build fetches the latest upstream SH4ZAM `master` first:
 
 ```sh
-git submodule update --init --recursive -- third_party/sh4zam
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make
 ```
@@ -214,8 +213,8 @@ material face ranges. Each material has separate vertices for cached shading.
 
 ## SH4 rendering acceleration
 
-The renderer uses [SH4ZAM](https://sh4zam.com/) headers from the pinned Git
-submodule at `third_party/sh4zam` for
+The renderer uses [SH4ZAM](https://sh4zam.com/) headers from the Git submodule
+at `third_party/sh4zam`, updated to the latest upstream `master` before each build, for
 batched camera transforms, positive-depth reciprocals, reflection normalization
 and paired sine/cosine. No extra SDK installation is required; see the
 [integration notes](third_party/SH4ZAM.md). The car's draw

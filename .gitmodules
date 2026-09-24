@@ -1,6 +1,8 @@
 [submodule "projects/apps/pico8-dreamcast/third_party/sh4zam"]
 	path = projects/apps/pico8-dreamcast/third_party/sh4zam
 	url = https://github.com/gyrovorbis/sh4zam.git
+	branch = master
 [submodule "projects/games/drift-los-angeles/third_party/sh4zam"]
 	path = projects/games/drift-los-angeles/third_party/sh4zam
 	url = https://github.com/gyrovorbis/sh4zam.git
+	branch = master

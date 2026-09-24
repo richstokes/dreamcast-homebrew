@@ -1,3 +1,7 @@
+ifneq ($(SH4ZAM_UPDATED),1)
+include ../../../tools/sh4zam.mk
+else
+
 TARGET = pico8-dreamcast.elf
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
@@ -30,6 +34,9 @@ build/romdisk-files: FORCE
 	@mkdir -p build
 	@find romdisk -type f | LC_ALL=C sort > build/romdisk-files.new
 	@cmp -s build/romdisk-files.new $@ || cp build/romdisk-files.new $@
+
+romdisk/SH4ZAM-LICENSE.txt: FORCE
+	@cmp -s third_party/sh4zam/LICENSE $@ || cp third_party/sh4zam/LICENSE $@
 
 romdisk.img: $(shell find romdisk -type f) build/romdisk-files
 
@@ -106,3 +113,5 @@ clean:
 -include build/main-profile.d build/tests/profile.d
 -include build/main-kernels.d build/tests/kernels.d
 .PHONY: all run clean check smoke-test network-test FORCE
+
+endif

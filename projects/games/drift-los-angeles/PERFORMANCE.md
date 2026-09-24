@@ -45,8 +45,9 @@ The artwork, model detail, draw distances and particle limits are unchanged.
 Textures/HUD remain 3,965,248 bytes; free VRAM remains 1,144,648 bytes after
 initialization, including the existing 768 KiB PVR vertex buffer.
 
-The unmodified MIT-licensed SH4ZAM 0.9.0 C headers come from the pinned Git
-submodule at [`third_party/sh4zam`](third_party/SH4ZAM.md). The selected SH4 inline
+These measurements used unmodified MIT-licensed SH4ZAM 0.9.0 C headers.
+The Git submodule at [`third_party/sh4zam`](third_party/SH4ZAM.md) now follows
+the latest upstream `master` at build time. The selected SH4 inline
 APIs require no library archive, SDK installation, compiler upgrade or global
 fast-math flags. The shipped binary contains FTRV, FSRRA and FSCA instructions.
 

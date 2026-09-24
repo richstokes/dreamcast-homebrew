@@ -47,5 +47,6 @@ make -C "$kos_ports/stb_image" install
 while IFS='|' read -r directory slug title; do
     [ -n "$directory" ] || continue
     make -C "$workspace/$directory" clean
-    make -C "$workspace/$directory" -j"$jobs"
+    # CI already fetched current SH4ZAM on the host before entering Docker.
+    make -C "$workspace/$directory" -j"$jobs" SH4ZAM_UPDATED=1
 done < "$workspace/.github/console-projects.txt"

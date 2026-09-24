@@ -31,6 +31,13 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Update SH4ZAM to latest upstream
+        run: |
+          git submodule update --init --remote --checkout -- \
+            projects/apps/pico8-dreamcast/third_party/sh4zam \
+            projects/games/drift-los-angeles/third_party/sh4zam
+          git submodule status
+
       - name: Set up Python for service and launcher checks
         uses: actions/setup-python@v6
         with:

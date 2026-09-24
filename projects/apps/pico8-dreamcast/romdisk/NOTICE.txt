@@ -3,7 +3,7 @@ Dreamcast host: Copyright (c) 2026 Rich Stokes (MIT).
 Runtime: FAKE-08 / jtothebell and contributors.
 https://github.com/jtothebell/fake-08
 
-SH4ZAM 0.9.0 / Falco Girgis and contributors (MIT).
+SH4ZAM / Falco Girgis and contributors (MIT).
 https://sh4zam.com/ - full notice in /rd/SH4ZAM-LICENSE.txt.
 
 Sample cartridge source is embedded in /rd/carts.

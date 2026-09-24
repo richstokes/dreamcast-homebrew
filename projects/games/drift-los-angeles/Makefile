@@ -1,3 +1,7 @@
+ifneq ($(SH4ZAM_UPDATED),1)
+include ../../../tools/sh4zam.mk
+else
+
 TARGET = drift-los-angeles.elf
 OBJS = drift-los-angeles.o assets/generated/texture_assets.o assets/generated/audio_assets.o assets/generated/music_asset.o
 BLENDER ?= blender
@@ -123,3 +127,5 @@ physics-qa-run: physics-qa-build
 		./run-flycast.sh --skip-build --input keyboard
 
 .PHONY: all clean run showcase qa qa-tools math-qa-build visibility-qa-build qa-build qa-run geometry-qa-build geometry-qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run architecture effects textures audio music model
+
+endif
