@@ -19,6 +19,12 @@ QBasic conveniences: optional line numbers, labels, block `IF`, `DO`/`LOOP`,
 | --- | --- |
 | ![SHAPES running](screenshots/shapes.png) | Output of the bundled `SHAPES` example: `PSET`, `LINE`, `CIRCLE`, `PAINT` and `DRAW` in `SCREEN 12`, finishing with a `PLAY` arpeggio. |
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic.elf)
+is also available.
+
 ## Using it
 
 Plug a Dreamcast keyboard into any port. Type a program and press **F5**.

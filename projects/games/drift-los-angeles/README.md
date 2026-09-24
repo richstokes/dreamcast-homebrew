@@ -10,6 +10,12 @@ language of the Corvette C7 era: a long hood, fastback glass, rear haunches,
 sharp lamps, splitter, diffuser, ducktail, and four separately modeled wheels.
 It contains no manufacturer badge or copied production geometry.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.elf)
+is also available.
+
 ## Highlights
 
 - An endless, streamed open city with no world edge or loading screens
