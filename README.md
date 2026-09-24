@@ -34,6 +34,11 @@ Check [the getting started guide](https://dcvmu.com/getting-started) for more in
 
 Each project directory contains its own README with more info/instructions.
 
+[PICO-8 Player for Dreamcast](projects/apps/pico8-dreamcast/) is a native
+KallistiOS port of FAKE-08 with a cartridge picker, sound, controller support,
+and five MIT/GPL-licensed sample games. Build it locally with the included
+instructions; compatibility and performance limits are documented there.
+
 The CDI links are the easiest way to play: download the image and open it in
 an emulator, burn it to CD-R, or load on a real console with GDEMU/similar.
 
@@ -85,7 +90,7 @@ documents the included compatibility patch and installation commands.
 
 [The release manifest](.github/console-projects.txt) is the single list of console
 projects for CI building, validation, and ELF/CDI packaging. Every push to `main`
-tests DCVMU, builds all nine console projects with pinned SDK dependencies,
+tests DCVMU, builds all ten console projects with pinned SDK dependencies,
 and publishes [the rolling GitHub release](https://github.com/richstokes/dreamcast-homebrew/releases/latest).
 
 ## License and attribution

@@ -1,0 +1,62 @@
+[
+  {
+    "title": "Anteform",
+    "repository": "https://github.com/Feneric/Anteform",
+    "revision": "03e5f8e7ac9707dc187bcb3cea258874ebdff0e4",
+    "upstream_file": "anteform.p8",
+    "file": "romdisk/carts/anteform.p8",
+    "license": "GPL-3.0-only",
+    "github_stars": 26,
+    "checked": "2026-09-24",
+    "sha256": "194697111f97c192ab3349ba29a15f5cbd1ebf3d5793d3f91deef6864fb8a76f",
+    "changes": "None."
+  },
+  {
+    "title": "Bull Sheep",
+    "repository": "https://github.com/derpycoder/bull-sheep",
+    "revision": "e34dd53d3ccb41a25156733bdf9e5e16061127b2",
+    "upstream_file": "bull_sheep.p8",
+    "file": "romdisk/carts/bull_sheep.p8",
+    "license": "MIT",
+    "github_stars": 7,
+    "checked": "2026-09-24",
+    "sha256": "c5bca0b9d12febcef489a3c316b5e23a79ea0acd6d11a7a139af9c332c6a4f05",
+    "changes": "None."
+  },
+  {
+    "title": "Elephant in the Room",
+    "repository": "https://github.com/ekaktusz/elephant",
+    "revision": "75b39e90cb2337a5a317ad4967b08cd3081626ee",
+    "upstream_file": "elephant.p8",
+    "file": "romdisk/carts/elephant.p8",
+    "license": "MIT",
+    "github_stars": 9,
+    "checked": "2026-09-24",
+    "sha256": "f00e87432018240ff850412369aaa7d3d0c061e0b18b45d612a5a39dd431e010",
+    "changes": "Includes expanded into one cartridge; gameplay unchanged."
+  },
+  {
+    "title": "Picolumia",
+    "repository": "https://github.com/andrewedstrom/picolumia",
+    "revision": "7ced171cabc97e96dacd2bc828781170a3bbfee5",
+    "upstream_file": "picolumia.p8.png",
+    "file": "romdisk/carts/picolumia.p8.png",
+    "license": "MIT",
+    "github_stars": 6,
+    "checked": "2026-09-24",
+    "sha256": "b04d4735856f8e242445256aef69f9b8a73163b6ba7fd0ada94731b4bb9a55ac",
+    "changes": "None."
+  },
+  {
+    "title": "Pikoralli",
+    "repository": "https://github.com/nothke/pikoralli",
+    "revision": "e678a04f2fae4fd3f4f6f7ffa828b396bedfa995",
+    "upstream_file": "pikoralli.p8",
+    "file": "romdisk/carts/pikoralli.p8",
+    "license": "MIT",
+    "github_stars": 19,
+    "checked": "2026-09-24",
+    "sha256": "cd3ac7e99b3ac8fd379637faa643297617e13641e3b3491d75857ba99e8cc129",
+    "changes": "None."
+  }
+]
