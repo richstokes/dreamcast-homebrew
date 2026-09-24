@@ -7,6 +7,16 @@ fixed-point numbers and PICO-8 syntax. It is a cartridge runtime, not the
 proprietary PICO-8 editor/development environment. It is not affiliated with
 Lexaloffle.
 
+## Screenshots
+
+Captured from the Dreamcast build running in Flycast.
+
+| Cartridge picker | Bull Sheep |
+| --- | --- |
+| <img src="../../../docs/screenshots/pico8-dreamcast.jpg" alt="PICO-8 Player cartridge picker with five bundled games" width="360"> | <img src="../../../docs/screenshots/pico8-bull-sheep.jpg" alt="Bull Sheep running in the Dreamcast PICO-8 player" width="360"> |
+| **Picolumia** | **Pikoralli** |
+| <img src="../../../docs/screenshots/pico8-picolumia.jpg" alt="Picolumia running in the Dreamcast PICO-8 player" width="360"> | <img src="../../../docs/screenshots/pico8-pikoralli.jpg" alt="Pikoralli running in the Dreamcast PICO-8 player" width="360"> |
+
 ## Build and play
 
 ```sh
@@ -18,9 +28,26 @@ make -C projects/apps/pico8-dreamcast -j8
 Run those commands from the repository root. The launcher builds by default
 when `--skip-build` is omitted, resolves absolute paths and respects `KOS_ENV`
 and `FLYCAST_BIN`. It uses transient serial-console configuration and requires
-no network. All interpreter dependencies and cartridges are checked in.
+no persistent network changes. The runtime and cartridges are checked in;
+HTTPS additionally links the `curl` / `mbedtls` kos-ports and KOS's `libppp`.
 The baseline is KOS 2.3.0 / SH-4 GCC 15.2.0. Build/link use `kos-c++` and KOS's
 `Makefile.rules`; Z8lua's `.c` sources must also compile as C++.
+
+If needed, install the `mbedtls` and `curl` kos-ports from the sourced environment:
+`make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`.
+The tested versions are Mbed TLS 3.6.6 and curl 8.18.0 with its Mbed TLS backend.
+Debug symbols are saved separately under `build/*.elf.debug`; the bootable ELF
+has debug sections removed to stay below Flycast's 16 MiB ELF-file limit.
+Modem teardown requires the workspace's existing
+[KOS PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch).
+It is already present in the local SDK. For a new SDK checkout, apply that patch
+if missing and rebuild `$KOS_BASE/kernel` and `$KOS_BASE/addons/libppp`.
+The tested SDK also includes the workspace's
+[BBA receive fix](../../dcvmu.com/client/patches/kos-bba-rx-consumer.patch),
+[TCP window fix](../../dcvmu.com/client/patches/kos-tcp-upload-window.patch),
+[TCP poll-lock fix](../dreamcast-browser/patches/kos-tcp-poll-lock.patch), and
+[keyboard attach fix](../dreamcast-browser/patches/kos-keyboard-attach.patch).
+The repository CI applies these before building.
 
 ## Controls
 
@@ -30,6 +57,7 @@ The baseline is KOS 2.3.0 / SH-4 GCC 15.2.0. Build/link use `kos-c++` and KOS's
 | Left/right in the picker | Show game credits |
 | A or X | PICO-8 O button (button 4) / launch selected game |
 | B or Y | PICO-8 X button (button 5) / launch selected game |
+| Y in the cartridge picker | Open Download & Play |
 | Start | Pause/resume; games can provide their own pause-menu items |
 | Hold both triggers and press Start | Return to the cartridge picker |
 
@@ -55,9 +83,60 @@ For a disc build, an additional `/carts/`
 directory at the CD root is scanned as `/cd/carts/`; real CD/GDEMU loading has
 not been tested on hardware. The five built-in games never depend on it.
 
-The ROM disk is mounted read-only at `/rd`. There is no network browser or
-Splore integration. Unknown PNGs are not game cartridges: use PICO-8's cart
+The ROM disk is mounted read-only at `/rd`. Unknown PNGs are not game cartridges: use PICO-8's cart
 PNG format, which carries the code and data inside the image.
+
+## Download & Play
+
+Press **Y in the cartridge picker**, enter an `https://` URL, and press **Start**
+to download and launch the game. Use a direct `.p8` or `.p8.png` download link,
+such as a GitHub **Raw** link, rather than the game's web page. The file format
+is detected from its contents; the URL can contain a query string and need not
+end with a cartridge extension.
+
+On the on-screen keyboard, move with the D-pad or stick, press **A** to type,
+**X** to toggle case, **Y** to delete, and **L/R** to move the insertion point.
+**B** goes back or cancels a transfer. A Dreamcast keyboard can enter the URL
+directly; Enter submits, Backspace/Delete edit, arrows move the cursor, and
+Escape goes back. The URL editor remembers its text for this session.
+
+The screen shows connection stages, byte progress, and errors. A successful
+download starts automatically. The latest downloaded text cart and PNG cart
+also appear in the picker, stored in `/ram/download.p8` and
+`/ram/download.p8.png`. They disappear when the player quits; no VMU writes
+are made. Downloads are limited to 1 MiB and URLs to 1,024 ASCII characters
+(use percent encoding for other characters). Text carts must be exported as a
+single file; remote `#include` trees are not fetched.
+
+Networking:
+
+- **Broadband Adapter:** KOS initializes Ethernet and DHCP. Downloading waits
+  for an address and reports an error when the adapter has no connection.
+- **Modem:** when no Ethernet device is present, the download worker dials the
+  saved PlanetWeb or DreamPassport ISP profile. If neither has a phone number,
+  it uses the KOS DreamPi defaults: `555`, login `dream`, password `cast`.
+  Set up the ISP/DreamPi beforehand. The app reads flash settings without
+  changing them, and hangs up its own PPP connection after each download.
+  Pulse dialing, dial prefixes and AT/pause syntax are unsupported and reported
+  instead of silently changing the number.
+- **Flycast:** the launcher defaults to `EmulateBBA=yes,DCNet=no`, the local
+  outbound proxy. Use `./run-flycast.sh --modem` for its modem PPP peer. This is
+  not LAN bridging. No inbound port forwarding is required for ordinary
+  downloads.
+
+HTTPS uses TLS 1.2, the bundled Mozilla roots, hostname/chain verification,
+and explicit certificate date checks. Set the console's clock correctly;
+verification failures cannot be bypassed. Up to five HTTPS redirects are
+followed, including relative redirects; HTTP downgrades are rejected. HTTP
+chunked responses are supported. This is a direct download client, not Splore
+or a web browser: login pages, cookies, proxies, IPv6-only hosts, and HTML game
+pages are unsupported.
+
+Transfers have a 90-second connection / low-speed timeout and a ten-minute
+overall limit. Downloads are paced to at most 64 KiB/s to bound receive bursts.
+Cancellation keeps the screen responsive, but KOS's blocking DNS, modem dial,
+and PPP calls must return before cancellation completes. No network worker is
+killed while holding SDK locks. There is no automatic dialing on app startup.
 
 ## Runtime support and limits
 
@@ -73,13 +152,18 @@ PNG format, which carries the code and data inside the image.
   [VALIDATION.md](VALIDATION.md).
 - `cartdata`/`dget`/`dset` persist across cartridge switches **for this session
   only** (up to 32 keys). There is no VMU persistence; quitting loses saves.
-- One controller/player. Mouse, keyboard text input, networking, screenshots,
+- One controller/player. Mouse, in-game keyboard text input, screenshots,
   external file writes and save states are not implemented by this host.
 - Compatibility inherits FAKE-08's limitations. A passing short smoke test
   does not certify an entire game or compatibility with every PICO-8 version.
   Bad-cart/runtime errors return to the picker and are reported on serial.
 
 ## Verification
+
+The repository release workflow builds and validates this project's SH-4 ELF
+and packages its CDI using [.github/console-projects.txt](../../../.github/console-projects.txt).
+CI also verifies the bundled cartridge hashes, source files, and license notices.
+Flycast runtime tests below are run locally.
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
@@ -88,6 +172,8 @@ file pico8-dreamcast.elf
 sh-elf-readelf -h pico8-dreamcast.elf
 uv run tests/check_samples.py
 uv run tests/run_smoke.py
+uv run tests/run_network.py
+uv run tests/run_network.py --modem
 ```
 
 The smoke runner builds a separate `pico8-smoke.elf`, boots it in Flycast and
@@ -102,7 +188,19 @@ For visual inspection, `./run-flycast.sh --smoke-test` leaves test execution
 visible. Use `make clean` to remove generated objects and ELF/ROM-disk outputs.
 Normal `make` never enables scripted controls.
 
+The network suite creates short-lived TLS servers on the Mac, with generated
+test certificates trusted **only in its separate test ELF**. It tests real
+socket/TLS transfers, both cart formats and launch, redirects/chunked encoding,
+certificate failures, malformed/oversized/truncated responses, cancellation,
+and URL-screen entry. It checks 360 idle launcher frames and the raw Y-button
+mapping, including held-button suppression and normal in-game behavior.
+It also downloads the pinned Bull Sheep cart from GitHub.
+Use `--host <Mac IPv4>` when automatic route detection picks the wrong interface,
+or `--no-public` to omit the internet fixture. Tests stop only the Flycast process
+they launch and remove their generated private keys.
+
 The Dreamcast host/launcher use the repository's MIT license. See
 [runtime provenance and local patches](third_party/README.md) and the
 individual [game license notices](licenses/). Full license notices are also
-embedded in the ELF's ROM disk at `/rd/NOTICE.txt`.
+embedded in the ELF's ROM disk at `/rd/NOTICE.txt`; HTTPS dependency notices
+are included under `/rd/certs/`.

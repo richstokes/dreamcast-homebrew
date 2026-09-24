@@ -7,3 +7,4 @@ projects/apps/dreamcast-basic|dreamcast-basic|Dreamcast BASIC
 projects/apps/dreamcast-browser|dreamcast-browser|Dreamcast Browser
 projects/apps/dreamcast-irc|dreamcast-irc|Dreamcast IRC
 projects/apps/ping-cube|ping-cube|Ping Cube
+projects/apps/pico8-dreamcast|pico8-dreamcast|PICO-8 Player

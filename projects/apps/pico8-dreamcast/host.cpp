@@ -1,6 +1,7 @@
 // Dreamcast host for FAKE-08. KOS owns video, Maple input and AICA streaming.
 #include <kos.h>
 #include <dc/sound/stream.h>
+#include <dc/maple/keyboard.h>
 #include <algorithm>
 #include <array>
 #include <map>
@@ -18,8 +19,12 @@ snd_stream_hnd_t stream = SND_STREAM_INVALID;
 Audio* synth = nullptr;
 bool initialized = false, sound_initialized = false, sound_enabled = false;
 bool menu_requested = false, chord_held = false;
+bool launcher = false, download_requested = false, download_held = false;
+bool release_input = false;
 uint8_t previous_buttons = 0, test_buttons = 0;
 bool test_input = false;
+bool test_pad = false;
+cont_state_t test_pad_state{};
 uint64_t deadline = 0, previous_frame = 0, sample_count = 0, nonzero_count = 0;
 uint64_t frame_us = 33333;
 double frame_delta_ms = 33.333;
@@ -55,15 +60,18 @@ void append_carts(const char* directory, std::vector<std::string>& carts) {
 }
 
 bool dc_ready() { return initialized; }
+void dc_set_launcher(bool enabled) { launcher = enabled; }
+bool dc_download_requested() { bool result = download_requested; download_requested = false; return result; }
 uint64_t dc_audio_samples() { return sample_count; }
 uint64_t dc_audio_nonzero() { return nonzero_count; }
 void dc_set_test_input(uint8_t buttons) { test_input = true; test_buttons = buttons; }
+void dc_set_test_pad(uint32_t buttons) { test_pad = true; test_pad_state.buttons = buttons; }
 bool dc_menu_requested() {
     bool value = menu_requested;
     menu_requested = false;
     return value;
 }
-void dc_reset_input() { previous_buttons = 0; deadline = 0; }
+void dc_reset_input() { previous_buttons = 0; deadline = 0; release_input = true; }
 void dc_poll_audio() { if (stream != SND_STREAM_INVALID) snd_stream_poll(stream); }
 void dc_audio_enable(bool enabled) { sound_enabled = enabled; }
 
@@ -100,22 +108,38 @@ void Host::oneTimeSetup(Audio* audio) {
 
 InputState_t Host::scanInput() {
     uint8_t held = 0;
+    if (launcher) {
+        auto keyboard = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
+        if (keyboard) {
+            int key;
+            while ((key = kbd_queue_pop(keyboard, true)) != KBD_QUEUE_END)
+                if (key == 'y' || key == 'Y') download_requested = true;
+        }
+    }
     maple_device_t* device = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
     auto* pad = device ? static_cast<cont_state_t*>(maple_dev_status(device)) : nullptr;
+    if (test_pad) pad = &test_pad_state;
     if (pad) {
         if ((pad->buttons & CONT_DPAD_LEFT) || pad->joyx < -48) held |= P8_KEY_LEFT;
         if ((pad->buttons & CONT_DPAD_RIGHT) || pad->joyx > 48) held |= P8_KEY_RIGHT;
         if ((pad->buttons & CONT_DPAD_UP) || pad->joyy < -48) held |= P8_KEY_UP;
         if ((pad->buttons & CONT_DPAD_DOWN) || pad->joyy > 48) held |= P8_KEY_DOWN;
         if (pad->buttons & (CONT_A | CONT_X)) held |= P8_KEY_O;
-        if (pad->buttons & (CONT_B | CONT_Y)) held |= P8_KEY_X;
+        if (pad->buttons & (CONT_B | (launcher ? 0 : CONT_Y))) held |= P8_KEY_X;
+        bool download = launcher && (pad->buttons & CONT_Y);
+        if (download && !download_held) download_requested = true;
+        download_held = download;
         bool chord = pad->ltrig > 160 && pad->rtrig > 160 && (pad->buttons & CONT_START);
         if (chord && !chord_held) menu_requested = true;
         chord_held = chord;
         if ((pad->buttons & CONT_START) && !chord) held |= P8_KEY_PAUSE;
         if (chord) held = 0;
-    } else chord_held = false;
+    } else { chord_held = false; download_held = false; }
     if (test_input) held = test_buttons;
+    if (release_input) {
+        if (!held) release_input = false;
+        held = 0;
+    }
     InputState_t state{};
     state.KDown = held & ~previous_buttons;
     state.KHeld = held;
@@ -200,6 +224,10 @@ std::vector<std::string> Host::listcarts() {
     std::vector<std::string> carts;
     append_carts("/rd/carts", carts);
     append_carts("/cd/carts", carts);
+    for (const char* path : {"/ram/download.p8", "/ram/download.p8.png"}) {
+        file_t fd = fs_open(path, O_RDONLY);
+        if (fd >= 0) { carts.emplace_back(path); fs_close(fd); }
+    }
     std::sort(carts.begin(), carts.end());
     return carts;
 }

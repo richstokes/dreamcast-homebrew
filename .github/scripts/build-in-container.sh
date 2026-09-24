@@ -30,7 +30,7 @@ jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')
 
 make -C "$kos_base" -j"$jobs"
 
-# Dreamcast Browser and DCVMU use kos-ports dependencies. Building
+# Dreamcast Browser, DCVMU, and PICO-8 Player use kos-ports dependencies. Building
 # them here also proves the checked-in compatibility patch still applies.
 # The pinned zlib port still uses plain HTTP. GitHub Actions has intermittently
 # received a small HTML response from that endpoint with a successful HTTP

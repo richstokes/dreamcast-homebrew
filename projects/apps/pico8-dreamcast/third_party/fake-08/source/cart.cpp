@@ -81,14 +81,17 @@ private:
 
 //implementation from zepto8 code.cpp, pxa_decompress
 //https://github.com/samhocevar/zepto8/blob/b1a13516945c49e47495c739e6a43a241ad99291/src/pico8/code.cpp        
-static std::string pxa_decompress(uint8_t const *input)
+static bool pxa_decompress(uint8_t const *input, size_t capacity, std::string& ret)
 {
     size_t length = input[4] * 256 + input[5];
     size_t compressed = input[6] * 256 + input[7];
+    if (compressed < 8 || compressed > capacity) return false;
 
     size_t pos = size_t(8) * 8; // stream position in bits
+    bool valid = true;
     auto get_bits = [&](size_t count) -> uint32_t
     {
+        if (count > 16 || pos + count > compressed * 8) { valid = false; return 0; }
         uint32_t n = 0;
         for (size_t i = 0; i < count && pos < compressed * 8; ++i, ++pos)
             n |= ((input[pos >> 3] >> (pos & 0x7)) & 0x1) << i;
@@ -96,20 +99,22 @@ static std::string pxa_decompress(uint8_t const *input)
     };
 
     move_to_front mtf;
-    std::string ret;
+    ret.clear();
 
     //TRACE("# Size: %d (%04x)\n", int(compressed), int(compressed));
 
-    while (ret.size() < length && pos < compressed * 8)
+    while (valid && ret.size() < length && pos < compressed * 8)
     {
         auto oldpos = pos; (void)oldpos;
 
         if (get_bits(1))
         {
             int nbits = 4;
-            while (get_bits(1))
-                ++nbits;
+            while (get_bits(1)) {
+                if (++nbits > 8) return false;
+            }
             int n = get_bits(nbits) + (1 << nbits) - 16;
+            if (!valid || n >= 256) return false;
             uint8_t ch = mtf.get(n);
             if (!ch)
                 break;
@@ -124,8 +129,9 @@ static std::string pxa_decompress(uint8_t const *input)
             if (nbits == 10 && offset == 1)
             {
                 uint8_t ch = get_bits(8);
-                while (ch)
+                while (valid && ch)
                 {
+                    if (ret.size() >= length) return false;
                     ret.push_back(char(ch));
                     ch = get_bits(8);
                 }
@@ -134,9 +140,11 @@ static std::string pxa_decompress(uint8_t const *input)
             else
             {
                 int n, len = 3;
-                do
+                do {
                     len += (n = get_bits(3));
-                while (n == 7);
+                    if (!valid || size_t(len) > length - ret.size()) return false;
+                } while (n == 7);
+                if (!valid || offset <= 0 || size_t(offset) > ret.size()) return false;
 
                 //TRACE("%04x [%d] %d@-%d\n", int(ret.size()), int(pos-oldpos), len, offset);
                 for (int i = 0; i < len; ++i)
@@ -145,7 +153,7 @@ static std::string pxa_decompress(uint8_t const *input)
         }
     }
 
-    return ret;
+    return valid && ret.size() == length;
 }
 
 #define HEADERLEN 8
@@ -239,9 +247,10 @@ bool Cart::loadCartFromPng(std::vector<unsigned char> image) {
 
         LuaString.resize(0);
 
-        for (size_t i = 8; i < sizeof(CartLuaData) && LuaString.length() < length; ++i){
+        for (size_t i = 8; i < 0x3d00 && LuaString.length() < length; ++i){
             //0x00: Copy the next byte directly to the output stream. 
             if(CartLuaData[i] == 0x00){
+                if (i + 1 >= 0x3d00) { LoadError = "Truncated legacy code"; return false; }
                 LuaString += CartLuaData[++i];
             }
             //0x01-0x3b: Emit a character from a lookup table
@@ -256,12 +265,16 @@ bool Cart::loadCartFromPng(std::vector<unsigned char> image) {
             //   offset = (current_byte - 0x3c) * 16 + (next_byte & 0xf)
             //   length = (next_byte >> 4) + 2
             else {
+                if (i + 1 >= 0x3d00) { LoadError = "Truncated legacy code"; return false; }
                 size_t offset = (CartLuaData[i] - 0x3c) * 16 + (CartLuaData[i + 1] & 0xf);
-                size_t length = (CartLuaData[i + 1] >> 4) + 2;
+                size_t run_length = (CartLuaData[i + 1] >> 4) + 2;
+                if (!offset || offset > LuaString.size() || run_length > length - LuaString.size()) {
+                    LoadError = "Invalid legacy code reference"; return false;
+                }
 
                 int startIndex = LuaString.length() - offset;
                 if (startIndex > -1) {
-                    for(size_t j = 0; j < length; ++j) {
+                    for(size_t j = 0; j < run_length; ++j) {
                         LuaString += LuaString[startIndex + j];
                     }
                 }
@@ -269,10 +282,14 @@ bool Cart::loadCartFromPng(std::vector<unsigned char> image) {
                 ++i;
             }
         }
+        if (LuaString.size() != length) { LoadError = "Truncated legacy code"; return false; }
 
     }
     else if (compression == 2){
-        LuaString = pxa_decompress(CartLuaData);
+        if (!pxa_decompress(CartLuaData, 0x3d00, LuaString)) {
+            LoadError = "Invalid PXA compressed code";
+            return false;
+        }
     }    
 
     return true;
@@ -690,5 +707,4 @@ void Cart::setSfx(std::string sfxString) {
         sfxIdx++;
     } 
 }
-
 

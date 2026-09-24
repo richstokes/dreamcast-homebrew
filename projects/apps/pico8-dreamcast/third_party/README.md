@@ -28,8 +28,32 @@ Local core changes (marked in the affected files):
   avoiding repeated `exp2` calls without changing their results.
 - `source/graphics.cpp`: reject fully clipped sprites and visit only map tiles
   that intersect the camera-adjusted clip rectangle.
+- `source/cart.cpp` and `cart.h`: initialize cartridge storage and bound PXA/
+  legacy PNG decompression, rejecting truncated data and invalid references.
+  Downloads also validate text section sizes before invoking upstream parsers.
+  LodePNG builds with a 1 MiB per-allocation limit.
 
 See [FAKE-08's full notices](fake-08/LICENSE.MD), the copyright/license headers
 in Z8lua and LodePNG, and [sample licenses](../licenses/). FAKE-08 contains
 MIT, WTFPL, zlib and other attributed code; preserve the upstream notices.
 The Dreamcast host and launcher use the repository's MIT license.
+
+HTTPS uses the separately installed KOS `curl` port (tested: 8.18.0, curl license),
+linking the `mbedtls` port (tested: 3.6.6), using
+its Apache-2.0 option, plus KOS's BSD-licensed `libppp`. Their sources are in
+the SDK, not vendored here. Mbed TLS source:
+https://github.com/Mbed-TLS/mbedtls/tree/v3.6.6.
+The KOS port disables built-in certificate date checks; `download.cpp` supplies
+an explicit verification callback. Randomness uses Mbed TLS's platform source
+through KOS `/dev/urandom`; it inherits the SDK's entropy implementation.
+
+`romdisk/certs/ca-bundle.pem` is the unmodified Mozilla root store converted by
+curl, retrieved on 2026-09-24, with source data dated 2026-08-13:
+https://curl.se/ca/cacert.pem.
+SHA-256: `f66dff1bdf8f96060b8177976f8b7d9254bc89bc4db933d769f7384d28480bc9`.
+It is MPL-2.0 licensed; see `romdisk/certs/README.txt` and `MPL-2.0.txt`.
+Update the checked-in bundle and this digest together as trust roots change.
+The normal player never includes the locally generated network-test root.
+
+curl source: https://github.com/curl/curl/tree/curl-8_18_0.
+Its license is also embedded at `romdisk/certs/CURL-LICENSE.txt`.

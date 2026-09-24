@@ -4,10 +4,14 @@
 #include "logger.h"
 #include "platform.h"
 #include "fontdata.h"
+#include "download.h"
+#ifdef DC_NETWORK_TEST
+bool dc_network_smoke(Host&, Vm&);
+#endif
 
-KOS_INIT_FLAGS(INIT_DEFAULT);
+KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET | INIT_FS_RND);
 
-static bool load(Vm& vm, const std::string& path) {
+[[maybe_unused]] static bool load(Vm& vm, const std::string& path) {
     dc_audio_enable(false);
     dc_reset_input();
     if (!vm.LoadCart(path, false)) {
@@ -135,8 +139,12 @@ static int run_player() {
     {
         Vm vm(&host, memory.get(), &graphics, &input, &audio);
         vm.SetCartList(host.listcarts());
-#ifdef DC_SMOKE_TEST
+#if defined(DC_SMOKE_TEST) || defined(DC_NETWORK_TEST)
+#ifdef DC_NETWORK_TEST
+        bool passed = dc_network_smoke(host, vm);
+#else
         bool passed = smoke(host, vm);
+#endif
         vm.CloseCart();
         host.oneTimeCleanup();
         return passed ? 0 : 1;
@@ -144,9 +152,18 @@ static int run_player() {
         if (!load(vm, "/rd/launcher.p8")) { host.oneTimeCleanup(); return 1; }
         std::string last_cart = vm.CurrentCartFilename();
         while (host.shouldRunMainLoop()) {
+            dc_set_launcher(vm.CurrentCartFilename() == "/rd/launcher.p8");
             host.setTargetFps(vm.GetTargetFps());
             host.waitForTargetFps();
             bool ok = vm.Step();
+            if (dc_download_requested()) {
+                auto path = dc_download_screen();
+                vm.SetCartList(host.listcarts());
+                if (!path.empty()) {
+                    ok = load(vm, path);
+                    if (!ok) printf("PICO8_NET: downloaded cart failed to start\n");
+                } else dc_audio_enable(true);
+            }
             bool go_menu = dc_menu_requested();
             std::string error = vm.GetBiosError();
             std::string current = vm.CurrentCartFilename();

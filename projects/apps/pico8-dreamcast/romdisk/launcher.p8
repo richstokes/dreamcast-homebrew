@@ -57,6 +57,6 @@ function _draw()
  end
  end
  rectfill(0,110,127,127,0)
- print("a/b play  left/right info",5,113,7)
+ print("a/b play  y download",5,113,7)
  print("l+r+start: back to games",5,121,13)
 end
