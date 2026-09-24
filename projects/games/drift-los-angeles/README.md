@@ -25,8 +25,14 @@ is also available.
   view-dependent paint/glass reflections, working lights, steering, and wheels
 - Drift physics with throttle oversteer, clutch kicks, handbrake initiation,
   burnouts, and power donuts
-- Thirty-six traffic cars that obey lanes and signals, plus pedestrians and
-  dense street life
+- Thirty-six traffic cars that obey lanes and signals, plus dense street life
+- Articulated pedestrians: sixteen-part textured bodies with faces, hair,
+  caps, glasses, four outfit styles, denim and shoes, each tinted from its
+  seed and walking a knee-and-elbow cycle, with two mesh detail levels and a
+  billboard fallback in the distance
+- Solid street collisions: lampposts and parked cars take a rigid-body
+  impulse that bounces and spins the car, while pedestrians you run down are
+  thrown tumbling into the air and lie on the pavement until you leave the block
 - Modular storefronts, upper floors and cornices with mipmapped architecture
 - Blue-hour lighting with soft headlights, oriented tire/contact shadows,
   curved streetlamps and neon
@@ -161,11 +167,32 @@ is checked in so Blender is not needed for a normal build. To regenerate it:
 make model
 ```
 
+## Regenerate the pedestrians
+
+The pedestrian atlas and the two-level articulated mesh are authored
+procedurally in `tools/build_pedestrians.py`; the generated
+`assets/source/pedestrian-atlas.png` and `pedestrian_data.h` are checked in.
+To regenerate them and render a Blender contact sheet of posed variants into
+`assets/generated/previews/pedestrians-*.png`:
+
+```sh
+make pedestrians
+make textures
+```
+
+The atlas is tintable: every region is painted in light neutral tones and the
+game multiplies each body part by a per-figure colour, so skin tones, shirts,
+trousers, hair and shoes all come from the pedestrian's seed. Parts swap atlas
+cells for short sleeves, jacket sleeves or bare shins.
+
 ## QA
 
 `make qa` checks the car mesh and texture inventory, `make qa-run` runs a
 60-second district tour with telemetry, and `make physics-qa-run` runs the
-burnout and donut regression suite in Flycast.
+burnout and donut regression suite in Flycast. `make collision-qa-run` drives
+the car into a lamppost, a parked car and a walking pedestrian in turn and
+checks that each impact registers, that the car never passes through the
+obstacle, and that the pedestrian is launched and comes to rest.
 
 `make visibility-qa-build` builds `render-visibility-qa.elf`. Boot it in Flycast
 or on a Dreamcast and check for `Render visibility QA: PASS`. It reproduces the
@@ -204,6 +231,12 @@ fall below 30 FPS. Textures and HUD occupy 3,965,248 bytes (3.78 MiB), with
 1,144,648 bytes (1.09 MiB) free after PVR allocations and a 768 KiB vertex
 buffer. The benchmark kept game audio synthesis enabled and used Flycast's
 null host-audio backend. Real Dreamcast hardware remains to be measured.
+
+The articulated pedestrians add a 256x256 mipmapped atlas (170 KiB) and up to
+about 480 triangles per close figure. With them, the same tour averaged
+**46.54 FPS** (2,794 frames / 60.034 seconds) with a peak of 7,014 triangles
+per frame; textures and HUD now occupy 4,140,032 bytes (3.95 MiB) with
+969,832 bytes free after allocation.
 
 Vertex-count telemetry gives a lower bound on stream bytes; polygon headers
 also consume the PVR vertex buffer. The mesh audit checks the renderer's

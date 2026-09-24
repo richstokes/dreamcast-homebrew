@@ -29,6 +29,7 @@
 #include "assets/generated/music_asset.h"
 #include "assets/generated/texture_assets.h"
 #include "model_data.h"
+#include "pedestrian_data.h"
 #include "render_math.h"
 #include "render_visibility.h"
 
@@ -49,6 +50,18 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define MAX_SMOKE 160
 #define MAX_EXHAUST_FLAMES 24
 #define MAX_SKIDS 192
+#define MAX_HIT_PEDESTRIANS 24
+#define CAR_MASS 1490.0f
+#define CAR_INERTIA 2520.0f
+/* Two overlapping discs approximate the coupe's footprint against street
+   obstacles, so an off-centre lamppost or bumper hit turns the car instead
+   of only stopping it. */
+#define CAR_COLLIDER_OFFSET 1.35f
+#define CAR_COLLIDER_RADIUS 1.02f
+#define LAMP_POST_RADIUS 0.13f
+#define PARKED_HALF_WIDTH 0.92f
+#define PARKED_HALF_LENGTH 2.18f
+#define PEDESTRIAN_RADIUS 0.30f
 #define HUD_W 512
 #define HUD_H 256
 #define HUD_BYTES (HUD_W * HUD_H * sizeof(uint16_t))
@@ -137,6 +150,27 @@ typedef struct {
 } traffic_t;
 
 typedef struct {
+    float x, z, heading, phase;
+    uint32_t seed;
+} pedestrian_pose_t;
+
+/* Walking pedestrians are stateless and follow the game clock along their
+   sidewalk. Only the ones the car has hit need simulation state, so this
+   records which block slot each downed figure replaces. */
+typedef struct {
+    bool active;
+    bool grounded;
+    int cell_x, cell_z, slot;
+    uint32_t seed;
+    float x, y, z;
+    float vx, vy, vz;
+    float heading;
+    float tumble, tumble_rate;
+    float rest_tumble, settle;
+    float timer;
+} hit_pedestrian_t;
+
+typedef struct {
     bool connected;
     uint32_t buttons;
     uint32_t pressed;
@@ -177,6 +211,7 @@ static traffic_t traffic[MAX_TRAFFIC];
 static smoke_t smoke_pool[MAX_SMOKE];
 static exhaust_flame_t exhaust_flame_pool[MAX_EXHAUST_FLAMES];
 static skid_t skid_pool[MAX_SKIDS];
+static hit_pedestrian_t hit_pedestrians[MAX_HIT_PEDESTRIANS];
 static int smoke_cursor;
 static int exhaust_flame_cursor;
 static int skid_cursor;
@@ -348,6 +383,10 @@ static bool car_visible_faces[4096];
 static vec3_t car_face_normals[4096];
 typedef struct { float x,z,scale,depth; } palm_draw_t;
 static palm_draw_t palm_draws[64];
+#define MAX_PED_SHADOWS 48
+typedef struct { float x,z,yaw,length,opacity; } ped_shadow_t;
+static ped_shadow_t ped_shadow_draws[MAX_PED_SHADOWS];
+static int ped_shadow_count;
 static int palm_draw_count;
 static pvr_poly_hdr_t world_header;
 static pvr_poly_hdr_t translucent_header;
@@ -410,6 +449,7 @@ static void reset_traffic(void);
 static int traffic_signal_state(int cell_x, int cell_z);
 static void emit_smoke(float lx, float lz);
 static void update_exhaust_pops(float throttle, float rpm_level, float dt);
+static void update_hit_pedestrians(float dt);
 static void emit_skid(float lx, int wheel);
 static float clampf(float value, float low, float high);
 
@@ -1212,11 +1252,128 @@ static void reset_traffic(void) {
         spawn_traffic_car(&traffic[i], i, true);
 }
 
+/* Block pad extents shared by the renderer and the street collision code. */
+static void block_extents(int cell_x, int cell_z,
+                          float *x0, float *x1, float *z0, float *z1) {
+    *x0 = (float)cell_x * CITY_CELL + ROAD_HALF + 1.5f;
+    *x1 = (float)(cell_x + 1) * CITY_CELL - ROAD_HALF - 1.5f;
+    *z0 = (float)cell_z * CITY_CELL + ROAD_HALF + 1.5f;
+    *z1 = (float)(cell_z + 1) * CITY_CELL - ROAD_HALF - 1.5f;
+}
+
+/* Coast cells west of the boulevard are open water with no street life. */
+static bool block_has_street_detail(int cell_x, int cell_z) {
+    return !(district_for_cell(cell_x, cell_z) == DISTRICT_COAST && cell_x <= -3);
+}
+
+/* Four swan-neck lampposts stand just off each block's curb. */
+static void block_lamppost(int cell_x, int cell_z, int index,
+                           float *x, float *z) {
+    float x0, x1, z0, z1;
+    block_extents(cell_x, cell_z, &x0, &x1, &z0, &z1);
+    switch(index) {
+        case 0: *x = x0 - 1.2f; *z = z0 + 7.0f; break;
+        case 1: *x = x1 + 1.2f; *z = z1 - 7.0f; break;
+        case 2: *x = x0 + 7.0f; *z = z1 + 1.2f; break;
+        default: *x = x1 - 7.0f; *z = z0 - 1.2f; break;
+    }
+}
+
+/* Each block walks up to four pedestrians along its sidewalks. Their
+   positions follow the game clock, so the renderer and the collision code
+   agree without a per-block entity list. */
+static bool block_pedestrian(int cell_x, int cell_z, const building_t *building,
+                             int slot, pedestrian_pose_t *pose) {
+    float x0, x1, z0, z1, span, speed, walk;
+    block_extents(cell_x, cell_z, &x0, &x1, &z0, &z1);
+    span = x1 - x0 - 12.0f;
+    speed = 1.15f + hash_unit(cell_x, cell_z, 0x8765u) * .55f;
+    walk = fmodf(game.time * speed / span + hash_unit(cell_x, cell_z, 0x4321u), 1.0f);
+    switch(slot) {
+        case 0:
+            pose->x = x0 + 6.0f + walk * span;
+            pose->z = z0 + 2.3f;
+            pose->heading = PI * .5f;
+            pose->seed = building->seed;
+            pose->phase = game.time * speed * 5.2f;
+            return true;
+        case 1:
+            if((building->seed & 3u) == 0u) return false;
+            pose->x = x1 - 6.0f - fmodf(walk + .47f, 1.0f) * span;
+            pose->z = z1 - 2.3f;
+            pose->heading = -PI * .5f;
+            pose->seed = building->seed >> 8;
+            pose->phase = game.time * speed * 4.8f + PI;
+            return true;
+        case 2:
+            pose->x = x0 + 2.3f;
+            pose->z = z0 + 6.0f + fmodf(walk + .23f, 1.0f) * span;
+            pose->heading = 0.0f;
+            pose->seed = building->seed >> 13;
+            pose->phase = game.time * speed * 4.5f + 1.2f;
+            return true;
+        default:
+            pose->x = x1 - 2.3f;
+            pose->z = z1 - 6.0f - fmodf(walk + .71f, 1.0f) * span;
+            pose->heading = PI;
+            pose->seed = building->seed >> 18;
+            pose->phase = game.time * speed * 5.5f + 2.1f;
+            return true;
+    }
+}
+
+/* Parked cars are deterministic per block: up to two kerbside vehicles on
+   the block's west road. Index 1 is only present on some blocks. */
+static bool parked_car_for_cell(int cell_x, int cell_z, int index,
+                                traffic_t *parked) {
+    static const color3_t parked_colors[] = {
+        {.36f,.08f,.07f}, {.06f,.22f,.46f}, {.42f,.44f,.48f},
+        {.055f,.065f,.085f}, {.48f,.30f,.055f}, {.08f,.30f,.22f}
+    };
+    const uint32_t seed=hash_u32((uint32_t)cell_x*0x7f4a7c15u ^
+                                 (uint32_t)cell_z*0x94d049bbu ^ 0x5041524bu);
+    const float block_cx=((float)cell_x+.5f)*CITY_CELL;
+    const float block_cz=((float)cell_z+.5f)*CITY_CELL;
+    if((seed%2u)!=0u || !block_has_street_detail(cell_x,cell_z)) return false;
+    if(index!=0 && (seed&2u)==0u) return false;
+    memset(parked,0,sizeof(*parked));
+    parked->active=true;
+    parked->seed=seed;
+    parked->color=parked_colors[(seed>>4)%ARRAY_COUNT(parked_colors)];
+    if(index==0) {
+        if(seed&1u) {
+            parked->x=block_cx+((seed>>8)&1u ? 17.0f : -17.0f);
+            parked->z=(float)cell_z*CITY_CELL+11.7f;
+            parked->yaw=(seed&4u)?PI*.5f:-PI*.5f;
+        }
+        else {
+            parked->x=(float)cell_x*CITY_CELL+11.7f;
+            parked->z=block_cz+((seed>>8)&1u ? 17.0f : -17.0f);
+            parked->yaw=(seed&4u)?0.0f:PI;
+        }
+        return true;
+    }
+    parked->seed^=0xb5297a4du;
+    parked->color=parked_colors[(parked->seed>>5)%ARRAY_COUNT(parked_colors)];
+    if(seed&1u) {
+        parked->x=block_cx+((seed>>8)&1u ? -20.5f : 20.5f);
+        parked->z=(float)cell_z*CITY_CELL-11.7f;
+        parked->yaw=(seed&4u)?-PI*.5f:PI*.5f;
+    }
+    else {
+        parked->x=(float)cell_x*CITY_CELL-11.7f;
+        parked->z=block_cz+((seed>>8)&1u ? -20.5f : 20.5f);
+        parked->yaw=(seed&4u)?PI:0.0f;
+    }
+    return true;
+}
+
 static void start_run(void) {
     reset_car();
     memset(smoke_pool, 0, sizeof(smoke_pool));
     memset(exhaust_flame_pool, 0, sizeof(exhaust_flame_pool));
     memset(skid_pool, 0, sizeof(skid_pool));
+    memset(hit_pedestrians, 0, sizeof(hit_pedestrians));
     exhaust_flame_cursor=0;
     effect_random_state=0x63d83595u;
     game.score = 0.0f;
@@ -1384,6 +1541,7 @@ static void update_effects(float dt) {
         skid_pool[i].life -= dt;
         if(skid_pool[i].life <= 0.0f) skid_pool[i].active = false;
     }
+    update_hit_pedestrians(dt);
 }
 
 static float traffic_forward_distance(const traffic_t *vehicle,
@@ -1493,6 +1651,362 @@ static void update_traffic(float dt) {
     }
 }
 
+/* Kicks up a short-lived puff of dust at a street impact point. */
+static void emit_impact_dust(float x, float z, float strength) {
+    const int count = 2 + (int)(clampf(strength, 0.0f, 1.0f) * 4.0f);
+    int i;
+    for(i = 0; i < count; ++i) {
+        smoke_t *particle = &smoke_pool[smoke_cursor++ % MAX_SMOKE];
+        const float angle = effect_random_unit() * PI * 2.0f;
+        const float speed = .8f + effect_random_unit() * 2.2f;
+        particle->active = true;
+        particle->x = x;
+        particle->y = .35f;
+        particle->z = z;
+        particle->vx = fcos(angle) * speed;
+        particle->vy = 1.2f + effect_random_unit() * 1.6f;
+        particle->vz = fsin(angle) * speed;
+        particle->life = particle->max_life = .55f + effect_random_unit() * .45f;
+        particle->size = .36f + effect_random_unit() * .22f;
+    }
+}
+
+static void street_impact(float x, float z, float closing_speed,
+                          float flash, float audio_base, float audio_range) {
+    const float strength = clampf(closing_speed / 24.0f, 0.0f, 1.0f);
+    if(closing_speed < 1.5f) return;
+    game.impact_flash = fmaxf(game.impact_flash, flash * (.4f + .6f * strength));
+    audio_trigger_impact(audio_base + strength * audio_range);
+    emit_impact_dust(x, z, strength);
+    game.drift_hold = fminf(game.drift_hold, 0.25f);
+}
+
+static void car_collider_center(int index, float *x, float *z) {
+    const float offset = index == 0 ? CAR_COLLIDER_OFFSET : -CAR_COLLIDER_OFFSET;
+    *x = car.x + fsin(car.yaw) * offset;
+    *z = car.z + fcos(car.yaw) * offset;
+}
+
+/* Rigid-body contact between the car and a fixed street obstacle. The
+   normal points from the obstacle into the car and the contact point is
+   where the car's collision disc touches it. Returns the closing speed
+   that was removed, or zero when the car was already separating. */
+static float resolve_street_contact(float contact_x, float contact_z,
+                                    float nx, float nz, float penetration,
+                                    float restitution, float friction) {
+    const float s = fsin(car.yaw), c = fcos(car.yaw);
+    float vx = s * car.longitudinal + c * car.lateral;
+    float vz = c * car.longitudinal - s * car.lateral;
+    const float rx = contact_x - car.x, rz = contact_z - car.z;
+    const float tx = -nz, tz = nx;
+    /* Yaw moves a point r at yaw_rate * (rz, -rx), so these scalar cross
+       products give each impulse's lever arm about the car's centre. */
+    const float cross_n = rz * nx - rx * nz;
+    const float cross_t = rz * tx - rx * tz;
+    const float normal_speed = vx * nx + vz * nz + car.yaw_rate * cross_n;
+    car.x += nx * penetration;
+    car.z += nz * penetration;
+    if(normal_speed >= 0.0f) return 0.0f;
+    {
+        const float normal_mass =
+            1.0f / (1.0f / CAR_MASS + cross_n * cross_n / CAR_INERTIA);
+        const float tangent_mass =
+            1.0f / (1.0f / CAR_MASS + cross_t * cross_t / CAR_INERTIA);
+        const float jn = -(1.0f + restitution) * normal_speed * normal_mass;
+        const float tangent_speed = vx * tx + vz * tz + car.yaw_rate * cross_t;
+        const float jt = clampf(-tangent_speed * tangent_mass,
+                                -friction * jn, friction * jn);
+        vx += (jn * nx + jt * tx) / CAR_MASS;
+        vz += (jn * nz + jt * tz) / CAR_MASS;
+        car.yaw_rate += (jn * cross_n + jt * cross_t) / CAR_INERTIA;
+    }
+    car.longitudinal = clampf(s * vx + c * vz, -11.0f, 82.0f);
+    car.lateral = clampf(c * vx - s * vz, -24.0f, 24.0f);
+    car.yaw_rate = clampf(car.yaw_rate, -2.05f, 2.05f);
+    return -normal_speed;
+}
+
+/* Disc-versus-post contact for lampposts and similar thin poles. */
+static float collide_post(float px, float pz, float post_radius,
+                          float restitution, float friction) {
+    const float reach = CAR_COLLIDER_RADIUS + post_radius;
+    int disc;
+    for(disc = 0; disc < 2; ++disc) {
+        float cx, cz, dx, dz, dist_sq, dist, nx, nz;
+        car_collider_center(disc, &cx, &cz);
+        dx = cx - px;
+        dz = cz - pz;
+        dist_sq = dx * dx + dz * dz;
+        if(dist_sq >= reach * reach) continue;
+        if(dist_sq < 1e-4f) {
+            nx = fcos(car.yaw);
+            nz = -fsin(car.yaw);
+            dist = 0.0f;
+        }
+        else {
+            dist = sqrtf(dist_sq);
+            nx = dx / dist;
+            nz = dz / dist;
+        }
+        return resolve_street_contact(px + nx * post_radius, pz + nz * post_radius,
+                                      nx, nz, reach - dist, restitution, friction);
+    }
+    return 0.0f;
+}
+
+/* Disc-versus-oriented-box contact for a stationary vehicle. */
+static float collide_parked_car(const traffic_t *parked,
+                                float restitution, float friction) {
+    const shz_sincos_t rotation = shz_sincosf(parked->yaw);
+    const float c = rotation.cos, s = rotation.sin;
+    const float reach_x = PARKED_HALF_WIDTH + CAR_COLLIDER_RADIUS;
+    const float reach_z = PARKED_HALF_LENGTH + CAR_COLLIDER_RADIUS;
+    int disc;
+    for(disc = 0; disc < 2; ++disc) {
+        float cx, cz, dx, dz, lx, lz, qx, qz, ex, ez, dist_sq;
+        float nx, nz, penetration, wx, wz;
+        car_collider_center(disc, &cx, &cz);
+        dx = cx - parked->x;
+        dz = cz - parked->z;
+        /* Inverse of traffic_point: local right and forward offsets. */
+        lx = dx * c - dz * s;
+        lz = dx * s + dz * c;
+        if(fabsf(lx) >= reach_x || fabsf(lz) >= reach_z) continue;
+        qx = clampf(lx, -PARKED_HALF_WIDTH, PARKED_HALF_WIDTH);
+        qz = clampf(lz, -PARKED_HALF_LENGTH, PARKED_HALF_LENGTH);
+        ex = lx - qx;
+        ez = lz - qz;
+        dist_sq = ex * ex + ez * ez;
+        if(dist_sq > 1e-6f) {
+            const float dist = sqrtf(dist_sq);
+            if(dist >= CAR_COLLIDER_RADIUS) continue;
+            nx = ex / dist;
+            nz = ez / dist;
+            penetration = CAR_COLLIDER_RADIUS - dist;
+        }
+        else {
+            /* The disc centre is inside the body: leave by the thinner side. */
+            const float pen_x = PARKED_HALF_WIDTH - fabsf(lx);
+            const float pen_z = PARKED_HALF_LENGTH - fabsf(lz);
+            if(pen_x < pen_z) {
+                nx = lx < 0.0f ? -1.0f : 1.0f;
+                nz = 0.0f;
+                penetration = pen_x + CAR_COLLIDER_RADIUS;
+                qx = nx * PARKED_HALF_WIDTH;
+            }
+            else {
+                nx = 0.0f;
+                nz = lz < 0.0f ? -1.0f : 1.0f;
+                penetration = pen_z + CAR_COLLIDER_RADIUS;
+                qz = nz * PARKED_HALF_LENGTH;
+            }
+        }
+        wx = nx * c + nz * s;
+        wz = -nx * s + nz * c;
+        return resolve_street_contact(parked->x + qx * c + qz * s,
+                                      parked->z - qx * s + qz * c,
+                                      wx, wz, penetration, restitution, friction);
+    }
+    return 0.0f;
+}
+
+static void collide_street_furniture(void) {
+    const int base_x = (int)floorf(car.x / CITY_CELL);
+    const int base_z = (int)floorf(car.z / CITY_CELL);
+    int dx, dz, index;
+    for(dz = -1; dz <= 1; ++dz) {
+        for(dx = -1; dx <= 1; ++dx) {
+            const int cell_x = base_x + dx, cell_z = base_z + dz;
+            if(!block_has_street_detail(cell_x, cell_z)) continue;
+            for(index = 0; index < 4; ++index) {
+                float px, pz, closing;
+                block_lamppost(cell_x, cell_z, index, &px, &pz);
+                if(fabsf(px - car.x) > 6.0f || fabsf(pz - car.z) > 6.0f) continue;
+                closing = collide_post(px, pz, LAMP_POST_RADIUS, .28f, .35f);
+                if(closing > 0.0f)
+                    street_impact(px, pz, closing, .20f, .42f, .62f);
+            }
+            for(index = 0; index < 2; ++index) {
+                traffic_t parked;
+                float closing;
+                if(!parked_car_for_cell(cell_x, cell_z, index, &parked)) continue;
+                if(fabsf(parked.x - car.x) > 8.0f || fabsf(parked.z - car.z) > 8.0f)
+                    continue;
+                closing = collide_parked_car(&parked, .22f, .30f);
+                if(closing > 0.0f)
+                    street_impact(car.x, car.z, closing, .22f, .52f, .68f);
+            }
+        }
+    }
+}
+
+static hit_pedestrian_t *find_hit_pedestrian(int cell_x, int cell_z, int slot) {
+    int i;
+    for(i = 0; i < MAX_HIT_PEDESTRIANS; ++i) {
+        hit_pedestrian_t *p = &hit_pedestrians[i];
+        if(p->active && p->cell_x == cell_x && p->cell_z == cell_z &&
+           p->slot == slot)
+            return p;
+    }
+    return NULL;
+}
+
+static hit_pedestrian_t *allocate_hit_pedestrian(void) {
+    hit_pedestrian_t *oldest = &hit_pedestrians[0];
+    int i;
+    for(i = 0; i < MAX_HIT_PEDESTRIANS; ++i) {
+        hit_pedestrian_t *p = &hit_pedestrians[i];
+        if(!p->active) return p;
+        if(p->timer > oldest->timer) oldest = p;
+    }
+    return oldest;
+}
+
+/* Throws a pedestrian along the car's motion with a tumble. The push is
+   the world-space velocity handed to the figure. */
+static void launch_pedestrian(hit_pedestrian_t *p, float push_x, float push_z,
+                              float lift) {
+    const float push = sqrtf(push_x * push_x + push_z * push_z);
+    p->vx = push_x;
+    p->vz = push_z;
+    p->vy = lift;
+    p->grounded = false;
+    if(push > .5f) p->heading = atan2f(push_x, push_z);
+    p->tumble_rate = (4.0f + fminf(push, 30.0f) * .25f) *
+                     ((effect_random_u32() & 1u) ? 1.0f : -1.0f);
+}
+
+static void run_over_pedestrian(int cell_x, int cell_z, int slot,
+                                const pedestrian_pose_t *pose,
+                                float nx, float nz) {
+    const float s = fsin(car.yaw), c = fcos(car.yaw);
+    const float vx = s * car.longitudinal + c * car.lateral;
+    const float vz = c * car.longitudinal - s * car.lateral;
+    const float speed = sqrtf(vx * vx + vz * vz);
+    const float shove = 3.0f + speed * .15f;
+    hit_pedestrian_t *p = allocate_hit_pedestrian();
+    memset(p, 0, sizeof(*p));
+    p->active = true;
+    p->cell_x = cell_x;
+    p->cell_z = cell_z;
+    p->slot = slot;
+    p->seed = pose->seed;
+    p->x = pose->x;
+    p->z = pose->z;
+    p->heading = pose->heading;
+    launch_pedestrian(p, vx * .80f + nx * shove, vz * .80f + nz * shove,
+                      clampf(3.0f + speed * .12f, 3.0f, 9.0f));
+    /* A body is light next to the car: a brief scrub and a nudge towards
+       the side that took the hit. */
+    car.longitudinal *= .985f;
+    car.yaw_rate = clampf(car.yaw_rate + (nx * c - nz * s) *
+                          clampf(speed / 30.0f, 0.0f, 1.0f) * .05f,
+                          -2.05f, 2.05f);
+    game.impact_flash = fmaxf(game.impact_flash, .07f);
+    audio_trigger_impact(.34f + clampf(speed / 40.0f, 0.0f, .30f));
+    emit_impact_dust(pose->x, pose->z, clampf(speed / 30.0f, 0.0f, .5f));
+}
+
+static void collide_pedestrians(void) {
+    const int base_x = (int)floorf(car.x / CITY_CELL);
+    const int base_z = (int)floorf(car.z / CITY_CELL);
+    const float reach = CAR_COLLIDER_RADIUS + PEDESTRIAN_RADIUS;
+    int dx, dz, slot, disc;
+    for(dz = -1; dz <= 1; ++dz) {
+        for(dx = -1; dx <= 1; ++dx) {
+            const int cell_x = base_x + dx, cell_z = base_z + dz;
+            building_t building;
+            if(!block_has_street_detail(cell_x, cell_z)) continue;
+            building = building_for_cell(cell_x, cell_z);
+            for(slot = 0; slot < 4; ++slot) {
+                pedestrian_pose_t pose;
+                hit_pedestrian_t *hit;
+                float target_x, target_z;
+                if(!block_pedestrian(cell_x, cell_z, &building, slot, &pose))
+                    continue;
+                hit = find_hit_pedestrian(cell_x, cell_z, slot);
+                if(hit && !hit->grounded) continue;
+                target_x = hit ? hit->x : pose.x;
+                target_z = hit ? hit->z : pose.z;
+                if(fabsf(target_x - car.x) > 5.0f || fabsf(target_z - car.z) > 5.0f)
+                    continue;
+                for(disc = 0; disc < 2; ++disc) {
+                    float cx, cz, ex, ez, dist_sq, dist, nx, nz;
+                    car_collider_center(disc, &cx, &cz);
+                    ex = target_x - cx;
+                    ez = target_z - cz;
+                    dist_sq = ex * ex + ez * ez;
+                    if(dist_sq >= reach * reach) continue;
+                    dist = sqrtf(fmaxf(dist_sq, 1e-4f));
+                    nx = ex / dist;
+                    nz = ez / dist;
+                    if(hit) {
+                        /* Rolling over a downed figure gives it a short hop. */
+                        const float s = fsin(car.yaw), c = fcos(car.yaw);
+                        const float vx = s * car.longitudinal + c * car.lateral;
+                        const float vz = c * car.longitudinal - s * car.lateral;
+                        if(vx * vx + vz * vz > 2.0f * 2.0f) {
+                            launch_pedestrian(hit, vx * .45f + nx * 1.5f,
+                                              vz * .45f + nz * 1.5f, 1.8f);
+                            hit->timer = 0.0f;
+                        }
+                    }
+                    else
+                        run_over_pedestrian(cell_x, cell_z, slot, &pose, nx, nz);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+static void update_hit_pedestrians(float dt) {
+    int i;
+    for(i = 0; i < MAX_HIT_PEDESTRIANS; ++i) {
+        hit_pedestrian_t *p = &hit_pedestrians[i];
+        float dx, dz;
+        if(!p->active) continue;
+        p->timer += dt;
+        p->x += p->vx * dt;
+        p->z += p->vz * dt;
+        if(!p->grounded) {
+            p->vy -= 14.0f * dt;
+            p->y += p->vy * dt;
+            p->tumble += p->tumble_rate * dt;
+            if(p->y <= 0.0f) {
+                p->y = 0.0f;
+                if(p->vy < -2.2f) {
+                    p->vy = -p->vy * .28f;
+                    p->vx *= .62f;
+                    p->vz *= .62f;
+                    p->tumble_rate *= .55f;
+                }
+                else {
+                    p->vy = 0.0f;
+                    p->grounded = true;
+                    p->settle = 0.0f;
+                    /* Come to rest on the nearest side, face up or face down. */
+                    p->rest_tumble = floorf((p->tumble - PI * .5f) / PI + .5f) * PI + PI * .5f;
+                }
+            }
+        }
+        else {
+            const float damping = fmaxf(0.0f, 1.0f - dt * 4.5f);
+            p->vx *= damping;
+            p->vz *= damping;
+            p->settle = fminf(1.0f, p->settle + dt * 3.0f);
+            p->tumble += (p->rest_tumble - p->tumble) * fminf(1.0f, dt * 8.0f);
+        }
+        /* The figure stays down until the player has moved on, then the
+           walking pedestrian quietly resumes its route. */
+        dx = p->x - car.x;
+        dz = p->z - car.z;
+        if((p->timer > 6.0f && dx * dx + dz * dz > 110.0f * 110.0f) ||
+           p->timer > 45.0f)
+            p->active = false;
+    }
+}
+
 static void collide_buildings(void) {
     const int base_x = (int)floorf(car.x / CITY_CELL);
     const int base_z = (int)floorf(car.z / CITY_CELL);
@@ -1526,8 +2040,8 @@ static void collide_buildings(void) {
 }
 
 static void update_physics(const input_t *input, float dt) {
-    const float mass = 1490.0f;
-    const float inertia = 2520.0f;
+    const float mass = CAR_MASS;
+    const float inertia = CAR_INERTIA;
     const float front_arm = 1.32f;
     const float rear_arm = 1.23f;
     const bool handbrake = (input->buttons & CONT_A) != 0;
@@ -1836,6 +2350,8 @@ static void update_physics(const input_t *input, float dt) {
     rear_wheel_spin=fmodf(rear_wheel_spin+
         car.rear_wheel_speed*dt/.44f,PI*2.0f);
     collide_buildings();
+    collide_street_furniture();
+    collide_pedestrians();
 
     game.drift_angle = atan2f(fabsf(car.lateral), fmaxf(fabsf(car.longitudinal), 0.8f)) * 180.0f / PI;
     if(road&&input->throttle>.20f&&car.rear_power_slip>.18f&&
@@ -1934,6 +2450,173 @@ static void update_physics(const input_t *input, float dt) {
         game.drift_bonus_step = 0;
     }
 }
+
+#ifdef DRIFT_LA_COLLISION_QA
+/* Scripted street-collision regression: the car is placed a short run from
+   a lamppost, a parked car and a walking pedestrian in turn. Each phase
+   checks that the obstacle registered an impact, that the car never passed
+   through it, and that the pedestrian was launched and came to rest. */
+typedef struct {
+    int phase;
+    int failures;
+    float phase_time;
+    float target_x, target_z;
+    float forward_x, forward_z;
+    float min_clearance;
+    float peak_height;
+    bool impact_seen;
+    bool pedestrian_hit;
+    bool pedestrian_grounded;
+    bool finished;
+} collision_qa_t;
+
+static collision_qa_t collision_qa;
+
+static void collision_qa_place(float x, float z, float yaw, float speed) {
+    reset_car();
+    car.x = x;
+    car.z = z;
+    car.yaw = yaw;
+    car.longitudinal = speed;
+    car.rear_wheel_speed = speed;
+    game.impact_flash = 0.0f;
+}
+
+static void collision_qa_begin_phase(int phase) {
+    collision_qa_t *qa = &collision_qa;
+    qa->phase = phase;
+    qa->phase_time = 0.0f;
+    qa->min_clearance = 1000.0f;
+    qa->peak_height = 0.0f;
+    qa->impact_seen = false;
+    qa->pedestrian_hit = false;
+    qa->pedestrian_grounded = false;
+    memset(hit_pedestrians, 0, sizeof(hit_pedestrians));
+    if(phase == 0) {
+        block_lamppost(0, 0, 0, &qa->target_x, &qa->target_z);
+        qa->forward_x = 0.0f;
+        qa->forward_z = 1.0f;
+        collision_qa_place(qa->target_x, qa->target_z - 30.0f, 0.0f, 22.0f);
+        printf("Drift Los Angeles collision QA: lamppost run at %.1f,%.1f.\n",
+               qa->target_x, qa->target_z);
+    }
+    else if(phase == 1) {
+        traffic_t parked;
+        bool found = false;
+        int cx, cz;
+        for(cz = -2; cz <= 2 && !found; ++cz)
+            for(cx = -2; cx <= 2 && !found; ++cx)
+                found = parked_car_for_cell(cx, cz, 0, &parked);
+        if(!found) {
+            printf("Drift Los Angeles collision QA: parked car FAIL -- none near the origin.\n");
+            ++qa->failures;
+            collision_qa_begin_phase(2);
+            return;
+        }
+        qa->target_x = parked.x;
+        qa->target_z = parked.z;
+        qa->forward_x = fsin(parked.yaw);
+        qa->forward_z = fcos(parked.yaw);
+        collision_qa_place(parked.x - qa->forward_x * 28.0f,
+                           parked.z - qa->forward_z * 28.0f, parked.yaw, 22.0f);
+        printf("Drift Los Angeles collision QA: parked car run at %.1f,%.1f yaw=%.2f.\n",
+               parked.x, parked.z, parked.yaw);
+    }
+    else {
+        const building_t building = building_for_cell(0, 0);
+        pedestrian_pose_t pose;
+        block_pedestrian(0, 0, &building, 0, &pose);
+        qa->target_x = pose.x;
+        qa->target_z = pose.z;
+        qa->forward_x = 1.0f;
+        qa->forward_z = 0.0f;
+        collision_qa_place(pose.x - 24.0f, pose.z, PI * .5f, 18.0f);
+        printf("Drift Los Angeles collision QA: pedestrian run at %.1f,%.1f.\n",
+               pose.x, pose.z);
+    }
+}
+
+static void collision_qa_start(void) {
+    memset(&collision_qa, 0, sizeof(collision_qa));
+    collision_qa_begin_phase(0);
+}
+
+static void collision_qa_input(input_t *input) {
+    const collision_qa_t *qa = &collision_qa;
+    const bool done = qa->phase == 2 ? qa->pedestrian_hit : false;
+    input->connected = true;
+    input->buttons = 0;
+    input->pressed = 0;
+    input->steer = 0.0f;
+    input->throttle = done ? 0.0f : 1.0f;
+    input->brake = done ? 1.0f : 0.0f;
+}
+
+static bool collision_qa_state_sane(void) {
+    return car.x == car.x && car.z == car.z && car.yaw == car.yaw &&
+           fabsf(car.longitudinal) <= 82.0f && fabsf(car.lateral) <= 24.0f &&
+           fabsf(car.yaw_rate) <= 2.05f;
+}
+
+/* Returns true once every phase has reported. */
+static bool collision_qa_observe(float dt) {
+    collision_qa_t *qa = &collision_qa;
+    const float ahead = (qa->target_x - car.x) * qa->forward_x +
+                        (qa->target_z - car.z) * qa->forward_z;
+    const float phase_length = qa->phase == 2 ? 4.5f : 3.0f;
+    if(qa->finished) return true;
+    qa->phase_time += dt;
+    if(!collision_qa_state_sane()) {
+        printf("Drift Los Angeles collision QA: phase %d FAIL -- car state left its limits.\n",
+               qa->phase);
+        ++qa->failures;
+        qa->finished = true;
+    }
+    if(game.impact_flash > 0.0f) qa->impact_seen = true;
+    if(qa->phase < 2) {
+        qa->min_clearance = fminf(qa->min_clearance, ahead);
+    }
+    else {
+        const hit_pedestrian_t *hit = find_hit_pedestrian(0, 0, 0);
+        if(hit) {
+            qa->pedestrian_hit = true;
+            qa->peak_height = fmaxf(qa->peak_height, hit->y);
+            if(hit->grounded) qa->pedestrian_grounded = true;
+        }
+    }
+    if(qa->finished || qa->phase_time < phase_length) return qa->finished;
+    if(qa->phase == 0) {
+        /* The front disc rests 2.5 m short of the post's axis. */
+        const bool pass = qa->impact_seen && qa->min_clearance > 2.0f;
+        printf("Drift Los Angeles collision QA: lamppost %s -- impact=%d clearance=%.2fm speed=%.2fm/s.\n",
+               pass ? "PASS" : "FAIL", qa->impact_seen ? 1 : 0,
+               qa->min_clearance, car.longitudinal);
+        if(!pass) ++qa->failures;
+        collision_qa_begin_phase(1);
+    }
+    else if(qa->phase == 1) {
+        /* Half length plus the disc and its offset keep 4.55 m of axis. */
+        const bool pass = qa->impact_seen && qa->min_clearance > 4.0f;
+        printf("Drift Los Angeles collision QA: parked car %s -- impact=%d clearance=%.2fm speed=%.2fm/s.\n",
+               pass ? "PASS" : "FAIL", qa->impact_seen ? 1 : 0,
+               qa->min_clearance, car.longitudinal);
+        if(!pass) ++qa->failures;
+        collision_qa_begin_phase(2);
+    }
+    else {
+        const bool pass = qa->pedestrian_hit && qa->peak_height > .4f &&
+                          qa->pedestrian_grounded;
+        printf("Drift Los Angeles collision QA: pedestrian %s -- hit=%d peak=%.2fm grounded=%d.\n",
+               pass ? "PASS" : "FAIL", qa->pedestrian_hit ? 1 : 0,
+               qa->peak_height, qa->pedestrian_grounded ? 1 : 0);
+        if(!pass) ++qa->failures;
+        printf("Drift Los Angeles collision QA: %s.\n",
+               qa->failures == 0 ? "ALL TESTS PASS" : "FAILED");
+        qa->finished = true;
+    }
+    return qa->finished;
+}
+#endif
 
 static bool update_game(const input_t *input, float dt) {
     district_t district;
@@ -2059,10 +2742,11 @@ static bool update_game(const input_t *input, float dt) {
             if(input->pressed & CONT_Y) {
                 reset_car();
                 reset_traffic();
+                memset(hit_pedestrians, 0, sizeof(hit_pedestrians));
             }
             if(input->pressed & CONT_B) game.camera_close = !game.camera_close;
             update_physics(input, dt);
-#ifndef DRIFT_LA_PHYSICS_QA
+#if !defined(DRIFT_LA_PHYSICS_QA) && !defined(DRIFT_LA_COLLISION_QA)
             update_traffic(dt);
 #endif
             update_exhaust_pops(input->throttle,engine_rpm_level(),dt);
@@ -3430,17 +4114,230 @@ static void draw_traffic_signal_opaque(int cell_x, int cell_z) {
     }
 }
 
-static void draw_pedestrian(float x, float z, float heading,
-                            uint32_t seed, float phase) {
-    static const color3_t shirts[]={{.96f,.24f,.22f},{.08f,.72f,.86f},
-        {.96f,.66f,.10f},{.60f,.24f,.88f},{.22f,.78f,.38f}};
+/* ------------------------------------------------------------------------
+   Pedestrians: a 16-part articulated body from pedestrian_data.h, tinted
+   per figure from its seed and posed from joint pitch angles. Close figures
+   use the full mesh, mid-range ones a lighter mesh, and distant ones the
+   original flat billboards.
+   ------------------------------------------------------------------------ */
+#define PED_LOD0_DISTANCE 32.0f
+#define PED_LOD1_DISTANCE 92.0f
+#define MAX_PED_PART_VERTICES 128
+
+typedef struct {
+    color3_t skin, shirt, trousers, hair, shoe, accent;
+    int style, face, topper;
+    bool shorts;
+    float height;
+} pedestrian_look_t;
+
+typedef struct {
+    float root_pitch, root_y;
+    float angle[DLA_PED_PART_COUNT];
+} pedestrian_joints_t;
+
+static screen_point_t ped_points[MAX_PED_PART_VERTICES];
+static uint32_t ped_colors[MAX_PED_PART_VERTICES];
+static float ped_facing[MAX_PED_PART_VERTICES];
+
+static pedestrian_look_t pedestrian_look(uint32_t seed) {
+    static const color3_t skins[5]={{1.0f,.82f,.68f},{.96f,.74f,.58f},
+        {.82f,.58f,.42f},{.62f,.42f,.30f},{.44f,.29f,.20f}};
+    static const color3_t shirts[8]={{.95f,.22f,.20f},{.10f,.70f,.86f},
+        {.96f,.66f,.12f},{.58f,.26f,.86f},{.24f,.78f,.40f},{.92f,.92f,.92f},
+        {.16f,.18f,.24f},{.96f,.48f,.72f}};
+    static const color3_t trousers[4]={{.36f,.44f,.64f},{.16f,.17f,.20f},
+        {.64f,.56f,.40f},{.46f,.47f,.52f}};
+    static const color3_t hairs[5]={{.14f,.10f,.08f},{.36f,.22f,.12f},
+        {.86f,.72f,.40f},{.60f,.26f,.12f},{.70f,.70f,.72f}};
+    static const color3_t shoes[3]={{.95f,.95f,.95f},{.16f,.16f,.18f},{.86f,.16f,.16f}};
+    const uint32_t h=hash_u32(seed^0x9d2c5680u);
+    pedestrian_look_t look;
+    look.style=(int)(h&3u);
+    look.face=(int)((h>>2)&3u);
+    look.topper=(int)((h>>4)&3u);
+    look.skin=skins[(h>>6)%5u];
+    look.shirt=shirts[(h>>9)&7u];
+    look.trousers=trousers[(h>>12)&3u];
+    look.hair=hairs[(h>>14)%5u];
+    look.shoe=shoes[(h>>17)%3u];
+    look.accent=shirts[(h>>20)&7u];
+    look.shorts=((h>>23)&7u)<2u && look.style!=2;
+    look.height=.92f+(float)((h>>26)&63u)*(.16f/63.0f);
+    return look;
+}
+
+/* Which colour and atlas column each body part takes for this figure. */
+static void pedestrian_part_style(const pedestrian_look_t *look, int part,
+                                  int slot, color3_t *tint, float *du) {
+    *du=0.0f;
+    switch(slot) {
+        case DLA_PED_SLOT_SKIN:
+            *tint=look->skin;
+            if(part==DLA_PED_HEAD) *du=(float)look->face*DLA_PED_ATLAS_REGION;
+            break;
+        case DLA_PED_SLOT_SHIRT:
+            *tint=look->shirt;
+            *du=(float)look->style*DLA_PED_ATLAS_REGION;
+            break;
+        case DLA_PED_SLOT_TROUSERS: *tint=look->trousers; break;
+        case DLA_PED_SLOT_HAIR: *tint=look->hair; break;
+        case DLA_PED_SLOT_ACCENT: *tint=look->accent; break;
+        case DLA_PED_SLOT_SHOE: *tint=look->shoe; break;
+        case DLA_PED_SLOT_SLEEVE: *tint=look->shirt; break;
+        case DLA_PED_SLOT_FOREARM:
+            /* Hoodies and jackets cover the forearm with the sleeve cell. */
+            if(look->style==1||look->style==2) {
+                *tint=look->shirt;
+                *du=-DLA_PED_ATLAS_REGION;
+            }
+            else *tint=look->skin;
+            break;
+        default:
+            if(look->shorts) {
+                *tint=look->skin;
+                *du=-2.0f*DLA_PED_ATLAS_REGION;
+            }
+            else *tint=look->trousers;
+            break;
+    }
+}
+
+/* Positive pitch swings a hanging limb forward. */
+static void pedestrian_walk_joints(pedestrian_joints_t *joints, float phase) {
+    const float s=fsin(phase),c=fcos(phase);
+    memset(joints,0,sizeof(*joints));
+    joints->root_y=fabsf(s)*.025f;
+    joints->angle[DLA_PED_TORSO]=-.06f;
+    joints->angle[DLA_PED_HEAD]=.04f;
+    joints->angle[DLA_PED_UPPER_ARM_L]=-s*.55f;
+    joints->angle[DLA_PED_UPPER_ARM_R]=s*.55f;
+    joints->angle[DLA_PED_FOREARM_L]=.45f+fmaxf(0.0f,-s)*.35f;
+    joints->angle[DLA_PED_FOREARM_R]=.45f+fmaxf(0.0f,s)*.35f;
+    joints->angle[DLA_PED_THIGH_L]=s*.58f;
+    joints->angle[DLA_PED_THIGH_R]=-s*.58f;
+    /* The knee folds while its leg swings forward and locks at heel strike. */
+    joints->angle[DLA_PED_SHIN_L]=-(.12f+fmaxf(0.0f,c)*.95f);
+    joints->angle[DLA_PED_SHIN_R]=-(.12f+fmaxf(0.0f,-c)*.95f);
+}
+
+static float lerpf(float a, float b, float t) {
+    return a+(b-a)*t;
+}
+
+/* Airborne figures somersault with flailing limbs, then relax as they settle. */
+static void pedestrian_ragdoll_joints(pedestrian_joints_t *joints,
+                                      const hit_pedestrian_t *p) {
+    const float settle=p->grounded?clampf(p->settle,0.0f,1.0f):0.0f;
+    const float flail=fsin(p->tumble*1.7f)*.35f;
+    memset(joints,0,sizeof(*joints));
+    joints->root_pitch=p->tumble;
+    joints->root_y=p->y-.77f*settle;
+    joints->angle[DLA_PED_HEAD]=lerpf(-.30f,-.10f,settle);
+    joints->angle[DLA_PED_UPPER_ARM_L]=lerpf(-2.3f+flail,-.9f,settle);
+    joints->angle[DLA_PED_UPPER_ARM_R]=lerpf(-2.0f-flail,-.4f,settle);
+    joints->angle[DLA_PED_FOREARM_L]=lerpf(.7f,.3f,settle);
+    joints->angle[DLA_PED_FOREARM_R]=lerpf(.9f,.2f,settle);
+    joints->angle[DLA_PED_THIGH_L]=lerpf(.7f+flail*.5f,.25f,settle);
+    joints->angle[DLA_PED_THIGH_R]=lerpf(.2f-flail*.5f,.05f,settle);
+    joints->angle[DLA_PED_SHIN_L]=lerpf(-.9f,-.35f,settle);
+    joints->angle[DLA_PED_SHIN_R]=lerpf(-.5f,-.15f,settle);
+}
+
+static void draw_pedestrian_model(const pedestrian_look_t *look,
+                                  float x, float z, float yaw,
+                                  const pedestrian_joints_t *joints, int lod) {
+    const dla_ped_mesh_t *mesh=&dla_pedestrian_lods[lod];
+    const pvr_poly_hdr_t *header=&texture_headers[DLA_TEX_PEDESTRIAN];
+    const shz_sincos_t yaw_rotation=shz_sincosf(yaw);
+    const float c=yaw_rotation.cos,s=yaw_rotation.sin;
+    const float height=look->height;
+    float part_cos[DLA_PED_PART_COUNT],part_sin[DLA_PED_PART_COUNT];
+    float part_ty[DLA_PED_PART_COUNT],part_tz[DLA_PED_PART_COUNT];
+    int part;
+    QA_COUNT(pedestrians);
+    /* Compose each part's pitch about its pivot down the parent chain. The
+       root spins about the body centre so a tumble reads as a whole-body
+       somersault. */
+    for(part=0;part<mesh->part_count;++part) {
+        const dla_ped_part_t *p=&mesh->parts[part];
+        const shz_sincos_t r=shz_sincosf(joints->angle[part]);
+        if(p->parent<0) {
+            const shz_sincos_t root=shz_sincosf(joints->root_pitch);
+            const float d=p->pivot_y-.90f;
+            part_cos[part]=root.cos*r.cos-root.sin*r.sin;
+            part_sin[part]=root.cos*r.sin+root.sin*r.cos;
+            part_ty[part]=.90f+joints->root_y+root.cos*d;
+            part_tz[part]=-root.sin*d;
+        }
+        else {
+            const dla_ped_part_t *parent=&mesh->parts[p->parent];
+            const float pc=part_cos[p->parent],ps=part_sin[p->parent];
+            const float dy=p->pivot_y-parent->pivot_y;
+            const float dz=p->pivot_z-parent->pivot_z;
+            part_cos[part]=pc*r.cos-ps*r.sin;
+            part_sin[part]=pc*r.sin+ps*r.cos;
+            part_ty[part]=part_ty[p->parent]+pc*dy+ps*dz;
+            part_tz[part]=part_tz[p->parent]-ps*dy+pc*dz;
+        }
+    }
+    for(part=0;part<mesh->part_count;++part) {
+        const dla_ped_part_t *p=&mesh->parts[part];
+        const float pc=part_cos[part],ps=part_sin[part];
+        const float ty=part_ty[part],tz=part_tz[part];
+        color3_t tint;
+        float du;
+        int i;
+        if(p->face_count==0||p->vertex_count>MAX_PED_PART_VERTICES) continue;
+        if(part==DLA_PED_HAIR_SHORT&&look->topper!=0) continue;
+        if(part==DLA_PED_HAIR_LONG&&look->topper!=1) continue;
+        if(part==DLA_PED_CAP&&look->topper!=2) continue;
+        pedestrian_part_style(look,part,p->slot,&tint,&du);
+        for(i=0;i<p->vertex_count;++i) {
+            const dla_ped_vertex_t *v=&mesh->vertices[p->first_vertex+i];
+            const float my=(ty+pc*v->y+ps*v->z)*height;
+            const float mz=(tz-ps*v->y+pc*v->z)*height;
+            const float mx=(v->x+p->pivot_x)*height;
+            const vec3_t world={x+mx*c+mz*s,my,z-mx*s+mz*c};
+            const float ny=pc*v->ny+ps*v->nz;
+            const float lz=-ps*v->ny+pc*v->nz;
+            const float nx=v->nx*c+lz*s,nz=-v->nx*s+lz*c;
+            const float key=fmaxf(0.0f,nx*-.48f+ny*.64f+nz*-.60f);
+            const float shade=fminf(1.0f,.36f+(ny*.5f+.5f)*.28f+key*.40f);
+            ped_facing[i]=nx*(camera_x-world.x)+ny*(camera_y-world.y)+
+                          nz*(camera_z-world.z);
+            ped_colors[i]=pack_color(1.0f,color_scale(tint,shade));
+            project_world(world,&ped_points[i]);
+        }
+        for(i=0;i<p->face_count;++i) {
+            const dla_ped_face_t *f=&mesh->faces[p->first_face+i];
+            const int a=f->a-p->first_vertex,b=f->b-p->first_vertex,
+                      d=f->c-p->first_vertex;
+            const dla_ped_vertex_t *va,*vb,*vd;
+            /* Smooth tubes: keep any face with a camera-facing corner so the
+               silhouette never opens up. */
+            if(ped_facing[a]<=0.0f&&ped_facing[b]<=0.0f&&ped_facing[d]<=0.0f) continue;
+            if(!ped_points[a].valid||!ped_points[b].valid||!ped_points[d].valid) continue;
+            if(!screen_triangle_visible(&ped_points[a],&ped_points[b],&ped_points[d])) continue;
+            va=&mesh->vertices[f->a];
+            vb=&mesh->vertices[f->b];
+            vd=&mesh->vertices[f->c];
+            submit_triangle(header,&ped_points[a],&ped_points[b],&ped_points[d],
+                            va->u+du,va->v,vb->u+du,vb->v,vd->u+du,vd->v,
+                            ped_colors[a],ped_colors[b],ped_colors[d]);
+        }
+    }
+}
+
+/* Distant figures keep the flat six-quad silhouette, tinted like the model. */
+static void draw_pedestrian_billboard(float x, float z, float heading,
+                                      const pedestrian_look_t *look, float phase) {
     const float bob=fabsf(fsin(phase))*0.045f;
     const float stride=fsin(phase)*.16f;
     const float sx=fsin(heading),sz=fcos(heading);
-    const uint32_t shirt=pack_color(1.0f,
-        color_scale(shirts[seed%ARRAY_COUNT(shirts)],.72f));
-    const uint32_t trousers=pack_color(1.0f,(color3_t){.07f,.09f,.15f});
-    const uint32_t skin=pack_color(1.0f,(color3_t){.66f,.43f,.29f});
+    const uint32_t shirt=pack_color(1.0f,color_scale(look->shirt,.72f));
+    const uint32_t trousers=pack_color(1.0f,color_scale(look->trousers,.55f));
+    const uint32_t skin=pack_color(1.0f,color_scale(look->skin,.70f));
     QA_COUNT(pedestrians);
     draw_vertical_billboard(&world_header,x,.76f+bob,z,.21f,.72f,shirt);
     draw_vertical_billboard(&world_header,x,1.48f+bob,z,.135f,.27f,skin);
@@ -3448,6 +4345,52 @@ static void draw_pedestrian(float x, float z, float heading,
     draw_vertical_billboard(&world_header,x+.24f,1.00f+bob,z,.055f,.48f,skin);
     draw_vertical_billboard(&world_header,x+sx*stride,.08f,z+sz*stride,.075f,.68f,trousers);
     draw_vertical_billboard(&world_header,x-sx*stride,.08f,z-sz*stride,.075f,.68f,trousers);
+}
+
+static void record_pedestrian_shadow(float x, float z, float yaw,
+                                     float length, float opacity) {
+    if(ped_shadow_count>=MAX_PED_SHADOWS) return;
+    ped_shadow_draws[ped_shadow_count++]=(ped_shadow_t){x,z,yaw,length,opacity};
+}
+
+/* -1 culls, 0 and 1 pick a mesh, 2 falls back to the billboard. */
+static int pedestrian_lod(float x, float z) {
+    const float dx=x-camera_x,dz=z-camera_z;
+    const float distance_sq=dx*dx+dz*dz;
+    if(!world_sphere_visible((vec3_t){x,.95f,z},1.1f,16.0f)) return -1;
+    if(distance_sq<PED_LOD0_DISTANCE*PED_LOD0_DISTANCE) return 0;
+    return distance_sq<PED_LOD1_DISTANCE*PED_LOD1_DISTANCE?1:2;
+}
+
+static void draw_pedestrian_walking(const pedestrian_pose_t *pose) {
+    const int lod=pedestrian_lod(pose->x,pose->z);
+    pedestrian_look_t look;
+    pedestrian_joints_t joints;
+    if(lod<0) return;
+    look=pedestrian_look(pose->seed);
+    if(lod==2) {
+        draw_pedestrian_billboard(pose->x,pose->z,pose->heading,&look,pose->phase);
+        return;
+    }
+    pedestrian_walk_joints(&joints,pose->phase);
+    draw_pedestrian_model(&look,pose->x,pose->z,pose->heading,&joints,lod);
+    record_pedestrian_shadow(pose->x,pose->z,pose->heading,1.0f,lod==0?.55f:.40f);
+}
+
+/* A pedestrian the car has hit: tumbling through the air, then lying on
+   the pavement along the direction it was thrown. */
+static void draw_pedestrian_hit(const hit_pedestrian_t *p) {
+    int lod=pedestrian_lod(p->x,p->z);
+    pedestrian_look_t look;
+    pedestrian_joints_t joints;
+    if(lod<0) return;
+    if(lod>1) lod=1;
+    look=pedestrian_look(p->seed);
+    pedestrian_ragdoll_joints(&joints,p);
+    draw_pedestrian_model(&look,p->x,p->z,p->heading,&joints,lod);
+    record_pedestrian_shadow(p->x,p->z,p->heading,
+                             1.0f+1.6f*(p->grounded?p->settle:0.0f),
+                             .55f*clampf(1.0f-p->y*.25f,.15f,1.0f));
 }
 
 static void draw_roadside_billboard(float x0, float x1, float z,
@@ -4031,23 +4974,15 @@ static void draw_block_street_detail(int cell_x, int cell_z,
     }
 
     if(distance_sq<145.0f*145.0f) {
-        const float span=x1-x0-12.0f;
-        const float speed=1.15f+hash_unit(cell_x,cell_z,0x8765u)*.55f;
-        const float walk=fmodf(game.time*speed/span+
-            hash_unit(cell_x,cell_z,0x4321u),1.0f);
-        const float walk2=fmodf(walk+.47f,1.0f);
-        draw_pedestrian(x0+6.0f+walk*span,z0+2.3f,PI*.5f,
-                        building->seed,game.time*speed*5.2f);
-        if((building->seed&3u)!=0u)
-            draw_pedestrian(x1-6.0f-walk2*span,z1-2.3f,-PI*.5f,
-                            building->seed>>8,game.time*speed*4.8f+PI);
-        if(distance_sq<105.0f*105.0f) {
-            const float walk3=fmodf(walk+.23f,1.0f);
-            const float walk4=fmodf(walk+.71f,1.0f);
-            draw_pedestrian(x0+2.3f,z0+6.0f+walk3*span,0.0f,
-                            building->seed>>13,game.time*speed*4.5f+1.2f);
-            draw_pedestrian(x1-2.3f,z1-6.0f-walk4*span,PI,
-                            building->seed>>18,game.time*speed*5.5f+2.1f);
+        int slot;
+        for(slot=0;slot<4;++slot) {
+            pedestrian_pose_t pose;
+            const hit_pedestrian_t *hit;
+            if(slot>=2 && distance_sq>=105.0f*105.0f) break;
+            if(!block_pedestrian(cell_x,cell_z,building,slot,&pose)) continue;
+            hit=find_hit_pedestrian(cell_x,cell_z,slot);
+            if(hit) draw_pedestrian_hit(hit);
+            else draw_pedestrian_walking(&pose);
         }
     }
 }
@@ -4196,54 +5131,18 @@ static void draw_coast_boulevard(int center_z) {
 }
 
 static void draw_parked_cars(int center_x, int center_z) {
-    static const color3_t parked_colors[] = {
-        {.36f,.08f,.07f}, {.06f,.22f,.46f}, {.42f,.44f,.48f},
-        {.055f,.065f,.085f}, {.48f,.30f,.055f}, {.08f,.30f,.22f}
-    };
-    int x,z;
+    int x,z,index;
     for(z=center_z-2;z<=center_z+2;++z) {
         for(x=center_x-2;x<=center_x+2;++x) {
-            const uint32_t seed=hash_u32((uint32_t)x*0x7f4a7c15u ^
-                                         (uint32_t)z*0x94d049bbu ^ 0x5041524bu);
-            traffic_t parked;
-            const float block_cx=((float)x+.5f)*CITY_CELL;
-            const float block_cz=((float)z+.5f)*CITY_CELL;
-            float dx,dz;
-            if((seed%2u)!=0u || (district_for_cell(x,z)==DISTRICT_COAST&&x<=-3))
-                continue;
-            memset(&parked,0,sizeof(parked));
-            parked.active=true;
-            parked.seed=seed;
-            parked.color=parked_colors[(seed>>4)%ARRAY_COUNT(parked_colors)];
-            if(seed&1u) {
-                parked.x=block_cx+((seed>>8)&1u ? 17.0f : -17.0f);
-                parked.z=(float)z*CITY_CELL+11.7f;
-                parked.yaw=(seed&4u)?PI*.5f:-PI*.5f;
-            }
-            else {
-                parked.x=(float)x*CITY_CELL+11.7f;
-                parked.z=block_cz+((seed>>8)&1u ? 17.0f : -17.0f);
-                parked.yaw=(seed&4u)?0.0f:PI;
-            }
-            dx=parked.x-car.x;
-            dz=parked.z-car.z;
-            if(dx*dx+dz*dz<132.0f*132.0f)
-                draw_traffic_car(&parked);
-            if(dx*dx+dz*dz<96.0f*96.0f && (seed&2u)!=0u) {
-                traffic_t second=parked;
-                second.seed^=0xb5297a4du;
-                second.color=parked_colors[(second.seed>>5)%ARRAY_COUNT(parked_colors)];
-                if(seed&1u) {
-                    second.x=block_cx+((seed>>8)&1u ? -20.5f : 20.5f);
-                    second.z=(float)z*CITY_CELL-11.7f;
-                    second.yaw=(seed&4u)?-PI*.5f:PI*.5f;
-                }
-                else {
-                    second.x=(float)x*CITY_CELL-11.7f;
-                    second.z=block_cz+((seed>>8)&1u ? -20.5f : 20.5f);
-                    second.yaw=(seed&4u)?PI:0.0f;
-                }
-                draw_traffic_car(&second);
+            for(index=0;index<2;++index) {
+                traffic_t parked;
+                const float reach=index==0?132.0f:96.0f;
+                float dx,dz;
+                if(!parked_car_for_cell(x,z,index,&parked)) continue;
+                dx=parked.x-car.x;
+                dz=parked.z-car.z;
+                if(dx*dx+dz*dz<reach*reach)
+                    draw_traffic_car(&parked);
             }
         }
     }
@@ -4442,6 +5341,7 @@ static void draw_city(void) {
     const int road_cell_x=dla_nearest_road_cell(car.x,CITY_CELL);
     const int road_cell_z=dla_nearest_road_cell(car.z,CITY_CELL);
     int x, z;
+    ped_shadow_count=0;
     /* Asphalt is the shared base; raised blocks leave wide road corridors. */
     for(z = center_z - GROUND_RADIUS; z <= center_z + GROUND_RADIUS; ++z) {
         for(x = center_x - GROUND_RADIUS; x <= center_x + GROUND_RADIUS; ++x) {
@@ -5192,6 +6092,20 @@ static void draw_vehicle_shadows(void) {
     }
 }
 
+static void draw_pedestrian_shadows(void) {
+    int i;
+    for(i=0;i<ped_shadow_count;++i) {
+        const ped_shadow_t *shadow=&ped_shadow_draws[i];
+        const float hw=.34f,hl=.30f*shadow->length;
+        draw_world_quad(&texture_headers[DLA_TEX_EFFECT_SHADOW],
+            oriented_world_point(shadow->x,shadow->z,shadow->yaw,-hw,.034f,hl),
+            oriented_world_point(shadow->x,shadow->z,shadow->yaw, hw,.034f,hl),
+            oriented_world_point(shadow->x,shadow->z,shadow->yaw,-hw,.034f,-hl),
+            oriented_world_point(shadow->x,shadow->z,shadow->yaw, hw,.034f,-hl),
+            0,0,1,0,0,1,1,1,pack_color(shadow->opacity,(color3_t){1,1,1}));
+    }
+}
+
 static void draw_skids(void) {
     int i;
     for(i = 0; i < MAX_SKIDS; ++i) {
@@ -5895,6 +6809,7 @@ static void render_frame(bool connected, float dt) {
         draw_sun();
         draw_city_lighting();
         draw_vehicle_shadows();
+        draw_pedestrian_shadows();
         draw_car_environment_reflections();
         draw_vehicle_lighting();
         draw_skids();
@@ -6167,6 +7082,10 @@ int main(int argc, char **argv) {
     memset(traffic,0,sizeof(traffic));
     burnout_smoke_start=smoke_cursor;
     printf("Drift Los Angeles physics QA: burnout and low-speed donut scenarios enabled.\n");
+#elif defined(DRIFT_LA_COLLISION_QA)
+    memset(traffic,0,sizeof(traffic));
+    collision_qa_start();
+    printf("Drift Los Angeles collision QA: lamppost, parked car and pedestrian scenarios enabled.\n");
 #elif defined(DRIFT_LA_POWERTEST)
     printf("Drift Los Angeles power test: straight-line full-throttle run enabled.\n");
 #else
@@ -6231,6 +7150,8 @@ int main(int argc, char **argv) {
             input.brake=0.0f;
             input.steer=1.0f;
         }
+#elif defined(DRIFT_LA_COLLISION_QA)
+        collision_qa_input(&input);
 #elif defined(DRIFT_LA_POWERTEST)
         input.throttle=1.0f;
         input.brake=0.0f;
@@ -6249,6 +7170,9 @@ int main(int argc, char **argv) {
 #endif
 #endif
         running=update_game(&input,dt);
+#ifdef DRIFT_LA_COLLISION_QA
+        if(collision_qa_observe(dt)) running=false;
+#endif
 #ifdef DRIFT_LA_PHYSICS_QA
         if(physics_qa_phase==0) {
             burnout_max_speed=fmaxf(burnout_max_speed,
@@ -6394,6 +7318,8 @@ int main(int argc, char **argv) {
             if(game.time>=
 #ifdef DRIFT_LA_PHYSICS_QA
                9.0f
+#elif defined(DRIFT_LA_COLLISION_QA)
+               30.0f
 #elif defined(DRIFT_LA_POWERTEST)
                24.0f
 #else
@@ -6429,6 +7355,8 @@ int main(int argc, char **argv) {
     printf("Drift Los Angeles shutdown complete.\n");
 #ifdef DRIFT_LA_PHYSICS_QA
     return physics_qa_exit;
+#elif defined(DRIFT_LA_COLLISION_QA)
+    return collision_qa.failures==0?0:1;
 #else
     return 0;
 #endif
