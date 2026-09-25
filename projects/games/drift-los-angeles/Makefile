@@ -28,7 +28,7 @@ clean:
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) -lm
 
-drift-los-angeles.o: assets/generated/texture_assets.h assets/generated/audio_assets.h assets/generated/music_asset.h model_data.h pedestrian_data.h vehicle_data.h render_math.h render_visibility.h $(SH4ZAM_HEADERS)
+drift-los-angeles.o: assets/generated/texture_assets.h assets/generated/audio_assets.h assets/generated/music_asset.h model_data.h pedestrian_data.h vehicle_data.h prop_data.h render_math.h render_visibility.h $(SH4ZAM_HEADERS)
 assets/generated/texture_assets.o: assets/generated/texture_assets.h
 assets/generated/audio_assets.o: assets/generated/audio_assets.h
 assets/generated/music_asset.o: assets/generated/music_asset.S assets/generated/music_asset.adpcm
@@ -61,6 +61,11 @@ vehicles:
 	$(eval VEH_PREVIEW_TMP := $(shell mktemp -d -t dla-vehicles))
 	uv run tools/build_vehicles.py --atlas assets/source/vehicle-atlas.png --header vehicle_data.h --preview-dir $(VEH_PREVIEW_TMP)
 	$(BLENDER) --background --python tools/preview_pedestrians_blender.py -- --input-dir $(VEH_PREVIEW_TMP) --output assets/generated/previews/vehicles.png
+
+props:
+	$(eval PROP_PREVIEW_TMP := $(shell mktemp -d -t dla-props))
+	uv run tools/build_props.py --atlas assets/source/prop-atlas.png --header prop_data.h --preview-dir $(PROP_PREVIEW_TMP)
+	$(BLENDER) --background --python tools/preview_pedestrians_blender.py -- --input-dir $(PROP_PREVIEW_TMP) --output assets/generated/previews/props.png
 
 run: $(TARGET)
 	./run-flycast.sh --skip-build
@@ -145,6 +150,6 @@ collision-qa-run: collision-qa-build
 	DRIFT_LA_FAIL_ON_LOG='collision QA: FAILED.' \
 		./run-flycast.sh --skip-build --input keyboard
 
-.PHONY: all clean run showcase qa qa-tools math-qa-build visibility-qa-build qa-build qa-run geometry-qa-build geometry-qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run collision-qa-build collision-qa-run architecture effects textures audio music model pedestrians vehicles
+.PHONY: all clean run showcase qa qa-tools math-qa-build visibility-qa-build qa-build qa-run geometry-qa-build geometry-qa-run qa-benchmark qa-capture-build qa-capture-run qa-visual physics-qa-build physics-qa-run collision-qa-build collision-qa-run architecture effects textures audio music model pedestrians vehicles props
 
 endif

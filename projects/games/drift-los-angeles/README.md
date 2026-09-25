@@ -24,6 +24,13 @@ is also available.
 - Every block is a ring of two to four street-wall properties per side, each
   with its own height, facade, tint, setback, cornice and rooftop (plant, water
   tank, billboard or mast), with the block's tower or warehouse rising behind
+- Block geometry is generated once into a static cache with blue-hour lighting
+  baked into the vertices (warm street level, cooler and darker upper floors,
+  shaded undersides), then replayed each frame with one transform per vertex
+- Textured street furniture from painted rigs: benches, litter bins, hydrants,
+  parking meters, newspaper boxes, bollards, bus shelters with ad panels,
+  magazine kiosks, mailboxes, dumpsters, cafe tables and chairs, planters and
+  street signs, tinted per district where they are painted metal
 - A detailed C7-inspired coupe with hard-edge normals, baked ambient occlusion,
   view-dependent paint/glass reflections, working lights, steering, and wheels,
   and a modelled cabin (dash, seats, wheel) visible through translucent glass
@@ -186,6 +193,16 @@ make vehicles
 make textures
 ```
 
+## Regenerate the street furniture
+
+`tools/build_props.py` paints the prop atlas and builds the furniture rigs;
+`assets/source/prop-atlas.png` and `prop_data.h` are checked in:
+
+```sh
+make props
+make textures
+```
+
 ## Regenerate the pedestrians
 
 The pedestrian atlas and the two-level articulated mesh are authored
@@ -259,11 +276,23 @@ per frame.
 The world upgrade that followed (lofted traffic vehicles with a second
 256x256 atlas, per-lot street walls on every block, and the player car's cabin
 behind translucent glass) averaged **37.13 FPS** (2,230 frames / 60.052
-seconds) with a peak of 7,312 triangles per frame. The cost is mostly CPU
-vertex work rather than fill, so distant blocks draw only their camera-facing
-sides and merge their lots, roofs are skipped below the camera, and far cars
-drop their wheels and mirrors. Textures and HUD occupy 4,314,816 bytes (4.12
-MiB) with 795,016 bytes free after allocation.
+seconds) with a peak of 7,312 triangles per frame.
+
+The static geometry cache, textured street furniture and baked vertex
+lighting then took the tour to **35.63 FPS** (2,214 frames / 62.139 seconds,
+peak 7,984 triangles) with considerably more on screen: every block's walls,
+roofs, props, palms and road kit are generated once into a 3x3 sub-cell cache
+(nine full-detail blocks around the car, forty volume-only blocks beyond) and
+replayed with one transform per vertex, culled per sub-cell against the
+frustum, per quad against its outward normal, and by a detail level that
+mirrors the old distance gates. The player car uses one FTRV per vertex with
+lighting in car-local space and refreshes its shading only when the heading
+changes; its wheels are rigs rather than hundreds of immediate primitives.
+Per-frame phase timing is printed by the benchmark build (`benchmark phases`
+and `benchmark city` lines). Flycast's JIT does not reward FTRV over scalar
+math, so real-hardware figures should be better than these. Textures and HUD
+occupy 4,489,600 bytes (4.28 MiB) with 620,200 bytes free after allocation,
+and the ELF is 14.4 MB including the 3.6 MB cache.
 
 Vertex-count telemetry gives a lower bound on stream bytes; polygon headers
 also consume the PVR vertex buffer. The mesh audit checks the renderer's

@@ -80,6 +80,7 @@ SPECS = (
     TextureSpec("effect_smoke", "effect-smoke.png", None, 256, alpha=True),
     TextureSpec("pedestrian", "pedestrian-atlas.png", None, 256, False, 1.0, 1.0, mipmap=True),
     TextureSpec("vehicle", "vehicle-atlas.png", None, 256, False, 1.0, 1.0, mipmap=True),
+    TextureSpec("prop", "prop-atlas.png", None, 256, False, 1.0, 1.0, mipmap=True),
     TextureSpec("title_art", "title-key-art-v2.png", None, (512, 256), False, 1.06),
 )
 
