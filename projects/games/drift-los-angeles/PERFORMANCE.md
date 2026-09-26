@@ -222,3 +222,45 @@ above the 30 FPS average target. Peak submission was 6,841 triangles / 16,531
 vertices. The prior 50.1811 FPS result predates these corrections and was
 omitting some visible geometry. The final driving regressions passed and the
 normal playable build was restored. Real Dreamcast timing remains unverified.
+
+## Hero car rebuild
+
+Measured on 2026-09-26 with the same 60-second four-district tour, strict
+benchmark flags and transient Flycast configuration as above, on the current
+world (static block cache, lofted traffic, per-lot street walls, pedestrians).
+The baseline row is the tree before the rebuild; the second row is the rebuilt
+coupe with the renderer changes below.
+
+| Build | Frames | Elapsed seconds | Average FPS | Player phase | Peak triangles |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Previous coupe (3,811 vertices / 2,930 triangles) | 2,209 | 62.139138 | 35.55 | 6.11 ms | 8,050 |
+| Rebuilt coupe (2,296 vertices / 2,046 triangles) | 2,355 | 62.121586 | 37.91 | 4.89 ms | 7,497 |
+
+City (11.3 ms), pedestrian (0.9 ms), vehicle (4.7–4.8 ms) and translucent
+(2.0–2.1 ms) phases are unchanged within run-to-run noise; the whole gain is
+the player car. Textures/HUD remain 4,489,600 bytes with 620,200 bytes free.
+
+- The body is one closed loft whose cross-sections carry the wheel openings,
+  wheel wells, fender haunches, rocker and cabin tub, so there are no Boolean
+  n-gons and no separate rocker, arch-lip, floor or deck parts. The greenhouse
+  is an open loft with paint, glass and carbon assigned per quad, replacing
+  the floating pillar and roof-rail polygons. Trim that used to be solidified
+  (markers, seams, handles, lamps, basins, vents) is now single flat polygons
+  snapped onto the surface and oriented outward, which is where most of the
+  1,500-vertex saving comes from. Detail went up, not down: the tail panel,
+  quad lamps, plate, diffuser, ducktail, exhausts, slit headlamps, hood
+  extractor, mirrors, fuel door and the full cabin are all still modelled.
+- Reflection pass: camera-facing paint reflects at under 5% alpha (below one
+  16-bit framebuffer level over pearl paint), so faces whose three vertices
+  fall under that threshold are no longer resubmitted in the translucent list.
+  Rim and glass reflections are unchanged.
+- Vertex shading gained a Blinn highlight from the key light along the
+  creases. It runs in the existing cached relight pass, which now also
+  refreshes when the camera's car-local position moves, so a chase-camera
+  swing does not leave stale highlights.
+- The pearl paint texture is a vertical environment gradient (sky band,
+  horizon highlight at shoulder height, darker ground reflection); side and
+  fascia charts map height onto it and upward panels sample the sky band.
+
+Emulator results only; the SH4 FTRV path is unchanged and real-hardware
+timing remains unmeasured.

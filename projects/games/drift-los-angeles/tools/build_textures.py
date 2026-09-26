@@ -36,7 +36,7 @@ SPECS = (
     TextureSpec("stucco", "city-material-atlas.png", (1, 0), 128, True, 1.02, mipmap=True),
     TextureSpec("glass_facade", "city-material-atlas.png", (0, 1), 128, True, 1.12, mipmap=True),
     TextureSpec("graffiti", "city-material-atlas.png", (1, 1), 128, True, 1.10),
-    TextureSpec("car_paint", "vehicle-material-atlas.png", (0, 0), 128, True, 1.08, 1.52),
+    TextureSpec("car_paint", "vehicle-material-atlas.png", (0, 0), 128, False, 1.08, 1.52),
     TextureSpec("car_glass", "vehicle-material-atlas.png", (1, 0), 128, True, 1.10),
     TextureSpec("car_carbon", "vehicle-material-atlas.png", (0, 1), 128, True, 1.08),
     TextureSpec("car_lights", "vehicle-material-atlas.png", (1, 1), 128, False, 1.12),
@@ -123,13 +123,33 @@ def make_tileable(image: Image.Image, feather: int = 10) -> Image.Image:
 
 
 def make_pearl_white(image: Image.Image) -> Image.Image:
-    """Retain the source reflection structure but remap blue paint to pearl."""
+    """Pearl paint as a vertical environment gradient.
+
+    The car's side and fascia charts map height onto V and its upward panels
+    sample the bright band across the top, so rows encode a reflected
+    environment: sky above, a horizon highlight on the shoulder line, and a
+    darker ground reflection toward the sills.  The source atlas only
+    contributes a faint streak so the paint is not perfectly flat.
+    """
     luminance = ImageEnhance.Contrast(ImageOps.grayscale(image)).enhance(0.72)
+    width, height = image.size
+    streak = list(luminance.get_flattened_data())
+    stops = ((0.00, 208), (0.13, 208), (0.40, 190), (0.50, 216),
+             (0.60, 192), (0.80, 168), (1.00, 148))
     pixels = []
-    for value in luminance.get_flattened_data():
-        pearl = 180 + value * 38 // 255
-        pixels.append((min(255, pearl + 5), min(255, pearl + 6),
-                       min(255, pearl + 10)))
+    for y in range(height):
+        v = y / (height - 1)
+        for (v0, l0), (v1, l1) in zip(stops, stops[1:]):
+            if v0 <= v <= v1:
+                t = (v - v0) / max(v1 - v0, 1e-6)
+                t = t * t * (3.0 - 2.0 * t)
+                base = l0 + (l1 - l0) * t
+                break
+        for x in range(width):
+            value = streak[y * width + x]
+            pearl = int(base + (value - 128) * 0.05)
+            pixels.append((min(255, pearl + 5), min(255, pearl + 6),
+                           min(255, pearl + 10)))
     result = Image.new("RGB", image.size)
     result.putdata(pixels)
     return result

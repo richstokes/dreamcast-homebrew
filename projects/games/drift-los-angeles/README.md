@@ -6,9 +6,12 @@ unbounded, deterministic Los Angeles-inspired street grid at blue hour, link
 drifts between wide boulevards, and bank increasingly valuable score chains.
 
 The car is an original model influenced by the proportions and angular design
-language of the Corvette C7 era: a long hood, fastback glass, rear haunches,
-sharp lamps, splitter, diffuser, ducktail, and four separately modeled wheels.
-It contains no manufacturer badge or copied production geometry.
+language of the Corvette C7 era: a long sculpted hood with fender peaks, slit
+headlamps on the shoulder crease, a fastback greenhouse with painted pillars
+and sail panels, rear haunches over authored wheel wells, a scalloped flank,
+splitter, quad-lamp tail panel, diffuser, ducktail, and four separately
+modeled wheels. It contains no manufacturer badge or copied production
+geometry.
 
 ## Download
 
@@ -31,9 +34,12 @@ is also available.
   parking meters, newspaper boxes, bollards, bus shelters with ad panels,
   magazine kiosks, mailboxes, dumpsters, cafe tables and chairs, planters and
   street signs, tinted per district where they are painted metal
-- A detailed C7-inspired coupe with hard-edge normals, baked ambient occlusion,
-  view-dependent paint/glass reflections, working lights, steering, and wheels,
-  and a modelled cabin (dash, seats, wheel) visible through translucent glass
+- A C7-inspired coupe lofted from authored cross-sections (wheel wells,
+  haunches, rocker and cabin tub are part of the surface), with hard-edge
+  normals, baked ambient occlusion, a horizon-gradient pearl paint, sun
+  highlights along the creases, view-dependent paint/glass reflections,
+  working lights, steering, and wheels, and a modelled cabin (dash, seats,
+  wheel) visible through translucent glass
 - Drift physics with throttle oversteer, clutch kicks, handbrake initiation,
   burnouts, and power donuts
 - Thirty-six traffic cars that obey lanes and signals, lofted as five real body
@@ -71,6 +77,10 @@ is also available.
 | Arts Quarter | Neon Strip |
 | --- | --- |
 | ![Arts Quarter](assets/screenshots/arts-quarter-v5.jpg) | ![Neon Strip](assets/screenshots/neon-strip-v5.jpg) |
+
+| Hero coupe, front | Hero coupe, rear |
+| --- | --- |
+| ![Hero coupe front three-quarter](assets/screenshots/hero-coupe-front-v7.jpg) | ![Hero coupe rear](assets/screenshots/hero-coupe-rear-v7.jpg) |
 
 | Layered drift smoke | High-RPM exhaust burst |
 | --- | --- |
@@ -183,8 +193,14 @@ licenses are recorded in `assets/source/audio/README.md`.
 
 ## Regenerate the car mesh
 
-The car is authored procedurally in Blender, and the generated `model_data.h`
-is checked in so Blender is not needed for a normal build. To regenerate it:
+The car is authored procedurally in Blender by `tools/build_car_blender.py`:
+one closed loft of cross-section stations for the body (the wheel openings,
+wells, fender haunches, rocker and cabin tub are authored into the profiles,
+not cut afterwards), an open loft for the greenhouse whose quads are assigned
+paint, glass or carbon per row and segment (A-pillars, roof, B-pillar, sail
+panels, hatch), and flat trim that is snapped onto the finished surface. The
+generated `model_data.h` is checked in so Blender is not needed for a normal
+build. To regenerate it:
 
 ```sh
 make model

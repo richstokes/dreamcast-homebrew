@@ -6457,15 +6457,21 @@ static void draw_car_mesh(void) {
         const float obj[3][3]={{b00,b01,b02},{b10,b11,b12},{b20,b21,b22}};
         shz_mat4x4_t full __attribute__((aligned(32)));
         static float cached_yaw=1000.0f,cached_roll;
+        static float cached_clx,cached_cly,cached_clz;
         static bool cached_flash;
         const bool flash=game.impact_flash>0.0f;
+        /* Specular highlights depend on the camera's car-local position, so
+           a camera swing (drift view lag, chase toggle) also refreshes them. */
+        const float camera_moved=fabsf(clx-cached_clx)+fabsf(cly-cached_cly)+fabsf(clz-cached_clz);
         const bool relight=fabsf(wrap_angle(car.yaw-cached_yaw))>.05f||
-                           fabsf(body_roll-cached_roll)>.012f||flash!=cached_flash||flash;
+                           fabsf(body_roll-cached_roll)>.012f||flash!=cached_flash||flash||
+                           camera_moved>.35f;
         int r,cc;
         if(relight) {
             cached_yaw=car.yaw;
             cached_roll=body_roll;
             cached_flash=flash;
+            cached_clx=clx; cached_cly=cly; cached_clz=clz;
         }
         for(cc=0;cc<3;++cc)
             for(r=0;r<3;++r)
@@ -6507,6 +6513,20 @@ static void draw_car_mesh(void) {
                                      (.38f+sky*.31f+key*.18f)*v->ao};
                     if(material==DLA_MAT_CARBON) light=color_scale(light,.39f);
                     else if(material==DLA_MAT_METAL) light=color_scale(light,.85f);
+                    else if(key>0.0f) {
+                        /* Blinn highlight from the low sun along the crease
+                           lines: half vector between the key light and the
+                           camera, both already in car-local space. */
+                        float hx=clx-v->x,hy=cly-v->y,hz=clz-v->z;
+                        const float inv=dla_reflection_inv_length(hx*hx+hy*hy+hz*hz);
+                        float s;
+                        hx=hx*inv+llx; hy=hy*inv+lly; hz=hz*inv+llz;
+                        s=fmaxf(0.0f,(v->nx*hx+v->ny*hy+v->nz*hz)*
+                                     dla_reflection_inv_length(hx*hx+hy*hy+hz*hz));
+                        s*=s; s*=s; s*=s; s*=s;
+                        s*=.62f*v->ao;
+                        light.r+=s; light.g+=s*.96f; light.b+=s*.90f;
+                    }
                 }
                 if(flash) light=(color3_t){1.0f,.90f,.85f};
                 car_render[i].color=pack_color(1.0f,light);
@@ -6827,6 +6847,11 @@ static void draw_car_environment_reflections(void) {
         for(i=dla_car_material_ranges[material].first_face;i<end;++i) {
             const dla_mesh_face_t *f=&dla_car_mesh.faces[i];
             if(!car_visible_faces[i]) continue;
+            /* Camera-facing paint reflects under 5%: below one 16-bit
+               framebuffer level over pearl paint, so the blend is skipped. */
+            if((car_render[f->a].reflect_color>>24)<13u &&
+               (car_render[f->b].reflect_color>>24)<13u &&
+               (car_render[f->c].reflect_color>>24)<13u) continue;
             submit_triangle(&reflection_header,&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected,
                 car_render[f->a].reflect_uv[0],car_render[f->a].reflect_uv[1],
                 car_render[f->b].reflect_uv[0],car_render[f->b].reflect_uv[1],
