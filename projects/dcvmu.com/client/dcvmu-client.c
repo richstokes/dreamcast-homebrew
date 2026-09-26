@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 #define MAX_FILES 1600
@@ -17,7 +18,8 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 #define ORANGE 0xa9a1
 #define BLUE 0x1a75
 
-typedef enum { STARTUP, AUTO_LOGIN, LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, PUBLIC_SEARCH, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED, RENAME } screen_t;
+typedef enum { STARTUP, AUTO_LOGIN, LOGIN, HOME, FILES, DETAILS, CONFLICT, SUCCESS, PUBLIC_SEARCH, DOWNLOADS, DESTINATION, INSTALL_CONFIRM, INSTALLED, RENAME,
+               ARCHIVE_SOURCE, ARCHIVE_DETAILS, ARCHIVED, ARCHIVES, RESTORE_DEST, RESTORE_CONFIRM, RESTORED } screen_t;
 typedef struct { int port, unit; vmu_dir_t entry; char filename[13]; } save_t;
 static save_t saves[MAX_FILES];
 /* Only cache the visible page: 14 KiB, independent of card capacity. */
@@ -77,6 +79,15 @@ static char browse_user[25], browse_game[81];
 static int target_index,target_id,target_exists,target_old_size;
 static vmu_root_t target_root;
 static void *target_old;
+/* Whole-card archives share one 128 KiB image buffer for capture and restore. */
+static remote_archive_t archives[7];
+static int archive_count,archive_more,archive_page,archive_selected;
+static unsigned char *image;
+static char archive_name[65];
+static int archive_files,archive_card,restore_id,restore_files;
+/* Per-card counts captured by destination_cards(). Redraws must never touch
+   vmufs: block transfers hold its mutex while reporting progress. */
+static int card_files[8],card_free[8];
 
 
 static char username[25], password[129], token[96];
@@ -125,8 +136,22 @@ static char *field_value(size_t *capacity) {
         *capacity=sizeof(browse_game);return browse_game;
     }
     if(screen==RENAME){*capacity=sizeof(cloud_title);return cloud_title;}
+    if(screen==ARCHIVE_DETAILS){*capacity=sizeof(archive_name);return archive_name;}
     if(screen==DETAILS && edit_field==0){*capacity=sizeof(save_name);return save_name;}
     *capacity=sizeof(notes); return notes;
+}
+static void stamp(long created,char *out,size_t capacity) {
+    time_t when=(time_t)created;struct tm parts;
+    if(!gmtime_r(&when,&parts) || !strftime(out,capacity,"%Y-%m-%d %H:%M",&parts))snprintf(out,capacity,"unknown date");
+}
+static void card_rows(int y) {
+    char line[100];
+    for(int i=0;i<card_count;++i) {
+        if(card_files[i]<0)snprintf(line,sizeof(line),"%c VMU %c%d: unreadable",i==target_index?'>':' ','A'+card_ids[i]/6,card_ids[i]%6);
+        else snprintf(line,sizeof(line),"%c VMU %c%d: %d files, %d free blocks",i==target_index?'>':' ','A'+card_ids[i]/6,card_ids[i]%6,card_files[i],card_free[i]);
+        text(24,y+i*28,i==target_index?BLUE:INK,line);
+    }
+    if(!card_count)text(24,y+14,INK,"No VMUs attached. Insert one and rescan.");
 }
 static void draw(void) {
     int i;
@@ -171,9 +196,73 @@ static void draw(void) {
         text(24,66,INK,"What would you like to do?");
         action_row(0,"Upload a save","VMU to account");
         action_row(1,"Download a save","Account to VMU");
-        action_row(2,"Browse Public Saves","");
-        action_row(3,"Sign out","");
-        text(24,310,INK,"A / Enter select   Start exits");
+        action_row(2,"Archive a VMU","whole card to account");
+        action_row(3,"Restore a VMU","account to whole card");
+        action_row(4,"Browse Public Saves","");
+        action_row(5,"Sign out","");
+        text(24,346,INK,"A / Enter select   Start exits");
+    } else if(screen==ARCHIVE_SOURCE) {
+        text(24,66,INK,"Choose the VMU to archive");
+        text(24,100,BLUE,"Every file on the card is saved as one snapshot.");
+        card_rows(136);
+        text(24,354,INK,"Your DCVMU login save is never archived.");
+        text(24,382,INK,"A archive   Y/R rescan   B/Esc menu");
+    } else if(screen==ARCHIVE_DETAILS) {
+        char line[100];
+        text(24,66,INK,"Archive details");
+        row(0,"Archive name",archive_name[0]?archive_name:"(optional)",0);
+        snprintf(line,sizeof(line),"VMU %c%d, %d files",'A'+archive_card/6,archive_card%6,archive_files);
+        row(1,"Source (fixed)",line,0);
+        action_row(2,"Archive VMU","");
+        text(24,250,INK,"The date is added automatically.");
+        text(24,282,INK,"Give it a friendly name to find it later.");
+        text(24,328,INK,"A edit / archive   B back");
+    } else if(screen==ARCHIVED) {
+        text(24,80,BLUE,"Whole VMU archived successfully.");
+        text(24,132,INK,"Restore it any time from Restore a VMU,");
+        text(24,160,INK,"or manage it at dcvmu.com/archives.");
+        text(24,212,INK,"A / Enter: archive another VMU");
+        text(24,252,INK,"B / Esc: main menu   Start: exit");
+    } else if(screen==ARCHIVES) {
+        char line[100],date[24];
+        snprintf(line,sizeof(line),"VMU archives - page %d",archive_page+1);
+        text(24,66,INK,line);
+        if(!archive_count)text(24,116,INK,"No archives on this page.");
+        for(i=0;i<archive_count;++i) {
+            stamp(archives[i].created,date,sizeof(date));
+            snprintf(line,sizeof(line),"%c %-26.26s %s",i==archive_selected?'>':' ',archives[i].name,date);
+            text(24,108+i*34,i==archive_selected?BLUE:INK,line);
+        }
+        if(archive_count) {
+            snprintf(line,sizeof(line),"%s%s%d files in this archive",archives[archive_selected].source,archives[archive_selected].source[0]?": ":"",archives[archive_selected].files);
+            text(24,326,INK,line);
+        }
+        snprintf(line,sizeof(line),"%s%sY/R refresh",archive_page?"Left: previous   ":"",archive_more?"Right: next   ":"");
+        text(24,354,INK,line);
+        text(24,382,INK,"A restore   B/Esc menu");
+    } else if(screen==RESTORE_DEST) {
+        char line[100];text(24,66,INK,"Choose the VMU to restore onto");
+        snprintf(line,sizeof(line),"%.36s (%d files)",archives[archive_selected].name,archives[archive_selected].files);
+        text(24,100,BLUE,line);
+        card_rows(136);
+        text(24,354,INK,"Nothing is written until you confirm.");
+        text(24,382,INK,"A select   Y/R rescan   B/Esc back");
+    } else if(screen==RESTORE_CONFIRM) {
+        char line[100];text(24,66,ORANGE,"Erase this VMU and restore the archive?");
+        snprintf(line,sizeof(line),"%.28s -> VMU %c%d",archives[archive_selected].name,'A'+restore_id/6,restore_id%6);
+        text(24,112,INK,line);
+        snprintf(line,sizeof(line),"All %d files on VMU %c%d will be replaced.",restore_files,'A'+restore_id/6,restore_id%6);
+        text(24,150,INK,line);
+        text(24,180,INK,"Archive this VMU first if you may want it back.");
+        text(24,222,focus==0?BLUE:INK,focus==0?"> Cancel":"  Cancel");
+        text(24,258,focus==1?BLUE:INK,focus==1?"> Restore whole VMU":"  Restore whole VMU");
+        text(24,330,INK,"Keep the VMU inserted while writing.");
+        text(24,382,INK,"Up/Down choose   A confirm   B/Esc back");
+    } else if(screen==RESTORED) {
+        text(24,80,BLUE,"Whole VMU restored and verified.");
+        text(24,150,INK,archives[archive_selected].name);
+        text(24,190,INK,"Reinsert the VMU to refresh its menu.");
+        text(24,240,INK,"A / Enter main menu   B / Esc archives");
     } else if(screen==PUBLIC_SEARCH) {
         text(24,66,INK,"Browse Public Saves");
         row(0,"Username",browse_user,0);
@@ -301,6 +390,10 @@ int client_connect_update(const char *message) {
     draw();
     return canceled;
 }
+void archive_progress(const char *stage,int done,int total) {
+    snprintf(status_text,sizeof(status_text),"%s: %d/%d blocks - keep the card inserted",stage,done,total);
+    draw();
+}
 int transfer_update(uint64_t done, uint64_t total) {
     static uint64_t last;
     uint64_t now=timer_ms_gettime64();
@@ -338,6 +431,7 @@ static void scan(void) {
     client_status(save_count?"Select a save to upload.":"No saves. Y/R rescans inserted VMUs.");
 }
 static int load_downloads(void);
+static int load_archives(void);
 static void switch_card(int delta) {
     if(screen==DOWNLOADS) {
         int previous_page=remote_page;
@@ -345,6 +439,14 @@ static void switch_card(int delta) {
         else if(delta>0 && remote_more)++remote_page;
         else return;
         if(load_downloads()<0)remote_page=previous_page;
+        return;
+    }
+    if(screen==ARCHIVES) {
+        int previous_page=archive_page;
+        if(delta<0 && archive_page>0)--archive_page;
+        else if(delta>0 && archive_more)++archive_page;
+        else return;
+        if(load_archives()<0)archive_page=previous_page;
         return;
     }
     int index=0;
@@ -446,7 +548,10 @@ static void destination_cards(void) {
     card_count=0;target_index=0;
     for(int n=0;n<8;++n) {
         maple_device_t *dev=maple_enum_type(n,MAPLE_FUNC_MEMCARD);if(!dev)break;
-        card_ids[card_count++]=dev->port*6+dev->unit;
+        card_ids[card_count]=dev->port*6+dev->unit;
+        card_files[card_count]=archive_card_files(dev);
+        card_free[card_count]=vmufs_free_blocks(dev);
+        ++card_count;
     }
     dirty=1;
 }
@@ -525,6 +630,71 @@ static void install_download(void) {
 changed:
     free(current);screen=DESTINATION;destination_cards();client_status("VMU changed or is full. Select it again.");
 }
+static int load_archives(void) {
+    remote_archive_t items[7]={0};int count=0,more=0;
+    canceled=0;client_status("Loading VMU archives...");draw();
+    int listed=service_archive_list(token,archive_page,items,&count,&more);
+    if(listed==0) {
+        memcpy(archives,items,sizeof(items));archive_count=count;archive_more=more;archive_selected=0;screen=ARCHIVES;
+        client_status(count?"Select an archive to restore.":"No VMU archives yet. Archive a VMU first.");
+    }
+    dirty=1;return listed;
+}
+static void refresh_archives(void) {
+    int previous_page=archive_page;archive_page=0;
+    if(load_archives()<0)archive_page=previous_page;
+}
+static int image_buffer(void) {
+    if(!image)image=malloc(ARCHIVE_IMAGE_SIZE);
+    if(!image)client_status("Not enough memory for a whole-card image.");
+    return image?0:-1;
+}
+static void archive_capture(void) {
+    if(!card_count || image_buffer()<0)return;
+    int id=card_ids[target_index];
+    maple_device_t *dev=maple_enum_dev(id/6,id%6);
+    if(!dev || !(dev->info.functions&MAPLE_FUNC_MEMCARD)){client_status("VMU changed. Rescan.");return;}
+    client_status("Reading the whole VMU. Keep the card inserted.");draw();
+    if(archive_read(dev,image)<0){client_status("Could not read every block. Rescan and retry.");return;}
+    if(archive_scrub(image,&archive_files)<0){memset(image,0,ARCHIVE_IMAGE_SIZE);client_status("This VMU is not a standard formatted card.");return;}
+    archive_card=id;archive_name[0]=0;focus=0;screen=ARCHIVE_DETAILS;dirty=1;
+    printf("dcvmu: captured VMU %c%d (%d files), login save excluded\n",'A'+id/6,id%6,archive_files);
+    client_status("Card copied. Name the archive, then upload it.");
+}
+static void archive_upload(void) {
+    char source[25];
+    snprintf(source,sizeof(source),"VMU %c%d",'A'+archive_card/6,archive_card%6);
+    canceled=0;client_status("Uploading the whole VMU securely...");draw();
+    if(service_archive_upload(token,archive_name,source,image,ARCHIVE_IMAGE_SIZE)==0)screen=ARCHIVED;
+    dirty=1;
+}
+static void prepare_restore(void) {
+    if(!card_count)return;
+    restore_id=card_ids[target_index];
+    maple_device_t *dev=maple_enum_dev(restore_id/6,restore_id%6);
+    if(!dev || !(dev->info.functions&MAPLE_FUNC_MEMCARD) || (restore_files=archive_card_files(dev))<0) {
+        client_status("Could not read destination VMU. Rescan.");return;
+    }
+    focus=0;screen=RESTORE_CONFIRM;dirty=1;
+}
+static void restore_image(void) {
+    maple_device_t *dev=maple_enum_dev(restore_id/6,restore_id%6);
+    if(!dev || !(dev->info.functions&MAPLE_FUNC_MEMCARD)){screen=RESTORE_DEST;destination_cards();client_status("VMU changed. Select it again.");return;}
+    unsigned char *readback=malloc(ARCHIVE_IMAGE_SIZE);
+    if(!readback){client_status("Not enough memory to verify the VMU.");return;}
+    client_status("Writing the whole VMU. Do not remove the card.");draw();
+    int result=archive_write(dev,image,readback);
+    memset(readback,0,ARCHIVE_IMAGE_SIZE);free(readback);
+    if(result==0) {
+        /* The archive never contains a login save; put ours back on its card. */
+        int login=remembered && auth_location()==restore_id;
+        int rewritten=login && auth_save(username,token)==0;
+        screen=RESTORED;
+        client_status(!login?"Restored. VMU read-back matches the archive.":rewritten?"Restored and verified. Login save rewritten.":"Restored and verified. Log in again next time.");
+        printf("dcvmu: restored archive %d onto VMU %c%d\n",archives[archive_selected].id,'A'+restore_id/6,restore_id%6);
+    } else client_status(result==-2?"Read-back mismatch. Restore again before using this VMU.":"VMU write failed. Restore again before using this VMU.");
+    dirty=1;
+}
 static void activate(void) {
     if(screen==LOGIN) {
         if(focus<2)edit_begin(focus);
@@ -537,9 +707,26 @@ static void activate(void) {
     } else if(screen==HOME) {
         if(focus==0){screen=FILES;scan();}
         else if(focus==1){remote_page=remote_public=remote_matching=0;load_downloads();}
-        else if(focus==2){screen=PUBLIC_SEARCH;focus=0;client_status("Enter the save owner's username.");}
+        else if(focus==2){screen=ARCHIVE_SOURCE;destination_cards();client_status("Choose the VMU to archive.");}
+        else if(focus==3){archive_page=0;load_archives();}
+        else if(focus==4){screen=PUBLIC_SEARCH;focus=0;client_status("Enter the save owner's username.");}
         else sign_out();
-    } else if(screen==PUBLIC_SEARCH) {
+    } else if(screen==ARCHIVE_SOURCE)archive_capture();
+    else if(screen==ARCHIVE_DETAILS) {
+        if(focus==0)edit_begin(0);else archive_upload();
+    } else if(screen==ARCHIVED){screen=ARCHIVE_SOURCE;destination_cards();client_status("Choose the VMU to archive.");}
+    else if(screen==ARCHIVES) {
+        if(archive_count && image_buffer()==0) {
+            canceled=0;client_status("Downloading the archive...");draw();
+            if(service_archive_download(token,&archives[archive_selected],image)==0) {
+                screen=RESTORE_DEST;destination_cards();client_status("Choose a VMU to overwrite. Nothing written yet.");
+            }
+        }
+    } else if(screen==RESTORE_DEST)prepare_restore();
+    else if(screen==RESTORE_CONFIRM) {
+        if(focus==0)screen=RESTORE_DEST;else restore_image();
+    } else if(screen==RESTORED){screen=HOME;focus=0;}
+    else if(screen==PUBLIC_SEARCH) {
         if(focus<2)edit_begin(focus);
         else {remote_page=0;remote_public=1;remote_matching=0;load_downloads();}
     } else if(screen==DOWNLOADS) {
@@ -583,9 +770,11 @@ static void cloud_action(void) {
 static void move(int delta) {
     if(screen==FILES && save_count)selected=(selected+delta+save_count)%save_count;
     else if(screen==DOWNLOADS && remote_count)remote_selected=(remote_selected+delta+remote_count)%remote_count;
-    else if(screen==DESTINATION && card_count)target_index=(target_index+delta+card_count)%card_count;
-    else if(screen==INSTALL_CONFIRM)focus=(focus+delta+2)%2;
-    else if(screen==HOME)focus=(focus+delta+4)%4;
+    else if((screen==DESTINATION || screen==ARCHIVE_SOURCE || screen==RESTORE_DEST) && card_count)target_index=(target_index+delta+card_count)%card_count;
+    else if(screen==ARCHIVES && archive_count)archive_selected=(archive_selected+delta+archive_count)%archive_count;
+    else if(screen==INSTALL_CONFIRM || screen==RESTORE_CONFIRM)focus=(focus+delta+2)%2;
+    else if(screen==ARCHIVE_DETAILS)focus=focus==0?2:0;
+    else if(screen==HOME)focus=(focus+delta+6)%6;
     else if(screen==PUBLIC_SEARCH)focus=(focus+delta+3)%3;
     else if(screen==LOGIN)focus=(focus+delta+3)%3;
     else if(screen==RENAME)focus=focus==0?3:0;
@@ -601,9 +790,15 @@ static void back(void) {
     else if(screen==INSTALL_CONFIRM)screen=DESTINATION;
     else if(screen==DESTINATION || screen==INSTALLED){screen=DOWNLOADS;free(save_data);save_data=NULL;free(target_old);target_old=NULL;}
     else if(screen==RENAME){screen=DOWNLOADS;client_status("Rename canceled.");}
+    else if(screen==ARCHIVE_SOURCE){screen=HOME;focus=2;client_status("");}
+    else if(screen==ARCHIVE_DETAILS){screen=ARCHIVE_SOURCE;destination_cards();client_status("Archive canceled. Nothing uploaded.");}
+    else if(screen==ARCHIVED){screen=HOME;focus=2;client_status("");}
+    else if(screen==ARCHIVES){screen=HOME;focus=3;client_status("");}
+    else if(screen==RESTORE_DEST || screen==RESTORED){screen=ARCHIVES;client_status(screen==ARCHIVES?"Select an archive to restore.":"");}
+    else if(screen==RESTORE_CONFIRM){screen=RESTORE_DEST;client_status("Nothing written.");}
     else if(screen==DOWNLOADS && remote_matching){screen=DETAILS;remote_matching=0;replacement_id=0;focus=0;}
     else if(screen==DOWNLOADS && remote_public){screen=PUBLIC_SEARCH;focus=2;client_status("Edit the search or find saves again.");}
-    else if(screen==PUBLIC_SEARCH){screen=HOME;focus=2;client_status("");}
+    else if(screen==PUBLIC_SEARCH){screen=HOME;focus=4;client_status("");}
     else if(screen==FILES || screen==DOWNLOADS || screen==SUCCESS){screen=HOME;focus=0;client_status("");}
     else if(screen==CONFLICT){screen=DOWNLOADS;replacement_id=0;}
     else if(screen==DETAILS) {screen=FILES;free(save_data);save_data=NULL;}
@@ -686,7 +881,7 @@ static void run_download_test(void) {
     back();back();if(screen!=HOME)goto fail;
     focus=0;activate();if(screen!=FILES)goto fail;
     back();if(screen!=HOME)goto fail;
-    focus=2;activate();if(screen!=PUBLIC_SEARCH)goto fail;
+    focus=4;activate();if(screen!=PUBLIC_SEARCH)goto fail;
     strcpy(browse_user,username);focus=2;activate();
     if(remote_count!=7 || remote_more)goto fail;
     back();if(screen!=PUBLIC_SEARCH)goto fail;
@@ -801,8 +996,8 @@ int main(int argc,char **argv) {
             if((pressed&CONT_A)&&online)activate();
             if(pressed&CONT_B)back();
             if(pressed&CONT_X){if(screen==HOME)sign_out();else cloud_action();}
-            if(pressed&CONT_Y) {if(screen==DOWNLOADS)refresh_downloads();
-                else if(screen==DESTINATION)destination_cards();else if(screen==FILES)scan();else if(screen==CONFLICT)upload("keep");}
+            if(pressed&CONT_Y) {if(screen==DOWNLOADS)refresh_downloads();else if(screen==ARCHIVES)refresh_archives();
+                else if(screen==DESTINATION||screen==ARCHIVE_SOURCE||screen==RESTORE_DEST)destination_cards();else if(screen==FILES)scan();else if(screen==CONFLICT)upload("keep");}
         }
         dev=maple_enum_type(0,MAPLE_FUNC_KEYBOARD);
         if(dev) {
@@ -824,8 +1019,8 @@ int main(int argc,char **argv) {
                 else if(key==KBD_KEY_ENTER&&online)activate();
                 else if(key==KBD_KEY_BACKSPACE)back();
                 else if(key==KBD_KEY_R) {
-                    if(screen==DOWNLOADS)refresh_downloads();
-                    else if(screen==DESTINATION)destination_cards();else if(screen==FILES)scan();
+                    if(screen==DOWNLOADS)refresh_downloads();else if(screen==ARCHIVES)refresh_archives();
+                    else if(screen==DESTINATION||screen==ARCHIVE_SOURCE||screen==RESTORE_DEST)destination_cards();else if(screen==FILES)scan();
                 }
                 else if(key==KBD_KEY_N)cloud_action();
                 else if(key==KBD_KEY_L&&screen==HOME)sign_out();
@@ -837,7 +1032,7 @@ int main(int argc,char **argv) {
     }
     if(online&&token[0]&&!remembered){canceled=0;service_logout(token);}
     memset(password,0,sizeof(password));memset(token,0,sizeof(token));memset(edit_backup,0,sizeof(edit_backup));
-    free(target_old);free(save_data);if(online)service_net_shutdown();
+    free(target_old);free(save_data);free(image);if(online)service_net_shutdown();
     /* Returning from main tears down video. Keep the final frame displayed
        until the console is powered off/reset or the emulator is closed. */
     vid_waitvbl();

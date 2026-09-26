@@ -404,3 +404,86 @@ fail:
     memset(buffer.bytes,0,buffer.size);free(buffer.bytes);
     client_status(status==409?"Save changed. Go back and refresh.":"Download failed or invalid. VMU unchanged.");return -1;
 }
+
+int service_archive_upload(const char *token,const char *name,const char *source,const void *image,size_t size) {
+    if(size!=ARCHIVE_IMAGE_SIZE || auth_is_save("",image,size)){client_status("Login data left in the image. Archive canceled.");return -1;}
+    CURL *curl=request_new("/api/v1/archives");
+    if(!curl)return -1;
+    /* Same fresh-connection, never-retry policy as save uploads. */
+    curl_easy_setopt(curl,CURLOPT_FRESH_CONNECT,1L);
+    curl_easy_setopt(curl,CURLOPT_FORBID_REUSE,1L);
+    curl_mime *mime=curl_mime_init(curl);
+    if(!mime){curl_easy_reset(curl);return -1;}
+    struct curl_slist *headers=authorize(curl,token);
+    headers=curl_slist_append(headers,"Expect:");
+    curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
+    part(mime,"name",name);part(mime,"source",source);
+    curl_mimepart *file=curl_mime_addpart(mime);curl_mime_name(file,"image");
+    curl_mime_filename(file,"vmu.bin");curl_mime_type(file,"application/octet-stream");
+    curl_mime_data(file,image,size);
+    curl_easy_setopt(curl,CURLOPT_MIMEPOST,mime);
+    long status=perform(curl);
+    curl_mime_free(mime);curl_slist_free_all(headers);curl_easy_reset(curl);
+    if(status==201){client_status("VMU archived. Manage it at dcvmu.com/archives.");return 0;}
+    if(status==401)client_status("Login expired. Restart and log in again.");
+    return -1;
+}
+int service_archive_list(const char *token,int page,remote_archive_t *items,int *count,int *more) {
+    *count=0;*more=0;
+    char path[64];snprintf(path,sizeof(path),"/api/v1/archives?page=%d",page);
+    CURL *curl=request_new(path);if(!curl)return -1;
+    struct curl_slist *headers=authorize(curl,token);
+    long status=perform(curl);curl_slist_free_all(headers);
+    if(status!=200){curl_easy_reset(curl);return -1;}
+    char *state,*line=strtok_r(response,"\n",&state);
+    if(!line || (strcmp(line,"MORE\t0") && strcmp(line,"MORE\t1")))goto invalid;
+    *more=line[5]=='1';
+    while((line=strtok_r(NULL,"\n",&state))) {
+        if(*count>=7)goto invalid;
+        remote_archive_t *out=&items[*count];memset(out,0,sizeof(*out));
+        char *columns[8],*field_state;int n=0;
+        for(char *c=strtok_r(line,"\t",&field_state);c;c=strtok_r(NULL,"\t",&field_state)) {
+            if(n==8)goto invalid;
+            columns[n++]=c;
+        }
+        /* Empty source: tab-separated fields keep their position, strtok collapses them. */
+        if(n==7)columns[n++]="";
+        if(n!=8)goto invalid;
+        out->id=atoi(columns[0]);out->revision=atoi(columns[1]);out->created=atol(columns[3]);out->files=atoi(columns[4]);
+        char *dest[]={out->name,out->sha256,out->source};
+        size_t caps[]={sizeof(out->name),sizeof(out->sha256),sizeof(out->source)};
+        int indices[]={2,6,7};
+        for(int i=0;i<3;++i) {
+            int length;char *decoded=curl_easy_unescape(curl,columns[indices[i]],0,&length);
+            if(!decoded || (i<2 && length<1) || (i==1 && (size_t)length>=caps[i])){curl_free(decoded);goto invalid;}
+            if((size_t)length>=caps[i])length=caps[i]-1;
+            memcpy(dest[i],decoded,length);dest[i][length]=0;curl_free(decoded);
+            for(int j=0;j<length;++j)if((unsigned char)dest[i][j]<32 || (unsigned char)dest[i][j]>126)dest[i][j]='?';
+        }
+        if(out->id<=0||out->revision<=0||out->created<0||out->files<0||atoi(columns[5])!=ARCHIVE_IMAGE_SIZE||
+           strlen(out->sha256)!=64||strspn(out->sha256,"0123456789abcdef")!=64)goto invalid;
+        ++*count;
+    }
+    curl_easy_reset(curl);return 0;
+invalid:
+    *count=0;*more=0;curl_easy_reset(curl);client_status("Invalid archive list from service.");return -1;
+}
+int service_archive_download(const char *token,const remote_archive_t *item,unsigned char *image) {
+    char path[112];snprintf(path,sizeof(path),"/api/v1/archives/%d/download?revision=%d",item->id,item->revision);
+    CURL *curl=request_new(path);if(!curl)return -1;
+    download_buffer buffer={.bytes=image,.capacity=ARCHIVE_IMAGE_SIZE};
+    struct curl_slist *headers=authorize(curl,token);
+    curl_easy_setopt(curl,CURLOPT_MAX_RECV_SPEED_LARGE,(curl_off_t)0);
+    curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive_download);
+    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&buffer);
+    long status=perform(curl);curl_slist_free_all(headers);curl_easy_reset(curl);
+    unsigned char digest[32];char hex[65];
+    if(status!=200||buffer.size!=ARCHIVE_IMAGE_SIZE)goto fail;
+    if(mbedtls_sha256(buffer.bytes,buffer.size,digest,0)!=0)goto fail;
+    for(int i=0;i<32;++i)snprintf(hex+i*2,3,"%02x",digest[i]);
+    if(strcmp(hex,item->sha256)||auth_is_save("",image,ARCHIVE_IMAGE_SIZE))goto fail;
+    return 0;
+fail:
+    memset(image,0,ARCHIVE_IMAGE_SIZE);
+    client_status(status==409?"Archive changed. Go back and refresh.":"Download failed or invalid. VMU unchanged.");return -1;
+}

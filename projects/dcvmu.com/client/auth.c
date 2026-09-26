@@ -55,6 +55,9 @@ int auth_save(const char *username,const char *token) {
 done:
     memset(&record,0,sizeof(record));return result;
 }
+int auth_location(void) {
+    return auth_port<0?-1:auth_port*6+auth_unit;
+}
 int auth_forget(void) {
     if(auth_port<0)return 0;
     maple_device_t *dev=maple_enum_dev(auth_port,auth_unit);

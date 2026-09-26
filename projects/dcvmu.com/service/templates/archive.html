@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block title %}{{ archive|archive_title }}{% endblock %}{% block content %}
+<div class="save-heading"><div class="save-title"><p class="eyebrow"><a href="/archives">VMU archives</a> · {{ archive.source or 'Whole card' }}</p><h1>{{ archive|archive_title }}</h1></div></div>
+{% if archived %}<p class="notice" role="status">Archived {{ archive.files }} {{ 'file' if archive.files == 1 else 'files' }}. Login saves were left out.</p>{% endif %}
+<p>Archived <time data-local-time datetime="{{ archive.created|utc_iso }}">{{ archive.created|utc_display }}</time> &nbsp; <strong>Private</strong> &nbsp; Version {{ archive.revision }}</p>
+<p>{{ archive.files }} {{ 'file' if archive.files == 1 else 'files' }} &nbsp; {{ archive.free_blocks }} free blocks &nbsp; 128 KiB</p>
+<p><a class="button" href="{{ url_for('archive_download', aid=archive.id) }}">Download .bin</a></p>
+<p class="notice">To restore on a Dreamcast, choose <strong>Restore a VMU</strong> in the DCVMU app, pick this archive and a VMU, then confirm. The whole card is replaced. In Flycast, use the downloaded file as a VMU image.</p>
+<section><h2>Card contents</h2>
+<div class="import-list">{% for entry in entries %}<article class="import-entry {{ 'unavailable' if entry.reason else '' }}">
+{% if entry.has_icon %}<img class="import-thumbnail" src="{{ url_for('archive_icon', aid=archive.id, index=loop.index0) }}" width="48" height="48" alt="" loading="lazy">{% endif %}
+<strong>{{ entry.name if not entry.reason else (entry.filename or 'Unnamed file') }}</strong>
+<p class="hint">{{ entry.filename }} · {{ entry.blocks }} {{ 'block' if entry.blocks == 1 else 'blocks' }}{% if entry.kind == 'icon' %} · Custom icons{% endif %}</p>
+{% if entry.reason %}<p>{{ entry.reason }}</p>{% endif %}
+</article>{% else %}<div class="empty">This card is empty.</div>{% endfor %}</div>
+<p class="hint">Damaged entries are archived and restored as-is. Mini-games are included in whole-card archives.</p></section>
+<section class="form-panel"><h2>Edit details</h2><form method="post" action="{{ url_for('archive_edit', aid=archive.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ archive.revision }}"><p><label>Friendly name<br><input name="name" value="{{ archive.name }}" maxlength="64" placeholder="VMU archive"></label></p><p class="hint">The archive date and contents stay unchanged.</p><input type="submit" value="Save details"></form></section>
+<section><h2>Delete archive</h2><p>Permanently remove this whole-card snapshot from your account. This cannot be undone.</p><a class="button danger" id="delete-save-link" href="{{ url_for('archive_delete', aid=archive.id) }}">Delete archive</a><form id="delete-save-form" method="post" action="{{ url_for('archive_delete', aid=archive.id) }}" hidden><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ archive.revision }}"><input type="hidden" name="confirm" value="yes"></form>{% if not console_browser %}<script src="{{ url_for('static', filename='delete-save.js') }}" defer></script>{% endif %}</section>
+{% endblock %}

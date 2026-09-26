@@ -5,7 +5,7 @@ static void run_public_test(void) {
     fclose(fixture);
     strcpy(username,"ReAdEr");strcpy(password,"local-fixture-password");
     screen=LOGIN;focus=2;activate();if(screen!=HOME)goto fail;
-    move(-1);if(focus!=3)goto fail;
+    move(-1);if(focus!=5)goto fail;
     move(-1);activate();if(screen!=PUBLIC_SEARCH || focus!=0)goto fail;
     focus=2;activate();if(screen!=PUBLIC_SEARCH)goto fail; /* Empty owner. */
     focus=0;activate();if(edit_field!=0)goto fail;
@@ -43,9 +43,9 @@ static void run_public_test(void) {
     if(screen!=PUBLIC_SEARCH)goto fail; /* Server ignored the owner filter. */
     strcpy(browse_user,"reader");focus=2;activate();
     if(screen!=DOWNLOADS || remote_count)goto fail; /* Own private save excluded. */
-    back();back();if(screen!=HOME || focus!=2)goto fail;
+    back();back();if(screen!=HOME || focus!=4)goto fail;
     focus=1;activate();if(screen!=DOWNLOADS || remote_count!=1)goto fail;
-    back();focus=2;activate();strcpy(browse_user,"sharer");strcpy(browse_game,"stone");focus=2;activate();
+    back();focus=4;activate();strcpy(browse_user,"sharer");strcpy(browse_game,"stone");focus=2;activate();
     refresh_downloads();if(screen!=DOWNLOADS || remote_page || remote_count!=3)goto fail;
     printf("dcvmu: PUBLIC SEARCH EMPTY PRIVACY AND REFRESH PASS\n");
     back();back();focus=0;activate();

@@ -45,7 +45,7 @@ def main():
         work = Path(directory)
         for name in ('romdisk', 'tests', 'vmus'):
             (work / name).mkdir()
-        for name in ('dcvmu-client.c', 'net.c', 'modem.c', 'auth.c', 'client.h', 'Makefile',
+        for name in ('dcvmu-client.c', 'net.c', 'modem.c', 'auth.c', 'archive.c', 'client.h', 'Makefile',
                      'romdisk/cacert.pem', 'tests/public_browse.c', 'tests/vmu_tools.c'):
             shutil.copyfile(CLIENT / name, work / name)
         database = work / 'fixture.sqlite3'
@@ -175,6 +175,17 @@ def main():
             thread.join(timeout=5)
         log = serial.read_text(errors='replace')
         passed = marker + ' PASSED' in log and (args.tools or failed_page)
+        if args.tools:
+            # The client archived A2 and then the restored login card A1:
+            # both snapshots must hold the test files and no login token.
+            with sqlite3.connect(database) as db:
+                archives = db.execute('SELECT name,source,files,data FROM archives ORDER BY id').fetchall()
+            if (len(archives) != 2 or [row[0] for row in archives] != ['Tools archive', '']
+                    or [row[1] for row in archives] != ['VMU A2', 'VMU A1']
+                    or any(row[2] != 2 or b'DCVMU-AUTH-V1' in row[3] or b'DCVMU_AUTH' in row[3]
+                           or b'TEST_SAVE' not in row[3] or b'ICONDATA_VMS' not in row[3] for row in archives)):
+                print(f'Archive check failed: {[row[:3] for row in archives]}')
+                passed = False
         summary = ('PASS' if passed else 'FAIL') + f': {"VMU tools" if args.tools else "public browse"} integration in Flycast ({"modem/PPP" if args.modem else "BBA"})\n'
         (args.log_dir / 'result.txt').write_text(summary)
         print(summary, end='')

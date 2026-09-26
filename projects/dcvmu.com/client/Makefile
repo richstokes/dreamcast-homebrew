@@ -1,5 +1,5 @@
 TARGET = dcvmu-client.elf
-OBJS = dcvmu-client.o net.o modem.o auth.o romdisk.o
+OBJS = dcvmu-client.o net.o modem.o auth.o archive.o romdisk.o
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
 KOS_CSTD = -std=gnu17
@@ -8,7 +8,7 @@ all: $(TARGET)
 include $(KOS_BASE)/Makefile.rules
 clean:
 	-rm -f $(OBJS) $(TARGET) romdisk.img
-dcvmu-client.o net.o modem.o auth.o: client.h
+dcvmu-client.o net.o modem.o auth.o archive.o: client.h
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) $(LDLIBS)
 run: $(TARGET)

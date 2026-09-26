@@ -51,6 +51,51 @@ static void run_tools_test(void) {
     if(auth_load(saved_user,saved_token)<0 || strcmp(saved_user,"reader"))goto fail;
     memset(saved_token,0,sizeof(saved_token));
     printf("dcvmu: ICON AND AUTH UPLOAD EXCLUSION PASS\n");
+    /* Whole-card archive of A2 (TEST_SAVE + icons), restored over the login card A1. */
+    if(vmufs_read(dev,"TEST_SAVE",&original,&original_size)<0)goto fail;
+    back();if(screen!=HOME)goto fail;
+    focus=2;activate();if(screen!=ARCHIVE_SOURCE || card_count<2)goto fail;
+    for(target_index=0;target_index<card_count;++target_index)if(card_ids[target_index]==2)break;
+    if(target_index>=card_count)goto fail;
+    activate();if(screen!=ARCHIVE_DETAILS || archive_files!=2 || archive_card!=2)goto fail;
+    focus=0;activate();if(edit_field!=0)goto fail;
+    for(const char *p="Tools archive";*p;++p)edit_char(*p);
+    edit_end(0);move(1);if(focus!=2)goto fail;
+    activate();if(screen!=ARCHIVED)goto fail;
+    printf("dcvmu: WHOLE VMU ARCHIVE UPLOAD PASS\n");
+    back();if(screen!=HOME)goto fail;
+    focus=3;activate();
+    if(screen!=ARCHIVES || archive_count!=1 || strcmp(archives[0].name,"Tools archive") ||
+       strcmp(archives[0].source,"VMU A2") || archives[0].files!=2 || archives[0].created<=0)goto fail;
+    activate();if(screen!=RESTORE_DEST)goto fail;
+    for(target_index=0;target_index<card_count;++target_index)if(card_ids[target_index]==1)break;
+    if(target_index>=card_count)goto fail;
+    activate();if(screen!=RESTORE_CONFIRM || focus!=0 || restore_id!=1)goto fail;
+    activate();if(screen!=RESTORE_DEST)goto fail; /* Default cancel writes nothing. */
+    if(auth_load(saved_user,saved_token)<0)goto fail;
+    memset(saved_token,0,sizeof(saved_token));
+    activate();focus=1;activate();if(screen!=RESTORED)goto fail;
+    maple_device_t *login_card=maple_enum_dev(0,1);
+    if(!login_card || archive_card_files(login_card)!=2)goto fail;
+    if(vmufs_read(login_card,"TEST_SAVE",&readback,&readback_size)<0 ||
+       readback_size!=original_size || memcmp(readback,original,original_size))goto fail;
+    free(readback);readback=NULL;
+    if(vmufs_read(login_card,DCVMU_ICON_FILE,&readback,&readback_size)<0 || readback_size!=1024)goto fail;
+    free(readback);readback=NULL;
+    if(auth_load(saved_user,saved_token)<0 || strcmp(saved_user,"reader"))goto fail;
+    memset(saved_token,0,sizeof(saved_token));
+    printf("dcvmu: WHOLE VMU RESTORE VERIFY AND LOGIN REWRITE PASS\n");
+    /* Archiving the login card itself must exclude the rewritten login save. */
+    back();if(screen!=ARCHIVES)goto fail;
+    back();if(screen!=HOME)goto fail;
+    focus=2;activate();if(screen!=ARCHIVE_SOURCE)goto fail;
+    for(target_index=0;target_index<card_count;++target_index)if(card_ids[target_index]==1)break;
+    activate();if(screen!=ARCHIVE_DETAILS || archive_files!=2 || archive_card!=1)goto fail;
+    focus=2;activate();if(screen!=ARCHIVED)goto fail;
+    if(auth_load(saved_user,saved_token)<0)goto fail; /* Scrubbing the copy left the card alone. */
+    memset(saved_token,0,sizeof(saved_token));
+    printf("dcvmu: LOGIN CARD ARCHIVE EXCLUSION PASS\n");
+    free(original);original=NULL;
     printf("dcvmu: VMU TOOLS SELF-TEST PASSED\n");return;
 fail:
     free(original);free(readback);

@@ -24,6 +24,8 @@ card imports work without JavaScript. The drawing studio needs a modern browser.
 - The VMU studio creates custom Dreamcast-menu and VMU-screen icons.
 - The card importer previews `.bin`, `.vmu`, `.dcm` and `.dci` files, then imports
   selected saves or custom icons without replacing existing cloud backups.
+- VMU archives snapshot a whole card in one step, with an optional friendly
+  name and an automatic datestamp, and restore it in one step from the client.
 
 The studio (`/studio`) draws or converts images to 32×32, 16-colour Dreamcast
 menu icons and monochrome VMU icons, with live previews and undo. Each set takes
@@ -36,6 +38,21 @@ timestamps and copy-protection flags are not restored by the client. Mini-games,
 unsupported filenames, damaged/cross-linked files and login saves are excluded
 with reasons shown. It never restores a whole card or changes the source image.
 
+VMU archives (`/archives`) are separate from individual saves. The Dreamcast
+client's **Archive a VMU** reads every block of one standard 128 KiB card and
+uploads it as a single private snapshot; the website accepts the same `.bin`,
+`.vmu` or `.dcm` card images. The optional name is for finding the archive
+later; the archive date is recorded automatically. Before storage the card is
+scrubbed: `DCVMU_AUTH` login saves (by name, application ID or token marker)
+are removed from the directory and allocation table, and every user block not
+owned by a remaining file is zeroed so stale tokens cannot linger in free
+space. Every other file, directory entry, timestamp, header offset and copy
+flag is kept byte-for-byte, including mini-games and damaged entries. A card
+that still contains login data after scrubbing is rejected. The detail page
+lists the card contents, and **Download .bin** returns the scrubbed image for
+emulators. **Restore a VMU** in the client writes the image back to a chosen
+card after confirmation and verifies it by reading every block.
+
 Both tools default to private entries. Import previews belong to their owner
 and expire after 30 minutes. Only validated file payloads are staged, never the
 original card or excluded login data. A new preview replaces the previous one;
@@ -43,8 +60,9 @@ completion or **Discard preview** removes it. Expired previews are purged on
 subsequent import requests. A selection imports in one transaction: reaching
 the account limit leaves both the archive and preview unchanged.
 
-Limits: 200 saves per account, each at most 120.5 KiB (241 VMU blocks), and 60
-upload attempts per hour. Uploads must be a single valid VMS data save with a
+Limits: 200 saves and 20 VMU archives per account, saves at most 120.5 KiB
+(241 VMU blocks) and archives exactly 128 KiB, and 60 upload attempts per hour
+shared between saves and archives. Uploads must be a single valid VMS data save with a
 correct CRC; whole-card images, archives, `ICONDATA_VMS`, and the client's
 `DCVMU_AUTH` login save are rejected by the normal upload endpoint. Use the
 separate card importer or studio for custom icons. Login saves remain excluded.
@@ -80,6 +98,9 @@ endpoints require HTTPS, and everything except login uses a bearer token.
 | `POST /api/v1/saves/<id>/rename` | Form fields `name` and `revision`. Returns `OK`. |
 | `GET /api/v1/saves` | Lists saves (parameters below). |
 | `GET /api/v1/saves/<id>/download?revision=<revision>` | Returns the exact save bytes; 409 if the revision changed. |
+| `POST /api/v1/archives` | Multipart whole-card upload: `image` (exactly 128 KiB), optional `name` (max 64) and `source` (max 24, e.g. `VMU A1`). HTTP 201: `OK`, archive ID and display name. Login saves are scrubbed server-side. |
+| `GET /api/v1/archives?page=<n>` | Lists the caller's archives: `MORE<TAB>0|1`, then up to seven rows of id, revision, name, created (Unix seconds), file count, byte size, SHA-256 and source. |
+| `GET /api/v1/archives/<id>/download?revision=<revision>` | Returns the scrubbed 128 KiB image; 409 if the revision changed. |
 
 Upload fields: `save` (binary file), `filename` (original VMU name, max 12),
 `name` (title, max 64), `notes` (max 500), `private` (`0` or `1`),

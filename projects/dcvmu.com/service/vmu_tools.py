@@ -13,6 +13,8 @@ ICON_NAME = 'ICONDATA_VMS'
 UNLOCK = bytes.fromhex('da69d0dac74ef836189279682db53086')
 MAX_IMAGE = 128 * 1024
 FILENAME = re.compile(r'[A-Za-z0-9_.! -]{1,12}')
+AUTH_MARKER = b'DCVMU-AUTH-V1'
+FAT_FREE = 0xFFFC
 
 
 def is_login(filename, data):
@@ -135,6 +137,23 @@ def extract_image(data, filename):
         raise ValueError('Card images must be exactly 128 KiB (one standard VMU bank).')
     if extension == 'dcm':
         data = swap_words(data)
+    entries, owners = [], {}
+    for pos, entry, chain, reason in _directory(data, _layout(data)):
+        for block in chain:
+            owners.setdefault(block, set()).add(len(entries))
+        entries.append((entry, chain, reason))
+    conflicts = set().union(*(ids for ids in owners.values() if len(ids) > 1)) if owners else set()
+    rows = []
+    for index, (entry, chain, reason) in enumerate(entries):
+        if index in conflicts:
+            reason = 'Blocks are shared with another file'
+        raw = b''.join(data[block*512:(block+1)*512] for block in chain) if not reason else None
+        rows.append(_entry(entry, raw, reason))
+    return rows
+
+
+def _layout(data):
+    """Validate a standard card's root block; return its filesystem geometry."""
     root = data[255*512:]
     if root[:16] != b'\x55' * 16:
         raise ValueError('The card has no valid VMU root block.')
@@ -150,8 +169,13 @@ def extract_image(data, filename):
     if not 1 <= user_blocks <= 255 or any(block < user_blocks for block in system):
         raise ValueError('Invalid VMU user region.')
     fat = struct.unpack_from('<256H', data, fat_start*512)
-    entries, owners = [], {}
-    for block in directory:
+    return dict(fat_start=fat_start, directory=directory, system=system,
+                user_blocks=user_blocks, fat=fat)
+
+
+def _directory(data, layout):
+    """Yield (offset, entry, block chain, reason) for every used directory slot."""
+    for block in layout['directory']:
         for pos in range(block*512, (block+1)*512, 32):
             entry = data[pos:pos+32]
             if entry[0] == 0:
@@ -164,21 +188,57 @@ def extract_image(data, filename):
             else:
                 current = start
                 for _ in range(count):
-                    if current >= user_blocks or current in system or current in visited:
+                    if (current >= layout['user_blocks'] or current in layout['system']
+                            or current in visited):
                         reason = 'Broken or looping block chain'
                         break
                     visited.add(current)
                     chain.append(current)
-                    owners.setdefault(current, set()).add(len(entries))
-                    current = fat[current]
+                    current = layout['fat'][current]
                 if not reason and current != 0xFFFA:
                     reason = 'Block chain does not end at the recorded file size'
-            entries.append((entry, chain, reason))
-    conflicts = set().union(*(ids for ids in owners.values() if len(ids) > 1)) if owners else set()
-    rows = []
-    for index, (entry, chain, reason) in enumerate(entries):
-        if index in conflicts:
-            reason = 'Blocks are shared with another file'
-        raw = b''.join(data[block*512:(block+1)*512] for block in chain) if not reason else None
-        rows.append(_entry(entry, raw, reason))
-    return rows
+            yield pos, entry, chain, reason
+
+
+def card_free_blocks(data):
+    """Count unallocated user blocks on a validated raw card image."""
+    layout = _layout(data)
+    return sum(1 for block in range(layout['user_blocks']) if layout['fat'][block] == FAT_FREE)
+
+
+def scrub_card(data):
+    """Prepare a whole-card archive: drop DCVMU login saves, keep everything else.
+
+    Accepts one raw 128 KiB bank. Login files (by name, application ID or token
+    marker) are deleted from the directory and allocation table, and every user
+    block not owned by a remaining file is zeroed so stale tokens cannot linger
+    in free space. Remaining files, their directory entries, timestamps, header
+    offsets and copy flags stay byte-exact. Returns (image, summary).
+    """
+    if len(data) != MAX_IMAGE:
+        raise ValueError('Card images must be exactly 128 KiB (one standard VMU bank).')
+    layout = _layout(data)
+    image, fat = bytearray(data), list(layout['fat'])
+    owned, files, removed = set(), [], 0
+    for pos, entry, chain, reason in _directory(data, layout):
+        filename = entry[4:16].rstrip(b'\0 ').decode('ascii', errors='replace')
+        raw = b''.join(data[block*512:(block+1)*512] for block in chain)
+        if is_login(filename, raw):
+            for block in chain:
+                image[block*512:(block+1)*512] = bytes(512)
+                fat[block] = FAT_FREE
+            image[pos:pos+32] = bytes(32)
+            removed += 1
+            continue
+        owned.update(chain)
+        files.append(dict(filename=filename, blocks=struct.unpack_from('<H', entry, 24)[0],
+                          kind='game' if entry[0] == 0xCC else 'data', reason=reason))
+    for block in range(layout['user_blocks']):
+        if block not in owned:
+            image[block*512:(block+1)*512] = bytes(512)
+    struct.pack_into('<256H', image, layout['fat_start']*512, *fat)
+    if AUTH_MARKER in image:
+        raise ValueError('Login data could not be removed from this card. Sign out on the Dreamcast, then archive it again.')
+    free = sum(1 for block in range(layout['user_blocks']) if fat[block] == FAT_FREE)
+    return bytes(image), dict(files=files, removed=removed, free_blocks=free,
+                              user_blocks=layout['user_blocks'])

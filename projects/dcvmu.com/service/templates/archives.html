@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block title %}VMU archives{% endblock %}{% block content %}
+<p class="eyebrow">WHOLE-CARD BACKUPS</p><h1>VMU archives</h1>
+<p>Archive an entire VMU as one snapshot and put it all back in one step, instead of backing up each save on its own. Choose <strong>Archive a VMU</strong> in the Dreamcast app, or upload a card image from your computer here.</p>
+<section class="form-panel"><h2>Archive a card image</h2><form method="post" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<p><label>Memory-card image<br><input type="file" name="image" accept=".bin,.vmu,.dcm" required></label></p>
+<p class="hint">Flycast/raw .bin or .vmu, or Nexus .dcm: one 128 KiB VMU bank.</p>
+<p><label>Friendly name (optional)<br><input name="name" maxlength="64" placeholder="Before Shenmue disc 2"></label></p>
+<p class="hint">Every archive is date-stamped automatically.</p>
+<input type="submit" value="Archive this card"></form></section>
+<p>Archives are private to your account. Your DCVMU login save is removed from every archive; all other files are kept byte-for-byte. Using {{ archives|length }} of {{ limit }} archives.</p>
+<div class="save-list">{% for archive in archives %}<article class="save-card"><div class="save-heading"><div class="save-title"><p class="eyebrow">{{ archive.source or 'VMU archive' }}</p><h2><a href="{{ url_for('archive_detail', aid=archive.id) }}">{{ archive|archive_title }}</a></h2></div></div>
+<p class="save-notes">{{ archive.files }} {{ 'file' if archive.files == 1 else 'files' }} &nbsp; {{ archive.free_blocks }} free blocks</p>
+<dl class="save-metadata save-times"><div><dt>Archived</dt><dd><time data-local-time datetime="{{ archive.created|utc_iso }}">{{ archive.created|utc_display }}</time></dd></div></dl>
+<div class="save-card-footer"><a href="{{ url_for('archive_download', aid=archive.id) }}">Download .bin</a><span class="save-filename">128 KiB</span></div></article>
+{% else %}<div class="empty"><h2>No VMU archives yet</h2><p>Choose <strong>Archive a VMU</strong> in the Dreamcast app, or upload a card image above.</p></div>{% endfor %}</div>
+<p><a href="/account">Back to your account</a></p>
+{% endblock %}

@@ -18,12 +18,14 @@ from flask import Flask, abort, g, redirect, render_template, request, send_file
 from werkzeug.middleware.proxy_fix import ProxyFix
 from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png, game_label
 from vmu_tools import (ICON_NAME, MAX_IMAGE, UNLOCK, build_icondata, validate_icondata,
-                       icon_header, icon_png, extract_image, is_login)
+                       icon_header, icon_png, extract_image, is_login, scrub_card,
+                       card_free_blocks, swap_words)
 
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 WEB_SESSION_SECONDS = 365 * 86400
 CLIENT_RELEASE_BASE = 'https://github.com/richstokes/dreamcast-homebrew/releases/latest/download'
 DUMMY_HASH = PASSWORDS.hash(secrets.token_urlsafe(32))
+MAX_ARCHIVES = 20  # Whole-card snapshots per account, 128 KiB each.
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -44,6 +46,12 @@ CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL,
 CREATE TABLE IF NOT EXISTS imports (
  id TEXT PRIMARY KEY, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
  expires INTEGER NOT NULL, contents TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS archives (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, source TEXT NOT NULL, files INTEGER NOT NULL, free_blocks INTEGER NOT NULL,
+ data BLOB NOT NULL, sha256 TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+ created INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS archives_owner ON archives(user_id, created DESC, id DESC);
 '''
 
 
@@ -96,6 +104,10 @@ def create_app(config=None):
     @app.template_filter('utc_display')
     def utc_display(value):
         return datetime.fromtimestamp(value, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+    @app.template_filter('archive_title')
+    def archive_title(row):
+        return row['name'] or 'VMU archive'
 
     def database():
         if 'db' not in g:
@@ -523,6 +535,159 @@ def create_app(config=None):
         with database() as db:
             db.execute('DELETE FROM imports WHERE id=? AND user_id=?', (batch, g.user['id']))
         return redirect(url_for('import_image'), 303)
+
+    def archive_name():
+        name = text_field('name', 64)
+        if any(ord(c) < 32 for c in name):
+            abort(400, 'Archive name must be one line.')
+        return name
+
+    def archive_source(value):
+        """Keep a short, printable origin label such as 'VMU A1' or a filename."""
+        return ''.join(c for c in value if c.isascii() and c.isprintable())[:24].strip()
+
+    def store_archive(name, source, raw):
+        """Scrub login data, then insert a whole-card snapshot in one transaction."""
+        try:
+            image, summary = scrub_card(raw)
+        except ValueError as error:
+            abort(400, str(error))
+        now = int(time.time())
+        with database() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT count(*) FROM archives WHERE user_id=?', (g.user['id'],)).fetchone()[0] >= MAX_ARCHIVES:
+                abort(400, f'Archive limit reached ({MAX_ARCHIVES} VMU archives). Delete an old archive first.')
+            aid = db.execute('''INSERT INTO archives(user_id,name,source,files,free_blocks,data,sha256,
+                created,updated) VALUES (?,?,?,?,?,?,?,?,?)''',
+                (g.user['id'], name, source, len(summary['files']), summary['free_blocks'], image,
+                 hashlib.sha256(image).hexdigest(), now, now)).lastrowid
+        return aid, summary
+
+    def own_archive(aid):
+        require_user()
+        row = database().execute('SELECT * FROM archives WHERE id=? AND user_id=?', (aid, g.user['id'])).fetchone()
+        if row is None:
+            abort(404)
+        return row
+
+    @app.route('/archives', methods=['GET', 'POST'])
+    def archives():
+        require_user()
+        if request.method == 'GET':
+            rows = database().execute('''SELECT id,name,source,files,free_blocks,revision,created,updated
+                FROM archives WHERE user_id=? ORDER BY created DESC,id DESC''', (g.user['id'],)).fetchall()
+            return page('archives.html', archives=rows, limit=MAX_ARCHIVES)
+        limit('upload:' + str(g.user['id']), 60, 3600)
+        files = request.files.getlist('image')
+        if len(files) != 1 or set(request.files) != {'image'}:
+            abort(400, 'Choose one memory-card image.')
+        filename = files[0].filename or ''
+        extension = filename.lower().rsplit('.', 1)[-1]
+        if extension not in ('bin', 'vmu', 'dcm'):
+            abort(400, 'Choose a .bin, .vmu or .dcm card image (one 128 KiB VMU bank).')
+        raw = files[0].read(MAX_IMAGE + 1)
+        if len(raw) != MAX_IMAGE:
+            abort(400, 'Card images must be exactly 128 KiB (one standard VMU bank).')
+        if extension == 'dcm':
+            raw = swap_words(raw)
+        aid, _ = store_archive(archive_name(), archive_source(filename), raw)
+        return redirect(url_for('archive_detail', aid=aid, archived=1), 303)
+
+    @app.get('/archives/<int:aid>')
+    def archive_detail(aid):
+        row = own_archive(aid)
+        entries = [{key: value for key, value in entry.items() if key != 'data'}
+                   for entry in extract_image(row['data'], 'archive.bin')]
+        return page('archive.html', archive=row, entries=entries,
+                    archived=request.args.get('archived') == '1')
+
+    @app.get('/archives/<int:aid>/<int:index>/icon.png')
+    def archive_icon(aid, index):
+        row = own_archive(aid)
+        entries = extract_image(row['data'], 'archive.bin')
+        if index >= len(entries) or 'data' not in entries[index]:
+            abort(404)
+        entry = entries[index]
+        data = base64.b64decode(entry['data'])
+        png = icon_png(data) if entry['kind'] == 'icon' else first_icon_png(data[entry['header_offset']*512:])
+        if not png:
+            abort(404)
+        return send_file(io.BytesIO(png), mimetype='image/png')
+
+    @app.get('/archives/<int:aid>/download')
+    def archive_download(aid):
+        row = own_archive(aid)
+        slug = re.sub(r'[^A-Za-z0-9]+', '-', row['name']).strip('-')[:32] or 'vmu-archive'
+        stamp = datetime.fromtimestamp(row['created'], timezone.utc).strftime('%Y-%m-%d')
+        return send_file(io.BytesIO(row['data']), as_attachment=True,
+                         download_name=f'{slug}-{stamp}.bin', mimetype='application/octet-stream')
+
+    @app.post('/archives/<int:aid>/edit')
+    def archive_edit(aid):
+        own_archive(aid)
+        with database() as db:
+            changed = db.execute('UPDATE archives SET name=?,revision=revision+1,updated=? WHERE id=? AND user_id=? AND revision=?',
+                                 (archive_name(), int(time.time()), aid, g.user['id'], request.form.get('revision', ''))).rowcount
+        if not changed:
+            abort(409, 'This archive changed. Reload before editing.')
+        return redirect(url_for('archive_detail', aid=aid), 303)
+
+    @app.route('/archives/<int:aid>/delete', methods=['GET', 'POST'])
+    def archive_delete(aid):
+        row = own_archive(aid)
+        if request.method == 'GET':
+            return page('delete_archive.html', archive=row)
+        if request.form.get('confirm') != 'yes':
+            abort(400, 'Confirm deletion before continuing.')
+        with database() as db:
+            changed = db.execute('DELETE FROM archives WHERE id=? AND user_id=? AND revision=?',
+                                 (aid, g.user['id'], request.form.get('revision', ''))).rowcount
+        if not changed:
+            abort(409, 'This archive changed. Reload and review it before deleting.')
+        return redirect(url_for('archives'), 303)
+
+    @app.post('/api/v1/archives')
+    def api_archive_upload():
+        require_user()
+        limit('upload:' + str(g.user['id']), 60, 3600)
+        name = archive_name()
+        source = archive_source(text_field('source', 24))
+        files = request.files.getlist('image')
+        if len(files) != 1 or set(request.files) != {'image'}:
+            abort(400, 'Upload exactly one whole-VMU image.')
+        if files[0].mimetype != 'application/octet-stream':
+            abort(400, 'Unsupported upload content type. Send a binary VMU image.')
+        raw = files[0].read(MAX_IMAGE + 1)
+        if len(raw) != MAX_IMAGE:
+            abort(400, 'VMU images must be exactly 128 KiB (one standard bank).')
+        aid, _ = store_archive(name, source, raw)
+        return f'OK\n{aid}\n{name or "VMU archive"}\n', 201, {'Content-Type': 'text/plain; charset=utf-8'}
+
+    @app.get('/api/v1/archives')
+    def api_archives():
+        require_user()
+        try:
+            page_num = int(request.args.get('page', '0'))
+            if not 0 <= page_num <= 100000:
+                raise ValueError()
+        except ValueError:
+            abort(400, 'Invalid page.')
+        rows = database().execute(
+            'SELECT id,revision,name,created,files,length(data) AS size,sha256,source FROM archives '
+            'WHERE user_id=? ORDER BY created DESC,id DESC LIMIT 8 OFFSET ?', (g.user['id'], page_num * 7)).fetchall()
+        lines = ['MORE\t' + ('1' if len(rows) > 7 else '0')]
+        for row in rows[:7]:
+            values = dict(row, name=row['name'] or 'VMU archive')
+            lines.append('\t'.join(quote(str(values[key]), safe='') for key in
+                ('id', 'revision', 'name', 'created', 'files', 'size', 'sha256', 'source')))
+        return '\n'.join(lines) + '\n', 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+    @app.get('/api/v1/archives/<int:aid>/download')
+    def api_archive_download(aid):
+        row = own_archive(aid)
+        if request.args.get('revision') != str(row['revision']):
+            abort(409, 'Archive changed. Refresh the list before restoring.')
+        return send_file(io.BytesIO(row['data']), mimetype='application/octet-stream')
 
     def visible_save(sid):
         row = database().execute('SELECT s.*,u.username FROM saves s JOIN users u ON u.id=s.user_id WHERE s.id=?',

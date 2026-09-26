@@ -17,7 +17,7 @@ is also available. Real hardware has not been verified yet.
 ## Using the client
 
 After login, the main menu offers **Upload a save**, **Download a save**,
-**Browse Public Saves**, and **Sign out**.
+**Archive a VMU**, **Restore a VMU**, **Browse Public Saves**, and **Sign out**.
 
 - **Upload**: pick a save from any attached VMU, optionally edit its title,
   notes, and visibility, then upload. Visibility starts **public**; toggle it to
@@ -28,6 +28,16 @@ After login, the main menu offers **Upload a save**, **Download a save**,
   downloads and verifies it, then asks which VMU to install it on. Existing
   saves require explicit replacement, and nothing is written before you
   confirm.
+- **Archive a VMU**: pick a card and every block is copied as one private
+  snapshot, so you do not have to back up each save individually. Give it an
+  optional friendly name; the date is recorded automatically. Your `DCVMU_AUTH`
+  login save is removed from the copy before upload, and free blocks are
+  zeroed. Mini-games and custom icons are included. The card is only read.
+- **Restore a VMU**: choose an archive, then a destination VMU, and confirm.
+  Every block is written, then read back and compared. This replaces
+  everything on that card, so archive it first if you may want it back. If the
+  destination held your remembered login, the login save is written again
+  afterwards. Reinsert the VMU so its menu refreshes.
 - **Browse Public Saves**: enter another user's exact username (find it on
   dcvmu.com first) and optionally part of a game title, then select
   **Find saves**. Only that account's public saves appear.
@@ -53,7 +63,7 @@ Do not remove the VMU or power off while a save is being written.
   On cloud lists, left/right changes page.
 - A / Enter: edit, select, or confirm.
 - B / Escape / Backspace: go back, or cancel an active network transfer.
-- Y / R: rescan VMUs, or refresh a cloud list.
+- Y / R: rescan VMUs, or refresh a cloud list, including archives.
 - X / N on **My saves**: rename the selected cloud save. Public saves cannot be
   renamed.
 - X / L at the main menu: sign out.
@@ -156,7 +166,9 @@ python3 -m unittest discover -s projects/dcvmu.com/client/tests
 The `--tools` test creates icons through the studio and saves through the card
 importer, then checks HTTPS downloads, cancellation, installation, replacement,
 header offsets and preservation of existing saves in Flycast. It also verifies
-that the upload list excludes icons/login files. Add `--modem` for modem testing.
+that the upload list excludes icons/login files, archives a whole VMU, restores
+it over the login card with the login save rewritten, and confirms that neither
+stored archive contains login data. Add `--modem` for modem testing.
 Real-hardware icon display and the BIOS animation still need verification on a
 physical Dreamcast/VMU.
 
