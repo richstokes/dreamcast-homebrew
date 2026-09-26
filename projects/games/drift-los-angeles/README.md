@@ -166,6 +166,15 @@ build does not need a host audio tool. To rebuild them:
 make audio
 ```
 
+`tools/build_audio_assets.py` cuts seamless idle and held-rev engine loops from
+the V8 recordings. The tire recording is a single 1.3 s screech with a swell
+and a fade, so it is not looped directly: the sustained core is re-sequenced
+into a 1.92 s granular texture (random-position, rate-jittered grains with
+equal-power crossfades, then macro-levelled) so a long drift sounds continuous
+rather than like a one-shot re-triggering. Every loop is rejected if its slow
+loudness envelope swings more than 1.15:1. A preview of the engine sweep and
+the tire loop lands in `assets/generated/previews/v8-engine-rpm-sweep.wav`.
+
 `make music` rebuilds only the soundtrack: `tools/compose_soundtrack.py`
 renders the three songs from their notation, then `tools/build_music_asset.py`
 packs them into a 4-bit ADPCM playlist bank (both run through `uv`). Rendered

@@ -46,7 +46,10 @@ field recording **“Distant car tire screetch”** by Freesound user
   `7470401554d27b30a791e6573e587281bb4d9c74efb81f99d5c017767be436a5`
 
 The project copy was decoded from Freesound's high-quality preview and
-downsampled to 32 kHz stereo.
+downsampled to 32 kHz stereo. The recording is a single screech with a swell
+and a fade, so `tools/build_audio_assets.py` does not loop it directly; it
+re-sequences the sustained 0.31–0.67 s core into a stationary 1.92 s granular
+texture for the in-game tire voice.
 
 # Music
 

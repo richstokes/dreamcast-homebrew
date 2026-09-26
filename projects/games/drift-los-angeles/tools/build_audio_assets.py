@@ -34,7 +34,38 @@ LOOPS = (
     LoopSpec("load", 17.10, 19.25, 0.200, 3500.0, 0.140, 0.48),
 )
 
-TIRE_LOOP = LoopSpec("squeal", 0.10, 1.18, 0.180, 0.0, 0.120, 0.65)
+@dataclass(frozen=True)
+class TextureSpec:
+    name: str
+    start_seconds: float
+    end_seconds: float
+    loop_seconds: float
+    grain_seconds: float
+    overlap_seconds: float
+    rate_jitter: float
+    seed: int
+    target_rms: float
+    max_peak: float
+
+
+# The tire recording is a single 1.3 s screech with a swell and a fade, so a
+# plain crossfaded loop of it re-plays that swell every cycle and a sustained
+# drift sounds like a repeating one-shot. Instead, the sustained core of the
+# recording is re-sequenced granularly into a long stationary texture: many
+# short, equal-power-crossfaded grains taken from random positions in the
+# core, each at a slightly different playback rate, then macro-levelled.
+TIRE_TEXTURE = TextureSpec(
+    name="squeal",
+    start_seconds=0.31,
+    end_seconds=0.67,
+    loop_seconds=1.92,
+    grain_seconds=0.120,
+    overlap_seconds=0.050,
+    rate_jitter=0.025,
+    seed=0x5eed1234,
+    target_rms=0.120,
+    max_peak=0.65,
+)
 
 
 def level_circular_macro_envelope(values: array, rate: int, channels: int,
@@ -140,6 +171,94 @@ def make_loop(pcm: array, rate: int, channels: int, spec: LoopSpec) -> array:
     gain = min(spec.target_rms * 32768.0 / rms,
                spec.max_peak * 32767.0 / peak)
 
+    result = array("h")
+    for sample in loop:
+        result.append(max(-32768, min(32767, round(sample * gain))))
+    return result
+
+
+def make_texture_loop(pcm: array, rate: int, channels: int,
+                      spec: TextureSpec) -> array:
+    """Re-sequence a short sustained region into a long stationary loop."""
+    start_frame = round(spec.start_seconds * rate)
+    end_frame = round(spec.end_seconds * rate)
+    grain_frames = round(spec.grain_seconds * rate)
+    overlap_frames = round(spec.overlap_seconds * rate)
+    loop_frames = round(spec.loop_seconds * rate)
+    if start_frame < 0 or end_frame <= start_frame:
+        raise ValueError(f"invalid region for {spec.name}")
+    if end_frame * channels > len(pcm):
+        raise ValueError(f"{spec.name} region exceeds source recording")
+    if overlap_frames <= 0 or overlap_frames * 2 >= grain_frames:
+        raise ValueError(f"invalid grain overlap for {spec.name}")
+    core = array("f", pcm[start_frame * channels:end_frame * channels])
+    core_frames = len(core) // channels
+    for channel in range(channels):
+        mean = sum(core[channel::channels]) / float(core_frames)
+        for frame in range(core_frames):
+            core[frame * channels + channel] -= mean
+    # The longest grain (fastest rate) must fit inside the core.
+    max_span = int(grain_frames * (1.0 + spec.rate_jitter)) + 2
+    if max_span >= core_frames:
+        raise ValueError(f"{spec.name} grains are longer than the core region")
+
+    state = spec.seed & 0xffffffff
+
+    def random_unit() -> float:
+        nonlocal state
+        state = (state * 1664525 + 1013904223) & 0xffffffff
+        return (state >> 8) / float(1 << 24)
+
+    def core_sample(position: float, channel: int) -> float:
+        whole = int(position)
+        fraction = position - whole
+        following = min(whole + 1, core_frames - 1)
+        a = core[whole * channels + channel]
+        b = core[following * channels + channel]
+        return a + (b - a) * fraction
+
+    # Overlap-add into a circular buffer so the join at the loop boundary is
+    # just another grain crossfade. Grain windows are equal-power (sin/cos over
+    # the overlap, flat in the middle), so the sum has no periodic level dip.
+    total = array("f", [0.0] * (loop_frames * channels))
+    hop = grain_frames - overlap_frames
+    grain_count = -(-loop_frames // hop)
+    previous_offset = -1.0
+    for grain in range(grain_count):
+        rate_scale = 1.0 + (random_unit() * 2.0 - 1.0) * spec.rate_jitter
+        span = grain_frames * rate_scale
+        # Keep consecutive grains from starting near the same source spot,
+        # which would expose the core's own slow pitch drift as a rhythm.
+        for _ in range(8):
+            offset = random_unit() * (core_frames - span - 2.0)
+            if abs(offset - previous_offset) > core_frames * 0.15:
+                break
+        previous_offset = offset
+        base = grain * hop
+        for frame in range(grain_frames):
+            if frame < overlap_frames:
+                window = math.sin((frame + 0.5) / overlap_frames * math.pi * 0.5)
+            elif frame >= grain_frames - overlap_frames:
+                window = math.cos(
+                    (frame - (grain_frames - overlap_frames) + 0.5)
+                    / overlap_frames * math.pi * 0.5
+                )
+            else:
+                window = 1.0
+            target = (base + frame) % loop_frames
+            position = offset + frame * rate_scale
+            for channel in range(channels):
+                total[target * channels + channel] += (
+                    core_sample(position, channel) * window
+                )
+
+    loop = level_circular_macro_envelope(total, rate, channels)
+    peak = max(abs(sample) for sample in loop)
+    rms = math.sqrt(sum(sample * sample for sample in loop) / len(loop))
+    if peak <= 0.0 or rms <= 0.0:
+        raise ValueError(f"{spec.name} texture is silent")
+    gain = min(spec.target_rms * 32768.0 / rms,
+               spec.max_peak * 32767.0 / peak)
     result = array("h")
     for sample in loop:
         result.append(max(-32768, min(32767, round(sample * gain))))
@@ -291,7 +410,8 @@ def build(idle_source_path: Path, load_source_path: Path,
     tire_rate, tire_channels, tire_source_pcm = read_pcm(tire_source_path)
     if tire_rate != rate or tire_channels != channels:
         raise ValueError("engine and tire sources must use the same PCM format")
-    tire_pcm = make_loop(tire_source_pcm, tire_rate, tire_channels, TIRE_LOOP)
+    tire_pcm = make_texture_loop(tire_source_pcm, tire_rate, tire_channels,
+                                 TIRE_TEXTURE)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     header = """/* Generated by tools/build_audio_assets.py. Do not edit. */
@@ -356,10 +476,17 @@ def build(idle_source_path: Path, load_source_path: Path,
     tire_rms = math.sqrt(
         sum(value * value for value in tire_pcm) / len(tire_pcm)
     ) / 32768.0
+    tire_ratio, tire_floor = macro_loudness_ratio(tire_pcm, rate, channels)
+    if tire_ratio > 1.15 or tire_floor < 0.90:
+        raise ValueError(
+            f"tire loop has a slow loudness pulse: "
+            f"p95/p05={tire_ratio:.2f}, floor={tire_floor:.2f}"
+        )
     print(
         f"tire   : {tire_frames:5d} frames, {tire_frames / rate:.3f}s, "
         f"RMS {tire_rms:.3f}, peak {tire_peak:.3f}, "
-        f"boundary jump {abs(tire_first - tire_last):.5f}"
+        f"boundary jump {abs(tire_first - tire_last):.5f}, "
+        f"macro p95/p05 {tire_ratio:.2f}, floor {tire_floor:.2f}"
     )
 
     header += "#endif\n"

@@ -14,7 +14,7 @@ extern const int16_t dla_engine_idle_pcm[124800];
 #define DLA_ENGINE_LOAD_BASE_RPM 3500.0f
 extern const int16_t dla_engine_load_pcm[124800];
 
-#define DLA_TIRE_SQUEAL_FRAMES 28800u
-extern const int16_t dla_tire_squeal_pcm[57600];
+#define DLA_TIRE_SQUEAL_FRAMES 61440u
+extern const int16_t dla_tire_squeal_pcm[122880];
 
 #endif
