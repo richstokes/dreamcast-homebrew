@@ -32,8 +32,8 @@ no persistent network changes. The runtime and cartridges are checked in;
 HTTPS additionally links the `curl` / `mbedtls` kos-ports and KOS's `libppp`.
 The baseline is KOS 2.3.0 / SH-4 GCC 15.2.0. Build/link use `kos-c++` and KOS's
 `Makefile.rules`; Z8lua's `.c` sources must also compile as C++.
-Each build fetches the latest upstream SH4ZAM `master` into the Git submodule
-at `third_party/sh4zam` before compiling. The selected C headers require no
+Each build clones or fast-forwards the ignored, unpinned `third_party/sh4zam`
+checkout to the latest upstream SH4ZAM `master` before compiling. The selected C headers require no
 separate SH4ZAM build or SDK installation. See the
 [integration notes](third_party/SH4ZAM.md).
 

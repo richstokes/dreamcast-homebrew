@@ -10,7 +10,7 @@ Dependency sources:
 | --- | --- | --- |
 | FAKE-08 core and LodePNG | https://github.com/jtothebell/fake-08 | `814991a2571ad3970e386cef48f3b148aa1c27b9` |
 | Z8lua | https://github.com/jtothebell/z8lua | `e6928578d46b61fd5ea30cfcf547e855a30a0553` |
-| SH4ZAM (Git submodule) | https://github.com/gyrovorbis/sh4zam | Latest `master`, fetched before each build |
+| SH4ZAM (ignored clone, not pinned) | https://github.com/gyrovorbis/sh4zam | Latest `master`, fetched before each build |
 
 The `source`, `libs/z8lua`, and `libs/lodepng` directories were copied from those
 revisions. The unused `source/cartzip.h` pack-in archive is deliberately omitted.
@@ -52,7 +52,7 @@ See [FAKE-08's full notices](fake-08/LICENSE.MD), the copyright/license headers
 in Z8lua and LodePNG, and [sample licenses](../licenses/). FAKE-08 contains
 MIT, WTFPL, zlib and other attributed code; preserve the upstream notices.
 The Dreamcast host and launcher use the repository's MIT license.
-See [SH4ZAM provenance and integration](SH4ZAM.md) for the tracking submodule,
+See [SH4ZAM provenance and integration](SH4ZAM.md) for the tracking checkout,
 header-only usage and its MIT notice.
 
 HTTPS uses the separately installed KOS `curl` port (tested: 8.18.0, curl license),

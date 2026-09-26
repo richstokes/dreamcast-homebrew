@@ -302,8 +302,9 @@ material face ranges. Each material has separate vertices for cached shading.
 
 ## SH4 rendering acceleration
 
-The renderer uses [SH4ZAM](https://sh4zam.com/) headers from the Git submodule
-at `third_party/sh4zam`, updated to the latest upstream `master` before each build, for
+The renderer uses [SH4ZAM](https://sh4zam.com/) headers from the ignored,
+unpinned clone at `third_party/sh4zam`, updated to the latest upstream `master`
+before each build, for
 batched camera transforms, positive-depth reciprocals, reflection normalization
 and paired sine/cosine. No extra SDK installation is required; see the
 [integration notes](third_party/SH4ZAM.md). The car's draw

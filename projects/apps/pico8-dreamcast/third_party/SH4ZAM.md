@@ -1,14 +1,17 @@
 # SH4ZAM
 
-The [SH4ZAM](https://sh4zam.com/) Git submodule at `sh4zam/` tracks upstream
-[`master`](https://github.com/gyrovorbis/sh4zam/tree/master).
+The `sh4zam/` directory is a Git-ignored clone of upstream
+[SH4ZAM](https://sh4zam.com/) that tracks
+[`master`](https://github.com/gyrovorbis/sh4zam/tree/master). It is neither
+vendored nor pinned: this repository records no SH4ZAM revision.
 It contains the unmodified upstream repository. This project uses only its C
 API headers; the C++23 wrappers and library implementation are not built.
 License: [MIT](sh4zam/LICENSE); a copy is embedded at `/rd/SH4ZAM-LICENSE.txt`.
 
-Every build initializes the submodule if necessary and fetches the latest
-upstream commit before reading header dependencies. CI also updates it before
-building. A failed fetch stops compilation. `make clean` does not fetch.
+Every build runs `tools/update-sh4zam.sh`, which clones the directory if
+necessary and fast-forwards it to the latest upstream commit before reading
+header dependencies. CI does the same before building. A failed clone or fetch
+stops compilation. `make clean` does not fetch.
 
 The C++17 Dreamcast host uses the header-only `shz_truncf` through
 `audio_math.h` to wrap oscillator phases with SH-4 FTRC/FLOAT instructions.

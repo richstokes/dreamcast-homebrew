@@ -50,19 +50,16 @@ inspection tools. The known-working development baseline is:
 
 For native macOS emulator setup, see [the Flycast build instructions](tools/flycast/README.md).
 
-Clone with submodules to fetch the SH4ZAM dependency used by Drift Los
-Angeles and PICO-8 Player:
-
 ```sh
-git clone --recurse-submodules https://github.com/richstokes/dreamcast-homebrew.git
+git clone https://github.com/richstokes/dreamcast-homebrew.git
 cd dreamcast-homebrew
 ```
 
-Drift Los Angeles and PICO-8 Player fetch the latest upstream SH4ZAM `master`
-before each build. CI does the same. To refresh both submodules manually, run
-`git submodule update --init --remote --checkout` from the repository root.
-Git records a submodule commit, but builds advance it to the current upstream
-branch instead of using that recorded version.
+Drift Los Angeles and PICO-8 Player depend on [SH4ZAM](https://sh4zam.com/),
+which is neither vendored nor pinned. Each build clones or fast-forwards an
+ignored `third_party/sh4zam` checkout to the latest upstream `master` before
+compiling, and CI does the same. To refresh both checkouts manually, run
+`tools/update-sh4zam.sh` with their paths from the repository root.
 
 Source the KOS environment, then build a project:
 
