@@ -9,32 +9,32 @@
 <dl class="stats-overview">
   <div><dt>Registered users</dt><dd>{{ '{:,}'.format(stats.users) }}</dd></div>
   <div><dt>Total saves</dt><dd>{{ '{:,}'.format(stats.saves) }}</dd></div>
-  <div><dt>VMU archives</dt><dd>{{ '{:,}'.format(stats.archives) }}</dd></div>
+  <div><dt>Whole-card archives</dt><dd>{{ '{:,}'.format(stats.archives) }}</dd></div>
   <div><dt>Stored data</dt><dd>{{ (stats.save_bytes + stats.archive_bytes)|filesizeformat(binary=True) }}</dd></div>
 </dl>
 
 <div class="stats-details">
   <section aria-labelledby="save-breakdown">
-    <h2 id="save-breakdown">Save breakdown</h2>
+    <h2 id="save-breakdown">Save and archive counts</h2>
     <dl class="stats-breakdown">
       <div><dt>Public saves</dt><dd>{{ '{:,}'.format(stats.public_saves) }}</dd></div>
       <div><dt>Private saves</dt><dd>{{ '{:,}'.format(stats.private_saves) }}</dd></div>
       <div><dt>Game saves</dt><dd>{{ '{:,}'.format(stats.game_saves) }}</dd></div>
       <div><dt>Custom VMU icons</dt><dd>{{ '{:,}'.format(stats.custom_icons) }}</dd></div>
+      <div><dt>Whole-card archives</dt><dd>{{ '{:,}'.format(stats.archives) }}</dd></div>
     </dl>
-    <p class="hint">Total saves includes game saves and custom VMU icons, both public and private. Whole-card archives are counted separately.</p>
+    <p class="hint">Total saves includes public and private game saves and custom VMU icons. Whole-card archives are complete VMU backups and don't count towards Total saves.</p>
   </section>
   <section aria-labelledby="recent-additions">
-    <h2 id="recent-additions">Last 7 days</h2>
+    <h2 id="recent-additions">Added in the last 7 days</h2>
     <dl class="stats-breakdown">
       <div><dt>New users</dt><dd>{{ '{:,}'.format(stats.new_users) }}</dd></div>
       <div><dt>New saves</dt><dd>{{ '{:,}'.format(stats.new_saves) }}</dd></div>
-      <div><dt>New VMU archives</dt><dd>{{ '{:,}'.format(stats.new_archives) }}</dd></div>
+      <div><dt>New whole-card archives</dt><dd>{{ '{:,}'.format(stats.new_archives) }}</dd></div>
     </dl>
-    <p class="hint">New records that are still stored, excluding replacements and edits.</p>
   </section>
 </div>
-<p class="hint">Totals reflect currently stored records. Stored data is the combined file size of saves and VMU archives, excluding database overhead.</p>
+<p class="hint">Deleted items are not included. Stored data is the total size of save files and whole-card archives.</p>
 
 <section aria-labelledby="users">
   <h2 id="users">Users</h2>

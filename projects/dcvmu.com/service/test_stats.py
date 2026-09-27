@@ -61,10 +61,10 @@ class StatsTest(unittest.TestCase):
     def test_empty_database_is_readable_without_login(self):
         response = self.client.get('/stats')
         self.assertEqual(self.metrics(response), {
-            'Registered users': '0', 'Total saves': '0', 'VMU archives': '0',
+            'Registered users': '0', 'Total saves': '0', 'Whole-card archives': '0',
             'Stored data': '0 Bytes', 'Public saves': '0', 'Private saves': '0',
             'Game saves': '0', 'Custom VMU icons': '0', 'New users': '0',
-            'New saves': '0', 'New VMU archives': '0',
+            'New saves': '0', 'New whole-card archives': '0',
         })
 
     def test_totals_recent_boundary_and_private_data(self):
@@ -72,10 +72,10 @@ class StatsTest(unittest.TestCase):
         with patch('app.time.time', return_value=self.NOW):
             response = self.client.get('/stats')
         self.assertEqual(self.metrics(response), {
-            'Registered users': '3', 'Total saves': '4', 'VMU archives': '2',
+            'Registered users': '3', 'Total saves': '4', 'Whole-card archives': '2',
             'Stored data': '259.5 KiB', 'Public saves': '2', 'Private saves': '2',
             'Game saves': '2', 'Custom VMU icons': '2', 'New users': '2',
-            'New saves': '2', 'New VMU archives': '1',
+            'New saves': '2', 'New whole-card archives': '1',
         })
         for private_value in ('@example.com',
                               'Private fixture', 'SECRET', 'Secret game', 'Secret notes',
@@ -94,7 +94,7 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(changed['Public saves'], '1')
         self.assertEqual(changed['Private saves'], '2')
         self.assertEqual(changed['New saves'], '1')
-        self.assertEqual(changed['VMU archives'], '0')
+        self.assertEqual(changed['Whole-card archives'], '0')
         self.assertEqual(changed['Stored data'], '3.5 KiB')
 
     def test_unlisted_and_excluded_from_indexing(self):
