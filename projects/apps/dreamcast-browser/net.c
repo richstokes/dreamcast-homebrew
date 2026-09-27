@@ -4,6 +4,7 @@
 #include <dc/asic.h>
 #include <kos/irq.h>
 #include <kos/net.h>
+#include <kos/sem.h>
 #include <kos/thread.h>
 #include <arch/timer.h>
 #include <stdio.h>
@@ -20,10 +21,7 @@ typedef struct {
     int out_of_memory;
 } receive_buffer_t;
 
-static network_progress_callback_t progress_callback;
-static void *progress_userdata;
 static int gate_bba_irq;
-static CURLSH *cookie_share;
 static volatile int bba_poll_running;
 static volatile int bba_transfer_active;
 static kthread_t *bba_poll_thread;
@@ -55,35 +53,44 @@ static void *bba_poll_worker(void *unused) {
     return NULL;
 }
 
-/* Only one transfer runs at a time. Curl and TLS live on this worker;
-   the calling UI thread retains ownership of rendering and Maple input. */
-typedef struct {
-    const char *url, *body;
+/* Only one transfer runs at a time, on one long-lived worker that owns the
+   HTTP client. Keeping a single client keeps its connections, TLS sessions,
+   DNS answers and cookies, so following a link on the same site does not pay
+   for another handshake. The UI thread starts a transfer, polls it once per
+   frame, and keeps ownership of rendering and Maple input throughout. */
+enum { JOB_IDLE, JOB_RUNNING, JOB_DONE };
+#define MAX_POST_REDIRECTS 5
+
+static struct {
+    char url[MAX_URL];
+    char *body;
+    fetch_kind_t kind;
     size_t limit;
     unsigned timeout_ms;
-    fetch_result_t *result;
-    atomic_uint received, total;
-    atomic_int cancel, done;
+    fetch_process_t process;
+    void *userdata;
+    fetch_result_t result;
     int code;
-} transfer_job_t;
+    atomic_uint received, total;
+    atomic_int cancel, state;
+} job;
+
+static CURL *client;
+static kthread_t *transfer_thread;
+static semaphore_t transfer_wake;
+static volatile int transfer_quit;
 
 static int transfer_progress(void *userdata, curl_off_t download_total,
                              curl_off_t downloaded, curl_off_t upload_total,
                              curl_off_t uploaded) {
-    transfer_job_t *job = userdata;
-    int cancel;
+    (void)userdata;
     (void)upload_total;
     (void)uploaded;
-    atomic_store_explicit(&job->received, downloaded > 0 ? (uint32_t)downloaded : 0, memory_order_relaxed);
-    atomic_store_explicit(&job->total, download_total > 0 ? (uint32_t)download_total : 0, memory_order_relaxed);
-    cancel = atomic_load_explicit(&job->cancel, memory_order_relaxed);
-    return cancel;
-}
-
-void network_set_progress_callback(network_progress_callback_t callback,
-                                   void *userdata) {
-    progress_callback = callback;
-    progress_userdata = userdata;
+    atomic_store_explicit(&job.received, downloaded > 0 ? (uint32_t)downloaded : 0,
+                          memory_order_relaxed);
+    atomic_store_explicit(&job.total, download_total > 0 ? (uint32_t)download_total : 0,
+                          memory_order_relaxed);
+    return atomic_load_explicit(&job.cancel, memory_order_relaxed);
 }
 
 static size_t receive_data(char *ptr, size_t size, size_t count, void *userdata) {
@@ -120,167 +127,123 @@ static size_t receive_data(char *ptr, size_t size, size_t count, void *userdata)
     return buffer->full ? 0 : size * count;
 }
 
-int network_init(void) {
-    CURLcode code = curl_global_init(CURL_GLOBAL_DEFAULT);
-    if(code != CURLE_OK) {
-        printf("browser: curl_global_init failed: %s\n", curl_easy_strerror(code));
-        return -1;
-    }
-    cookie_share = curl_share_init();
-    if(!cookie_share) return -1;
-    curl_share_setopt(cookie_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
-    gate_bba_irq = net_default_dev && !strcmp(net_default_dev->name, "bba");
-    if(gate_bba_irq) {
-        disable_bba_irq();
-        bba_poll_running = 1;
-        bba_poll_thread = thd_create(0, bba_poll_worker, NULL);
-        if(!bba_poll_thread) {
-            bba_poll_running = 0;
-            printf("browser: could not start BBA receive worker\n");
-            return -1;
-        }
-        printf("browser: BBA receive worker uses polling (Flycast IRQ safety)\n");
-    }
-    return 0;
+/* A dialled connection is some fifty times slower than Ethernet. */
+int network_slow_link(void) {
+    return net_default_dev && !strcmp(net_default_dev->name, "ppp");
 }
 
-void network_shutdown(void) {
-    if(bba_poll_thread) {
-        bba_poll_running = 0;
-        thd_join(bba_poll_thread, NULL);
-        bba_poll_thread = NULL;
-    }
-    disable_bba_irq();
-    if(cookie_share) { curl_share_cleanup(cookie_share); cookie_share=NULL; }
-    curl_global_cleanup();
+static int is_https(const char *url) {
+    return !strncmp(url, "https://", 8);
 }
 
-void fetch_result_free(fetch_result_t *result) {
-    if(!result) return;
-    free(result->data);
-    memset(result, 0, sizeof(*result));
+/* Form data may only travel over HTTPS. The loading self-test also posts
+   to the /post addresses of its plain-HTTP fixture server on the local
+   network; no release build defines BROWSER_FIXTURE_BASE. */
+static int post_allowed(const char *url) {
+#ifdef BROWSER_FIXTURE_BASE
+    if(!strncmp(url, BROWSER_FIXTURE_BASE "/post", sizeof(BROWSER_FIXTURE_BASE "/post") - 1))
+        return 1;
+#endif
+    return is_https(url);
 }
 
-static int network_request_worker(const char *url, const char *body, size_t limit,
-                                  fetch_result_t *out, transfer_job_t *job,
-                                  uint64_t deadline) {
-    CURL *curl;
+static void fail(fetch_result_t *out, const char *message) {
+    snprintf(out->error, sizeof(out->error), "%s", message);
+    printf("browser: request failed: %s\n", out->error);
+}
+
+/* One request on the shared client. Returns 0 with the response in out, or
+   -1 with out->error set. */
+static int perform(const char *url, const char *body, fetch_result_t *out,
+                   uint64_t deadline, char *redirect, size_t redirect_size) {
     CURLcode code;
     receive_buffer_t buffer = {0};
+    struct curl_slist *headers = NULL;
     char error[CURL_ERROR_SIZE] = {0};
     char *content_type = NULL;
     char *effective_url = NULL;
-    curl_off_t declared_size = -1;
-    long probe_status = 0;
+    char *next = NULL;
+    int image = job.kind == FETCH_IMAGE;
+    int slow = network_slow_link();
     uint64_t now = timer_ms_gettime64();
     long transfer_timeout = (long)(deadline > now ? deadline - now : 1);
-    long connect_timeout = limit <= MAX_IMAGE_BYTES ? 4000L : 15000L;
+    long connect_timeout = (image ? 6000L : 15000L) * (slow ? 3 : 1);
 
     memset(out, 0, sizeof(*out));
-    buffer.limit = limit;
-    curl = curl_easy_init();
-    if(!curl) {
+    redirect[0] = 0;
+    buffer.limit = job.limit;
+    if(!client) client = curl_easy_init();
+    if(!client) {
         out->out_of_memory = 1;
-        snprintf(out->error, sizeof(out->error), "Could not create HTTP client");
+        fail(out, "Could not create HTTP client");
         return -1;
     }
+    /* Resetting keeps the connections, TLS sessions, DNS cache and cookies. */
+    curl_easy_reset(client);
+    headers = curl_slist_append(headers, image ?
+        "Accept: image/png,image/jpeg,image/gif,image/bmp;q=0.9" :
+        "Accept: text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.1");
 
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_SHARE, cookie_share);
-    curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
-    if(body) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, receive_data);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, transfer_progress);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, job);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, body ? 0L : 1L);
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
-    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, !strncmp(url,"https://",8) ? "https" : "http,https");
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "DreamcastBrowser/0.1 (KallistiOS)");
-    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "gzip,deflate");
-    /* Keep bursts modest for the Dreamcast BBA and reject known-oversized
-       responses from their headers before downloading their bodies. */
-    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 8192L);
-    curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE,
+    curl_easy_setopt(client, CURLOPT_URL, url);
+    curl_easy_setopt(client, CURLOPT_COOKIEFILE, "");
+    if(headers) curl_easy_setopt(client, CURLOPT_HTTPHEADER, headers);
+    if(body) curl_easy_setopt(client, CURLOPT_POSTFIELDS, body);
+    curl_easy_setopt(client, CURLOPT_WRITEFUNCTION, receive_data);
+    curl_easy_setopt(client, CURLOPT_WRITEDATA, &buffer);
+    curl_easy_setopt(client, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(client, CURLOPT_XFERINFOFUNCTION, transfer_progress);
+    curl_easy_setopt(client, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(client, CURLOPT_ERRORBUFFER, error);
+    /* A form's redirect is followed by hand, so its data is never resent
+       to an address the page did not name. */
+    curl_easy_setopt(client, CURLOPT_FOLLOWLOCATION, body ? 0L : 1L);
+    curl_easy_setopt(client, CURLOPT_MAXREDIRS, 5L);
+    curl_easy_setopt(client, CURLOPT_PROTOCOLS_STR, "http,https");
+    curl_easy_setopt(client, CURLOPT_REDIR_PROTOCOLS_STR,
+                     is_https(url) ? "https" : "http,https");
+    curl_easy_setopt(client, CURLOPT_USERAGENT, "DreamcastBrowser/0.2 (KallistiOS)");
+    curl_easy_setopt(client, CURLOPT_ACCEPT_ENCODING, "gzip,deflate");
+    /* Idle connections hold TLS buffers: keep only a few, and not for long. */
+    curl_easy_setopt(client, CURLOPT_MAXCONNECTS, 3L);
+    curl_easy_setopt(client, CURLOPT_MAXAGE_CONN, 60L);
+    /* Keep bursts modest for the Dreamcast BBA. */
+    curl_easy_setopt(client, CURLOPT_BUFFERSIZE, 8192L);
+    curl_easy_setopt(client, CURLOPT_MAX_RECV_SPEED_LARGE,
                      (curl_off_t)(192 * 1024));
-    /* Documents can be safely shortened by receive_data(). Images must be
-       rejected before any oversized body reaches the constrained decoder. */
-    if(limit <= MAX_IMAGE_BYTES)
-        curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)limit);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, connect_timeout);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, transfer_timeout);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 64L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 15L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, "/rd/cacert.pem");
-    curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+    /* Documents can be safely shortened by receive_data(). An image that
+       declares its size is refused from its headers; one that does not is
+       cut off by receive_data() at the same limit and then discarded. */
+    if(image)
+        curl_easy_setopt(client, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)job.limit);
+    curl_easy_setopt(client, CURLOPT_CONNECTTIMEOUT_MS, connect_timeout);
+    curl_easy_setopt(client, CURLOPT_TIMEOUT_MS, transfer_timeout);
+    curl_easy_setopt(client, CURLOPT_LOW_SPEED_LIMIT, 64L);
+    curl_easy_setopt(client, CURLOPT_LOW_SPEED_TIME, slow ? 30L : 15L);
+    curl_easy_setopt(client, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(client, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(client, CURLOPT_CAINFO, "/rd/cacert.pem");
+    curl_easy_setopt(client, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
 
-    /* A BBA can receive part of a response body before libcurl applies its
-       maximum-file-size check. For small assets, perform a header-only probe
-       and refuse unknown or oversized bodies before a risky download starts. */
-    if(limit <= MAX_IMAGE_BYTES) {
-        printf("browser: HEAD %s (limit %lu bytes)\n",
-               url, (unsigned long)limit);
-        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-        bba_transfer_active = 1;
-        code = curl_easy_perform(curl);
-        bba_transfer_active = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &probe_status);
-        curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,
-                          &declared_size);
-        if(code != CURLE_OK || probe_status < 200 || probe_status >= 400 ||
-           declared_size < 0 || declared_size > (curl_off_t)limit) {
-            out->out_of_memory = code == CURLE_OUT_OF_MEMORY;
-            if(code == CURLE_ABORTED_BY_CALLBACK) {
-                out->cancelled = 1;
-                snprintf(out->error, sizeof(out->error), "Canceled");
-            } else if(code == CURLE_FILESIZE_EXCEEDED ||
-               declared_size > (curl_off_t)limit)
-                snprintf(out->error, sizeof(out->error),
-                         "Response exceeds the %lu KiB safety limit",
-                         (unsigned long)(limit / 1024));
-            else if(code != CURLE_OK)
-                snprintf(out->error, sizeof(out->error), "%s",
-                         error[0] ? error : curl_easy_strerror(code));
-            else if(declared_size < 0)
-                snprintf(out->error, sizeof(out->error),
-                         "Image size was not declared; skipped safely");
-            else
-                snprintf(out->error, sizeof(out->error),
-                         "Image probe returned HTTP %ld", probe_status);
-            printf("browser: request skipped after headers: %s\n", out->error);
-            curl_easy_cleanup(curl);
-            return -1;
-        }
-        curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
-        curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
-        error[0] = 0;
-        /* HEAD and GET share one deadline, rather than each spending the
-           entire image allowance. */
-        now = timer_ms_gettime64();
-        transfer_timeout = (long)(deadline > now ? deadline - now : 1);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, transfer_timeout);
-    }
-
-    printf("browser: %s request (limit %lu bytes)\n", body?"POST":"GET", (unsigned long)limit);
+    printf("browser: %s request (limit %lu bytes)\n", body ? "POST" : "GET",
+           (unsigned long)job.limit);
     bba_transfer_active = 1;
-    code = curl_easy_perform(curl);
+    code = curl_easy_perform(client);
     bba_transfer_active = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &out->status);
-    curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &content_type);
-    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url);
+    curl_easy_getinfo(client, CURLINFO_RESPONSE_CODE, &out->status);
+    curl_easy_getinfo(client, CURLINFO_CONTENT_TYPE, &content_type);
+    curl_easy_getinfo(client, CURLINFO_EFFECTIVE_URL, &effective_url);
+    curl_easy_getinfo(client, CURLINFO_REDIRECT_URL, &next);
 
     if(content_type)
         snprintf(out->content_type, sizeof(out->content_type), "%s", content_type);
-    if(effective_url)
-        snprintf(out->effective_url, sizeof(out->effective_url), "%s", effective_url);
-    else
-        snprintf(out->effective_url, sizeof(out->effective_url), "%s", url);
+    snprintf(out->effective_url, sizeof(out->effective_url), "%s",
+             effective_url ? effective_url : url);
+    if(next && strlen(next) < redirect_size) snprintf(redirect, redirect_size, "%s", next);
+    /* The header list and the strings above belong to this request. */
+    curl_easy_setopt(client, CURLOPT_HTTPHEADER, NULL);
+    curl_easy_setopt(client, CURLOPT_POSTFIELDS, NULL);
+    curl_easy_setopt(client, CURLOPT_ERRORBUFFER, NULL);
+    curl_slist_free_all(headers);
 
     if(code != CURLE_OK && !buffer.full) {
         out->size = buffer.size; /* Charge failed image downloads to the budget. */
@@ -291,13 +254,12 @@ static int network_request_worker(const char *url, const char *body, size_t limi
         } else if(code == CURLE_FILESIZE_EXCEEDED)
             snprintf(out->error, sizeof(out->error),
                      "Response exceeds the %lu KiB safety limit",
-                     (unsigned long)(limit / 1024));
+                     (unsigned long)(job.limit / 1024));
         else
             snprintf(out->error, sizeof(out->error), "%s",
                      error[0] ? error : curl_easy_strerror(code));
         printf("browser: request failed: %s\n", out->error);
         free(buffer.data);
-        curl_easy_cleanup(curl);
         return -1;
     }
 
@@ -307,103 +269,239 @@ static int network_request_worker(const char *url, const char *body, size_t limi
     printf("browser: HTTP %ld, %lu bytes%s, type=%s\n", out->status,
            (unsigned long)out->size, out->truncated ? " (truncated)" : "",
            out->content_type[0] ? out->content_type : "unknown");
-    if(body && out->status == 303) {
-        char *next=NULL;
-        char target[MAX_URL];
-        curl_easy_getinfo(curl,CURLINFO_REDIRECT_URL,&next);
-        if(next && strlen(next)<sizeof(target) && network_same_origin(url,next)) {
-            snprintf(target,sizeof(target),"%s",next);
-            fetch_result_free(out);
-            curl_easy_cleanup(curl);
-            return network_request_worker(target,NULL,limit,out,job,deadline);
-        }
-    }
-    curl_easy_cleanup(curl);
     return 0;
 }
 
-static void *transfer_worker(void *userdata) {
-    transfer_job_t *job = userdata;
-    int code = network_request_worker(job->url, job->body, job->limit,
-                                     job->result, job,
-                                     timer_ms_gettime64() + job->timeout_ms);
-    job->code = code;
-    atomic_store_explicit(&job->done, 1, memory_order_release);
+/* Runs the job, following a form's redirects the way browsers do: 301, 302
+   and 303 are fetched with GET and no form data; 307 and 308 repeat the
+   submission, which is allowed only on the site the form was sent to. */
+static int run_job(void) {
+    fetch_result_t *out = &job.result;
+    uint64_t deadline = timer_ms_gettime64() + job.timeout_ms;
+    char url[MAX_URL], redirect[MAX_URL];
+    const char *body = job.body;
+    int hops = 0;
+
+    snprintf(url, sizeof(url), "%s", job.url);
+    for(;;) {
+        int repeat;
+        if(perform(url, body, out, deadline, redirect, sizeof(redirect)) < 0) return -1;
+        if(!body || out->status < 300 || out->status >= 400 || out->status == 304 ||
+           !redirect[0])
+            break;
+        repeat = out->status == 307 || out->status == 308;
+        fetch_result_free(out);
+        if(++hops > MAX_POST_REDIRECTS) {
+            fail(out, "The form was redirected too many times");
+            return -1;
+        }
+        if(!post_allowed(redirect) && (repeat || is_https(url))) {
+            fail(out, "The form was redirected to an insecure address");
+            return -1;
+        }
+        if(repeat && !network_same_origin(url, redirect)) {
+            fail(out, "The form was redirected to resend its data to another site");
+            return -1;
+        }
+        printf("browser: form redirect %d followed with %s\n", hops,
+               repeat ? "POST" : "GET");
+        if(!repeat) body = NULL;
+        snprintf(url, sizeof(url), "%s", redirect);
+    }
+    if(job.process && !atomic_load_explicit(&job.cancel, memory_order_relaxed))
+        job.process(out, job.userdata);
+    return 0;
+}
+
+static void *transfer_worker(void *unused) {
+    (void)unused;
+    for(;;) {
+        sem_wait(&transfer_wake);
+        if(transfer_quit) break;
+        if(atomic_load_explicit(&job.state, memory_order_acquire) != JOB_RUNNING)
+            continue;
+        job.code = run_job();
+        atomic_store_explicit(&job.state, JOB_DONE, memory_order_release);
+    }
+    if(client) {
+        curl_easy_cleanup(client);
+        client = NULL;
+    }
     return NULL;
 }
 
-static int network_request(const char *url, const char *body, size_t limit,
-                           unsigned timeout_ms, fetch_result_t *out) {
-    transfer_job_t job = { .url = url, .body = body, .limit = limit,
-                           .timeout_ms = timeout_ms, .result = out };
+static void release_body(void) {
+    if(!job.body) return;
+    /* Form data may hold a password: leave no copy behind. */
+    memset(job.body, 0, strlen(job.body));
+    free(job.body);
+    job.body = NULL;
+}
+
+int network_init(void) {
     kthread_attr_t attr = { .stack_size = 64 * 1024, .label = "browser HTTP" };
-    /* The UI can submit another form while this one is in flight. Curl
-       borrows POSTFIELDS, so never lend it the form editor's scratch buffer. */
-    char *body_copy = body ? strdup(body) : NULL;
-    if(body && !body_copy) {
-        memset(out, 0, sizeof(*out));
-        out->out_of_memory = 1;
-        snprintf(out->error, sizeof(out->error), "Not enough memory for form data");
+    CURLcode code = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if(code != CURLE_OK) {
+        printf("browser: curl_global_init failed: %s\n", curl_easy_strerror(code));
         return -1;
     }
-    job.body = body_copy;
-    kthread_t *worker = thd_create_ex(&attr, transfer_worker, &job);
-    if(!worker) {
-        if(body_copy) { memset(body_copy, 0, strlen(body_copy)); free(body_copy); }
-        memset(out, 0, sizeof(*out));
-        out->out_of_memory = 1;
-        snprintf(out->error, sizeof(out->error), "Not enough memory for HTTP worker");
+    sem_init(&transfer_wake, 0);
+    transfer_quit = 0;
+    atomic_store(&job.state, JOB_IDLE);
+    transfer_thread = thd_create_ex(&attr, transfer_worker, NULL);
+    if(!transfer_thread) {
+        printf("browser: could not start the HTTP worker\n");
+        sem_destroy(&transfer_wake);
+        curl_global_cleanup();
         return -1;
     }
-#ifdef BROWSER_PROFILE
-    uint64_t report_at = timer_ms_gettime64() + 10000;
-#endif
-    for(;;) {
-#ifdef BROWSER_PROFILE
-        if(timer_ms_gettime64() >= report_at) {
-            printf("PROF HTTP worker state %d wait %s pc %lx received %u cancel %d\n",
-                   worker->state, worker->wait_msg ? worker->wait_msg : "none",
-                   (unsigned long)worker->context.pc, atomic_load(&job.received), atomic_load(&job.cancel));
-            report_at = timer_ms_gettime64() + 10000;
+    gate_bba_irq = net_default_dev && !strcmp(net_default_dev->name, "bba");
+    if(gate_bba_irq) {
+        disable_bba_irq();
+        bba_poll_running = 1;
+        bba_poll_thread = thd_create(0, bba_poll_worker, NULL);
+        if(!bba_poll_thread) {
+            bba_poll_running = 0;
+            printf("browser: could not start BBA receive worker\n");
+            network_shutdown();
+            return -1;
         }
-#endif
-        uint32_t received = atomic_load_explicit(&job.received, memory_order_relaxed);
-        uint32_t total = atomic_load_explicit(&job.total, memory_order_relaxed);
-        int done = atomic_load_explicit(&job.done, memory_order_acquire);
-        if(done) break;
-        if(progress_callback && progress_callback(received, total, progress_userdata)) {
-            atomic_store_explicit(&job.cancel, 1, memory_order_relaxed);
-        }
-        thd_sleep(1); /* The UI callback normally waits for the next frame. */
+        printf("browser: BBA receive worker uses polling (Flycast IRQ safety)\n");
     }
-    thd_join(worker, NULL);
-    if(body_copy) { memset(body_copy, 0, strlen(body_copy)); free(body_copy); }
-    /* A replacement navigation can arrive on the same frame as completion. */
+    return 0;
+}
+
+void network_shutdown(void) {
+    if(transfer_thread) {
+        atomic_store_explicit(&job.cancel, 1, memory_order_relaxed);
+        transfer_quit = 1;
+        sem_signal(&transfer_wake);
+        thd_join(transfer_thread, NULL);
+        transfer_thread = NULL;
+        sem_destroy(&transfer_wake);
+        release_body();
+        fetch_result_free(&job.result);
+        atomic_store(&job.state, JOB_IDLE);
+        curl_global_cleanup();
+    }
+    if(bba_poll_thread) {
+        bba_poll_running = 0;
+        thd_join(bba_poll_thread, NULL);
+        bba_poll_thread = NULL;
+    }
+    disable_bba_irq();
+}
+
+void fetch_result_free(fetch_result_t *result) {
+    if(!result) return;
+    free(result->data);
+    memset(result, 0, sizeof(*result));
+}
+
+int network_active(void) {
+    return atomic_load_explicit(&job.state, memory_order_acquire) != JOB_IDLE;
+}
+
+int network_start(const fetch_request_t *request, char *error, size_t error_size) {
+    if(!transfer_thread) {
+        snprintf(error, error_size, "The network is not connected");
+        return -1;
+    }
+    if(network_active()) {
+        snprintf(error, error_size, "Another transfer is still running");
+        return -1;
+    }
+    if(strlen(request->url) >= sizeof(job.url)) {
+        snprintf(error, error_size, "That address is too long");
+        return -1;
+    }
+    if(request->body && !post_allowed(request->url)) {
+        snprintf(error, error_size, "Forms require HTTPS");
+        return -1;
+    }
+    /* The caller's copy may be edited or cleared while this one is sent. */
+    job.body = request->body ? strdup(request->body) : NULL;
+    if(request->body && !job.body) {
+        snprintf(error, error_size, "Not enough memory for form data");
+        return -1;
+    }
+    snprintf(job.url, sizeof(job.url), "%s", request->url);
+    job.kind = request->kind;
+    job.limit = request->limit;
+    job.timeout_ms = request->timeout_ms ? request->timeout_ms : 1;
+    job.process = request->process;
+    job.userdata = request->userdata;
+    job.code = -1;
+    memset(&job.result, 0, sizeof(job.result));
+    atomic_store_explicit(&job.received, 0, memory_order_relaxed);
+    atomic_store_explicit(&job.total, 0, memory_order_relaxed);
+    atomic_store_explicit(&job.cancel, 0, memory_order_relaxed);
+    atomic_store_explicit(&job.state, JOB_RUNNING, memory_order_release);
+    sem_signal(&transfer_wake);
+    return 0;
+}
+
+void network_cancel(void) {
+    if(network_active())
+        atomic_store_explicit(&job.cancel, 1, memory_order_relaxed);
+}
+
+void network_progress(uint32_t *received, uint32_t *total) {
+    *received = atomic_load_explicit(&job.received, memory_order_relaxed);
+    *total = atomic_load_explicit(&job.total, memory_order_relaxed);
+}
+
+/* Returns 0 while the transfer runs. Once it has finished, hands its result
+   to the caller, stores the transfer's own return code and returns 1. A
+   transfer that finished in the same moment it was canceled is reported as
+   canceled: whatever asked for it no longer wants the answer. */
+int network_poll(fetch_result_t *out, int *code) {
+    if(atomic_load_explicit(&job.state, memory_order_acquire) != JOB_DONE) return 0;
+    release_body();
+    *out = job.result;
+    *code = job.code;
+    memset(&job.result, 0, sizeof(job.result));
     if(atomic_load_explicit(&job.cancel, memory_order_relaxed) && !out->cancelled) {
         fetch_result_free(out);
         out->cancelled = 1;
         snprintf(out->error, sizeof(out->error), "Canceled");
-        return -1;
+        *code = -1;
     }
-    return job.code;
+    atomic_store_explicit(&job.state, JOB_IDLE, memory_order_release);
+    return 1;
 }
 
-int network_fetch(const char *url, size_t limit, fetch_result_t *out) {
-    return network_request(url, NULL, limit,
-                           limit <= MAX_IMAGE_BYTES ? 8000 : 45000, out);
+/* For a transfer that has outlived its own timeout: says where the worker
+   is waiting, and lists every thread, on the serial console. */
+void network_report_stall(void) {
+    if(!transfer_thread) return;
+    printf("browser: HTTP worker state %d, waiting on \"%s\", pc %lx, received %u, "
+           "cancel %d\n", transfer_thread->state,
+           transfer_thread->wait_msg ? transfer_thread->wait_msg : "nothing",
+           (unsigned long)transfer_thread->context.pc,
+           (unsigned)atomic_load(&job.received), atomic_load(&job.cancel));
+    thd_pslist(printf);
+    thd_pslist_queue(printf);
 }
-int network_fetch_image(const char *url, size_t limit, unsigned timeout_ms,
-                        fetch_result_t *out) {
-    return network_request(url, NULL, limit, timeout_ms ? timeout_ms : 1, out);
+
+unsigned network_page_timeout(void) {
+    return network_slow_link() ? 240000 : 45000;
 }
-int network_post(const char *url, const char *body, size_t limit, fetch_result_t *out) {
-    if(strncmp(url,"https://",8)) {
-        memset(out,0,sizeof(*out));
-        snprintf(out->error,sizeof(out->error),"Forms require HTTPS");
-        return -1;
-    }
-    return network_request(url,body,limit,45000,out);
+
+/* Waits for a transfer without drawing or reading input. Self-tests use
+   this; the browser itself polls from its frame loop. */
+int network_fetch_wait(const char *url, const char *body, fetch_kind_t kind,
+                       size_t limit, fetch_result_t *out) {
+    fetch_request_t request = { .url = url, .body = body, .kind = kind,
+                                .limit = limit,
+                                .timeout_ms = network_page_timeout() };
+    int code = -1;
+    memset(out, 0, sizeof(*out));
+    if(network_start(&request, out->error, sizeof(out->error)) < 0) return -1;
+    while(!network_poll(out, &code)) thd_sleep(10);
+    return code;
 }
+
 int network_same_origin(const char *a, const char *b) {
     CURLU *ua=curl_url(), *ub=curl_url();
     int same=1;

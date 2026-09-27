@@ -86,7 +86,8 @@ jobs:
 
           for patch in \
             projects/apps/dreamcast-browser/patches/kos-keyboard-attach.patch \
-            projects/apps/dreamcast-browser/patches/kos-tcp-poll-lock.patch; do
+            projects/apps/dreamcast-browser/patches/kos-tcp-poll-lock.patch \
+            projects/apps/dreamcast-browser/patches/kos-tcp-orphan-reset.patch; do
             git -C .ci/kos apply --check "$GITHUB_WORKSPACE/$patch"
             git -C .ci/kos apply "$GITHUB_WORKSPACE/$patch"
           done

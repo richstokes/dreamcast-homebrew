@@ -13,6 +13,7 @@ static void run(const char *name, void (*suite)(void)) {
 int main(void) {
     run("html", html_tests);
     run("osk, address bar, bookmarks", ui_tests);
+    run("page cache", cache_tests);
     printf("%d checks, %d failed\n", test_checks, test_failures);
     return test_failures ? 1 : 0;
 }

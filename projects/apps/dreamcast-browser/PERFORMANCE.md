@@ -158,3 +158,88 @@ SDK's 30-second TIME_WAIT period. An idle observation returned heap allocation
 from about 2,098 KiB to 299 KiB; this transient retention is separate from the
 worker/source lifetimes. These results use Flycast's outbound picoTCP proxy,
 not LAN bridging, and have not been measured on physical Dreamcast hardware.
+
+## Loading, memory and real sites — 2026-09-27
+
+Measured in the same Flycast build with its local picoTCP backend (`DCNet=no`,
+guest `192.168.169.2`: outbound proxy networking, not LAN bridging). Times are
+Dreamcast guest milliseconds. Nothing here has been measured on a physical
+Dreamcast.
+
+### Memory
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Static data (BSS) | 3,198 KiB | 1,222 KiB |
+| Document structure | 2,376 KiB | 356 KiB |
+| Wikipedia "Dreamcast" laid out | 2,376 KiB | 356 KiB + 262 KiB of text |
+| Layout items / links / section targets | 8,192 / 2,304 / 1,024 | 12,288 / 4,096 / 2,048 |
+
+Item text, link addresses and section names moved from fixed-size fields into
+an arena of 32 KiB chunks that belongs to the document. The memory this
+released pays for the larger limits, the kept pages and the larger image
+allowances.
+
+### Network
+
+| Measurement | Result |
+| --- | ---: |
+| `https://example.com/`, new connection | 1,922 ms |
+| The same page again, connection reused | 62 ms |
+| Wikipedia "Dreamcast" (1,172 KiB), download and layout | 4,226 ms |
+| Back to that page from the kept copy, no request | 1,572 ms |
+| Its twelve images, one connection | 3,867 ms |
+
+One HTTP client now lives as long as the browser, on one worker thread, so
+its connections, TLS sessions and DNS answers are reused. The fixture server
+counts connections: four consecutive pages arrive on one. Image downloads no
+longer begin with a `HEAD` request.
+
+Laying out the Wikipedia page took 27 ms on the host before and takes 7.7 ms
+now; the guest times above include that gain. A tag's attributes are read
+once instead of once per question asked of them, section names are found by
+hash, and a full table of section targets no longer searches itself for every
+further ID. The cached and uncached attribute lookups produce identical
+layouts for five real pages and 4,000 random documents.
+
+### SDK closed-socket correction
+
+Removing the `HEAD` request exposed why it had been there. When `close()` was
+called on a connection whose server was still sending, the SDK sent a FIN and
+kept accepting data that nothing would read. The window filled, the server
+could never deliver its own FIN, and the socket stayed in FIN-WAIT with both
+of its 64 KiB buffers. Eight rounds of loading a page with two oversized
+images left 2 MiB allocated after a 35-second idle, and a fifth round stopped
+transferring altogether.
+
+`scripts/fix-kos-tcp-orphans.sh` applies `patches/kos-tcp-orphan-reset.patch`:
+data arriving for a socket that `close()` has released resets the connection,
+closing with unread data sends a reset instead of a FIN, and a released socket
+is given thirty seconds to finish closing. With it, the heap in use after each
+of two such rounds is 590 KiB, against 542 KiB when the first page had loaded.
+The loading self-test now makes this comparison every time it runs.
+
+### Real sites
+
+`-DBROWSER_SITE_SELF_TEST` reports each of these; the numbers are from one
+run and the sites change.
+
+- Wikipedia "Dreamcast": 6,350 items and 2,136 links in reader view; 7,398
+  items and 2,626 links in full view, which the old link limit cut short.
+  "Sega" (1,576 KiB) has 7,948 items and 2,522 links in reader view.
+- BBC News: all twelve images shown in 6,536 ms, where none were before. Its
+  `photo.jpg.webp` addresses are now requested as `photo.jpg`.
+- Hacker News, DuckDuckGo Lite and a form answered with a 302 all work.
+- After the survey, with five kept pages holding 1,607 KiB, 6,835 KiB was
+  still available.
+
+### Validation
+
+Host tests pass 59,231 parser, input and page-cache checks and 233 image
+checks, all under ASan/UBSan as well. In Flycast the loading self-test passes
+94 checks and the history, form, keyboard, mouse, controller, bookmark, VMU
+and render self-tests pass. The render benchmark is unchanged: 8,048 µs for
+a full compose, 684 µs for the address caret and 5,298 µs for a 14-pixel
+scroll. With `BROWSER_NETWORK=modem`, Flycast's emulated modem dialed at
+33,600 bps, PPP supplied an address and DNS server, and the home page loaded
+over HTTPS.

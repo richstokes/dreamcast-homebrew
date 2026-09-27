@@ -4,8 +4,8 @@
 HOST_CC ?= cc
 PYTHON ?= python3
 CFLAGS = -std=gnu17 -O1 -g -Wall -Wextra -Werror -DBROWSER_QUIET -I..
-SOURCES = run_tests.c stubs.c html_test.c ui_test.c ../html.c ../osk.c \
-          ../address.c ../bookmarks.c
+SOURCES = run_tests.c stubs.c html_test.c ui_test.c cache_test.c ../html.c \
+          ../osk.c ../address.c ../bookmarks.c ../cache.c
 TARGET = host-tests
 IMAGE_TARGET = image-tests
 

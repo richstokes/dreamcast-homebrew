@@ -29,5 +29,6 @@ extern int test_checks;
 
 void html_tests(void);
 void ui_tests(void);
+void cache_tests(void);
 
 #endif

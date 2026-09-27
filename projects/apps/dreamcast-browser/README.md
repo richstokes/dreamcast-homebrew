@@ -1,12 +1,12 @@
 # Dreamcast Browser
 
 A small, deliberately limited web browser for Sega Dreamcast, built with
-KallistiOS. It supports secure HTTP/HTTPS, a Dreamcast keyboard, mouse, or
-controller alone (with an on-screen keyboard), search from the address bar,
-bookmarks saved to a VMU, basic forms, flowing and word-wrapped HTML text,
-links, headings, emphasis, code, lists, preformatted text, and PNG/JPEG/GIF-style
-raster images through `stb_image`. JavaScript is neither downloaded as
-executable code nor run.
+KallistiOS. It supports secure HTTP/HTTPS over a Broadband Adapter or a modem
+(DreamPi), a Dreamcast keyboard, mouse, or controller alone (with an on-screen
+keyboard), search from the address bar, bookmarks saved to a VMU, basic forms,
+flowing and word-wrapped HTML text, links, headings, emphasis, code, lists,
+data tables, preformatted text, and PNG/JPEG/GIF-style raster images through
+`stb_image`. JavaScript is neither downloaded as executable code nor run.
 
 ## Download
 
@@ -43,13 +43,18 @@ is also available.
 - mouse: point, click Back/Forward, links, or the address bar; use the wheel to
   scroll and right-click to cancel an active load. Without a keyboard attached,
   clicking a text box opens the on-screen keyboard
-- controller: `A` open or edit, `B` or left trigger back, right trigger
-  forward, `X` address bar, `Y` next link, D-pad scroll, Start for bookmarks and
-  the menu (which also has Exit); `B` cancels an active load. Hold `Y` and
-  press the left trigger for reader/full-page view or the right trigger for images
-- on-screen keyboard: D-pad picks a key, `A` types it, `B` deletes, `X` types a
-  space, `Y` is Shift (for one character), the triggers move the cursor, and
-  Start finishes. A controller button during keyboard editing brings it up
+- controller: the analog stick moves the pointer, slowly for a small push and
+  quickly for a full one, and scrolls the page when held against its top or
+  bottom edge. `A` presses whatever the pointer is on (a link, a form control,
+  Back, Forward, the address bar or Go), `B` or left trigger back, right
+  trigger forward, `X` address bar, `Y` next link (`A` then opens that link),
+  D-pad scroll, Start for bookmarks and the menu (which also has Exit); `B`
+  cancels an active load. Hold `Y` and press the left trigger for
+  reader/full-page view or the right trigger for images
+- on-screen keyboard: the D-pad or the pointer picks a key, `A` types it, `B`
+  deletes, `X` types a space, `Y` is Shift (for one character), the triggers
+  move the cursor, and Start finishes. A controller button during keyboard
+  editing brings it up
 
 The address bar defaults to HTTPS when no scheme is entered. Text that is not an
 address, such as words with spaces or a name without a domain, is searched with
@@ -105,9 +110,32 @@ several page loads, leaving even cancellation waiting forever:
 This script moves poll notifications outside both TCP locks, rebuilds only
 the TCP object and SDK archives, and preserves the other local SDK changes.
 It is safe to rerun and stops without changes if the source does not match.
-Relink the browser after applying either SDK repair.
-Release CI applies both repairs after the shared DCVMU networking patches,
-before building its pinned SDK.
+
+Apply the closed-socket repair after it:
+
+```sh
+./scripts/fix-kos-tcp-orphans.sh
+```
+
+Without it, a connection closed while the server is still sending (a
+canceled load, or an image over the size limit) is never reset. Its socket
+and both 64 KiB buffers are then kept for good, and after several of them
+transfers stop altogether. The repair resets such a connection, as RFC 9293
+asks, and gives every closed socket thirty seconds to finish closing.
+
+These repairs have been offered to KallistiOS, and each local patch and
+script can be removed once its fix is in the SDK being used:
+
+| Local patch | Upstream |
+| --- | --- |
+| `kos-keyboard-attach.patch` | [KallistiOS#1537](https://github.com/KallistiOS/KallistiOS/pull/1537) (the same fix, from another contributor) |
+| `kos-tcp-poll-lock.patch` | [KallistiOS#1550](https://github.com/KallistiOS/KallistiOS/pull/1550) |
+| `kos-tcp-orphan-reset.patch` | [KallistiOS#1551](https://github.com/KallistiOS/KallistiOS/pull/1551) |
+
+Relink the browser after applying any SDK repair. The modem also needs
+[DCVMU's PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch)
+and links `libppp` from the SDK's add-ons. Release CI applies all of these
+after the shared DCVMU networking patches, before building its pinned SDK.
 
 Refresh the CA bundle occasionally (this needs host internet access):
 
@@ -124,7 +152,8 @@ make
 
 The HTML parser, text decoding, on-screen keyboard, address bar, and bookmark
 record run as host unit tests with the Mac or Linux C compiler, no KallistiOS
-needed. They include a randomized parser robustness pass, and CI runs them:
+needed. The image loader and the page cache are tested the same way. They
+include a randomized parser robustness pass, and CI runs them:
 
 ```sh
 make -C tests
@@ -132,10 +161,14 @@ make -C tests
 
 Self-test builds are available with `make CPPFLAGS=-DBROWSER_HISTORY_SELF_TEST`
 and `-DBROWSER_FORM_SELF_TEST`; results are printed to the serial console. The
-history self-test also covers keyboard, on-screen keyboard, form control,
-bookmark, and VMU behavior (restoring any existing bookmark file), checks that
-incremental frames match full redraws pixel for pixel, and prints a render
-benchmark. Adding `-DBROWSER_PROFILE` prints aggregate main-loop timings (frame wait,
+history self-test also covers keyboard, controller, on-screen keyboard, form
+control, bookmark, and VMU behavior (restoring any existing bookmark file),
+checks that incremental frames match full redraws pixel for pixel, and prints
+a render benchmark. `-DBROWSER_SITE_SELF_TEST` visits Wikipedia, Hacker News,
+BBC News and DuckDuckGo and reports how long each step took; those sites
+change, so it is a survey, not a regression test. Adding
+`-DBROWSER_EXIT_AFTER_TESTS` exits once the tests have run, which exercises
+the shutdown path. Adding `-DBROWSER_PROFILE` prints aggregate main-loop timings (frame wait,
 Maple poll, interrupt-to-wake delay, input, draw, present) every two seconds,
 without logging typed characters or URLs. Adding `-DBROWSER_FRAME_DUMP` prints a frame over serial;
 `scripts/frames-to-png.py <log> <directory>` turns it into a PNG. Run
@@ -152,11 +185,52 @@ The launcher attaches an emulated Dreamcast keyboard, mouse, and controller
 without changing Flycast's saved configuration. Click inside the Flycast window
 once if macOS has not given it input focus.
 
+`BROWSER_NETWORK=modem ./run-flycast.sh` removes the emulated Broadband
+Adapter, so the browser dials through Flycast's emulated modem instead. For
+scripted runs, `BROWSER_EXIT_ON_LOG` and `BROWSER_FAIL_ON_LOG` name serial
+console text that ends the run as a pass or a failure, and
+`BROWSER_TEST_SECONDS` (default 300) bounds it.
+
+## Dial-up and DreamPi
+
+A Broadband Adapter or LAN adapter is always preferred. Without one, opening
+a page dials the modem first, using the phone number and PPP login from the
+console's saved **PlanetWeb** profile, then **DreamPassport**, then the DreamPi
+defaults (`555`, `dream` / `cast`). Flash memory is only read. Only tone
+dialing of a plain number is supported.
+
+Dialing and signing in can take a minute; the status line shows each step and
+`Esc` or `B` cancels once the step in progress returns. A failure is
+explained on the page, and `F5` tries again. If the call drops, the next page
+redials. Transfers are given several times longer before they time out.
+This path is tested with Flycast's emulated modem; a real modem and DreamPi
+have not been tested.
+
+## Source layout
+
+| File | What it holds |
+| --- | --- |
+| `dreamcast-browser.c` | The browser's state, the frame loop, start and finish |
+| `loader.c` | The loading state machine, history, kept pages and internal pages |
+| `input.c` | Keyboard, mouse, controller, on-screen keyboard, editing, focus |
+| `forms.c` | Following links and submitting forms |
+| `net.c`, `modem.c` | The HTTP worker and the dial-up connection |
+| `html.c`, `images.c`, `cache.c` | Parsing and layout, image loading, kept pages |
+| `render.c` | Drawing |
+| `osk.c`, `address.c`, `bookmarks.c`, `storage.c` | On-screen keyboard layout, address bar, bookmarks, VMU |
+| `selftest.c`, `tests/*.inc` | Self-tests; empty in a release build |
+
+`app.h` declares what the first four share; `browser.h` declares the rest.
+
 ## Frame loop and rendering
 
 The main loop sleeps until the vertical blank interrupt, waits for that
 frame's Maple poll to finish so key presses are read the frame they happen,
-handles input, and composes the frame in main RAM. Only the rows that changed
+handles input, advances whatever is loading, and composes the frame in main
+RAM. Loading is a state machine with four phases (idle, dialing, page,
+images): a transfer is started, the loop carries on, and the phase ends when
+the network worker reports back. Nothing in the loop waits for the network,
+and input is only ever handled from the loop itself. Only the rows that changed
 since the previous frame are redrawn and copied to the back buffer (a line
 scroll shifts the page in RAM and draws just the exposed band), then the
 buffers are flipped. Nothing is drawn into a buffer until the vertical blank
@@ -203,25 +277,49 @@ decoded, and typographic punctuation such as curly quotes, dashes, and
 ellipses becomes its ASCII equivalent. Other characters show as `?`.
 
 The Dreamcast has 16 MB of main RAM, so remote content stays bounded: 2 MiB per
-HTML response, 8,192 layout items, 2,304 links and 1,024 section targets. Pages
+HTML response, 12,288 layout items, 4,096 links and 2,048 section targets. Pages
 show notices when a limit omits content or controls. Referenced sections and
-headings take precedence over incidental HTML IDs. Back and Forward each remember
-up to eight pages.
+headings take precedence over incidental HTML IDs. A page's text and link
+addresses are stored at their own length, so a page uses the memory it needs
+and not the most a page could: the Wikipedia article on the Dreamcast takes
+about 620 KiB laid out, where every page used to take 2.4 MiB.
 
-Images are optional (`F4`), with at most six slots, 24 KiB per download and
-64 KiB per page. Each request gets at most eight seconds, within a twelve-second
-page budget. The decoder rejects sources above 1,024 pixels in either dimension
-or 524,288 total pixels before allocating the bitmap. Failed, oversized and
-unsupported images keep placeholders while later images are still attempted;
-cancellation, memory exhaustion or the shared budget stops the batch. Reloading
-allows another attempt. Insecure images on HTTPS pages use HTTPS instead.
+Back and Forward each remember up to eight pages. The HTML of the last eight
+pages shown is kept, within 3 MiB, so going back to one of them lays it out
+again without asking the network; older pages are downloaded again. Kept
+pages are the first thing released when memory runs short. Following a link
+and `F5` always download a fresh copy.
+
+Requests to one site share a connection and its TLS session, so only the
+first pays for a handshake.
+
+Images are optional (`F4`), with at most twelve slots, 192 KiB per download and
+768 KiB per page. Each request gets at most fifteen seconds, within a
+forty-five-second page budget. An image larger than the limit is refused from
+its headers when the server declares its size, and cut off at the limit when it
+does not. The decoder rejects sources above 1,024 pixels in either dimension
+or 524,288 total pixels before allocating the bitmap, and a page may keep
+1,310,720 decoded pixels in all. Failed, oversized and unsupported images keep
+placeholders while later images are still attempted; cancellation, memory
+exhaustion or the shared budget stops the batch. Reloading allows another
+attempt. Insecure images on HTTPS pages use HTTPS instead.
+
+The address comes from `src`, or from `data-src`, `data-lazy-src` or
+`data-original` when `src` is missing or a placeholder. `srcset` supplies the
+narrowest candidate at least as wide as the page. Inside `<picture>`, a JPEG,
+PNG or GIF `<source>` replaces an image in a format that cannot be decoded,
+and a converted copy named after its original (`photo.jpg.webp`) is requested
+as the original. WebP, AVIF and SVG themselves are not decoded.
 
 Any active load can be canceled with `Esc`, controller `B`, or right-click,
-keeping the current page. HTTP/TLS runs on one worker thread while the main
-thread continues handling keyboard, mouse, controller and rendering. You can
-scroll the previous page, edit an address or replace a pending navigation.
-Completion preserves a new address draft; canceled navigation does not alter
-history. Parsing and bounded image decoding still run on the main thread.
+keeping the current page. HTTP/TLS and image decoding run on one worker thread
+while the main thread continues handling keyboard, mouse, controller and
+rendering. You can scroll the previous page, edit an address or replace a
+pending navigation. Completion preserves a new address draft; canceled
+navigation does not alter history. Each image appears as it arrives, and the
+text being read keeps its place. Laying out a page still runs on the main
+thread once its download has finished; in Flycast a 1.2 MiB page takes about
+a second and a half.
 
 ## Reading pages
 
@@ -234,6 +332,10 @@ content is missing. HTML `hidden` and inline `display:none` are honored in both
 views, while hidden form values remain available for submission. Local section
 links scroll directly rather than fetching the page again.
 
+A table with headings, a caption or a border is laid out as data: each row is
+a line, with a bar between its cells. Tables that only position a page flow as
+ordinary text.
+
 ## Forms
 
 HTTPS forms support text-like inputs (text, email, password,
@@ -245,6 +347,10 @@ Enter, type, then press Enter to finish or Tab to move on; Escape restores the
 previous value. `Ctrl+Enter` submits from a field, using the first enabled submit
 button if one exists. GET search forms may navigate to another HTTPS site;
 POST must stay on the same origin, and password fields cannot use GET.
+A form answered with a redirect is followed as browsers follow it: 301, 302
+and 303 are fetched with GET and without the form data, which is how most
+sign-in pages respond; 307 and 308 send the data again, and only to the same
+site. A redirect to an insecure address is refused.
 Values are submitted as UTF-8. Passwords display as asterisks,
 and cookies are kept in RAM only. Registration, login, and logout on
 https://dcvmu.com work.
@@ -264,7 +370,11 @@ proxy connects outward to the host; this does not enable LAN bridging. The
 server exits after fifteen minutes by default (`--duration` changes it), and
 never logs query strings or form contents. `/slow` and `/image-page` exercise
 streaming, cancellation and editing; `/` covers reader view, section links,
-more than 96 links and a valid image after failed images.
+more than 96 links and a valid image after failed images. `/gallery` has
+images without a declared size, over the size limit, lazy and responsive
+sources and a data table; `/post-redirect/301` to `/308` answer a form with
+each kind of redirect; `/stats` counts the connections and requests that
+reached the server, which is how connection reuse and kept pages are checked.
 
 For automated guest checks, keep the fixture server running and build:
 
@@ -274,8 +384,26 @@ make CPPFLAGS='-DBROWSER_LOADING_SELF_TEST -DBROWSER_PERF_SELF_TEST -DBROWSER_FI
 ./run-flycast.sh --skip-build
 ```
 
-Look for `LOADING SELF-TEST PASSED` in the serial output. The test uses fixture
-data and does not write VMU bookmarks. Restore a release with `make clean && make`.
+Look for `LOADING SELF-TEST PASSED` in the serial output, or let the launcher
+watch for it:
+
+```sh
+BROWSER_EXIT_ON_LOG='LOADING SELF-TEST PASSED' \
+BROWSER_FAIL_ON_LOG='SELF-TEST FAILED' ./run-flycast.sh --skip-build
+```
+
+Adding `-DBROWSER_LOADING_STRESS=40` first repeats the heaviest traffic the
+fixture has that many times. Flycast's network thread is not synchronized
+with its CPU thread, and under that traffic roughly one run in four ends in
+an emulator crash, a guest "double fault" from an interrupt delivered while
+interrupts were masked, or a stall. A release build behaves the same, so
+rerun before suspecting the browser.
+
+The test uses fixture data and does not write VMU bookmarks. It ends by
+repeating a round of loads twice and comparing the memory in use after each,
+which takes about two minutes. A build with `BROWSER_FIXTURE_BASE` may post
+form data to that server's `/post` addresses over plain HTTP, so never
+distribute one. Restore a release with `make clean && make`.
 
 ## Credits
 

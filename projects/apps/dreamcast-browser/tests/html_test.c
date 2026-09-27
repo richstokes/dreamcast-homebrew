@@ -380,7 +380,7 @@ static void test_inline_wrapping(void) {
 }
 
 static void test_capacity_and_notices(void) {
-    static char html[250000];
+    static char html[400000];
     size_t n = 0;
     int i;
     for(i = 0; i < 200; ++i)
@@ -538,6 +538,152 @@ static void test_input_types(void) {
     CHECK_STR(field_text(&doc.fields[0]), "[ ****** ]");
 }
 
+static void test_tables(void) {
+    /* Headings mark a data table: cells on a row are separated by bars. */
+    parse("<table><tr><th>Name</th><th>Year</th><th>Units</th></tr>"
+          "<tr><td>Dreamcast</td><td>1998</td><td>9 million</td></tr></table>");
+    CHECK_STR(page_text(), "Name | Year | Units\nDreamcast | 1998 | 9 million");
+    {
+        int i, bars = 0;
+        for(i = 0; i < doc.item_count; ++i)
+            if(doc.items[i].style == TEXT_SEPARATOR) {
+                bars++;
+                CHECK(doc.items[i].link_id < 0);
+            }
+        CHECK(bars == 4);
+    }
+    /* Empty cells keep their bar so columns can still be counted, but a row
+       never ends in one. */
+    parse("<table border=1><tr><td>a</td><td></td><td>c</td><td></td></tr></table>");
+    CHECK_STR(page_text(), "a | | c");
+    parse("<table><caption>Sales</caption><tr><td>x</td><td>"
+          "<a href='/y'>y</a></td></tr></table>");
+    CHECK_STR(page_text(), "Sales\nx | y");
+    CHECK(doc.link_count == 1);
+
+    /* Tables that only position a page are left as flowing text. */
+    parse("<table><tr><td>Cell A</td><td>Cell B</td></tr></table>");
+    CHECK_STR(page_text(), "Cell A Cell B");
+    parse("<table border=0 role=presentation><tr><th>a</th><td>b</td></tr></table>");
+    CHECK_STR(page_text(), "a b");
+    /* A layout table is not made a data table by one nested inside it. */
+    parse("<table><tr><td>menu</td><td><table><tr><th>k</th><th>v</th></tr>"
+          "</table></td><td>side</td></tr></table>");
+    CHECK_STR(page_text(), "menu\nk | v\nside");
+    /* Separators wrap with the text and never cross the page edge. */
+    {
+        static char html[4096];
+        size_t n = (size_t)snprintf(html, sizeof(html), "<table><tr><th>h</th>");
+        int i;
+        for(i = 0; i < 40; ++i)
+            n += (size_t)snprintf(html + n, sizeof(html) - n, "<td>cell %d</td>", i);
+        snprintf(html + n, sizeof(html) - n, "</tr></table>");
+        parse(html);
+        CHECK(doc.item_count > 40);
+        for(i = 0; i < doc.item_count; ++i)
+            CHECK(doc.items[i].x + doc.items[i].width <= PAGE_MARGIN + PAGE_WIDTH);
+    }
+}
+
+static void test_image_sources(void) {
+    parse("<img src='/plain.png' alt=a>");
+    CHECK(doc.image_count == 1);
+    CHECK_STR(doc.images[0].url, "https://example.com/plain.png");
+    /* The narrowest candidate that still fills the page is chosen. */
+    parse("<img src='/huge.jpg' alt=a srcset='/s.jpg 320w, /m.jpg 640w, /l.jpg 1280w'>");
+    CHECK_STR(doc.images[0].url, "https://example.com/m.jpg");
+    parse("<img src='/huge.jpg' alt=a srcset='/s.jpg 160w,/t.jpg 320w'>");
+    CHECK_STR(doc.images[0].url, "https://example.com/t.jpg");
+    /* Density lists name the same picture as src. */
+    parse("<img src='/one.jpg' alt=a srcset='/one.jpg 1x, /two.jpg 2x'>");
+    CHECK_STR(doc.images[0].url, "https://example.com/one.jpg");
+    /* Commas inside an address do not end it. */
+    parse("<img alt=a srcset='/w_100,h_50/a.jpg 100w, /w_700,h_350/a.jpg 700w'>");
+    CHECK_STR(doc.images[0].url, "https://example.com/w_700,h_350/a.jpg");
+    /* A format this browser cannot decode never replaces one it can. */
+    parse("<img src='/photo.jpg' alt=a srcset='/photo.webp 640w'>");
+    CHECK_STR(doc.images[0].url, "https://example.com/photo.jpg");
+    /* Lazy loaders leave src empty or a placeholder. */
+    parse("<img src='data:image/gif;base64,R0lGOD' data-src='/lazy.jpg' alt=a>");
+    CHECK_STR(doc.images[0].url, "https://example.com/lazy.jpg");
+    parse("<img data-lazy-src='/lazy2.png' alt=a><img data-original='/lazy3.png' alt=b>");
+    CHECK(doc.image_count == 2);
+    CHECK_STR(doc.images[0].url, "https://example.com/lazy2.png");
+    CHECK_STR(doc.images[1].url, "https://example.com/lazy3.png");
+    parse("<img alt=a data-srcset='/d-small.jpg 300w, /d-large.jpg 900w'>");
+    CHECK_STR(doc.images[0].url, "https://example.com/d-large.jpg");
+    parse("<img src='data:image/gif;base64,R0lGOD' alt='only a placeholder'>");
+    CHECK(doc.image_count == 0);
+
+    /* A converted copy named after its original: ask for the original. */
+    parse("<img src='https://img.test/news/640/a/photo.jpg.webp' alt=a>");
+    CHECK_STR(doc.images[0].url, "https://img.test/news/640/a/photo.jpg");
+    parse("<img src='/p/chart.PNG.WebP?w=640#top' alt=a>");
+    CHECK_STR(doc.images[0].url, "https://example.com/p/chart.PNG?w=640#top");
+    parse("<img src='/p/photo.jpeg.avif' alt=a><img src='/p/only.webp' alt=b>"
+          "<img src='/p/jpg.webp' alt=c><img src='/p/.webp' alt=d>");
+    CHECK(doc.image_count == 4);
+    CHECK_STR(doc.images[0].url, "https://example.com/p/photo.jpeg");
+    CHECK_STR(doc.images[1].url, "https://example.com/p/only.webp");
+    CHECK_STR(doc.images[2].url, "https://example.com/p/jpg.webp");
+    CHECK_STR(doc.images[3].url, "https://example.com/p/.webp");
+    parse("<img alt=a srcset='/s/a.jpg.webp 320w, /s/b.jpg.webp 800w'>");
+    CHECK_STR(doc.images[0].url, "https://example.com/s/b.jpg");
+
+    /* <picture>: a decodable <source> stands in for an undecodable <img>. */
+    parse("<picture><source type='image/webp' srcset='/p.webp'>"
+          "<source type='image/jpeg' srcset='/p-400.jpg 400w, /p-800.jpg 800w'>"
+          "<img src='/p.webp' alt=a></picture>");
+    CHECK(doc.image_count == 1);
+    CHECK_STR(doc.images[0].url, "https://example.com/p-800.jpg");
+    parse("<picture><source srcset='/q.avif'><source srcset='/q.png 2x'>"
+          "<img src='/q.avif' alt=a></picture>");
+    CHECK_STR(doc.images[0].url, "https://example.com/q.png");
+    parse("<picture><source type='image/jpeg' srcset='/other.jpg'>"
+          "<img src='/kept.png' alt=a></picture>");
+    CHECK_STR(doc.images[0].url, "https://example.com/kept.png");
+    /* A <source> outside <picture> belongs to audio or video. */
+    parse("<video><source src='/v.mp4' srcset='/v.jpg'></video><img src='/x.webp' alt=a>");
+    CHECK_STR(doc.images[0].url, "https://example.com/x.webp");
+    parse("<picture><source srcset='/left.jpg'></picture><img src='/after.webp' alt=a>");
+    CHECK_STR(doc.images[0].url, "https://example.com/after.webp");
+}
+
+/* A page costs what it contains: the arena grows with the text, merged
+   runs extend in place, and freeing returns everything. */
+static void test_arena(void) {
+    static char html[120000];
+    size_t n = 0;
+    size_t small;
+    int i;
+    /* Pointers are twice the size here that they are on the Dreamcast. */
+    CHECK(sizeof(browser_document_t) < 512 * 1024);
+    parse("<p>short</p>");
+    small = doc.arena_bytes;
+    CHECK(small >= 6 && small < 64 && doc.chunks != NULL);
+    parse("<p><span>one</span><span>two</span><span>three</span></p>");
+    CHECK(doc.item_count == 1);
+    CHECK_STR(doc.items[0].text, "onetwothree");
+    CHECK(doc.arena_bytes == 12);
+    for(i = 0; i < 3000; ++i)
+        n += (size_t)snprintf(html + n, sizeof(html) - n,
+                              "<p><a href='/a/%d'>link %d</a></p>", i, i);
+    parse(html);
+    CHECK(doc.link_count == 3000 && doc.arena_bytes > 60000);
+    CHECK_STR(doc.links[2999], "https://example.com/a/2999");
+    CHECK_STR(doc.items[0].text, "link 0");
+    /* Every kind of item has text that may be measured. */
+    parse("<hr><img src=a.png alt=x><p id=t>text</p><form action=/f><input name=q>"
+          "<input type=checkbox name=c></form>");
+    for(i = 0; i < doc.item_count; ++i)
+        CHECK(doc.items[i].text != NULL && strlen(doc.items[i].text) < MAX_TEXT);
+    CHECK(document_anchor_y(&doc, "t") >= 0);
+    document_free(&doc);
+    CHECK(doc.chunks == NULL && doc.arena_bytes == 0 && doc.item_count == 0 &&
+          doc.link_count == 0);
+    document_free(&doc); /* Freeing twice is harmless. */
+}
+
 /* Stitches random HTML-ish fragments together and checks that parsing
    never breaks the layout invariants the renderer relies on. */
 static void test_random_documents(void) {
@@ -550,7 +696,10 @@ static void test_random_documents(void) {
         "<!--", "-->", "<script>", "</script>", "&", "&#", "&#x2014;", "&mdash",
         "\xe2\x80", "\x99", "\xc3", "word ", "longwordwithoutanyspacesatall",
         "<", ">", "\"", "'", "=", "<title>", "</title>", "<h1>", "</h1>",
-        "\r\n", "\n", "<base href=", "<b>", "<table><tr><td>", "\xf0\x9f\x98\x80"
+        "\r\n", "\n", "<base href=", "<b>", "<table><tr><td>", "\xf0\x9f\x98\x80",
+        "<table border=1>", "<th>", "<td>", "<tr>", "</table>", "<picture>",
+        "</picture>", "<source srcset='a.jpg 1w, b.jpg 900w,,'>",
+        "<img srcset=', ,x 5w,y' alt=z>", "<img data-src=l.png srcset='q 2x'>"
     };
     static char html[8192];
     unsigned seed = 12345;
@@ -608,6 +757,9 @@ void html_tests(void) {
     test_textarea();
     test_select();
     test_input_types();
+    test_tables();
+    test_image_sources();
+    test_arena();
     test_random_documents();
     document_free(&doc);
 }

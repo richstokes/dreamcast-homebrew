@@ -13,16 +13,18 @@
 #define MAX_URL 512
 #define MAX_TITLE 96
 #define MAX_TEXT 96
-#define MAX_ITEMS 8192
-#define MAX_LINKS 2304
-#define MAX_ANCHORS 1024
+#define MAX_ITEMS 12288
+#define MAX_LINKS 4096
+#define MAX_ANCHORS 2048
 #define MAX_ANCHOR_NAME 128
-#define MAX_IMAGES 6
+#define MAX_IMAGES 12
 #define MAX_HISTORY 8
 #define MAX_DOCUMENT_BYTES (2 * 1024 * 1024)
-#define MAX_IMAGE_BYTES (24 * 1024)
-#define MAX_PAGE_IMAGE_BYTES (64 * 1024)
+#define MAX_IMAGE_BYTES (192 * 1024)
+#define MAX_PAGE_IMAGE_BYTES (768 * 1024)
 #define MIN_IMAGE_FETCH_BYTES (4 * 1024)
+/* Decoded RGB565 pixels kept for one page, across all of its images. */
+#define MAX_PAGE_IMAGE_PIXELS (1280 * 1024)
 
 typedef enum {
     ITEM_TEXT,
@@ -38,7 +40,8 @@ typedef enum {
     TEXT_MUTED,
     TEXT_CODE,
     TEXT_STRONG,
-    TEXT_EMPHASIS
+    TEXT_EMPHASIS,
+    TEXT_SEPARATOR /* the bar between two cells of a data table */
 } text_style_t;
 
 typedef struct {
@@ -50,17 +53,23 @@ typedef struct {
     int loaded;
 } browser_image_t;
 
+/* Item text and link addresses live in the document's arena, so a page
+   costs what it contains rather than the largest page allowed. text is never
+   NULL and holds fewer than MAX_TEXT characters; only a form control's text
+   is rewritten after layout, within its own MAX_TEXT bytes. */
 typedef struct {
-    item_type_t type;
-    text_style_t style;
-    int x;
+    char *text;
     int y;
-    int width;
-    int height;
-    int link_id;
-    int image_id;
-    char text[MAX_TEXT];
+    int16_t x;
+    int16_t width;
+    int16_t height;
+    int16_t link_id;
+    uint8_t type;  /* item_type_t */
+    uint8_t style; /* text_style_t */
+    int8_t image_id;
 } document_item_t;
+
+typedef struct document_chunk document_chunk_t;
 
 #define MAX_FORMS 8
 #define MAX_FIELDS 64
@@ -79,7 +88,8 @@ typedef struct {
     char label[48];
 } browser_option_t;
 typedef struct {
-    char name[MAX_ANCHOR_NAME];
+    char *name;
+    uint32_t hash; /* of name, so that most comparisons need not read it */
     int item; /* First following layout item; remains valid after image reflow. */
     unsigned priority; /* Referenced targets/headings displace incidental IDs. */
 } browser_anchor_t;
@@ -88,7 +98,8 @@ enum {
     DOCUMENT_LIMIT_LINKS = 2,
     DOCUMENT_LIMIT_ANCHORS = 4,
     DOCUMENT_LIMIT_FORMS = 8,
-    DOCUMENT_LIMIT_IMAGES = 16
+    DOCUMENT_LIMIT_IMAGES = 16,
+    DOCUMENT_LIMIT_MEMORY = 32
 };
 typedef struct {
     browser_form_t forms[MAX_FORMS];
@@ -96,7 +107,9 @@ typedef struct {
     browser_option_t options[MAX_OPTIONS];
     int form_count, field_count, option_count;
     document_item_t items[MAX_ITEMS];
-    char links[MAX_LINKS][MAX_URL];
+    char *links[MAX_LINKS];
+    document_chunk_t *chunks; /* arena holding item text, links and anchors */
+    size_t arena_bytes;
     browser_image_t images[MAX_IMAGES];
     browser_anchor_t anchors[MAX_ANCHORS];
     int anchor_count;
@@ -130,17 +143,38 @@ typedef struct {
     char error[160];
 } fetch_result_t;
 
-typedef int (*network_progress_callback_t)(uint64_t received, uint64_t total,
-                                           void *userdata);
+typedef enum {
+    FETCH_PAGE,
+    FETCH_IMAGE
+} fetch_kind_t;
+
+/* Runs on the network worker after a successful transfer, so slow work such
+   as decoding an image never holds up the frame loop. */
+typedef void (*fetch_process_t)(fetch_result_t *result, void *userdata);
+
+typedef struct {
+    const char *url;
+    const char *body; /* form data to POST, or NULL to GET */
+    fetch_kind_t kind;
+    size_t limit;
+    unsigned timeout_ms;
+    fetch_process_t process;
+    void *userdata;
+} fetch_request_t;
 
 int network_init(void);
 void network_shutdown(void);
-void network_set_progress_callback(network_progress_callback_t callback,
-                                   void *userdata);
-int network_fetch(const char *url, size_t limit, fetch_result_t *out);
-int network_fetch_image(const char *url, size_t limit, unsigned timeout_ms,
-                        fetch_result_t *out);
-int network_post(const char *url, const char *body, size_t limit, fetch_result_t *out);
+/* One transfer at a time: start it, poll it once per frame, take its result. */
+int network_start(const fetch_request_t *request, char *error, size_t error_size);
+int network_active(void);
+void network_cancel(void);
+void network_progress(uint32_t *received, uint32_t *total);
+int network_poll(fetch_result_t *out, int *code);
+int network_fetch_wait(const char *url, const char *body, fetch_kind_t kind,
+                       size_t limit, fetch_result_t *out);
+void network_report_stall(void);
+int network_slow_link(void);
+unsigned network_page_timeout(void);
 int network_same_origin(const char *a, const char *b);
 void document_refresh_field(browser_document_t *doc, int field);
 int document_field_is_text(const browser_field_t *field);
@@ -163,8 +197,66 @@ void document_parse_html_mode(browser_document_t *doc, const char *html, size_t 
 int document_anchor_y(const browser_document_t *doc, const char *fragment);
 void document_mark_shortened(browser_document_t *doc, const char *message);
 void document_make_error(browser_document_t *doc, const char *title, const char *message);
-void document_load_images(browser_document_t *doc);
 void document_reflow(browser_document_t *doc);
+
+/* Optional page images (images.c). One image is downloaded at a time; the
+   network worker decodes it, and the frame loop adopts the pixels. */
+typedef enum {
+    IMAGE_NOT_DECODED,
+    IMAGE_DECODED,
+    IMAGE_UNSUPPORTED,
+    IMAGE_NO_MEMORY
+} image_status_t;
+typedef struct {
+    uint16_t *pixels;
+    int width;
+    int height;
+    image_status_t status;
+} image_decode_t;
+typedef struct {
+    int index;          /* the image being downloaded, or -1 */
+    size_t bytes_left;  /* download allowance for the page */
+    size_t pixels_left; /* decoded-pixel allowance for the page */
+    uint64_t deadline;
+    image_decode_t decoded;
+} image_loader_t;
+void image_loader_begin(image_loader_t *loader);
+/* Chooses the next image and describes its download. Returns 0 once every
+   image has been attempted; the document has then been laid out again. */
+int image_loader_next(image_loader_t *loader, browser_document_t *doc,
+                      fetch_request_t *request);
+/* Takes a finished download, releasing result. Returns 0 to carry on, or -1
+   when the rest of the page's images were given up. */
+int image_loader_finish(image_loader_t *loader, browser_document_t *doc,
+                        int code, fetch_result_t *result);
+
+/* Recently shown pages (cache.c). The cache owns what it is given; the
+   page returned by store or find is the one on screen, and stays valid until
+   another page is stored or found. */
+#define PAGE_CACHE_ENTRIES 8
+#define PAGE_CACHE_BYTES (3 * 1024 * 1024)
+const fetch_result_t *page_cache_store(const char *url, fetch_result_t *source);
+const fetch_result_t *page_cache_find(const char *url);
+/* The page on screen no longer comes from the cache. */
+void page_cache_leave(void);
+/* Releases the least recently shown page that is not on screen. Returns 0
+   when there is nothing left to release. */
+int page_cache_evict(void);
+void page_cache_clear(void);
+size_t page_cache_bytes(void);
+int page_cache_count(void);
+
+/* Dial-up (modem.c): a Dreamcast modem, normally answered by a DreamPi. The
+   connection is made on its own thread and polled from the frame loop. */
+int modem_connect_start(void);
+/* 0 while connecting, 1 once connected, -1 on failure; status names the
+   current step, or explains the failure. */
+int modem_connect_poll(const char **status);
+const char *modem_connect_status(void);
+void modem_connect_cancel(void);
+int modem_in_use(void);
+int modem_link_up(void);
+void modem_disconnect_link(void);
 
 /* On-screen keyboard (osk.c): four character rows and one action row. */
 #define OSK_ROWS 5
