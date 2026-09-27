@@ -1,7 +1,7 @@
 diff --git a/kernel/net/net_tcp.c b/kernel/net/net_tcp.c
 --- a/kernel/net/net_tcp.c
 +++ b/kernel/net/net_tcp.c
-@@ -2974,6 +2974,8 @@
+@@ -2957,6 +2957,8 @@ static int net_tcp_input(netif_t *src, int domain, const void *hdr,
      struct tcp_sock *s;
      int rv = -1;
      uint16_t c;
@@ -10,7 +10,7 @@ diff --git a/kernel/net/net_tcp.c b/kernel/net/net_tcp.c
  
      switch(domain) {
          case AF_INET:
-@@ -3052,19 +3054,22 @@
+@@ -3035,20 +3037,21 @@ static int net_tcp_input(netif_t *src, int domain, const void *hdr,
                  break;
          }
  
@@ -29,14 +29,13 @@ diff --git a/kernel/net/net_tcp.c b/kernel/net/net_tcp.c
      }
  
      rwsem_read_unlock(&tcp_sem);
-+
-+    /* poll() holds its global mutex while taking tcp_sem for a readiness
-+       check. A waiting writer blocks new readers, so retaining our read lock
-+       while taking the poll mutex can deadlock all three threads. Only the
-+       copied descriptor and event bits survive releasing the socket locks;
-+       never dereference s here, since cleanup may already have freed it. */
+ 
++    /* Fire poll wakeups after releasing both locks: poll() takes tcp_sem
++       while holding its own mutex. The socket may be gone by now, so only
++       the copied values are used. */
 +    if(poll_ev)
 +        __poll_event_trigger(poll_fd, poll_ev);
- 
++
      /* If we get in here, something went wrong... Send a RST. */
      if(rv && !(flags & TCP_FLAG_RST)) {
+         tcp_bpkt_rst(src, &srca, &dsta, tcp, size - TCP_GET_OFFSET(flags));
