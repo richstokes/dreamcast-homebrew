@@ -910,6 +910,10 @@ int main(int argc,char **argv) {
     int quit=0,online=0;
     (void)argc;(void)argv;
     vid_set_mode(DM_640x480,PM_RGB565);bfont_set_encoding(BFONT_CODE_ISO8859_1);
+    /* Existing automated integration builds must remain unattended. */
+#if !defined(DCVMU_SELF_TEST) && !defined(DCVMU_DOWNLOAD_TEST) && !defined(DCVMU_AUTH_TEST) && !defined(DCVMU_VMU_TEST)
+    client_title_screen(&previous_buttons);
+#endif
     client_status("Starting DCVMU...");draw();
     if(service_net_init()==0) {online=1;client_status("Ready. HTTPS certificate checks enabled.");}
     canceled=0;

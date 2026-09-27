@@ -16,6 +16,11 @@ is also available. Real hardware has not been verified yet.
 
 ## Using the client
 
+The title screen features a bobbing VMU companion with a blinking pixel face.
+Press **Start** (or **Enter** on a Dreamcast keyboard) to connect and load the
+app. A remembered VMU login is restored after the title screen. The short
+greeting waits for the button to be released before continuing.
+
 After login, the main menu offers **Upload a save**, **Download a save**,
 **Archive a VMU**, **Restore a VMU**, **Browse Public Saves**, and **Sign out**.
 
@@ -67,7 +72,8 @@ Do not remove the VMU or power off while a save is being written.
 - X / N on **My saves**: rename the selected cloud save. Public saves cannot be
   renamed.
 - X / L at the main menu: sign out.
-- Start: exit, keeping a remembered login.
+- Start: continue from the title screen; inside the app, exit and keep a
+  remembered login.
 - Text editing: type with a keyboard, or use the on-screen keyboard with the
   D-pad and A. X erases, Y finishes, B cancels.
 
@@ -132,8 +138,8 @@ make
 
 The launcher enables the emulated BBA, attaches controllers, VMUs, and a
 keyboard, and changes no saved Flycast settings. Click the Flycast window to
-focus it, then use arrows/Tab to navigate and Enter to edit a field before
-typing. If uploads time out intermittently, install the
+focus it, then press Enter at the title screen. Use arrows/Tab to navigate and
+Enter to edit a field before typing. If uploads time out intermittently, install the
 [native Flycast build](../../../tools/flycast/README.md#tcp-upload-fix).
 
 The launcher mounts **persistent test copies** of your Flycast VMU images, kept
@@ -179,6 +185,13 @@ Self-test builds (`CPPFLAGS=-DDCVMU_SELF_TEST` and similar) read disposable
 credentials from git-ignored `romdisk/test-*` files. Never distribute one, and
 never run the test fixtures against personal VMUs; remove those files and run
 `make clean && make` before a release.
+
+The existing integration self-tests skip the title screen. To check it manually,
+boot a normal build, leave it idle for five seconds to see the bob and blink,
+then hold Start (or Enter): the greeting should wait until release and open the
+usual login/menu without immediately exiting or editing a field. The title is
+drawn with untextured PowerVR polygons and releases its graphics resources before
+the existing framebuffer UI starts; it needs no external artwork or VMU writes.
 
 ## Credits
 
