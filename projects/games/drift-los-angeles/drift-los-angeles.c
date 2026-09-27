@@ -377,7 +377,8 @@ typedef struct {
     vec3_t world;
     uint8_t material;
     bool referenced;
-    uint8_t padding[18];
+    bool brake_lamp;
+    uint8_t padding[17];
 } car_render_vertex_t;
 _Static_assert(sizeof(car_render_vertex_t)==64,"car cache record must span two lines");
 _Static_assert(offsetof(car_render_vertex_t,world)==32,"car draw data must fit one line");
@@ -1456,7 +1457,7 @@ static float engine_rpm_level(void) {
 static void emit_exhaust_flame(float local_x) {
     exhaust_flame_t *flame=
         &exhaust_flame_pool[exhaust_flame_cursor++%MAX_EXHAUST_FLAMES];
-    const vec3_t position=car_local_to_world(local_x,.160f,-2.50f);
+    const vec3_t position=car_local_to_world(local_x,.235f,-2.61f);
     const float fwd_x=fsin(car.yaw),fwd_z=fcos(car.yaw);
     const float right_x=fcos(car.yaw),right_z=-fsin(car.yaw);
     const float car_vx=fwd_x*car.longitudinal+right_x*car.lateral;
@@ -1475,7 +1476,7 @@ static void emit_exhaust_flame(float local_x) {
 }
 
 static void update_exhaust_pops(float throttle, float rpm_level, float dt) {
-    static const float outlets[4]={-.255f,-.085f,.085f,.255f};
+    static const float outlets[4]={-.270f,-.090f,.090f,.270f};
     int i;
     game.exhaust_pop_timer-=dt;
     if(throttle>.70f&&rpm_level>.78f&&fabsf(car.longitudinal)>5.0f&&
@@ -4407,7 +4408,7 @@ static void draw_traffic_signal_opaque(int cell_x, int cell_z) {
    ------------------------------------------------------------------------ */
 #define PED_LOD0_DISTANCE 32.0f
 #define PED_LOD1_DISTANCE 92.0f
-#define MAX_RIG_PART_VERTICES 160
+#define MAX_RIG_PART_VERTICES 256
 
 /* Per-part appearance for one drawn rig: a tint, an atlas column shift and
    whether the part is drawn or lit at all. */
@@ -6437,6 +6438,11 @@ static void draw_car_mesh(void) {
             car_face_normals[i]=n;
             car_render[f->a].material=car_render[f->b].material=car_render[f->c].material=f->material;
         }
+        for(i=0;i<DLA_COUNT_OF(dla_car_brake_faces);++i) {
+            const dla_mesh_face_t *f=&dla_car_mesh.faces[dla_car_brake_faces[i]];
+            car_render[f->a].brake_lamp=car_render[f->b].brake_lamp=
+                car_render[f->c].brake_lamp=true;
+        }
         materials_ready=true;
     }
     /* Body matrix B (row-major on local vertices): yaw about y after a small
@@ -6502,8 +6508,13 @@ static void draw_car_mesh(void) {
             material=car_render[i].material;
             if(relight) {
                 color3_t light;
-                if(material==DLA_MAT_GLASS) light=(color3_t){.30f,.36f,.48f};
-                else if(material==DLA_MAT_LIGHTS) light=(color3_t){1.0f,.92f,.90f};
+                if(material==DLA_MAT_GLASS) light=(color3_t){.16f,.20f,.26f};
+                else if(material==DLA_MAT_LIGHTS) {
+                    /* Authored running lamps stay dim enough for the matching
+                       brake-ring overlay to visibly brighten. */
+                    light=car_render[i].brake_lamp?(color3_t){.40f,.40f,.40f}:
+                                                 (color3_t){1.0f,.92f,.90f};
+                }
                 else {
                     const float key=fmaxf(0.0f,v->nx*llx+v->ny*lly+v->nz*llz);
                     const float sky=clampf((b10*v->nx+b11*v->ny)*.5f+.5f,0.0f,1.0f);
@@ -6540,7 +6551,7 @@ static void draw_car_mesh(void) {
                 facing=clampf(v->nx*vx+v->ny*vy+v->nz*vz,0.0f,1.0f);
                 rim=1.0f-facing;
                 reflectivity=(.045f+rim*rim*rim*.23f)*v->ao;
-                if(material==DLA_MAT_GLASS) reflectivity=.35f+rim*rim*.43f;
+                if(material==DLA_MAT_GLASS) reflectivity=.16f+rim*rim*.26f;
                 car_render[i].reflect_color=pack_color(reflectivity,(color3_t){.84f,.90f,1.0f});
                 /* Reflected direction rotated back to world for the hemisphere lookup. */
                 rx=2.0f*facing*v->nx-vx; ry=2.0f*facing*v->ny-vy; rz=2.0f*facing*v->nz-vz;
@@ -6578,34 +6589,28 @@ static void draw_car_mesh(void) {
 }
 
 static void draw_player_brake_lights(void) {
-    static const float lamps[4][8]={
-        {-.955f,.808f,-.635f,.795f,-.865f,.610f,-.635f,.615f},
-        {-.585f,.793f,-.285f,.770f,-.530f,.615f,-.325f,.605f},
-        { .285f,.770f, .585f,.793f, .325f,.605f, .530f,.615f},
-        { .635f,.795f, .955f,.808f, .635f,.615f, .865f,.610f}
-    };
 #ifdef DRIFT_LA_CAR_CAPTURE_BRAKE
     const float brake=1.0f;
 #else
     const float brake=clampf(car.brake_light,0.0f,1.0f);
 #endif
-    const uint32_t tint=pack_color(1.0f,(color3_t){.50f+.50f*brake,
-        .25f+.67f*brake,.22f+.58f*brake});
+    const uint32_t tint=pack_color(1.0f,(color3_t){.40f+.60f*brake,
+        .018f+.15f*brake,.030f+.09f*brake});
     int i;
     if(brake<=.02f) return;
-    for(i=0;i<4;++i)
-        draw_world_quad(&texture_headers[DLA_TEX_CAR_LIGHTS],
-            car_local_to_world(lamps[i][0],lamps[i][1],-2.638f),
-            car_local_to_world(lamps[i][2],lamps[i][3],-2.638f),
-            car_local_to_world(lamps[i][4],lamps[i][5],-2.638f),
-            car_local_to_world(lamps[i][6],lamps[i][7],-2.638f),
-            .125f,.125f,.125f,.125f,.125f,.125f,.125f,.125f,tint);
-    draw_world_quad(&texture_headers[DLA_TEX_CAR_LIGHTS],
-        car_local_to_world(-.315f,.868f,-2.230f),
-        car_local_to_world( .315f,.868f,-2.230f),
-        car_local_to_world(-.292f,.849f,-2.230f),
-        car_local_to_world( .292f,.849f,-2.230f),
-        .125f,.125f,.125f,.125f,.125f,.125f,.125f,.125f,tint);
+    for(i=0;i<DLA_COUNT_OF(dla_car_brake_faces);++i) {
+        const int index=dla_car_brake_faces[i];
+        const dla_mesh_face_t *face=&dla_car_mesh.faces[index];
+        screen_point_t a,b,c;
+        if(!car_visible_faces[index]) continue;
+        a=car_render[face->a].projected;
+        b=car_render[face->b].projected;
+        c=car_render[face->c].projected;
+        /* Reuse the body's rolled/transformed lamp geometry. A small inverse
+           depth bias places the overlay on its lens without floating quads. */
+        a.z*=1.0001f; b.z*=1.0001f; c.z*=1.0001f;
+        submit_triangle(&world_header,&a,&b,&c,0,0,0,0,0,0,tint,tint,tint);
+    }
 }
 
 typedef struct {
@@ -6626,19 +6631,18 @@ static inline vec3_t rotate_part_point(const wheel_transform_t *transform,
 }
 
 /* The player's wheels are built once as small rigs (tread and sidewall,
-   rotor and caliper, rim with spokes, lugs and badge) and drawn with the same
+   rotor, rim with spokes, lugs and badge, and a fixed caliper) and drawn with the same
    FTRV path as traffic wheels. Spokes turn at a fraction of tread speed so
    the rim reads instead of strobing. */
-#define WHEEL_RIG_VERTICES 320
-#define WHEEL_RIG_FACES 360
+#define WHEEL_RIG_VERTICES 448
+#define WHEEL_RIG_FACES 560
 typedef struct {
     dla_rig_vertex_t vertices[WHEEL_RIG_VERTICES];
     dla_rig_face_t faces[WHEEL_RIG_FACES];
-    dla_rig_part_t parts[3];
+    dla_rig_part_t parts[4];
     dla_rig_mesh_t mesh;
-    uint32_t part_color[3];
 } wheel_rig_t;
-enum { WHEEL_PART_TREAD, WHEEL_PART_HUB, WHEEL_PART_RIM };
+enum { WHEEL_PART_TREAD, WHEEL_PART_HUB, WHEEL_PART_RIM, WHEEL_PART_CALIPER };
 static wheel_rig_t wheel_rigs[2][2];   /* [rear][left] */
 static bool wheel_rigs_ready;
 
@@ -6693,74 +6697,107 @@ static void wheel_ring(wheel_builder_t *b, float x, float sign, float r0, float 
     }
 }
 
+/* A spoke facet has its own normal, giving the forged face a highlight
+   across its bevel instead of the old uniformly coloured flat pentagram. */
+static void wheel_facet(wheel_builder_t *b, vec3_t a, vec3_t c, vec3_t d, vec3_t e,
+                        float sign) {
+    const vec3_t u={c.x-a.x,c.y-a.y,c.z-a.z};
+    const vec3_t v={d.x-a.x,d.y-a.y,d.z-a.z};
+    vec3_t n={u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x};
+    const float length=sqrtf(n.x*n.x+n.y*n.y+n.z*n.z);
+    const bool flip=n.x*sign<0.0f;
+    const int first=b->vertex_count;
+    if(length<.000001f) return;
+    n.x/=length; n.y/=length; n.z/=length;
+    if(flip) { n.x=-n.x; n.y=-n.y; n.z=-n.z; }
+    wheel_vertex(b,a.x,a.y,a.z,0,0,n.x,n.y,n.z);
+    wheel_vertex(b,c.x,c.y,c.z,0,1,n.x,n.y,n.z);
+    wheel_vertex(b,d.x,d.y,d.z,1,1,n.x,n.y,n.z);
+    wheel_vertex(b,e.x,e.y,e.z,1,0,n.x,n.y,n.z);
+    if(flip) { wheel_face(b,first,first+2,first+1); wheel_face(b,first,first+3,first+2); }
+    else { wheel_face(b,first,first+1,first+2); wheel_face(b,first,first+2,first+3); }
+}
+
 static void build_wheel_rig(wheel_rig_t *rig, float radius, float width, float sign) {
     enum { SEGMENTS = 20 };
     wheel_builder_t b={rig,0,0};
     const float half=width*.5f;
-    const float face=sign*(half+.006f);
-    int part,i;
+    const float face=sign*(half+.007f);
+    int part,i,j;
     memset(rig,0,sizeof(*rig));
-    /* Part 0: tread and inner/outer sidewalls, spins with the tyre. */
     rig->parts[0].first_vertex=0; rig->parts[0].first_face=0;
     {
+        /* Rounded shoulders and a real annular sidewall around the rim. */
+        const float xs[4]={-half,-half+.024f,half-.024f,half};
+        const float rs[4]={radius*.94f,radius,radius,radius*.94f};
+        const float ns[4]={-.8f,-.15f,.15f,.8f};
         const int first=b.vertex_count;
-        for(i=0;i<SEGMENTS;++i) {
+        for(j=0;j<4;++j) for(i=0;i<SEGMENTS;++i) {
             const float a=(float)i*PI*2.0f/(float)SEGMENTS;
-            const float u=(float)i/(float)SEGMENTS;
-            wheel_vertex(&b,-half,fsin(a)*radius,fcos(a)*radius,u,0.0f,0,fsin(a),fcos(a));
-            wheel_vertex(&b, half,fsin(a)*radius,fcos(a)*radius,u,1.0f,0,fsin(a),fcos(a));
+            const float radial=sqrtf(1.0f-ns[j]*ns[j]);
+            wheel_vertex(&b,xs[j],fsin(a)*rs[j],fcos(a)*rs[j],
+                         (float)i/(float)SEGMENTS,(float)j/3.0f,
+                         ns[j],fsin(a)*radial,fcos(a)*radial);
         }
-        for(i=0;i<SEGMENTS;++i) {
+        for(j=0;j<3;++j) for(i=0;i<SEGMENTS;++i) {
             const int n=(i+1)%SEGMENTS;
-            const int a0=first+i*2,b0=a0+1,a1=first+n*2,b1=a1+1;
+            const int a0=first+j*SEGMENTS+i,a1=first+j*SEGMENTS+n;
+            const int b0=a0+SEGMENTS,b1=a1+SEGMENTS;
             wheel_face(&b,a0,b0,b1); wheel_face(&b,a0,b1,a1);
         }
-        wheel_fan(&b,face,sign,0,0,radius,SEGMENTS,0.0f);
-        wheel_fan(&b,-face,-sign,0,0,radius,SEGMENTS,0.0f);
+        wheel_ring(&b,sign*half,sign,radius*.805f,radius*.94f,SEGMENTS);
+        wheel_fan(&b,-sign*half,-sign,0,0,radius*.94f,SEGMENTS,0);
     }
     rig->parts[0].vertex_count=(uint16_t)b.vertex_count;
     rig->parts[0].face_count=(uint16_t)b.face_count;
-    rig->part_color[0]=pack_color(1.0f,(color3_t){.14f,.15f,.18f});
-    /* Part 1: rotor, caliper and hub carrier, fixed to the upright. */
-    rig->parts[1].first_vertex=(uint16_t)b.vertex_count; rig->parts[1].first_face=(uint16_t)b.face_count;
-    wheel_fan(&b,sign*(half+.010f),sign,0,0,radius*.61f,SEGMENTS,0.0f);
-    {
-        const float x=sign*(half+.013f);
-        const int c0=wheel_vertex(&b,x,-.040f,-.21f,0,0,sign,0,0);
-        const int c1=wheel_vertex(&b,x, .040f,-.21f,1,0,sign,0,0);
-        const int c2=wheel_vertex(&b,x,-.040f,-.08f,0,1,sign,0,0);
-        const int c3=wheel_vertex(&b,x, .040f,-.08f,1,1,sign,0,0);
-        if(sign>0.0f) { wheel_face(&b,c0,c1,c3); wheel_face(&b,c0,c3,c2); }
-        else { wheel_face(&b,c0,c3,c1); wheel_face(&b,c0,c2,c3); }
-    }
+    rig->parts[1].first_vertex=(uint16_t)b.vertex_count;
+    rig->parts[1].first_face=(uint16_t)b.face_count;
+    wheel_fan(&b,sign*(half-.050f),sign,0,0,radius*.635f,SEGMENTS,0);
+    wheel_ring(&b,sign*(half-.028f),sign,radius*.73f,radius*.81f,SEGMENTS);
     rig->parts[1].vertex_count=(uint16_t)(b.vertex_count-rig->parts[1].first_vertex);
     rig->parts[1].face_count=(uint16_t)(b.face_count-rig->parts[1].first_face);
-    rig->part_color[1]=pack_color(1.0f,(color3_t){.30f,.32f,.37f});
-    /* Part 2: rim lip, five spokes, hub, lugs and badge; turns slowly. */
-    rig->parts[2].first_vertex=(uint16_t)b.vertex_count; rig->parts[2].first_face=(uint16_t)b.face_count;
-    wheel_ring(&b,sign*(half+.015f),sign,radius*.70f,radius*.82f,SEGMENTS);
+    rig->parts[2].first_vertex=(uint16_t)b.vertex_count;
+    rig->parts[2].first_face=(uint16_t)b.face_count;
+    wheel_ring(&b,face,sign,radius*.790f,radius*.825f,SEGMENTS);
     for(i=0;i<5;++i) {
         const float angle=(float)i*PI*2.0f/5.0f;
-        const float x=sign*(half+.017f);
-        const int i0=wheel_vertex(&b,x,fsin(angle-.18f)*radius*.16f,fcos(angle-.18f)*radius*.16f,0,0,sign,0,0);
-        const int o0=wheel_vertex(&b,x,fsin(angle-.065f)*radius*.72f,fcos(angle-.065f)*radius*.72f,0,1,sign,0,0);
-        const int i1=wheel_vertex(&b,x,fsin(angle+.18f)*radius*.16f,fcos(angle+.18f)*radius*.16f,1,0,sign,0,0);
-        const int o1=wheel_vertex(&b,x,fsin(angle+.065f)*radius*.72f,fcos(angle+.065f)*radius*.72f,1,1,sign,0,0);
-        if(sign>0.0f) { wheel_face(&b,i0,o0,o1); wheel_face(&b,i0,o1,i1); }
-        else { wheel_face(&b,i0,o1,o0); wheel_face(&b,i0,i1,o1); }
+        const float rs[3]={radius*.13f,radius*.43f,radius*.805f};
+        const float widths[3]={.38f,.155f,.100f};
+        const float depths[3]={-.014f,.021f,.005f};
+        vec3_t spoke[3][3];
+        for(j=0;j<3;++j) {
+            int k;
+            for(k=0;k<3;++k) {
+                const float a=angle+((float)k-1.0f)*widths[j];
+                spoke[j][k]=(vec3_t){face+sign*(depths[j]+(k==1?.012f:0)),
+                                     fsin(a)*rs[j],fcos(a)*rs[j]};
+            }
+        }
+        for(j=0;j<2;++j) {
+            wheel_facet(&b,spoke[j][0],spoke[j+1][0],spoke[j+1][1],spoke[j][1],sign);
+            wheel_facet(&b,spoke[j][1],spoke[j+1][1],spoke[j+1][2],spoke[j][2],sign);
+        }
     }
-    wheel_fan(&b,sign*(half+.019f),sign,0,0,radius*.15f,8,0.0f);
+    wheel_fan(&b,face+sign*.008f,sign,0,0,radius*.16f,10,0);
     for(i=0;i<5;++i) {
-        const float angle=(float)i*PI*2.0f/5.0f;
-        wheel_fan(&b,sign*(half+.024f),sign,fsin(angle)*radius*.105f,fcos(angle)*radius*.105f,
-                  radius*.05f,6,0.0f);
+        const float a=(float)i*PI*2.0f/5.0f;
+        wheel_fan(&b,face+sign*.012f,sign,fsin(a)*radius*.108f,fcos(a)*radius*.108f,
+                  radius*.025f,5,0);
     }
-    wheel_fan(&b,sign*(half+.026f),sign,0,0,radius*.07f,8,0.0f);
+    wheel_fan(&b,face+sign*.014f,sign,0,0,radius*.070f,8,0);
     rig->parts[2].vertex_count=(uint16_t)(b.vertex_count-rig->parts[2].first_vertex);
     rig->parts[2].face_count=(uint16_t)(b.face_count-rig->parts[2].first_face);
-    rig->part_color[2]=pack_color(1.0f,(color3_t){.50f,.53f,.60f});
-    for(part=0;part<3;++part) {
-        rig->parts[part].parent=part==0?-1:0;
+    rig->parts[3].first_vertex=(uint16_t)b.vertex_count;
+    rig->parts[3].first_face=(uint16_t)b.face_count;
+    {
+        const float x=sign*(half-.023f);
+        wheel_facet(&b,(vec3_t){x,-.070f,-radius*.61f},(vec3_t){x,.090f,-radius*.61f},
+                    (vec3_t){x,.115f,-radius*.35f},(vec3_t){x,-.090f,-radius*.35f},sign);
+    }
+    rig->parts[3].vertex_count=(uint16_t)(b.vertex_count-rig->parts[3].first_vertex);
+    rig->parts[3].face_count=(uint16_t)(b.face_count-rig->parts[3].first_face);
+    for(part=0;part<4;++part) {
+        rig->parts[part].parent=-1;
         rig->parts[part].slot=(uint8_t)part;
     }
     rig->mesh.vertices=rig->vertices;
@@ -6768,7 +6805,7 @@ static void build_wheel_rig(wheel_rig_t *rig, float radius, float width, float s
     rig->mesh.parts=rig->parts;
     rig->mesh.vertex_count=(uint16_t)b.vertex_count;
     rig->mesh.face_count=(uint16_t)b.face_count;
-    rig->mesh.part_count=3;
+    rig->mesh.part_count=4;
 }
 
 static void draw_wheel(float local_x, float local_z, float steer,
@@ -6780,27 +6817,29 @@ static void draw_wheel(float local_x, float local_z, float steer,
     rig_style_t style;
     rig_pose_t pose;
     if(!wheel_rigs_ready) {
-        build_wheel_rig(&wheel_rigs[0][0],.43f,.30f, 1.0f);
-        build_wheel_rig(&wheel_rigs[0][1],.43f,.30f,-1.0f);
-        build_wheel_rig(&wheel_rigs[1][0],.45f,.32f, 1.0f);
-        build_wheel_rig(&wheel_rigs[1][1],.45f,.32f,-1.0f);
+        build_wheel_rig(&wheel_rigs[0][0],.385f,.28f, 1.0f);
+        build_wheel_rig(&wheel_rigs[0][1],.385f,.28f,-1.0f);
+        build_wheel_rig(&wheel_rigs[1][0],.400f,.32f, 1.0f);
+        build_wheel_rig(&wheel_rigs[1][1],.400f,.32f,-1.0f);
         wheel_rigs_ready=true;
     }
     rig_style_reset(&style);
-    style.tint[0]=(color3_t){.60f,.62f,.68f};
+    style.tint[0]=(color3_t){.24f,.25f,.27f};
     style.tint[1]=(color3_t){.62f,.64f,.70f};
     style.tint[2]=(color3_t){.95f,.97f,1.0f};
     memset(&pose,0,sizeof(pose));
     pose.angle[WHEEL_PART_TREAD]=rotation;
     pose.angle[WHEEL_PART_HUB]=0.0f;
     pose.angle[WHEEL_PART_RIM]=rotation*.15f;
+    pose.angle[WHEEL_PART_CALIPER]=0.0f;
     /* Tread carbon texture on the tyre, flat tints on the metal parts. */
-    style.skip[1]=style.skip[2]=true;
+    style.skip[1]=style.skip[2]=style.skip[3]=true;
     draw_rig(&rig->mesh,&texture_headers[DLA_TEX_CAR_CARBON],centre.x,centre.y,centre.z,
              car.yaw+steer,1.0f,&pose,&style);
-    style.skip[0]=true; style.skip[1]=style.skip[2]=false;
-    style.tint[1]=(color3_t){.30f,.32f,.37f};
-    style.tint[2]=(color3_t){.62f,.65f,.72f};
+    style.skip[0]=true; style.skip[1]=style.skip[2]=style.skip[3]=false;
+    style.tint[1]=(color3_t){.20f,.22f,.24f};
+    style.tint[2]=(color3_t){.88f,.90f,.94f};
+    style.tint[3]=(color3_t){.82f,.035f,.020f};
     draw_rig(&rig->mesh,&world_header,centre.x,centre.y,centre.z,
              car.yaw+steer,1.0f,&pose,&style);
     (void)width;
@@ -6812,10 +6851,10 @@ static void draw_car(void) {
 #else
     const float rendered_steer=car.steer;
 #endif
-    draw_wheel(-.95f, 1.55f, rendered_steer, .43f, .30f);
-    draw_wheel( .95f, 1.55f, rendered_steer, .43f, .30f);
-    draw_wheel(-.97f,-1.55f, 0.0f, .45f, .32f);
-    draw_wheel( .97f,-1.55f, 0.0f, .45f, .32f);
+    draw_wheel(-.916f, 1.55f, rendered_steer, .385f, .28f);
+    draw_wheel( .916f, 1.55f, rendered_steer, .385f, .28f);
+    draw_wheel(-.900f,-1.55f, 0.0f, .400f, .32f);
+    draw_wheel( .900f,-1.55f, 0.0f, .400f, .32f);
     draw_car_mesh();
     draw_player_brake_lights();
 }
@@ -6833,9 +6872,9 @@ static void draw_car_glass(void) {
         if(!car_visible_faces[i]) continue;
         submit_triangle(&car_glass_header,&car_render[f->a].projected,&car_render[f->b].projected,&car_render[f->c].projected,
             a->u,a->v,b->u,b->v,d->u,d->v,
-            (car_render[f->a].color&0x00ffffffu)|0xa8000000u,
-            (car_render[f->b].color&0x00ffffffu)|0xa8000000u,
-            (car_render[f->c].color&0x00ffffffu)|0xa8000000u);
+            (car_render[f->a].color&0x00ffffffu)|0xe8000000u,
+            (car_render[f->b].color&0x00ffffffu)|0xe8000000u,
+            (car_render[f->c].color&0x00ffffffu)|0xe8000000u);
     }
 }
 
@@ -6900,7 +6939,7 @@ static void draw_exhaust_flames(void) {
     float flash=0.0f;
     int i;
     if(game.exhaust_flash>0.0f) {
-        static const float outlets[4]={-.255f,-.085f,.085f,.255f};
+        static const float outlets[4]={-.270f,-.090f,.090f,.270f};
         const float level=game.exhaust_flash;
         const float end_z=-2.78f-level*.72f;
         const uint32_t hot=pack_color(level,yellow);
@@ -6908,16 +6947,16 @@ static void draw_exhaust_flames(void) {
         for(i=0;i<4;++i) {
             const float x=outlets[i];
             draw_world_quad_colored(&additive_header,
-                car_local_to_world(x-.060f,.160f,-2.485f),
-                car_local_to_world(x+.060f,.160f,-2.485f),
-                car_local_to_world(x-.020f,.160f,end_z),
-                car_local_to_world(x+.020f,.160f,end_z),
+                car_local_to_world(x-.060f,.235f,-2.61f),
+                car_local_to_world(x+.060f,.235f,-2.61f),
+                car_local_to_world(x-.020f,.235f,end_z),
+                car_local_to_world(x+.020f,.235f,end_z),
                 hot,hot,clear,clear);
             draw_world_quad_colored(&additive_header,
-                car_local_to_world(x,.105f,-2.485f),
-                car_local_to_world(x,.215f,-2.485f),
-                car_local_to_world(x,.145f,end_z),
-                car_local_to_world(x,.185f,end_z),
+                car_local_to_world(x,.180f,-2.61f),
+                car_local_to_world(x,.290f,-2.61f),
+                car_local_to_world(x,.215f,end_z),
+                car_local_to_world(x,.255f,end_z),
                 hot,hot,clear,clear);
         }
     }

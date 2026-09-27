@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and export Drift Los Angeles's reference-profiled sports coupe with Blender.
+"""Build and export Drift Los Angeles's C7 Corvette player car with Blender.
 
 Run through Blender, not the host Python interpreter:
 
@@ -41,18 +41,20 @@ MATERIAL_IDS = {
     "DLA Glass": GLASS,
     "DLA Carbon": CARBON,
     "DLA Lights": LIGHTS,
+    "DLA Headlamp": LIGHTS,
+    "DLA Lamp Lens": LIGHTS,
     "DLA Metal": METAL,
 }
 
-# Chassis constants shared with the game: axle positions, tyre radii and the
-# floor height are fixed by the physics and wheel rigs in drift-los-angeles.c.
+# Axles stay at the game's 3.10-unit wheelbase; body and staggered tires
+# are scaled from C7 dimensions. Keep the preview and runtime wheel rigs aligned.
 FRONT_AXLE_Y = 1.55
 REAR_AXLE_Y = -1.55
-FRONT_ARCH_Z = .445
-REAR_ARCH_Z = .465
-FRONT_ARCH_R = .47
-REAR_ARCH_R = .49
-FLOOR_Z = .064
+FRONT_ARCH_Z = .400
+REAR_ARCH_Z = .415
+FRONT_ARCH_R = .430
+REAR_ARCH_R = .445
+FLOOR_Z = .115
 TUB_Z = .46
 TUB_HALF = .42
 TUB_FRONT_Y = .58
@@ -183,20 +185,20 @@ def create_loft(name: str,
 
 # Greenhouse stations: (y, half-width at the sill, roof/glass top z).
 GREENHOUSE_STATIONS = (
-    ( .72, .735,  .858),
-    ( .50, .700, 1.060),
-    ( .24, .660, 1.265),
-    (-.02, .635, 1.375),
-    (-.36, .635, 1.400),
-    (-.68, .650, 1.370),
-    (-.80, .660, 1.340),
-    (-.96, .680, 1.255),
-    (-1.20, .715, 1.090),
-    (-1.42, .740,  .960),
-    (-1.62, .755,  .885),
-    (-1.78, .760,  .846),
+    ( .82, .815, 1.005),
+    ( .54, .820, 1.142),
+    ( .22, .825, 1.290),
+    (-.10, .830, 1.397),
+    (-.43, .835, 1.416),
+    (-.76, .850, 1.401),
+    (-.86, .860, 1.376),
+    (-1.05, .875, 1.313),
+    (-1.31, .875, 1.214),
+    (-1.59, .860, 1.115),
+    (-1.86, .820, 1.030),
+    (-2.04, .770,  .990),
 )
-GREENHOUSE_SILL = .822
+GREENHOUSE_SILL = .970
 
 
 def greenhouse_half(y: float) -> float:
@@ -225,47 +227,50 @@ def body_stations() -> list[dict]:
                 "shoulder": shoulder, "belt": belt, "lower": lower, "lip": lip}
 
     stations = [
-        station(2.72,  .880, .515, .508, .500, .455, .340, .16),
-        station(2.62,  .930, .600, .590, .585, .548, .430, .165),
-        station(2.45,  .990, .665, .655, .672, .665, .520),
-        station(2.25, 1.030, .725, .705, .775, .805, .585),
-        station(2.06, 1.070, .765, .735, .845, .905, .640),
+        station(2.60,  .935, .615, .615, .638, .630, .450, .20),
+        station(2.52,  .985, .686, .678, .722, .729, .575, .20),
+        station(2.37, 1.023, .779, .758, .809, .824, .682, .20),
+        station(2.20, 1.048, .829, .802, .878, .894, .740, .20),
+        station(2.01, 1.060, .879, .845, .927, .950, .790, .20),
     ]
-    # Front arch: seven stations over the opening, densest at the top.
-    for degrees in (0, 30, 60, 90, 120, 150, 180):
+    # Nine stations keep the arch round without a subdivision modifier.
+    for degrees in (0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180):
         angle = math.radians(degrees)
         t = math.sin(angle)
         y = FRONT_AXLE_Y + math.cos(angle) * FRONT_ARCH_R
+        rearward = (FRONT_AXLE_Y + FRONT_ARCH_R - y) / (2 * FRONT_ARCH_R)
         stations.append(station(
-            y, 1.085 + .015 * t, .78 + .025 * t, .745 + .02 * t,
-            .86 + .04 * t, .93 + .04 * t, .66 + .03 * t,
+            y, 1.060 + .012 * t, .886 + .084 * rearward, .859 + .093 * rearward,
+            .948 + .023 * t + .023 * rearward,
+            .962 + .016 * t + .009 * rearward, .805 + .015 * t,
             lip=FRONT_ARCH_Z + FRONT_ARCH_R * t))
     stations.extend([
-        station(1.05, 1.055, .800, .780, .845, .875, .650),
-        station( .72, 1.030, .800, .790, .815, .835, .630),
-        station( .40, 1.025, None, None, .812, .825, .620),
-        station( .00, 1.030, None, None, .812, .825, .620),
-        station(-.45, 1.035, None, None, .814, .830, .625),
-        station(-.85, 1.050, None, None, .818, .845, .640),
-        station(-1.04, 1.075, None, None, .822, .880, .660),
+        station(1.08, 1.042, .976, .953, .975, .973, .810, .21),
+        station( .83, 1.000, .996, .984, .982, .980, .815, .21),
+        station( .56,  .980, None, None, .980, .970, .810, .21),
+        station( .00,  .972, None, None, .980, .977, .812, .21),
+        station(-.45,  .990, None, None, .980, .990, .820, .21),
+        station(-.85, 1.025, None, None, .990,1.018, .835, .21),
+        station(-1.06,1.058, None, None,1.015,1.045, .849, .21),
     ])
-    for degrees in (180, 150, 120, 90, 60, 30, 0):
+    for degrees in (180, 157.5, 135, 112.5, 90, 67.5, 45, 22.5, 0):
         angle = math.radians(degrees)
         t = math.sin(angle)
         y = REAR_AXLE_Y + math.cos(angle) * REAR_ARCH_R
         cabin = y >= TUB_REAR_Y
         stations.append(station(
-            y, 1.10 + .04 * t, None if cabin else .815, None if cabin else .80,
-            .83 + .01 * t, .95 + .05 * t, .68 + .03 * t,
+            y, 1.068 + .017 * t, None if cabin else .976, None if cabin else .979,
+            1.025 + .016 * t, 1.044 + .015 * t, .840 + .015 * t,
             lip=REAR_ARCH_Z + REAR_ARCH_R * t))
     stations.extend([
-        station(-2.06, 1.090, .815, .805, .855, .925, .670),
-        station(-2.25, 1.060, .815, .810, .840, .885, .655),
-        station(-2.42, 1.030, .825, .822, .842, .870, .650, .16),
-        station(-2.55,  .990, .852, .850, .858, .862, .655, .15),
-        station(-2.60,  .950, .872, .870, .872, .860, .655, .15),
+        station(-2.01,1.067, .976, .981,1.025,1.040, .845, .21),
+        station(-2.23,1.049, .974, .981,1.007,1.015, .828, .21),
+        station(-2.43,1.024, .982, .987, .994, .985, .800, .20),
+        station(-2.54, .998, .987, .990, .993, .980, .780, .20),
     ])
-    return stations
+    # Each rear arch angle traverses tail-to-front; sort before lofting to
+    # avoid overlapping faces and the creased spikes of the old wheel wells.
+    return sorted(stations, key=lambda item: item["y"], reverse=True)
 
 
 def body_profile(st: dict) -> list[tuple[float, float]]:
@@ -278,7 +283,7 @@ def body_profile(st: dict) -> list[tuple[float, float]]:
     if tub:
         top = (0.0, TUB_Z)
         valley = (-TUB_HALF, TUB_Z)
-        peak = (-(greenhouse_half(st["y"]) - .005), .812)
+        peak = (-(greenhouse_half(st["y"]) - .005), GREENHOUSE_SILL - .010)
     else:
         top = (0.0, st["top"])
         valley = (-h * .40, st["valley"])
@@ -289,7 +294,7 @@ def body_profile(st: dict) -> list[tuple[float, float]]:
         # comes back out to catch the light, then the inset rocker.
         side = [
             (-h, belt),
-            (-h * .972, lower + (belt - lower) * .48),
+            (-h * .945, lower + (belt - lower) * .48),
             (-h * .997, lower + (belt - lower) * .20),
             (-h * .960, lower),
             (-h * .930, lower - .08),
@@ -300,10 +305,10 @@ def body_profile(st: dict) -> list[tuple[float, float]]:
         # lip itself, then the well ceiling and its inner wall down to the floor.
         span = st["shoulder"] - lip
         side = [
-            (-h, st["shoulder"] - span * .30),
-            (-h, st["shoulder"] - span * .62),
-            (-h, lip + .03),
-            (-h * .990, lip),
+            (-h, st["shoulder"] - span * .25),
+            (-h * 1.002, lip + span * .42),
+            (-h * 1.006, lip + min(.018, span * .20)),
+            (-h * .995, lip),
             (-h * .660, lip + .012),
             (-h * .660, FLOOR_Z),
         ]
@@ -340,8 +345,18 @@ def create_body(materials: dict[str, bpy.types.Material]) -> bpy.types.Object:
 
     body = create_loft("Coupe body", rings, slots, quad_material,
                        closed=True, caps=(0, 0))
+    # The fascia wraps around the corners. A planar cap made the first car
+    # look like a box with stickers instead of the C7's swept nose and tail.
+    for vertex in body.data.vertices:
+        x, y, _z = vertex.co
+        if y > 2.01:
+            vertex.co.y -= .16 * (abs(x) / 1.06) ** 2 * (y - 2.01) / .59
+        elif y < -2.01:
+            vertex.co.y += .10 * (abs(x) / 1.07) ** 2 * (-y - 2.01) / .53
     editable = bmesh.new()
     editable.from_mesh(body.data)
+    bmesh.ops.triangulate(editable, faces=[face for face in editable.faces
+                                         if len(face.verts) > 4], ngon_method="BEAUTY")
     bmesh.ops.recalc_face_normals(editable, faces=editable.faces)
     editable.to_mesh(body.data)
     editable.free()
@@ -357,22 +372,23 @@ def create_greenhouse(materials: dict[str, bpy.types.Material]) -> bpy.types.Obj
     for y, half, top in GREENHOUSE_STATIONS:
         sill = GREENHOUSE_SILL
         rise = top - sill
+        glass_edge = .780 - max(0.0, -y - .86) * .080
         left = [
             (-half, sill),
-            (-(half - .030), sill + min(.040, rise * .5)),
-            (-half * .930, sill + rise * .52),
-            (-half * .840, top - min(.035, rise * .4)),
-            (-half * .470, top - min(.004, rise * .05)),
+            (-(half - .012), sill + min(.032, rise * .25)),
+            (-half * (glass_edge + .030), top - min(.032, rise * .40)),
+            (-half * glass_edge, top - min(.009, rise * .12)),
+            (-half * .430, top - min(.003, rise * .04)),
         ]
         ring = left + [(0.0, top)] + [(-x, z) for x, z in reversed(left)]
         rings.append((y, ring))
     slots = [paint, glass, carbon]
     # Per row: material for segments 0..4 from the sill to the roof centre.
-    windshield = (0, 0, 1, 1, 1)
-    roof = (0, 1, 1, 0, 0)
+    windshield = (0, 1, 0, 1, 1)
+    roof = (0, 1, 0, 2, 2)
     b_pillar = (0, 2, 2, 0, 0)
-    sail = (0, 0, 0, 0, 0)
-    hatch = (0, 0, 1, 1, 1)
+    sail = (0, 1, 0, 1, 1)
+    hatch = (0, 0, 0, 1, 1)
     row_specs = [windshield, windshield, windshield, roof, roof, b_pillar,
                  sail, hatch, hatch, hatch, hatch]
 
@@ -392,19 +408,6 @@ def create_greenhouse(materials: dict[str, bpy.types.Material]) -> bpy.types.Obj
 def surface_tree(obj: bpy.types.Object) -> BVHTree:
     depsgraph = bpy.context.evaluated_depsgraph_get()
     return BVHTree.FromObject(obj, depsgraph)
-
-
-def snap_points(points, tree: BVHTree, offset: float):
-    """Project authored points onto the nearest body surface plus an offset."""
-    snapped = []
-    for point in points:
-        location, normal, _index, _distance = tree.find_nearest(Vector(point))
-        if location is None:
-            snapped.append(tuple(point))
-            continue
-        moved = location + normal * offset
-        snapped.append((moved.x, moved.y, moved.z))
-    return tuple(snapped)
 
 
 def create_polygon(name: str,
@@ -439,6 +442,93 @@ def create_polygon(name: str,
 
 def mirror_points_x(points):
     return tuple((-x, y, z) for x, y, z in reversed(points))
+
+
+def create_surface_patch(name: str, points, material: bpy.types.Material,
+                         tree: BVHTree, offset: float, cuts: int = 2) -> bpy.types.Object:
+    """Tessellate trim before projection so its interior follows curved panels.
+
+    Projecting only the outline leaves hood vents and door seams buried in
+    convex bodywork. Small flat details can skip subdivision entirely.
+    """
+    obj=link_mesh(name,list(points),[tuple(range(len(points)))],[material])
+    editable=bmesh.new()
+    editable.from_mesh(obj.data)
+    bmesh.ops.triangulate(editable,faces=list(editable.faces))
+    if cuts:
+        bmesh.ops.subdivide_edges(editable,edges=list(editable.edges),cuts=cuts,use_grid_fill=True)
+    for vertex in editable.verts:
+        location,normal,_index,_distance=tree.find_nearest(vertex.co)
+        if location is not None:
+            vertex.co=location+normal*offset
+    editable.normal_update()
+    for face in editable.faces:
+        _location,normal,_index,_distance=tree.find_nearest(face.calc_center_median())
+        if normal is not None and face.normal.dot(normal)<0:
+            face.normal_flip()
+    editable.to_mesh(obj.data)
+    editable.free()
+    obj.data.update()
+    return obj
+
+
+def create_fascia_patch(name, points, material, body, front, offset):
+    """Clip an X/Z decal to each cap triangle before lifting it off the skin.
+
+    The bumper wraps in Y. Projecting a coarse decal onto it lets triangles
+    bridge that curvature and sink into the paint. Matching the cap's actual
+    topology gives exact contact without piling on tessellation.
+    """
+    outline=bmesh.new()
+    vertices=[outline.verts.new(point) for point in points]
+    outline.faces.new(vertices)
+    outline.normal_update()
+    bmesh.ops.triangulate(outline, faces=list(outline.faces), ngon_method="BEAUTY")
+    pieces=[[Vector((v.co.x,v.co.z)) for v in face.verts] for face in outline.faces]
+    outline.free()
+    size=20
+    last=len(body.data.vertices)-size
+    caps=[face for face in body.data.polygons
+          if all(index<size if front else index>=last for index in face.vertices)]
+    vertices=[]
+    faces=[]
+    def cross(a,b):
+        return a.x*b.y-a.y*b.x
+    for face in caps:
+        tri=[body.data.vertices[index].co for index in face.vertices]
+        normal=(tri[1]-tri[0]).cross(tri[2]-tri[0])
+        if abs(normal.y)<1e-9:
+            continue
+        projected=[Vector((v.x,v.z)) for v in tri]
+        if cross(projected[1]-projected[0],projected[2]-projected[0])<0:
+            projected.reverse()
+        for piece in pieces:
+            clipped=piece
+            for a,b in zip(projected,projected[1:]+projected[:1]):
+                result=[]
+                for p,q in zip(clipped,clipped[1:]+clipped[:1]):
+                    dp=cross(b-a,p-a)
+                    dq=cross(b-a,q-a)
+                    if dp>=-1e-8:
+                        result.append(p)
+                    if (dp>=0)!=(dq>=0):
+                        result.append(p+(q-p)*(dp/(dp-dq)))
+                clipped=result
+                if len(clipped)<3:
+                    break
+            if len(clipped)<3:
+                continue
+            start=len(vertices)
+            for v in clipped:
+                y=tri[0].y-(normal.x*(v.x-tri[0].x)+normal.z*(v.y-tri[0].z))/normal.y
+                vertices.append((v.x,y+(offset if front else -offset),v.y))
+            faces.append(tuple(range(start,len(vertices))))
+    obj=link_mesh(name,vertices,faces,[material],smooth=False)
+    for face in obj.data.polygons:
+        if face.normal.y*(1 if front else -1)<0:
+            face.flip()
+    obj.data.update()
+    return obj
 
 
 def create_prism(name: str, base: tuple[tuple[float, float, float], ...],
@@ -496,119 +586,170 @@ def add_surface_details(materials: dict[str, bpy.types.Material],
     carbon = materials["DLA Carbon"]
     lights = materials["DLA Lights"]
     metal = materials["DLA Metal"]
+    headlamp = materials["DLA Headlamp"]
     tree = surface_tree(body)
 
-    def snapped(points, offset):
-        return snap_points(points, tree, offset)
+    def patch(name, points, material, offset=.008, cuts=1):
+        if min(p[1] for p in points)>2.5 and max(p[2] for p in points)<.61:
+            return create_fascia_patch(name,points,material,body,True,offset)
+        if max(p[1] for p in points)<-2.57:
+            return create_fascia_patch(name,points,material,body,False,offset)
+        return create_surface_patch(name, points, material, tree, offset, cuts)
 
-    # Slit lamps that straddle the fender's shoulder crease from the nose
-    # corner back toward the wheel, snapped to the new surface.
-    left_headlamp_housing = ((-.720,2.690,.520),(-.900,2.520,.610),
-                             (-.985,2.240,.780),(-1.000,2.080,.880),
-                             (-.900,2.080,.960),(-.855,2.240,.900),
-                             (-.760,2.520,.720),(-.600,2.690,.610))
-    left_headlamp = ((-.740,2.665,.540),(-.905,2.510,.625),
-                     (-.975,2.260,.785),(-.980,2.120,.875),
-                     (-.910,2.120,.935),(-.870,2.260,.880),
-                     (-.775,2.510,.705),(-.630,2.665,.600))
-    for points in (left_headlamp_housing, mirror_points_x(left_headlamp_housing)):
-        create_polygon("Headlamp recess", snapped(points, .006), carbon)
-    for points in (left_headlamp, mirror_points_x(left_headlamp)):
-        create_polygon("Headlamp lens", snapped(points, .012), lights)
+    def pair(name, points, material, offset=.008, cuts=1):
+        return [patch(name + side, polygon, material, offset, cuts)
+                for side, polygon in ((" L", points), (" R", mirror_points_x(points)))]
 
-    # Nose: grille, crossbar, brake ducts and a splitter with real thickness.
-    create_polygon("Front grille", ((-.600,2.728,.430),(.600,2.728,.430),
-                                    (.760,2.728,.315),(.655,2.728,.130),
-                                    (-.655,2.728,.130),(-.760,2.728,.315)), carbon)
-    create_polygon("Grille crossbar", ((-.690,2.736,.282),(.690,2.736,.282),
-                                       (.665,2.736,.252),(-.665,2.736,.252)), metal)
-    left_front_duct = ((-.815,2.728,.355),(-.960,2.728,.325),
-                       (-.920,2.728,.150),(-.790,2.728,.185))
-    create_polygon("Left front duct", left_front_duct, carbon)
-    create_polygon("Right front duct", mirror_points_x(left_front_duct), carbon)
-    create_prism("Front splitter", ((-.905,2.780,.050),(.905,2.780,.050),
-                                    (.840,2.560,.050),(-.840,2.560,.050)),
-                 (0.0,0.0,.022), carbon)
-    create_polygon("Hood extractor", snapped(((-.235,1.38,.84),(.235,1.38,.84),
-                                              (.285,1.06,.84),(-.285,1.06,.84)), .006),
-                   carbon)
-    create_polygon("Front badge red", ((-.012,2.742,.548),(-.115,2.742,.574),
-                                       (-.020,2.742,.512),(.005,2.742,.522)), lights)
-    create_polygon("Front badge metal", ((.012,2.742,.548),(.115,2.742,.574),
-                                         (.020,2.742,.512),(-.005,2.742,.522)), metal)
-
-    # Flank: fender extractor, side marker, door handle, seams and fuel door.
-    left_extractor = ((-1.055,1.10,.75),(-1.065,.98,.60),(-1.065,.84,.42),
-                      (-1.060,.90,.40),(-1.060,1.03,.58),(-1.055,1.12,.72))
-    left_marker = ((-1.05,2.24,.56),(-1.06,2.16,.55),(-1.06,2.16,.40),(-1.05,2.24,.41))
-    left_handle = ((-1.04,-.47,.735),(-1.04,-.69,.735),(-1.04,-.69,.712),(-1.04,-.47,.712))
-    left_front_seam = ((-1.04,.52,.80),(-1.05,.50,.22),(-1.05,.485,.22),(-1.04,.505,.80))
-    left_rear_seam = ((-1.05,-.90,.80),(-1.06,-.93,.22),(-1.06,-.945,.22),(-1.05,-.915,.80))
-    for label, points, material, offset in (
-        ("Fender extractor", left_extractor, carbon, .008),
-        ("Side marker", left_marker, lights, .008),
-        ("Door handle", left_handle, carbon, .008),
-        ("Front door seam", left_front_seam, carbon, .004),
-        ("Rear door seam", left_rear_seam, carbon, .004),
-    ):
-        create_polygon("Left " + label, snapped(points, offset), material)
-        create_polygon("Right " + label, snapped(mirror_points_x(points), offset), material)
+    # Broad swept housings, with the DRL following the inboard edge and a
+    # discrete projector in the wide end. These are not slit-shaped lamps.
+    housing = ((-.620,2.460,.715),(-.907,2.413,.763),
+               (-1.014,2.004,.947),(-.944,1.940,.961),
+               (-.810,2.217,.845),(-.598,2.423,.740))
+    pair("Headlamp recess", housing, carbon, .009, 2)
+    lens = ((-.650,2.446,.720),(-.891,2.400,.770),
+            (-.991,2.029,.944),(-.947,1.992,.950),
+            (-.828,2.233,.843),(-.629,2.414,.742))
+    pair("Headlamp lens", lens, materials["DLA Lamp Lens"], .015, 2)
+    led = ((-.615,2.441,.730),(-.815,2.225,.852),(-.944,1.968,.962),
+           (-.962,1.981,.962),(-.838,2.245,.851),(-.627,2.462,.730))
+    pair("Headlamp DRL", led, headlamp, .023, 2)
     for side in (-1.0, 1.0):
-        location, normal, _i, _d = tree.find_nearest(Vector((side*1.2,-1.12,.80)))
-        create_ring("Fuel door outline", (location.x + normal.x*.004, location.y, location.z),
-                    "x", .075, .062, .004 if side < 0 else -.004, 10, carbon)
+        projector = tuple((side*(.895+.040*math.cos(a)),2.304+.054*math.sin(a),.841)
+                          for a in (i*math.tau/10 for i in range(10)))
+        patch("Headlamp projector", projector, headlamp, .024, 0)
 
-    # Door mirrors: a hexagonal head on a short stalk.
+    grille = ((-.666,2.615,.496),(.666,2.615,.496),(.742,2.615,.435),
+              (.680,2.615,.246),(.575,2.615,.224),(-.575,2.615,.224),
+              (-.680,2.615,.246),(-.742,2.615,.435))
+    patch("Front grille", grille, carbon, .012, 2)
+    patch("Grille crossbar", ((-.711,2.625,.360),(.711,2.625,.360),
+                              (.705,2.625,.350),(-.705,2.625,.350)), metal, .022)
+    for x in (-.50,-.25,0,.25,.50):
+        patch("Grille upright", ((x-.006,2.62,.47),(x+.006,2.62,.47),
+                                  (x+.006,2.62,.25),(x-.006,2.62,.25)), metal, .020, 0)
+    create_prism("Front splitter", ((-.90,2.478,.138),(-.76,2.598,.138),
+                 (0,2.660,.138),(.76,2.598,.138),(.90,2.478,.138),
+                 (1.00,2.325,.138),(-1.00,2.325,.138)), (0,0,.029), carbon)
+    patch("Hood extractor", ((-.240,1.985,.943),(.240,1.985,.943),
+                             (.325,1.545,.950),(-.325,1.545,.950)), carbon, .009, 2)
+    for y in (1.63,1.72,1.81,1.90):
+        half=.325-(y-1.545)*(.085/.440)
+        patch("Hood vent louver", ((-half,y,.96),(half,y,.96),
+               (half-.006,y+.012,.96),(-half+.006,y+.012,.96)), metal, .020)
+    pair("Hood crease", ((-.42,2.28,.85),(-.535,1.02,1.00),
+                          (-.528,1.02,1.00),(-.414,2.28,.85)), paint, .005, 2)
+    patch("Front badge red", ((-.008,2.54,.729),(-.092,2.50,.752),
+                              (-.015,2.57,.710),(.004,2.56,.716)), lights, .016, 0)
+    patch("Front badge metal", ((.008,2.54,.729),(.092,2.50,.752),
+                                (.015,2.57,.710),(-.004,2.56,.716)), metal, .016, 0)
+
+    # The characteristic vent follows the back of the front wheel arch,
+    # opening out along the beltline above the sculpted door scallop.
+    extractor = ((-1.075,1.085,.911),(-1.042,.552,.907),
+                 (-1.034,.817,.760),(-1.058,1.012,.630))
+    pair("Fender extractor", extractor, carbon, .009, 2)
+    pair("Fender vent blade", ((-1.070,1.050,.867),(-1.036,.671,.864),
+                              (-1.039,.715,.846),(-1.063,1.037,.846)), metal, .019)
+    pair("Side marker", ((-1.040,2.300,.710),(-1.065,2.115,.697),
+                          (-1.066,2.114,.680),(-1.039,2.296,.692)), lights, .013, 0)
+    pair("Door handle", ((-1.04,-.49,.932),(-1.04,-.71,.932),
+                          (-1.04,-.71,.911),(-1.04,-.49,.911)), carbon, .009, 0)
+    pair("Front door seam", ((-1.05,.51,.946),(-1.05,.48,.26),
+                              (-1.05,.475,.26),(-1.05,.505,.946)), carbon, .004, 2)
+    pair("Rear door seam", ((-1.06,-.88,.950),(-1.06,-.94,.26),
+                             (-1.06,-.945,.26),(-1.06,-.885,.95)), carbon, .004, 2)
+    scoop = ((-.885,-.937,1.023),(-1.024,-1.082,1.054),
+              (-1.051,-1.280,1.060),(-.901,-1.167,1.025))
+    pair("Quarter cooling scoop", scoop, carbon, .012)
+    location, normal, _i, _d = tree.find_nearest(Vector((-1.2,-2.12,.85)))
+    create_ring("Fuel door outline", (location.x + normal.x*.005, location.y, location.z),
+                "x", .066, .062, .003, 12, carbon)
     for side in (-1.0, 1.0):
-        x = side * 1.09
-        head = ((x-.035*side,.40,.845),(x+.075*side,.40,.835),(x+.135*side,.40,.86),
-                (x+.135*side,.40,.90),(x+.075*side,.40,.925),(x-.035*side,.40,.915))
-        create_prism("Door mirror head", head, (0.0,.10,0.0), paint)
-        stalk = ((x-.10*side,.44,.815),(x-.10*side,.50,.815),(x-.02*side,.49,.845),(x-.02*side,.44,.845))
-        create_prism("Door mirror stalk", stalk, (0.0,0.0,.022), carbon)
+        create_prism("Side skirt", ((side*.961,1.09,.143),(side*1.014,1.09,.143),
+                     (side*1.047,-1.07,.143),(side*.977,-1.07,.143)), (0,0,.039), carbon)
+        x = side * 1.05
+        head = ((x-.022*side,.41,1.010),(x+.092*side,.41,.998),(x+.165*side,.41,1.030),
+                (x+.160*side,.41,1.065),(x+.082*side,.41,1.088),(x-.020*side,.41,1.079))
+        create_prism("Door mirror head", head, (0,.15,0), paint)
+        glass = tuple((px,py-.005,pz) for px,py,pz in head)
+        create_polygon("Door mirror glass", glass, materials["DLA Glass"])
+        stalk = ((x-.100*side,.45,.972),(x-.100*side,.52,.972),
+                 (x+.018*side,.51,1.021),(x+.018*side,.46,1.021))
+        create_prism("Door mirror stalk", stalk, (0,0,.022), carbon)
 
-    # Rear fascia: one dark lamp panel with four angular lenses, a plate
-    # recess, a diffuser and quad exhausts, all sitting on the tail cap.
-    create_polygon("Tail lamp panel", ((-1.02,-2.606,.855),(1.02,-2.606,.855),
-                                       (1.04,-2.606,.700),(.94,-2.606,.545),
-                                       (-.94,-2.606,.545),(-1.04,-2.606,.700)), carbon)
-    left_outer_lamp = ((-.960,-2.614,.812),(-.640,-2.614,.798),
-                       (-.595,-2.614,.725),(-.640,-2.614,.615),
-                       (-.870,-2.614,.610),(-.975,-2.614,.688))
-    left_inner_lamp = ((-.585,-2.614,.795),(-.285,-2.614,.772),
-                       (-.235,-2.614,.697),(-.325,-2.614,.607),
-                       (-.530,-2.614,.617),(-.615,-2.614,.697))
-    for points in (left_outer_lamp, left_inner_lamp,
-                   mirror_points_x(left_outer_lamp), mirror_points_x(left_inner_lamp)):
-        create_polygon("Tail lamp", points, lights)
-    create_polygon("Plate recess", ((-.355,-2.612,.540),(.355,-2.612,.540),
-                                    (.320,-2.612,.425),(-.320,-2.612,.425)), carbon)
-    create_polygon("Plate", ((-.282,-2.618,.522),(.282,-2.618,.522),
-                             (.262,-2.618,.447),(-.262,-2.618,.447)), metal)
-    create_prism("Rear diffuser", ((-.930,-2.604,.430),(.930,-2.604,.430),
-                                   (.740,-2.596,.060),(-.740,-2.596,.060)),
-                 (0.0,-.014,0.0), carbon)
-    left_lower_reflector = ((-.905,-2.622,.395),(-.600,-2.622,.395),
-                            (-.615,-2.622,.360),(-.890,-2.622,.360))
-    create_polygon("Tail lamp lower reflector", left_lower_reflector, lights)
-    create_polygon("Tail lamp lower reflector right",
-                   mirror_points_x(left_lower_reflector), lights)
-    create_polygon("Rear badge red", ((-.025,-2.620,.843),(-.150,-2.620,.870),
-                                      (-.035,-2.620,.808),(0.0,-2.620,.820)), lights)
-    create_polygon("Rear badge metal", ((.025,-2.620,.843),(.150,-2.620,.870),
-                                        (.035,-2.620,.808),(0.0,-2.620,.820)), metal)
-    for center_x in (-.285,-.095,.095,.285):
-        create_ring("Exhaust tip", (center_x,-2.628,.17), "y", .068, .050, .045, 8, metal)
+    # Both lights sit in one angular black surround; its outer corner feeds
+    # into the tall extractor underneath, as on the C7 production fascia.
+    surround = ((-.990,-2.58,.949),(-.248,-2.58,.921),(-.206,-2.58,.858),
+                (-.274,-2.58,.682),(-.729,-2.58,.664),(-.874,-2.58,.507),
+                (-1.002,-2.58,.570),(-1.020,-2.58,.801))
+    pair("Rear lamp and extractor surround", surround, carbon, .012, 2)
+    outer = ((-.960,-2.59,.902),(-.686,-2.59,.891),(-.638,-2.59,.839),
+             (-.707,-2.59,.735),(-.900,-2.59,.743),(-.981,-2.59,.803))
+    inner = ((-.608,-2.59,.883),(-.324,-2.59,.873),(-.281,-2.59,.828),
+             (-.345,-2.59,.724),(-.549,-2.59,.733),(-.626,-2.59,.789))
+    for points in (outer,inner,mirror_points_x(outer),mirror_points_x(inner)):
+        cx=sum(p[0] for p in points)/len(points)
+        cz=sum(p[2] for p in points)/len(points)
+        inset=tuple((cx+(x-cx)*.79,y,cz+(z-cz)*.69) for x,y,z in points)
+        projected=[]
+        for point in (*points,*inset):
+            location,normal,_index,_distance=tree.find_nearest(Vector(point))
+            projected.append(tuple(location+normal*.026))
+        count=len(points)
+        lamp=link_mesh("Tail lamp signature",projected,
+                      [(i,(i+1)%count,(i+1)%count+count,i+count) for i in range(count)],
+                      [lights],smooth=False)
+        lamp["brake_lamp"]=True
+        for polygon in lamp.data.polygons:
+            if polygon.normal.y>0:
+                polygon.flip()
+        lamp.data.update()
+        patch("Tail lamp dark lens",inset,materials["DLA Lamp Lens"],.022,0)
+    for z in (.575,.615):
+        pair("Rear extractor blade", ((-.963,-2.59,z+.015),(-.844,-2.59,z+.015),
+                                       (-.827,-2.59,z),(-.958,-2.59,z)), metal, .024)
+    diffuser = ((-.932,-2.58,.505),(-.640,-2.58,.466),(-.460,-2.58,.600),
+                (.460,-2.58,.600),(.640,-2.58,.466),(.932,-2.58,.505),
+                (.805,-2.58,.163),(.400,-2.58,.144),(-.400,-2.58,.144),(-.805,-2.58,.163))
+    patch("Rear diffuser",diffuser,carbon,.015,2)
+    patch("Plate", ((-.248,-2.59,.571),(.248,-2.59,.571),
+                     (.242,-2.59,.401),(-.242,-2.59,.401)), metal, .031)
+    # A small raised C7 plate mark stays readable without another texture.
+    for points in (((-.097,-2.60,.527),(-.015,-2.60,.527),(-.015,-2.60,.511),
+                    (-.077,-2.60,.511),(-.077,-2.60,.456),(-.015,-2.60,.456),
+                    (-.015,-2.60,.440),(-.097,-2.60,.440)),
+                   ((.010,-2.60,.527),(.099,-2.60,.527),(.099,-2.60,.510),
+                    (.049,-2.60,.440),(.025,-2.60,.440),(.075,-2.60,.510),(.010,-2.60,.510))):
+        patch("Plate C7",points,carbon,.037,0)
+    for x in (-.66,-.47,.47,.66):
+        create_prism("Diffuser fin",((x,-2.57,.135),(x,-2.23,.135),
+                     (x,-2.23,.20),(x,-2.57,.32)),(.016,0,0),carbon)
+    pair("Rear reflector", ((-.871,-2.60,.463),(-.624,-2.60,.426),
+                            (-.631,-2.60,.403),(-.860,-2.60,.441)), lights, .032)
+    patch("Rear badge red", ((-.016,-2.58,.916),(-.101,-2.58,.944),
+                             (-.023,-2.58,.876),(0,-2.58,.890)), lights,.025,0)
+    patch("Rear badge metal", ((.016,-2.58,.916),(.101,-2.58,.944),
+                               (.023,-2.58,.876),(0,-2.58,.890)), metal,.025,0)
+    for center_x in (-.270,-.090,.090,.270):
+        create_ring("Exhaust tip", (center_x,-2.592,.235), "y", .076, .060, -.11, 12, metal)
         create_polygon("Exhaust bore", tuple(
-            (center_x+math.cos(a)*.050,-2.629,.17+math.sin(a)*.050)
-            for a in (i*math.tau/8 for i in range(8))), carbon)
+            (center_x+math.cos(a)*.060,-2.577,.235+math.sin(a)*.060)
+            for a in (i*math.tau/12 for i in range(12))), carbon)
 
-    # Ducktail lip with a centre stop lamp.
-    create_prism("Spoiler lip", ((-.880,-2.05,.868),(.880,-2.05,.868),
-                                 (.960,-2.25,.905),(-.960,-2.25,.905)),
-                 (0.0,0.0,.012), carbon)
-    create_polygon("Center stop lamp", ((-.315,-2.255,.912),(.315,-2.255,.912),
-                                        (.292,-2.262,.892),(-.292,-2.262,.892)), lights)
+    # Low contoured Z51 lip: rises at the outboard ends, wraps with the tail.
+    spoiler=[]
+    for x in (-1.012,-.82,-.46,0,.46,.82,1.012):
+        back=-2.575+.10*(abs(x)/1.07)**2
+        z=1.010+.037*(abs(x)/1.012)**3
+        spoiler.extend(((x,back+.12,z-.031),(x,back,z)))
+    faces=[(i*2,i*2+1,i*2+3,i*2+2) for i in range(6)]
+    lip=link_mesh("Spoiler lip",spoiler,faces,[carbon])
+    solidify=lip.modifiers.new("Spoiler thickness","SOLIDIFY")
+    solidify.thickness=.024
+    apply_modifier(lip,solidify)
+    stop=create_polygon("Center stop lamp", ((-.244,-2.581,1.005),(.244,-2.581,1.005),
+                                             (.244,-2.581,.990),(-.244,-2.581,.990)), lights)
+    stop["brake_lamp"]=True
 
 
 def add_interior(materials: dict[str, bpy.types.Material]) -> None:
@@ -631,42 +772,69 @@ def add_interior(materials: dict[str, bpy.types.Material]) -> None:
 
 
 def add_qa_wheels(materials: dict[str, bpy.types.Material]) -> None:
-    tire_material = make_material("QA Tire", (.018,.020,.025,1.0), roughness=.80)
-    rim_material = make_material("QA Rim", (.30,.33,.38,1.0), metallic=.70, roughness=.25)
-    for axle_y, radius, width, x_center in ((1.55,.43,.30,.95),(-1.55,.45,.32,.97)):
+    """Preview the same staggered tires and forged spokes used by the rig."""
+    tire_material = make_material("QA Tire", (.018,.020,.025,1), roughness=.80)
+    rim_material = make_material("QA Rim", (.58,.60,.64,1), metallic=.70, roughness=.25)
+    rotor_material = make_material("QA Rotor", (.16,.18,.20,1), metallic=.70)
+    caliper_material = make_material("QA Caliper", (.66,.018,.010,1), metallic=.20)
+
+    def preview(obj):
+        obj["export_kos"]=False
+        return obj
+
+    for axle_y,radius,width,x_center in ((1.55,.385,.28,.916),(-1.55,.400,.32,.900)):
         for side in (-1.0,1.0):
-            bpy.ops.mesh.primitive_cylinder_add(
-                vertices=32,radius=radius,depth=width,location=(side*x_center,axle_y,radius+.015),
-                rotation=(0.0,math.pi*.5,0.0))
-            tire=bpy.context.object
-            tire.name="QA Tire"
-            tire["export_kos"]=False
-            tire.data.materials.append(tire_material)
-            smooth_mesh(tire)
-            bpy.ops.mesh.primitive_cylinder_add(
-                vertices=24,radius=radius*.39,depth=width+.014,
-                location=(side*x_center,axle_y,radius+.015),rotation=(0.0,math.pi*.5,0.0))
-            rim=bpy.context.object
-            rim.name="QA Wheel hub"
-            rim["export_kos"]=False
-            rim.data.materials.append(rim_material)
-            smooth_mesh(rim)
-            outer_x=side*(x_center+(width*.5+.014))
+            cx=side*x_center
+            cz=radius+.015
+            half=width*.5
+            segments=20
+            vertices=[]
+            faces=[]
+            profile=((-half,.805),(-half,.94),(-half+.024,1),
+                     (half-.024,1),(half,.94),(half,.805))
+            for x,r in profile:
+                for i in range(segments):
+                    a=i*math.tau/segments
+                    vertices.append((cx+x,axle_y+math.sin(a)*radius*r,cz+math.cos(a)*radius*r))
+            for j in range(6):
+                for i in range(segments):
+                    n=(i+1)%segments
+                    k=(j+1)%6
+                    faces.append((j*segments+i,k*segments+i,k*segments+n,j*segments+n))
+            tire=preview(link_mesh("QA Tire",vertices,faces,[tire_material]))
+            editable=bmesh.new()
+            editable.from_mesh(tire.data)
+            bmesh.ops.recalc_face_normals(editable,faces=editable.faces)
+            editable.to_mesh(tire.data)
+            editable.free()
+            face=cx+side*(half+.007)
+            preview(create_ring("QA Rim lip",(face,axle_y,cz),"x",
+                                radius*.825,radius*.790,side*.02,20,rim_material))
+            disc=tuple((cx+side*(half-.050),axle_y+math.sin(a)*radius*.635,
+                        cz+math.cos(a)*radius*.635) for a in (i*math.tau/20 for i in range(20)))
+            preview(create_polygon("QA Rotor",disc,rotor_material))
             for spoke in range(5):
-                angle=spoke*math.tau/5.0
-                radial=radius*.43
-                bpy.ops.mesh.primitive_cube_add(
-                    location=(outer_x,axle_y+math.sin(angle)*radial,
-                              radius+.015+math.cos(angle)*radial),
-                    scale=(.022,.045,radius*.31),rotation=(angle,0.0,0.0))
-                spoke_obj=bpy.context.object
-                spoke_obj.name="QA Wheel spoke"
-                spoke_obj["export_kos"]=False
-                spoke_obj.data.materials.append(rim_material)
-                spoke_bevel=spoke_obj.modifiers.new("Spoke edge radius","BEVEL")
-                spoke_bevel.width=.012
-                spoke_bevel.segments=1
-                apply_modifier(spoke_obj,spoke_bevel)
+                angle=spoke*math.tau/5
+                vertices=[]
+                for r,w,d in ((.13,.38,-.014),(.43,.155,.021),(.805,.100,.005)):
+                    for k in range(3):
+                        a=angle+(k-1)*w
+                        vertices.append((face+side*(d+(.012 if k==1 else 0)),
+                                         axle_y+math.sin(a)*radius*r,cz+math.cos(a)*radius*r))
+                faces=[(j*3+k,(j+1)*3+k,(j+1)*3+k+1,j*3+k+1)
+                       for j in range(2) for k in range(2)]
+                obj=preview(link_mesh("QA Wheel spoke",vertices,faces,[rim_material],smooth=False))
+                for polygon in obj.data.polygons:
+                    if polygon.normal.x*side<0:
+                        polygon.flip()
+                obj.data.update()
+            preview(create_polygon("QA Hub",tuple(
+                (face+side*.014,axle_y+math.sin(a)*radius*.16,cz+math.cos(a)*radius*.16)
+                for a in (i*math.tau/10 for i in range(10))),rim_material))
+            x=cx+side*(half-.023)
+            preview(create_polygon("QA Caliper",((x,axle_y-radius*.61,cz-.070),
+                (x,axle_y-radius*.61,cz+.090),(x,axle_y-radius*.35,cz+.115),
+                (x,axle_y-radius*.35,cz-.090)),caliper_material))
 
 
 # ---------------------------------------------------------------------------
@@ -745,15 +913,25 @@ def author_surface_charts(obj: bpy.types.Object) -> None:
             elif material == CARBON:
                 # Repeated weave keeps trim density independent of part size.
                 u, v = point[axes[0]] * 1.6, -point[axes[1]] * 1.6
+                if obj.name != "Greenhouse" and obj.name != "Coupe body":
+                    # A tiny but non-collapsed footprint in the matte swatch.
+                    u = .952 + .020 * (point[axes[0]] - bounds[0][0]) / max(bounds[0][1] - bounds[0][0], 1e-6)
+                    v = .952 + .020 * (point[axes[1]] - bounds[1][0]) / max(bounds[1][1] - bounds[1][0], 1e-6)
             else:
                 u = (point[axes[0]] - bounds[0][0]) / max(bounds[0][1] - bounds[0][0], 1e-6)
                 v = 1.0 - (point[axes[1]] - bounds[1][0]) / max(bounds[1][1] - bounds[1][0], 1e-6)
                 if material == LIGHTS:
-                    if name.startswith("headlamp lens"):
-                        u, v = .535 + u * .430, .035 + v * .430
+                    if name.startswith(("headlamp drl", "headlamp projector")):
+                        u, v = .120 + u * .010, .620 + v * .010
+                    elif name.startswith("tail lamp signature") or name == "center stop lamp":
+                        u, v = .370 + u * .010, .620 + v * .010
+                    elif name.startswith("headlamp lens"):
+                        u, v = .620 + u * .010, .620 + v * .010
+                    elif name.startswith("tail lamp dark lens"):
+                        u, v = .870 + u * .010, .620 + v * .010
                     elif name.startswith("tail lamp"):
                         u, v = .035 + u * .440, .035 + v * .440
-                    elif name.endswith("side marker"):
+                    elif name.startswith("side marker"):
                         u, v = .80 + u * .04, .84 + v * .04
                     else:
                         # Small red trim samples a compact red patch with a
@@ -804,7 +982,7 @@ def bake_occlusion(tree: BVHTree, position: Vector, normal: Vector) -> float:
     return max(.62, 1.0 - .52 * occlusion / sample_count)
 
 
-def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int, int, int]]]:
+def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int, int, int]], list[int]]:
     for obj in bpy.context.scene.objects:
         if obj.type == "MESH" and bool(obj.get("export_kos", False)):
             author_surface_charts(obj)
@@ -813,6 +991,7 @@ def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int,
     occlusion_tree = build_occlusion_tree()
     vertices: list[tuple[float, ...]] = []
     faces: list[tuple[int, int, int, int]] = []
+    brake_triangles: set[tuple[int, int, int, int]] = set()
     vertex_indices: dict[tuple[float, ...], int] = {}
     occlusion_cache: dict[tuple[float, ...], float] = {}
     for obj in sorted(bpy.context.scene.objects,key=lambda item:item.name):
@@ -861,6 +1040,8 @@ def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int,
             if edge_a.cross(edge_b).length_squared < 1e-16:
                 continue
             faces.append((a,b,c,material))
+            if obj.get("brake_lamp", False):
+                brake_triangles.add((a,b,c,material))
         print(f"  export {obj.name}: {len(vertices)-object_vertex_start} vertices, "
               f"{len(faces)-object_face_start} triangles")
         evaluated.to_mesh_clear()
@@ -868,14 +1049,16 @@ def collect_export_mesh() -> tuple[list[tuple[float, ...]], list[tuple[int, int,
     remap = {previous: current for current, previous in enumerate(used_indices)}
     vertices = [vertices[index] for index in used_indices]
     faces = [(remap[a], remap[b], remap[c], material) for a, b, c, material in faces]
+    brake_triangles = {(remap[a],remap[b],remap[c],material)
+                       for a,b,c,material in brake_triangles}
     if len(vertices) > MAX_EXPORT_VERTICES:
         raise RuntimeError(f"mesh has {len(vertices)} vertices; renderer limit is {MAX_EXPORT_VERTICES}")
     faces.sort(key=lambda face: face[3])
-    return vertices,faces
+    return vertices,faces,[index for index,face in enumerate(faces) if face in brake_triangles]
 
 
 def write_header(path: Path, vertices: list[tuple[float, ...]],
-                 faces: list[tuple[int, int, int, int]]) -> None:
+                 faces: list[tuple[int, int, int, int]], brake_faces: list[int]) -> None:
     lines = [
         "/* Generated by tools/build_car_blender.py. Do not edit by hand. */",
         "#ifndef DRIFT_LA_MODEL_DATA_H",
@@ -896,7 +1079,7 @@ def write_header(path: Path, vertices: list[tuple[float, ...]],
         "#define DLA_COUNT_OF(a) ((uint16_t)(sizeof(a) / sizeof((a)[0])))",
         "enum { DLA_MAT_PAINT, DLA_MAT_GLASS, DLA_MAT_CARBON, DLA_MAT_LIGHTS, DLA_MAT_METAL };",
         "",
-        f"/* Blender reference-profiled coupe: {len(vertices)} vertices, {len(faces)} triangles. */",
+        f"/* Blender C7 Corvette: {len(vertices)} vertices, {len(faces)} triangles. */",
         "static const dla_mesh_vertex_t dla_car_vertices[] = {",
     ]
     for vertex in vertices:
@@ -914,6 +1097,9 @@ def write_header(path: Path, vertices: list[tuple[float, ...]],
         lines.append(f"    {{ {first_face}, {count} }},")
         first_face += count
     lines.extend((
+        "};", "", "/* Authored lamp rings and center stop lamp; shared by the brake overlay. */",
+        "static const uint16_t dla_car_brake_faces[] = {",
+        "    " + ", ".join(str(index) for index in brake_faces),
         "};","","static const dla_mesh_t dla_car_mesh = {",
         "    dla_car_vertices, dla_car_faces,",
         "    DLA_COUNT_OF(dla_car_vertices), DLA_COUNT_OF(dla_car_faces), 3.2f",
@@ -952,8 +1138,8 @@ def render_previews(directory: Path) -> None:
         ("front",(0.0,8.0,.66),(0.0,.10,.62),3.05),
         ("rear",(0.0,-8.0,.66),(0.0,-.10,.62),3.05),
         ("side",(-8.0,0.0,.67),(0.0,.15,.64),6.00),
-        ("front-three-quarter",(-6.5,8.0,1.8),(0.0,.15,.61),4.35),
-        ("rear-three-quarter",(6.5,-8.0,1.7),(0.0,-.10,.61),4.35),
+        ("front-three-quarter",(-6.5,8.0,3.0),(0.0,.15,.68),6.10),
+        ("rear-three-quarter",(6.5,-8.0,2.7),(0.0,-.10,.68),6.10),
     )
     for name,location,target,scale in views:
         camera.location=location
@@ -971,6 +1157,8 @@ def main() -> None:
         "DLA Glass":make_material("DLA Glass",(.025,.045,.105,1.0),metallic=.20,roughness=.18),
         "DLA Carbon":make_material("DLA Carbon",(.012,.016,.024,1.0),metallic=.08,roughness=.36),
         "DLA Lights":make_material("DLA Lights",(.80,.025,.018,1.0),metallic=.08,roughness=.20),
+        "DLA Headlamp":make_material("DLA Headlamp",(.72,.86,1.0,1.0),metallic=.08,roughness=.20),
+        "DLA Lamp Lens":make_material("DLA Lamp Lens",(.015,.030,.055,1.0),metallic=.08,roughness=.20),
         "DLA Metal":make_material("DLA Metal",(.34,.38,.45,1.0),metallic=.82,roughness=.20),
     }
     body=create_body(materials)
@@ -978,8 +1166,8 @@ def main() -> None:
     add_surface_details(materials,body)
     add_interior(materials)
     add_qa_wheels(materials)
-    vertices,faces=collect_export_mesh()
-    write_header(args.header.resolve(),vertices,faces)
+    vertices,faces,brake_faces=collect_export_mesh()
+    write_header(args.header.resolve(),vertices,faces,brake_faces)
     if args.preview_dir:
         render_previews(args.preview_dir.resolve())
     if args.blend:

@@ -1,17 +1,18 @@
 # Drift Los Angeles
 
 Drift Los Angeles is an original open-city street-drifting game built for Sega
-Dreamcast with KallistiOS. Drive an original American grand tourer through an
+Dreamcast with KallistiOS. Drive a C7 Corvette through an
 unbounded, deterministic Los Angeles-inspired street grid at blue hour, link
 drifts between wide boulevards, and bank increasingly valuable score chains.
 
-The car is an original model influenced by the proportions and angular design
-language of the Corvette C7 era: a long sculpted hood with fender peaks, slit
-headlamps on the shoulder crease, a fastback greenhouse with painted pillars
-and sail panels, rear haunches over authored wheel wells, a scalloped flank,
-splitter, quad-lamp tail panel, diffuser, ducktail, and four separately
-modeled wheels. It contains no manufacturer badge or copied production
-geometry.
+The player car is a low-polygon C7 Stingray recreation authored for this game:
+a sculpted hood with extractor louvers, swept projector lamps with white LED
+blades, a black targa roof, narrow painted A-pillars, rear-quarter windows,
+fender vents, broad rear haunches, four angular tail-light rings, a rear lip
+spoiler, diffuser, and four center exhaust tips. Its staggered wheels have
+rounded tire shoulders, beveled five-spoke rims, recessed rotors and red
+calipers. They steer and spin, and the brake lights brighten the same lamp
+geometry used by the body mesh.
 
 ## Download
 
@@ -34,7 +35,7 @@ is also available.
   parking meters, newspaper boxes, bollards, bus shelters with ad panels,
   magazine kiosks, mailboxes, dumpsters, cafe tables and chairs, planters and
   street signs, tinted per district where they are painted metal
-- A C7-inspired coupe lofted from authored cross-sections (wheel wells,
+- A C7 Corvette lofted from authored cross-sections (wheel wells,
   haunches, rocker and cabin tub are part of the surface), with hard-edge
   normals, baked ambient occlusion, a horizon-gradient pearl paint, sun
   highlights along the creases, view-dependent paint/glass reflections,
@@ -78,9 +79,9 @@ is also available.
 | --- | --- |
 | ![Arts Quarter](assets/screenshots/arts-quarter-v5.jpg) | ![Neon Strip](assets/screenshots/neon-strip-v5.jpg) |
 
-| Hero coupe, front | Hero coupe, rear |
+| C7 Corvette, front | C7 Corvette, rear and brake lights |
 | --- | --- |
-| ![Hero coupe front three-quarter](assets/screenshots/hero-coupe-front-v7.jpg) | ![Hero coupe rear](assets/screenshots/hero-coupe-rear-v7.jpg) |
+| ![C7 Corvette front three-quarter](assets/screenshots/c7-corvette-front.png) | ![C7 Corvette rear with brake lights](assets/screenshots/c7-corvette-rear.png) |
 
 | Layered drift smoke | High-RPM exhaust burst |
 | --- | --- |
@@ -205,6 +206,27 @@ build. To regenerate it:
 ```sh
 make model
 ```
+
+To retain an editable Blender scene and front, rear, side and three-quarter
+previews alongside the game export:
+
+```sh
+blender --background --python tools/build_car_blender.py -- \
+  --header model_data.h \
+  --blend assets/generated/previews/c7-corvette/c7-corvette.blend \
+  --preview-dir assets/generated/previews/c7-corvette
+```
+
+The generator can also run in the open Blender session through Blender MCP.
+Keep geometry edits in the generator so `make model` reproduces them. The
+wheel-arch stations are ordered front to back; trim is tessellated before
+projection onto the body so the hood and fender vents remain visible. Bumper
+trim is clipped to the underlying fascia triangles to follow its curvature.
+The silhouette uses the C7's 2.71 m wheelbase, 4.49 m length, 1.88 m body width
+and 1.24 m height as proportion references. The
+export includes brake-lamp triangle indices, keeping braking aligned with the
+four hollow tail-light rings and the spoiler's center stop lamp. Run
+`make textures` after changing the LED swatches in `tools/build_textures.py`.
 
 ## Regenerate the vehicles
 

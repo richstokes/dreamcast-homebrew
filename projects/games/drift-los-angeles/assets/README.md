@@ -31,6 +31,19 @@ enforces the renderer's 4,096-vertex limit. Keep authored changes in
 The game's paint/glass response is implemented in the PVR renderer; Blender's
 material roughness settings alone do not change the shipped shading.
 
+The player mesh recreates the C7 Stingray's targa roof, swept LED headlamps,
+hood/fender extractors, rear haunches, angular tail-light rings and center quad
+exhaust. The cabin, beltline and staggered wheel sizes follow C7 proportions.
+Surface trim is subdivided before projection; bumper trim is clipped against
+the fascia triangles so it cannot bridge through the curved body. The rear
+wheel-arch stations are sorted longitudinally to keep the loft from overlapping.
+Runtime wheels have rounded shoulders, beveled spokes, inset rotors and red
+calipers; the calipers remain fixed while the wheel turns.
+The exporter also records the exact brake-light triangles; the game reuses
+their transformed positions, including body roll, for its brighter brake pass.
+The white LED and red tail-light swatches share the existing 128-pixel lamp
+atlas, so the new model does not require extra texture VRAM.
+
 There is no fixed art-memory allowance. Validate the complete scene with
 `make qa-benchmark`: textures, framebuffers, polygon buffers and tile bins all
 share 8 MiB of VRAM. The runtime checks each allocation and logs free memory.

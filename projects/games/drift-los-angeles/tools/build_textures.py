@@ -201,6 +201,13 @@ def make_vehicle_lights(image: Image.Image) -> Image.Image:
     draw.ellipse((101, 27, 104, 30), fill=(201, 230, 244))
     draw.polygon(((80, 48), (112, 48), (116, 52), (78, 53)),
                  fill=(91, 139, 174))
+    # Solid swatches for the C7's geometric LED blades, projector highlights
+    # and hollow red tail signatures. Give each bilinear sample a wide gutter.
+    draw.rectangle((8, 72, 24, 88), fill=(225, 242, 255))
+    draw.rectangle((40, 72, 56, 88), fill=(248, 12, 22))
+    draw.rectangle((72, 72, 88, 88), fill=(12, 20, 31))
+    draw.rectangle((104, 72, 120, 88), fill=(42, 3, 7))
+    draw.rectangle((99, 103, 112, 116), fill=(255, 126, 12))
     return result
 
 
@@ -241,6 +248,9 @@ def build(source_dir: Path, output_dir: Path) -> None:
                     texture = make_vehicle_lights(texture)
             if spec.tileable and not spec.name.startswith("facade_"):
                 texture = make_tileable(texture)
+            if spec.name == "car_carbon":
+                # Matte trim uses a swatch after the weave's seams are blended.
+                ImageDraw.Draw(texture).rectangle((120,120,127,127),fill=(35,38,44))
             texture.save(previews / f"{spec.name}.png", optimize=True)
             built.append((spec, pack_texture(texture, "ARGB4444" if spec.alpha else "RGB565",
                 mipmap=spec.mipmap, wrap=spec.tileable)))
