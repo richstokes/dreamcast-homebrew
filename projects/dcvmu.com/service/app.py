@@ -398,6 +398,33 @@ def create_app(config=None):
     def support():
         return page('support.html')
 
+    @app.get('/stats')
+    def stats():
+        now = int(time.time())
+        # One statement keeps all totals in the same SQLite snapshot. Aggregate
+        # file sizes in SQL so save and archive blobs never enter Python memory.
+        totals = database().execute('''SELECT * FROM
+            (SELECT count(*) AS users,
+                count(CASE WHEN created>=:week_ago THEN 1 END) AS new_users
+             FROM users)
+            CROSS JOIN
+            (SELECT count(*) AS saves,
+                count(CASE WHEN private=0 THEN 1 END) AS public_saves,
+                count(CASE WHEN private=1 THEN 1 END) AS private_saves,
+                count(CASE WHEN kind='data' THEN 1 END) AS game_saves,
+                count(CASE WHEN kind='icon' THEN 1 END) AS custom_icons,
+                count(CASE WHEN created>=:week_ago THEN 1 END) AS new_saves,
+                coalesce(sum(length(data)),0) AS save_bytes
+             FROM saves)
+            CROSS JOIN
+            (SELECT count(*) AS archives,
+                count(CASE WHEN created>=:week_ago THEN 1 END) AS new_archives,
+                coalesce(sum(length(data)),0) AS archive_bytes
+             FROM archives)''', {'week_ago': now - 7 * 86400}).fetchone()
+        response = page('stats.html', stats=totals, as_of=now)
+        response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+        return response
+
     @app.get('/downloads/dcvmu-client.elf')
     def client_download():
         return redirect(CLIENT_RELEASE_BASE + '/dcvmu-client.elf', 302)

@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}Stats{% endblock %}
+{% block content %}
+<p class="eyebrow">SERVICE OVERVIEW</p>
+<h1>DCVMU stats</h1>
+<p>A snapshot of the community and the backups stored on DCVMU.</p>
+<p class="hint">As of <time data-local-time datetime="{{ as_of|utc_iso }}">{{ as_of|utc_display }}</time></p>
+
+<dl class="stats-overview">
+  <div><dt>Registered users</dt><dd>{{ '{:,}'.format(stats.users) }}</dd></div>
+  <div><dt>Total saves</dt><dd>{{ '{:,}'.format(stats.saves) }}</dd></div>
+  <div><dt>VMU archives</dt><dd>{{ '{:,}'.format(stats.archives) }}</dd></div>
+  <div><dt>Stored data</dt><dd>{{ (stats.save_bytes + stats.archive_bytes)|filesizeformat(binary=True) }}</dd></div>
+</dl>
+
+<div class="stats-details">
+  <section aria-labelledby="save-breakdown">
+    <h2 id="save-breakdown">Save breakdown</h2>
+    <dl class="stats-breakdown">
+      <div><dt>Public saves</dt><dd>{{ '{:,}'.format(stats.public_saves) }}</dd></div>
+      <div><dt>Private saves</dt><dd>{{ '{:,}'.format(stats.private_saves) }}</dd></div>
+      <div><dt>Game saves</dt><dd>{{ '{:,}'.format(stats.game_saves) }}</dd></div>
+      <div><dt>Custom VMU icons</dt><dd>{{ '{:,}'.format(stats.custom_icons) }}</dd></div>
+    </dl>
+    <p class="hint">Total saves includes game saves and custom VMU icons, both public and private. Whole-card archives are counted separately.</p>
+  </section>
+  <section aria-labelledby="recent-additions">
+    <h2 id="recent-additions">Last 7 days</h2>
+    <dl class="stats-breakdown">
+      <div><dt>New users</dt><dd>{{ '{:,}'.format(stats.new_users) }}</dd></div>
+      <div><dt>New saves</dt><dd>{{ '{:,}'.format(stats.new_saves) }}</dd></div>
+      <div><dt>New VMU archives</dt><dd>{{ '{:,}'.format(stats.new_archives) }}</dd></div>
+    </dl>
+    <p class="hint">New records that are still stored, excluding replacements and edits.</p>
+  </section>
+</div>
+<p class="hint">Totals reflect currently stored records. Stored data is the combined file size of saves and VMU archives, excluding database overhead.</p>
+{% endblock %}
