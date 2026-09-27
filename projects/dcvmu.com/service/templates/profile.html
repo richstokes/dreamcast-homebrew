@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}{{ profile.username }}'s profile{% endblock %}
+{% block content %}
+<p class="eyebrow">USER PROFILE</p>
+<h1 class="profile-name">{{ profile.username }}</h1>
+<p class="hint">Joined <time data-local-time datetime="{{ profile.created|utc_iso }}">{{ profile.created|utc_display }}</time></p>
+<h2>Public saves</h2>
+<p>{{ '{:,}'.format(total_saves) }} public save{{ 's' if total_saves != 1 else '' }}, including custom VMU icons.</p>
+<div class="save-list">
+{% for save in saves %}
+  <article class="save-card">
+    <div class="save-heading"><div class="save-title"><p class="eyebrow">{{ save.game }}</p><h2><a href="{{ url_for('detail', sid=save.id) }}">{{ save.name }}</a></h2></div>{% include 'save_icon.html' %}</div>
+    {% if save.notes %}<p class="save-notes">{{ save.notes[:150] }}</p>{% endif %}
+    {% include 'save_metadata.html' %}
+    <div class="save-card-footer"><span class="save-blocks">{{ save.size // 512 }} block{{ 's' if save.size // 512 != 1 else '' }}</span><span class="save-filename">{{ save.filename }}</span></div>
+  </article>
+{% else %}
+  <div class="empty"><h2>No public saves yet</h2><p>This user hasn't shared any saves.</p></div>
+{% endfor %}
+</div>
+{% if total_saves %}<p aria-label="Pagination">{% if page_num > 1 %}<a href="{{ url_for('user_profile', username=profile.username, page=page_num-1) }}">Previous page</a> &middot; {% endif %}Page {{ page_num }} of {{ total_pages }} &middot; {{ '{:,}'.format(total_saves) }} save{{ 's' if total_saves != 1 else '' }}{% if page_num < total_pages %} &middot; <a href="{{ url_for('user_profile', username=profile.username, page=page_num+1) }}">Next page</a>{% endif %}</p>{% endif %}
+{% endblock %}

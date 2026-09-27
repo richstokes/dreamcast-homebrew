@@ -400,6 +400,21 @@ def create_app(config=None):
 
     @app.get('/stats')
     def stats():
+        user_sort_options = {
+            'username_asc': 'u.username COLLATE NOCASE ASC,u.id ASC',
+            'username_desc': 'u.username COLLATE NOCASE DESC,u.id DESC',
+            'joined_asc': 'u.created ASC,u.username COLLATE NOCASE ASC,u.id ASC',
+            'joined_desc': 'u.created DESC,u.username COLLATE NOCASE ASC,u.id ASC',
+            'saves_asc': 'public_saves ASC,u.username COLLATE NOCASE ASC,u.id ASC',
+            'saves_desc': 'public_saves DESC,u.username COLLATE NOCASE ASC,u.id ASC',
+        }
+        sort = request.args.get('sort', 'username_asc')
+        if sort not in user_sort_options:
+            sort = 'username_asc'
+        try:
+            page_num = max(1, int(request.args.get('page', 1)))
+        except ValueError:
+            abort(400, 'Invalid page.')
         now = int(time.time())
         # One statement keeps all totals in the same SQLite snapshot. Aggregate
         # file sizes in SQL so save and archive blobs never enter Python memory.
@@ -421,7 +436,41 @@ def create_app(config=None):
                 count(CASE WHEN created>=:week_ago THEN 1 END) AS new_archives,
                 coalesce(sum(length(data)),0) AS archive_bytes
              FROM archives)''', {'week_ago': now - 7 * 86400}).fetchone()
-        response = page('stats.html', stats=totals, as_of=now)
+        total_pages = max(1, (totals['users'] + 19) // 20)
+        page_num = min(page_num, total_pages)
+        users = database().execute('''SELECT u.username,u.created,count(s.id) AS public_saves
+            FROM users u LEFT JOIN saves s ON s.user_id=u.id AND s.private=0
+            GROUP BY u.id ORDER BY ''' + user_sort_options[sort] + ' LIMIT 20 OFFSET ?',
+            ((page_num - 1) * 20,)).fetchall()
+        response = page('stats.html', stats=totals, as_of=now, members=users,
+                        sort=sort, page_num=page_num, total_pages=total_pages)
+        response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+        return response
+
+    @app.get('/users/<username>')
+    def user_profile(username):
+        profile = database().execute('SELECT id,username,created FROM users WHERE username=?',
+                                     (username,)).fetchone()
+        if profile is None:
+            abort(404, 'User not found.')
+        try:
+            page_num = max(1, int(request.args.get('page', 1)))
+        except ValueError:
+            abort(400, 'Invalid page.')
+        # A profile always shows public saves, even to its signed-in owner.
+        total_saves = database().execute('SELECT count(*) FROM saves WHERE user_id=? AND private=0',
+                                         (profile['id'],)).fetchone()[0]
+        total_pages = max(1, (total_saves + 19) // 20)
+        page_num = min(page_num, total_pages)
+        rows = database().execute('''SELECT id,name,game,notes,filename,created,uploaded_at,kind,
+            length(data) AS size,substr(data,header_offset*512+1,640) AS vms_header
+            FROM saves WHERE user_id=? AND private=0
+            ORDER BY coalesce(uploaded_at,created) DESC,id DESC LIMIT 20 OFFSET ?''',
+            (profile['id'], (page_num - 1) * 20)).fetchall()
+        response = page('profile.html', profile=profile,
+                        saves=[dict(row, metadata={} if row['kind']=='icon' else header_metadata(row['vms_header']),
+                                    has_icon=row['kind']=='icon' or has_vms_icon(row['vms_header'])) for row in rows],
+                        total_saves=total_saves, page_num=page_num, total_pages=total_pages)
         response.headers['X-Robots-Tag'] = 'noindex, nofollow'
         return response
 

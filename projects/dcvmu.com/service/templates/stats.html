@@ -35,4 +35,31 @@
   </section>
 </div>
 <p class="hint">Totals reflect currently stored records. Stored data is the combined file size of saves and VMU archives, excluding database overhead.</p>
+
+<section aria-labelledby="users">
+  <h2 id="users">Users</h2>
+  <p class="hint">Select a column heading to sort. Open a profile to see that user's public saves.</p>
+  {% if members %}
+  <div class="user-table-scroll" role="region" aria-label="User list" tabindex="0">
+    <table class="user-table" aria-label="Registered users">
+      <thead><tr>
+        {% for column, label in [('username', 'Username'), ('joined', 'Joined'), ('saves', 'Public saves')] %}
+        {% set ascending = column ~ '_asc' %}{% set descending = column ~ '_desc' %}
+        <th scope="col"{% if sort == ascending %} aria-sort="ascending"{% elif sort == descending %} aria-sort="descending"{% endif %}>
+          <a href="{{ url_for('stats', sort=descending if sort == ascending else ascending, _anchor='users') }}">{{ label }}{% if sort == ascending %} <span aria-hidden="true">↑</span>{% elif sort == descending %} <span aria-hidden="true">↓</span>{% endif %}</a>
+        </th>
+        {% endfor %}
+      </tr></thead>
+      <tbody>{% for member in members %}
+        <tr>
+          <td><a href="{{ url_for('user_profile', username=member.username) }}">{{ member.username }}</a></td>
+          <td><time data-local-time datetime="{{ member.created|utc_iso }}">{{ member.created|utc_display }}</time></td>
+          <td>{{ '{:,}'.format(member.public_saves) }}</td>
+        </tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  <p aria-label="User pagination">{% if page_num > 1 %}<a href="{{ url_for('stats', sort=sort, page=page_num-1, _anchor='users') }}">Previous page</a> &middot; {% endif %}Page {{ page_num }} of {{ total_pages }} &middot; {{ '{:,}'.format(stats.users) }} user{{ 's' if stats.users != 1 else '' }}{% if page_num < total_pages %} &middot; <a href="{{ url_for('stats', sort=sort, page=page_num+1, _anchor='users') }}">Next page</a>{% endif %}</p>
+  {% else %}<p>No users yet.</p>{% endif %}
+</section>
 {% endblock %}

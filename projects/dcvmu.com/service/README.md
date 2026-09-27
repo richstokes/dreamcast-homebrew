@@ -88,8 +88,13 @@ The unlinked `/stats` page is readable without a login and sends
 `X-Robots-Tag: noindex, nofollow`. It shows aggregate account, save, archive and
 file-storage totals, plus additions over the last seven days. Saves include
 custom icons; archives are separate. Counts cover currently stored records,
-including private entries, without exposing their contents or owners. This is
-an unlisted page, not an access-controlled one; keep it out of site navigation.
+including private entries, without exposing their contents. Its paginated user
+table sorts by username, join date or public-save count and links to profiles at
+`/users/<username>`. Profiles show only that exact account's public saves and
+custom icons, even to the signed-in owner; private saves and VMU archives are
+excluded. Profiles also send `noindex, nofollow` and never link back to stats.
+Stats is an unlisted page, not an access-controlled one; keep it out of site
+navigation.
 
 ## API v1
 

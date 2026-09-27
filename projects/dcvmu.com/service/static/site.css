@@ -14,6 +14,18 @@
 @media(max-width:850px){.stats-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.stats-overview{gap:12px}.stats-overview>div{padding:16px}.stats-overview dd{font-size:26px}.stats-details{grid-template-columns:minmax(0,1fr);gap:20px}}
 
+.user-table-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.user-table-scroll:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.user-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
+.user-table th,.user-table td{padding:14px 18px;text-align:left;overflow-wrap:anywhere}
+.user-table th{background:var(--panel);font-size:13px}
+.user-table td{border-top:1px solid var(--line)}
+.user-table th:last-child,.user-table td:last-child{width:22%;text-align:right;font-variant-numeric:tabular-nums}
+.user-table tbody tr:hover,.user-table tbody tr:focus-within{background:var(--panel-soft)}
+.user-table time{font-size:13px;color:var(--muted)}
+.profile-name{overflow-wrap:anywhere}
+@media(max-width:600px){.user-table th,.user-table td{padding:12px 10px}.user-table th:last-child,.user-table td:last-child{width:25%}}
+
 .save-metadata{font-size:14px;border-top:1px solid var(--line);padding-top:12px}
 .save-metadata div{display:flex;gap:12px;margin:5px 0}
 .save-metadata dt{flex:0 0 120px;color:var(--muted)}
