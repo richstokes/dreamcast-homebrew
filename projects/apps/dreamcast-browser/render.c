@@ -448,7 +448,8 @@ static void draw_page(const browser_document_t *doc, const browser_view_t *view)
             else if(item->style == TEXT_STRONG) color = C_STRONG;
             else if(item->style == TEXT_EMPHASIS) color = C_EMPHASIS;
             else if(item->style == TEXT_MUTED || item->type == ITEM_NOTICE) color = C_ERROR;
-            else if(item->style == TEXT_CODE) color = C_MUTED;
+            else if(item->style == TEXT_CODE || item->style == TEXT_SEPARATOR)
+                color = C_MUTED;
             draw_text(item->x, y, color, item->text);
         } else if(item->type == ITEM_RULE) {
             fill_rect(item->x, y, item->width, 2, C_RULE);

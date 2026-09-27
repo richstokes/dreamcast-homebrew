@@ -3,7 +3,13 @@
 #include "browser.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+void fetch_result_free(fetch_result_t *result) {
+    free(result->data);
+    memset(result, 0, sizeof(*result));
+}
 
 int resolve_url(const char *base, const char *reference, char *out, size_t out_size) {
     const char *slash;

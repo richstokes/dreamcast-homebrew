@@ -1,12 +1,13 @@
 TARGET = dreamcast-browser.elf
-OBJS = dreamcast-browser.o net.o html.o images.o render.o osk.o address.o \
-       bookmarks.o storage.o romdisk.o
+OBJS = dreamcast-browser.o loader.o input.o forms.o selftest.o net.o html.o \
+       images.o render.o osk.o address.o bookmarks.o storage.o cache.o \
+       modem.o romdisk.o
 
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
 KOS_CSTD = -std=gnu17
 
-LDLIBS = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lstb_image -lm -lpthread
+LDLIBS = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lstb_image -lm -lpthread -lppp
 
 all: $(TARGET)
 
@@ -15,10 +16,11 @@ include $(KOS_BASE)/Makefile.rules
 clean:
 	-rm -f $(OBJS) $(TARGET) romdisk.img
 
-dreamcast-browser.o net.o html.o images.o render.o osk.o address.o bookmarks.o \
-    storage.o: browser.h
-dreamcast-browser.o storage.o: storage.h
-dreamcast-browser.o: tests/loading_self_test.inc
+dreamcast-browser.o loader.o input.o forms.o selftest.o net.o html.o images.o \
+    render.o osk.o address.o bookmarks.o storage.o cache.o modem.o: browser.h
+dreamcast-browser.o loader.o input.o forms.o selftest.o: app.h storage.h
+storage.o: storage.h
+selftest.o: tests/loading_self_test.inc tests/site_self_test.inc
 
 $(TARGET): $(OBJS) $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a
 	kos-cc -o $@ $(OBJS) $(LDLIBS)
