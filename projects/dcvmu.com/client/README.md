@@ -142,22 +142,28 @@ focus it, then press Enter at the title screen. Use arrows/Tab to navigate and
 Enter to edit a field before typing. If uploads time out intermittently, install the
 [native Flycast build](../../../tools/flycast/README.md#tcp-upload-fix).
 
-The launcher mounts **persistent test copies** of your Flycast VMU images, kept
-under `~/Library/Application Support/DCVMU/VMUs`, so a test install can never
-overwrite a game's real save. A1 is reserved for the DCVMU login. The other
-slots hold Flycast's shared cards (`vmu_save_A1.bin`, `vmu_save_A2.bin`, ...):
-every card that contains saves, plus one blank card to install onto. Flycast's
-own A1 card therefore appears in the client as A2.
+The launcher runs the client on **Flycast's own memory cards**, in the same
+slots Flycast uses, so a save installed by the client appears in games and in
+the Dreamcast BIOS file manager. Per-game VMUs are switched off for the session;
+the cards are the shared `vmu_save_A1.bin`, `vmu_save_A2.bin`, ... images, and
+the DCVMU login is stored on one of them as it is on a real console. Every card
+is backed up to `~/Library/Application Support/DCVMU/backups` before launch.
 
 ```sh
 ./run-flycast.sh --list-vmus
 ```
 
-Per-game images (`<game>_vmu_save_A1.bin`, written while Flycast's *Per-game
-VMU A1* option is on) are ignored. `--vmus-dir /path` mounts every image in a
-directory instead, per-game ones included, in banks of five chosen with
-`--bank N`. `--vmu-image /path/to/card.bin` (repeatable) picks images
-explicitly, and `--dry-run` reports the mapping without launching.
+To experiment without touching real saves, mount persistent test copies kept
+under `~/Library/Application Support/DCVMU/VMUs` instead. A1 then holds a
+separate login card and the copies start at A2:
+
+```sh
+./run-flycast.sh --copies
+```
+
+`--vmus-dir /path` mounts copies of every image in a directory, in banks of
+five chosen with `--bank N`, and `--vmu-image /path/to/card.bin` (repeatable)
+picks images explicitly. `--dry-run` reports the cards without launching.
 
 ## Tests
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Expose Flycast's shared VMUs to the client as persistent test copies."""
+"""Launch the client on Flycast's own VMUs, or on persistent test copies of them."""
 import argparse
 import fcntl
 import hashlib
@@ -38,14 +38,18 @@ def main():
     parser.add_argument('--elf', required=True, type=Path)
     parser.add_argument('--flycast', required=True)
     parser.add_argument('--arch', default='')
-    parser.add_argument('--vmu-image', action='append', type=Path, default=[])
+    parser.add_argument('--copies', action='store_true',
+                        help='Mount persistent test copies; the real cards stay unchanged')
+    parser.add_argument('--vmu-image', action='append', type=Path, default=[],
+                        help='Mount a test copy of this image (repeatable)')
     parser.add_argument('--vmus-dir', type=Path,
-                        help='Mount every VMU image in this directory, per-game ones included')
+                        help='Mount test copies of every image in this directory')
     parser.add_argument('--bank', type=int, default=1)
     parser.add_argument('--list-vmus', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)
+    live = not (args.copies or args.vmu_image or args.vmus_dir)
     if args.vmu_image:
         images = [p.expanduser().resolve() for p in args.vmu_image]
     else:
@@ -63,6 +67,32 @@ def main():
         if not p.is_file() or p.stat().st_size != 131072:
             parser.error(f'Expected a 128 KiB VMU image: {p}')
     names = {p: save_names(p) for p in images}
+    root = Path.home() / 'Library/Application Support/DCVMU/VMUs'
+    # Host input ports are zero-based: route the Mac keyboard to D (3),
+    # matching the emulated keyboard at device4.
+    config = ('network:EmulateBBA=yes,network:DCNet=no,config:Debug.SerialConsoleEnabled=yes,'
+              'config:UploadCrashLogs=no,config:PerGameVmu=no,'
+              'input:device4=5,input:maple_sdl_keyboard=3')
+    if live:
+        # Same cards, same slots as Flycast itself: installs show up in games and the BIOS.
+        if args.bank != 1:
+            parser.error('--bank applies to --copies and --vmus-dir')
+        for p in images:
+            print(f'{p.name[9:11]}: {p.name} ({len(names[p])} saves)')
+            if names[p]:
+                print('  ' + ', '.join(names[p]))
+        if args.list_vmus:
+            return
+        backups = root.parent / 'backups'
+        backups.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for p in images:
+            original = p.read_bytes()
+            backup = backups / f'{p.stem}-{hashlib.sha256(original).hexdigest()[:16]}.bin'
+            if not backup.exists():
+                backup.write_bytes(original)
+        print(f"Using Flycast's own VMUs. Each card is backed up in {backups}", flush=True)
+        command = (["/usr/bin/arch", '-' + args.arch] if args.arch else []) + [args.flycast, '-config', config, str(args.elf.resolve())]
+        return 0 if args.dry_run else subprocess.call(command)
     if not args.vmu_image:
         images.sort(key=lambda p: (not bool(names[p]), p.name.lower(), str(p)))
         if not args.vmus_dir:
@@ -78,7 +108,6 @@ def main():
         return
     if not 1 <= args.bank <= banks:
         parser.error(f'Choose --bank 1 through {banks}')
-    root = Path.home() / 'Library/Application Support/DCVMU/VMUs'
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (root / '.lock').open('a') as lock:
         try:
@@ -100,15 +129,11 @@ def main():
                         target.write(original)
                 (mount / f'vmu_save_{slot}.bin').symlink_to(copy)
                 print(f'{slot}: {source.name} -> persistent test copy', flush=True)
-            # Host input ports are zero-based: route the Mac keyboard to D (3),
-            # matching the emulated keyboard at device4; A-C hold VMUs.
-            config = ('network:EmulateBBA=yes,network:DCNet=no,config:Debug.SerialConsoleEnabled=yes,'
-                      'config:UploadCrashLogs=no,config:PerGameVmu=no,'
-                      f'config:Dreamcast.VMUPath={mount},config:Dreamcast.SavePath={mount},'
-                      'input:device1=0,input:device1.1=1,input:device1.2=1,'
-                      'input:device2=0,input:device2.1=1,input:device2.2=1,'
-                      'input:device3=0,input:device3.1=1,input:device3.2=1,'
-                      'input:device4=5,input:maple_sdl_keyboard=3')
+            # Ports A-C hold the mounted cards.
+            config += (f',config:Dreamcast.VMUPath={mount},config:Dreamcast.SavePath={mount},'
+                       'input:device1=0,input:device1.1=1,input:device1.2=1,'
+                       'input:device2=0,input:device2.1=1,input:device2.2=1,'
+                       'input:device3=0,input:device3.1=1,input:device3.2=1')
             command = (["/usr/bin/arch", '-' + args.arch] if args.arch else []) + [args.flycast, '-config', config, str(args.elf.resolve())]
             print(f'Original images stay unchanged. Test writes are retained in {root}', flush=True)
             if not args.dry_run:
