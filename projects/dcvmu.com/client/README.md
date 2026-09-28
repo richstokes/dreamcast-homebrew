@@ -149,21 +149,8 @@ the cards are the shared `vmu_save_A1.bin`, `vmu_save_A2.bin`, ... images, and
 the DCVMU login is stored on one of them as it is on a real console. Every card
 is backed up to `~/Library/Application Support/DCVMU/backups` before launch.
 
-```sh
-./run-flycast.sh --list-vmus
-```
-
-To experiment without touching real saves, mount persistent test copies kept
-under `~/Library/Application Support/DCVMU/VMUs` instead. A1 then holds a
-separate login card and the copies start at A2:
-
-```sh
-./run-flycast.sh --copies
-```
-
-`--vmus-dir /path` mounts copies of every image in a directory, in banks of
-five chosen with `--bank N`, and `--vmu-image /path/to/card.bin` (repeatable)
-picks images explicitly. `--dry-run` reports the cards without launching.
+`./run-flycast.sh --list-vmus` shows the cards and their saves, and `--dry-run`
+does everything except start Flycast.
 
 ## Tests
 
