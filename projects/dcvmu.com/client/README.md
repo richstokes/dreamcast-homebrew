@@ -144,16 +144,20 @@ Enter to edit a field before typing. If uploads time out intermittently, install
 
 The launcher mounts **persistent test copies** of your Flycast VMU images, kept
 under `~/Library/Application Support/DCVMU/VMUs`, so a test install can never
-overwrite a game's real save. A1 is reserved for the DCVMU login, and the other
-images are spread across numbered banks of five:
+overwrite a game's real save. A1 is reserved for the DCVMU login. The other
+slots hold Flycast's shared cards (`vmu_save_A1.bin`, `vmu_save_A2.bin`, ...):
+every card that contains saves, plus one blank card to install onto. Flycast's
+own A1 card therefore appears in the client as A2.
 
 ```sh
 ./run-flycast.sh --list-vmus
-./run-flycast.sh --bank 2
 ```
 
-`--vmu-image /path/to/card.bin` (repeatable) and `--vmus-dir /path` choose
-images explicitly, and `--dry-run` reports the mapping without launching.
+Per-game images (`<game>_vmu_save_A1.bin`, written while Flycast's *Per-game
+VMU A1* option is on) are ignored. `--vmus-dir /path` mounts every image in a
+directory instead, per-game ones included, in banks of five chosen with
+`--bank N`. `--vmu-image /path/to/card.bin` (repeatable) picks images
+explicitly, and `--dry-run` reports the mapping without launching.
 
 ## Tests
 

@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Expose all local Flycast VMUs in selectable banks of persistent test copies."""
+"""Expose Flycast's shared VMUs to the client as persistent test copies."""
 import argparse
 import fcntl
 import hashlib
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import tempfile
 
 SLOTS = ('A2', 'B1', 'B2', 'C1', 'C2')  # A1 remembers login; port D is a keyboard.
+# The cards Flycast uses with per-game VMUs off; per-game images are <game>_vmu_save_A1.bin.
+SHARED = re.compile(r'vmu_save_[A-D][12]\.bin')
 
 
 def save_names(path):
@@ -36,7 +39,8 @@ def main():
     parser.add_argument('--flycast', required=True)
     parser.add_argument('--arch', default='')
     parser.add_argument('--vmu-image', action='append', type=Path, default=[])
-    parser.add_argument('--vmus-dir', type=Path, help='Override VMU discovery directory')
+    parser.add_argument('--vmus-dir', type=Path,
+                        help='Mount every VMU image in this directory, per-game ones included')
     parser.add_argument('--bank', type=int, default=1)
     parser.add_argument('--list-vmus', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
@@ -53,13 +57,17 @@ def main():
                 if sep and key.strip() == 'Dreamcast.VMUPath' and value.strip():
                     directories.append(Path(value.strip()).expanduser())
         images = sorted({p.resolve() for folder in directories for p in folder.glob('*vmu*.bin')
-                         if p.is_file() and p.stat().st_size == 131072})
+                         if p.is_file() and p.stat().st_size == 131072
+                         and (args.vmus_dir or SHARED.fullmatch(p.name))})
     for p in images:
         if not p.is_file() or p.stat().st_size != 131072:
             parser.error(f'Expected a 128 KiB VMU image: {p}')
     names = {p: save_names(p) for p in images}
     if not args.vmu_image:
         images.sort(key=lambda p: (not bool(names[p]), p.name.lower(), str(p)))
+        if not args.vmus_dir:
+            # Every shared card holding saves, plus one blank card to install onto.
+            images = [p for p in images if names[p]] + [p for p in images if not names[p]][:1]
     banks = max(1, (len(images) + len(SLOTS) - 1) // len(SLOTS))
     if args.list_vmus:
         for i, p in enumerate(images):
