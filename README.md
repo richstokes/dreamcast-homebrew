@@ -22,6 +22,11 @@ Check [the getting started guide](https://dcvmu.com/getting-started) for more in
 | <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/games/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fgravity-wave.elf&name=Gravity%20Wave) |
 | <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/games/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdemon-bazooka.elf&name=Demon%20Bazooka) |
 
+**[Island Explorer](projects/games/island-explorer/)** is a coastal exploration
+prototype with a walking character, swimming and ocean ambience. It currently
+requires locally extracted Sonic Adventure assets; its source and conversion
+tools are included, with no downloadable game build.
+
 ## Apps and demos
 
 | Preview | Project | Latest download | Try in browser |
@@ -55,10 +60,10 @@ git clone https://github.com/richstokes/dreamcast-homebrew.git
 cd dreamcast-homebrew
 ```
 
-Drift Los Angeles and PICO-8 Player depend on [SH4ZAM](https://sh4zam.com/),
+Drift Los Angeles, Island Explorer and PICO-8 Player depend on [SH4ZAM](https://sh4zam.com/),
 which is neither vendored nor pinned. Each build clones or fast-forwards an
 ignored `third_party/sh4zam` checkout to the latest upstream `master` before
-compiling, and CI does the same. To refresh both checkouts manually, run
+compiling. CI does the same for its published projects. To refresh checkouts manually, run
 `tools/update-sh4zam.sh` with their paths from the repository root.
 
 Source the KOS environment, then build a project:

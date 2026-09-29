@@ -1,0 +1,15 @@
+# Assets derived from the user's Sonic Adventure disc stay local.
+/assets/extracted/
+/assets/generated/
+/assets/island-explorer.blend*
+/captures/
+
+# Rebuilt locally, including diagnostic executables, logs and fetched tools.
+/build/
+/third_party/sh4zam/
+*.elf
+*.o
+*.d
+*.log
+*.blend
+*.blend[0-9]*
