@@ -133,7 +133,8 @@ def main():
     for name in ['BEACH01','BEACH02','OBJ_BEACH','BG_BEACH','BEACH_SEA']:
         banks[name]=len(textures)
         textures.extend(archive(buffers[name+'.PRS'],name,image_dir))
-    raw=bytearray(struct.pack('<4sI',b'IET1',len(textures)))
+    # IET2 stores upload-ready hardware mip chains, including layout-2 padding.
+    raw=bytearray(struct.pack('<4sI',b'IET2',len(textures)))
     raw.extend(bytes(len(textures)*24))
     for i,t in enumerate(textures):
         raw.extend(bytes((-len(raw))%32));off=len(raw)

@@ -81,6 +81,8 @@ sh-elf-readelf -h island-explorer.elf
 On this workstation the extractor also discovers the existing PAL GDI in
 `~/Dropbox/Games/ROMs/DREAMCAST/Sonic Adventure (EU) # SDC/` when `--gdi` is omitted.
 After sourcing KOS, `make assets GDI="/absolute/path/to/disc.gdi"` runs both steps.
+Changes to the converter also refresh the stage/texture pack during a normal
+build; pass `GDI="/absolute/path/to/disc.gdi"` to `make` if needed.
 Python dependencies are managed by `uv` script metadata. Font generation uses
 the workstation's Avenir Next, falling back to Arial.
 
@@ -141,6 +143,12 @@ The two areas contain 122,331 triangles in 6,781 material batches, including
 VRAM efficiency. Both areas are resident, allowing immediate travel. Small
 props are distance-culled; a 12,000-triangle submission limit protects the PVR
 buffer. These are compromises for the retail 16 MB RAM / 8 MB VRAM target.
+
+The `IET2` texture pack restores the four padding bytes omitted by standard
+uncompressed mipmapped PVR files before uploading them. This fixes the dotted
+cloud/foliage pattern caused by incorrect texel addresses. The sky retains its
+original 256×256 image and bilinear filtering; no upscaling or extra texture
+memory is required. Old `IET1` packs are rejected with a rebuild instruction.
 
 Format layouts and stage offsets were checked against
 [X-Hax SA Tools](https://github.com/X-Hax/sa_tools) at commit

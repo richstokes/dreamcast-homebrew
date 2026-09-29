@@ -1,4 +1,4 @@
-"""Decode original PVRs for Blender; preserve native mipmapped payloads for KOS."""
+"""Decode PVR files for Blender and normalize their payloads for PowerVR RAM."""
 import struct
 import numpy as np
 from PIL import Image
@@ -9,6 +9,16 @@ def spread(v):
     for bit in range(10):
         r |= ((v >> bit) & 1) << (2 * bit)
     return r
+
+
+def hardware_payload(raw, layout):
+    # Standard PVRT layout 2 omits four bytes of the hardware mip-chain prefix.
+    # KOS utils/pvrtex/file_pvr.c documents this file/VRAM difference. The 1x1
+    # RGB565 texel lives at byte 2 in the file but byte 6 in VRAM; the 256x256
+    # level starts at 43,692 in the file and 43,696 in VRAM. Uploading the file
+    # verbatim shifts every twiddled level and creates a dotted/checker pattern.
+    # VQ mip chains already have their correct prefix and must stay unchanged.
+    return bytes(4) + raw if layout == 2 else raw
 
 
 def decode(raw, pixel, layout, w, h):
@@ -51,15 +61,18 @@ def archive(data, prefix, image_dir):
         pixel, layout = data[p+8:p+10]
         w, h = struct.unpack_from('<HH', data, p+12)
         raw = data[p+16:p+8+size]
-        # Preserve only the exact hardware payload, dropping archive alignment.
+        # Decode the file layout before adding the hardware's missing prefix.
         n = 2048 + w*h//4 if layout in (3,4) else w*h*2
         if layout == 4:
             n += sum(max(1, (2**j)**2//4) for j in range(w.bit_length()-1))
         elif layout == 2:
             n += 2 + sum(2*(2**j)**2 for j in range(w.bit_length()-1))
+        if len(raw) < n:
+            raise ValueError(f'Truncated PVR texture: {name}')
         raw = raw[:n]
         filename = f'{prefix}_{i:03d}_{name}.png'
         decode(raw, pixel, layout, w, h).save(image_dir/filename)
-        textures.append(dict(name=name, image=filename, pixel=pixel, layout=layout, width=w, height=h, raw=raw))
+        textures.append(dict(name=name, image=filename, pixel=pixel, layout=layout, width=w, height=h,
+                             raw=hardware_payload(raw, layout)))
         p += size + 8
     return textures

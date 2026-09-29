@@ -131,7 +131,10 @@ bool renderer_init(void){
     initialized=true;
     pvr_set_bg_color(.34f,.68f,.88f);
     pvr_fog_table_color(1,.57f,.79f,.86f);pvr_fog_table_linear(2300,5000);
-    if(memcmp(textures_start,"IET1",4))return false;
+    if(memcmp(textures_start,"IET2",4)){
+        printf("[render] stale texture pack: run make assets to rebuild hardware mipmaps\n");
+        return false;
+    }
     unsigned count=((const uint32_t *)textures_start)[1];
     if(count!=TEXTURE_COUNT)return false;
     memcpy(texture_info,textures_start+8,sizeof(texture_info));

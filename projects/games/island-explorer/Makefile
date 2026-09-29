@@ -4,6 +4,8 @@ else
 
 TARGET = island-explorer.elf
 OBJS = main.o world.o render.o dolphins.o audio.o assets.o
+STAGE_ASSETS = assets/generated/asset_ids.h assets/generated/coast0.bin assets/generated/coast1.bin \
+    assets/generated/sky.bin assets/generated/foam0.bin assets/generated/foam1.bin
 SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
     third_party/sh4zam/include/sh4zam/inline/*.h \
     third_party/sh4zam/include/sh4zam/inline/sh4/*.h)
@@ -18,10 +20,13 @@ main.o world.o render.o dolphins.o audio.o: engine.h
 dolphins.o render.o: dolphins.h
 render.o: assets/generated/asset_ids.h render_math.h $(SH4ZAM_HEADERS)
 assets.o: third_party/sh4zam/LICENSE
-assets.o: assets/generated/coast0.bin assets/generated/coast1.bin assets/generated/textures.bin assets/generated/sky.bin assets/generated/ambience.pcm assets/generated/font.bin assets/generated/foam0.bin assets/generated/foam1.bin
-assets/generated/asset_ids.h assets/generated/coast0.bin:
-	@echo 'Run uv run tools/extract_stage.py --gdi /path/to/Sonic-Adventure.gdi first.'
-	@false
+assets.o: $(STAGE_ASSETS) assets/generated/textures.bin assets/generated/ambience.pcm assets/generated/font.bin
+# One extraction owns these outputs. Wait for it before compiling consumers,
+# including render.o, so parallel builds cannot read stale texture bank IDs.
+$(STAGE_ASSETS): assets/generated/textures.bin
+	@test -f $@ || { echo 'Run make assets GDI=/path/to/Sonic-Adventure.gdi to restore missing assets.'; exit 1; }
+assets/generated/textures.bin: tools/extract_stage.py tools/pvr.py tools/ninja.py tools/disc.py
+	uv run tools/extract_stage.py $(if $(GDI),--gdi "$(GDI)",)
 assets/generated/ambience.pcm: tools/build_atmosphere.py
 	uv run tools/build_atmosphere.py
 # Serialize the two outputs even with parallel make and a missing asset cache.

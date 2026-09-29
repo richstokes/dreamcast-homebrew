@@ -5,7 +5,7 @@ import sys,struct,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from disc import prs
-from pvr import decode
+from pvr import decode,hardware_payload
 from ninja import Ninja,transform
 
 class ImportTests(unittest.TestCase):
@@ -28,6 +28,24 @@ class ImportTests(unittest.TestCase):
     def test_argb4444_alpha(self):
         image=decode(struct.pack('<4H',0x8fff,0,0,0),2,1,2,2)
         self.assertEqual(image.getpixel((0,0)),(255,255,255,136))
+    def test_pvrt_mips_match_hardware_offsets(self):
+        # Independent PowerVR 16-bit mip offsets, from KOS MipMapOffset and
+        # Flycast OtherMipPoint. Distinct texels expose a two-texel shift.
+        offsets=(6,8,16,48,176,688,2736,10928,43696)
+        raw=bytearray(2)
+        for level in range(9):
+            edge=1<<level
+            raw.extend(struct.pack('<H',0x1000+level)*(edge*edge))
+            payload=hardware_payload(bytes(raw),2)
+            for mip in range(level+1):
+                edge_mip=1<<mip
+                values=struct.unpack_from(f'<{edge_mip*edge_mip}H',payload,offsets[mip])
+                self.assertEqual(set(values),{0x1000+mip})
+            self.assertEqual(len(payload),offsets[level]+edge*edge*2)
+    def test_non_mip_and_vq_payloads_are_preserved(self):
+        raw=bytes(range(256))*9
+        for layout in (1,3,4):
+            with self.subTest(layout=layout):self.assertEqual(hardware_payload(raw,layout),raw)
     def test_invalid_ninja_pointer(self):
         with self.assertRaises(ValueError):Ninja(bytes(16)).unpack('I',-1)
         with self.assertRaises(ValueError):Ninja(bytes(16)).unpack('I',14)
