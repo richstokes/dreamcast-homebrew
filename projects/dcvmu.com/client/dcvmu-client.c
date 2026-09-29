@@ -943,7 +943,7 @@ int main(int argc,char **argv) {
     client_title_screen(&previous_buttons);
 #endif
     client_status("Starting DCVMU...");draw();
-    if(service_net_init()==0) {online=1;client_status("Ready. HTTPS certificate checks enabled.");}
+    if(service_net_init()==0) {online=1;client_status("Ready.");}
     canceled=0;
     printf("dcvmu: startup %s\n",online?"ready":"offline");
 #ifdef DCVMU_AUTH_TEST
