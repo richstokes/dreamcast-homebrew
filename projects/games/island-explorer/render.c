@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "render_math.h"
+#include "dolphins.h"
 #include <sh4zam/shz_mem.h>
 #include "assets/generated/asset_ids.h"
 #include <stdlib.h>
@@ -25,6 +26,7 @@ static const pvr_poly_hdr_t *active_header;
 static unsigned mesh_list[10000];
 static unsigned visible_count;
 static bool initialized, drew_frame;
+static DolphinFrame wildlife;
 #ifdef IE_BENCHMARK
 uint64_t renderer_cpu_us;
 #endif
@@ -355,6 +357,92 @@ static void draw_player(void){
         world_triangle(&solid,body_point(v3(0,10.7f+bob,0)),r,s,0xfff5dfa0);
     }
 }
+static bool wildlife_visible(Vec3 position,float radius){
+    Vec3 d=sub(position,game.camera.position);
+    float z=dot(d,game.camera.forward);
+    return dot(d,d)<1000*1000&&z+radius>NEAR&&
+        fabsf(dot(d,game.camera.right))<z*.68f+radius*1.22f&&
+        fabsf(dot(d,game.camera.up))<z*.52f+radius*1.14f;
+}
+static Vec3 dolphin_point(const Dolphin *d,Vec3 local){
+    if(local.z<-6)local.y+=d->tail*(-local.z-6)/6;
+    return add(d->position,mul(add(mul(d->right,local.x),
+        add(mul(d->up,local.y),mul(d->forward,local.z))),d->scale));
+}
+static void dolphin_fin(const Dolphin *d,Vec3 a,Vec3 b,Vec3 c){
+    /* A thin triangular wedge catches the sun from either side. */
+    Vec3 normal=unit(cross(sub(b,a),sub(c,a)));
+    Vec3 ridge=add(mul(add(a,c),.5f),mul(normal,.22f));
+    world_triangle(&solid,dolphin_point(d,a),dolphin_point(d,b),dolphin_point(d,ridge),0xff4d7e90);
+    world_triangle(&solid,dolphin_point(d,ridge),dolphin_point(d,b),dolphin_point(d,c),0xff315e75);
+    world_triangle(&solid,dolphin_point(d,a),dolphin_point(d,c),dolphin_point(d,b),0xff8badb5);
+}
+static void draw_dolphins(void){
+    /* Original, untextured mesh: tapered body, beak, dorsal fin, two flippers
+       and horizontal tail flukes. Shared ring points are transformed once. */
+    static const float rings[10][4]={
+        {-9,.4f,.55f,-.3f},{-6,.85f,1.25f,-.1f},{-2,2.2f,2.5f,0},
+        {2,2.35f,2.6f,0},{5.8f,1.7f,1.9f,-.05f},{7,1.6f,1.6f,-.05f},
+        {7.7f,1.1f,1.1f,-.2f},{7.9f,.65f,.38f,-.9f},
+        {10.8f,.42f,.3f,-.9f},{11.4f,.02f,.05f,-.9f}
+    };
+    static const float radial[8][2]={
+        {0,1},{.7071f,.7071f},{1,0},{.7071f,-.7071f},
+        {0,-1},{-.7071f,-.7071f},{-1,0},{-.7071f,.7071f}
+    };
+    static const uint32_t colors[8]={0xff345b73,0xff527e92,0xff86aeb7,0xffc3d9d7,
+        0xffe2e9db,0xffb0cccf,0xff739aa7,0xff456e85};
+    for(unsigned i=0;i<wildlife.count;i++){
+        const Dolphin *d=&wildlife.dolphins[i];
+        if(!wildlife_visible(d->position,16))continue;
+        Vertex body[10][8];
+        for(unsigned r=0;r<10;r++)for(unsigned s=0;s<8;s++){
+            Vec3 local=v3(radial[s][0]*rings[r][1],radial[s][1]*rings[r][2]+rings[r][3],rings[r][0]);
+            body[r][s]=view((Vertex){dolphin_point(d,local),0,0,colors[s]});
+        }
+        for(unsigned r=0;r<9;r++)for(unsigned s=0;s<8;s++){
+            unsigned n=(s+1)&7;
+            clip_triangle(&solid,body[r][s],body[r+1][s],body[r][n],false);
+            clip_triangle(&solid,body[r][n],body[r+1][s],body[r+1][n],false);
+        }
+        dolphin_fin(d,v3(0,2.2f,.2f),v3(0,6,-3.5f),v3(0,1.6f,-4.5f));
+        for(int side=-1;side<=1;side+=2){
+            dolphin_fin(d,v3(side*1.8f,-.6f,2.4f),v3(side*5.3f,-2,-2.8f),v3(side*1.7f,-1.4f,-2.2f));
+            dolphin_fin(d,v3(0,-.2f,-8.7f),v3(side*5.3f,0,-11.6f),v3(side*1.5f,-.35f,-12.7f));
+            dolphin_fin(d,v3(0,-.2f,-8.7f),v3(side*1.5f,-.35f,-12.7f),v3(0,-.3f,-11.7f));
+            world_triangle(&solid,dolphin_point(d,v3(side*1.57f,.3f,6.0f)),
+                dolphin_point(d,v3(side*1.47f,.64f,6.25f)),dolphin_point(d,v3(side*1.40f,.23f,6.5f)),0xff163340);
+        }
+    }
+}
+static void draw_dolphin_splashes(void){
+    for(unsigned i=0;i<wildlife.splash_count;i++){
+        const DolphinSplash *s=&wildlife.splashes[i];
+        if(!wildlife_visible(s->position,23))continue;
+        float life=1-s->age/DOLPHIN_SPLASH_LIFE;
+        float radius=2+s->age*10,width=(.7f+life)*s->strength;
+        uint32_t alpha=(uint32_t)(life*life*170*s->strength)<<24;
+        Vec3 center=add(s->position,v3(0,.45f,0));
+        for(unsigned j=0;j<12;j++){
+            float sa,ca,sb,cb;render_sincos(j*6.2831853f/12,&sa,&ca);
+            render_sincos((j+1)*6.2831853f/12,&sb,&cb);
+            Vertex a={add(center,v3(sa*radius,0,ca*radius)),0,0,alpha|0xe3fff4};
+            Vertex b={add(center,v3(sb*radius,0,cb*radius)),0,0,alpha|0xe3fff4};
+            Vertex c={add(center,v3(sa*(radius+width),0,ca*(radius+width))),0,0,0x00e3fff4};
+            Vertex d={add(center,v3(sb*(radius+width),0,cb*(radius+width))),0,0,0x00e3fff4};
+            world_quad(&translucent,a,b,c,d);
+        }
+        /* Six ballistic droplets. Camera-facing triangles cost no texture RAM. */
+        if(s->age<.8f)for(unsigned j=0;j<6;j++){
+            float angle=j*6.2831853f/6,spread=s->age*(6+j%3);
+            float y=s->age*(19*s->strength+j%2*3)-22*s->age*s->age;
+            if(y<0)continue;
+            Vec3 p=add(center,v3(fsin(angle)*spread,y,fcos(angle)*spread));
+            Vec3 right=mul(game.camera.right,.35f+life*.32f),up=mul(game.camera.up,.85f);
+            world_triangle(&translucent,sub(p,right),add(p,right),add(p,up),alpha|0xf1fff9);
+        }
+    }
+}
 static void draw_shadow(void){
     float floor=world_floor(&game.world,game.player.position,1);
     if(floor<game.player.position.y-20)return;
@@ -431,6 +519,7 @@ void renderer_draw(void){
     uint64_t begin=timer_us_gettime64();
 #endif
     gather_visible();game.triangles=0;
+    dolphins_sample(game.act,game.time,&wildlife);
 #ifdef IE_BENCHMARK
     uint64_t wait_begin=timer_us_gettime64();
 #endif
@@ -441,9 +530,9 @@ void renderer_draw(void){
     render_load_camera(&game.camera);
     pvr_scene_begin();
     pvr_list_begin(PVR_LIST_OP_POLY);active_header=NULL;
-    draw_sky();draw_water();draw_player();draw_stage(PVR_LIST_OP_POLY);pvr_list_finish();
+    draw_sky();draw_water();draw_player();draw_dolphins();draw_stage(PVR_LIST_OP_POLY);pvr_list_finish();
     pvr_list_begin(PVR_LIST_TR_POLY);active_header=NULL;
-    draw_stage(PVR_LIST_TR_POLY);draw_foam();draw_shadow();draw_hud();pvr_list_finish();pvr_scene_finish();
+    draw_stage(PVR_LIST_TR_POLY);draw_foam();draw_shadow();draw_dolphin_splashes();draw_hud();pvr_list_finish();pvr_scene_finish();
     drew_frame=true;
 #ifdef IE_BENCHMARK
     renderer_cpu_us=timer_us_gettime64()-begin-waited;

@@ -39,7 +39,7 @@ def run(flycast, elf, name, success, timeout=180):
             text = log.read_text(errors='replace')
             if success not in text or '[shutdown] Clean exit' not in text:
                 raise RuntimeError(f'{name} did not complete successfully; inspect {log}')
-            if re.search(r'\[test\] FAIL|\[math\] FAIL|panic|stream underrun', text, re.I):
+            if re.search(r'\[test\] FAIL|\[math\] FAIL|\[dolphins\] FAIL|panic|stream underrun', text, re.I):
                 raise RuntimeError(f'{name} reported a runtime failure; inspect {log}')
         finally:
             if process.poll() is None:
@@ -76,9 +76,13 @@ def main():
     parser.add_argument('--benchmark', action='store_true')
     parser.add_argument('--math', action='store_true')
     parser.add_argument('--traversal', action='store_true')
+    parser.add_argument('--dolphins', action='store_true')
     args = parser.parse_args()
-    if not any((args.benchmark,args.math,args.traversal)):
-        parser.error('Choose --benchmark, --math and/or --traversal')
+    if not any((args.benchmark,args.math,args.traversal,args.dolphins)):
+        parser.error('Choose --benchmark, --math, --traversal and/or --dolphins')
+    if args.dolphins:
+        run(args.flycast,'island-explorer-dolphins.elf','dolphins-preview',
+            '[dolphins] PASS: eight-pod visual tour')
     if args.math:
         run(args.flycast,'render-math-qa.elf','math-qa','[math] PASS')
     if args.benchmark:

@@ -3,12 +3,21 @@
 A native Dreamcast / KallistiOS coastal exploration game. This first pass brings
 both Sonic sections of Emerald Coast into a new engine, with a walking explorer,
 jumping, swimming, a collision-aware orbit camera, a six-stop travel journal,
-animated ocean, shoreline wash, and an original stereo coastal soundscape.
+animated ocean, shoreline wash, leaping dolphins, and an original stereo coastal
+soundscape.
 
 The visual direction is a quiet, bright summer holiday: original low-resolution
 textures, soft distance haze, turquoise water, unobtrusive field-note typography,
 and no time limit or score. The explorer is deliberately a simple animated
 placeholder with a sunhat and backpack.
+
+Eight small dolphin pods inhabit the two areas: watch from the resort beach,
+ocean pier, crescent beach, far sandbar, blue lagoon, clifftop bay, outer cove,
+and eastern shore. Each pair surfaces roughly every 20–35 seconds, with staggered
+leaps, changing direction and height, flexing tails, spray and expanding splash
+rings. They begin appearing a few seconds after launch; simply wander or wait
+by the water. Their animation follows the ocean clock, including in postcard
+view and while menus are open.
 
 ## Play
 
@@ -117,6 +126,10 @@ mesh data; Blender edits are not yet exported back into the runtime.
   batches, near clipping, CPU culling, fog, ocean, foam, explorer and UI.
 - `render_math.h`: SH4ZAM camera transforms, guarded positive reciprocals and
   paired sine/cosine. Physics retains its scalar arithmetic.
+- `dolphins.c` / `dolphins.h`: independent pod schedules and curved breach paths.
+  The original procedural dolphin mesh and bounded splash effects in `render.c`
+  allocate no texture memory. Wildlife is culled beyond 1,000 units and outside
+  the camera view; it shares the existing triangle budget.
 - `audio.c`: AICA stereo streaming plus footsteps. The original procedural
   28-second soundscape layers rolling surf, breaking foam and distant gulls.
 - `tools/disc.py`, `ninja.py`, `pvr.py`, `extract_stage.py`: bounded PRS decoding,
@@ -146,6 +159,7 @@ make
 make check-import
 make check-math
 make check-runtime
+make check-dolphins
 make benchmark
 ```
 
@@ -154,6 +168,14 @@ assets on the SH-4, then visits all six locations. Each stop must register a
 jump, an airborne state and meaningful movement. It prints a PASS/FAIL summary
 and exits KOS cleanly after about 72 seconds. This drives the game logic directly;
 it is not a physical controller-input test.
+
+The runtime checks also sample two minutes of dolphin schedules in both areas,
+verify paired appearances and quiet periods, check the correct water height,
+and probe the actual collision geometry along each route. `make check-dolphins`
+runs these checks and an 88-second visual tour with close views of every pod's
+leap, entry/exit and splash effects. Its inspection camera is diagnostic only.
+The eight-pod tour passed with 636 land-clearance probes and no runtime or audio
+errors; the close inspection views ran at approximately 32–60 fps in Flycast.
 
 The check runner starts each diagnostic ELF serially, verifies its completion
 marker and clean exit, and terminates only the emulator process it created.

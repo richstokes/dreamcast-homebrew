@@ -1,4 +1,5 @@
 /* These checks run on the SH-4 in the diagnostic ELF. */
+#include "dolphin_checks.h"
 static unsigned runtime_checks(void) {
     const Vertex vertices[]={
         {{-20,0,-20},0,0,0},{{20,0,-20},0,0,0},{{-20,0,20},0,0,0},{{20,0,20},0,0,0},
@@ -7,7 +8,7 @@ static unsigned runtime_checks(void) {
     const uint16_t indices[]={0,2,1,1,2,3,4,5,6,6,5,7};
     const Mesh mesh={.center={0,5,0},.radius=35,.vertex_count=8,.index_count=12,.surface=1};
     const World world={1,8,12,&mesh,vertices,indices};
-    unsigned failures=0;
+    unsigned failures=dolphin_checks();
     float floor=world_floor(&world,v3(0,5,0),0);
     if(fabsf(floor)>0.001f){printf("[test] FAIL floor query\n");failures++;}
     Vec3 body=v3(9,0,0);world_slide(&world,&body);

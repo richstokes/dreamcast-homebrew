@@ -123,6 +123,9 @@ static bool handle_buttons(uint32_t buttons,uint32_t pressed){
 #ifdef IE_BENCHMARK
 #include "tests/render_benchmark.h"
 #endif
+#ifdef IE_DOLPHIN_PREVIEW
+#include "tests/dolphin_preview.h"
+#endif
 int main(int argc,char **argv){
     (void)argc;(void)argv;
     printf("\nIsland Explorer / Emerald Coast / KallistiOS\n");
@@ -132,6 +135,11 @@ int main(int argc,char **argv){
     rendering=true;
     if(!audio_init())printf("[audio] unavailable, exploration continues\n");
     update_camera(1,0,0,false);
+#ifdef IE_DOLPHIN_PREVIEW
+    int result=run_dolphin_preview();
+    audio_shutdown();renderer_shutdown();
+    printf("[shutdown] Clean exit\n");return result;
+#endif
 #ifdef IE_BENCHMARK
     int result=run_render_benchmark();
     audio_shutdown();renderer_shutdown();
