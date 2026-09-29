@@ -45,8 +45,9 @@ def main():
         work = Path(directory)
         for name in ('romdisk', 'tests', 'vmus'):
             (work / name).mkdir()
-        for name in ('dcvmu-client.c', 'net.c', 'modem.c', 'auth.c', 'archive.c', 'client.h', 'Makefile',
-                     'romdisk/cacert.pem', 'tests/public_browse.c', 'tests/vmu_tools.c'):
+        for name in ('dcvmu-client.c', 'title.c', 'menu-audio.c', 'net.c', 'modem.c',
+                     'auth.c', 'archive.c', 'client.h', 'Makefile', 'romdisk/cacert.pem',
+                     'tests/public_browse.c', 'tests/vmu_tools.c'):
             shutil.copyfile(CLIENT / name, work / name)
         database = work / 'fixture.sqlite3'
         app = create_app({'DATABASE': str(database)})
@@ -143,7 +144,7 @@ def main():
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         serial = args.log_dir / 'flycast.log'
-        # This silent client needs no audio device. SDL audio can block the
+        # These automated self-tests need no audio device. SDL audio can block the
         # emulation thread when macOS changes output devices during automation.
         config = (f'network:EmulateBBA={"no" if args.modem else "yes"},network:DCNet=no,audio:backend=null,'
                   'config:Debug.SerialConsoleEnabled=yes,config:UploadCrashLogs=no,'

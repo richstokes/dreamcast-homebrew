@@ -22,6 +22,10 @@ app with a short, rising confirmation chime. Holding the button does not repeat
 the sound. A remembered VMU login is restored after the title screen. The short
 greeting waits for the button to be released before continuing.
 
+Menus use quiet clicks for controller and keyboard navigation: a soft tick for
+moving or typing, a higher click for selecting, and a lower click for going back.
+Rapid movement clicks are limited so keyboard repeats stay unobtrusive.
+
 After login, the main menu offers **Upload a save**, **Download a save**,
 **Archive a VMU**, **Restore a VMU**, **Browse Public Saves**, and **Sign out**.
 
@@ -189,9 +193,12 @@ boot a normal build, leave it idle for five seconds to see the bob and blink,
 then hold Start (or Enter): one chime should play, and the greeting should wait
 until release and open the usual login/menu without immediately exiting or
 editing a field. The title is drawn with untextured PowerVR polygons; its chime
-is synthesized into a small PCM sample played by the AICA. Graphics and sound
-resources are released before the existing framebuffer UI starts. It needs no
-external artwork, audio files, or VMU writes.
+is synthesized into a small PCM sample played by the AICA. Title graphics and
+chime resources are released before the existing framebuffer UI starts. Menu
+clicks use one 2 KiB sample and one sound channel, released when the app exits.
+Check arrows/Tab, Enter, typing/deleting, and Escape in a login field for the
+movement, selection, and back clicks. No external artwork, audio files, or VMU
+writes are needed for either the title or the clicks.
 
 ## Credits
 

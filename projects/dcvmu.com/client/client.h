@@ -5,6 +5,10 @@
 #define DCVMU_ICON_FILE "ICONDATA_VMS"
 /* Wait for Start/Enter and release before entering the normal startup flow. */
 void client_title_screen(uint32_t *previous_buttons);
+typedef enum { MENU_MOVE, MENU_SELECT, MENU_BACK } menu_sound_t;
+void client_menu_audio_init(void);
+void client_menu_audio_shutdown(void);
+void client_menu_sound(menu_sound_t sound);
 int service_net_init(void);
 void service_net_shutdown(void);
 int service_modem_init(void);

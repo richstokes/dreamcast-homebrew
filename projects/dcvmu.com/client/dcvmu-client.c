@@ -372,6 +372,7 @@ static void draw(void) {
     dirty=0;
 }
 static int poll_cancel(void) {
+    int was_canceled=canceled;
     maple_device_t *dev=maple_enum_type(0,MAPLE_FUNC_CONTROLLER);
     cont_state_t *state=dev?maple_dev_status(dev):NULL;
     if(state) {
@@ -382,6 +383,7 @@ static int poll_cancel(void) {
     dev=maple_enum_type(0,MAPLE_FUNC_KEYBOARD);
     if(dev) { int raw; while((raw=kbd_queue_pop(dev,0))!=KBD_QUEUE_END)
         if((raw&255)==KBD_KEY_ESCAPE) canceled=1; }
+    if(canceled && !was_canceled)client_menu_sound(MENU_BACK);
     return canceled;
 }
 int client_connect_update(const char *message) {
@@ -438,6 +440,7 @@ static void switch_card(int delta) {
         if(delta<0 && remote_page>0)--remote_page;
         else if(delta>0 && remote_more)++remote_page;
         else return;
+        client_menu_sound(MENU_MOVE);
         if(load_downloads()<0)remote_page=previous_page;
         return;
     }
@@ -446,6 +449,7 @@ static void switch_card(int delta) {
         if(delta<0 && archive_page>0)--archive_page;
         else if(delta>0 && archive_more)++archive_page;
         else return;
+        client_menu_sound(MENU_MOVE);
         if(load_archives()<0)archive_page=previous_page;
         return;
     }
@@ -453,6 +457,7 @@ static void switch_card(int delta) {
     if(screen!=FILES)return;
     for(int i=0;i<card_count;++i)if(card_ids[i]==card_filter)index=i+1;
     index=(index+delta+card_count+1)%(card_count+1);
+    if(card_filter!=(index?card_ids[index-1]:-1))client_menu_sound(MENU_MOVE);
     card_filter=index?card_ids[index-1]:-1;
     scan(); dirty=1;
 }
@@ -502,11 +507,13 @@ static void edit_end(int cancel) {
     size_t capacity;char *value=field_value(&capacity);
     if(cancel)snprintf(value,capacity,"%s",edit_backup);
     memset(edit_backup,0,sizeof(edit_backup));edit_field=-1;dirty=1;
+    client_menu_sound(cancel?MENU_BACK:MENU_SELECT);
 }
 static void edit_char(char c) {
     size_t capacity;char *value=field_value(&capacity);size_t n=strlen(value);
     if(c=='\b') { if(n)value[n-1]=0; }
     else if(c>=32&&c<=126&&n+1<capacity) {value[n]=c;value[n+1]=0;}
+    if(strlen(value)!=n)client_menu_sound(MENU_MOVE);
     dirty=1;
 }
 static void sign_out(void) {
@@ -696,6 +703,7 @@ static void restore_image(void) {
     dirty=1;
 }
 static void activate(void) {
+    client_menu_sound(MENU_SELECT);
     if(screen==LOGIN) {
         if(focus<2)edit_begin(focus);
         else if(username[0]&&password[0]) {
@@ -762,12 +770,21 @@ static void activate(void) {
 }
 static void cloud_action(void) {
     if(screen!=DOWNLOADS)return;
-    if(remote_matching){replacement_id=0;upload("keep");return;}
+    if(remote_matching){client_menu_sound(MENU_SELECT);replacement_id=0;upload("keep");return;}
     if(remote_public || !remote_count)return;
+    client_menu_sound(MENU_SELECT);
     snprintf(cloud_title,sizeof(cloud_title),"%s",remote_saves[remote_selected].name);
     screen=RENAME;focus=0;client_status("Edit the title, then choose Save title.");
 }
+static int menu_selection(void) {
+    if(screen==FILES)return selected;
+    if(screen==DOWNLOADS)return remote_selected;
+    if(screen==ARCHIVES)return archive_selected;
+    if(screen==DESTINATION || screen==ARCHIVE_SOURCE || screen==RESTORE_DEST)return target_index;
+    return focus;
+}
 static void move(int delta) {
+    int previous=menu_selection();
     if(screen==FILES && save_count)selected=(selected+delta+save_count)%save_count;
     else if(screen==DOWNLOADS && remote_count)remote_selected=(remote_selected+delta+remote_count)%remote_count;
     else if((screen==DESTINATION || screen==ARCHIVE_SOURCE || screen==RESTORE_DEST) && card_count)target_index=(target_index+delta+card_count)%card_count;
@@ -783,9 +800,11 @@ static void move(int delta) {
         while(index<3 && fields[index]!=focus)++index;
         focus=fields[(index+delta+4)%4];
     }
+    if(menu_selection()!=previous)client_menu_sound(MENU_MOVE);
     dirty=1;
 }
 static void back(void) {
+    screen_t previous=screen;
     if(edit_field>=0)edit_end(1);
     else if(screen==INSTALL_CONFIRM)screen=DESTINATION;
     else if(screen==DESTINATION || screen==INSTALLED){screen=DOWNLOADS;free(save_data);save_data=NULL;free(target_old);target_old=NULL;}
@@ -802,7 +821,17 @@ static void back(void) {
     else if(screen==FILES || screen==DOWNLOADS || screen==SUCCESS){screen=HOME;focus=0;client_status("");}
     else if(screen==CONFLICT){screen=DOWNLOADS;replacement_id=0;}
     else if(screen==DETAILS) {screen=FILES;free(save_data);save_data=NULL;}
+    if(screen!=previous)client_menu_sound(MENU_BACK);
     dirty=1;
+}
+static void refresh(void) {
+    if(screen!=DOWNLOADS && screen!=ARCHIVES && screen!=DESTINATION &&
+       screen!=ARCHIVE_SOURCE && screen!=RESTORE_DEST && screen!=FILES)return;
+    client_menu_sound(MENU_SELECT);
+    if(screen==DOWNLOADS)refresh_downloads();
+    else if(screen==ARCHIVES)refresh_archives();
+    else if(screen==FILES)scan();
+    else destination_cards();
 }
 #ifdef DCVMU_SELF_TEST
 static void run_self_test(void) {
@@ -975,6 +1004,9 @@ int main(int argc,char **argv) {
 #ifdef DCVMU_TOOLS_TEST
     if(online)run_tools_test();
 #endif
+    /* Title audio has been released; keep one small click resident for the UI.
+       Integration fixtures above remain silent and do not need audio hardware. */
+    client_menu_audio_init();
     while(!quit) {
         maple_device_t *dev=maple_enum_type(0,MAPLE_FUNC_CONTROLLER);
         cont_state_t *state=dev?maple_dev_status(dev):NULL;
@@ -982,11 +1014,13 @@ int main(int argc,char **argv) {
         if(state)previous_buttons=state->buttons;
         if(pressed&CONT_START)break;
         if(edit_field>=0) {
+            int old_x=osk_x,old_y=osk_y;
             if(pressed&CONT_DPAD_UP)osk_y=(osk_y+5)%6;
             if(pressed&CONT_DPAD_DOWN)osk_y=(osk_y+1)%6;
             if(pressed&CONT_DPAD_LEFT)osk_x=(osk_x+(int)strlen(keys[osk_y])-1)%(int)strlen(keys[osk_y]);
             if(pressed&CONT_DPAD_RIGHT)osk_x=(osk_x+1)%(int)strlen(keys[osk_y]);
             if(osk_x>=(int)strlen(keys[osk_y]))osk_x=0;
+            if(osk_x!=old_x || osk_y!=old_y)client_menu_sound(MENU_MOVE);
             if(pressed&CONT_A)edit_char(keys[osk_y][osk_x]);
             if(pressed&CONT_X)edit_char('\b');
             if(pressed&CONT_Y)edit_end(0);
@@ -999,9 +1033,10 @@ int main(int argc,char **argv) {
             if(pressed&CONT_DPAD_DOWN)move(1);
             if((pressed&CONT_A)&&online)activate();
             if(pressed&CONT_B)back();
-            if(pressed&CONT_X){if(screen==HOME)sign_out();else cloud_action();}
-            if(pressed&CONT_Y) {if(screen==DOWNLOADS)refresh_downloads();else if(screen==ARCHIVES)refresh_archives();
-                else if(screen==DESTINATION||screen==ARCHIVE_SOURCE||screen==RESTORE_DEST)destination_cards();else if(screen==FILES)scan();else if(screen==CONFLICT)upload("keep");}
+            if(pressed&CONT_X){if(screen==HOME){client_menu_sound(MENU_BACK);sign_out();}else cloud_action();}
+            if(pressed&CONT_Y) {
+                if(screen==CONFLICT){client_menu_sound(MENU_SELECT);upload("keep");}else refresh();
+            }
         }
         dev=maple_enum_type(0,MAPLE_FUNC_KEYBOARD);
         if(dev) {
@@ -1022,13 +1057,10 @@ int main(int argc,char **argv) {
                 else if(key==KBD_KEY_DOWN||key==KBD_KEY_TAB)move(1);
                 else if(key==KBD_KEY_ENTER&&online)activate();
                 else if(key==KBD_KEY_BACKSPACE)back();
-                else if(key==KBD_KEY_R) {
-                    if(screen==DOWNLOADS)refresh_downloads();else if(screen==ARCHIVES)refresh_archives();
-                    else if(screen==DESTINATION||screen==ARCHIVE_SOURCE||screen==RESTORE_DEST)destination_cards();else if(screen==FILES)scan();
-                }
+                else if(key==KBD_KEY_R)refresh();
                 else if(key==KBD_KEY_N)cloud_action();
-                else if(key==KBD_KEY_L&&screen==HOME)sign_out();
-                else if(key==KBD_KEY_K&&screen==CONFLICT)upload("keep");
+                else if(key==KBD_KEY_L&&screen==HOME){client_menu_sound(MENU_BACK);sign_out();}
+                else if(key==KBD_KEY_K&&screen==CONFLICT){client_menu_sound(MENU_SELECT);upload("keep");}
             }
         }
         if(dirty)draw();
@@ -1037,6 +1069,7 @@ int main(int argc,char **argv) {
     if(online&&token[0]&&!remembered){canceled=0;service_logout(token);}
     memset(password,0,sizeof(password));memset(token,0,sizeof(token));memset(edit_backup,0,sizeof(edit_backup));
     free(target_old);free(save_data);free(image);if(online)service_net_shutdown();
+    client_menu_audio_shutdown();
     /* Returning from main tears down video. Keep the final frame displayed
        until the console is powered off/reset or the emulator is closed. */
     vid_waitvbl();
