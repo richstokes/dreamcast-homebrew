@@ -191,7 +191,6 @@ static void draw(void) {
         action_row(2,"Log in","");
         text(24,274,INK,"D-pad choose / A edit or continue");
         text(24,310,INK,"Keyboard: arrows, Enter, Tab");
-        text(24,346,INK,"Login token saved to VMU; password in RAM.");
     } else if(screen==HOME) {
         text(24,66,INK,"What would you like to do?");
         action_row(0,"Upload a save","VMU to account");
