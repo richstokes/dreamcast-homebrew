@@ -6,9 +6,12 @@
 #include <dc/maple/controller.h>
 #include <dc/maple/keyboard.h>
 #include <dc/pvr.h>
+#include <dc/sound/sfxmgr.h>
+#include <dc/sound/sound.h>
 #include <dc/video.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define CREAM   0xfffaf5e9
@@ -21,6 +24,44 @@
 #define PIXEL   0xff3a5950
 #define PI     3.14159265f
 #define CIRCLE_STEPS 32
+#define TITLE_GREETING_MS 450
+#define CHIME_RATE 22050
+#define CHIME_SAMPLES 8192
+
+_Static_assert(CHIME_SAMPLES * 1000 / CHIME_RATE + 32 < TITLE_GREETING_MS,
+               "The chime must finish before the title releases its audio resources");
+
+static sfxhnd_t load_start_chime(void) {
+    /* A little C-major sparkle, synthesized once into 16-bit mono PCM. Soft
+       attacks and decays avoid clicks; the final silent tail is deliberate.
+       Both the buffer and its byte length meet the AICA's 32-byte alignment. */
+    static const float notes[] = {1046.50f, 1318.51f, 1567.98f};
+    const size_t bytes = CHIME_SAMPLES * sizeof(int16_t);
+    int16_t *pcm = aligned_alloc(32, bytes);
+    if(!pcm) {
+        printf("dcvmu: title chime buffer unavailable; continuing silently\n");
+        return SFXHND_INVALID;
+    }
+    for(int i = 0; i < CHIME_SAMPLES; ++i) {
+        float sample = 0;
+        for(int note = 0; note < 3; ++note) {
+            float t = (float)i / CHIME_RATE - note * 0.075f;
+            if(t < 0 || t >= 0.190f) continue;
+            float attack = fminf(t / 0.005f, 1.0f);
+            float decay = 1.0f - t / 0.190f;
+            float phase = 2 * PI * notes[note] * t;
+            sample += 8000 * attack * decay * decay *
+                      (0.8f * sinf(phase) + 0.2f * sinf(2 * phase));
+        }
+        /* Even three full-amplitude voices sum to less than INT16_MAX. */
+        pcm[i] = (int16_t)sample;
+    }
+    sfxhnd_t chime = snd_sfx_load_raw_buf((char *)pcm, bytes, CHIME_RATE, 16, 1);
+    free(pcm); /* The loader has copied the sample into AICA sound RAM. */
+    if(chime == SFXHND_INVALID)
+        printf("dcvmu: title chime load failed; continuing silently\n");
+    return chime;
+}
 
 typedef struct { float x, y; } title_point_t;
 static title_point_t circle[CIRCLE_STEPS + 1];
@@ -282,6 +323,10 @@ static int title_input(uint32_t *previous, int *released) {
 }
 
 void client_title_screen(uint32_t *previous_buttons) {
+    int sound_ready = snd_init() == 0;
+    sfxhnd_t chime = sound_ready ? load_start_chime() : SFXHND_INVALID;
+    int chime_channel = -1;
+    if(!sound_ready) printf("dcvmu: title audio unavailable; continuing silently\n");
     const pvr_init_params_t params = {
         .opb_sizes = {PVR_BINSIZE_16, 0, 0, 0, 0},
         .vertex_buf_size = 512 * 1024, .opb_overflow_count = 3
@@ -311,12 +356,19 @@ void client_title_screen(uint32_t *previous_buttons) {
         int start = title_input(previous_buttons, &released);
         if(start && !accepted) {
             accepted = 1; accepted_at = now;
+            if(chime != SFXHND_INVALID) {
+                chime_channel = snd_sfx_play(chime, 192, 128);
+                printf("dcvmu: title chime %s\n", chime_channel >= 0 ? "playing" : "playback failed");
+            }
             printf("dcvmu: title accepted - waiting for button release\n");
         }
         if(graphics) frame(now - began, accepted);
-        if(accepted && released && now - accepted_at >= 450) break;
+        if(accepted && released && now - accepted_at >= TITLE_GREETING_MS) break;
         thd_sleep(16);
     }
+    if(chime_channel >= 0) snd_sfx_stop(chime_channel);
+    if(chime != SFXHND_INVALID) snd_sfx_unload(chime);
+    if(sound_ready) snd_shutdown();
     if(graphics) { pvr_wait_ready(); pvr_shutdown(); }
     vid_set_mode(DM_640x480, PM_RGB565);
     printf("dcvmu: title complete - starting app\n");

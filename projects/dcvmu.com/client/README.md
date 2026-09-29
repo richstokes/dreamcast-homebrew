@@ -18,7 +18,8 @@ is also available. Real hardware has not been verified yet.
 
 The title screen features a bobbing VMU companion with a blinking pixel face.
 Press **Start** (or **Enter** on a Dreamcast keyboard) to connect and load the
-app. A remembered VMU login is restored after the title screen. The short
+app with a short, rising confirmation chime. Holding the button does not repeat
+the sound. A remembered VMU login is restored after the title screen. The short
 greeting waits for the button to be released before continuing.
 
 After login, the main menu offers **Upload a save**, **Download a save**,
@@ -185,10 +186,12 @@ never run the test fixtures against personal VMUs; remove those files and run
 
 The existing integration self-tests skip the title screen. To check it manually,
 boot a normal build, leave it idle for five seconds to see the bob and blink,
-then hold Start (or Enter): the greeting should wait until release and open the
-usual login/menu without immediately exiting or editing a field. The title is
-drawn with untextured PowerVR polygons and releases its graphics resources before
-the existing framebuffer UI starts; it needs no external artwork or VMU writes.
+then hold Start (or Enter): one chime should play, and the greeting should wait
+until release and open the usual login/menu without immediately exiting or
+editing a field. The title is drawn with untextured PowerVR polygons; its chime
+is synthesized into a small PCM sample played by the AICA. Graphics and sound
+resources are released before the existing framebuffer UI starts. It needs no
+external artwork, audio files, or VMU writes.
 
 ## Credits
 
