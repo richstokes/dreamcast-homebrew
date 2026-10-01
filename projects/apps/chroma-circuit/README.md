@@ -100,5 +100,14 @@ console in the launching terminal.
 ## Hardware status
 
 Tested in Flycast 2.7, where it holds a steady 60 Hz with no missed vertical
-blanks. The code includes VGA and 480i timing paths intended for real hardware,
-but it has not yet been run on a physical Dreamcast.
+blanks, and on a real NTSC Dreamcast booted through dcload-ip. On hardware it
+holds 60 Hz except in Chaos Bloom's first moments and Event Horizon, which
+drops to roughly 22 fps. Disc boots (GDEMU/CDI) have not been checked yet.
+
+## Hardware debugging
+
+`make hwdebug` builds `chroma-circuit-hwdebug.elf`, which paints the PVR border
+a colour per boot stage, blinks a code on a fatal PVR error, and mirrors the
+serial log to dcload-ip's console. `./hwdebug-run.sh [elf] [seconds]`
+power-cycles a Shelly plug (`DC_PLUG_IP`), waits for dcload-ip (`DC_IP`),
+uploads the ELF and captures the console to `dcload-console.log`.

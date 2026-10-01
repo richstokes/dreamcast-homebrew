@@ -88,6 +88,81 @@
     .equ CONT_DPAD_LEFT,         0x0040
     .equ CONT_DPAD_RIGHT,        0x0080
 
+
+! ---------------------------------------------------------------------------
+! Optional real-hardware beacons (assembled only with --defsym HW_DEBUG=1)
+! ---------------------------------------------------------------------------
+! DBG paints the PVR border colour (VO_BORDER_COL). The diagnostic build keeps
+! the framebuffer disabled until two frames have completed, so the last colour
+! shown names the last stage reached. Each use clobbers r0 and r1 only.
+    .macro DBG color
+.ifdef HW_DEBUG
+    mov.l   1f, r1
+    mov.l   2f, r0
+    mov.l   r1, @r0
+    bra     3f
+    nop
+    .align  2
+1:  .long   \color
+2:  .long   0xa05f8040
+3:
+.endif
+    .endm
+
+    ! Same beacon using caller-chosen scratch registers, for code where r0/r1 are live.
+    .macro DBGX color, val, addr
+.ifdef HW_DEBUG
+    mov.l   1f, \val
+    mov.l   2f, \addr
+    mov.l   \val, @\addr
+    bra     3f
+    nop
+    .align  2
+1:  .long   \color
+2:  .long   0xa05f8040
+3:
+.endif
+    .endm
+
+    ! Fold the latched PVR error flags (ISTERR, r4 = its address, r5 = value)
+    ! into pvr_err_accum and acknowledge them. Clobbers r6 and r7.
+    .macro NOTE_PVR_ERRORS
+    mov.l   1f, r7
+    mov.l   @r7, r6
+    or      r5, r6
+    mov.l   r6, @r7
+    mov.l   r5, @r4
+    bra     3f
+    nop
+    .align  2
+1:  .long   pvr_err_accum
+3:
+    .endm
+
+    .macro DBGFATALE color
+.ifdef HW_DEBUG
+    mov     r5, r13                 ! ISTERR snapshot for the bit display
+    mov.l   1f, r5
+    bra     3f
+    nop
+    .align  2
+1:  .long   \color
+3:
+.endif
+    .endm
+
+    .macro DBGFATAL color
+.ifdef HW_DEBUG
+    mov     #0, r13
+    mov.l   1f, r5
+    bra     3f
+    nop
+    .align  2
+1:  .long   \color
+3:
+.endif
+    .endm
+
 _start:
     ! Enter privileged mode with interrupts masked; all synchronization below
     ! is deliberate polling, so no vector table or interrupt runtime is needed.
@@ -104,6 +179,7 @@ _start:
     mov.l   .Lfn_cache_enable, r0
     jsr     @r0
     nop
+    DBG     0x00ff0000               ! stage 1: red, caches configured
 
     mov.l   .Lfn_clear_bss, r0
     jsr     @r0
@@ -123,18 +199,27 @@ _start:
     jsr     @r0
     nop
 
+    DBG     0x00ff8000               ! stage 2: orange, maple + serial ready
     mov.l   .Lfn_video_init, r0
     jsr     @r0
     nop
+.ifdef HW_DEBUG
+    mov.l   .Lfn_hwdebug_unblank, r0 ! show border colours with FB disabled
+    jsr     @r0
+    nop
+.endif
+    DBG     0x00ffff00               ! stage 3: yellow, video timing applied
     ! The soundtrack is a raw AICA wavetable tracker. It is initialized only
     ! after video_init has sampled the cable pins because both units share the
     ! system-control word at 0xa0702c00.
     mov.l   .Lfn_music_init, r0
     jsr     @r0
     nop
+    DBG     0x0000ff00               ! stage 4: green, AICA started
     mov.l   .Lfn_pvr_init, r0
     jsr     @r0
     nop
+    DBG     0x0000ffff               ! stage 5: cyan, PVR registers programmed
     mov.l   .Lmsg_pvr, r4
     mov.l   .Lfn_serial_puts, r0
     jsr     @r0
@@ -152,6 +237,7 @@ _start:
     jsr     @r0
     nop
 
+    DBG     0x000000ff               ! stage 6: blue, tile matrices built
     ! Clear both RGB565 framebuffers while the display is still blank.
     mov.l   .Lvram_fb0, r4
     mov.l   .Lfb_bytes, r5
@@ -166,13 +252,17 @@ _start:
 
     ! Seed and warm the nonlinear field before video is unblanked. Runtime
     ! updates then require only twelve Lorenz substeps per visible frame.
+    DBG     0x00ff00ff               ! stage 7: magenta, framebuffers cleared
     mov.l   .Lfn_lorenz_init, r0
     jsr     @r0
     nop
+    DBG     0x00ffffff               ! stage 8: white, Lorenz field warmed
 
+.ifndef HW_DEBUG
     mov.l   .Lfn_display_enable, r0
     jsr     @r0
     nop
+.endif
     mov.l   .Lmsg_render, r4
     mov.l   .Lfn_serial_puts, r0
     jsr     @r0
@@ -182,6 +272,9 @@ _start:
     nop
 
     mov     #0, r8                  ! current TA buffer
+.ifdef HW_SET1
+    mov     #1, r8                  ! diagnostic: always use buffer set 1
+.endif
 .ifdef CAMERA_CAPTURE_FRAME
     ! Visual-QA builds may freeze one exact global timeline frame with
     ! --defsym CAMERA_CAPTURE_FRAME=n. The normal ELF assembles neither this
@@ -198,39 +291,57 @@ _start:
 .endif
 
 .Lmain_loop:
+.ifdef HW_DEBUG
+    mov     #60, r0
+    cmp/eq  r0, r9
+    bf      1f
+    mov.l   .Lfn_display_enable, r0  ! diagnostic build: reveal video at frame 60
+    jsr     @r0
+    nop
+1:
+.endif
+    DBG     0x00ff80c0               ! loop 1: pink, entering controls
     ! Consume the previous frame's raw Maple reply and launch the next request.
     ! A new D-pad edge may rewrite r9 before this visible frame is generated.
     mov.l   .Lfn_scene_controls, r0
     jsr     @r0
     nop
+    DBG     0x00804000               ! loop 2: brown, entering music_update
     ! Sequence before beginning TA submission so a manual scene jump changes
     ! picture and harmony on the same complete display frame. AICA performs all
     ! synthesis in hardware; this call only updates a handful of voice words.
     mov.l   .Lfn_music_update, r0
     jsr     @r0
     nop
+    DBG     0x00008000               ! loop 3: dark green, entering ta_begin
     mov     r8, r4
     mov.l   .Lfn_ta_begin, r0
     jsr     @r0
     nop
+    DBG     0x00008080               ! loop 4: teal, entering draw_scene
     mov.l   .Lfn_draw_scene, r0
     jsr     @r0
     nop
+    DBG     0x00000080               ! loop 5: navy, entering second controls poll
     ! A second nonblocking sample after geometry generation catches very quick
     ! taps at roughly 120 Hz. Any scene change begins on the next complete
     ! display frame; this frame's submitted geometry always remains coherent.
     mov.l   .Lfn_scene_controls, r0
     jsr     @r0
     nop
+    DBG     0x00800000               ! loop 6: maroon, entering ta_finish
     mov.l   .Lfn_ta_finish, r0
     jsr     @r0
     nop
+    DBG     0x00808080               ! loop 7: grey, frame completed
     mov.l   .Lfn_perf_sample, r0
     jsr     @r0
     nop
 
+.ifndef HW_FIXED_SET
     mov     #1, r0
     xor     r0, r8
+.endif
 .ifndef CAMERA_CAPTURE_FRAME
     add     #1, r9
 .endif
@@ -276,6 +387,9 @@ _start:
 .Lfn_ta_begin:          .long ta_begin
 .Lfn_draw_scene:        .long draw_scene
 .Lfn_ta_finish:         .long ta_finish_and_render
+.ifdef HW_DEBUG
+.Lfn_hwdebug_unblank:   .long hwdebug_unblank
+.endif
 .ifdef CAMERA_CAPTURE_FRAME
 .Lcamera_capture_frame: .long CAMERA_CAPTURE_FRAME
 .endif
@@ -748,7 +862,66 @@ serial_puts:
     rts
     nop
 
+.ifdef HW_DEBUG
+! Diagnostic build: when launched by dcload-ip, mirror every serial byte to
+! its console syscall (write(1, &c, 1)) so dc-tool-ip prints it on the host.
 serial_putc:
+    sts.l   pr, @-r15
+    mov.l   r4, @-r15
+    mov.l   r5, @-r15
+    mov.l   r6, @-r15
+    mov.l   r7, @-r15
+    mov.l   .Lhw_dcl_magic_addr, r0
+    mov.l   @r0, r1
+    mov.l   .Lhw_dcl_magic, r2
+    cmp/eq  r1, r2
+    bf      .Lhw_dcl_skip
+    ! Collect a line and issue one write per line: a dcload syscall is a
+    ! network round trip (~15 ms), so per-byte calls stall the demo for seconds.
+    mov.l   .Lhw_linelen_p, r0
+    mov.l   @r0, r1
+    mov.l   .Lhw_linebuf_p, r2
+    add     r1, r2
+    mov.b   r4, @r2
+    add     #1, r1
+    mov.l   r1, @r0
+    mov     #10, r3
+    cmp/eq  r3, r4
+    bt      .Lhw_dcl_flush
+    mov     #120, r3
+    cmp/hs  r3, r1
+    bf      .Lhw_dcl_skip
+.Lhw_dcl_flush:
+    mov     #0, r2
+    mov.l   r2, @r0                 ! line length back to zero
+    mov     #1, r4                  ! dcload write
+    mov     #1, r5                  ! stdout
+    mov.l   .Lhw_linebuf_p, r6
+    mov     r1, r7
+    mov.l   .Lhw_dcl_sc_addr, r0
+    mov.l   @r0, r0
+    jsr     @r0
+    nop
+.Lhw_dcl_skip:
+    mov.l   @r15+, r7
+    mov.l   @r15+, r6
+    mov.l   @r15+, r5
+    mov.l   @r15+, r4
+    bsr     serial_putc_scif
+    nop
+    lds.l   @r15+, pr
+    rts
+    nop
+    .align 2
+.Lhw_dcl_magic_addr: .long 0x8c004004
+.Lhw_dcl_magic:      .long 0xdeadbeef
+.Lhw_dcl_sc_addr:    .long 0x8c004008
+.Lhw_linelen_p:      .long hw_linelen
+.Lhw_linebuf_p:      .long hw_linebuf
+serial_putc_scif:
+.else
+serial_putc:
+.endif
     mov.l   .Lscfsr2, r0
     mov.l   .Lserial_timeout, r2
 .Lserial_wait:
@@ -896,6 +1069,18 @@ perf_sample:
     mov.l   .Lmsg_crlf, r4
     bsr     serial_puts
     nop
+    mov.l   .Lmsg_perf_err, r4
+    bsr     serial_puts
+    nop
+    mov.l   .Lperf_err_ptr, r0
+    mov.l   @r0, r4
+    mov     #0, r1
+    mov.l   r1, @r0
+    bsr     serial_puthex32
+    nop
+    mov.l   .Lmsg_crlf, r4
+    bsr     serial_puts
+    nop
     mov.l   .Lmsg_perf_ticks, r4
     bsr     serial_puts
     nop
@@ -942,6 +1127,8 @@ perf_sample:
 .Lperf_slow_limit:  .long 300000
 .Lmsg_perf:         .long msg_perf
 .Lmsg_perf_ticks:   .long msg_perf_ticks
+.Lmsg_perf_err:     .long msg_perf_err
+.Lperf_err_ptr:     .long pvr_err_accum
 .Lmsg_crlf:         .long msg_crlf
 .Lfn_music_perf_report:.long music_perf_report
 
@@ -1250,6 +1437,15 @@ ta_begin:
     mov.l   .Lasic_ack_c, r0
     mov.l   r1, @r0                ! discard stale PVR error events
 
+.ifdef HW_TA_SET0
+    mov.l   .Lvert0, r10
+    mov.l   .Lopb0c, r11
+    mov.l   .Ltile0c, r12
+    mov.l   .Lfb0c, r13
+    tst     r4, r4
+    bt      .Lta_set_ready
+    mov.l   .Lfb1c, r13
+.else
     tst     r4, r4
     bf      .Lta_set1
     mov.l   .Lvert0, r10
@@ -1263,6 +1459,7 @@ ta_begin:
     mov.l   .Lopb1c, r11
     mov.l   .Ltile1c, r12
     mov.l   .Lfb1c, r13
+.endif
 .Lta_set_ready:
     mov.l   .Lcurrent_vert, r0
     mov.l   r10, @r0
@@ -1305,6 +1502,12 @@ ta_begin:
     mov.l   r1, @r0
     mov.l   .Lqacr1b, r0
     mov.l   r1, @r0
+    ! Changing the OPB window while the TA still holds the other buffer set's
+    ! pointer can latch a spurious "past OPB_END" flag; drop it now that
+    ! TA_INIT has reloaded every pointer.
+    mov.l   .Lasic_ack_c, r0
+    mov     #-1, r1
+    mov.l   r1, @r0
     rts
     nop
 
@@ -1332,21 +1535,23 @@ ta_finish_and_render:
     dt      r3
     bf      .Lwait_ta_done
     nop
+    DBGFATAL 0x00ff0000              ! blink red: TA list-done timeout
     mov.l   .Lmsg_ta_timeout, r4
     bra     pvr_fatal
     nop
 .Lta_hardware_fault:
+    DBGFATALE 0x00ffff00             ! blink yellow: TA/ISP error flag
     mov.l   .Lmsg_ta_fault, r4
     bra     pvr_fatal
     nop
 .Lta_done_ready:
-    ! Completion and a TA fault may latch on the same cycle.  Check ACK_C
-    ! before clearing ACK_A so an OPB overflow can never be acknowledged away.
+    DBGX    0x00400040, r3, r7       ! TA lists binned
+    ! Hardware may latch ISTERR bits that KOS tolerates (for example an OPB
+    ! pointer compare against stale TA state). Record them for the periodic
+    ! report instead of halting; only a list that never completes is fatal.
     mov.l   .Lasic_ack_c, r4
     mov.l   @r4, r5
-    mov.l   .Lpvr_error_mask, r6
-    tst     r6, r5
-    bf      .Lta_hardware_fault
+    NOTE_PVR_ERRORS
     mov.l   r2, @r0
 
     ! The background plane lives immediately after TA-emitted parameters.
@@ -1417,16 +1622,22 @@ ta_finish_and_render:
     dt      r3
     bf      .Lwait_render
     nop
+    DBGFATAL 0x0000ff00              ! blink green: render-done timeout
     mov.l   .Lmsg_render_timeout, r4
     bra     pvr_fatal
     nop
 .Lrender_hardware_fault:
+    DBGFATAL 0x0000ffff              ! blink cyan: render error flag
     mov.l   .Lmsg_render_fault, r4
     bra     pvr_fatal
     nop
 .Lrender_done:
     mov     #4, r1
     mov.l   r1, @r0
+    mov.l   .Lasic_ack_c, r4
+    mov.l   @r4, r5
+    NOTE_PVR_ERRORS
+    DBG     0x00004040               ! render finished, waiting for vblank
 
     ! Flip only during vertical blank to avoid tearing.
     bsr     wait_vblank
@@ -1464,6 +1675,7 @@ wait_vblank:
     dt      r3
     bf      .Lvbl_wait_active
     nop
+    DBGFATAL 0x000000ff              ! blink blue: vblank never left line 0
     mov.l   .Lmsg_vblank_timeout, r4
     bra     pvr_fatal
     nop
@@ -1477,6 +1689,7 @@ wait_vblank:
     dt      r3
     bf      .Lvbl_wait_zero
     nop
+    DBGFATAL 0x00ff00ff              ! blink magenta: vblank never returned to line 0
     mov.l   .Lmsg_vblank_timeout, r4
     bra     pvr_fatal
     nop
@@ -1487,12 +1700,179 @@ wait_vblank:
 ! r4 = diagnostic string. A failed hardware transaction is not safe to retry
 ! blindly; report it over SCIF and stop with interrupts still masked.
 pvr_fatal:
+.ifdef HW_DEBUG
+    mov     r5, r14                 ! keep the blink colour across serial_puts
+.endif
     mov.l   .Lfatal_serial_puts, r0
     jsr     @r0
     nop
+.ifdef HW_DEBUG
+    mov.l   .Lhw_msg_err, r4
+    mov.l   .Lfatal_serial_puts, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_ack_c, r0
+    mov.l   @r0, r4
+    mov.l   .Lhw_puthex, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_msg_nrm, r4
+    mov.l   .Lfatal_serial_puts, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_asic_a, r0
+    mov.l   @r0, r4
+    mov.l   .Lhw_puthex, r0
+    jsr     @r0
+    nop
+    ! TA write positions against their limits, then the frame counter.
+    mov.l   .Lhw_msg_vbuf, r4
+    mov.l   .Lfatal_serial_puts, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_pvr, r12
+    mov.l   .Lhw_off_vpos, r0
+    mov.l   @(r0, r12), r4
+    mov.l   .Lhw_puthex, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_msg_opos, r4
+    mov.l   .Lfatal_serial_puts, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_off_opos, r0
+    mov.l   @(r0, r12), r4
+    mov.l   .Lhw_puthex, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_msg_frame, r4
+    mov.l   .Lfatal_serial_puts, r0
+    jsr     @r0
+    nop
+    mov     r9, r4
+    mov.l   .Lhw_puthex, r0
+    jsr     @r0
+    nop
+    mov.l   .Lhw_msg_crlf, r4
+    mov.l   .Lfatal_serial_puts, r0
+    jsr     @r0
+    nop
+    bsr     hwdebug_unblank
+    nop
+    mov.l   .Lhw_border, r2
+    mov.l   .Lhw_blink, r3
+.Lhw_blink_loop:
+    mov.l   r14, @r2                ! colour on
+    mov     r3, r1
+.Lhw_blink_on:
+    dt      r1
+    bf      .Lhw_blink_on
+    nop
+    mov     #0, r0
+    mov.l   r0, @r2                 ! colour off
+    mov     r3, r1
+.Lhw_blink_off:
+    dt      r1
+    bf      .Lhw_blink_off
+    nop
+    tst     r13, r13
+    bt      .Lhw_blink_loop
+    nop
+    ! ISTERR (bits 0-5) then ISTNRM (bits 0-9): white = set, blue = clear,
+    ! black between bits, one yellow flash between the two words.
+    mov.l   .Lhw_asic_a, r0
+    mov.l   @r0, r12
+    mov     r13, r7
+    mov     #6, r6
+    bsr     hwdebug_bits
+    nop
+    mov.l   r14, @r2
+    mov     r3, r1
+    shll2   r1
+.Lhw_gap:
+    dt      r1
+    bf      .Lhw_gap
+    nop
+    mov     r12, r7
+    mov     #10, r6
+    bsr     hwdebug_bits
+    nop
+    bra     .Lhw_blink_loop
+    nop
+.endif
 .Lpvr_fatal_halt:
     bra     .Lpvr_fatal_halt
     nop
+
+.ifdef HW_DEBUG
+! Hardware diagnostic only: drop the framebuffer and the blank bit so the PVR
+! border colour fills the picture.
+hwdebug_unblank:
+    mov.l   .Lhw_pvr, r2
+    mov.l   .Lhw_vcfg, r0
+    mov.l   @(r0, r2), r1
+    mov     #-9, r3
+    and     r3, r1
+    mov.l   r1, @(r0, r2)
+    mov     #PVR_FB_CFG_1, r0
+    mov.l   @(r0, r2), r1
+    mov     #-2, r3
+    and     r3, r1
+    mov.l   r1, @(r0, r2)
+    rts
+    nop
+
+    .align 2
+.Lhw_pvr:    .long PVR_BASE
+.Lhw_vcfg:   .long PVR_VIDEO_CFG
+.Lhw_border: .long 0xa05f8040
+.Lhw_blink:  .long 6000000
+.Lhw_asic_a: .long ASIC_ACK_A
+.Lhw_ack_c:  .long ASIC_ACK_C
+.Lhw_puthex: .long serial_puthex32
+.Lhw_msg_err:  .long hw_msg_err
+.Lhw_msg_nrm:  .long hw_msg_nrm
+.Lhw_msg_crlf: .long msg_crlf
+.Lhw_msg_vbuf: .long hw_msg_vbuf
+.Lhw_msg_opos: .long hw_msg_opos
+.Lhw_msg_frame:.long hw_msg_frame
+.Lhw_off_vpos: .long PVR_TA_VERTBUF_POS
+.Lhw_off_opos: .long 0x0134
+
+! r7 = value, r6 = bit count, r2 = border register, r3 = base delay.
+hwdebug_bits:
+.Lhw_bit_next:
+    shlr    r7                      ! T = next bit
+    bt      .Lhw_bit_set
+    mov.l   .Lhw_blue, r0
+    bra     .Lhw_bit_show
+    nop
+.Lhw_bit_set:
+    mov.l   .Lhw_white, r0
+.Lhw_bit_show:
+    mov.l   r0, @r2
+    mov     r3, r1
+    shll2   r1
+.Lhw_bit_on:
+    dt      r1
+    bf      .Lhw_bit_on
+    nop
+    mov     #0, r0
+    mov.l   r0, @r2
+    mov     r3, r1
+.Lhw_bit_off:
+    dt      r1
+    bf      .Lhw_bit_off
+    nop
+    dt      r6
+    bf      .Lhw_bit_next
+    nop
+    rts
+    nop
+    .align 2
+.Lhw_blue:   .long 0x000000ff
+.Lhw_white:  .long 0x00ffffff
+.endif
 
     .align 2
 .Lasic_ack:       .long ASIC_ACK_A
@@ -1527,7 +1907,7 @@ pvr_fatal:
 .Lqacr1b:         .long QACR1
 .Lzero_block:     .long zero_block
 .Lta_done_mask:   .long 0x00000280
-.Lpvr_error_mask: .long 0x0000003f
+.Lpvr_error_mask: .long 0x00000000     ! ISTERR bits are logged, not fatal
 .Lwait_budget:    .long 20000000
 .Lfatal_serial_puts:.long serial_puts
 .Lmsg_ta_timeout: .long msg_ta_timeout
@@ -5166,8 +5546,14 @@ msg_render_timeout: .asciz "PVR FATAL: render completion timeout\r\n"
 msg_render_fault: .asciz "PVR FATAL: render error event\r\n"
 msg_vblank_timeout: .asciz "PVR FATAL: scanline counter timeout\r\n"
 msg_perf: .asciz "PERF missed-vblank frames / 600 = 0x"
+msg_perf_err: .asciz "PERF PVR ISTERR bits seen / 600 frames = 0x"
 msg_perf_ticks: .asciz "PERF TMU1 ticks / 600 frames = 0x"
 msg_crlf: .asciz "\r\n"
+hw_msg_err: .asciz "FATAL ISTERR=0x"
+hw_msg_nrm: .asciz " ISTNRM=0x"
+hw_msg_vbuf: .asciz "\r\nTA VERTBUF_POS=0x"
+hw_msg_opos: .asciz " OPB_POS=0x"
+hw_msg_frame: .asciz " FRAME=0x"
 
 ! ---------------------------------------------------------------------------
 ! Writable state and aligned scratch blocks
@@ -5192,6 +5578,11 @@ perf_previous:     .space 4
 perf_countdown:    .space 4
 perf_slow_count:   .space 4
 perf_total_ticks:  .space 4
+pvr_err_accum:     .space 4
+.ifdef HW_DEBUG
+hw_linelen:        .space 4
+hw_linebuf:        .space 128
+.endif
 quad_depth:  .space 4
 quad_color:  .space 4
 vault_reference_x:.space 4

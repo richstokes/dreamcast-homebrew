@@ -9,7 +9,17 @@ NM := $(TOOLCHAIN)/sh-elf-nm
 ASFLAGS := --isa=sh4 --little
 LDFLAGS := -m shlelf -T linker.ld --gc-sections -nostdlib
 
-.PHONY: all clean run verify
+.PHONY: all clean run verify hwdebug
+
+# Real-hardware diagnostic build: `make hwdebug` writes chroma-circuit-hwdebug.elf.
+# Boot stages paint the PVR border colour; fatal PVR errors blink a code.
+hwdebug: chroma-circuit-hwdebug.elf
+
+chroma-circuit-hwdebug.o: chroma-circuit.s hyperfold.inc strange-form.inc product-form.inc elevated.inc navigator.inc event-horizon.inc aica-music.inc
+	$(AS) $(ASFLAGS) --defsym HW_DEBUG=1 $(HWDEBUG_FLAGS) -o $@ $<
+
+chroma-circuit-hwdebug.elf: chroma-circuit-hwdebug.o linker.ld
+	$(LD) $(LDFLAGS) -o $@ $<
 
 all: $(TARGET)
 
@@ -31,4 +41,4 @@ run: $(TARGET)
 	./run-flycast.sh --skip-build
 
 clean:
-	-rm -f $(OBJS) $(TARGET)
+	-rm -f $(OBJS) $(TARGET) chroma-circuit-hwdebug.o chroma-circuit-hwdebug.elf
