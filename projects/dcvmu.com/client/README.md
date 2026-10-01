@@ -175,6 +175,10 @@ python3 projects/dcvmu.com/client/tests/run_upload_stress.py --host <Mac-LAN-IP>
 python3 -m unittest discover -s projects/dcvmu.com/client/tests
 ```
 
+Each runner gives Flycast a temporary VMU folder that already contains a blank
+card for every slot (`tests/isolated_cards.py`). Flycast moves real cards into a
+custom VMU folder that lacks them, so never point it at an empty one.
+
 The `--tools` test creates icons through the studio and saves through the card
 importer, then checks HTTPS downloads, cancellation, installation, replacement,
 header offsets and preservation of existing saves in Flycast. It also verifies

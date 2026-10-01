@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 import time
 
+from isolated_cards import blank_cards
+
 CLIENT = Path(__file__).resolve().parents[1]
 
 
@@ -22,7 +24,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='dcvmu-modem-checks-') as directory:
         work = Path(directory)
         (work / 'tests').mkdir()
-        (work / 'vmus').mkdir()
+        blank_cards(work / 'vmus')
         for name in ('modem.c', 'client.h', 'tests/modem_settings.c'):
             shutil.copyfile(CLIENT / name, work / name)
         (work / 'Makefile').write_text('''TARGET = checks.elf

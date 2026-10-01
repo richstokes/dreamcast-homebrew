@@ -25,6 +25,7 @@ CLIENT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CLIENT.parent / 'service'))
 from app import create_app, PASSWORDS
 from test_service import vms
+from isolated_cards import blank_cards
 
 
 def main():
@@ -43,8 +44,9 @@ def main():
     args.log_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='dcvmu-public-browse-') as directory:
         work = Path(directory)
-        for name in ('romdisk', 'tests', 'vmus'):
+        for name in ('romdisk', 'tests'):
             (work / name).mkdir()
+        blank_cards(work / 'vmus')
         for name in ('dcvmu-client.c', 'title.c', 'menu-audio.c', 'net.c', 'modem.c',
                      'auth.c', 'archive.c', 'client.h', 'Makefile', 'romdisk/cacert.pem',
                      'tests/public_browse.c', 'tests/vmu_tools.c'):

@@ -95,6 +95,10 @@ def main():
             work = Path(directory)
             (work / 'tests').mkdir()
             (work / 'vmus').mkdir()
+            # Flycast moves a real card into a custom VMU folder that lacks it and
+            # deletes the original, so give every slot a blank card of its own.
+            for slot in ('A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2'):
+                (work / 'vmus' / f'vmu_save_{slot}.bin').write_bytes(bytes(131072))
             for name in ('dreamcast-irc.c', 'modem.c', 'modem.h', 'Makefile', 'tests/network.c'):
                 shutil.copyfile(CLIENT / name, work / name)
             config_header = work / 'test-config.h'

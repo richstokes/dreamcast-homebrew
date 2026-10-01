@@ -19,6 +19,8 @@ import tempfile
 import threading
 import time
 
+from isolated_cards import blank_cards
+
 CLIENT = Path(__file__).resolve().parents[1]
 SIZES = (4608, 8704, 98816)
 DATA = bytes((i * 31 + 7) & 255 for i in range(max(SIZES)))
@@ -88,7 +90,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='dcvmu-upload-stress-') as directory:
         work = Path(directory)
         (work / 'romdisk').mkdir()
-        (work / 'vmus').mkdir()
+        blank_cards(work / 'vmus')
         for name in ('net.c', 'modem.c', 'client.h'):
             shutil.copyfile(CLIENT / name, work / name)
         shutil.copyfile(CLIENT / 'tests/upload_stress.c', work / 'stress.c')
