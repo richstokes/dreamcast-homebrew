@@ -79,7 +79,7 @@ void service_net_shutdown(void) {
     if(curl_ready) { curl_global_cleanup(); curl_ready=0; }
     /* Preserve the existing BBA shutdown behavior: keep PCI IRQs gated until
        system shutdown. Re-enabling them here reintroduces Flycast IRQ re-entry
-       while late TCP/Maple traffic is still arriving at the thank-you screen. */
+       while late TCP/Maple traffic is still arriving. */
     gate_bba=0;
     if(using_modem) { service_modem_shutdown(); using_modem=0; }
 }

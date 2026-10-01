@@ -303,7 +303,7 @@ static void frame(uint64_t elapsed, int greeting) {
 }
 
 /* Consume all queued keys while on the title. Waiting for release after the
-   greeting keeps Start from immediately exiting (or Enter editing) the app. */
+   greeting keeps Start or Enter from immediately selecting in the app. */
 static int title_input(uint32_t *previous, int *released) {
     maple_device_t *dev = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
     cont_state_t *pad = dev ? maple_dev_status(dev) : NULL;
@@ -345,7 +345,7 @@ void client_title_screen(uint32_t *previous_buttons) {
         printf("dcvmu: title PVR unavailable; using text fallback\n");
         vid_clear(250, 245, 233);
         bfont_draw_str_ex(vram_s + 180 * 640 + 266, 640, 0x244b, 0, 16, false, "DCVMU.com");
-        bfont_draw_str_ex(vram_s + 260 * 640 + 206, 640, 0x244b, 0, 16, false, "Press START / Enter");
+        bfont_draw_str_ex(vram_s + 260 * 640 + 254, 640, 0x244b, 0, 16, false, "Press START");
     }
     int released, accepted = 0;
     title_input(previous_buttons, &released);

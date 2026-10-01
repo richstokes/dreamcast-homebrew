@@ -25,6 +25,9 @@ static save_t saves[MAX_FILES];
 /* Only cache the visible page: 14 KiB, independent of card capacity. */
 typedef struct { int key, valid; uint16_t pixels[32*32]; } save_icon_t;
 static save_icon_t icons[7], remote_icons[7];
+/* Screens are composed here and copied to video memory in one pass, so a
+   redraw never shows a cleared or half-drawn frame. */
+static uint16_t canvas[640*480] __attribute__((aligned(32)));
 static int icon_cache_ready;
 static unsigned little16(const unsigned char *p) {return p[0]|((unsigned)p[1]<<8);}
 static void decode_icon(save_icon_t *icon,const unsigned char *h,size_t size) {
@@ -43,7 +46,7 @@ static void decode_icon(save_icon_t *icon,const unsigned char *h,size_t size) {
 }
 static void draw_icon(const save_icon_t *icon,int x,int y) {
     for(int py=0;py<32;++py)for(int px=0;px<32;++px)
-        vram_s[(y+py)*640+x+px]=icon->valid?icon->pixels[py*32+px]:
+        canvas[(y+py)*640+x+px]=icon->valid?icon->pixels[py*32+px]:
             (px>=3&&px<=28&&py>=3&&py<=28&&(px==3||px==28||py==3||py==28)?BLUE:PAPER);
 }
 static void draw_save_icon(int index,int x,int y) {
@@ -94,7 +97,7 @@ static char username[25], password[129], token[96];
 static char save_name[65], game[81], notes[501], status_text[160];
 static void *save_data;
 static int save_size;
-static int edit_field = -1, osk_x, osk_y, dirty = 1, canceled;
+static int edit_field = -1, osk_x, osk_y, dirty = 1, canceled, to_title;
 static char edit_backup[501];
 static uint32_t previous_buttons;
 static const char *keys[] = {
@@ -111,7 +114,7 @@ void client_status(const char *message) {
 static void text(int x, int y, uint16_t color, const char *value) {
     char clipped[50];
     snprintf(clipped, sizeof(clipped), "%.49s", value);
-    bfont_draw_str_ex(vram_s + y * 640 + x, 640, color, PAPER, 16, false, clipped);
+    bfont_draw_str_ex(canvas + y * 640 + x, 640, color, PAPER, 16, false, clipped);
 }
 static void row(int index, const char *label, const char *value, int masked) {
     char line[100], hidden[42];
@@ -155,13 +158,12 @@ static void card_rows(int y) {
 }
 static void draw(void) {
     int i;
-    vid_waitvbl();
-    for(i=0;i<640*480;++i) vram_s[i]=PAPER;
+    for(i=0;i<640*480;++i) canvas[i]=PAPER;
     text(24, 18, ORANGE, "DCVMU.com / Cloud Saves for Dreamcast");
     if(edit_field>=0) {
         size_t capacity; char *value=field_value(&capacity), display[501];
         (void)capacity;
-        text(24,62,INK,"Edit field - keyboard or controller");
+        text(24,62,INK,"Edit field");
         if(screen==LOGIN && edit_field==1) {
             size_t n=strlen(value); memset(display,'*',n); display[n]=0;
         } else snprintf(display,sizeof(display),"%s",value);
@@ -175,22 +177,21 @@ static void draw(void) {
             }
         }
         text(24,356,INK,"A add   X erase   Y done   B cancel");
-        text(24,386,INK,"Enter done / Esc cancel / Tab done");
     } else if(screen==STARTUP) {
         text(24,66,INK,"Starting DCVMU...");
         text(24,150,INK,"Preparing network and checking saved login.");
-        text(24,310,INK,"B / Esc cancels after the current dial step");
+        text(24,310,INK,"B cancels after the current dial step");
     } else if(screen==AUTO_LOGIN) {
         text(24,66,BLUE,"Attempting auto login...");
         text(24,150,INK,username);
         text(24,198,INK,"Checking your saved VMU session.");
-        text(24,310,INK,"B / Esc cancel");
+        text(24,310,INK,"B cancel");
     } else if(screen==LOGIN) {
         text(24,66,INK,"Log in - register first at dcvmu.com");
         row(0,"Username",username,0); row(1,"Password",password,1);
         action_row(2,"Log in","");
-        text(24,274,INK,"D-pad choose / A edit or continue");
-        text(24,310,INK,"Keyboard: arrows, Enter, Tab");
+        text(24,274,INK,"D-pad choose   A edit or continue");
+        text(24,310,INK,"B title screen");
     } else if(screen==HOME) {
         text(24,66,INK,"What would you like to do?");
         action_row(0,"Upload a save","VMU to account");
@@ -199,13 +200,13 @@ static void draw(void) {
         action_row(3,"Restore a VMU","account to whole card");
         action_row(4,"Browse Public Saves","");
         action_row(5,"Sign out","");
-        text(24,346,INK,"A / Enter select   Start exits");
+        text(24,346,INK,"A select   X sign out   B title screen");
     } else if(screen==ARCHIVE_SOURCE) {
         text(24,66,INK,"Choose the VMU to archive");
         text(24,100,BLUE,"Every file on the card is saved as one snapshot.");
         card_rows(136);
         text(24,354,INK,"Your DCVMU login save is never archived.");
-        text(24,382,INK,"A archive   Y/R rescan   B/Esc menu");
+        text(24,382,INK,"A archive   Y rescan   B menu");
     } else if(screen==ARCHIVE_DETAILS) {
         char line[100];
         text(24,66,INK,"Archive details");
@@ -220,8 +221,8 @@ static void draw(void) {
         text(24,80,BLUE,"Whole VMU archived successfully.");
         text(24,132,INK,"Restore it any time from Restore a VMU,");
         text(24,160,INK,"or manage it at dcvmu.com/archives.");
-        text(24,212,INK,"A / Enter: archive another VMU");
-        text(24,252,INK,"B / Esc: main menu   Start: exit");
+        text(24,212,INK,"A: archive another VMU");
+        text(24,252,INK,"B: main menu");
     } else if(screen==ARCHIVES) {
         char line[100],date[24];
         snprintf(line,sizeof(line),"VMU archives - page %d",archive_page+1);
@@ -236,16 +237,16 @@ static void draw(void) {
             snprintf(line,sizeof(line),"%s%s%d files in this archive",archives[archive_selected].source,archives[archive_selected].source[0]?": ":"",archives[archive_selected].files);
             text(24,326,INK,line);
         }
-        snprintf(line,sizeof(line),"%s%sY/R refresh",archive_page?"Left: previous   ":"",archive_more?"Right: next   ":"");
+        snprintf(line,sizeof(line),"%s%sY refresh",archive_page?"Left: previous   ":"",archive_more?"Right: next   ":"");
         text(24,354,INK,line);
-        text(24,382,INK,"A restore   B/Esc menu");
+        text(24,382,INK,"A restore   B menu");
     } else if(screen==RESTORE_DEST) {
         char line[100];text(24,66,INK,"Choose the VMU to restore onto");
         snprintf(line,sizeof(line),"%.36s (%d files)",archives[archive_selected].name,archives[archive_selected].files);
         text(24,100,BLUE,line);
         card_rows(136);
         text(24,354,INK,"Nothing is written until you confirm.");
-        text(24,382,INK,"A select   Y/R rescan   B/Esc back");
+        text(24,382,INK,"A select   Y rescan   B back");
     } else if(screen==RESTORE_CONFIRM) {
         char line[100];text(24,66,ORANGE,"Erase this VMU and restore the archive?");
         snprintf(line,sizeof(line),"%.28s -> VMU %c%d",archives[archive_selected].name,'A'+restore_id/6,restore_id%6);
@@ -256,12 +257,12 @@ static void draw(void) {
         text(24,222,focus==0?BLUE:INK,focus==0?"> Cancel":"  Cancel");
         text(24,258,focus==1?BLUE:INK,focus==1?"> Restore whole VMU":"  Restore whole VMU");
         text(24,330,INK,"Keep the VMU inserted while writing.");
-        text(24,382,INK,"Up/Down choose   A confirm   B/Esc back");
+        text(24,382,INK,"Up/Down choose   A confirm   B back");
     } else if(screen==RESTORED) {
         text(24,80,BLUE,"Whole VMU restored and verified.");
         text(24,150,INK,archives[archive_selected].name);
         text(24,190,INK,"Reinsert the VMU to refresh its menu.");
-        text(24,240,INK,"A / Enter main menu   B / Esc archives");
+        text(24,240,INK,"A main menu   B archives");
     } else if(screen==PUBLIC_SEARCH) {
         text(24,66,INK,"Browse Public Saves");
         row(0,"Username",browse_user,0);
@@ -270,7 +271,7 @@ static void draw(void) {
         text(24,250,INK,"Discover saves at dcvmu.com first.");
         text(24,282,INK,"Enter the owner's exact username here.");
         text(24,314,INK,"Game matches part of the game title.");
-        text(24,382,INK,"A edit / search   B/Esc menu");
+        text(24,382,INK,"A edit / search   B menu");
     } else if(screen==DOWNLOADS) {
         char line[100];
         if(remote_matching)snprintf(line,sizeof(line),"Choose backup to replace - page %d",remote_page+1);
@@ -287,9 +288,9 @@ static void draw(void) {
             text(64,108+i*34,i==remote_selected?BLUE:INK,line);
         }
         if(remote_count)text(24,326,INK,remote_saves[remote_selected].game);
-        snprintf(line,sizeof(line),"%s%sY/R refresh",remote_page?"Left: previous   ":"",remote_more?"Right: next   ":"");
+        snprintf(line,sizeof(line),"%s%sY refresh",remote_page?"Left: previous   ":"",remote_more?"Right: next   ":"");
         text(24,354,INK,line);
-        text(24,382,INK,remote_matching?"A choose   X/N keep new   B back":remote_public?"A select   B/Esc change search":"A download   X/N rename   B/Esc menu");
+        text(24,382,INK,remote_matching?"A choose   X keep new   B back":remote_public?"A select   B change search":"A download   X rename   B menu");
     } else if(screen==RENAME) {
         text(24,66,INK,"Rename cloud save");
         row(0,"Save title",cloud_title,0);
@@ -309,7 +310,7 @@ static void draw(void) {
             text(24,136+i*28,i==target_index?BLUE:INK,line);
         }
         if(!card_count)text(24,150,INK,"No VMUs attached. Insert one and rescan.");
-        text(24,382,INK,"A select   Y/R rescan   B/Esc back");
+        text(24,382,INK,"A select   Y rescan   B back");
     } else if(screen==INSTALL_CONFIRM) {
         int custom=!strcmp(remote_saves[remote_selected].filename,DCVMU_ICON_FILE);
         char line[100];text(24,66,ORANGE,custom?(target_exists?"Replace this VMU's custom icons?":"Apply custom icons to this VMU?"):(target_exists?"Replace the existing VMU save?":"Install this save on the VMU?"));
@@ -320,11 +321,11 @@ static void draw(void) {
         text(24,222,focus==0?BLUE:INK,focus==0?"> Cancel":"  Cancel");
         text(24,258,focus==1?BLUE:INK,focus==1?(target_exists?"> Replace save":"> Install save"):(target_exists?"  Replace save":"  Install save"));
         text(24,330,INK,"Keep the VMU inserted while writing.");
-        text(24,382,INK,"Up/Down choose   A confirm   B/Esc back");
+        text(24,382,INK,"Up/Down choose   A confirm   B back");
     } else if(screen==INSTALLED) {
         text(24,80,BLUE,!strcmp(remote_saves[remote_selected].filename,DCVMU_ICON_FILE)?"Custom icons installed and verified.":"Save installed and verified.");
         text(24,150,INK,remote_saves[remote_selected].filename);
-        text(24,230,INK,"A / Enter main menu   B / Esc downloads");
+        text(24,230,INK,"A main menu   B downloads");
     } else if(screen==FILES) {
         char line[100];
         if(card_filter<0) snprintf(line,sizeof(line),"All VMUs: %d cards, %d saves",card_count,save_count);
@@ -337,8 +338,8 @@ static void draw(void) {
             draw_save_icon(i,24,110+(i%7)*34);
             text(64,112+(i%7)*34,i==selected?BLUE:INK,line);
         }
-        text(24,354,INK,"Left / Right: VMU   A / Enter: select");
-        text(24,382,INK,"Y/R rescan   B/Esc menu   Start exits");
+        text(24,354,INK,"Left / Right: VMU   A: select");
+        text(24,382,INK,"Y rescan   B menu");
     } else if(screen==DETAILS) {
         text(24,66,INK,"Upload details");
         text(24,88,BLUE,saves[selected].filename);
@@ -352,15 +353,15 @@ static void draw(void) {
         text(24,66,ORANGE,"Replace this cloud backup?");
         text(24,88,BLUE,remote_saves[remote_selected].name);
         text(24,112,INK,"Choose what to do with your upload:");
-        action_row(1,"Replace existing", "A button / Enter");
-        action_row(2,"Keep both", "Y button / K");
-        text(24,268,INK,"B / Backspace: choose another backup");
+        action_row(1,"Replace existing", "A button");
+        action_row(2,"Keep both", "Y button");
+        text(24,268,INK,"B: choose another backup");
         text(24,308,INK,"Keeps its title; uses new notes/visibility.");
     } else {
         text(24,80,BLUE,"Save uploaded successfully.");
         text(24,132,INK,"Visit dcvmu.com to view your archive.");
-        text(24,192,INK,"A / Enter: upload another save");
-        text(24,232,INK,"B / Esc: main menu   Start: exit");
+        text(24,192,INK,"A: upload another save");
+        text(24,232,INK,"B: main menu");
     }
     char first[50];
     size_t split=strlen(status_text);
@@ -368,6 +369,8 @@ static void draw(void) {
     memcpy(first,status_text,split); first[split]=0;
     text(24,412,BLUE,first);
     if(strlen(status_text)>split)text(24,438,BLUE,status_text+split+(status_text[split]==' '));
+    vid_waitvbl();
+    sq_cpy(vram_s,canvas,sizeof(canvas));
     dirty=0;
 }
 static int poll_cancel(void) {
@@ -377,7 +380,7 @@ static int poll_cancel(void) {
     if(state) {
         uint32_t pressed=state->buttons & ~previous_buttons;
         previous_buttons=state->buttons;
-        if(pressed & (CONT_B|CONT_START)) canceled=1;
+        if(pressed & CONT_B) canceled=1;
     }
     dev=maple_enum_type(0,MAPLE_FUNC_KEYBOARD);
     if(dev) { int raw; while((raw=kbd_queue_pop(dev,0))!=KBD_QUEUE_END)
@@ -400,7 +403,7 @@ int transfer_update(uint64_t done, uint64_t total) {
     uint64_t now=timer_ms_gettime64();
     poll_cancel();
     if(now-last>200) {
-        snprintf(status_text,sizeof(status_text),"HTTPS %lu/%lu KB - B/Esc cancel",(unsigned long)(done/1024),(unsigned long)((total+1023)/1024));
+        snprintf(status_text,sizeof(status_text),"HTTPS %lu/%lu KB - B cancel",(unsigned long)(done/1024),(unsigned long)((total+1023)/1024));
         draw(); last=now;
     }
     return canceled;
@@ -429,7 +432,7 @@ static void scan(void) {
         free(entries);
     }
     printf("dcvmu: scanned %d data saves\n",save_count);
-    client_status(save_count?"Select a save to upload.":"No saves. Y/R rescans inserted VMUs.");
+    client_status(save_count?"Select a save to upload.":"No saves. Y rescans inserted VMUs.");
 }
 static int load_downloads(void);
 static int load_archives(void);
@@ -542,7 +545,7 @@ static int load_downloads(void) {
             dirty=1;draw();
         }
         client_status(!remote_count?(remote_public?"No public saves match. Check username and game.":"You have no saves on this page."):
-                      remote_matching?"Choose a backup, or X/N to keep a new copy.":canceled?"Icon loading canceled. Select a save.":"Select a save to download.");
+                      remote_matching?"Choose a backup, or X to keep a new copy.":canceled?"Icon loading canceled. Select a save.":"Select a save to download.");
     }
     dirty=1;return listed;
 }
@@ -820,6 +823,7 @@ static void back(void) {
     else if(screen==FILES || screen==DOWNLOADS || screen==SUCCESS){screen=HOME;focus=0;client_status("");}
     else if(screen==CONFLICT){screen=DOWNLOADS;replacement_id=0;}
     else if(screen==DETAILS) {screen=FILES;free(save_data);save_data=NULL;}
+    else if(screen==HOME || screen==LOGIN)to_title=1;
     if(screen!=previous)client_menu_sound(MENU_BACK);
     dirty=1;
 }
@@ -935,7 +939,7 @@ fail:printf("dcvmu: DOWNLOAD SELF-TEST FAILED screen=%d status=%s\n",screen,stat
 #endif
 
 int main(int argc,char **argv) {
-    int quit=0,online=0;
+    int online=0;
     (void)argc;(void)argv;
     vid_set_mode(DM_640x480,PM_RGB565);bfont_set_encoding(BFONT_CODE_ISO8859_1);
     /* Existing automated integration builds must remain unattended. */
@@ -1006,12 +1010,16 @@ int main(int argc,char **argv) {
     /* Title audio has been released; keep one small click resident for the UI.
        Integration fixtures above remain silent and do not need audio hardware. */
     client_menu_audio_init();
-    while(!quit) {
+    /* Scripted fixtures may back out of the main menu; only a player's B
+       press returns to the title. */
+    to_title=0;
+    for(;;) {
         maple_device_t *dev=maple_enum_type(0,MAPLE_FUNC_CONTROLLER);
         cont_state_t *state=dev?maple_dev_status(dev):NULL;
         uint32_t pressed=state?state->buttons&~previous_buttons:0;
         if(state)previous_buttons=state->buttons;
-        if(pressed&CONT_START)break;
+        /* Start confirms exactly like A, on menus and the on-screen keyboard. */
+        if(pressed&CONT_START)pressed|=CONT_A;
         if(edit_field>=0) {
             int old_x=osk_x,old_y=osk_y;
             if(pressed&CONT_DPAD_UP)osk_y=(osk_y+5)%6;
@@ -1049,7 +1057,7 @@ int main(int argc,char **argv) {
                     else if(key==KBD_KEY_ESCAPE)edit_end(1);
                     else if(key==KBD_KEY_BACKSPACE)edit_char('\b');
                     else edit_char(ascii);
-                } else if(key==KBD_KEY_ESCAPE){if(screen==LOGIN||screen==HOME){quit=1;break;}else back();}
+                } else if(key==KBD_KEY_ESCAPE)back();
                 else if(key==KBD_KEY_LEFT)switch_card(-1);
                 else if(key==KBD_KEY_RIGHT)switch_card(1);
                 else if(key==KBD_KEY_UP)move(-1);
@@ -1062,22 +1070,22 @@ int main(int argc,char **argv) {
                 else if(key==KBD_KEY_K&&screen==CONFLICT){client_menu_sound(MENU_SELECT);upload("keep");}
             }
         }
+        if(to_title) {
+            /* The app never exits: backing out of the top level shows the
+               title again. A login that could not be remembered on a VMU
+               ends here, as it would have on exit. */
+            to_title=0;
+            if(token[0]&&!remembered) {
+                canceled=0;service_logout(token);memset(token,0,sizeof(token));
+                screen=LOGIN;focus=0;client_status("Signed out. Log in to continue.");
+            }
+            memset(password,0,sizeof(password));
+            client_menu_audio_shutdown();
+            client_title_screen(&previous_buttons);
+            client_menu_audio_init();
+            dirty=1;
+        }
         if(dirty)draw();
         thd_sleep(16);
     }
-    if(online&&token[0]&&!remembered){canceled=0;service_logout(token);}
-    memset(password,0,sizeof(password));memset(token,0,sizeof(token));memset(edit_backup,0,sizeof(edit_backup));
-    free(target_old);free(save_data);free(image);if(online)service_net_shutdown();
-    client_menu_audio_shutdown();
-    /* Returning from main tears down video. Keep the final frame displayed
-       until the console is powered off/reset or the emulator is closed. */
-    vid_waitvbl();
-    for(int i=0;i<640*480;++i)vram_s[i]=PAPER;
-    text(24,18,ORANGE,"DCVMU.com / Cloud Saves for Dreamcast");
-    text(24,144,BLUE,"Thank you for using DCVMU!");
-    text(24,192,INK,"See you next time at dcvmu.com.");
-    text(24,288,INK,"You can now turn off your Dreamcast");
-    text(24,320,INK,"or close the emulator.");
-    printf("dcvmu: clean shutdown - thank-you screen\n");
-    for(;;)thd_sleep(1000);
 }

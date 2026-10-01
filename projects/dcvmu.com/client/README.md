@@ -71,16 +71,20 @@ Do not remove the VMU or power off while a save is being written.
 - D-pad / keyboard arrows: choose a field or save. Tab advances fields.
 - Left/right on the save list: cycle between all cards and each attached VMU.
   On cloud lists, left/right changes page.
-- A / Enter: edit, select, or confirm.
-- B / Escape / Backspace: go back, or cancel an active network transfer.
+- A / Start / Enter: edit, select, or confirm.
+- B / Escape / Backspace: go back, or cancel an active network transfer. From
+  the login screen or main menu, B returns to the title screen.
 - Y / R: rescan VMUs, or refresh a cloud list, including archives.
 - X / N on **My saves**: rename the selected cloud save. Public saves cannot be
   renamed.
 - X / L at the main menu: sign out.
-- Start: continue from the title screen; inside the app, exit and keep a
-  remembered login.
 - Text editing: type with a keyboard, or use the on-screen keyboard with the
-  D-pad and A. X erases, Y finishes, B cancels.
+  D-pad and A (or Start). X erases, Y finishes, B cancels.
+
+On-screen hints show the controller buttons only; the keyboard shortcuts above
+still work. The app has no exit: power off or reset the console when finished.
+A remembered login is kept. A login that could not be saved to a VMU is signed
+out when you return to the title screen.
 
 A canceled or failed request may already have reached the server; check your
 account before retrying.
@@ -191,11 +195,14 @@ never run the test fixtures against personal VMUs; remove those files and run
 The existing integration self-tests skip the title screen. To check it manually,
 boot a normal build, leave it idle for five seconds to see the bob and blink,
 then hold Start (or Enter): one chime should play, and the greeting should wait
-until release and open the usual login/menu without immediately exiting or
-editing a field. The title is drawn with untextured PowerVR polygons; its chime
+until release and open the usual login/menu without immediately selecting
+anything. Press B at the login screen or main menu to return to the title, then
+Start to come back. The title is drawn with untextured PowerVR polygons; its chime
 is synthesized into a small PCM sample played by the AICA. Title graphics and
 chime resources are released before the existing framebuffer UI starts. Menu
-clicks use one 2 KiB sample and one sound channel, released when the app exits.
+clicks use one 2 KiB sample and one sound channel, released while the title is
+shown. Each UI screen is composed in memory and copied to the framebuffer in
+one pass, so moving the on-screen keyboard cursor should not flicker.
 Check arrows/Tab, Enter, typing/deleting, and Escape in a login field for the
 movement, selection, and back clicks. No external artwork, audio files, or VMU
 writes are needed for either the title or the clicks.
