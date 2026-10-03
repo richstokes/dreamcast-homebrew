@@ -1,0 +1,14 @@
+{
+  "name": "Sega GT - All cars and tracks (US)",
+  "notes": "All vehicles available, all tracks completed and 1,000,000 in-game money, according to the contributor.\nRegion: US (source). Not gameplay-tested.\nContributor: Mauricio Rodriguez. Curated from bucanero/dreamcast-saves (GPL-3.0).\nhttps://github.com/bucanero/dreamcast-saves/blob/67019645b313368da553bab40237c4968b52b9f7/segagt/v65707.VMS",
+  "sha256": "9d892ca26c617e89e874874cc028c53d984c115e39c020a30563a154dae468d3",
+  "id": 83,
+  "filename": "SEGAGT__.SYS",
+  "blocks": 42,
+  "username": "BucaneroArchive",
+  "source_commit": "67019645b313368da553bab40237c4968b52b9f7",
+  "source_path": "segagt/v65707.VMS",
+  "source_description": "Todos los vehiculos disponibles,1.000.000 de pesos disponible,todas las pistas=100% DiSFRUTALO!! CHAO.(vers.americana)",
+  "imported_date": "2026-10-03",
+  "verification": "VMS checksum and VMI filename/size validated. No existing payload overlap. Public page and byte-identical download verified. Source description, contributor and displayed header text reviewed. US region is source-reported; gameplay untested."
+}

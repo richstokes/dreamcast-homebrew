@@ -1,0 +1,14 @@
+{
+  "name": "Vanishing Point - All cars, tracks and tune-ups",
+  "notes": "All cars, tracks and tune-ups unlocked, according to the contributor.\nRegion: unverified. Not gameplay-tested.\nContributor: htdgflvrdwtr. Curated from bucanero/dreamcast-saves (GPL-3.0).\nhttps://github.com/bucanero/dreamcast-saves/blob/67019645b313368da553bab40237c4968b52b9f7/vanishpoint/v90933.VMS",
+  "sha256": "3be4c8926b08c696e03051e591af4951c189657edbd287a32ea7d239e3d4ad07",
+  "id": 82,
+  "filename": "VNISHNPT.SYS",
+  "blocks": 41,
+  "username": "BucaneroArchive",
+  "source_commit": "67019645b313368da553bab40237c4968b52b9f7",
+  "source_path": "vanishpoint/v90933.VMS",
+  "source_description": "All cars, tracks, tune ups, this one is complete.",
+  "imported_date": "2026-10-03",
+  "verification": "VMS checksum and VMI filename/size validated. No preexisting payload overlap. Live page and byte-identical download verified. Source description, contributor and displayed header text reviewed. Region and gameplay unverified."
+}
