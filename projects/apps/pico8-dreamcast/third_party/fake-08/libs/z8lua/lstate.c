@@ -191,6 +191,8 @@ static void f_luaopen (lua_State *L, void *ud) {
   /* pre-create memory-error message */
   g->memerrmsg = luaS_newliteral(L, MEMERRMSG);
   luaS_fix(g->memerrmsg);  /* it should never be collected */
+  g->sandboxkey = luaS_newliteral(L, "__PICO8_SANDBOX");
+  luaS_fix(g->sandboxkey);
   g->gcrunning = 1;  /* allow gc */
   g->version = lua_version(NULL);
   luai_userstateopen(L);

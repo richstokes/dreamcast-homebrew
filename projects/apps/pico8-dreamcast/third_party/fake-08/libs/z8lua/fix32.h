@@ -136,6 +136,14 @@ struct fix32
         if (x.m_bits == 0x1'0000)
             return *this;
 
+#if defined(__DREAMCAST__)
+        // Whole divisors other than -1: (a * 2^16) / (d * 2^16) truncates
+        // exactly like a / d and cannot overflow, so a 32-bit division
+        // replaces the slow 64-bit library call.
+        if ((x.m_bits & 0xffff) == 0 && x.m_bits != 0 && x.m_bits != -0x1'0000)
+            return frombits(m_bits / (x.m_bits >> 16));
+#endif
+
         if (x.m_bits)
         {
             using std::abs;

@@ -25,8 +25,24 @@ Local core changes (marked in the affected files):
   Addition/subtraction explicitly wrap through unsigned arithmetic, preserving
   the VM's loop-overflow detection when optimized.
 - `libs/z8lua/lvm.c`: remove the upstream `O0` override for Dreamcast. The VM
-  uses the project's O3/LTO and `-fwrapv`; a regression cartridge covers signed
+  uses the project's -O2/LTO and `-fwrapv`; a regression cartridge covers signed
   boundaries, fractional steps, calls, tables and coroutine yields.
+  `luaV_execute` keeps the program counter in a local, storing it to
+  `savedpc` before anything that can raise, call, collect or yield (as in
+  Lua 5.4). It dispatches through a label-address table under GCC.
+  GETTABUP/GETTABLE/SELF/SETTABUP/SETTABLE read and write existing
+  short-string and array-part keys inline, and add missing keys directly when
+  no `__index`/`__newindex` applies. Number comparisons and `#t` without
+  `__len` are inline. Lua iterators in generic `for` loops are entered like
+  OP_CALL instead of through a nested `luaD_call`. Rare opcodes (bitwise,
+  POW, IDIV, PEEK, CONCAT, SETLIST, CLOSURE, VARARG) run out of line. The
+  sandbox fallback for nil string-keyed reads uses a pre-created key and
+  skips the second lookup when the table that missed is the sandbox.
+- `libs/z8lua/lstate.h` and `lstate.c`: `lua_State::hookmask` moved next to
+  `status` (within the SH-4's byte-load displacement); `global_State` holds
+  the fixed `"__PICO8_SANDBOX"` string.
+- `libs/z8lua/fix32.h`: on Dreamcast, division by a whole number other than
+  -1 uses a 32-bit divide, which gives the same result as the 64-bit formula.
 - `source/vm.cpp`: format diagnostic numbers with `snprintf`, since this
   libstdc++ lacks floating-point `std::to_string` overloads; reset pause state
   when the Dreamcast launcher replaces a cartridge.

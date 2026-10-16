@@ -103,6 +103,105 @@ Problems found on hardware:
 interactive play. Physical controller play, sound quality by ear and the
 disc image on GDEMU were not checked in this pass.
 
+## Lua interpreter on hardware (2026-10-16, second pass)
+
+Same console, SDK and `tools/dc-hw.sh` harness as above. Seconds for 360 VM
+ticks, VM part / whole run, mean of two `make hwbench` runs each. "Before" is
+commit `a29c3a8`, the final build of the pass above.
+
+| Cartridge | VM before | VM after | Change | Run before | Run after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anteform | 1.44 | 1.34 | −7% | 6.78 | 6.73 |
+| Bull Sheep | 5.83 | 4.88 | −16% | 7.85 | 6.84 |
+| Elephant in the Room | 7.32 | 6.04 | −17% | 10.13 | 8.32 |
+| NanoMan | 3.24 | 3.25 | 0% | 6.77 | 6.52 |
+| Picolumia | 5.40 | 4.56 | −16% | 9.34 | 7.73 |
+| Pikoralli | 5.24 | 3.82 | −27% | 7.79 | 6.66 |
+| WIZRND | 1.35 | 1.21 | −10% | 6.50 | 6.35 |
+
+Every result, kernel check, API/conformance/picker/pause/session test and the
+12 audio PCM hashes passed on the console and in Flycast
+(`uv run tests/run_smoke.py`). Elephant, NanoMan and Pikoralli are
+deterministic and ended on the same frame hash as before in every run;
+Anteform has two possible endings in both builds, and Picolumia's run time is
+bimodal in both (7.7 or 9-10 s). Individual runs of the same build differ by
+about 5%.
+
+**The 60-tick target is not met by all four slow carts.** Pikoralli
+(6.6-6.7 s) and Bull Sheep (6.6-7.1 s) are close to it. In Elephant, drawing
+(`_private_h_line` and `circ`) is now about 30% of the samples. Picolumia
+makes about 1,500 C API calls per tick, mostly `pal()`, and its audio costs
+1.2-1.8 s.
+
+Z8lua changes, in the order they were made:
+
+- **Program counter in a register.** `luaV_execute` used to load and store
+  `ci->u.l.savedpc` for every instruction. It now keeps `pc` in a local and
+  stores it before anything that can raise an error, call, run the collector
+  or yield, as Lua 5.4 does.
+- **Dispatch through a table of label addresses** (GCC labels-as-values),
+  with no range check. `L->hookmask` moved within the SH-4's 15-byte `mov.b`
+  displacement, so the per-instruction hook test is one load.
+- **Inline table access.** GETTABUP, GETTABLE, SELF, SETTABUP and SETTABLE
+  look up short-string keys and array-part integers directly. When the key
+  is missing and there is no `__index`/`__newindex`, they finish the operation
+  without calling `luaV_gettable` or `luaV_settable`, which would repeat the
+  lookup. Number comparisons and `#t` without `__len` are also inline.
+- **FAKE-08's sandbox fallback** (string-keyed reads that produce nil) used
+  to intern `"__PICO8_SANDBOX"` on every such read. The key is now created
+  once. The second lookup is skipped when the table that missed is the
+  sandbox itself.
+- **Exact fix32 division by whole numbers** uses a 32-bit divide instead of
+  the 64-bit `__divdi3` call. (a·2¹⁶)/(d·2¹⁶) truncates like a/d, and −1 is
+  excluded.
+- **Iterators run in the caller's VM invocation.** A Lua iterator such as
+  `all()` used to be called through `luaD_call`, a fresh `luaV_execute` on
+  the C stack, once per loop iteration. OP_TFORCALL now enters it the way
+  OP_CALL does, and its OP_RETURN resumes the loop. In single runs this cut
+  Bull Sheep's VM time by about 5% and Pikoralli's by about 7%. Adding new
+  keys directly (above) took about 6% more off Bull Sheep, which builds four
+  small tables per collision test.
+- **Rare opcodes out of line.** Bitwise operators, POW, IDIV, PEEK, CONCAT,
+  SETLIST, CLOSURE and VARARG now run outside the main loop, which is
+  6.9 KiB (7.0 KiB before) despite the new fast paths.
+
+Tried and dropped: a `switch` dispatch with the range check removed was no
+faster. Moving DIV and MOD out of line, which would remove the FPSCR mode
+switches GCC adds around every call in a function with labels-as-values
+dispatch, was about 4% slower. GCC cannot split cold blocks into a separate
+section on this target (`-freorder-blocks-and-partition` is disabled).
+
+New regression checks (`romdisk/tests/performance.p8`): exact division for
+108 whole and fractional divisor cases, checked against the original 64-bit
+formula; `%` and `\`; array, hash, fractional and out-of-range keys;
+`__index`, `__newindex`, `__len`, `__eq`, `__lt`, `__le`; the `_ENV`
+sandbox fallback; iterators that yield inside a coroutine or raise errors;
+and the reported line of six kinds of runtime error. A stale saved `pc` gives
+the wrong line, and removing one `savepc` made this check fail. The checks
+also pass with the original interpreter.
+
+Problems found:
+
+- **The test carts' `assert` never failed.** FAKE-08's `assert()` prints and
+  calls `stop()`, which the main loop clears, so failed checks in `api.p8`
+  and `performance.p8` went unnoticed (an `assert(false)` still passed).
+  Both carts now override `assert` to log `PICO8_TEST: FAIL ASSERT` and
+  raise a runtime error. The existing checks still pass.
+- **Audio speed depended on the ROM disk's size.** Adding about 9 KiB of
+  test code moved every later data address. The mixer then took up to 60%
+  longer in-game (NanoMan's audio went from 1.8 to 2.9 s). It also changes
+  speed between builds whose audio code is identical: the kernel fixtures
+  took 168, 217 and 171 ms in three such builds. Padding the image by
+  another 7 KiB, to a 16 KiB move (the size of the direct-mapped operand
+  cache), restored the earlier times. The Makefile now pads `romdisk.img` to
+  a multiple of 16 KiB. Code changes still move data.
+- **Two runs out of 21 stopped producing output** (90 s idle limit), each
+  right after a burst of cart-loading log lines and both with the same
+  intermediate build, which completed its other three runs. The dcload-ip
+  freeze described above fits this. Five later runs with the same
+  interpreter code completed, and Flycast never hung. The cause was not
+  established.
+
 ## Initial cartridge performance baseline
 
 `uv run tests/run_smoke.py --log /tmp/pico8-smoke-final.log` returned `PASS`.

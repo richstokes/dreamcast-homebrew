@@ -1,6 +1,16 @@
 pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
+-- FAKE-08's assert() only prints and calls stop(), which the smoke test
+-- cannot observe. Fail with a logged runtime error instead.
+function assert(cond,msg)
+ if not cond then
+  printh("PICO8_TEST: FAIL ASSERT "..tostr(msg))
+  local fail=nil
+  return fail.assertion
+ end
+ return cond
+end
 function _init()
  -- Native PICO-8 syntax and fixed-point semantics, not a Lua text shim.
  local x=1

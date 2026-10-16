@@ -144,6 +144,7 @@ typedef struct global_State {
   struct lua_State *mainthread;
   const lua_Number *version;  /* pointer to version number */
   TString *memerrmsg;  /* memory-error message */
+  TString *sandboxkey;  /* "__PICO8_SANDBOX", for the VM's global fallback */
   TString *tmname[TM_N];  /* array with tag-method names */
   struct Table *mt[LUA_NUMTAGS];  /* metatables for basic types */
 } global_State;
@@ -155,6 +156,9 @@ typedef struct global_State {
 struct lua_State {
   CommonHeader;
   lu_byte status;
+  /* Dreamcast: within the SH-4's 15-byte mov.b displacement, so the VM's
+     per-instruction hook test is a single load */
+  lu_byte hookmask;
   StkId top;  /* first free slot in the stack */
   global_State *l_G;
   CallInfo *ci;  /* call info for current function */
@@ -164,7 +168,6 @@ struct lua_State {
   int stacksize;
   unsigned short nny;  /* number of non-yieldable calls in stack */
   unsigned short nCcalls;  /* number of nested C calls */
-  lu_byte hookmask;
   lu_byte allowhook;
   int basehookcount;
   int hookcount;

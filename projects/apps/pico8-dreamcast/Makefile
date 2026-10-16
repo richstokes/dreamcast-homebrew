@@ -50,6 +50,17 @@ romdisk/SH4ZAM-LICENSE.txt: FORCE
 
 romdisk.img: $(shell find romdisk -type f) build/romdisk-files
 
+# Pad the ROM disk to a multiple of 16 KiB, the SH-4's direct-mapped operand
+# cache, so data linked after it keeps its cache sets when bundled files
+# change. Unpadded, a 9 KiB test-cart change made the audio mixer up to 60%
+# slower on hardware.
+romdisk.o: build/romdisk-padded
+build/romdisk-padded: romdisk.img
+	@mkdir -p build
+	@size=$$(wc -c < romdisk.img); \
+	 head -c $$(( (16384 - size % 16384) % 16384 )) /dev/zero >> romdisk.img
+	@touch $@
+
 $(TARGET): $(OBJS)
 	kos-c++ $(OPT) -flto -Wl,--gc-sections -o $@ $(OBJS) $(LIBS)
 	kos-objcopy --only-keep-debug $@ build/$@.debug
@@ -141,7 +152,7 @@ clean:
 	$(RM) build/main-profile.o build/tests/profile.o pico8-profile.elf
 	$(RM) build/main-kernels.o build/tests/kernels.o pico8-kernels.elf
 	$(RM) build/main-hw.o pico8-hw.elf
-	$(RM) $(OBJS) build/main-smoke.o build/main-net.o build/download-screen-net.o build/tests/network_smoke.o build/network-romdisk.o pico8-network-test.elf pico8-smoke.elf $(TARGET) romdisk.img romdisk_tmp.c romdisk_tmp.o
+	$(RM) build/romdisk-padded $(OBJS) build/main-smoke.o build/main-net.o build/download-screen-net.o build/tests/network_smoke.o build/network-romdisk.o pico8-network-test.elf pico8-smoke.elf $(TARGET) romdisk.img romdisk_tmp.c romdisk_tmp.o
 
 -include $(OBJS:.o=.d)
 -include build/main-hw.d build/main-smoke.d build/main-net.d build/download-screen-net.d build/tests/network_smoke.d
