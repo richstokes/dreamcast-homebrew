@@ -1,4 +1,4 @@
-/* Totally Bazaar rules engine: the complete Jaipur card game, 2 to 4 players.
+/* Totally Bazaar rules engine: the traditional market card game, 2-4 players.
  *
  * Every one of the 55 physical cards has a stable id so the renderer can
  * animate each card between deck, market, hands, herds and discard pile.

@@ -1,15 +1,14 @@
 # Totally Bazaar
 
-Totally Bazaar is the merchant card game **Jaipur** for Sega Dreamcast, for
-2 to 4 players on one screen. Trade in the market, herd camels, sell goods for
-rupee tokens and earn two Seals of Excellence to become the Maharaja's
-merchant.
-Any seat can be a human or a CPU merchant (Easy or Hard), so it also plays
-solo.
+Totally Bazaar is a traditional market trading card game for Sega Dreamcast,
+for 2 to 4 players on one screen. Trade in the market, herd camels, sell goods
+for rupee tokens and earn two Seals of Excellence to become the Maharaja's
+merchant. Any seat can be a human or a CPU merchant (Easy or Hard), so it
+also plays solo.
 
 ## Features
 
-- The complete Jaipur rule set: take one, take all camels, multi-card
+- The traditional market game rule set: take one, take all camels, multi-card
   exchanges with hand and herd, selling with the precious-goods minimum,
   shuffled 3/4/5-card bonus tokens, the camel token, both round-end
   conditions, tie-breaks, and best-of-seals matches
@@ -23,8 +22,8 @@ solo.
   with a spinning card carousel, particles and confetti
 - An original synthesized soundtrack (tanpura, tabla, sitar, bansuri and
   santoor over a kick/clap groove) plus 15 sound effects
-- A hint button, a pause menu, a five-page How to Play, and an attract-mode
-  demo after 30 seconds on the title screen
+- A hint button, a pause menu with a music on/off switch, a five-page How
+  to Play, and an attract-mode demo after 30 seconds on the title screen
 
 ## Controls
 
@@ -36,7 +35,7 @@ solo.
 | B or L trigger | C or F | Clear your picks |
 | Y | D | Hint: the CPU picks a good move for you |
 | R trigger | V | Pick every card of the hovered type |
-| Start | Return | Pause menu (resume, rules, quit) |
+| Start | Return | Pause menu (resume, music on/off, rules, quit) |
 
 Picking a camel in the market picks all of them, as the rules require. The
 hint bar always says what X will do ("Sell 3 Leather: 4+3+2 +bonus",
@@ -67,10 +66,10 @@ merchant earns a Seal, with ties broken by bonus tokens, then goods tokens
 The round's lowest scorer starts the next round. A player who alone holds two
 or more Seals wins.
 
-Official Jaipur is a two-player game. For 3-4 players Totally Bazaar keeps
-every rule and component unchanged: five cards each are dealt and turns pass
-clockwise. The match goes on until one player alone leads with two or more
-Seals.
+The traditional game is for two players. For 3-4 players Totally Bazaar
+keeps every rule and component unchanged: five cards each are dealt and turns
+pass clockwise. The match goes on until one player alone leads with two or
+more Seals.
 
 ## Build
 
@@ -140,7 +139,7 @@ the ADPCM predictor is continuous across the loop seam.
 ## Source layout
 
 ```text
-src/rules.[ch]     Jaipur rules engine (pure C, card ids, validation, scoring)
+src/rules.[ch]     rules engine (pure C, card ids, validation, scoring)
 src/ai.[ch]        CPU merchants: one-ply evaluation on public information
 src/selftest.[ch]  rules and simulation tests (BAZAAR_SELFTEST builds)
 src/gfx.[ch]       PowerVR 2D layer: textures, sprites, 9-slice panels, text

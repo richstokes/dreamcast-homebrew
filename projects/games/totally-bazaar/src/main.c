@@ -1,4 +1,4 @@
-/* Totally Bazaar - the Jaipur trading card game for Sega Dreamcast, 2-4 players.
+/* Totally Bazaar - a market trading card game for Sega Dreamcast, 2-4 players.
  *
  * Flow: title -> setup -> rounds of turns (hot-seat with privacy screens
  * between human players, CPU merchants optional) -> round scoring -> seals ->
@@ -134,6 +134,7 @@ static game_t game;
 static int viewer;
 static bool paused;
 static int pause_cursor;
+static bool music_on = true;
 static bool demo_mode;
 static float idle_time;
 static uint32_t ai_rng = 0x51f15eedu;
@@ -1443,19 +1444,27 @@ static void draw_pass_screen(void) {
     }
 }
 
-static const char *const pause_items[] = { "Resume", "How to Play", "Quit to Title" };
+enum { PAUSE_RESUME, PAUSE_MUSIC, PAUSE_RULES, PAUSE_QUIT, PAUSE_ITEMS };
+static const char *const pause_items[PAUSE_ITEMS] = {
+    "Resume", "Music", "How to Play", "Quit to Title"
+};
 
 static void draw_pause(void) {
     int i;
     dim(0.65f);
-    gfx_panel(190, 140, 260, 200, 20, 0xf0281038);
-    gfx_text(FONT_BIG, 320, 150, 0.9f, 0xffffd040, ALIGN_CENTER, "PAUSED");
-    for(i = 0; i < 3; ++i) {
+    gfx_panel(190, 120, 260, 250, 20, 0xf0281038);
+    gfx_text(FONT_BIG, 320, 130, 0.9f, 0xffffd040, ALIGN_CENTER, "PAUSED");
+    for(i = 0; i < PAUSE_ITEMS; ++i) {
         bool on = pause_cursor == i;
+        float y = 190 + i * 40.0f;
         if(on)
-            gfx_panel(210, 210 + i * 40.0f, 220, 34, 12, 0xff8030c0);
-        gfx_text(FONT_SMALL, 320, 213 + i * 40.0f, 1.0f, on ? 0xffffffff : 0xb0ffffff,
-                 ALIGN_CENTER, pause_items[i]);
+            gfx_panel(210, y, 220, 34, 12, 0xff8030c0);
+        if(i == PAUSE_MUSIC)
+            gfx_textf(FONT_SMALL, 320, y + 3, 1.0f, on ? 0xffffffff : 0xb0ffffff,
+                      ALIGN_CENTER, "%s  < %s >", pause_items[i], music_on ? "On" : "Off");
+        else
+            gfx_text(FONT_SMALL, 320, y + 3, 1.0f, on ? 0xffffffff : 0xb0ffffff,
+                     ALIGN_CENTER, pause_items[i]);
     }
 }
 
@@ -1602,7 +1611,7 @@ static void draw_title(void) {
     if(state_time < 0.3f)
         dim(1.0f - state_time / 0.3f);
     gfx_text(FONT_SMALL, 320, 204, 0.75f, 0xffffe0b0, ALIGN_CENTER,
-             "The merchant card game of Jaipur  -  2 to 4 players");
+             "The brilliant trading card game");
     for(i = 0; i < 2; ++i) {
         bool on = title_cursor == i;
         float y = 234.0f + i * 40.0f;
@@ -1666,7 +1675,7 @@ static int rules_page;
 #define RULES_PAGES 5
 static const char *const rules_text[RULES_PAGES][11] = {
     { "THE GOAL",
-      "You are a merchant of Jaipur. Trade goods in the market",
+      "You are a merchant in the bazaar. Trade goods in the market",
       "and sell them for rupee tokens. Win two rounds to earn two",
       "Seals of Excellence and become the Maharaja's merchant.",
       "",
@@ -1965,20 +1974,25 @@ static int demo_games;
 static void update_game(float dt) {
     if(paused) {
         if(in_pressed & BTN_UP)
-            pause_cursor = (pause_cursor + 2) % 3;
+            pause_cursor = (pause_cursor + PAUSE_ITEMS - 1) % PAUSE_ITEMS;
         if(in_pressed & BTN_DOWN)
-            pause_cursor = (pause_cursor + 1) % 3;
+            pause_cursor = (pause_cursor + 1) % PAUSE_ITEMS;
         if(in_pressed & (BTN_UP | BTN_DOWN))
             audio_play(JP_SFX_MOVE, 120, 128);
+        if(pause_cursor == PAUSE_MUSIC && (in_pressed & (BTN_A | BTN_LEFT | BTN_RIGHT))) {
+            music_on = !music_on;
+            audio_play(JP_SFX_SELECT, 160, 128);
+            return;
+        }
         if(in_pressed & (BTN_START | BTN_B)) {
             paused = false;
             audio_play(JP_SFX_DESELECT, 150, 128);
         }
         else if(in_pressed & BTN_A) {
             audio_play(JP_SFX_CONFIRM, 160, 128);
-            if(pause_cursor == 0)
+            if(pause_cursor == PAUSE_RESUME)
                 paused = false;
-            else if(pause_cursor == 1) {
+            else if(pause_cursor == PAUSE_RULES) {
                 rules_return = state;
                 rules_page = 0;
                 paused = false;
@@ -1988,7 +2002,6 @@ static void update_game(float dt) {
             else {
                 paused = false;
                 set_state(ST_TITLE);
-                audio_music_target(200);
             }
         }
         return;
@@ -2263,8 +2276,28 @@ static uint32_t ut_buttons(float dt) {
     case ST_TURN_HUMAN: {
         const player_t *pl = &game.players[viewer];
         if(paused) {
-            ut_pauses++;
-            return BTN_B;
+            /* Exercise the music switch, then resume. */
+            static int step;
+            switch(step++) {
+            case 0: return BTN_DOWN;
+            case 1: return BTN_A;
+            case 2:
+                if(music_on || pause_cursor != PAUSE_MUSIC) {
+                    ut_fail("pause menu music switch did not turn music off");
+                    return 0;
+                }
+                return BTN_RIGHT;
+            case 3:
+                if(!music_on) {
+                    ut_fail("pause menu music switch did not turn music back on");
+                    return 0;
+                }
+                return 0;
+            default:
+                step = 0;
+                ut_pauses++;
+                return BTN_B;
+            }
         }
         if(viewer != game.current) {
             ut_fail("human turn shown for the wrong seat");
@@ -2464,7 +2497,7 @@ int main(int argc, char **argv) {
         update_particles(dt);
         update_floaters(dt);
         update_flights(dt);
-        audio_music_target(paused ? 90 : 200);
+        audio_music_target(!music_on ? 0 : paused ? 90 : 200);
         audio_update(dt);
         draw_frame(dt);
     }
