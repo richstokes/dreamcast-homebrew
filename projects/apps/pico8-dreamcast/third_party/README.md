@@ -34,10 +34,23 @@ Local core changes (marked in the affected files):
   frequencies and double-precision note rates, cache last audible notes per
   callback, and bound reverb cursors instead of repeatedly dividing. Replace
   floor/modulo only where truncation is equivalent; oscillator phases use
-  SH4ZAM's guarded truncation. Twelve deterministic audio fixtures retain the
-  original PCM hashes, including filters, music, custom instruments and RAM edits.
+  SH4ZAM's guarded truncation. A Dreamcast-only `FillMonoAudioBuffer` keeps
+  the portable loop's arithmetic and order (including `rand()` draws) but
+  hoists per-buffer state, uses tables for note volumes and filter settings,
+  and updates silent channels in one step between music pattern changes.
+  Twelve deterministic audio fixtures retain the original PCM hashes,
+  including filters, music, custom instruments and RAM edits.
+- `source/PicoRam.h`: on Dreamcast, keep each channel's per-sample fields
+  ahead of its reverb delay lines, which are 32-byte aligned.
+- `source/vm.cpp`: create the Lua state with the host's lock-free
+  small-block allocator (`lua_alloc.cpp`).
+- `libs/z8lua/ldo.c` is unchanged, but the Makefile defines
+  `LUA_USE_LONGJMP` so Lua errors and coroutine yields do not throw C++
+  exceptions.
 - `source/graphics.cpp`: reject fully clipped sprites and visit only map tiles
-  that intersect the camera-adjusted clip rectangle.
+  that intersect the camera-adjusted clip rectangle. Solid `circ` outlines
+  plot clipped pixels directly, `rectfill` skips rows outside the clip window
+  and solid spans are filled a word at a time.
   Dreamcast packed sprite and patterned-pen span paths preserve palette,
   transparency and write-mask behavior. Unsupported sprite cases retain the
   original rasterizer; overlapping source/destination memory uses that fallback.

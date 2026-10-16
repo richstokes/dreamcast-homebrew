@@ -6,13 +6,15 @@ function _init()
  carts=__listcarts()
  selected=1
  info=false
- status="five open-source samples"
+ status="seven open-source games"
  names={
   ["anteform.p8"]="anteform",
   ["bull_sheep.p8"]="bull sheep",
   ["elephant.p8"]="elephant in the room",
+  ["nanoman.p8"]="nanoman",
   ["picolumia.p8.png"]="picolumia",
-  ["pikoralli.p8"]="pikoralli"
+  ["pikoralli.p8"]="pikoralli",
+  ["wizrnd.p8"]="wizrnd"
  }
 end
 function basename(path)
@@ -39,12 +41,14 @@ function _draw()
  rectfill(111,10,116,15,10)
  print(status,6,33,13)
  if info then
-  print("freely licensed games",6,47,7)
-  print("anteform - eric w. brown",6,58,6)
-  print("pikoralli - ivan notaros",6,68,6)
-  print("elephant - csaba ekart",6,78,6)
-  print("bull sheep - abhijit kar",6,88,6)
-  print("picolumia - andrew edstrom",6,98,6)
+  print("freely licensed games",6,43,7)
+  print("anteform - eric w. brown",6,52,6)
+  print("pikoralli - ivan notaros",6,60,6)
+  print("elephant - csaba ekart",6,68,6)
+  print("bull sheep - abhijit kar",6,76,6)
+  print("picolumia - andrew edstrom",6,84,6)
+  print("nanoman - fun fetched",6,92,6)
+  print("wizrnd - mattleblanc",6,100,6)
  else
  local start=max(1,selected-4)
  for i=start,min(#carts,start+5) do

@@ -89,11 +89,22 @@ enum
 
 class Audio {
     PicoRam* _memory;
+#if defined(__DREAMCAST__)
+    alignas(32) audioState_t _audioState;
+#else
     audioState_t _audioState;
+#endif
     bool _paused;
 #if defined(__DREAMCAST__)
     // Notes may be poked between callbacks, so invalidate once per buffer.
     int16_t _lastAudibleNote[64];
+    // Consecutive zeros written to each channel's reverb ring (up to its
+    // 732-sample length, when the whole ring is known to hold zeros).
+    int16_t _dcReverbZeros[4];
+    bool dc_channel_idle(int chan, bool is_pause, bool idle_allowed);
+    void dc_idle_channel(int chan, bool is_pause, size_t samples);
+    bool dc_advance_music(double offset_per_frame, float fade_per_frame);
+    size_t dc_next_music_event(size_t from, size_t size, double offset_per_frame, float fade_per_frame);
 #endif
 
     void set_music_pattern(int pattern);

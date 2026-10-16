@@ -1,3 +1,6 @@
+#if defined(__DREAMCAST__)
+#include "lua_alloc.h"
+#endif
 #include <string>
 #include <functional>
 #include <chrono>
@@ -301,7 +304,12 @@ Vm::Vm(
     //reset audio
     _audio->resetAudioState();
 
+#if defined(__DREAMCAST__)
+    // Lock-free small-block allocator; see the Dreamcast host's lua_alloc.cpp.
+    _luaState = lua_newstate(dc_lua_alloc, nullptr);
+#else
     _luaState = luaL_newstate();
+#endif
     lua_atpanic(_luaState, panic_hook);
 
     lua_setpico8memory(_luaState, (uint8_t *)&_memory->data);

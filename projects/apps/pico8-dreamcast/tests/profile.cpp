@@ -36,8 +36,16 @@ void dc_profile_end(const char* cart) {
     if (sampler) thd_join(sampler, nullptr);
     sampler = nullptr;
     printf("PICO8_PROFILE: BEGIN %s bucket=%u hz=%lu\n", cart, bucket_size, (unsigned long)thd_get_hz());
-    for (size_t i = 0; i < histogram.size(); ++i)
-        if (histogram[i]) printf("PICO8_PROFILE: %08lx %lu\n",
+    // Under dcload-ip every printf is a slow round trip with interrupts off,
+    // so send the histogram in a few large writes rather than one per bucket.
+    static char text[4096];
+    size_t used = 0;
+    for (size_t i = 0; i < histogram.size(); ++i) {
+        if (!histogram[i]) continue;
+        used += snprintf(text + used, sizeof(text) - used, "PICO8_PROFILE: %08lx %lu\n",
             (unsigned long)(uintptr_t(&profile_start) + i * bucket_size), (unsigned long)histogram[i]);
+        if (used > sizeof(text) - 64) { fwrite(text, 1, used, stdout); fflush(stdout); used = 0; }
+    }
+    fwrite(text, 1, used, stdout);
     printf("PICO8_PROFILE: END\n");
 }

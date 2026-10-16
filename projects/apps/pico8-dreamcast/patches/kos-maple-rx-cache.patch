@@ -1,0 +1,25 @@
+diff --git a/kernel/arch/dreamcast/hardware/maple/maple_queue.c b/kernel/arch/dreamcast/hardware/maple/maple_queue.c
+index b089d93..7847e2a 100644
+--- a/kernel/arch/dreamcast/hardware/maple/maple_queue.c
++++ b/kernel/arch/dreamcast/hardware/maple/maple_queue.c
+@@ -14,6 +14,7 @@
+ #include <dc/maple.h>
+ #include <dc/memory.h>
+ 
++#include <kos/cache.h>
+ #include <kos/irq.h>
+ #include <kos/thread.h>
+ 
+@@ -158,6 +159,12 @@ void maple_frame_init(maple_frame_t *frame) {
+     if(__is_defined(MAPLE_DMA_DEBUG))
+         buf_ptr += 512;
+ 
++    /* The buffer is filled by DMA and read through P2, but the frame usually
++       lives in calloc()ed memory that was zeroed through the cache. A dirty
++       line evicted after the DMA would overwrite the reply, so write those
++       lines back now and drop them from the cache. */
++    dcache_purge_range((buf_ptr & MEM_AREA_CACHE_MASK) | MEM_AREA_P1_BASE, 1024);
++
+     buf_ptr = (buf_ptr & MEM_AREA_CACHE_MASK) | MEM_AREA_P2_BASE;
+     frame->recv_buf = (uint8_t *)buf_ptr;
+ 

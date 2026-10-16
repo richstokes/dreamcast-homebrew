@@ -33,7 +33,7 @@ with args.log.open("w") as output:
                 break
             if "PICO8: player exited cleanly status=0" in log:
                 expected = ["PASS /rd/carts/" + name for name in (
-                    "anteform.p8", "bull_sheep.p8", "elephant.p8", "picolumia.p8.png", "pikoralli.p8")]
+                    "anteform.p8", "bull_sheep.p8", "elephant.p8", "nanoman.p8", "picolumia.p8.png", "pikoralli.p8", "wizrnd.p8")]
                 expected += ["PASS KERNELS", "PASS FRAME_CACHE", "PASS API", "PASS PERFORMANCE_CONFORMANCE", "PASS PICKER_PAUSE", "PASS SESSION_SAVE", "PASS ALL"]
                 if args.kernels: expected = ["PASS KERNELS", "PASS FRAME_CACHE"]
                 result = "PASS" if all("PICO8_TEST: " + item in log for item in expected) else "FAIL: missing results"

@@ -163,12 +163,22 @@ struct sfxChannel {
     uint8_t last_main_instrument = 0;
     uint8_t last_main_key = 0;
 
+#if defined(__DREAMCAST__)
+    // Keep the per-sample fields together, ahead of the large delay lines:
+    // the SH-4's 16 KiB operand cache is direct-mapped.
+    z8::filter damp1;
+    z8::filter damp2;
+    int reverb_index = 0;
+    alignas(32) float reverb_2[366] = {};
+    alignas(32) float reverb_4[732] = {};
+#else
     int reverb_index = 0;
     float reverb_2[366] = {};
     float reverb_4[732] = {};
 
     z8::filter damp1;
     z8::filter damp2;
+#endif
 };
 
 struct audioState_t {

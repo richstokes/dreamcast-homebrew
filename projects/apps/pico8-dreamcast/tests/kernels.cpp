@@ -70,6 +70,43 @@ static bool pen_check() {
     return true;
 }
 
+// Solid circles take a direct path; compare with the same midpoint circle
+// plotted through pset, which honours camera, clip and palette per pixel.
+static bool circle_check() {
+    auto ram = std::make_unique<PicoRam>(); ram->Reset();
+    Graphics graphics("", ram.get());
+    std::array<uint8_t, 8192> initial, expected;
+    uint32_t seed = 321;
+    auto random = [&] { seed = seed * 1664525u + 1013904223u; return uint8_t(seed >> 24); };
+    for (int test = 0; test < 256; ++test) {
+        for (auto& byte : initial) byte = random();
+        auto& draw = ram->drawState;
+        for (auto& color : draw.drawPaletteMap) color = random();
+        draw.fillPattern[0] = draw.fillPattern[1] = 0;
+        ram->hwState.colorBitmask = 0xff;
+        graphics.camera(test % 11 - 5, test % 7 - 3);
+        graphics.clip(test % 8, test % 9, 100 + test % 29, 99 + test % 30);
+        int ox = int(random() % 160) - 16, oy = int(random() % 160) - 16, r = test % 97;
+        uint8_t color = random();
+        memcpy(graphics.GetP8FrameBuffer(), initial.data(), initial.size());
+        int x = r, y = 0, decision = 1 - x;
+        while (y <= x) {
+            for (int sx : {1, -1}) for (int sy : {1, -1}) {
+                graphics.pset(ox + sx * x, oy + sy * y, color);
+                graphics.pset(ox + sx * y, oy + sy * x, color);
+            }
+            y += 1;
+            if (decision < 0) decision += 2 * y + 1;
+            else { x -= 1; decision += 2 * (y - x) + 1; }
+        }
+        memcpy(expected.data(), graphics.GetP8FrameBuffer(), expected.size());
+        memcpy(graphics.GetP8FrameBuffer(), initial.data(), initial.size());
+        graphics.circ(ox, oy, r, color);
+        if (memcmp(expected.data(), graphics.GetP8FrameBuffer(), expected.size())) return false;
+    }
+    return true;
+}
+
 static bool blit_check() {
     std::array<uint8_t, 8192> source, expected, actual;
     uint8_t palette[16];
@@ -113,6 +150,8 @@ bool dc_kernel_checks() {
     printf("PICO8_KERNEL: %s SPRITE_BLIT\n", blit ? "PASS" : "FAIL");
     bool pen = pen_check(); passed &= pen;
     printf("PICO8_KERNEL: %s PEN_SPANS\n", pen ? "PASS" : "FAIL");
+    bool circle = circle_check(); passed &= circle;
+    printf("PICO8_KERNEL: %s SOLID_CIRCLES\n", circle ? "PASS" : "FAIL");
     bool phase = true;
     for (int i = -10000; i < 10000; ++i) {
         float x = i * 0.13371337f;

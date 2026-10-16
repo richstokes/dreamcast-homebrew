@@ -725,6 +725,17 @@ void Graphics::line (int x1, int y1, int x2, int y2){
 	this->line(x1, y1, x2, y2, _memory->drawState.color);
 }
 
+#if defined(__DREAMCAST__)
+static inline void dc_fill_bytes(uint8_t *p, uint8_t value, int count) {
+	while (count > 0 && (reinterpret_cast<uintptr_t>(p) & 3)) { *p++ = value; --count; }
+	uint32_t word = value * 0x01010101u;
+	auto *words = reinterpret_cast<uint32_t *>(p);
+	for (; count >= 4; count -= 4) *words++ = word;
+	p = reinterpret_cast<uint8_t *>(words);
+	while (count-- > 0) *p++ = value;
+}
+#endif
+
 void Graphics::_private_h_line(int x1, int x2, int y){
 	auto &drawState = _memory->drawState;
 	auto &hwState = _memory->hwState;
@@ -773,7 +784,12 @@ void Graphics::_private_h_line(int x1, int x2, int y){
             --maxx;
         }
 
+#if defined(__DREAMCAST__)
+        // newlib's memset stores bytes one at a time for spans this short.
+        dc_fill_bytes(p + minx / 2, color * 0x11, (maxx - minx + 1) / 2);
+#else
         memset(p + minx / 2, color * 0x11, (maxx - minx + 1) / 2);
+#endif
 	}
 	else {
 #if defined(__DREAMCAST__)
@@ -994,6 +1010,47 @@ void Graphics::circ(int ox, int oy, int r, uint8_t col){
 	color(col);
 
 	applyCameraToPoint(&ox, &oy);
+
+#if defined(__DREAMCAST__)
+	// Solid pen: resolve the color once and plot clipped pixels directly,
+	// as _safeSetPixelFromPen would. Iris transitions draw many large circles.
+	auto &drawState = _memory->drawState;
+	if (_memory->hwState.colorBitmask == 0xff &&
+		drawState.fillPattern[0] == 0 && drawState.fillPattern[1] == 0) {
+		uint8_t const pen = drawState.drawPaletteMap[drawState.color & 0x0f] & 0x0f;
+		int const left = drawState.clip_xb, right = drawState.clip_xe;
+		int const top = drawState.clip_yb, bottom = drawState.clip_ye;
+		uint8_t *screenBuffer = GetP8FrameBuffer();
+		auto plot = [&](int px, int py) {
+			if (px >= left && px < right && py >= top && py < bottom)
+				setPixelNibble(px, py, pen, screenBuffer);
+		};
+		int x = r;
+		int y = 0;
+		int decisionOver2 = 1-x;
+		while (y <= x) {
+			plot(ox + x, oy + y);
+			plot(ox + y, oy + x);
+			plot(ox - x, oy + y);
+			plot(ox - y, oy + x);
+
+			plot(ox - x, oy - y);
+			plot(ox - y, oy - x);
+			plot(ox + x, oy - y);
+			plot(ox + y, oy - x);
+
+			y += 1;
+			if (decisionOver2 < 0) {
+				decisionOver2=decisionOver2+2*y+1;
+			}
+			else {
+				x = x-1;
+				decisionOver2 = decisionOver2 + 2 * (y - x) + 1;
+			}
+		}
+		return;
+	}
+#endif
 
 	int x = r;
 	int y = 0;
@@ -1390,6 +1447,11 @@ void Graphics::rectfill(int x1, int y1, int x2, int y2, uint8_t col) {
 		y2 = temp;
 	}
 
+#if defined(__DREAMCAST__)
+	// Rows outside the clip window draw nothing; skip them up front.
+	y1 = std::max(y1, (int)drawState.clip_yb);
+	y2 = std::min(y2, (int)drawState.clip_ye - 1);
+#endif
 	for (int y = y1; y <= y2; y++) {
 		_private_h_line(x1, x2, y);
 	}

@@ -36,6 +36,18 @@
     "changes": "Includes expanded into one cartridge; gameplay unchanged."
   },
   {
+    "title": "NanoMan",
+    "repository": "https://github.com/FunFetched/NanoMan",
+    "revision": "7178e4264fb3d53273f1cf444d49cd51acc2a80f",
+    "upstream_file": "nanoman.p8",
+    "file": "romdisk/carts/nanoman.p8",
+    "license": "GPL-3.0-only",
+    "github_stars": 30,
+    "checked": "2026-10-16",
+    "sha256": "be0efe6f5a92af03f89fc60f967635d9ee7a9bdf48eca283c97f1c191cffcf52",
+    "changes": "None."
+  },
+  {
     "title": "Picolumia",
     "repository": "https://github.com/andrewedstrom/picolumia",
     "revision": "7ced171cabc97e96dacd2bc828781170a3bbfee5",
@@ -58,5 +70,17 @@
     "checked": "2026-09-24",
     "sha256": "cd3ac7e99b3ac8fd379637faa643297617e13641e3b3491d75857ba99e8cc129",
     "changes": "None."
+  },
+  {
+    "title": "WIZRND",
+    "repository": "https://github.com/mattleblanc/WIZRND",
+    "revision": "a2255557f2f13d17bb79a649a00bc5929b3bce88",
+    "upstream_file": "WIZRND.p8",
+    "file": "romdisk/carts/wizrnd.p8",
+    "license": "Apache-2.0",
+    "github_stars": 3,
+    "checked": "2026-10-16",
+    "sha256": "69bca0855672768fa153cd7348761ff9c40a94a80f91d3ea1d77e103fa084b0b",
+    "changes": "Renamed to wizrnd.p8; contents unchanged."
   }
 ]

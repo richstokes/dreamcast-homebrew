@@ -26,6 +26,83 @@ Normal ELF SHA-256 for this validation:
 `18d471869309d626083cf0832cfc1c5a0317964406d088624a64d7123d677b8d`.
 Build timestamps and later source changes can change this value.
 
+## Real hardware (2026-10-16)
+
+A retail Dreamcast with a Broadband Adapter (HIT-0400), booting dcload-ip
+2.0.3 from GDEMU/openMenu, driven by `tools/dc-hw.sh` (Shelly plug power
+cycling). Two controllers, two VMUs and two Puru Puru packs were attached.
+Same SDK and compiler as above, plus the maple patch described below. Logs
+are under `build/hw/` (ignored).
+
+Smoke-test seconds for 360 VM ticks (6.0 = 60 ticks per second), with the VM
+and audio parts of that time. "Before" is the September build on the same
+console; "after" is the final build of this pass (`make hwbench`).
+
+| Cartridge | Before | VM | Audio | After | VM | Audio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anteform | 7.0 | 2.07 | 2.45 | 6.8 | 1.44 | 0.71 |
+| Bull Sheep | 13.7 | 7.39 | 5.54 | 7.8 | 5.86 | 0.90 |
+| Elephant in the Room | 16.4 | 8.99 | 5.25 | 10.6 | 7.67 | 1.13 |
+| NanoMan | | | | 6.7 | 3.27 | 2.01 |
+| Picolumia | 12.5 | 6.39 | 4.50 | 8.4 | 4.99 | 1.31 |
+| Pikoralli | 15.1 | 5.63 | 8.88 | 7.6 | 5.06 | 1.89 |
+| WIZRND | | | | 6.4 | 1.47 | 1.19 |
+
+Every result, kernel check, API/picker/pause/session test and the 12 audio
+PCM hashes passed. Scripted input makes runs differ slightly (Picolumia and
+Elephant vary by up to about a second between runs). The console is slower
+than Flycast's guest timing for the same build: Flycast reports 6.0-9.1 s.
+
+What changed, in order of measured effect:
+
+- **Audio**: synthesis cost 20-29 microseconds per sample, 35-60% of the CPU.
+  The Dreamcast mixer keeps the portable loop's arithmetic and order but
+  hoists per-buffer state, inlines the SFX stepping, uses tables for note
+  volumes and filter settings, replaces the per-sample vibrato `fmod` with
+  an exact truncation, and brings silent channels up to date in one step
+  between music events. The fixtures fell from 327-644 ms to 149-383 ms.
+  Hashes depend on code generation (GCC fuses multiply-adds differently at
+  `-O2`), so the audio files stay at `-O3` where the hashes were recorded.
+- **Lua allocator**: KOS's `mutex_unlock` always scans its wait queues, and
+  newlib takes that lock for each allocation. A lock-free small-block
+  allocator for the player thread's Lua state cut Bull Sheep's VM time by a
+  quarter.
+- **`-O2`**: faster than `-O3` for the VM and rasterizers on this 8 KiB
+  instruction cache. Layout matters: aligning the audio state alone changed
+  the mixer's speed by about 20%.
+- **Lua errors and yields** use `longjmp` instead of C++ exceptions. FAKE-08
+  yields once per frame; each yield was a C++ throw.
+- Solid `circ` and clipped `rectfill` rows draw directly (Elephant's iris
+  transition draws up to 180 large circles per frame). A new kernel check
+  compares solid circles with the per-pixel path.
+
+The remaining time is mostly Z8lua's dispatch loop and string-keyed table
+lookups.
+
+Problems found on hardware:
+
+- **KOS maple bug.** Builds whose memory layout put a dirty cache line over a
+  maple receive buffer failed during boot with `Assertion "sizeof(cont_cond_t)
+  == ..." failed at controller.c:170`, every time. The buffer lives in
+  `calloc()`ed memory zeroed through the cache, is filled by DMA and read
+  uncached; evicting a stale line overwrote the controller's reply.
+  [patches/kos-maple-rx-cache.patch](patches/kos-maple-rx-cache.patch) writes
+  back and invalidates those lines when a frame is initialized. With it, the
+  failing build passed every run. CI applies it.
+- **Networking under dcload-ip.** The normal ELF (INIT_NET) hung while KOS
+  took the adapter over from dcload-ip. Hardware test builds and
+  `pico8-hw.elf` start without networking. Download & Play was not tested on
+  hardware.
+- **Uploads.** About half the uploads after a program had exited did not start
+  (dcload-ip accepted the upload and went back to waiting); one run hung in
+  KOS's ISO9660 init. `dc-hw.sh` retries silent starts, power-cycling before
+  the last try, and `--idle` stops runs that go quiet. dcload-ip's DHCP
+  address changed several times (.74, .93, .249); the script now finds it.
+
+`pico8-hw.elf` booted to the picker in 3 seconds and was left running for
+interactive play. Physical controller play, sound quality by ear and the
+disc image on GDEMU were not checked in this pass.
+
 ## Initial cartridge performance baseline
 
 `uv run tests/run_smoke.py --log /tmp/pico8-smoke-final.log` returned `PASS`.

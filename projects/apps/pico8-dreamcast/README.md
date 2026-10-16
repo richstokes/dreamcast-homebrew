@@ -1,7 +1,7 @@
 # PICO-8 player for Dreamcast
 
 A KallistiOS port of [FAKE-08](https://github.com/jtothebell/fake-08), with a
-controller-driven cartridge picker and five freely licensed games embedded
+controller-driven cartridge picker and seven freely licensed games embedded
 in the ELF. This interprets actual PICO-8 cartridge code using Z8lua's 16.16
 fixed-point numbers and PICO-8 syntax. It is a cartridge runtime, not the
 proprietary PICO-8 editor/development environment. It is not affiliated with
@@ -46,7 +46,8 @@ Modem teardown requires the workspace's existing
 [KOS PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch).
 It is already present in the local SDK. For a new SDK checkout, apply that patch
 if missing and rebuild `$KOS_BASE/kernel` and `$KOS_BASE/addons/libppp`.
-The tested SDK also includes the workspace's
+The tested SDK also includes this project's
+[maple receive-buffer fix](patches/kos-maple-rx-cache.patch) and the workspace's
 [BBA receive fix](../../dcvmu.com/client/patches/kos-bba-rx-consumer.patch),
 [TCP window fix](../../dcvmu.com/client/patches/kos-tcp-upload-window.patch),
 [TCP poll-lock fix](../dreamcast-browser/patches/kos-tcp-poll-lock.patch), and
@@ -70,14 +71,16 @@ controller mapping. No persistent input configuration is changed by the launcher
 Missing/disconnected controllers are handled without crashing.
 
 Picolumia starts with **A+B together**. Pikoralli uses left/right to steer,
-up/down to accelerate/reverse and A for the handbrake. The other games show
-their controls in-game. Anteform's pause menu includes help.
+up/down to accelerate/reverse and A for the handbrake. In WIZRND, up jumps,
+down while standing raises a shield, A fires lightning and B a magic missile.
+The other games show their controls in-game. Anteform's pause menu includes help.
 
 ## Bundled games and adding your own
 
-Anteform, Pikoralli, Elephant in the Room, Bull Sheep and Picolumia are bundled.
+Anteform, Pikoralli, Elephant in the Room, Bull Sheep, Picolumia, NanoMan and
+WIZRND are bundled.
 See [sample selection, sources and licenses](samples/README.md). These were
-selected for verifiable MIT/GPL licensing; they are not a global top-five chart.
+selected for verifiable MIT/GPL/Apache licensing; they are not a popularity chart.
 
 Copy additional `.p8` or `.p8.png` cartridges into `romdisk/carts/`, then run
 `make`. They appear automatically in the picker and become part of the ELF.
@@ -85,10 +88,30 @@ Keep any `.p8` `#include` files beside their cartridge in the expected relative
 paths. The ROM disk is regenerated when carts are added, changed or removed.
 For a disc build, an additional `/carts/`
 directory at the CD root is scanned as `/cd/carts/`; real CD/GDEMU loading has
-not been tested on hardware. The five built-in games never depend on it.
+not been tested on hardware. The built-in games never depend on it.
 
 The ROM disk is mounted read-only at `/rd`. Unknown PNGs are not game cartridges: use PICO-8's cart
 PNG format, which carries the code and data inside the image.
+
+## Run on a Dreamcast
+
+[`tools/dc-hw.sh`](../../../tools/dc-hw.sh) drives a console that boots
+dcload-ip from GDEMU/openMenu and is powered through a Shelly smart plug: it
+power-cycles the console, finds dcload-ip on the network, uploads with
+`dc-tool-ip` and shows the console output. From this directory, with KOS
+sourced:
+
+```sh
+make hw        # play on the console (pico8-hw.elf)
+make hwbench   # the smoke suite and per-cart timings on the console
+```
+
+Both write the console output to `build/hw-console.log` (`HW_LOG=` changes
+it). `pico8-hw.elf` is the normal player without boot-time networking:
+starting KOS networking under dcload-ip can hang during boot, so that build
+leaves out Download & Play. `make hw` keeps `dc-tool-ip` attached while you
+play, because under dcload-ip every `printf` waits for it with interrupts off.
+The normal ELF and the disc image start networking as usual.
 
 ## Download & Play
 
@@ -201,17 +224,46 @@ image while VM/input/audio processing continues. Palette, transform and scale
 changes force a redraw, as does returning from a modal screen.
 
 [SH4ZAM](https://sh4zam.com/) supplies SH-4 truncation for oscillator phases.
-Audio also caches exact note frequencies/rates and per-buffer metadata. These
+Audio also caches exact note frequencies/rates and per-buffer metadata. The
+mixer hoists everything that cannot change during a callback and brings
+silent channels up to date in one step between music pattern changes. These
 changes preserve the reference PCM hashes; PICO-8's fixed-point math remains
 exact and global fast-math is disabled. AICA uses 1,024-sample refills to reduce
 individual synthesis stalls. Heavy scenes can still miss audio deadlines.
-See [before/after measurements and remaining limits](VALIDATION.md#sh4-optimization-results).
+
+Measured on a real console, the main costs besides Lua itself were C++
+exception unwinding on every coroutine yield (Z8lua now uses `longjmp`),
+KOS's malloc lock on every Lua allocation (Lua now has its own small-block
+allocator) and audio synthesis. The SH-4's 8 KiB instruction cache and
+direct-mapped 16 KiB operand cache make code size and data placement matter:
+the project builds at `-O2`, with the audio mixer at `-O3`.
+
+Seconds for the smoke test's 360 VM ticks on hardware (6.0 is full speed,
+including each game's startup):
+
+| Cartridge | Before | Now |
+| --- | ---: | ---: |
+| Anteform | 7.0 | 6.8 |
+| Bull Sheep | 13.7 | 7.8 |
+| Elephant in the Room | 16.4 | 10.6 |
+| NanoMan | | 6.7 |
+| Picolumia | 12.5 | 8.4 |
+| Pikoralli | 15.1 | 7.6 |
+| WIZRND | | 6.4 |
+
+Anteform, NanoMan and WIZRND run at full speed. The others now spend most of
+their time interpreting Lua: dispatch and table lookups in Z8lua are the next
+target. See [the hardware measurements](VALIDATION.md#real-hardware-2026-10-16)
+and [earlier emulator measurements](VALIDATION.md#sh4-optimization-results).
 
 ```sh
 # From this project directory, with KOS sourced:
 uv run tests/run_smoke.py --kernels   # Rendering and exact PCM regressions
 uv run tests/run_smoke.py --profile --log build/profile.log
 uv run tests/analyze_profile.py build/profile.log --elf pico8-profile.elf
+# The same on the console:
+make pico8-profile.elf && ../../../tools/dc-hw.sh run -c -i 90 \
+  -u 'PICO8_TEST: (PASS|FAIL) ALL' -l build/profile.log pico8-profile.elf
 ```
 
 The separate profile ELF samples the active player's program counter from the

@@ -62,6 +62,9 @@ void Audio::resetAudioState() {
         std::memset(_audioState._sfxChannels[i].reverb_2, 0, sizeof(_audioState._sfxChannels[i].reverb_2));
         std::memset(_audioState._sfxChannels[i].reverb_4, 0, sizeof(_audioState._sfxChannels[i].reverb_4));
         
+#if defined(__DREAMCAST__)
+        _dcReverbZeros[i] = 732;
+#endif
         // Reset damp filters
         _audioState._sfxChannels[i].damp1 = z8::filter(z8::filter::type::highshelf, 2400.0f, 1.0f, -6.0f);
         _audioState._sfxChannels[i].damp2 = z8::filter(z8::filter::type::highshelf, 1000.0f, 1.0f, -12.0f);
@@ -353,18 +356,51 @@ void Audio::launch_sfx(int16_t sfx, int16_t chan, float offset, float length, bo
     _audioState._sfxChannels[chan].main_sfx.prev_vol = 0.f;
 }
 
+#if defined(__DREAMCAST__)
+// Exact upstream values, built once at startup instead of behind a guard
+// variable that every per-sample call would check.
+static const std::array<float, 64> dc_key_frequencies = [] {
+    std::array<float, 64> values{};
+    for (int i = 0; i < 64; ++i) values[i] = 440.f * std::exp2((float(i) - 33.f) / 12.f);
+    return values;
+}();
+static const std::array<double, 256> dc_speed_rates = [] {
+    std::array<double, 256> result{};
+    for (int i = 1; i < 256; ++i) result[i] = 22050.0 / (183.0 * i);
+    return result;
+}();
+// Reverb and dampen settings from an SFX filter byte, as (filters / 24) % 3
+// and (filters / 72) % 3.
+static const std::array<uint8_t, 256> dc_filter_reverb = [] {
+    std::array<uint8_t, 256> result{};
+    for (int i = 0; i < 256; ++i) result[i] = (i / 24) % 3;
+    return result;
+}();
+static const std::array<uint8_t, 256> dc_filter_dampen = [] {
+    std::array<uint8_t, 256> result{};
+    for (int i = 0; i < 256; ++i) result[i] = (i / 72) % 3;
+    return result;
+}();
+#endif
+
+// Note volume 0-7 as a float; the Dreamcast build avoids the per-sample FDIV.
+static inline float note_volume(uint8_t volume)
+{
+#if defined(__DREAMCAST__)
+    static constexpr float volumes[8] = {0 / 7.f, 1 / 7.f, 2 / 7.f, 3 / 7.f, 4 / 7.f, 5 / 7.f, 6 / 7.f, 7 / 7.f};
+    return volumes[volume & 7];
+#else
+    return volume / 7.f;
+#endif
+}
+
 static float key_to_freq(int key)
 {
     using std::exp2;
 #if defined(__DREAMCAST__)
     // All callers use MIDI-style integer note keys. Cache the exact upstream
     // results instead of evaluating exp2 up to four times per audio sample.
-    static const auto frequencies = [] {
-        std::array<float, 64> values{};
-        for (int i = 0; i < 64; ++i) values[i] = 440.f * exp2((float(i) - 33.f) / 12.f);
-        return values;
-    }();
-    if (key >= 0 && key < 64) return frequencies[key];
+    if (key >= 0 && key < 64) return dc_key_frequencies[key];
 #endif
     return 440.f * exp2((key - 33.f) / 12.f);
 }
@@ -391,6 +427,10 @@ int16_t Audio::getMusicTickCount(){
     return (int16_t)_audioState._musicChannel.offset;
 }
 
+#if defined(__DREAMCAST__)
+// Inlined into the mixer's per-sample loop, where most arguments are constant.
+__attribute__((always_inline)) inline
+#endif
 void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth, 
                               float freq_factor, float length, bool is_music, 
                               bool can_loop, bool half_rate, double inv_frames_per_second)
@@ -414,12 +454,7 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
 #if defined(__DREAMCAST__)
     // Preserve the exact double-precision result and accumulation; only the
     // repeated division moves out of the per-sample path.
-    static const auto rates = [] {
-        std::array<double, 256> result{};
-        for (int i = 1; i < 256; ++i) result[i] = 22050.0 / (183.0 * i);
-        return result;
-    }();
-    double const offset_per_second = rates[speed];
+    double const offset_per_second = dc_speed_rates[speed];
 #else
     double const offset_per_second = 22050.0 / (183.0 * speed);
 #endif
@@ -486,7 +521,7 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
         int const next_note_id = (int)next_offset;
 
         uint8_t key = sfx_data.notes[note_id].getKey();
-        float volume = sfx_data.notes[note_id].getVolume() / 7.f;
+        float volume = note_volume(sfx_data.notes[note_id].getVolume());
         float freq = key_to_freq(key) * freq_factor;
 
         if (volume > 0.f)
@@ -513,7 +548,15 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
                 // Triangle wave modulation at 7.5 Hz, depth = half a semitone.
                 // The original code had fabs() wrapping only fmod(), producing
                 // a sawtooth modulation. Correct form: fabs(fmod(...) - 0.5).
+#if defined(__DREAMCAST__)
+                // Offsets are nonnegative, so subtracting the truncated value
+                // gives fmod's exact result without libm's per-sample loop.
+                double const cycles = 7.5 * offset / offset_per_second;
+                double const fraction = cycles < 2147483648.0 ? cycles - (double)(int32_t)cycles : fmod(cycles, 1.0);
+                float t = (float)(fabs(fraction - 0.5) - 0.25);
+#else
                 float t = (float)(fabs(fmod(7.5 * offset / offset_per_second, 1.0) - 0.5) - 0.25);
+#endif
                 freq = lerp(freq, freq * 1.059463094359f, t);
                 break;
             }
@@ -557,7 +600,7 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
         if (next_note_id != note_id)
         {
             cur_sfx.prev_key = sfx_data.notes[note_id].getKey();
-            cur_sfx.prev_vol = sfx_data.notes[note_id].getVolume() / 7.f;
+            cur_sfx.prev_vol = note_volume(sfx_data.notes[note_id].getVolume());
         }
     }
 
@@ -570,6 +613,9 @@ void Audio::update_sfx_state(sfx_state& cur_sfx, z8::synth_param& new_synth,
     }
 }
 
+#if defined(__DREAMCAST__)
+__attribute__((always_inline)) inline
+#endif
 float Audio::get_synth_sample(z8::synth_param& params)
 {
     // Play note
@@ -851,6 +897,354 @@ void Audio::FillAudioBuffer(void *audioBuffer, size_t offset, size_t size){
 }
 
 
+#if defined(__DREAMCAST__)
+namespace {
+// z8::filter::run, inlined into the mixer with the same arithmetic.
+inline float dc_filter_run(z8::filter& f, float input)
+{
+    float output = f.c1 * input + f.c2 * f.linput + f.c3 * f.llinput - f.c4 * f.loutput - f.c5 * f.lloutput;
+    f.llinput = f.linput;
+    f.linput = input;
+    f.lloutput = f.loutput;
+    f.loutput = output;
+    return output;
+}
+
+// With zero history and input the filter's state stays numerically zero.
+inline bool dc_filter_silent(const z8::filter& f)
+{
+    return f.linput == 0.f && f.llinput == 0.f && f.loutput == 0.f && f.lloutput == 0.f;
+}
+
+inline bool dc_synth_silent(const z8::synth_param& p)
+{
+    return p.volume == 0.f && p.freq == 0.f && p.instrument == 0 && p.key == 0 &&
+        p.filters == 0 && !p.custom && !p.is_music;
+}
+}
+
+// Dreamcast mixer. It produces the same samples as the portable version
+// below, in the same order (noise draws from rand() per sample and channel),
+// but hoists what cannot change during a callback: the VM thread both runs
+// Lua and polls audio, so RAM and API state are fixed for the whole buffer.
+//
+// A silent channel with nothing pending stays silent until the music player
+// starts a pattern. Between music events such channels are brought up to
+// date in one step (their reverb rings and filters only ever see zeros), and
+// the per-sample loop visits only the channels that are making sound.
+
+// Advance the music player by one sample. Returns whether it changed pattern.
+bool Audio::dc_advance_music(double offset_per_frame, float fade_per_frame)
+{
+    musicChannel& music = _audioState._musicChannel;
+    music.offset += offset_per_frame;
+    music.fade_volume += fade_per_frame;
+    music.fade_volume = clamp(music.fade_volume, 0.f, 1.f);
+
+    if (music.fade_volume_step < 0 && music.fade_volume <= 0)
+    {
+        set_music_pattern(-1);
+        return true;
+    }
+    if (music.offset >= music.length)
+    {
+        int16_t next_pattern = music.pattern + 1;
+        int16_t next_count = music.count + 1;
+        if (_memory->songs[music.pattern].getStop())
+        {
+            next_pattern = -1;
+            next_count = -1;
+        }
+        else if (_memory->songs[music.pattern].getLoop())
+            while (--next_pattern > 0 && !_memory->songs[next_pattern].getStart())
+                ;
+
+        music.count = next_count;
+        set_music_pattern(next_pattern);
+        return true;
+    }
+    return false;
+}
+
+// The first sample in [from, size) whose music step changes pattern, using
+// the same arithmetic as dc_advance_music. Returns size if there is none.
+size_t Audio::dc_next_music_event(size_t from, size_t size, double offset_per_frame, float fade_per_frame)
+{
+    const musicChannel& music = _audioState._musicChannel;
+    double offset = music.offset;
+    float fade_volume = music.fade_volume;
+    for (size_t i = from; i < size; ++i)
+    {
+        offset += offset_per_frame;
+        fade_volume = clamp(fade_volume + fade_per_frame, 0.f, 1.f);
+        if ((music.fade_volume_step < 0 && fade_volume <= 0) || offset >= music.length)
+            return i;
+    }
+    return size;
+}
+
+bool Audio::dc_channel_idle(int chan, bool is_pause, bool idle_allowed)
+{
+    sfxChannel& channel_state = _audioState._sfxChannels[chan];
+    return idle_allowed && channel_state.main_sfx.sfx == -1 &&
+        (channel_state.sfx_music == -1 || is_pause) &&
+        channel_state.fade <= 0.0f && dc_synth_silent(channel_state.last_synth);
+}
+
+// What the per-sample loop does with an idle channel, for several samples.
+void Audio::dc_idle_channel(int chan, bool is_pause, size_t samples)
+{
+    sfxChannel& channel_state = _audioState._sfxChannels[chan];
+    if (!is_pause)
+    {
+        channel_state.last_main_instrument = 0;
+        channel_state.last_main_key = 0;
+    }
+    int16_t& zeros = _dcReverbZeros[chan];
+    if (zeros < 732)
+    {
+        size_t writes = std::min<size_t>(samples, 732);
+        int index = channel_state.reverb_index;
+        for (size_t i = 0; i < writes; ++i)
+        {
+            channel_state.reverb_2[index >= 366 ? index - 366 : index] = 0.0f;
+            channel_state.reverb_4[index] = 0.0f;
+            if (++index == 732) index = 0;
+        }
+        zeros = std::min<size_t>(732, zeros + writes);
+    }
+    channel_state.reverb_index = (channel_state.reverb_index + samples) % 732;
+    for (size_t i = 0; i < samples && !dc_filter_silent(channel_state.damp1); ++i)
+        dc_filter_run(channel_state.damp1, 0.0f);
+    for (size_t i = 0; i < samples && !dc_filter_silent(channel_state.damp2); ++i)
+        dc_filter_run(channel_state.damp2, 0.0f);
+}
+
+void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
+    if (audioBuffer == nullptr) {
+        return;
+    }
+
+    int16_t *buffer = (int16_t *)audioBuffer;
+
+    // Output silence when paused
+    if (_paused) {
+        for (size_t i = 0; i < size; ++i){
+            buffer[i] = 0;
+        }
+        return;
+    }
+    std::fill(std::begin(_lastAudibleNote), std::end(_lastAudibleNote), int16_t(-1));
+
+    const bool is_pause = _memory->drawState.soundPauseState == 1;
+    const uint8_t half_rate = _memory->hwState.half_rate;
+    const uint8_t hw_reverb = _memory->hwState.reverb;
+    const uint8_t hw_lowpass = _memory->hwState.lowpass;
+    const uint8_t hw_distort = _memory->hwState.distort;
+
+    double inv_rate[4];
+    bool idle_allowed[4];
+    for (int chan = 0; chan < 4; ++chan) {
+        inv_rate[chan] = (half_rate & (1 << chan)) ? 0.5 / 22050.0 : 1.0 / 22050.0;
+        uint8_t bits = (1 << chan) | (1 << (chan + 4));
+        idle_allowed[chan] = !((hw_reverb | hw_lowpass) & bits);
+    }
+
+    musicChannel& music = _audioState._musicChannel;
+    double const music_offset_per_frame = (22050.0 / 183.0) * inv_rate[0];
+    float const music_fade_per_frame = (float)(music.fade_volume_step * inv_rate[0]);
+
+    // A sample at quiet_end may start a music pattern on any channel. After
+    // it, until the next pattern change, nothing can wake an idle channel.
+    size_t quiet_end = 0;
+    uint8_t channels = 0xf;
+    for (size_t i = 0; i < size; ++i) {
+        bool const event_sample = i == quiet_end;
+        if (event_sample) channels = 0xf;
+
+        // The portable loop advances music first, on channel 0.
+        if (music.pattern != -1 && !is_pause)
+            dc_advance_music(music_offset_per_frame, music_fade_per_frame);
+
+        float channel_mix = 0.0f;
+        for (int chan = 0; chan < 4; ++chan) {
+            if (!(channels & (1 << chan))) continue;
+            double const inv_frames_per_second = inv_rate[chan];
+            sfxChannel& channel_state = _audioState._sfxChannels[chan];
+
+            // if no sfx is playing and there is a music sfx stored
+            if (channel_state.main_sfx.sfx == -1 && channel_state.sfx_music != -1 && !is_pause)
+            {
+                int const index = channel_state.sfx_music;
+                struct sfx const& sfx_data = _memory->sfx[index];
+
+                bool want_play = true;
+                int const speed = std::max(1, (int)sfx_data.speed);
+                double new_offset = _audioState._musicChannel.offset / speed;
+
+                float const loop_range = (float)(sfx_data.loopRangeEnd - sfx_data.loopRangeStart);
+                if (loop_range > 0.f && channel_state.can_loop)
+                {
+                    if (new_offset > sfx_data.loopRangeStart)
+                        new_offset = std::fmod(new_offset - sfx_data.loopRangeStart, loop_range) + sfx_data.loopRangeStart;
+                }
+                else
+                {
+                    if (new_offset > 32.0)
+                        want_play = false;
+                }
+
+                if (want_play)
+                {
+                    launch_sfx(index, chan, (float)new_offset, 0, true);
+                }
+                channel_state.sfx_music = -1;
+            }
+
+            z8::synth_param& last_synth = channel_state.last_synth;
+            if (dc_channel_idle(chan, is_pause, idle_allowed[chan]))
+            {
+                dc_idle_channel(chan, is_pause, 1);
+                continue;
+            }
+
+            z8::synth_param new_synth;
+            new_synth.phi = last_synth.phi;
+            new_synth.last_advance = last_synth.last_advance;
+            new_synth.last_sample = last_synth.last_sample;
+            float value = 0.0f;
+
+            if (!is_pause)
+            {
+                double main_sfx_base_offset = channel_state.main_sfx.offset;
+                bool half_rate_chan = half_rate & (1 << (chan + 4));
+                update_sfx_state(channel_state.main_sfx, new_synth, 1.0f, channel_state.length,
+                                channel_state.is_music, channel_state.can_loop, half_rate_chan, inv_frames_per_second);
+
+                bool restart_custom = new_synth.instrument != channel_state.last_main_instrument ||
+                                      new_synth.key != channel_state.last_main_key;
+                channel_state.last_main_instrument = new_synth.instrument;
+                channel_state.last_main_key = new_synth.key;
+
+                if (new_synth.volume > 0.0f)
+                {
+                    if (new_synth.custom)
+                    {
+                        if (channel_state.main_sfx.offset < main_sfx_base_offset) restart_custom = true;
+                        if (channel_state.custom_sfx.sfx == -1 &&
+                            int(main_sfx_base_offset) != int(channel_state.main_sfx.offset))
+                            restart_custom = true;
+
+                        if (restart_custom)
+                        {
+                            channel_state.custom_sfx.sfx = new_synth.instrument;
+                            channel_state.custom_sfx.offset = 0.0;
+                            channel_state.custom_sfx.time = 0.0;
+                        }
+                        new_synth.phi = last_synth.phi;
+                        float const freq_base = key_to_freq(24);
+                        float freq_factor = new_synth.freq / freq_base;
+                        float main_sfx_volume = new_synth.volume;
+                        update_sfx_state(channel_state.custom_sfx, new_synth, freq_factor, 0.0f, false, true, half_rate_chan, inv_frames_per_second);
+                        new_synth.volume *= main_sfx_volume;
+                    }
+                    value = get_synth_sample(new_synth);
+                }
+            }
+
+            float freq_threshold = std::min(new_synth.freq, last_synth.freq) * 0.01f;
+            if (std::abs(new_synth.volume - last_synth.volume) > 0.1f
+                || std::abs(new_synth.freq - last_synth.freq) > freq_threshold
+                || new_synth.instrument != last_synth.instrument)
+            {
+                if (channel_state.fade <= 0.0f)
+                {
+                    channel_state.fade_synth = last_synth;
+                }
+                channel_state.fade = 1.0f;
+                new_synth.phi = dc_audio_phase(new_synth.phi);
+            }
+            last_synth = new_synth;
+
+            uint8_t reverb = dc_filter_reverb[last_synth.filters];
+            uint8_t dampen = dc_filter_dampen[last_synth.filters];
+            float chan_reverb1_value = reverb == 1 ? 1.0f : 0.0f;
+            float chan_reverb2_value = reverb == 2 ? 1.0f : 0.0f;
+            float chan_damp1_value = dampen == 1 ? 1.0f : 0.0f;
+            float chan_damp2_value = dampen == 2 ? 1.0f : 0.0f;
+
+            if (channel_state.fade > 0.0f)
+            {
+                channel_state.fade_synth.phi = channel_state.fade_synth.phi +
+                    (float)(channel_state.fade_synth.freq * inv_frames_per_second);
+                float value_fade = get_synth_sample(channel_state.fade_synth);
+
+                value = lerp(value, value_fade, channel_state.fade);
+
+                uint8_t fade_reverb = dc_filter_reverb[channel_state.fade_synth.filters];
+                uint8_t fade_dampen = dc_filter_dampen[channel_state.fade_synth.filters];
+                chan_reverb1_value = lerp(chan_reverb1_value, fade_reverb == 1 ? 1.0f : 0.0f, channel_state.fade);
+                chan_reverb2_value = lerp(chan_reverb2_value, fade_reverb == 2 ? 1.0f : 0.0f, channel_state.fade);
+                chan_damp1_value = lerp(chan_damp1_value, fade_dampen == 1 ? 1.0f : 0.0f, channel_state.fade);
+                chan_damp2_value = lerp(chan_damp2_value, fade_dampen == 2 ? 1.0f : 0.0f, channel_state.fade);
+
+                channel_state.fade -= (float)(130.0 * inv_frames_per_second);
+            }
+
+            if (hw_reverb & (1 << (chan + 4))) chan_reverb1_value = 1.0f;
+            if (hw_reverb & (1 << chan)) chan_reverb2_value = 1.0f;
+            if (hw_lowpass & (1 << (chan + 4))) chan_damp1_value = 1.0f;
+            if (hw_lowpass & (1 << chan)) chan_damp2_value = 1.0f;
+
+            // Keep the shared cursor in the 732-sample ring. Both delay lines
+            // retain exactly the same samples without per-sample integer division.
+            int reverb4 = channel_state.reverb_index;
+            int reverb2 = reverb4 >= 366 ? reverb4 - 366 : reverb4;
+            if (chan_reverb1_value > 0.0f)
+                value += chan_reverb1_value * channel_state.reverb_2[reverb2] * 0.5f;
+            if (chan_reverb2_value > 0.0f)
+                value += chan_reverb2_value * channel_state.reverb_4[reverb4] * 0.5f;
+
+            channel_state.reverb_2[reverb2] = value;
+            channel_state.reverb_4[reverb4] = value;
+            if (++channel_state.reverb_index == 732) channel_state.reverb_index = 0;
+            _dcReverbZeros[chan] = 0;
+
+            float value_damp1 = dc_filter_run(channel_state.damp1, value);
+            if (chan_damp1_value > 0.0f) value = lerp(value, value_damp1, chan_damp1_value);
+
+            float value_damp2 = dc_filter_run(channel_state.damp2, value);
+            if (chan_damp2_value > 0.0f) value = lerp(value, value_damp2, chan_damp2_value);
+
+            int16_t chan_sample = (int16_t)(32767.99f * std::clamp(value, -0.99f, 0.99f));
+
+            if (hw_distort & (1 << chan))
+            {
+                chan_sample = chan_sample / 0x1000 * 0x1249;
+            }
+            else if (hw_distort & (1 << (chan + 4)))
+            {
+                chan_sample = (chan_sample - (chan_sample < 0 ? 0x1000 : 0)) / 0x1000 * 0x1249;
+            }
+            channel_mix += chan_sample;
+        }
+        buffer[i] = (int16_t)std::clamp(channel_mix, -32767.9f, 32767.9f);
+
+        if (!event_sample) continue;
+        quiet_end = size;
+        if (music.pattern != -1 && !is_pause)
+            quiet_end = dc_next_music_event(i + 1, size, music_offset_per_frame, music_fade_per_frame);
+        if (quiet_end == i + 1) continue;
+        channels = 0;
+        for (int chan = 0; chan < 4; ++chan) {
+            if (dc_channel_idle(chan, is_pause, idle_allowed[chan]))
+                dc_idle_channel(chan, is_pause, quiet_end - i - 1);
+            else
+                channels |= 1 << chan;
+        }
+    }
+}
+#else
 void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
     if (audioBuffer == nullptr) {
         return;
@@ -1076,3 +1470,4 @@ void Audio::FillMonoAudioBuffer(void *audioBuffer, size_t offset, size_t size){
         buffer[i] = (int16_t)std::clamp(channel_mix, -32767.9f, 32767.9f);
     }
 }
+#endif

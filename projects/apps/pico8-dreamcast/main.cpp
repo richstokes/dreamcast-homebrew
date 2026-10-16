@@ -13,7 +13,13 @@
 bool dc_network_smoke(Host&, Vm&);
 #endif
 
+#if defined(DC_SMOKE_TEST) || defined(DC_KERNEL_TEST) || defined(DC_DCLOAD)
+// Builds for hardware runs under dcload-ip leave the network adapter to it:
+// starting KOS networking there can hang during boot.
+KOS_INIT_FLAGS(INIT_DEFAULT | INIT_FS_RND);
+#else
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET | INIT_FS_RND);
+#endif
 
 [[maybe_unused]] static bool load(Vm& vm, const std::string& path) {
     dc_audio_enable(false);
@@ -42,7 +48,7 @@ static uint32_t framebuffer_hash(Vm& vm) {
 
 static bool smoke(Host& host, Vm& vm) {
     auto carts = host.listcarts();
-    bool passed = carts.size() == 5 && dc_kernel_checks() && dc_frame_cache_checks(host);
+    bool passed = carts.size() == 7 && dc_kernel_checks() && dc_frame_cache_checks(host);
     printf("PICO8_TEST: BEGIN carts=%u\n", unsigned(carts.size()));
     for (const auto& cart : carts) {
         dc_set_test_input(0);
@@ -177,7 +183,12 @@ static int run_player() {
             host.setTargetFps(vm.GetTargetFps());
             host.waitForTargetFps();
             bool ok = vm.Step();
+#ifdef DC_DCLOAD
+            // No network here: Download & Play is left out of this build.
+            if (false) {
+#else
             if (dc_download_requested()) {
+#endif
                 auto path = dc_download_screen();
                 vm.SetCartList(host.listcarts());
                 if (!path.empty()) {
