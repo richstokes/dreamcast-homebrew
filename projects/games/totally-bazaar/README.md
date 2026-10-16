@@ -104,8 +104,9 @@ use the network or VMU saves.
 
 `tools/dc-hw.sh` (repository root) power-cycles the console through its
 Shelly smart plug, waits for GDEMU/openMenu to boot dcload-ip, uploads with
-`dc-tool-ip` and captures the console output. Defaults: console
-192.168.1.74, plug 192.168.1.173; override with `DC_IP` and `DC_PLUG_IP`.
+`dc-tool-ip` and captures the console output. dcload-ip takes its address
+from DHCP, so the script finds it on the local network; the plug is at
+192.168.1.173. Override with `DC_IP` and `DC_PLUG_IP`.
 
 ```sh
 make hw        # play the release build on the console
