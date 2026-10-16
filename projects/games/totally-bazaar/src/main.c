@@ -11,6 +11,7 @@
 
 #include "ai.h"
 #include "audio.h"
+#include "fastmath.h"
 #include "gfx.h"
 #include "rules.h"
 #include "selftest.h"
@@ -18,6 +19,25 @@
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
 #define PI 3.14159265f
+
+/* Under dcload-ip every printf is a network syscall made with interrupts
+ * disabled; a lost packet freezes the console. Release builds therefore log
+ * only a few lines per game. QA builds (run in Flycast) log every move, and
+ * -DBAZAAR_DIAG adds a 10-second performance heartbeat. */
+#if (defined(BAZAAR_AUTOPLAY) || defined(BAZAAR_UITEST) || defined(BAZAAR_SELFTEST) || \
+     defined(BAZAAR_DIAG_MOVES)) && !defined(BAZAAR_HW)
+#define BAZAAR_LOG_MOVES 1
+#endif
+/* Round and game summaries: test and diagnostic builds only. */
+#if defined(BAZAAR_AUTOPLAY) || defined(BAZAAR_UITEST) || defined(BAZAAR_SELFTEST) || \
+    defined(BAZAAR_DIAG)
+#define log_round(...) printf(__VA_ARGS__)
+#else
+#define log_round(...) ((void)0)
+#endif
+#ifndef BAZAAR_HB_SECONDS
+#define BAZAAR_HB_SECONDS 10.0f
+#endif
 #ifndef BAZAAR_AUTOPLAY_GAMES
 #define BAZAAR_AUTOPLAY_GAMES 3
 #endif
@@ -104,13 +124,19 @@ static float clampf(float v, float lo, float hi) {
 }
 
 static float approach(float cur, float target, float rate, float dt) {
-    return target + (cur - target) * expf(-rate * dt);
+    return target + (cur - target) * fm_expf(-rate * dt);
+}
+
+/* Same easing with a factor computed once per frame. */
+static inline float approach_k(float cur, float target, float k) {
+    return target + (cur - target) * k;
 }
 
 static float ease_out_back(float t) {
     const float c1 = 1.70158f, c3 = c1 + 1.0f;
     t = clampf(t, 0.0f, 1.0f);
-    return 1.0f + c3 * powf(t - 1.0f, 3.0f) + c1 * powf(t - 1.0f, 2.0f);
+    float u = t - 1.0f;
+    return 1.0f + c3 * u * u * u + c1 * u * u;
 }
 
 static float frand(void) {
@@ -142,7 +168,14 @@ static char action_log[3][64];
 static float cpu_timer;
 static move_t cpu_move;
 static bool cpu_has_move;
+static uint32_t ai_us_max;
 static int saved_players = 2;
+
+#ifdef BAZAAR_DIAG
+static bool in_game_state_any(void) {
+    return state != ST_TITLE && state != ST_SETUP && state != ST_RULES;
+}
+#endif
 
 static void set_state(state_t s) {
     state = s;
@@ -164,7 +197,9 @@ static bool is_human(int p) {
 static void log_action(const char *text) {
     memmove(action_log[1], action_log[0], sizeof(action_log[0]) * 2);
     snprintf(action_log[0], sizeof(action_log[0]), "%s", text);
+#ifdef BAZAAR_LOG_MOVES
     printf("BAZAAR: %s\n", text);
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -204,7 +239,7 @@ static void sparkle_burst(float x, float y, int n, uint32_t color) {
     int i;
     for(i = 0; i < n; ++i) {
         float a = frand() * 2.0f * PI, s = 40.0f + frand() * 140.0f;
-        spawn_particle(0, x, y, cosf(a) * s, sinf(a) * s - 40.0f,
+        spawn_particle(0, x, y, fm_cosf(a) * s, fm_sinf(a) * s - 40.0f,
                        0.5f + frand() * 0.5f, 10.0f + frand() * 14.0f, color, 200.0f);
     }
 }
@@ -215,7 +250,7 @@ static void confetti_burst(float x, float y, int n) {
     int i;
     for(i = 0; i < n; ++i) {
         float a = -PI * 0.5f + (frand() - 0.5f) * 2.2f, s = 120.0f + frand() * 300.0f;
-        spawn_particle(2, x, y, cosf(a) * s, sinf(a) * s, 2.0f + frand() * 1.5f,
+        spawn_particle(2, x, y, fm_cosf(a) * s, fm_sinf(a) * s, 2.0f + frand() * 1.5f,
                        5.0f + frand() * 5.0f, cols[rand() % 6], 260.0f);
     }
 }
@@ -229,7 +264,7 @@ static void update_particles(float dt) {
         p->life -= dt;
         p->vy += p->gravity * dt;
         if(p->kind == 2) {
-            p->vx *= expf(-1.5f * dt);
+            p->vx *= fm_expf(-1.5f * dt);
             p->vy = fminf(p->vy, 90.0f);
         }
         p->x += p->vx * dt;
@@ -256,9 +291,9 @@ static void draw_particles(void) {
         if(p->life <= 0.0f || p->kind != 2)
             continue;
         {
-            float w = p->size * fabsf(cosf(p->rot * 2.0f)) + 1.0f;
+            float w = p->size * fabsf(fm_cosf(p->rot * 2.0f)) + 1.0f;
             float a = clampf(p->life, 0.0f, 1.0f);
-            float s = sinf(p->rot), c = cosf(p->rot);
+            float s = fm_sinf(p->rot), c = fm_cosf(p->rot);
             float hw = w * 0.5f, hh = p->size * 0.35f;
             float xy[8] = {
                 p->x - hw * c + hh * s, p->y - hw * s - hh * c,
@@ -408,12 +443,12 @@ static void draw_flights(void) {
         t = f->t;
         t = t * t * (3.0f - 2.0f * t);
         x = f->x0 + (f->x1 - f->x0) * t;
-        y = f->y0 + (f->y1 - f->y0) * t - sinf(t * PI) * 60.0f;
-        s = 34.0f + sinf(t * PI) * 22.0f;
+        y = f->y0 + (f->y1 - f->y0) * t - fm_sinf(t * PI) * 60.0f;
+        s = 34.0f + fm_sinf(t * PI) * 22.0f;
         gfx_set_additive(true);
         gfx_cell(JP_ATLAS_GLOW, x, y, s * 1.8f, 0.0f, 0x80ffd070);
         gfx_set_additive(false);
-        gfx_cell(f->cell, x, y, s, sinf(t * PI * 2.0f) * 0.4f, 0xffffffff);
+        gfx_cell(f->cell, x, y, s, fm_sinf(t * PI * 2.0f) * 0.4f, 0xffffffff);
         if(f->cell < JP_ATLAS_BONUS3 || f->cell == JP_ATLAS_CAMEL_TOKEN)
             draw_coin_value(x, y, s, f->value);
     }
@@ -598,14 +633,14 @@ static void layout_cards(void) {
         int k = i - (game.deck_count - 8);
         float off = (float)(k > 0 ? k : 0);
         set_target(id, ZONE_DECK, -1, i, DECK_X - off * 0.4f, DECK_Y - off * 0.6f,
-                   0.0f, 1.0f, 1.0f, 1.0f + i * 0.001f, k > -2);
+                   0.0f, 1.0f, 1.0f, 1.0f + i * 0.001f, i >= game.deck_count - 3);
     }
     for(i = 0; i < game.discard_count; ++i) {
         int id = game.discard[i];
         float rot = (float)((id * 37) % 11 - 5) * 0.035f;
         set_target(id, ZONE_DISCARD, -1, i, DISCARD_X + (float)((id * 13) % 5 - 2),
                    DISCARD_Y, rot, 0.72f, 0.0f, 2.0f + i * 0.001f,
-                   i >= game.discard_count - 4);
+                   i >= game.discard_count - 2);
     }
     for(s = 0; s < MARKET_SIZE; ++s) {
         int id = game.market[s];
@@ -634,7 +669,7 @@ static void layout_cards(void) {
                 bool picked = i >= pl->herd_count - herd_sel;
                 set_target(id, ZONE_HERD, p, i, HERD_X + (picked ? 6.0f : 0.0f),
                            HERD_Y - i * 3.0f - (picked ? 12.0f : 0.0f), 0.0f, 1.0f, 0.0f,
-                           5.0f + i * 0.01f, i >= pl->herd_count - 6);
+                           5.0f + i * 0.01f, i >= pl->herd_count - 4);
                 cv[id].tglow = picked ? 1.0f : 0.0f;
             }
         }
@@ -653,6 +688,8 @@ static void layout_cards(void) {
 }
 
 static void update_cards(float dt) {
+    const float k9 = fm_expf(-9.0f * dt), k10 = fm_expf(-10.0f * dt);
+    const float k11 = fm_expf(-11.0f * dt), k12 = fm_expf(-12.0f * dt);
     int i;
     for(i = 0; i < CARD_COUNT; ++i) {
         card_vis_t *c = &cv[i];
@@ -669,12 +706,21 @@ static void update_cards(float dt) {
                 last_card_sound = time_now;
             }
         }
-        c->x = approach(c->x, c->tx, 11.0f, dt);
-        c->y = approach(c->y, c->ty, 11.0f, dt);
-        c->rot = approach(c->rot, c->trot, 10.0f, dt);
-        c->scale = approach(c->scale, c->tscale, 10.0f, dt);
-        c->flip = approach(c->flip, c->tflip, 9.0f, dt);
-        c->glow = approach(c->glow, c->tglow, 12.0f, dt);
+        c->x = approach_k(c->x, c->tx, k11);
+        c->y = approach_k(c->y, c->ty, k11);
+        c->rot = approach_k(c->rot, c->trot, k10);
+        c->scale = approach_k(c->scale, c->tscale, k10);
+        c->flip = approach_k(c->flip, c->tflip, k9);
+        c->glow = approach_k(c->glow, c->tglow, k12);
+        /* Snap the last sliver so values settle exactly (and stay normal). */
+        if(fabsf(c->rot - c->trot) < 1e-4f)
+            c->rot = c->trot;
+        if(fabsf(c->flip - c->tflip) < 1e-4f)
+            c->flip = c->tflip;
+        if(fabsf(c->glow - c->tglow) < 1e-3f)
+            c->glow = c->tglow;
+        if(fabsf(c->scale - c->tscale) < 1e-4f)
+            c->scale = c->tscale;
         d = fabsf(c->x - c->tx) + fabsf(c->y - c->ty);
         if(c->moving && d < 1.0f && fabsf(c->flip - c->tflip) < 0.02f)
             c->moving = false;
@@ -693,21 +739,36 @@ static int cards_moving(void) {
 static void draw_card_at(int type, float x, float y, float scale, float rot,
                          float flip, uint32_t tint, bool shadow) {
     float angle = flip * PI;
-    float cw = cosf(angle);
-    float w = CW * scale * fabsf(cw);
-    float h = CH * scale;
-    int tex = cw >= 0.0f ? JP_TEXID_CARD_DIAMOND + type : JP_TEXID_CARD_BACK;
-    float skew = sinf(angle) * 0.08f * h;
-    float s = sinf(rot), c = cosf(rot);
-    float lx[4] = { -w * 0.5f, w * 0.5f, -w * 0.5f, w * 0.5f };
-    float ly[4] = { -h * 0.5f - skew, -h * 0.5f + skew, h * 0.5f + skew * 0.3f,
-                    h * 0.5f - skew * 0.3f };
+    float sa, cw;
+    float w, h;
+    int tex;
+    float skew;
+    float s = 0.0f, c = 1.0f;
+    float lx[4], ly[4];
     float xy[8];
     float uv[8] = { 0, 0, 1, 0, 0, CARD_V1, 1, CARD_V1 };
     uint32_t col[4] = { tint, tint, tint, tint };
     int i;
+    if(flip == 0.0f) {
+        sa = 0.0f;
+        cw = 1.0f;
+    }
+    else
+        fm_sincos(angle, &sa, &cw);
+    w = CW * scale * fabsf(cw);
+    h = CH * scale;
     if(w < 0.5f)
         return;
+    tex = cw >= 0.0f ? JP_TEXID_CARD_DIAMOND + type : JP_TEXID_CARD_BACK;
+    skew = sa * 0.08f * h;
+    if(rot != 0.0f)
+        fm_sincos(rot, &s, &c);
+    lx[0] = lx[2] = -w * 0.5f;
+    lx[1] = lx[3] = w * 0.5f;
+    ly[0] = -h * 0.5f - skew;
+    ly[1] = -h * 0.5f + skew;
+    ly[2] = h * 0.5f + skew * 0.3f;
+    ly[3] = h * 0.5f - skew * 0.3f;
     if(shadow) {
         uint32_t sc = 0x58000000;
         uint32_t scs[4] = { sc, sc, sc, sc };
@@ -722,7 +783,10 @@ static void draw_card_at(int type, float x, float y, float scale, float rot,
         xy[i * 2] = x + lx[i] * c - ly[i] * s;
         xy[i * 2 + 1] = y + lx[i] * s + ly[i] * c;
     }
-    gfx_quad(tex, xy, uv, col);
+    if((tint >> 24) == 0xff)
+        gfx_quad_solid(tex, xy, uv, tint);
+    else
+        gfx_quad(tex, xy, uv, col);
 }
 
 static void draw_cards(void) {
@@ -742,18 +806,31 @@ static void draw_cards(void) {
         float lift = 0.0f;
         if(c->moving && c->travel > 40.0f) {
             float rem = (fabsf(c->x - c->tx) + fabsf(c->y - c->ty)) / (c->travel + 1.0f);
-            lift = sinf(clampf(rem, 0.0f, 1.0f) * PI) * 0.14f;
+            lift = fm_sinf(clampf(rem, 0.0f, 1.0f) * PI) * 0.14f;
         }
         if(c->glow > 0.02f) {
-            float pulse = 0.75f + 0.25f * sinf(time_now * 7.0f);
+            float pulse = 0.75f + 0.25f * fm_sinf(time_now * 7.0f);
             gfx_set_additive(true);
             gfx_panel(c->x - CW * c->scale * 0.5f - 7, c->y - CH * c->scale * 0.5f - 7,
                       CW * c->scale + 14, CH * c->scale + 14, 14,
                       color_alpha(0xffffd040, c->glow * pulse));
             gfx_set_additive(false);
         }
-        draw_card_at(game.card_type[order[i]], c->x, c->y, c->scale * (1.0f + lift),
-                     c->rot, c->flip, 0xffffffff, c->scale > 0.5f || lift > 0.01f);
+        {
+            /* One shadow per stack: the cards below are hidden anyway. */
+            bool shadow = c->scale > 0.5f || lift > 0.01f;
+            if(!c->moving) {
+                if(c->zone == ZONE_DECK && c->index != game.deck_count - 1)
+                    shadow = false;
+                if(c->zone == ZONE_DISCARD && c->index != game.discard_count - 1)
+                    shadow = false;
+                if(c->zone == ZONE_HERD && c->owner == viewer &&
+                   c->index != game.players[viewer].herd_count - 1)
+                    shadow = false;
+            }
+            draw_card_at(game.card_type[order[i]], c->x, c->y, c->scale * (1.0f + lift),
+                         c->rot, c->flip, 0xffffffff, shadow);
+        }
     }
 }
 
@@ -983,6 +1060,7 @@ static void describe_move(const move_result_t *r, char *out, int len) {
 }
 
 static void begin_round_end(void);
+static void recover_stalled_animation(void);
 
 static void perform_move(const move_t *m) {
     move_result_t r;
@@ -1069,7 +1147,7 @@ static void deal_round(void) {
         snprintf(title, sizeof(title), "ROUND %d", game.round_number);
         show_banner(title, sub, 0xffffd040, 2.0f);
     }
-    printf("BAZAAR: round %d begins, %s starts.\n", game.round_number,
+    log_round("BAZAAR: round %d begins, %s starts.\n", game.round_number,
            seat_name[game.current]);
 }
 
@@ -1100,7 +1178,7 @@ static void new_game(void) {
         cv[p].zone = ZONE_DECK;
         cv[p].owner = -1;
     }
-    printf("BAZAAR: new game, %d players.\n", setup_players);
+    log_round("BAZAAR: new game, %d players.\n", setup_players);
     deal_round();
 }
 
@@ -1135,7 +1213,7 @@ static void begin_round_end(void) {
     {
         int p;
         for(p = 0; p < game.num_players; ++p)
-            printf("BAZAAR: round %d %s scored %d (seals %d)%s\n", game.round_number,
+            log_round("BAZAAR: round %d %s scored %d (seals %d)%s\n", game.round_number,
                    seat_name[p], game.players[p].round_score, game.players[p].seals,
                    (game.round_winners >> p) & 1 ? " WINS SEAL" : "");
     }
@@ -1179,7 +1257,7 @@ static void draw_opponent_panels(void) {
         pl = &game.players[p];
         px = panel_x(opponent_slot(p));
         active = game.current == p && state != ST_ROUND_END && state != ST_GAME_OVER;
-        glow = active ? 0.6f + 0.4f * sinf(time_now * 5.0f) : 0.0f;
+        glow = active ? 0.6f + 0.4f * fm_sinf(time_now * 5.0f) : 0.0f;
         if(active) {
             gfx_set_additive(true);
             gfx_panel(px - 6, PANEL_Y - 6, PANEL_W + 12, PANEL_H + 12, 18,
@@ -1230,7 +1308,7 @@ static void draw_counts_over_cards(void) {
 
 static void draw_bazaar(void) {
     int item;
-    gfx_panel(550, 100, 86, 196, 14, 0xc0200828);
+    /* The panel itself is baked into the table texture. */
     gfx_text(FONT_SMALL, 593, 101, 0.62f, 0xffffd070, ALIGN_CENTER, "BAZAAR");
     for(item = 0; item < 10; ++item) {
         float x, y;
@@ -1267,7 +1345,6 @@ static void draw_bazaar(void) {
 }
 
 static void draw_market_area(void) {
-    gfx_panel(126, 104, 416, 126, 16, 0x60100418);
     gfx_text(FONT_SMALL, 334, 100, 0.62f, 0xffffd070, ALIGN_CENTER, "MARKET");
     if(game.discard_count == 0) {
         gfx_panel(DISCARD_X - 26, DISCARD_Y - 36, 52, 72, 10, 0x40000000);
@@ -1278,7 +1355,6 @@ static void draw_market_area(void) {
 static void draw_hand_area(void) {
     const player_t *pl = &game.players[viewer];
     bool hidden = hands_hidden();
-    gfx_panel(106, 296, 524, 120, 16, 0x60100418);
     if(pl->herd_count == 0)
         gfx_panel(HERD_X - 30, HERD_Y - 44, 60, 88, 10, 0x40000000);
     gfx_textf(FONT_SMALL, HERD_X, HERD_Y + 50, 0.62f, 0xffffffff, ALIGN_CENTER,
@@ -1290,7 +1366,6 @@ static void draw_hand_area(void) {
 static void draw_bottom_bar(void) {
     const player_t *pl = &game.players[viewer];
     float x;
-    gfx_rect_grad(0, 424, SCREEN_W, 56, 0xc0200828, 0xf0100410);
     gfx_rect(0, 424, SCREEN_W, 2, color_alpha(seat_colors[viewer], 0.9f));
     gfx_panel(16, 432, 118, 26, 10, color_alpha(seat_colors[viewer], 0.9f));
     gfx_text(FONT_SMALL, 75, 433, 0.8f, 0xffffffff, ALIGN_CENTER, seat_name[viewer]);
@@ -1338,7 +1413,7 @@ static void draw_hint_bar(void) {
     w = gfx_text_width(FONT_SMALL, 0.85f, desc) + (b == BUILD_VALID ? 34.0f : 0.0f);
     gfx_panel(334 - w * 0.5f - 16, 236, w + 32, 30, 12, 0xd0200828);
     if(b == BUILD_VALID && !(hint_flash > 0.0f && hint_error[0])) {
-        float pulse = 1.0f + 0.08f * sinf(time_now * 8.0f);
+        float pulse = 1.0f + 0.08f * fm_sinf(time_now * 8.0f);
         draw_button(2, 334 - w * 0.5f + 10, 251, 22 * pulse);
         gfx_text(FONT_SMALL, 334 - w * 0.5f + 28, 238, 0.85f, col, ALIGN_LEFT, desc);
     }
@@ -1380,12 +1455,12 @@ static void draw_cursor(float dt) {
     cursor_target(&x, &y, &w, &h);
     cursor_x = approach(cursor_x, x, 18.0f, dt);
     cursor_y = approach(cursor_y, y, 18.0f, dt);
-    pulse = 0.6f + 0.4f * sinf(time_now * 6.0f);
+    pulse = 0.6f + 0.4f * fm_sinf(time_now * 6.0f);
     gfx_set_additive(true);
     gfx_panel(cursor_x - w * 0.5f - 5, cursor_y - h * 0.5f - 5, w + 10, h + 10, 12,
               color_alpha(0xff40e0ff, pulse * 0.8f));
     gfx_set_additive(false);
-    bob = sinf(time_now * 6.0f) * 4.0f;
+    bob = fm_sinf(time_now * 6.0f) * 4.0f;
     {
         float ax = cursor_x, ay = cursor_y - h * 0.5f - 14.0f + bob;
         float xy[8] = { ax - 10, ay - 10, ax + 10, ay - 10, ax, ay + 4, ax, ay + 4 };
@@ -1419,8 +1494,28 @@ static void draw_cursor(float dt) {
 /* ------------------------------------------------------------------ */
 /* Overlays                                                             */
 
+/* Once an overlay has faded in, its dimming is applied as a tint on the
+ * opaque background and the table under it is not drawn at all: a full-screen
+ * translucent layer over the table costs the PowerVR its 60 Hz budget. */
+static bool dim_baked;
+static float pause_time;
+
 static void dim(float a) {
-    gfx_rect(0, 0, SCREEN_W, SCREEN_H, color_alpha(0xff080010, a));
+    if(!dim_baked)
+        gfx_rect(0, 0, SCREEN_W, SCREEN_H, color_alpha(0xff080010, a));
+}
+
+static float overlay_dim(void) {
+    if(paused)
+        return 0.65f;
+    switch(state) {
+    case ST_PASS: return 0.7f;
+    case ST_ROUND_END: return 0.72f;
+    case ST_GAME_OVER: return 0.55f;
+    case ST_RULES: return 0.6f;
+    case ST_SETUP: return 0.45f;
+    default: return 0.0f;
+    }
 }
 
 static void draw_pass_screen(void) {
@@ -1494,7 +1589,7 @@ static void draw_round_end(void) {
         if(won && t > 2.2f) {
             gfx_set_additive(true);
             gfx_panel(68, y - 4, 504, 50, 14,
-                      color_alpha(0xffffd040, 0.5f + 0.3f * sinf(time_now * 6.0f)));
+                      color_alpha(0xffffd040, 0.5f + 0.3f * fm_sinf(time_now * 6.0f)));
             gfx_set_additive(false);
         }
         gfx_panel(72, y, 496, 42, 12, 0xff3a1850);
@@ -1547,7 +1642,7 @@ static void draw_game_over(void) {
     gfx_set_additive(true);
     gfx_cell(JP_ATLAS_GLOW, 320, 200, 520 * t, 0, color_alpha(seat_colors[p], 0.6f));
     gfx_set_additive(false);
-    gfx_cell(JP_ATLAS_SEAL, 320, 150, 120 * t, sinf(time_now * 2.0f) * 0.15f, 0xffffffff);
+    gfx_cell(JP_ATLAS_SEAL, 320, 150, 120 * t, fm_sinf(time_now * 2.0f) * 0.15f, 0xffffffff);
     gfx_text(FONT_BIG, 320, 226, 1.0f * t, 0xffffd040, ALIGN_CENTER, "MASTER MERCHANT");
     gfx_text(FONT_BIG, 320, 284, 1.0f * t, seat_colors[p] | 0xff000000, ALIGN_CENTER,
              seat_name[p]);
@@ -1572,22 +1667,22 @@ static void draw_title_cards(void) {
     for(pass = 0; pass < 2; ++pass) {
         for(i = 0; i < 7; ++i) {
             float a = time_now * 0.45f + i * (2.0f * PI / 7.0f);
-            float x = 320.0f + sinf(a) * 236.0f;
-            float y = 356.0f + cosf(a) * 34.0f;
-            float depth = (cosf(a) + 1.0f) * 0.5f;
+            float x = 320.0f + fm_sinf(a) * 236.0f;
+            float y = 356.0f + fm_cosf(a) * 34.0f;
+            float depth = (fm_cosf(a) + 1.0f) * 0.5f;
             float spin = time_now * 0.35f + i * 0.29f;
             uint32_t tint = color_lerp(0xff7060a0, 0xffffffff, depth);
             if((depth >= 0.5f) != (pass == 1))
                 continue;
-            draw_card_at(i, x, y, 0.62f + depth * 0.45f, sinf(a) * 0.12f, spin, tint,
+            draw_card_at(i, x, y, 0.62f + depth * 0.45f, fm_sinf(a) * 0.12f, spin, tint,
                          pass == 1);
         }
     }
 }
 
 static void draw_logo(float y) {
-    float bob = sinf(time_now * 1.6f) * 5.0f;
-    float scale = 1.0f + sinf(time_now * 2.2f) * 0.015f;
+    float bob = fm_sinf(time_now * 1.6f) * 5.0f;
+    float scale = 1.0f + fm_sinf(time_now * 2.2f) * 0.015f;
     float w = 400.0f * scale, h = 200.0f * scale;
     gfx_sprite(JP_TEXID_LOGO, 320 - w * 0.5f + 6, y + bob - h * 0.5f + 8, w, h, 0, 0, 1, 1,
                0x70000000);
@@ -1616,7 +1711,7 @@ static void draw_title(void) {
         bool on = title_cursor == i;
         float y = 234.0f + i * 40.0f;
         if(on) {
-            float p = 0.8f + 0.2f * sinf(time_now * 6.0f);
+            float p = 0.8f + 0.2f * fm_sinf(time_now * 6.0f);
             gfx_panel(220, y, 200, 34, 14, color_alpha(0xffe8306a, p));
         }
         else
@@ -1643,7 +1738,7 @@ static void draw_setup(void) {
         if(i == rows - 1) {
             y += 12.0f;
             gfx_panel(230, y, 180, 38, 14, on ? color_alpha(0xffe8306a, 0.8f + 0.2f *
-                                                            sinf(time_now * 6.0f))
+                                                            fm_sinf(time_now * 6.0f))
                                                 : 0xff3a1850);
             gfx_text(FONT_SMALL, 320, y + 5, 1.0f, 0xffffffff, ALIGN_CENTER, "Start!");
             continue;
@@ -1928,7 +2023,13 @@ static void update_cpu_turn(float dt) {
     float think = demo_mode ? 0.35f : 0.8f;
     if(!cpu_has_move && state_time > think) {
         ai_level_t lvl = seat_kind[game.current] == SEAT_CPU_EASY ? AI_EASY : AI_HARD;
+        uint64_t ai_start = timer_us_gettime64();
         cpu_has_move = ai_choose_move(&game, lvl, &ai_rng, &cpu_move);
+        {
+            uint32_t us = (uint32_t)(timer_us_gettime64() - ai_start);
+            if(us > ai_us_max)
+                ai_us_max = us;
+        }
         cpu_timer = 0.0f;
         if(cpu_has_move && cpu_move.type != MOVE_SELL) {
             int s;
@@ -1954,7 +2055,7 @@ static void finish_round_end(void) {
         set_state(ST_GAME_OVER);
         audio_play(JP_SFX_VICTORY, 240, 128);
         confetti_burst(320, 200, 120);
-        printf("BAZAAR: game over, %s wins with %d seals after %d rounds.\n",
+        log_round("BAZAAR: game over, %s wins with %d seals after %d rounds.\n",
                seat_name[game.game_winner], game.players[game.game_winner].seals,
                game.round_number);
     }
@@ -2028,6 +2129,8 @@ static void update_game(float dt) {
             /* Gathered: deal the new round. */
             deal_round();
         }
+        if(!collecting && state_time > 12.0f)
+            recover_stalled_animation();
         if(!collecting && state_time > 0.6f && cards_moving() == 0)
             start_turn();
         break;
@@ -2043,9 +2146,14 @@ static void update_game(float dt) {
         update_human_turn();
         break;
     case ST_TURN_CPU:
+        if(state_time > 15.0f && state_time - dt <= 15.0f)
+            printf("BAZAAR STALL: CPU %s still on its turn (has_move %d)\n",
+                   seat_name[game.current], cpu_has_move);
         update_cpu_turn(dt);
         break;
     case ST_ANIMATE:
+        if(state_time > 12.0f)
+            recover_stalled_animation();
         if(state_time > 0.45f && cards_moving() == 0 && active_flights() == 0) {
             if(game.round_over)
                 begin_round_end();
@@ -2172,6 +2280,96 @@ static void update_menus(void) {
 
 /* ------------------------------------------------------------------ */
 /* UI test driver: plays the human seats through the real controls.     */
+/* ------------------------------------------------------------------ */
+/* Diagnostics: heartbeat, stall recovery and a main-loop watchdog      */
+
+enum { STAGE_INPUT, STAGE_UPDATE, STAGE_LAYOUT, STAGE_EFFECTS, STAGE_AUDIO,
+       STAGE_PVR_WAIT, STAGE_DRAW, STAGE_PRESENT, STAGES };
+static const char *const stage_names[STAGES] = {
+    "input", "game logic", "layout", "effects", "audio", "pvr_wait_ready",
+    "drawing", "scene finish"
+};
+static volatile int loop_stage;
+static volatile uint32_t loop_frames;
+#ifdef BAZAAR_DIAG
+static float heartbeat_timer;
+#endif
+static uint64_t frame_cpu_start;
+static bool skip_cpu_sample;
+static uint32_t frame_wait_us;
+static uint32_t cpu_us_sum, cpu_us_max, cpu_frames;
+
+static void *watchdog_thread(void *param) {
+    uint32_t last = 0;
+    int stuck = 0;
+    (void)param;
+    for(;;) {
+        thd_sleep(1000);
+        if(loop_frames == last) {
+            if(++stuck == 3)
+                printf("BAZAAR WATCHDOG: main loop stuck in %s (state %d, frame %lu)\n",
+                       stage_names[loop_stage], (int)state, (unsigned long)loop_frames);
+        }
+        else {
+            if(stuck >= 3)
+                printf("BAZAAR WATCHDOG: main loop resumed after %d s\n", stuck);
+            stuck = 0;
+        }
+        last = loop_frames;
+    }
+    return NULL;
+}
+
+static void heartbeat(float dt) {
+#ifdef BAZAAR_DIAG
+    pvr_stats_t st;
+    heartbeat_timer += dt;
+    if(heartbeat_timer < BAZAAR_HB_SECONDS)
+        return;
+    heartbeat_timer = 0.0f;
+    pvr_get_stats(&st);
+    printf("BAZAAR HB: t=%d state=%d st=%.1f cur=%d moving=%d flights=%d deck=%d "
+           "fps=%d vtx=%lu/%lu cpu=%lu/%luus ai=%luus reg=%luus rnd=%luus\n", (int)time_now,
+           (int)state, (double)state_time, in_game_state_any() ? game.current : -1,
+           cards_moving(), active_flights(), game.deck_count, (int)st.frame_rate,
+           (unsigned long)st.vtx_buffer_used, (unsigned long)st.vtx_buffer_used_max,
+           (unsigned long)(cpu_frames ? cpu_us_sum / cpu_frames : 0),
+           (unsigned long)cpu_us_max, (unsigned long)ai_us_max,
+           (unsigned long)(st.reg_last_time / 1000u),
+           (unsigned long)(st.rnd_last_time / 1000u));
+    cpu_us_sum = cpu_us_max = cpu_frames = 0;
+    ai_us_max = 0;
+    skip_cpu_sample = true;   /* this frame paid for the printf above */
+#else
+    (void)dt;
+#endif
+}
+
+/* An animation that never settles would freeze play: log it and snap. */
+static void recover_stalled_animation(void) {
+    int i;
+    printf("BAZAAR STALL: state %d waited %.1f s; %d cards moving, %d flights\n",
+           (int)state, (double)state_time, cards_moving(), active_flights());
+    for(i = 0; i < CARD_COUNT; ++i) {
+        card_vis_t *cd = &cv[i];
+        if(!cd->moving)
+            continue;
+        printf("BAZAAR STALL: card %d zone %d owner %d pos %.1f,%.1f -> %.1f,%.1f "
+               "flip %.2f->%.2f delay %.2f\n", i, cd->zone, cd->owner, (double)cd->x,
+               (double)cd->y, (double)cd->tx, (double)cd->ty, (double)cd->flip,
+               (double)cd->tflip, (double)cd->delay);
+        cd->x = cd->tx;
+        cd->y = cd->ty;
+        cd->rot = cd->trot;
+        cd->scale = cd->tscale;
+        cd->flip = cd->tflip;
+        cd->delay = 0.0f;
+        cd->moving = false;
+    }
+    for(i = 0; i < MAX_FLIGHTS; ++i)
+        flights[i].active = false;
+}
+
 #ifdef BAZAAR_UITEST
 #ifndef BAZAAR_UITEST_GAMES
 #define BAZAAR_UITEST_GAMES 2
@@ -2388,8 +2586,28 @@ static bool in_game_state(state_t s) {
 
 static void draw_frame(float dt) {
     bool table = in_game_state(state) || (state == ST_RULES && in_game_state(rules_return));
-    gfx_frame_begin();
-    if(table) {
+    uint32_t tint;
+    loop_stage = STAGE_PVR_WAIT;
+    {
+        uint64_t before = timer_us_gettime64();
+        gfx_frame_begin();
+        frame_wait_us += (uint32_t)(timer_us_gettime64() - before);
+    }
+    loop_stage = STAGE_DRAW;
+    {
+        float od = overlay_dim();
+        float ot = paused ? pause_time : state_time;
+        dim_baked = od > 0.0f && ot > 0.25f;
+        tint = 0xffffffff;
+        if(dim_baked) {
+            uint32_t g = (uint32_t)(255.0f * (1.0f - od));
+            tint = 0xff000000u | (g << 16) | (g << 8) | g;
+        }
+    }
+    if(table && dim_baked) {
+        gfx_background(JP_TEXID_TABLE, tint);
+    }
+    else if(table) {
         gfx_background(JP_TEXID_TABLE, 0xffffffff);
         draw_opponent_panels();
         draw_market_area();
@@ -2409,7 +2627,7 @@ static void draw_frame(float dt) {
         }
     }
     else {
-        gfx_background(JP_TEXID_TITLE, 0xffffffff);
+        gfx_background(JP_TEXID_TITLE, tint);
     }
 
     switch(state) {
@@ -2426,7 +2644,20 @@ static void draw_frame(float dt) {
     draw_banner();
     if(paused)
         draw_pause();
+    loop_stage = STAGE_PRESENT;
     gfx_frame_end();
+    {
+        uint32_t used = (uint32_t)(timer_us_gettime64() - frame_cpu_start) - frame_wait_us;
+        frame_wait_us = 0;
+        if(skip_cpu_sample)
+            skip_cpu_sample = false;
+        else {
+            cpu_us_sum += used;
+            cpu_frames++;
+            if(used > cpu_us_max)
+                cpu_us_max = used;
+        }
+    }
 }
 
 int main(int argc, char **argv) {
@@ -2447,6 +2678,7 @@ int main(int argc, char **argv) {
     audio_music_start();
     audio_music_target(200);
     srand((unsigned)timer_us_gettime64());
+    thd_create(true, watchdog_thread, NULL);
     set_state(ST_TITLE);
 #ifdef BAZAAR_AUTOPLAY
     demo_mode = true;
@@ -2468,9 +2700,13 @@ int main(int argc, char **argv) {
         idle_time += dt;
         if(hint_flash > 0.0f)
             hint_flash -= dt;
+        pause_time = paused ? pause_time + dt : 0.0f;
         if(banner.dur > 0.0f)
             banner.t += dt;
 
+        loop_frames++;
+        loop_stage = STAGE_INPUT;
+        frame_cpu_start = timer_us_gettime64();
         input_poll(dt);
 #ifdef BAZAAR_UITEST
         {
@@ -2487,18 +2723,23 @@ int main(int argc, char **argv) {
             demo_mode = false;
             set_state(ST_TITLE);
         }
+        loop_stage = STAGE_UPDATE;
         if(in_game_state(state) && state != ST_RULES)
             update_game(dt);
         else
             update_menus();
+        loop_stage = STAGE_LAYOUT;
         if(in_game_state(state))
             layout_cards();
+        loop_stage = STAGE_EFFECTS;
         update_cards(dt);
         update_particles(dt);
         update_floaters(dt);
         update_flights(dt);
         audio_music_target(!music_on ? 0 : paused ? 90 : 200);
+        loop_stage = STAGE_AUDIO;
         audio_update(dt);
+        heartbeat(dt);
         draw_frame(dt);
     }
     return 0;

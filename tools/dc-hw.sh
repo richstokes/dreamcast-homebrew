@@ -26,7 +26,7 @@
 # starts from a freshly booted dcload-ip.
 #
 # Settings, overridable from the environment:
-#   DC_IP         Dreamcast address            (192.168.1.150)
+#   DC_IP         Dreamcast address            (192.168.1.74)
 #   DC_PLUG_IP    Shelly plug address          (192.168.1.173)
 #   DC_TOOL       path to dc-tool-ip
 #   DC_BOOT_WAIT  seconds to allow for booting (120)
@@ -34,7 +34,7 @@
 
 set -u
 
-DC_IP="${DC_IP:-192.168.1.150}"
+DC_IP="${DC_IP:-192.168.1.74}"
 DC_PLUG_IP="${DC_PLUG_IP:-192.168.1.173}"
 DC_TOOL="${DC_TOOL:-$HOME/Dropbox/Games/ROMs/DREAMCAST/dcload-ip/dc-tool-ip}"
 DC_BOOT_WAIT="${DC_BOOT_WAIT:-120}"

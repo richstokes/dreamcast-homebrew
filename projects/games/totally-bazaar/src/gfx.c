@@ -1,5 +1,6 @@
 /* Totally Bazaar PowerVR 2D layer. */
 #include "gfx.h"
+#include "fastmath.h"
 
 #include <kos.h>
 #include <math.h>
@@ -11,6 +12,19 @@ static pvr_ptr_t tex_vram[JP_TEXTURE_COUNT];
 static pvr_poly_hdr_t hdr_tr[JP_TEXTURE_COUNT];
 static pvr_poly_hdr_t hdr_add[JP_TEXTURE_COUNT];
 static pvr_poly_hdr_t hdr_op[JP_TEXTURE_COUNT];
+static pvr_poly_hdr_t hdr_pt[JP_TEXTURE_COUNT];
+
+/* Punch-through quads (cards) are buffered while the translucent list is
+ * open and submitted as their own list at the end of the frame. Every
+ * primitive takes the next depth value, so painter's order still holds
+ * across both lists, and the ISP drops card pixels hidden by later cards. */
+#define MAX_PT_QUADS 160
+typedef struct {
+    int16_t tex;
+    pvr_vertex_t v[4];
+} pt_quad_t;
+static pt_quad_t pt_quads[MAX_PT_QUADS] __attribute__((aligned(32)));
+static int pt_count;
 static pvr_poly_hdr_t hdr_col;
 static pvr_poly_hdr_t hdr_col_add;
 static const pvr_poly_hdr_t *current_hdr;
@@ -37,6 +51,7 @@ int gfx_init(void) {
     vid_set_dithering(true);
     params.opb_sizes[PVR_LIST_OP_POLY] = PVR_BINSIZE_8;
     params.opb_sizes[PVR_LIST_TR_POLY] = PVR_BINSIZE_32;
+    params.opb_sizes[PVR_LIST_PT_POLY] = PVR_BINSIZE_16;
     params.vertex_buf_size = 768 * 1024;
     params.autosort_disabled = 1;
     params.opb_overflow_count = 4;
@@ -64,7 +79,7 @@ int gfx_init(void) {
         cxt.gen.alpha = true;
         cxt.gen.culling = PVR_CULLING_NONE;
         cxt.gen.shading = PVR_SHADE_GOURAUD;
-        cxt.depth.comparison = PVR_DEPTHCMP_ALWAYS;
+        cxt.depth.comparison = PVR_DEPTHCMP_GEQUAL;
         cxt.depth.write = PVR_DEPTHWRITE_DISABLE;
         cxt.blend.src = PVR_BLEND_SRCALPHA;
         cxt.blend.dst = PVR_BLEND_INVSRCALPHA;
@@ -75,6 +90,16 @@ int gfx_init(void) {
         pvr_poly_compile(&hdr_tr[i], &cxt);
         cxt.blend.dst = PVR_BLEND_ONE;
         pvr_poly_compile(&hdr_add[i], &cxt);
+
+        pvr_poly_cxt_txr(&cxt, PVR_LIST_PT_POLY, fmt, a->width, a->height,
+                         tex_vram[i], PVR_FILTER_BILINEAR);
+        cxt.gen.culling = PVR_CULLING_NONE;
+        cxt.gen.shading = PVR_SHADE_GOURAUD;
+        cxt.depth.comparison = PVR_DEPTHCMP_GEQUAL;
+        cxt.depth.write = PVR_DEPTHWRITE_ENABLE;
+        cxt.txr.env = PVR_TXRENV_MODULATE;
+        cxt.txr.uv_clamp = PVR_UVCLAMP_UV;
+        pvr_poly_compile(&hdr_pt[i], &cxt);
 
         pvr_poly_cxt_txr(&cxt, PVR_LIST_OP_POLY, fmt, a->width, a->height,
                          tex_vram[i], PVR_FILTER_BILINEAR);
@@ -89,7 +114,7 @@ int gfx_init(void) {
     cxt.gen.alpha = true;
     cxt.gen.culling = PVR_CULLING_NONE;
     cxt.gen.shading = PVR_SHADE_GOURAUD;
-    cxt.depth.comparison = PVR_DEPTHCMP_ALWAYS;
+    cxt.depth.comparison = PVR_DEPTHCMP_GEQUAL;
     cxt.depth.write = PVR_DEPTHWRITE_DISABLE;
     cxt.blend.src = PVR_BLEND_SRCALPHA;
     cxt.blend.dst = PVR_BLEND_INVSRCALPHA;
@@ -97,6 +122,8 @@ int gfx_init(void) {
     cxt.blend.dst = PVR_BLEND_ONE;
     pvr_poly_compile(&hdr_col_add, &cxt);
 
+    /* Card edges are filtered 1555 alpha; keep pixels at least half opaque. */
+    PVR_SET(PVR_PT_ALPHA_REF, 0x80);
     printf("Totally Bazaar: %d textures loaded, %lu KiB PVR memory free.\n",
            JP_TEXTURE_COUNT, (unsigned long)(pvr_mem_available() / 1024u));
     vid_set_enabled(1);
@@ -117,6 +144,7 @@ void gfx_frame_begin(void) {
     current_hdr = NULL;
     additive = false;
     zcount = 1.0f;
+    pt_count = 0;
 }
 
 static void put_header(const pvr_poly_hdr_t *h) {
@@ -148,8 +176,40 @@ void gfx_background(int tex, uint32_t tint) {
 }
 
 void gfx_frame_end(void) {
+    int i, tex = -1;
     pvr_list_finish();
+    if(pt_count) {
+        pvr_list_begin(PVR_LIST_PT_POLY);
+        for(i = 0; i < pt_count; ++i) {
+            if(pt_quads[i].tex != tex) {
+                tex = pt_quads[i].tex;
+                pvr_prim(&hdr_pt[tex], sizeof(pvr_poly_hdr_t));
+            }
+            pvr_prim(pt_quads[i].v, sizeof(pt_quads[i].v));
+        }
+        pvr_list_finish();
+    }
     pvr_scene_finish();
+}
+
+void gfx_quad_solid(int tex, const float xy[8], const float uv[8], uint32_t color) {
+    pt_quad_t *q;
+    int i;
+    zcount += 0.0001f;
+    if(pt_count >= MAX_PT_QUADS)
+        return;
+    q = &pt_quads[pt_count++];
+    q->tex = (int16_t)tex;
+    for(i = 0; i < 4; ++i) {
+        q->v[i].flags = i == 3 ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
+        q->v[i].x = xy[i * 2];
+        q->v[i].y = xy[i * 2 + 1];
+        q->v[i].z = zcount;
+        q->v[i].u = uv[i * 2];
+        q->v[i].v = uv[i * 2 + 1];
+        q->v[i].argb = color;
+        q->v[i].oargb = 0;
+    }
 }
 
 void gfx_set_additive(bool on) {
@@ -199,7 +259,7 @@ void gfx_sprite(int tex, float x, float y, float w, float h, float u0,
 void gfx_sprite_rot(int tex, float cx, float cy, float w, float h,
                     float angle, float u0, float v0, float u1, float v1,
                     uint32_t color) {
-    float s = sinf(angle), c = cosf(angle);
+    float s = 0.0f, c = 1.0f;
     float hw = w * 0.5f, hh = h * 0.5f;
     const float lx[4] = { -hw, hw, -hw, hw };
     const float ly[4] = { -hh, -hh, hh, hh };
@@ -209,6 +269,8 @@ void gfx_sprite_rot(int tex, float cx, float cy, float w, float h,
     int i;
     if(color >> 24 == 0)
         return;
+    if(angle != 0.0f)
+        fm_sincos(angle, &s, &c);
     for(i = 0; i < 4; ++i) {
         xy[i * 2] = cx + lx[i] * c - ly[i] * s;
         xy[i * 2 + 1] = cy + lx[i] * s + ly[i] * c;

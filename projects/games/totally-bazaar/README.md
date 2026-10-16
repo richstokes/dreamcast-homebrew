@@ -82,7 +82,10 @@ make
 
 This produces `totally-bazaar.elf` (KOS 2.3.0, GCC 15.2.0). The generated
 texture, sound and music data in `assets/generated/` are checked in, so a
-normal build needs no host tools.
+normal build needs no host tools. Each build first fetches the latest
+[SH4ZAM](https://sh4zam.com/) master into the ignored `third_party/sh4zam`
+(`tools/update-sh4zam.sh`), which supplies the FSCA sine/cosine and fast
+`exp` used for animation.
 
 ## Run in Flycast
 
@@ -96,6 +99,37 @@ keyboard drives port A for pass-and-play. Force a mode with
 `--input keyboard` or `--input gamepad`. Settings are passed as transient
 `-config` flags, so saved Flycast mappings are untouched. The game does not
 use the network or VMU saves.
+
+## Run on a Dreamcast
+
+`tools/dc-hw.sh` (repository root) power-cycles the console through its
+Shelly smart plug, waits for GDEMU/openMenu to boot dcload-ip, uploads with
+`dc-tool-ip` and captures the console output. Defaults: console
+192.168.1.74, plug 192.168.1.173; override with `DC_IP` and `DC_PLUG_IP`.
+
+```sh
+make hw        # play the release build on the console
+make hwbench   # 150 s of four CPU merchants with a 10 s performance heartbeat
+make hwsoak    # 30 minutes of two CPU merchants; fails on any stall report
+```
+
+Output goes to `hw-console.log` (`HW_LOG=` to change it; `HW_SECONDS=` and
+`SOAK_SECONDS=` set the run lengths). The heartbeat reports frame rate, CPU
+time per frame (average/max), the slowest CPU move decision, and the
+PowerVR registration and render times. A watchdog thread reports which part
+of the frame loop stops advancing if one ever does.
+
+Builds made for the console never log per move: under dcload-ip each
+`printf` is a network round trip made with interrupts disabled, and a lost
+packet freezes the whole console (frozen picture, looping audio). Release
+builds print only their boot lines.
+
+On hardware the table runs at 60 fps with the PowerVR rendering a busy frame
+in about 12-14 ms and the SH-4 spending about 1.5 ms per frame. Cards are
+punch-through polygons, so stacked and overlapped cards cost about one
+layer; the static HUD panels are baked into the opaque table texture; and
+full-screen overlays tint the background instead of drawing a translucent
+layer over the table.
 
 ## Tests
 
@@ -142,7 +176,9 @@ the ADPCM predictor is continuous across the loop seam.
 src/rules.[ch]     rules engine (pure C, card ids, validation, scoring)
 src/ai.[ch]        CPU merchants: one-ply evaluation on public information
 src/selftest.[ch]  rules and simulation tests (BAZAAR_SELFTEST builds)
-src/gfx.[ch]       PowerVR 2D layer: textures, sprites, 9-slice panels, text
+src/gfx.[ch]       PowerVR 2D layer: textures, sprites, 9-slice panels, text,
+                   punch-through card batch
+src/fastmath.h     SH4ZAM wrappers for per-frame trig and easing
 src/audio.[ch]     looping ADPCM music stream and sound effects
 src/main.c         game flow, layout, card animation, input, HUD, screens
 src/blobs.S        links the generated texture, sound and music data

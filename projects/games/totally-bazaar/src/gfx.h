@@ -30,6 +30,9 @@ void gfx_set_additive(bool on);
 
 void gfx_quad(int tex, const float xy[8], const float uv[8],
               const uint32_t colors[4]);
+/* Opaque (punch-through) textured quad: 1-bit alpha cut-outs such as cards.
+ * Takes its place in painter's order like every other primitive. */
+void gfx_quad_solid(int tex, const float xy[8], const float uv[8], uint32_t color);
 void gfx_sprite(int tex, float x, float y, float w, float h,
                 float u0, float v0, float u1, float v1, uint32_t color);
 /* Rotated, centred sprite. sx may be negative or tiny for flips. */

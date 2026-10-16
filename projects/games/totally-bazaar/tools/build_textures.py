@@ -542,6 +542,24 @@ def table_background():
     aw = aw.resize((W, 30), Image.LANCZOS)
     aw = drop_shadow(aw, (0, 3), 3, 140)
     img.alpha_composite(aw, (-((aw.width - W) // 2), -((aw.height - 30) // 2)))
+    # Static HUD panels, baked here so they cost nothing per frame on the
+    # PowerVR (keep in sync with the layout constants in src/main.c).
+    def panel(x, y, w, h, r, rgba):
+        layer = Image.new("RGBA", (W * SS, H * SS), (0, 0, 0, 0))
+        ImageDraw.Draw(layer).rounded_rectangle(
+            (x * SS, y * SS, (x + w) * SS, (y + h) * SS), radius=r * SS, fill=rgba)
+        img.alpha_composite(layer.resize((W, H), Image.LANCZOS))
+
+    panel(126, 104, 416, 126, 16, (16, 4, 24, 96))      # market
+    panel(106, 296, 524, 120, 16, (16, 4, 24, 96))      # hand
+    panel(550, 100, 86, 196, 14, (32, 8, 40, 192))      # bazaar
+    bar = Image.new("RGBA", (W, 56), (0, 0, 0, 0))
+    for yy in range(56):
+        t = yy / 55.0
+        a = int(192 + (240 - 192) * t)
+        col = (int(32 + (16 - 32) * t), int(8 + (4 - 8) * t), int(40 + (16 - 40) * t), a)
+        ImageDraw.Draw(bar).line((0, yy, W, yy), fill=col)
+    img.alpha_composite(bar, (0, 424))
     return img.convert("RGB").resize((512, 512), Image.LANCZOS)
 
 
