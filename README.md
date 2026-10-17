@@ -18,6 +18,7 @@ Check [the getting started guide](https://dcvmu.com/getting-started) for more in
 
 | Preview | Project | Latest download | Try in browser |
 | --- | --- | --- | --- |
+| <img src="docs/screenshots/dreamkarts.png" alt="DreamKarts" width="360"> | **[DreamKarts](projects/games/dreamkarts/)**<br>A kart racer with Mario Kart-style hop-into-drift handling: counter-steered powerslides, blue/orange/purple mini-turbo sparks, rocket starts and dash panels. Race a Chao against five CPU rivals on a tropical beach oval at 50/100/150cc. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdreamkarts.elf&name=DreamKarts) |
 | <img src="docs/screenshots/drift-los-angeles.png" alt="Drift Los Angeles" width="360"> | **[Drift Los Angeles](projects/games/drift-los-angeles/)**<br>An open-city arcade street-drifting game with a C7-inspired coupe, four Los Angeles-style districts, traffic, drift chains, dense tire smoke, and recorded V8 audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdrift-los-angeles.elf&name=Drift%20Los%20Angeles) |
 | <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/games/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fgravity-wave.elf&name=Gravity%20Wave) |
 | <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/games/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdemon-bazooka.elf&name=Demon%20Bazooka) |
@@ -61,7 +62,7 @@ git clone https://github.com/richstokes/dreamcast-homebrew.git
 cd dreamcast-homebrew
 ```
 
-Drift Los Angeles, Island Explorer and PICO-8 Player depend on [SH4ZAM](https://sh4zam.com/),
+Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally Bazaar depend on [SH4ZAM](https://sh4zam.com/),
 which is neither vendored nor pinned. Each build clones or fast-forwards an
 ignored `third_party/sh4zam` checkout to the latest upstream `master` before
 compiling. CI does the same for its published projects. To refresh checkouts manually, run
@@ -103,7 +104,7 @@ documents the included compatibility patch and installation commands.
 
 [The release manifest](.github/console-projects.txt) is the single list of console
 projects for CI building, validation, and ELF/CDI packaging. Every push to `main`
-tests DCVMU, builds all ten console projects with pinned SDK dependencies,
+tests DCVMU, builds every console project with pinned SDK dependencies,
 and publishes [the rolling GitHub release](https://github.com/richstokes/dreamcast-homebrew/releases/latest).
 
 ## License and attribution

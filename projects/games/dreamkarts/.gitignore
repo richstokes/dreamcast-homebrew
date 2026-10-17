@@ -1,0 +1,11 @@
+# Rebuilt locally
+/build/
+/third_party/sh4zam/
+/assets/generated/previews/
+/captures/
+*.elf
+*.o
+*.d
+*.log
+*.blend
+*.blend[0-9]*
