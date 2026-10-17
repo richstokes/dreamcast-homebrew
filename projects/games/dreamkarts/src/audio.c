@@ -30,6 +30,7 @@ static size_t music_cursor, music_bytes;
 static float music_volume;
 static int music_target;
 static bool music_playing;
+static bool music_off;
 static float music_rate = 1.0f;
 static uint8_t wrap_buffer[MUSIC_BUFFER_BYTES * 2] __attribute__((aligned(32)));
 
@@ -137,11 +138,20 @@ void audio_music_target(int volume) {
     music_target = volume;
 }
 
+void audio_music_enable(bool on) {
+    music_off = !on;
+}
+
+bool audio_music_enabled(void) {
+    return !music_off;
+}
+
 void audio_update(float dt) {
     if(!ready || music == SND_STREAM_INVALID || !music_playing) return;
-    if(music_volume != (float)music_target) {
+    float target = music_off ? 0.0f : (float)music_target;
+    if(music_volume != target) {
         float step = 200.0f * dt;
-        music_volume = approach(music_volume, (float)music_target, step);
+        music_volume = approach(music_volume, target, step);
         snd_stream_volume(music, (int)music_volume);
     }
     snd_stream_poll(music);

@@ -32,7 +32,7 @@ is also available.
   - A rocket start: press accelerate as the "2" fades and hold it through GO. Press too early and you burn out.
 - **Grand Prix:** a 3-lap race against five CPU Chao (four in two-player). They drive a racing line, drift and use mini-turbos, and have mild rubber-banding against the leading human.
 - **Time Trial:** a solo 3-lap run with lap splits and your best lap.
-- **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu.
+- **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
 - **Dash panels** (one on each straight and one on the exit of turn 1) give a boost, and any boost lets you cut through sand.
@@ -53,7 +53,7 @@ is also available.
 | A | X | Accelerate (menus: OK) |
 | B | C | Brake / reverse (menus: back) |
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
-| Start | Return | Pause (continue / restart / quit) |
+| Start | Return | Pause (continue / restart / music on-off / quit) |
 
 Player 2 uses the second controller with the same layout. A Jump Pack in
 either expansion slot of a player's controller vibrates for that player.
@@ -88,7 +88,7 @@ transient `-config` flags. No networking or VMU saving is used.
 ## Tests and captures
 
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
-- `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, a drift, a boost, the boardwalk and the results. It screenshots the Flycast window at each step without taking over the screen.
+- `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
 

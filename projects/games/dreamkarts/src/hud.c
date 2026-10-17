@@ -1,6 +1,7 @@
 /* HUD and 2D text. The font atlas holds white glyphs with a navy outline,
    tinted by vertex colour; the countdown lettering is pre-styled. */
 #include "hud.h"
+#include "audio.h"
 #include "kart.h"
 #include "render.h"
 #include "track.h"
@@ -314,14 +315,14 @@ void hud_draw_results(void) {
 }
 
 void hud_draw_pause(void) {
-    static const char *const items[] = {"CONTINUE", "RESTART", "QUIT"};
+    const char *items[PAUSE_ITEMS] = {"CONTINUE", "RESTART", audio_music_enabled() ? "MUSIC: ON" : "MUSIC: OFF", "QUIT"};
     r_hdr(h_flat);
     r_quad2d(0, 0, 640, 480, 0, 0, 1, 1, argb(120, 0, 10, 40), 14);
-    hud_panel(200, 140, 440, 340, argb(230, 30, 90, 200), argb(230, 10, 30, 100), 15);
+    hud_panel(184, 140, 456, 360, argb(230, 30, 90, 200), argb(230, 10, 30, 100), 15);
     hud_text(320, 152, 1.2f, ALIGN_CENTER, argb(255, 255, 220, 60), "PAUSE");
-    for(int i = 0; i < 3; i++) {
+    for(int i = 0; i < PAUSE_ITEMS; i++) {
         bool sel = i == game.pause_sel;
         float s = sel ? 0.95f + 0.05f * sinf(hud_time * 8) : 0.85f;
-        hud_text(320, 214 + i * 38, s, ALIGN_CENTER, sel ? argb(255, 255, 255, 120) : argb(255, 170, 200, 240), items[i]);
+        hud_text(320, 210 + i * 36, s, ALIGN_CENTER, sel ? argb(255, 255, 255, 120) : argb(255, 170, 200, 240), items[i]);
     }
 }

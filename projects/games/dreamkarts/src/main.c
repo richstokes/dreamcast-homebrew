@@ -60,7 +60,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[8];
+    static bool shot[9];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -75,6 +75,23 @@ static void capture_script(void) {
     if(game.state == ST_RACE && p->boost_t > 0.3f && game.race_time > 8.0f && !shot[4]) { shot[4] = true; take_shot("boost"); }
     if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
     if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot("results"); }
+#ifndef DK_HW
+    /* Pause mid-race, switch the music off, grab the menu, switch it back on. */
+    static float pause_t;
+    if(game.state == ST_RACE && game.race_time > 6.0f && !shot[8]) {
+        if(!game.paused) { pad.pressed |= BTN_START; pause_t = 0; }
+        else {
+            pause_t += DK_DT;
+            game.pause_sel = PAUSE_MUSIC;
+            if(pause_t > 0.3f && audio_music_enabled() && pause_t < 1.0f) pad.pressed |= BTN_A;
+            if(pause_t > 1.2f) { shot[8] = true; take_shot("pause"); }
+        }
+    }
+    if(shot[8] && game.paused && (pause_t += DK_DT) > 1.6f) {
+        if(!audio_music_enabled()) pad.pressed |= BTN_A;
+        else pad.pressed |= BTN_START;
+    }
+#endif
 }
 #endif
 
@@ -473,11 +490,11 @@ static void pause_update(void) {
     int o = game.pause_owner;
     const Pad *pd = input_pad(o);
     if(input_up(o)) {
-        game.pause_sel = (game.pause_sel + 2) % 3;
+        game.pause_sel = (game.pause_sel + PAUSE_ITEMS - 1) % PAUSE_ITEMS;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
     if(input_down(o)) {
-        game.pause_sel = (game.pause_sel + 1) % 3;
+        game.pause_sel = (game.pause_sel + 1) % PAUSE_ITEMS;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
     if(pd->pressed & (BTN_START | BTN_B)) {
@@ -486,14 +503,20 @@ static void pause_update(void) {
         audio_music_target(150);
         return;
     }
+    /* The music switch flips with A or left/right and keeps the game paused. */
+    if(game.pause_sel == PAUSE_MUSIC && ((pd->pressed & BTN_A) || input_left(o) || input_right(o))) {
+        audio_music_enable(!audio_music_enabled());
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+        return;
+    }
     if(pd->pressed & BTN_A) {
         audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
         game.paused = false;
-        if(game.pause_sel == 1) {
+        if(game.pause_sel == PAUSE_RESTART) {
             race_setup();
             game_set_state(ST_INTRO);
         }
-        else if(game.pause_sel == 2) {
+        else if(game.pause_sel == PAUSE_QUIT) {
             race_setup();
             game_set_state(ST_TITLE);
         }

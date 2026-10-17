@@ -10,6 +10,9 @@ void audio_shutdown(void);
 void audio_update(float dt);
 void audio_music_start(void);
 void audio_music_target(int volume);     /* fades toward 0..255 */
+/* The pause menu's music switch: off fades the music out whatever the target. */
+void audio_music_enable(bool on);
+bool audio_music_enabled(void);
 /* Restart the stream at a new playback rate (final lap speed-up). */
 void audio_music_rate(float mul);
 void audio_sfx(int id, int vol, int pan);
