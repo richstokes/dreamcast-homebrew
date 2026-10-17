@@ -18,3 +18,6 @@ const jp_sfx_asset_t jp_sfx_assets[JP_SFX_COUNT] = {
     { 241184u, 70560u }, /* FANFARE */
     { 311744u, 114688u }, /* VICTORY */
 };
+
+const uint32_t jp_music_track_start[JP_MUSIC_TRACKS] = { 22050u, 1671390u, 3452118u };
+const char *const jp_music_track_name[JP_MUSIC_TRACKS] = { "Bazaar Groove", "Spice Route", "Moonlit Caravan" };

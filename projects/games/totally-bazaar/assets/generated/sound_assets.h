@@ -33,4 +33,9 @@ extern const uint8_t jp_sfx_pak[];
 extern const uint8_t jp_music_adpcm[];
 extern const uint8_t jp_music_adpcm_end[];
 
+#define JP_MUSIC_TRACKS 3
+/* Stereo ADPCM: one byte per frame, so frames are byte offsets. */
+extern const uint32_t jp_music_track_start[JP_MUSIC_TRACKS];
+extern const char *const jp_music_track_name[JP_MUSIC_TRACKS];
+
 #endif

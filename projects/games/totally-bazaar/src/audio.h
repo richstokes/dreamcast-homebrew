@@ -12,5 +12,7 @@ void audio_play(int sfx, int vol, int pan);
 void audio_play_pitched(int sfx, int vol, int pan, float rate_scale);
 void audio_music_start(void);
 void audio_music_target(int volume);   /* fades towards 0..255 */
+/* Index of the playlist track being streamed (0..JP_MUSIC_TRACKS-1). */
+int audio_music_track(void);
 
 #endif

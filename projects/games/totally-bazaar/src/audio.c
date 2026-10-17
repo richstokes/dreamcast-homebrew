@@ -83,7 +83,9 @@ void audio_shutdown(void) {
 void audio_music_start(void) {
     if(!audio_ready || music == SND_STREAM_INVALID)
         return;
-    music_cursor = 0;
+    /* The loop opens mid-crossfade from the last track; start where the
+     * first track plays alone (twice its crossfade midpoint), 32-byte aligned. */
+    music_cursor = (jp_music_track_start[0] * 2u) & ~31u;
     music_volume = 0.0f;
     snd_stream_start_adpcm(music, JP_MUSIC_RATE, 1);
     snd_stream_volume(music, 0);
@@ -111,6 +113,14 @@ void audio_update(float dt) {
         snd_stream_volume(music, (int)music_volume);
     }
     snd_stream_poll(music);
+}
+
+int audio_music_track(void) {
+    int i, track = JP_MUSIC_TRACKS - 1;   /* before the first start: wrap fade */
+    for(i = 0; i < JP_MUSIC_TRACKS; ++i)
+        if(music_cursor >= jp_music_track_start[i])
+            track = i;
+    return track;
 }
 
 void audio_play_pitched(int id, int vol, int pan, float rate_scale) {

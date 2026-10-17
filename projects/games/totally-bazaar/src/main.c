@@ -1499,6 +1499,8 @@ static void draw_cursor(float dt) {
  * translucent layer over the table costs the PowerVR its 60 Hz budget. */
 static bool dim_baked;
 static float pause_time;
+static int now_playing = -1;
+static float now_playing_toast;
 
 static void dim(float a) {
     if(!dim_baked)
@@ -1546,6 +1548,9 @@ static const char *const pause_items[PAUSE_ITEMS] = {
 
 static void draw_pause(void) {
     int i;
+    if(music_on && now_playing >= 0)
+        gfx_textf(FONT_SMALL, 320, 346, 0.6f, 0xc0ffe0a0, ALIGN_CENTER, "Now playing: %s",
+                  jp_music_track_name[now_playing]);
     dim(0.65f);
     gfx_panel(190, 120, 260, 250, 20, 0xf0281038);
     gfx_text(FONT_BIG, 320, 130, 0.9f, 0xffffd040, ALIGN_CENTER, "PAUSED");
@@ -1721,6 +1726,16 @@ static void draw_title(void) {
     }
     gfx_text(FONT_SMALL, 320, 456, 0.55f, 0xa0ffffff, ALIGN_CENTER,
              "Totally Bazaar - Rich Stokes  -  (A) / START to choose");
+    if(now_playing_toast > 0.0f && music_on && now_playing >= 0) {
+        float a = clampf(now_playing_toast, 0.0f, 1.0f) * clampf((4.0f - now_playing_toast) * 3.0f, 0.0f, 1.0f);
+        float w = gfx_text_width(FONT_SMALL, 0.7f, jp_music_track_name[now_playing]) + 28.0f;
+        if(w < 120.0f)
+            w = 120.0f;
+        gfx_panel(624 - w, 14, w, 44, 12, color_alpha(0xd0200828, a));
+        gfx_text(FONT_SMALL, 610, 15, 0.5f, color_alpha(0xffffd070, a), ALIGN_RIGHT, "NOW PLAYING");
+        gfx_text(FONT_SMALL, 610, 31, 0.7f, color_alpha(0xffffffff, a), ALIGN_RIGHT,
+                 jp_music_track_name[now_playing]);
+    }
 }
 
 static int setup_cursor;
@@ -2701,6 +2716,16 @@ int main(int argc, char **argv) {
         if(hint_flash > 0.0f)
             hint_flash -= dt;
         pause_time = paused ? pause_time + dt : 0.0f;
+        {
+            int track = audio_music_track();
+            if(track != now_playing) {
+                now_playing = track;
+                now_playing_toast = 4.0f;
+                log_round("BAZAAR: now playing %s\n", jp_music_track_name[track]);
+            }
+            if(now_playing_toast > 0.0f)
+                now_playing_toast -= dt;
+        }
         if(banner.dur > 0.0f)
             banner.t += dt;
 

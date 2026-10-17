@@ -9,10 +9,12 @@ Everything is generated from code: no samples. Outputs in --output-dir:
 
     sfx.pak             16-bit mono PCM effects, 32-byte aligned
     sound_assets.[ch]   effect table
-    bazaar_music.adpcm    seamless stereo AICA ADPCM loop (KOS wav2adpcm)
+    bazaar_music.adpcm  seamless stereo AICA ADPCM playlist loop (wav2adpcm)
 
-The music is a 100 BPM fusion of tanpura drone, tabla, sitar, bansuri and
-santoor over a Dreamcast-era kick/clap/bass groove, 32 bars long.
+The music is a three-track playlist that plays in order and loops: "Bazaar
+Groove" (100 BPM sitar and bansuri over kick/clap/bass), "Spice Route"
+(116 BPM dhol and shehnai) and "Moonlit Caravan" (6/8 santoor, bansuri and
+camel bells), joined with crossfades and encoded as one continuous loop.
 """
 
 from __future__ import annotations
@@ -273,16 +275,18 @@ N = int(round(LOOP_SECONDS * MUSIC_RATE))
 
 
 class Mix:
-    def __init__(self):
-        self.dry = np.zeros((N, 2))
-        self.wet = np.zeros((N, 2))
+    def __init__(self, n=None):
+        self.n = N if n is None else n
+        self.dry = np.zeros((self.n, 2))
+        self.wet = np.zeros((self.n, 2))
 
     def add(self, start_sec, sig, pan=0.0, gain=1.0, reverb=0.0):
         """Adds wrapping around the loop so tails continue seamlessly."""
-        s = int(round(start_sec * MUSIC_RATE)) % N
+        n = self.n
+        s = int(round(start_sec * MUSIC_RATE)) % n
         lg = gain * np.cos((pan + 1) * np.pi / 4) * np.sqrt(2)
         rg = gain * np.sin((pan + 1) * np.pi / 4) * np.sqrt(2)
-        idx = (np.arange(len(sig)) + s) % N
+        idx = (np.arange(len(sig)) + s) % n
         np.add.at(self.dry[:, 0], idx, sig * lg * (1 - reverb * 0.3))
         np.add.at(self.dry[:, 1], idx, sig * rg * (1 - reverb * 0.3))
         if reverb:
@@ -473,6 +477,7 @@ FILL = ["dha", "ti", "te", "ka", "dha", "ti", "te", "ka", "dha", "ge", "na", "dh
 
 
 def compose():
+    """Track 1, "Bazaar Groove": 100 BPM, D Khamaj, sitar and bansuri."""
     mx = Mix()
     # Tanpura drone throughout: Pa Sa Sa Sa' each bar.
     for bar in range(BARS):
@@ -578,6 +583,330 @@ def compose():
     return out
 
 
+def finish_mix(mx, reverb_secs=1.4, reverb_decay=4.0, wet_gain=0.45, seed_salt=0):
+    """Circular reverb, peak normalise and soft saturation (as track 1)."""
+    n = mx.n
+    ir_len = int(reverb_secs * MUSIC_RATE)
+    t = np.arange(ir_len) / MUSIC_RATE
+    out = mx.dry.copy()
+    for ch in range(2):
+        ir = noise(ir_len) * np.exp(-t * reverb_decay)
+        ir = onepole_fast(ir, 3500, MUSIC_RATE)
+        ir /= np.sqrt(np.sum(ir ** 2))
+        spec = np.fft.rfft(mx.wet[:, ch], n=n) * np.fft.rfft(ir, n=n)
+        out[:, ch] += np.fft.irfft(spec, n=n) * wet_gain
+    out = out / np.max(np.abs(out)) * 0.89
+    return np.tanh(out * 1.2) / np.tanh(1.2)
+
+
+def shehnai(dur, note, prev=None):
+    """Double-reed wedding oboe: buzzy, nasal, wide vibrato and slides."""
+    n = int((dur + 0.12) * MUSIC_RATE)
+    t = np.arange(n) / MUSIC_RATE
+    f = np.full(n, midi_hz(note))
+    if prev is not None:
+        g = np.clip(t / 0.09, 0, 1)
+        f = midi_hz(prev) + (midi_hz(note) - midi_hz(prev)) * (1 - (1 - g) ** 2)
+    vib = 1 + 0.012 * np.sin(2 * np.pi * 6.2 * t) * np.clip((t - 0.15) / 0.3, 0, 1)
+    ph = 2 * np.pi * np.cumsum(f * vib) / MUSIC_RATE
+    y = np.zeros(n)
+    for h in range(1, 20):
+        fh = midi_hz(note) * h
+        formant = np.exp(-((fh - 1250.0) / 700.0) ** 2) + 0.35 * np.exp(-((fh - 2900.0) / 600.0) ** 2)
+        y += (0.5 / h + formant) * np.sin(h * ph)
+    y += onepole_fast(noise(n), 3000, MUSIC_RATE) * 0.12
+    env = env_adsr(n, MUSIC_RATE, 0.035, 0.08, 0.85, 0.1)
+    return y * env * 0.045
+
+
+def dhol(stroke):
+    """Barrel drum: deep 'dagga' bass side and a sharp 'tilli' stick side."""
+    n = int(0.5 * MUSIC_RATE)
+    t = np.arange(n) / MUSIC_RATE
+    y = np.zeros(n)
+    if stroke in ("dum", "both"):
+        f = 70 + 45 * np.exp(-t * 18)
+        ph = 2 * np.pi * np.cumsum(f) / MUSIC_RATE
+        y += np.sin(ph) * np.exp(-t * 7) * 1.0
+        y += noise(n) * np.exp(-t * 60) * 0.25
+    if stroke in ("tak", "both"):
+        y += noise(n) * np.exp(-t * 45) * 0.55
+        y += np.sin(2 * np.pi * 520 * t) * np.exp(-t * 30) * 0.35
+    if stroke == "ghost":
+        y += noise(n) * np.exp(-t * 80) * 0.18
+    return y * 0.22
+
+
+def frame_drum(stroke):
+    """Daf: a big frame drum, 'dum' in the centre, jingly 'tek' at the rim."""
+    n = int(0.7 * MUSIC_RATE)
+    t = np.arange(n) / MUSIC_RATE
+    y = np.zeros(n)
+    if stroke == "dum":
+        f = 62 + 20 * np.exp(-t * 12)
+        ph = 2 * np.pi * np.cumsum(f) / MUSIC_RATE
+        y += np.sin(ph) * np.exp(-t * 4.5)
+    else:
+        x = noise(n)
+        y += (x - onepole_fast(x, 4000, MUSIC_RATE)) * np.exp(-t * 18) * 0.6
+        for fr in (3100, 4300, 5600):  # rings on the frame
+            y += np.sin(2 * np.pi * fr * t + RNG.uniform(0, 6)) * np.exp(-t * 14) * 0.08
+    return y * 0.2
+
+
+def bells(count=5):
+    """A camel's neck bells jingling with its stride."""
+    n = int(0.9 * MUSIC_RATE)
+    t = np.arange(n) / MUSIC_RATE
+    y = np.zeros(n)
+    for k in range(count):
+        o = int(RNG.uniform(0, 0.12) * MUSIC_RATE)
+        f = RNG.uniform(2300, 3400)
+        tt = t[: n - o]
+        y[o:] += (np.sin(2 * np.pi * f * tt) + 0.5 * np.sin(2 * np.pi * f * 2.76 * tt)) * \
+            np.exp(-tt * 9) * 0.25
+    return y * 0.08
+
+
+def wind(dur):
+    n = int(dur * MUSIC_RATE)
+    t = np.arange(n) / MUSIC_RATE
+    x = onepole_fast(noise(n), 900, MUSIC_RATE)
+    x -= onepole_fast(x, 200, MUSIC_RATE)
+    swell = 0.5 - 0.5 * np.cos(2 * np.pi * t / dur)
+    return x * swell * 0.35
+
+
+def compose_spice_route():
+    """Track 2, "Spice Route": 116 BPM, E Phrygian (Bhairavi colour), dhol and
+    shehnai with sitar answers over a syncopated bass."""
+    bpm = 116.0
+    beat = 60.0 / bpm
+    bars = 40
+    mx = Mix(int(round(bars * 4 * beat * MUSIC_RATE)))
+
+    def bt(bar, b):
+        return (bar * 4 + b) * beat
+
+    def sec(bar):
+        if bar < 4:
+            return "intro"
+        if bar < 12:
+            return "A"
+        if bar < 20:
+            return "B"
+        if bar < 28:
+            return "C"
+        if bar < 36:
+            return "A2"
+        return "outro"
+
+    for bar in range(bars):
+        for i, note in enumerate((59, 64, 64, 52)):
+            mx.add(bt(bar, i), tanpura(midi_hz(note), 3.0), pan=-0.25 + 0.15 * i,
+                   gain=0.75, reverb=0.3)
+
+    chords = [52, 50, 48, 50]           # E D C D  (i bVII bVI bVII)
+    triads = {52: (64, 67, 71), 50: (62, 66, 69), 48: (60, 64, 67)}
+    chaal = ["both", "ghost", "tak", "dum", "ghost", "tak", "dum", "tak"]
+    for bar in range(bars):
+        s = sec(bar)
+        root = chords[bar % 4]
+        # Dhol chaal: the bhangra gallop, with fills every fourth bar.
+        if s != "intro" or bar >= 2:
+            fill = bar % 4 == 3 and s not in ("intro", "outro")
+            pattern = (["tak", "tak", "both", "tak", "both", "tak", "both", "both"] if fill
+                       else chaal)
+            for i, st in enumerate(pattern):
+                g = 0.7 if s in ("intro", "outro") else 1.0
+                mx.add(bt(bar, i * 0.5), dhol(st), pan=0.1, gain=g, reverb=0.15)
+        if s in ("A", "B", "A2"):
+            mx.add(bt(bar, 0), kick(), gain=0.9)
+            mx.add(bt(bar, 2), kick(), gain=0.8)
+            for b in (1.5, 3.5):
+                mx.add(bt(bar, b), clap(), pan=-0.15, gain=0.8, reverb=0.3)
+            for k in range(8):
+                mx.add(bt(bar, k * 0.5 + 0.25), shaker(), pan=0.5, gain=0.8)
+        if s in ("C",):
+            for b in (1, 3):
+                mx.add(bt(bar, b), clap(), pan=0.0, gain=1.0, reverb=0.35)
+        if s not in ("intro",):
+            for b, d, off in ((0, 0.4, 0), (0.75, 0.25, 12), (1.5, 0.4, 0), (2.25, 0.25, 10),
+                              (2.5, 0.4, 0), (3.25, 0.25, 7), (3.5, 0.4, 12)):
+                g = 0.6 if s == "outro" else 0.95
+                mx.add(bt(bar, b), bass(root - 12 + off, d * beat), gain=g)
+        if s in ("B", "C"):
+            mx.add(bt(bar, 0), pad(triads[root], 4 * beat), gain=0.9, reverb=0.5)
+        if s == "C":
+            tri = triads[root]
+            arp = [tri[0] + 12, tri[2] + 12, tri[1] + 12, tri[2] + 12]
+            for k in range(16):
+                mx.add(bt(bar, k * 0.25), santoor(arp[k % 4]), pan=0.45 if k % 2 else -0.45,
+                       gain=0.9, reverb=0.45)
+
+    theme = [
+        (0, 1, 76, 74), (1, .5, 77, None), (1.5, .5, 76, None), (2, 1, 74, None),
+        (3, 1, 72, None), (4, 1.5, 71, 72), (5.5, .5, 72, None), (6, 1, 71, None),
+        (7, 1, 69, None), (8, .5, 67, None), (8.5, .5, 69, None), (9, 1, 71, None),
+        (10, 1, 72, None), (11, 1, 74, None), (12, 2, 76, 74), (14, 1, 77, None),
+        (15, 1, 76, None),
+        (16, 1, 79, 77), (17, 1, 77, None), (18, 1, 76, None), (19, 1, 74, None),
+        (20, 2, 72, 74), (22, 1, 71, None), (23, 1, 72, None), (24, .5, 74, None),
+        (24.5, .5, 72, None), (25, 1, 71, None), (26, 1, 69, None), (27, 1, 67, None),
+        (28, 1, 65, 67), (29, 1, 67, None), (30, 2, 64, 65),
+    ]
+    for base in (4, 28):
+        for s0, d, note, prev in theme:
+            mx.add(bt(base, s0), shehnai(d * beat, note, prev), pan=0.15, gain=1.0,
+                   reverb=0.4)
+    # Second time round the sitar doubles the theme an octave down.
+    notes = [(bt(28, s0), d * beat, n - 12, p - 12 if p else None) for s0, d, n, p in theme]
+    for start, sig in sitar(notes):
+        mx.add(start, sig, pan=-0.35, gain=0.6, reverb=0.35)
+    # B section: sitar call, shehnai answer.
+    call = [(0, .5, 64, None), (.5, .5, 65, None), (1, .5, 67, None), (1.5, .5, 69, None),
+            (2, 2, 71, 69), (4, .5, 72, None), (4.5, .5, 71, None), (5, 1, 69, None),
+            (6, 2, 67, 65)]
+    answer = [(8, 1, 76, None), (9, 1, 74, None), (10, 1, 72, None), (11, 1, 71, None),
+              (12, 2, 69, 71), (14, 2, 64, 65)]
+    for rep_bar in (12, 16):
+        notes = [(bt(rep_bar, s0), d * beat, n, p) for s0, d, n, p in call]
+        for start, sig in sitar(notes):
+            mx.add(start, sig, pan=-0.2, gain=1.0, reverb=0.35)
+        for s0, d, note, prev in answer:
+            mx.add(bt(rep_bar, s0), shehnai(d * beat, note, prev), pan=0.2, gain=0.9,
+                   reverb=0.45)
+    return finish_mix(mx)
+
+
+def compose_moonlit_caravan():
+    """Track 3, "Moonlit Caravan": a 6/8 caravan gait in G Lydian (Yaman
+    colour) - santoor, bansuri, frame drum, camel bells and desert wind."""
+    eighth = 60.0 / 52.0 / 3.0           # dotted-quarter pulse at 52 BPM
+    bars = 36
+    bar_len = 6 * eighth
+    mx = Mix(int(round(bars * bar_len * MUSIC_RATE)))
+
+    def et(bar, e):
+        return (bar * 6 + e) * eighth
+
+    def sec(bar):
+        if bar < 4:
+            return "intro"
+        if bar < 12:
+            return "A"
+        if bar < 20:
+            return "B"
+        if bar < 28:
+            return "C"
+        return "outro"
+
+    for bar in range(bars):
+        for i, note in enumerate((62, 67, 67, 55)):
+            mx.add(et(bar, i * 1.5), tanpura(midi_hz(note), 3.4), pan=-0.3 + 0.2 * i,
+                   gain=0.8, reverb=0.35)
+    for k in range(0, bars, 4):
+        mx.add(et(k, 0), wind(4 * bar_len), pan=-0.6 if (k // 4) % 2 else 0.6,
+               gain=0.9, reverb=0.2)
+
+    chords = [43, 40, 36, 38]           # G Em C D
+    triads = {43: (67, 71, 74), 40: (64, 67, 71), 36: (60, 64, 67), 38: (62, 66, 69)}
+    for bar in range(bars):
+        s = sec(bar)
+        root = chords[(bar // 2) % 4]
+        tri = triads[root]
+        # Santoor ostinato rocking in eighths.
+        arp = [tri[0] + 12, tri[1] + 12, tri[2] + 12, tri[1] + 24, tri[2] + 12, tri[1] + 12]
+        g = 0.8 if s in ("A", "C") else 1.1
+        for e in range(6):
+            mx.add(et(bar, e), santoor(arp[e]), pan=0.5 if e % 2 else -0.5, gain=g,
+                   reverb=0.5)
+        # Frame drum dadra: dum . tek dum tek tek
+        if s != "intro" or bar >= 2:
+            for e, st in ((0, "dum"), (2, "tek"), (3, "dum"), (4, "tek"), (5, "tek")):
+                mx.add(et(bar, e), frame_drum(st), pan=-0.1, gain=0.9 if st == "dum" else 0.7,
+                       reverb=0.25)
+        if s in ("B", "C"):
+            for e, st in enumerate(["dha", None, "na", "dha", "ti", "na"]):
+                if st:
+                    mx.add(et(bar, e), tabla(st), pan=0.2, gain=0.55, reverb=0.2)
+            mx.add(et(bar, 0), bells(), pan=0.6, gain=1.0, reverb=0.4)
+            mx.add(et(bar, 3), bells(3), pan=0.5, gain=0.7, reverb=0.4)
+        if s != "intro":
+            mx.add(et(bar, 0), bass(root - 12, 2.6 * eighth), gain=0.75)
+            mx.add(et(bar, 3), bass(root - 5, 1.6 * eighth), gain=0.55)
+        if bar % 2 == 0 and s in ("A", "B", "C"):
+            mx.add(et(bar, 0), pad(tri, 2 * bar_len), gain=1.1, reverb=0.6)
+
+    a = [(0, 3, 74), (3, 1.5, 76), (4.5, 1.5, 78), (6, 4, 79), (10, 2, 78),
+         (12, 2, 76), (14, 2, 73), (16, 2, 74), (18, 6, 71),
+         (24, 3, 74), (27, 1.5, 76), (28.5, 1.5, 78), (30, 3, 81), (33, 3, 79),
+         (36, 2, 78), (38, 2, 76), (40, 2, 73), (42, 6, 74)]
+    prev = None
+    for s0, d, note in a:
+        mx.add(et(4, s0), flute(0, d * eighth, note, prev), pan=0.2, gain=1.1, reverb=0.55)
+        prev = note
+    # B: sitar sings the tune lower, with bells and tabla underneath.
+    notes = [(et(12, s0), d * eighth, n - 12, None) for s0, d, n in a]
+    for start, sig in sitar(notes):
+        mx.add(start, sig, pan=-0.2, gain=1.0, reverb=0.4)
+    # C: bansuri up high with a counter-line, then home.
+    c_line = [(0, 3, 81), (3, 3, 83), (6, 4, 86), (10, 2, 85), (12, 3, 83), (15, 3, 81),
+              (18, 6, 79), (24, 2, 78), (26, 2, 79), (28, 2, 81), (30, 6, 83),
+              (36, 3, 81), (39, 3, 78), (42, 6, 79)]
+    prev = None
+    for s0, d, note in c_line:
+        mx.add(et(20, s0), flute(0, d * eighth, note, prev), pan=0.25, gain=1.0, reverb=0.6)
+        prev = note
+    notes = [(et(20, s0), d * eighth, n - 12, None) for s0, d, n in a]
+    for start, sig in sitar(notes):
+        mx.add(start, sig, pan=-0.3, gain=0.55, reverb=0.45)
+    return finish_mix(mx, reverb_secs=1.8, reverb_decay=3.2, wet_gain=0.5)
+
+
+TRACKS = [
+    ("Bazaar Groove", compose),
+    ("Spice Route", compose_spice_route),
+    ("Moonlit Caravan", compose_moonlit_caravan),
+]
+CROSSFADE = 2.0
+
+
+def build_playlist():
+    """Render every track and join them into one circular, crossfaded loop.
+
+    Returns (audio, starts) where starts[i] is the frame where track i
+    becomes the main voice. Tracks are matched in loudness to track 1."""
+    rendered = []
+    for name, fn in TRACKS:
+        audio = fn()
+        rendered.append((name, audio))
+        print(f"  {name}: {len(audio) / MUSIC_RATE:.1f}s, "
+              f"rms {np.sqrt(np.mean(audio ** 2)):.3f}")
+    ref = np.sqrt(np.mean(rendered[0][1] ** 2))
+    xf = int(CROSSFADE * MUSIC_RATE)
+    total = sum(len(a) - xf for _, a in rendered)
+    out = np.zeros((total, 2))
+    starts = []
+    pos = 0
+    ramp = 0.5 - 0.5 * np.cos(np.linspace(0, np.pi, xf))
+    for name, audio in rendered:
+        a = audio * (ref / np.sqrt(np.mean(audio ** 2)))
+        a = np.tanh(a * 1.05) / np.tanh(1.05)
+        a = a.copy()
+        a[:xf] *= ramp[:, None]
+        a[-xf:] *= ramp[::-1, None]
+        idx = (np.arange(len(a)) + pos) % total
+        np.add.at(out[:, 0], idx, a[:, 0])
+        np.add.at(out[:, 1], idx, a[:, 1])
+        starts.append((pos + xf // 2) % total)
+        pos += len(a) - xf
+    peak = np.max(np.abs(out))
+    if peak > 0.97:
+        out *= 0.97 / peak
+    return out, starts
+
+
 # ======================================================================
 # Output
 # ======================================================================
@@ -627,7 +956,12 @@ def main():
           "extern const jp_sfx_asset_t jp_sfx_assets[JP_SFX_COUNT];",
           "extern const uint8_t jp_sfx_pak[];",
           "extern const uint8_t jp_music_adpcm[];",
-          "extern const uint8_t jp_music_adpcm_end[];", "", "#endif", ""]
+          "extern const uint8_t jp_music_adpcm_end[];", "",
+          f"#define JP_MUSIC_TRACKS {len(TRACKS)}",
+          "/* Stereo ADPCM: one byte per frame, so frames are byte offsets. */",
+          "extern const uint32_t jp_music_track_start[JP_MUSIC_TRACKS];",
+          "extern const char *const jp_music_track_name[JP_MUSIC_TRACKS];", "",
+          "#endif", ""]
     (out / "sound_assets.h").write_text("\n".join(h))
     c = ["/* Generated by tools/build_audio.py. Do not edit by hand. */",
          '#include "sound_assets.h"', "",
@@ -635,12 +969,20 @@ def main():
     for name, off, size in entries:
         c.append(f"    {{ {off}u, {size}u }}, /* {name} */")
     c.append("};")
-    (out / "sound_assets.c").write_text("\n".join(c) + "\n")
     print(f"sfx.pak: {len(pak)} bytes, {len(entries)} effects")
 
     if args.skip_music:
+        prev = (out / "sound_assets.c").read_text()
+        keep = prev[prev.index("const uint32_t jp_music_track_start"):]
+        (out / "sound_assets.c").write_text("\n".join(c) + "\n\n" + keep)
         return
-    loop = compose()
+    loop, starts = build_playlist()
+    c.append("")
+    c.append("const uint32_t jp_music_track_start[JP_MUSIC_TRACKS] = { " +
+             ", ".join(f"{s}u" for s in starts) + " };")
+    c.append("const char *const jp_music_track_name[JP_MUSIC_TRACKS] = { " +
+             ", ".join(f'"{name}"' for name, _ in TRACKS) + " };")
+    (out / "sound_assets.c").write_text("\n".join(c) + "\n")
     if args.preview_wav:
         write_wav(args.preview_wav, np.concatenate([loop, loop]), MUSIC_RATE, 2)
     # Encode three copies continuously and keep the middle one, so the
@@ -652,12 +994,13 @@ def main():
         subprocess.run([WAV2ADPCM, "-n", "-i", "-t", str(wav_path), str(adpcm_path)],
                        check=True, stdout=subprocess.DEVNULL)
         data = adpcm_path.read_bytes()
-    frames = N
+    frames = len(loop)
     if len(data) < frames * 3:
         raise SystemExit(f"unexpected ADPCM size {len(data)} for {frames} frames")
     middle = data[frames:frames * 2]
     (out / "bazaar_music.adpcm").write_bytes(middle)
-    print(f"bazaar_music.adpcm: {len(middle)} bytes, {LOOP_SECONDS:.1f}s loop")
+    print(f"bazaar_music.adpcm: {len(middle)} bytes, {frames / MUSIC_RATE:.1f}s playlist "
+          f"of {len(TRACKS)} tracks")
 
 
 if __name__ == "__main__":
