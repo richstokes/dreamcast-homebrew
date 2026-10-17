@@ -1,9 +1,8 @@
 # DreamKarts online protocol
 
-One UDP socket per console talks to one lobby server (default
-`dreamkarts.dcvmu.com`, port 7535). Everything fits a 56k modem through a
-DreamPi: the console sends about 1 KB/s while racing and receives under
-2.5 KB/s with six karts.
+One UDP socket per console talks to one lobby server (default `dcvmu.com`,
+port 7535). Everything fits a 56k dial-up modem: the console sends about
+1 KB/s while racing and receives under 2.5 KB/s with six karts.
 
 ## Principles
 

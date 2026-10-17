@@ -1,5 +1,5 @@
 /* DreamKarts network link: the Broadband/LAN adapter, or the modem dialling
-   a DreamPi.
+   a dial-up server (a DreamPi or any other PPP setup).
 
    Nothing touches the network until the player picks Online, so normal
    boots stay fast and never wait on an unplugged adapter. Then a worker
@@ -7,8 +7,9 @@
    console over to KOS when the game was loaded that way), and if no
    Ethernet adapter came up, dials with the modem: the number and PPP login
    come from the console's saved PlanetWeb or DreamPassport ISP profile,
-   falling back to DreamPi's defaults (555, dream/cast). Dialling and PPP
-   block for up to a minute, so they never run on the render thread.
+   falling back to 555 with login dream/cast (a DreamPi accepts these).
+   Dialling and PPP block for up to a minute, so they never run on the
+   render thread.
 
    Adapted from Ping Cube's modem.c; needs the libppp lifecycle patch in
    projects/dcvmu.com/client/patches (applied to the SDK and in CI). */
@@ -94,7 +95,7 @@ static void hang_up(void) {
     }
 }
 
-/* Dial the DreamPi and bring PPP up. Returns false with failure set. */
+/* Dial out with the modem and bring PPP up. Returns false with failure set. */
 static bool dial(void) {
     flashrom_ispcfg_t cfg;
     char number[64], login[30], password[21];
@@ -137,7 +138,7 @@ static bool dial(void) {
     stage = LINK_DIALING;
     r = ppp_modem_init(number, blind, &rate);
     if(r < 0) {
-        failure = r == -2 ? "NO DIAL TONE" : r == -3 ? "DIAL FAILED" : "NO ANSWER FROM DREAMPI";
+        failure = r == -2 ? "NO DIAL TONE" : r == -3 ? "DIAL FAILED" : "NO ANSWER ON THE MODEM LINE";
         return false;
     }
     stage = LINK_NEGOTIATING;
@@ -147,7 +148,7 @@ static bool dial(void) {
     }
     netif_t *n = net_default_dev;
     if(!n || strcmp(n->name, "ppp") || !has_address(n->ip_addr)) {
-        failure = "NO ADDRESS FROM DREAMPI";
+        failure = "NO ADDRESS FROM THE DIAL-UP SERVER";
         return false;
     }
     if(!has_address(n->dns)) memcpy(n->dns, fallback_dns, 4);
@@ -235,8 +236,8 @@ int link_stage(void) {
 const char *link_status(void) {
     switch(stage) {
         case LINK_STARTING: return "LOOKING FOR A NETWORK ADAPTER";
-        case LINK_DIALING: return "DIALING DREAMPI";
-        case LINK_NEGOTIATING: return "CONNECTING TO DREAMPI";
+        case LINK_DIALING: return "DIALING MODEM";
+        case LINK_NEGOTIATING: return "CONNECTING (PPP)";
         case LINK_RESOLVING: return "FINDING THE SERVER";
         case LINK_UP: return status_buf;
         case LINK_FAILED: return failure;

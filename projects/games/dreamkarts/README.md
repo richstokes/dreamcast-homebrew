@@ -47,7 +47,7 @@ is also available.
 - **Time Trial:** a solo 3-lap run with lap splits and your best lap.
 - **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.
 - **Main menu:** after the title, choose SINGLE PLAYER, TWO PLAYER or ONLINE MULTIPLAYER.
-- **Online multiplayer:** race up to five other Dreamcasts over the internet with a Broadband Adapter or a modem dialling a [DreamPi](https://github.com/Kazade/dreampi). See [Online](#online) below.
+- **Online multiplayer:** race up to five other Dreamcasts over the internet with a Broadband Adapter or a dial-up modem (for example through a [DreamPi](https://github.com/Kazade/dreampi)). See [Online](#online) below.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
 - **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
@@ -70,8 +70,13 @@ Pick ONLINE MULTIPLAYER, type a name (up to 10 letters, digits, `-` or `.`)
 on the on-screen keyboard and press Start. The game uses a Broadband or LAN
 adapter if one is plugged in (DHCP), and otherwise dials out with the modem
 using the dial-up settings saved by PlanetWeb or DreamPassport, falling back
-to a DreamPi's defaults (dial `555`, login `dream` / `cast`). Dialling can
-take up to a minute. Nothing touches the network until you choose Online.
+to dialling `555` with login `dream` / `cast` (which a DreamPi accepts).
+Dialling can take up to a minute. Nothing touches the network until you
+choose Online. In Flycast, `./run-flycast.sh` uses the emulated broadband
+adapter whatever Flycast's saved network settings are; `DK_NET=modem` uses
+the emulated modem through Flycast's local proxy. (Flycast's DCNet dial-up
+service, if switched on in its settings, does not complete the game's PPP
+login.)
 
 - **Lobbies:** ten lobbies of up to six players. The browser shows each
   one's players, whether it is open or racing, its track and its leader.
@@ -140,7 +145,7 @@ transient `-config` flags. No networking or VMU saving is used.
 ## Tests and captures
 
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour or `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
-- **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. Run it with `DK_NET=bba` or `DK_NET=modem` in front of `./run-flycast.sh` to pick Flycast's emulated broadband adapter or modem, against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
+- **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
@@ -222,5 +227,5 @@ which Git ignores.
 | `src/main.c` | Race flow and cameras |
 | `src/online.c` | Online menus, lobby rooms and online races |
 | `src/net.c`, `src/net_version.h` | Online protocol client and the version numbers the server checks |
-| `src/netlink.c` | Broadband/LAN adapter or modem-to-DreamPi link, brought up on a worker thread |
+| `src/netlink.c` | Broadband/LAN adapter or dial-up modem link, brought up on a worker thread |
 | `server/` | The Go lobby server, a test bot and the deploy script |

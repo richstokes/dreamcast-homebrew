@@ -2,8 +2,8 @@
 
 The online multiplayer server for [DreamKarts](../README.md): ten lobbies of
 up to six Dreamcasts, over UDP port 7535 at `dcvmu.com`. Consoles reach it with
-a broadband adapter or a 56k modem dialling a DreamPi. The wire format is in
-[PROTOCOL.md](PROTOCOL.md).
+a broadband adapter or a 56k dial-up modem (a DreamPi or similar). The wire
+format is in [PROTOCOL.md](PROTOCOL.md).
 
 The server keeps lobby state (players, leader, track, laps, speed, colours,
 pings and points) and runs each race's countdown, results and points. Each
@@ -42,11 +42,12 @@ go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 9 -start -race 76 -p
 ```
 
 ```bash
-cd .. && DK_NET=bba DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
+cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
 
-`DK_NET=modem` uses Flycast's emulated modem instead, which dials and runs PPP
-like a DreamPi. Two Flycast windows can race each other the same way. A
+The launcher uses Flycast's emulated broadband adapter by default;
+`DK_NET=modem` uses its emulated modem instead, which dials and runs PPP like
+a real dial-up server. Two Flycast windows can race each other the same way. A
 `-DDK_PATH_LOG` autotest prints the lines `-path` replays.
 
 ## Versions and redeploying
