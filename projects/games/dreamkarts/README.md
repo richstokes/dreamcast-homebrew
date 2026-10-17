@@ -10,6 +10,12 @@ over a turquoise sea, a natural rock arch, a lighthouse, palm trees, beach huts,
 a grandstand and Sonic-style dash panels. You drive a Chao in a standard kart
 against five CPU Chao.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.elf)
+is also available.
+
 ## Features
 
 - **Drift handling inspired by Mario Kart World:**

@@ -6,6 +6,12 @@ for rupee tokens and earn two Seals of Excellence to become the Maharaja's
 merchant. Any seat can be a human or a CPU merchant (Easy or Hard), so it
 also plays solo.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.elf)
+is also available.
+
 ## Features
 
 - The traditional market game rule set: take one, take all camels, multi-card

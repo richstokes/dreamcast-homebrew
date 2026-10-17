@@ -7,6 +7,12 @@ fixed-point numbers and PICO-8 syntax. It is a cartridge runtime, not the
 proprietary PICO-8 editor/development environment. It is not affiliated with
 Lexaloffle.
 
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.elf)
+is also available.
+
 ## Screenshots
 
 Captured from the Dreamcast build running in Flycast.
