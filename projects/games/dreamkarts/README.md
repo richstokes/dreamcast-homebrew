@@ -66,6 +66,7 @@ is also available.
   - "FINAL LAP!" with the music sped up 6%, a FINISH! banner with confetti, and a results screen.
 - **Audio:** three original synthesized songs that play back to back and loop: "Coral Speedway" (the title theme: steel drums, marimba, slap bass, electric piano and brass; 128 BPM, 75 s), "Harbour Lights" (city-pop fusion with a synth lead, slap bass, Rhodes, funk guitar and brass, with a last chorus a step up; 137 BPM, 77 s) and "Temple Run" (toms and taiko, marimba, kalimba, flute and brass in D minor; 133 BPM, 72 s). The title screen plays the theme and each race starts on a random other song, then the playlist carries on in order. The songs are mixed and ADPCM-encoded as one continuous loop, so each change of song flows without a gap or click. There are also 26 effects. The player's engine is two pitch-shifted loops crossfaded by speed, with tyre squeal, spark crackle and sand rumble loops alongside.
 - **Vibration:** with a Jump Pack in the controller, rumble strips rattle harder and faster the quicker you cross them, sand grinds, and wall hits, kart bumps, hops, landings, mini-turbo stages, boosts, dash panels and rocket starts each give their own jolt. In two-player, each pack follows its own player.
+- **VMU screen:** in the menus every VMU shows the DreamKarts logo taking turns with a Chao driving past palm trees. In a race, the VMU in each player's controller shows the 3-2-1-GO countdown, then their place, lap and a little kart creeping towards the chequered flag, with FINAL LAP flashing as the last lap starts. At the end it shows where you finished, with a trophy for the top three. Time Trial shows the lap, the clock and your best lap instead. Pausing shows PAUSED, and the online menus show your name.
 - **Graphics:** a custom PowerVR renderer using [SH4ZAM](https://sh4zam.com/). Matrix transforms use FTRV, perspective divides use FSRRA, polygons go straight to the store queues, and triangles crossing the near plane are clipped. It also has table fog, chunked frustum culling, distance LODs for palms and karts, an animated sea and shore foam, a sky dome, clouds and a lens flare.
 
 ## Online
@@ -82,8 +83,8 @@ the emulated modem through Flycast's local proxy. (Flycast's DCNet dial-up
 service, if switched on in its settings, does not complete the game's PPP
 login.)
 
-The name is saved to the first VMU found (a 2-block `DREAMKARTS` file with
-its own icon) when you press Start, and filled in for you next time. With no
+The name is saved to the first VMU found (a 3-block `DREAMKARTS` file whose
+icon, a Chao in a kart, bobs in the memory manager) when you press Start, and filled in for you next time. With no
 VMU, a full one or an unreadable file the game just starts from `CHAO`.
 
 - **Lobbies:** ten lobbies of up to six players. The browser shows each
@@ -160,6 +161,7 @@ the online name.
 
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour or `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
+- **VMU screens:** put `DK_SHOW_VMU=1` in front of `./run-flycast.sh` or `uv run tools/capture.py` to show the VMU screens in the corner of Flycast's window, so captures include them.
 - **Saved name:** `EXTRA_CFLAGS="-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0"` opens the name entry, checks the VMU gave back `QA0` (saved by the previous boot's `-DDK_AT_NAME=QA0`), then saves `QA1` the way Start does. Add `-DDK_AT_NAME_CORRUPT` to overwrite the file with junk first and check the game falls back to `CHAO`. These write to Flycast's real A1 card, so delete the `DREAMKARTS` file afterwards if you don't want the test name kept.
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown (with a wave on the grid), GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) the cheer if your kart wins, and the results. It screenshots the Flycast window at each step without taking over the screen.
 
@@ -221,8 +223,9 @@ plain build needs no Python:
 | `make textures` | `tools/build_textures.py` | Procedural textures, the HUD font, the logo and the countdown lettering, packed as twiddled, mipmapped PVR textures (`tools/pvr_texture.py`) |
 | `make models` | `tools/build_models.py` | The kart and Chao as rigid parts with LODs, rival paint slots and outward winding checks. Preview them with `tools/preview_models_blender.py` (Blender) |
 | `make audio` | `tools/build_audio.py` | Effects and music synthesized with numpy and encoded to AICA ADPCM with KOS `wav2adpcm` |
+| `make vmu` | `tools/build_vmu.py` | The save file's animated icon, and the VMU screen's sprites, 3x5 pixel font and big digits |
 
-The HUD and logo lettering uses the DejaVu Sans Bold Oblique font bundled with
+The HUD, logo and VMU lettering uses the DejaVu Sans Bold Oblique font bundled with
 matplotlib (Bitstream Vera licence). Previews go to `assets/generated/previews/`,
 which Git ignores.
 
@@ -242,6 +245,7 @@ which Git ignores.
 | `src/main.c` | Race flow and cameras |
 | `src/online.c` | Online menus, lobby rooms and online races |
 | `src/save.c` | The online name saved to a VMU, read and written on a worker thread |
+| `src/vmuscreen.c` | The VMU screens: logo, countdown, place, laps and results |
 | `src/net.c`, `src/net_version.h` | Online protocol client and the version numbers the server checks |
 | `src/netlink.c` | Broadband/LAN adapter or dial-up modem link, brought up on a worker thread |
 | `server/` | The Go lobby server, a test bot and the deploy script |

@@ -21,6 +21,7 @@ DK_FAIL_ON_LOG stop Flycast when that text appears on the serial console.
 Online play goes through Flycast's emulated broadband adapter by default,
 whatever Flycast's saved network settings say. DK_NET=modem uses the
 emulated modem instead (both through Flycast's local proxy, not DCNet).
+DK_SHOW_VMU=1 shows the VMU screens over the game.
 USAGE
 }
 
@@ -52,6 +53,9 @@ case "${DK_NET:-bba}" in
     modem) FLYCAST_CONFIG+=",network:EmulateBBA=no,network:DCNet=no" ;;
     *) echo "DK_NET must be bba or modem" >&2; exit 2 ;;
 esac
+if [[ "${DK_SHOW_VMU:-}" == 1 ]]; then
+    FLYCAST_CONFIG+=",config:rend.FloatVMUs=yes"
+fi
 ELF_PATH="${PROJECT_DIR}/${ELF_NAME}"
 
 flycast_log=""

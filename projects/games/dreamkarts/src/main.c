@@ -10,6 +10,7 @@
 #include "models.h"
 #include "render.h"
 #include "rumble.h"
+#include "vmuscreen.h"
 #include "title.h"
 #include "track.h"
 #include "world.h"
@@ -943,6 +944,7 @@ static void boot_screen(uint64_t t0, float progress, const char *what) {
     r_set_viewport(0, 480.0f);
     title_draw_loading(progress, what, t);
     r_frame_end();
+    vmuscreen_update(0.05f);    /* the logo on the VMUs from the first loading screen */
 #if defined(DK_CAPTURE) && !defined(DK_HW)
     /* Hold the halfway screen long enough for capture.py to grab it. */
     static bool shot_taken;
@@ -1056,6 +1058,7 @@ int main(int argc, char **argv) {
         for(int p = 0; p < MAX_PLAYERS; p++)
             audio_kart_loops(p, engines && p < game.num_players ? &karts[game.pl[p].kart] : NULL, dt_real);
         rumble_update(dt_real, (game.state == ST_RACE || game.state == ST_COUNTDOWN) && !game.paused);
+        vmuscreen_update(dt_real);
         prof_us[0] += timer_us_gettime64() - upd_t0;
         render();
 

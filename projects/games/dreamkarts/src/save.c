@@ -1,12 +1,13 @@
 /* DreamKarts save file: the online name, so players type it once.
 
-   It lives in a file called DREAMKARTS on the first VMU found, with an icon
-   for the Dreamcast's memory manager. VMU block reads and writes take a
+   It lives in a file called DREAMKARTS on the first VMU found, with an
+   animated icon (tools/build_vmu.py) for the Dreamcast's memory manager. VMU block reads and writes take a
    maple frame or more each (a save touches the whole 13-block directory),
    so they run on a worker thread and the game never waits for the card.
    No card, a full card or a bad file just means no saved name. */
 #include "save.h"
 #include "net.h"
+#include "vmu_assets.h"
 #include <dc/vmu_pkg.h>
 #include <dc/vmufs.h>
 #include <kos/mutex.h>
@@ -33,46 +34,6 @@ static char want[NET_NAME_LEN];        /* name to write; empty for none */
 static char on_card[NET_NAME_LEN];     /* name the card is known to hold */
 static char loaded[NET_NAME_LEN];
 static int card_port = -1, card_unit = -1;   /* the worker's own */
-
-/* 32x32 icon: a Chao in a red kart. */
-static const char icon_art[32][33] = {
-    "................................",
-    "...............yy...............",
-    "..............yyyy..............",
-    "..............yyyy..............",
-    "...............yy...............",
-    "................................",
-    "............kkkkkkkk............",
-    "...........kbbbbbbbbk...........",
-    "...........kbbbbbbbbk...........",
-    "..........kbbwbbbbwbbk..........",
-    "..........kbbkbbbbkbbk..........",
-    "..........kbbbbbbbbbbk..........",
-    "...........kbbbkkbbbk...........",
-    "...........kbbbbbbbbk...........",
-    "............kkkkkkkk............",
-    "..........kkkkkkkkkkkk....ggg...",
-    "......kkkkrrrrrrrrrrrrkkkkggg...",
-    "...kkkwwwwrrrrrrrrrrrrrrrrkkk...",
-    "..krrrrrrrrrrrrrrrrrrrrrrrrrrk..",
-    "..krrrrrrrrrrrrrrrrrrrrrrrrrrk..",
-    "..kRRRRRkRRRRRRRRRRRRRRkRRRRRk..",
-    "...kkkkkkkkRRRRRRRRRRkkkkkkkk...",
-    ".....kkkkkkRRRRRRRRRRkkkkkk.....",
-    ".....kkgggkkkkkkkkkkkkgggkk.....",
-    "....kkkgggkkk......kkkgggkkk....",
-    ".....kkgggkk........kkgggkk.....",
-    ".....kkkkkkk........kkkkkkk.....",
-    "sssssskkkkksssssssssskkkkkssssss",
-    "ssssssssksssssssssssssskssssssss",
-    "SSssSSssSSssSSssSSssSSssSSssSSss",
-    "ssssssssssssssssssssssssssssssss",
-    "ssssssssssssssssssssssssssssssss",
-};
-static const char icon_keys[] = ".ksSrRwgby";
-static const uint16_t icon_pal[] = {   /* ARGB4444, in icon_keys order */
-    0xf8cf, 0xf112, 0xfec8, 0xfca6, 0xfe22, 0xfa11, 0xffff, 0xf999, 0xf6af, 0xffe2,
-};
 
 static uint32_t record_check(const SaveRecord *r) {
     uint32_t h = 2166136261u;          /* FNV-1a over everything but the check */
@@ -129,9 +90,8 @@ static bool write_name(const char *name) {
     if(!dev) dev = maple_enum_type(0, MAPLE_FUNC_MEMCARD);
     if(!dev) return false;
 
-    /* 128-byte header + 512-byte icon + this = two whole blocks. */
+    /* 128-byte header + the icon frames + this fills whole blocks. */
     static uint8_t payload[384];
-    static uint8_t icon[512];
     static uint8_t no_eyecatch;
     SaveRecord r;
     memset(&r, 0, sizeof(r));
@@ -147,15 +107,10 @@ static bool write_name(const char *name) {
     strcpy(pkg.desc_short, "DREAMKARTS");
     strcpy(pkg.desc_long, "DREAMKARTS ONLINE NAME");
     strcpy(pkg.app_id, "DREAMKARTS");
-    for(int y = 0; y < 32; y++)
-        for(int x = 0; x < 32; x += 2) {
-            int a = (int)(strchr(icon_keys, icon_art[y][x]) - icon_keys);
-            int b = (int)(strchr(icon_keys, icon_art[y][x + 1]) - icon_keys);
-            icon[y * 16 + x / 2] = (uint8_t)(a << 4 | b);
-        }
-    memcpy(pkg.icon_pal, icon_pal, sizeof(icon_pal));
-    pkg.icon_cnt = 1;
-    pkg.icon_data = icon;
+    memcpy(pkg.icon_pal, dk_vmu_icon_pal, sizeof(pkg.icon_pal));
+    pkg.icon_cnt = DK_VMU_ICON_FRAMES;
+    pkg.icon_anim_speed = 12;
+    pkg.icon_data = (uint8_t *)dk_vmu_icon;
     pkg.eyecatch_type = VMUPKG_EC_NONE;
     pkg.eyecatch_data = &no_eyecatch;
     pkg.data_len = sizeof(payload);

@@ -4,7 +4,7 @@ else
 
 TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c \
-	net.c netlink.c online.c save.c
+	net.c netlink.c online.c save.c vmuscreen.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
 GEN_HEADERS = $(wildcard $(GEN)/*.h)
@@ -65,7 +65,10 @@ models:
 audio:
 	uv run tools/build_audio.py --output-dir $(GEN)
 
-assets: textures models audio
+vmu:
+	uv run tools/build_vmu.py --output-dir $(GEN)
+
+assets: textures models audio vmu
 
 run: $(TARGET)
 	./run-flycast.sh --skip-build
@@ -95,6 +98,6 @@ hwbench:
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf
 
-.PHONY: all clean run textures models audio assets autotest hwbench hw
+.PHONY: all clean run textures models audio vmu assets autotest hwbench hw
 
 endif
