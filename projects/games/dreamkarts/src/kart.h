@@ -74,6 +74,7 @@ typedef struct {
     float steer_vis;
     float head_tilt;
     float emote_bob;
+    bool skid;          /* braking hard: the tyres smoke */
 
     /* Identity */
     bool cpu;

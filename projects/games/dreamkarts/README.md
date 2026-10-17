@@ -43,6 +43,7 @@ is also available.
   - Sparks spray from both rear tyres, with a glow, and a gauge at the bottom of the screen shows the charge.
   - Hold the drift button without steering to charge a jump (Mario Kart World's charge jump), then release to spring into the air.
   - A rocket start: press accelerate as the "2" fades and hold it through GO. Press too early and you burn out.
+  - Braking hard at speed lays dark tyre marks that fade over a few seconds, with a wisp of tyre smoke.
 - **Grand Prix:** a 3-lap race against five CPU Chao (four in two-player). They drive a racing line, drift and use mini-turbos, and have mild rubber-banding against the leading human. Each has its own style: smoother or twitchier steering, a line that weaves a little on the straights, an early or late turn-in, and a habit of now and then taking a bend on grip, so the pack doesn't hop into every corner in single file.
 - **Time Trial:** a solo 3-lap run with lap splits and your best lap.
 - **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.

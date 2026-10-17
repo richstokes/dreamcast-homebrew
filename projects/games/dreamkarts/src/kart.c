@@ -396,11 +396,13 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     float target = top * surf_mul * (k->boost_t > 0 ? k->boost_mul : 1.0f);
     if(k->drift == DRIFT_ACTIVE) target *= 0.985f;
     if(k->drift == DRIFT_CHARGE) target *= 0.94f;
+    k->skid = false;
     if(k->grounded && can_drive && k->burnout_t <= 0) {
         bool gas = in->accel || k->boost_t > 0;
         /* B brakes even with A held (and through a boost); reversing
            needs A released, so holding both at a standstill just stops. */
         if(in->brake) {
+            k->skid = k->speed > 9.0f;
             if(k->speed > 0.3f) k->speed = approach(k->speed, 0, 22.0f * dt);
             else if(!in->accel) k->speed = approach(k->speed, -6.0f, 9.0f * dt);
             else k->speed = approach(k->speed, 0, 22.0f * dt);

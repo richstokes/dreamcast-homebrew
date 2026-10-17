@@ -21,8 +21,20 @@ typedef struct {
 #define MAX_PARTICLES 700
 static Particle parts[MAX_PARTICLES];
 static int part_n;
-static const pvr_poly_hdr_t *h_add, *h_smoke, *h_star, *h_flame, *h_spark_glow;
+static const pvr_poly_hdr_t *h_add, *h_smoke, *h_star, *h_flame, *h_spark_glow, *h_mark;
 static float spawn_acc[MAX_KARTS][3];
+
+/* Skid marks: a ring of short dark strips laid behind each rear tyre while
+   a kart brakes hard, fading out over MARK_LIFE seconds. */
+#define MAX_MARKS 192
+#define MARK_LIFE 5.0f
+#define MARK_STEP 0.6f      /* metres between a strip's ends */
+#define MARK_HALF 0.09f     /* half the tyre's width */
+typedef struct { V3 a, b; float age; } Mark;
+static Mark marks[MAX_MARKS];
+static int mark_head, mark_n;
+static V3 mark_last[MAX_KARTS][2];
+static bool mark_on[MAX_KARTS][2];
 
 uint32_t fx_stage_color(int stage) {
     switch(stage) {
@@ -39,11 +51,14 @@ void fx_init(void) {
     h_smoke = r_header(TEX_SMOKE, HF_TR);
     h_star = r_header(TEX_STAR, HF_TR | HF_ADD);
     h_flame = r_header(TEX_FLAME, HF_TR | HF_ADD | HF_CLAMP);
+    h_mark = r_header(TEX_NONE, HF_TR);
 }
 
 void fx_clear(void) {
     part_n = 0;
     memset(spawn_acc, 0, sizeof(spawn_acc));
+    mark_head = mark_n = 0;
+    memset(mark_on, 0, sizeof(mark_on));
 }
 
 static Particle *spawn(int type, V3 p, V3 v, float life, float size, uint32_t c0, uint32_t c1) {
@@ -67,6 +82,7 @@ static Particle *spawn(int type, V3 p, V3 v, float life, float size, uint32_t c0
 }
 
 void fx_update(float dt) {
+    for(int i = 0; i < mark_n; i++) marks[i].age += dt;
     for(int i = 0; i < part_n;) {
         Particle *q = &parts[i];
         q->life -= dt;
@@ -164,20 +180,46 @@ void fx_kart(const Kart *k, float dt) {
             q->gravity = 14.0f;
         }
     }
-    /* Tyre smoke while sliding on tarmac, sand spray off-road. */
+    /* Skid marks from both rear tyres while braking hard on tarmac. */
+    bool marking = k->skid && k->grounded && k->surface != SURF_SAND;
+    for(int w = 0; w < 2; w++) {
+        V3 p = vadd(w ? wr : wl, v3(0, 0.04f, 0));
+        if(!marking) {
+            mark_on[idx][w] = false;
+            continue;
+        }
+        if(!mark_on[idx][w]) {
+            mark_on[idx][w] = true;
+            mark_last[idx][w] = p;
+            continue;
+        }
+        V3 d = vsub(p, mark_last[idx][w]);
+        if(vdot(d, d) < MARK_STEP * MARK_STEP) continue;
+        Mark *m = &marks[mark_head];
+        m->a = mark_last[idx][w];
+        m->b = p;
+        m->age = 0;
+        mark_head = (mark_head + 1) % MAX_MARKS;
+        if(mark_n < MAX_MARKS) mark_n++;
+        mark_last[idx][w] = p;
+    }
+    /* Tyre smoke while sliding or braking hard on tarmac, sand spray
+       off-road. */
     if(k->grounded && spd > 4.0f) {
         bool sand = k->surface == SURF_SAND;
         bool close = near2 < 40.0f * 40.0f;
-        float rate = !close ? 0.0f : sand ? 22.0f : (k->drift == DRIFT_ACTIVE ? 10.0f : 0.0f);
+        float rate = !close ? 0.0f : sand ? 22.0f : k->drift == DRIFT_ACTIVE ? 10.0f : k->skid ? 4.0f + spd * 0.3f : 0.0f;
         spawn_acc[idx][1] += rate * dt;
         while(spawn_acc[idx][1] >= 1.0f) {
             spawn_acc[idx][1] -= 1.0f;
             V3 base = (dk_rand() & 1) ? wl : wr;
             V3 v = vadd(vscale(k->vel, 0.25f), v3(frand_s() * 1.5f, 0.8f + frand() * 1.5f, frand_s() * 1.5f));
-            uint32_t c = sand ? argb(150, 236, 214, 160) : argb(90, 240, 240, 240);
-            Particle *q = spawn(sand ? P_DUST : P_SMOKE, vadd(base, v3(0, 0.2f, 0)), v, 0.5f + frand() * 0.4f,
-                                sand ? 0.45f : 0.35f, c, color_alpha(c, 0));
-            q->grow = sand ? 1.8f : 1.4f;
+            bool skid = !sand && k->skid && k->drift != DRIFT_ACTIVE;
+            uint32_t c = sand ? argb(150, 236, 214, 160) : skid ? argb(80, 228, 228, 230) : argb(90, 240, 240, 240);
+            Particle *q = spawn(sand ? P_DUST : P_SMOKE, vadd(base, v3(0, skid ? 0.12f : 0.2f, 0)), v,
+                                skid ? 0.3f + frand() * 0.25f : 0.5f + frand() * 0.4f,
+                                sand ? 0.45f : skid ? 0.26f : 0.35f, c, color_alpha(c, 0));
+            q->grow = sand ? 1.8f : skid ? 0.9f : 1.4f;
             q->drag = 2.0f;
         }
     }
@@ -273,6 +315,23 @@ void fx_draw(void) {
     /* Alpha puffs first, far to near (translucency is presorted). Puffs
        right in front of the lens would cover the screen: skip them, and cap
        their size, since translucent fill is the console's bottleneck. */
+    /* Skid marks lie on the road, under every puff. */
+    r_hdr(h_mark);
+    for(int i = 0; i < mark_n; i++) {
+        const Mark *m = &marks[i];
+        if(m->age >= MARK_LIFE) continue;
+        V3 d = vsub(m->b, m->a);
+        float len = sqrtf(d.x * d.x + d.z * d.z);
+        if(len < 0.01f || len > 3.0f) continue;     /* a respawn or a lap wrap */
+        V3 side = v3(-d.z / len * MARK_HALF, 0, d.x / len * MARK_HALF);
+        uint32_t c = argb((int)(150.0f * (1.0f - m->age / MARK_LIFE)), 24, 24, 26);
+        RV q[4] = {
+            {m->a.x - side.x, m->a.y, m->a.z - side.z, 0, 0, c}, {m->a.x + side.x, m->a.y, m->a.z + side.z, 0, 0, c},
+            {m->b.x - side.x, m->b.y, m->b.z - side.z, 0, 0, c}, {m->b.x + side.x, m->b.y, m->b.z + side.z, 0, 0, c},
+        };
+        r_strip(q, 4);
+    }
+
     static uint16_t order[MAX_PARTICLES];
     static float depth[MAX_PARTICLES];
     int n = 0;
