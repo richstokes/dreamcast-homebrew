@@ -1,5 +1,9 @@
 # DreamKarts
 
+<p align="center">
+  <img src="../../../docs/screenshots/dreamkarts.png" alt="DreamKarts Chao drifting with purple mini-turbo sparks on the beach oval" width="640">
+</p>
+
 A kart racer for the Sega Dreamcast with early-2000s Dreamcast looks and modern
 Mario Kart-style handling. Hop into a drift, hold the powerslide round the
 corner by counter-steering, watch the sparks at the rear tyres turn blue, orange

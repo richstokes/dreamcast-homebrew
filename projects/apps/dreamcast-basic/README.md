@@ -1,6 +1,8 @@
 # Dreamcast BASIC
 
-![Dreamcast BASIC editor with the SHAPES example loaded](../../../docs/screenshots/dreamcast-basic.png)
+<p align="center">
+  <img src="../../../docs/screenshots/dreamcast-basic.png" alt="Dreamcast BASIC editor with the SHAPES example loaded" width="640">
+</p>
 
 A BASIC programming environment for the Sega Dreamcast and its keyboard: a
 full-screen editor, a Microsoft-style interpreter with graphics and sound, and

@@ -1,5 +1,9 @@
 # Dreamcast Browser
 
+<p align="center">
+  <img src="../../../docs/screenshots/dreamcast-browser.png" alt="Dreamcast Browser loading a page with text, links and an image placeholder" width="640">
+</p>
+
 A small, deliberately limited web browser for Sega Dreamcast, built with
 KallistiOS. It supports secure HTTP/HTTPS over a Broadband Adapter or a modem
 (DreamPi), a Dreamcast keyboard, mouse, or controller alone (with an on-screen

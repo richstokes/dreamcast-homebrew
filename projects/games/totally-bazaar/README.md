@@ -1,5 +1,9 @@
 # Totally Bazaar
 
+<p align="center">
+  <img src="../../../docs/screenshots/totally-bazaar.png" alt="Totally Bazaar market with camel and goods cards against a CPU merchant" width="640">
+</p>
+
 Totally Bazaar is a traditional market trading card game for Sega Dreamcast,
 for 2 to 4 players on one screen. Trade in the market, herd camels, sell goods
 for rupee tokens and earn two Seals of Excellence to become the Maharaja's

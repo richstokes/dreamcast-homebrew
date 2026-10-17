@@ -1,5 +1,9 @@
 # Gravity Wave
 
+<p align="center">
+  <img src="../../../docs/screenshots/gravity-wave.png" alt="Gravity Wave fighter battling a biome guardian over volcanic terrain" width="640">
+</p>
+
 Gravity Wave is an infinite 3D arcade flight game for Sega Dreamcast, inspired
 by the speed, readable combat, and cinematic staging of classic on-rails space
 shooters. Fly a richly textured aerospace fighter through a continuously

@@ -1,5 +1,9 @@
 # Ping Cube
 
+<p align="center">
+  <img src="../../../docs/screenshots/ping-cube.png" alt="Ping Cube's spinning cube over live ping replies and timing statistics" width="640">
+</p>
+
 Ping Cube is a tiny Sega Dreamcast homebrew demo built with KallistiOS. It
 brings up the network — the Broadband Adapter with DHCP, or the Dreamcast modem
 dialing a DreamPi-style PPP peer — continuously pings `8.8.8.8`, `1.1.1.1` or

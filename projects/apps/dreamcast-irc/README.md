@@ -1,5 +1,9 @@
 # Dreamcast IRC
 
+<p align="center">
+  <img src="../../../docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC joined to #netsplit on Libera.Chat" width="640">
+</p>
+
 Dreamcast IRC is a small KallistiOS IRC client that connects over a Broadband
 Adapter or a Dreamcast modem with a working DreamPi setup. By default it
 connects to `irc.libera.chat` and joins `#dreamcastdev`. It renders a

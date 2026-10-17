@@ -1,5 +1,9 @@
 # Drift Los Angeles
 
+<p align="center">
+  <img src="../../../docs/screenshots/drift-los-angeles.png" alt="Drift Los Angeles coupe drifting through the downtown core at dusk" width="640">
+</p>
+
 Drift Los Angeles is an original open-city street-drifting game built for Sega
 Dreamcast with KallistiOS. Drive a C7 Corvette through an
 unbounded, deterministic Los Angeles-inspired street grid at blue hour, link

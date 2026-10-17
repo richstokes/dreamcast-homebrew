@@ -7,12 +7,6 @@ fixed-point numbers and PICO-8 syntax. It is a cartridge runtime, not the
 proprietary PICO-8 editor/development environment. It is not affiliated with
 Lexaloffle.
 
-## Download
-
-Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.cdi)**
-for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.elf)
-is also available.
-
 ## Screenshots
 
 Captured from the Dreamcast build running in Flycast.
@@ -22,6 +16,12 @@ Captured from the Dreamcast build running in Flycast.
 | <img src="../../../docs/screenshots/pico8-dreamcast.jpg" alt="PICO-8 Player cartridge picker with five bundled games" width="360"> | <img src="../../../docs/screenshots/pico8-bull-sheep.jpg" alt="Bull Sheep running in the Dreamcast PICO-8 player" width="360"> |
 | **Picolumia** | **Pikoralli** |
 | <img src="../../../docs/screenshots/pico8-picolumia.jpg" alt="Picolumia running in the Dreamcast PICO-8 player" width="360"> | <img src="../../../docs/screenshots/pico8-pikoralli.jpg" alt="Pikoralli running in the Dreamcast PICO-8 player" width="360"> |
+
+## Download
+
+Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.cdi)**
+for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.elf)
+is also available.
 
 ## Build and play
 

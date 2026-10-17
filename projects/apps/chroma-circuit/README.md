@@ -1,6 +1,8 @@
 # Chroma Circuit
 
-![Chroma Circuit's four-dimensional Hyperfold scene](../../../docs/screenshots/chroma-circuit.png)
+<p align="center">
+  <img src="../../../docs/screenshots/chroma-circuit.png" alt="Chroma Circuit's four-dimensional Hyperfold scene" width="640">
+</p>
 
 Chroma Circuit is a standalone Dreamcast demoscene production written entirely
 in SH-4 assembly. It does not link KallistiOS, a C runtime, or any other

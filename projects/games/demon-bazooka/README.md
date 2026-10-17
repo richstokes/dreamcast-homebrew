@@ -1,5 +1,9 @@
 # Demon Bazooka
 
+<p align="center">
+  <img src="../../../docs/screenshots/demon-bazooka.png" alt="Demon Bazooka title screen over the hellscape arena" width="640">
+</p>
+
 Demon Bazooka is a compact, original 3D arcade game for the Sega Dreamcast.
 You are one heavily armed human dropped into a circular hellscape while waves of
 devils close in. Move, fire splash-damage rockets, dash through danger, charge
