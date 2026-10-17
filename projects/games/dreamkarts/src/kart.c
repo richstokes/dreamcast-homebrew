@@ -67,6 +67,12 @@ const CCParams cc_params[CC_COUNT] = {
 #define JUMP_VY          9.0f
 #define JUMP_GRAVITY     11.0f
 #define JUMP_MIN_SPEED   21.0f
+/* The jump pad's kick varies per hit by this factor, so some karts sail
+   further than others. JUMP_MIN_SPEED still guarantees the gap: at 21 m/s
+   the 1.74 s flight covers ~37 m of the 32 m gap; the strongest 150cc kick
+   lands ~45 m past the gap centre, inside the 54 m landing deck. */
+#define JUMP_PAD_MIN     0.92f
+#define JUMP_PAD_MAX     1.10f
 
 float kart_top_speed(const Kart *k) {
     float top = cc_params[game.cc].top_speed;
@@ -214,6 +220,9 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
             else k->drift = DRIFT_NONE;
             k->events |= EV_JUMP;
             kart_jumps++;
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+            printf("DK JUMP kart %d lip %.1f m/s\n", (int)(k - karts), (double)k->speed);
+#endif
         }
     }
     if(k->grounded) {
@@ -431,7 +440,12 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     /* ---- Dash panels ---- */
     int pad = k->grounded ? track_dash_pad(k->tp.s, k->tp.d) : -1;
     if(pad >= 0 && pad != k->last_pad) {
-        kart_start_boost(k, track.pads[pad].boost, 1.3f);
+        /* The pad feeding a ramp gives a slightly random push. */
+        float lead = track.has_jump ? track_delta(track.pads[pad].s1, track.jump.cross + track.jump.lip) : -1.0f;
+        float power = 1.0f;
+        if(lead > 0 && lead < 80.0f) power = JUMP_PAD_MIN + (JUMP_PAD_MAX - JUMP_PAD_MIN) * frand();
+        kart_start_boost(k, track.pads[pad].boost, 1.3f * power);
+        k->boost_mul = BOOST_TOP_MUL * power;
         k->events |= EV_DASH;
     }
     k->last_pad = pad;
