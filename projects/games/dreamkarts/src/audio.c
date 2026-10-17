@@ -1,7 +1,10 @@
 /* DreamKarts audio.
 
-   Music is one stereo ADPCM loop streamed from RAM. Effects live in AICA
-   RAM as 16-bit mono PCM.
+   Music is a playlist of stereo ADPCM songs stored back to back as one
+   seamless loop and streamed from RAM, so the songs play in order and the
+   last flows into the first. The title screen opens on the theme; each race
+   jumps to the start of a random other song. Effects live in AICA RAM as
+   16-bit mono PCM.
 
    The player's engine (two crossfaded loops), tyre squeal, spark crackle and
    sand rumble are looping hardware voices. Each one owns a channel reserved
@@ -42,6 +45,8 @@ static int music_target;
 static bool music_playing;
 static bool music_off;
 static float music_rate = 1.0f;
+static int music_song;          /* song the last start opened with */
+static int music_starts;
 static int music_chn[2] = { -1, -1 };
 #ifdef DK_AUTOTEST
 static uint32_t at_rate_us;
@@ -140,10 +145,26 @@ void audio_shutdown(void) {
     ready = false;
 }
 
+/* The first start (the title screen) plays the theme, song 0; each later
+   one (a race) picks a random song other than the last one opened with. */
+static int pick_song(void) {
+    if(music_starts++ == 0 || DK_MUSIC_SONG_COUNT < 2) return 0;
+    uint32_t r = (uint32_t)timer_us_gettime64();
+    r ^= r >> 13;
+    r *= 0x5bd1e995u;
+    r ^= r >> 15;
+    int s = (int)(r % (DK_MUSIC_SONG_COUNT - 1));
+    return s >= music_song ? s + 1 : s;
+}
+
 void audio_music_start(void) {
     if(!ready || music == SND_STREAM_INVALID) return;
     if(music_playing) snd_stream_stop(music);
-    music_cursor = 0;
+    music_song = pick_song();
+    music_cursor = dk_music_song_start[music_song];
+#ifndef DK_HW
+    printf("DreamKarts audio: music opens on \"%s\"\n", dk_music_song_title[music_song]);
+#endif
     music_rate = 1.0f;
     music_volume = 0;
 #ifdef DK_AUTOTEST

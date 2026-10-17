@@ -6,9 +6,12 @@
 
 #define DK_SFX_RATE 22050
 #define DK_MUSIC_RATE 32000          /* stereo ADPCM */
-#define DK_MUSIC_BYTES 2400000       /* size of music.adpcm */
-#define DK_MUSIC_BPM 128
-#define DK_MUSIC_LOOP_FRAMES 2400000u  /* one byte per stereo frame */
+#define DK_MUSIC_BYTES 7168000       /* size of music.adpcm, one byte per stereo frame */
+
+/* The songs in music.adpcm, in play order; the last flows back into the first. */
+#define DK_MUSIC_SONG_COUNT 3
+static const uint32_t dk_music_song_start[DK_MUSIC_SONG_COUNT] __attribute__((unused)) = {0u, 2400000u, 4864000u};
+static const char *const dk_music_song_title[DK_MUSIC_SONG_COUNT] __attribute__((unused)) = {"Coral Speedway", "Harbour Lights", "Temple Run"};
 
 /* offset/bytes into sfx.pak, loop=1 for seamless loops */
 typedef struct { uint32_t offset, bytes, loop; } dk_sfx_asset_t;

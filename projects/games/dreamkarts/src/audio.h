@@ -8,6 +8,8 @@
 void audio_init(void);
 void audio_shutdown(void);
 void audio_update(float dt);
+/* Starts the music: the theme on the first call (title screen), a random
+   other song on each later one (a race); the playlist then plays on in order. */
 void audio_music_start(void);
 void audio_music_target(int volume);     /* fades toward 0..255 */
 /* The pause menu's music switch: off fades the music out whatever the target. */
