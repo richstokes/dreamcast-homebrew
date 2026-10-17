@@ -68,6 +68,7 @@ void rumble_kart(int player, const Kart *k) {
     if(k->finished) return;   /* the CPU drives a finished kart home */
     if(ev & EV_HOP) rumble_pulse(player, 2, 42, 0.07f);
     if(ev & EV_CHARGE_JUMP) rumble_pulse(player, 4, 30, 0.12f);
+    if(ev & EV_JUMP) rumble_pulse(player, 4, 26, 0.18f);
     if(ev & EV_LAND) rumble_pulse(player, (int)clampf(1.0f + k->land_v * 0.5f, 2, 6), 22, 0.1f);
     if(ev & EV_DRIFT_START) rumble_pulse(player, 1, 42, 0.06f);
     if(ev & EV_CHARGE1) rumble_pulse(player, 2, 46, 0.08f);

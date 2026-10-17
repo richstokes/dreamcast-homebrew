@@ -126,7 +126,7 @@ typedef struct {
 enum { CC_50, CC_100, CC_150, CC_COUNT };
 enum { MODE_GP, MODE_TT };
 enum {
-    ST_TITLE, ST_MENU, ST_INTRO, ST_COUNTDOWN, ST_RACE, ST_RESULTS
+    ST_TITLE, ST_MENU, ST_TRACKS, ST_INTRO, ST_COUNTDOWN, ST_RACE, ST_RESULTS
 };
 
 typedef struct {
@@ -148,6 +148,7 @@ typedef struct {
 typedef struct {
     int state;
     int mode, cc;
+    int track;           /* TRACK_* (the loaded track and its scenery) */
     float time;          /* seconds in current state */
     float race_time;     /* seconds since GO */
     float countdown;     /* seconds since countdown began */
@@ -181,5 +182,7 @@ extern uint32_t dk_probe_off;
 
 void game_set_state(int state);
 void race_setup(void);
+/* Switch to another track: rebuild its scenery and line up the grid. */
+void game_load_track(int id);
 
 #endif

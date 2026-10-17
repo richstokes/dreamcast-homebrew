@@ -23,6 +23,9 @@ void hud_draw_race(int player, float y0, float y1);
 void hud_draw_countdown(float y0, float y1);
 /* Two-player split: divider, shared race clock and minimap. */
 void hud_draw_split_overlay(void);
+/* Track outline centred on (cx, cy) at sc pixels per metre; z orders it
+   among other overlay quads. Karts are drawn on top when asked. */
+void hud_draw_track_map(float cx, float cy, float sc, float z, bool show_karts);
 void hud_draw_results(void);
 enum { PAUSE_CONTINUE, PAUSE_RESTART, PAUSE_MUSIC, PAUSE_QUIT, PAUSE_ITEMS };
 void hud_draw_pause(void);

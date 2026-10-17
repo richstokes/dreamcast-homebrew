@@ -1,11 +1,13 @@
-/* Title screen: the beach in the background with the grid lined up, a
+/* Title screen: the track in the background with the grid lined up, a
    rotating Sega-style sunburst, a bouncing per-letter logo, sparkles and a
-   pulsing PRESS START. Then a slide-in menu for mode and engine class. */
+   pulsing PRESS START. Then a slide-in menu for mode and engine class, and
+   a track select that flies over each course as it is picked. */
 #include "title.h"
 #include "audio.h"
 #include "hud.h"
 #include "kart.h"
 #include "render.h"
+#include "track.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
 
@@ -15,6 +17,11 @@ static float menu_slide;
 static int menu_row;
 static float sparkle_t[8];
 static float chao_call_t;
+static float tracks_slide;   /* track select panel slide-in */
+static float track_swap;     /* card slide when the track changes, +-1 -> 0 */
+static float fly_t;          /* time since the flyover camera last reset */
+
+static void tracks_update(float dt);
 
 static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
 static float warn_t;
@@ -80,6 +87,10 @@ void title_update(float dt) {
         }
         return;
     }
+    if(game.state == ST_TRACKS) {
+        tracks_update(dt);
+        return;
+    }
     /* ST_MENU */
     menu_slide = fminf(1.0f, menu_slide + dt * 4.0f);
     if(warn_t > 0) warn_t -= dt;
@@ -136,15 +147,60 @@ void title_update(float dt) {
 #endif
         else {
             audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
-            audio_sfx(DK_SFX_CHAO_HAPPY, 200, 128);
+            audio_sfx(DK_SFX_WHOOSH, 160, 128);
             race_setup();
-            game_set_state(ST_INTRO);
+            game_set_state(ST_TRACKS);
+            tracks_slide = 0;
+            track_swap = 0;
+            fly_t = 0;
         }
+    }
+}
+
+static void tracks_update(float dt) {
+    tracks_slide = fminf(1.0f, tracks_slide + dt * 3.5f);
+    track_swap = approach(track_swap, 0.0f, dt * 4.0f);
+    fly_t += dt;
+    int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
+    if(dir) {
+        game_load_track(game.track + dir);
+        track_swap = (float)dir;
+        fly_t = 0;
+        audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        audio_sfx(DK_SFX_WHOOSH, 140, dir < 0 ? 90 : 166);
+    }
+    if(pad.pressed & BTN_B) {
+        audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+        game_set_state(ST_MENU);
+        return;
+    }
+    if(pad.pressed & (BTN_A | BTN_START)) {
+        audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
+        audio_sfx(DK_SFX_CHAO_HAPPY, 200, 128);
+        race_setup();
+        game_set_state(ST_INTRO);
     }
 }
 
 void title_camera(Camera *cam, float dt) {
     (void)dt;
+    if(game.state == ST_TRACKS) {
+        /* High flyover circling the course, swooping in after each pick. */
+        float a = game.title_t * 0.07f;
+        float in = clampf(fly_t * 0.8f, 0, 1);
+        in = in * in * (3 - 2 * in);
+        float r = lerpf(260.0f, 190.0f, in), h = lerpf(130.0f, 92.0f, in);
+        cam->pos = v3(sinf(a) * r, h, cosf(a) * r * 0.8f);
+        V3 target = v3(0, 0, 0);
+        cam->fwd = vnorm(vsub(target, cam->pos));
+        cam->right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
+        cam->up = vcross(cam->fwd, cam->right);
+        /* Tilt down a little so the course sits above the info panel. */
+        cam->fwd = vnorm(vmad(cam->fwd, cam->up, -0.16f));
+        cam->up = vcross(cam->fwd, cam->right);
+        cam->fov = 1.10f;
+        return;
+    }
     const Kart *p = &karts[game.player];
     float a = game.title_t * 0.22f + 2.3f;
     float r = 8.5f + 1.5f * sinf(game.title_t * 0.13f);
@@ -279,7 +335,7 @@ static void draw_menu(void) {
             }
             default: {
                 float s = sel ? 1.1f + 0.06f * sinf(game.title_t * 8) : 0.95f;
-                hud_text((x0 + x1) * 0.5f, y, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : col, "START!");
+                hud_text((x0 + x1) * 0.5f, y, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : col, "NEXT");
                 break;
             }
         }
@@ -297,6 +353,42 @@ static void draw_menu(void) {
         hud_text(320, 72, 0.7f, ALIGN_CENTER, 0xffff8080, "CONNECT CONTROLLER 2");
 }
 
+static void draw_tracks(void) {
+    float slide = tracks_slide * tracks_slide * (3 - 2 * tracks_slide);
+    float off = (1.0f - slide) * 220.0f;
+    /* Header. */
+    hud_panel(190, 18 - off * 0.4f, 450, 66 - off * 0.4f, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    hud_text(320, 22 - off * 0.4f, 0.95f, ALIGN_CENTER, argb(255, 255, 220, 60), "SELECT TRACK");
+
+    /* Info card: map on the left, name and details on the right. */
+    float swap = track_swap * track_swap * track_swap * 260.0f;
+    float y0 = 296 + off, y1 = 428 + off;
+    hud_panel(52, y0, 588, y1, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    float mx = 160 + swap, my = (y0 + y1) * 0.5f;
+    hud_panel(mx - 98, y0 + 10, mx + 98, y1 - 10, argb(200, 8, 24, 70), argb(200, 8, 24, 70), 15.5f);
+    hud_draw_track_map(mx, my, 0.56f, 16.0f, false);
+
+    float tx = 412 + swap;
+    float pulse = 1.0f + 0.03f * sinf(game.title_t * 5.0f);
+    hud_text(tx, y0 + 6, 0.95f * pulse, ALIGN_CENTER, argb(255, 255, 226, 70), track.name);
+    hud_text(tx, y0 + 46, 0.55f, ALIGN_CENTER, argb(255, 200, 225, 255), track.blurb);
+    char buf[48];
+    snprintf(buf, sizeof(buf), "LAP %d m  -  %d LAPS", (int)(track.length + 0.5f), RACE_LAPS);
+    hud_text(tx, y0 + 74, 0.5f, ALIGN_CENTER, 0xffffffff, buf);
+    /* Page dots. */
+    r_hdr(h_flat);
+    for(int i = 0; i < TRACK_COUNT; i++) {
+        float dx = tx + ((float)i - (TRACK_COUNT - 1) * 0.5f) * 18.0f;
+        uint32_t c = i == game.track ? argb(255, 255, 220, 60) : argb(140, 255, 255, 255);
+        float r = i == game.track ? 5.0f : 3.5f;
+        r_quad2d(dx - r, y1 - 20 - r, dx + r, y1 - 20 + r, 0, 0, 1, 1, c, 16.5f);
+    }
+    float bob = 4.0f * sinf(game.title_t * 7);
+    hud_text(36 - bob, my - 22, 1.3f, ALIGN_CENTER, argb(255, 255, 255, 150), "<");
+    hud_text(604 + bob, my - 22, 1.3f, ALIGN_CENTER, argb(255, 255, 255, 150), ">");
+    hud_text(320, 440, 0.5f, ALIGN_CENTER, argb(230, 255, 255, 255), "LEFT/RIGHT: TRACK   A: RACE!   B: BACK");
+}
+
 void title_draw(void) {
     if(game.state == ST_TITLE) {
         float burst_a = clampf(logo_in * 1.5f, 0, 1);
@@ -311,8 +403,13 @@ void title_draw(void) {
             hud_text(320, 352, s, ALIGN_CENTER, color_lerp(argb(255, 255, 255, 255), argb(255, 255, 210, 60), pulse),
                      "PRESS START");
         }
-        hud_text(320, 196, 0.62f, ALIGN_CENTER, argb(255, 255, 255, 255), "EMERALD BEACH GRAND PRIX");
+        char sub[48];
+        snprintf(sub, sizeof(sub), "%s GRAND PRIX", track.name);
+        hud_text(320, 196, 0.62f, ALIGN_CENTER, argb(255, 255, 255, 255), sub);
         hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(200, 230, 240, 255), "github.com/richstokes - 2026");
+    }
+    else if(game.state == ST_TRACKS) {
+        draw_tracks();
     }
     else {
         draw_logo(180, 62, 0.36f);

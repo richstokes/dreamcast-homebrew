@@ -60,7 +60,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[9];
+    static bool shot[11];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -69,6 +69,11 @@ static void capture_script(void) {
         if(game.time > 2.0f && !shot[1]) { shot[1] = true; take_shot("menu"); }
         if(game.time > 3.5f && step < 1) { pad.pressed |= BTN_START; step++; }
     }
+    if(game.state == ST_TRACKS) {
+        if(game.time > 2.5f && !shot[9]) { shot[9] = true; take_shot("tracks"); }
+        if(game.time > 4.0f && step < 2) { pad.pressed |= BTN_START; step++; }
+    }
+    if(game.state == ST_RACE && p->big_air && p->pos.y > 6.0f && !shot[10]) { shot[10] = true; take_shot("jump"); }
     if(game.state == ST_INTRO && game.time > 1.6f && !shot[2]) { shot[2] = true; take_shot("intro"); }
     if(game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[7]) { shot[7] = true; take_shot("countdown"); }
     if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 3 && !shot[3]) { shot[3] = true; take_shot("drift"); }
@@ -157,7 +162,7 @@ static bool probe_step(void) {
 
 #ifdef DK_AUTOTEST
 static struct {
-    int drifts, boosts[4], walls, dash, laps;
+    int drifts, boosts[4], walls, dash, laps, jumps;
     float min_fps, cpu_sum, cpu_max;
     int cpu_n;
     float log_t;
@@ -237,10 +242,17 @@ void race_setup(void) {
     update_places();
 }
 
+void game_load_track(int id) {
+    game.track = (id % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
+    track_init(game.track);
+    world_build();
+    race_setup();
+}
+
 void game_set_state(int state) {
     game.state = state;
     game.time = 0;
-    if(state == ST_TITLE || state == ST_MENU) {
+    if(state == ST_TITLE || state == ST_MENU || state == ST_TRACKS) {
         if(state == ST_TITLE) title_enter();
         audio_kart_loops(0, NULL, DK_DT);
         audio_kart_loops(1, NULL, DK_DT);
@@ -274,12 +286,16 @@ static void chase_camera(Player *pl, float dt) {
     bool boost = k->boost_t > 0;
     float dist_t = 5.3f + n * 0.8f + (boost ? 0.7f : 0.0f);
     pl->cam_dist += (dist_t - pl->cam_dist) * smooth_k(4.0f, dt);
-    float h_t = 2.25f + k->pos.y * 0.5f;
+    /* Height tracks the road the kart last touched (so ramps lift the
+       camera) plus half of any air above it. */
+    float air = k->pos.y - k->gnd;
+    float h_t = 2.25f + k->gnd + air * 0.5f;
     pl->cam_height += (h_t - pl->cam_height) * smooth_k(6.0f, dt);
     V3 back = heading_fwd(pl->cam_yaw);
-    V3 pos = vadd(vmad(k->pos, back, -pl->cam_dist), v3(0, pl->cam_height, 0));
-    pos.y = fmaxf(pos.y, 0.8f);
-    V3 look = vadd(vmad(k->pos, back, 3.0f), v3(0, 0.95f + k->pos.y * 0.3f, 0));
+    V3 pos = vmad(k->pos, back, -pl->cam_dist);
+    pos.y = fmaxf(pl->cam_height, 0.8f);
+    V3 look = vmad(k->pos, back, 3.0f);
+    look.y = k->gnd + 0.95f + air * 0.6f;
     float shake = cam->shake;
     if(shake > 0) {
         pos = vadd(pos, v3(frand_s() * shake, frand_s() * shake, frand_s() * shake));
@@ -431,6 +447,7 @@ static void race_step(float dt, bool drive) {
         if(ev & EV_WALL) at.walls++;
         if(ev & EV_DASH) at.dash++;
         if(ev & EV_LAP) at.laps++;
+        if(ev & EV_JUMP) at.jumps++;
     }
 #endif
 }
@@ -534,6 +551,7 @@ static void update(float dt) {
     switch(game.state) {
         case ST_TITLE:
         case ST_MENU:
+        case ST_TRACKS:
             title_update(dt);
             /* Idle karts on the grid still bounce a little. */
             for(int i = 0; i < kart_count; i++) {
@@ -631,6 +649,7 @@ static void update_camera(float dt) {
     switch(game.state) {
         case ST_TITLE:
         case ST_MENU:
+        case ST_TRACKS:
             title_camera(&game.cam, dt);
             break;
         case ST_INTRO:
@@ -718,13 +737,14 @@ static void render(void) {
     if(!(dk_probe_off & PROBE_HUD)) switch(game.state) {
         case ST_TITLE:
         case ST_MENU:
+        case ST_TRACKS:
             title_draw();
             break;
         case ST_INTRO: {
             float a = clampf(game.time * 2.0f, 0, 1) * clampf((3.2f - game.time) * 2.0f, 0, 1);
             static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
             hud_panel(0, 330, 640, 410, argb((int)(170 * a), 20, 70, 180), argb((int)(170 * a), 10, 30, 90), 15);
-            hud_text(320 + (1 - a) * 200, 334, 1.2f, ALIGN_CENTER, color_alpha(argb(255, 255, 220, 60), a), "EMERALD BEACH");
+            hud_text(320 + (1 - a) * 200, 334, 1.2f, ALIGN_CENTER, color_alpha(argb(255, 255, 220, 60), a), track.name);
             char buf[48];
             const char *mode = game.mode == MODE_GP ? "GRAND PRIX" : game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
             snprintf(buf, sizeof(buf), "%s%s  -  %s", game.num_players > 1 ? "2P " : "", mode, cc_names[game.cc]);
@@ -764,8 +784,12 @@ int main(int argc, char **argv) {
     printf("\nDreamKarts starting (KallistiOS, %s %s)\n", __DATE__, __TIME__);
     input_init();
     render_init();
-    track_init();
+#ifdef DK_AT_TRACK
+    game.track = DK_AT_TRACK;
+#endif
+    track_init(game.track);
     world_init();
+    world_build();
     models_init();
     fx_init();
     hud_init();
@@ -860,7 +884,7 @@ int main(int argc, char **argv) {
         }
 #ifdef DK_AUTOTEST
         {
-            static const char *const state_names[] = {"title", "menu", "intro", "countdown", "race", "results"};
+            static const char *const state_names[] = {"title", "menu", "tracks", "intro", "countdown", "race", "results"};
             const Kart *p = &karts[game.player];
             /* A displayed frame that took more than 1.5 vblanks dropped one. */
             if(at_skip > 0) {
@@ -911,6 +935,8 @@ int main(int argc, char **argv) {
                 printf("\nDK AUTOTEST: drifts %d boosts blue %d orange %d purple %d dash %d walls %d\n",
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
                 printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
+                printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d\n", track.name, kart_jumps,
+                       at.jumps, kart_rescues);
                 printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, cpu avg %.2fms max %.2fms, "
                        "vertex buffer peak %lu KiB\n", (double)at.min_fps, at.missed, at.frames,
                        (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)), (double)at.cpu_max,
@@ -918,7 +944,8 @@ int main(int argc, char **argv) {
                 for(int i = 0; i < kart_count; i++)
                     printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, karts[game.finish_order[i]].name,
                            (double)karts[game.finish_order[i]].finish_time);
-                bool ok = p->finish_time > 0 && p->finish_time < 150.0f && at.drifts > 3;
+                bool ok = p->finish_time > 0 && p->finish_time < 150.0f && at.drifts > 3 && kart_rescues == 0 &&
+                          (!track.has_jump || at.jumps >= RACE_LAPS);
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
 #ifdef DK_HW
                 game.quit = true;   /* hand the console back to dcload-ip */

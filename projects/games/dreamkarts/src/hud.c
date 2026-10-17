@@ -125,25 +125,31 @@ void hud_lap_popup(int player, int lap, float time, bool best) {
     pm[player].lap_best = best;
 }
 
-static void draw_minimap(float cx, float cy, float sc) {
+void hud_draw_track_map(float cx, float cy, float sc, float z, bool show_karts) {
     r_hdr(h_flat);
-    /* Road band. */
-    for(int i = 0; i < TRACK_SAMPLES; i += 4) {
-        const TrackSample *a = &track.smp[i], *b = &track.smp[(i + 4) % TRACK_SAMPLES];
-        float pts[8], uv[8] = {0};
-        V3 pa0 = vmad(a->p, a->r, -9), pa1 = vmad(a->p, a->r, 9);
-        V3 pb0 = vmad(b->p, b->r, -9), pb1 = vmad(b->p, b->r, 9);
-        pts[0] = cx + pa0.x * sc; pts[1] = cy - pa0.z * sc;
-        pts[2] = cx + pa1.x * sc; pts[3] = cy - pa1.z * sc;
-        pts[4] = cx + pb0.x * sc; pts[5] = cy - pb0.z * sc;
-        pts[6] = cx + pb1.x * sc; pts[7] = cy - pb1.z * sc;
-        uint32_t c = a->section == SEC_BOARDWALK ? argb(200, 255, 220, 160) : argb(200, 255, 255, 255);
-        uint32_t cols[4] = {c, c, c, c};
-        r_quad2d_pts(pts, uv, cols, 18.0f);
+    /* Road band; a jump is drawn last, in orange, bridging the crossing. */
+    for(int pass = 0; pass < 2; pass++) {
+        for(int i = 0; i < TRACK_SAMPLES; i += 4) {
+            const TrackSample *a = &track.smp[i], *b = &track.smp[(i + 4) % TRACK_SAMPLES];
+            bool jump = fabsf(track_jump_pos(a->s + track.ds * 2.0f)) < 50.0f;
+            if(jump != (pass == 1)) continue;
+            float pts[8], uv[8] = {0};
+            V3 pa0 = vmad(a->p, a->r, -9), pa1 = vmad(a->p, a->r, 9);
+            V3 pb0 = vmad(b->p, b->r, -9), pb1 = vmad(b->p, b->r, 9);
+            pts[0] = cx + pa0.x * sc; pts[1] = cy - pa0.z * sc;
+            pts[2] = cx + pa1.x * sc; pts[3] = cy - pa1.z * sc;
+            pts[4] = cx + pb0.x * sc; pts[5] = cy - pb0.z * sc;
+            pts[6] = cx + pb1.x * sc; pts[7] = cy - pb1.z * sc;
+            uint32_t c = jump ? argb(230, 255, 170, 40) :
+                         a->section == SEC_BOARDWALK ? argb(200, 255, 220, 160) : argb(200, 255, 255, 255);
+            uint32_t cols[4] = {c, c, c, c};
+            r_quad2d_pts(pts, uv, cols, z + pass * 0.05f);
+        }
     }
     /* Start line tick. */
     V3 s0 = track_point(0, -10), s1 = track_point(0, 10);
-    r_quad2d(cx + s0.x * sc - 1, cy - s0.z * sc, cx + s1.x * sc + 1, cy - s1.z * sc, 0, 0, 1, 1, 0xffff3030, 18.2f);
+    r_quad2d(cx + s0.x * sc - 1, cy - s0.z * sc, cx + s1.x * sc + 1, cy - s1.z * sc, 0, 0, 1, 1, 0xffff3030, z + 0.2f);
+    if(!show_karts) return;
     /* Karts: rivals first, humans on top with a pulse and a white rim. */
     for(int pass = 0; pass < 2; pass++) {
         for(int i = 0; i < kart_count; i++) {
@@ -153,8 +159,8 @@ static void draw_minimap(float cx, float cy, float sc) {
             float x = cx + k->pos.x * sc, y = cy - k->pos.z * sc;
             float r = me ? 5.0f + sinf(hud_time * 8) * 0.8f : 3.6f;
             r_quad2d(x - r - 1.5f, y - r - 1.5f, x + r + 1.5f, y + r + 1.5f, 0, 0, 1, 1,
-                     me ? 0xffffffff : 0xff102040, 18.4f + pass);
-            r_quad2d(x - r, y - r, x + r, y + r, 0, 0, 1, 1, k->ui_color | 0xff000000, 18.5f + pass);
+                     me ? 0xffffffff : 0xff102040, z + 0.4f + pass);
+            r_quad2d(x - r, y - r, x + r, y + r, 0, 0, 1, 1, k->ui_color | 0xff000000, z + 0.5f + pass);
         }
     }
 }
@@ -200,7 +206,7 @@ void hud_draw_race(int pi, float y0, float y1) {
         hud_text(px + 2, py + 24 * k, 1.0f * k, ALIGN_LEFT, c, hud_ordinal(p->place));
     }
 
-    if(!split) draw_minimap(98, 402, 0.40f);
+    if(!split) hud_draw_track_map(98, 402, 0.40f, 18.0f, true);
 
     /* Mini-turbo charge gauge while drifting. */
     if(p->drift == DRIFT_ACTIVE) {
@@ -252,7 +258,7 @@ void hud_draw_split_overlay(void) {
     hud_format_time(buf, game.race_time);
     hud_text(320, 223, 0.8f, ALIGN_CENTER, 0xffffffff, buf);
     hud_panel(470, 208, 616, 272, argb(150, 10, 30, 90), argb(150, 10, 30, 90), 17.2f);
-    draw_minimap(543, 240, 0.40f);
+    hud_draw_track_map(543, 240, 0.40f, 18.0f, true);
 }
 
 void hud_draw_countdown(float y0, float y1) {

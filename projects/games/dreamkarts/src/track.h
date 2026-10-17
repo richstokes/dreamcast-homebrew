@@ -1,4 +1,4 @@
-/* DreamKarts track: Emerald Beach oval centreline, surfaces and queries. */
+/* DreamKarts tracks: centrelines, road heights, surfaces and queries. */
 #ifndef DK_TRACK_H
 #define DK_TRACK_H
 
@@ -8,11 +8,12 @@
 
 enum { SURF_ROAD, SURF_CURB, SURF_SAND };
 enum { SEC_ASPHALT, SEC_BOARDWALK };
+enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_COUNT };
 
 typedef struct {
-    V3 p;            /* centreline point (y = 0) */
+    V3 p;            /* centreline point (y = 0; road height in track_height) */
     V3 t;            /* unit tangent (race direction) */
-    V3 r;            /* unit right (outward on this anticlockwise oval) */
+    V3 r;            /* unit right */
     float s;         /* distance along the lap */
     float curv;      /* signed curvature, negative = left turn */
     float line;      /* AI racing-line lateral offset */
@@ -27,15 +28,30 @@ typedef struct {
 typedef struct {
     float s0, s1;    /* along-track extent */
     float d0, d1;    /* lateral extent */
+    float boost;     /* boost seconds */
 } DashPad;
 
-#define DASH_PAD_COUNT 3
+#define MAX_DASH_PADS 4
+
+/* A ramp jump: the road climbs to a lip, opens over a gap (another stretch
+   of track passes beneath) and comes down a landing deck. */
+typedef struct {
+    float cross;     /* lap distance of the gap centre */
+    float ramp, lip; /* ramp foot and lip, metres from the gap centre (< 0) */
+    float land, foot;/* landing edge and deck foot, metres from the centre (> 0) */
+    float lip_h, land_h;
+} Jump;
 
 typedef struct {
+    int id;
+    const char *name, *blurb;
     TrackSample smp[TRACK_SAMPLES];
     float length, ds;
-    float back_start, turn2_start;   /* lap distances of the boardwalk straight */
-    DashPad pads[DASH_PAD_COUNT];
+    float back_start, turn2_start;   /* Emerald Beach boardwalk straight */
+    DashPad pads[MAX_DASH_PADS];
+    int npads;
+    bool has_jump;
+    Jump jump;
 } Track;
 
 typedef struct {
@@ -47,7 +63,9 @@ typedef struct {
 
 extern Track track;
 
-void track_init(void);
+extern const char *const track_names[TRACK_COUNT];
+
+void track_init(int id);
 /* Locate p on the track. hint is the previous segment index or -1. */
 void track_locate(V3 p, int hint, TrackPos *out);
 /* World point at lap distance s (wrapped) and lateral offset d. */
@@ -63,6 +81,12 @@ float track_half_at(const TrackPos *tp);
 float track_wall_in_at(const TrackPos *tp);
 float track_wall_out_at(const TrackPos *tp);
 int track_dash_pad(float s, float d);
+/* Road surface height at lap distance s (0 on the floor under a jump gap). */
+float track_height(float s);
+/* Signed distance from the jump's gap centre, or a large value off it. */
+float track_jump_pos(float s);
+/* True over the open gap of a jump, where there is no road. */
+bool track_in_gap(float s);
 static inline float track_wrap(float s) {
     while(s < 0) s += track.length;
     while(s >= track.length) s -= track.length;

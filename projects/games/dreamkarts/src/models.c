@@ -256,11 +256,14 @@ void models_draw_shadows(void) {
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
         if(!r_sphere_visible(k->pos, 2.0f)) continue;
-        float h = k->pos.y;
+        /* Cast onto the road below: the floor under a jump's gap is y = 0. */
+        float ground = track_height(k->tp.s);
+        float h = fmaxf(k->pos.y - ground, 0.0f);
+        if(h > 12.0f) continue;
         float a = clampf(0.62f - h * 0.35f, 0.15f, 0.62f);
         float s = 1.0f + h * 0.25f;
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 1.35f * s), r = vscale(heading_right(k->heading + k->vis_yaw), 0.95f * s);
-        V3 c = v3(k->pos.x, 0.04f, k->pos.z);
+        V3 c = v3(k->pos.x, ground + 0.04f, k->pos.z);
         uint32_t col = color_alpha(0xff000000, a);
         RV q[4] = {
             {c.x + f.x - r.x, c.y, c.z + f.z - r.z, 0, 0, col},

@@ -17,6 +17,7 @@
 
 Kart karts[MAX_KARTS];
 int kart_count;
+int kart_jumps, kart_rescues;
 
 const KartColour kart_colours[COLOUR_COUNT] = {
     {"CLASSIC", 0, 0, 0, 0xff8cc8f0},                          /* red kart, sky-blue Chao */
@@ -61,6 +62,11 @@ const CCParams cc_params[CC_COUNT] = {
 #define STAGE2           1.90f
 #define STAGE3           3.10f
 #define BOOST_TOP_MUL    1.22f
+/* Ramp jumps launch at a fixed climb rate under lighter gravity, so the
+   flight lasts the same at every class; the jump pad sets the distance. */
+#define JUMP_VY          9.0f
+#define JUMP_GRAVITY     11.0f
+#define JUMP_MIN_SPEED   21.0f
 
 float kart_top_speed(const Kart *k) {
     float top = cc_params[game.cc].top_speed;
@@ -87,6 +93,7 @@ void kart_place_on_grid(Kart *k, int slot) {
     k->name = name;
     k->cpu = cpu; k->skill = skill; k->lane = lane;
     k->pos = track_point(s, d);
+    k->pos.y = k->gnd = track_height(s);
     V3 t = track_tangent(s);
     k->heading = atan2f(t.x, t.z);
     k->grounded = true;
@@ -165,6 +172,93 @@ static void update_lap(Kart *k, float prev_s) {
     k->progress = (float)k->lap * L + s;
 }
 
+/* Put a kart that fell into a jump's gap back on the landing deck. */
+static void rescue_from_gap(Kart *k) {
+    float s = track_wrap(track.jump.cross + track.jump.land + 3.0f);
+    float d = clampf(k->tp.d, -6.0f, 6.0f);
+    k->pos = track_point(s, d);
+    k->pos.y = k->gnd = track_height(s);
+    V3 t = track_tangent(s);
+    k->heading = atan2f(t.x, t.z);
+    k->speed = fmaxf(k->speed * 0.5f, 8.0f);
+    k->vel = vscale(heading_fwd(k->heading), k->speed);
+    k->vy = 0;
+    k->grounded = true;
+    k->big_air = false;
+    track_locate(k->pos, (int)(s / track.ds), &k->tp);
+    k->progress = (float)k->lap * track.length + k->tp.s;
+    kart_rescues++;
+}
+
+/* Road height, ramp launches, flight and landings. When grounded the kart
+   rides the road and vy tracks its slope, so leaving an edge (or hopping)
+   carries the climb rate into the air. */
+static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
+    float ground = track_height(k->tp.s);
+    if(track.has_jump && k->speed > 0) {
+        float a0 = track_jump_pos(prev_s), a1 = track_jump_pos(k->tp.s);
+        float lip_h = track.jump.lip_h;
+        bool near_deck = k->grounded || (k->pos.y > lip_h - 0.6f && k->pos.y < lip_h + 2.0f);
+        if(a0 <= track.jump.lip && a1 > track.jump.lip && a1 - a0 < 5.0f && near_deck) {
+            k->grounded = false;
+            k->big_air = true;
+            k->air_t = 0;
+            k->pos.y = fmaxf(k->pos.y, lip_h);
+            k->vy = JUMP_VY;
+            if(k->speed < JUMP_MIN_SPEED) k->speed = JUMP_MIN_SPEED;
+            /* Carry the full speed into the flight along the travel line. */
+            float hv = sqrtf(k->vel.x * k->vel.x + k->vel.z * k->vel.z);
+            V3 dir = hv > 1.0f ? vscale(k->vel, 1.0f / hv) : heading_fwd(k->heading);
+            if(hv < k->speed) k->vel = vscale(dir, k->speed);
+            if(k->drift == DRIFT_ACTIVE) end_drift(k, true);
+            else k->drift = DRIFT_NONE;
+            k->events |= EV_JUMP;
+            kart_jumps++;
+        }
+    }
+    if(k->grounded) {
+        if(ground < k->pos.y - 0.5f) {
+            k->grounded = false;      /* drove off an edge */
+            k->air_t = 0;
+        }
+        else {
+            k->vy = (ground - k->pos.y) / dt;
+            k->pos.y = k->gnd = ground;
+            return;
+        }
+    }
+    k->air_t += dt;
+    k->vy -= (k->big_air ? JUMP_GRAVITY : GRAVITY) * dt;
+    k->pos.y += k->vy * dt;
+    if(k->pos.y > ground) return;
+    if(track.has_jump && track_in_gap(k->tp.s)) {
+        rescue_from_gap(k);
+        k->events |= EV_LAND;
+        k->land_v = 3.0f;
+        return;
+    }
+    /* Impact relative to the road, which may itself be falling away. */
+    float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
+    float road_vy = slope * (k->vel.x * k->tp.tangent.x + k->vel.z * k->tp.tangent.z);
+    float impact = road_vy - k->vy;
+    k->pos.y = k->gnd = ground;
+    k->vy = road_vy;
+    k->grounded = true;
+    k->big_air = false;
+    k->squash_v -= impact * 0.9f;
+    if(impact > 2.5f) {
+        k->events |= EV_LAND;
+        k->land_v = impact;
+    }
+    if(k->drift == DRIFT_PENDING && btn) {
+        if(fabsf(k->steer) > 0.3f && k->speed > DRIFT_MIN_SPEED)
+            start_drift(k, k->steer < 0 ? -1 : 1);
+    }
+    else if(k->drift == DRIFT_PENDING) {
+        k->drift = DRIFT_NONE;
+    }
+}
+
 void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->events = 0;
     float top = kart_top_speed(k);
@@ -185,7 +279,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
 
     /* ---- Drift button: hop, slide, charge jump ---- */
     if(pressed && k->grounded && k->burnout_t <= 0) {
-        k->vy = HOP_VY;
+        k->vy += HOP_VY;
         k->grounded = false;
         k->air_t = 0;
         k->drift = DRIFT_PENDING;
@@ -195,7 +289,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     }
     if(released) {
         if(k->drift == DRIFT_CHARGE && k->charge_jump_t > 0.45f && k->grounded) {
-            k->vy = CHARGE_JUMP_VY;
+            k->vy += CHARGE_JUMP_VY;
             k->grounded = false;
             k->air_t = 0;
             k->events |= EV_CHARGE_JUMP;
@@ -284,7 +378,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     else {
         float scale = clampf(spd / 6.0f, 0, 1) * (1.0f - 0.15f * clampf(spd / top, 0, 1));
         float rate = k->steer * TURN_MAX * scale;
-        if(!k->grounded) rate *= 1.25f;           /* hop turns */
+        if(!k->grounded) rate *= k->big_air ? 0.45f : 1.25f;   /* hop turns, steadier in big air */
         if(k->speed < 0) rate = -rate;
         k->heading += rate * dt;
     }
@@ -299,31 +393,6 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->vel.z += (want.z - k->vel.z) * g;
     k->pos.x += k->vel.x * dt;
     k->pos.z += k->vel.z * dt;
-
-    /* ---- Vertical ---- */
-    if(!k->grounded) {
-        k->air_t += dt;
-        k->vy -= GRAVITY * dt;
-        k->pos.y += k->vy * dt;
-        if(k->pos.y <= 0) {
-            float impact = -k->vy;
-            k->pos.y = 0;
-            k->vy = 0;
-            k->grounded = true;
-            k->squash_v -= impact * 0.9f;
-            if(impact > 2.5f) {
-                k->events |= EV_LAND;
-                k->land_v = impact;
-            }
-            if(k->drift == DRIFT_PENDING && btn) {
-                if(fabsf(k->steer) > 0.3f && k->speed > DRIFT_MIN_SPEED)
-                    start_drift(k, k->steer < 0 ? -1 : 1);
-            }
-            else if(k->drift == DRIFT_PENDING) {
-                k->drift = DRIFT_NONE;
-            }
-        }
-    }
 
     /* ---- Track position, walls ---- */
     float prev_s = k->tp.s;
@@ -357,11 +426,12 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     }
     if(k->bump_t > 0) k->bump_t -= dt;
     update_lap(k, prev_s);
+    kart_vertical(k, btn, prev_s, dt);
 
     /* ---- Dash panels ---- */
     int pad = k->grounded ? track_dash_pad(k->tp.s, k->tp.d) : -1;
     if(pad >= 0 && pad != k->last_pad) {
-        kart_start_boost(k, 1.1f, 1.3f);
+        kart_start_boost(k, track.pads[pad].boost, 1.3f);
         k->events |= EV_DASH;
     }
     k->last_pad = pad;
@@ -382,6 +452,14 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
     float pitch_t = (in->accel && k->speed < top * 0.7f && can_drive ? -0.035f : 0) +
                     (in->brake && k->speed > 1 ? 0.05f : 0) + (k->boost_t > 0 ? -0.05f : 0);
+    /* Nose follows the road's slope, or the flight path in big air. */
+    if(k->grounded) {
+        float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
+        pitch_t += atanf(slope * vdot(fwd, k->tp.tangent));
+    }
+    else if(k->big_air) {
+        pitch_t += atan2f(k->vy, fmaxf(spd, 1.0f)) * 0.6f;
+    }
     k->pitch += (pitch_t - k->pitch) * smooth_k(6.0f, dt);
     /* Suspension spring for hop/landing squash. */
     k->squash_v += (-k->squash * 160.0f - k->squash_v * 14.0f) * dt;

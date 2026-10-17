@@ -1,4 +1,4 @@
-/* Emerald Beach scenery.
+/* Track scenery: Emerald Beach and Coral Crossing.
 
    Static geometry (track surfaces, terrain, props, palm trees) is generated
    once into a pool of world-space triangle strips grouped into chunks with
@@ -55,6 +55,12 @@ static float far_sprite_h[MAX_SPRITES];
 static int far_sprite_n;
 static bool built_ok = true;
 static float shore_db[TRACK_SAMPLES];
+/* Shore foam: waterline points with a seaward normal; off = break. */
+#define MAX_FOAM (TRACK_SAMPLES / 2 + 2)
+static V3 foam_p[MAX_FOAM], foam_n[MAX_FOAM];
+static float foam_u[MAX_FOAM];
+static bool foam_on[MAX_FOAM];
+static int foam_count;
 static V3 sky_dir[7][13];
 static V3 ring_dir[25];
 
@@ -628,28 +634,29 @@ static void add_gantry(void) {
     chunk_end();
 }
 
-static void add_grandstand(void) {
+/* Tiered seating along z = zf, spectators facing north. */
+static void add_grandstand(float x0, float x1, float zf) {
     chunk_begin(HF_OP, 900.0f);
-    float x0 = -52.0f, x1 = 26.0f;
+    float dz = zf + 82.0f;
     for(int tier = 0; tier < 5; tier++) {
-        float z = -82.0f - tier * 2.6f, y = 0.9f + tier * 1.2f;
+        float z = -82.0f + dz - tier * 2.6f, y = 0.9f + tier * 1.2f;
         /* Seats with spectators facing the track (north). */
         V3 a = v3(x0, y, z), b = v3(x1, y, z), c = v3(x0, y - 1.2f, z + 0.1f), d = v3(x1, y - 1.2f, z + 0.1f);
         quad(h_crowd, a, b, c, d, 0, 0, (x1 - x0) / 3.0f, 0.6f, argb(255, 255, 255, 255));
         V3 e = v3(x0, y, z - 2.6f), f = v3(x1, y, z - 2.6f);
         quad(h_col, e, f, a, b, 0, 0, 1, 1, argb(255, 190, 196, 210));
     }
-    box(h_col, v3((x0 + x1) * 0.5f, 3.6f, -97.5f), v3((x1 - x0) * 0.5f, 3.6f, 0.4f), 0, argb(255, 150, 160, 185), 1);
+    box(h_col, v3((x0 + x1) * 0.5f, 3.6f, -97.5f + dz), v3((x1 - x0) * 0.5f, 3.6f, 0.4f), 0, argb(255, 150, 160, 185), 1);
     /* Striped canopy on posts. */
     for(int i = 0; i <= 6; i++) {
         float x = lerpf(x0, x1, (float)i / 6.0f);
-        box(h_col, v3(x, 4.5f, -82.5f), v3(0.15f, 4.5f, 0.15f), 0, argb(255, 235, 235, 240), 1);
+        box(h_col, v3(x, 4.5f, -82.5f + dz), v3(0.15f, 4.5f, 0.15f), 0, argb(255, 235, 235, 240), 1);
     }
     for(int i = 0; i < 12; i++) {
         float xa = lerpf(x0, x1, (float)i / 12.0f), xb = lerpf(x0, x1, (float)(i + 1) / 12.0f);
         uint32_t col = (i & 1) ? argb(255, 250, 250, 250) : argb(255, 40, 140, 230);
-        quad(h_col, v3(xa, 10.5f, -98.0f), v3(xb, 10.5f, -98.0f), v3(xa, 9.0f, -81.5f), v3(xb, 9.0f, -81.5f),
-             0, 0, 1, 1, col);
+        quad(h_col, v3(xa, 10.5f, -98.0f + dz), v3(xb, 10.5f, -98.0f + dz), v3(xa, 9.0f, -81.5f + dz),
+             v3(xb, 9.0f, -81.5f + dz), 0, 0, 1, 1, col);
     }
     chunk_end();
 }
@@ -672,9 +679,9 @@ static void add_sign(V3 c, float yaw) {
     chunk_end();
 }
 
-static void add_pier(float x) {
+static void add_pier(float x, float z0) {
     chunk_begin(HF_OP, 900.0f);
-    float z0 = 66.0f, z1 = 124.0f, w = 2.2f, y = 0.45f;
+    float z1 = z0 + 58.0f, w = 2.2f, y = 0.45f;
     strip_begin(h_board);
     svp(v3(x - w, y, z0), 0, 0, 0xffffffff);
     svp(v3(x + w, y, z0), 1, 0, 0xffffffff);
@@ -688,7 +695,7 @@ static void add_pier(float x) {
     chunk_end();
 }
 
-static void add_pond(void) {
+static void add_pond(V3 c, float rx, float rz) {
     chunk_begin(HF_OP, 600.0f);
     const int n = 16;
     /* Sand rim then water, as rings from the centre. */
@@ -697,9 +704,8 @@ static void add_pond(void) {
         float ro = ring ? 0.82f : 1.0f, ri = ring ? 0.0f : 0.82f, y = ring ? 0.08f : 0.04f;
         for(int i = 0; i <= n; i++) {
             float a = (float)i / n * DK_TAU;
-            float rx = 34.0f, rz = 13.0f;
-            V3 o = v3(cosf(a) * rx * ro, y, sinf(a) * rz * ro);
-            V3 in = v3(cosf(a) * rx * ri, y, sinf(a) * rz * ri);
+            V3 o = v3(c.x + cosf(a) * rx * ro, c.y + y, c.z + sinf(a) * rz * ro);
+            V3 in = v3(c.x + cosf(a) * rx * ri, c.y + y, c.z + sinf(a) * rz * ri);
             uint32_t co = ring ? argb(255, 200, 250, 250) : argb(255, 255, 255, 255);
             uint32_t ci = ring ? argb(255, 120, 200, 235) : argb(255, 230, 225, 210);
             svp(o, o.x / 6.0f, o.z / 6.0f, co);
@@ -712,7 +718,7 @@ static void add_pond(void) {
 
 static void place_props(void) {
     /* Infield. */
-    add_pond();
+    add_pond(v3(0, 0, 0), 34.0f, 13.0f);
     add_sign(v3(-58.0f, 0, 0), 0.0f);
     add_sign(v3(58.0f, 0, 0), 0.0f);
     const V3 infield_palms[] = {
@@ -728,7 +734,7 @@ static void place_props(void) {
     add_umbrella(v3(70, 0, 18), argb(255, 255, 150, 30), 0xffffffff);
 
     /* South side: grandstand, huts, palms. */
-    add_grandstand();
+    add_grandstand(-52.0f, 26.0f, -82.0f);
     add_gantry();
     add_hut(v3(-120, 0, -98), 0.3f);
     add_hut(v3(-100, 0, -104), -0.2f);
@@ -767,7 +773,7 @@ static void place_props(void) {
     add_boat(v3(-170, WATER_Y, 330), 0.8f, argb(255, 30, 60, 140));
     add_boat(v3(160, WATER_Y, 480), -0.4f, argb(255, 200, 40, 40));
     add_boat(v3(420, WATER_Y, 260), 1.9f, argb(255, 250, 250, 250));
-    add_pier(32.0f);
+    add_pier(32.0f, 66.0f);
     chunk_begin(HF_OP, 500.0f);
     for(int i = 0; i < 9; i++) {
         V3 b = v3(-80.0f + i * 20.0f, WATER_Y - 0.2f, 104.0f);
@@ -789,6 +795,359 @@ static void place_props(void) {
         far_sprite_h[far_sprite_n] = 9.0f + (float)((r >> 18) & 7);
         far_sprite_n++;
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Coral Crossing                                                      */
+
+/* Ground: a flat headland around the figure 8, jungle hills rising to the
+   south and a beach falling into the sea to the north. */
+static float f8_ground(float x, float z) {
+    float dx = fmaxf(0.0f, fabsf(x) - 200.0f);
+    float dzn = fmaxf(0.0f, z - 84.0f), dzs = fmaxf(0.0f, -z - 96.0f);
+    float dn = sqrtf(dx * dx + dzn * dzn), dsth = sqrtf(dx * dx + dzs * dzs);
+    float beach = -0.012f * dn - 0.0005f * dn * dn;
+    float bumps = (sinf(x * 0.021f) + sinf(z * 0.017f + 1.3f) + sinf((x + z) * 0.009f)) *
+                  clampf((dsth - 20.0f) / 60.0f, 0, 1) * 4.0f;
+    float hills = fmaxf(0.0f, dsth - 8.0f) * 0.14f + bumps;
+    return lerpf(hills, beach, smooth01(-40.0f, 40.0f, z));
+}
+
+#define F8_GRASS_Y (-0.06f)
+
+static float f8_ground_y(float x, float z) {
+    float h = f8_ground(x, z);
+    return h > -0.01f && h < 0.01f ? F8_GRASS_Y : h + F8_GRASS_Y;
+}
+
+static void f8_build_ground(void) {
+    static const float zs[] = {-400, -340, -280, -230, -190, -150, -120, -96, -60, -20, 20, 60, 84, 92, 100,
+                               108, 120, 140, 170, 210, 260};
+    const int nz = (int)(sizeof(zs) / sizeof(zs[0]));
+    const int nx = 24;          /* 40 m columns from x = -480 */
+    for(int cz = 0; cz + 1 < nz; cz += 4) {
+        for(int cx = 0; cx < nx; cx += 4) {
+            chunk_begin(HF_OP, 2000.0f);
+            bool far = true;
+            for(int j = cz; j < cz + 4 && j + 1 < nz; j++) {
+                float za = zs[j], zb = zs[j + 1];
+                float xm = -480.0f + (cx + 2) * 40.0f, zm = (za + zb) * 0.5f;
+                float hm = f8_ground(xm, zm);
+                bool grassy = zm < 70.0f && hm > -0.1f;
+                float uvs = grassy ? 6.0f : 4.0f;
+                if(fabsf(xm) < 300.0f && zm > -200.0f && zm < 200.0f) far = false;
+                strip_begin(grassy ? h_grass : h_sand);
+                for(int i = cx; i <= cx + 4 && i <= nx; i++) {
+                    float x = -480.0f + i * 40.0f;
+                    for(int k = 1; k >= 0; k--) {
+                        float z = k ? zb : za;
+                        float y = f8_ground_y(x, z);
+                        float db = fmaxf(0.0f, fmaxf(fabsf(x) - 200.0f, -z - 96.0f));
+                        svp(v3(x, y, z), x / uvs, z / uvs, ground_color(y, db, grassy));
+                    }
+                }
+                strip_end();
+            }
+            if(cur_chunk) cur_chunk->far = far;
+            chunk_end();
+        }
+    }
+}
+
+/* Lap distances for chunk c's road: the regular samples plus the jump's
+   profile breakpoints, so the lip and deck edges are exact. */
+static int f8_chunk_svals(int c, float *out) {
+    const int per = 8;
+    float s0 = (float)(c * per) * track.ds, s1 = (float)((c + 1) * per) * track.ds;
+    int n = 0;
+    for(int j = 0; j <= per; j++) out[n++] = (float)(c * per + j) * track.ds;
+    if(track.has_jump) {
+        const Jump *jp = &track.jump;
+        const float marks[] = {jp->ramp, jp->lip - 0.01f, jp->lip, jp->land, jp->land + 0.01f, jp->foot};
+        for(int m = 0; m < 6; m++) {
+            float s = jp->cross + marks[m];
+            while(s < s0) s += track.length;
+            while(s >= s0 + track.length) s -= track.length;
+            if(s <= s0 || s >= s1) continue;
+            int k = n++;
+            while(k > 0 && out[k - 1] > s) {
+                out[k] = out[k - 1];
+                k--;
+            }
+            out[k] = s;
+        }
+    }
+    return n;
+}
+
+/* Road-surface point at lap distance s, lateral d, raised by dy. */
+static V3 f8_pt(float s, float d, float dy) {
+    V3 p = track_point(s, d);
+    p.y = track_height(s) + dy;
+    return p;
+}
+
+static float f8_wall(float s) {
+    int i = (int)(track_wrap(s) / track.ds) % TRACK_SAMPLES;
+    int j = (i + 1) % TRACK_SAMPLES;
+    float f = clampf((track_wrap(s) - track.smp[i].s) / track.ds, 0, 1);
+    return lerpf(track.smp[i].wall_out, track.smp[j].wall_out, f);
+}
+
+/* One ribbon along the chunk's lap distances between lateral offsets d0
+   and d1 (scaled by the barrier distance when flagged), broken over the
+   jump gap. UVs either follow the track or the world plane. */
+enum { RB_WALL0 = 1, RB_WALL1 = 2 };
+static void f8_ribbon(const float *sv, int n, const pvr_poly_hdr_t *h, float d0, float d1, float dy0, float dy1,
+                      int flags, float uscale, float vscale, bool world_uv, uint32_t c0, uint32_t c1) {
+    bool open = false;
+    for(int k = 0; k < n; k++) {
+        float s = sv[k];
+        if(track_in_gap(s)) {
+            if(open) strip_end();
+            open = false;
+            continue;
+        }
+        if(!open) {
+            strip_begin(h);
+            open = true;
+        }
+        float w = f8_wall(s);
+        V3 pa = f8_pt(s, (flags & RB_WALL0) ? d0 * w : d0, dy0);
+        V3 pb = f8_pt(s, (flags & RB_WALL1) ? d1 * w : d1, dy1);
+        if(world_uv) {
+            svp(pa, pa.x / uscale, pa.z / uscale, c0);
+            svp(pb, pb.x / uscale, pb.z / uscale, c1);
+        }
+        else {
+            svp(pa, 0, s / vscale, c0);
+            svp(pb, uscale, s / vscale, c1);
+        }
+    }
+    if(open) strip_end();
+}
+
+static void f8_build_track_chunk(int c) {
+    float sv[16];
+    int n = f8_chunk_svals(c, sv);
+    chunk_begin(HF_OP, 2000.0f);
+    /* Asphalt and curbs. */
+    f8_ribbon(sv, n, h_road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, 8.0f, false, argb(255, 250, 250, 250),
+              argb(255, 250, 250, 250));
+    f8_ribbon(sv, n, h_curb, -9.6f, -8.0f, 0.01f, 0.01f, 0, 0.0f, 2.4f, false, 0xffffffff, 0xffffffff);
+    f8_ribbon(sv, n, h_curb, 8.0f, 9.6f, 0.01f, 0.01f, 0, 1.0f, 2.4f, false, 0xffffffff, 0xffffffff);
+    /* Sand shoulders to the barriers. */
+    f8_ribbon(sv, n, h_sand, -9.6f, -1.0f, 0.0f, 0.0f, RB_WALL1, 4.0f, 0, true, argb(255, 238, 238, 238),
+              argb(255, 214, 214, 214));
+    f8_ribbon(sv, n, h_sand, 1.0f, 9.6f, 0.0f, 0.0f, RB_WALL0, 4.0f, 0, true, argb(255, 214, 214, 214),
+              argb(255, 238, 238, 238));
+    /* Barriers with a top cap, then the ramp's wooden side skirts. */
+    for(int side = -1; side <= 1; side += 2) {
+        bool open = false;
+        for(int k = 0; k < n; k++) {
+            float s = sv[k];
+            if(track_in_gap(s)) {
+                if(open) strip_end();
+                open = false;
+                continue;
+            }
+            if(!open) {
+                strip_begin(h_barrier);
+                open = true;
+            }
+            V3 r = vsub(track_point(s, 1.0f), track_point(s, 0.0f));
+            uint32_t col = shade(argb(255, 255, 255, 255), vscale(r, (float)-side));
+            V3 b = f8_pt(s, side * f8_wall(s), 0.0f);
+            /* Wind the faces toward the road on both sides. */
+            if(side < 0) {
+                svp(vadd(b, v3(0, 1.0f, 0)), s / 4.0f, 0.0f, col);
+                svp(b, s / 4.0f, 1.0f, color_scale(col, 0.8f));
+            }
+            else {
+                svp(b, s / 4.0f, 1.0f, color_scale(col, 0.8f));
+                svp(vadd(b, v3(0, 1.0f, 0)), s / 4.0f, 0.0f, col);
+            }
+        }
+        if(open) strip_end();
+        /* Top cap, +-0.25 m about the barrier line (2% of a 12.5 m wall). */
+        f8_ribbon(sv, n, h_col, side * 0.98f, side * 1.02f, 1.0f, 1.0f, RB_WALL0 | RB_WALL1, 1, 1, true,
+                  argb(255, 255, 212, 50), argb(255, 255, 212, 50));
+    }
+    /* Skirts: from the barrier foot on the raised deck down to the grass. */
+    for(int side = -1; side <= 1; side += 2) {
+        bool open = false;
+        for(int k = 0; k < n; k++) {
+            float s = sv[k];
+            bool raised = track_height(s) > 0.001f ||
+                          (k + 1 < n && track_height(sv[k + 1]) > 0.001f) ||
+                          (k > 0 && track_height(sv[k - 1]) > 0.001f);
+            if(track_in_gap(s) || !raised) {
+                if(open) strip_end();
+                open = false;
+                continue;
+            }
+            if(!open) {
+                strip_begin(h_wood);
+                open = true;
+            }
+            float h = track_height(s);
+            V3 top = f8_pt(s, side * (f8_wall(s) + 0.25f), 0.0f), bot = top;
+            bot.y = F8_GRASS_Y;
+            V3 r = vsub(track_point(s, 1.0f), track_point(s, 0.0f));
+            uint32_t col = shade(argb(255, 255, 240, 220), vscale(r, (float)side));
+            if(side > 0) {
+                svp(top, s / 3.0f, 0, col);
+                svp(bot, s / 3.0f, h / 3.0f, color_scale(col, 0.75f));
+            }
+            else {
+                svp(bot, s / 3.0f, h / 3.0f, color_scale(col, 0.75f));
+                svp(top, s / 3.0f, 0, col);
+            }
+        }
+        if(open) strip_end();
+    }
+    chunk_end();
+}
+
+/* The lip and the landing deck's front: solid faces over the gap with a
+   hazard-striped top band. */
+static void f8_jump_face(float s, float dir) {
+    float h = track_height(s - dir * 0.02f);
+    float w = f8_wall(s) + 0.25f;
+    V3 t = track_tangent(s);
+    uint32_t col = shade(argb(255, 255, 240, 220), vscale(t, dir));
+    V3 l = f8_pt(s, -w * dir, 0), r = f8_pt(s, w * dir, 0);
+    l.y = r.y = h;
+    V3 lb = l, rb = r;
+    lb.y = rb.y = F8_GRASS_Y;
+    float band = 0.7f;
+    quad(h_wood, vsub(l, v3(0, band, 0)), vsub(r, v3(0, band, 0)), lb, rb, 0, 0, 2.0f * w / 3.0f, h / 3.0f, col);
+    const int stripes = 10;
+    for(int i = 0; i < stripes; i++) {
+        V3 a = vlerp(l, r, (float)i / stripes), b = vlerp(l, r, (float)(i + 1) / stripes);
+        uint32_t sc = (i & 1) ? argb(255, 40, 40, 44) : argb(255, 255, 206, 30);
+        quad(h_col, a, b, vsub(a, v3(0, band, 0)), vsub(b, v3(0, band, 0)), 0, 0, 1, 1, sc);
+    }
+}
+
+static void f8_place_props(void) {
+    const float cx = 89.34f;   /* loop centres at (+-cx, 0) */
+    chunk_begin(HF_OP, 900.0f);
+    f8_jump_face(track_wrap(track.jump.cross + track.jump.lip), 1.0f);
+    f8_jump_face(track_wrap(track.jump.cross + track.jump.land), -1.0f);
+    chunk_end();
+    add_gantry();
+    add_grandstand(-15.0f, 45.0f, -62.0f);
+
+    /* Lagoons in both loops. */
+    for(int side = -1; side <= 1; side += 2) {
+        V3 c = v3(side * cx, F8_GRASS_Y, 0);
+        add_pond(c, 21.0f, 15.0f);
+        add_umbrella(v3(side * cx - 14.0f, 0, 19.0f), argb(255, 230, 40, 40), 0xffffffff);
+        add_umbrella(v3(side * cx + 16.0f, 0, -18.0f), argb(255, 40, 120, 230), 0xffffffff);
+        add_umbrella(v3(side * cx + 4.0f, 0, 22.0f), argb(255, 255, 210, 40), argb(255, 60, 190, 90));
+        for(int i = 0; i < 6; i++) {
+            float a = (float)i / 6.0f * DK_TAU + 0.4f * side;
+            V3 p = v3(c.x + cosf(a) * 30.0f, 0, sinf(a) * 25.0f);
+            add_palm(p, 8.5f + (float)(i % 3) * 1.5f, (float)i * 1.7f, 0.18f, (uint32_t)(i * 13 + 5 + side));
+        }
+    }
+    add_sign(v3(0, 0, 48.0f), 0.0f);
+
+    /* Between the legs and around the outside. */
+    const V3 palms_in[] = {
+        {0, 0, 40}, {-14, 0, 62}, {16, 0, 66}, {0, 0, -38}, {-18, 0, -48},
+        {-70, 0, -86}, {60, 0, -92}, {-140, 0, -80}, {150, 0, -78}, {-160, 0, -60},
+        {170, 0, -50}, {-90, 0, -92}, {90, 0, -100}, {0, 0, -100}, {-180, 0, 10}, {182, 0, -6}
+    };
+    for(unsigned i = 0; i < sizeof(palms_in) / sizeof(palms_in[0]); i++) {
+        V3 p = palms_in[i];
+        p.y = f8_ground_y(p.x, p.z);
+        add_palm(p, 9.5f + (float)(i % 4) * 1.2f, (float)i * 2.3f, 0.22f, i * 7 + 3);
+    }
+    add_hut(v3(-120, 0, -98), 0.3f);
+    add_hut(v3(-100, 0, -104), -0.2f);
+    add_hut(v3(118, 0, -96), 0.6f);
+
+    /* North beach and the sea. */
+    const float beach_x[] = {-160, -110, -60, 70, 120, 170};
+    for(int i = 0; i < 6; i++) {
+        V3 p = v3(beach_x[i], 0, 90.0f + (float)(i % 2) * 4.0f);
+        p.y = f8_ground_y(p.x, p.z);
+        add_palm(p, 9.5f + (float)i, (float)i * 1.1f + 2.0f, 0.35f, i * 5 + 11);
+    }
+    add_umbrella(v3(-130, f8_ground_y(-130, 94), 94), argb(255, 230, 40, 40), 0xffffffff);
+    add_umbrella(v3(140, f8_ground_y(140, 94), 94), argb(255, 40, 200, 160), 0xffffffff);
+    add_arch(v3(-40, 0, 185), 0.15f);
+    add_rock(v3(110, 0, 250), 14.0f, 18.0f, 5, true);
+    add_rock(v3(-210, 0, 170), 10.0f, 12.0f, 9, true);
+    add_rock(v3(290, 0, 120), 16.0f, 22.0f, 17, true);
+    add_lighthouse(v3(230, 0, 230));
+    add_boat(v3(-170, WATER_Y, 350), 0.8f, argb(255, 30, 60, 140));
+    add_boat(v3(160, WATER_Y, 500), -0.4f, argb(255, 200, 40, 40));
+    add_pier(30.0f, 94.0f);
+    chunk_begin(HF_OP, 500.0f);
+    for(int i = 0; i < 9; i++) {
+        V3 b = v3(-80.0f + i * 20.0f, WATER_Y - 0.2f, 130.0f);
+        uint32_t col = (i & 1) ? argb(255, 250, 250, 250) : argb(255, 230, 50, 40);
+        cylinder(h_col, b, 0.45f, 0.35f, 0.9f, 6, col, col, 1, 1);
+    }
+    chunk_end();
+
+    /* Distant palm silhouettes on the southern hills. */
+    for(int i = 0; i < MAX_SPRITES; i++) {
+        uint32_t r = (uint32_t)i * 2654435761u;
+        float x = -420.0f + (float)(r & 1023) / 1023.0f * 840.0f;
+        float z = -130.0f - (float)((r >> 10) & 255) / 255.0f * 230.0f;
+        V3 p = v3(x, 0, z);
+        p.y = f8_ground_y(x, z);
+        far_sprites[far_sprite_n] = p;
+        far_sprite_h[far_sprite_n] = 9.0f + (float)((r >> 18) & 7);
+        far_sprite_n++;
+    }
+
+    /* Foam along the beach's waterline. */
+    for(float x = -460.0f; x <= 460.0f && foam_count < MAX_FOAM; x += 20.0f) {
+        float z = 60.0f;
+        while(z < 300.0f && f8_ground(x, z) >= WATER_Y) z += 1.0f;
+        foam_p[foam_count] = v3(x, 0, z);
+        foam_n[foam_count] = v3(0, 0, 1);
+        foam_u[foam_count] = x;
+        foam_on[foam_count] = z < 300.0f;
+        foam_count++;
+    }
+}
+
+static void build_figure8(void) {
+    f8_build_ground();
+    for(int c = 0; c < TRACK_SAMPLES / 8; c++)
+        f8_build_track_chunk(c);
+    f8_place_props();
+}
+
+static void build_beach(void) {
+    for(int c = 0; c < TRACK_SAMPLES / 8; c++)
+        build_track_chunk(c);
+    /* Waterline distance beyond the outer wall, for the foam strip. */
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        const TrackSample *t = &track.smp[i];
+        float db = 0;
+        for(int k = 0; k < 80; k++) {
+            V3 p = vmad(t->p, t->r, t->wall_out + db);
+            if(terrain_height(p, db, t->shore) < WATER_Y) break;
+            db += 0.25f;
+        }
+        shore_db[i] = db;
+    }
+    for(int i = 0; i <= TRACK_SAMPLES && foam_count < MAX_FOAM; i += 2) {
+        const TrackSample *t = &track.smp[i % TRACK_SAMPLES];
+        foam_p[foam_count] = vmad(t->p, t->r, t->wall_out + shore_db[i % TRACK_SAMPLES]);
+        foam_n[foam_count] = t->r;
+        foam_u[foam_count] = t->s;
+        foam_on[foam_count] = t->p.z > 8.0f;
+        foam_count++;
+    }
+    place_props();
 }
 
 /* ------------------------------------------------------------------ */
@@ -827,19 +1186,6 @@ void world_init(void) {
     h_flare = r_header(TEX_FLARE, HF_TR | HF_ADD | HF_NOFOG | HF_NOZTEST);
     h_dash_glow = r_header(TEX_GLOW, HF_TR | HF_ADD);
 
-    for(int c = 0; c < TRACK_SAMPLES / 8; c++)
-        build_track_chunk(c);
-    /* Waterline distance beyond the outer wall, for the foam strip. */
-    for(int i = 0; i < TRACK_SAMPLES; i++) {
-        const TrackSample *t = &track.smp[i];
-        float db = 0;
-        for(int k = 0; k < 80; k++) {
-            V3 p = vmad(t->p, t->r, t->wall_out + db);
-            if(terrain_height(p, db, t->shore) < WATER_Y) break;
-            db += 0.25f;
-        }
-        shore_db[i] = db;
-    }
     static const float elev[] = {-0.25f, 0.0f, 0.10f, 0.28f, 0.62f, 1.05f, 1.5708f};
     for(int e = 0; e < 7; e++)
         for(int i = 0; i <= 12; i++) {
@@ -850,8 +1196,16 @@ void world_init(void) {
         float a = (float)i / 24 * DK_TAU;
         ring_dir[i] = v3(sinf(a), -cosf(a), cosf(a));
     }
-    place_props();
-    printf("DreamKarts world: %d chunks, %d strips, %d vertices (%lu KiB), %d palms%s\n",
+}
+
+void world_build(void) {
+    if(!pool) return;
+    pool_n = strip_n = chunk_n = palm_n = far_sprite_n = foam_count = 0;
+    cur_chunk = NULL;
+    built_ok = true;
+    if(track.id == TRACK_FIGURE8) build_figure8();
+    else build_beach();
+    printf("DreamKarts world: %s, %d chunks, %d strips, %d vertices (%lu KiB), %d palms%s\n", track.name,
            chunk_n, strip_n, pool_n, (unsigned long)(pool_n * sizeof(RV) / 1024), palm_n,
            built_ok ? "" : " [POOL OVERFLOW]");
 }
@@ -963,14 +1317,14 @@ static void draw_sea(void) {
 static void draw_dash_pads(void) {
     float scroll = -world_time * 2.2f;
     r_hdr(h_dash);
-    for(int i = 0; i < DASH_PAD_COUNT; i++) {
+    for(int i = 0; i < track.npads; i++) {
         const DashPad *p = &track.pads[i];
         RV v[4];
         int n = 0;
         for(int k = 0; k < 2; k++) {
             float s = k ? p->s1 : p->s0;
             V3 a = track_point(s, p->d0), b = track_point(s, p->d1);
-            a.y = b.y = 0.035f;
+            a.y = b.y = track_height(s) + 0.035f;
             float vv = (k ? 0.0f : 1.0f) + scroll;
             v[n++] = (RV){a.x, a.y, a.z, 0, vv, 0xffffffff};
             v[n++] = (RV){b.x, b.y, b.z, 1, vv, 0xffffffff};
@@ -1019,30 +1373,29 @@ void world_draw_pt(void) {
 }
 
 static void draw_shore_foam(void) {
-    /* Foam follows the waterline beyond the outer wall on the sea side. */
+    /* Foam rides the waterline, washing in and out along its normal. */
     r_hdr(h_foam);
     RV v[2 * 40];
     int n = 0;
     float pulse = 0.5f + 0.5f * sinf(world_time * 1.3f);
-    for(int i = 0; i <= TRACK_SAMPLES; i += 2) {
-        const TrackSample *t = &track.smp[i % TRACK_SAMPLES];
-        bool sea = t->p.z > 8.0f;
-        if(sea && n < 2 * 40) {
-            float db = shore_db[i % TRACK_SAMPLES];
-            float wob = 0.8f * sinf(world_time * 0.9f + t->s * 0.07f);
-            V3 a = vmad(t->p, t->r, t->wall_out + db - 1.4f + wob * 0.5f);
-            V3 b = vmad(t->p, t->r, t->wall_out + db + 3.0f + wob);
-            a.y = b.y = WATER_Y + 0.05f;
-            uint32_t ca = color_alpha(0xffffffff, 0.75f + 0.25f * pulse), cb = color_alpha(0xffffffff, 0.0f);
-            v[n++] = (RV){a.x, a.y, a.z, t->s / 6.0f, world_time * 0.05f, ca};
-            v[n++] = (RV){b.x, b.y, b.z, t->s / 6.0f, world_time * 0.05f + 1.0f, cb};
+    uint32_t ca = color_alpha(0xffffffff, 0.75f + 0.25f * pulse), cb = color_alpha(0xffffffff, 0.0f);
+    for(int i = 0; i < foam_count; i++) {
+        if(!foam_on[i]) {
+            if(n >= 4) r_strip(v, n);
+            n = 0;
+            continue;
         }
-        else if(n >= 4) {
+        float wob = 0.8f * sinf(world_time * 0.9f + foam_u[i] * 0.07f);
+        V3 a = vmad(foam_p[i], foam_n[i], -1.4f + wob * 0.5f);
+        V3 b = vmad(foam_p[i], foam_n[i], 3.0f + wob);
+        a.y = b.y = WATER_Y + 0.05f;
+        v[n++] = (RV){a.x, a.y, a.z, foam_u[i] / 6.0f, world_time * 0.05f, ca};
+        v[n++] = (RV){b.x, b.y, b.z, foam_u[i] / 6.0f, world_time * 0.05f + 1.0f, cb};
+        if(n == 2 * 40) {
             r_strip(v, n);
-            n = 0;
-        }
-        else {
-            n = 0;
+            v[0] = v[n - 2];
+            v[1] = v[n - 1];
+            n = 2;
         }
     }
     if(n >= 4) r_strip(v, n);
@@ -1116,10 +1469,11 @@ void world_draw_tr(void) {
     draw_shore_foam();
     /* Dash panels pulse with a glow. */
     r_hdr(h_dash_glow);
-    for(int i = 0; i < DASH_PAD_COUNT; i++) {
+    for(int i = 0; i < track.npads; i++) {
         const DashPad *p = &track.pads[i];
-        V3 c = track_point((p->s0 + p->s1) * 0.5f, (p->d0 + p->d1) * 0.5f);
-        c.y = 0.4f;
+        float sm = track_wrap(p->s0 + track_delta(p->s0, p->s1) * 0.5f);
+        V3 c = track_point(sm, (p->d0 + p->d1) * 0.5f);
+        c.y = track_height(sm) + 0.4f;
         float a = 0.35f + 0.25f * sinf(world_time * 8.0f + i);
         r_billboard(c, 3.0f, 1.2f, 0, 0, 0, 1, 1, color_alpha(0xff60c0ff, a));
     }

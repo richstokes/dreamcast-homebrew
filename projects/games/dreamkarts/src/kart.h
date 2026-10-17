@@ -14,7 +14,7 @@ enum {
     EV_BOOST = 1 << 6, EV_DASH = 1 << 7, EV_WALL = 1 << 8,
     EV_KART_BUMP = 1 << 9, EV_LAP = 1 << 10, EV_FINISH = 1 << 11,
     EV_CHARGE_JUMP = 1 << 12, EV_ROCKET = 1 << 13, EV_BURNOUT = 1 << 14,
-    EV_DRIFT_CANCEL = 1 << 15
+    EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16
 };
 
 typedef struct {
@@ -23,13 +23,15 @@ typedef struct {
 
 typedef struct {
     /* Physics */
-    V3 pos;             /* ground contact centre; y is height above ground */
+    V3 pos;             /* ground contact centre (world space) */
     V3 vel;             /* horizontal velocity (y unused) */
-    float vy;
+    float vy;           /* vertical speed; follows the road's slope when grounded */
     float heading;      /* travel heading, radians */
     float speed;        /* signed forward speed */
     bool grounded;
+    bool big_air;       /* launched off a jump ramp: floatier gravity */
     float air_t;
+    float gnd;          /* road height where the kart last touched down */
     float steer;        /* smoothed steering -1..1 */
     bool prev_drift_btn;
 
@@ -100,6 +102,7 @@ bool kart_is_human(int index);
 
 extern Kart karts[MAX_KARTS];
 extern int kart_count;
+extern int kart_jumps, kart_rescues;   /* ramp launches and gap rescues, all karts */
 extern const CCParams cc_params[CC_COUNT];
 
 void kart_place_on_grid(Kart *k, int slot);
