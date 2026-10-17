@@ -1720,7 +1720,7 @@ static void draw_title(void) {
                  title_items[i]);
     }
     gfx_text(FONT_SMALL, 320, 456, 0.55f, 0xa0ffffff, ALIGN_CENTER,
-             "Totally Bazaar - Dreamcast homebrew  -  (A) / START to choose");
+             "Totally Bazaar - Rich Stokes  -  (A) / START to choose");
 }
 
 static int setup_cursor;
