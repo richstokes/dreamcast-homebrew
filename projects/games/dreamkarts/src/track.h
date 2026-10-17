@@ -8,7 +8,7 @@
 
 enum { SURF_ROAD, SURF_CURB, SURF_SAND };
 enum { SEC_ASPHALT, SEC_BOARDWALK };
-enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_COUNT };
+enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_COUNT };
 
 typedef struct {
     V3 p;            /* centreline point (y = 0; road height in track_height) */
@@ -66,6 +66,8 @@ extern Track track;
 extern const char *const track_names[TRACK_COUNT];
 
 void track_init(int id);
+/* Lap distance where Palm Harbour layout segment i begins. */
+float track_harbour_seg_s(int i);
 /* Locate p on the track. hint is the previous segment index or -1. */
 void track_locate(V3 p, int hint, TrackPos *out);
 /* World point at lap distance s (wrapped) and lateral offset d. */

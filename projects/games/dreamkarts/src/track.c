@@ -8,14 +8,22 @@
    axis, are joined by straight legs that cross at the origin. Leg A runs
    north-east into the clockwise eastern loop and leaps the crossing off a
    ramp; leg B runs north-west underneath it into the anticlockwise western
-   loop. The start line is on leg B. */
+   loop. The start line is on leg B.
+
+   Palm Harbour: a twisty anticlockwise circuit built from straights and
+   arcs. Out of turn 1 a fast right-hand sweeper climbs to a long left onto
+   the seafront, where a right-left chicane jinks toward the water before
+   the beach straight. A left hairpin then drops into the infield, a right
+   hairpin doubles back, and two lefts bring it round onto the main
+   straight along the grandstand. */
 #include "track.h"
 #include <stddef.h>
 
 Track track;
 
-const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING"};
-static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP"};
+const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR"};
+static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
+                                                      "HAIRPINS AND A CHICANE"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -26,6 +34,39 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
 #define F8_START  28.0f     /* start line, metres into leg B */
 
 static float f8_c, f8_l, f8_arc, f8_u0;   /* loop centre x, half leg, arc, start offset */
+
+/* Palm Harbour, as straights (radius 0) and arcs (degrees, + = right),
+   starting east along the main straight. The two marked straights are
+   solved at init so the lap closes. */
+typedef struct {
+    float r, deg, len;
+} HSeg;
+static HSeg hb_seg[] = {
+    {0, 0, 91.6f},        /*  0 main straight (solved) */
+    {30.0f, -90, 0},      /*  1 turn 1, now north */
+    {0, 0, 24.0f},
+    {46.0f, 60, 0},       /*  3 fast right sweeper */
+    {0, 0, 14.0f},
+    {24.0f, -150, 0},     /*  5 long left onto the seafront, now west */
+    {0, 0, 34.0f},
+    {16.0f, 60, 0},       /*  7 chicane: right, toward the sea */
+    {0, 0, 6.0f},
+    {16.0f, -60, 0},      /*  9 chicane: left, west again */
+    {0, 0, 80.0f},        /* 10 beach straight */
+    {28.0f, -180, 0},     /* 11 left hairpin into the infield, now east */
+    {0, 0, 50.0f},
+    {19.0f, 180, 0},      /* 13 right hairpin, now west */
+    {0, 0, 54.0f},
+    {26.0f, -90, 0},      /* 15 left, now south */
+    {0, 0, 16.8f},        /* 16 (solved) */
+    {30.0f, -90, 0},      /* 17 left onto the main straight */
+};
+#define HB_SEGS ((int)(sizeof(hb_seg) / sizeof(hb_seg[0])))
+#define HB_START   38.0f            /* start line, metres into the main straight */
+#define HB_CHICANE 7                /* first chicane segment */
+static const V3 hb_origin = {-69.4f, 0, -98.8f};
+static float hb_s0[HB_SEGS + 1], hb_h0[HB_SEGS + 1];
+static V3 hb_p0[HB_SEGS + 1];
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
 static V3 oval_centreline(float u, V3 *tangent) {
@@ -90,7 +131,71 @@ static V3 f8_canonical(float u, V3 *tangent) {
     return v3(a * cb, 0, a * sb);
 }
 
+/* Palm Harbour: point u metres into segment i (heading 0 = north). */
+static V3 hb_seg_point(int i, float u, float *heading) {
+    const HSeg *g = &hb_seg[i];
+    float h0 = hb_h0[i];
+    V3 p0 = hb_p0[i];
+    if(g->r == 0) {
+        *heading = h0;
+        return v3(p0.x + sinf(h0) * u, 0, p0.z + cosf(h0) * u);
+    }
+    float k = (g->deg > 0 ? 1.0f : -1.0f) / g->r;
+    float h = h0 + k * u;
+    *heading = h;
+    return v3(p0.x + (cosf(h0) - cosf(h)) / k, 0, p0.z + (sinf(h) - sinf(h0)) / k);
+}
+
+/* Lay the segments end to end from the origin. */
+static void hb_walk(void) {
+    float h = DK_PI * 0.5f, s = 0;
+    V3 p = hb_origin;
+    for(int i = 0; i < HB_SEGS; i++) {
+        HSeg *g = &hb_seg[i];
+        if(g->r > 0) g->len = g->r * fabsf(g->deg) * (DK_PI / 180.0f);
+        hb_s0[i] = s;
+        hb_h0[i] = h;
+        hb_p0[i] = p;
+        p = hb_seg_point(i, g->len, &h);
+        s += g->len;
+    }
+    hb_s0[HB_SEGS] = s;
+    hb_h0[HB_SEGS] = h;
+    hb_p0[HB_SEGS] = p;
+}
+
+/* Close the lap: the end point is linear in the two solved straights'
+   lengths, so one 2x2 solve lands it on the origin. */
+static void hb_layout(void) {
+    const int a = 0, b = 16;
+    hb_walk();
+    float ex = hb_p0[HB_SEGS].x - hb_origin.x, ez = hb_p0[HB_SEGS].z - hb_origin.z;
+    float ax = sinf(hb_h0[a]), az = cosf(hb_h0[a]), bx = sinf(hb_h0[b]), bz = cosf(hb_h0[b]);
+    float det = ax * bz - bx * az;
+    float da = (-ex * bz + bx * ez) / det, db = (-ax * ez + ex * az) / det;
+    hb_seg[a].len += da;
+    hb_seg[b].len += db;
+    hb_walk();
+}
+
+static V3 hb_centreline(float s, V3 *tangent) {
+    float u = s + HB_START;
+    if(u >= hb_s0[HB_SEGS]) u -= hb_s0[HB_SEGS];
+    int i = 0;
+    while(i + 1 < HB_SEGS && u >= hb_s0[i + 1]) i++;
+    float h;
+    V3 p = hb_seg_point(i, u - hb_s0[i], &h);
+    *tangent = v3(sinf(h), 0, cosf(h));
+    return p;
+}
+
+/* Lap distance where Palm Harbour segment i begins. */
+float track_harbour_seg_s(int i) {
+    return track_wrap(hb_s0[i] - HB_START);
+}
+
 static V3 centreline(float s, V3 *tangent) {
+    if(track.id == TRACK_HARBOUR) return hb_centreline(s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
         if(u >= track.length) u -= track.length;
@@ -197,6 +302,43 @@ static void init_figure8(float *turnk) {
     track.pads[1] = (DashPad){track_wrap(cross_b + 30.0f), track_wrap(cross_b + 35.0f), 2.2f, 5.8f, 1.1f};
 }
 
+static void init_harbour(float *turnk) {
+    hb_layout();
+    track.length = hb_s0[HB_SEGS];
+    track.ds = track.length / TRACK_SAMPLES;
+    track.back_start = track.turn2_start = -1.0f;
+    float ch0 = track_harbour_seg_s(HB_CHICANE), ch1 = track_harbour_seg_s(HB_CHICANE + 3);
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        TrackSample *t = &track.smp[i];
+        t->s = i * track.ds;
+        t->p = centreline(t->s, &t->t);
+        t->r = v3(t->t.z, 0, -t->t.x);
+        float u = t->s + HB_START;
+        if(u >= track.length) u -= track.length;
+        int g = 0;
+        while(g + 1 < HB_SEGS && u >= hb_s0[g + 1]) g++;
+        float k = hb_seg[g].r > 0 ? (hb_seg[g].deg > 0 ? 1.0f : -1.0f) / hb_seg[g].r : 0.0f;
+        t->curv = k;
+        turnk[i] = k > 0 ? 1.0f : k < 0 ? -1.0f : 0.0f;
+        t->section = SEC_ASPHALT;
+        t->half = 8.0f;
+        t->curb = 1.6f;
+        /* Barriers pinch in through the chicane so it can't be cut. */
+        float into = fminf(track_delta(ch0 - 10.0f, t->s), track_delta(t->s, ch1 + 10.0f));
+        float w = lerpf(12.5f, 10.6f, smoothstep01(into / 12.0f));
+        t->wall_in = t->wall_out = w;
+        t->shore = 0;
+    }
+
+    /* Dash panels: the seafront run-in, the beach straight's sea side and
+       the infield run between the hairpins. */
+    float sea = track_harbour_seg_s(6), beach = track_harbour_seg_s(10), infield = track_harbour_seg_s(12);
+    track.npads = 3;
+    track.pads[0] = (DashPad){sea + 8.0f, sea + 13.0f, -5.8f, -2.2f, 1.1f};
+    track.pads[1] = (DashPad){beach + 38.0f, beach + 43.0f, 2.2f, 5.8f, 1.1f};
+    track.pads[2] = (DashPad){infield + 22.0f, infield + 27.0f, -1.8f, 1.8f, 1.1f};
+}
+
 void track_init(int id) {
     memset(&track, 0, sizeof(track));
     track.id = id = (id % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
@@ -204,6 +346,7 @@ void track_init(int id) {
     track.blurb = track_blurbs[id];
     float turnk[TRACK_SAMPLES];
     if(id == TRACK_FIGURE8) init_figure8(turnk);
+    else if(id == TRACK_HARBOUR) init_harbour(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and

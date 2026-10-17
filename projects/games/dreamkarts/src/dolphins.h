@@ -1,5 +1,4 @@
-/* DreamKarts: a pair of dolphins that leap beside the Emerald Beach
-   boardwalk on the final lap. */
+/* DreamKarts: a pair of dolphins that leap offshore on the final lap. */
 #ifndef DK_DOLPHINS_H
 #define DK_DOLPHINS_H
 

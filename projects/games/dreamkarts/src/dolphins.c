@@ -5,7 +5,9 @@
    leaps each and splashing in and out. On Emerald Beach that is out of
    turn 1, beside the boardwalk (about 26 m ahead, 15-20 m right); on Coral
    Crossing, where the sea is further off, up leg B and over the west loop
-   (about 80 m ahead, larger and leaping higher). A small original mesh
+   (about 80 m ahead, larger and leaping higher); on Palm Harbour, from
+   the seafront straight through the chicane and down the beach straight
+   (about 60 m ahead). A small original mesh
    (tapered body, beak, dorsal fin, flippers and flukes), drawn only while
    airborne: about 150 triangles each for ~4.5 seconds a race. */
 #include "dolphins.h"
@@ -139,7 +141,8 @@ void dolphins_init(void) {
 /* Emerald Beach: just beyond the boardwalk's outer rail (z 66), out of
    turn 1. Coral Crossing: the sea lies north of the loops (waterline near
    z 102), so the pod leaps just past the shallows, well ahead, as karts
-   run up leg B from the crossing and over the top of the west loop. */
+   run up leg B from the crossing and over the top of the west loop. Palm
+   Harbour's sea is the same distance off, north of the seafront. */
 static void stage_for_track(void) {
     staged_id = track.id;
     staged = true;
@@ -158,6 +161,12 @@ static void stage_for_track(void) {
             stage = (Stage){track_wrap(cross_b + 15.0f), {106.0f, 109.5f}, 78.0f, 2.5f, 7.5f, 2.2f};
             return;
         }
+    }
+    if(track.id == TRACK_HARBOUR) {
+        /* From the seafront straight, through the chicane and down the
+           beach straight, out past the shallows. */
+        stage = (Stage){track_wrap(track_harbour_seg_s(6) + 2.0f), {108.0f, 111.5f}, 60.0f, 2.3f, 6.5f, 2.0f};
+        return;
     }
     staged = false;
 }
