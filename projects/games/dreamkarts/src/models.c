@@ -22,6 +22,7 @@ static V3 part_light[MAX_KARTS][DK_PART_COUNT];
 static uint32_t mats_frame[MAX_KARTS];
 static const pvr_poly_hdr_t *h_model, *h_shadow;
 static float ref_luma1 = 1.0f;
+static int far_lod = 1;   /* lod 3 when the model has a far level */
 static float normals[DK_MODEL_VERT_COUNT][3];
 static V3 light_dir;
 
@@ -51,6 +52,8 @@ void models_init(void) {
     }
     /* Key light from above, slightly in front of the karts' usual view. */
     light_dir = vnorm(v3(0.35f, 0.85f, 0.40f));
+    for(int i = 0; i < DK_MODEL_MESH_COUNT; i++)
+        if(dk_model_meshes[i].lod == 3) far_lod = 3;
     int meshes_max = 0;
     for(int i = 0; i < DK_MODEL_MESH_COUNT; i++)
         if(dk_model_meshes[i].vert_count > meshes_max) meshes_max = dk_model_meshes[i].vert_count;
@@ -150,7 +153,7 @@ static void update_kart_mats(int index) {
    wheels, and no steering wheel (hidden behind the Chao from the chase
    camera). */
 static bool mesh_in_lod(const dk_mesh_t *m, int lod) {
-    if(lod < 2) return m->lod == lod;
+    if(lod != 2) return m->lod == lod;
     switch(m->part) {
         case DK_PART_WHEEL_FL: case DK_PART_WHEEL_FR: case DK_PART_WHEEL_RL: case DK_PART_WHEEL_RR:
             return m->lod == 1;
@@ -211,17 +214,19 @@ void models_draw_kart(int index) {
 }
 
 /* Kart detail is chosen by distance from each view's camera, with
-   hysteresis so karts don't flick between models at the threshold:
-   - single view: full detail within ~30 m, the low-detail model beyond;
-   - split screen: the kart a view follows uses the "own kart" set (full
-     body and Chao, simple wheels, no hidden steering wheel), rivals use it
-     within ~12 m, and the low-detail model beyond. Split screen draws every
-     kart twice, so its distances are shorter. */
-#define LOD_NEAR_IN   30.0f
-#define LOD_NEAR_OUT  34.0f
-#define LOD_SPLIT_IN  12.0f
-#define LOD_SPLIT_OUT 14.0f
-static uint8_t near_state[MAX_PLAYERS][MAX_KARTS];
+   hysteresis so karts don't flick between models at a threshold:
+     lod 0  full detail
+     lod 2  "own kart" in split screen: full body and Chao, simple wheels,
+            no steering wheel (hidden behind the Chao from the chase camera)
+     lod 1  330-triangle model built to match lod 0 from the chase camera
+     lod 3  ~150-triangle far model
+   Single view: lod 0 within ~16 m, lod 1 to ~42 m, lod 3 beyond. Split
+   screen draws every kart twice: each view's own kart uses lod 2 and every
+   other kart lod 3 (measured on hardware: 10 dropped frames a race, versus
+   ~140 with lod 1 for nearby rivals). */
+static const float lod_in[2][2] = {{16.0f, 42.0f}, {0.0f, 0.0f}};   /* [split][near/mid] */
+static const float lod_out[2][2] = {{19.0f, 46.0f}, {0.0f, 0.0f}};
+static uint8_t lod_state[MAX_PLAYERS][MAX_KARTS];   /* 0 near, 1 mid, 2 far */
 
 void models_begin_frame(void) {
     frame_id++;
@@ -231,21 +236,19 @@ void models_draw_karts(int view_kart) {
     int view = 0;
     for(int p = 0; p < game.num_players; p++)
         if(game.pl[p].kart == view_kart) view = p;
-    bool split = world_split;
-    float in = split ? LOD_SPLIT_IN : LOD_NEAR_IN, out = split ? LOD_SPLIT_OUT : LOD_NEAR_OUT;
+    int sp = world_split ? 1 : 0;
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
         V3 d = vsub(k->pos, r_cam.pos);
-        float d2 = vdot(d, d);
-        uint8_t *near = &near_state[view][i];
-        if(*near && d2 > out * out) *near = 0;
-        else if(!*near && d2 < in * in) *near = 1;
+        float dist = sqrtf(vdot(d, d));
+        uint8_t *st = &lod_state[view][i];
+        /* Step out past the outer edge, step in past the inner edge. */
+        while(*st < 2 && dist > lod_out[sp][*st]) (*st)++;
+        while(*st > 0 && dist < lod_in[sp][*st - 1]) (*st)--;
         V3 c = vadd(k->pos, v3(0, 0.8f, 0));
         if(!r_sphere_visible(c, 1.8f)) continue;
-        int lod;
-        if(i == view_kart) lod = split ? 2 : 0;
-        else if(*near) lod = split ? 2 : 0;
-        else lod = 1;
+        int lod = *st == 0 ? 0 : *st == 1 ? 1 : far_lod;
+        if(i == view_kart) lod = sp ? 2 : 0;
         draw_kart_lod(i, lod);
     }
 }

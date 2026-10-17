@@ -79,7 +79,7 @@ static void update_player(float dt,float input_x,float input_y,bool run,bool jum
     float old_gait=p->gait;
     p->gait+=dt*p->speed*.17f;
     if(p->grounded&&(int)(old_gait/3.14159265f)!=(int)(p->gait/3.14159265f))audio_footstep();
-    if(p->position.y<old_y-1000||!isfinite(p->position.y))travel_to(game.act?3:0);
+    if(p->position.y<old_y-1000||!finite_bits(p->position.y))travel_to(game.act?3:0);
 }
 static void update_camera(float dt,float turn,float tilt,bool recenter){
     Camera *c=&game.camera;
@@ -209,7 +209,7 @@ int main(int argc,char **argv){
             #ifdef IE_AUTOTEST
             Vec3 motion=sub(game.player.position,phase_start);motion.y=0;
             best_motion=fmaxf(best_motion,length(motion));airborne|=!game.player.grounded;
-            if(!isfinite(game.player.position.x)||!isfinite(game.player.position.y)||!isfinite(game.player.position.z)){test_failures++;running=false;}
+            if(!finite_bits(game.player.position.x)||!finite_bits(game.player.position.y)||!finite_bits(game.player.position.z)){test_failures++;running=false;}
             #endif
             update_camera(dt,turn,tilt,pad&&pad->ltrig>200&&pad->rtrig>200);
             game.arrival=fmaxf(0,game.arrival-dt);

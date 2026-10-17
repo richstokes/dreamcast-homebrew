@@ -1,7 +1,7 @@
 #ifndef DLA_RENDER_MATH_H
 #define DLA_RENDER_MATH_H
 
-#include "third_party/sh4zam/include/sh4zam/shz_matrix.h"
+#include <sh4zam/shz_matrix.h>
 
 /* The render pass owns XMTRX. Load once after camera/HUD setup; do not use
    another matrix API inside the pass without restoring this rotation.

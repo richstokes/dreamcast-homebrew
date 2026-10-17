@@ -980,6 +980,13 @@ static float clampf(float value, float low, float high) {
     return value;
 }
 
+/* The build uses -ffinite-math-only, which folds isfinite() to true. */
+static bool finite_bits(float value) {
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof bits);
+    return (bits & 0x7f800000u) != 0x7f800000u;
+}
+
 static float approachf(float value, float target, float amount) {
     if(value < target) return fminf(value + amount, target);
     return fmaxf(value - amount, target);
@@ -2929,7 +2936,7 @@ static void setup_camera(float dt) {
     side_offset=clampf(car.lateral*.026f+car.yaw_rate*.16f,-.46f,.46f);
     target_x += fcos(camera_yaw)*side_offset;
     target_z -= fsin(camera_yaw)*side_offset;
-    if(snap || game.time < 0.1f || !isfinite(camera_x)) {
+    if(snap || game.time < 0.1f || !finite_bits(camera_x)) {
         camera_x = target_x;
         camera_z = target_z;
         camera_y = height;

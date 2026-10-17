@@ -79,7 +79,8 @@ PIVOTS = {
 
 BUDGET_KART_LOD0 = 420
 BUDGET_CHAO_LOD0 = 420
-BUDGET_LOD1 = 150
+BUDGET_LOD1 = 330
+BUDGET_LOD3 = 150
 BUDGET_VERTS = 1600
 
 # --------------------------------------------------------------------------
@@ -543,14 +544,6 @@ def tyre(radius: float, width: float, segs: int) -> Geo:
                  face_paint=lambda i, j: None if i == 3 else TYRE, phase=math.pi / segs)
 
 
-def tyre_lod1(radius: float, width: float, segs: int, inner: bool) -> Geo:
-    """Closed drum with a tapered outer sidewall framing a yellow hub."""
-    w = 0.5 * width
-    g = tube([(-w, 0, 0), (w, 0, 0)], [radius, radius * 0.74], segs, TYRE, cap0=TYRE if inner else None,
-             cap1=YELLOW, up=(0, 1, 0), phase=math.pi / segs)
-    return g.autosmooth(40.0)
-
-
 def nose_section(z, hw, yb, yt):
     h = yt - yb
     return [(hw, yb, z), (hw, yb + 0.48 * h, z), (0.80 * hw, yb + 0.86 * h, z),
@@ -651,27 +644,84 @@ def steering_wheel(segs: int, sides: int) -> Geo:
     return merge(rim, spoke)
 
 
+def tyre_lod1(radius: float, width: float, segs: int, inner: bool) -> Geo:
+    """Distant wheel: one sloped band of rubber (tread + shoulder) ending in the
+    same yellow-to-pale domed hub as LOD0, plus an optional flat inner face (rear
+    wheels need it; the front ones' inner sides are hidden by the nose and pods)."""
+    w = 0.5 * width
+    profile = [(-w, radius), (w, radius * 0.76), (w + 0.025, 0.0)]
+    g = lathe(profile, segs, lambda k: HUB_CAP if k == 2 else YELLOW, 40.0,
+              face_paint=lambda i, j: TYRE if i == 0 else None, phase=math.pi / segs)
+    if inner:
+        ring = [np.array([-w, radius * math.cos(a), radius * math.sin(a)])
+                for a in (2 * math.pi * j / segs + math.pi / segs for j in range(segs))]
+        cap = Geo()
+        for j in range(1, segs - 1):
+            cap.tri((ring[0], ring[j], ring[j + 1]), None, TYRE)
+        _orient(cap, lambda c: (-1.0, 0.0, 0.0))
+        g.extend(cap.flat())
+    return g
+
+
+def nose_section_lod1(z, hw, yb, yt):
+    h = yt - yb
+    return [(hw, yb, z), (hw, yb + 0.55 * h, z), (0.30 * hw, yt, z),
+            (-0.30 * hw, yt, z), (-hw, yb + 0.55 * h, z), (-hw, yb, z)]
+
+
+def pod_section_lod1(z, s=1.0, drop=0.0):
+    cx, cy = 0.465, 0.17
+    pts = [(0.625, 0.075), (0.66, 0.175), (0.605, 0.28), (0.30, 0.29), (0.30, 0.075)]
+    return [(cx + (x - cx) * s, cy + (y - cy) * s - drop, z) for x, y in pts]
+
+
 def build_kart_lod1() -> dict[int, list[tuple[Geo, int]]]:
+    """Same silhouette and colour layout as LOD0 with fewer sides/sections."""
     parts: dict[int, list[tuple[Geo, int]]] = defaultdict(list)
     body = parts[BODY]
 
-    def sec(z, hw, yb, yt):
-        return [(hw, yb, z), (0.0, yt, z), (-hw, yb, z)]
-
-    nose = loft([sec(0.975, 0.17, 0.10, 0.25), sec(0.24, 0.29, 0.08, 0.49)], RED, 50.0, closed_loop=False,
-                cap1=False)
+    # Back cap (the dash) omitted: it faces the driver and is hidden behind the Chao.
+    nose = loft([nose_section_lod1(0.975, 0.20, 0.11, 0.24), nose_section_lod1(0.24, 0.29, 0.08, 0.475)],
+                RED, 50.0, closed_loop=False, cap1=False,
+                face_paint=lambda i, j: WHITE if j == 2 else None)
     body.append((nose, 0))
-    # Both side pods + floor as one slab.
-    pods = box((0, 0.18, 0.02), (1.30, 0.22, 0.78), RED, bottom=False)
-    pods.repaint(lambda c, n, p: WHITE if n[1] < 0.9 and abs(n[0]) > 0.9 else None)
-    body.append((pods, 0))
-    # Backrest + engine as one block, red shell like LOD0's seat back.
-    blk = box((0, 0.36, -0.66), (0.44, 0.50, 0.38), RED, bottom=False, cap1=False)  # front hidden by Chao
-    blk.repaint(lambda c, n, p: GUNMETAL if n[2] < -0.9 else (YELLOW if n[1] > 0.9 else None))
-    body.append((blk, 0))
+
+    body.append((tube([(-0.47, 0.15, 0.70), (0.0, 0.15, 1.02), (0.47, 0.15, 0.70)],
+                      [0.032] * 3, 3, YELLOW, phase=math.pi / 2), 0))
+
+    floor = Geo()
+    fl = [(0.30, 0.10, 0.70), (0.30, 0.10, -0.80), (-0.30, 0.10, -0.80), (-0.30, 0.10, 0.70)]
+    floor.tri((fl[0], fl[1], fl[2]), None, DARK)
+    floor.tri((fl[0], fl[2], fl[3]), None, DARK)
+    _orient(floor, lambda c: (0, 1, 0))
+    body.append((floor.flat(), 0))
+
+    pod = loft([pod_section_lod1(0.415, 0.62, 0.015), pod_section_lod1(-0.375, 0.92)], RED, 40.0,
+               closed_loop=False, cap0=False, face_paint=lambda i, j: WHITE if j == 1 else None)
+    body.append((pod, 0))
+    body.append((pod.mirrored_x(), 0))
+
+    hw, h = 0.23, 0.50
+    back = prism([(hw, 0.0), (hw, h), (-hw, h), (-hw, 0.0)], -0.04, 0.04, RED, closed_loop=False)
+    back.repaint(lambda c, n, p: SEAT if n[2] > 0.9 else None)
+    back.xform(rot_x(math.radians(-14)), (0, 0.19, -0.49))
+    body.append((back, 0))
+
+    eng = box((0, 0.27, -0.71), (0.40, 0.30, 0.27), GUNMETAL, bottom=False, cap1=False)  # front hidden
+    eng.repaint(lambda c, n, p: YELLOW if n[1] > 0.9 else None)
+    body.append((eng, 0))
+    for tip in EXHAUST_TIPS:
+        start = np.array([tip[0] * 0.75, 0.31, -0.76])
+        pipe = tube([start, tip], [0.045, 0.055], 3, GUNMETAL, cap1=PIPE_HOLE, phase=math.pi / 2)
+        pipe.paint_corners(lambda p, n: chrome(n))
+        pipe.repaint(lambda c, n, p: PIPE_HOLE if n[2] < -0.8 else None)
+        body.append((pipe, 0))
+    body.append((tube([(-0.47, REAR_R, REAR_Z), (0.47, REAR_R, REAR_Z)], [0.035, 0.035], 3, DARK,
+                      phase=math.pi / 2), 0))
+
     for part, r, w, x in ((WFL, FRONT_R, FRONT_W, -1), (WFR, FRONT_R, FRONT_W, 1),
                           (WRL, REAR_R, REAR_W, -1), (WRR, REAR_R, REAR_W, 1)):
-        g = tyre_lod1(r, w, 6 if part in (WRL, WRR) else 5, inner=True)
+        g = tyre_lod1(r, w, 8, inner=part in (WRL, WRR))
         if x < 0:
             g = g.mirrored_x()
         parts[part].append((g.xform(None, PIVOTS[part]), 0))
@@ -701,6 +751,21 @@ def eye_frames():
         fr = frame_from(n, up=(0, 1, 0)) @ rot_y(s * math.radians(-12))
         out.append((s, p - 0.016 * n, fr, np.array([0.074, 0.036, 0.102])))
     return out
+
+
+def head_point_path():
+    """Centre line and radii of the teardrop point that curls back off the crown."""
+    top = HEAD_C[1] + HEAD_R[1]
+    path = [(0, top - 0.14, -0.31), (0, top + 0.02, -0.35), (0, top + 0.115, -0.43),
+            (0, top + 0.145, -0.545), (0, top + 0.09, -0.655)]
+    return path, [0.145, 0.125, 0.085, 0.045, 0.0]
+
+
+def wing_frame(s: float):
+    """(long axis, root, frame) of the wing on side s; frame local Y runs along the wing."""
+    d = unit((s * 0.90, 0.40, -0.35))      # out, a little up, back
+    root = np.array([s * 0.09, 0.63, -0.40])
+    return d, root, frame_from(d, up=(0, 0, -1))   # flat side faces back
 
 
 def build_chao_lod0() -> dict[int, list[tuple[Geo, int]]]:
@@ -756,10 +821,7 @@ def build_chao_lod0() -> dict[int, list[tuple[Geo, int]]]:
     parts[CHEAD].append((mouth, 0))
 
     # Head point: a teardrop rising from the crown and curling back.
-    top = HEAD_C[1] + HEAD_R[1]
-    pt_path = [(0, top - 0.14, -0.31), (0, top + 0.02, -0.35), (0, top + 0.115, -0.43),
-               (0, top + 0.145, -0.545), (0, top + 0.09, -0.655)]
-    pt_r = [0.145, 0.125, 0.085, 0.045, 0.0]
+    pt_path, pt_r = head_point_path()
     point = tube(pt_path, pt_r, 6, lambda s: chao(smoothstep(0.2, 0.9, s)), up=(1, 0, 0), phase=math.pi / 6)
     parts[CHEAD].append((point, 0))
 
@@ -782,9 +844,7 @@ def build_chao_lod0() -> dict[int, list[tuple[Geo, int]]]:
                          phase=math.pi / 2)
         parts[CBODY].append((foot, 0))
 
-        d = unit((s * 0.90, 0.40, -0.35))      # wing long axis: out, a little up, back
-        root = np.array([s * 0.09, 0.63, -0.40])
-        fr = frame_from(d, up=(0, 0, -1))       # local Y along the wing, flat side facing back
+        d, root, fr = wing_frame(s)
         wing = ellipsoid(root + d * 0.11, (0.095, 0.125, 0.03), 5, [0, 70, 125, 180],
                          lambda u: chao(smoothstep(0.0, 1.0, float(u[1]))), frame=fr, phase=math.pi / 2)
         parts[CBODY].append((wing, 0))
@@ -792,22 +852,31 @@ def build_chao_lod0() -> dict[int, list[tuple[Geo, int]]]:
 
 
 def build_chao_lod1() -> dict[int, list[tuple[Geo, int]]]:
+    """Same character as LOD0: round head with its curling point, oval eyes,
+    arms reaching forward to where the (LOD0-only) wheel and hands are, wings."""
     parts: dict[int, list[tuple[Geo, int]]] = defaultdict(list)
-    parts[CHEAD].append((geosphere(HEAD_C, HEAD_R, 2, chao(0.0)), 0))
-    top = HEAD_C[1] + HEAD_R[1]
-    pt = tube([(0, top - 0.08, -0.31), (0, top + 0.15, -0.53)], [0.12, 0.0], 3,
-              lambda s: chao(s), phase=math.pi / 2, up=(1, 0, 0))
-    parts[CHEAD].append((pt, 0))
-    eyes = Geo()
+    to_z = np.column_stack([(1.0, 0, 0), (0, 0, 1.0), (0, -1.0, 0)])
+    parts[CHEAD].append((ellipsoid(HEAD_C, (HEAD_R[0], HEAD_R[2], HEAD_R[1]), 10, [0, 45, 90, 135, 180],
+                                   chao(0.0), frame=to_z, phase=-math.pi / 2), 0))
+    pt_path, pt_r = head_point_path()
+    keep = [0, 2, 4]
+    parts[CHEAD].append((tube([pt_path[i] for i in keep], [pt_r[i] for i in keep], 4,
+                              lambda s: chao(smoothstep(0.2, 0.9, s)), up=(1, 0, 0), phase=math.pi / 4), 0))
     for s, eye_c, fr, eye_r in eye_frames():
-        n = fr[:, 1]
-        c = eye_c + 0.02 * n
-        q = [c + fr @ np.array(v) for v in ((0.075, 0, 0), (0, 0, -0.10), (-0.075, 0, 0), (0, 0, 0.10))]
-        eyes.tri((q[0], q[1], q[2]), [n] * 3, EYE)
-        eyes.tri((q[0], q[2], q[3]), [n] * 3, EYE)
-    _orient(eyes, lambda c: c - HEAD_C)
-    parts[CHEAD].append((eyes, 0))
-    parts[CBODY].append((ellipsoid(TORSO_C, TORSO_R, 3, [0, 90, 180], chao(0.0), phase=math.pi / 2), 0))
+        parts[CHEAD].append((ellipsoid(eye_c, eye_r, 4, [0, 95], EYE, frame=fr), 0))
+
+    parts[CBODY].append((ellipsoid(TORSO_C, TORSO_R, 4, [0, 90, 180], chao(0.0), phase=math.pi / 4), 0))
+    for s, hp in zip((-1.0, 1.0), hand_positions()):
+        # Arm reaching to where LOD0's hand grips the wheel, ending in a blunt yellow fist.
+        shoulder = np.array([s * 0.14, 0.60, -0.21])
+        d = unit(hp - shoulder)
+        arm = tube([shoulder, hp, hp + 0.05 * d], [0.062, 0.07, 0.0], 3,
+                   lambda t: chao(0.95 * smoothstep(0.35, 0.85, t)), up=(0, 1, 0))
+        parts[CBODY].append((arm, 0))
+        wd, root, fr = wing_frame(s)
+        parts[CBODY].append((ellipsoid(root + wd * 0.11, (0.095, 0.125, 0.03), 3, [0, 90, 180],
+                                       lambda u: chao(smoothstep(0.0, 1.0, float(u[1]))), frame=fr,
+                                       phase=math.pi / 2), 0))
     return parts
 
 
@@ -851,19 +920,99 @@ def build_emotes(lod: int) -> dict[int, list[Geo]]:
         out[2] = [bar, dot]
         out[3] = [puffy_heart(12, 0.21, 0.05)]
     else:
-        out[1] = [ellipsoid((0, 0, 0), (0.09, 0.09, 0.09), 4, [0, 90, 180], EMOTE_BALL)]
-        bar = tube([(0, 0.17, 0), (0, 0.0, 0)], [0.05, 0.0], 3, EMOTE_BANG, cap0=EMOTE_BANG)
-        dot = tube([(0, -0.12, 0), (0, -0.05, 0)], [0.05, 0.0], 3, EMOTE_BANG, cap0=EMOTE_BANG)
+        out[1] = [ellipsoid((0, 0, 0), (0.09, 0.09, 0.09), 6, [0, 90, 180], EMOTE_BALL)]
+        bar = tube([(0, 0.17, 0), (0, 0.0, 0)], [0.055, 0.03], 3, EMOTE_BANG, cap0=EMOTE_BANG,
+                   phase=math.pi / 2).autosmooth(50.0)
+        dot = tube([(0, -0.12, 0), (0, -0.05, 0)], [0.05, 0.0], 3, EMOTE_BANG, cap0=EMOTE_BANG,
+                   phase=math.pi / 2)
         out[2] = [bar, dot]
-        g = Geo()
-        o = heart_outline(12, 0.21)
-        pts = [o[6], o[8], o[10], o[0], o[2], o[4]]   # tip, left side, left lobe, cusp, right lobe, right side
-        for sign in (1.0, -1.0):
-            z = np.array([0, 0, sign * 0.025])
-            for i in range(1, 5):
-                g.tri((pts[0] + z, pts[i] + z, pts[i + 1] + z), None, EMOTE_HEART)
-        _orient(g, lambda cen: np.array([0, 0, cen[2]]))
-        out[3] = [g.flat()]
+        out[3] = [puffy_heart(8, 0.21, 0.05)]
+    return out
+
+
+# --------------------------------------------------------------------------
+# Far LOD (lod 3): the cheapest model, used beyond ~40 m (1P) / ~25 m (split screen)
+# --------------------------------------------------------------------------
+
+
+def tyre_lod3(radius: float, width: float, segs: int) -> Geo:
+    """Closed drum with a tapered outer sidewall framing a yellow hub. The tread
+    keeps the tube's smooth normals (one shared vertex per corner) so the far
+    wheel costs few vertices; the flat end caps are separate polygons."""
+    w = 0.5 * width
+    tread = tube([(-w, 0, 0), (w, 0, 0)], [radius, radius * 0.74], segs, TYRE, up=(0, 1, 0),
+                 phase=math.pi / segs)
+    caps = tube([(-w, 0, 0), (w, 0, 0)], [radius, radius * 0.74], segs, TYRE, cap0=TYRE, cap1=YELLOW,
+                up=(0, 1, 0), phase=math.pi / segs)
+    assert len(caps) == 2 * segs + 2 * (segs - 2)   # side quads first, then the two cap fans
+    caps.P, caps.N, caps.C = caps.P[2 * segs:], caps.N[2 * segs:], caps.C[2 * segs:]   # drop its side quads
+    return tread.extend(caps)
+
+
+def build_kart_lod3() -> dict[int, list[tuple[Geo, int]]]:
+    parts: dict[int, list[tuple[Geo, int]]] = defaultdict(list)
+    body = parts[BODY]
+
+    def sec(z, hw, yb, yt):
+        return [(hw, yb, z), (0.0, yt, z), (-hw, yb, z)]
+
+    nose = loft([sec(0.975, 0.17, 0.10, 0.25), sec(0.24, 0.29, 0.08, 0.49)], RED, 50.0, closed_loop=False,
+                cap1=False)
+    body.append((nose, 0))
+    # Both side pods + floor as one slab, white sides like LOD0's pod stripes.
+    pods = box((0, 0.18, 0.02), (1.30, 0.22, 0.78), RED, bottom=False)
+    pods.repaint(lambda c, n, p: WHITE if n[1] < 0.9 and abs(n[0]) > 0.9 else None)
+    body.append((pods, 0))
+    # Backrest + engine as one block: red shell, yellow top, and a back face that
+    # shades from the red backrest down to the gunmetal engine (free: same vertices).
+    blk = box((0, 0.36, -0.66), (0.44, 0.50, 0.38), RED, bottom=False, cap1=False)  # front hidden by Chao
+    blk.repaint(lambda c, n, p: YELLOW if n[1] > 0.9 else None)
+    blk.repaint_corners(lambda p, n, old: (RED if p[1] > 0.4 else GUNMETAL) if n[2] < -0.9 else old)
+    body.append((blk, 0))
+    for part, r, w, x in ((WFL, FRONT_R, FRONT_W, -1), (WFR, FRONT_R, FRONT_W, 1),
+                          (WRL, REAR_R, REAR_W, -1), (WRR, REAR_R, REAR_W, 1)):
+        g = tyre_lod3(r, w, 6 if part in (WRL, WRR) else 5)
+        if x < 0:
+            g = g.mirrored_x()
+        parts[part].append((g.xform(None, PIVOTS[part]), 0))
+    return parts
+
+
+def build_chao_lod3() -> dict[int, list[tuple[Geo, int]]]:
+    parts: dict[int, list[tuple[Geo, int]]] = defaultdict(list)
+    parts[CHEAD].append((geosphere(HEAD_C, HEAD_R, 2, chao(0.0)), 0))
+    top = HEAD_C[1] + HEAD_R[1]
+    pt = tube([(0, top - 0.08, -0.31), (0, top + 0.15, -0.53)], [0.12, 0.0], 3,
+              lambda s: chao(s), phase=math.pi / 2, up=(1, 0, 0))
+    parts[CHEAD].append((pt, 0))
+    eyes = Geo()
+    for s, eye_c, fr, eye_r in eye_frames():
+        n = fr[:, 1]
+        c = eye_c + 0.02 * n
+        q = [c + fr @ np.array(v) for v in ((0.075, 0, 0), (0, 0, -0.10), (-0.075, 0, 0), (0, 0, 0.10))]
+        eyes.tri((q[0], q[1], q[2]), [n] * 3, EYE)
+        eyes.tri((q[0], q[2], q[3]), [n] * 3, EYE)
+    _orient(eyes, lambda c: c - HEAD_C)
+    parts[CHEAD].append((eyes, 0))
+    parts[CBODY].append((ellipsoid(TORSO_C, TORSO_R, 3, [0, 90, 180], chao(0.0), phase=math.pi / 2), 0))
+    return parts
+
+
+def build_emotes_lod3() -> dict[int, list[Geo]]:
+    out: dict[int, list[Geo]] = {}
+    out[1] = [ellipsoid((0, 0, 0), (0.09, 0.09, 0.09), 4, [0, 90, 180], EMOTE_BALL)]
+    bar = tube([(0, 0.17, 0), (0, 0.0, 0)], [0.05, 0.0], 3, EMOTE_BANG, cap0=EMOTE_BANG)
+    dot = tube([(0, -0.12, 0), (0, -0.05, 0)], [0.05, 0.0], 3, EMOTE_BANG, cap0=EMOTE_BANG)
+    out[2] = [bar, dot]
+    g = Geo()
+    o = heart_outline(12, 0.21)
+    pts = [o[6], o[8], o[10], o[0], o[2], o[4]]   # tip, left side, left lobe, cusp, right lobe, right side
+    for sign in (1.0, -1.0):
+        z = np.array([0, 0, sign * 0.025])
+        for i in range(1, 5):
+            g.tri((pts[0] + z, pts[i] + z, pts[i + 1] + z), None, EMOTE_HEART)
+    _orient(g, lambda cen: np.array([0, 0, cen[2]]))
+    out[3] = [g.flat()]
     return out
 
 
@@ -937,12 +1086,14 @@ def check_mesh(m: Mesh) -> None:
 def assemble() -> list[Mesh]:
     groups: dict[tuple[int, int, int, int], list[Geo]] = defaultdict(list)
 
-    for lod, kart, chao_ in ((0, build_kart_lod0(), build_chao_lod0()), (1, build_kart_lod1(), build_chao_lod1())):
+    for lod, kart, chao_, emotes in ((0, build_kart_lod0(), build_chao_lod0(), build_emotes(0)),
+                                     (1, build_kart_lod1(), build_chao_lod1(), build_emotes(1)),
+                                     (3, build_kart_lod3(), build_chao_lod3(), build_emotes_lod3())):
         for src in (kart, chao_):
             for part, items in src.items():
                 for g, flags in items:
                     groups[(part, lod, 0, flags)].append(g)
-        for variant, geos in build_emotes(lod).items():
+        for variant, geos in emotes.items():
             for g in geos:
                 groups[(EMOTE, lod, variant, 0)].append(g.copy().xform(None, EMOTE_C))
 
@@ -970,7 +1121,7 @@ CHAO_PARTS = {CBODY, CHEAD, EMOTE}
 
 def report(meshes: list[Mesh]) -> list[str]:
     lines = []
-    for lod in (0, 1):
+    for lod in (0, 1, 3):
         for part in range(len(PART_NAMES)):
             for m in meshes:
                 if m.lod == lod and m.part == part:
@@ -981,11 +1132,13 @@ def report(meshes: list[Mesh]) -> list[str]:
     k0 = tri_count(meshes, 0, KART_PARTS) - hand_tris
     c0 = tri_count(meshes, 0, CHAO_PARTS) + hand_tris
     l1 = tri_count(meshes, 1, KART_PARTS | CHAO_PARTS)
+    l3 = tri_count(meshes, 3, KART_PARTS | CHAO_PARTS)
     nv = sum(len(m.verts) for m in meshes)
     ni = sum(len(m.indices) for m in meshes)
     lines.append(f"  LOD0 kart {k0} tris (budget {BUDGET_KART_LOD0}), Chao incl. hands + largest emote "
                  f"{c0} tris (budget {BUDGET_CHAO_LOD0})")
     lines.append(f"  LOD1 kart+Chao incl. largest emote {l1} tris (budget {BUDGET_LOD1})")
+    lines.append(f"  LOD3 kart+Chao incl. largest emote {l3} tris (budget {BUDGET_LOD3})")
     lines.append(f"  total {nv} verts (budget {BUDGET_VERTS}), {ni} indices, {len(meshes)} meshes")
     print("\n".join(lines))
     errors = []
@@ -995,6 +1148,8 @@ def report(meshes: list[Mesh]) -> list[str]:
         errors.append("Chao LOD0 over budget")
     if l1 > BUDGET_LOD1:
         errors.append("LOD1 over budget")
+    if l3 > BUDGET_LOD3:
+        errors.append("LOD3 over budget")
     if nv > BUDGET_VERTS:
         errors.append("vertex budget exceeded")
     return errors
