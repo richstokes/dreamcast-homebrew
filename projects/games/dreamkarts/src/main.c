@@ -942,6 +942,7 @@ int main(int argc, char **argv) {
                 printf("\nDK AUTOTEST: drifts %d boosts blue %d orange %d purple %d dash %d walls %d\n",
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
                 printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
+                audio_autotest_report();
                 printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d\n", track.name, kart_jumps,
                        at.jumps, kart_rescues);
                 printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, cpu avg %.2fms max %.2fms, "

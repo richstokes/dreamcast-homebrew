@@ -9,15 +9,25 @@
    and skips only reserved ones, so an unreserved loop is soon replaced by a
    one-shot, after which its pitch updates retune the wrong sound. Pitch and
    volume then change in place with AICA channel UPDATE commands (the
-   hardware pitch register), smoothed per frame and sent only on change. */
+   hardware pitch register), smoothed per frame and sent only on change.
+
+   The final-lap music speed-up retunes the stream's two channels the same
+   way. Restarting the stream instead refilled its whole AICA buffer
+   synchronously (16.5 ms on hardware, a dropped vblank) and skipped ahead
+   by the unplayed buffer. */
 #include "audio.h"
 #include "render.h"
 #include <dc/sound/sound.h>
 #include <dc/sound/sfxmgr.h>
 #include <dc/sound/stream.h>
 #include <dc/sound/aica_comm.h>
+#include <dc/spu.h>
+#include <dc/g2bus.h>
+#include <stddef.h>
 
 #define MUSIC_BUFFER_BYTES 16384
+/* The KOS AICA driver's aica_channel_t[64] in sound RAM (arm/aica_cmd_iface.h). */
+#define AICA_MEM_CHANNELS 0x020000
 
 extern const uint8_t dk_sfx_pak[];
 extern const uint8_t dk_music_adpcm[];
@@ -32,6 +42,12 @@ static int music_target;
 static bool music_playing;
 static bool music_off;
 static float music_rate = 1.0f;
+static int music_chn[2] = { -1, -1 };
+#ifdef DK_AUTOTEST
+static uint32_t at_rate_us;
+static size_t at_fed, at_fed_rate;      /* stream bytes fed: total, at the change */
+static uint64_t at_t0, at_t_rate;
+#endif
 static uint8_t wrap_buffer[MUSIC_BUFFER_BYTES * 2] __attribute__((aligned(32)));
 
 typedef struct {
@@ -57,6 +73,9 @@ static void *music_callback(snd_stream_hnd_t hnd, int req, int *got) {
         return NULL;
     }
     if(want > sizeof(wrap_buffer)) want = sizeof(wrap_buffer);
+#ifdef DK_AUTOTEST
+    at_fed += want;
+#endif
     size_t left = music_bytes - music_cursor;
     if(want <= left) {
         const uint8_t *p = dk_music_adpcm + music_cursor;
@@ -86,6 +105,12 @@ void audio_init(void) {
         else loaded++;
     }
     music_bytes = (size_t)(dk_music_adpcm_end - dk_music_adpcm);
+    /* snd_stream_alloc() takes the two lowest free channels and keeps them
+       private; find out which ones by asking for them first. */
+    music_chn[0] = snd_sfx_chn_alloc();
+    music_chn[1] = snd_sfx_chn_alloc();
+    if(music_chn[0] >= 0) snd_sfx_chn_free(music_chn[0]);
+    if(music_chn[1] >= 0) snd_sfx_chn_free(music_chn[1]);
     music = snd_stream_alloc(music_callback, MUSIC_BUFFER_BYTES);
     for(int p = 0; p < MAX_PLAYERS; p++)
         for(int i = 0; i < V_COUNT; i++) voice_sets[p][i].channel = -1;
@@ -121,18 +146,77 @@ void audio_music_start(void) {
     music_cursor = 0;
     music_rate = 1.0f;
     music_volume = 0;
+#ifdef DK_AUTOTEST
+    at_fed = at_fed_rate = 0;
+    at_t0 = timer_us_gettime64();
+    at_t_rate = 0;
+#endif
     snd_stream_start_adpcm(music, DK_MUSIC_RATE, 1);
     snd_stream_volume(music, 0);
     music_playing = true;
 }
 
+/* The AICA driver's copy of the channel says whether it is still the
+   music: a stereo ADPCM stream is the only ADPCM sound here. */
+static bool music_chn_ok(int chn) {
+    if(chn < 0) return false;
+    uint32_t type = g2_read_32(SPU_RAM_UNCACHED_BASE + AICA_MEM_CHANNELS +
+                               (uint32_t)chn * sizeof(aica_channel_t) + offsetof(aica_channel_t, type));
+    return type == AICA_SM_ADPCM_LS;
+}
+
 void audio_music_rate(float mul) {
     if(!ready || !music_playing || mul == music_rate) return;
+#ifdef DK_AUTOTEST
+    uint64_t t0 = timer_us_gettime64();
+    if(mul > 1.0f) {
+        at_fed_rate = at_fed;
+        at_t_rate = t0;
+    }
+#endif
     music_rate = mul;
-    snd_stream_stop(music);
-    snd_stream_start_adpcm(music, (uint32_t)(DK_MUSIC_RATE * mul), 1);
-    snd_stream_volume(music, (int)music_volume);
+    uint32_t freq = (uint32_t)(DK_MUSIC_RATE * mul);
+    bool in_place = music_chn_ok(music_chn[0]) && music_chn_ok(music_chn[1]);
+    if(in_place) {
+        AICA_CMDSTR_CHANNEL(packet, cmd, chan);
+        cmd->cmd = AICA_CMD_CHAN;
+        cmd->timestamp = 0;
+        cmd->size = AICA_CMDSTR_CHANNEL_SIZE;
+        chan->cmd = AICA_CH_CMD_UPDATE | AICA_CH_UPDATE_SET_FREQ;
+        chan->freq = freq;
+        snd_sh4_to_aica_stop();
+        for(int i = 0; i < 2; i++) {
+            cmd->cmd_id = (uint32_t)music_chn[i];
+            snd_sh4_to_aica(packet, cmd->size);
+        }
+        snd_sh4_to_aica_start();
+    }
+    else {
+        snd_stream_stop(music);
+        snd_stream_start_adpcm(music, freq, 1);
+        snd_stream_volume(music, (int)music_volume);
+    }
+#ifdef DK_AUTOTEST
+    if(mul > 1.0f) at_rate_us = (uint32_t)(timer_us_gettime64() - t0);
+#endif
+    if(!in_place)
+        printf("DreamKarts audio: music channels %d/%d not found; restarted stream\n", music_chn[0], music_chn[1]);
 }
+
+#ifdef DK_AUTOTEST
+void audio_autotest_report(void) {
+    uint64_t now = timer_us_gettime64();
+    /* Stereo 4-bit ADPCM: bytes per second equal samples per second. The
+       first fill is a whole buffer ahead, so skip it in the "before" rate. */
+    size_t prefill = MUSIC_BUFFER_BYTES * 2;
+    double before = at_t_rate > at_t0 && at_fed_rate > prefill ?
+        (double)(at_fed_rate - prefill) * 1e6 / (double)(at_t_rate - at_t0) : 0;
+    double after = at_t_rate && now > at_t_rate ?
+        (double)(at_fed - at_fed_rate) * 1e6 / (double)(now - at_t_rate) : 0;
+    printf("DK AUTOTEST: music speed-up took %luus, stream %.0f B/s before, %.0f B/s after (rate %d)\n",
+           (unsigned long)at_rate_us, before, after, DK_MUSIC_RATE);
+}
+#endif
 
 void audio_music_target(int volume) {
     music_target = volume;
