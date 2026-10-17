@@ -220,7 +220,7 @@ void title_draw(void) {
                      "PRESS START");
         }
         hud_text(320, 196, 0.62f, ALIGN_CENTER, argb(255, 255, 255, 255), "EMERALD BEACH GRAND PRIX");
-        hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(200, 230, 240, 255), "A DREAMCAST HOMEBREW  -  2026");
+        hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(200, 230, 240, 255), "github.com/richstokes - 2026");
     }
     else {
         draw_logo(180, 62, 0.36f);
