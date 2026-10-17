@@ -9,9 +9,12 @@ Mario Kart-style handling. Hop into a drift, hold the powerslide round the
 corner by counter-steering, watch the sparks at the rear tyres turn blue, orange
 and then purple, and let go for a mini-turbo.
 
-The first course is **Emerald Beach**: an oval with a wooden boardwalk straight
-over a turquoise sea, a natural rock arch, a lighthouse, palm trees, beach huts,
-a grandstand and Sonic-style dash panels. You drive a Chao in a standard kart,
+There are two courses. **Emerald Beach** is an oval with a wooden boardwalk
+straight over a turquoise sea, a natural rock arch, a lighthouse, palm trees,
+beach huts, a grandstand and Sonic-style dash panels. **Coral Crossing** is a
+classic figure 8 on a palm-lined headland: one leg launches you off a ramp,
+high over the other leg where it crosses, after a full-width jump pad that
+makes sure every kart has the speed to clear it. You drive a Chao in a standard kart,
 in the colours you pick, against five CPU Chao, or race a friend in
 **two-player split screen** (Grand Prix with CPUs, or head-to-head Versus).
 
@@ -35,7 +38,9 @@ is also available.
 - **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
-- **Dash panels** (one on each straight and one on the exit of turn 1) give a boost, and any boost lets you cut through sand.
+- **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
+- **Ramp jump (Coral Crossing):** the jump pad's long boost carries you up a 4 m kicker; karts leave the lip at a fixed climb rate under lighter gravity, so every class soars about 7 m over the karts passing underneath and lands on a deck that eases back down to the road. A drift in progress fires its mini-turbo at take-off.
+- **Dash panels** give a boost (on Emerald Beach, one on each straight and one on the exit of turn 1), and any boost lets you cut through sand.
 - **Presentation:**
   - Title screen with a rotating Sega-style sunburst, a bouncing logo whose letters drop in one by one, sparkles, and the grid in the background.
   - A slide-in race setup menu.
@@ -87,7 +92,7 @@ transient `-config` flags. No networking or VMU saving is used.
 
 ## Tests and captures
 
-- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
+- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
@@ -148,7 +153,7 @@ which Git ignores.
 | File | Contents |
 | --- | --- |
 | `src/kart.c` | Handling, drifting, boosts, laps and CPU drivers |
-| `src/track.c` | Oval centreline, surfaces, walls and dash panels |
+| `src/track.c` | Track centrelines, road heights, the jump, surfaces, walls and dash panels |
 | `src/world.c` | Scenery building and the animated sky and sea |
 | `src/render.c` | PVR lists, SH4ZAM transforms, clipping and submission |
 | `src/models.c` | Lit, animated kart and Chao rendering |
