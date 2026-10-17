@@ -49,6 +49,7 @@ typedef struct {
     int last_pad;
     float burnout_t;
     float bump_t;
+    float land_v, wall_v;  /* impact speeds behind EV_LAND / EV_WALL */
 
     /* Track & race */
     TrackPos tp;

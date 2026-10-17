@@ -86,6 +86,7 @@ static inline float frand_s(void) { return frand() * 2.0f - 1.0f; }
 /* ---- Input ---- */
 typedef struct {
     bool connected;
+    int port;                 /* maple port of the controller, -1 if none */
     uint32_t held, pressed, released;
     float stick_x, stick_y;   /* -1..1 with dead zone */
     float ltrig, rtrig;       /* 0..1 */

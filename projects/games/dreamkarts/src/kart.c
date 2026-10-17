@@ -311,7 +311,10 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
             k->vy = 0;
             k->grounded = true;
             k->squash_v -= impact * 0.9f;
-            if(impact > 2.5f) k->events |= EV_LAND;
+            if(impact > 2.5f) {
+                k->events |= EV_LAND;
+                k->land_v = impact;
+            }
             if(k->drift == DRIFT_PENDING && btn) {
                 if(fabsf(k->steer) > 0.3f && k->speed > DRIFT_MIN_SPEED)
                     start_drift(k, k->steer < 0 ? -1 : 1);
@@ -345,6 +348,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
             if(fabsf(diff) < 1.2f) k->heading += diff * 0.5f * frac;
             if(vn > 2.0f && k->bump_t <= 0) {
                 k->events |= EV_WALL;
+                k->wall_v = vn;
                 k->bump_t = 0.35f;
                 if(k->drift == DRIFT_ACTIVE && frac > 0.35f) end_drift(k, false);
             }

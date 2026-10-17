@@ -42,6 +42,7 @@ is also available.
   - A fly-in intro, then a 3-2-1-GO countdown.
   - "FINAL LAP!" with the music sped up 6%, a FINISH! banner with confetti, and a results screen.
 - **Audio:** an original synthesized tropical track, "Coral Speedway" (steel drums, marimba, slap bass, electric piano and brass; 128 BPM, 75 s seamless loop), plus 26 effects. The player's engine is two pitch-shifted loops crossfaded by speed, with tyre squeal, spark crackle and sand rumble loops alongside.
+- **Vibration:** with a Jump Pack in the controller, rumble strips rattle harder and faster the quicker you cross them, sand grinds, and wall hits, kart bumps, hops, landings, mini-turbo stages, boosts, dash panels and rocket starts each give their own jolt. In two-player, each pack follows its own player.
 - **Graphics:** a custom PowerVR renderer using [SH4ZAM](https://sh4zam.com/). Matrix transforms use FTRV, perspective divides use FSRRA, polygons go straight to the store queues, and triangles crossing the near plane are clipped. It also has table fog, chunked frustum culling, distance LODs for palms and karts, an animated sea and shore foam, a sky dome, clouds and a lens flare.
 
 ## Controls
@@ -54,7 +55,8 @@ is also available.
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
 | Start | Return | Pause (continue / restart / quit) |
 
-Player 2 uses the second controller with the same layout.
+Player 2 uses the second controller with the same layout. A Jump Pack in
+either expansion slot of a player's controller vibrates for that player.
 
 To drift: hold accelerate, press and hold R as you turn in, and keep holding it
 through the corner. Push the stick toward the inside to tighten the slide and
@@ -85,7 +87,7 @@ transient `-config` flags. No networking or VMU saving is used.
 
 ## Tests and captures
 
-- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), or `-DDK_AI_TRACE` to log the CPU's drift decisions.
+- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, a drift, a boost, the boardwalk and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
@@ -153,4 +155,5 @@ which Git ignores.
 | `src/fx.c` | Sparks, flames, smoke and confetti |
 | `src/hud.c`, `src/title.c` | Overlays and menus |
 | `src/audio.c` | Music stream and effect voices |
+| `src/rumble.c` | Jump Pack vibration effects |
 | `src/main.c` | Race flow and cameras |

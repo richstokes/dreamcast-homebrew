@@ -9,6 +9,7 @@
 #include "kart.h"
 #include "models.h"
 #include "render.h"
+#include "rumble.h"
 #include "title.h"
 #include "track.h"
 #include "world.h"
@@ -401,8 +402,10 @@ static void race_step(float dt, bool drive) {
         fx_kart(k, dt);
         audio_kart_events(k, kart_is_human(i));
     }
-    for(int p = 0; p < game.num_players; p++)
+    for(int p = 0; p < game.num_players; p++) {
         player_events(p);
+        rumble_kart(p, &karts[game.pl[p].kart]);
+    }
 #ifdef DK_AUTOTEST
     {
         uint32_t ev = karts[game.player].events;
@@ -442,10 +445,12 @@ static void countdown_step(float dt) {
                 kart_start_boost(p, 1.0f, 1.12f);
                 p->events |= EV_ROCKET;
                 audio_sfx(DK_SFX_BOOST, 230, 128);
+                rumble_pulse(pi, 6, 30, 0.45f);
             }
             else if(pl->accel_press_t >= 0 && pl->accel_press_t < 1.3f) {
                 p->burnout_t = 0.85f;
                 audio_sfx(DK_SFX_BUMP, 150, 128);
+                rumble_pulse(pi, 4, 14, 0.2f);
             }
         }
         for(int i = 0; i < kart_count; i++) {
@@ -813,6 +818,7 @@ int main(int argc, char **argv) {
                        !game.paused;
         for(int p = 0; p < MAX_PLAYERS; p++)
             audio_kart_loops(p, engines && p < game.num_players ? &karts[game.pl[p].kart] : NULL, dt_real);
+        rumble_update(dt_real, (game.state == ST_RACE || game.state == ST_COUNTDOWN) && !game.paused);
         prof_us[0] += timer_us_gettime64() - upd_t0;
         render();
 
@@ -881,6 +887,7 @@ int main(int argc, char **argv) {
                 for(int l = 0; l < RACE_LAPS; l++) printf(" %.2f", (double)p->lap_times[l]);
                 printf("\nDK AUTOTEST: drifts %d boosts blue %d orange %d purple %d dash %d walls %d\n",
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
+                printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
                 printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, cpu avg %.2fms max %.2fms, "
                        "vertex buffer peak %lu KiB\n", (double)at.min_fps, at.missed, at.frames,
                        (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)), (double)at.cpu_max,
@@ -897,6 +904,7 @@ int main(int argc, char **argv) {
         }
 #endif
     }
+    rumble_shutdown();
     audio_shutdown();
     render_shutdown();
     return 0;

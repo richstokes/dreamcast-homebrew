@@ -13,6 +13,7 @@ Pad *input_pad(int player) {
 void input_init(void) {
     memset(&pad, 0, sizeof(pad));
     memset(&pad2, 0, sizeof(pad2));
+    pad.port = pad2.port = -1;
 }
 
 static float dead_zone(int raw) {
@@ -29,6 +30,7 @@ static void read_pad(Pad *pd, int port_index, int player) {
     cont_state_t *st = dev ? (cont_state_t *)maple_dev_status(dev) : NULL;
     bool was_connected = pd->connected;
     pd->connected = st != NULL;
+    pd->port = st ? dev->port : -1;
     if(was_connected != pd->connected)
         printf("DreamKarts input: controller %d %s\n", player + 1, pd->connected ? "connected" : "missing");
     if(st) {

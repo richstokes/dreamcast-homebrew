@@ -3,7 +3,7 @@ include ../../../tools/sh4zam.mk
 else
 
 TARGET = dreamkarts.elf
-SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c
+SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
 GEN_HEADERS = $(wildcard $(GEN)/*.h)
