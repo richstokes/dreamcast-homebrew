@@ -48,7 +48,7 @@ const CCParams cc_params[CC_COUNT] = {
 };
 
 #define GRAVITY          30.0f
-#define HOP_VY           4.2f
+#define HOP_VY           4.5f   /* ~0.34 m peak, 0.30 s in the air */
 #define CHARGE_JUMP_VY   7.6f
 #define KART_RADIUS      0.95f
 #define DRIFT_MIN_SPEED  7.0f
