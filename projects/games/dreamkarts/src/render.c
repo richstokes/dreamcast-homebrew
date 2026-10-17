@@ -68,7 +68,7 @@ static void load_textures(void) {
 void render_init(void) {
     pvr_init_params_t params = {
         .opb_sizes = {PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16},
-        .vertex_buf_size = 768 * 1024,
+        .vertex_buf_size = 1024 * 1024,
         .dma_enabled = 0,
         .fsaa_enabled = 0,
         /* Presort: translucent polygons draw in submission order. The

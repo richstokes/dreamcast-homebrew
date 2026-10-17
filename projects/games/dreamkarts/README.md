@@ -108,9 +108,9 @@ Measured on hardware on 2026-10-17, 150cc, six karts, over a full race:
 | | Dropped vblanks | CPU per frame (avg) | PVR render, start grid |
 | --- | --- | --- | --- |
 | 1P, first build | 208 of 6,652 frames | 13.0 ms | 21.0 ms |
-| 1P now | 1 of 6,801 frames | 8.8 ms | 10.8 ms |
+| 1P now | 3 of 6,802 frames | 12.1 ms | 10.4 ms |
 | 2P split, first build | 1,142 of 5,390 frames | 20.1 ms | 13.0 ms |
-| 2P split now | 26 of 6,729 frames | 13.0 ms | 12.2 ms |
+| 2P split now | 10 of 6,767 frames | 12.4 ms | 12.0 ms |
 
 Run the two-player benchmark with
 `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.
@@ -122,7 +122,7 @@ What made the difference:
 - **Hardware split clipping.** Each split view is seven whole 32-pixel tile rows, with the clock and map in the band between, and the PVR's user tile clip trims each view in hardware. Software clipping at a 240-pixel split had broken most ground strips into clipped triangles.
 - **Fast math.** `-ffast-math` lets GCC use the SH-4's FSCA for `sinf`/`cosf`. KOS passes `-mfsca`, but without fast-math every call still went to libm.
 - **Kart work shared between views.** Each kart's part matrices and lighting are computed once per frame and reused by both views, and matrices are composed with the FTRV unit.
-- **Kart detail.** Full-detail models go only to the karts each camera follows; in split screen they also skip the hidden steering wheel and use the simple wheels.
+- **Kart detail.** Karts use one of three models by distance, with a margin so they don't flicker between models. In single player: full detail within ~16 m, a 330-triangle model built to match it from the chase camera out to ~42 m, and a ~150-triangle far model beyond. In split screen each view's own kart drops the hidden steering wheel and uses simpler wheels, and every other kart uses the far model.
 - **Split-screen scenery.** Fog and draw distance come in, the outermost terrain is dropped, and fewer palms and clouds are drawn.
 
 In Flycast the 1P race averages about 6 ms of CPU, so the console is about
