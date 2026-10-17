@@ -22,7 +22,11 @@ VARIANT_FLAGS_release =
 VARIANT_FLAGS_autotest = -DDK_AUTOTEST
 VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
 VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
-OBJDIR = build/$(VARIANT)
+# Extra -D flags get their own object directory so builds never mix.
+empty :=
+space := $(empty) $(empty)
+FLAGTAG = $(subst =,-,$(subst $(space),,$(subst -D,+,$(EXTRA_CFLAGS))))
+OBJDIR = build/$(VARIANT)$(FLAGTAG)
 OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES)) $(OBJDIR)/blobs.o
 
 KOS_BUILD_SUBARCHS = pristine

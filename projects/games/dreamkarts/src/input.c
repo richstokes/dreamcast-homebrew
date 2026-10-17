@@ -2,12 +2,17 @@
    and menu key repeat. Triggers count as buttons past a threshold. */
 #include "dk.h"
 
-Pad pad;
-static float repeat_t[4];
-static bool repeat_fire[4];
+Pad pad, pad2;
+static float repeat_t[MAX_PLAYERS][4];
+static bool repeat_fire[MAX_PLAYERS][4];
+
+Pad *input_pad(int player) {
+    return player ? &pad2 : &pad;
+}
 
 void input_init(void) {
     memset(&pad, 0, sizeof(pad));
+    memset(&pad2, 0, sizeof(pad2));
 }
 
 static float dead_zone(int raw) {
@@ -18,14 +23,14 @@ static float dead_zone(int raw) {
     return clampf(v, -1.0f, 1.0f);
 }
 
-void input_update(void) {
+static void read_pad(Pad *pd, int port_index, int player) {
     uint32_t held = 0;
-    maple_device_t *dev = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+    maple_device_t *dev = maple_enum_type(port_index, MAPLE_FUNC_CONTROLLER);
     cont_state_t *st = dev ? (cont_state_t *)maple_dev_status(dev) : NULL;
-    bool was_connected = pad.connected;
-    pad.connected = st != NULL;
-    if(was_connected != pad.connected)
-        printf("DreamKarts input: controller %s\n", pad.connected ? "connected" : "missing");
+    bool was_connected = pd->connected;
+    pd->connected = st != NULL;
+    if(was_connected != pd->connected)
+        printf("DreamKarts input: controller %d %s\n", player + 1, pd->connected ? "connected" : "missing");
     if(st) {
         uint32_t b = st->buttons;
         if(b & CONT_A) held |= BTN_A;
@@ -37,43 +42,55 @@ void input_update(void) {
         if(b & CONT_DPAD_DOWN) held |= BTN_DOWN;
         if(b & CONT_DPAD_LEFT) held |= BTN_LEFT;
         if(b & CONT_DPAD_RIGHT) held |= BTN_RIGHT;
-        pad.ltrig = clampf(st->ltrig / 255.0f, 0, 1);
-        pad.rtrig = clampf(st->rtrig / 255.0f, 0, 1);
-        if(pad.ltrig > 0.35f) held |= BTN_L;
-        if(pad.rtrig > 0.35f) held |= BTN_R;
-        pad.stick_x = dead_zone(st->joyx);
-        pad.stick_y = dead_zone(st->joyy);
+        pd->ltrig = clampf(st->ltrig / 255.0f, 0, 1);
+        pd->rtrig = clampf(st->rtrig / 255.0f, 0, 1);
+        if(pd->ltrig > 0.35f) held |= BTN_L;
+        if(pd->rtrig > 0.35f) held |= BTN_R;
+        pd->stick_x = dead_zone(st->joyx);
+        pd->stick_y = dead_zone(st->joyy);
     }
     else {
-        pad.stick_x = pad.stick_y = pad.ltrig = pad.rtrig = 0;
+        pd->stick_x = pd->stick_y = pd->ltrig = pd->rtrig = 0;
     }
-    pad.pressed = held & ~pad.held;
-    pad.released = pad.held & ~held;
-    pad.held = held;
+    pd->pressed = held & ~pd->held;
+    pd->released = pd->held & ~held;
+    pd->held = held;
 
     /* Menu directions: dpad or stick, with a 0.32 s delay then 0.09 s repeat. */
     bool dir[4] = {
-        (held & BTN_UP) || pad.stick_y < -0.6f,
-        (held & BTN_DOWN) || pad.stick_y > 0.6f,
-        (held & BTN_LEFT) || pad.stick_x < -0.6f,
-        (held & BTN_RIGHT) || pad.stick_x > 0.6f
+        (held & BTN_UP) || pd->stick_y < -0.6f,
+        (held & BTN_DOWN) || pd->stick_y > 0.6f,
+        (held & BTN_LEFT) || pd->stick_x < -0.6f,
+        (held & BTN_RIGHT) || pd->stick_x > 0.6f
     };
+    float *rt = repeat_t[player];
+    bool *rf = repeat_fire[player];
     for(int i = 0; i < 4; i++) {
-        repeat_fire[i] = false;
+        rf[i] = false;
         if(!dir[i]) {
-            repeat_t[i] = 0;
+            rt[i] = 0;
             continue;
         }
-        if(repeat_t[i] == 0) repeat_fire[i] = true;
-        repeat_t[i] += DK_DT;
-        if(repeat_t[i] > 0.32f) {
-            repeat_fire[i] = true;
-            repeat_t[i] -= 0.09f;
+        if(rt[i] == 0) rf[i] = true;
+        rt[i] += DK_DT;
+        if(rt[i] > 0.32f) {
+            rf[i] = true;
+            rt[i] -= 0.09f;
         }
     }
 }
 
-bool input_menu_up(void) { return repeat_fire[0]; }
-bool input_menu_down(void) { return repeat_fire[1]; }
-bool input_menu_left(void) { return repeat_fire[2]; }
-bool input_menu_right(void) { return repeat_fire[3]; }
+void input_update(void) {
+    read_pad(&pad, 0, 0);
+    read_pad(&pad2, 1, 1);
+}
+
+bool input_up(int player) { return repeat_fire[player & 1][0]; }
+bool input_down(int player) { return repeat_fire[player & 1][1]; }
+bool input_left(int player) { return repeat_fire[player & 1][2]; }
+bool input_right(int player) { return repeat_fire[player & 1][3]; }
+
+bool input_menu_up(void) { return repeat_fire[0][0]; }
+bool input_menu_down(void) { return repeat_fire[0][1]; }
+bool input_menu_left(void) { return repeat_fire[0][2]; }
+bool input_menu_right(void) { return repeat_fire[0][3]; }

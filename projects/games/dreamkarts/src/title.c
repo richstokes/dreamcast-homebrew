@@ -16,8 +16,38 @@ static int menu_row;
 static float sparkle_t[8];
 static float chao_call_t;
 
-static const char *const mode_names[] = {"GRAND PRIX", "TIME TRIAL"};
 static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
+static float warn_t;
+
+enum { ROW_PLAYERS, ROW_MODE, ROW_CC, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
+
+/* Menu rows: player 2's colour only appears in a two-player race. */
+static int menu_rows(int *rows) {
+    int n = 0;
+    rows[n++] = ROW_PLAYERS;
+    rows[n++] = ROW_MODE;
+    rows[n++] = ROW_CC;
+    rows[n++] = ROW_COLOUR1;
+    if(game.num_players > 1) rows[n++] = ROW_COLOUR2;
+    rows[n++] = ROW_START;
+    return n;
+}
+
+static const char *mode_name(void) {
+    if(game.mode == MODE_GP) return "GRAND PRIX";
+    return game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
+}
+
+/* Step a player's colour, skipping the other player's choice. */
+static void step_colour(int player, int dir) {
+    int c = game.pl[player].colour;
+    do {
+        c = (c + dir + COLOUR_COUNT) % COLOUR_COUNT;
+    } while(game.num_players > 1 && c == game.pl[player ^ 1].colour);
+    game.pl[player].colour = c;
+    race_setup();
+    audio_sfx(DK_SFX_CHAO, 150, player ? 190 : 66);
+}
 
 void title_init(void) {
     h_logo = r_header(TEX_LOGO, HF_TR | HF_NOFOG | HF_NOZTEST | HF_CLAMP);
@@ -42,7 +72,7 @@ void title_update(float dt) {
     }
     if(game.state == ST_TITLE) {
         menu_slide = fmaxf(0.0f, menu_slide - dt * 4.0f);
-        if(game.time > 0.6f && (pad.pressed & (BTN_START | BTN_A))) {
+        if(game.time > 0.6f && ((pad.pressed | pad2.pressed) & (BTN_START | BTN_A))) {
             audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
             game_set_state(ST_MENU);
@@ -52,19 +82,41 @@ void title_update(float dt) {
     }
     /* ST_MENU */
     menu_slide = fminf(1.0f, menu_slide + dt * 4.0f);
+    if(warn_t > 0) warn_t -= dt;
+    int rows[8], n = menu_rows(rows);
+    if(menu_row >= n) menu_row = n - 1;
     if(input_menu_up()) {
-        menu_row = (menu_row + 2) % 3;
+        menu_row = (menu_row + n - 1) % n;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
     if(input_menu_down()) {
-        menu_row = (menu_row + 1) % 3;
+        menu_row = (menu_row + 1) % n;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
+    int row = rows[menu_row];
     int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
     if(dir) {
-        if(menu_row == 0) game.mode = game.mode == MODE_GP ? MODE_TT : MODE_GP;
-        else if(menu_row == 1) game.cc = (game.cc + dir + CC_COUNT) % CC_COUNT;
-        if(menu_row < 2) audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        if(row == ROW_PLAYERS) {
+            game.num_players = game.num_players == 1 ? 2 : 1;
+            if(game.pl[1].colour == game.pl[0].colour) game.pl[1].colour = (game.pl[0].colour + 1) % COLOUR_COUNT;
+            race_setup();
+        }
+        else if(row == ROW_MODE) {
+            game.mode = game.mode == MODE_GP ? MODE_TT : MODE_GP;
+            race_setup();
+        }
+        else if(row == ROW_CC) {
+            game.cc = (game.cc + dir + CC_COUNT) % CC_COUNT;
+        }
+        else if(row == ROW_COLOUR1 || row == ROW_COLOUR2) {
+            step_colour(row == ROW_COLOUR2, dir);
+        }
+        if(row != ROW_START) audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+    }
+    /* Player 2 picks their own colour with their pad at any time. */
+    if(game.num_players > 1) {
+        int dir2 = input_left(1) ? -1 : input_right(1) ? 1 : 0;
+        if(dir2) step_colour(1, dir2);
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
@@ -72,10 +124,16 @@ void title_update(float dt) {
         return;
     }
     if(pad.pressed & (BTN_A | BTN_START)) {
-        if(menu_row < 2 && !(pad.pressed & BTN_START)) {
+        if(row != ROW_START && !(pad.pressed & BTN_START)) {
             menu_row++;
             audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
         }
+#ifndef DK_AUTOTEST
+        else if(game.num_players > 1 && !pad2.connected) {
+            warn_t = 2.0f;
+            audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+        }
+#endif
         else {
             audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
             audio_sfx(DK_SFX_CHAO_HAPPY, 200, 128);
@@ -162,47 +220,81 @@ static void draw_sparkles(float dt_unused) {
     }
 }
 
+static void colour_swatch(float x, float y, int colour) {
+    const KartColour *c = &kart_colours[colour];
+    r_hdr(h_flat);
+    uint32_t kart = c->paint1 ? c->paint1 : 0xffe02828;
+    r_quad2d(x - 1, y - 1, x + 33, y + 17, 0, 0, 1, 1, 0xff0c1430, 16.4f);
+    r_quad2d(x, y, x + 16, y + 16, 0, 0, 1, 1, kart | 0xff000000, 16.5f);
+    r_quad2d(x + 16, y, x + 32, y + 16, 0, 0, 1, 1, c->ui | 0xff000000, 16.5f);
+}
+
 static void draw_menu(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
     float x0 = 640 - 300 * slide, x1 = x0 + 280;
-    hud_panel(x0, 120, x1, 416, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
-    hud_text((x0 + x1) * 0.5f, 128, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "RACE SETUP");
-    for(int row = 0; row < 3; row++) {
-        bool sel = row == menu_row;
-        float y = 186 + row * 64;
+    int rows[8], n = menu_rows(rows);
+    const float pitch = 50.0f;
+    float top = 112, y_first = 166;
+    float bottom = y_first + n * pitch + 6;
+    hud_panel(x0, top, x1, bottom, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    hud_text((x0 + x1) * 0.5f, top + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "RACE SETUP");
+    for(int i = 0; i < n; i++) {
+        int row = rows[i];
+        bool sel = i == menu_row;
+        float y = y_first + i * pitch;
         if(sel) {
             r_hdr(h_flat);
             float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
-            r_quad2d(x0 + 10, y - 6, x1 - 10, y + 46, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+            r_quad2d(x0 + 10, y - 6, x1 - 10, y + 42, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
         }
         uint32_t col = sel ? argb(255, 255, 255, 150) : argb(255, 200, 220, 255);
-        if(row == 0) {
-            hud_text(x0 + 20, y - 4, 0.55f, ALIGN_LEFT, argb(255, 150, 200, 255), "MODE");
-            hud_text((x0 + x1) * 0.5f, y + 12, 0.8f, ALIGN_CENTER, col, mode_names[game.mode]);
-        }
-        else if(row == 1) {
-            hud_text(x0 + 20, y - 4, 0.55f, ALIGN_LEFT, argb(255, 150, 200, 255), "ENGINE CLASS");
-            hud_text((x0 + x1) * 0.5f, y + 12, 0.8f, ALIGN_CENTER, col, cc_names[game.cc]);
-            /* Speed pips. */
-            for(int p = 0; p < 3; p++) {
-                r_hdr(h_flat);
-                uint32_t pc = p <= game.cc ? argb(255, 255, 200, 40) : argb(120, 255, 255, 255);
-                r_quad2d(x1 - 64 + p * 16, y + 36 - p * 4, x1 - 54 + p * 16, y + 42, 0, 0, 1, 1, pc, 16.5f);
+        uint32_t label = argb(255, 150, 200, 255);
+        const char *value = NULL;
+        switch(row) {
+            case ROW_PLAYERS:
+                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "PLAYERS");
+                value = game.num_players > 1 ? "2P SPLIT" : "1P";
+                break;
+            case ROW_MODE:
+                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "MODE");
+                value = mode_name();
+                break;
+            case ROW_CC:
+                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "ENGINE CLASS");
+                value = cc_names[game.cc];
+                for(int p = 0; p < 3; p++) {
+                    r_hdr(h_flat);
+                    uint32_t pc = p <= game.cc ? argb(255, 255, 200, 40) : argb(120, 255, 255, 255);
+                    r_quad2d(x1 - 60 + p * 14, y + 30 - p * 4, x1 - 51 + p * 14, y + 36, 0, 0, 1, 1, pc, 16.5f);
+                }
+                break;
+            case ROW_COLOUR1:
+            case ROW_COLOUR2: {
+                int pl = row == ROW_COLOUR2;
+                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label,
+                         game.num_players > 1 ? (pl ? "P2 COLOUR" : "P1 COLOUR") : "COLOUR");
+                value = kart_colours[game.pl[pl].colour].name;
+                colour_swatch(x1 - 58, y - 4, game.pl[pl].colour);
+                break;
+            }
+            default: {
+                float s = sel ? 1.1f + 0.06f * sinf(game.title_t * 8) : 0.95f;
+                hud_text((x0 + x1) * 0.5f, y, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : col, "START!");
+                break;
             }
         }
-        else {
-            float s = sel ? 1.15f + 0.06f * sinf(game.title_t * 8) : 1.0f;
-            hud_text((x0 + x1) * 0.5f, y + 4, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : col, "START!");
-        }
-        if(sel && row < 2) {
+        if(value) hud_text((x0 + x1) * 0.5f, y + 10, 0.75f, ALIGN_CENTER, col, value);
+        if(sel && row != ROW_START) {
             float bob = 3.0f * sinf(game.title_t * 9);
-            hud_text(x0 + 22 - bob, y + 12, 0.8f, ALIGN_LEFT, col, "<");
-            hud_text(x1 - 22 + bob, y + 12, 0.8f, ALIGN_RIGHT, col, ">");
+            hud_text(x0 + 22 - bob, y + 10, 0.75f, ALIGN_LEFT, col, "<");
+            hud_text(x1 - 22 + bob, y + 10, 0.75f, ALIGN_RIGHT, col, ">");
         }
     }
-    hud_text(x0 + 20, 370, 0.42f, ALIGN_LEFT, argb(255, 170, 200, 240), "DRIVER: CHAO");
-    hud_text(x0 + 20, 390, 0.42f, ALIGN_LEFT, argb(255, 170, 200, 240), "KART: STANDARD");
-    hud_text(320, 440, 0.55f, ALIGN_CENTER, argb(230, 255, 255, 255), "A: OK   B: BACK   UP/DOWN: SELECT");
+    if(game.num_players > 1)
+        hud_text(24, 404, 0.45f, ALIGN_LEFT, argb(230, 255, 255, 255), "P2: LEFT/RIGHT = COLOUR");
+    hud_text(24, 428, 0.5f, ALIGN_LEFT, argb(230, 255, 255, 255), "A: OK   B: BACK");
+    if(warn_t > 0 && ((int)(game.title_t * 6) & 1))
+        hud_text(320, 72, 0.7f, ALIGN_CENTER, 0xffff8080, "CONNECT CONTROLLER 2");
 }
 
 void title_draw(void) {

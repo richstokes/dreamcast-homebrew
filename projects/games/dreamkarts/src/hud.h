@@ -18,14 +18,15 @@ void hud_format_time(char *buf, float t);
 const char *hud_ordinal(int place);
 uint32_t hud_place_color(int place);
 
-void hud_draw_race(void);
-void hud_draw_countdown(void);
+/* Race HUD for one player inside screen rows [y0, y1). */
+void hud_draw_race(int player, float y0, float y1);
+void hud_draw_countdown(float y0, float y1);
+/* Two-player split: divider, shared race clock and minimap. */
+void hud_draw_split_overlay(void);
 void hud_draw_results(void);
 void hud_draw_pause(void);
 /* Pop-up messages ("FINAL LAP!", lap times). */
-void hud_message(const char *text, uint32_t col, float seconds);
-void hud_lap_popup(int lap, float time, bool best);
-
-extern const char *const kart_names[MAX_KARTS];
+void hud_message(int player, const char *text, uint32_t col, float seconds);
+void hud_lap_popup(int player, int lap, float time, bool best);
 
 #endif

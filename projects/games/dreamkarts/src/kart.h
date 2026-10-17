@@ -79,9 +79,23 @@ typedef struct {
     float ai_drift_hold;
     bool ai_drift_btn;
     uint32_t paint1, paint2, chao, chao_tip;
+    uint32_t ui_color;
+    const char *name;
 
     uint32_t events;
 } Kart;
+
+/* Colour presets: kart paint, Chao body and tip (0 = the model's own), plus
+   a flat colour for HUD dots and swatches. */
+typedef struct {
+    const char *name;
+    uint32_t paint1, chao, tip, ui;
+} KartColour;
+
+#define COLOUR_COUNT 8
+extern const KartColour kart_colours[COLOUR_COUNT];
+void kart_apply_colour(Kart *k, int colour);
+bool kart_is_human(int index);
 
 extern Kart karts[MAX_KARTS];
 extern int kart_count;

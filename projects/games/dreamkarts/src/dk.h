@@ -97,14 +97,22 @@ enum {
     BTN_LEFT = 1 << 7, BTN_RIGHT = 1 << 8, BTN_L = 1 << 9, BTN_R = 1 << 10
 };
 
-extern Pad pad;
+#define MAX_PLAYERS 2
+/* pad is player 1 (first controller), pad2 player 2 (second controller). */
+extern Pad pad, pad2;
+Pad *input_pad(int player);
 void input_init(void);
 void input_update(void);
-/* Menu helpers with key repeat for held directions. */
+/* Menu helpers with key repeat for held directions (player 1). */
 bool input_menu_up(void);
 bool input_menu_down(void);
 bool input_menu_left(void);
 bool input_menu_right(void);
+/* Directions with repeat for any player. */
+bool input_up(int player);
+bool input_down(int player);
+bool input_left(int player);
+bool input_right(int player);
 
 typedef struct {
     float steer;         /* -1 left .. +1 right */
@@ -126,6 +134,16 @@ typedef struct {
     float shake;
 } Camera;
 
+/* A human player: their kart, chase camera and per-race state. */
+typedef struct {
+    int kart;
+    int colour;          /* kart_colours[] preset */
+    Camera cam;
+    float cam_yaw, cam_height, cam_dist, fov;
+    float accel_press_t; /* rocket start timing */
+    bool final_lap_seen;
+} Player;
+
 typedef struct {
     int state;
     int mode, cc;
@@ -136,13 +154,16 @@ typedef struct {
     int pause_sel;
     int menu_sel;
     float fps, cpu_ms;
-    int player;          /* index of the human kart */
+    int player;          /* player 1's kart index */
+    int num_players;     /* 1 or 2 (split screen) */
+    Player pl[MAX_PLAYERS];
+    float humans_done_t; /* seconds since the first human finished */
     int finish_order[MAX_KARTS];
     int finished_count;
     float best_lap;
     bool final_lap_announced;
-    Camera cam;
-    float cam_yaw, cam_height, cam_dist;
+    Camera cam;          /* full-screen camera: title, intro, results */
+    int pause_owner;
     float title_t;
     bool quit;
 } Game;

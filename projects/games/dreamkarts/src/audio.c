@@ -40,7 +40,9 @@ typedef struct {
 } Voice;
 
 enum { V_ENGINE_LOW, V_ENGINE_HIGH, V_DRIFT, V_SPARKS, V_OFFROAD, V_COUNT };
-static Voice voices[V_COUNT];
+/* One set of loops per human player. */
+static Voice voice_sets[MAX_PLAYERS][V_COUNT];
+#define voices voice_sets[0]
 static const int voice_sfx[V_COUNT] = {
     DK_SFX_ENGINE_LOW, DK_SFX_ENGINE_HIGH, DK_SFX_DRIFT, DK_SFX_SPARKS, DK_SFX_OFFROAD
 };
@@ -84,7 +86,8 @@ void audio_init(void) {
     }
     music_bytes = (size_t)(dk_music_adpcm_end - dk_music_adpcm);
     music = snd_stream_alloc(music_callback, MUSIC_BUFFER_BYTES);
-    for(int i = 0; i < V_COUNT; i++) voices[i].channel = -1;
+    for(int p = 0; p < MAX_PLAYERS; p++)
+        for(int i = 0; i < V_COUNT; i++) voice_sets[p][i].channel = -1;
     printf("DreamKarts audio: %d/%d effects, music %lu bytes, %lu KiB AICA RAM free\n",
            loaded, DK_SFX_COUNT, (unsigned long)music_bytes, (unsigned long)(snd_mem_available() / 1024));
 }
@@ -96,11 +99,14 @@ void audio_shutdown(void) {
         snd_stream_destroy(music);
     }
     /* snd_sfx_stop_all() skips reserved channels; stop the loops here. */
-    for(int i = 0; i < V_COUNT; i++)
-        if(voices[i].channel >= 0) {
-            snd_sfx_stop(voices[i].channel);
-            snd_sfx_chn_free(voices[i].channel);
-            voices[i].channel = -1;
+    for(int p = 0; p < MAX_PLAYERS; p++)
+        for(int i = 0; i < V_COUNT; i++) {
+            Voice *v = &voice_sets[p][i];
+            if(v->channel >= 0) {
+                snd_sfx_stop(v->channel);
+                snd_sfx_chn_free(v->channel);
+                v->channel = -1;
+            }
         }
     snd_sfx_stop_all();
     snd_sfx_unload_all();
@@ -151,8 +157,8 @@ void audio_sfx_pitch(int id, int vol, int pan, float rate) {
     d.pan = pan;
     d.freq = (int)(DK_SFX_RATE * rate);
     int chn = snd_sfx_play_ex(&d);
-    for(int i = 0; i < V_COUNT; i++)
-        if(chn >= 0 && chn == voices[i].channel)
+    for(int i = 0; i < V_COUNT * MAX_PLAYERS; i++)
+        if(chn >= 0 && chn == voice_sets[i / V_COUNT][i % V_COUNT].channel)
             printf("DreamKarts audio: BUG one-shot %d took loop channel %d\n", id, chn);
 }
 
@@ -162,8 +168,9 @@ void audio_sfx(int id, int vol, int pan) {
 
 static void start_voices(void) {
     if(voices_started || !ready) return;
-    for(int i = 0; i < V_COUNT; i++) {
-        int id = voice_sfx[i];
+    for(int i = 0; i < V_COUNT * MAX_PLAYERS; i++) {
+        Voice *v = &voice_sets[i / V_COUNT][i % V_COUNT];
+        int id = voice_sfx[i % V_COUNT];
         if(sfx[id] == SFXHND_INVALID) continue;
         int chn = snd_sfx_chn_alloc();
         if(chn < 0) {
@@ -180,13 +187,13 @@ static void start_voices(void) {
         d.freq = DK_SFX_RATE;
         d.loopstart = 0;
         d.loopend = dk_sfx_assets[id].bytes / 2;
-        voices[i].channel = snd_sfx_play_ex(&d);
-        if(voices[i].channel < 0) snd_sfx_chn_free(chn);
-        voices[i].last_freq = voices[i].last_vol = -1;
+        v->channel = snd_sfx_play_ex(&d);
+        if(v->channel < 0) snd_sfx_chn_free(chn);
+        v->last_freq = v->last_vol = -1;
     }
     voices_started = true;
-    printf("DreamKarts audio: loop voices on reserved channels %d %d %d %d %d\n", voices[0].channel,
-           voices[1].channel, voices[2].channel, voices[3].channel, voices[4].channel);
+    printf("DreamKarts audio: loop voices on reserved channels %d-%d and %d-%d\n", voice_sets[0][0].channel,
+           voice_sets[0][V_COUNT - 1].channel, voice_sets[1][0].channel, voice_sets[1][V_COUNT - 1].channel);
 }
 
 static void voice_set(Voice *v, int freq, int vol) {
@@ -205,7 +212,7 @@ static void voice_set(Voice *v, int freq, int vol) {
     v->last_vol = vol;
 }
 
-void audio_kart_loops(const Kart *k, float dt) {
+void audio_kart_loops(int slot, const Kart *k, float dt) {
     if(!ready) return;
     if(k) start_voices();
     if(!voices_started) return;
@@ -229,10 +236,13 @@ void audio_kart_loops(const Kart *k, float dt) {
         }
         if(k->surface == SURF_SAND && k->grounded && fabsf(k->speed) > 2.0f)
             target[V_OFFROAD] = 70.0f + 80.0f * clampf(fabsf(k->speed) / 15.0f, 0, 1);
+        /* Two engines at once: trim each so the mix doesn't swamp the music. */
+        if(game.num_players > 1)
+            for(int i = 0; i < V_COUNT; i++) target[i] *= 0.75f;
     }
     snd_sh4_to_aica_stop();
     for(int i = 0; i < V_COUNT; i++) {
-        Voice *v = &voices[i];
+        Voice *v = &voice_sets[slot & 1][i];
         float speed = (i == V_DRIFT || i == V_SPARKS) ? 900.0f : 500.0f;
         v->vol = approach(v->vol, target[i], speed * dt);
         /* Glide pitch like a real engine instead of stepping on boosts. */

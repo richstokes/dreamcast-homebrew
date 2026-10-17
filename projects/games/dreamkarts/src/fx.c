@@ -5,6 +5,7 @@
 #include "models.h"
 #include "render.h"
 #include "texture_assets.h"
+#include "world.h"
 
 enum { P_SPARK, P_GLOW, P_SMOKE, P_DUST, P_STAR, P_CONFETTI };
 
@@ -117,8 +118,16 @@ void fx_kart(const Kart *k, float dt) {
     V3 fwd = heading_fwd(k->heading + k->vis_yaw), right = heading_right(k->heading + k->vis_yaw);
     V3 wl = models_wheel_world(k, 2), wr = models_wheel_world(k, 3);
     float spd = fabsf(k->speed);
-    bool near_cam = vdot(vsub(k->pos, r_cam.pos), vsub(k->pos, r_cam.pos)) < 90.0f * 90.0f;
-    if(!near_cam) return;
+    /* Only karts near a human's camera are worth effects. */
+    float near2 = 1e30f;
+    for(int p = 0; p < game.num_players; p++) {
+        V3 d = vsub(k->pos, karts[game.pl[p].kart].pos);
+        near2 = fminf(near2, vdot(d, d));
+    }
+    if(near2 > 85.0f * 85.0f) return;
+    /* Two views double the fill: halve particle rates in a split screen. */
+    float split = game.num_players > 1 ? 0.5f : 1.0f;
+    dt *= split;
 
     /* Drift sparks from both rear tyres. */
     if(k->drift == DRIFT_ACTIVE && k->grounded) {
@@ -140,7 +149,7 @@ void fx_kart(const Kart *k, float dt) {
     /* Tyre smoke while sliding on tarmac, sand spray off-road. */
     if(k->grounded && spd > 4.0f) {
         bool sand = k->surface == SURF_SAND;
-        bool close = vdot(vsub(k->pos, r_cam.pos), vsub(k->pos, r_cam.pos)) < 40.0f * 40.0f;
+        bool close = near2 < 40.0f * 40.0f;
         float rate = !close ? 0.0f : sand ? 22.0f : (k->drift == DRIFT_ACTIVE ? 10.0f : 0.0f);
         spawn_acc[idx][1] += rate * dt;
         while(spawn_acc[idx][1] >= 1.0f) {

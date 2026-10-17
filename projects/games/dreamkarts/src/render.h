@@ -33,6 +33,8 @@ void r_frame_begin(void);
 void r_list(pvr_list_t list);
 void r_frame_end(void);
 
+/* Screen rows [y0, y1) for the next r_set_camera (full screen: 0, 480). */
+void r_set_viewport(float y0, float y1);
 void r_set_camera(const Camera *cam);
 void r_load_vp(void);
 /* Load view-projection * m (column-major 4x4) into XMTRX. */

@@ -11,7 +11,11 @@
 #include "texture_assets.h"
 
 static uint32_t paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
-static RV scratch[DK_MODEL_MAX_MESH_VERTS] __attribute__((aligned(32)));
+/* Per-kart vertex buffers: positions are fixed, lit colours are refreshed
+   once per frame and shared by both split-screen views. */
+static RV kart_rv[MAX_KARTS][DK_MODEL_VERT_COUNT] __attribute__((aligned(32)));
+static uint32_t lit_frame[MAX_KARTS][DK_MODEL_MESH_COUNT];
+static uint32_t frame_id = 1;
 static const pvr_poly_hdr_t *h_model, *h_shadow;
 static float ref_luma1 = 1.0f;
 static float normals[DK_MODEL_VERT_COUNT][3];
@@ -33,6 +37,9 @@ void models_init(void) {
             n++;
         }
     if(n) ref_luma1 = fmaxf(sum / n, 0.05f);
+    for(int k = 0; k < MAX_KARTS; k++)
+        for(int i = 0; i < DK_MODEL_VERT_COUNT; i++)
+            kart_rv[k][i] = (RV){dk_model_verts[i].x, dk_model_verts[i].y, dk_model_verts[i].z, 0, 0, 0xffffffff};
     for(int i = 0; i < DK_MODEL_VERT_COUNT; i++) {
         normals[i][0] = dk_model_verts[i].nx * (1.0f / 127.0f);
         normals[i][1] = dk_model_verts[i].ny * (1.0f / 127.0f);
@@ -141,30 +148,27 @@ static void draw_kart_lod(int index, int lod) {
             last_part = m->part;
         }
         int nv = m->vert_count;
-        if(nv > DK_MODEL_MAX_MESH_VERTS) nv = DK_MODEL_MAX_MESH_VERTS;
-        const dk_mvert_t *src = &dk_model_verts[m->first_vert];
-        const uint32_t *col = &paint[index][m->first_vert];
-        bool unlit = m->flags & 1;
-        const float (*nrm)[3] = &normals[m->first_vert];
-        /* Lighting in 8.8 fixed point: one float->int per vertex. */
-        float lx = lp.x * 158.7f, ly = lp.y * 158.7f + 25.6f, lz = lp.z * 158.7f;
-        for(int i = 0; i < nv; i++) {
-            RV *o = &scratch[i];
-            o->x = src[i].x;
-            o->y = src[i].y;
-            o->z = src[i].z;
-            o->u = o->v = 0;
-            uint32_t c = col[i];
-            if(unlit) {
-                o->c = c;
-                continue;
+        RV *out = &kart_rv[index][m->first_vert];
+        if(lit_frame[index][mi] != frame_id) {
+            lit_frame[index][mi] = frame_id;
+            const uint32_t *col = &paint[index][m->first_vert];
+            bool unlit = m->flags & 1;
+            const float (*nrm)[3] = &normals[m->first_vert];
+            /* Lighting in 8.8 fixed point: one float->int per vertex. */
+            float lx = lp.x * 158.7f, ly = lp.y * 158.7f + 25.6f, lz = lp.z * 158.7f;
+            for(int i = 0; i < nv; i++) {
+                uint32_t c = col[i];
+                if(unlit) {
+                    out[i].c = c;
+                    continue;
+                }
+                float d = nrm[i][0] * lx + nrm[i][1] * ly + nrm[i][2] * lz;
+                int li = 133 + (d > 0 ? (int)d : 0);
+                unsigned r = (((c >> 16) & 255) * li) >> 8, g = (((c >> 8) & 255) * li) >> 8, b = ((c & 255) * li) >> 8;
+                out[i].c = 0xff000000u | ((r > 255 ? 255 : r) << 16) | ((g > 255 ? 255 : g) << 8) | (b > 255 ? 255 : b);
             }
-            float d = nrm[i][0] * lx + nrm[i][1] * ly + nrm[i][2] * lz;
-            int li = 133 + (d > 0 ? (int)d : 0);
-            unsigned r = (((c >> 16) & 255) * li) >> 8, g = (((c >> 8) & 255) * li) >> 8, b = ((c & 255) * li) >> 8;
-            o->c = 0xff000000u | ((r > 255 ? 255 : r) << 16) | ((g > 255 ? 255 : g) << 8) | (b > 255 ? 255 : b);
         }
-        r_mesh(scratch, nv, &dk_model_indices[m->first_index], m->index_count, true);
+        r_mesh(out, nv, &dk_model_indices[m->first_index], m->index_count, true);
     }
 }
 
@@ -176,23 +180,31 @@ void models_draw_kart(int index) {
     draw_kart_lod(index, d > 38.0f ? 1 : 0);
 }
 
-/* Full detail only for the player and the nearest rival inside 14 m;
-   everyone else uses the 150-triangle LOD (kart transforms and lighting
-   were ~6 ms of the console's frame). */
-void models_draw_karts(void) {
+/* Full detail for the kart this view follows, the other human when close,
+   and the nearest rival inside 14 m (none in a split screen); everyone else
+   uses the 150-triangle LOD. Kart transforms and lighting were ~6 ms of the
+   console's frame before this. */
+void models_begin_frame(void) {
+    frame_id++;
+}
+
+void models_draw_karts(int view_kart) {
     float dist[MAX_KARTS];
     for(int i = 0; i < kart_count; i++) {
         V3 d = vsub(karts[i].pos, r_cam.pos);
         dist[i] = vdot(d, d);
     }
+    int near_rival = -1;
+    if(game.num_players < 2 || game.state == ST_RESULTS || game.state <= ST_INTRO)
+        for(int i = 0; i < kart_count; i++)
+            if(!kart_is_human(i) && dist[i] < 14.0f * 14.0f && (near_rival < 0 || dist[i] < dist[near_rival]))
+                near_rival = i;
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
         V3 c = vadd(k->pos, v3(0, 0.8f, 0));
         if(!r_sphere_visible(c, 1.8f)) continue;
-        int closer = 0;
-        for(int j = 0; j < kart_count; j++)
-            if(j != i && j != game.player && dist[j] < dist[i]) closer++;
-        bool full = i == game.player || (dist[i] < 14.0f * 14.0f && closer < 1);
+        float human_near = game.num_players > 1 ? 8.0f : 14.0f;
+        bool full = i == view_kart || i == near_rival || (kart_is_human(i) && dist[i] < human_near * human_near);
         draw_kart_lod(i, full ? 0 : 1);
     }
 }

@@ -14,8 +14,9 @@ void audio_music_target(int volume);     /* fades toward 0..255 */
 void audio_music_rate(float mul);
 void audio_sfx(int id, int vol, int pan);
 void audio_sfx_pitch(int id, int vol, int pan, float rate);
-/* Engine, tyre and spark loops follow the given kart (NULL silences them). */
-void audio_kart_loops(const Kart *k, float dt);
+/* Engine, tyre and spark loops for player slot 0/1 follow the given kart
+   (NULL silences them). */
+void audio_kart_loops(int slot, const Kart *k, float dt);
 /* One-shot effects for a kart's events this step; distance attenuated. */
 void audio_kart_events(const Kart *k, bool is_player);
 

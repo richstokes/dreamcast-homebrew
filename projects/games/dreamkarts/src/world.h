@@ -12,5 +12,7 @@ void world_draw_tr(void);
 /* Sun direction (towards the sun) for lens flare and model lighting. */
 extern V3 world_sun_dir;
 extern float world_time;
+/* Two-player split: shorter draw distance and lighter far scenery. */
+extern bool world_split;
 
 #endif

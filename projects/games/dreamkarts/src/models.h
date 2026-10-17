@@ -7,7 +7,10 @@
 void models_init(void);
 /* Recompute a kart's per-vertex paint after its colours change. */
 void models_paint_kart(int index);
-void models_draw_karts(void);          /* opaque list */
+/* Opaque list; view_kart is the kart this view follows (full detail). */
+void models_draw_karts(int view_kart);
+/* Call once per rendered frame (lighting is cached across views). */
+void models_begin_frame(void);
 void models_draw_kart(int index);      /* single kart, opaque list */
 void models_draw_shadows(void);        /* translucent list */
 /* Kart-space exhaust tips, for flames and smoke. */

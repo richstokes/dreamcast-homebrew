@@ -12,28 +12,24 @@
 #include "title.h"
 #include "track.h"
 #include "world.h"
+#include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
 Game game;
 uint32_t dk_probe_off;
 
-typedef struct {
-    uint32_t paint1, chao, tip;
-    float skill, lane;
-} Rival;
-
-static const Rival rivals[MAX_KARTS - 1] = {
-    {0xff2c6ee6, 0xffffa8d0, 0xffff5a96, 1.000f, -1.4f},   /* BUBBLES */
-    {0xffff8c14, 0xffffd25a, 0xffff8c28, 0.990f, 1.6f},    /* MANGO */
-    {0xff9646dc, 0xffff8c78, 0xffffdc78, 0.980f, -0.4f},   /* CORAL */
-    {0xff28b450, 0xffe6ebf5, 0xff96c8ff, 0.970f, 0.8f},    /* PEBBLE */
-    {0xff32323c, 0xff6e5a96, 0xffe63c50, 0.960f, -2.0f},   /* SUNNY */
+/* CPU driver personalities, in grid order: top-speed factor, lane bias. */
+static const struct { float skill, lane; } rival_ai[MAX_KARTS] = {
+    {1.000f, -1.4f}, {0.990f, 1.6f}, {0.980f, -0.4f}, {0.970f, 0.8f}, {0.960f, -2.0f}, {0.955f, 1.1f}
 };
 
-static float accel_press_t = -1.0f;
 static float finish_wait;
 static bool countdown_beeped[4];
+
+static bool split_screen(void) {
+    return game.num_players > 1 && (game.state == ST_COUNTDOWN || game.state == ST_RACE);
+}
 
 #ifdef DK_AUTOTEST
 #ifdef DK_HW
@@ -70,7 +66,7 @@ static void capture_script(void) {
     if(game.state == ST_TITLE && game.time > 7.0f) { pad.pressed |= BTN_START; step = 0; }
     if(game.state == ST_MENU) {
         if(game.time > 2.0f && !shot[1]) { shot[1] = true; take_shot("menu"); }
-        if(game.time > 3.5f + step * 0.5f && step < 3) { pad.pressed |= BTN_A; step++; }
+        if(game.time > 3.5f && step < 1) { pad.pressed |= BTN_START; step++; }
     }
     if(game.state == ST_INTRO && game.time > 1.6f && !shot[2]) { shot[2] = true; take_shot("intro"); }
     if(game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[7]) { shot[7] = true; take_shot("countdown"); }
@@ -159,21 +155,44 @@ static void update_places(void);
 /* ------------------------------------------------------------------ */
 
 void race_setup(void) {
-    kart_count = game.mode == MODE_GP ? MAX_KARTS : 1;
-    game.player = game.mode == MODE_GP ? MAX_KARTS - 1 : 0;
+    bool gp = game.mode == MODE_GP;
+    int humans = game.num_players < 1 ? 1 : game.num_players;
+    game.num_players = humans;
+    kart_count = gp ? MAX_KARTS : humans;
+    /* Humans start at the back of a Grand Prix grid, alone at the front
+       otherwise. */
+    for(int p = 0; p < humans; p++)
+        game.pl[p].kart = gp ? MAX_KARTS - humans + p : p;
+    game.player = game.pl[0].kart;
+    int next_colour = 0, rival = 0;
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
         memset(k, 0, sizeof(*k));
-        k->cpu = i != game.player;
-        if(k->cpu) {
-            const Rival *r = &rivals[i];
-            k->paint1 = r->paint1;
-            k->chao = r->chao;
-            k->chao_tip = r->tip;
-            k->skill = r->skill;
-            k->lane = r->lane;
+        int hp = -1;
+        for(int p = 0; p < humans; p++)
+            if(game.pl[p].kart == i) hp = p;
+        k->cpu = hp < 0;
+        if(!k->cpu) {
+            kart_apply_colour(k, game.pl[hp].colour);
+            k->name = humans == 1 ? "YOU" : (hp ? "P2" : "P1");
         }
-        kart_place_on_grid(k, game.mode == MODE_GP ? i : 0);
+        else {
+            /* Rivals take the presets the humans did not choose. */
+            for(;;) {
+                bool taken = false;
+                for(int p = 0; p < humans; p++)
+                    if(game.pl[p].colour == next_colour) taken = true;
+                if(!taken) break;
+                next_colour++;
+            }
+            kart_apply_colour(k, next_colour);
+            k->name = kart_colours[next_colour % COLOUR_COUNT].name;
+            next_colour++;
+            k->skill = rival_ai[rival].skill;
+            k->lane = rival_ai[rival].lane;
+            rival++;
+        }
+        kart_place_on_grid(k, i);
         models_paint_kart(i);
     }
     game.race_time = 0;
@@ -182,14 +201,22 @@ void race_setup(void) {
     game.final_lap_announced = false;
     game.pause_sel = 0;
     game.paused = false;
-    accel_press_t = -1.0f;
+    game.humans_done_t = -1;
     finish_wait = 0;
     memset(countdown_beeped, 0, sizeof(countdown_beeped));
+    for(int p = 0; p < humans; p++) {
+        Player *pl = &game.pl[p];
+        pl->accel_press_t = -1.0f;
+        pl->cam_yaw = karts[pl->kart].heading;
+        pl->cam_height = 2.25f;
+        pl->cam_dist = 5.3f;
+        pl->fov = 1.30f;
+        pl->cam.shake = 0;
+        pl->final_lap_seen = false;
+    }
     fx_clear();
     hud_reset();
     update_places();
-    game.cam_yaw = karts[game.player].heading;
-    game.cam_height = 2.3f;
 }
 
 void game_set_state(int state) {
@@ -197,7 +224,8 @@ void game_set_state(int state) {
     game.time = 0;
     if(state == ST_TITLE || state == ST_MENU) {
         if(state == ST_TITLE) title_enter();
-        audio_kart_loops(NULL, DK_DT);
+        audio_kart_loops(0, NULL, DK_DT);
+        audio_kart_loops(1, NULL, DK_DT);
         audio_music_rate(1.0f);
         audio_music_target(210);
     }
@@ -217,33 +245,33 @@ static void camera_basis(Camera *c, V3 pos, V3 look) {
     c->up = vcross(c->fwd, c->right);
 }
 
-static void chase_camera(Camera *cam, const Kart *k, float dt) {
+static void chase_camera(Player *pl, float dt) {
+    const Kart *k = &karts[pl->kart];
+    Camera *cam = &pl->cam;
     float top = kart_top_speed(k);
     float n = clampf(fabsf(k->speed) / top, 0, 1.4f);
     float target_yaw = k->heading + k->vis_yaw * 0.3f;
-    game.cam_yaw += wrap_angle(target_yaw - game.cam_yaw) * smooth_k(5.0f, dt);
-    game.cam_yaw = wrap_angle(game.cam_yaw);
+    pl->cam_yaw += wrap_angle(target_yaw - pl->cam_yaw) * smooth_k(5.0f, dt);
+    pl->cam_yaw = wrap_angle(pl->cam_yaw);
     bool boost = k->boost_t > 0;
     float dist_t = 5.3f + n * 0.8f + (boost ? 0.7f : 0.0f);
-    game.cam_dist += (dist_t - game.cam_dist) * smooth_k(4.0f, dt);
+    pl->cam_dist += (dist_t - pl->cam_dist) * smooth_k(4.0f, dt);
     float h_t = 2.25f + k->pos.y * 0.5f;
-    game.cam_height += (h_t - game.cam_height) * smooth_k(6.0f, dt);
-    V3 back = heading_fwd(game.cam_yaw);
-    V3 pos = vadd(vmad(k->pos, back, -game.cam_dist), v3(0, game.cam_height, 0));
+    pl->cam_height += (h_t - pl->cam_height) * smooth_k(6.0f, dt);
+    V3 back = heading_fwd(pl->cam_yaw);
+    V3 pos = vadd(vmad(k->pos, back, -pl->cam_dist), v3(0, pl->cam_height, 0));
     pos.y = fmaxf(pos.y, 0.8f);
     V3 look = vadd(vmad(k->pos, back, 3.0f), v3(0, 0.95f + k->pos.y * 0.3f, 0));
-    if(game.cam.shake > 0) {
-        float s = game.cam.shake;
-        pos = vadd(pos, v3(frand_s() * s, frand_s() * s, frand_s() * s));
-        game.cam.shake = fmaxf(0.0f, s - dt * 1.2f);
+    float shake = cam->shake;
+    if(shake > 0) {
+        pos = vadd(pos, v3(frand_s() * shake, frand_s() * shake, frand_s() * shake));
+        shake = fmaxf(0.0f, shake - dt * 1.2f);
     }
-    float shake = game.cam.shake;
     camera_basis(cam, pos, look);
     cam->shake = shake;
     float fov_t = 1.30f + n * 0.06f + (boost ? 0.14f : 0.0f);
-    static float fov = 1.30f;
-    fov += (fov_t - fov) * smooth_k(5.0f, dt);
-    cam->fov = fov;
+    pl->fov += (fov_t - pl->fov) * smooth_k(5.0f, dt);
+    cam->fov = pl->fov;
 }
 
 static void intro_camera(Camera *cam, float t) {
@@ -260,9 +288,6 @@ static void intro_camera(Camera *cam, float t) {
     camera_basis(cam, mid, vlerp(look0, look1, e));
     cam->fov = lerpf(1.1f, 1.30f, e);
     cam->shake = 0;
-    game.cam_yaw = k->heading;
-    game.cam_dist = 5.3f;
-    game.cam_height = 2.25f;
 }
 
 static void results_camera(Camera *cam, float dt) {
@@ -277,15 +302,16 @@ static void results_camera(Camera *cam, float dt) {
 /* ------------------------------------------------------------------ */
 /* Race                                                                */
 
-static void player_input(KartInput *in) {
+static void player_input(int player, KartInput *in) {
+    const Pad *pd = input_pad(player);
     memset(in, 0, sizeof(*in));
-    float steer = pad.stick_x;
-    if(pad.held & BTN_LEFT) steer = -1;
-    if(pad.held & BTN_RIGHT) steer = 1;
+    float steer = pd->stick_x;
+    if(pd->held & BTN_LEFT) steer = -1;
+    if(pd->held & BTN_RIGHT) steer = 1;
     in->steer = steer;
-    in->accel = (pad.held & BTN_A) != 0;
-    in->brake = (pad.held & BTN_B) != 0;
-    in->drift = (pad.held & (BTN_R | BTN_L | BTN_X)) != 0;
+    in->accel = (pd->held & BTN_A) != 0;
+    in->brake = (pd->held & BTN_B) != 0;
+    in->drift = (pd->held & (BTN_R | BTN_L | BTN_X)) != 0;
 }
 
 static void update_places(void) {
@@ -323,42 +349,48 @@ static void finalize_results(void) {
     update_places();
 }
 
-static void player_events(Kart *p) {
+static void player_events(int pi) {
+    Player *pl = &game.pl[pi];
+    Kart *p = &karts[pl->kart];
     uint32_t ev = p->events;
     if(ev & EV_LAP) {
-        if(p->lap == RACE_LAPS && !game.final_lap_announced) {
-            game.final_lap_announced = true;
-            hud_message("FINAL LAP!", argb(255, 255, 210, 50), 2.4f);
-            audio_sfx(DK_SFX_FINAL_LAP, 230, 128);
-            audio_music_rate(1.06f);
+        if(p->lap == RACE_LAPS && !pl->final_lap_seen) {
+            pl->final_lap_seen = true;
+            hud_message(pi, "FINAL LAP!", argb(255, 255, 210, 50), 2.4f);
+            if(!game.final_lap_announced) {
+                game.final_lap_announced = true;
+                audio_sfx(DK_SFX_FINAL_LAP, 230, 128);
+                audio_music_rate(1.06f);
+            }
         }
         else {
             audio_sfx(DK_SFX_LAP, 220, 128);
         }
         float t = p->lap_times[p->lap - 2];
-        hud_lap_popup(p->lap - 1, t, t <= p->best_lap + 0.001f && p->lap > 2);
+        hud_lap_popup(pi, p->lap - 1, t, t <= p->best_lap + 0.001f && p->lap > 2);
     }
     if(ev & EV_FINISH) {
         audio_sfx(DK_SFX_FINISH, 240, 128);
         if(game.mode == MODE_TT || p->place <= 3) audio_sfx(DK_SFX_CHAO_HAPPY, 210, 128);
-        audio_music_target(90);
-        fx_confetti(vadd(p->pos, v3(0, 1.5f, 0)), 90);
-        finish_wait = 0;
+        fx_confetti(vadd(p->pos, v3(0, 1.5f, 0)), game.num_players > 1 ? 50 : 90);
     }
-    if(ev & (EV_WALL)) game.cam.shake = fmaxf(game.cam.shake, 0.12f);
-    if(ev & (EV_BOOST | EV_DASH | EV_ROCKET)) game.cam.shake = fmaxf(game.cam.shake, 0.04f);
+    if(ev & (EV_WALL)) pl->cam.shake = fmaxf(pl->cam.shake, 0.12f);
+    if(ev & (EV_BOOST | EV_DASH | EV_ROCKET)) pl->cam.shake = fmaxf(pl->cam.shake, 0.04f);
 }
 
 static void race_step(float dt, bool drive) {
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
         KartInput in;
-        bool ai = k->cpu || k->finished;
+        int hp = -1;
+        for(int p = 0; p < game.num_players; p++)
+            if(game.pl[p].kart == i) hp = p;
+        bool ai = k->cpu || k->finished || hp < 0;
 #ifdef DK_AUTOTEST
         ai = true;
 #endif
         if(ai) ai_drive(k, &in, dt);
-        else player_input(&in);
+        else player_input(hp, &in);
         kart_update(k, &in, dt, drive);
     }
     karts_collide();
@@ -367,9 +399,10 @@ static void race_step(float dt, bool drive) {
         Kart *k = &karts[i];
         if(k->events & EV_FINISH) game.finished_count++;
         fx_kart(k, dt);
-        audio_kart_events(k, i == game.player);
+        audio_kart_events(k, kart_is_human(i));
     }
-    player_events(&karts[game.player]);
+    for(int p = 0; p < game.num_players; p++)
+        player_events(p);
 #ifdef DK_AUTOTEST
     {
         uint32_t ev = karts[game.player].events;
@@ -392,21 +425,28 @@ static void countdown_step(float dt) {
         }
     }
     /* Rocket start: press accelerate just as "2" fades, hold it through GO. */
-    if(pad.pressed & BTN_A) accel_press_t = before;
-    if(!(pad.held & BTN_A)) accel_press_t = -1.0f;
+    for(int pi = 0; pi < game.num_players; pi++) {
+        Player *pl = &game.pl[pi];
+        const Pad *pd = input_pad(pi);
+        if(pd->pressed & BTN_A) pl->accel_press_t = before;
+        if(!(pd->held & BTN_A)) pl->accel_press_t = -1.0f;
 #ifdef DK_AUTOTEST
-    accel_press_t = 1.9f;
+        pl->accel_press_t = 1.9f;
 #endif
+    }
     if(game.countdown >= 3.0f) {
-        Kart *p = &karts[game.player];
-        if(accel_press_t >= 1.55f && accel_press_t <= 2.4f) {
-            kart_start_boost(p, 1.0f, 1.12f);
-            p->events |= EV_ROCKET;
-            audio_sfx(DK_SFX_BOOST, 230, 128);
-        }
-        else if(accel_press_t >= 0 && accel_press_t < 1.3f) {
-            p->burnout_t = 0.85f;
-            audio_sfx(DK_SFX_BUMP, 150, 128);
+        for(int pi = 0; pi < game.num_players; pi++) {
+            Player *pl = &game.pl[pi];
+            Kart *p = &karts[pl->kart];
+            if(pl->accel_press_t >= 1.55f && pl->accel_press_t <= 2.4f) {
+                kart_start_boost(p, 1.0f, 1.12f);
+                p->events |= EV_ROCKET;
+                audio_sfx(DK_SFX_BOOST, 230, 128);
+            }
+            else if(pl->accel_press_t >= 0 && pl->accel_press_t < 1.3f) {
+                p->burnout_t = 0.85f;
+                audio_sfx(DK_SFX_BUMP, 150, 128);
+            }
         }
         for(int i = 0; i < kart_count; i++) {
             if(!karts[i].cpu) continue;
@@ -417,22 +457,31 @@ static void countdown_step(float dt) {
     }
 }
 
+/* START from any player: returns that player's index, or -1. */
+static int start_pressed(void) {
+    for(int p = 0; p < game.num_players; p++)
+        if(input_pad(p)->pressed & BTN_START) return p;
+    return -1;
+}
+
 static void pause_update(void) {
-    if(input_menu_up()) {
+    int o = game.pause_owner;
+    const Pad *pd = input_pad(o);
+    if(input_up(o)) {
         game.pause_sel = (game.pause_sel + 2) % 3;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
-    if(input_menu_down()) {
+    if(input_down(o)) {
         game.pause_sel = (game.pause_sel + 1) % 3;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
-    if(pad.pressed & (BTN_START | BTN_B)) {
+    if(pd->pressed & (BTN_START | BTN_B)) {
         game.paused = false;
         audio_sfx(DK_SFX_MENU_BACK, 180, 128);
         audio_music_target(150);
         return;
     }
-    if(pad.pressed & BTN_A) {
+    if(pd->pressed & BTN_A) {
         audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
         game.paused = false;
         if(game.pause_sel == 1) {
@@ -469,19 +518,24 @@ static void update(float dt) {
                 KartInput in = {0};
                 kart_update(&karts[i], &in, dt, false);
             }
-            if(game.time >= 3.2f || (game.time > 0.5f && (pad.pressed & BTN_A))) {
+            if(game.time >= 3.2f || (game.time > 0.5f && ((pad.pressed | pad2.pressed) & BTN_A))) {
                 game.state = ST_COUNTDOWN;
                 game.time = 0;
                 game.countdown = 0;
             }
             break;
         case ST_COUNTDOWN:
-            if(pad.pressed & BTN_START) {
-                game.paused = !game.paused;
-                if(game.paused) audio_music_target(60);
+            if(game.paused) {
+                pause_update();
+                break;
             }
-            else if(game.paused) pause_update();
-            if(game.paused) break;
+            if(start_pressed() >= 0) {
+                game.paused = true;
+                game.pause_owner = start_pressed();
+                game.pause_sel = 0;
+                audio_music_target(60);
+                break;
+            }
             countdown_step(dt);
             for(int i = 0; i < kart_count; i++) {
                 KartInput in = {0};
@@ -489,12 +543,13 @@ static void update(float dt) {
             }
             break;
         case ST_RACE: {
-            if(!game.paused && (pad.pressed & BTN_START)) {
+            if(!game.paused && start_pressed() >= 0) {
                 game.paused = true;
+                game.pause_owner = start_pressed();
                 game.pause_sel = 0;
                 audio_sfx(DK_SFX_MENU_SELECT, 180, 128);
                 audio_music_target(60);
-                pad.pressed = 0;
+                pad.pressed = pad2.pressed = 0;
             }
             if(game.paused) {
                 pause_update();
@@ -503,25 +558,38 @@ static void update(float dt) {
             game.countdown += dt;
             game.race_time += dt;
             race_step(dt, true);
-            Kart *p = &karts[game.player];
-            if(p->finished) {
+            /* Results once every human is home (a short pause to enjoy the
+               finish), or 20 s after the first in a two-player race. */
+            int home = 0;
+            for(int p = 0; p < game.num_players; p++)
+                if(karts[game.pl[p].kart].finished) home++;
+            if(home > 0) {
+                if(game.humans_done_t < 0) game.humans_done_t = 0;
+                game.humans_done_t += dt;
+            }
+            if(home == game.num_players) {
                 finish_wait += dt;
                 if(finish_wait > 4.5f) {
                     finalize_results();
                     game_set_state(ST_RESULTS);
                 }
             }
+            else if(home > 0 && game.humans_done_t > 20.0f) {
+                finalize_results();
+                game_set_state(ST_RESULTS);
+            }
+            if(home == 1 && finish_wait == 0) audio_music_target(game.num_players > 1 ? 130 : 90);
             break;
         }
         case ST_RESULTS:
             game.race_time += dt;
             race_step(dt, true);
-            if(game.time > 1.0f && (pad.pressed & BTN_A)) {
+            if(game.time > 1.0f && ((pad.pressed | pad2.pressed) & BTN_A)) {
                 audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
                 race_setup();
                 game_set_state(ST_INTRO);
             }
-            else if(game.time > 1.0f && (pad.pressed & BTN_B)) {
+            else if(game.time > 1.0f && ((pad.pressed | pad2.pressed) & BTN_B)) {
                 audio_sfx(DK_SFX_MENU_BACK, 200, 128);
                 race_setup();
                 game_set_state(ST_TITLE);
@@ -544,7 +612,8 @@ static void update_camera(float dt) {
             results_camera(&game.cam, dt);
             break;
         default:
-            chase_camera(&game.cam, &karts[game.player], game.paused ? 0 : dt);
+            for(int p = 0; p < game.num_players; p++)
+                chase_camera(&game.pl[p], game.paused ? 0 : dt);
             break;
     }
 }
@@ -554,25 +623,69 @@ static uint64_t prof_us[6];
 static int prof_frames;
 #define PROF_MARK(i) do { uint64_t _n = timer_us_gettime64(); prof_us[i] += _n - prof_t; prof_t = _n; } while(0)
 
+/* Views this frame: one full-screen view, or a top/bottom split while two
+   players race. Every view is drawn inside each PVR list in turn. */
+static int view_count(void) {
+    return split_screen() ? 2 : 1;
+}
+
+static void set_view(int v) {
+    bool racing = game.state == ST_COUNTDOWN || game.state == ST_RACE;
+    if(view_count() == 2) r_set_viewport(v ? 240.0f : 0.0f, v ? 480.0f : 240.0f);
+    else r_set_viewport(0, 480.0f);
+    r_set_camera(racing ? &game.pl[v].cam : &game.cam);
+}
+
+static int view_kart(int v) {
+    bool racing = game.state == ST_COUNTDOWN || game.state == ST_RACE;
+    return racing ? game.pl[v].kart : game.player;
+}
+
+static void draw_finish_banner(int pi, float y0, float y1) {
+    const Kart *k = &karts[game.pl[pi].kart];
+    if(!k->finished) return;
+    float t = game.race_time - k->finish_time;
+    float base = (y1 - y0) / 480.0f;
+    float s = (t < 0.3f ? 0.4f + t * 2.5f : 1.15f + 0.03f * sinf(t * 6)) * (base < 1 ? 0.62f : 1.0f);
+    hud_bigtext(4, 320, y0 + (y1 - y0) * 0.4f, s, 0xffffffff);
+}
+
 static void render(void) {
     uint64_t prof_t = timer_us_gettime64();
-    r_set_camera(&game.cam);
+    int views = view_count();
+    world_split = views > 1;
+    models_begin_frame();
     r_frame_begin();
 
     r_list(PVR_LIST_OP_POLY);
-    world_draw_op();
+    for(int v = 0; v < views; v++) {
+        set_view(v);
+        world_draw_op();
+    }
     PROF_MARK(1);
-    if(!(dk_probe_off & PROBE_KARTS)) models_draw_karts();
+    if(!(dk_probe_off & PROBE_KARTS))
+        for(int v = 0; v < views; v++) {
+            set_view(v);
+            models_draw_karts(view_kart(v));
+        }
     PROF_MARK(2);
 
     r_list(PVR_LIST_PT_POLY);
-    if(!(dk_probe_off & PROBE_PT)) world_draw_pt();
+    if(!(dk_probe_off & PROBE_PT))
+        for(int v = 0; v < views; v++) {
+            set_view(v);
+            world_draw_pt();
+        }
     PROF_MARK(3);
 
     r_list(PVR_LIST_TR_POLY);
-    world_draw_tr();
-    if(!(dk_probe_off & PROBE_SHADOWS)) models_draw_shadows();
-    if(!(dk_probe_off & PROBE_FX)) fx_draw();
+    for(int v = 0; v < views; v++) {
+        set_view(v);
+        world_draw_tr();
+        if(!(dk_probe_off & PROBE_SHADOWS)) models_draw_shadows();
+        if(!(dk_probe_off & PROBE_FX)) fx_draw();
+    }
+    r_set_viewport(0, 480.0f);
     if(!(dk_probe_off & PROBE_HUD)) switch(game.state) {
         case ST_TITLE:
         case ST_MENU:
@@ -584,18 +697,26 @@ static void render(void) {
             hud_panel(0, 330, 640, 410, argb((int)(170 * a), 20, 70, 180), argb((int)(170 * a), 10, 30, 90), 15);
             hud_text(320 + (1 - a) * 200, 334, 1.2f, ALIGN_CENTER, color_alpha(argb(255, 255, 220, 60), a), "EMERALD BEACH");
             char buf[48];
-            snprintf(buf, sizeof(buf), "%s  -  %s", game.mode == MODE_GP ? "GRAND PRIX" : "TIME TRIAL", cc_names[game.cc]);
+            const char *mode = game.mode == MODE_GP ? "GRAND PRIX" : game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
+            snprintf(buf, sizeof(buf), "%s%s  -  %s", game.num_players > 1 ? "2P " : "", mode, cc_names[game.cc]);
             hud_text(320 - (1 - a) * 200, 378, 0.65f, ALIGN_CENTER, color_alpha(0xffffffff, a), buf);
             break;
         }
         case ST_COUNTDOWN:
         case ST_RACE:
-            hud_draw_race();
-            hud_draw_countdown();
-            if(karts[game.player].finished) {
-                float t = finish_wait;
-                float s = t < 0.3f ? 0.4f + t * 2.5f : 1.15f + 0.03f * sinf(t * 6);
-                hud_bigtext(4, 320, 190, s, 0xffffffff);
+            if(views == 1) {
+                hud_draw_race(0, 0, 480);
+                hud_draw_countdown(0, 480);
+                draw_finish_banner(0, 0, 480);
+            }
+            else {
+                for(int v = 0; v < 2; v++) {
+                    float y0 = v ? 240.0f : 0.0f, y1 = y0 + 240.0f;
+                    hud_draw_race(v, y0, y1);
+                    hud_draw_countdown(y0, y1);
+                    draw_finish_banner(v, y0, y1);
+                }
+                hud_draw_split_overlay();
             }
             if(game.paused) hud_draw_pause();
             break;
@@ -624,12 +745,21 @@ int main(int argc, char **argv) {
 
     game.cc = CC_100;
     game.mode = MODE_GP;
-    game.cam_dist = 5.3f;
+    game.num_players = 1;
+    game.pl[0].colour = 0;
+    game.pl[1].colour = 1;
+#if defined(DK_AT_2P) && defined(DK_CAPTURE)
+    game.num_players = 2;
+    game.pl[0].colour = 6;
+#endif
     race_setup();
 #if defined(DK_AUTOTEST) && !defined(DK_CAPTURE)
     game.cc = CC_150;
 #ifdef DK_AT_TT
     game.mode = MODE_TT;
+#endif
+#ifdef DK_AT_2P
+    game.num_players = 2;
 #endif
     race_setup();
     game_set_state(ST_INTRO);
@@ -673,15 +803,15 @@ int main(int argc, char **argv) {
             capture_script();
 #endif
             update(DK_DT);
-            pad.pressed = 0;
-            pad.released = 0;
+            pad.pressed = pad2.pressed = 0;
+            pad.released = pad2.released = 0;
         }
         update_camera(dt_real);
         audio_update(dt_real);
-        if(game.state == ST_RACE || game.state == ST_COUNTDOWN || game.state == ST_RESULTS)
-            audio_kart_loops(game.paused ? NULL : &karts[game.player], dt_real);
-        else
-            audio_kart_loops(NULL, dt_real);
+        bool engines = (game.state == ST_RACE || game.state == ST_COUNTDOWN || game.state == ST_RESULTS) &&
+                       !game.paused;
+        for(int p = 0; p < MAX_PLAYERS; p++)
+            audio_kart_loops(p, engines && p < game.num_players ? &karts[game.pl[p].kart] : NULL, dt_real);
         prof_us[0] += timer_us_gettime64() - upd_t0;
         render();
 
@@ -755,7 +885,7 @@ int main(int argc, char **argv) {
                        (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)), (double)at.cpu_max,
                        (unsigned long)(at.vtx_max / 1024));
                 for(int i = 0; i < kart_count; i++)
-                    printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, game.finish_order[i] == game.player ? "YOU" : kart_names[game.finish_order[i]],
+                    printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, karts[game.finish_order[i]].name,
                            (double)karts[game.finish_order[i]].finish_time);
                 bool ok = p->finish_time > 0 && p->finish_time < 150.0f && at.drifts > 3;
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");

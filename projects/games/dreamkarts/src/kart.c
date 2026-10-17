@@ -18,6 +18,31 @@
 Kart karts[MAX_KARTS];
 int kart_count;
 
+const KartColour kart_colours[COLOUR_COUNT] = {
+    {"CLASSIC", 0, 0, 0, 0xff8cc8f0},                          /* red kart, sky-blue Chao */
+    {"BUBBLES", 0xff2c6ee6, 0xffffa8d0, 0xffff5a96, 0xffffa8d0},
+    {"MANGO", 0xffff8c14, 0xffffd25a, 0xffff8c28, 0xffffd25a},
+    {"CORAL", 0xff9646dc, 0xffff8c78, 0xffffdc78, 0xffff8c78},
+    {"PEBBLE", 0xff28b450, 0xffe6ebf5, 0xff96c8ff, 0xffe6ebf5},
+    {"MIDNIGHT", 0xff32323c, 0xff6e5a96, 0xffe63c50, 0xff6e5a96},
+    {"HERO", 0xfff0f0f4, 0xfffaf4e0, 0xffffc830, 0xffffe890},
+    {"LIME", 0xffffd020, 0xff82e07a, 0xff2fa84f, 0xff82e07a},
+};
+
+void kart_apply_colour(Kart *k, int colour) {
+    const KartColour *c = &kart_colours[(colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT];
+    k->paint1 = c->paint1;
+    k->chao = c->chao;
+    k->chao_tip = c->tip;
+    k->ui_color = c->ui;
+}
+
+bool kart_is_human(int index) {
+    for(int p = 0; p < game.num_players; p++)
+        if(game.pl[p].kart == index) return true;
+    return false;
+}
+
 const CCParams cc_params[CC_COUNT] = {
     {17.5f}, {21.5f}, {25.5f}
 };
@@ -40,8 +65,10 @@ const CCParams cc_params[CC_COUNT] = {
 float kart_top_speed(const Kart *k) {
     float top = cc_params[game.cc].top_speed;
     if(k->cpu) {
-        const Kart *p = &karts[game.player];
-        float behind = p->progress - k->progress;
+        /* Rubber-band against the leading human. */
+        float lead = karts[game.pl[0].kart].progress;
+        if(game.num_players > 1) lead = fmaxf(lead, karts[game.pl[1].kart].progress);
+        float behind = lead - k->progress;
         top *= k->skill * (1.0f + clampf(behind / 140.0f, -0.07f, 0.09f));
     }
     return top;
@@ -51,11 +78,13 @@ void kart_place_on_grid(Kart *k, int slot) {
     int row = slot / 2, col = slot % 2;
     float s = -7.0f - row * 7.5f - col * 3.5f;
     float d = col ? 3.6f : -3.6f;
-    uint32_t p1 = k->paint1, p2 = k->paint2, ch = k->chao, tip = k->chao_tip;
+    uint32_t p1 = k->paint1, p2 = k->paint2, ch = k->chao, tip = k->chao_tip, ui = k->ui_color;
+    const char *name = k->name;
     bool cpu = k->cpu;
     float skill = k->skill, lane = k->lane;
     memset(k, 0, sizeof(*k));
-    k->paint1 = p1; k->paint2 = p2; k->chao = ch; k->chao_tip = tip;
+    k->paint1 = p1; k->paint2 = p2; k->chao = ch; k->chao_tip = tip; k->ui_color = ui;
+    k->name = name;
     k->cpu = cpu; k->skill = skill; k->lane = lane;
     k->pos = track_point(s, d);
     V3 t = track_tangent(s);

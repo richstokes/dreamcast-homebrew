@@ -25,6 +25,11 @@ typedef struct { float x, y, w, u, v; uint32_t c; } CV;
 
 static shz_mat4x4_t vp __attribute__((aligned(32)));
 static float cam_f, cam_tx, cam_ty;
+/* Viewport: full screen, or one half of a two-player split. In a split the
+   horizontal edges are real borders, so triangles crossing them are clipped
+   in software (PVR tile clipping is 32-pixel granular; 240 is not). */
+static float view_y0 = 0, view_y1 = 480, view_cx = 320, view_cy = 240;
+static unsigned clip_mask = 16;
 static const pvr_poly_hdr_t *cur_hdr, *sent_hdr;
 static CV cvbuf[MAX_STRIP] __attribute__((aligned(32)));
 static CV mesh_cv[MAX_MESH_VERTS] __attribute__((aligned(32)));
@@ -210,18 +215,25 @@ void m4_scale_apply(float *m, float sx, float sy, float sz) {
     }
 }
 
+void r_set_viewport(float y0, float y1) {
+    view_y0 = y0;
+    view_y1 = y1;
+    view_cy = (y0 + y1) * 0.5f;
+    clip_mask = (y0 > 0 || y1 < 480) ? (16u | 4u | 8u) : 16u;
+}
+
 void r_set_camera(const Camera *c) {
     r_cam = *c;
     cam_f = 320.0f / tanf(c->fov * 0.5f);
     cam_tx = 320.0f / cam_f;
-    cam_ty = 240.0f / cam_f;
+    cam_ty = (view_y1 - view_y0) * 0.5f / cam_f;
     V3 r = c->right, u = c->up, f = c->fwd, e = c->pos;
     float re = vdot(r, e), ue = vdot(u, e), fe = vdot(f, e);
-    float F = cam_f;
+    float F = cam_f, CX = view_cx, CY = view_cy;
     /* Rows of P*V, stored column-major. */
     float row[4][4] = {
-        {F * r.x + 320 * f.x, F * r.y + 320 * f.y, F * r.z + 320 * f.z, -(F * re + 320 * fe)},
-        {-F * u.x + 240 * f.x, -F * u.y + 240 * f.y, -F * u.z + 240 * f.z, -(-F * ue + 240 * fe)},
+        {F * r.x + CX * f.x, F * r.y + CX * f.y, F * r.z + CX * f.z, -(F * re + CX * fe)},
+        {-F * u.x + CY * f.x, -F * u.y + CY * f.y, -F * u.z + CY * f.z, -(-F * ue + CY * fe)},
         {f.x, f.y, f.z, -fe},
         {f.x, f.y, f.z, -fe}
     };
@@ -259,8 +271,8 @@ bool r_project(V3 p, float *sx, float *sy, float *inv_w) {
     float z = vdot(d, r_cam.fwd);
     if(z < NEAR_W) return false;
     float inv = 1.0f / z;
-    *sx = 320.0f + vdot(d, r_cam.right) * cam_f * inv;
-    *sy = 240.0f - vdot(d, r_cam.up) * cam_f * inv;
+    *sx = view_cx + vdot(d, r_cam.right) * cam_f * inv;
+    *sy = view_cy - vdot(d, r_cam.up) * cam_f * inv;
     *inv_w = inv;
     return true;
 }
@@ -293,8 +305,8 @@ static inline unsigned outcode(const CV *o) {
     unsigned code = o->w < NEAR_W ? 16u : 0u;
     if(o->x < 0) code |= 1;
     if(o->x > 640.0f * o->w) code |= 2;
-    if(o->y < 0) code |= 4;
-    if(o->y > 480.0f * o->w) code |= 8;
+    if(o->y < view_y0 * o->w) code |= 4;
+    if(o->y > view_y1 * o->w) code |= 8;
     return code;
 }
 
@@ -316,36 +328,60 @@ static inline CV cv_lerp(const CV *a, const CV *b, float t) {
     CV r;
     r.x = a->x + (b->x - a->x) * t;
     r.y = a->y + (b->y - a->y) * t;
-    r.w = NEAR_W;
+    r.w = a->w + (b->w - a->w) * t;
     r.u = a->u + (b->u - a->u) * t;
     r.v = a->v + (b->v - a->v) * t;
     r.c = color_lerp(a->c, b->c, t);
     return r;
 }
 
-static void clip_tri(const CV *a, const CV *b, const CV *c) {
-    const CV *in[3] = {a, b, c};
-    CV out[4];
-    int n = 0;
-    for(int i = 0; i < 3; i++) {
-        const CV *s = in[i], *e = in[(i + 1) % 3];
-        bool si = s->w >= NEAR_W, ei = e->w >= NEAR_W;
-        if(si) out[n++] = *s;
-        if(si != ei) out[n++] = cv_lerp(s, e, (NEAR_W - s->w) / (e->w - s->w));
+/* Signed distance to a clip plane in homogeneous space (>= 0 is inside). */
+static inline float plane_dist(const CV *v, int plane) {
+    switch(plane) {
+        case 0: return v->w - NEAR_W;
+        case 1: return v->y - view_y0 * v->w;
+        default: return view_y1 * v->w - v->y;
     }
-    if(n < 3) return;
+}
+
+static inline void emit_tri(const CV *a, const CV *b, const CV *c) {
     flush_hdr();
-    emit(&out[0], PVR_CMD_VERTEX);
-    emit(&out[1], PVR_CMD_VERTEX);
-    if(n == 4) {
-        emit(&out[3], PVR_CMD_VERTEX);
-        emit(&out[2], PVR_CMD_VERTEX_EOL);
-        rstats.tris += 2;
+    emit(a, PVR_CMD_VERTEX);
+    emit(b, PVR_CMD_VERTEX);
+    emit(c, PVR_CMD_VERTEX_EOL);
+    rstats.tris++;
+}
+
+/* Clip against the near plane and, in a split screen, the viewport's top
+   and bottom, then emit the polygon as a fan. */
+static void clip_tri(const CV *a, const CV *b, const CV *c) {
+    CV buf[2][9];
+    int n = 3, cur = 0;
+    buf[0][0] = *a;
+    buf[0][1] = *b;
+    buf[0][2] = *c;
+    for(int plane = 0; plane < 3; plane++) {
+        if(plane > 0 && !(clip_mask & 4)) break;
+        const CV *in = buf[cur];
+        CV *out = buf[cur ^ 1];
+        int m = 0;
+        for(int i = 0; i < n; i++) {
+            const CV *s = &in[i], *e = &in[(i + 1) % n];
+            float ds = plane_dist(s, plane), de = plane_dist(e, plane);
+            if(ds >= 0) out[m++] = *s;
+            if((ds >= 0) != (de >= 0) && m < 9) {
+                out[m] = cv_lerp(s, e, ds / (ds - de));
+                if(plane == 0) out[m].w = NEAR_W;
+                m++;
+            }
+        }
+        n = m;
+        cur ^= 1;
+        if(n < 3) return;
     }
-    else {
-        emit(&out[2], PVR_CMD_VERTEX_EOL);
-        rstats.tris++;
-    }
+    const CV *p = buf[cur];
+    for(int i = 1; i + 1 < n; i++)
+        emit_tri(&p[0], &p[i], &p[i + 1]);
 }
 
 void r_strip(const RV *v, int n) {
@@ -359,9 +395,15 @@ void r_strip(const RV *v, int n) {
     }
     if(and_code & 16) return;
     if(!(or_code & 16) && (and_code & 15)) return;
-    if(or_code & 16) {
-        for(int i = 0; i + 2 < n; i++)
-            clip_tri(&cvbuf[i], &cvbuf[i + 1], &cvbuf[i + 2]);
+    if(or_code & clip_mask) {
+        static uint8_t codes[MAX_STRIP];
+        for(int i = 0; i < n; i++) codes[i] = (uint8_t)outcode(&cvbuf[i]);
+        for(int i = 0; i + 2 < n; i++) {
+            unsigned ca = codes[i], cb = codes[i + 1], cc = codes[i + 2];
+            if(ca & cb & cc) continue;
+            if((ca | cb | cc) & clip_mask) clip_tri(&cvbuf[i], &cvbuf[i + 1], &cvbuf[i + 2]);
+            else emit_tri(&cvbuf[i], &cvbuf[i + 1], &cvbuf[i + 2]);
+        }
         return;
     }
     flush_hdr();
@@ -402,7 +444,7 @@ void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
         unsigned a = idx[i], b = idx[i + 1], c = idx[i + 2];
         unsigned ca = mesh_code[a], cb = mesh_code[b], cc = mesh_code[c];
         if(ca & cb & cc) continue;
-        if((ca | cb | cc) & 16) {
+        if((ca | cb | cc) & clip_mask) {
             clip_tri(&mesh_cv[a], &mesh_cv[b], &mesh_cv[c]);
             continue;
         }
@@ -458,6 +500,7 @@ void r_streak_ex(V3 a, V3 b, float width_a, float width_b, uint32_t col_a, uint3
                  float v_a, float v_b) {
     float ax, ay, aw, bx, by, bw;
     if(!r_project(a, &ax, &ay, &aw) || !r_project(b, &bx, &by, &bw)) return;
+    if(ay < view_y0 + 2 || ay > view_y1 - 2 || by < view_y0 + 2 || by > view_y1 - 2) return;
     float dx = bx - ax, dy = by - ay;
     float len = sqrtf(dx * dx + dy * dy);
     if(len < 0.5f) {

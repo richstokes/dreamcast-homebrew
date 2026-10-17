@@ -8,15 +8,15 @@
 #include "texture_assets.h"
 #include "font_metrics.h"
 
-const char *const kart_names[MAX_KARTS] = {"BUBBLES", "MANGO", "CORAL", "PEBBLE", "SUNNY", "YOU"};
-
 static const pvr_poly_hdr_t *h_font, *h_big, *h_flat, *h_glow;
-static char msg_text[32];
-static uint32_t msg_col;
-static float msg_t, msg_len;
-static char lap_text[48];
-static float lap_t;
-static bool lap_best;
+static struct {
+    char msg_text[32];
+    uint32_t msg_col;
+    float msg_t, msg_len;
+    char lap_text[48];
+    float lap_t;
+    bool lap_best;
+} pm[MAX_PLAYERS];
 static float hud_time;
 
 void hud_init(void) {
@@ -27,13 +27,15 @@ void hud_init(void) {
 }
 
 void hud_reset(void) {
-    msg_t = lap_t = 0;
+    for(int p = 0; p < MAX_PLAYERS; p++) pm[p].msg_t = pm[p].lap_t = 0;
 }
 
 void hud_update(float dt) {
     hud_time += dt;
-    if(msg_t > 0) msg_t -= dt;
-    if(lap_t > 0) lap_t -= dt;
+    for(int p = 0; p < MAX_PLAYERS; p++) {
+        if(pm[p].msg_t > 0) pm[p].msg_t -= dt;
+        if(pm[p].lap_t > 0) pm[p].lap_t -= dt;
+    }
 }
 
 float hud_text_width(const char *s, float scale) {
@@ -107,23 +109,22 @@ uint32_t hud_place_color(int place) {
     }
 }
 
-void hud_message(const char *text, uint32_t col, float seconds) {
-    strncpy(msg_text, text, sizeof(msg_text) - 1);
-    msg_text[sizeof(msg_text) - 1] = 0;
-    msg_col = col;
-    msg_t = msg_len = seconds;
+void hud_message(int player, const char *text, uint32_t col, float seconds) {
+    strncpy(pm[player].msg_text, text, sizeof(pm[player].msg_text) - 1);
+    pm[player].msg_text[sizeof(pm[player].msg_text) - 1] = 0;
+    pm[player].msg_col = col;
+    pm[player].msg_t = pm[player].msg_len = seconds;
 }
 
-void hud_lap_popup(int lap, float time, bool best) {
+void hud_lap_popup(int player, int lap, float time, bool best) {
     char t[20];
     hud_format_time(t, time);
-    snprintf(lap_text, sizeof(lap_text), "LAP %d  %s", lap, t);
-    lap_t = 2.6f;
-    lap_best = best;
+    snprintf(pm[player].lap_text, sizeof(pm[player].lap_text), "LAP %d  %s", lap, t);
+    pm[player].lap_t = 2.6f;
+    pm[player].lap_best = best;
 }
 
-static void draw_minimap(void) {
-    const float cx = 98, cy = 402, sc = 0.40f;
+static void draw_minimap(float cx, float cy, float sc) {
     r_hdr(h_flat);
     /* Road band. */
     for(int i = 0; i < TRACK_SAMPLES; i += 4) {
@@ -142,55 +143,67 @@ static void draw_minimap(void) {
     /* Start line tick. */
     V3 s0 = track_point(0, -10), s1 = track_point(0, 10);
     r_quad2d(cx + s0.x * sc - 1, cy - s0.z * sc, cx + s1.x * sc + 1, cy - s1.z * sc, 0, 0, 1, 1, 0xffff3030, 18.2f);
-    /* Karts: rivals first, the player on top with a pulse. */
+    /* Karts: rivals first, humans on top with a pulse and a white rim. */
     for(int pass = 0; pass < 2; pass++) {
         for(int i = 0; i < kart_count; i++) {
-            bool me = i == game.player;
+            bool me = kart_is_human(i);
             if(me != (pass == 1)) continue;
             const Kart *k = &karts[i];
             float x = cx + k->pos.x * sc, y = cy - k->pos.z * sc;
-            float r = me ? 5.5f + sinf(hud_time * 8) * 0.8f : 4.0f;
-            r_quad2d(x - r - 1.5f, y - r - 1.5f, x + r + 1.5f, y + r + 1.5f, 0, 0, 1, 1, 0xff102040, 18.4f + pass);
-            r_quad2d(x - r, y - r, x + r, y + r, 0, 0, 1, 1, me ? 0xffffffff : (k->chao | 0xff000000), 18.5f + pass);
+            float r = me ? 5.0f + sinf(hud_time * 8) * 0.8f : 3.6f;
+            r_quad2d(x - r - 1.5f, y - r - 1.5f, x + r + 1.5f, y + r + 1.5f, 0, 0, 1, 1,
+                     me ? 0xffffffff : 0xff102040, 18.4f + pass);
+            r_quad2d(x - r, y - r, x + r, y + r, 0, 0, 1, 1, k->ui_color | 0xff000000, 18.5f + pass);
         }
     }
 }
 
-void hud_draw_race(void) {
-    const Kart *p = &karts[game.player];
+void hud_draw_race(int pi, float y0, float y1) {
+    const Kart *p = &karts[game.pl[pi].kart];
+    bool split = y1 - y0 < 400.0f;
+    float k = split ? 0.72f : 1.0f;       /* HUD scale */
     char buf[48];
     /* Lap counter. */
     int lap = p->lap < 1 ? 1 : (p->lap > RACE_LAPS ? RACE_LAPS : p->lap);
-    hud_panel(24, 22, 182, 70, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
-    hud_text(34, 25, 0.75f, ALIGN_LEFT, argb(255, 255, 220, 80), "LAP");
+    float lx = split ? 14 : 24, ly = y0 + (split ? 8 : 22);
+    hud_panel(lx, ly, lx + 158 * k, ly + 48 * k, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
+    hud_text(lx + 10 * k, ly + 3 * k, 0.75f * k, ALIGN_LEFT, argb(255, 255, 220, 80), "LAP");
     snprintf(buf, sizeof(buf), "%d/%d", lap, RACE_LAPS);
-    hud_text(90, 22, 1.05f, ALIGN_LEFT, 0xffffffff, buf);
-
-    /* Race time. */
-    hud_panel(436, 22, 616, 70, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
-    hud_format_time(buf, p->finished ? p->finish_time : game.race_time);
-    hud_text(606, 25, 1.0f, ALIGN_RIGHT, 0xffffffff, buf);
-    if(game.mode == MODE_TT && p->best_lap > 0) {
+    hud_text(lx + 66 * k, ly, 1.05f * k, ALIGN_LEFT, 0xffffffff, buf);
+    if(split) {
+        /* Player tag in their colour. */
+        hud_text(lx + 166 * k, ly + 8 * k, 0.75f * k, ALIGN_LEFT, p->ui_color | 0xff000000, pi ? "P2" : "P1");
+    }
+    else {
+        /* Race time. */
+        hud_panel(436, 22, 616, 70, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
+        hud_format_time(buf, p->finished ? p->finish_time : game.race_time);
+        hud_text(606, 25, 1.0f, ALIGN_RIGHT, 0xffffffff, buf);
+    }
+    if(game.mode == MODE_TT && p->best_lap > 0 && game.num_players == 1) {
         char t[20];
         hud_format_time(t, p->best_lap);
         snprintf(buf, sizeof(buf), "BEST %s", t);
         hud_text(606, 72, 0.6f, ALIGN_RIGHT, argb(255, 255, 230, 120), buf);
     }
 
-    /* Position. */
-    if(game.mode == MODE_GP && p->place > 0) {
+    /* Position (also between the two players in versus). */
+    if(game.mode == MODE_GP || game.num_players > 1) {
         uint32_t c = hud_place_color(p->place);
         snprintf(buf, sizeof(buf), "%d", p->place);
         float pulse = 1.0f + 0.04f * sinf(hud_time * 6.0f);
-        hud_text(560, 362, 2.4f * pulse, ALIGN_RIGHT, c, buf);
-        hud_text(562, 386, 1.0f, ALIGN_LEFT, c, hud_ordinal(p->place));
+        /* Split: top view's place in its top-right corner, bottom view's in
+           its bottom-right, leaving the divider for the clock and map. */
+        float px = split ? 584 : 560, py = !split ? 362 : (y0 < 1.0f ? y0 + 4 : y1 - 74);
+        hud_text(px, py, 2.4f * k * pulse, ALIGN_RIGHT, c, buf);
+        hud_text(px + 2, py + 24 * k, 1.0f * k, ALIGN_LEFT, c, hud_ordinal(p->place));
     }
 
-    draw_minimap();
+    if(!split) draw_minimap(98, 402, 0.40f);
 
     /* Mini-turbo charge gauge while drifting. */
     if(p->drift == DRIFT_ACTIVE) {
-        float x0 = 240, x1 = 400, y = 440;
+        float gw = split ? 120 : 160, x0 = 320 - gw * 0.5f, x1 = 320 + gw * 0.5f, y = split ? y1 - 22 : 440;
         float f = clampf(p->charge / 3.1f, 0, 1);
         hud_panel(x0 - 4, y - 4, x1 + 4, y + 14, argb(140, 10, 20, 60), argb(140, 10, 20, 60), 15);
         uint32_t c = fx_stage_color(p->stage);
@@ -204,32 +217,53 @@ void hud_draw_race(void) {
     }
 
     /* Messages. */
-    if(msg_t > 0) {
-        float age = msg_len - msg_t;
-        float slide = age < 0.3f ? (0.3f - age) / 0.3f : (msg_t < 0.3f ? -(0.3f - msg_t) / 0.3f : 0);
+    if(pm[pi].msg_t > 0) {
+        float age = pm[pi].msg_len - pm[pi].msg_t;
+        float slide = age < 0.3f ? (0.3f - age) / 0.3f : (pm[pi].msg_t < 0.3f ? -(0.3f - pm[pi].msg_t) / 0.3f : 0);
         float x = 320 + slide * 500;
-        float s = 1.6f + 0.08f * sinf(hud_time * 10);
-        hud_text(x, 150, s, ALIGN_CENTER, msg_col, msg_text);
+        float s = (1.6f + 0.08f * sinf(hud_time * 10)) * k;
+        hud_text(x, y0 + (split ? 70 : 150), s, ALIGN_CENTER, pm[pi].msg_col, pm[pi].msg_text);
     }
-    if(lap_t > 0) {
-        float a = clampf(lap_t / 0.4f, 0, 1);
-        hud_text(320, 212, 0.9f, ALIGN_CENTER, color_alpha(lap_best ? argb(255, 255, 230, 90) : 0xffffffff, a), lap_text);
-        if(lap_best) hud_text(320, 244, 0.7f, ALIGN_CENTER, color_alpha(argb(255, 120, 255, 160), a), "BEST LAP!");
+    if(pm[pi].lap_t > 0) {
+        float a = clampf(pm[pi].lap_t / 0.4f, 0, 1);
+        float ly2 = y0 + (split ? 118 : 212);
+        hud_text(320, ly2, 0.9f * k, ALIGN_CENTER, color_alpha(pm[pi].lap_best ? argb(255, 255, 230, 90) : 0xffffffff, a),
+                 pm[pi].lap_text);
+        if(pm[pi].lap_best)
+            hud_text(320, ly2 + 32 * k, 0.7f * k, ALIGN_CENTER, color_alpha(argb(255, 120, 255, 160), a), "BEST LAP!");
     }
-    if(!pad.connected && ((int)(hud_time * 2) & 1))
-        hud_text(320, 300, 0.8f, ALIGN_CENTER, 0xffff8080, "CONNECT A CONTROLLER");
+    const Pad *pd = input_pad(pi);
+    if(!pd->connected && ((int)(hud_time * 2) & 1)) {
+        snprintf(buf, sizeof(buf), "CONNECT CONTROLLER %d", pi + 1);
+        hud_text(320, y0 + (y1 - y0) * 0.62f, 0.8f * k, ALIGN_CENTER, 0xffff8080, buf);
+    }
 }
 
-void hud_draw_countdown(void) {
+void hud_draw_split_overlay(void) {
+    /* Divider with the shared race clock in the middle and the map on the
+       left, straddling both views. */
+    r_hdr(h_flat);
+    r_quad2d(0, 237, 640, 243, 0, 0, 1, 1, 0xff0c1430, 17.0f);
+    char buf[24];
+    hud_panel(250, 224, 390, 256, argb(220, 20, 60, 160), argb(220, 10, 30, 90), 17.2f);
+    hud_format_time(buf, game.race_time);
+    hud_text(320, 223, 0.8f, ALIGN_CENTER, 0xffffffff, buf);
+    hud_panel(470, 208, 616, 272, argb(150, 10, 30, 90), argb(150, 10, 30, 90), 17.2f);
+    draw_minimap(543, 240, 0.40f);
+}
+
+void hud_draw_countdown(float y0, float y1) {
     float t = game.countdown;
+    float vk = (y1 - y0) < 400.0f ? 0.6f : 1.0f;
+    float cy = y0 + (y1 - y0) * (200.0f / 480.0f);
     if(t < 0) return;
     int which = (int)t;            /* 0: "3", 1: "2", 2: "1", 3: GO */
     if(which > 3) return;
     float f = t - (float)which;
     float scale = which < 3 ? 1.5f - 0.5f * clampf(f * 4.0f, 0, 1) : 1.4f + f * 0.6f;
     float alpha = which < 3 ? clampf((1.0f - f) * 3.0f, 0, 1) : clampf(1.0f - (f - 0.5f) * 2.0f, 0, 1);
-    float bounce = which < 3 ? -18.0f * sinf(clampf(f * 4, 0, 1) * DK_PI) : 0;
-    hud_bigtext(which, 320, 200 + bounce, scale, color_alpha(0xffffffff, alpha));
+    float bounce = which < 3 ? -18.0f * vk * sinf(clampf(f * 4, 0, 1) * DK_PI) : 0;
+    hud_bigtext(which, 320, cy + bounce, scale * vk, color_alpha(0xffffffff, alpha));
 }
 
 void hud_draw_results(void) {
@@ -237,14 +271,14 @@ void hud_draw_results(void) {
     float x0 = 120 + (1 - a) * 400;
     hud_panel(x0, 60, x0 + 400, 420, argb(220, 30, 90, 200), argb(220, 10, 30, 100), 15);
     hud_text(x0 + 200, 70, 1.1f, ALIGN_CENTER, argb(255, 255, 220, 60),
-             game.mode == MODE_GP ? "RESULTS" : "TIME TRIAL");
+             game.mode == MODE_GP ? "RESULTS" : game.num_players > 1 ? "VERSUS" : "TIME TRIAL");
     char buf[48], t[20];
-    if(game.mode == MODE_GP) {
+    if(game.mode == MODE_GP || game.num_players > 1) {
         for(int pos = 0; pos < kart_count; pos++) {
             int i = game.finish_order[pos];
             const Kart *k = &karts[i];
             float y = 122 + pos * 42;
-            bool me = i == game.player;
+            bool me = kart_is_human(i);
             if(me) {
                 r_hdr(h_flat);
                 float glow = 0.25f + 0.15f * sinf(hud_time * 5);
@@ -254,14 +288,14 @@ void hud_draw_results(void) {
             hud_text(x0 + 24, y, 0.8f, ALIGN_LEFT, hud_place_color(pos + 1), buf);
             r_hdr(h_flat);
             r_quad2d(x0 + 92, y + 8, x0 + 112, y + 28, 0, 0, 1, 1, 0xff102040, 16.5f);
-            r_quad2d(x0 + 94, y + 10, x0 + 110, y + 26, 0, 0, 1, 1, k->chao ? (k->chao | 0xff000000) : 0xff8cc8f0, 16.6f);
-            hud_text(x0 + 120, y + 3, 0.68f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, kart_names[i]);
+            r_quad2d(x0 + 94, y + 10, x0 + 110, y + 26, 0, 0, 1, 1, k->ui_color | 0xff000000, 16.6f);
+            hud_text(x0 + 120, y + 3, 0.68f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, k->name);
             hud_format_time(t, k->finish_time);
             hud_text(x0 + 384, y + 3, 0.68f, ALIGN_RIGHT, 0xffffffff, k->finished ? t : "--'--\"--");
         }
     }
     else {
-        const Kart *k = &karts[game.player];
+        const Kart *k = &karts[game.pl[0].kart];
         for(int l = 0; l < RACE_LAPS; l++) {
             hud_format_time(t, k->lap_times[l]);
             snprintf(buf, sizeof(buf), "LAP %d", l + 1);

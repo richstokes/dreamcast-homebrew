@@ -13,6 +13,7 @@
 
 V3 world_sun_dir;
 float world_time;
+bool world_split;
 
 typedef struct {
     const pvr_poly_hdr_t *hdr;
@@ -25,6 +26,7 @@ typedef struct {
     float lod_far;     /* not drawn beyond this distance */
     uint16_t first_strip, nstrips;
     uint8_t list;
+    uint8_t far;       /* distant terrain: skipped in a split screen */
 } Chunk;
 
 typedef struct {
@@ -76,6 +78,7 @@ static void chunk_begin(int list, float lod_far) {
     cur_chunk->lod_far = lod_far;
     cur_chunk->first_strip = (uint16_t)strip_n;
     cur_chunk->nstrips = 0;
+    cur_chunk->far = 0;
     cur_strip_first = pool_n;
 }
 
@@ -363,6 +366,12 @@ static void build_track_chunk(int c) {
     chunk_begin(HF_OP, 2000.0f);
     for(int b = 0; b + 1 < nb; b++) {
         int step = b >= 4 ? 2 : 1;
+        if(b == 6) {
+            /* The outermost bands form their own chunk. */
+            chunk_end();
+            chunk_begin(HF_OP, 2000.0f);
+            if(cur_chunk) cur_chunk->far = 1;
+        }
         /* Pick the band's material from its middle: grass on dry southern
            ground, sand on beaches and the sea floor. */
         const TrackSample *tm = &track.smp[mid];
@@ -856,8 +865,9 @@ static void draw_chunks(int list) {
     for(int i = 0; i < chunk_n; i++) {
         const Chunk *c = &chunks[i];
         if(c->list != list) continue;
+        if(world_split && c->far) continue;
         V3 d = vsub(c->c, cam);
-        float lim = c->lod_far + c->r;
+        float lim = (world_split ? fminf(c->lod_far, 400.0f) : c->lod_far) + c->r;
         if(vdot(d, d) > lim * lim) continue;
         if(!r_sphere_visible(c->c, c->r)) continue;
         for(int s = 0; s < c->nstrips; s++) {
@@ -899,8 +909,8 @@ static uint32_t sea_color(float x, float z) {
 /* Animated sea: a camera-centred grid out to ~360 m, then wide bands to
    the horizon. Only the northern half-plane is ever visible. */
 static void draw_sea(void) {
-    const float cell = 45.0f;
-    const int n = 16;
+    const float cell = world_split ? 60.0f : 45.0f;
+    const int n = world_split ? 10 : 16;
     float cx = floorf(r_cam.pos.x / cell) * cell, cz = floorf(r_cam.pos.z / cell) * cell;
     float x0 = cx - n * cell * 0.5f, z0 = cz - n * cell * 0.5f;
     float su = world_time * 0.018f, sv2 = world_time * 0.011f;
@@ -966,6 +976,13 @@ static void draw_dash_pads(void) {
 }
 
 void world_draw_op(void) {
+    /* The fog table is global: pull it in for the shorter split-screen view. */
+    static int fog_mode = -1;
+    if(fog_mode != (int)world_split) {
+        fog_mode = (int)world_split;
+        if(world_split) pvr_fog_table_linear(110.0f, 400.0f);
+        else pvr_fog_table_linear(160.0f, 820.0f);
+    }
     r_load_vp();
     if(!(dk_probe_off & PROBE_SKY)) draw_sky();
     if(!(dk_probe_off & PROBE_SEA)) draw_sea();
@@ -983,7 +1000,8 @@ void world_draw_pt(void) {
     for(int i = 0; i < palm_n; i++) {
         V3 d = vsub(palms[i].base, r_cam.pos);
         float d2 = vdot(d, d);
-        if(d2 < 135.0f * 135.0f || d2 > 800.0f * 800.0f) continue;
+        float far = world_split ? 360.0f : 800.0f;
+        if(d2 < 135.0f * 135.0f || d2 > far * far) continue;
         V3 mid = vadd(palms[i].base, v3(0, palms[i].height * 0.6f, 0));
         if(!r_sphere_visible(mid, palms[i].height)) continue;
         r_billboard_y(palms[i].base, palms[i].height * 0.62f, palms[i].height * 1.25f, 0, 0, 1, 1, 0xffffffff);
@@ -1045,7 +1063,7 @@ static void draw_clouds_and_mountains(void) {
 
     /* Clouds drift slowly around the dome. */
     r_hdr(h_cloud);
-    for(int i = 0; i < 11; i++) {
+    for(int i = 0; i < 11; i += world_split ? 2 : 1) {
         float a = (float)i * 0.63f * DK_PI * 0.9f + world_time * 0.004f;
         float el = 0.07f + 0.05f * (float)(i % 4) / 3.0f + (i & 1) * 0.04f;
         float d = 1250.0f;
