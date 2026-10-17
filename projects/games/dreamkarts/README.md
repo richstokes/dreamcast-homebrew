@@ -73,10 +73,34 @@ transient `-config` flags. No networking or VMU saving is used.
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TT` for Time Trial or `-DDK_AI_TRACE` to log the CPU's drift decisions.
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, a drift, a boost, the boardwalk and the results. It screenshots the Flycast window at each step without taking over the screen.
 
-Last measured in Flycast 2.7 at 150cc: a steady 59.7 to 59.8 fps for a whole
-race. Average CPU time is about 8 ms a frame with six karts, and about 5 ms in
-Time Trial. Flycast does not model SH-4 timing exactly, and this has not yet
-been measured on real hardware.
+### Real hardware
+
+`make hwbench` runs the same scripted title, menu and 150cc race on a real
+Dreamcast through `tools/dc-hw.sh`. That script power-cycles the console with
+the Shelly plug and waits for dcload-ip; it finds the plug and the console on
+the network if their DHCP addresses change. The run logs timing every 10
+seconds, because each printf under dcload-ip stalls the console. It saves
+screenshots of the displayed framebuffer to `captures/hw/` through
+dc-tool-ip's `/pc/` share. At three heavy scenes it freezes the race and
+re-renders the same frame with each feature group switched off, printing the
+PVR render time for each (`DK GPU` lines). `make hw` plays the release build on
+the console.
+
+Measured on hardware on 2026-10-17, 150cc, six karts:
+
+| | Before | After |
+| --- | --- | --- |
+| Dropped vblanks over a full race | 208 of 6,652 frames | 2 of 6,866 frames |
+| PVR render time, start grid / mid-drift | 21.0 / 16.6 ms | 10.8 / 10.1 ms |
+| CPU time per frame (average) | 13.0 ms | 11.8 ms |
+
+The console was limited by the PowerVR, not the CPU. Translucency is
+presorted: polygons are submitted back to front instead of using the
+hardware autosort, which cost about 7 ms a frame. Smoke puffs close to the
+camera are skipped, puff size is capped, and the large "GO!" glow is gone.
+Only the player and the nearest rival inside 14 m use the full-detail kart
+model. In Flycast the same race averages about 8 ms of CPU, so the console is
+about 1.5x slower than the emulator for this code.
 
 ## Assets
 

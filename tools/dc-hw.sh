@@ -36,7 +36,8 @@
 #
 # Settings, overridable from the environment:
 #   DC_IP         Dreamcast address            (last one found, else 192.168.1.74)
-#   DC_PLUG_IP    Shelly plug address          (192.168.1.173)
+#   DC_PLUG_IP    Shelly plug address          (last one found, else 192.168.1.173;
+#                 if it stops answering, the /24 is scanned for a Shelly plug)
 #   DC_TOOL       path to dc-tool-ip
 #   DC_BOOT_WAIT  seconds to allow for booting (120)
 #   DC_OFF_SECS   seconds to stay off in cycle (2)
@@ -46,7 +47,7 @@ set -u
 
 DC_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/dc-hw"
 DC_IP="${DC_IP:-$(cat "$DC_CACHE/ip" 2>/dev/null || echo 192.168.1.74)}"
-DC_PLUG_IP="${DC_PLUG_IP:-192.168.1.173}"
+DC_PLUG_IP="${DC_PLUG_IP:-$(cat "$DC_CACHE/plug_ip" 2>/dev/null || echo 192.168.1.173)}"
 DC_TOOL="${DC_TOOL:-$HOME/Dropbox/Games/ROMs/DREAMCAST/dcload-ip/dc-tool-ip}"
 DC_BOOT_WAIT="${DC_BOOT_WAIT:-120}"
 DC_OFF_SECS="${DC_OFF_SECS:-2}"
@@ -55,7 +56,28 @@ DC_START_SECS="${DC_START_SECS:-15}"
 say() { printf '[dc-hw %s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { say "error: $*"; exit 1; }
 
+# Shelly devices describe themselves at /shelly; find a plug on the /24 if
+# DHCP moved it, and remember where it answered.
+find_plug() {
+    local net="${DC_PLUG_IP%.*}" i dir found
+    dir="$(mktemp -d -t dc-hw-plug)"
+    for i in $(seq 1 254); do
+        { curl -fsS -m 2 "http://$net.$i/shelly" 2>/dev/null |
+              grep -q '"app":"Plug' && touch "$dir/$net.$i"; } &
+    done
+    wait
+    found="$(ls "$dir" | head -n 1)"
+    rm -rf "$dir"
+    [[ -n "$found" ]] || return 1
+    say "Shelly plug found at $found (was $DC_PLUG_IP)"
+    DC_PLUG_IP="$found"
+    mkdir -p "$DC_CACHE" && echo "$DC_PLUG_IP" >"$DC_CACHE/plug_ip"
+}
+
 plug_rpc() {
+    curl -fs -m 5 "http://$DC_PLUG_IP/rpc/$1" && return
+    say "the plug at $DC_PLUG_IP did not answer; searching the network"
+    find_plug || die "no Shelly plug answered on ${DC_PLUG_IP%.*}.0/24"
     curl -fsS -m 5 "http://$DC_PLUG_IP/rpc/$1" ||
         die "the plug at $DC_PLUG_IP did not answer"
 }

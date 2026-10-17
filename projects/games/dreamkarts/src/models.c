@@ -14,6 +14,7 @@ static uint32_t paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
 static RV scratch[DK_MODEL_MAX_MESH_VERTS] __attribute__((aligned(32)));
 static const pvr_poly_hdr_t *h_model, *h_shadow;
 static float ref_luma1 = 1.0f;
+static float normals[DK_MODEL_VERT_COUNT][3];
 static V3 light_dir;
 
 static float luma(uint32_t c) {
@@ -32,6 +33,11 @@ void models_init(void) {
             n++;
         }
     if(n) ref_luma1 = fmaxf(sum / n, 0.05f);
+    for(int i = 0; i < DK_MODEL_VERT_COUNT; i++) {
+        normals[i][0] = dk_model_verts[i].nx * (1.0f / 127.0f);
+        normals[i][1] = dk_model_verts[i].ny * (1.0f / 127.0f);
+        normals[i][2] = dk_model_verts[i].nz * (1.0f / 127.0f);
+    }
     /* Key light from above, slightly in front of the karts' usual view. */
     light_dir = vnorm(v3(0.35f, 0.85f, 0.40f));
     int meshes_max = 0;
@@ -139,20 +145,24 @@ static void draw_kart_lod(int index, int lod) {
         const dk_mvert_t *src = &dk_model_verts[m->first_vert];
         const uint32_t *col = &paint[index][m->first_vert];
         bool unlit = m->flags & 1;
-        float lx = lp.x * (1.0f / 127.0f), ly = lp.y * (1.0f / 127.0f), lz = lp.z * (1.0f / 127.0f);
+        const float (*nrm)[3] = &normals[m->first_vert];
+        /* Lighting in 8.8 fixed point: one float->int per vertex. */
+        float lx = lp.x * 158.7f, ly = lp.y * 158.7f + 25.6f, lz = lp.z * 158.7f;
         for(int i = 0; i < nv; i++) {
             RV *o = &scratch[i];
             o->x = src[i].x;
             o->y = src[i].y;
             o->z = src[i].z;
             o->u = o->v = 0;
+            uint32_t c = col[i];
             if(unlit) {
-                o->c = col[i];
+                o->c = c;
                 continue;
             }
-            float d = src[i].nx * lx + src[i].ny * ly + src[i].nz * lz;
-            float l = 0.52f + 0.62f * (d > 0 ? d : 0) + 0.10f * (src[i].ny * (1.0f / 127.0f));
-            o->c = color_scale(col[i], l);
+            float d = nrm[i][0] * lx + nrm[i][1] * ly + nrm[i][2] * lz;
+            int li = 133 + (d > 0 ? (int)d : 0);
+            unsigned r = (((c >> 16) & 255) * li) >> 8, g = (((c >> 8) & 255) * li) >> 8, b = ((c & 255) * li) >> 8;
+            o->c = 0xff000000u | ((r > 255 ? 255 : r) << 16) | ((g > 255 ? 255 : g) << 8) | (b > 255 ? 255 : b);
         }
         r_mesh(scratch, nv, &dk_model_indices[m->first_index], m->index_count, true);
     }
@@ -166,8 +176,9 @@ void models_draw_kart(int index) {
     draw_kart_lod(index, d > 38.0f ? 1 : 0);
 }
 
-/* Full detail only for the player and the two nearest rivals inside 26 m;
-   everyone else uses the 150-triangle LOD. */
+/* Full detail only for the player and the nearest rival inside 14 m;
+   everyone else uses the 150-triangle LOD (kart transforms and lighting
+   were ~6 ms of the console's frame). */
 void models_draw_karts(void) {
     float dist[MAX_KARTS];
     for(int i = 0; i < kart_count; i++) {
@@ -181,7 +192,7 @@ void models_draw_karts(void) {
         int closer = 0;
         for(int j = 0; j < kart_count; j++)
             if(j != i && j != game.player && dist[j] < dist[i]) closer++;
-        bool full = i == game.player || (dist[i] < 26.0f * 26.0f && closer < 2);
+        bool full = i == game.player || (dist[i] < 14.0f * 14.0f && closer < 1);
         draw_kart_lod(i, full ? 0 : 1);
     }
 }

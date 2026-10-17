@@ -21,6 +21,7 @@ VARIANT ?= release
 VARIANT_FLAGS_release =
 VARIANT_FLAGS_autotest = -DDK_AUTOTEST
 VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
+VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
 OBJDIR = build/$(VARIANT)
 OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES)) $(OBJDIR)/blobs.o
 
@@ -69,6 +70,24 @@ autotest:
 	DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' \
 		DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 
-.PHONY: all clean run textures models audio assets autotest
+# Real Dreamcast through tools/dc-hw.sh (Shelly plug power cycle +
+# dcload-ip): the scripted title/menu/race benchmark with 10 s timing lines,
+# screenshots written to captures/hw/ over dcload's /pc/ share (as PNG).
+DC_HW = ../../../tools/dc-hw.sh
+HW_LOG ?= captures/hw/hwbench.log
+
+hwbench:
+	$(MAKE) VARIANT=hwbench dreamkarts-hwbench.elf
+	mkdir -p captures/hw
+	$(DC_HW) run -c -T 420 -i 90 -u 'DK AUTOTEST: (PASS|FAIL)' -l $(HW_LOG) \
+		dreamkarts-hwbench.elf -- -m $(CURDIR)/captures/hw
+	uv run --with pillow python -c "import glob,PIL.Image as I; [I.open(f).save(f[:-3]+'png') for f in glob.glob('captures/hw/*.ppm')]"
+	@/usr/bin/grep -a 'DK AUTOTEST' $(HW_LOG)
+
+# Play the release build on the console (power-cycles it first).
+hw: $(TARGET)
+	$(DC_HW) run -c -T 86400 dreamkarts.elf
+
+.PHONY: all clean run textures models audio assets autotest hwbench hw
 
 endif

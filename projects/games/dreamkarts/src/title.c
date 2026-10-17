@@ -165,7 +165,7 @@ static void draw_sparkles(float dt_unused) {
 static void draw_menu(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
     float x0 = 640 - 300 * slide, x1 = x0 + 280;
-    hud_panel(x0, 120, x1, 400, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    hud_panel(x0, 120, x1, 416, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
     hud_text((x0 + x1) * 0.5f, 128, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "RACE SETUP");
     for(int row = 0; row < 3; row++) {
         bool sel = row == menu_row;
@@ -200,8 +200,8 @@ static void draw_menu(void) {
             hud_text(x1 - 22 + bob, y + 12, 0.8f, ALIGN_RIGHT, col, ">");
         }
     }
-    hud_text(x0 + 20, 348, 0.42f, ALIGN_LEFT, argb(255, 170, 200, 240), "DRIVER: CHAO");
-    hud_text(x0 + 20, 370, 0.42f, ALIGN_LEFT, argb(255, 170, 200, 240), "KART: STANDARD");
+    hud_text(x0 + 20, 370, 0.42f, ALIGN_LEFT, argb(255, 170, 200, 240), "DRIVER: CHAO");
+    hud_text(x0 + 20, 390, 0.42f, ALIGN_LEFT, argb(255, 170, 200, 240), "KART: STANDARD");
     hud_text(320, 440, 0.55f, ALIGN_CENTER, argb(230, 255, 255, 255), "A: OK   B: BACK   UP/DOWN: SELECT");
 }
 

@@ -16,6 +16,7 @@
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
 Game game;
+uint32_t dk_probe_off;
 
 typedef struct {
     uint32_t paint1, chao, tip;
@@ -34,7 +35,29 @@ static float accel_press_t = -1.0f;
 static float finish_wait;
 static bool countdown_beeped[4];
 
+#ifdef DK_AUTOTEST
+#ifdef DK_HW
+#define AT_LOG_SECS 10.0f   /* every printf under dcload-ip stalls the console */
+#else
+#define AT_LOG_SECS 2.0f
+#endif
+static int at_skip;         /* frames to leave out of timing after slow I/O */
+#endif
+
 #ifdef DK_CAPTURE
+/* Flycast: print a marker for tools/capture.py to grab the window.
+   Hardware: write the displayed framebuffer to dc-tool-ip's /pc/ share. */
+static void take_shot(const char *name) {
+#ifdef DK_HW
+    char path[48];
+    snprintf(path, sizeof(path), "/pc/dk-%s.ppm", name);
+    vid_screen_shot(path);
+    at_skip = 3;
+#else
+    printf("DK SHOT %s\n", name);
+#endif
+}
+
 /* Scripted presses so a capture run walks title -> menu -> race on its own;
    "DK SHOT <name>" lines tell the capture tool when to grab the window. */
 static void capture_script(void) {
@@ -43,18 +66,78 @@ static void capture_script(void) {
     static bool shot[8];
     t += DK_DT;
     const Kart *p = &karts[game.player];
-    if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; printf("DK SHOT title\n"); }
+    if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
     if(game.state == ST_TITLE && game.time > 7.0f) { pad.pressed |= BTN_START; step = 0; }
     if(game.state == ST_MENU) {
-        if(game.time > 2.0f && !shot[1]) { shot[1] = true; printf("DK SHOT menu\n"); }
+        if(game.time > 2.0f && !shot[1]) { shot[1] = true; take_shot("menu"); }
         if(game.time > 3.5f + step * 0.5f && step < 3) { pad.pressed |= BTN_A; step++; }
     }
-    if(game.state == ST_INTRO && game.time > 1.6f && !shot[2]) { shot[2] = true; printf("DK SHOT intro\n"); }
-    if(game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[7]) { shot[7] = true; printf("DK SHOT countdown\n"); }
-    if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 3 && !shot[3]) { shot[3] = true; printf("DK SHOT drift\n"); }
-    if(game.state == ST_RACE && p->boost_t > 0.3f && game.race_time > 8.0f && !shot[4]) { shot[4] = true; printf("DK SHOT boost\n"); }
-    if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; printf("DK SHOT boardwalk\n"); }
-    if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; printf("DK SHOT results\n"); }
+    if(game.state == ST_INTRO && game.time > 1.6f && !shot[2]) { shot[2] = true; take_shot("intro"); }
+    if(game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[7]) { shot[7] = true; take_shot("countdown"); }
+    if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 3 && !shot[3]) { shot[3] = true; take_shot("drift"); }
+    if(game.state == ST_RACE && p->boost_t > 0.3f && game.race_time > 8.0f && !shot[4]) { shot[4] = true; take_shot("boost"); }
+    if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
+    if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot("results"); }
+}
+#endif
+
+#if defined(DK_HW) && defined(DK_CAPTURE)
+/* Freeze a heavy scene and re-render it with one feature group off at a
+   time; PVR render time per configuration shows where the GPU goes. */
+static const struct { const char *name; uint32_t off; } probe_cfg[] = {
+    {"base", 0}, {"-sky", PROBE_SKY}, {"-sea", PROBE_SEA}, {"-world", PROBE_WORLD},
+    {"-karts", PROBE_KARTS}, {"-pt", PROBE_PT}, {"-distant", PROBE_DISTANT}, {"-foam", PROBE_FOAM},
+    {"-shadows", PROBE_SHADOWS}, {"-fx", PROBE_FX}, {"-hud", PROBE_HUD}, {"autosort", PROBE_AUTOSORT},
+    {"-alltr", PROBE_DISTANT | PROBE_FOAM | PROBE_SHADOWS | PROBE_FX | PROBE_HUD}
+};
+#define PROBE_CFGS ((int)(sizeof(probe_cfg) / sizeof(probe_cfg[0])))
+#define PROBE_FRAMES 24
+#define PROBE_SETTLE 4
+static struct {
+    const char *scene;
+    int cfg, frame;
+    float sum[PROBE_CFGS];
+    int n[PROBE_CFGS];
+    float cpu[PROBE_CFGS];
+    bool done[3];
+} probe;
+
+/* Returns true while probing (the simulation stays frozen). */
+static bool probe_step(void) {
+    const Kart *p = &karts[game.player];
+    if(!probe.scene) {
+        const char *scene = NULL;
+        if(game.state == ST_RACE && game.race_time > 0.6f && !probe.done[0]) { probe.done[0] = true; scene = "grid"; }
+        else if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 2 && game.race_time > 20.0f &&
+                !probe.done[1]) { probe.done[1] = true; scene = "drift"; }
+        else if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && game.race_time > 35.0f &&
+                !probe.done[2]) { probe.done[2] = true; scene = "boardwalk"; }
+        if(!scene) return false;
+        memset(&probe, 0, offsetof(__typeof__(probe), done));
+        probe.scene = scene;
+    }
+    /* Account the frame just rendered with the previous configuration. */
+    pvr_stats_t ps;
+    if(probe.frame >= PROBE_SETTLE && pvr_get_stats(&ps) == 0 && ps.rnd_last_time < 100000000ull) {
+        probe.sum[probe.cfg] += (float)ps.rnd_last_time * 1e-6f;
+        probe.cpu[probe.cfg] += game.cpu_ms;
+        probe.n[probe.cfg]++;
+    }
+    if(++probe.frame >= PROBE_FRAMES) {
+        probe.frame = 0;
+        if(++probe.cfg >= PROBE_CFGS) {
+            printf("DK GPU %s:", probe.scene);
+            for(int i = 0; i < PROBE_CFGS; i++)
+                printf(" %s=%.2f", probe_cfg[i].name, (double)(probe.n[i] ? probe.sum[i] / probe.n[i] : 0));
+            printf(" (cpu base %.2f)\n", (double)(probe.n[0] ? probe.cpu[0] / probe.n[0] : 0));
+            dk_probe_off = 0;
+            probe.scene = NULL;
+            at_skip = 3;
+            return false;
+        }
+    }
+    dk_probe_off = probe_cfg[probe.cfg].off;
+    return true;
 }
 #endif
 
@@ -65,6 +148,9 @@ static struct {
     int cpu_n;
     float log_t;
     bool done;
+    int win_frames, win_missed, frames, missed;
+    float win_cpu_max, rnd_max_ms;
+    size_t vtx_max;
 } at = {.min_fps = 999};
 #endif
 
@@ -476,18 +562,18 @@ static void render(void) {
     r_list(PVR_LIST_OP_POLY);
     world_draw_op();
     PROF_MARK(1);
-    models_draw_karts();
+    if(!(dk_probe_off & PROBE_KARTS)) models_draw_karts();
     PROF_MARK(2);
 
     r_list(PVR_LIST_PT_POLY);
-    world_draw_pt();
+    if(!(dk_probe_off & PROBE_PT)) world_draw_pt();
     PROF_MARK(3);
 
     r_list(PVR_LIST_TR_POLY);
     world_draw_tr();
-    models_draw_shadows();
-    fx_draw();
-    switch(game.state) {
+    if(!(dk_probe_off & PROBE_SHADOWS)) models_draw_shadows();
+    if(!(dk_probe_off & PROBE_FX)) fx_draw();
+    if(!(dk_probe_off & PROBE_HUD)) switch(game.state) {
         case ST_TITLE:
         case ST_MENU:
             title_draw();
@@ -575,6 +661,13 @@ int main(int argc, char **argv) {
 
         uint64_t upd_t0 = timer_us_gettime64();
         input_update();
+#if defined(DK_HW) && defined(DK_CAPTURE)
+        if(probe_step()) {
+            steps = 0;
+            at_skip = 1;
+        }
+        pvr_set_presort_mode((dk_probe_off & PROBE_AUTOSORT) == 0);
+#endif
         for(int s = 0; s < steps; s++) {
 #ifdef DK_CAPTURE
             capture_script();
@@ -606,24 +699,50 @@ int main(int argc, char **argv) {
 #endif
         }
 #ifdef DK_AUTOTEST
-        if(game.state == ST_RACE || game.state == ST_RESULTS) {
+        {
+            static const char *const state_names[] = {"title", "menu", "intro", "countdown", "race", "results"};
             const Kart *p = &karts[game.player];
-            at.cpu_sum += game.cpu_ms;
-            at.cpu_n++;
-            if(game.cpu_ms > at.cpu_max) at.cpu_max = game.cpu_ms;
-            if(game.fps > 0 && game.fps < at.min_fps && game.race_time > 2.0f) at.min_fps = game.fps;
+            /* A displayed frame that took more than 1.5 vblanks dropped one. */
+            if(at_skip > 0) {
+                at_skip--;
+            }
+            else {
+                at.win_frames++;
+                at.frames++;
+                if(dt_real > 1.5f / 60.0f) {
+                    at.win_missed++;
+                    at.missed++;
+                }
+                if(game.cpu_ms > at.win_cpu_max) at.win_cpu_max = game.cpu_ms;
+                pvr_stats_t ps;
+                if(pvr_get_stats(&ps) == 0 && ps.rnd_last_time < 100000000ull) {
+                    float rnd = (float)ps.rnd_last_time * 1e-6f;
+                    if(rnd > at.rnd_max_ms) at.rnd_max_ms = rnd;
+                    if(ps.vtx_buffer_used_max > at.vtx_max) at.vtx_max = ps.vtx_buffer_used_max;
+                }
+                if(game.state == ST_RACE || game.state == ST_RESULTS) {
+                    at.cpu_sum += game.cpu_ms;
+                    at.cpu_n++;
+                    if(game.cpu_ms > at.cpu_max) at.cpu_max = game.cpu_ms;
+                    if(game.fps > 0 && game.fps < at.min_fps && game.race_time > 2.0f) at.min_fps = game.fps;
+                }
+            }
             at.log_t += dt_real;
-            if(at.log_t >= 2.0f) {
+            if(at.log_t >= AT_LOG_SECS) {
                 at.log_t = 0;
                 float f = prof_frames ? 1.0f / (prof_frames * 1000.0f) : 0;
-                printf("DK AT t=%.1f fps=%.1f cpu=%.2fms [upd %.2f world %.2f karts %.2f pt %.2f tr %.2f] tris=%d "
-                       "lap=%d place=%d spd=%.1f s=%.0f d=%.1f drift=%d stage=%d\n",
-                       (double)game.race_time, (double)game.fps, (double)game.cpu_ms, (double)(prof_us[0] * f),
+                printf("DK AT %s t=%.1f fps=%.1f missed=%d/%d cpu=%.2fms max=%.2fms [upd %.2f world %.2f karts %.2f "
+                       "pt %.2f tr %.2f] pvr=%.2fms tris=%d lap=%d place=%d spd=%.1f drift=%d stage=%d\n",
+                       state_names[game.state], (double)game.race_time, (double)game.fps, at.win_missed,
+                       at.win_frames, (double)game.cpu_ms, (double)at.win_cpu_max, (double)(prof_us[0] * f),
                        (double)(prof_us[1] * f), (double)(prof_us[2] * f), (double)(prof_us[3] * f),
-                       (double)(prof_us[4] * f), rstats.tris, p->lap, p->place,
-                       (double)p->speed, (double)p->tp.s, (double)p->tp.d, p->drift, p->stage);
+                       (double)(prof_us[4] * f), (double)at.rnd_max_ms, rstats.tris, p->lap, p->place,
+                       (double)p->speed, p->drift, p->stage);
                 memset(prof_us, 0, sizeof(prof_us));
                 prof_frames = 0;
+                at.win_frames = at.win_missed = 0;
+                at.win_cpu_max = at.rnd_max_ms = 0;
+                at_skip = 2;
             }
             if(game.state == ST_RESULTS && game.time > 3.0f && !at.done) {
                 at.done = true;
@@ -631,13 +750,18 @@ int main(int argc, char **argv) {
                 for(int l = 0; l < RACE_LAPS; l++) printf(" %.2f", (double)p->lap_times[l]);
                 printf("\nDK AUTOTEST: drifts %d boosts blue %d orange %d purple %d dash %d walls %d\n",
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
-                printf("DK AUTOTEST: fps min %.1f, cpu avg %.2fms max %.2fms\n", (double)at.min_fps,
-                       (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)), (double)at.cpu_max);
+                printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, cpu avg %.2fms max %.2fms, "
+                       "vertex buffer peak %lu KiB\n", (double)at.min_fps, at.missed, at.frames,
+                       (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)), (double)at.cpu_max,
+                       (unsigned long)(at.vtx_max / 1024));
                 for(int i = 0; i < kart_count; i++)
                     printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, game.finish_order[i] == game.player ? "YOU" : kart_names[game.finish_order[i]],
                            (double)karts[game.finish_order[i]].finish_time);
                 bool ok = p->finish_time > 0 && p->finish_time < 150.0f && at.drifts > 3;
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
+#ifdef DK_HW
+                game.quit = true;   /* hand the console back to dcload-ip */
+#endif
             }
         }
 #endif

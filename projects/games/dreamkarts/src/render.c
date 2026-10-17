@@ -62,7 +62,10 @@ void render_init(void) {
         .vertex_buf_size = 768 * 1024,
         .dma_enabled = 0,
         .fsaa_enabled = 0,
-        .autosort_disabled = 0,
+        /* Presort: translucent polygons draw in submission order. The
+           hardware autosort peels overlapping layers per tile and cost up to
+           7 ms a frame on the console; callers submit back to front. */
+        .autosort_disabled = 1,
         .opb_overflow_count = 3
     };
     if(pvr_init(&params) < 0) {

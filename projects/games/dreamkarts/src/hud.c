@@ -229,11 +229,6 @@ void hud_draw_countdown(void) {
     float scale = which < 3 ? 1.5f - 0.5f * clampf(f * 4.0f, 0, 1) : 1.4f + f * 0.6f;
     float alpha = which < 3 ? clampf((1.0f - f) * 3.0f, 0, 1) : clampf(1.0f - (f - 0.5f) * 2.0f, 0, 1);
     float bounce = which < 3 ? -18.0f * sinf(clampf(f * 4, 0, 1) * DK_PI) : 0;
-    if(which == 3) {
-        r_hdr(h_glow);
-        r_quad2d(320 - 260 * scale, 200 - 160 * scale, 320 + 260 * scale, 200 + 160 * scale, 0, 0, 1, 1,
-                 color_alpha(argb(255, 120, 200, 255), alpha * 0.4f), 21.0f);
-    }
     hud_bigtext(which, 320, 200 + bounce, scale, color_alpha(0xffffffff, alpha));
 }
 

@@ -967,10 +967,12 @@ static void draw_dash_pads(void) {
 
 void world_draw_op(void) {
     r_load_vp();
-    draw_sky();
-    draw_sea();
-    draw_chunks(HF_OP);
-    draw_dash_pads();
+    if(!(dk_probe_off & PROBE_SKY)) draw_sky();
+    if(!(dk_probe_off & PROBE_SEA)) draw_sea();
+    if(!(dk_probe_off & PROBE_WORLD)) {
+        draw_chunks(HF_OP);
+        draw_dash_pads();
+    }
 }
 
 void world_draw_pt(void) {
@@ -1083,7 +1085,11 @@ static void draw_lens_flare(void) {
 
 void world_draw_tr(void) {
     r_load_vp();
-    draw_clouds_and_mountains();
+    if(!(dk_probe_off & PROBE_DISTANT)) draw_clouds_and_mountains();
+    if(dk_probe_off & PROBE_FOAM) {
+        if(!(dk_probe_off & PROBE_DISTANT)) draw_lens_flare();
+        return;
+    }
     draw_shore_foam();
     /* Dash panels pulse with a glow. */
     r_hdr(h_dash_glow);
@@ -1094,5 +1100,5 @@ void world_draw_tr(void) {
         float a = 0.35f + 0.25f * sinf(world_time * 8.0f + i);
         r_billboard(c, 3.0f, 1.2f, 0, 0, 0, 1, 1, color_alpha(0xff60c0ff, a));
     }
-    draw_lens_flare();
+    if(!(dk_probe_off & PROBE_DISTANT)) draw_lens_flare();
 }

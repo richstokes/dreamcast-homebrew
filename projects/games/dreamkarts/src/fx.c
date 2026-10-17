@@ -140,7 +140,8 @@ void fx_kart(const Kart *k, float dt) {
     /* Tyre smoke while sliding on tarmac, sand spray off-road. */
     if(k->grounded && spd > 4.0f) {
         bool sand = k->surface == SURF_SAND;
-        float rate = sand ? 40.0f : (k->drift == DRIFT_ACTIVE ? 18.0f : 0.0f);
+        bool close = vdot(vsub(k->pos, r_cam.pos), vsub(k->pos, r_cam.pos)) < 40.0f * 40.0f;
+        float rate = !close ? 0.0f : sand ? 22.0f : (k->drift == DRIFT_ACTIVE ? 10.0f : 0.0f);
         spawn_acc[idx][1] += rate * dt;
         while(spawn_acc[idx][1] >= 1.0f) {
             spawn_acc[idx][1] -= 1.0f;
@@ -242,13 +243,32 @@ static void draw_flames(void) {
 
 void fx_draw(void) {
     r_load_vp();
-    /* Alpha puffs first. */
-    r_hdr(h_smoke);
+    /* Alpha puffs first, far to near (translucency is presorted). Puffs
+       right in front of the lens would cover the screen: skip them, and cap
+       their size, since translucent fill is the console's bottleneck. */
+    static uint16_t order[MAX_PARTICLES];
+    static float depth[MAX_PARTICLES];
+    int n = 0;
     for(int i = 0; i < part_n; i++) {
         const Particle *q = &parts[i];
         if(q->type != P_SMOKE && q->type != P_DUST) continue;
+        float z = r_view_depth(q->p);
+        if(z < 3.5f) continue;
+        int j = n++;
+        while(j > 0 && depth[j - 1] < z) {
+            order[j] = order[j - 1];
+            depth[j] = depth[j - 1];
+            j--;
+        }
+        order[j] = (uint16_t)i;
+        depth[j] = z;
+    }
+    r_hdr(h_smoke);
+    for(int k = 0; k < n; k++) {
+        const Particle *q = &parts[order[k]];
         float t = 1.0f - q->life / q->max_life;
-        r_billboard(q->p, q->size, q->size, (float)i * 0.7f, 0, 0, 1, 1, color_lerp(q->c0, q->c1, t));
+        float size = fminf(q->size, 1.4f);
+        r_billboard(q->p, size, size, (float)order[k] * 0.7f, 0, 0, 1, 1, color_lerp(q->c0, q->c1, t));
     }
     draw_flames();
     r_hdr(h_spark_glow);
