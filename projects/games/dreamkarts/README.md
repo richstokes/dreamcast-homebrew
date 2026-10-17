@@ -38,12 +38,12 @@ is also available.
 
 - **Drift handling inspired by Mario Kart World:**
   - Press the drift button to hop. If you land steering, you start a powerslide; a short grace window lets you pick the direction just after landing.
-  - While sliding, steering into the turn tightens the slide and counter-steering widens it, down to a gentle arc. You can hold a slide through a whole corner.
+  - While sliding, steering into the turn tightens the slide and counter-steering widens it, down to a gentle arc. A new slide starts at the neutral arc and tightens to full lock over about a third of a second, so the stick still held hard over from picking a direction doesn't snap you into the inside wall. You can hold a slide through a whole corner.
   - The mini-turbo charges faster when you steer in tight and stops charging on sand. Stage 1 (blue) gives a 0.45 s boost, stage 2 (orange) 0.95 s and stage 3 (purple) 1.55 s.
   - Sparks spray from both rear tyres, with a glow, and a gauge at the bottom of the screen shows the charge.
   - Hold the drift button without steering to charge a jump (Mario Kart World's charge jump), then release to spring into the air.
   - A rocket start: press accelerate as the "2" fades and hold it through GO. Press too early and you burn out.
-- **Grand Prix:** a 3-lap race against five CPU Chao (four in two-player). They drive a racing line, drift and use mini-turbos, and have mild rubber-banding against the leading human.
+- **Grand Prix:** a 3-lap race against five CPU Chao (four in two-player). They drive a racing line, drift and use mini-turbos, and have mild rubber-banding against the leading human. Each has its own style: smoother or twitchier steering, a line that weaves a little on the straights, an early or late turn-in, and a habit of now and then taking a bend on grip, so the pack doesn't hop into every corner in single file.
 - **Time Trial:** a solo 3-lap run with lap splits and your best lap.
 - **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.

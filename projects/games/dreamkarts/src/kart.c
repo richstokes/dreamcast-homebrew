@@ -58,6 +58,7 @@ const CCParams cc_params[CC_COUNT] = {
 #define DRIFT_R_TIGHT    13.0f
 #define DRIFT_R_NEUTRAL  24.0f
 #define DRIFT_R_WIDE     75.0f
+#define DRIFT_EASE       0.35f  /* seconds for a new slide to reach full lock */
 #define STAGE1           0.85f
 #define STAGE2           1.90f
 #define STAGE3           3.10f
@@ -381,6 +382,13 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         float kk = k->steer * (float)k->drift_dir;       /* +1 tight, -1 wide */
         float curv = kk >= 0 ? lerpf(1.0f / DRIFT_R_NEUTRAL, 1.0f / DRIFT_R_TIGHT, kk)
                              : lerpf(1.0f / DRIFT_R_NEUTRAL, 1.0f / DRIFT_R_WIDE, -kk);
+        /* Ease in: the stick is usually still hard over from picking the
+           direction, so start no tighter than neutral and tighten up over
+           DRIFT_EASE seconds. Counter-steer for a wider line acts at once. */
+        if(k->drift_t < DRIFT_EASE && kk > 0) {
+            float e = k->drift_t / DRIFT_EASE;
+            curv = lerpf(1.0f / DRIFT_R_NEUTRAL, curv, e * e * (3.0f - 2.0f * e));
+        }
         float rate = clampf(spd * curv, 0, 2.1f);
         k->heading += (float)k->drift_dir * rate * dt;
         k->drift_t += dt;
@@ -397,7 +405,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     else {
         float scale = clampf(spd / 6.0f, 0, 1) * (1.0f - 0.15f * clampf(spd / top, 0, 1));
         float rate = k->steer * TURN_MAX * scale;
-        if(!k->grounded) rate *= k->big_air ? 0.45f : 1.25f;   /* hop turns, steadier in big air */
+        if(!k->grounded) rate *= k->big_air ? 0.45f : 1.05f;   /* hop turns, steadier in big air */
         if(k->speed < 0) rate = -rate;
         k->heading += rate * dt;
     }
@@ -526,15 +534,43 @@ void karts_collide(void) {
     }
 }
 
+/* CPU personalities, by kart index, so the pack doesn't drive as one:
+   look-ahead (short is twitchy, long is smooth), how far (m) the line
+   sways about the kart's lane and how many times a lap (a whole number,
+   so it meets itself at the line), how far (m) before or after the others
+   it hops into a drift, and its odds of taking a bend on grip instead. */
+static const struct { float look, sway, sways, lead, grip; } ai_style[MAX_KARTS] = {
+    {1.00f, 0.9f, 3, 4.0f, 0.10f}, {0.88f, 1.6f, 5, 11.0f, 0.05f}, {1.15f, 0.6f, 2, -3.0f, 0.25f},
+    {0.95f, 1.3f, 4, 7.0f, 0.15f}, {1.08f, 1.8f, 3, 0.0f, 0.10f}, {0.92f, 1.0f, 6, -1.5f, 0.20f},
+};
+static float ai_react[MAX_KARTS];     /* drift reaction delay still to run */
+
 /* CPU driver: pure pursuit toward a point on the racing line. The
    required path curvature is mapped onto the stick, through the slide
    radii while drifting, so CPUs drift and counter-steer like a player. */
 void ai_drive(Kart *k, KartInput *in, float dt) {
     memset(in, 0, sizeof(*in));
+    int idx = (int)(k - karts);
+    /* The autotest drives the human kart: keep it on the neutral line. */
+    bool styled = k->cpu && idx >= 0 && idx < MAX_KARTS;
+    float look_k = styled ? ai_style[idx].look : 1.0f;
+    float lead = styled ? ai_style[idx].lead : 0.0f;
     float s = k->tp.s, spd = fabsf(k->speed);
     float top = kart_top_speed(k);
-    float look = 6.0f + spd * 0.45f;
-    float td = clampf(track_line(s + look) + k->lane, -6.0f, 6.0f);
+    float look = (6.0f + spd * 0.45f) * look_k;
+    float c_ahead = track_curvature(s + 4.0f + spd * 0.3f);
+    float lane = k->lane;
+    if(styled) {
+        /* A slow weave about the lane, straightened out through bends and
+           on the run up to (and over) a jump. */
+        float sway = ai_style[idx].sway * (1.0f - clampf(fabsf(c_ahead) * 120.0f, 0, 1));
+        if(track.has_jump) {
+            float a = track_jump_pos(s);
+            if(a > -90.0f && a < track.jump.land + 10.0f) sway = 0;
+        }
+        lane += sway * sinf(s * (DK_TAU / track.length) * ai_style[idx].sways + (float)idx * 1.7f);
+    }
+    float td = clampf(track_line(s + look) + lane, -6.0f, 6.0f);
     V3 tp = track_point(s + look, td);
     float dx = tp.x - k->pos.x, dz = tp.z - k->pos.z;
     float dist = fmaxf(sqrtf(dx * dx + dz * dz), 1.0f);
@@ -553,13 +589,27 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         in->steer = clampf(c_des * spd / rate_max, -1, 1);
     }
 
-    float c_ahead = track_curvature(s + 4.0f + spd * 0.3f);
     float c_now = track_curvature(s + 2.0f);
     if(k->ai_drift_hold > 0) k->ai_drift_hold -= dt;
     if(!k->ai_drift_btn) {
-        if(fabsf(c_ahead) > 0.004f && fabsf(track_curvature(s + 35.0f)) > 0.004f && spd > 12.0f &&
-           k->grounded && k->drift == DRIFT_NONE && k->ai_drift_hold <= 0)
-            k->ai_drift_btn = true;
+        float c_entry = lead != 0 ? track_curvature(s + 4.0f + spd * 0.3f + lead) : c_ahead;
+        bool want = fabsf(c_entry) > 0.004f && fabsf(track_curvature(s + 35.0f + lead)) > 0.004f && spd > 12.0f &&
+                    k->grounded && k->drift == DRIFT_NONE && k->ai_drift_hold <= 0;
+        /* CPUs react after a beat, different every bend, so a pack doesn't
+           hop into the same corner on the same frame; now and then one
+           just grips its way round. */
+        if(!styled) {
+            if(want) k->ai_drift_btn = true;
+        }
+        else if(!want) ai_react[idx] = 0;
+        else if(ai_react[idx] <= 0) {
+            ai_react[idx] = 0.04f + (float)(dk_rand() & 255) * (0.20f / 255.0f);
+            if((float)(dk_rand() & 255) < ai_style[idx].grip * 256.0f) {
+                k->ai_drift_hold = 2.5f;
+                ai_react[idx] = 0;
+            }
+        }
+        else if((ai_react[idx] -= dt) <= 0) k->ai_drift_btn = true;
     }
     else {
         if(k->drift == DRIFT_PENDING || (k->drift == DRIFT_CHARGE && k->charge_jump_t < 0.2f))
