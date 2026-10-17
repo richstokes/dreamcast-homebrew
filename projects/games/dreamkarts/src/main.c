@@ -66,6 +66,11 @@ static void capture_script(void) {
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
+    /* Hidden trigger track cycle: R to the next track, grab it, L back. */
+    static int trig_step;
+    if(game.state == ST_TITLE && game.time > 4.2f && trig_step == 0) { trig_step = 1; pad.pressed |= BTN_R; }
+    if(game.state == ST_TITLE && game.time > 5.2f && trig_step == 1) { trig_step = 2; take_shot("title-next"); }
+    if(game.state == ST_TITLE && game.time > 6.0f && trig_step == 2) { trig_step = 3; pad.pressed |= BTN_L; }
     if(game.state == ST_TITLE && game.time > 7.0f) { pad.pressed |= BTN_START; step = 0; }
     if(game.state == ST_MAIN) {
         if(game.time > 1.5f && !shot[19]) { shot[19] = true; take_shot("main-menu"); }

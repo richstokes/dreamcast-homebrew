@@ -195,7 +195,14 @@ void title_update(float dt) {
     }
     if(game.state == ST_TITLE) {
         menu_slide = fmaxf(0.0f, menu_slide - dt * 4.0f);
-        if(game.time > 0.6f && ((pad.pressed | pad2.pressed) & (BTN_START | BTN_A))) {
+        /* Hidden: the triggers cycle the background track. */
+        uint32_t trig = (pad.pressed | pad2.pressed) & (BTN_L | BTN_R);
+        if(trig && trig != (BTN_L | BTN_R)) {
+            int dir = trig == BTN_L ? -1 : 1;
+            game_load_track(game.track + dir);
+            audio_sfx(DK_SFX_WHOOSH, 140, dir < 0 ? 90 : 166);
+        }
+        if(game.time > 0.6f &&((pad.pressed | pad2.pressed) & (BTN_START | BTN_A))) {
             audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
             game_set_state(ST_MAIN);
