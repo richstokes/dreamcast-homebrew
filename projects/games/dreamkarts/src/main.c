@@ -77,6 +77,7 @@ static void capture_script(void) {
     if(game.state == ST_RACE && p->big_air && p->pos.y > 6.0f && !shot[10]) { shot[10] = true; take_shot("jump"); }
     if(game.state == ST_INTRO && game.time > 1.6f && !shot[2]) { shot[2] = true; take_shot("intro"); }
     if(game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[7]) { shot[7] = true; take_shot("countdown"); }
+    if(game.countdown > 3.15f && game.countdown < 3.5f && !shot[17]) { shot[17] = true; take_shot("go"); }
     if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 3 && !shot[3]) { shot[3] = true; take_shot("drift"); }
     if(game.state == ST_RACE && p->boost_t > 0.3f && game.race_time > 8.0f && !shot[4]) { shot[4] = true; take_shot("boost"); }
     if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
@@ -208,7 +209,7 @@ void race_setup(void) {
         k->cpu = hp < 0;
         if(!k->cpu) {
             kart_apply_colour(k, game.pl[hp].colour);
-            k->name = humans == 1 ? "YOU" : (hp ? "P2" : "P1");
+            k->name = hp ? "P2" : "P1";
         }
         else {
             /* Rivals take the presets the humans did not choose. */
