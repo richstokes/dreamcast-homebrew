@@ -16,6 +16,7 @@
 #include <dc/sound/sfxmgr.h>
 #include <dc/sound/sound.h>
 #include <dc/sound/stream.h>
+#include <dc/spu.h>
 #include <dc/video.h>
 
 #include <math.h>
@@ -323,12 +324,24 @@ typedef struct {
     float music_gain;
 } audio_synth_t;
 
+/* Each stereo loop owns two adjacent channels reserved with
+   snd_sfx_chn_alloc(). snd_sfx_play() hands out channels round-robin and
+   skips only reserved ones, so an unreserved loop can be replaced by any
+   later one-shot, after which the per-frame UPDATE commands retune the wrong
+   sound. */
 typedef struct {
     sfxhnd_t handle;
     int channel;
     int last_frequency;
     int last_volume;
+    uint32_t sample_base[2];
+    bool stolen[2];
 } audio_voice_t;
+
+/* KOS 2.3's AICA driver mirrors each channel's last START in this table in
+   sound RAM (AICA_MEM_CHANNELS in sound/arm/aica_cmd_iface.h). */
+#define AUDIO_AICA_CHANNEL_TABLE 0x020000u
+#define AUDIO_VOICE_CHECK_FRAMES 60u
 
 static snd_stream_hnd_t audio_stream=SND_STREAM_INVALID;
 static int16_t audio_samples[16384] __attribute__((aligned(32)));
@@ -357,6 +370,9 @@ static float audio_impact_cooldown;
 static audio_voice_t audio_idle_voice;
 static audio_voice_t audio_load_voice;
 static audio_voice_t audio_tire_voice;
+static uint32_t audio_voice_check_frame;
+static uint32_t audio_voice_checks;
+static uint32_t audio_voice_steals;
 
 static pvr_ptr_t texture_vram[DLA_TEXTURE_COUNT];
 static pvr_poly_hdr_t texture_headers[DLA_TEXTURE_COUNT];
@@ -542,11 +558,30 @@ static void audio_trigger_handbrake(void) {
     ++audio_controls.handbrake_serial;
 }
 
+/* snd_sfx_chn_alloc() returns the lowest free channel, so consecutive
+   allocations ascend; hold channels until two are adjacent, then return the
+   rest. */
+static int audio_alloc_channel_pair(void) {
+    int held[64],count=0,first=-1;
+    for(;;) {
+        const int channel=snd_sfx_chn_alloc();
+        if(channel<0) break;
+        if(count>0&&held[count-1]+1==channel) {
+            first=held[--count];
+            break;
+        }
+        held[count++]=channel;
+    }
+    while(count>0) snd_sfx_chn_free(held[--count]);
+    return first;
+}
+
 static bool audio_start_recorded_voice(audio_voice_t *voice,
                                        const int16_t *pcm,
                                        size_t byte_count,
                                        uint32_t frame_count) {
     sfx_play_data_t playback;
+    int channel;
     memset(voice,0,sizeof(*voice));
     voice->channel=-1;
     voice->last_frequency=-1;
@@ -554,8 +589,15 @@ static bool audio_start_recorded_voice(audio_voice_t *voice,
     voice->handle=snd_sfx_load_raw_buf((char *)(void *)pcm,byte_count,
                                        AUDIO_ASSET_RATE,16,2);
     if(voice->handle==SFXHND_INVALID) return false;
+    channel=audio_alloc_channel_pair();
+    if(channel<0) {
+        printf("Drift Los Angeles: no adjacent AICA channel pair for a recorded voice.\n");
+        snd_sfx_unload(voice->handle);
+        voice->handle=SFXHND_INVALID;
+        return false;
+    }
     memset(&playback,0,sizeof(playback));
-    playback.chn=-1;
+    playback.chn=channel;
     playback.idx=voice->handle;
     playback.vol=0;
     playback.pan=128;
@@ -565,6 +607,8 @@ static bool audio_start_recorded_voice(audio_voice_t *voice,
     playback.loopend=frame_count;
     voice->channel=snd_sfx_play_ex(&playback);
     if(voice->channel<0) {
+        snd_sfx_chn_free(channel);
+        snd_sfx_chn_free(channel+1);
         snd_sfx_unload(voice->handle);
         voice->handle=SFXHND_INVALID;
         return false;
@@ -595,6 +639,44 @@ static void audio_queue_voice_update(audio_voice_t *voice,
     snd_sh4_to_aica(packet,command->size);
     voice->last_frequency=frequency;
     voice->last_volume=volume;
+}
+
+/* Debug check: read back what the AICA driver last started on each loop
+   channel. A loop keeps the base address it started with and its loop flag;
+   anything else means another sound took the channel. */
+static void audio_check_recorded_voice(audio_voice_t *voice,
+                                       const char *name) {
+    int side;
+    if(voice->channel<0) return;
+    for(side=0;side<2;++side) {
+        aica_channel_t state;
+        const int channel=voice->channel+side;
+        if(voice->stolen[side]) continue;
+        spu_memread(&state,AUDIO_AICA_CHANNEL_TABLE+
+                    (uintptr_t)channel*sizeof(aica_channel_t),
+                    sizeof(state));
+        ++audio_voice_checks;
+        if(voice->sample_base[side]==0u&&state.loop) {
+            voice->sample_base[side]=state.base;
+            continue;
+        }
+        if(!state.loop||state.base!=voice->sample_base[side]) {
+            ++audio_voice_steals;
+            voice->stolen[side]=true;
+            printf("Drift Los Angeles: BUG %s loop channel %d was taken (base %08lx loop %lu, expected %08lx).\n",
+                   name,channel,(unsigned long)state.base,
+                   (unsigned long)state.loop,
+                   (unsigned long)voice->sample_base[side]);
+        }
+    }
+}
+
+static void audio_check_recorded_voices(void) {
+    if(++audio_voice_check_frame<AUDIO_VOICE_CHECK_FRAMES) return;
+    audio_voice_check_frame=0u;
+    audio_check_recorded_voice(&audio_idle_voice,"idle");
+    audio_check_recorded_voice(&audio_load_voice,"load");
+    audio_check_recorded_voice(&audio_tire_voice,"tire");
 }
 
 static void audio_update_recorded_voices(void) {
@@ -630,7 +712,9 @@ static void audio_update_recorded_voices(void) {
         AUDIO_LOAD_BUS_VOLUME,0.0f,255.0f);
     const int tire_volume=(int)clampf(tire_weight*AUDIO_TIRE_BUS_VOLUME,
                                      0.0f,255.0f);
-    const bool changed=
+    bool changed;
+    audio_check_recorded_voices();
+    changed=
         audio_voice_needs_update(&audio_idle_voice,idle_frequency,idle_volume)||
         audio_voice_needs_update(&audio_load_voice,load_frequency,load_volume)||
         audio_voice_needs_update(&audio_tire_voice,tire_frequency,tire_volume);
@@ -649,6 +733,8 @@ static void audio_release_recorded_voice(audio_voice_t *voice) {
     if(voice->channel>=0) {
         snd_sfx_stop(voice->channel);
         snd_sfx_stop(voice->channel+1);
+        snd_sfx_chn_free(voice->channel);
+        snd_sfx_chn_free(voice->channel+1);
         voice->channel=-1;
     }
     if(voice->handle!=SFXHND_INVALID) {
@@ -867,12 +953,18 @@ static void init_audio(void) {
         printf("Drift Los Angeles: %d recorded 32 kHz AICA engine/tire voices plus 22 kHz effects and a %u-track, %.1fs stereo soundtrack ready.\n",
                recorded_voices,(unsigned)DLA_MUSIC_TRACK_COUNT,
                (double)frames/(double)DLA_MUSIC_RATE);
+        printf("Drift Los Angeles: recorded voices on reserved AICA channel pairs %d %d %d.\n",
+               audio_idle_voice.channel,audio_load_voice.channel,
+               audio_tire_voice.channel);
     }
     audio_start_music_track(&audio_synth,0u);
 }
 
 static void shutdown_audio(void) {
     if(audio_stream!=SND_STREAM_INVALID) {
+        printf("Drift Los Angeles: recorded voice channel check -- %lu reads, %lu steals.\n",
+               (unsigned long)audio_voice_checks,
+               (unsigned long)audio_voice_steals);
         audio_release_recorded_voice(&audio_idle_voice);
         audio_release_recorded_voice(&audio_load_voice);
         audio_release_recorded_voice(&audio_tire_voice);
@@ -7807,6 +7899,13 @@ int main(int argc, char **argv) {
                        donut_max_radius,donut_max_planar_speed,
                        donut_max_yaw_rate,donut_max_slip,mean_slip);
                 if(!pass) physics_qa_exit=1;
+                printf("Drift Los Angeles physics QA: audio loop channels %s -- %lu reads, %lu steals.\n",
+                       audio_voice_checks>0u&&audio_voice_steals==0u?
+                           "PASS":"FAIL",
+                       (unsigned long)audio_voice_checks,
+                       (unsigned long)audio_voice_steals);
+                if(audio_voice_checks==0u||audio_voice_steals>0u)
+                    physics_qa_exit=1;
                 printf("Drift Los Angeles physics QA: %s.\n",
                        physics_qa_exit==0?"ALL TESTS PASS":"FAILED");
 #else

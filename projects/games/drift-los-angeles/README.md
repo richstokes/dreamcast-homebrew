@@ -186,6 +186,12 @@ rather than like a one-shot re-triggering. Every loop is rejected if its slow
 loudness envelope swings more than 1.15:1. A preview of the engine sweep and
 the tire loop lands in `assets/generated/previews/v8-engine-rpm-sweep.wav`.
 
+In game the three stereo loops play on adjacent channel pairs reserved with
+`snd_sfx_chn_alloc()`, and their pitch and volume change in place with AICA
+channel UPDATE commands. KOS's `snd_sfx_play()` assigns channels round-robin
+and skips only reserved ones, so a loop on an unreserved channel could be
+replaced by a later one-shot effect that the updates would then retune.
+
 `make music` rebuilds only the soundtrack: `tools/compose_soundtrack.py`
 renders the three songs from their notation, then `tools/build_music_asset.py`
 packs them into a 4-bit ADPCM playlist bank (both run through `uv`). Rendered
@@ -272,7 +278,10 @@ cells for short sleeves, jacket sleeves or bare shins.
 
 `make qa` checks the car mesh and texture inventory, `make qa-run` runs a
 60-second district tour with telemetry, and `make physics-qa-run` runs the
-burnout and donut regression suite in Flycast. `make collision-qa-run` drives
+burnout and donut regression suite in Flycast; it also fails if anything took
+over the reserved AICA channel pairs of the engine and tire loops (every build
+reads those channels back every 60 frames, prints a `BUG` line on a change and
+reports the totals at shutdown). `make collision-qa-run` drives
 the car into a lamppost, a parked car and a walking pedestrian in turn and
 checks that each impact registers, that the car never passes through the
 obstacle, and that the pedestrian is launched and comes to rest.
