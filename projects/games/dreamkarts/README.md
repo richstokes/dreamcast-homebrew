@@ -39,7 +39,7 @@ is also available.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
 - **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
-- **Final-lap dolphins (Emerald Beach):** as you come out of turn 1 on the final lap, a pair of dolphins surfaces beside the boardwalk and races alongside you about 26 m ahead and to the right, making three splashy leaps each. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
+- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
 - **Ramp jump (Coral Crossing):** the jump pad's long boost carries you up a 4 m kicker; karts leave the lip at a fixed climb rate under lighter gravity, so every class soars about 7 m over the karts passing underneath and lands on a deck that eases back down to the road. A drift in progress fires its mini-turbo at take-off.
 - **Dash panels** give a boost (on Emerald Beach, one on each straight and one on the exit of turn 1), and any boost lets you cut through sand.
 - **Presentation:**
@@ -117,6 +117,10 @@ Measured on hardware on 2026-10-17, 150cc, six karts, over a full race:
 | 1P now | 3 of 6,802 frames | 12.1 ms | 10.4 ms |
 | 2P split, first build | 1,142 of 5,390 frames | 20.1 ms | 13.0 ms |
 | 2P split now | 10 of 6,767 frames | 12.4 ms | 11.5 ms |
+
+Coral Crossing on the same day, with its jump and dolphins: 1P dropped 7 of
+7,599 frames (13.0 ms average CPU), and 2P split dropped 15 of 7,604 (12.6 ms).
+Add `-DDK_AT_TRACK=1` to `EXTRA_CFLAGS` to benchmark it.
 
 Run the two-player benchmark with
 `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.
