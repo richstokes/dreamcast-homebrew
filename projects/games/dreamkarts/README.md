@@ -39,6 +39,7 @@ is also available.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
 - **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
+- **Final-lap dolphins (Emerald Beach):** as you come out of turn 1 on the final lap, a pair of dolphins surfaces beside the boardwalk and races alongside you about 26 m ahead and to the right, making three splashy leaps each. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
 - **Ramp jump (Coral Crossing):** the jump pad's long boost carries you up a 4 m kicker; karts leave the lip at a fixed climb rate under lighter gravity, so every class soars about 7 m over the karts passing underneath and lands on a deck that eases back down to the road. A drift in progress fires its mini-turbo at take-off.
 - **Dash panels** give a boost (on Emerald Beach, one on each straight and one on the exit of turn 1), and any boost lets you cut through sand.
 - **Presentation:**

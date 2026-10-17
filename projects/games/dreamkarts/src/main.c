@@ -13,6 +13,7 @@
 #include "title.h"
 #include "track.h"
 #include "world.h"
+#include "dolphins.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -60,7 +61,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[11];
+    static bool shot[16];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -79,6 +80,8 @@ static void capture_script(void) {
     if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 3 && !shot[3]) { shot[3] = true; take_shot("drift"); }
     if(game.state == ST_RACE && p->boost_t > 0.3f && game.race_time > 8.0f && !shot[4]) { shot[4] = true; take_shot("boost"); }
     if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
+    if(game.state == ST_RACE && dolphins_show_time() > 0.85f && !shot[11]) { shot[11] = true; take_shot("dolphins"); }
+    if(game.state == ST_RACE && dolphins_show_time() > 3.65f && !shot[12]) { shot[12] = true; take_shot("dolphins2"); }
     if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot("results"); }
 #ifndef DK_HW
     /* Pause mid-race, switch the music off, grab the menu, switch it back on. */
@@ -238,6 +241,7 @@ void race_setup(void) {
         pl->final_lap_seen = false;
     }
     fx_clear();
+    dolphins_reset();
     hud_reset();
     update_places();
 }
@@ -429,6 +433,7 @@ static void race_step(float dt, bool drive) {
     }
     karts_collide();
     update_places();
+    dolphins_update(dt);
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
         if(k->events & EV_FINISH) game.finished_count++;
@@ -715,6 +720,7 @@ static void render(void) {
         for(int v = 0; v < views; v++) {
             set_view(v);
             models_draw_karts(view_kart(v));
+            dolphins_draw();
         }
     PROF_MARK(2);
 
@@ -792,6 +798,7 @@ int main(int argc, char **argv) {
     world_build();
     models_init();
     fx_init();
+    dolphins_init();
     hud_init();
     title_init();
     audio_init();

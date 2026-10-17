@@ -113,6 +113,24 @@ static void burst_stars(V3 p, int n, uint32_t col, float speed) {
     }
 }
 
+void fx_splash(V3 p, float strength) {
+    int puffs = (int)(9 * strength), drops = (int)(12 * strength);
+    for(int i = 0; i < puffs; i++) {
+        V3 v = v3(frand_s() * 1.6f, (2.0f + frand() * 3.0f) * strength, frand_s() * 1.6f);
+        Particle *q = spawn(P_SMOKE, vadd(p, v3(frand_s() * 0.6f, 0.1f, frand_s() * 0.6f)), v,
+                            0.7f + frand() * 0.4f, 0.55f, argb(210, 245, 252, 255), argb(0, 220, 240, 255));
+        q->gravity = 6.0f;
+        q->grow = 1.3f;
+        q->drag = 1.0f;
+    }
+    for(int i = 0; i < drops; i++) {
+        V3 v = v3(frand_s() * 3.0f, (4.0f + frand() * 4.0f) * strength, frand_s() * 3.0f);
+        Particle *q = spawn(P_SPARK, vadd(p, v3(0, 0.1f, 0)), v, 0.5f + frand() * 0.3f, 0.05f,
+                            0xffffffff, argb(0, 200, 235, 255));
+        q->gravity = 12.0f;
+    }
+}
+
 void fx_kart(const Kart *k, float dt) {
     int idx = (int)(k - karts);
     V3 fwd = heading_fwd(k->heading + k->vis_yaw), right = heading_right(k->heading + k->vis_yaw);
