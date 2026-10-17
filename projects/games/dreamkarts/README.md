@@ -100,21 +100,30 @@ re-renders the same frame with each feature group switched off, printing the
 PVR render time for each (`DK GPU` lines). `make hw` plays the release build on
 the console.
 
-Measured on hardware on 2026-10-17, 150cc, six karts:
+Measured on hardware on 2026-10-17, 150cc, six karts, over a full race:
 
-| | Before | After |
-| --- | --- | --- |
-| Dropped vblanks over a full race | 208 of 6,652 frames | 2 of 6,866 frames |
-| PVR render time, start grid / mid-drift | 21.0 / 16.6 ms | 10.8 / 10.1 ms |
-| CPU time per frame (average) | 13.0 ms | 11.8 ms |
+| | Dropped vblanks | CPU per frame (avg) | PVR render, start grid |
+| --- | --- | --- | --- |
+| 1P, first build | 208 of 6,652 frames | 13.0 ms | 21.0 ms |
+| 1P now | 1 of 6,801 frames | 8.8 ms | 10.8 ms |
+| 2P split, first build | 1,142 of 5,390 frames | 20.1 ms | 13.0 ms |
+| 2P split now | 26 of 6,729 frames | 13.0 ms | 12.2 ms |
 
-The console was limited by the PowerVR, not the CPU. Translucency is
-presorted: polygons are submitted back to front instead of using the
-hardware autosort, which cost about 7 ms a frame. Smoke puffs close to the
-camera are skipped, puff size is capped, and the large "GO!" glow is gone.
-Only the player and the nearest rival inside 14 m use the full-detail kart
-model. In Flycast the same race averages about 8 ms of CPU, so the console is
-about 1.5x slower than the emulator for this code.
+Run the two-player benchmark with
+`make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.
+
+What made the difference:
+
+- **Presorted translucency.** Translucent polygons are submitted back to front instead of using the hardware autosort, which cost about 7 ms a frame.
+- **Particle fill.** Smoke puffs close to the camera are skipped and puff size is capped; the large "GO!" glow is gone.
+- **Hardware split clipping.** Each split view is seven whole 32-pixel tile rows, with the clock and map in the band between, and the PVR's user tile clip trims each view in hardware. Software clipping at a 240-pixel split had broken most ground strips into clipped triangles.
+- **Fast math.** `-ffast-math` lets GCC use the SH-4's FSCA for `sinf`/`cosf`. KOS passes `-mfsca`, but without fast-math every call still went to libm.
+- **Kart work shared between views.** Each kart's part matrices and lighting are computed once per frame and reused by both views, and matrices are composed with the FTRV unit.
+- **Kart detail.** Full-detail models go only to the karts each camera follows; in split screen they also skip the hidden steering wheel and use the simple wheels.
+- **Split-screen scenery.** Fog and draw distance come in, the outermost terrain is dropped, and fewer palms and clouds are drawn.
+
+In Flycast the 1P race averages about 6 ms of CPU, so the console is about
+1.5x slower than the emulator for this code.
 
 ## Assets
 

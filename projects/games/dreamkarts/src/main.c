@@ -631,7 +631,8 @@ static int view_count(void) {
 
 static void set_view(int v) {
     bool racing = game.state == ST_COUNTDOWN || game.state == ST_RACE;
-    if(view_count() == 2) r_set_viewport(v ? 240.0f : 0.0f, v ? 480.0f : 240.0f);
+    /* Split: two 7-tile views with the HUD band (tile row 7) between. */
+    if(view_count() == 2) r_set_viewport(v ? 256.0f : 0.0f, v ? 480.0f : 224.0f);
     else r_set_viewport(0, 480.0f);
     r_set_camera(racing ? &game.pl[v].cam : &game.cam);
 }
@@ -711,7 +712,7 @@ static void render(void) {
             }
             else {
                 for(int v = 0; v < 2; v++) {
-                    float y0 = v ? 240.0f : 0.0f, y1 = y0 + 240.0f;
+                    float y0 = v ? 256.0f : 0.0f, y1 = y0 + 224.0f;
                     hud_draw_race(v, y0, y1);
                     hud_draw_countdown(y0, y1);
                     draw_finish_banner(v, y0, y1);

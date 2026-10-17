@@ -11,7 +11,9 @@ SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
 	third_party/sh4zam/include/sh4zam/inline/*.h \
 	third_party/sh4zam/include/sh4zam/inline/sh4/*.h)
 HEADERS = $(wildcard src/*.h) $(GEN_HEADERS) $(SH4ZAM_HEADERS)
-WARN = -std=gnu17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(EXTRA_CFLAGS)
+# -ffast-math lets GCC use the SH-4's FSCA for sinf/cosf (KOS passes -mfsca
+# but libm calls remain without it) and plain FSQRT for sqrtf.
+WARN = -std=gnu17 -O2 -ffast-math -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(EXTRA_CFLAGS)
 INCLUDES = -Isrc -I$(GEN) -Ithird_party/sh4zam/include
 BLENDER ?= blender
 

@@ -25,14 +25,14 @@ typedef struct { float x, y, w, u, v; uint32_t c; } CV;
 
 static shz_mat4x4_t vp __attribute__((aligned(32)));
 static float cam_f, cam_tx, cam_ty;
-/* Viewport: full screen, or one half of a two-player split. In a split the
-   horizontal edges are real borders, so triangles crossing them are clipped
-   in software (PVR tile clipping is 32-pixel granular; 240 is not). */
+/* Viewport: full screen, or one half of a two-player split. Views are
+   whole 32-pixel tile rows so the PVR's user tile clip trims them for free;
+   every polygon header opts in to that clip. */
 static float view_y0 = 0, view_y1 = 480, view_cx = 320, view_cy = 240;
 static unsigned clip_mask = 16;
 static const pvr_poly_hdr_t *cur_hdr, *sent_hdr;
+static bool list_open;
 static CV cvbuf[MAX_STRIP] __attribute__((aligned(32)));
-static CV mesh_cv[MAX_MESH_VERTS] __attribute__((aligned(32)));
 static pvr_vertex_t mesh_pv[MAX_MESH_VERTS] __attribute__((aligned(32)));
 static uint8_t mesh_code[MAX_MESH_VERTS];
 
@@ -43,6 +43,10 @@ static int header_count;
 
 /* ------------------------------------------------------------------ */
 /* Setup                                                               */
+
+static void clear_pv_specular(void) {
+    for(int i = 0; i < MAX_MESH_VERTS; i++) mesh_pv[i].oargb = 0;
+}
 
 static void load_textures(void) {
     size_t used = 0;
@@ -82,6 +86,7 @@ void render_init(void) {
     pvr_fog_table_color(1.0f, 0.74f, 0.89f, 0.98f);
     pvr_fog_table_linear(160.0f, 820.0f);
     headers = memalign(32, sizeof(HeaderSlot) * MAX_HEADERS);
+    clear_pv_specular();
     load_textures();
 }
 
@@ -117,6 +122,7 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
         pvr_poly_cxt_col(&c, list);
     }
     c.gen.culling = PVR_CULLING_NONE;
+    c.gen.clip_mode = PVR_USERCLIP_INSIDE;
     c.gen.fog_type = (flags & HF_NOFOG) ? PVR_FOG_DISABLE : PVR_FOG_TABLE;
     if(list == PVR_LIST_TR_POLY) {
         c.gen.alpha = true;
@@ -143,9 +149,12 @@ void r_list(pvr_list_t list) {
     pvr_list_begin(list);
     sent_hdr = NULL;
     cur_hdr = NULL;
+    list_open = true;
+    r_set_viewport(view_y0, view_y1);
 }
 
 void r_frame_end(void) {
+    list_open = false;
     pvr_scene_finish();
 }
 
@@ -219,7 +228,19 @@ void r_set_viewport(float y0, float y1) {
     view_y0 = y0;
     view_y1 = y1;
     view_cy = (y0 + y1) * 0.5f;
-    clip_mask = (y0 > 0 || y1 < 480) ? (16u | 4u | 8u) : 16u;
+    clip_mask = 16u;
+    /* Tell the TA (only valid inside an open list). */
+    if(list_open) {
+        uint32_t *d = pvr_dr_target();
+        d[0] = PVR_CMD_USERCLIP;
+        d[1] = d[2] = d[3] = 0;
+        d[4] = 0;                                 /* x min tile */
+        d[5] = (uint32_t)(y0 / 32.0f);            /* y min tile */
+        d[6] = 19;                                /* x max tile */
+        d[7] = (uint32_t)((y1 - 1.0f) / 32.0f);   /* y max tile */
+        pvr_dr_commit(d);
+        sent_hdr = NULL;                          /* resend the header after it */
+    }
 }
 
 void r_set_camera(const Camera *c) {
@@ -247,9 +268,9 @@ void r_load_vp(void) {
 }
 
 void r_load_model(const float *m) {
-    shz_mat4x4_t full __attribute__((aligned(32)));
-    m4_mul(full.elem, vp.elem, m);
-    shz_xmtrx_load_4x4(&full);
+    /* XMTRX = view-projection * model, multiplied by the FTRV unit. */
+    shz_xmtrx_load_4x4(&vp);
+    shz_xmtrx_apply_unaligned_4x4(m);
 }
 
 bool r_sphere_visible(V3 c, float radius) {
@@ -421,21 +442,23 @@ void r_quad(const RV *a, const RV *b, const RV *c, const RV *d) {
 
 void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
     if(nv > MAX_MESH_VERTS) nv = MAX_MESH_VERTS;
+    /* Only the projected vertex is kept; the rare triangles that need
+       near-plane clipping re-transform their corners (XMTRX still holds
+       this mesh's matrix). */
     for(int i = 0; i < nv; i++) {
-        CV *c = &mesh_cv[i];
-        xform(&v[i], c);
-        mesh_code[i] = (uint8_t)outcode(c);
-        if(c->w >= NEAR_W) {
-            float inv = shz_invf_fsrra(c->w);
+        CV c;
+        xform(&v[i], &c);
+        mesh_code[i] = (uint8_t)outcode(&c);
+        if(c.w >= NEAR_W) {
+            float inv = shz_invf_fsrra(c.w);
             pvr_vertex_t *p = &mesh_pv[i];
             p->flags = PVR_CMD_VERTEX;
-            p->x = c->x * inv;
-            p->y = c->y * inv;
+            p->x = c.x * inv;
+            p->y = c.y * inv;
             p->z = inv;
-            p->u = c->u;
-            p->v = c->v;
-            p->argb = c->c;
-            p->oargb = 0;
+            p->u = c.u;
+            p->v = c.v;
+            p->argb = c.c;
         }
     }
     rstats.verts += nv;
@@ -445,7 +468,11 @@ void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
         unsigned ca = mesh_code[a], cb = mesh_code[b], cc = mesh_code[c];
         if(ca & cb & cc) continue;
         if((ca | cb | cc) & clip_mask) {
-            clip_tri(&mesh_cv[a], &mesh_cv[b], &mesh_cv[c]);
+            CV ta, tb, tc;
+            xform(&v[a], &ta);
+            xform(&v[b], &tb);
+            xform(&v[c], &tc);
+            clip_tri(&ta, &tb, &tc);
             continue;
         }
         const pvr_vertex_t *pa = &mesh_pv[a], *pb = &mesh_pv[b], *pc = &mesh_pv[c];

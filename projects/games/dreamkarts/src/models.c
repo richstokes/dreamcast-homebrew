@@ -16,6 +16,10 @@ static uint32_t paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
 static RV kart_rv[MAX_KARTS][DK_MODEL_VERT_COUNT] __attribute__((aligned(32)));
 static uint32_t lit_frame[MAX_KARTS][DK_MODEL_MESH_COUNT];
 static uint32_t frame_id = 1;
+/* Kart part matrices, computed once per frame and shared by both views. */
+static float part_mats[MAX_KARTS][DK_PART_COUNT][16];
+static V3 part_light[MAX_KARTS][DK_PART_COUNT];
+static uint32_t mats_frame[MAX_KARTS];
 static const pvr_poly_hdr_t *h_model, *h_shadow;
 static float ref_luma1 = 1.0f;
 static float normals[DK_MODEL_VERT_COUNT][3];
@@ -127,24 +131,50 @@ static int emote_variant(const Kart *k) {
     return 1;
 }
 
+static void update_kart_mats(int index) {
+    if(mats_frame[index] == frame_id) return;
+    mats_frame[index] = frame_id;
+    const Kart *k = &karts[index];
+    float km[16];
+    kart_matrix(km, k);
+    for(int part = 0; part < DK_PART_COUNT; part++) {
+        float *pm = part_mats[index][part];
+        part_matrix(pm, km, part, k);
+        /* Sun into part space (columns are the part axes). */
+        V3 cx = v3(pm[0], pm[1], pm[2]), cy = v3(pm[4], pm[5], pm[6]), cz = v3(pm[8], pm[9], pm[10]);
+        part_light[index][part] = v3(vdot(vnorm(cx), light_dir), vdot(vnorm(cy), light_dir), vdot(vnorm(cz), light_dir));
+    }
+}
+
+/* lod 2 = split-screen "own kart": full-detail body and Chao, the simple
+   wheels, and no steering wheel (hidden behind the Chao from the chase
+   camera). */
+static bool mesh_in_lod(const dk_mesh_t *m, int lod) {
+    if(lod < 2) return m->lod == lod;
+    switch(m->part) {
+        case DK_PART_WHEEL_FL: case DK_PART_WHEEL_FR: case DK_PART_WHEEL_RL: case DK_PART_WHEEL_RR:
+            return m->lod == 1;
+        case DK_PART_STEER:
+            return false;
+        default:
+            return m->lod == 0;
+    }
+}
+
 static void draw_kart_lod(int index, int lod) {
     const Kart *k = &karts[index];
-    float km[16], pm[16];
-    kart_matrix(km, k);
+    update_kart_mats(index);
     int variant = emote_variant(k);
     int last_part = -1;
     V3 lp = light_dir;
     r_hdr(h_model);
     for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
         const dk_mesh_t *m = &dk_model_meshes[mi];
-        if(m->lod != lod) continue;
+        if(!mesh_in_lod(m, lod)) continue;
         if(m->variant != 0 && m->variant != variant) continue;
         if(m->part != last_part) {
-            part_matrix(pm, km, m->part, k);
-            r_load_model(pm);
-            /* Sun into part space (columns are the part axes). */
-            V3 cx = v3(pm[0], pm[1], pm[2]), cy = v3(pm[4], pm[5], pm[6]), cz = v3(pm[8], pm[9], pm[10]);
-            lp = v3(vdot(vnorm(cx), light_dir), vdot(vnorm(cy), light_dir), vdot(vnorm(cz), light_dir));
+            r_load_model(part_mats[index][m->part]);
+            lp = part_light[index][m->part];
             last_part = m->part;
         }
         int nv = m->vert_count;
@@ -205,7 +235,9 @@ void models_draw_karts(int view_kart) {
         if(!r_sphere_visible(c, 1.8f)) continue;
         float human_near = game.num_players > 1 ? 8.0f : 14.0f;
         bool full = i == view_kart || i == near_rival || (kart_is_human(i) && dist[i] < human_near * human_near);
-        draw_kart_lod(i, full ? 0 : 1);
+        int lod = full ? 0 : 1;
+        if(full && world_split) lod = 2;
+        draw_kart_lod(i, lod);
     }
 }
 

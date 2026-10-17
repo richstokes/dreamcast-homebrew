@@ -867,7 +867,11 @@ static void draw_chunks(int list) {
         if(c->list != list) continue;
         if(world_split && c->far) continue;
         V3 d = vsub(c->c, cam);
-        float lim = (world_split ? fminf(c->lod_far, 400.0f) : c->lod_far) + c->r;
+        /* Split screen: props switch to sprites/vanish sooner (palms at
+           ~75 m instead of 135 m) and nothing is drawn past the fog. */
+        float lod = c->lod_far;
+        if(world_split) lod = lod < 1000.0f ? lod * 0.55f : fminf(lod, 400.0f);
+        float lim = lod + c->r;
         if(vdot(d, d) > lim * lim) continue;
         if(!r_sphere_visible(c->c, c->r)) continue;
         for(int s = 0; s < c->nstrips; s++) {
@@ -1001,12 +1005,13 @@ void world_draw_pt(void) {
         V3 d = vsub(palms[i].base, r_cam.pos);
         float d2 = vdot(d, d);
         float far = world_split ? 360.0f : 800.0f;
-        if(d2 < 135.0f * 135.0f || d2 > far * far) continue;
+        float near = world_split ? 135.0f * 0.55f : 135.0f;
+        if(d2 < near * near || d2 > far * far) continue;
         V3 mid = vadd(palms[i].base, v3(0, palms[i].height * 0.6f, 0));
         if(!r_sphere_visible(mid, palms[i].height)) continue;
         r_billboard_y(palms[i].base, palms[i].height * 0.62f, palms[i].height * 1.25f, 0, 0, 1, 1, 0xffffffff);
     }
-    for(int i = 0; i < far_sprite_n; i++) {
+    for(int i = 0; i < far_sprite_n; i += world_split ? 2 : 1) {
         V3 mid = vadd(far_sprites[i], v3(0, far_sprite_h[i] * 0.6f, 0));
         if(!r_sphere_visible(mid, far_sprite_h[i])) continue;
         r_billboard_y(far_sprites[i], far_sprite_h[i] * 0.62f, far_sprite_h[i] * 1.25f, 0, 0, 1, 1, 0xffd8e8d8);

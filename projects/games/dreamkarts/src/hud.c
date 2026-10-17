@@ -194,7 +194,7 @@ void hud_draw_race(int pi, float y0, float y1) {
         float pulse = 1.0f + 0.04f * sinf(hud_time * 6.0f);
         /* Split: top view's place in its top-right corner, bottom view's in
            its bottom-right, leaving the divider for the clock and map. */
-        float px = split ? 584 : 560, py = !split ? 362 : (y0 < 1.0f ? y0 + 4 : y1 - 74);
+        float px = split ? 584 : 560, py = !split ? 362 : (y0 < 1.0f ? y0 + 4 : y1 - 72);
         hud_text(px, py, 2.4f * k * pulse, ALIGN_RIGHT, c, buf);
         hud_text(px + 2, py + 24 * k, 1.0f * k, ALIGN_LEFT, c, hud_ordinal(p->place));
     }
@@ -243,7 +243,9 @@ void hud_draw_split_overlay(void) {
     /* Divider with the shared race clock in the middle and the map on the
        left, straddling both views. */
     r_hdr(h_flat);
-    r_quad2d(0, 237, 640, 243, 0, 0, 1, 1, 0xff0c1430, 17.0f);
+    r_quad2d_grad(0, 224, 640, 256, 0xff1c3a8a, 0xff0c1a48, 17.0f);
+    r_quad2d(0, 224, 640, 226, 0, 0, 1, 1, 0xfff0f0ff, 17.05f);
+    r_quad2d(0, 254, 640, 256, 0, 0, 1, 1, 0xfff0f0ff, 17.05f);
     char buf[24];
     hud_panel(250, 224, 390, 256, argb(220, 20, 60, 160), argb(220, 10, 30, 90), 17.2f);
     hud_format_time(buf, game.race_time);
