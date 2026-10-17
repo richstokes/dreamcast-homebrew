@@ -110,7 +110,7 @@ Measured on hardware on 2026-10-17, 150cc, six karts, over a full race:
 | 1P, first build | 208 of 6,652 frames | 13.0 ms | 21.0 ms |
 | 1P now | 3 of 6,802 frames | 12.1 ms | 10.4 ms |
 | 2P split, first build | 1,142 of 5,390 frames | 20.1 ms | 13.0 ms |
-| 2P split now | 10 of 6,767 frames | 12.4 ms | 12.0 ms |
+| 2P split now | 10 of 6,767 frames | 12.4 ms | 11.5 ms |
 
 Run the two-player benchmark with
 `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.
