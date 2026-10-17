@@ -210,33 +210,42 @@ void models_draw_kart(int index) {
     draw_kart_lod(index, d > 38.0f ? 1 : 0);
 }
 
-/* Full detail for the kart this view follows, the other human when close,
-   and the nearest rival inside 14 m (none in a split screen); everyone else
-   uses the 150-triangle LOD. Kart transforms and lighting were ~6 ms of the
-   console's frame before this. */
+/* Kart detail is chosen by distance from each view's camera, with
+   hysteresis so karts don't flick between models at the threshold:
+   - single view: full detail within ~30 m, the low-detail model beyond;
+   - split screen: the kart a view follows uses the "own kart" set (full
+     body and Chao, simple wheels, no hidden steering wheel), rivals use it
+     within ~12 m, and the low-detail model beyond. Split screen draws every
+     kart twice, so its distances are shorter. */
+#define LOD_NEAR_IN   30.0f
+#define LOD_NEAR_OUT  34.0f
+#define LOD_SPLIT_IN  12.0f
+#define LOD_SPLIT_OUT 14.0f
+static uint8_t near_state[MAX_PLAYERS][MAX_KARTS];
+
 void models_begin_frame(void) {
     frame_id++;
 }
 
 void models_draw_karts(int view_kart) {
-    float dist[MAX_KARTS];
-    for(int i = 0; i < kart_count; i++) {
-        V3 d = vsub(karts[i].pos, r_cam.pos);
-        dist[i] = vdot(d, d);
-    }
-    int near_rival = -1;
-    if(game.num_players < 2 || game.state == ST_RESULTS || game.state <= ST_INTRO)
-        for(int i = 0; i < kart_count; i++)
-            if(!kart_is_human(i) && dist[i] < 14.0f * 14.0f && (near_rival < 0 || dist[i] < dist[near_rival]))
-                near_rival = i;
+    int view = 0;
+    for(int p = 0; p < game.num_players; p++)
+        if(game.pl[p].kart == view_kart) view = p;
+    bool split = world_split;
+    float in = split ? LOD_SPLIT_IN : LOD_NEAR_IN, out = split ? LOD_SPLIT_OUT : LOD_NEAR_OUT;
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
+        V3 d = vsub(k->pos, r_cam.pos);
+        float d2 = vdot(d, d);
+        uint8_t *near = &near_state[view][i];
+        if(*near && d2 > out * out) *near = 0;
+        else if(!*near && d2 < in * in) *near = 1;
         V3 c = vadd(k->pos, v3(0, 0.8f, 0));
         if(!r_sphere_visible(c, 1.8f)) continue;
-        float human_near = game.num_players > 1 ? 8.0f : 14.0f;
-        bool full = i == view_kart || i == near_rival || (kart_is_human(i) && dist[i] < human_near * human_near);
-        int lod = full ? 0 : 1;
-        if(full && world_split) lod = 2;
+        int lod;
+        if(i == view_kart) lod = split ? 2 : 0;
+        else if(*near) lod = split ? 2 : 0;
+        else lod = 1;
         draw_kart_lod(i, lod);
     }
 }
