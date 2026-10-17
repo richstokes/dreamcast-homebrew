@@ -224,13 +224,23 @@ void fx_kart(const Kart *k, float dt) {
         }
     }
     if(k->burnout_t > 0) {
-        spawn_acc[idx][2] += 50.0f * dt;
+        /* A burnout the player holds builds into a thick, rolling cloud
+           (worth some fill rate: the kart is parked, showing off). */
+        float held = clampf(k->rev_t / 1.5f, 0, 1);
+        spawn_acc[idx][2] += (50.0f + 40.0f * held) * dt;
         while(spawn_acc[idx][2] >= 1.0f) {
             spawn_acc[idx][2] -= 1.0f;
-            V3 base = (dk_rand() & 1) ? wl : wr;
-            Particle *q = spawn(P_SMOKE, vadd(base, v3(0, 0.2f, 0)),
-                                v3(frand_s() * 2, 1.0f + frand() * 1.5f, frand_s() * 2), 0.9f, 0.5f,
-                                argb(170, 250, 250, 250), argb(0, 250, 250, 250));
+            int w = (int)(dk_rand() & 1);
+            V3 v = v3(frand_s() * 2, 1.0f + frand() * 1.5f, frand_s() * 2);
+            if(k->rev_t > 0) {
+                /* Billow out to each tyre's own side and up, so the kart
+                   still shows through the middle of the cloud. */
+                v = vadd(vscale(right, (w ? 1.0f : -1.0f) * (1.5f + frand() * 2.5f)),
+                         vadd(vscale(fwd, -(0.5f + frand())), v3(0, 1.5f + frand() * 1.5f, 0)));
+            }
+            Particle *q = spawn(P_SMOKE, vadd(w ? wr : wl, v3(0, 0.2f, 0)), v, 0.9f + 0.5f * held,
+                                0.5f + 0.1f * held, argb(k->rev_t > 0 ? 120 : 170, 250, 250, 250),
+                                argb(0, 250, 250, 250));
             q->grow = 2.0f;
             q->drag = 1.5f;
         }

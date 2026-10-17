@@ -50,6 +50,7 @@ typedef struct {
     float boost_mul;
     int last_pad;
     float burnout_t;
+    float rev_t;        /* seconds into a held accelerate+brake burnout */
     float bump_t;
     float land_v, wall_v;  /* impact speeds behind EV_LAND / EV_WALL */
 

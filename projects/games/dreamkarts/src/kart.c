@@ -336,6 +336,15 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     float steer_in = can_drive ? clampf(in->steer, -1, 1) : 0;
     k->steer = approach(k->steer, steer_in, 7.5f * dt);
 
+    /* Accelerate and brake held at a standstill: a burnout on the spot,
+       the tyres spinning until either is let go. */
+    if(can_drive && k->grounded && in->accel && in->brake && fabsf(k->speed) < 1.0f && k->drift == DRIFT_NONE) {
+        k->rev_t += dt;
+        k->burnout_t = fmaxf(k->burnout_t, 0.1f);
+    }
+    else {
+        k->rev_t = 0;
+    }
     if(k->burnout_t > 0) {
         k->burnout_t -= dt;
         k->speed = 0;
@@ -542,7 +551,14 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     else if(k->big_air) {
         pitch_t += atan2f(k->vy, fmaxf(spd, 1.0f)) * 0.6f;
     }
+    if(k->rev_t > 0) pitch_t -= 0.05f;    /* the rear squats */
     k->pitch += (pitch_t - k->pitch) * smooth_k(6.0f, dt);
+    if(k->rev_t > 0) {
+        /* The body shakes on its springs as the tyres fight for grip. */
+        float shake = clampf(k->rev_t * 2.0f, 0, 1);
+        k->roll += 0.03f * shake * sinf(k->rev_t * 53.0f);
+        k->vis_yaw += 0.02f * shake * sinf(k->rev_t * 31.0f);
+    }
     /* Suspension spring for hop/landing squash. */
     k->squash_v += (-k->squash * 160.0f - k->squash_v * 14.0f) * dt;
     k->squash += k->squash_v * dt;
