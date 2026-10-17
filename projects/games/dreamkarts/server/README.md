@@ -50,6 +50,18 @@ The launcher uses Flycast's emulated broadband adapter by default;
 a real dial-up server. Two Flycast windows can race each other the same way. A
 `-DDK_PATH_LOG` autotest prints the lines `-path` replays.
 
+On a real Dreamcast with a broadband adapter (loaded through dcload-ip, which
+hands the adapter to the game), start a bot that leads lobby 10 on the live
+server, then run the scripted online race:
+
+```bash
+make -C .. hwbench EXTRA_CFLAGS="-DDK_AT_ONLINE" HW_LOG=captures/hw/online.log
+```
+
+First checked 2026-10-17: connected, raced and passed at 27 ms ping with no
+dropped frames in the race (a few in the lobby screens, where the high camera
+shows the whole track).
+
 ## Versions and redeploying
 
 [`../src/net_version.h`](../src/net_version.h) is the single source of truth:

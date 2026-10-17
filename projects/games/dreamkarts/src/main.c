@@ -144,6 +144,7 @@ static struct {
 static bool probe_step(void) {
     const Kart *p = &karts[game.player];
     if(!probe.scene) {
+        if(game.online) return false;   /* freezing an online race would desync it */
         const char *scene = NULL;
         if(game.state == ST_RACE && game.race_time > 0.6f && !probe.done[0]) { probe.done[0] = true; scene = "grid"; }
         else if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 2 && game.race_time > 20.0f &&
