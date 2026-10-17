@@ -41,7 +41,9 @@
 #   DC_TOOL       path to dc-tool-ip
 #   DC_BOOT_WAIT  seconds to allow for booting (120)
 #   DC_OFF_SECS   seconds to stay off in cycle (2)
-#   DC_START_SECS seconds of silence after upload before retrying it (15)
+#   DC_START_SECS seconds of silence after the execute command before
+#                 uploading again (15)
+#   DC_UPLOAD_SECS seconds to allow for the upload itself (120)
 
 set -u
 
@@ -52,6 +54,7 @@ DC_TOOL="${DC_TOOL:-$HOME/Dropbox/Games/ROMs/DREAMCAST/dcload-ip/dc-tool-ip}"
 DC_BOOT_WAIT="${DC_BOOT_WAIT:-120}"
 DC_OFF_SECS="${DC_OFF_SECS:-2}"
 DC_START_SECS="${DC_START_SECS:-15}"
+DC_UPLOAD_SECS="${DC_UPLOAD_SECS:-120}"
 
 say() { printf '[dc-hw %s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { say "error: $*"; exit 1; }
@@ -227,7 +230,7 @@ cmd_run() {
 
     # dc-tool-ip stays attached to serve the program's console, so run it in
     # the background, echo what it writes, and watch the clock.
-    local status start pid shown size attempt started quiet_since
+    local status start pid shown size attempt started quiet_since exec_at
 
     show_new() {
         size=$(wc -c <"$out")
@@ -247,7 +250,7 @@ cmd_run() {
             dc_wait || return 1
         fi
         say "running $(basename "$elf") (timeout ${timeout}s)"
-        status=0 start=$SECONDS shown=0 started=0 quiet_since=$SECONDS
+        status=0 start=$SECONDS shown=0 started=0 quiet_since=$SECONDS exec_at=0
 
         "$DC_TOOL" -t "$DC_IP" -q -x "$elf" "$@" </dev/null >"$out" 2>&1 &
         pid=$!
@@ -262,8 +265,14 @@ cmd_run() {
             fi
 
             # dcload-ip answering again (perhaps at a new address after a
-            # reset) means the program is not running.
-            if (( ! started && SECONDS - start >= DC_START_SECS )) && dc_up find; then
+            # reset) means the program is not running. It also answers
+            # while it is still receiving the upload, which takes a while
+            # for a big ELF, so count from the execute command.
+            if (( ! exec_at )) && grep -q executing "$out"; then
+                exec_at=$SECONDS
+            fi
+            if (( ! started )) && { (( exec_at && SECONDS - exec_at >= DC_START_SECS )) ||
+                                    (( SECONDS - start >= DC_UPLOAD_SECS )); } && dc_up find; then
                 say "the program did not start; dcload-ip is waiting at $DC_IP"
                 status=125
                 break
