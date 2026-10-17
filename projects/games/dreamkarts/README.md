@@ -58,6 +58,7 @@ is also available.
 - **Presentation:**
   - Title screen with a rotating Sega-style sunburst, a bouncing logo whose letters drop in one by one, sparkles, and the grid in the background.
   - A slide-in race setup menu.
+  - A sound test on the main menu: play any song (with its time, tempo and a beat-synced equaliser) or any of the effects, and hear the final lap's 6% speed-up.
   - A fly-in intro, then a 3-2-1-GO countdown.
   - "FINAL LAP!" with the music sped up 6%, a FINISH! banner with confetti, and a results screen.
 - **Audio:** three original synthesized songs that play back to back and loop: "Coral Speedway" (the title theme: steel drums, marimba, slap bass, electric piano and brass; 128 BPM, 75 s), "Harbour Lights" (city-pop fusion with a synth lead, slap bass, Rhodes, funk guitar and brass, with a last chorus a step up; 137 BPM, 77 s) and "Temple Run" (toms and taiko, marimba, kalimba, flute and brass in D minor; 133 BPM, 72 s). The title screen plays the theme and each race starts on a random other song, then the playlist carries on in order. The songs are mixed and ADPCM-encoded as one continuous loop, so each change of song flows without a gap or click. There are also 26 effects. The player's engine is two pitch-shifted loops crossfaded by speed, with tyre squeal, spark crackle and sand rumble loops alongside.

@@ -1,7 +1,8 @@
 /* Title screen: the track in the background with the grid lined up, a
    rotating Sega-style sunburst, a bouncing per-letter logo, sparkles and a
    pulsing PRESS START. Then a slide-in menu for mode and engine class, and
-   a track select that flies over each course as it is picked. */
+   a track select that flies over each course as it is picked. The main menu
+   also opens a sound test for the music and effects. */
 #include "title.h"
 #include "audio.h"
 #include "hud.h"
@@ -11,6 +12,8 @@
 #include "online.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
+#include "sound_assets.h"
+#include <ctype.h>
 
 static const pvr_poly_hdr_t *h_logo, *h_flat, *h_star, *h_glow;
 static float logo_in;        /* 0..1 drop-in animation */
@@ -24,18 +27,90 @@ static float fly_t;          /* time since the flyover camera last reset */
 
 static void tracks_update(float dt);
 
-/* Main menu: single player, two-player split screen or online. */
+/* Main menu: single player, two-player split screen, online or the sound
+   test. */
+enum { MAIN_ITEMS = 4, MAIN_SOUND = 3 };
 static int main_row;
-static const char *const main_items[3] = {"SINGLE PLAYER", "TWO PLAYER", "ONLINE MULTIPLAYER"};
+static const char *const main_items[MAIN_ITEMS] = {"SINGLE PLAYER", "TWO PLAYER", "ONLINE MULTIPLAYER",
+                                                   "SOUND TEST"};
 
-static void main_update(void) {
-    menu_slide = fminf(1.0f, menu_slide + DK_DT * 4.0f);
+/* Sound test: pick and play any song or effect, and hear the final-lap
+   speed-up. It is a page of the main menu, so the backdrop stays put. */
+enum { SND_MUSIC, SND_SFX, SND_SPEED, SND_ROWS };
+static bool sound_open;
+static float sound_slide;
+static int sound_row, sound_song, sound_sfx;
+static float sfx_flash;       /* highlight pulse when an effect is played */
+
+static void sound_enter(void) {
+    sound_open = true;
+    sound_slide = 0;
+    sound_row = SND_MUSIC;
+    sound_song = audio_music_now(NULL, NULL);
+    sfx_flash = 0;
+}
+
+static void sound_update(void) {
+    sound_slide = fminf(1.0f, sound_slide + DK_DT * 4.0f);
+    if(sfx_flash > 0) sfx_flash -= DK_DT;
     if(input_menu_up()) {
-        main_row = (main_row + 2) % 3;
+        sound_row = (sound_row + SND_ROWS - 1) % SND_ROWS;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
     if(input_menu_down()) {
-        main_row = (main_row + 1) % 3;
+        sound_row = (sound_row + 1) % SND_ROWS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
+    if(dir) {
+        if(sound_row == SND_MUSIC) {
+            sound_song = (sound_song + dir + DK_MUSIC_SONG_COUNT) % DK_MUSIC_SONG_COUNT;
+            audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        }
+        else if(sound_row == SND_SFX) {
+            sound_sfx = (sound_sfx + dir + DK_SFX_COUNT) % DK_SFX_COUNT;
+            audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        }
+        else {
+            audio_music_rate(audio_music_rate_now() > 1.0f ? 1.0f : 1.06f);
+            audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        }
+    }
+    if(pad.pressed & BTN_B) {
+        audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+        audio_music_rate(1.0f);
+        sound_open = false;
+        menu_slide = 0;
+        return;
+    }
+    if(pad.pressed & (BTN_A | BTN_START)) {
+        if(sound_row == SND_MUSIC) {
+            audio_music_enable(true);
+            audio_music_play(sound_song);
+        }
+        else if(sound_row == SND_SFX) {
+            audio_sfx(sound_sfx, 255, 128);
+            sfx_flash = 0.35f;
+        }
+        else {
+            audio_music_rate(audio_music_rate_now() > 1.0f ? 1.0f : 1.06f);
+            audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
+        }
+    }
+}
+
+static void main_update(void) {
+    if(sound_open) {
+        sound_update();
+        return;
+    }
+    menu_slide = fminf(1.0f, menu_slide + DK_DT * 4.0f);
+    if(input_menu_up()) {
+        main_row = (main_row + MAIN_ITEMS - 1) % MAIN_ITEMS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(input_menu_down()) {
+        main_row = (main_row + 1) % MAIN_ITEMS;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
     if(pad.pressed & BTN_B) {
@@ -51,6 +126,10 @@ static void main_update(void) {
     audio_sfx(DK_SFX_WHOOSH, 160, 128);
     if(main_row == 2) {
         online_enter();
+        return;
+    }
+    if(main_row == MAIN_SOUND) {
+        sound_enter();
         return;
     }
     game.num_players = main_row + 1;
@@ -121,6 +200,7 @@ void title_update(float dt) {
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
             game_set_state(ST_MAIN);
             main_row = 0;
+            sound_open = false;
         }
         return;
     }
@@ -371,10 +451,10 @@ static void colour_swatch(float x, float y, int colour) {
 static void draw_main(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
     float y0 = 196 + (1 - slide) * 300;
-    hud_panel(150, y0, 490, y0 + 200, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
-    for(int i = 0; i < 3; i++) {
+    hud_panel(150, y0, 490, y0 + 214, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    for(int i = 0; i < MAIN_ITEMS; i++) {
         bool sel = i == main_row;
-        float y = y0 + 22 + i * 58;
+        float y = y0 + 18 + i * 46;
         if(sel) {
             r_hdr(h_flat);
             float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
@@ -383,9 +463,92 @@ static void draw_main(void) {
         float s = sel ? 0.86f + 0.04f * sinf(game.title_t * 8) : 0.8f;
         hud_text(320, y + 2, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255), main_items[i]);
     }
-    static const char *const blurbs[3] = {"RACE FIVE CPU CHAO", "SPLIT SCREEN WITH A FRIEND",
-                                          "UP TO SIX PLAYERS (BROADBAND OR DREAMPI)"};
+    static const char *const blurbs[MAIN_ITEMS] = {"RACE FIVE CPU CHAO", "SPLIT SCREEN WITH A FRIEND",
+                                                   "UP TO SIX PLAYERS (BROADBAND ADAPTER OR MODEM)",
+                                                   "LISTEN TO THE MUSIC AND SOUND EFFECTS"};
     hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(220, 230, 240, 255), blurbs[main_row]);
+}
+
+static void upper_copy(char *dst, size_t n, const char *src) {
+    size_t i = 0;
+    for(; src[i] && i + 1 < n; i++) dst[i] = (char)toupper((unsigned char)src[i]);
+    dst[i] = 0;
+}
+
+static void draw_sound(void) {
+    float slide = sound_slide * sound_slide * (3 - 2 * sound_slide);
+    float off = (1 - slide) * 320;
+    float x0 = 70, x1 = 570, y0 = 112 + off, y1 = 420 + off;
+    hud_panel(x0, y0, x1, y1, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    hud_text(320, y0 + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "SOUND TEST");
+
+    /* Now playing: song, position and an equaliser that pulses on the beat. */
+    float secs, len;
+    int song = audio_music_now(&secs, &len);
+    bool live = audio_music_playing() && audio_music_enabled();
+    float cy0 = y0 + 50, cy1 = y0 + 150;
+    hud_panel(x0 + 14, cy0, x1 - 14, cy1, argb(200, 8, 24, 70), argb(200, 8, 24, 70), 15.5f);
+    char buf[64], name[40];
+    upper_copy(name, sizeof(name), dk_music_song_title[song]);
+    hud_text(x0 + 30, cy0 + 4, 0.42f, ALIGN_LEFT, argb(255, 150, 200, 255), live ? "NOW PLAYING" : "MUSIC OFF");
+    hud_text(x0 + 30, cy0 + 22, 0.75f, ALIGN_LEFT, argb(255, 255, 235, 120), name);
+    int rate_pct = (int)(audio_music_rate_now() * 100.0f + 0.5f);
+    snprintf(buf, sizeof(buf), "TRACK %d/%d   %d BPM%s", song + 1, DK_MUSIC_SONG_COUNT,
+             (int)(dk_music_song_bpm[song] * audio_music_rate_now() + 0.5f), rate_pct > 100 ? "  (FINAL LAP)" : "");
+    hud_text(x0 + 30, cy0 + 54, 0.42f, ALIGN_LEFT, argb(255, 200, 225, 255), buf);
+    int s = (int)secs, l = (int)(len + 0.5f);
+    snprintf(buf, sizeof(buf), "%d:%02d / %d:%02d", s / 60, s % 60, l / 60, l % 60);
+    hud_text(x0 + 30, cy0 + 72, 0.42f, ALIGN_LEFT, 0xffffffff, buf);
+    float px0 = x0 + 150, px1 = x0 + 300, py = cy0 + 82;
+    r_hdr(h_flat);
+    r_quad2d(px0, py, px1, py + 6, 0, 0, 1, 1, argb(255, 40, 50, 80), 16.0f);
+    r_quad2d(px0, py, px0 + (px1 - px0) * clampf(secs / len, 0, 1), py + 6, 0, 0, 1, 1,
+             argb(255, 255, 200, 50), 16.1f);
+    float beat = secs * dk_music_song_bpm[song] / 60.0f;
+    float kick = live ? expf(-(beat - floorf(beat)) * 5.0f) : 0;
+    const int bars = 12;
+    float bx0 = x0 + 318, bw = 12, base = cy1 - 12;
+    for(int i = 0; i < bars; i++) {
+        float wob = 0.5f + 0.5f * sinf(game.title_t * (5.0f + i * 0.7f) + i * 1.9f);
+        float shape = 1.0f - fabsf((float)i - (bars - 1) * 0.5f) / bars;
+        float h = live ? (10.0f + 62.0f * shape * (0.35f + 0.4f * kick + 0.25f * wob)) : 4.0f;
+        float x = bx0 + i * (bw + 3);
+        uint32_t top = color_lerp(argb(255, 80, 230, 120), argb(255, 255, 90, 60), clampf(h / 72.0f, 0, 1));
+        r_quad2d_grad(x, base - h, x + bw, base, top, argb(255, 40, 140, 220), 16.2f);
+    }
+
+    /* Rows. */
+    static const char *const labels[SND_ROWS] = {"MUSIC", "SOUND EFFECT", "SPEED"};
+    for(int i = 0; i < SND_ROWS; i++) {
+        bool sel = i == sound_row;
+        float y = y0 + 164 + i * 46;
+        if(sel) {
+            float glow = 0.18f + 0.1f * sinf(game.title_t * 7) + (i == SND_SFX ? sfx_flash : 0);
+            r_hdr(h_flat);
+            r_quad2d(x0 + 14, y - 4, x1 - 14, y + 40, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+        }
+        uint32_t col = sel ? argb(255, 255, 255, 150) : argb(255, 200, 220, 255);
+        hud_text(x0 + 30, y + 8, 0.48f, ALIGN_LEFT, argb(255, 150, 200, 255), labels[i]);
+        if(i == SND_MUSIC) {
+            upper_copy(name, sizeof(name), dk_music_song_title[sound_song]);
+            snprintf(buf, sizeof(buf), "%s", name);
+        }
+        else if(i == SND_SFX) {
+            snprintf(buf, sizeof(buf), "%02d %s", sound_sfx + 1, dk_sfx_label[sound_sfx]);
+        }
+        else {
+            snprintf(buf, sizeof(buf), "%s", audio_music_rate_now() > 1.0f ? "FINAL LAP +6%" : "NORMAL");
+        }
+        float vx = x0 + 352;
+        hud_text(vx, y + 5, 0.56f, ALIGN_CENTER, col, buf);
+        if(sel) {
+            float bob = 3.0f * sinf(game.title_t * 9);
+            hud_text(vx - 134 - bob, y + 5, 0.56f, ALIGN_CENTER, col, "<");
+            hud_text(vx + 134 + bob, y + 5, 0.56f, ALIGN_CENTER, col, ">");
+        }
+    }
+    hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(230, 255, 255, 255),
+             sound_row == SND_SPEED ? "LEFT/RIGHT: SPEED   B: BACK" : "LEFT/RIGHT: CHOOSE   A: PLAY   B: BACK");
 }
 
 static void draw_menu(void) {
@@ -509,6 +672,11 @@ void title_draw(void) {
     }
     else if(game.state == ST_TRACKS) {
         draw_tracks();
+    }
+    else if(game.state == ST_MAIN && sound_open) {
+        draw_sunburst(320, 60, 420, game.title_t * 0.25f, 0.3f);
+        draw_logo(320, 60, 0.36f);
+        draw_sound();
     }
     else if(game.state == ST_MAIN) {
         draw_sunburst(320, 112, 420, game.title_t * 0.25f, 0.4f);

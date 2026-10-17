@@ -12,6 +12,7 @@
 #define DK_MUSIC_SONG_COUNT 3
 static const uint32_t dk_music_song_start[DK_MUSIC_SONG_COUNT] __attribute__((unused)) = {0u, 2400000u, 4864000u};
 static const char *const dk_music_song_title[DK_MUSIC_SONG_COUNT] __attribute__((unused)) = {"Coral Speedway", "Harbour Lights", "Temple Run"};
+static const float dk_music_song_bpm[DK_MUSIC_SONG_COUNT] __attribute__((unused)) = {128.000f, 137.143f, 133.333f};
 
 /* offset/bytes into sfx.pak, loop=1 for seamless loops */
 typedef struct { uint32_t offset, bytes, loop; } dk_sfx_asset_t;
@@ -74,6 +75,36 @@ static const dk_sfx_asset_t dk_sfx_assets[DK_SFX_COUNT] __attribute__((unused)) 
     { 642080u, 54688u, 0u }, /* CHAO_HAPPY   vol 178 */
     { 696768u, 26464u, 0u }, /* WHOOSH       vol 153 */
     { 723232u, 22944u, 0u }, /* STAR         vol 128 */
+};
+
+/* Effect names for the sound test. */
+static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {
+    "ENGINE (LOW)",
+    "ENGINE (HIGH)",
+    "TYRE SQUEAL",
+    "DRIFT SPARKS",
+    "SAND RUMBLE",
+    "HOP",
+    "LANDING",
+    "MINI-TURBO 1",
+    "MINI-TURBO 2",
+    "MINI-TURBO 3",
+    "BOOST",
+    "DASH PANEL",
+    "WALL HIT",
+    "KART BUMP",
+    "COUNTDOWN BEEP",
+    "GO!",
+    "LAP",
+    "FINAL LAP",
+    "FINISH",
+    "MENU MOVE",
+    "MENU SELECT",
+    "MENU BACK",
+    "CHAO",
+    "HAPPY CHAO",
+    "WHOOSH",
+    "STAR",
 };
 
 #endif /* DK_SOUND_ASSETS_H */

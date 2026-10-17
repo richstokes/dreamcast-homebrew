@@ -11,6 +11,13 @@ void audio_update(float dt);
 /* Starts the music: the theme on the first call (title screen), a random
    other song on each later one (a race); the playlist then plays on in order. */
 void audio_music_start(void);
+/* Sound test: play a song from its start straight away (the playlist then
+   carries on in order). */
+void audio_music_play(int song);
+/* The song playing now; its elapsed and total seconds (either may be NULL). */
+int audio_music_now(float *secs, float *len);
+bool audio_music_playing(void);
+float audio_music_rate_now(void);
 void audio_music_target(int volume);     /* fades toward 0..255 */
 /* The pause menu's music switch: off fades the music out whatever the target. */
 void audio_music_enable(bool on);

@@ -47,6 +47,12 @@ static bool music_off;
 static float music_rate = 1.0f;
 static int music_song;          /* song the last start opened with */
 static int music_starts;
+/* Playback clock for the sound test: frames into music.adpcm, advanced by
+   real time at the current rate (integer frames plus a carried fraction,
+   since float alone loses frames this far into the playlist). */
+static uint32_t music_pos;
+static float music_pos_frac;
+static uint64_t music_clock_us;
 static int music_chn[2] = { -1, -1 };
 #ifdef DK_AUTOTEST
 static uint32_t at_rate_us;
@@ -157,24 +163,57 @@ static int pick_song(void) {
     return s >= music_song ? s + 1 : s;
 }
 
-void audio_music_start(void) {
-    if(!ready || music == SND_STREAM_INVALID) return;
+/* Restart the stream at the top of a song; fade in from silence or start
+   straight at the current target volume. */
+static void start_song(int song, bool fade) {
     if(music_playing) snd_stream_stop(music);
-    music_song = pick_song();
-    music_cursor = dk_music_song_start[music_song];
+    music_song = song;
+    music_cursor = music_pos = dk_music_song_start[song];
+    music_pos_frac = 0;
 #ifndef DK_HW
-    printf("DreamKarts audio: music opens on \"%s\"\n", dk_music_song_title[music_song]);
+    printf("DreamKarts audio: music opens on \"%s\"\n", dk_music_song_title[song]);
 #endif
     music_rate = 1.0f;
-    music_volume = 0;
+    music_volume = fade || music_off ? 0 : (float)music_target;
 #ifdef DK_AUTOTEST
     at_fed = at_fed_rate = 0;
     at_t0 = timer_us_gettime64();
     at_t_rate = 0;
 #endif
     snd_stream_start_adpcm(music, DK_MUSIC_RATE, 1);
-    snd_stream_volume(music, 0);
+    snd_stream_volume(music, (int)music_volume);
+    music_clock_us = timer_us_gettime64();
     music_playing = true;
+}
+
+void audio_music_start(void) {
+    if(!ready || music == SND_STREAM_INVALID) return;
+    start_song(pick_song(), true);
+}
+
+void audio_music_play(int song) {
+    if(!ready || music == SND_STREAM_INVALID || song < 0 || song >= DK_MUSIC_SONG_COUNT) return;
+    music_starts++;
+    start_song(song, false);
+}
+
+int audio_music_now(float *secs, float *len) {
+    int song = 0;
+    for(int i = 1; i < DK_MUSIC_SONG_COUNT; i++)
+        if(music_pos >= dk_music_song_start[i]) song = i;
+    uint32_t start = dk_music_song_start[song];
+    uint32_t end = song + 1 < DK_MUSIC_SONG_COUNT ? dk_music_song_start[song + 1] : DK_MUSIC_BYTES;
+    if(secs) *secs = music_playing ? (float)(music_pos - start) / DK_MUSIC_RATE : 0;
+    if(len) *len = (float)(end - start) / DK_MUSIC_RATE;
+    return song;
+}
+
+bool audio_music_playing(void) {
+    return music_playing;
+}
+
+float audio_music_rate_now(void) {
+    return music_rate;
 }
 
 /* The AICA driver's copy of the channel says whether it is still the
@@ -253,6 +292,12 @@ bool audio_music_enabled(void) {
 
 void audio_update(float dt) {
     if(!ready || music == SND_STREAM_INVALID || !music_playing) return;
+    uint64_t now = timer_us_gettime64();
+    float adv = (float)(now - music_clock_us) * (DK_MUSIC_RATE * 1e-6f) * music_rate + music_pos_frac;
+    music_clock_us = now;
+    uint32_t whole = (uint32_t)adv;
+    music_pos_frac = adv - (float)whole;
+    music_pos = (music_pos + whole) % DK_MUSIC_BYTES;
     float target = music_off ? 0.0f : (float)music_target;
     if(music_volume != target) {
         float step = 200.0f * dt;
