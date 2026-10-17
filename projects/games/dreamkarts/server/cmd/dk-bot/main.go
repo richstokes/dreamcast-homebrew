@@ -1,0 +1,261 @@
+// dk-bot talks to a DreamKarts lobby server like a console does.
+//
+//	dk-bot -smoke                      check the server answers (exit 0/1)
+//	dk-bot -name BOT1 -lobby 0         join lobby 0 and race when a race starts
+//	dk-bot -name BOT1 -lobby 0 -start  also start races as soon as two are in
+//
+// A bot's kart has no physics: it sits on the grid and reports progress at
+// a steady pace so it finishes a 3-lap race in about -race seconds. Paths
+// recorded with -record can be replayed with -path so it moves on track.
+package main
+
+import (
+	"bufio"
+	"encoding/binary"
+	"flag"
+	"fmt"
+	"log"
+	"math/rand"
+	"net"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/lobby"
+)
+
+var (
+	addr     = flag.String("addr", "dcvmu.com:7535", "server address")
+	smoke    = flag.Bool("smoke", false, "check the server answers HELLO and LIST, then exit")
+	name     = flag.String("name", "BOT", "player name")
+	lobbyID  = flag.Int("lobby", 0, "lobby to join")
+	start    = flag.Bool("start", false, "start a race whenever the bot leads and two are in")
+	colour   = flag.Int("colour", 7, "colour 0-7")
+	raceSecs = flag.Float64("race", 90, "seconds the bot takes for the whole race")
+	duration = flag.Duration("for", 0, "quit after this long (0 = forever)")
+	path     = flag.String("path", "", "replay kart states from this file (lines: ms x y z heading speed lap dist)")
+)
+
+type pathPoint struct {
+	ms                  int
+	x, y, z, hd, spd    float64
+	lap                 int
+	dist                float64
+}
+
+func main() {
+	flag.Parse()
+	log.SetFlags(log.Ltime | log.Lmicroseconds)
+	raddr, err := net.ResolveUDPAddr("udp", *addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	conn, err := net.DialUDP("udp", nil, raddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	token := rand.Uint32() | 1
+	var echo uint32
+	var echoAt time.Time
+	send := func(typ byte, body []byte) {
+		hold := uint16(0)
+		if !echoAt.IsZero() {
+			hold = uint16(time.Since(echoAt) / time.Millisecond)
+		}
+		pkt := lobby.AppendClient(nil, lobby.ClientHeader{Type: typ, Token: token, Echo: echo, Hold: hold, Build: lobby.Build}, body)
+		conn.Write(pkt)
+	}
+	nameBuf := make([]byte, lobby.NameLen)
+	copy(nameBuf, strings.ToUpper(*name))
+
+	if *smoke {
+		os.Exit(runSmoke(conn, send, nameBuf))
+	}
+	var pts []pathPoint
+	if *path != "" {
+		pts = loadPath(*path)
+	}
+
+	buf := make([]byte, 1500)
+	welcomed, joined := false, false
+	var nonce byte
+	var state, raceID, laps byte = 0, 0, 3
+	var green time.Time
+	var lastWish, lastHello, lastKart, readySince time.Time
+	began := time.Now()
+	for *duration == 0 || time.Since(began) < *duration {
+		conn.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+		if n, err := conn.Read(buf); err == nil && n >= 8 && buf[0] == 'D' && buf[1] == 'K' {
+			b := buf[:n]
+			echo, echoAt = binary.LittleEndian.Uint32(b[4:]), time.Now()
+			switch b[3] {
+			case lobby.TypeWelcome:
+				if !welcomed {
+					log.Printf("welcome: status %d latest %d min %d", b[8], binary.LittleEndian.Uint16(b[9:]), binary.LittleEndian.Uint16(b[11:]))
+				}
+				welcomed = true
+			case lobby.TypeReject:
+				log.Fatalf("rejected: reason %d", b[8])
+			case lobby.TypeLobby:
+				if !joined {
+					log.Printf("in lobby %d as slot %d", b[8], b[10])
+				}
+				joined = true
+				ns, rid := b[9], b[15]
+				laps = b[13]
+				t := int32(binary.LittleEndian.Uint32(b[16:]))
+				if ns != state {
+					log.Printf("lobby state %d -> %d (race %d, %d players)", state, ns, rid, b[21])
+				}
+				if ns == lobby.StateCountdown || ns == lobby.StateRacing {
+					green = time.Now().Add(time.Duration(t) * time.Millisecond)
+				}
+				ready := *start && ns == lobby.StateWaiting && b[11] == b[10] && b[21] >= 2
+				if !ready {
+					readySince = time.Time{}
+				} else if readySince.IsZero() {
+					readySince = time.Now()
+				} else if time.Since(readySince) > 3*time.Second {
+					nonce++
+					readySince = time.Now().Add(time.Hour) // once per wait
+					log.Printf("starting a race")
+				}
+				state, raceID = ns, rid
+			}
+		}
+		now := time.Now()
+		switch {
+		case !welcomed:
+			if now.Sub(lastHello) > 500*time.Millisecond {
+				send(lobby.TypeHello, nameBuf)
+				lastHello = now
+			}
+		case !joined:
+			if now.Sub(lastHello) > 500*time.Millisecond {
+				send(lobby.TypeJoin, []byte{byte(*lobbyID)})
+				lastHello = now
+			}
+		default:
+			if now.Sub(lastWish) > 250*time.Millisecond {
+				send(lobby.TypeWish, []byte{byte(*colour), 0, 3, 1, nonce})
+				lastWish = now
+			}
+			if (state == lobby.StateCountdown || state == lobby.StateRacing) && now.Sub(lastKart) > 83*time.Millisecond {
+				lastKart = now
+				send(lobby.TypeKart, kartBody(raceID, laps, now.Sub(green), pts))
+			}
+		}
+	}
+	send(lobby.TypeLeave, nil)
+}
+
+// kartBody reports progress for race time t (negative before the green).
+func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
+	b := make([]byte, 26)
+	b[0] = raceID
+	frac := t.Seconds() / *raceSecs
+	if frac < 0 {
+		frac = 0
+	}
+	lap, dist := byte(1+int(frac*float64(laps))), uint16(0)
+	if t < 0 {
+		lap = 0
+	}
+	if frac >= 1 {
+		b[1] |= lobby.KartFinished
+		lap = laps + 1
+	} else {
+		dist = uint16((frac*float64(laps) - float64(int(frac*float64(laps)))) * 700 * 16)
+	}
+	b[1] |= 2 // grounded
+	if len(pts) > 0 {
+		ms := int(t / time.Millisecond)
+		p := pts[0]
+		for _, q := range pts {
+			if q.ms > ms {
+				break
+			}
+			p = q
+		}
+		binary.LittleEndian.PutUint16(b[2:], uint16(int16(p.x*16)))
+		binary.LittleEndian.PutUint16(b[4:], uint16(int16(p.y*64)))
+		binary.LittleEndian.PutUint16(b[6:], uint16(int16(p.z*16)))
+		binary.LittleEndian.PutUint16(b[8:], uint16(p.hd*65536/6.283185))
+		binary.LittleEndian.PutUint16(b[10:], uint16(int16(p.spd*64)))
+		lap, dist = byte(p.lap), uint16(p.dist*16)
+		if frac < 1 {
+			b[1] &^= lobby.KartFinished
+		}
+	}
+	b[14] = lap
+	binary.LittleEndian.PutUint16(b[16:], dist)
+	rt := t
+	if frac >= 1 {
+		rt = time.Duration(*raceSecs * float64(time.Second))
+	}
+	if rt < 0 {
+		rt = 0
+	}
+	binary.LittleEndian.PutUint32(b[18:], uint32(rt/time.Millisecond))
+	binary.LittleEndian.PutUint32(b[22:], uint32(time.Now().UnixMilli()))
+	return b
+}
+
+func runSmoke(conn *net.UDPConn, send func(byte, []byte), name []byte) int {
+	buf := make([]byte, 1500)
+	got := map[byte]bool{}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && !(got[lobby.TypeWelcome] && got[lobby.TypeLobbies]) {
+		if !got[lobby.TypeWelcome] {
+			send(lobby.TypeHello, name)
+		} else {
+			send(lobby.TypeList, nil)
+		}
+		conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		n, err := conn.Read(buf)
+		if err != nil || n < 8 {
+			continue
+		}
+		got[buf[3]] = true
+		if buf[3] == lobby.TypeWelcome {
+			fmt.Printf("welcome: latest build %d, min build %d, %d lobbies of %d\n",
+				binary.LittleEndian.Uint16(buf[9:]), binary.LittleEndian.Uint16(buf[11:]), buf[13], buf[14])
+		}
+		if buf[3] == lobby.TypeLobbies {
+			total := 0
+			for i := 0; i < int(buf[8]); i++ {
+				total += int(buf[9+i*14])
+			}
+			fmt.Printf("lobbies: %d players in %d lobbies\n", total, buf[8])
+		}
+		if buf[3] == lobby.TypeReject {
+			fmt.Printf("rejected: reason %d\n", buf[8])
+			return 1
+		}
+	}
+	send(lobby.TypeLeave, nil)
+	if got[lobby.TypeWelcome] && got[lobby.TypeLobbies] {
+		fmt.Println("smoke test passed")
+		return 0
+	}
+	fmt.Println("smoke test FAILED: no answer")
+	return 1
+}
+
+func loadPath(file string) []pathPoint {
+	f, err := os.Open(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	var pts []pathPoint
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var p pathPoint
+		if _, err := fmt.Sscan(sc.Text(), &p.ms, &p.x, &p.y, &p.z, &p.hd, &p.spd, &p.lap, &p.dist); err == nil {
+			pts = append(pts, p)
+		}
+	}
+	log.Printf("loaded %d path points", len(pts))
+	return pts
+}

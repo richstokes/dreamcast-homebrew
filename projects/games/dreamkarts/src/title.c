@@ -8,6 +8,7 @@
 #include "kart.h"
 #include "render.h"
 #include "track.h"
+#include "online.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
 
@@ -23,15 +24,51 @@ static float fly_t;          /* time since the flyover camera last reset */
 
 static void tracks_update(float dt);
 
+/* Main menu: single player, two-player split screen or online. */
+static int main_row;
+static const char *const main_items[3] = {"SINGLE PLAYER", "TWO PLAYER", "ONLINE MULTIPLAYER"};
+
+static void main_update(void) {
+    menu_slide = fminf(1.0f, menu_slide + DK_DT * 4.0f);
+    if(input_menu_up()) {
+        main_row = (main_row + 2) % 3;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(input_menu_down()) {
+        main_row = (main_row + 1) % 3;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(pad.pressed & BTN_B) {
+        audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+        game_set_state(ST_TITLE);
+        return;
+    }
+    if(!(pad.pressed & (BTN_A | BTN_START))) return;
+#if defined(DK_AT_2P) && defined(DK_CAPTURE)
+    main_row = 1;   /* scripted two-player captures and benchmarks */
+#endif
+    audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
+    audio_sfx(DK_SFX_WHOOSH, 160, 128);
+    if(main_row == 2) {
+        online_enter();
+        return;
+    }
+    game.num_players = main_row + 1;
+    if(game.num_players > 1 && game.pl[1].colour == game.pl[0].colour)
+        game.pl[1].colour = (game.pl[0].colour + 1) % COLOUR_COUNT;
+    race_setup();
+    game_set_state(ST_MENU);
+    menu_row = 0;
+}
+
 static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
 static float warn_t;
 
-enum { ROW_PLAYERS, ROW_MODE, ROW_CC, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
+enum { ROW_MODE, ROW_CC, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
 
 /* Menu rows: player 2's colour only appears in a two-player race. */
 static int menu_rows(int *rows) {
     int n = 0;
-    rows[n++] = ROW_PLAYERS;
     rows[n++] = ROW_MODE;
     rows[n++] = ROW_CC;
     rows[n++] = ROW_COLOUR1;
@@ -82,9 +119,13 @@ void title_update(float dt) {
         if(game.time > 0.6f && ((pad.pressed | pad2.pressed) & (BTN_START | BTN_A))) {
             audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
-            game_set_state(ST_MENU);
-            menu_row = 0;
+            game_set_state(ST_MAIN);
+            main_row = 0;
         }
+        return;
+    }
+    if(game.state == ST_MAIN) {
+        main_update();
         return;
     }
     if(game.state == ST_TRACKS) {
@@ -107,12 +148,7 @@ void title_update(float dt) {
     int row = rows[menu_row];
     int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
     if(dir) {
-        if(row == ROW_PLAYERS) {
-            game.num_players = game.num_players == 1 ? 2 : 1;
-            if(game.pl[1].colour == game.pl[0].colour) game.pl[1].colour = (game.pl[0].colour + 1) % COLOUR_COUNT;
-            race_setup();
-        }
-        else if(row == ROW_MODE) {
+        if(row == ROW_MODE) {
             game.mode = game.mode == MODE_GP ? MODE_TT : MODE_GP;
             race_setup();
         }
@@ -131,7 +167,7 @@ void title_update(float dt) {
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
-        game_set_state(ST_TITLE);
+        game_set_state(ST_MAIN);
         return;
     }
     if(pad.pressed & (BTN_A | BTN_START)) {
@@ -332,6 +368,26 @@ static void colour_swatch(float x, float y, int colour) {
     r_quad2d(x + 16, y, x + 32, y + 16, 0, 0, 1, 1, c->ui | 0xff000000, 16.5f);
 }
 
+static void draw_main(void) {
+    float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
+    float y0 = 196 + (1 - slide) * 300;
+    hud_panel(150, y0, 490, y0 + 200, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    for(int i = 0; i < 3; i++) {
+        bool sel = i == main_row;
+        float y = y0 + 22 + i * 58;
+        if(sel) {
+            r_hdr(h_flat);
+            float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
+            r_quad2d(166, y - 6, 474, y + 42, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+        }
+        float s = sel ? 0.86f + 0.04f * sinf(game.title_t * 8) : 0.8f;
+        hud_text(320, y + 2, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255), main_items[i]);
+    }
+    static const char *const blurbs[3] = {"RACE FIVE CPU CHAO", "SPLIT SCREEN WITH A FRIEND",
+                                          "UP TO SIX PLAYERS (BROADBAND OR DREAMPI)"};
+    hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(220, 230, 240, 255), blurbs[main_row]);
+}
+
 static void draw_menu(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
     float x0 = 640 - 300 * slide, x1 = x0 + 280;
@@ -354,10 +410,6 @@ static void draw_menu(void) {
         uint32_t label = argb(255, 150, 200, 255);
         const char *value = NULL;
         switch(row) {
-            case ROW_PLAYERS:
-                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "PLAYERS");
-                value = game.num_players > 1 ? "2P SPLIT" : "1P";
-                break;
             case ROW_MODE:
                 hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "MODE");
                 value = mode_name();
@@ -420,7 +472,7 @@ static void draw_tracks(void) {
     hud_text(tx, y0 + 6, 0.95f * pulse, ALIGN_CENTER, argb(255, 255, 226, 70), track.name);
     hud_text(tx, y0 + 46, 0.55f, ALIGN_CENTER, argb(255, 200, 225, 255), track.blurb);
     char buf[48];
-    snprintf(buf, sizeof(buf), "LAP %d m  -  %d LAPS", (int)(track.length + 0.5f), RACE_LAPS);
+    snprintf(buf, sizeof(buf), "LAP %d m  -  %d LAPS", (int)(track.length + 0.5f), game.laps);
     hud_text(tx, y0 + 74, 0.5f, ALIGN_CENTER, 0xffffffff, buf);
     /* Page dots. */
     r_hdr(h_flat);
@@ -457,6 +509,11 @@ void title_draw(void) {
     }
     else if(game.state == ST_TRACKS) {
         draw_tracks();
+    }
+    else if(game.state == ST_MAIN) {
+        draw_sunburst(320, 112, 420, game.title_t * 0.25f, 0.4f);
+        draw_logo(320, 112, 0.5f);
+        draw_main();
     }
     else {
         draw_logo(180, 62, 0.36f);

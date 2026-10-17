@@ -14,6 +14,7 @@
 #include "track.h"
 #include "world.h"
 #include "dolphins.h"
+#include "online.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -66,6 +67,10 @@ static void capture_script(void) {
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
     if(game.state == ST_TITLE && game.time > 7.0f) { pad.pressed |= BTN_START; step = 0; }
+    if(game.state == ST_MAIN) {
+        if(game.time > 1.5f && !shot[19]) { shot[19] = true; take_shot("main-menu"); }
+        if(game.time > 2.5f) pad.pressed |= BTN_START;   /* single player (or two with DK_AT_2P) */
+    }
     if(game.state == ST_MENU) {
         if(game.time > 2.0f && !shot[1]) { shot[1] = true; take_shot("menu"); }
         if(game.time > 3.5f && step < 1) { pad.pressed |= BTN_START; step++; }
@@ -84,6 +89,8 @@ static void capture_script(void) {
     if(game.state == ST_RACE && dolphins_show_time() > 0.85f && !shot[11]) { shot[11] = true; take_shot("dolphins"); }
     if(game.state == ST_RACE && dolphins_show_time() > 3.65f && !shot[12]) { shot[12] = true; take_shot("dolphins2"); }
     if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot("results"); }
+    if(game.online && game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[17]) { shot[17] = true; take_shot("online-countdown"); }
+    if(game.online && game.state == ST_RACE && game.race_time > 9.0f && !shot[18]) { shot[18] = true; take_shot("online-race"); }
     if(game.state == ST_RACE && !p->grounded && p->pos.y - track_height(p->tp.s) > 0.9f && !p->big_air &&
        game.race_time > 5.0f && !shot[13]) { shot[13] = true; take_shot("crest"); }
     if(game.state == ST_RACE && track.has_bridge && fabsf(track_delta(track.bridge_s, p->tp.s)) < 30.0f &&
@@ -95,7 +102,7 @@ static void capture_script(void) {
 #ifndef DK_HW
     /* Pause mid-race, switch the music off, grab the menu, switch it back on. */
     static float pause_t;
-    if(game.state == ST_RACE && game.race_time > 6.0f && !shot[8]) {
+    if(game.state == ST_RACE && game.race_time > 6.0f && !shot[8] && !game.online) {
         if(!game.paused) { pad.pressed |= BTN_START; pause_t = 0; }
         else {
             pause_t += DK_DT;
@@ -230,6 +237,12 @@ void race_setup(void) {
         kart_place_on_grid(k, i);
         models_paint_kart(i);
     }
+    if(!game.online) game.laps = DEFAULT_LAPS;
+    race_reset();
+}
+
+void race_reset(void) {
+    int humans = game.num_players;
     game.race_time = 0;
     game.countdown = 0;
     game.finished_count = 0;
@@ -265,7 +278,7 @@ void game_load_track(int id) {
 void game_set_state(int state) {
     game.state = state;
     game.time = 0;
-    if(state == ST_TITLE || state == ST_MENU || state == ST_TRACKS) {
+    if(state == ST_TITLE || state == ST_MENU || state == ST_TRACKS || state == ST_MAIN || state == ST_ONLINE) {
         if(state == ST_TITLE) title_enter();
         audio_kart_loops(0, NULL, DK_DT);
         audio_kart_loops(1, NULL, DK_DT);
@@ -389,7 +402,7 @@ static void finalize_results(void) {
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
         if(k->finished) continue;
-        float remaining = (float)(RACE_LAPS + 1) * track.length - k->progress;
+        float remaining = (float)(game.laps + 1) * track.length - k->progress;
         k->finish_time = game.race_time + fmaxf(remaining, 0) / (kart_top_speed(k) * 0.92f);
         k->finished = true;
     }
@@ -401,7 +414,7 @@ static void player_events(int pi) {
     Kart *p = &karts[pl->kart];
     uint32_t ev = p->events;
     if(ev & EV_LAP) {
-        if(p->lap == RACE_LAPS && !pl->final_lap_seen) {
+        if(p->lap == game.laps && !pl->final_lap_seen) {
             pl->final_lap_seen = true;
             hud_message(pi, "FINAL LAP!", argb(255, 255, 210, 50), 2.4f);
             if(!game.final_lap_announced) {
@@ -426,8 +439,10 @@ static void player_events(int pi) {
 }
 
 static void race_step(float dt, bool drive) {
+    if(game.online) online_remote_karts(dt);
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
+        if(k->remote) continue;
         KartInput in;
         int hp = -1;
         for(int p = 0; p < game.num_players; p++)
@@ -453,6 +468,19 @@ static void race_step(float dt, bool drive) {
         player_events(p);
         rumble_kart(p, &karts[game.pl[p].kart]);
     }
+#ifdef DK_PATH_LOG
+    /* For server/cmd/dk-bot -path: the player's kart 12 times a second. */
+    {
+        static float next;
+        const Kart *k = &karts[game.player];
+        if(game.state == ST_RACE && game.race_time >= next) {
+            next = game.race_time + 1.0f / 12.0f;
+            printf("DK PATH %d %.2f %.2f %.2f %.4f %.2f %d %.1f\n", (int)(game.race_time * 1000), (double)k->pos.x,
+                   (double)k->pos.y, (double)k->pos.z, (double)k->heading, (double)k->speed, k->lap,
+                   (double)k->tp.s);
+        }
+    }
+#endif
 #ifdef DK_AUTOTEST
     {
         uint32_t ev = karts[game.player].events;
@@ -563,7 +591,15 @@ static void update(float dt) {
     world_update(dt);
     hud_update(dt);
     switch(game.state) {
+        case ST_ONLINE:
+            online_update(dt);
+            for(int i = 0; i < kart_count; i++) {
+                KartInput in = {0};
+                if(!karts[i].remote) kart_update(&karts[i], &in, dt, false);
+            }
+            break;
         case ST_TITLE:
+        case ST_MAIN:
         case ST_MENU:
         case ST_TRACKS:
             title_update(dt);
@@ -585,6 +621,18 @@ static void update(float dt) {
             }
             break;
         case ST_COUNTDOWN:
+            if(game.online) {
+                /* The server's clock sets the countdown; no pausing online. */
+                if(online_race_input()) break;
+                game.countdown = online_countdown() - dt;
+                countdown_step(dt);
+                online_remote_karts(dt);
+                for(int i = 0; i < kart_count; i++) {
+                    KartInput in = {0};
+                    if(!karts[i].remote) kart_update(&karts[i], &in, dt, false);
+                }
+                break;
+            }
             if(game.paused) {
                 pause_update();
                 break;
@@ -603,6 +651,14 @@ static void update(float dt) {
             }
             break;
         case ST_RACE: {
+            if(game.online) {
+                /* The server ends the race and gives the results. */
+                if(online_race_input()) break;
+                game.countdown += dt;
+                game.race_time = online_race_time();
+                race_step(dt, true);
+                break;
+            }
             if(!game.paused && start_pressed() >= 0) {
                 game.paused = true;
                 game.pause_owner = start_pressed();
@@ -644,6 +700,7 @@ static void update(float dt) {
         case ST_RESULTS:
             game.race_time += dt;
             race_step(dt, true);
+            if(game.online) break;
             if(game.time > 1.0f && ((pad.pressed | pad2.pressed) & BTN_A)) {
                 audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
                 race_setup();
@@ -662,9 +719,13 @@ static void update(float dt) {
 static void update_camera(float dt) {
     switch(game.state) {
         case ST_TITLE:
+        case ST_MAIN:
         case ST_MENU:
         case ST_TRACKS:
             title_camera(&game.cam, dt);
+            break;
+        case ST_ONLINE:
+            online_camera(&game.cam, dt);
             break;
         case ST_INTRO:
             intro_camera(&game.cam, game.time / 3.2f);
@@ -752,9 +813,13 @@ static void render(void) {
     r_set_viewport(0, 480.0f);
     if(!(dk_probe_off & PROBE_HUD)) switch(game.state) {
         case ST_TITLE:
+        case ST_MAIN:
         case ST_MENU:
         case ST_TRACKS:
             title_draw();
+            break;
+        case ST_ONLINE:
+            online_draw();
             break;
         case ST_INTRO: {
             float a = clampf(game.time * 2.0f, 0, 1) * clampf((3.2f - game.time) * 2.0f, 0, 1);
@@ -784,9 +849,11 @@ static void render(void) {
                 hud_draw_split_overlay();
             }
             if(game.paused) hud_draw_pause();
+            if(game.online) online_draw_race();
             break;
         case ST_RESULTS:
-            hud_draw_results();
+            if(game.online) online_draw_results();
+            else hud_draw_results();
             break;
     }
     r_frame_end();
@@ -842,7 +909,9 @@ int main(int argc, char **argv) {
     boot_screen(boot_t0, 1.0f, "READY!");
     printf("DreamKarts boot: %lu ms\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000));
 
+    online_init();
     game.cc = CC_100;
+    game.laps = DEFAULT_LAPS;
     game.mode = MODE_GP;
     game.num_players = 1;
     game.pl[0].colour = 0;
@@ -852,7 +921,9 @@ int main(int argc, char **argv) {
     game.pl[0].colour = 6;
 #endif
     race_setup();
-#if defined(DK_AUTOTEST) && !defined(DK_CAPTURE)
+#if defined(DK_AT_ONLINE)
+    online_enter();
+#elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE)
     game.cc = CC_150;
 #ifdef DK_AT_TT
     game.mode = MODE_TT;
@@ -890,6 +961,7 @@ int main(int argc, char **argv) {
 
         uint64_t upd_t0 = timer_us_gettime64();
         input_update();
+        if(game.online) online_tick();
 #if defined(DK_HW) && defined(DK_CAPTURE)
         if(probe_step()) {
             steps = 0;
@@ -932,7 +1004,8 @@ int main(int argc, char **argv) {
         }
 #ifdef DK_AUTOTEST
         {
-            static const char *const state_names[] = {"title", "menu", "tracks", "intro", "countdown", "race", "results"};
+            static const char *const state_names[] = {"title", "menu", "tracks", "intro", "countdown", "race", "results",
+                                                     "main", "online"};
             const Kart *p = &karts[game.player];
             /* A displayed frame that took more than 1.5 vblanks dropped one. */
             if(at_skip > 0) {
@@ -976,10 +1049,10 @@ int main(int argc, char **argv) {
                 at.win_cpu_max = at.rnd_max_ms = 0;
                 at_skip = 2;
             }
-            if(game.state == ST_RESULTS && game.time > 3.0f && !at.done) {
+            if(game.state == ST_RESULTS && game.time > 3.0f && !at.done && !game.online) {
                 at.done = true;
                 printf("DK AUTOTEST: player finish %.2fs place %d laps", (double)p->finish_time, p->place);
-                for(int l = 0; l < RACE_LAPS; l++) printf(" %.2f", (double)p->lap_times[l]);
+                for(int l = 0; l < game.laps; l++) printf(" %.2f", (double)p->lap_times[l]);
                 printf("\nDK AUTOTEST: drifts %d boosts blue %d orange %d purple %d dash %d walls %d\n",
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
                 printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
@@ -994,7 +1067,7 @@ int main(int argc, char **argv) {
                     printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, karts[game.finish_order[i]].name,
                            (double)karts[game.finish_order[i]].finish_time);
                 bool ok = p->finish_time > 0 && p->finish_time < 150.0f && at.drifts > 3 && kart_rescues == 0 &&
-                          (!track.has_jump || at.jumps >= RACE_LAPS);
+                          (!track.has_jump || at.jumps >= game.laps);
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
 #ifdef DK_HW
                 game.quit = true;   /* hand the console back to dcload-ip */

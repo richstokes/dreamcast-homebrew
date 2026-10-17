@@ -173,11 +173,11 @@ void hud_draw_race(int pi, float y0, float y1) {
     float k = split ? 0.72f : 1.0f;       /* HUD scale */
     char buf[48];
     /* Lap counter. */
-    int lap = p->lap < 1 ? 1 : (p->lap > RACE_LAPS ? RACE_LAPS : p->lap);
+    int lap = p->lap < 1 ? 1 : (p->lap > game.laps ? game.laps : p->lap);
     float lx = split ? 14 : 24, ly = y0 + (split ? 8 : 22);
     hud_panel(lx, ly, lx + 158 * k, ly + 48 * k, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
     hud_text(lx + 10 * k, ly + 3 * k, 0.75f * k, ALIGN_LEFT, argb(255, 255, 220, 80), "LAP");
-    snprintf(buf, sizeof(buf), "%d/%d", lap, RACE_LAPS);
+    snprintf(buf, sizeof(buf), "%d/%d", lap, game.laps);
     hud_text(lx + 66 * k, ly, 1.05f * k, ALIGN_LEFT, 0xffffffff, buf);
     if(split) {
         /* Player tag in their colour. */
@@ -307,7 +307,7 @@ void hud_draw_results(void) {
     }
     else {
         const Kart *k = &karts[game.pl[0].kart];
-        for(int l = 0; l < RACE_LAPS; l++) {
+        for(int l = 0; l < game.laps; l++) {
             hud_format_time(t, k->lap_times[l]);
             snprintf(buf, sizeof(buf), "LAP %d", l + 1);
             bool best = k->lap_times[l] == k->best_lap;

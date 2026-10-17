@@ -227,7 +227,7 @@ void dolphins_update(float dt) {
     for(int p = 0; p < game.num_players; p++) {
         const Kart *k = &karts[game.pl[p].kart];
         float s = k->tp.s;
-        if(!seen[p] && k->lap == RACE_LAPS && prev_s[p] >= 0 && track_delta(prev_s[p], trigger) > 0 &&
+        if(!seen[p] && k->lap == game.laps && prev_s[p] >= 0 && track_delta(prev_s[p], trigger) > 0 &&
            track_delta(trigger, s) >= 0 && track_delta(prev_s[p], s) < 20.0f) {
             seen[p] = true;
             bool recent = false;

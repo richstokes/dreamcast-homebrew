@@ -63,7 +63,7 @@ typedef struct {
     bool finished;
     float finish_time;
     float lap_start;
-    float lap_times[RACE_LAPS];
+    float lap_times[MAX_LAPS];
     float best_lap;
 
     /* Visual state */
@@ -77,6 +77,8 @@ typedef struct {
 
     /* Identity */
     bool cpu;
+    bool remote;        /* online rival driven by another console */
+    int net_slot;       /* its lobby slot */
     float skill;        /* CPU top-speed factor */
     float lane;         /* CPU lateral bias */
     float ai_drift_hold;
@@ -99,6 +101,9 @@ typedef struct {
 extern const KartColour kart_colours[COLOUR_COUNT];
 void kart_apply_colour(Kart *k, int colour);
 bool kart_is_human(int index);
+/* Online: set a rival from the network and animate it locally. */
+void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
+                        bool boosting, bool grounded, float dt);
 
 extern Kart karts[MAX_KARTS];
 extern int kart_count;
