@@ -794,24 +794,53 @@ static void render(void) {
     prof_frames++;
 }
 
+/* One frame of the loading screen between boot steps. */
+static void boot_screen(uint64_t t0, float progress, const char *what) {
+    float t = (float)(timer_us_gettime64() - t0) * 1e-6f;
+    pvr_wait_ready();
+    r_frame_begin();
+    r_list(PVR_LIST_OP_POLY);
+    r_list(PVR_LIST_TR_POLY);
+    r_set_viewport(0, 480.0f);
+    title_draw_loading(progress, what, t);
+    r_frame_end();
+#if defined(DK_CAPTURE) && !defined(DK_HW)
+    /* Hold the halfway screen long enough for capture.py to grab it. */
+    static bool shot_taken;
+    if(progress > 0.5f && !shot_taken) {
+        shot_taken = true;
+        take_shot("loading");
+        uint64_t hold = timer_us_gettime64();
+        while(timer_us_gettime64() - hold < 1200000) boot_screen(t0, progress, what);
+    }
+#endif
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
     printf("\nDreamKarts starting (KallistiOS, %s %s)\n", __DATE__, __TIME__);
+    uint64_t boot_t0 = timer_us_gettime64();
     input_init();
     render_init();
+    hud_init();
+    title_init();
+    boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");
 #ifdef DK_AT_TRACK
     game.track = DK_AT_TRACK;
 #endif
     track_init(game.track);
     world_init();
+    boot_screen(boot_t0, 0.25f, "PLANTING PALM TREES");
     world_build();
+    boot_screen(boot_t0, 0.55f, "POLISHING KARTS");
     models_init();
     fx_init();
     dolphins_init();
-    hud_init();
-    title_init();
+    boot_screen(boot_t0, 0.7f, "TUNING STEEL DRUMS");
     audio_init();
+    boot_screen(boot_t0, 1.0f, "READY!");
+    printf("DreamKarts boot: %lu ms\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000));
 
     game.cc = CC_100;
     game.mode = MODE_GP;

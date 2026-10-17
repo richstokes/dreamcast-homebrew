@@ -471,12 +471,15 @@ void track_init(int id) {
 
     /* Release builds log only the first build: under dcload-ip each printf
        stalls the console with IRQs off. */
+#ifdef DK_AUTOTEST
+    bool log = true;
+#else
     static bool logged;
-#ifndef DK_AUTOTEST
-    if(!logged)
-#endif
-    printf("DreamKarts track: %s, lap %.1f m, %d samples\n", track.name, (double)track.length, TRACK_SAMPLES);
+    bool log = !logged;
     logged = true;
+#endif
+    if(log)
+        printf("DreamKarts track: %s, lap %.1f m, %d samples\n", track.name, (double)track.length, TRACK_SAMPLES);
 }
 
 float track_jump_pos(float s) {

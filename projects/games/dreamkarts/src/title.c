@@ -276,6 +276,53 @@ static void draw_sparkles(float dt_unused) {
     }
 }
 
+static const char *const loading_tips[] = {
+    "TIP: HOLD R AS YOU TURN IN TO POWERSLIDE",
+    "TIP: RELEASE A DRIFT ON PURPLE SPARKS FOR THE BIGGEST BOOST",
+    "TIP: PUSH AWAY FROM THE TURN TO WIDEN A SLIDE",
+    "TIP: PRESS A AS THE 2 FADES FOR A ROCKET START",
+    "TIP: HOLD R WITHOUT STEERING TO CHARGE A JUMP",
+    "TIP: BOOSTS CUT STRAIGHT THROUGH SAND",
+};
+
+void title_draw_loading(float progress, const char *what, float t) {
+    static int tip = -1;
+    if(tip < 0) tip = (int)(dk_rand() % (sizeof(loading_tips) / sizeof(loading_tips[0])));
+    /* Boot steps are too far apart to animate the letters dropping in, so
+       the logo sits settled; the title screen drops it in afterwards. */
+    game.title_t = t;
+    logo_in = 1.0f;
+
+    /* Sky-blue backdrop under a slowly turning sunburst and the logo. */
+    r_hdr(h_flat);
+    r_quad2d_grad(0, 0, 640, 480, argb(255, 60, 150, 240), argb(255, 12, 40, 130), 1.0f);
+    draw_sunburst(320, 170, 560, t * 0.25f, 0.32f);
+    r_hdr(h_glow);
+    r_quad2d(320 - 250, 170 - 95, 320 + 250, 170 + 95, 0, 0, 1, 1, color_alpha(argb(255, 255, 230, 160), 0.3f), 11.0f);
+    draw_logo(320, 170, 0.62f);
+
+    /* Progress bar: a little racetrack with a chequered finish and a
+       glowing marker riding the leading edge. */
+    float x0 = 130, x1 = 510, y0 = 318, y1 = 336;
+    float fill = x0 + (x1 - x0) * clampf(progress, 0, 1);
+    r_hdr(h_flat);
+    r_quad2d(x0 - 4, y0 - 4, x1 + 18, y1 + 4, 0, 0, 1, 1, argb(230, 8, 20, 60), 14.0f);
+    r_quad2d_grad(x0, y0, x1, y1, argb(255, 70, 74, 84), argb(255, 44, 46, 54), 14.1f);
+    if(fill > x0) r_quad2d_grad(x0, y0, fill, y1, argb(255, 255, 226, 70), argb(255, 255, 140, 30), 14.2f);
+    for(int r = 0; r < 3; r++)
+        for(int c = 0; c < 2; c++) {
+            float cx = x1 + 2 + c * 7, cy = y0 + r * 6;
+            r_quad2d(cx, cy, cx + 7, cy + 6, 0, 0, 1, 1, ((r + c) & 1) ? 0xff101010 : 0xfff4f4f4, 14.3f);
+        }
+    float pulse = 0.75f + 0.25f * sinf(t * 9.0f);
+    r_hdr(h_glow);
+    r_quad2d(fill - 16, (y0 + y1) * 0.5f - 16, fill + 16, (y0 + y1) * 0.5f + 16, 0, 0, 1, 1,
+             color_alpha(argb(255, 255, 250, 210), pulse), 14.4f);
+
+    hud_text(320, 346, 0.55f, ALIGN_CENTER, 0xffffffff, what);
+    hud_text(320, 420, 0.42f, ALIGN_CENTER, argb(220, 200, 225, 255), loading_tips[tip]);
+}
+
 static void colour_swatch(float x, float y, int colour) {
     const KartColour *c = &kart_colours[colour];
     r_hdr(h_flat);
