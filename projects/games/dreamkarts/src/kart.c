@@ -317,7 +317,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
             end_drift(k, true);
         }
     }
-    if(k->drift == DRIFT_ACTIVE && (k->speed < DRIFT_MIN_SPEED || (in->brake && !in->accel)))
+    if(k->drift == DRIFT_ACTIVE && (k->speed < DRIFT_MIN_SPEED || in->brake))
         end_drift(k, false);
 
     /* Grounded states waiting for the stick to choose a direction. */
@@ -349,7 +349,14 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     if(k->drift == DRIFT_CHARGE) target *= 0.94f;
     if(k->grounded && can_drive && k->burnout_t <= 0) {
         bool gas = in->accel || k->boost_t > 0;
-        if(gas && !(in->brake && !in->accel && k->boost_t <= 0)) {
+        /* B brakes even with A held (and through a boost); reversing
+           needs A released, so holding both at a standstill just stops. */
+        if(in->brake) {
+            if(k->speed > 0.3f) k->speed = approach(k->speed, 0, 22.0f * dt);
+            else if(!in->accel) k->speed = approach(k->speed, -6.0f, 9.0f * dt);
+            else k->speed = approach(k->speed, 0, 22.0f * dt);
+        }
+        else if(gas) {
             if(k->speed < target) {
                 float rate = k->boost_t > 0 ? 3.0f : 0.85f;
                 k->speed += ((target - k->speed) * rate + 1.2f) * dt;
@@ -358,10 +365,6 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
             else {
                 k->speed = approach(k->speed, target, (sand ? 16.0f : 5.0f) * dt);
             }
-        }
-        else if(in->brake) {
-            if(k->speed > 0.3f) k->speed = approach(k->speed, 0, 22.0f * dt);
-            else k->speed = approach(k->speed, -6.0f, 9.0f * dt);
         }
         else {
             k->speed = approach(k->speed, 0, (sand ? 9.0f : 4.5f) * dt);

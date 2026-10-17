@@ -68,7 +68,7 @@ is also available.
 | --- | --- | --- |
 | Analog stick or D-pad | I/J/K/L or arrow keys | Steer (menus: move) |
 | A | X | Accelerate (menus: OK) |
-| B | C | Brake / reverse (menus: back) |
+| B | C | Brake, even while holding A; reverse with A released (menus: back) |
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
 | Start | Return | Pause (continue / restart / music on-off / quit) |
 
