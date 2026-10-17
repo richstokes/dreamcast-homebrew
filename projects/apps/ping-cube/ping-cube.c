@@ -690,7 +690,7 @@ static int make_face_textures(void) {
         /* All strips wind clockwise when viewed from outside the cube. */
         context.gen.culling = PVR_CULLING_CCW;
         context.depth.comparison = PVR_DEPTHCMP_GREATER;
-        context.depth.write = true;
+        context.depth.write = PVR_DEPTHWRITE_ENABLE;
         context.txr.env = PVR_TXRENV_MODULATE;
         context.txr.uv_clamp = PVR_UVCLAMP_UV;
         pvr_poly_compile(&face_headers[face], &context);
@@ -837,7 +837,7 @@ static int make_console_texture(void) {
                      PVR_FILTER_BILINEAR);
     context.gen.culling = PVR_CULLING_NONE;
     context.depth.comparison = PVR_DEPTHCMP_GREATER;
-    context.depth.write = true;
+    context.depth.write = PVR_DEPTHWRITE_ENABLE;
     context.txr.env = PVR_TXRENV_MODULATE;
     context.txr.uv_clamp = PVR_UVCLAMP_UV;
     pvr_poly_compile(&console_header, &context);

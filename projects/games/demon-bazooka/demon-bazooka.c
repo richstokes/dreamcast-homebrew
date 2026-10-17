@@ -1363,14 +1363,14 @@ static void init_headers(void) {
     context.gen.culling = PVR_CULLING_NONE;
     context.gen.shading = PVR_SHADE_GOURAUD;
     context.depth.comparison = PVR_DEPTHCMP_GREATER;
-    context.depth.write = true;
+    context.depth.write = PVR_DEPTHWRITE_ENABLE;
     pvr_poly_compile(&opaque_header, &context);
 
     pvr_poly_cxt_col(&context, PVR_LIST_TR_POLY);
     context.gen.culling = PVR_CULLING_NONE;
     context.gen.shading = PVR_SHADE_GOURAUD;
     context.depth.comparison = PVR_DEPTHCMP_GREATER;
-    context.depth.write = false;
+    context.depth.write = PVR_DEPTHWRITE_DISABLE;
     context.blend.src = PVR_BLEND_SRCALPHA;
     context.blend.dst = PVR_BLEND_INVSRCALPHA;
     pvr_poly_compile(&translucent_header, &context);
@@ -1386,7 +1386,7 @@ static void init_headers(void) {
     context.gen.culling = PVR_CULLING_NONE;
     context.gen.shading = PVR_SHADE_GOURAUD;
     context.depth.comparison = PVR_DEPTHCMP_ALWAYS;
-    context.depth.write = false;
+    context.depth.write = PVR_DEPTHWRITE_DISABLE;
     context.blend.src = PVR_BLEND_SRCALPHA;
     context.blend.dst = PVR_BLEND_INVSRCALPHA;
     pvr_poly_compile(&ui_header, &context);

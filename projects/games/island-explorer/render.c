@@ -158,7 +158,7 @@ bool renderer_init(void){
     pvr_txr_load(font_start,font_texture,512*256*2);
     pvr_poly_cxt_t font;
     pvr_poly_cxt_txr(&font,PVR_LIST_TR_POLY,PVR_TXRFMT_ARGB4444|PVR_TXRFMT_NONTWIDDLED,512,256,font_texture,PVR_FILTER_BILINEAR);
-    font.gen.culling=PVR_CULLING_NONE;font.gen.fog_type=PVR_FOG_DISABLE;font.depth.write=false;
+    font.gen.culling=PVR_CULLING_NONE;font.gen.fog_type=PVR_FOG_DISABLE;font.depth.write=PVR_DEPTHWRITE_DISABLE;
     pvr_poly_compile(&font_header,&font);
     if(!world_load(&sky,sky_start,(size_t)(sky_end-sky_start)))return false;
     for(unsigned i=0;i<sky.mesh_count&&i<8;i++)make_header(&sky_headers[i],sky.meshes[i].texture,0,PVR_LIST_OP_POLY,false);
