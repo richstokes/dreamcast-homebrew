@@ -15,6 +15,8 @@ STRICT_CFLAGS = -O2 -Wall -Wextra -Wpedantic -Werror
 SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
     third_party/sh4zam/include/sh4zam/inline/*.h \
     third_party/sh4zam/include/sh4zam/inline/sh4/*.h)
+# A system include keeps the strict QA builds' -Wpedantic off SH4ZAM's GNU C.
+KOS_CFLAGS += -isystem third_party/sh4zam/include
 
 KOS_BUILD_SUBARCHS = pristine
 
@@ -24,6 +26,11 @@ include $(KOS_BASE)/Makefile.rules
 
 clean:
 	-rm -f $(OBJS) $(TARGET) tools/render_math_qa.o render-math-qa.elf tools/render_visibility_qa.o render-visibility-qa.elf
+
+# Finite math lets GCC inline fminf/fmaxf: 33 -> 44 fps in the Flycast
+# benchmark (sinf/cosf already use FSCA via fsin/fcos). Only the game gets it,
+# so the QA tools' isfinite() checks stay real.
+drift-los-angeles.o: KOS_CFLAGS += -fno-math-errno -ffinite-math-only
 
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) -lm

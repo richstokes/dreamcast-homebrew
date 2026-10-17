@@ -19,7 +19,7 @@ static unsigned dolphin_checks(void){
                 if(d->pod>=DOLPHIN_PODS){failures++;continue;}
                 const DolphinPod *pod=&dolphin_pods[d->pod];
                 seen|=1u<<d->pod;members[d->pod]++;
-                if(pod->act!=act||!isfinite(d->position.y)||
+                if(pod->act!=act||!finite_bits(d->position.y)||
                    fabsf(length(d->forward)-1)>.001f||fabsf(dot(d->up,d->forward))>.001f||
                    fabsf(world_water_level(pod->center)-pod->center.y)>.01f)failures++;
                 /* Check the entire route's width, including submerged entry

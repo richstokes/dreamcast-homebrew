@@ -19,7 +19,7 @@ static void splash(DolphinFrame *frame,Vec3 start,Vec3 direction,
 }
 void dolphins_sample(int act,float time,DolphinFrame *frame){
     frame->count=frame->splash_count=0;
-    if(!isfinite(time)||time<0)return;
+    if(!finite_bits(time)||time<0)return;
     for(unsigned i=0;i<DOLPHIN_PODS;i++){
         const DolphinPod *pod=&dolphin_pods[i];
         if(pod->act!=act||time<pod->first)continue;

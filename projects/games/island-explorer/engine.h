@@ -18,6 +18,8 @@ static inline float length(Vec3 a){return sqrtf(dot(a,a));}
 static inline Vec3 unit(Vec3 a){float n=length(a);return n>0.00001f?mul(a,1/n):v3(0,1,0);}
 static inline float clampf(float a,float lo,float hi){return fminf(hi,fmaxf(lo,a));}
 static inline float mixf(float a,float b,float t){return a+(b-a)*t;}
+/* Game objects build with -ffinite-math-only, which folds isfinite() to true. */
+static inline bool finite_bits(float a){uint32_t u;__builtin_memcpy(&u,&a,4);return (u&0x7f800000u)!=0x7f800000u;}
 
 typedef struct {Vec3 p;float u,v;uint32_t color;} Vertex;
 typedef struct {
