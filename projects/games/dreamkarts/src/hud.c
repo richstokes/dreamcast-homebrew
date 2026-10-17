@@ -44,7 +44,7 @@ float hud_text_width(const char *s, float scale) {
     for(; *s; s++) {
         unsigned c = (unsigned char)*s;
         if(c < 32 || c > 127) c = '?';
-        w += font_advance[c - 32] * scale;
+        w += font_glyphs[c - 32].adv * scale;
     }
     return w;
 }
@@ -54,16 +54,16 @@ void hud_text(float x, float y, float scale, int align, uint32_t col, const char
     if(align == ALIGN_CENTER) x -= w * 0.5f;
     else if(align == ALIGN_RIGHT) x -= w;
     r_hdr(h_font);
-    const float cu = (float)FONT_CELL_W / FONT_TEX_W, cv = (float)FONT_CELL_H / FONT_TEX_H;
+    const float du = 1.0f / FONT_TEX_W, dv = (float)FONT_ROW_H / FONT_TEX_H;
     for(; *s; s++) {
         unsigned c = (unsigned char)*s;
         if(c < 32 || c > 127) c = '?';
-        unsigned i = c - 32;
-        if(c != ' ') {
-            float u0 = (float)(i % FONT_COLS) * cu, v0 = (float)(i / FONT_COLS) * cv;
-            r_quad2d(x, y, x + FONT_CELL_W * scale, y + FONT_CELL_H * scale, u0, v0, u0 + cu, v0 + cv, col, 20.0f);
+        const dk_glyph_t *g = &font_glyphs[c - 32];
+        if(g->w) {
+            float x0 = x + g->ox * scale, u0 = g->x * du, v0 = g->row * dv;
+            r_quad2d(x0, y, x0 + g->w * scale, y + FONT_ROW_H * scale, u0, v0, u0 + g->w * du, v0 + dv, col, 20.0f);
         }
-        x += font_advance[i] * scale;
+        x += g->adv * scale;
     }
 }
 
@@ -77,8 +77,10 @@ void hud_panel(float x0, float y0, float x1, float y1, uint32_t top, uint32_t bo
 void hud_bigtext(int which, float cx, float cy, float scale, uint32_t col) {
     float u0, v0, u1, v1, w, h;
     if(which < 4) {
-        u0 = which * 0.25f; v0 = 0; u1 = u0 + 0.25f; v1 = 0.5f;
-        w = h = 128;
+        u0 = bigtext_cells[which][0] / 512.0f; v0 = 0; v1 = 0.5f;
+        w = bigtext_cells[which][1];
+        u1 = u0 + w / 512.0f;
+        h = 128;
     }
     else {
         u0 = 0; v0 = 0.5f; u1 = 1; v1 = 1;

@@ -11,7 +11,7 @@ output is reproducible. Writes to --output-dir:
 
     textures.pak        twiddled RGB565/ARGB4444 textures (+mips), 32-byte aligned
     texture_assets.h    TEX_* ids and the size/format/offset table
-    font_metrics.h      glyph advances for the HUD font, title logo letter cells
+    font_metrics.h      HUD font glyph rects, countdown cells, title logo letter cells
     previews/*.png      every texture as painted (git-ignored)
 """
 
@@ -479,25 +479,43 @@ def tex_crowd(n=64):
 # Text: HUD font, banners, title logo, countdown
 
 FONT_CHARS = [chr(c) for c in range(32, 128)]
-FONT_COLS, FONT_ROWS = 16, 6
-FONT_CELL_W, FONT_CELL_H = 32, 42
+FONT_ROW_H = 42
+FONT_SIZE = 30
 
 
 def tex_font():
-    """White glyphs with a dark outline; tint with vertex colour at runtime."""
-    w, h = FONT_COLS * FONT_CELL_W, FONT_ROWS * FONT_CELL_H
+    """White glyphs with a dark outline; tint with vertex colour at runtime.
+
+    The bold oblique glyphs and their outline overhang any fixed cell (W is
+    38 px wide, J starts 5 px left of the pen), so each glyph is packed into
+    its own rect: its ink plus one transparent texel each side, which keeps
+    bilinear filtering from sampling a neighbour. Returns the atlas and, per
+    glyph, (x, row, width, left offset from the pen, advance)."""
     img = Image.new("RGBA", (512, 256), (255, 255, 255, 0))
-    font = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 30)
-    d = ImageDraw.Draw(img)
-    advances = []
-    for i, ch in enumerate(FONT_CHARS):
-        cx = (i % FONT_COLS) * FONT_CELL_W
-        cy = (i // FONT_COLS) * FONT_CELL_H
-        d.text((cx + 3, cy + 2), ch, font=font, fill=(255, 255, 255, 255),
-               stroke_width=3, stroke_fill=(16, 22, 48, 255))
-        advances.append(int(round(font.getlength(ch))) + 2)
-    assert w <= 512 and h <= 256
-    return img, advances
+    font = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), FONT_SIZE)
+    glyphs = []
+    x = row = 0
+    for ch in FONT_CHARS:
+        adv = int(round(font.getlength(ch))) + 2
+        if ch == " ":
+            glyphs.append((0, 0, 0, 0, adv))
+            continue
+        pad = 16
+        cell = Image.new("RGBA", (64 + 2 * pad, FONT_ROW_H), (255, 255, 255, 0))
+        ImageDraw.Draw(cell).text((pad + 3, 2), ch, font=font, fill=(255, 255, 255, 255),
+                                  stroke_width=3, stroke_fill=(16, 22, 48, 255))
+        alpha = np.array(cell)[..., 3]
+        ys, xs = np.nonzero(alpha)
+        assert ys.min() >= 1 and ys.max() <= FONT_ROW_H - 2, ch
+        x0, x1 = xs.min() - 1, xs.max() + 2      # rect with a clear texel each side
+        w = x1 - x0
+        if x + w > img.width:
+            x, row = 0, row + 1
+        assert (row + 1) * FONT_ROW_H <= img.height, "font atlas full"
+        img.alpha_composite(cell.crop((x0, 0, x1, FONT_ROW_H)), (x, row * FONT_ROW_H))
+        glyphs.append((x, row, w, x0 - pad, adv))
+        x += w
+    return img, glyphs
 
 
 def gradient_text_layer(size, text, font, stops, outline, outline_w, highlight=True, shadow=True):
@@ -560,21 +578,32 @@ def tex_logo():
     return img, widths
 
 
+# Countdown cells in the top row of the bigtext texture: x, width (128 tall).
+BIGTEXT_CELLS = [(0, 112), (112, 112), (224, 112), (336, 176)]
+
+
 def tex_bigtext():
-    """Countdown and finish lettering: 3, 2, 1 (128 cells), GO! and FINISH!."""
+    """Countdown and finish lettering: 3, 2, 1, GO! and FINISH!.
+
+    Each cell is wide enough for its lettering's outline and drop shadow, so
+    nothing is cut off at a cell edge."""
     img = Image.new("RGBA", (512, 256), (0, 0, 0, 0))
     big = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 100)
     mid = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 78)
     warm = [(0.0, (255, 255, 210)), (0.45, (255, 220, 50)), (1.0, (240, 90, 20))]
     cool = [(0.0, (230, 255, 255)), (0.5, (90, 220, 255)), (1.0, (30, 110, 230))]
-    for i, txt in enumerate("321"):
-        layer = gradient_text_layer((128, 128), txt, big, warm, (150, 20, 20), 7)
-        img.alpha_composite(layer, (i * 128, 0))
-    go = gradient_text_layer((128, 128), "GO!", ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 62),
-                             cool, (10, 40, 140), 6)
-    img.alpha_composite(go, (384, 0))
-    fin = gradient_text_layer((512, 128), "FINISH!", mid, warm, (150, 20, 20), 7)
-    img.alpha_composite(fin, (0, 128))
+    layers = [gradient_text_layer((w, 128), txt, big, warm, (150, 20, 20), 7)
+              for txt, (_, w) in zip("321", BIGTEXT_CELLS)]
+    layers.append(gradient_text_layer((BIGTEXT_CELLS[3][1], 128), "GO!",
+                                      ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 62),
+                                      cool, (10, 40, 140), 6))
+    for layer, (x, _) in zip(layers, BIGTEXT_CELLS):
+        img.alpha_composite(layer, (x, 0))
+    layers.append(gradient_text_layer((512, 128), "FINISH!", mid, warm, (150, 20, 20), 7))
+    img.alpha_composite(layers[-1], (0, 128))
+    for layer in layers:
+        a = np.array(layer)[..., 3]
+        assert not (a[0].any() or a[-1].any() or a[:, 0].any() or a[:, -1].any()), "bigtext cell clips"
     return img
 
 
@@ -615,7 +644,7 @@ def build(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     previews = out / "previews"
     previews.mkdir(exist_ok=True)
-    font_img, font_adv = tex_font()
+    font_img, glyphs = tex_font()
     logo_img, logo_w = tex_logo()
     items: list[tuple[Spec, Image.Image]] = [
         (Spec("road", "RGB565", True, True), tex_road()),
@@ -679,13 +708,17 @@ def build(out: Path) -> None:
 
     m = ["/* Generated by tools/build_textures.py. Do not edit. */",
          "#ifndef DK_FONT_METRICS_H", "#define DK_FONT_METRICS_H", "#include <stdint.h>", "",
-         f"#define FONT_COLS {FONT_COLS}", f"#define FONT_CELL_W {FONT_CELL_W}",
-         f"#define FONT_CELL_H {FONT_CELL_H}", "#define FONT_TEX_W 512", "#define FONT_TEX_H 256",
-         "/* Pixel advance of ASCII 32..127 at native size (cell height 42). */",
-         "static const uint8_t font_advance[96] = {"]
-    for i in range(0, 96, 16):
-        m.append("    " + ", ".join(str(a) for a in font_adv[i:i + 16]) + ",")
+         f"#define FONT_ROW_H {FONT_ROW_H}", "#define FONT_TEX_W 512", "#define FONT_TEX_H 256",
+         "/* ASCII 32..127 at native size: atlas x, row, rect width, rect left",
+         "   relative to the pen, and pen advance. */",
+         "typedef struct { uint16_t x; uint8_t row, w; int8_t ox; uint8_t adv; } dk_glyph_t;",
+         "static const dk_glyph_t font_glyphs[96] = {"]
+    for i in range(0, 96, 4):
+        m.append("    " + " ".join(f"{{{x}, {r}, {w}, {ox}, {adv}}}," for x, r, w, ox, adv in glyphs[i:i + 4]))
     m += ["};", "",
+          "/* Countdown cells (3, 2, 1, GO!) in the bigtext texture's top row: x, width. */",
+          "static const uint16_t bigtext_cells[4][2] = {" +
+          ", ".join(f"{{{x}, {w}}}" for x, w in BIGTEXT_CELLS) + "};", "",
           f'#define LOGO_LETTERS "{LOGO_LETTERS}"', f"#define LOGO_CELL {LOGO_CELL}",
           "static const uint8_t logo_advance[8] = {" + ", ".join(str(w) for w in logo_w) + "};",
           "", "#endif", ""]
