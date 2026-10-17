@@ -3,6 +3,7 @@
 //	dk-bot -smoke                      check the server answers (exit 0/1)
 //	dk-bot -name BOT1 -lobby 0         join lobby 0 and race when a race starts
 //	dk-bot -name BOT1 -lobby 0 -start  also start races as soon as two are in
+//	dk-bot -name BOT1 -lobby 0 -wave   also wave every few seconds
 //
 // A bot's kart has no physics: it sits on the grid and reports progress at
 // a steady pace so it finishes a 3-lap race in about -race seconds. Paths
@@ -34,6 +35,7 @@ var (
 	raceSecs = flag.Float64("race", 90, "seconds the bot takes for the whole race")
 	duration = flag.Duration("for", 0, "quit after this long (0 = forever)")
 	path     = flag.String("path", "", "replay kart states from this file (lines: ms x y z heading speed lap dist)")
+	wave     = flag.Bool("wave", false, "wave for 1.7 s every 5 s in the countdown and race")
 )
 
 type pathPoint struct {
@@ -168,6 +170,9 @@ func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
 		dist = uint16((frac*float64(laps) - float64(int(frac*float64(laps)))) * 700 * 16)
 	}
 	b[1] |= 2 // grounded
+	if *wave && (t+10*time.Second)%(5*time.Second) < 1700*time.Millisecond {
+		b[1] |= lobby.KartWaving
+	}
 	if len(pts) > 0 {
 		ms := int(t / time.Millisecond)
 		p := pts[0]

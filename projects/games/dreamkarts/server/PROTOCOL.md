@@ -69,7 +69,7 @@ nonce from the leader and at least two players are in the lobby.
 | Offset | Type | Field |
 | --- | --- | --- |
 | 18 | u8 | race id (ignored unless it matches the current race) |
-| 19 | u8 | flags: bit0 finished, bit1 grounded, bit2 boosting, bit3 drifting, bit4 drift right |
+| 19 | u8 | flags: bit0 finished, bit1 grounded, bit2 boosting, bit3 drifting, bit4 drift right, bit5 waving |
 | 20 | i16 | x * 16 (m) |
 | 22 | i16 | y * 64 |
 | 24 | i16 | z * 16 |

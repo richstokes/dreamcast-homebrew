@@ -62,7 +62,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[20];
+    static bool shot[23];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -88,6 +88,16 @@ static void capture_script(void) {
     if(game.state == ST_INTRO && game.time > 1.6f && !shot[2]) { shot[2] = true; take_shot("intro"); }
     if(game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[7]) { shot[7] = true; take_shot("countdown"); }
     if(game.countdown > 3.15f && game.countdown < 3.5f && !shot[17]) { shot[17] = true; take_shot("go"); }
+    /* Wave on the grid (Y); the nearest CPU waves back. */
+    if(game.state == ST_COUNTDOWN && !game.online && game.countdown > 0.2f && p->wave_t <= 0 && !shot[20])
+        pad.pressed |= BTN_Y;
+    if(game.state == ST_COUNTDOWN && p->wave_t > 0 && p->wave_t < 1.2f && !shot[20]) { shot[20] = true; take_shot("wave"); }
+    if(game.state == ST_COUNTDOWN && p->wave_t > 0 && p->wave_t < 1.0f && !shot[22]) { shot[22] = true; take_shot("wave2"); }
+    /* A win: the cheer from the chase camera before the results cover it. */
+    if(game.state == ST_RACE && p->finished && !shot[21]) {
+        if(kart_cheering(p) && p->cheer_t > 1.3f) { shot[21] = true; take_shot("cheer"); }
+        else if(!kart_cheering(p) && p->place > 1) { shot[21] = true; printf("DK CAPTURE: no cheer shot, finished %d\n", p->place); }
+    }
     if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 3 && !shot[3]) { shot[3] = true; take_shot("drift"); }
     if(game.state == ST_RACE && p->boost_t > 0.3f && game.race_time > 8.0f && !shot[4]) { shot[4] = true; take_shot("boost"); }
     if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
@@ -368,6 +378,69 @@ static void results_camera(Camera *cam, float dt) {
 /* ------------------------------------------------------------------ */
 /* Race                                                                */
 
+/* Waving: Y, or squeezing both triggers together (the second within
+   0.25 s of the first). A trigger wave stops the triggers drifting until
+   both are let go, so it doesn't start a slide or charge a jump. */
+static float trig_t[MAX_PLAYERS];        /* seconds a trigger has been held */
+static bool trig_wave[MAX_PLAYERS];
+static bool wave_press[MAX_PLAYERS];
+
+static void emote_input(float dt) {
+    for(int p = 0; p < MAX_PLAYERS; p++) {
+        const Pad *pd = input_pad(p);
+        uint32_t lr = pd->held & (BTN_L | BTN_R);
+        trig_t[p] = lr ? trig_t[p] + dt : 0;
+        wave_press[p] = (pd->pressed & BTN_Y) != 0;
+        if(lr == (BTN_L | BTN_R) && (pd->pressed & lr) && trig_t[p] <= 0.25f + dt) {
+            wave_press[p] = true;
+            trig_wave[p] = true;
+        }
+        if(!lr) trig_wave[p] = false;
+    }
+}
+
+static int human_of(int kart) {
+    for(int p = 0; p < game.num_players; p++)
+        if(game.pl[p].kart == kart) return p;
+    return -1;
+}
+
+/* A CPU near a waving human waves back a moment later. */
+static void cpu_wave_back(const Kart *waver) {
+    Kart *best = NULL;
+    float best_d = 20.0f;
+    for(int i = 0; i < kart_count; i++) {
+        Kart *k = &karts[i];
+        if(!k->cpu || k->wave_t > 0 || k->wave_back_t > 0 || kart_cheering(k)) continue;
+        float d = vlen(vsub(k->pos, waver->pos));
+        if(d < best_d) {
+            best_d = d;
+            best = k;
+        }
+    }
+    if(best) best->wave_back_t = 0.45f + 0.35f * frand();
+}
+
+static void wave_events(void) {
+    for(int i = 0; i < kart_count; i++)
+        if((karts[i].events & EV_WAVE) && human_of(i) >= 0) cpu_wave_back(&karts[i]);
+}
+
+/* Karts waiting to race (intro, countdown): they can't drive, but humans
+   can wave. */
+static void idle_karts_step(float dt) {
+    for(int i = 0; i < kart_count; i++) {
+        if(karts[i].remote) continue;
+        KartInput in = {0};
+        int hp = human_of(i);
+        if(hp >= 0) in.wave = wave_press[hp];
+        kart_update(&karts[i], &in, dt, false);
+    }
+    wave_events();
+    for(int i = 0; i < kart_count; i++)
+        if(karts[i].events & EV_WAVE) audio_kart_events(&karts[i], kart_is_human(i));
+}
+
 static void player_input(int player, KartInput *in) {
     const Pad *pd = input_pad(player);
     memset(in, 0, sizeof(*in));
@@ -377,7 +450,7 @@ static void player_input(int player, KartInput *in) {
     in->steer = steer;
     in->accel = (pd->held & BTN_A) != 0;
     in->brake = (pd->held & BTN_B) != 0;
-    in->drift = (pd->held & (BTN_R | BTN_L | BTN_X)) != 0;
+    in->drift = (pd->held & BTN_X) || (!trig_wave[player] && (pd->held & (BTN_R | BTN_L)));
 }
 
 static void update_places(void) {
@@ -450,17 +523,18 @@ static void race_step(float dt, bool drive) {
         Kart *k = &karts[i];
         if(k->remote) continue;
         KartInput in;
-        int hp = -1;
-        for(int p = 0; p < game.num_players; p++)
-            if(game.pl[p].kart == i) hp = p;
+        int hp = human_of(i);
         bool ai = k->cpu || k->finished || hp < 0;
 #ifdef DK_AUTOTEST
         ai = true;
 #endif
         if(ai) ai_drive(k, &in, dt);
         else player_input(hp, &in);
+        /* Humans can still wave once the CPU has taken over after the line. */
+        if(hp >= 0) in.wave = wave_press[hp];
         kart_update(k, &in, dt, drive);
     }
+    wave_events();
     karts_collide();
     update_places();
     dolphins_update(dt);
@@ -594,6 +668,7 @@ static void pause_update(void) {
 static void update(float dt) {
     game.time += dt;
     game.title_t += dt;
+    emote_input(dt);
     world_update(dt);
     hud_update(dt);
     switch(game.state) {
@@ -616,10 +691,7 @@ static void update(float dt) {
             }
             break;
         case ST_INTRO:
-            for(int i = 0; i < kart_count; i++) {
-                KartInput in = {0};
-                kart_update(&karts[i], &in, dt, false);
-            }
+            idle_karts_step(dt);
             if(game.time >= 3.2f || (game.time > 0.5f && ((pad.pressed | pad2.pressed) & BTN_A))) {
                 game.state = ST_COUNTDOWN;
                 game.time = 0;
@@ -633,10 +705,7 @@ static void update(float dt) {
                 game.countdown = online_countdown() - dt;
                 countdown_step(dt);
                 online_remote_karts(dt);
-                for(int i = 0; i < kart_count; i++) {
-                    KartInput in = {0};
-                    if(!karts[i].remote) kart_update(&karts[i], &in, dt, false);
-                }
+                idle_karts_step(dt);
                 break;
             }
             if(game.paused) {
@@ -651,10 +720,7 @@ static void update(float dt) {
                 break;
             }
             countdown_step(dt);
-            for(int i = 0; i < kart_count; i++) {
-                KartInput in = {0};
-                kart_update(&karts[i], &in, dt, false);
-            }
+            idle_karts_step(dt);
             break;
         case ST_RACE: {
             if(game.online) {

@@ -121,6 +121,7 @@ typedef struct {
     bool accel, brake;
     bool drift;          /* hop/drift button held */
     bool look_back;
+    bool wave;           /* start a wave this step */
 } KartInput;
 
 /* ---- Game state ---- */

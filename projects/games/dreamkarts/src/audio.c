@@ -428,9 +428,10 @@ void audio_kart_events(const Kart *k, bool is_player) {
         vol = (int)(200.0f * clampf(1.0f - dist / 60.0f, 0, 1));
         float side = vdot(vnorm(d), r_cam.right);
         pan = (int)clampf(128.0f + side * 100.0f, 0, 255);
-        /* Rivals only make the big noises. */
-        ev &= EV_BOOST | EV_DASH | EV_WALL | EV_KART_BUMP;
+        /* Rivals only make the big noises, and say hi when they wave. */
+        ev &= EV_BOOST | EV_DASH | EV_WALL | EV_KART_BUMP | EV_WAVE;
     }
+    if(ev & EV_WAVE) audio_sfx_pitch(DK_SFX_CHAO, vol * 190 / 255, pan, 1.12f);
     if(ev & EV_HOP) audio_sfx(DK_SFX_HOP, vol * 150 / 255, pan);
     if(ev & EV_LAND) audio_sfx(DK_SFX_LAND, vol * 170 / 255, pan);
     if(ev & EV_JUMP) {

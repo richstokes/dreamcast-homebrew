@@ -45,9 +45,9 @@ HEADER = ROOT / "assets" / "generated" / "models.h"
 PART_NAMES = [
     "DK_PART_BODY", "DK_PART_WHEEL_FL", "DK_PART_WHEEL_FR", "DK_PART_WHEEL_RL",
     "DK_PART_WHEEL_RR", "DK_PART_STEER", "DK_PART_CHAO_BODY", "DK_PART_CHAO_HEAD",
-    "DK_PART_EMOTE",
+    "DK_PART_EMOTE", "DK_PART_ARM_L", "DK_PART_ARM_R", "DK_PART_HAND_L", "DK_PART_HAND_R",
 ]
-BODY, WFL, WFR, WRL, WRR, STEER, CBODY, CHEAD, EMOTE = range(len(PART_NAMES))
+BODY, WFL, WFR, WRL, WRR, STEER, CBODY, CHEAD, EMOTE, ARM_L, ARM_R, HAND_L, HAND_R = range(len(PART_NAMES))
 
 FRONT_R, FRONT_W, FRONT_X, FRONT_Z = 0.21, 0.17, 0.555, 0.625
 REAR_R, REAR_W, REAR_X, REAR_Z = 0.25, 0.25, 0.575, -0.625
@@ -62,6 +62,7 @@ HEAD_R = np.array([0.42, 0.36, 0.38])        # wider than tall; top at y = 1.45
 TORSO_C = np.array([0.0, 0.50, -0.27])
 TORSO_R = np.array([0.215, 0.24, 0.20])
 EMOTE_C = np.array([0.0, 1.75, -0.20])
+SHOULDERS = [np.array([s * 0.14, 0.60, -0.21]) for s in (-1.0, 1.0)]   # left, right
 
 EXHAUST_TIPS = [np.array([s * 0.14, 0.38, -1.0]) for s in (-1.0, 1.0)]
 
@@ -75,13 +76,21 @@ PIVOTS = {
     CBODY: np.array([0.0, TORSO_C[1] - TORSO_R[1], TORSO_C[2]]),   # seat contact
     CHEAD: np.array([0.0, 0.73, -0.25]),                          # neck
     EMOTE: EMOTE_C,
+    # Arms swing about the shoulder to wave and cheer; each hand grips the
+    # wheel (following the steering) until its arm lets go.
+    ARM_L: SHOULDERS[0],
+    ARM_R: SHOULDERS[1],
 }
+
+# Mesh flags: bit0 unlit, bit1 drawn only while that arm is off the wheel.
+FLAG_UNLIT = 1
+FLAG_ARM_RAISED = 2
 
 BUDGET_KART_LOD0 = 420
 BUDGET_CHAO_LOD0 = 420
 BUDGET_LOD1 = 330
 BUDGET_LOD3 = 150
-BUDGET_VERTS = 1600
+BUDGET_VERTS = 1640
 
 # --------------------------------------------------------------------------
 # Colours
@@ -743,6 +752,9 @@ def hand_positions() -> list[np.ndarray]:
             + 0.012 * STEER_AXIS for s in (-1.0, 1.0)]
 
 
+PIVOTS[HAND_L], PIVOTS[HAND_R] = hand_positions()
+
+
 def eye_frames():
     """(centre, frame, radii) for each eye; frame local Y = outward, local Z = down."""
     out = []
@@ -828,15 +840,15 @@ def build_chao_lod0() -> dict[int, list[tuple[Geo, int]]]:
     # ---- Body: small round torso, stubby arms and feet, tiny wings.
     parts[CBODY].append((ellipsoid(TORSO_C, TORSO_R, 6, [0, 60, 120, 180], chao(0.0), phase=math.pi / 2), 0))
 
-    for s, hp in zip((-1.0, 1.0), hand_positions()):
-        shoulder = np.array([s * 0.14, 0.60, -0.21])
+    for s, hp, shoulder, arm_part, hand_part in zip((-1.0, 1.0), hand_positions(), SHOULDERS,
+                                                    (ARM_L, ARM_R), (HAND_L, HAND_R)):
         wrist = hp - 0.045 * unit(hp - shoulder)
         mid = 0.5 * (shoulder + wrist) + np.array([s * 0.035, -0.01, 0.0])
         arm = tube([shoulder, mid, wrist], [0.064, 0.056, 0.048], 5,
                    lambda t: chao(0.75 * smoothstep(0.35, 1.0, t)), up=(0, 1, 0))
-        parts[CBODY].append((arm, 0))
-        parts[STEER].append((ellipsoid(hp, (0.066, 0.062, 0.066), 5, [0, 90, 180], chao(0.95),
-                                       phase=math.pi / 2), 0))
+        parts[arm_part].append((arm, 0))
+        parts[hand_part].append((ellipsoid(hp, (0.066, 0.062, 0.066), 5, [0, 90, 180], chao(0.95),
+                                           phase=math.pi / 2), 0))
 
         foot_c = np.array([s * 0.11, 0.30, -0.03])
         foot = ellipsoid(foot_c, (0.075, 0.065, 0.12), 5, [0, 90, 180],
@@ -866,13 +878,12 @@ def build_chao_lod1() -> dict[int, list[tuple[Geo, int]]]:
         parts[CHEAD].append((ellipsoid(eye_c, eye_r, 4, [0, 95], EYE, frame=fr), 0))
 
     parts[CBODY].append((ellipsoid(TORSO_C, TORSO_R, 4, [0, 90, 180], chao(0.0), phase=math.pi / 4), 0))
-    for s, hp in zip((-1.0, 1.0), hand_positions()):
+    for s, hp, shoulder, arm_part in zip((-1.0, 1.0), hand_positions(), SHOULDERS, (ARM_L, ARM_R)):
         # Arm reaching to where LOD0's hand grips the wheel, ending in a blunt yellow fist.
-        shoulder = np.array([s * 0.14, 0.60, -0.21])
         d = unit(hp - shoulder)
         arm = tube([shoulder, hp, hp + 0.05 * d], [0.062, 0.07, 0.0], 3,
                    lambda t: chao(0.95 * smoothstep(0.35, 0.85, t)), up=(0, 1, 0))
-        parts[CBODY].append((arm, 0))
+        parts[arm_part].append((arm, 0))
         wd, root, fr = wing_frame(s)
         parts[CBODY].append((ellipsoid(root + wd * 0.11, (0.095, 0.125, 0.03), 3, [0, 90, 180],
                                        lambda u: chao(smoothstep(0.0, 1.0, float(u[1]))), frame=fr,
@@ -995,6 +1006,12 @@ def build_chao_lod3() -> dict[int, list[tuple[Geo, int]]]:
     _orient(eyes, lambda c: c - HEAD_C)
     parts[CHEAD].append((eyes, 0))
     parts[CBODY].append((ellipsoid(TORSO_C, TORSO_R, 3, [0, 90, 180], chao(0.0), phase=math.pi / 2), 0))
+    # No arms while driving (the head hides them from behind); a raised arm
+    # (wave, cheer) shows as a short three-sided stub with a yellow fist end.
+    for hp, shoulder, arm_part in zip(hand_positions(), SHOULDERS, (ARM_L, ARM_R)):
+        arm = tube([shoulder, hp], [0.06, 0.068], 3, lambda t: chao(0.6 * t), cap1=chao(0.95),
+                   up=(0, 1, 0), phase=math.pi / 2)
+        parts[arm_part].append((arm, FLAG_ARM_RAISED))
     return parts
 
 
@@ -1106,8 +1123,10 @@ def assemble() -> list[Mesh]:
 
 
 def tri_count(meshes, lod, parts) -> int:
-    """Triangles drawn for the given parts at a LOD, taking the largest emote variant."""
-    fixed = sum(len(m.indices) // 3 for m in meshes if m.lod == lod and m.part in parts and m.variant == 0)
+    """Triangles drawn for the given parts at a LOD while driving, taking the
+    largest emote variant (raised-arm-only meshes are reported separately)."""
+    fixed = sum(len(m.indices) // 3 for m in meshes if m.lod == lod and m.part in parts and m.variant == 0
+                and not m.flags & FLAG_ARM_RAISED)
     var = defaultdict(int)
     for m in meshes:
         if m.lod == lod and m.part in parts and m.variant != 0:
@@ -1116,7 +1135,7 @@ def tri_count(meshes, lod, parts) -> int:
 
 
 KART_PARTS = {BODY, WFL, WFR, WRL, WRR, STEER}
-CHAO_PARTS = {CBODY, CHEAD, EMOTE}
+CHAO_PARTS = {CBODY, CHEAD, EMOTE, ARM_L, ARM_R, HAND_L, HAND_R}
 
 
 def report(meshes: list[Mesh]) -> list[str]:
@@ -1127,18 +1146,18 @@ def report(meshes: list[Mesh]) -> list[str]:
                 if m.lod == lod and m.part == part:
                     lines.append(f"  lod{lod} {PART_NAMES[part]:<20} var{m.variant} flags{m.flags}: "
                                  f"{len(m.indices) // 3:4d} tris {len(m.verts):4d} verts")
-    # Hands live on the STEER part but belong to the Chao for budgeting.
-    hand_tris = sum(len(g) for g, _ in build_chao_lod0()[STEER])
-    k0 = tri_count(meshes, 0, KART_PARTS) - hand_tris
-    c0 = tri_count(meshes, 0, CHAO_PARTS) + hand_tris
+    k0 = tri_count(meshes, 0, KART_PARTS)
+    c0 = tri_count(meshes, 0, CHAO_PARTS)
     l1 = tri_count(meshes, 1, KART_PARTS | CHAO_PARTS)
     l3 = tri_count(meshes, 3, KART_PARTS | CHAO_PARTS)
+    l3_arms = sum(len(m.indices) // 3 for m in meshes if m.lod == 3 and m.flags & FLAG_ARM_RAISED)
     nv = sum(len(m.verts) for m in meshes)
     ni = sum(len(m.indices) for m in meshes)
     lines.append(f"  LOD0 kart {k0} tris (budget {BUDGET_KART_LOD0}), Chao incl. hands + largest emote "
                  f"{c0} tris (budget {BUDGET_CHAO_LOD0})")
     lines.append(f"  LOD1 kart+Chao incl. largest emote {l1} tris (budget {BUDGET_LOD1})")
-    lines.append(f"  LOD3 kart+Chao incl. largest emote {l3} tris (budget {BUDGET_LOD3})")
+    lines.append(f"  LOD3 kart+Chao incl. largest emote {l3} tris (budget {BUDGET_LOD3}), "
+                 f"+{l3_arms} with both arms raised")
     lines.append(f"  total {nv} verts (budget {BUDGET_VERTS}), {ni} indices, {len(meshes)} meshes")
     print("\n".join(lines))
     errors = []
@@ -1178,7 +1197,7 @@ def write_header(meshes: list[Mesh], path: Path) -> None:
         "typedef struct { float x, y, z; int8_t nx, ny, nz; uint8_t paint; uint32_t argb; uint8_t tip; "
         "uint8_t pad[3]; } dk_mvert_t; /* normal*127; tip = 0..255 blend toward tip colour for paint 3/4 */",
         "typedef struct { uint16_t first_vert, vert_count, first_index, index_count; uint8_t part, lod, "
-        "variant, flags; } dk_mesh_t; /* flags bit0 = unlit (emissive/eye highlights) */",
+        "variant, flags; } dk_mesh_t; /* flags bit0 = unlit (emissive/eye highlights), bit1 = drawn only while that arm is raised */",
         "enum { " + ", ".join(PART_NAMES) + ", DK_PART_COUNT };",
         "/* Part pivots in kart space (m): world = kart * translate(pivot) * part_rotation * vertex. */",
         "static const float dk_part_pivot[DK_PART_COUNT][3] = {",

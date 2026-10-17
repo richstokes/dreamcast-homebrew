@@ -44,6 +44,37 @@ bool kart_is_human(int index) {
     return false;
 }
 
+#define WAVE_LEN   1.7f   /* seconds a wave lasts, lowering the arm included */
+#define ARM_LOWER  0.25f  /* the arm starts back to the wheel this long before the end */
+
+void kart_wave(Kart *k) {
+    if(kart_cheering(k)) return;
+    /* Another press mid-wave keeps the arm up rather than restarting. */
+    if(k->wave_t <= ARM_LOWER) k->events |= EV_WAVE;
+    k->wave_t = WAVE_LEN;
+}
+
+bool kart_cheering(const Kart *k) {
+    return k->finished && k->place == 1 && kart_count > 1;
+}
+
+/* Arms ease up off the wheel and back; models.c turns arm_up and emote_bob
+   into the pose (a wave or fist pumps). */
+static void emote_update(Kart *k, const KartInput *in, float dt) {
+    if(in && in->wave) kart_wave(k);
+    if(k->wave_back_t > 0 && (k->wave_back_t -= dt) <= 0) {
+        k->wave_back_t = 0;
+        kart_wave(k);
+    }
+    bool cheer = kart_cheering(k);
+    k->cheer_t = cheer ? k->cheer_t + dt : 0;
+    if(cheer) k->wave_t = 0;
+    k->wave_t = fmaxf(k->wave_t - dt, 0);
+    float up_l = cheer ? 1.0f : 0.0f, up_r = cheer || k->wave_t > ARM_LOWER ? 1.0f : 0.0f;
+    k->arm_up[0] = approach(k->arm_up[0], up_l, 4.5f * dt);
+    k->arm_up[1] = approach(k->arm_up[1], up_r, 4.5f * dt);
+}
+
 const CCParams cc_params[CC_COUNT] = {
     {17.5f}, {21.5f}, {25.5f}
 };
@@ -322,6 +353,7 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
     k->head_tilt += ((k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * 0.22f : steer * 0.15f) - k->head_tilt) *
                     smooth_k(6.0f, dt);
     k->emote_bob += dt * 3.2f;
+    emote_update(k, NULL, dt);
 }
 
 void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
@@ -571,6 +603,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->steer_vis += (wheel_target - k->steer_vis) * smooth_k(12.0f, dt);
     k->head_tilt += ((k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * 0.22f : k->steer * 0.15f) - k->head_tilt) * smooth_k(6.0f, dt);
     k->emote_bob += dt * 3.2f;
+    emote_update(k, in, dt);
 }
 
 void karts_collide(void) {

@@ -76,10 +76,81 @@ void models_paint_kart(int index) {
     }
 }
 
+static float smooth01(float x) {
+    x = clampf(x, 0, 1);
+    return x * x * (3.0f - 2.0f * x);
+}
+
+/* Emote rhythm: emote_bob advances 3.2 a second, so this is 2.5 waves a
+   second. */
+static float emote_phase(const Kart *k) {
+    return k->emote_bob * (DK_TAU * 2.5f / 3.2f);
+}
+
+/* How far the Chao bounces up in its seat while cheering (arms flap up). */
+static float cheer_lift(const Kart *k) {
+    if(k->cheer_t <= 0) return 0;
+    return 0.045f * smooth01(k->cheer_t * 3.0f) * (0.5f + 0.5f * sinf(emote_phase(k) * 1.1f));
+}
+
+/* Chao body sway and bob about its seat; the arms hang off it. */
+static void chao_body_local(float *m, const Kart *k, float lift) {
+    const float *bp = dk_part_pivot[DK_PART_CHAO_BODY];
+    m4_rot_z(m, -k->head_tilt * 0.35f);
+    m[12] = bp[0];
+    m[13] = bp[1] + 0.02f * sinf(k->emote_bob * 2.0f) + lift;
+    m[14] = bp[2];
+}
+
+/* An arm (side 0 left, 1 right) raised by arm_up: the resting arm, shoulder
+   to the hand on the wheel, swings toward a pose out to the side, theta
+   above horizontal, and stretches (cartoon-style) so the hand clears the
+   big head; the hand grows a little so it reads from the chase camera.
+   A wave sweeps the right arm up and down; a cheer flaps both arms. With
+   hand set, this is the matrix for the hand at the end of the arm. */
+static void arm_local(float *out, const Kart *k, int side, bool hand, float lift) {
+    const float *sp = dk_part_pivot[DK_PART_ARM_L + side], *hp = dk_part_pivot[DK_PART_HAND_L + side];
+    const float *bp = dk_part_pivot[DK_PART_CHAO_BODY];
+    float u = smooth01(k->arm_up[side]);
+    V3 rest = v3(hp[0] - sp[0], hp[1] - sp[1], hp[2] - sp[2]);
+    V3 a = vnorm(rest);
+    float m[16], body[16];
+    m4_identity(m);
+    float stretch = 1.0f + 0.5f * u;
+    if(u > 0) {
+        float ph = emote_phase(k);
+        float th = k->cheer_t > 0 ? 0.45f + 0.45f * sinf(ph * 1.1f) : 0.70f + 0.42f * sinf(ph);
+        V3 b = vnorm(v3(side ? cosf(th) : -cosf(th), sinf(th), 0.05f));
+        float ang = acosf(clampf(vdot(a, b), -1.0f, 1.0f));
+        m4_rot_axis(m, vnorm(vcross(a, b)), ang * u);
+    }
+    float t[16];
+    m4_identity(t);
+    if(hand) {
+        t[0] = t[5] = t[10] = 1.0f + 0.35f * u;
+        t[12] = rest.x * stretch;
+        t[13] = rest.y * stretch;
+        t[14] = rest.z * stretch;
+    }
+    else {
+        /* Stretch along the resting arm: I + (stretch - 1) a a^T. */
+        float av[3] = {a.x, a.y, a.z};
+        for(int c = 0; c < 3; c++)
+            for(int r = 0; r < 3; r++) t[c * 4 + r] += (stretch - 1.0f) * av[r] * av[c];
+    }
+    m4_mul(m, m, t);
+    m[12] += sp[0] - bp[0];
+    m[13] += sp[1] - bp[1];
+    m[14] += sp[2] - bp[2];
+    chao_body_local(body, k, lift);
+    m4_mul(out, body, m);
+}
+
 static void part_matrix(float *out, const float *kart, int part, const Kart *k) {
     float local[16], rot[16];
     m4_identity(local);
     const float *pv = dk_part_pivot[part];
+    float lift = cheer_lift(k);
     switch(part) {
         case DK_PART_WHEEL_FL:
         case DK_PART_WHEEL_FR: {
@@ -96,22 +167,49 @@ static void part_matrix(float *out, const float *kart, int part, const Kart *k) 
         case DK_PART_STEER:
             m4_rot_axis(local, v3(dk_steer_axis[0], dk_steer_axis[1], dk_steer_axis[2]), -k->steer_vis * 1.4f);
             break;
-        case DK_PART_CHAO_BODY: {
-            m4_rot_z(local, -k->head_tilt * 0.35f);
-            local[13] += 0.02f * sinf(k->emote_bob * 2.0f);
-            break;
-        }
+        case DK_PART_CHAO_BODY:
+            chao_body_local(out, k, lift);
+            m4_mul(out, kart, out);
+            return;
         case DK_PART_CHAO_HEAD: {
+            /* A cheering Chao throws its head back; a waving one leans
+               away from its raised arm. */
             float nod[16];
-            m4_rot_z(local, -k->head_tilt);
-            m4_rot_x(nod, 0.06f * sinf(k->emote_bob * 1.3f) - k->pitch * 1.5f);
+            m4_rot_z(local, -k->head_tilt + (k->cheer_t > 0 ? 0.0f : 0.22f * smooth01(k->arm_up[1])));
+            m4_rot_x(nod, 0.06f * sinf(k->emote_bob * 1.3f) - k->pitch * 1.5f + 0.2f * smooth01(k->cheer_t * 3.0f));
             m4_mul(local, local, nod);
+            local[13] += lift;
             break;
         }
         case DK_PART_EMOTE:
             m4_rot_y(local, k->emote_bob * 0.8f);
-            local[13] += 0.05f * sinf(k->emote_bob * 2.2f);
+            local[13] += 0.05f * sinf(k->emote_bob * 2.2f) + lift;
             break;
+        case DK_PART_ARM_L:
+        case DK_PART_ARM_R:
+            arm_local(out, k, part - DK_PART_ARM_L, false, lift);
+            m4_mul(out, kart, out);
+            return;
+        case DK_PART_HAND_L:
+        case DK_PART_HAND_R: {
+            int side = part - DK_PART_HAND_L;
+            if(k->arm_up[side] > 0.0f) {
+                arm_local(out, k, side, true, lift);
+                m4_mul(out, kart, out);
+                return;
+            }
+            /* On the wheel: turn with it about the steering column. */
+            const float *st = dk_part_pivot[DK_PART_STEER];
+            m4_rot_axis(local, v3(dk_steer_axis[0], dk_steer_axis[1], dk_steer_axis[2]), -k->steer_vis * 1.4f);
+            float off[16];
+            m4_identity(off);
+            off[12] = pv[0] - st[0];
+            off[13] = pv[1] - st[1];
+            off[14] = pv[2] - st[2];
+            m4_mul(local, local, off);
+            pv = st;
+            break;
+        }
         default:
             break;
     }
@@ -175,6 +273,9 @@ static void draw_kart_lod(int index, int lod) {
         const dk_mesh_t *m = &dk_model_meshes[mi];
         if(!mesh_in_lod(m, lod)) continue;
         if(m->variant != 0 && m->variant != variant) continue;
+        /* The far model's arms only show raised. */
+        if((m->flags & 2) && (m->part == DK_PART_ARM_L || m->part == DK_PART_ARM_R) &&
+           k->arm_up[m->part - DK_PART_ARM_L] <= 0.0f) continue;
         if(m->part != last_part) {
             r_load_model(part_mats[index][m->part]);
             lp = part_light[index][m->part];

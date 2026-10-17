@@ -14,7 +14,7 @@ enum {
     EV_BOOST = 1 << 6, EV_DASH = 1 << 7, EV_WALL = 1 << 8,
     EV_KART_BUMP = 1 << 9, EV_LAP = 1 << 10, EV_FINISH = 1 << 11,
     EV_CHARGE_JUMP = 1 << 12, EV_ROCKET = 1 << 13, EV_BURNOUT = 1 << 14,
-    EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16
+    EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17
 };
 
 typedef struct {
@@ -76,6 +76,10 @@ typedef struct {
     float head_tilt;
     float emote_bob;
     bool skid;          /* braking hard: the tyres smoke */
+    float wave_t;       /* seconds of wave left (0 = not waving) */
+    float wave_back_t;  /* CPU: seconds until it waves back at a human */
+    float cheer_t;      /* seconds spent cheering a win */
+    float arm_up[2];    /* left/right arm off the wheel and raised, 0..1 */
 
     /* Identity */
     bool cpu;
@@ -103,6 +107,10 @@ typedef struct {
 extern const KartColour kart_colours[COLOUR_COUNT];
 void kart_apply_colour(Kart *k, int colour);
 bool kart_is_human(int index);
+/* Emotes: a wave with the right arm, and both arms pumping in a cheer for
+   as long as the kart has won the race. */
+void kart_wave(Kart *k);
+bool kart_cheering(const Kart *k);
 /* Online: set a rival from the network and animate it locally. */
 void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
                         bool boosting, bool grounded, float dt);

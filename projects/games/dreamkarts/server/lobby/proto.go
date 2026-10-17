@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 1
-	Build    = 1
+	Build    = 2
 	MinBuild = 1
 )
 
@@ -59,6 +59,7 @@ const (
 // Kart flags (KART offset 19).
 const (
 	KartFinished = 1 << 0
+	KartWaving   = 1 << 5 // relayed as-is; consoles animate the wave
 )
 
 // ClientHeader is the block every console packet starts with.

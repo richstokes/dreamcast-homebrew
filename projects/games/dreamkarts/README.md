@@ -48,6 +48,7 @@ is also available.
 - **Grand Prix:** a 3-lap race against five CPU Chao (four in two-player). They drive a racing line, drift and use mini-turbos, and have mild rubber-banding against the leading human. Each has its own style: smoother or twitchier steering, a line that weaves a little on the straights, an early or late turn-in, and a habit of now and then taking a bend on grip, so the pack doesn't hop into every corner in single file.
 - **Time Trial:** a solo 3-lap run with lap splits and your best lap.
 - **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.
+- **Emotes:** press Y (or both triggers together) and your Chao lets go of the wheel to wave, with a "chao!"; the nearest CPU Chao waves back. Win a race and your Chao cheers, flapping both arms and bouncing in its seat with a heart overhead, through the results. Online, everyone sees your wave. Far-away karts (and the other player's kart in split screen) use the far model, which shows the arms only while they are raised.
 - **Main menu:** after the title, choose SINGLE PLAYER, TWO PLAYER or ONLINE MULTIPLAYER.
 - **Online multiplayer:** race up to five other Dreamcasts over the internet with a Broadband Adapter or a dial-up modem (for example through a [DreamPi](https://github.com/Kazade/dreampi)). See [Online](#online) below.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
@@ -117,10 +118,15 @@ a 56k modem a race uses about 1 KB/s up and 2.5 KB/s down.
 | A | X | Accelerate (menus: OK) |
 | B | C | Brake, even while holding A; reverse with A released (menus: back) |
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
+| Y, or both triggers together | D (or F and V together) | Wave |
 | Start | Return | Pause (continue / restart / music on-off / quit) |
 
 Player 2 uses the second controller with the same layout. A Jump Pack in
 either expansion slot of a player's controller vibrates for that player.
+
+To wave, press Y, or squeeze both triggers together (the second within a
+quarter of a second of the first; the triggers then don't drift until you
+let go of both). You can wave on the grid, while racing and after the line.
 
 To drift: hold accelerate, press and hold R as you turn in, and keep holding it
 through the corner. Push the stick toward the inside to tighten the slide and
@@ -155,7 +161,7 @@ the online name.
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour or `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
 - **Saved name:** `EXTRA_CFLAGS="-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0"` opens the name entry, checks the VMU gave back `QA0` (saved by the previous boot's `-DDK_AT_NAME=QA0`), then saves `QA1` the way Start does. Add `-DDK_AT_NAME_CORRUPT` to overwrite the file with junk first and check the game falls back to `CHAO`. These write to Flycast's real A1 card, so delete the `DREAMKARTS` file afterwards if you don't want the test name kept.
-- `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) and the results. It screenshots the Flycast window at each step without taking over the screen.
+- `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown (with a wave on the grid), GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) the cheer if your kart wins, and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
 

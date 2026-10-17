@@ -135,6 +135,7 @@ float online_race_time(void) {
 }
 
 void online_remote_karts(float dt) {
+    static bool waving[MAX_KARTS];   /* NKF_WAVE last time, to start waves on its rising edge */
     uint64_t at = net_now() - INTERP_MS;
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
@@ -144,6 +145,19 @@ void online_remote_karts(float dt) {
         int dir = (nk.flags & NKF_DRIFT) ? ((nk.flags & NKF_DRIFT_RIGHT) ? 1 : -1) : 0;
         kart_remote_update(k, v3(nk.x, nk.y, nk.z), nk.heading, nk.speed, nk.steer, dir, nk.stage,
                            (nk.flags & NKF_BOOST) != 0, (nk.flags & NKF_GROUNDED) != 0, dt);
+        /* A wave starts on the flag's rising edge and the arm stays up while
+           the flag does (the sender can keep waving). */
+        bool wave = (nk.flags & NKF_WAVE) != 0;
+        if(wave && !waving[i]) {
+            kart_wave(k);
+#ifdef DK_AUTOTEST
+            printf("DK ONLINE: slot %d waves\n", k->net_slot);
+#endif
+        }
+        else if(wave) {
+            k->wave_t = fmaxf(k->wave_t, 0.3f);
+        }
+        waving[i] = wave;
         k->lap = nk.lap;
         k->progress = (float)nk.lap * track.length + nk.dist;
         if((nk.flags & NKF_FINISHED) && !k->finished) {
@@ -156,7 +170,8 @@ void online_remote_karts(float dt) {
     NetKart nk = {0};
     nk.flags = (me->finished ? NKF_FINISHED : 0) | (me->grounded ? NKF_GROUNDED : 0) |
                (me->boost_t > 0 ? NKF_BOOST : 0) | (me->drift == DRIFT_ACTIVE ? NKF_DRIFT : 0) |
-               (me->drift == DRIFT_ACTIVE && me->drift_dir > 0 ? NKF_DRIFT_RIGHT : 0);
+               (me->drift == DRIFT_ACTIVE && me->drift_dir > 0 ? NKF_DRIFT_RIGHT : 0) |
+               (me->wave_t > 0 ? NKF_WAVE : 0);
     nk.x = me->pos.x;
     nk.y = me->pos.y;
     nk.z = me->pos.z;
