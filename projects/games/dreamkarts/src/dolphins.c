@@ -7,7 +7,8 @@
    Crossing, where the sea is further off, up leg B and over the west loop
    (about 80 m ahead, larger and leaping higher); on Palm Harbour, from
    the seafront straight through the chicane and down the beach straight
-   (about 60 m ahead). A small original mesh
+   (about 60 m ahead); on Temple Hill, along the beach straight out of the
+   start line. A small original mesh
    (tapered body, beak, dorsal fin, flippers and flukes), drawn only while
    airborne: about 150 triangles each for ~4.5 seconds a race. */
 #include "dolphins.h"
@@ -165,7 +166,12 @@ static void stage_for_track(void) {
     if(track.id == TRACK_HARBOUR) {
         /* From the seafront straight, through the chicane and down the
            beach straight, out past the shallows. */
-        stage = (Stage){track_wrap(track_harbour_seg_s(6) + 2.0f), {108.0f, 111.5f}, 60.0f, 2.3f, 6.5f, 2.0f};
+        stage = (Stage){track_wrap(track_seg_s(6) + 2.0f), {108.0f, 111.5f}, 60.0f, 2.3f, 6.5f, 2.0f};
+        return;
+    }
+    if(track.id == TRACK_TEMPLE) {
+        /* Out of the start line along the beach straight. */
+        stage = (Stage){6.0f, {108.0f, 111.5f}, 48.0f, 2.2f, 6.5f, 2.0f};
         return;
     }
     staged = false;

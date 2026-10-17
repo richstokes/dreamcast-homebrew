@@ -246,6 +246,32 @@ def tex_rock(n=128):
     return to_image(rgb)
 
 
+def tex_stone(n=128):
+    """Weathered sandstone blocks in staggered courses (Temple Hill ruins)."""
+    rows, cols = 4, 2
+    y = np.arange(n)[:, None].repeat(n, 1)
+    x = np.arange(n)[None, :].repeat(n, 0)
+    bh, bw = n // rows, n // cols
+    row = y // bh
+    xs = (x + (row % 2) * (bw // 2)) % n
+    col = xs // bw
+    fy, fx = y % bh, xs % bw
+    mortar = (fy < 3) | (fx < 3)
+    block = row * cols + col
+    tone = np.array([0.86, 1.0, 0.93, 1.06, 0.9, 0.97, 1.03, 0.88])[block % 8]
+    noise = fbm(n, n, 4, 5, 131, 0.55)
+    pits = periodic_noise(n, n, 16, 137) > 0.8
+    t = np.clip(0.55 * noise + 0.45 * tone - 0.35, 0, 1)
+    rgb = lerp_color((150, 128, 96), (222, 200, 156), t)
+    # Bevel: lit top-left edges, shaded bottom-right edges of each block.
+    rgb[(fy >= 3) & (fy < 5) & ~mortar] *= 1.12
+    rgb[(fy > bh - 3) & ~mortar] *= 0.8
+    rgb[(fx > bw - 3) & ~mortar] *= 0.84
+    rgb[pits & ~mortar] *= 0.85
+    rgb[mortar] = rgb[mortar] * 0.55 + np.array([40, 34, 26]) * 0.45
+    return to_image(np.clip(rgb, 0, 255))
+
+
 def tex_bark(n=64):
     v = (np.arange(n) + 0.5) / n
     rings = (np.sin(v * 2 * math.pi * 6) * 0.5 + 0.5) ** 3
@@ -621,6 +647,7 @@ def build(out: Path) -> None:
         (Spec("font", "ARGB4444", False, False), font_img),
         (Spec("logo", "ARGB4444", False, False), logo_img),
         (Spec("bigtext", "ARGB4444", False, False), tex_bigtext()),
+        (Spec("stone", "RGB565", True, True), tex_stone()),
     ]
     pak = bytearray()
     table = []

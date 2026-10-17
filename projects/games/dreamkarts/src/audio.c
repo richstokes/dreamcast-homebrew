@@ -286,8 +286,10 @@ static void start_voices(void) {
         v->last_freq = v->last_vol = -1;
     }
     voices_started = true;
+#ifdef DK_AUTOTEST   /* once per race: keep console builds quiet under dcload */
     printf("DreamKarts audio: loop voices on reserved channels %d-%d and %d-%d\n", voice_sets[0][0].channel,
            voice_sets[0][V_COUNT - 1].channel, voice_sets[1][0].channel, voice_sets[1][V_COUNT - 1].channel);
+#endif
 }
 
 static void voice_set(Voice *v, int freq, int vol) {

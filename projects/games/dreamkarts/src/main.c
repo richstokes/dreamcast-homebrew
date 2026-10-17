@@ -61,7 +61,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[16];
+    static bool shot[20];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -83,6 +83,14 @@ static void capture_script(void) {
     if(game.state == ST_RACE && dolphins_show_time() > 0.85f && !shot[11]) { shot[11] = true; take_shot("dolphins"); }
     if(game.state == ST_RACE && dolphins_show_time() > 3.65f && !shot[12]) { shot[12] = true; take_shot("dolphins2"); }
     if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot("results"); }
+    if(game.state == ST_RACE && !p->grounded && p->pos.y - track_height(p->tp.s) > 0.9f && !p->big_air &&
+       game.race_time > 5.0f && !shot[13]) { shot[13] = true; take_shot("crest"); }
+    if(game.state == ST_RACE && track.has_bridge && fabsf(track_delta(track.bridge_s, p->tp.s)) < 30.0f &&
+       game.race_time > 20.0f && !shot[14]) { shot[14] = true; take_shot("viaduct"); }
+    if(game.state == ST_RACE && track.id == TRACK_TEMPLE && fabsf(track_delta(track_seg_s(6) + 20.0f, p->tp.s)) < 3.0f &&
+       !shot[15]) { shot[15] = true; take_shot("switchback"); }
+    if(game.state == ST_RACE && track.id == TRACK_TEMPLE && fabsf(track_delta(track_seg_s(10), p->tp.s)) < 3.0f &&
+       !shot[16]) { shot[16] = true; take_shot("descent"); }
 #ifndef DK_HW
     /* Pause mid-race, switch the music off, grab the menu, switch it back on. */
     static float pause_t;
@@ -707,6 +715,7 @@ static void render(void) {
     uint64_t prof_t = timer_us_gettime64();
     int views = view_count();
     world_split = views > 1;
+    world_set_fog(world_split);
     models_begin_frame();
     r_frame_begin();
 
@@ -883,7 +892,9 @@ int main(int argc, char **argv) {
             game.fps = fps_frames * 1e6f / (float)(end - fps_t0);
             fps_frames = 0;
             fps_t0 = end;
-#ifndef DK_AUTOTEST
+#if defined(DK_PERF_LOG) && !defined(DK_AUTOTEST)
+            /* Off by default: under dcload-ip each printf runs with IRQs
+               off, costs a frame or more and can freeze the console. */
             if(game.state == ST_RACE)
                 printf("DK PERF fps=%.1f cpu=%.2fms tris=%d verts=%d\n", (double)game.fps, (double)game.cpu_ms,
                        rstats.tris, rstats.verts);

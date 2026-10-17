@@ -9,7 +9,7 @@ Mario Kart-style handling. Hop into a drift, hold the powerslide round the
 corner by counter-steering, watch the sparks at the rear tyres turn blue, orange
 and then purple, and let go for a mini-turbo.
 
-There are three courses. **Emerald Beach** is an oval with a wooden boardwalk
+There are four courses. **Emerald Beach** is an oval with a wooden boardwalk
 straight over a turquoise sea, a natural rock arch, a lighthouse, palm trees,
 beach huts, a grandstand and Sonic-style dash panels. **Coral Crossing** is a
 classic figure 8 on a palm-lined headland: one leg launches you off a ramp,
@@ -18,7 +18,13 @@ makes sure every kart has the speed to clear it. **Palm Harbour** is a
 twisty circuit by the harbour: a fast right-hand sweeper out of turn 1, a long
 left onto the seafront, a tight right-left chicane toward the water, a beach
 straight, then a left hairpin into the infield and a right hairpin back out
-before two lefts onto the main straight. You drive a Chao in a standard kart,
+before two lefts onto the main straight. **Temple Hill** is the technical one,
+with 18 m of climb: from the beach straight, two hairpin switchbacks climb a
+jungle hillside to a summit ridge lined with ancient columns below a stepped
+temple, where a hump throws you into the air (higher still off its dash
+panel). Descending esses then drop onto an arched stone viaduct over a sea
+inlet, between lit braziers, and a last left runs down to the line. Carved
+stone heads watch the hairpins. You drive a Chao in a standard kart,
 in the colours you pick, against five CPU Chao, or race a friend in
 **two-player split screen** (Grand Prix with CPUs, or head-to-head Versus).
 
@@ -43,7 +49,8 @@ is also available.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
 - **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
-- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. On Palm Harbour they race you along the seafront, through the chicane and down the beach straight, out past the moored boats. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
+- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. On Palm Harbour they race you along the seafront, through the chicane and down the beach straight, out past the moored boats. On Temple Hill they leap beside the beach straight as you leave the line. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
+- **Hills (Temple Hill):** the road climbs and falls with smooth slopes, and the ground is shaped around it, so it runs through grassy cuttings on the switchbacks and along embankments down to the viaduct. Over a sharp crest a kart leaves the road whenever the road falls away faster than gravity can pull it down, so the summit hump gives about 2 m of air at speed.
 - **Ramp jump (Coral Crossing):** the jump pad's long boost carries you up a 4 m kicker; karts leave the lip at a fixed climb rate under lighter gravity, so every class soars about 7 m over the karts passing underneath and lands on a deck that eases back down to the road. The jump pad's push varies a little each time (about -8% to +10%), so some karts sail further than others, but a minimum take-off speed means every kart always clears the gap. A drift in progress fires its mini-turbo at take-off.
 - **Dash panels** give a boost (on Emerald Beach, one on each straight and one on the exit of turn 1), and any boost lets you cut through sand.
 - **Presentation:**
@@ -97,7 +104,7 @@ transient `-config` flags. No networking or VMU saving is used.
 
 ## Tests and captures
 
-- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) or `-DDK_AT_TRACK=2` for Palm Harbour, `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
+- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour or `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
@@ -125,8 +132,11 @@ Measured on hardware on 2026-10-17, 150cc, six karts, over a full race:
 Coral Crossing on the same day, with its jump and dolphins: 1P dropped 7 of
 7,599 frames (13.0 ms average CPU), and 2P split dropped 15 of 7,604 (12.6 ms).
 Palm Harbour: 1P dropped 5 of 7,842 frames (11.4 ms), and 2P split dropped 1
-of 7,815 (11.3 ms). Add `-DDK_AT_TRACK=1` (Coral Crossing) or `-DDK_AT_TRACK=2`
-(Palm Harbour) to `EXTRA_CFLAGS` to benchmark them.
+of 7,815 (11.3 ms). Temple Hill: 1P dropped 5 of 8,558 frames (12.1 ms), and
+2P split dropped 30 of 8,506 (12.2 ms), a few a lap on the switchbacks, where
+the whole hillside is in view twice. Add `-DDK_AT_TRACK=1` (Coral Crossing),
+`-DDK_AT_TRACK=2` (Palm Harbour) or `-DDK_AT_TRACK=3` (Temple Hill) to
+`EXTRA_CFLAGS` to benchmark them.
 
 Run the two-player benchmark with
 `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.

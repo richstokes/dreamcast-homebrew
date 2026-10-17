@@ -38,6 +38,7 @@ enum {
     TEX_FONT,
     TEX_LOGO,
     TEX_BIGTEXT,
+    TEX_STONE,
     TEX_COUNT
 };
 
@@ -71,8 +72,9 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {955520u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
     {1217664u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
     {1479808u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* bigtext */
+    {1741952u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* stone */
 };
 
-#define DK_TEXTURES_BYTES 1741952u
+#define DK_TEXTURES_BYTES 1785664u
 
 #endif

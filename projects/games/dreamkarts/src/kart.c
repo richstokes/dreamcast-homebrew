@@ -226,8 +226,11 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
         }
     }
     if(k->grounded) {
-        if(ground < k->pos.y - 0.5f) {
-            k->grounded = false;      /* drove off an edge */
+        /* Over a crest the road can fall away faster than gravity pulls
+           the kart down: it flies, carrying its climb rate. */
+        bool crest = (ground - k->pos.y) / dt < k->vy - GRAVITY * dt && k->speed > 8.0f;
+        if(ground < k->pos.y - 0.5f || crest) {
+            k->grounded = false;      /* drove off an edge or a crest */
             k->air_t = 0;
         }
         else {
@@ -238,6 +241,10 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
     }
     k->air_t += dt;
     k->vy -= (k->big_air ? JUMP_GRAVITY : GRAVITY) * dt;
+#ifdef DK_AIR_TRACE
+    if(k == &karts[game.player] && !k->big_air && k->pos.y - ground > 0.5f)
+        printf("DK AIR s %.0f up %.2f t %.2f spd %.1f\n", (double)k->tp.s, (double)(k->pos.y - ground), (double)k->air_t, (double)k->speed);
+#endif
     k->pos.y += k->vy * dt;
     if(k->pos.y > ground) return;
     if(track.has_jump && track_in_gap(k->tp.s)) {

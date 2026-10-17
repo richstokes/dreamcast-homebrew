@@ -9,11 +9,18 @@ import argparse, os, subprocess, sys, time
 from pathlib import Path
 import Quartz
 
-def flycast_window():
+def flycast_window(stem):
+    """The window running our ELF (titled after it); otherwise the newest
+    Flycast window, so another Flycast left open is never grabbed first."""
+    best = None
     for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID):
-        if w.get("kCGWindowOwnerName") == "Flycast" and w.get("kCGWindowBounds", {}).get("Height", 0) > 200:
+        if w.get("kCGWindowOwnerName") != "Flycast" or w.get("kCGWindowBounds", {}).get("Height", 0) <= 200:
+            continue
+        if stem in (w.get("kCGWindowName") or ""):
             return w["kCGWindowNumber"]
-    return None
+        if best is None or w["kCGWindowNumber"] > best:
+            best = w["kCGWindowNumber"]
+    return best
 
 def main():
     ap = argparse.ArgumentParser()
@@ -31,7 +38,7 @@ def main():
         if line.startswith("DK SHOT "):
             name = line[8:].strip()
             time.sleep(a.delay)
-            wid = flycast_window()
+            wid = flycast_window(Path(a.elf).stem)
             if wid:
                 subprocess.run(["screencapture", "-x", "-o", "-l", str(wid), str(a.out / f"{name}.png")])
                 print("captured", name, flush=True)
