@@ -11,8 +11,9 @@ and then purple, and let go for a mini-turbo.
 
 The first course is **Emerald Beach**: an oval with a wooden boardwalk straight
 over a turquoise sea, a natural rock arch, a lighthouse, palm trees, beach huts,
-a grandstand and Sonic-style dash panels. You drive a Chao in a standard kart
-against five CPU Chao.
+a grandstand and Sonic-style dash panels. You drive a Chao in a standard kart,
+in the colours you pick, against five CPU Chao, or race a friend in
+**two-player split screen** (Grand Prix with CPUs, or head-to-head Versus).
 
 ## Download
 
