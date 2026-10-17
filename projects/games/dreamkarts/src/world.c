@@ -2075,9 +2075,6 @@ static void draw_clouds_and_mountains(void) {
     r_hdr(h_cloud);
     for(int i = 0; i < 11; i += world_split ? 2 : 1) {
         float a = (float)i * 0.63f * DK_PI * 0.9f + world_time * 0.004f;
-#ifdef DK_CLOUD_TEST /* TEMP */
-        a = (float)i * 0.09f + world_time * 0.004f;
-#endif
         float el = 0.07f + 0.05f * (float)(i % 4) / 3.0f + (i & 1) * 0.04f;
         float d = 1250.0f;
         V3 p = v3(c.x + sinf(a) * cosf(el) * d, sinf(el) * d + 20.0f, c.z + cosf(a) * cosf(el) * d);

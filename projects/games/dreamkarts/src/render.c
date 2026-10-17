@@ -128,10 +128,15 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
         c.gen.alpha = true;
         c.blend.src = PVR_BLEND_SRCALPHA;
         c.blend.dst = (flags & HF_ADD) ? PVR_BLEND_ONE : PVR_BLEND_INVSRCALPHA;
-        c.depth.write = false;
+        c.depth.write = PVR_DEPTHWRITE_DISABLE;
     }
     if(list == PVR_LIST_PT_POLY) c.gen.alpha = true;
-    if(flags & HF_NOZWRITE) c.depth.write = false;
+    /* depth.write is the hardware's Z-write-disable bit despite its name
+       (PVR_DEPTHWRITE_ENABLE is 0), so "false" here used to turn writes on:
+       a translucent quad then hid anything translucent drawn after it and
+       further away, even through its clear texels (one cloud cutting a
+       straight edge through another). */
+    if(flags & HF_NOZWRITE) c.depth.write = PVR_DEPTHWRITE_DISABLE;
     if(flags & HF_NOZTEST) c.depth.comparison = PVR_DEPTHCMP_ALWAYS;
     HeaderSlot *s = &headers[header_count++];
     s->key = key;
