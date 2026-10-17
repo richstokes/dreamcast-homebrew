@@ -922,7 +922,7 @@ int main(int argc, char **argv) {
     game.pl[0].colour = 6;
 #endif
     race_setup();
-#if defined(DK_AT_ONLINE)
+#if defined(DK_AT_ONLINE) || defined(DK_AT_NAME)
     online_enter();
 #elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE)
     game.cc = CC_150;

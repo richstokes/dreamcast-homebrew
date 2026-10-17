@@ -79,6 +79,10 @@ the emulated modem through Flycast's local proxy. (Flycast's DCNet dial-up
 service, if switched on in its settings, does not complete the game's PPP
 login.)
 
+The name is saved to the first VMU found (a 2-block `DREAMKARTS` file with
+its own icon) when you press Start, and filled in for you next time. With no
+VMU, a full one or an unreadable file the game just starts from `CHAO`.
+
 - **Lobbies:** ten lobbies of up to six players. The browser shows each
   one's players, whether it is open or racing, its track and its leader.
 - **Leader:** the first player into a lobby leads it (the next to have joined
@@ -141,12 +145,14 @@ projects/games/dreamkarts/run-flycast.sh
 ```
 
 The launcher builds first unless you pass `--skip-build`. It uses only
-transient `-config` flags. No networking or VMU saving is used.
+transient `-config` flags and Flycast's own VMU in A1, where the game saves
+the online name.
 
 ## Tests and captures
 
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour or `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
+- **Saved name:** `EXTRA_CFLAGS="-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0"` opens the name entry, checks the VMU gave back `QA0` (saved by the previous boot's `-DDK_AT_NAME=QA0`), then saves `QA1` the way Start does. Add `-DDK_AT_NAME_CORRUPT` to overwrite the file with junk first and check the game falls back to `CHAO`. These write to Flycast's real A1 card, so delete the `DREAMKARTS` file afterwards if you don't want the test name kept.
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
@@ -227,6 +233,7 @@ which Git ignores.
 | `src/rumble.c` | Jump Pack vibration effects |
 | `src/main.c` | Race flow and cameras |
 | `src/online.c` | Online menus, lobby rooms and online races |
+| `src/save.c` | The online name saved to a VMU, read and written on a worker thread |
 | `src/net.c`, `src/net_version.h` | Online protocol client and the version numbers the server checks |
 | `src/netlink.c` | Broadband/LAN adapter or dial-up modem link, brought up on a worker thread |
 | `server/` | The Go lobby server, a test bot and the deploy script |

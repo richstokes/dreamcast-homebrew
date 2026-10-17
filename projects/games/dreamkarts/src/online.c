@@ -15,6 +15,7 @@
 #include "net.h"
 #include "netlink.h"
 #include "render.h"
+#include "save.h"
 #include "title.h"
 #include "track.h"
 #include "world.h"
@@ -29,6 +30,7 @@ static int screen = OS_NAME;
 static float screen_t;
 static char name[NET_NAME_LEN] = "CHAO";
 static int key_row, key_col;
+static bool name_typed;        /* edited since entering; a saved name arriving late stays out */
 static int browse_sel;
 static int lobby_row;
 static int my_colour = -1;
@@ -61,6 +63,8 @@ void online_enter(void) {
     game_set_state(ST_ONLINE);
     set_screen(OS_NAME);
     key_row = key_col = 0;
+    name_typed = false;
+    save_load_name();
 }
 
 static void back_to_menu(void) {
@@ -245,6 +249,8 @@ static int key_count(int row) {
 }
 
 static void name_update(void) {
+    char saved[NET_NAME_LEN];
+    if(save_take_name(saved, sizeof(saved)) && !name_typed) strcpy(name, saved);
     int len = (int)strlen(name);
     if(input_menu_up()) key_row = (key_row + 4) % 5;
     if(input_menu_down()) key_row = (key_row + 1) % 5;
@@ -260,11 +266,13 @@ static void name_update(void) {
             if(len < NET_NAME_LEN - 1) {
                 name[len] = key_rows[key_row][key_col];
                 name[len + 1] = '\0';
+                name_typed = true;
                 audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
             }
         }
         else if(key_col == 0 && len > 0) {
             name[len - 1] = '\0';
+            name_typed = true;
             audio_sfx(DK_SFX_MENU_BACK, 160, 128);
         }
         else if(key_col == 1) {
@@ -274,6 +282,7 @@ static void name_update(void) {
     if(pad.pressed & BTN_B) {
         if(len > 0) {
             name[len - 1] = '\0';
+            name_typed = true;
             audio_sfx(DK_SFX_MENU_BACK, 160, 128);
         }
         else {
@@ -288,6 +297,7 @@ static void name_update(void) {
         if(*c != ' ' && *c != '-' && *c != '.') any = true;
     if(done && any) {
         audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
+        save_store_name(name);
         net_begin(name);
         set_screen(OS_CONNECT);
     }
@@ -431,6 +441,49 @@ static void lobby_update(void) {
     }
 }
 
+#ifdef DK_AT_NAME
+/* VMU name test: report the name the card gave back (it should match
+   DK_AT_NAME_WANT, saved by an earlier boot), then save DK_AT_NAME the way
+   pressing Start does and give the worker time to write it. With
+   DK_AT_NAME_CORRUPT it first overwrites the file with junk and checks a
+   reload keeps the default. */
+#include <dc/vmufs.h>
+#define AT_STR_(x) #x
+#define AT_STR(x) AT_STR_(x)
+static void name_autotest(float dt) {
+    static float t;
+    static int step;
+    static bool ok = true;
+    t += dt;
+    if(step == 0 && t > 3.0f) {
+        printf("DK NAME: loaded %s\n", name);
+#ifdef DK_AT_NAME_WANT
+        ok = strcmp(name, AT_STR(DK_AT_NAME_WANT)) == 0;
+#endif
+#ifdef DK_AT_NAME_CORRUPT
+        static uint8_t junk[1024];
+        memset(junk, 0x5a, sizeof(junk));
+        vmufs_write(maple_enum_type(0, MAPLE_FUNC_MEMCARD), "DREAMKARTS", junk, sizeof(junk), VMUFS_OVERWRITE);
+        strcpy(name, "CHAO");
+        save_load_name();
+#endif
+        step = 1;
+    }
+    if(step == 1 && t > 6.0f) {
+#ifdef DK_AT_NAME_CORRUPT
+        printf("DK NAME: after junk %s\n", name);
+        ok = ok && strcmp(name, "CHAO") == 0;
+#endif
+        save_store_name(AT_STR(DK_AT_NAME));
+        step = 2;
+    }
+    if(step == 2 && t > 11.0f) {
+        printf("DK NAME: saved %s\nDK AUTOTEST: %s\n", AT_STR(DK_AT_NAME), ok ? "PASS" : "FAIL");
+        step = 3;
+    }
+}
+#endif
+
 void online_update(float dt) {
     screen_t += dt;
     fly_t += dt;
@@ -448,6 +501,9 @@ void online_update(float dt) {
     }
 #ifdef DK_AT_ONLINE
     online_autotest(dt);
+#endif
+#ifdef DK_AT_NAME
+    name_autotest(dt);
 #endif
 }
 
