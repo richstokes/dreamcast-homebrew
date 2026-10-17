@@ -42,6 +42,12 @@ typedef enum {
     DK_SFX_MENU_BACK,
     DK_SFX_CHAO,
     DK_SFX_CHAO_HAPPY,
+    DK_SFX_CHAO_HEY,
+    DK_SFX_CHAO_CHU,
+    DK_SFX_CHAO_YAY,
+    DK_SFX_CHAO_WAH,
+    DK_SFX_CHAO_BUU,
+    DK_SFX_CHAO_HYA,
     DK_SFX_WHOOSH,
     DK_SFX_STAR,
     DK_SFX_COUNT
@@ -73,8 +79,14 @@ static const dk_sfx_asset_t dk_sfx_assets[DK_SFX_COUNT] __attribute__((unused)) 
     { 604128u, 13248u, 0u }, /* MENU_BACK    vol 140 */
     { 617376u, 24704u, 0u }, /* CHAO         vol 178 */
     { 642080u, 54688u, 0u }, /* CHAO_HAPPY   vol 178 */
-    { 696768u, 26464u, 0u }, /* WHOOSH       vol 153 */
-    { 723232u, 22944u, 0u }, /* STAR         vol 128 */
+    { 696768u, 24704u, 0u }, /* CHAO_HEY     vol 178 */
+    { 721472u, 19872u, 0u }, /* CHAO_CHU     vol 166 */
+    { 741344u, 24256u, 0u }, /* CHAO_YAY     vol 178 */
+    { 765600u, 19872u, 0u }, /* CHAO_WAH     vol 178 */
+    { 785472u, 22080u, 0u }, /* CHAO_BUU     vol 178 */
+    { 807552u, 15904u, 0u }, /* CHAO_HYA     vol 166 */
+    { 823456u, 26464u, 0u }, /* WHOOSH       vol 153 */
+    { 849920u, 22944u, 0u }, /* STAR         vol 128 */
 };
 
 /* Effect names for the sound test. */
@@ -103,6 +115,12 @@ static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {
     "MENU BACK",
     "CHAO",
     "HAPPY CHAO",
+    "CHAO?",
+    "CHU-CHU",
+    "YA-YA",
+    "WAH!",
+    "BUU!",
+    "HYA!",
     "WHOOSH",
     "STAR",
 };

@@ -169,7 +169,7 @@ static void step_colour(int player, int dir) {
     } while(game.num_players > 1 && c == game.pl[player ^ 1].colour);
     game.pl[player].colour = c;
     race_setup();
-    audio_sfx(DK_SFX_CHAO, 150, player ? 190 : 66);
+    audio_chao(CHAO_HI, c, 150, player ? 190 : 66);
 }
 
 void title_init(void) {
@@ -191,7 +191,7 @@ void title_update(float dt) {
     logo_in = fminf(1.0f, logo_in + dt * 1.3f);
     if(chao_call_t > 0) {
         chao_call_t -= dt;
-        if(chao_call_t <= 0) audio_sfx(DK_SFX_CHAO, 200, 128);
+        if(chao_call_t <= 0) audio_chao(CHAO_HI, game.pl[0].colour, 200, 128);
     }
     if(game.state == ST_TITLE) {
         menu_slide = fmaxf(0.0f, menu_slide - dt * 4.0f);

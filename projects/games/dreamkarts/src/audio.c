@@ -417,6 +417,54 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
     snd_sh4_to_aica_start();
 }
 
+/* Voice pitch by colour preset (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE,
+   MIDNIGHT, HERO, LIME): the dark ones low, the bright ones squeaky. */
+static const float chao_pitch[COLOUR_COUNT] = {1.0f, 1.12f, 1.05f, 0.96f, 0.9f, 0.85f, 1.07f, 1.17f};
+
+/* Its own generator, so voices don't change the game's random sequence. */
+static uint32_t voice_rand(void) {
+    static uint32_t s = 0x2c4a0f1du;
+    s = s * 1664525u + 1013904223u;
+    return s >> 8;
+}
+
+void audio_chao(int mood, int colour, int vol, int pan) {
+    static const int hi[] = {DK_SFX_CHAO, DK_SFX_CHAO_HEY, DK_SFX_CHAO_CHU, DK_SFX_CHAO_YAY};
+    static const int ouch[] = {DK_SFX_CHAO_WAH, DK_SFX_CHAO_BUU, DK_SFX_CHAO_HYA};
+    static int last[2] = {-1, -1};
+    const int *set = mood == CHAO_OUCH ? ouch : hi;
+    int n = mood == CHAO_OUCH ? 3 : 4, m = mood == CHAO_OUCH;
+    int pick = (int)(voice_rand() % (uint32_t)(n - (last[m] >= 0)));
+    if(last[m] >= 0 && pick >= last[m]) pick++;   /* skip the last clip */
+    last[m] = pick;
+    float pitch = chao_pitch[(colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT] *
+                  (0.97f + 0.06f * (float)(voice_rand() & 255) / 255.0f);
+    audio_sfx_pitch(set[pick], vol, pan, pitch);
+#ifdef DK_VOICE_TRACE
+    printf("DK VOICE %.2f %s %s vol %d pitch %.2f\n", game.race_time, dk_sfx_label[set[pick]],
+           kart_colours[(colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT].name, vol, pitch);
+#endif
+}
+
+/* Bumping into another kart: sometimes the Chao complains, often when a
+   player is in the bump and now and then when two CPUs are. Each Chao
+   waits a while before it speaks up again and voices start at least 1.2 s
+   apart, so a scrum in the pack doesn't turn into a choir. */
+static bool bump_voice(const Kart *k) {
+    static uint64_t next_us[MAX_KARTS], any_us;
+    int i = (int)(k - karts);
+    uint64_t now = timer_us_gettime64();
+    if(i < 0 || i >= MAX_KARTS || now < next_us[i] || now < any_us) return false;
+    bool player = kart_is_human(i) || kart_is_human(k->bump_with);
+    if(voice_rand() % 100 >= (player ? 50u : 12u)) {
+        next_us[i] = now + 700000;   /* the same scrape won't get another roll */
+        return false;
+    }
+    next_us[i] = now + 3500000;
+    any_us = now + 1200000;
+    return true;
+}
+
 void audio_kart_events(const Kart *k, bool is_player) {
     uint32_t ev = k->events;
     if(!ev) return;
@@ -431,7 +479,8 @@ void audio_kart_events(const Kart *k, bool is_player) {
         /* Rivals only make the big noises, and say hi when they wave. */
         ev &= EV_BOOST | EV_DASH | EV_WALL | EV_KART_BUMP | EV_WAVE;
     }
-    if(ev & EV_WAVE) audio_sfx_pitch(DK_SFX_CHAO, vol * 190 / 255, pan, 1.12f);
+    if(ev & EV_WAVE) audio_chao(CHAO_HI, k->colour, vol * 190 / 255, pan);
+    if((ev & EV_KART_BUMP) && bump_voice(k)) audio_chao(CHAO_OUCH, k->colour, vol * 200 / 255, pan);
     if(ev & EV_HOP) audio_sfx(DK_SFX_HOP, vol * 150 / 255, pan);
     if(ev & EV_LAND) audio_sfx(DK_SFX_LAND, vol * 170 / 255, pan);
     if(ev & EV_JUMP) {

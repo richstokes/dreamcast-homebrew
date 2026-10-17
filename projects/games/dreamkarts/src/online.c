@@ -430,7 +430,7 @@ static void lobby_update(void) {
                     if(!colour_taken(l, c)) break;
                 }
                 my_colour = c;
-                audio_sfx(DK_SFX_CHAO, 150, 128);
+                audio_chao(CHAO_HI, c, 150, 128);
             }
             if(row != LR_START) audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
         }

@@ -1229,6 +1229,92 @@ def sfx_chao_happy():
     return add_reverb(y, 0.08, seconds=0.3, t60=0.25, seed="chaohr")[:int(1.24 * SR)]
 
 
+U_VOWEL = (360.0, 820.0, 2500.0)
+I_VOWEL = (420.0, 2500.0, 3400.0)
+
+
+def voice_syllable(n, start, dur, vowels, pitches, seed, onset=None, breath=0.02, growl=0.0):
+    """One syllable whose formants and pitch glide through evenly spaced key
+    values over dur seconds. onset: 'ch' (fricative), 'h' (breathy), 'b'
+    (lip thump) or None (a vowel onset like 'w'/'y' comes from the vowels).
+    growl adds a rough 32 Hz flutter for a pouty, grumbly voice."""
+    lead = 0.035 if onset in ("ch", "h") else 0.0   # the fricative comes first
+    tf = np.arange(n) / SR - start
+    t = tf - lead
+    x = np.clip(t / dur, 0, 1)
+    keys = np.linspace(0, 1, len(pitches))
+    f0 = np.interp(x, keys, pitches) * (1 + 0.012 * np.sin(TAU * 7.5 * t) * np.clip((t - 0.08) / 0.06, 0, 1))
+    vk = np.linspace(0, 1, len(vowels))
+    F = [(np.interp(x, vk, [v[i] for v in vowels]), bw) for i, bw in enumerate((130.0, 180.0, 280.0))]
+    on = np.clip(t / 0.018, 0, 1)
+    off = np.clip((dur - t) / (dur * 0.38), 0, 1) ** 1.3
+    amp = on * off * (t >= 0)
+    if growl:
+        amp = amp * (1 - growl + growl * (0.5 + 0.5 * np.sin(TAU * 32.0 * t)))
+    v = formant_voice(n, np.clip(f0, 200, 2000), F, amp, breath=breath, seed=seed)
+    nz = rng_for(seed + "on").standard_normal(n)
+    fenv = np.clip(tf / 0.008, 0, 1) * np.clip((lead + 0.012 - tf) / 0.02, 0, 1)
+    if onset == "ch":
+        v = v + filt(filt(nz, "bp", 4200, 1.2), "lp", 7000) * fenv * 0.22
+    elif onset == "h":
+        v = v + filt(nz, "bp", 1800, 0.7) * fenv * 0.3
+    elif onset == "b":
+        thump = filt(nz, "lp", 400) * np.exp(-np.clip(t, 0, None) / 0.006) * (t >= 0)
+        v = v * np.clip(t / 0.03, 0, 1) + 0.5 * thump
+    return v
+
+
+def chao_reverb(y, seed, secs):
+    return add_reverb(y, 0.08, seconds=0.3, t60=0.25, seed=seed)[:int(secs * SR)]
+
+
+def sfx_chao_hey():
+    """'Chao?': the call with a questioning lift (waves)."""
+    n = int(0.5 * SR)
+    return chao_reverb(chao_syllable(n, 0.0, A_VOWEL, O_VOWEL, 760.0, 820.0, "chaoq", end_up=True), "chaoqr", 0.56)
+
+
+def sfx_chao_chu():
+    """'Chu-chu!': two quick bright chirps (waves)."""
+    n = int(0.45 * SR)
+    y = voice_syllable(n, 0.0, 0.11, [U_VOWEL, (420.0, 1000.0, 2600.0)], [960.0, 1080.0], "chu1", onset="ch")
+    y += voice_syllable(n, 0.16, 0.15, [U_VOWEL, (430.0, 1050.0, 2650.0)], [1040.0, 1180.0, 1100.0], "chu2",
+                        onset="ch")
+    return chao_reverb(y, "chur", 0.45)
+
+
+def sfx_chao_yay():
+    """'Ya-ya!': rising, cheerful (waves)."""
+    n = int(0.55 * SR)
+    y = voice_syllable(n, 0.0, 0.13, [I_VOWEL, A_VOWEL], [840.0, 940.0], "ya1")
+    y += 1.1 * voice_syllable(n, 0.17, 0.26, [I_VOWEL, A_VOWEL, A_VOWEL], [960.0, 1150.0, 1020.0], "ya2")
+    return chao_reverb(y, "yar", 0.55)
+
+
+def sfx_chao_wah():
+    """'Wah!': knocked sideways, high and falling (kart bumps)."""
+    n = int(0.45 * SR)
+    y = voice_syllable(n, 0.0, 0.32, [U_VOWEL, A_VOWEL, A_VOWEL, O_VOWEL], [1100.0, 1260.0, 980.0, 680.0],
+                       "wah", breath=0.04)
+    return chao_reverb(y, "wahr", 0.45)
+
+
+def sfx_chao_buu():
+    """'Buu!': a pouty, grumbly complaint (kart bumps)."""
+    n = int(0.5 * SR)
+    y = voice_syllable(n, 0.0, 0.38, [U_VOWEL, (380.0, 780.0, 2450.0), U_VOWEL], [600.0, 680.0, 540.0],
+                       "buu", onset="b", growl=0.35)
+    return chao_reverb(y, "buur", 0.5)
+
+
+def sfx_chao_hya():
+    """'Hya!': a startled yelp (kart bumps)."""
+    n = int(0.36 * SR)
+    y = voice_syllable(n, 0.0, 0.2, [I_VOWEL, A_VOWEL, A_VOWEL], [1300.0, 1500.0, 1050.0], "hya", onset="h",
+                       breath=0.05)
+    return chao_reverb(y, "hyar", 0.36)
+
+
 def sfx_whoosh():
     rng = rng_for("whoosh")
     n = int(0.6 * SR)
@@ -1281,6 +1367,12 @@ SFX = [
     ("MENU_BACK", sfx_menu_back, False, 0.55),
     ("CHAO", sfx_chao, False, 0.7),
     ("CHAO_HAPPY", sfx_chao_happy, False, 0.7),
+    ("CHAO_HEY", sfx_chao_hey, False, 0.7),
+    ("CHAO_CHU", sfx_chao_chu, False, 0.65),
+    ("CHAO_YAY", sfx_chao_yay, False, 0.7),
+    ("CHAO_WAH", sfx_chao_wah, False, 0.7),
+    ("CHAO_BUU", sfx_chao_buu, False, 0.7),
+    ("CHAO_HYA", sfx_chao_hya, False, 0.65),
     ("WHOOSH", sfx_whoosh, False, 0.6),
     ("STAR", sfx_star, False, 0.5),
 ]
@@ -2671,8 +2763,9 @@ SFX_LABELS = {
     "BOOST": "BOOST", "DASH": "DASH PANEL", "BUMP": "WALL HIT", "KART_BUMP": "KART BUMP",
     "COUNT_BEEP": "COUNTDOWN BEEP", "GO": "GO!", "LAP": "LAP", "FINAL_LAP": "FINAL LAP",
     "FINISH": "FINISH", "MENU_MOVE": "MENU MOVE", "MENU_SELECT": "MENU SELECT",
-    "MENU_BACK": "MENU BACK", "CHAO": "CHAO", "CHAO_HAPPY": "HAPPY CHAO", "WHOOSH": "WHOOSH",
-    "STAR": "STAR",
+    "MENU_BACK": "MENU BACK", "CHAO": "CHAO", "CHAO_HAPPY": "HAPPY CHAO", "CHAO_HEY": "CHAO?",
+    "CHAO_CHU": "CHU-CHU", "CHAO_YAY": "YA-YA", "CHAO_WAH": "WAH!", "CHAO_BUU": "BUU!", "CHAO_HYA": "HYA!",
+    "WHOOSH": "WHOOSH", "STAR": "STAR",
 }
 
 

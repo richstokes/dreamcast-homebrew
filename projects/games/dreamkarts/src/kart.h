@@ -52,6 +52,7 @@ typedef struct {
     float burnout_t;
     float rev_t;        /* seconds into a held accelerate+brake burnout */
     float bump_t;
+    int bump_with;      /* the kart behind the last EV_KART_BUMP */
     float land_v, wall_v;  /* impact speeds behind EV_LAND / EV_WALL */
 
     /* Track & race */
@@ -89,6 +90,7 @@ typedef struct {
     float lane;         /* CPU lateral bias */
     float ai_drift_hold;
     bool ai_drift_btn;
+    int colour;         /* kart_colours[] preset (sets its voice too) */
     uint32_t paint1, paint2, chao, chao_tip;
     uint32_t ui_color;
     const char *name;

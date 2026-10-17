@@ -29,6 +29,11 @@ void audio_music_rate(float mul);
 void audio_autotest_report(void);
 #endif
 void audio_sfx(int id, int vol, int pan);
+/* Chao voices: a mood picks one of its clips (never the same one twice
+   running), voiced at the pitch of a colour preset, so each Chao sounds
+   like itself. */
+enum { CHAO_HI, CHAO_OUCH };
+void audio_chao(int mood, int colour, int vol, int pan);
 void audio_sfx_pitch(int id, int vol, int pan, float rate);
 /* Engine, tyre and spark loops for player slot 0/1 follow the given kart
    (NULL silences them). */

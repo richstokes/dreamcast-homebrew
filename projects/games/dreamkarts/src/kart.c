@@ -36,6 +36,7 @@ void kart_apply_colour(Kart *k, int colour) {
     k->chao = c->chao;
     k->chao_tip = c->tip;
     k->ui_color = c->ui;
+    k->colour = (colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT;
 }
 
 bool kart_is_human(int index) {
@@ -123,6 +124,7 @@ void kart_place_on_grid(Kart *k, int slot) {
     float s = -7.0f - row * 7.5f - col * 3.5f;
     float d = col ? 3.6f : -3.6f;
     uint32_t p1 = k->paint1, p2 = k->paint2, ch = k->chao, tip = k->chao_tip, ui = k->ui_color;
+    int colour = k->colour;
     const char *name = k->name;
     bool cpu = k->cpu, remote = k->remote;
     int net_slot = k->net_slot;
@@ -131,6 +133,7 @@ void kart_place_on_grid(Kart *k, int slot) {
     k->remote = remote;
     k->net_slot = net_slot;
     k->paint1 = p1; k->paint2 = p2; k->chao = ch; k->chao_tip = tip; k->ui_color = ui;
+    k->colour = colour;
     k->name = name;
     k->cpu = cpu; k->skill = skill; k->lane = lane;
     k->pos = track_point(s, d);
@@ -627,6 +630,8 @@ void karts_collide(void) {
                 if(-rv > 1.5f) {
                     a->events |= EV_KART_BUMP;
                     b->events |= EV_KART_BUMP;
+                    a->bump_with = j;
+                    b->bump_with = i;
                 }
             }
         }
