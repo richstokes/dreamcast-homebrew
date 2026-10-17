@@ -3,7 +3,8 @@ include ../../../tools/sh4zam.mk
 else
 
 TARGET = dreamkarts.elf
-SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c
+SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c \
+	net.c netlink.c online.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
 GEN_HEADERS = $(wildcard $(GEN)/*.h)
@@ -46,10 +47,10 @@ $(OBJDIR)/blobs.o: src/blobs.S $(BLOBS)
 	kos-cc -c $< -o $@
 
 dreamkarts.elf: $(OBJS)
-	kos-cc -o $@ $(OBJS) -lm
+	kos-cc -o $@ $(OBJS) -lppp -lm
 
 dreamkarts-$(VARIANT).elf: $(OBJS)
-	kos-cc -o $@ $(OBJS) -lm
+	kos-cc -o $@ $(OBJS) -lppp -lm
 
 clean:
 	-rm -rf build dreamkarts.elf dreamkarts-*.elf

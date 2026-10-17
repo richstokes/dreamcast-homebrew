@@ -13,7 +13,8 @@
 #define DK_TAU     6.28318531f
 #define DK_DT      (1.0f / 60.0f)
 #define MAX_KARTS  6
-#define RACE_LAPS  3
+#define DEFAULT_LAPS 3
+#define MAX_LAPS   10   /* online lobbies race 3, 5 or 10 laps */
 
 /* World: +X east, +Y up, +Z north, metres. A heading of 0 faces +Z and a
    positive heading change turns right (forward = (sin h, 0, cos h)). */
@@ -126,7 +127,9 @@ typedef struct {
 enum { CC_50, CC_100, CC_150, CC_COUNT };
 enum { MODE_GP, MODE_TT };
 enum {
-    ST_TITLE, ST_MENU, ST_TRACKS, ST_INTRO, ST_COUNTDOWN, ST_RACE, ST_RESULTS
+    ST_TITLE, ST_MENU, ST_TRACKS, ST_INTRO, ST_COUNTDOWN, ST_RACE, ST_RESULTS,
+    ST_MAIN,     /* single player / two player / online */
+    ST_ONLINE    /* online menus: name, connecting, lobbies, lobby room */
 };
 
 typedef struct {
@@ -163,6 +166,8 @@ typedef struct {
     int finish_order[MAX_KARTS];
     int finished_count;
     float best_lap;
+    int laps;            /* laps in this race (DEFAULT_LAPS offline) */
+    bool online;         /* in the online menus or an online race */
     bool final_lap_announced;
     Camera cam;          /* full-screen camera: title, intro, results */
     int pause_owner;
@@ -182,6 +187,8 @@ extern uint32_t dk_probe_off;
 
 void game_set_state(int state);
 void race_setup(void);
+/* Reset the race clock, cameras and HUD for the karts already lined up. */
+void race_reset(void);
 /* Switch to another track: rebuild its scenery and line up the grid. */
 void game_load_track(int id);
 

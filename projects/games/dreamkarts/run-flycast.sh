@@ -18,6 +18,8 @@ serial console on this terminal. Only transient -config flags are used.
 
 QA hooks: DK_ELF picks another ELF in this folder; DK_EXIT_ON_LOG and
 DK_FAIL_ON_LOG stop Flycast when that text appears on the serial console.
+DK_NET=bba or DK_NET=modem picks the emulated broadband adapter or the
+emulated modem (Flycast's local proxy either way) for online play.
 USAGE
 }
 
@@ -44,6 +46,12 @@ if [[ "${SKIP_BUILD}" != true ]]; then
 fi
 
 FLYCAST_CONFIG="config:Debug.SerialConsoleEnabled=yes"
+case "${DK_NET:-}" in
+    bba) FLYCAST_CONFIG+=",network:EmulateBBA=yes,network:DCNet=no" ;;
+    modem) FLYCAST_CONFIG+=",network:EmulateBBA=no,network:DCNet=no" ;;
+    "") ;;
+    *) echo "DK_NET must be bba or modem" >&2; exit 2 ;;
+esac
 ELF_PATH="${PROJECT_DIR}/${ELF_NAME}"
 
 flycast_log=""

@@ -1,0 +1,36 @@
+# DreamKarts online lobby server. Installed by deploy.sh in this directory;
+# registered in richstokes/infra servers/netsplit.vip/applications.json.
+[Unit]
+Description=DreamKarts online lobby server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dreamkarts
+Group=dreamkarts
+EnvironmentFile=/etc/dreamkarts/lobby.env
+ExecStart=/opt/dreamkarts/bin/dreamkarts-lobby
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+
+LimitNOFILE=4096
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

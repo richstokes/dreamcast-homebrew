@@ -92,9 +92,12 @@ void kart_place_on_grid(Kart *k, int slot) {
     float d = col ? 3.6f : -3.6f;
     uint32_t p1 = k->paint1, p2 = k->paint2, ch = k->chao, tip = k->chao_tip, ui = k->ui_color;
     const char *name = k->name;
-    bool cpu = k->cpu;
+    bool cpu = k->cpu, remote = k->remote;
+    int net_slot = k->net_slot;
     float skill = k->skill, lane = k->lane;
     memset(k, 0, sizeof(*k));
+    k->remote = remote;
+    k->net_slot = net_slot;
     k->paint1 = p1; k->paint2 = p2; k->chao = ch; k->chao_tip = tip; k->ui_color = ui;
     k->name = name;
     k->cpu = cpu; k->skill = skill; k->lane = lane;
@@ -155,13 +158,13 @@ static void update_lap(Kart *k, float prev_s) {
         if(k->checkpoint) {
             k->checkpoint = false;
             k->lap++;
-            if(k->lap >= 2 && k->lap - 2 < RACE_LAPS) {
+            if(k->lap >= 2 && k->lap - 2 < game.laps) {
                 float t = game.race_time - k->lap_start;
                 k->lap_times[k->lap - 2] = t;
                 if(k->best_lap == 0 || t < k->best_lap) k->best_lap = t;
             }
             k->lap_start = game.race_time;
-            if(k->lap > RACE_LAPS && !k->finished) {
+            if(k->lap > game.laps && !k->finished) {
                 k->finished = true;
                 k->finish_time = game.race_time;
                 k->events |= EV_FINISH;
@@ -273,6 +276,51 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
     else if(k->drift == DRIFT_PENDING) {
         k->drift = DRIFT_NONE;
     }
+}
+
+/* An online rival: its physics ran on another console. Take its state from
+   the network and animate the wheels, slide, lean and suspension here. */
+void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
+                        bool boosting, bool grounded, float dt) {
+    k->events = 0;
+    k->pos = pos;
+    k->heading = heading;
+    k->speed = speed;
+    k->vel = vscale(heading_fwd(heading), speed);
+    k->steer = steer;
+    k->grounded = grounded;
+    if(grounded) k->gnd = pos.y;
+    k->drift = drift_dir ? DRIFT_ACTIVE : DRIFT_NONE;
+    if(drift_dir) k->drift_dir = drift_dir;
+    k->stage = stage;
+    k->boost_t = boosting ? fmaxf(k->boost_t, 0.15f) : fmaxf(k->boost_t - dt, 0.0f);
+    track_locate(k->pos, k->tp.idx, &k->tp);
+    if(fabsf(k->tp.d) > 30.0f) track_locate(k->pos, -1, &k->tp);   /* jumped: search the whole lap */
+    k->surface = track_surface(&k->tp);
+
+    float spd = fabsf(speed), top = cc_params[game.cc].top_speed;
+    float yaw_target = k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * (0.40f + 0.12f * steer * (float)k->drift_dir)
+                                                : steer * 0.10f * clampf(spd / 8.0f, 0, 1);
+    k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
+    float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -steer * 0.05f * clampf(spd / top, 0, 1);
+    k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
+    float pitch_t = k->boost_t > 0 ? -0.05f : 0;
+    if(grounded) {
+        float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
+        pitch_t += atanf(slope * vdot(heading_fwd(heading), k->tp.tangent));
+    }
+    k->pitch += (pitch_t - k->pitch) * smooth_k(6.0f, dt);
+    k->squash_v += (-k->squash * 160.0f - k->squash_v * 14.0f) * dt;
+    k->squash += k->squash_v * dt;
+    k->squash = clampf(k->squash, -0.35f, 0.35f);
+    k->wheel_spin += speed / 0.23f * dt;
+    if(k->wheel_spin > DK_TAU) k->wheel_spin -= DK_TAU * floorf(k->wheel_spin / DK_TAU);
+    if(k->wheel_spin < 0) k->wheel_spin += DK_TAU * ceilf(-k->wheel_spin / DK_TAU);
+    float wheel_target = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.25f + steer * 0.3f : steer * 0.45f;
+    k->steer_vis += (wheel_target - k->steer_vis) * smooth_k(12.0f, dt);
+    k->head_tilt += ((k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * 0.22f : steer * 0.15f) - k->head_tilt) *
+                    smooth_k(6.0f, dt);
+    k->emote_bob += dt * 3.2f;
 }
 
 void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {

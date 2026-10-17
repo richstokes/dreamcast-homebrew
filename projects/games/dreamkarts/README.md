@@ -46,6 +46,8 @@ is also available.
 - **Grand Prix:** a 3-lap race against five CPU Chao (four in two-player). They drive a racing line, drift and use mini-turbos, and have mild rubber-banding against the leading human.
 - **Time Trial:** a solo 3-lap run with lap splits and your best lap.
 - **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.
+- **Main menu:** after the title, choose SINGLE PLAYER, TWO PLAYER or ONLINE MULTIPLAYER.
+- **Online multiplayer:** race up to five other Dreamcasts over the internet with a Broadband Adapter or a modem dialling a [DreamPi](https://github.com/Kazade/dreampi). See [Online](#online) below.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
 - **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
@@ -61,6 +63,39 @@ is also available.
 - **Audio:** an original synthesized tropical track, "Coral Speedway" (steel drums, marimba, slap bass, electric piano and brass; 128 BPM, 75 s seamless loop), plus 26 effects. The player's engine is two pitch-shifted loops crossfaded by speed, with tyre squeal, spark crackle and sand rumble loops alongside.
 - **Vibration:** with a Jump Pack in the controller, rumble strips rattle harder and faster the quicker you cross them, sand grinds, and wall hits, kart bumps, hops, landings, mini-turbo stages, boosts, dash panels and rocket starts each give their own jolt. In two-player, each pack follows its own player.
 - **Graphics:** a custom PowerVR renderer using [SH4ZAM](https://sh4zam.com/). Matrix transforms use FTRV, perspective divides use FSRRA, polygons go straight to the store queues, and triangles crossing the near plane are clipped. It also has table fog, chunked frustum culling, distance LODs for palms and karts, an animated sea and shore foam, a sky dome, clouds and a lens flare.
+
+## Online
+
+Pick ONLINE MULTIPLAYER, type a name (up to 10 letters, digits, `-` or `.`)
+on the on-screen keyboard and press Start. The game uses a Broadband or LAN
+adapter if one is plugged in (DHCP), and otherwise dials out with the modem
+using the dial-up settings saved by PlanetWeb or DreamPassport, falling back
+to a DreamPi's defaults (dial `555`, login `dream` / `cast`). Dialling can
+take up to a minute. Nothing touches the network until you choose Online.
+
+- **Lobbies:** ten lobbies of up to six players. The browser shows each
+  one's players, whether it is open or racing, its track and its leader.
+- **Leader:** the first player into a lobby leads it (the next to have joined
+  takes over if they leave). The leader picks the track, 3, 5 or 10 laps and
+  50/100/150cc, and starts the race whenever at least two are in.
+- **Everyone** picks their own colour (no two the same), and sees each
+  player's ping next to their name.
+- **Races** have no CPU karts. Each Dreamcast drives its own kart; the others
+  are drawn from the network about a tenth of a second behind, smoothed
+  between updates. The server starts everyone's countdown together and
+  decides the places. Start during a race offers to leave it.
+- **Points:** 10, 8, 6, 4, 2 and 1 for places one to six, added up for as
+  long as you stay in the lobby. The lobby ranks players by points, with
+  gold, silver and bronze trophies for the top three.
+- After the results everyone is back in the same lobby. B leaves it for the
+  lobby browser.
+- If the server is running a newer version, the browser says a new version
+  is out; if your version is too old to play, the game says so and asks you
+  to download the latest.
+
+The server is in [server/](server/README.md) (Go, UDP port 7535 at
+`dcvmu.com`); its protocol is in [server/PROTOCOL.md](server/PROTOCOL.md). On
+a 56k modem a race uses about 1 KB/s up and 2.5 KB/s down.
 
 ## Controls
 
@@ -105,6 +140,7 @@ transient `-config` flags. No networking or VMU saving is used.
 ## Tests and captures
 
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour or `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
+- **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. Run it with `DK_NET=bba` or `DK_NET=modem` in front of `./run-flycast.sh` to pick Flycast's emulated broadband adapter or modem, against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown, GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) and the results. It screenshots the Flycast window at each step without taking over the screen.
 
 ### Real hardware
@@ -184,3 +220,7 @@ which Git ignores.
 | `src/audio.c` | Music stream and effect voices |
 | `src/rumble.c` | Jump Pack vibration effects |
 | `src/main.c` | Race flow and cameras |
+| `src/online.c` | Online menus, lobby rooms and online races |
+| `src/net.c`, `src/net_version.h` | Online protocol client and the version numbers the server checks |
+| `src/netlink.c` | Broadband/LAN adapter or modem-to-DreamPi link, brought up on a worker thread |
+| `server/` | The Go lobby server, a test bot and the deploy script |
