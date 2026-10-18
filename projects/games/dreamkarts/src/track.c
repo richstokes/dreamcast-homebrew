@@ -728,8 +728,36 @@ void track_locate(V3 p, int hint, TrackPos *out) {
             best_t = t;
         }
     }
-    const TrackSample *a = &track.smp[best_i];
-    const TrackSample *b = &track.smp[(best_i + 1) % TRACK_SAMPLES];
+    /* The nearest chord picks the span; s comes from projecting along the
+       tangent blended across it. A plain chord projection stalls on the
+       outside of each sample joint and skips ahead on the inside, which off
+       the centreline of a climbing bend steps the road height every
+       sample, like a staircase. */
+    const TrackSample *a = NULL, *b = NULL;
+    for(int step = 0; step < 3; step++) {
+        a = &track.smp[best_i];
+        b = &track.smp[(best_i + 1) % TRACK_SAMPLES];
+        float sx = b->p.x - a->p.x, sz = b->p.z - a->p.z;
+        float tx = b->t.x - a->t.x, tz = b->t.z - a->t.z;
+        float px = p.x - a->p.x, pz = p.z - a->p.z;
+        /* (p - lerp(a, b, t)) . lerp(ta, tb, t) = c0 + c1 t + c2 t^2 = 0 */
+        float c0 = px * a->t.x + pz * a->t.z;
+        float c1 = px * tx + pz * tz - (sx * a->t.x + sz * a->t.z);
+        float c2 = -(sx * tx + sz * tz);
+        float disc = c1 * c1 - 4.0f * c0 * c2;
+        float den = disc > 0 ? -c1 + sqrtf(disc) : -c1;
+        float t = den > 1e-4f ? 2.0f * c0 / den : (px * sx + pz * sz) / (sx * sx + sz * sz);
+        if(t < 0 && step < 2) {
+            best_i = (best_i + TRACK_SAMPLES - 1) % TRACK_SAMPLES;
+            continue;
+        }
+        if(t > 1 && step < 2) {
+            best_i = (best_i + 1) % TRACK_SAMPLES;
+            continue;
+        }
+        best_t = clampf(t, 0.0f, 1.0f);
+        break;
+    }
     out->idx = best_i;
     out->s = track_wrap(a->s + best_t * track.ds);
     out->center = vlerp(a->p, b->p, best_t);

@@ -261,7 +261,7 @@ static void rescue_from_fall(Kart *k) {
    rides the road and vy tracks its slope, so leaving an edge (or hopping)
    carries the climb rate into the air. Off an open edge in the sky there
    is no ground at all. */
-static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
+static void kart_vertical(Kart *k, bool btn, float prev_s, float prev_d, float dt) {
     bool no_road = track_off_edge(&k->tp);
     float road = track_road_y(k->tp.s, k->tp.d);
     float ground = no_road ? -1e4f : road;
@@ -329,11 +329,19 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
         k->land_v = 3.0f;
         return;
     }
-    /* Impact relative to the road, which may itself be falling away (the
-       road's sideways slope on a bank is left out). */
-    float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
-    float road_vy = slope * (k->vel.x * k->tp.tangent.x + k->vel.z * k->tp.tangent.z);
+    /* Impact relative to the road, which may itself be falling away. Its
+       rate comes from where the kart was on it last frame: off the
+       centreline of a bend s runs faster or slower than the kart, and a
+       rate from speed alone lands it too slowly on the inside of a
+       descending bend, where the next frame reads a crest and it hops
+       again, over and over. */
+    float road_vy = (ground - track_road_y(prev_s, prev_d)) / dt;
     float impact = road_vy - k->vy;
+#ifdef DK_HOP_TRACE
+    if(k->air_t < 0.2f)
+        printf("DK MICROHOP kart %d s %.1f d %.1f air %.3f impact %.2f\n", (int)(k - karts), (double)k->tp.s,
+               (double)k->tp.d, (double)k->air_t, (double)impact);
+#endif
     k->pos.y = k->gnd = ground;
     k->vy = road_vy;
     k->grounded = true;
@@ -563,7 +571,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->pos.z += k->vel.z * dt;
 
     /* ---- Track position, walls ---- */
-    float prev_s = k->tp.s;
+    float prev_s = k->tp.s, prev_d = k->tp.d;
     track_locate(k->pos, k->tp.idx, &k->tp);
     float lim_out = track_wall_out_at(&k->tp) - KART_RADIUS, lim_in = -(track_wall_in_at(&k->tp) - KART_RADIUS);
     bool below = track.in_sky && k->pos.y < track_road_y(k->tp.s, k->tp.d) - 1.0f;
@@ -595,7 +603,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     }
     if(k->bump_t > 0) k->bump_t -= dt;
     update_lap(k, prev_s);
-    kart_vertical(k, btn, prev_s, dt);
+    kart_vertical(k, btn, prev_s, prev_d, dt);
 
     /* ---- Dash panels ---- */
     int pad = k->grounded ? track_dash_pad(k->tp.s, k->tp.d) : -1;
