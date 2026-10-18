@@ -29,7 +29,7 @@ typedef struct {
     float lod_far;     /* not drawn beyond this distance */
     uint16_t first_strip, nstrips;
     uint8_t list;
-    uint8_t far;       /* distant terrain: skipped in a split screen */
+    uint8_t far;       /* distant terrain or fine detail: skipped in a split screen */
 } Chunk;
 
 typedef struct {
@@ -1875,8 +1875,6 @@ static void sk_build_track_chunk(int c) {
               argb(255, 60, 200, 255));
     f8_ribbon(sv, n, h_col, SK_EDGE, SK_EDGE, 0.0f, -SK_DEPTH, 0, 1, 1, true, argb(255, 255, 50, 200),
               argb(255, 70, 10, 70));
-    f8_ribbon(sv, n, h_col, SK_EDGE, -SK_EDGE, -SK_DEPTH, -SK_DEPTH, 0, 1, 1, true, argb(255, 14, 12, 34),
-              argb(255, 14, 12, 34));
     /* Glass rails on the closed sides: a dark panel, a ledge out to it from
        the road edge and a neon tube along the top. */
     int runs[MAX_SVALS][3], nruns = 0;
@@ -1907,9 +1905,17 @@ static void sk_build_track_chunk(int c) {
         }
     }
     chunk_end();
+    /* The deck's dark underside, only seen from below (left out of a split
+       screen, like the glows). */
+    chunk_begin(HF_OP, 2000.0f);
+    if(cur_chunk) cur_chunk->far = 1;
+    f8_ribbon(sv, n, h_col, SK_EDGE, -SK_EDGE, -SK_DEPTH, -SK_DEPTH, 0, 1, 1, true, argb(255, 14, 12, 34),
+              argb(255, 14, 12, 34));
+    chunk_end();
     /* The tubes' glow (additive). */
     if(nruns) {
         chunk_begin(HF_TR, 700.0f);
+        if(cur_chunk) cur_chunk->far = 1;
         for(int r = 0; r < nruns; r++)
             sk_rail_ribbon(sv, runs[r][0], runs[r][1], runs[r][2], SK_RAIL, 0, SK_RAIL_H - 0.55f, SK_RAIL_H + 0.65f,
                            h_dash_glow, argb(150, 255, 255, 255), argb(150, 255, 255, 255), true, false);
@@ -1941,6 +1947,7 @@ static void sk_gate(float s) {
     }
     chunk_end();
     chunk_begin(HF_TR, 1100.0f);
+    if(cur_chunk) cur_chunk->far = 1;
     strip_begin(h_dash_glow);
     for(int i = 0; i <= segs; i++) {
         float a = (float)i / segs * DK_TAU + off;
@@ -2554,7 +2561,7 @@ static void draw_night_distant(void) {
 static void draw_sparkles(void) {
     r_hdr(h_star_add);
     float range = world_split ? 220.0f : 340.0f;
-    for(int i = 0; i < SK_SPARKLES; i++) {
+    for(int i = 0; i < SK_SPARKLES; i += world_split ? 2 : 1) {
         V3 p = sk_sparkle[i];
         V3 d = vsub(p, r_cam.pos);
         if(vdot(d, d) > range * range || !r_sphere_visible(p, 5.0f)) continue;
@@ -2563,10 +2570,10 @@ static void draw_sparkles(void) {
         r_billboard(p, size * tw, size * tw, world_time * 0.3f + (float)i, 0, 0, 1, 1,
                     color_alpha(world_lane_color((float)(i % 7) * 3.2f - 9.6f), 0.8f * tw));
     }
-    /* Searchlights: long soft beams turning slowly over the city, each
+    /* Searchlights (not in a split screen): long soft beams turning slowly over the city, each
        facing the camera about its own axis. */
     r_hdr(h_glow_add);
-    for(int i = 0; i < sk_beam_n; i++) {
+    for(int i = 0; i < (world_split ? 0 : sk_beam_n); i++) {
         float a = world_time * (0.25f + 0.04f * (float)i) + (float)i * 2.1f;
         V3 base = sk_beam[i];
         V3 dir = vnorm(v3(sinf(a) * 0.45f, 1.0f, cosf(a) * 0.45f));
