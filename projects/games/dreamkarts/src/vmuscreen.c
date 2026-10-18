@@ -4,7 +4,8 @@
    then where they finished.
 
    Screens are drawn into a 48x32 1-bit buffer each frame and only sent when
-   they change, at most 20 times a second per VMU. vmu_draw_lcd only queues
+   they change: at most 4 times a second for idle animations, 10 for race
+   screens and 20 for the countdown, per VMU. vmu_draw_lcd only queues
    a maple frame and never waits: if the card is busy (a save in progress)
    the screen just tries again next frame. */
 #include "vmuscreen.h"
@@ -277,10 +278,16 @@ void vmuscreen_update(float dt) {
             sl->dev = dev;
             sl->valid = false;
         }
-        if(sl->since < 0.05f) continue;
         int owner = -1;
         for(int p = 0; p < game.num_players; p++)
             if(input_pad(p)->port == dev->port) owner = p;
+        /* Every screen is a 200-byte maple write. Sent 20 times a second, the
+           animated idle screens crowded the bus enough that the console
+           kept losing the controller on that port (it dropped out and came
+           back several times a race), so idle animations go out 4 times a
+           second, race screens 10 and only the countdown 20. */
+        float gap = game.state == ST_COUNTDOWN ? 0.05f : owner >= 0 && game.state == ST_RACE ? 0.1f : 0.25f;
+        if(sl->since < gap) continue;
         compose(owner);
         if(sl->valid && memcmp(sl->sent, fb_words, sizeof(fb_words)) == 0) continue;
         if(vmu_draw_lcd_rotated(dev, fb_words) == MAPLE_EOK) {
