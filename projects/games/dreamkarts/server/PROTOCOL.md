@@ -11,11 +11,16 @@ port 7535). Everything fits a 56k dial-up modem: the console sends about
   speed, start) four times a second until the state reflects them. A lost
   packet costs a quarter of a second, never a desync, so there is no ack
   or retransmit layer.
-- **Each console drives its own kart.** Consoles send their kart state at
-  12 Hz; the server relays everyone's latest state at 12 Hz; consoles
-  interpolate remote karts about 100 ms in the past. Finish times are
-  measured by each console from its own green light and repeated in every
-  kart packet until the results arrive.
+- **Each console drives its own kart.** The server relays everyone's
+  latest kart state 12 times a second on a steady beat (every 83 ms, from
+  its own timer); each console sends its kart once per beat, timed from
+  the `RACE` packets it receives so the packet reaches the server shortly
+  before the next relay. Consoles draw remote karts a little in the past
+  (adaptive, about 110-150 ms on broadband) interpolated between the
+  samples either side, spacing the samples by the sender's race clock in
+  the packet rather than by arrival time. Finish times are measured by
+  each console from its own green light and repeated in every kart packet
+  until the results arrive.
 - **Bytes, not structs.** All fields are packed explicitly, little-endian,
   with no padding (the SH-4 faults on unaligned loads). Strings are fixed
   width, ASCII `A-Z 0-9 space - .`, NUL padded.
@@ -56,7 +61,7 @@ redials keeps its seat if it comes back within the timeout.
 | 3 | `JOIN` | u8 lobby (0-9), u8 flags (bit0 spectate; build 4) | until the lobby state names this player (or shows it watching) |
 | 4 | `LEAVE` | nothing | 3 times |
 | 5 | `WISH` | u8 colour, u8 track, u8 laps, u8 cc, u8 start nonce | 4 Hz in a lobby |
-| 6 | `KART` | see below | 12 Hz in a race |
+| 6 | `KART` | see below | once per `RACE` relay in a race (12 Hz) |
 | 7 | `PING` | nothing | 1 Hz otherwise idle (keeps NAT open) |
 
 A `JOIN` with the spectate flag makes the console a watcher: it gets the
@@ -86,8 +91,8 @@ nonce from the leader and at least two players are in the lobby.
 | 32 | u8 | lap (0 = before the line) |
 | 33 | u8 | reserved |
 | 34 | u16 | lap distance * 16 (m) |
-| 36 | u32 | race time in ms (finish time once finished) |
-| 40 | u32 | client clock ms (for interpolation) |
+| 36 | u32 | race time in ms (finish time once finished); receivers space samples by it |
+| 40 | u32 | client clock ms (unused; not relayed) |
 
 ## Server to client
 
@@ -136,10 +141,12 @@ Player entry (20 bytes): u8 slot, char[11] name, u8 colour, u8 flags (bit0
 leader, bit1 racing, bit2 finished), u16 ping ms, u16 points, u8 last place
 (0 none), u8 grid position.
 
-`RACE` (12 Hz during countdown, race and results): u8 race id, u8 count,
-then per racer: u8 slot, u16 age ms (how old the state is at send time),
-then the 21 bytes of the `KART` body at offsets 19-39 (flags through race
-time), 24 bytes per racer.
+`RACE` (every 83 ms during countdown, race and results, on the server's
+own beat): u8 race id, u8 count, then per racer: u8 slot, u16 age ms (how
+old the state is at send time), then the 21 bytes of the `KART` body at
+offsets 19-39 (flags through race time), 24 bytes per racer. A racer whose
+kart has not changed since the last relay is sent again as is; consoles
+drop the repeat.
 
 ## Race lifecycle
 

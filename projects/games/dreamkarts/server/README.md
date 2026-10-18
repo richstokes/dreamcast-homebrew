@@ -55,6 +55,16 @@ The launcher uses Flycast's emulated broadband adapter by default;
 a real dial-up server. Two Flycast windows can race each other the same way. A
 `-DDK_PATH_LOG` autotest prints the lines `-path` replays.
 
+A LAN has no latency, so the server can pretend: `-lag 40ms -jitter 8ms`
+holds every packet each way for half the lag plus up to the jitter. The
+online autotest ends with a `DK ONLINE: remote motion` line (steps, pops over
+25 cm, worst and mean jump, stalls, heading jumps, the interpolation delay)
+that says how smoothly the rival karts moved on the console, and in Flycast
+builds logs each pop and late sample. A 3-lap race against the `-path` bot at
+that lag gave 263 pops (mean error 6 cm) with build 5's netcode and 4-10
+pops (mean 2 cm, delay about 150 ms) with build 6's timed sends and
+smoothing; two Flycast consoles racing each other read the same.
+
 To watch the demo lobby instead, add `-DDK_AT_SPECTATE` to the autotest
 flags (no bot needed: the server's own bots race there). From a terminal,
 `go run ./cmd/dk-bot -addr 127.0.0.1:7535 -lobby 9 -spectate` watches it and
@@ -112,7 +122,9 @@ turners and wide lines, each jittered, with top speeds spread over 6%.
 - `DK_NET_BUILD` numbers each console release that changes online behaviour
   (physics, tracks, kart state, menus that affect a race). The server tells
   consoles older than its `Build` that a newer version is out; they can still
-  play.
+  play. Build 6 times its kart packets to the server's relay beat and
+  smooths remote karts; a build 3 to 5 console still races fine, just less
+  smoothly.
 - `DK_NET_MIN_BUILD` is the oldest console the server lets in. Raise it to
   `DK_NET_BUILD` when older consoles would desync or misbehave; they are then
   told to download the latest version.

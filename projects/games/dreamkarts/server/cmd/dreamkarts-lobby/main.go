@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"log"
+	"math/rand"
 	"net"
 	"net/netip"
 	"os"
@@ -27,6 +28,8 @@ func main() {
 	latest := flag.Int("latest", lobby.Build, "console build to call the latest (default: src/net_version.h)")
 	minBuild := flag.Int("min", lobby.MinBuild, "oldest console build allowed to play")
 	demoLobby := flag.Int("demo-lobby", envInt("DREAMKARTS_DEMO_LOBBY", 10), "lobby (1-10) where bots race forever, 0 for none")
+	lag := flag.Duration("lag", 0, "testing: pretend every console is this far away (round trip)")
+	jitter := flag.Duration("jitter", 0, "testing: plus up to this much extra on every packet, each way")
 	flag.Parse()
 	log.SetFlags(0) // journald adds timestamps
 
@@ -40,7 +43,27 @@ func main() {
 	}
 	log.Printf("dreamkarts-lobby protocol %d build %d (min %d) on %v", lobby.Proto, lobby.Build, lobby.MinBuild, conn.LocalAddr())
 
+	// A pretend network for testing consoles on a LAN: every packet each
+	// way waits half the lag plus a random share of the jitter.
+	delay := func() time.Duration { return 0 }
+	if *lag > 0 || *jitter > 0 {
+		log.Printf("testing with %v lag and %v jitter", *lag, *jitter)
+		delay = func() time.Duration {
+			d := *lag / 2
+			if *jitter > 0 {
+				d += time.Duration(rand.Int63n(int64(*jitter)))
+			}
+			return d
+		}
+	}
+
 	in := make(chan packet, 1024)
+	queue := func(p packet) {
+		select {
+		case in <- p:
+		default: // overloaded: drop rather than queue stale state
+		}
+	}
 	go func() {
 		buf := make([]byte, 1500)
 		for {
@@ -56,17 +79,27 @@ func main() {
 			if n > 512 {
 				continue
 			}
-			select {
-			case in <- packet{from, append([]byte(nil), buf[:n]...)}:
-			default: // overloaded: drop rather than queue stale state
+			p := packet{from, append([]byte(nil), buf[:n]...)}
+			if d := delay(); d > 0 {
+				time.AfterFunc(d, func() { queue(p) })
+			} else {
+				queue(p)
 			}
 		}
 	}()
 
-	srv := lobby.New(func(to netip.AddrPort, b []byte) {
+	write := func(to netip.AddrPort, b []byte) {
 		if _, err := conn.WriteToUDPAddrPort(b, to); err != nil {
 			log.Printf("write %v: %v", to, err)
 		}
+	}
+	srv := lobby.New(func(to netip.AddrPort, b []byte) {
+		if d := delay(); d > 0 {
+			b := append([]byte(nil), b...)
+			time.AfterFunc(d, func() { write(to, b) })
+			return
+		}
+		write(to, b)
 	}, time.Now())
 	srv.Latest, srv.Min = uint16(*latest), uint16(*minBuild)
 	if *latest != lobby.Build || *minBuild != lobby.MinBuild {
@@ -85,6 +118,8 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
+	relay := time.NewTicker(lobby.RaceInterval) // karts go out on the beat
+	defer relay.Stop()
 	for {
 		select {
 		case p, ok := <-in:
@@ -92,8 +127,10 @@ func main() {
 				return
 			}
 			srv.Handle(p.from, p.data, time.Now())
-		case now := <-tick.C:
-			srv.Tick(now)
+		case <-relay.C:
+			srv.Relay(time.Now()) // not the tick's time: packets handled since carry time.Now()
+		case <-tick.C:
+			srv.Tick(time.Now())
 		case <-stop:
 			log.Printf("shutting down with %d sessions", srv.Players())
 			return

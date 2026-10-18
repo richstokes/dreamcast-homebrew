@@ -80,10 +80,18 @@ const NetPlayer *net_player(int slot);
 void net_wish(int colour, int track, int laps, int cc);
 void net_press_start(void);
 
-/* Racing: our kart for the next KART packet, and others' karts
-   interpolated to local time at_ms. */
+/* Racing: our kart for the next KART packet, and others' karts as they
+   were at local time at_ms. Call net_draw_time() once a step for the
+   moment to draw them at (a little in the past, so the samples either
+   side have arrived); net_interp_ms() says how far back that is. */
 void net_set_kart(const NetKart *k, int race_id);
+uint64_t net_draw_time(float dt);
 bool net_remote_kart(int slot, uint64_t at_ms, NetKart *out);
+int net_interp_ms(void);
+#ifdef DK_AUTOTEST
+/* Test builds: a line about a slot's sample history for the serial log. */
+const char *net_debug_sample(int slot);
+#endif
 /* The 21 wire bytes of a kart (KART offsets 19-39: flags to race time). */
 #define NET_KART_BYTES 21
 void net_encode_kart(uint8_t *b, const NetKart *k);

@@ -8,7 +8,10 @@
 //
 // A bot's kart has no physics: it sits on the grid and reports progress at
 // a steady pace so it finishes a 3-lap race in about -race seconds. Paths
-// recorded with -record can be replayed with -path so it moves on track.
+// recorded with -record can be replayed with -path so it moves on track,
+// interpolated to the moment of each packet, and like a console it sends
+// its kart right after each RACE relay it receives (so the packet reaches
+// the server well before the next relay), falling back to a timer.
 package main
 
 import (
@@ -17,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"net"
 	"os"
@@ -87,6 +91,7 @@ func main() {
 	var state, raceID, laps byte = 0, 0, 3
 	var green time.Time
 	var lastWish, lastHello, lastKart, readySince time.Time
+	var kartDue time.Time
 	began := time.Now()
 	for *duration == 0 || time.Since(began) < *duration {
 		conn.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
@@ -101,6 +106,7 @@ func main() {
 				welcomed = true
 			case lobby.TypeRace:
 				racePackets++
+				kartDue = time.Now() // answer the relay straight away
 				if *spectate && racePackets%120 == 1 && n >= 10 {
 					log.Printf("race %d: %d karts", b[8], b[9])
 				}
@@ -162,8 +168,10 @@ func main() {
 				send(lobby.TypeWish, []byte{byte(*colour), 0, 3, 1, nonce})
 				lastWish = now
 			}
-			if (state == lobby.StateCountdown || state == lobby.StateRacing) && now.Sub(lastKart) > 83*time.Millisecond {
+			if (state == lobby.StateCountdown || state == lobby.StateRacing) && !now.Before(kartDue) &&
+				now.Sub(lastKart) > 40*time.Millisecond {
 				lastKart = now
+				kartDue = now.Add(100 * time.Millisecond) // unless a relay comes first
 				send(lobby.TypeKart, kartBody(raceID, laps, now.Sub(green), pts))
 			}
 		}
@@ -207,14 +215,7 @@ func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
 		b[1] |= lobby.KartWaving
 	}
 	if len(pts) > 0 {
-		ms := int(t / time.Millisecond)
-		p := pts[0]
-		for _, q := range pts {
-			if q.ms > ms {
-				break
-			}
-			p = q
-		}
+		p := pathAt(pts, int(t/time.Millisecond))
 		binary.LittleEndian.PutUint16(b[2:], uint16(int16(p.x*16)))
 		binary.LittleEndian.PutUint16(b[4:], uint16(int16(p.y*64)))
 		binary.LittleEndian.PutUint16(b[6:], uint16(int16(p.z*16)))
@@ -237,6 +238,35 @@ func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
 	binary.LittleEndian.PutUint32(b[18:], uint32(rt/time.Millisecond))
 	binary.LittleEndian.PutUint32(b[22:], uint32(time.Now().UnixMilli()))
 	return b
+}
+
+// pathAt is the path at ms, interpolated between the points either side;
+// past the end the kart sits at the last point.
+func pathAt(pts []pathPoint, ms int) pathPoint {
+	if ms <= pts[0].ms {
+		first := pts[0]
+		first.spd = 0 // still on the grid
+		return first
+	}
+	for i := 1; i < len(pts); i++ {
+		a, b := pts[i-1], pts[i]
+		if ms > b.ms {
+			continue
+		}
+		f := float64(ms-a.ms) / float64(b.ms-a.ms)
+		dh := b.hd - a.hd
+		for dh > math.Pi {
+			dh -= 2 * math.Pi
+		}
+		for dh < -math.Pi {
+			dh += 2 * math.Pi
+		}
+		return pathPoint{ms: ms, x: a.x + (b.x-a.x)*f, y: a.y + (b.y-a.y)*f, z: a.z + (b.z-a.z)*f,
+			hd: a.hd + dh*f, spd: a.spd + (b.spd-a.spd)*f, lap: a.lap, dist: a.dist + (b.dist-a.dist)*f}
+	}
+	last := pts[len(pts)-1]
+	last.spd = 0
+	return last
 }
 
 func runSmoke(conn *net.UDPConn, send func(byte, []byte), name []byte) int {

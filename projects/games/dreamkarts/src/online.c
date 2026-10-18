@@ -2,7 +2,7 @@
    and the lobby room, plus the glue that turns a lobby race into karts.
 
    Each console drives only its own kart and sends it to the server; the
-   others are drawn from the network about 110 ms in the past. The server
+   others are drawn from the network a little in the past (net.c). The server
    decides the start time, the places and the points; this side just
    follows its lobby state: waiting (the lobby room), countdown, racing,
    results, then back to the room. */
@@ -24,7 +24,6 @@
 
 enum { OS_NAME, OS_CONNECT, OS_BROWSER, OS_LOBBY, OS_ERROR };
 
-#define INTERP_MS 110
 #define DOWNLOAD_URL "GITHUB.COM/RICHSTOKES/DREAMCAST-HOMEBREW"
 
 static int screen = OS_NAME;
@@ -44,6 +43,17 @@ static char kart_names[MAX_KARTS][NET_NAME_LEN];
 static const char *error_line1 = "", *error_line2 = "";
 static float fly_t;
 static int results_seen;       /* races this session that reached results */
+#ifdef DK_AUTOTEST
+/* Remote kart motion while racing: how far each step's move departs from
+   the kart's own speed (a pop or a stall), and heading jumps. */
+static struct {
+    int steps, pops, stalls, turns, delay_max;
+    float worst, sum, delay_sum;
+    V3 prev[MAX_KARTS];
+    float prev_h[MAX_KARTS];
+    bool had[MAX_KARTS];
+} rmotion;
+#endif
 static const pvr_poly_hdr_t *h_flat;
 
 static const char *const key_rows[4] = {"ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ0123", "456789-. "};
@@ -162,7 +172,7 @@ void online_pack_kart(const Kart *me, NetKart *nk) {
 
 void online_remote_karts(float dt) {
     static bool waving[MAX_KARTS];   /* NKF_WAVE last time, to start waves on its rising edge */
-    uint64_t at = net_now() - INTERP_MS;
+    uint64_t at = net_draw_time(dt);
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
         if(!k->remote) continue;
@@ -171,6 +181,31 @@ void online_remote_karts(float dt) {
         int dir = (nk.flags & NKF_DRIFT) ? ((nk.flags & NKF_DRIFT_RIGHT) ? 1 : -1) : 0;
         kart_remote_update(k, v3(nk.x, nk.y, nk.z), nk.heading, nk.speed, nk.steer, dir, nk.stage,
                            (nk.flags & NKF_BOOST) != 0, (nk.flags & NKF_GROUNDED) != 0, dt);
+#ifdef DK_AUTOTEST
+        if(game.state == ST_RACE && !(nk.flags & NKF_FINISHED)) {
+            if(net_interp_ms() > rmotion.delay_max) rmotion.delay_max = net_interp_ms();
+            rmotion.delay_sum += (float)net_interp_ms();
+            float dx = k->pos.x - rmotion.prev[i].x, dz = k->pos.z - rmotion.prev[i].z;
+            float d = sqrtf(dx * dx + dz * dz), e = fabsf(d - fabsf(nk.speed) * dt);
+            if(rmotion.had[i]) {
+                rmotion.steps++;
+                rmotion.sum += e;
+                if(e > rmotion.worst) rmotion.worst = e;
+                if(e > 0.25f) rmotion.pops++;
+#ifndef DK_HW   /* each printf under dcload-ip costs a frame or more */
+                if(e > 0.25f)
+                    printf("DK ONLINE: jump %.2f m at %.2fs: slot %d speed %.1f step %.2f delay %d %s\n", (double)e,
+                           (double)game.race_time, k->net_slot, (double)nk.speed, (double)d, net_interp_ms(),
+                           net_debug_sample(k->net_slot));
+#endif
+                if(d < 0.01f && fabsf(nk.speed) > 2.0f) rmotion.stalls++;
+                if(fabsf(wrap_angle(k->heading - rmotion.prev_h[i])) > 0.15f) rmotion.turns++;
+            }
+            rmotion.prev[i] = k->pos;
+            rmotion.prev_h[i] = k->heading;
+            rmotion.had[i] = true;
+        }
+#endif
         /* A wave starts on the flag's rising edge and the arm stays up while
            the flag does (the sender can keep waving). */
         bool wave = (nk.flags & NKF_WAVE) != 0;
@@ -1035,6 +1070,10 @@ void online_autotest(float dt) {
         }
         if(results_seen > 0 && !reported && screen_t > 2.5f) {
             const NetPlayer *me = net_me();
+            printf("DK ONLINE: remote motion: %d steps, %d pops over 25cm, worst %.2f m, mean %.3f m, %d stalls, "
+                   "%d heading jumps, delay %.0f ms (up to %d)\n", rmotion.steps, rmotion.pops, (double)rmotion.worst,
+                   (double)(rmotion.steps ? rmotion.sum / (float)rmotion.steps : 0), rmotion.stalls, rmotion.turns,
+                   (double)(rmotion.steps ? rmotion.delay_sum / (float)(rmotion.steps + 1) : 0), rmotion.delay_max);
             printf("DK ONLINE: race over, place %d, points %d, ping %d ms\n", me ? me->place : 0, me ? me->points : 0,
                    me ? me->ping : 0);
             printf("DK AUTOTEST: %s\n", me && me->place > 0 ? "PASS" : "FAIL");

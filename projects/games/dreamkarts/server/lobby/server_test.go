@@ -13,10 +13,11 @@ type sent struct {
 }
 
 type harness struct {
-	t    *testing.T
-	s    *Server
-	now  time.Time
-	out  []sent
+	t         *testing.T
+	s         *Server
+	now       time.Time
+	out       []sent
+	lastRelay time.Time
 }
 
 func newHarness(t *testing.T) *harness {
@@ -70,7 +71,7 @@ func (c *client) last(typ byte) []byte {
 
 type lobbyView struct {
 	id, state, you, leader, track, laps, cc, raceID byte
-	players                                       []playerView
+	players                                         []playerView
 }
 
 type playerView struct {
@@ -96,10 +97,15 @@ func (c *client) lobby() lobbyView {
 	return v
 }
 
+// advance runs the server's 20 ms ticks and its kart relays up to d from now.
 func (h *harness) advance(d time.Duration) {
 	for end := h.now.Add(d); h.now.Before(end); {
 		h.now = h.now.Add(20 * time.Millisecond)
 		h.s.Tick(h.now)
+		if h.now.Sub(h.lastRelay) >= RaceInterval {
+			h.lastRelay = h.now
+			h.s.Relay(h.now)
+		}
 	}
 }
 

@@ -99,7 +99,6 @@ type Server struct {
 	joinSeq     uint64
 	epoch       time.Time
 	send        func(netip.AddrPort, []byte)
-	lastRace    time.Time
 	demo        *demoLobby
 	Logf        func(string, ...any)
 }
@@ -497,7 +496,10 @@ func (s *Server) takeKart(l *Lobby, p *Player, k []byte, at, now time.Time) {
 	}
 }
 
-// Tick advances timers and sends periodic state. Call it often (~every 20 ms).
+// Tick advances timers and sends lobby state. Call it often (~every 20 ms).
+// Karts are not relayed here: call Relay every RaceInterval from a timer of
+// its own, so they go out on a steady beat that consoles time their kart
+// packets to (a 20 ms tick could only manage every 100 ms).
 func (s *Server) Tick(now time.Time) {
 	for tok, p := range s.players {
 		limit := PlayerTimeout
@@ -525,12 +527,13 @@ func (s *Server) Tick(now time.Time) {
 			l.lastSent, l.dirty = now, false
 		}
 	}
-	if now.Sub(s.lastRace) >= RaceInterval {
-		s.lastRace = now
-		for _, l := range s.Lobbies {
-			if l.State != StateWaiting {
-				s.sendRace(l, now)
-			}
+}
+
+// Relay sends every active lobby's karts to its consoles and watchers.
+func (s *Server) Relay(now time.Time) {
+	for _, l := range s.Lobbies {
+		if l.State != StateWaiting {
+			s.sendRace(l, now)
 		}
 	}
 }
@@ -656,6 +659,9 @@ func (s *Server) sendRace(l *Lobby, now time.Time) {
 			continue
 		}
 		age := now.Sub(p.KartAt) / time.Millisecond
+		if age < 0 { // handled after this tick's time was taken
+			age = 0
+		}
 		if age > 65535 {
 			age = 65535
 		}
