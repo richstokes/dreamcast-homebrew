@@ -95,7 +95,7 @@ void hud_bigtext(int which, float cx, float cy, float scale, uint32_t col) {
 void hud_format_time(char *buf, float t) {
     if(t < 0) t = 0;
     int cs = (int)(t * 100.0f + 0.5f);
-    sprintf(buf, "%d'%02d\"%02d", cs / 6000, (cs / 100) % 60, cs % 100);
+    sprintf(buf, "%d:%02d.%02d", cs / 6000, (cs / 100) % 60, cs % 100);
 }
 
 const char *hud_ordinal(int place) {
