@@ -3,7 +3,7 @@ set -euo pipefail
 project_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Shared ingress/port registration: richstokes/infra, servers/netsplit.vip.
 # This script owns only the DCVMU application and its base systemd unit.
-remote=${DCVMU_DEPLOY_HOST:-root@netsplit.vip}
+remote=${DCVMU_DEPLOY_HOST:-root@dcvmu.com}
 command -v uv >/dev/null || { echo 'Install uv before deploying DCVMU.' >&2; exit 1; }
 # Fail before uploading/replacing app files if the shared host needs uv installed.
 ssh "$remote" 'command -v uv >/dev/null' || {

@@ -134,8 +134,8 @@ It runs the tests, cross-compiles for the amd64 host, installs to
 `dreamkarts-lobby.service`, and finishes with a UDP smoke test that fails
 unless the live server reports the `DK_NET_BUILD` in the header. A restart
 drops anyone online back to the lobby browser, so prefer quiet times.
-`DREAMKARTS_DEPLOY_HOST` overrides the SSH target (default `root@netsplit.vip`,
-the same host as `dcvmu.com`).
+`DREAMKARTS_DEPLOY_HOST` overrides the SSH target (default `root@dcvmu.com`,
+the host infra calls `netsplit.vip`).
 
 The host, its port registry and runbook live in
 [richstokes/infra](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip)
@@ -150,5 +150,5 @@ go run ./cmd/dk-bot -smoke
 ```
 
 ```bash
-ssh root@netsplit.vip journalctl -u dreamkarts-lobby -n 50
+ssh root@dcvmu.com journalctl -u dreamkarts-lobby -n 50
 ```

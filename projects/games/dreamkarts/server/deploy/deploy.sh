@@ -10,7 +10,7 @@
 # second and go back to the lobby browser.
 set -euo pipefail
 
-HOST="${DREAMKARTS_DEPLOY_HOST:-root@netsplit.vip}"
+HOST="${DREAMKARTS_DEPLOY_HOST:-root@dcvmu.com}"
 ADDR="${DREAMKARTS_ADDR:-dcvmu.com:7535}"
 SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${SERVER_DIR}"

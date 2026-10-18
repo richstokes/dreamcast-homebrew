@@ -161,12 +161,12 @@ systemd unit, application settings and SQLite backup/restore.
 
 ```sh
 ./deploy/deploy.sh
-ssh root@netsplit.vip 'systemctl status dcvmu --no-pager'
+ssh root@dcvmu.com 'systemctl status dcvmu --no-pager'
 curl --fail https://dcvmu.com/healthz
 ```
 
-The SSH default is `root@netsplit.vip` (the same host as `dcvmu.com`); override
-it with `DCVMU_DEPLOY_HOST`. The public URL stays `https://dcvmu.com`.
+The SSH default is `root@dcvmu.com` (infra knows this host as `netsplit.vip`);
+override it with `DCVMU_DEPLOY_HOST`. The public URL stays `https://dcvmu.com`.
 Deployment requires `uv` in `PATH` locally and in the remote root SSH session.
 It installs requirements with uv into the existing `.venv` on each side,
 creating a virtual environment only if needed. The systemd Gunicorn path is
