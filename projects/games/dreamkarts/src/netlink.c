@@ -2,14 +2,15 @@
    a dial-up server (a DreamPi or any other PPP setup).
 
    Nothing touches the network until the player picks Online, so normal
-   boots stay fast and never wait on an unplugged adapter. Then a worker
-   thread starts KOS's network stack (arch_init_net also hands dcload-ip's
-   console over to KOS when the game was loaded that way), and if no
-   Ethernet adapter came up, dials with the modem: the number and PPP login
-   come from the console's saved PlanetWeb or DreamPassport ISP profile,
-   falling back to 555 with login dream/cast (a DreamPi accepts these).
-   Dialling and PPP block for up to a minute, so they never run on the
-   render thread.
+   boots stay fast and never wait on an unplugged adapter. Entering the
+   online screens starts a worker thread (link_prepare) that brings up KOS's
+   network stack while the player types a name; arch_init_net also hands
+   dcload-ip's console over to KOS when the game was loaded that way. If no
+   Ethernet adapter came up, the modem dials once the player confirms the
+   name (link_start): the number and PPP login come from the console's saved
+   PlanetWeb or DreamPassport ISP profile, falling back to 555 with login
+   dream/cast (a DreamPi accepts these). Dialling and PPP block for up to a
+   minute, so they never run on the render thread.
 
    Adapted from Ping Cube's modem.c; needs the libppp lifecycle patch in
    projects/dcvmu.com/client/patches (applied to the SDK and in CI). */
@@ -29,6 +30,7 @@ extern void arch_init_net(void);
 static kthread_t *worker;
 static volatile int stage = LINK_OFF;
 static volatile int worker_running;
+static volatile int want_dial;   /* the player asked to connect, so the modem may dial */
 static volatile int link_lost, link_monitored;
 static volatile bool modem_link;
 static const char *volatile failure = "";
@@ -158,16 +160,55 @@ static bool dial(void) {
     return true;
 }
 
+#ifdef DK_NET_TRACE
+/* Time each step of bringing the link up (few lines: printf stalls under dcload). */
+static uint64_t trace_t0;
+#define NET_TRACE(what) printf("DK NET %5lu ms %s\n", (unsigned long)(timer_ms_gettime64() - trace_t0), what)
+
+/* Watch KOS from outside: when the adapter's link came up, and when DHCP
+   gave an address. KOS mutes dcload's console while it starts the network,
+   so the times are kept and printed afterwards. */
+static volatile uint64_t trace_link_ms, trace_dhcp_ms, trace_player_ms;
+
+static void *trace_watch(void *unused) {
+    (void)unused;
+    for(int i = 0; i < 6000 && !trace_dhcp_ms; i++) {
+        netif_t *n = net_default_dev;
+        if(!trace_link_ms && n && (n->flags & NETIF_RUNNING)) trace_link_ms = timer_ms_gettime64() - trace_t0;
+        if(trace_link_ms && has_address(n->ip_addr)) trace_dhcp_ms = timer_ms_gettime64() - trace_t0;
+        thd_sleep(5);
+    }
+    return NULL;
+}
+
+static void trace_report(void) {
+    printf("DK NET link up %lu ms, DHCP address %lu ms, player connects %lu ms\n",
+           (unsigned long)trace_link_ms, (unsigned long)trace_dhcp_ms, (unsigned long)trace_player_ms);
+}
+#else
+#define NET_TRACE(what) do { } while(0)
+#endif
+
 static void *link_worker(void *unused) {
     (void)unused;
     link_lost = 0;
     failure = "";
+#ifdef DK_NET_TRACE
+    trace_t0 = timer_ms_gettime64();
+    if(!stack_up) thd_create(1, trace_watch, NULL);
+#endif
     if(!stack_up) {
         /* The adapter drivers are only registered with INIT_NET, which the
            game leaves off so it boots without probing the network. */
         bba_init();
+        NET_TRACE("bba_init");
         la_init();
+        NET_TRACE("la_init");
         arch_init_net();
+        NET_TRACE("arch_init_net (adapter start, DHCP)");
+#ifdef DK_NET_TRACE
+        trace_report();
+#endif
         stack_up = true;
     }
     netif_t *n = net_default_dev;
@@ -181,6 +222,13 @@ static void *link_worker(void *unused) {
                  n->ip_addr[2], n->ip_addr[3]);
     }
     else {
+        if(!want_dial) {
+            /* Started early by link_prepare: dialling waits for link_start. */
+            NET_TRACE("no Ethernet adapter, dialling waits for the player");
+            stage = LINK_OFF;
+            worker_running = 0;
+            return NULL;
+        }
         modem_link = true;
         hang_up();
         if(!dial()) goto failed;
@@ -197,6 +245,7 @@ static void *link_worker(void *unused) {
         server_ip = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
         freeaddrinfo(res);
     }
+    NET_TRACE(server_ip ? "DNS lookup" : "DNS lookup failed");
     if(!server_ip) server_ip = inet_addr(DK_NET_FALLBACK_IP);
     stage = LINK_UP;
     worker_running = 0;
@@ -209,8 +258,7 @@ failed:
     return NULL;
 }
 
-void link_start(void) {
-    if(worker_running || stage == LINK_UP) return;
+static void start_worker(void) {
     if(worker) {
         thd_join(worker, NULL);
         worker = NULL;
@@ -225,7 +273,23 @@ void link_start(void) {
     }
 }
 
+void link_prepare(void) {
+    if(worker_running || stage != LINK_OFF) return;
+    start_worker();
+}
+
+void link_start(void) {
+#ifdef DK_NET_TRACE
+    if(!want_dial) trace_player_ms = timer_ms_gettime64() - trace_t0;
+#endif
+    want_dial = 1;
+    if(worker_running || stage == LINK_UP) return;
+    start_worker();
+}
+
 int link_stage(void) {
+    /* An early start found no Ethernet adapter after link_start was called. */
+    if(want_dial && stage == LINK_OFF && !worker_running) start_worker();
     if(stage == LINK_UP && modem_link && (link_lost || !modem_is_connected())) {
         failure = "DIAL-UP CONNECTION DROPPED";
         stage = LINK_FAILED;
@@ -259,5 +323,6 @@ void link_shutdown(void) {
         worker = NULL;
     }
     if(modem_link) hang_up();
+    want_dial = 0;
     stage = LINK_OFF;
 }

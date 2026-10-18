@@ -90,7 +90,8 @@ jobs:
             projects/apps/dreamcast-browser/patches/kos-keyboard-attach.patch \
             projects/apps/dreamcast-browser/patches/kos-tcp-poll-lock.patch \
             projects/apps/dreamcast-browser/patches/kos-tcp-orphan-reset.patch \
-            projects/apps/pico8-dreamcast/patches/kos-maple-rx-cache.patch; do
+            projects/apps/pico8-dreamcast/patches/kos-maple-rx-cache.patch \
+            projects/games/dreamkarts/patches/kos-dhcp-fast-retry.patch; do
             git -C .ci/kos apply --check "$GITHUB_WORKSPACE/$patch"
             git -C .ci/kos apply "$GITHUB_WORKSPACE/$patch"
           done

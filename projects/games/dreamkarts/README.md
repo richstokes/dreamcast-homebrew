@@ -89,7 +89,9 @@ adapter if one is plugged in (DHCP), and otherwise dials out with the modem
 using the dial-up settings saved by PlanetWeb or DreamPassport, falling back
 to dialling `555` with login `dream` / `cast` (which a DreamPi accepts).
 Dialling can take up to a minute. Nothing touches the network until you
-choose Online. In Flycast, `./run-flycast.sh` uses the emulated broadband
+choose Online; a Broadband or LAN adapter then starts (link and DHCP, about
+3 to 5 seconds on a real console) while you type your name, and the modem
+dials only once you press Start. In Flycast, `./run-flycast.sh` uses the emulated broadband
 adapter whatever Flycast's saved network settings are; `DK_NET=modem` uses
 the emulated modem through Flycast's local proxy. (Flycast's DCNet dial-up
 service, if switched on in its settings, does not complete the game's PPP
@@ -174,6 +176,14 @@ sh-elf-readelf -h projects/games/dreamkarts/dreamkarts.elf
 Every build clones or fast-forwards an ignored `third_party/sh4zam` checkout
 of upstream SH4ZAM `master` (see the repository README); it is never pinned.
 
+Apply [`patches/kos-dhcp-fast-retry.patch`](patches/kos-dhcp-fast-retry.patch)
+to the KOS checkout and rebuild it (`make -C $KOS_BASE/kernel`), as the
+release workflow does. Stock KOS waits 4 seconds before resending a DHCP
+request, and the first one, sent as the adapter's link comes up, is often
+lost: on the test console online took 7 to 12 seconds to connect before the
+patch and 4 to 5 after. The patch resends after 1 s, 2 s, 4 s and so on,
+and keeps waiting for the ACK when a second OFFER answers a resent DISCOVER.
+
 Run it in Flycast with the serial console on your terminal:
 
 ```sh
@@ -188,6 +198,7 @@ the online name.
 
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest) or `-DDK_AT_TRACK=4` for Neon Skyway (`-DDK_AT_FALL` steers your kart off the waves' open edge on the first lap, so the summary counts falls; that run fails on time by design), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, `-DDK_HOP_TRACE` to log every landing under 0.2 s after leaving the road (drift hops included; on hills a stream of them every few metres means karts are stuttering over the road instead of riding it), `-DDK_VOICE_TRACE` to log each Chao voice line (which clip, whose colour, volume and pitch), or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 9, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results. Add `-DDK_AT_SPECTATE` to watch lobby 10 (the demo lobby) instead: it presses Y twice on the browser, steps through every camera during the race (a screenshot of each on the capture build) and passes once it has seen a race's results and the next race's countdown.
+- **Network start-up timing:** add `-DDK_NET_TRACE` to an online autotest to print how long each step of bringing the adapter up took (adapter link, DHCP address, DNS, and when the name was entered). Keep it off normal hardware builds: printing under dcload-ip can stall the console.
 - **Spectator cameras:** `make VARIANT=capture dreamkarts-capture.elf EXTRA_CFLAGS=-DDK_AT_CAMTOUR` then `uv run tools/capture.py --out captures/tv --elf dreamkarts-capture.elf` screenshots every trackside spectator camera on every track (`tv-<track>-<camera>.png`) with the karts bunched in the middle of the stretch it films.
 - **Demo races:** `make VARIANT=record dreamkarts-record.elf EXTRA_CFLAGS=-DDK_RECORD` records six all-CPU 150cc races on every track (each CPU given a fresh personality, no rubber-banding) as fast as the CPU can step them, printing every kart 12 times a second; `tools/record_demo.py` turns the log into the server's `server/demo/races/` (see [server/README.md](server/README.md#demo-lobby)).
 - **VMU screens:** put `DK_SHOW_VMU=1` in front of `./run-flycast.sh` or `uv run tools/capture.py` to show the VMU screens in the corner of Flycast's window, so captures include them.
@@ -283,3 +294,4 @@ which Git ignores.
 | `src/net.c`, `src/net_version.h` | Online protocol client and the version numbers the server checks |
 | `src/netlink.c` | Broadband/LAN adapter or dial-up modem link, brought up on a worker thread |
 | `server/` | The Go lobby server, a test bot and the deploy script |
+| `patches/` | KOS patches the game needs (faster DHCP), applied to the SDK and in CI |

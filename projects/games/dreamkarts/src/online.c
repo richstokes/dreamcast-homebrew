@@ -66,6 +66,7 @@ void online_enter(void) {
     game.online = true;
     game_set_state(ST_ONLINE);
     set_screen(OS_NAME);
+    link_prepare();
     key_row = key_col = 0;
     name_typed = false;
     save_load_name();

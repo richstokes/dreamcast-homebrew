@@ -1,0 +1,37 @@
+diff --git a/kernel/net/net_dhcp.c b/kernel/net/net_dhcp.c
+index 4bbc219..d2ba973 100644
+--- a/kernel/net/net_dhcp.c
++++ b/kernel/net/net_dhcp.c
+@@ -265,7 +265,10 @@ static int do_net_dhcp_request(uint32_t required_address, bool in_wq) {
+     memcpy(qpkt->buf, pkt, pkt_len);
+     qpkt->pkt_type = DHCP_MSG_DHCPDISCOVER;
+     qpkt->next_send = 0;
+-    qpkt->next_delay = 4000;
++    /* Resend after 1s, then 2s, 4s... A first DISCOVER sent as the link
++       comes up is often lost, and waiting 4s for the retry makes every
++       network start several seconds slower. */
++    qpkt->next_delay = 1000;
+ 
+     STAILQ_INSERT_TAIL(&dhcp_pkts, qpkt, pkt_queue);
+ 
+@@ -339,7 +342,7 @@ static void net_dhcp_send_request(dhcp_pkt_t *pkt, int pktlen, dhcp_pkt_t *pkt2,
+     memcpy(qpkt->buf, buf, sizeof(dhcp_pkt_t) + optlen);
+     qpkt->pkt_type = DHCP_MSG_DHCPREQUEST;
+     qpkt->next_send = 0;
+-    qpkt->next_delay = 4000;
++    qpkt->next_delay = 1000;   /* as for DISCOVER above */
+ 
+     STAILQ_INSERT_TAIL(&dhcp_pkts, qpkt, pkt_queue);
+ 
+@@ -585,6 +588,11 @@ static void net_dhcp_job(workqueue_t *wq, workqueue_job_t *job) {
+                 case DHCP_MSG_DHCPREQUEST:
+                     found = net_dhcp_get_message_type(pkt, len);
+ 
++                    /* A second OFFER answering a resent DISCOVER: keep
++                       waiting for the ACK rather than dropping our REQUEST. */
++                    if(found != DHCP_MSG_DHCPACK && found != DHCP_MSG_DHCPNAK)
++                        break;
++
+                     if(found == DHCP_MSG_DHCPACK) {
+                         srv_addr.sin_addr.s_addr = addr.sin_addr.s_addr;
+ 

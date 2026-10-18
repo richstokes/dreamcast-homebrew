@@ -24,7 +24,12 @@
 
 enum { LINK_OFF, LINK_STARTING, LINK_DIALING, LINK_NEGOTIATING, LINK_RESOLVING, LINK_UP, LINK_FAILED };
 
-/* Start (or retry) bringing the link up. Safe to call every frame. */
+/* Start bringing up a Broadband or LAN adapter in the background, without
+   dialling: called as the player enters the online screens, so the adapter
+   and DHCP (several seconds) are usually done by the time a name is typed. */
+void link_prepare(void);
+/* Start (or retry) bringing the link up, dialling with the modem if there is
+   no Ethernet adapter. Safe to call every frame. */
 void link_start(void);
 int link_stage(void);
 /* What is happening, or why it failed, in upper case for the HUD font. */
