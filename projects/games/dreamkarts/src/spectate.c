@@ -294,6 +294,8 @@ static void show_toast(const char *text) {
 
 #ifdef DK_AT_SPECTATE
 static bool saw_grid;
+static uint64_t cost_upd, cost_draw, cost_upd_max, cost_draw_max;   /* us */
+static int cost_frames, cost_steps;
 
 bool spectate_saw_grid(void) {
     return saw_grid;
@@ -360,15 +362,28 @@ static void input(void) {
     }
 }
 
+static void update(float dt);
+
 void spectate_update(float dt) {
     if(!on || kart_count == 0) return;
+#ifdef DK_AT_SPECTATE
+    autotest(dt);   /* its serial logging stays out of the timing */
+    uint64_t t0 = timer_us_gettime64();
+    update(dt);
+    uint64_t us = timer_us_gettime64() - t0;
+    cost_upd += us;
+    if(us > cost_upd_max) cost_upd_max = us;
+    cost_steps++;
+#else
+    update(dt);
+#endif
+}
+
+static void update(float dt) {
     spec_t += dt;
     if(hint_t > 0) hint_t -= dt;
     if(toast_t > 0) toast_t -= dt;
     if(banner_t > 0) banner_t -= dt;
-#ifdef DK_AT_SPECTATE
-    autotest(dt);
-#endif
     input();
     bool racing = game.state == ST_RACE;
     /* The leader's clock at every few metres, for the gaps. */
@@ -687,8 +702,29 @@ static void name_tags(void) {
     }
 }
 
+static void draw(void);
+
 void spectate_draw(void) {
     if(!on) return;
+#ifdef DK_AT_SPECTATE
+    uint64_t t0 = timer_us_gettime64();
+    draw();
+    uint64_t us = timer_us_gettime64() - t0;
+    cost_draw += us;
+    if(us > cost_draw_max) cost_draw_max = us;
+    if(++cost_frames == 600) {
+        printf("DK SPECTATE: overlay %.3f ms/frame (max %.3f), director %.3f ms/step (max %.3f)\n",
+               (double)cost_draw / cost_frames / 1000.0, (double)cost_draw_max / 1000.0,
+               (double)cost_upd / (cost_steps ? cost_steps : 1) / 1000.0, (double)cost_upd_max / 1000.0);
+        cost_draw = cost_upd = cost_draw_max = cost_upd_max = 0;
+        cost_frames = cost_steps = 0;
+    }
+#else
+    draw();
+#endif
+}
+
+static void draw(void) {
     if(!hud_hidden) {
         name_tags();
         standings();

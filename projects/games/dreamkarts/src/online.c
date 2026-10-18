@@ -722,8 +722,8 @@ static void draw_browser(void) {
         char buf[40];
         snprintf(buf, sizeof(buf), "WATCH LOBBY %d?", browse_sel + 1);
         hud_text(320, 186, 0.85f, ALIGN_CENTER, argb(255, 255, 220, 60), buf);
-        hud_text(320, 232, 0.5f, ALIGN_CENTER, 0xffffffff, (e->flags & NLF_DEMO) ? "BOTS RACE HERE NONSTOP" : "YOU WILL SPECTATE, NOT RACE");
-        hud_text(320, 258, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "THE CAMERAS FOLLOW EVERY RACE");
+        hud_text(320, 232, 0.5f, ALIGN_CENTER, 0xffffffff, "SPECTATE WITHOUT RACING");
+        hud_text(320, 258, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "AND FOLLOW EVERY RACE IN THIS LOBBY");
         hud_text(320, 292, 0.55f, ALIGN_CENTER, argb(255, 255, 255, 140), "Y: WATCH   B: CANCEL");
     }
 }
@@ -803,7 +803,6 @@ static void draw_lobby(void) {
         snprintf(buf, sizeof(buf), "%d WATCHING", l->watchers);
         hud_text(494, y + 6, 0.5f, ALIGN_CENTER, argb(220, 200, 225, 255), buf);
         y = 340;
-        if(l->flags & NLF_DEMO) hud_text(494, y, 0.42f, ALIGN_CENTER, argb(255, 120, 255, 140), "THE BOTS RACE NONSTOP");
         hud_text(494, y + 24, 0.45f, ALIGN_CENTER, l->state == NLS_WAITING ? 0xffffffff : argb(255, 255, 190, 80),
                  l->state == NLS_WAITING ? "NEXT RACE SOON" : l->state == NLS_RESULTS ? "RESULTS ARE IN" : "RACE IN PROGRESS");
         hint("B: STOP WATCHING");
