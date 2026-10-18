@@ -441,7 +441,7 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
     snd_sh4_to_aica_start();
 }
 
-/* Voice pitch by colour preset (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE,
+/* Voice pitch by colour preset (CLASSIC, HAWK, MANGO, CORAL, PEBBLE,
    MIDNIGHT, HERO, LIME): the dark ones low, the bright ones squeaky. */
 static const float chao_pitch[COLOUR_COUNT] = {1.0f, 1.12f, 1.05f, 0.96f, 0.9f, 0.85f, 1.07f, 1.17f};
 

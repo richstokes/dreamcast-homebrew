@@ -21,7 +21,7 @@ int kart_jumps, kart_rescues, kart_falls;
 
 const KartColour kart_colours[COLOUR_COUNT] = {
     {"CLASSIC", 0, 0, 0, 0xff8cc8f0},                          /* red kart, sky-blue Chao */
-    {"BUBBLES", 0xff2c6ee6, 0xffffa8d0, 0xffff5a96, 0xffffa8d0},
+    {"HAWK", 0xff2c6ee6, 0xffffa8d0, 0xffff5a96, 0xffffa8d0},
     {"MANGO", 0xffff8c14, 0xffffd25a, 0xffff8c28, 0xffffd25a},
     {"CORAL", 0xff9646dc, 0xffff8c78, 0xffffdc78, 0xffff8c78},
     {"PEBBLE", 0xff28b450, 0xffe6ebf5, 0xff96c8ff, 0xffe6ebf5},
