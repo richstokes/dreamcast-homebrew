@@ -364,7 +364,9 @@ void fx_draw(void) {
         const Particle *q = &parts[order[k]];
         float t = 1.0f - q->life / q->max_life;
         float size = fminf(q->size, 1.4f);
-        r_billboard(q->p, size, size, (float)order[k] * 0.7f, 0, 0, 1, 1, color_lerp(q->c0, q->c1, t));
+        uint32_t c = color_lerp(q->c0, q->c1, t);
+        if(world_night) c = color_scale(c, 0.5f);   /* moonlit, not sunlit */
+        r_billboard(q->p, size, size, (float)order[k] * 0.7f, 0, 0, 1, 1, c);
     }
     draw_flames();
     r_hdr(h_spark_glow);

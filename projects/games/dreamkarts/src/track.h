@@ -8,7 +8,9 @@
 
 enum { SURF_ROAD, SURF_CURB, SURF_SAND };
 enum { SEC_ASPHALT, SEC_BOARDWALK };
-enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_COUNT };
+enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_SKYWAY, TRACK_COUNT };
+/* TrackSample.open: a side with no barrier, where karts can fall off. */
+enum { OPEN_LEFT = 1, OPEN_RIGHT = 2 };
 
 typedef struct {
     V3 p;            /* centreline point (y = 0; road height in track_height) */
@@ -22,7 +24,9 @@ typedef struct {
     float wall_in;   /* inner barrier distance (positive) */
     float wall_out;  /* outer barrier distance */
     float shore;     /* 0 = beach behind the outer wall, 1 = open water */
+    float bank;      /* road height gained per metre to the right (banked turns) */
     uint8_t section; /* SEC_* road surface style */
+    uint8_t open;    /* OPEN_* sides without a barrier */
 } TrackSample;
 
 typedef struct {
@@ -54,6 +58,7 @@ typedef struct {
     Jump jump;
     bool has_bridge;     /* a viaduct: lap distance of its centre, half span */
     float bridge_s, bridge_half;
+    bool in_sky;         /* nothing below the road: off an open edge, karts fall */
 } Track;
 
 typedef struct {
@@ -69,7 +74,7 @@ extern const char *const track_names[TRACK_COUNT];
 
 void track_init(int id);
 /* Lap distance where segment i of a straight-and-arc layout (Palm Harbour,
-   Temple Hill) begins. */
+   Temple Hill, Neon Skyway) begins. */
 float track_seg_s(int i);
 /* Locate p on the track. hint is the previous segment index or -1. */
 void track_locate(V3 p, int hint, TrackPos *out);
@@ -88,6 +93,13 @@ float track_wall_out_at(const TrackPos *tp);
 int track_dash_pad(float s, float d);
 /* Road surface height at lap distance s (0 on the floor under a jump gap). */
 float track_height(float s);
+/* Banking (height per metre to the right) at lap distance s. */
+float track_bank(float s);
+/* Road surface height at lap distance s and lateral offset d, banking
+   included. */
+static inline float track_road_y(float s, float d) { return track_height(s) + track_bank(s) * d; }
+/* True when a kart at tp has gone over an open edge (no road below). */
+bool track_off_edge(const TrackPos *tp);
 /* Signed distance from the jump's gap centre, or a large value off it. */
 float track_jump_pos(float s);
 /* True over the open gap of a jump, where there is no road. */

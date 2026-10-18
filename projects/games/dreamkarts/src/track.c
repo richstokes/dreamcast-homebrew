@@ -20,15 +20,26 @@
    Temple Hill: a jungle hill climb. The main straight runs west along the
    beach; two hairpin switchbacks climb the hillside to a summit ridge with
    a hump that throws karts into the air, then descending esses lead onto
-   a stone viaduct over a sea inlet and a last left down to the line. */
+   a stone viaduct over a sea inlet and a last left down to the line.
+
+   Neon Skyway: a neon road through a city in the night sky, above the
+   clouds. The
+   main straight runs east into a banked left; the waves roll north (no
+   barriers: fall off and you are dropped back on); a banked right-hand
+   loop climbs 11 m and flies over its own approach, heading west over a
+   crest into the plunge and a jump across a gap in the road. A banked
+   left hairpin, a dip through the infield, a tight right hairpin and two
+   lefts bring it back to the line. */
 #include "track.h"
 #include <stddef.h>
 
 Track track;
 
-const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL"};
+const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL",
+                                              "NEON SKYWAY"};
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
-                                                      "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT"};
+                                                      "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
+                                                      "A NIGHT RIDE ABOVE THE CITY"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -40,11 +51,12 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
 
 static float f8_c, f8_l, f8_arc, f8_u0;   /* loop centre x, half leg, arc, start offset */
 
-/* Palm Harbour and Temple Hill are laid out from straights (radius 0) and
-   arcs (degrees, + = right) end to end from an origin. Two straights are
-   solved at init so the lap closes. */
+/* Palm Harbour, Temple Hill and Neon Skyway are laid out from straights
+   (radius 0) and arcs (degrees, + = right) end to end from an origin. Two
+   straights are solved at init so the lap closes. An arc may be banked:
+   its outside rises bank metres per metre from the centreline. */
 typedef struct {
-    float r, deg, len;
+    float r, deg, len, bank;
 } Seg;
 
 #define MAX_SEGS 20
@@ -99,9 +111,25 @@ static Seg th_seg[] = {
     {30.0f, -90, 0},      /* 14 last left onto the main straight */
 };
 
+static Seg sk_seg[] = {
+    {0, 0, 120.0f, 0},        /*  0 main straight, east (solved) */
+    {40.0f, -90, 0, 0.20f},   /*  1 banked left, now north */
+    {0, 0, 134.0f, 0},        /*  2 the waves (solved) */
+    {28.0f, 270, 0, 0.16f},   /*  3 banked loop, climbing, now west */
+    {0, 0, 235.0f, 0},        /*  4 over the crossing, the plunge and the jump */
+    {25.0f, -180, 0, 0.14f},  /*  5 banked left hairpin, now east */
+    {0, 0, 90.0f, 0},         /*  6 the infield dip */
+    {18.0f, 180, 0, 0.10f},   /*  7 right hairpin, now west */
+    {0, 0, 55.0f, 0},         /*  8 */
+    {22.0f, -90, 0, 0.10f},   /*  9 left, now south */
+    {0, 0, 4.0f, 0},
+    {34.0f, -90, 0, 0.16f},   /* 11 banked left onto the main straight */
+};
+
 #define NSEGS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static Layout hb = {hb_seg, NSEGS(hb_seg), DK_PI * 0.5f, {-69.4f, 0, -98.8f}, 38.0f, 0, 16, {0}, {0}, {{0}}};
 static Layout th = {th_seg, NSEGS(th_seg), -DK_PI * 0.5f, {79.0f, 0, 60.0f}, 40.0f, 0, 13, {0}, {0}, {{0}}};
+static Layout sk = {sk_seg, NSEGS(sk_seg), DK_PI * 0.5f, {-72.0f, 0, -100.0f}, 40.0f, 0, 2, {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -241,7 +269,8 @@ float track_seg_s(int i) {
 }
 
 static V3 centreline(float s, V3 *tangent) {
-    if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE) return lay_centreline(lay, s, tangent);
+    if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY)
+        return lay_centreline(lay, s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
         if(u >= track.length) u -= track.length;
@@ -433,6 +462,85 @@ static void init_temple(float *turnk) {
     track.pads[2] = (DashPad){70.0f, 75.0f, 2.2f, 5.8f, 1.1f};
 }
 
+/* Neon Skyway's road height: knots in layout distance eased with
+   smoothsteps (the loop's climb, the plunge, the infield dip), the waves,
+   the crest hump over the crossing and the jump's ramp and deck. */
+#define SK_KNOTS    9
+#define SK_WAVES    3
+#define SK_WAVE_LEN 26.0f
+#define SK_WAVE_H   1.8f
+#define SK_TOP      11.0f      /* the loop's exit and the crossing deck */
+static float sk_knots[SK_KNOTS][2];
+static float sk_waves_u, sk_hump_u;
+static float sk_bank[TRACK_SAMPLES];
+
+static float sk_height(float s) {
+    float u = lay_u(&sk, s);
+    int i = 0;
+    while(i + 2 < SK_KNOTS && u >= sk_knots[i + 1][0]) i++;
+    float t = (u - sk_knots[i][0]) / (sk_knots[i + 1][0] - sk_knots[i][0]);
+    float h = lerpf(sk_knots[i][1], sk_knots[i + 1][1], smoothstep01(t));
+    float w = (u - sk_waves_u) / SK_WAVE_LEN;
+    if(w > 0 && w < SK_WAVES) h += SK_WAVE_H * 0.5f * (1.0f - cosf(w * DK_TAU));
+    float x = (u - sk_hump_u) / 16.0f;
+    if(x > -0.5f && x < 0.5f) h += 1.3f * 0.5f * (1.0f + cosf(x * DK_TAU));
+    return h;
+}
+
+static void init_skyway(float *turnk) {
+    init_layout(&sk, turnk);
+    track.in_sky = true;
+    const float *u0 = sk.s0;
+    float L = track.length;
+    /* Flat to the loop, which climbs to the crossing deck; the plunge after
+       the crest; a 3 m dip through the infield. */
+    const float knots[SK_KNOTS][2] = {
+        {0.0f, 0.0f}, {u0[3], 0.0f}, {u0[4], SK_TOP}, {u0[4] + 40.0f, SK_TOP}, {u0[4] + 90.0f, 0.0f},
+        {u0[6], 0.0f}, {(u0[6] + u0[7]) * 0.5f, -3.0f}, {u0[7], 0.0f}, {L, 0.0f},
+    };
+    memcpy(sk_knots, knots, sizeof(knots));
+    sk_waves_u = u0[2] + 18.0f;
+    sk_hump_u = u0[4] + 34.0f;
+
+    /* The jump: its ramp starts at the foot of the plunge, its full-width
+       pad on the plunge itself; the deck ends well before the hairpin. */
+    track.has_jump = true;
+    track.jump = (Jump){track_wrap(u0[4] + 136.0f - sk.start), -46.0f, -16.0f, 16.0f, 54.0f, 4.0f, 3.0f};
+    float cross = track.jump.cross;
+    track.npads = 3;
+    track.pads[0] = (DashPad){track_wrap(cross - 58.0f), track_wrap(cross - 53.0f), -7.6f, 7.6f, 2.2f};
+    /* The infield dip and the main straight. */
+    float dip = track_seg_s(6);
+    track.pads[1] = (DashPad){dip + 30.0f, dip + 35.0f, -1.8f, 1.8f, 1.1f};
+    track.pads[2] = (DashPad){50.0f, 55.0f, 2.2f, 5.8f, 1.1f};
+
+    /* Barriers sit close in (glass rails on the turns, the loop and the
+       jump); the straights are open, with nothing between you and the sky. */
+    const float open_u[][2] = {
+        {u0[0] + 8.0f, u0[1] - 8.0f}, {u0[2] + 8.0f, u0[3] - 8.0f}, {u0[6] + 8.0f, u0[7] - 8.0f},
+        {u0[8] + 8.0f, u0[9] - 8.0f},
+    };
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        TrackSample *t = &track.smp[i];
+        float u = lay_u(&sk, t->s);
+        const Seg *g = &sk.seg[lay_seg_at(&sk, u)];
+        bool open = false;
+        for(unsigned k = 0; k < sizeof(open_u) / sizeof(open_u[0]); k++)
+            if(u >= open_u[k][0] && u < open_u[k][1]) open = true;
+        t->open = open ? OPEN_LEFT | OPEN_RIGHT : 0;
+        t->wall_in = t->wall_out = open ? 60.0f : 10.2f;
+        /* Banking: outside up, eased in and out below. */
+        sk_bank[i] = g->r > 0 ? (g->deg > 0 ? -g->bank : g->bank) : 0.0f;
+    }
+    /* Ease the banking over about 30 m each way. */
+    const int ease = 4;
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        float sum = 0;
+        for(int k = -ease; k <= ease; k++) sum += sk_bank[(i + k + TRACK_SAMPLES) % TRACK_SAMPLES];
+        track.smp[i].bank = sum / (float)(2 * ease + 1);
+    }
+}
+
 void track_init(int id) {
     memset(&track, 0, sizeof(track));
     track.id = id = (id % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
@@ -442,6 +550,7 @@ void track_init(int id) {
     if(id == TRACK_FIGURE8) init_figure8(turnk);
     else if(id == TRACK_HARBOUR) init_harbour(turnk);
     else if(id == TRACK_TEMPLE) init_temple(turnk);
+    else if(id == TRACK_SKYWAY) init_skyway(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and
@@ -482,6 +591,8 @@ void track_init(int id) {
         printf("DreamKarts track: %s, lap %.1f m, %d samples\n", track.name, (double)track.length, TRACK_SAMPLES);
 }
 
+static float sample_lerp_param(float s, int *i0);
+
 float track_jump_pos(float s) {
     if(!track.has_jump) return 1e9f;
     return track_delta(track.jump.cross, s);
@@ -494,16 +605,32 @@ bool track_in_gap(float s) {
 
 float track_height(float s) {
     if(track.id == TRACK_TEMPLE) return th_height(s);
-    if(!track.has_jump) return 0.0f;
+    float base = track.id == TRACK_SKYWAY ? sk_height(s) : 0.0f;
+    if(!track.has_jump) return base;
     const Jump *j = &track.jump;
     float a = track_delta(j->cross, s);
     if(a >= j->ramp && a <= j->lip) {
         float x = (a - j->ramp) / (j->lip - j->ramp);
-        return j->lip_h * x * x * x;
+        return base + j->lip_h * x * x * x;
     }
     if(a >= j->land && a <= j->foot)
-        return j->land_h * (1.0f - smoothstep01((a - j->land) / (j->foot - j->land)));
-    return 0.0f;
+        return base + j->land_h * (1.0f - smoothstep01((a - j->land) / (j->foot - j->land)));
+    return base;
+}
+
+float track_bank(float s) {
+    if(!track.in_sky) return 0.0f;
+    int i;
+    float f = sample_lerp_param(s, &i);
+    return lerpf(track.smp[i].bank, track.smp[(i + 1) % TRACK_SAMPLES].bank, f);
+}
+
+bool track_off_edge(const TrackPos *tp) {
+    if(!track.in_sky) return false;
+    if(track.has_jump && track_in_gap(tp->s)) return true;
+    uint8_t open = track.smp[tp->idx].open;
+    float edge = track.smp[tp->idx].half + track.smp[tp->idx].curb + 0.5f;
+    return (tp->d > edge && (open & OPEN_RIGHT)) || (tp->d < -edge && (open & OPEN_LEFT));
 }
 
 static float sample_lerp_param(float s, int *i0) {

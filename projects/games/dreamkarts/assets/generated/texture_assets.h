@@ -39,6 +39,28 @@ enum {
     TEX_LOGO,
     TEX_BIGTEXT,
     TEX_STONE,
+    TEX_SKYROAD_0,
+    TEX_SKYROAD_1,
+    TEX_SKYROAD_2,
+    TEX_SKYROAD_3,
+    TEX_SKYROAD_4,
+    TEX_SKYROAD_5,
+    TEX_SKYROAD_6,
+    TEX_SKYROAD_7,
+    TEX_SKYROAD_8,
+    TEX_SKYROAD_9,
+    TEX_SKYROAD_10,
+    TEX_SKYROAD_11,
+    TEX_SKYROAD_12,
+    TEX_SKYROAD_13,
+    TEX_SKYROAD_14,
+    TEX_SKYROAD_15,
+    TEX_NIGHTSKY,
+    TEX_SKYLINE,
+    TEX_MOON,
+    TEX_CLOUDSEA,
+    TEX_TOWER,
+    TEX_SIGNS,
     TEX_COUNT
 };
 
@@ -73,8 +95,30 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {1217664u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
     {1479808u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* bigtext */
     {1741952u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* stone */
+    {1785664u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_0 */
+    {1796608u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_1 */
+    {1807552u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_2 */
+    {1818496u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_3 */
+    {1829440u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_4 */
+    {1840384u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_5 */
+    {1851328u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_6 */
+    {1862272u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_7 */
+    {1873216u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_8 */
+    {1884160u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_9 */
+    {1895104u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_10 */
+    {1906048u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_11 */
+    {1916992u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_12 */
+    {1927936u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_13 */
+    {1938880u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_14 */
+    {1949824u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_15 */
+    {1960768u, 131072u, 256, 256, DK_TEXFMT_RGB565, 0, {0, 0}},  /* nightsky */
+    {2091840u, 32768u, 256, 64, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* skyline */
+    {2124608u, 8192u, 64, 64, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
+    {2132800u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* cloudsea */
+    {2176512u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* tower */
+    {2187456u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* signs */
 };
 
-#define DK_TEXTURES_BYTES 1785664u
+#define DK_TEXTURES_BYTES 2231168u
 
 #endif

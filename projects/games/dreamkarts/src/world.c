@@ -1,4 +1,5 @@
-/* Track scenery: Emerald Beach, Coral Crossing, Palm Harbour and Temple Hill.
+/* Track scenery: Emerald Beach, Coral Crossing, Palm Harbour, Temple Hill
+   and Neon Skyway.
 
    Static geometry (track surfaces, terrain, props, palm trees) is generated
    once into a pool of world-space triangle strips grouped into chunks with
@@ -14,6 +15,8 @@
 V3 world_sun_dir;
 float world_time;
 bool world_split;
+bool world_night;
+uint16_t world_light[3] = {256, 256, 256};
 
 typedef struct {
     const pvr_poly_hdr_t *hdr;
@@ -68,7 +71,13 @@ static V3 ring_dir[25];
 static const pvr_poly_hdr_t *h_road, *h_board, *h_curb, *h_sand, *h_grass, *h_barrier, *h_wood,
     *h_rock, *h_bark, *h_checker, *h_thatch, *h_crowd, *h_banner, *h_col, *h_water,
     *h_frond, *h_palm_far, *h_dash, *h_sky, *h_cloud, *h_mount, *h_foam, *h_glow_add,
-    *h_flare, *h_dash_glow, *h_stone, *h_flame;
+    *h_flare, *h_dash_glow, *h_stone, *h_flame, *h_nightsky, *h_skyline, *h_moon, *h_cloudsea, *h_star_add,
+    *h_tower, *h_signs;
+/* Neon Skyway's road: the strips point at one header whose texture is
+   swapped each frame through the phases, so the lights run along it. */
+#define SKYROAD_PHASES 16
+static const pvr_poly_hdr_t *h_skyroad[SKYROAD_PHASES];
+static pvr_poly_hdr_t sk_road_hdr __attribute__((aligned(32)));
 
 /* ------------------------------------------------------------------ */
 /* Builder                                                             */
@@ -894,7 +903,7 @@ static int f8_chunk_svals(int c, float *out) {
         }
     }
     /* Halve intervals whose midpoint height strays from a straight line. */
-    for(int pass = 0; pass < 2 && !track.has_jump; pass++) {
+    for(int pass = 0; pass < 2 && track.id != TRACK_FIGURE8; pass++) {
         for(int k = 0; k + 1 < n && n < MAX_SVALS; k++) {
             float a = out[k], b = out[k + 1], m = (a + b) * 0.5f;
             if(b - a < 0.8f) continue;
@@ -911,7 +920,7 @@ static int f8_chunk_svals(int c, float *out) {
 /* Road-surface point at lap distance s, lateral d, raised by dy. */
 static V3 f8_pt(float s, float d, float dy) {
     V3 p = track_point(s, d);
-    p.y = track_height(s) + dy;
+    p.y = track_road_y(s, d) + dy;
     return p;
 }
 
@@ -1784,6 +1793,346 @@ static void build_beach(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Neon Skyway                                                      */
+
+/* A neon road through a cyberpunk city at night, high above a sea of
+   cloud: a dark deck under a glowing grid with running lights down its
+   edges (cyan on the left, magenta on the right), glass rails carrying neon
+   tubes round the turns, and no rails at all on the straights. Neon gates
+   frame the line, the waves, the plunge and the infield, and dark towers
+   rise out of the clouds all round, lit windows, neon crowns and signs. */
+#define SK_RAIL     10.2f      /* glass rails on the closed sides */
+#define SK_EDGE     9.6f       /* road edge (deck to 8 m, then the light strip) */
+#define SK_DEPTH    0.7f       /* deck thickness */
+#define SK_RAIL_H   0.75f      /* neon tube height */
+#define SK_SPARKLES 40
+#define SK_TOWERS   30
+#define SK_BEAMS    5
+#define CLOUD_Y     (-60.0f)
+static float sk_vscale;
+static V3 sk_sparkle[SK_SPARKLES];
+static V3 sk_beam[SK_BEAMS];     /* searchlights on the tallest towers' roofs */
+static int sk_beam_n;
+
+static const uint32_t neon_cyan = 0xff3cdcff, neon_violet = 0xff9646ff, neon_magenta = 0xffff32c8,
+                      neon_pink = 0xffff78e6, neon_blue = 0xff4678ff;
+
+/* Across the road: cyan on the left, through violet, to magenta on the
+   right (the karts' underglow picks it up). */
+uint32_t world_lane_color(float d) {
+    float t = clampf((d + 9.6f) / 19.2f, 0.0f, 1.0f);
+    return t < 0.5f ? color_lerp(neon_cyan, neon_violet, t * 2.0f) : color_lerp(neon_violet, neon_magenta, t * 2.0f - 1.0f);
+}
+
+/* Rail tubes: cyan shimmering to blue on the left, magenta to pink on the
+   right, slowly along the lap. */
+static uint32_t rail_color(float s, int side) {
+    float w = 0.5f + 0.5f * sinf(s * (DK_TAU / 90.0f));
+    return side < 0 ? color_lerp(neon_cyan, neon_blue, w * 0.6f) : color_lerp(neon_magenta, neon_pink, w * 0.7f);
+}
+
+static bool sk_closed(float s, int side) {
+    int i = (int)(track_wrap(s) / track.ds) % TRACK_SAMPLES;
+    return !(track.smp[i].open & (side < 0 ? OPEN_LEFT : OPEN_RIGHT));
+}
+
+/* One rail run's piece: a ribbon at lateral side * d between heights y0
+   and y1 above the road, or flat at height y0 between d and d1 when flat.
+   Neon pieces take the rail colour with c0/c1's alpha. */
+static void sk_rail_ribbon(const float *sv, int k0, int k1, int side, float d, float d1, float y0, float y1,
+                           const pvr_poly_hdr_t *h, uint32_t c0, uint32_t c1, bool neon, bool flat) {
+    strip_begin(h);
+    for(int k = k0; k <= k1; k++) {
+        float s = sv[k];
+        uint32_t a = c0, b = c1;
+        if(neon) {
+            uint32_t n = rail_color(s, side);
+            a = color_alpha(n, (float)(c0 >> 24) / 255.0f);
+            b = color_alpha(n, (float)(c1 >> 24) / 255.0f);
+        }
+        V3 p = f8_pt(s, side * d, y0), q = flat ? f8_pt(s, side * d1, y0) : f8_pt(s, side * d, y1);
+        /* Wind toward the road on both sides. */
+        if(side < 0) {
+            svp(q, 0.5f, flat ? 0.0f : 1.0f, b);
+            svp(p, 0.5f, 0.0f, a);
+        }
+        else {
+            svp(p, 0.5f, 0.0f, a);
+            svp(q, 0.5f, flat ? 0.0f : 1.0f, b);
+        }
+    }
+    strip_end();
+}
+
+static void sk_build_track_chunk(int c) {
+    float sv[MAX_SVALS];
+    int n = f8_chunk_svals(c, sv);
+    chunk_begin(HF_OP, 2000.0f);
+    /* The deck: grid and edge lights in one texture, the glowing side
+       faces and the dark underside. */
+    f8_ribbon(sv, n, &sk_road_hdr, -SK_EDGE, SK_EDGE, 0.0f, 0.0f, 0, 1.0f, sk_vscale, false, 0xffffffff, 0xffffffff);
+    f8_ribbon(sv, n, h_col, -SK_EDGE, -SK_EDGE, -SK_DEPTH, 0.0f, 0, 1, 1, true, argb(255, 10, 30, 70),
+              argb(255, 60, 200, 255));
+    f8_ribbon(sv, n, h_col, SK_EDGE, SK_EDGE, 0.0f, -SK_DEPTH, 0, 1, 1, true, argb(255, 255, 50, 200),
+              argb(255, 70, 10, 70));
+    f8_ribbon(sv, n, h_col, SK_EDGE, -SK_EDGE, -SK_DEPTH, -SK_DEPTH, 0, 1, 1, true, argb(255, 14, 12, 34),
+              argb(255, 14, 12, 34));
+    /* Glass rails on the closed sides: a dark panel, a ledge out to it from
+       the road edge and a neon tube along the top. */
+    int runs[MAX_SVALS][3], nruns = 0;
+    for(int side = -1; side <= 1; side += 2) {
+        int k = 0;
+        while(k < n) {
+            if(!sk_closed(sv[k], side) || track_in_gap(sv[k])) {
+                k++;
+                continue;
+            }
+            int k0 = k;
+            while(k + 1 < n && sk_closed(sv[k + 1], side) && !track_in_gap(sv[k + 1])) k++;
+            if(k > k0) {
+                sk_rail_ribbon(sv, k0, k, side, SK_EDGE, SK_RAIL, 0.0f, 0.0f, h_col, argb(255, 16, 16, 40),
+                               argb(255, 16, 16, 40), false, true);
+                sk_rail_ribbon(sv, k0, k, side, SK_RAIL, 0, -SK_DEPTH, SK_RAIL_H, h_col, argb(255, 14, 14, 40),
+                               argb(255, 40, 50, 110), false, false);
+                sk_rail_ribbon(sv, k0, k, side, SK_RAIL - 0.12f, SK_RAIL + 0.12f, SK_RAIL_H, 0.0f, h_col, 0xffffffff,
+                               0xffffffff, true, true);
+                sk_rail_ribbon(sv, k0, k, side, SK_RAIL - 0.12f, 0, SK_RAIL_H - 0.16f, SK_RAIL_H, h_col, 0xffffffff,
+                               0xffffffff, true, false);
+                runs[nruns][0] = k0;
+                runs[nruns][1] = k;
+                runs[nruns][2] = side;
+                nruns++;
+            }
+            k++;
+        }
+    }
+    chunk_end();
+    /* The tubes' glow (additive). */
+    if(nruns) {
+        chunk_begin(HF_TR, 700.0f);
+        for(int r = 0; r < nruns; r++)
+            sk_rail_ribbon(sv, runs[r][0], runs[r][1], runs[r][2], SK_RAIL, 0, SK_RAIL_H - 0.55f, SK_RAIL_H + 0.65f,
+                           h_dash_glow, argb(150, 255, 255, 255), argb(150, 255, 255, 255), true, false);
+        chunk_end();
+    }
+}
+
+/* An octagonal neon gate the road passes through: a magenta frame round
+   a cyan one, with a soft additive halo. */
+static void sk_gate(float s) {
+    V3 c = track_point(s, 0.0f), r = vsub(track_point(s, 1.0f), c);
+    c.y = track_road_y(s, 0.0f) + 2.0f;
+    const int segs = 8;
+    const float r0 = 12.6f;
+    /* Corners on the diagonals, so the gate has flat sides and top. */
+    const float off = DK_PI / 8.0f;
+    static const struct { float ri, ro; uint32_t col; } bands[2] = {
+        {12.6f, 13.1f, 0xff3cdcff}, {13.5f, 14.1f, 0xffff32c8}};
+    chunk_begin(HF_OP, 1100.0f);
+    for(int b = 0; b < 2; b++) {
+        strip_begin(h_col);
+        for(int i = 0; i <= segs; i++) {
+            float a = (float)i / segs * DK_TAU + off;
+            V3 dir = vadd(vscale(r, cosf(a)), v3(0, sinf(a), 0));
+            svp(vmad(c, dir, bands[b].ro), 0, 0, bands[b].col);
+            svp(vmad(c, dir, bands[b].ri), 0, 0, color_scale(bands[b].col, 0.8f));
+        }
+        strip_end();
+    }
+    chunk_end();
+    chunk_begin(HF_TR, 1100.0f);
+    strip_begin(h_dash_glow);
+    for(int i = 0; i <= segs; i++) {
+        float a = (float)i / segs * DK_TAU + off;
+        V3 dir = vadd(vscale(r, cosf(a)), v3(0, sinf(a), 0));
+        uint32_t col = argb(120, 170, 110, 255);
+        svp(vmad(c, dir, 14.1f + 2.6f), 0.5f, 0.0f, col);
+        svp(vmad(c, dir, r0 - 2.6f), 0.5f, 1.0f, col);
+    }
+    strip_end();
+    chunk_end();
+}
+
+/* The jump's lip and the deck's front edge: glowing faces across the road,
+   cyan to magenta. */
+static void sk_jump_face(float s, float dir) {
+    float h = track_height(s - dir * 0.02f);
+    const int stripes = 8;
+    for(int i = 0; i < stripes; i++) {
+        float d0 = -SK_EDGE + 2.0f * SK_EDGE * (float)i / stripes, d1 = -SK_EDGE + 2.0f * SK_EDGE * (float)(i + 1) / stripes;
+        V3 a = track_point(s, d0 * dir), b = track_point(s, d1 * dir);
+        a.y = b.y = h;
+        V3 ab = a, bb = b;
+        ab.y = bb.y = h - SK_DEPTH - 0.4f;
+        uint32_t col = (i & 1) ? argb(255, 14, 12, 34) : world_lane_color((d0 + d1) * 0.5f * dir);
+        strip_begin(h_col);
+        svp(a, 0, 0, col); svp(b, 0, 0, col); svp(ab, 0, 0, color_scale(col, 0.6f)); svp(bb, 0, 0, color_scale(col, 0.6f));
+        strip_end();
+    }
+}
+
+/* Horizontal distance from p to the nearest stretch of road. */
+static float sk_road_dist(V3 p) {
+    float best = 1e9f;
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        float dx = p.x - track.smp[i].p.x, dz = p.z - track.smp[i].p.z;
+        best = fminf(best, dx * dx + dz * dz);
+    }
+    return sqrtf(best);
+}
+
+/* A city tower rising out of the clouds: dark glass with lit windows, a
+   neon crown round the roof, a neon strip down one corner and a sign on
+   the face toward the road. */
+static void sk_tower(V3 base, float hx, float hz, float top, float yaw, uint32_t neon, int sign, V3 face_to) {
+    chunk_begin(HF_OP, 2000.0f);
+    float bottom = CLOUD_Y - 8.0f, hh = (top - bottom) * 0.5f;
+    box(h_tower, v3(base.x, bottom + hh, base.z), v3(hx, hh, hz), yaw, 0xffffffff, 1.0f / 24.0f);
+    V3 ax = heading_right(yaw), az = heading_fwd(yaw);
+    /* Crown: a band of neon just proud of each face, under the roofline. */
+    V3 corner[4] = {vadd(vscale(ax, -hx - 0.2f), vscale(az, -hz - 0.2f)), vadd(vscale(ax, hx + 0.2f), vscale(az, -hz - 0.2f)),
+                    vadd(vscale(ax, hx + 0.2f), vscale(az, hz + 0.2f)), vadd(vscale(ax, -hx - 0.2f), vscale(az, hz + 0.2f))};
+    strip_begin(h_col);
+    for(int i = 0; i <= 4; i++) {
+        V3 p = vadd(base, corner[i % 4]);
+        svp(v3(p.x, top - 0.6f, p.z), 0, 0, neon);
+        svp(v3(p.x, top - 1.6f, p.z), 0, 0, color_scale(neon, 0.7f));
+    }
+    strip_end();
+    /* A neon strip down one corner. */
+    V3 k = vadd(base, corner[(int)(fabsf(yaw) * 7.0f) & 3]);
+    V3 kn = vnorm(v3(k.x - base.x, 0, k.z - base.z));
+    V3 kt = v3(kn.z, 0, -kn.x);
+    strip_begin(h_col);
+    svp(vadd(vmad(k, kt, -0.5f), v3(0, top - 2.0f, 0)), 0, 0, neon);
+    svp(vadd(vmad(k, kt, 0.5f), v3(0, top - 2.0f, 0)), 0, 0, neon);
+    svp(vadd(vmad(k, kt, -0.5f), v3(0, top - 45.0f, 0)), 0, 0, color_scale(neon, 0.5f));
+    svp(vadd(vmad(k, kt, 0.5f), v3(0, top - 45.0f, 0)), 0, 0, color_scale(neon, 0.5f));
+    strip_end();
+    /* The sign, on whichever face looks most toward the road. */
+    if(sign >= 0) {
+        V3 to = vnorm(v3(face_to.x - base.x, 0, face_to.z - base.z));
+        V3 n = az;
+        float hw = hx;
+        if(fabsf(vdot(to, ax)) > fabsf(vdot(to, az))) {
+            n = vdot(to, ax) > 0 ? ax : vscale(ax, -1);
+            hw = hz;
+        }
+        else if(vdot(to, az) < 0) n = vscale(az, -1);
+        float depth = (n.x == ax.x && n.z == ax.z) || (n.x == -ax.x && n.z == -ax.z) ? hx : hz;
+        V3 c = vmad(base, n, depth + 0.35f);
+        V3 right = v3(-n.z, 0, n.x);   /* viewer's right, looking at the face */
+        float w = fminf(hw * 0.85f, 14.0f), h = w * 0.25f, y = top - 6.0f - h;
+        float v0 = (float)sign * 0.25f, v1 = v0 + 0.25f;
+        strip_begin(h_signs);
+        svp(vadd(vmad(c, right, -w), v3(0, y + h, 0)), 0, v0, 0xffffffff);
+        svp(vadd(vmad(c, right, w), v3(0, y + h, 0)), 1, v0, 0xffffffff);
+        svp(vadd(vmad(c, right, -w), v3(0, y - h, 0)), 0, v1, 0xffffffff);
+        svp(vadd(vmad(c, right, w), v3(0, y - h, 0)), 1, v1, 0xffffffff);
+        strip_end();
+    }
+    chunk_end();
+}
+
+static void sk_place_city(void) {
+    static const uint32_t crowns[4] = {0xff3cdcff, 0xffff32c8, 0xff9646ff, 0xffff78e6};
+    V3 placed[SK_TOWERS];
+    float size[SK_TOWERS], tops[SK_TOWERS];
+    int n = 0;
+    uint32_t r = 0xc17eu;
+    for(int tries = 0; tries < 600 && n < SK_TOWERS; tries++) {
+        r = r * 1664525u + 1013904223u;
+        float x = -250.0f + (float)((r >> 8) & 1023) / 1023.0f * 500.0f;
+        float z = -220.0f + (float)((r >> 18) & 1023) / 1023.0f * 440.0f;
+        float hs = 8.0f + (float)((r >> 4) & 15) * 0.6f;
+        V3 p = v3(x, 0, z);
+        float road = sk_road_dist(p);
+        if(road < hs * 1.45f + 22.0f) continue;
+        bool crowded = false;
+        for(int i = 0; i < n; i++) {
+            float dx = placed[i].x - x, dz = placed[i].z - z;
+            if(dx * dx + dz * dz < (hs + size[i] + 14.0f) * (hs + size[i] + 14.0f)) crowded = true;
+        }
+        if(crowded) continue;
+        /* Towers near the road stay low enough to see past; further out the
+           skyline climbs. */
+        float top = 10.0f + clampf((road - 30.0f) / 90.0f, 0.0f, 1.0f) * 70.0f + (float)((r >> 12) & 31);
+        placed[n] = p;
+        size[n] = hs;
+        tops[n] = top;
+        r = r * 1664525u + 1013904223u;
+        float yaw = (float)((r >> 8) & 255) / 255.0f * 1.5f;
+        TrackPos tp;
+        track_locate(p, -1, &tp);
+        sk_tower(p, hs, hs * (0.7f + 0.3f * (float)((r >> 16) & 3) / 3.0f), top, yaw, crowns[n & 3],
+                 road < 110.0f ? (n % 4) : -1, tp.center);
+        n++;
+    }
+    /* Searchlights from the tallest. */
+    sk_beam_n = 0;
+    for(int k = 0; k < SK_BEAMS; k++) {
+        int best = -1;
+        for(int i = 0; i < n; i++) {
+            bool used = false;
+            for(int j = 0; j < sk_beam_n; j++)
+                if(sk_beam[j].x == placed[i].x && sk_beam[j].z == placed[i].z) used = true;
+            if(!used && (best < 0 || tops[i] > tops[best])) best = i;
+        }
+        if(best < 0) break;
+        sk_beam[sk_beam_n++] = v3(placed[best].x, tops[best], placed[best].z);
+    }
+}
+
+static void sk_place_props(void) {
+    /* Start line. */
+    chunk_begin(HF_OP, 600.0f);
+    strip_begin(h_checker);
+    for(int k = 0; k <= 1; k++) {
+        float s = (k ? 1.2f : -1.2f);
+        V3 a = f8_pt(s, -8.0f, 0.03f), b = f8_pt(s, 8.0f, 0.03f);
+        svp(a, 0, s / 1.2f, 0xffffffff);
+        svp(b, 8, s / 1.2f, 0xffffffff);
+    }
+    strip_end();
+    chunk_end();
+    chunk_begin(HF_OP, 900.0f);
+    sk_jump_face(track_wrap(track.jump.cross + track.jump.lip), 1.0f);
+    sk_jump_face(track_wrap(track.jump.cross + track.jump.land), -1.0f);
+    chunk_end();
+
+    /* Gates: the line, the main straight, the waves' troughs, over the
+       crest into the plunge and the bottom of the infield dip. */
+    float waves = track_seg_s(2) + 18.0f;
+    float gates[] = {0.0f, 70.0f, waves + 26.0f, waves + 52.0f, track_seg_s(4) + 47.0f, track_seg_s(6) + 45.0f};
+    for(unsigned i = 0; i < sizeof(gates) / sizeof(gates[0]); i++) sk_gate(track_wrap(gates[i]));
+
+    sk_place_city();
+
+    /* Sparkles hanging in the sky around the course, clear of the road. */
+    uint32_t r = 0x5a17u;
+    for(int i = 0; i < SK_SPARKLES; i++) {
+        V3 p;
+        for(int tries = 0; tries < 20; tries++) {
+            r = r * 1664525u + 1013904223u;
+            float s = (float)((r >> 8) & 1023) / 1023.0f * track.length;
+            float side = (r & 1) ? 1.0f : -1.0f;
+            float d = side * (24.0f + (float)((r >> 18) & 255) / 255.0f * 70.0f);
+            p = track_point(s, d);
+            p.y = track_height(s) - 12.0f + (float)((r >> 4) & 63) * 0.6f;
+            if(sk_road_dist(p) > 22.0f) break;
+        }
+        sk_sparkle[i] = p;
+    }
+}
+
+static void build_skyway(void) {
+    sk_vscale = track.length / roundf(track.length / 8.0f);
+    for(int c = 0; c < TRACK_SAMPLES / 8; c++)
+        sk_build_track_chunk(c);
+    sk_place_props();
+}
+
+/* ------------------------------------------------------------------ */
 
 void world_init(void) {
     world_sun_dir = vnorm(v3(0.30f, 0.55f, 0.78f));
@@ -1820,6 +2169,15 @@ void world_init(void) {
     h_dash_glow = r_header(TEX_GLOW, HF_TR | HF_ADD);
     h_stone = r_header(TEX_STONE, HF_OP);
     h_flame = r_header(TEX_FLAME, HF_TR | HF_ADD);
+    for(int i = 0; i < SKYROAD_PHASES; i++) h_skyroad[i] = r_header(TEX_SKYROAD_0 + i, HF_OP);
+    sk_road_hdr = *h_skyroad[0];
+    h_nightsky = r_header(TEX_NIGHTSKY, HF_OP | HF_NOFOG);
+    h_skyline = r_header(TEX_SKYLINE, HF_TR | HF_NOFOG);
+    h_moon = r_header(TEX_MOON, HF_TR | HF_NOFOG | HF_CLAMP);
+    h_cloudsea = r_header(TEX_CLOUDSEA, HF_OP);
+    h_tower = r_header(TEX_TOWER, HF_OP);
+    h_signs = r_header(TEX_SIGNS, HF_OP);
+    h_star_add = r_header(TEX_STAR, HF_TR | HF_ADD);
 
     static const float elev[] = {-0.25f, 0.0f, 0.10f, 0.28f, 0.62f, 1.05f, 1.5708f};
     for(int e = 0; e < 7; e++)
@@ -1838,9 +2196,17 @@ void world_build(void) {
     pool_n = strip_n = chunk_n = palm_n = far_sprite_n = foam_count = 0;
     cur_chunk = NULL;
     built_ok = true;
+    world_night = track.id == TRACK_SKYWAY;
+    /* The sun, or at night the moon (north-west, low over the waves). */
+    world_sun_dir = world_night ? vnorm(v3(-0.50f, 0.33f, 0.80f)) : vnorm(v3(0.30f, 0.55f, 0.78f));
+    /* Moonlight on the karts: dimmer and bluer (applied as they are painted). */
+    world_light[0] = world_night ? 176 : 256;
+    world_light[1] = world_night ? 168 : 256;
+    world_light[2] = world_night ? 240 : 256;
     if(track.id == TRACK_FIGURE8) build_figure8();
     else if(track.id == TRACK_HARBOUR) build_harbour();
     else if(track.id == TRACK_TEMPLE) build_temple();
+    else if(track.id == TRACK_SKYWAY) build_skyway();
     else build_beach();
     /* Release builds log only the first build: under dcload-ip each printf
        stalls the console with IRQs off. */
@@ -1859,6 +2225,11 @@ void world_build(void) {
 
 void world_update(float dt) {
     world_time += dt;
+    /* The road's lights run forward a repeat (about 8 m) every 0.55 s. */
+    if(world_night) {
+        int phase = (int)(world_time * (SKYROAD_PHASES / 0.55f)) % SKYROAD_PHASES;
+        sk_road_hdr = *h_skyroad[phase];
+    }
 }
 
 static void draw_chunks(int list) {
@@ -1883,8 +2254,34 @@ static void draw_chunks(int list) {
     }
 }
 
+/* Night sky: the dome textured with stars, six repeats round, from the
+   zenith (v = 0) to the horizon glow and below (v = 1, the fog colour).
+   The texture gives the lowest 45 degrees 70% of its rows (see
+   tools/build_textures.py), so v at each ring's elevation follows that. */
+static void draw_night_sky(void) {
+    static const float v_at[7] = {0.995f, 0.995f, 0.911f, 0.750f, 0.448f, 0.199f, 0.005f};
+    const float R = 1500.0f;
+    V3 c = r_cam.pos;
+    r_hdr(h_nightsky);
+    for(int e = 0; e < 6; e++) {
+        RV v[2 * 13];
+        int n = 0;
+        for(int i = 0; i <= 12; i++) {
+            for(int k = 1; k >= 0; k--) {
+                V3 d = sky_dir[e + k][i];
+                v[n++] = (RV){c.x + d.x * R, c.y + d.y * R, c.z + d.z * R, (float)i * 0.5f, v_at[e + k], 0xffffffff};
+            }
+        }
+        r_strip(v, n);
+    }
+}
+
 /* Sky dome around the camera: vertex-coloured gradient, no fog. */
 static void draw_sky(void) {
+    if(world_night) {
+        draw_night_sky();
+        return;
+    }
     static const uint32_t cols[] = {
         0xffbde6f8, 0xffbde6f8, 0xff98d2f6, 0xff6cb6f0, 0xff3f90e4, 0xff2a74d8, 0xff2266d0
     };
@@ -1911,9 +2308,57 @@ static uint32_t sea_color(float x, float z) {
     return color_lerp(argb(255, 236, 255, 252), argb(255, 96, 150, 222), t);
 }
 
+/* The cloud sea far below the sky road: a camera-centred grid drifting
+   slowly, lit purple with patches of city glow coming up through it, then
+   wide bands out to the horizon. */
+static uint32_t cloud_color(float x, float z) {
+    float glow = sinf(x * 0.0041f + 0.7f) * sinf(z * 0.0053f - 0.4f);
+    glow = clampf(glow * 1.6f - 0.3f, 0.0f, 1.0f);
+    return color_lerp(argb(255, 64, 70, 170), argb(255, 220, 80, 210), glow * 0.55f);
+}
+
+static void draw_clouds_below(void) {
+    const float cell = world_split ? 90.0f : 64.0f;
+    const int n = world_split ? 10 : 14;
+    float cx = floorf(r_cam.pos.x / cell) * cell, cz = floorf(r_cam.pos.z / cell) * cell;
+    float x0 = cx - n * cell * 0.5f, z0 = cz - n * cell * 0.5f;
+    float su = world_time * 0.006f, sv2 = world_time * 0.004f;
+    const float uvs = 1.0f / 110.0f;
+    r_hdr(h_cloudsea);
+    RV row[2 * (14 + 1)];
+    for(int j = 0; j < n; j++) {
+        float za = z0 + j * cell, zb = za + cell;
+        V3 mid = v3(cx, CLOUD_Y, (za + zb) * 0.5f);
+        if(!r_sphere_visible(mid, n * cell * 0.75f)) continue;
+        int k = 0;
+        for(int i = 0; i <= n; i++) {
+            float x = x0 + i * cell;
+            row[k++] = (RV){x, CLOUD_Y, zb, x * uvs + su, zb * uvs + sv2, cloud_color(x, zb)};
+            row[k++] = (RV){x, CLOUD_Y, za, x * uvs + su, za * uvs + sv2, cloud_color(x, za)};
+        }
+        r_strip(row, k);
+    }
+    /* Out to the horizon on all four sides of the grid. */
+    float gx0 = x0, gx1 = x0 + n * cell, gz0 = z0, gz1 = z0 + n * cell;
+    const float E = 4000.0f;
+    uint32_t far = argb(255, 64, 70, 170);
+    const float xs[4][4] = {{-E, E, -E, E}, {-E, E, -E, E}, {-E, gx0, -E, gx0}, {gx1, E, gx1, E}};
+    const float zs[4][4] = {{E, E, gz1, gz1}, {gz0, gz0, -E, -E}, {gz1, gz1, gz0, gz0}, {gz1, gz1, gz0, gz0}};
+    for(int b = 0; b < 4; b++) {
+        RV q[4];
+        for(int i = 0; i < 4; i++)
+            q[i] = (RV){xs[b][i], CLOUD_Y, zs[b][i], xs[b][i] * uvs + su, zs[b][i] * uvs + sv2, far};
+        r_strip(q, 4);
+    }
+}
+
 /* Animated sea: a camera-centred grid out to ~360 m, then wide bands to
    the horizon. Only the northern half-plane is ever visible. */
 static void draw_sea(void) {
+    if(world_night) {
+        draw_clouds_below();
+        return;
+    }
     const float cell = world_split ? 60.0f : 45.0f;
     const int n = world_split ? 10 : 16;
     float cx = floorf(r_cam.pos.x / cell) * cell, cz = floorf(r_cam.pos.z / cell) * cell;
@@ -1971,7 +2416,8 @@ static void draw_dash_pads(void) {
         for(int k = 0; k < 2; k++) {
             float s = k ? p->s1 : p->s0;
             V3 a = track_point(s, p->d0), b = track_point(s, p->d1);
-            a.y = b.y = track_height(s) + 0.035f;
+            a.y = track_road_y(s, p->d0) + 0.035f;
+            b.y = track_road_y(s, p->d1) + 0.035f;
             float vv = (k ? 0.0f : 1.0f) + scroll;
             v[n++] = (RV){a.x, a.y, a.z, 0, vv, 0xffffffff};
             v[n++] = (RV){b.x, b.y, b.z, 1, vv, 0xffffffff};
@@ -1983,13 +2429,23 @@ static void draw_dash_pads(void) {
 void world_set_fog(bool split) {
     /* The fog table is global: pull it in for the shorter split-screen view.
        The PVR reads the table while it renders, so the table only changes
-       once the previous frame's render has finished, before a new scene. */
+       once the previous frame's render has finished, before a new scene.
+       At night it fades to the purple of the sky's horizon. */
     static int fog_mode = -1;
-    if(fog_mode == (int)split) return;
-    fog_mode = (int)split;
+    int mode = (int)split | (world_night ? 2 : 0);
+    if(fog_mode == mode) return;
+    fog_mode = mode;
     pvr_wait_ready();
-    if(split) pvr_fog_table_linear(110.0f, 400.0f);
-    else pvr_fog_table_linear(160.0f, 820.0f);
+    if(world_night) {
+        pvr_fog_table_color(1.0f, 20 / 255.0f, 16 / 255.0f, 56 / 255.0f);
+        pvr_set_bg_color(20 / 255.0f, 16 / 255.0f, 56 / 255.0f);
+    }
+    else {
+        pvr_fog_table_color(1.0f, 0.74f, 0.89f, 0.98f);
+        pvr_set_bg_color(0.55f, 0.82f, 0.98f);
+    }
+    if(split) pvr_fog_table_linear(world_night ? 140.0f : 110.0f, world_night ? 520.0f : 400.0f);
+    else pvr_fog_table_linear(world_night ? 240.0f : 160.0f, world_night ? 1300.0f : 820.0f);
 }
 
 void world_draw_op(void) {
@@ -2053,7 +2509,85 @@ static void draw_shore_foam(void) {
     if(n >= 4) r_strip(v, n);
 }
 
+/* Night: the far city on the horizon, rising through the cloud sea, a
+   crescent moon, now and then a shooting star, and searchlights sweeping
+   up from the tallest towers. */
+static void draw_night_distant(void) {
+    V3 c = r_cam.pos;
+    r_hdr(h_skyline);
+    const int segs = 24;
+    const float R = 1350.0f;
+    RV v[2 * 25];
+    int n = 0;
+    for(int i = 0; i <= segs; i++) {
+        float x = c.x + ring_dir[i].x * R, z = c.z + ring_dir[i].z * R;
+        v[n++] = (RV){x, 70.0f, z, (float)i / segs * 6.0f, 0.0f, 0xffffffff};
+        v[n++] = (RV){x, CLOUD_Y - 40.0f, z, (float)i / segs * 6.0f, 1.0f, 0xffffffff};
+    }
+    r_strip(v, n);
+
+    V3 mp = vmad(c, world_sun_dir, 1300.0f);
+    if(r_sphere_visible(mp, 220.0f)) {
+        r_hdr(h_glow_add);
+        r_billboard(mp, 460.0f, 460.0f, 0, 0, 0, 1, 1, argb(60, 255, 230, 170));
+        r_hdr(h_moon);
+        r_billboard(mp, 150.0f, 150.0f, 0, 0, 0, 1, 1, 0xffffffff);
+    }
+    /* A shooting star every few seconds, somewhere new each time. */
+    const float every = 3.7f;
+    int idx = (int)(world_time / every);
+    float t = (world_time - (float)idx * every) / 0.7f;
+    if(t < 1.0f) {
+        uint32_t h = (uint32_t)idx * 2654435761u;
+        float az = (float)(h & 1023) / 1023.0f * DK_TAU, el = 0.35f + (float)((h >> 10) & 255) / 255.0f * 0.5f;
+        V3 d0 = v3(sinf(az) * cosf(el), sinf(el), cosf(az) * cosf(el));
+        V3 dir = vnorm(v3(cosf(az) * ((h & 1024) ? 1.0f : -1.0f), -0.45f, -sinf(az) * ((h & 1024) ? 1.0f : -1.0f)));
+        V3 head = vadd(c, vscale(vmad(d0, dir, t * 0.28f), 1250.0f));
+        V3 tail = vadd(c, vscale(vmad(d0, dir, fmaxf(t - 0.25f, 0.0f) * 0.28f), 1250.0f));
+        float a = sinf(t * DK_PI);
+        r_hdr(h_glow_add);
+        r_streak(head, tail, 7.0f, argb((int)(255 * a), 255, 255, 255), argb(0, 160, 200, 255));
+    }
+}
+
+/* Sparkles hanging round the sky road, twinkling. */
+static void draw_sparkles(void) {
+    r_hdr(h_star_add);
+    float range = world_split ? 220.0f : 340.0f;
+    for(int i = 0; i < SK_SPARKLES; i++) {
+        V3 p = sk_sparkle[i];
+        V3 d = vsub(p, r_cam.pos);
+        if(vdot(d, d) > range * range || !r_sphere_visible(p, 5.0f)) continue;
+        float tw = 0.55f + 0.45f * sinf(world_time * (2.0f + (float)(i % 5) * 0.6f) + (float)i * 1.9f);
+        float size = 4.0f + (float)(i % 4) * 1.5f;
+        r_billboard(p, size * tw, size * tw, world_time * 0.3f + (float)i, 0, 0, 1, 1,
+                    color_alpha(world_lane_color((float)(i % 7) * 3.2f - 9.6f), 0.8f * tw));
+    }
+    /* Searchlights: long soft beams turning slowly over the city, each
+       facing the camera about its own axis. */
+    r_hdr(h_glow_add);
+    for(int i = 0; i < sk_beam_n; i++) {
+        float a = world_time * (0.25f + 0.04f * (float)i) + (float)i * 2.1f;
+        V3 base = sk_beam[i];
+        V3 dir = vnorm(v3(sinf(a) * 0.45f, 1.0f, cosf(a) * 0.45f));
+        V3 tip = vmad(base, dir, 420.0f);
+        V3 side0 = vnorm(vcross(dir, vsub(r_cam.pos, base))), side1 = vnorm(vcross(dir, vsub(r_cam.pos, tip)));
+        uint32_t c0 = (i & 1) ? argb(70, 120, 200, 255) : argb(70, 210, 120, 255), c1 = color_alpha(c0, 0.0f);
+        RV q[4] = {
+            {base.x - side0.x * 2.0f, base.y - side0.y * 2.0f, base.z - side0.z * 2.0f, 0, 0.5f, c0},
+            {base.x + side0.x * 2.0f, base.y + side0.y * 2.0f, base.z + side0.z * 2.0f, 1, 0.5f, c0},
+            {tip.x - side1.x * 26.0f, tip.y - side1.y * 26.0f, tip.z - side1.z * 26.0f, 0, 0.5f, c1},
+            {tip.x + side1.x * 26.0f, tip.y + side1.y * 26.0f, tip.z + side1.z * 26.0f, 1, 0.5f, c1},
+        };
+        r_strip(q, 4);
+    }
+}
+
 static void draw_clouds_and_mountains(void) {
+    if(world_night) {
+        draw_night_distant();
+        return;
+    }
     V3 c = r_cam.pos;
     /* Distant hills ring. */
     r_hdr(h_mount);
@@ -2115,8 +2649,13 @@ void world_draw_tr(void) {
     r_load_vp();
     if(!(dk_probe_off & PROBE_DISTANT)) draw_clouds_and_mountains();
     if(dk_probe_off & PROBE_FOAM) {
-        if(!(dk_probe_off & PROBE_DISTANT)) draw_lens_flare();
+        if(!(dk_probe_off & PROBE_DISTANT) && !world_night) draw_lens_flare();
         return;
+    }
+    if(world_night) {
+        /* Neon glows are additive, so they need no sorting. */
+        if(!(dk_probe_off & PROBE_WORLD)) draw_chunks(HF_TR);
+        draw_sparkles();
     }
     draw_shore_foam();
     th_draw_flames();
@@ -2130,5 +2669,5 @@ void world_draw_tr(void) {
         float a = 0.35f + 0.25f * sinf(world_time * 8.0f + i);
         r_billboard(c, 3.0f, 1.2f, 0, 0, 0, 1, 1, color_alpha(0xff60c0ff, a));
     }
-    if(!(dk_probe_off & PROBE_DISTANT)) draw_lens_flare();
+    if(!(dk_probe_off & PROBE_DISTANT) && !world_night) draw_lens_flare();
 }

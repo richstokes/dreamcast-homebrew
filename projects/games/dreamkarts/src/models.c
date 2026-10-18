@@ -20,7 +20,7 @@ static uint32_t frame_id = 1;
 static float part_mats[MAX_KARTS][DK_PART_COUNT][16];
 static V3 part_light[MAX_KARTS][DK_PART_COUNT];
 static uint32_t mats_frame[MAX_KARTS];
-static const pvr_poly_hdr_t *h_model, *h_shadow;
+static const pvr_poly_hdr_t *h_model, *h_shadow, *h_underglow;
 static float ref_luma1 = 1.0f;
 static int far_lod = 1;   /* lod 3 when the model has a far level */
 static float normals[DK_MODEL_VERT_COUNT][3];
@@ -33,6 +33,7 @@ static float luma(uint32_t c) {
 void models_init(void) {
     h_model = r_header(TEX_NONE, HF_OP);
     h_shadow = r_header(TEX_SHADOW, HF_TR);
+    h_underglow = r_header(TEX_GLOW, HF_TR | HF_ADD);
     /* Reference brightness of the default body paint. */
     float sum = 0;
     int n = 0;
@@ -72,7 +73,10 @@ void models_paint_kart(int index) {
         else if((v->paint == 3 || v->paint == 4) && k->chao) {
             c = color_lerp(k->chao, k->chao_tip, (float)v->tip / 255.0f);
         }
-        paint[index][i] = c | 0xff000000u;
+        /* The track's light tint (moonlight at night) is baked in here. */
+        unsigned r = (((c >> 16) & 255) * world_light[0]) >> 8, g = (((c >> 8) & 255) * world_light[1]) >> 8,
+                 b = ((c & 255) * world_light[2]) >> 8;
+        paint[index][i] = 0xff000000u | (r << 16) | (g << 8) | b;
     }
 }
 
@@ -360,20 +364,48 @@ void models_draw_shadows(void) {
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
         if(!r_sphere_visible(k->pos, 2.0f)) continue;
-        /* Cast onto the road below: the floor under a jump's gap is y = 0. */
-        float ground = track_height(k->tp.s);
+        /* Cast onto the road below: the floor under a jump's gap is y = 0
+           (in the sky there is nothing there). */
+        if(track_off_edge(&k->tp)) continue;
+        float ground = track_road_y(k->tp.s, k->tp.d);
         float h = fmaxf(k->pos.y - ground, 0.0f);
         if(h > 12.0f) continue;
         float a = clampf(0.62f - h * 0.35f, 0.15f, 0.62f);
         float s = 1.0f + h * 0.25f;
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 1.35f * s), r = vscale(heading_right(k->heading + k->vis_yaw), 0.95f * s);
         V3 c = v3(k->pos.x, ground + 0.04f, k->pos.z);
+        /* On a banked road the shadow tilts with it. */
+        float bank = track_bank(k->tp.s);
+        float yf = bank * vdot(f, k->tp.right), yr = bank * vdot(r, k->tp.right);
         uint32_t col = color_alpha(0xff000000, a);
         RV q[4] = {
-            {c.x + f.x - r.x, c.y, c.z + f.z - r.z, 0, 0, col},
-            {c.x + f.x + r.x, c.y, c.z + f.z + r.z, 1, 0, col},
-            {c.x - f.x - r.x, c.y, c.z - f.z - r.z, 0, 1, col},
-            {c.x - f.x + r.x, c.y, c.z - f.z + r.z, 1, 1, col},
+            {c.x + f.x - r.x, c.y + yf - yr, c.z + f.z - r.z, 0, 0, col},
+            {c.x + f.x + r.x, c.y + yf + yr, c.z + f.z + r.z, 1, 0, col},
+            {c.x - f.x - r.x, c.y - yf - yr, c.z - f.z - r.z, 0, 1, col},
+            {c.x - f.x + r.x, c.y - yf + yr, c.z - f.z + r.z, 1, 1, col},
+        };
+        r_strip(q, 4);
+    }
+    if(!world_night) return;
+    /* Neon underglow: the road under each kart lights its belly, cyan to magenta across. */
+    r_hdr(h_underglow);
+    for(int i = 0; i < kart_count; i++) {
+        const Kart *k = &karts[i];
+        if(track_off_edge(&k->tp) || !r_sphere_visible(k->pos, 3.0f)) continue;
+        float ground = track_road_y(k->tp.s, k->tp.d);
+        float h = fmaxf(k->pos.y - ground, 0.0f);
+        if(h > 4.0f) continue;
+        float a = 0.55f * (1.0f - h * 0.25f);
+        V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 2.3f), r = vscale(heading_right(k->heading + k->vis_yaw), 1.8f);
+        float bank = track_bank(k->tp.s);
+        float yf = bank * vdot(f, k->tp.right), yr = bank * vdot(r, k->tp.right);
+        V3 c = v3(k->pos.x, ground + 0.06f, k->pos.z);
+        uint32_t col = color_alpha(world_lane_color(k->tp.d), a);
+        RV q[4] = {
+            {c.x + f.x - r.x, c.y + yf - yr, c.z + f.z - r.z, 0, 0, col},
+            {c.x + f.x + r.x, c.y + yf + yr, c.z + f.z + r.z, 1, 0, col},
+            {c.x - f.x - r.x, c.y - yf - yr, c.z - f.z - r.z, 0, 1, col},
+            {c.x - f.x + r.x, c.y - yf + yr, c.z - f.z + r.z, 1, 1, col},
         };
         r_strip(q, 4);
     }

@@ -9,7 +9,7 @@ Mario Kart-style handling. Hop into a drift, hold the powerslide round the
 corner by counter-steering, watch the sparks at the rear tyres turn blue, orange
 and then purple, and let go for a mini-turbo.
 
-There are four courses. **Emerald Beach** is an oval with a wooden boardwalk
+There are five courses. **Emerald Beach** is an oval with a wooden boardwalk
 straight over a turquoise sea, a natural rock arch, a lighthouse, palm trees,
 beach huts, a grandstand and Sonic-style dash panels. **Coral Crossing** is a
 classic figure 8 on a palm-lined headland: one leg launches you off a ramp,
@@ -24,7 +24,17 @@ jungle hillside to a summit ridge lined with ancient columns below a stepped
 temple, where a hump throws you into the air (higher still off its dash
 panel). Descending esses then drop onto an arched stone viaduct over a sea
 inlet, between lit braziers, and a last left runs down to the line. Carved
-stone heads watch the hairpins. You drive a Chao in a standard kart,
+stone heads watch the hairpins. **Neon Skyway** is the long one (1,056 m) and the
+first at night: a neon road hung over a cyberpunk city, above a sea of cloud.
+A banked left leads onto the waves, a rolling straight with no rails at all;
+a banked loop climbs 11 m and flies back over its own approach, then a crest
+throws you into the plunge and a jump across a gap in the road. A banked
+hairpin, a dip through the infield past the towers, a tight hairpin and two
+lefts bring you home. The deck glows under a cyan and magenta grid with
+lights running down its edges, glass rails carry neon tubes round the turns,
+octagonal neon gates frame the line, and towers with lit windows, neon
+crowns and signs rise out of the clouds under a crescent moon, with
+searchlights sweeping the sky. You drive a Chao in a standard kart,
 in the colours you pick, against five CPU Chao, or race a friend in
 **two-player split screen** (Grand Prix with CPUs, or head-to-head Versus).
 
@@ -55,8 +65,9 @@ is also available.
 - **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, BUBBLES, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
 - **50cc, 100cc and 150cc** engine classes.
 - **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
-- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. On Palm Harbour they race you along the seafront, through the chicane and down the beach straight, out past the moored boats. On Temple Hill they leap beside the beach straight as you leave the line. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
+- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. On Palm Harbour they race you along the seafront, through the chicane and down the beach straight, out past the moored boats. On Temple Hill they leap beside the beach straight as you leave the line. Neon Skyway has no sea, so no dolphins. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
 - **Hills (Temple Hill):** the road climbs and falls with smooth slopes, and the ground is shaped around it, so it runs through grassy cuttings on the switchbacks and along embankments down to the viaduct. Over a sharp crest a kart leaves the road whenever the road falls away faster than gravity can pull it down, so the summit hump gives about 2 m of air at speed.
+- **Falling off (Neon Skyway):** the straights have open edges. Go over one and your Chao yelps as you drop toward the clouds; ten metres down you are dropped back onto the road where you went over, from a few metres up and at a standstill. The banked turns tilt the karts and their shadows with the road, and each kart's underglow picks up the colour of the road beneath it.
 - **Ramp jump (Coral Crossing):** the jump pad's long boost carries you up a 4 m kicker; karts leave the lip at a fixed climb rate under lighter gravity, so every class soars about 7 m over the karts passing underneath and lands on a deck that eases back down to the road. The jump pad's push varies a little each time (about -8% to +10%), so some karts sail further than others, but a minimum take-off speed means every kart always clears the gap. A drift in progress fires its mini-turbo at take-off.
 - **Dash panels** give a boost (on Emerald Beach, one on each straight and one on the exit of turn 1), and any boost lets you cut through sand.
 - **Presentation:**
@@ -68,7 +79,7 @@ is also available.
 - **Audio:** three original synthesized songs that play back to back and loop: "Coral Speedway" (the title theme: steel drums, marimba, slap bass, electric piano and brass; 128 BPM, 75 s), "Harbour Lights" (city-pop fusion with a synth lead, slap bass, Rhodes, funk guitar and brass, with a last chorus a step up; 137 BPM, 77 s) and "Temple Run" (toms and taiko, marimba, kalimba, flute and brass in D minor; 133 BPM, 72 s). The title screen plays the theme and each race starts on a random other song, then the playlist carries on in order. The songs are mixed and ADPCM-encoded as one continuous loop, so each change of song flows without a gap or click. There are also 32 effects, eight of them Chao voices: "chao!", "chao?", "chu-chu!", "ya-ya!" and a happy giggle, plus a "wah!", a pouty "buu!" and a startled "hya!" for when karts collide. Each colour of Chao has its own voice pitch, and a voice never repeats the same clip twice running. The player's engine is two pitch-shifted loops crossfaded by speed, with tyre squeal, spark crackle and sand rumble loops alongside.
 - **Vibration:** with a Jump Pack in the controller, rumble strips rattle harder and faster the quicker you cross them, sand grinds, and wall hits, kart bumps, hops, landings, mini-turbo stages, boosts, dash panels and rocket starts each give their own jolt. In two-player, each pack follows its own player.
 - **VMU screen:** in the menus every VMU shows the DreamKarts logo taking turns with a Chao driving past palm trees. In a race, the VMU in each player's controller shows the 3-2-1-GO countdown, then their place, lap and a little kart creeping towards the chequered flag, with FINAL LAP flashing as the last lap starts. At the end it shows where you finished, with a trophy for the top three. Time Trial shows the lap, the clock and your best lap instead. Pausing shows PAUSED, and the online menus show your name.
-- **Graphics:** a custom PowerVR renderer using [SH4ZAM](https://sh4zam.com/). Matrix transforms use FTRV, perspective divides use FSRRA, polygons go straight to the store queues, and triangles crossing the near plane are clipped. It also has table fog, chunked frustum culling, distance LODs for palms and karts, an animated sea and shore foam, a sky dome, clouds and a lens flare.
+- **Graphics:** a custom PowerVR renderer using [SH4ZAM](https://sh4zam.com/). Matrix transforms use FTRV, perspective divides use FSRRA, polygons go straight to the store queues, and triangles crossing the near plane are clipped. It also has table fog, chunked frustum culling, distance LODs for palms and karts, an animated sea and shore foam, a sky dome, clouds and a lens flare. Neon Skyway swaps in a starry night dome, a drifting cloud sea, a far skyline ring and a road texture cycled through 16 frames so its lights run along it.
 
 ## Online
 
@@ -160,7 +171,7 @@ the online name.
 
 ## Tests and captures
 
-- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour or `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, `-DDK_VOICE_TRACE` to log each Chao voice line (which clip, whose colour, volume and pitch), or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
+- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest) or `-DDK_AT_TRACK=4` for Neon Skyway (`-DDK_AT_FALL` steers your kart off the waves' open edge on the first lap, so the summary counts falls; that run fails on time by design), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, `-DDK_VOICE_TRACE` to log each Chao voice line (which clip, whose colour, volume and pitch), or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
 - **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
 - **VMU screens:** put `DK_SHOW_VMU=1` in front of `./run-flycast.sh` or `uv run tools/capture.py` to show the VMU screens in the corner of Flycast's window, so captures include them.
 - **Saved name:** `EXTRA_CFLAGS="-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0"` opens the name entry, checks the VMU gave back `QA0` (saved by the previous boot's `-DDK_AT_NAME=QA0`), then saves `QA1` the way Start does. Add `-DDK_AT_NAME_CORRUPT` to overwrite the file with junk first and check the game falls back to `CHAO`. These write to Flycast's real A1 card, so delete the `DREAMKARTS` file afterwards if you don't want the test name kept.
@@ -194,7 +205,7 @@ Palm Harbour: 1P dropped 5 of 7,842 frames (11.4 ms), and 2P split dropped 1
 of 7,815 (11.3 ms). Temple Hill: 1P dropped 5 of 8,558 frames (12.1 ms), and
 2P split dropped 30 of 8,506 (12.2 ms), a few a lap on the switchbacks, where
 the whole hillside is in view twice. Add `-DDK_AT_TRACK=1` (Coral Crossing),
-`-DDK_AT_TRACK=2` (Palm Harbour) or `-DDK_AT_TRACK=3` (Temple Hill) to
+`-DDK_AT_TRACK=2` (Palm Harbour), `-DDK_AT_TRACK=3` (Temple Hill) or `-DDK_AT_TRACK=4` (Neon Skyway, not yet measured on the console) to
 `EXTRA_CFLAGS` to benchmark them.
 
 Run the two-player benchmark with

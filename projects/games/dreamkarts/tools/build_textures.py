@@ -640,6 +640,212 @@ class Spec:
     wrap: bool
 
 
+# ---------------------------------------------------------------------------
+# Neon Skyway (night, cyberpunk). Each draws from its own seeded generator so
+# the shared RNG, and every texture above, stays as it was.
+
+SKYROAD_PHASES = 16
+CYAN, MAGENTA = np.array([60, 220, 255.0]), np.array([255, 50, 200.0])
+FOG_NIGHT = (20, 16, 56)
+
+
+def side_colour(d):
+    """Cyan on the left of the road, through violet, to magenta on the right."""
+    t = np.clip((np.asarray(d, dtype=float) + 9.6) / 19.2, 0, 1)[..., None]
+    mid = np.array([150, 70, 255.0])
+    return np.where(t < 0.5, CYAN + (mid - CYAN) * (t * 2), mid + (MAGENTA - mid) * (t * 2 - 1))
+
+
+def tex_skyroad(phase, n=64):
+    """The sky road across its full 19.2 m width (u) and one repeat (~8 m)
+    along it (v): a dark glossy deck under a neon grid, then an edge strip
+    of running lights (cyan left, magenta right) and a bright lip. Phase
+    moves a chevron of light and the running lights forward one sixteenth
+    of a repeat."""
+    d = ((np.arange(n) + 0.5) / n - 0.5) * 19.2           # metres from the centreline
+    v = (np.arange(n) + 0.5) / n
+    ph = phase / SKYROAD_PHASES
+    deck = np.array([16, 10, 46.0]) * (0.85 + 0.3 * fbm(n, n, 4, 3, 4003))[..., None]
+    deck *= (1.0 + 0.35 * np.exp(-(d / 6.0) ** 2))[None, :, None]          # sheen down the middle
+    col = side_colour(d)[None, :, :]
+    # The grid: six lanes along, a cross line every quarter repeat (~2 m).
+    lane_w = 16.0 / 6
+    along = np.exp(-((((d + 8.0) / lane_w + 0.5) % 1.0 - 0.5) * lane_w / 0.16) ** 2) * (np.abs(d) < 7.8)
+    cross = np.exp(-((((v * 4) + 0.5) % 1.0 - 0.5) / 0.07) ** 2)
+    grid = np.maximum(along[None, :] * 0.85, cross[:, None] * 0.45 * (np.abs(d) < 8.0)[None, :])
+    # Travelling chevron: tip forward at the centre, the edges lag.
+    wave_v = (v[:, None] - ph + np.abs(d)[None, :] / 9.6 * 0.22) % 1.0
+    wave_v = np.minimum(wave_v, 1 - wave_v)
+    pulse = np.exp(-(wave_v / 0.06) ** 2) * (np.abs(d) < 8.0)[None, :]
+    rgb = deck + col * (grid * (0.75 + 0.6 * pulse))[..., None] + \
+        (CYAN * 0.55 + 60)[None, None, :] * (pulse * 0.55)[..., None]
+    # Edge strips: dark glass with running lights four to a repeat.
+    edge = np.abs(d) >= 8.0
+    run = (v[:, None] * 4 - ph * 4) % 1.0
+    run = np.minimum(run, 1 - run)
+    dots = np.exp(-(run / 0.12) ** 2) * np.exp(-((np.abs(d)[None, :] - 8.8) / 0.32) ** 2)
+    lit = np.where(d[None, :, None] < 0, CYAN, MAGENTA)
+    edge_rgb = np.array([10, 8, 30.0]) + dots[..., None] * lit
+    lip = np.abs(d) > 9.25
+    edge_rgb[:, lip] = np.where(d[lip, None] < 0, CYAN * 0.6 + 100, MAGENTA * 0.6 + 100)
+    rgb = np.where(edge[None, :, None], edge_rgb, rgb)
+    return to_image(rgb)
+
+
+def sky_elevation(v):
+    """Elevation in degrees at sky texture row v (0 = zenith, 1 = horizon):
+    the 45 degrees above the horizon get 70% of the rows, so stars keep
+    about the same density across and up where the camera looks."""
+    f = 1.0 - np.asarray(v, dtype=float)
+    return np.where(f < 0.7, f / 0.7 * 45.0, 45.0 + (f - 0.7) / 0.3 * 45.0)
+
+
+def tex_nightsky(w=256, h=256):
+    """A sky dome band: v=0 is the zenith, v=1 the horizon (which matches the
+    night fog). Six repeats go round the sky, so stars stay small. Deep blue
+    overhead and a magenta glow from the city along the horizon."""
+    rng = np.random.default_rng(4011)
+    v = (np.arange(h) + 0.5) / h
+    el = sky_elevation(v)
+    stops = [(0.0, FOG_NIGHT), (2.0, (96, 26, 110)), (5.0, (44, 22, 92)), (12.0, (14, 20, 70)),
+             (30.0, (6, 10, 40)), (90.0, (2, 3, 14))]
+    grad = np.zeros((h, 3))
+    for (e0, c0), (e1, c1) in zip(stops, stops[1:]):
+        m = (el >= e0) & (el <= e1)
+        t = (el[m] - e0) / (e1 - e0)
+        grad[m] = np.array(c0) + (np.array(c1) - np.array(c0)) * (t * t * (3 - 2 * t))[:, None]
+    rgb = np.repeat(grad[:, None, :], w, axis=1)
+    # A faint band of the galaxy, crossing the tile.
+    yy, xx = np.mgrid[0:h, 0:w]
+    band_c = 0.45 * h + 0.18 * h * np.sin(xx / w * 2 * math.pi)
+    band = np.exp(-((yy - band_c) / (0.10 * h)) ** 2) * (0.4 + 0.8 * fbm(w, h, 8, 4, 4013))
+    band *= np.clip((el[:, None] - 6.0) / 20.0, 0, 1)
+    rgb += band[..., None] * np.array([16, 24, 56])
+    # Stars, fading into the horizon glow.
+    n_stars = 1400
+    sx = rng.integers(0, w, n_stars)
+    sy = rng.integers(0, h, n_stars)
+    mag = rng.random(n_stars) ** 3
+    tint = rng.choice([0, 1, 2], n_stars, p=[0.7, 0.2, 0.1])
+    tints = np.array([[255, 255, 255], [170, 210, 255], [255, 200, 240]], dtype=float)
+    for x, y, m, t in zip(sx, sy, mag, tint):
+        fade = np.clip((el[y] - 3.0) / 12.0, 0, 1)
+        b = (0.30 + 0.70 * m) * fade
+        rgb[y, x] = rgb[y, x] * (1 - b) + tints[t] * b
+        if m > 0.8:    # the brightest get a small cross
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                xx2, yy2 = (x + dx) % w, min(max(y + dy, 0), h - 1)
+                rgb[yy2, xx2] = rgb[yy2, xx2] * (1 - b * 0.4) + tints[t] * b * 0.4
+    return to_image(rgb)
+
+
+def tex_skyline(w=256, h=64):
+    """The far city on the horizon: tower silhouettes with lit windows and
+    neon crowns, hazy since it is far off."""
+    rng = np.random.default_rng(4021)
+    rgb = np.zeros((h, w, 3))
+    a = np.zeros((h, w))
+    x = 0
+    neon = [(255, 50, 200), (60, 220, 255), (150, 70, 255), (255, 120, 230)]
+    windows = [np.array([120, 210, 255.0]), np.array([255, 120, 220.0]), np.array([255, 210, 150.0])]
+    while x < w:
+        bw = int(rng.integers(5, 14))
+        top = int(rng.integers(int(h * 0.08), int(h * 0.75)))
+        body = np.array([14, 16, 44], dtype=float) * (0.8 + 0.4 * rng.random())
+        x1 = min(x + bw, w)
+        a[top:, x:x1] = 1.0
+        rgb[top:, x:x1] = body
+        for yy in range(top + 2, h, 3):
+            for xx in range(x + 1, x1 - 1, 2):
+                if rng.random() < 0.34:
+                    c = windows[0] if rng.random() < 0.5 else windows[int(rng.integers(1, 3))]
+                    rgb[yy, xx] = c * (0.55 + 0.45 * rng.random())
+        c = np.array(neon[int(rng.integers(0, len(neon)))], dtype=float)
+        if rng.random() < 0.6:
+            rgb[top, x:x1] = c
+            if top + 1 < h:
+                rgb[top + 1, x:x1] = c * 0.6
+        else:
+            mx = (x + x1) // 2
+            a[max(top - 4, 0):top, mx] = 1.0
+            rgb[max(top - 4, 0):top, mx] = (40, 40, 80)
+            rgb[max(top - 5, 0), mx] = (255, 60, 90)
+            a[max(top - 5, 0), mx] = 1.0
+        x = x1 + int(rng.integers(0, 3))
+    v = (np.arange(h) / (h - 1))[:, None, None]
+    haze = np.clip((v - 0.45) / 0.55, 0, 1) * 0.65 + 0.15
+    rgb = rgb * (1 - haze) + np.array(FOG_NIGHT) * 1.6 * haze
+    return to_image(rgb, a * 255)
+
+
+def tex_moon(n=64):
+    """A crescent moon, pale gold."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    x = (xx - (n - 1) / 2) / (n * 0.42)
+    y = (yy - (n - 1) / 2) / (n * 0.42)
+    disc = np.clip((1.0 - np.hypot(x, y)) * n * 0.25, 0, 1)
+    bite = np.clip((1.0 - np.hypot(x - 0.42, y + 0.22) / 0.88) * n * 0.25, 0, 1)
+    a = np.clip(disc - bite, 0, 1)
+    lum = 0.88 + 0.12 * fbm(n, n, 4, 3, 4031)
+    rgb = lum[..., None] * np.array([255, 236, 160])
+    return to_image(rgb, a * 255)
+
+
+def tex_tower(n=64):
+    """A tower's facade: dark glass in a 16 x 16 grid of floors and bays,
+    a little under half the windows lit (cool white, cyan, warm or pink),
+    with a lit floor here and there."""
+    rng = np.random.default_rng(4051)
+    rgb = np.zeros((n, n, 3)) + np.array([10, 10, 28.0])
+    cols = [np.array(c, dtype=float) for c in ((200, 230, 255), (90, 210, 255), (255, 200, 140), (255, 110, 210))]
+    for r in range(16):
+        floor_lit = rng.random() < 0.12
+        rgb[r * 4 + 3, :] = (20, 20, 48)
+        for c in range(16):
+            if floor_lit or rng.random() < 0.42:
+                col = cols[int(rng.choice(4, p=[0.4, 0.3, 0.2, 0.1]))] * (0.45 + 0.55 * rng.random())
+            else:
+                col = np.array([20, 22, 50.0])
+            rgb[r * 4:r * 4 + 2, c * 4:c * 4 + 3] = col
+    return to_image(rgb)
+
+
+SIGN_WORDS = [("DREAMKARTS", CYAN), ("CHAO CHAO", MAGENTA), ("NEON 24H", np.array([150, 90, 255.0])),
+              ("SKYWAY", np.array([255, 120, 230.0]))]
+
+
+def tex_signs(w=128, h=128):
+    """Four neon signs, one per 32-pixel row, glowing on black panels."""
+    s = 4
+    img = Image.new("RGB", (w * s, h * s), (6, 4, 16))
+    font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), 22 * s)
+    glow = Image.new("RGB", img.size, (0, 0, 0))
+    gd, d = ImageDraw.Draw(glow), ImageDraw.Draw(img)
+    for i, (word, c) in enumerate(SIGN_WORDS):
+        cy = (i * 32 + 16) * s
+        col = tuple(int(x) for x in c)
+        bbox = d.textbbox((0, 0), word, font=font)
+        tw = bbox[2] - bbox[0]
+        scale_x = min(1.0, (w * s - 16 * s) / tw)
+        layer = Image.new("RGB", (tw + 8 * s, 32 * s), (0, 0, 0))
+        ImageDraw.Draw(layer).text((4 * s - bbox[0], 16 * s - (bbox[1] + bbox[3]) // 2), word, font=font, fill=col)
+        layer = layer.resize((int(layer.width * scale_x), layer.height), Image.Resampling.LANCZOS)
+        glow.paste(layer, ((w * s - layer.width) // 2, cy - 16 * s))
+        gd.rectangle([2 * s, cy - 14 * s, w * s - 2 * s, cy + 14 * s], outline=col, width=s)
+    halo = glow.filter(ImageFilter.GaussianBlur(4 * s))
+    out = np.clip(np.asarray(img, dtype=float) + np.asarray(halo, dtype=float) * 1.3 +
+                  np.asarray(glow, dtype=float), 0, 255).astype(np.uint8)
+    return Image.fromarray(out, "RGB").resize((w, h), Image.Resampling.LANCZOS)
+
+
+def tex_cloudsea(n=128):
+    """Tops of the cloud sea far below the road: puffy and tileable."""
+    base = fbm(n, n, 4, 5, 4041, gain=0.55)
+    puffs = np.clip((base - 0.38) * 2.4, 0, 1) ** 0.8
+    lum = 0.35 + 0.65 * puffs
+    return to_image(np.repeat((lum * 255)[..., None], 3, axis=2))
+
+
 def build(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     previews = out / "previews"
@@ -677,6 +883,13 @@ def build(out: Path) -> None:
         (Spec("logo", "ARGB4444", False, False), logo_img),
         (Spec("bigtext", "ARGB4444", False, False), tex_bigtext()),
         (Spec("stone", "RGB565", True, True), tex_stone()),
+        *[(Spec(f"skyroad_{i}", "RGB565", True, True), tex_skyroad(i)) for i in range(SKYROAD_PHASES)],
+        (Spec("nightsky", "RGB565", False, True), tex_nightsky()),
+        (Spec("skyline", "ARGB4444", False, True), tex_skyline()),
+        (Spec("moon", "ARGB4444", False, False), tex_moon()),
+        (Spec("cloudsea", "RGB565", True, True), tex_cloudsea()),
+        (Spec("tower", "RGB565", True, True), tex_tower()),
+        (Spec("signs", "RGB565", True, False), tex_signs()),
     ]
     pak = bytearray()
     table = []

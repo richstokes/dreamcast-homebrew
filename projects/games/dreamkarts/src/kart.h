@@ -14,7 +14,7 @@ enum {
     EV_BOOST = 1 << 6, EV_DASH = 1 << 7, EV_WALL = 1 << 8,
     EV_KART_BUMP = 1 << 9, EV_LAP = 1 << 10, EV_FINISH = 1 << 11,
     EV_CHARGE_JUMP = 1 << 12, EV_ROCKET = 1 << 13, EV_BURNOUT = 1 << 14,
-    EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17
+    EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17, EV_FALL = 1 << 18
 };
 
 typedef struct {
@@ -31,6 +31,7 @@ typedef struct {
     bool grounded;
     bool big_air;       /* launched off a jump ramp: floatier gravity */
     float air_t;
+    bool over_edge;     /* went off an open edge in the sky: falling */
     float gnd;          /* road height where the kart last touched down */
     float steer;        /* smoothed steering -1..1 */
     bool prev_drift_btn;
@@ -120,6 +121,7 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
 extern Kart karts[MAX_KARTS];
 extern int kart_count;
 extern int kart_jumps, kart_rescues;   /* ramp launches and gap rescues, all karts */
+extern int kart_falls;                 /* drops back on after falling off an open edge */
 extern const CCParams cc_params[CC_COUNT];
 
 void kart_place_on_grid(Kart *k, int slot);

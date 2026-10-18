@@ -63,7 +63,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[23];
+    static bool shot[28];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -115,6 +115,19 @@ static void capture_script(void) {
        !shot[15]) { shot[15] = true; take_shot("switchback"); }
     if(game.state == ST_RACE && track.id == TRACK_TEMPLE && fabsf(track_delta(track_seg_s(10), p->tp.s)) < 3.0f &&
        !shot[16]) { shot[16] = true; take_shot("descent"); }
+    /* Neon Skyway: the waves, up the loop, over the crossing and the
+       plunge. */
+    if(game.state == ST_RACE && track.in_sky && !p->grounded && p->pos.y < track_road_y(p->tp.s, 0) - 4.0f &&
+       !shot[27]) { shot[27] = true; take_shot("fall"); }
+    if(game.state == ST_RACE && track.id == TRACK_SKYWAY) {
+        static const struct { int seg; float at; const char *name; } sky_shots[4] = {
+            {2, 40.0f, "waves"}, {3, 70.0f, "loop"}, {4, 22.0f, "crossing"}, {4, 46.0f, "plunge"}};
+        for(int i = 0; i < 4; i++)
+            if(!shot[23 + i] && fabsf(track_delta(track_seg_s(sky_shots[i].seg) + sky_shots[i].at, p->tp.s)) < 3.0f) {
+                shot[23 + i] = true;
+                take_shot(sky_shots[i].name);
+            }
+    }
 #ifndef DK_HW
     /* Pause mid-race, switch the music off, grab the menu, switch it back on. */
     static float pause_t;
@@ -531,6 +544,12 @@ static void race_step(float dt, bool drive) {
 #endif
         if(ai) ai_drive(k, &in, dt);
         else player_input(hp, &in);
+#ifdef DK_AT_FALL
+        /* Steer the player off the open edge on the first lap's waves, to
+           check the drop back onto the road. */
+        if(hp == 0 && track.in_sky && k->lap == 1 && fabsf(track_delta(track_seg_s(2) + 60.0f, k->tp.s)) < 25.0f)
+            in.steer = 1.0f;
+#endif
         /* Humans can still wave once the CPU has taken over after the line. */
         if(hp >= 0) in.wave = wave_press[hp];
         kart_update(k, &in, dt, drive);
@@ -1133,8 +1152,8 @@ int main(int argc, char **argv) {
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
                 printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
                 audio_autotest_report();
-                printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d\n", track.name, kart_jumps,
-                       at.jumps, kart_rescues);
+                printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d, falls %d\n", track.name,
+                       kart_jumps, at.jumps, kart_rescues, kart_falls);
                 printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, cpu avg %.2fms max %.2fms, "
                        "vertex buffer peak %lu KiB\n", (double)at.min_fps, at.missed, at.frames,
                        (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)), (double)at.cpu_max,

@@ -17,7 +17,7 @@
 
 Kart karts[MAX_KARTS];
 int kart_count;
-int kart_jumps, kart_rescues;
+int kart_jumps, kart_rescues, kart_falls;
 
 const KartColour kart_colours[COLOUR_COUNT] = {
     {"CLASSIC", 0, 0, 0, 0xff8cc8f0},                          /* red kart, sky-blue Chao */
@@ -137,7 +137,7 @@ void kart_place_on_grid(Kart *k, int slot) {
     k->name = name;
     k->cpu = cpu; k->skill = skill; k->lane = lane;
     k->pos = track_point(s, d);
-    k->pos.y = k->gnd = track_height(s);
+    k->pos.y = k->gnd = track_road_y(s, d);
     V3 t = track_tangent(s);
     k->heading = atan2f(t.x, t.z);
     k->grounded = true;
@@ -221,7 +221,7 @@ static void rescue_from_gap(Kart *k) {
     float s = track_wrap(track.jump.cross + track.jump.land + 3.0f);
     float d = clampf(k->tp.d, -6.0f, 6.0f);
     k->pos = track_point(s, d);
-    k->pos.y = k->gnd = track_height(s);
+    k->pos.y = k->gnd = track_road_y(s, d);
     V3 t = track_tangent(s);
     k->heading = atan2f(t.x, t.z);
     k->speed = fmaxf(k->speed * 0.5f, 8.0f);
@@ -234,11 +234,41 @@ static void rescue_from_gap(Kart *k) {
     kart_rescues++;
 }
 
+/* Fell off an open edge in the sky: dropped back onto the road where it
+   went over, from a few metres up, at a standstill. */
+#define FALL_DEPTH 10.0f     /* metres below the road before the rescue */
+static void rescue_from_fall(Kart *k) {
+    if(k->drift != DRIFT_NONE) end_drift(k, false);
+    float s = k->tp.s, d = clampf(k->tp.d, -4.0f, 4.0f);
+    k->pos = track_point(s, d);
+    k->gnd = track_road_y(s, d);
+    k->pos.y = k->gnd + 2.5f;
+    V3 t = track_tangent(s);
+    k->heading = atan2f(t.x, t.z);
+    k->speed = 0;
+    k->vel = v3(0, 0, 0);
+    k->vy = 0;
+    k->grounded = false;
+    k->big_air = false;
+    k->air_t = 0;
+    k->boost_t = 0;
+    k->over_edge = false;
+    track_locate(k->pos, k->tp.idx, &k->tp);
+    kart_falls++;
+}
+
 /* Road height, ramp launches, flight and landings. When grounded the kart
    rides the road and vy tracks its slope, so leaving an edge (or hopping)
-   carries the climb rate into the air. */
+   carries the climb rate into the air. Off an open edge in the sky there
+   is no ground at all. */
 static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
-    float ground = track_height(k->tp.s);
+    bool no_road = track_off_edge(&k->tp);
+    float road = track_road_y(k->tp.s, k->tp.d);
+    float ground = no_road ? -1e4f : road;
+    if(no_road && !k->over_edge && k->pos.y < road + 0.5f && !(track.has_jump && track_in_gap(k->tp.s))) {
+        k->over_edge = true;
+        k->events |= EV_FALL;
+    }
     if(track.has_jump && k->speed > 0) {
         float a0 = track_jump_pos(prev_s), a1 = track_jump_pos(k->tp.s);
         float lip_h = track.jump.lip_h;
@@ -283,15 +313,24 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
     if(k == &karts[game.player] && !k->big_air && k->pos.y - ground > 0.5f)
         printf("DK AIR s %.0f up %.2f t %.2f spd %.1f\n", (double)k->tp.s, (double)(k->pos.y - ground), (double)k->air_t, (double)k->speed);
 #endif
+    float prev_y = k->pos.y;
     k->pos.y += k->vy * dt;
+    if(track.in_sky && k->pos.y < road - FALL_DEPTH) {
+        if(track.has_jump && track_in_gap(k->tp.s)) rescue_from_gap(k);
+        else rescue_from_fall(k);
+        return;
+    }
     if(k->pos.y > ground) return;
+    /* Already under the road (fell off and drifted back below it). */
+    if(track.in_sky && prev_y < ground - 0.3f) return;
     if(track.has_jump && track_in_gap(k->tp.s)) {
         rescue_from_gap(k);
         k->events |= EV_LAND;
         k->land_v = 3.0f;
         return;
     }
-    /* Impact relative to the road, which may itself be falling away. */
+    /* Impact relative to the road, which may itself be falling away (the
+       road's sideways slope on a bank is left out). */
     float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
     float road_vy = slope * (k->vel.x * k->tp.tangent.x + k->vel.z * k->tp.tangent.z);
     float impact = road_vy - k->vy;
@@ -311,6 +350,13 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float dt) {
     else if(k->drift == DRIFT_PENDING) {
         k->drift = DRIFT_NONE;
     }
+}
+
+/* Body roll that sits the kart flat on a banked road. */
+static float bank_roll(const Kart *k) {
+    float b = track_bank(k->tp.s);
+    if(b == 0.0f) return 0.0f;
+    return atanf(b) * vdot(heading_right(k->heading), k->tp.right);
 }
 
 /* An online rival: its physics ran on another console. Take its state from
@@ -338,6 +384,7 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
                                                 : steer * 0.10f * clampf(spd / 8.0f, 0, 1);
     k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -steer * 0.05f * clampf(spd / top, 0, 1);
+    if(grounded) lean += bank_roll(k);
     k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
     float pitch_t = k->boost_t > 0 ? -0.05f : 0;
     if(grounded) {
@@ -519,7 +566,8 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     float prev_s = k->tp.s;
     track_locate(k->pos, k->tp.idx, &k->tp);
     float lim_out = track_wall_out_at(&k->tp) - KART_RADIUS, lim_in = -(track_wall_in_at(&k->tp) - KART_RADIUS);
-    if(k->tp.d > lim_out || k->tp.d < lim_in) {
+    bool below = track.in_sky && k->pos.y < track_road_y(k->tp.s, k->tp.d) - 1.0f;
+    if(!below && (k->tp.d > lim_out || k->tp.d < lim_in)) {
         float over = k->tp.d > lim_out ? k->tp.d - lim_out : k->tp.d - lim_in;
         V3 n = k->tp.d > 0 ? k->tp.right : vscale(k->tp.right, -1);  /* points into the wall */
         k->pos.x -= k->tp.right.x * over;
@@ -575,6 +623,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         yaw_target = k->steer * 0.10f * clampf(spd / 8.0f, 0, 1);
     k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -k->steer * 0.05f * clampf(spd / top, 0, 1);
+    if(k->grounded) lean += bank_roll(k);
     k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
     float pitch_t = (in->accel && k->speed < top * 0.7f && can_drive ? -0.035f : 0) +
                     (in->brake && k->speed > 1 ? 0.05f : 0) + (k->boost_t > 0 ? -0.05f : 0);
