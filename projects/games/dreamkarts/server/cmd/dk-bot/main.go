@@ -4,6 +4,7 @@
 //	dk-bot -name BOT1 -lobby 0         join lobby 0 and race when a race starts
 //	dk-bot -name BOT1 -lobby 0 -start  also start races as soon as two are in
 //	dk-bot -name BOT1 -lobby 0 -wave   also wave every few seconds
+//	dk-bot -lobby 9 -spectate          watch lobby 9 and log its races
 //
 // A bot's kart has no physics: it sits on the grid and reports progress at
 // a steady pace so it finishes a 3-lap race in about -race seconds. Paths
@@ -36,13 +37,14 @@ var (
 	duration = flag.Duration("for", 0, "quit after this long (0 = forever)")
 	path     = flag.String("path", "", "replay kart states from this file (lines: ms x y z heading speed lap dist)")
 	wave     = flag.Bool("wave", false, "wave for 1.7 s every 5 s in the countdown and race")
+	spectate = flag.Bool("spectate", false, "watch the lobby instead of racing")
 )
 
 type pathPoint struct {
-	ms                  int
-	x, y, z, hd, spd    float64
-	lap                 int
-	dist                float64
+	ms               int
+	x, y, z, hd, spd float64
+	lap              int
+	dist             float64
 }
 
 func main() {
@@ -80,6 +82,7 @@ func main() {
 
 	buf := make([]byte, 1500)
 	welcomed, joined := false, false
+	racePackets := 0
 	var nonce byte
 	var state, raceID, laps byte = 0, 0, 3
 	var green time.Time
@@ -96,6 +99,11 @@ func main() {
 					log.Printf("welcome: status %d latest %d min %d", b[8], binary.LittleEndian.Uint16(b[9:]), binary.LittleEndian.Uint16(b[11:]))
 				}
 				welcomed = true
+			case lobby.TypeRace:
+				racePackets++
+				if *spectate && racePackets%120 == 1 && n >= 10 {
+					log.Printf("race %d: %d karts", b[8], b[9])
+				}
 			case lobby.TypeReject:
 				log.Fatalf("rejected: reason %d", b[8])
 			case lobby.TypeLobby:
@@ -107,7 +115,10 @@ func main() {
 				laps = b[13]
 				t := int32(binary.LittleEndian.Uint32(b[16:]))
 				if ns != state {
-					log.Printf("lobby state %d -> %d (race %d, %d players)", state, ns, rid, b[21])
+					log.Printf("lobby state %d -> %d (race %d, track %d, %d players)", state, ns, rid, b[12], b[21])
+					if *spectate && ns == lobby.StateResults {
+						logPlaces(b)
+					}
 				}
 				if ns == lobby.StateCountdown || ns == lobby.StateRacing {
 					green = time.Now().Add(time.Duration(t) * time.Millisecond)
@@ -134,8 +145,17 @@ func main() {
 			}
 		case !joined:
 			if now.Sub(lastHello) > 500*time.Millisecond {
-				send(lobby.TypeJoin, []byte{byte(*lobbyID)})
+				join := []byte{byte(*lobbyID)}
+				if *spectate {
+					join = append(join, lobby.JoinSpectate)
+				}
+				send(lobby.TypeJoin, join)
 				lastHello = now
+			}
+		case *spectate:
+			if now.Sub(lastWish) > time.Second {
+				send(lobby.TypePing, nil)
+				lastWish = now
 			}
 		default:
 			if now.Sub(lastWish) > 250*time.Millisecond {
@@ -149,6 +169,19 @@ func main() {
 		}
 	}
 	send(lobby.TypeLeave, nil)
+}
+
+// logPlaces prints a LOBBY packet's players by their last place.
+func logPlaces(b []byte) {
+	n := int(b[21])
+	for place := byte(1); place <= lobby.MaxPlayers; place++ {
+		for i := 0; i < n && 22+i*20+20 <= len(b); i++ {
+			e := b[22+i*20:]
+			if e[18] == place {
+				log.Printf("  %d. %s (%d points)", place, lobby.CleanName(e[1:12]), binary.LittleEndian.Uint16(e[16:]))
+			}
+		}
+	}
 }
 
 // kartBody reports progress for race time t (negative before the green).

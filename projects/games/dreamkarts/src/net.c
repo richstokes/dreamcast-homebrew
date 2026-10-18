@@ -36,6 +36,7 @@ static const char *message = "";
 static NetLobbyInfo lobbies[NET_LOBBIES];
 static NetLobby lobby;
 static int join_id = -1;
+static bool spectating;
 static int wish_colour, wish_track, wish_laps = 3, wish_cc = 1;
 static uint8_t start_nonce;
 static NetKart my_kart;
@@ -160,8 +161,18 @@ const NetPlayer *net_me(void) {
 void net_join(int id) {
     if(state != NET_BROWSE) return;
     join_id = id;
+    spectating = false;
     state = NET_JOINING;
     last_join = 0;
+}
+
+void net_spectate(int id) {
+    net_join(id);
+    spectating = state == NET_JOINING;
+}
+
+bool net_spectating(void) {
+    return spectating && (state == NET_JOINING || state == NET_LOBBY);
 }
 
 void net_leave(void) {
@@ -193,7 +204,7 @@ void net_set_kart(const NetKart *k, int race_id) {
     have_kart = true;
 }
 
-static void encode_kart(uint8_t *b, const NetKart *k) {
+void net_encode_kart(uint8_t *b, const NetKart *k) {
     b[0] = k->flags;
     put16(b + 1, (uint16_t)(int16_t)clampf(k->x * 16.0f, -32767, 32767));
     put16(b + 3, (uint16_t)(int16_t)clampf(k->y * 64.0f, -32767, 32767));
@@ -281,10 +292,15 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
                 lobbies[i].track = e[2];
                 copy_name(lobbies[i].leader, e + 3);
             }
+            /* Build 4 servers add watchers and flags for every lobby. */
+            for(int i = 0, o = 9 + b[8] * 14; i < b[8] && i < NET_LOBBIES && o + i * 2 + 2 <= n; i++) {
+                lobbies[i].watchers = b[o + i * 2];
+                lobbies[i].flags = b[o + i * 2 + 1];
+            }
             break;
         case 67: { /* LOBBY */
             if(n < 22 || (state != NET_JOINING && state != NET_LOBBY)) return;
-            if(state == NET_JOINING && b[8] != join_id) return;
+            if(state == NET_JOINING && (b[8] != join_id || (b[10] == NET_SPECTATOR) != spectating)) return;
             NetLobby *l = &lobby;
             int old_race = l->race_id;
             l->id = b[8];
@@ -313,6 +329,9 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
                 p->place = e[18];
                 p->grid = e[19];
             }
+            int tail = 22 + count * 20;
+            l->watchers = tail + 2 <= n ? b[tail] : 0;
+            l->flags = tail + 2 <= n ? b[tail + 1] : 0;
             if(l->race_id != old_race) memset(hist_n, 0, sizeof(hist_n));
             state = NET_LOBBY;
             message = "";
@@ -398,19 +417,20 @@ void net_update(void) {
             break;
         case NET_JOINING:
             if(now - last_join >= 500) {
-                uint8_t id = (uint8_t)join_id;
-                send_packet(3, &id, 1);
+                uint8_t b[2] = {(uint8_t)join_id, spectating ? 1 : 0};   /* bit0: spectate */
+                send_packet(3, b, 2);
                 last_join = now;
             }
             break;
         case NET_LOBBY: {
+            if(spectating) break;   /* watchers only ping */
             const NetPlayer *me = net_me();
             bool racing = me && (me->flags & NPF_RACING) && lobby.state != NLS_WAITING;
             if(racing && have_kart && my_race_id == lobby.race_id) {
                 if(now - last_kart >= 83) {
                     uint8_t b[26];
                     b[0] = (uint8_t)lobby.race_id;
-                    encode_kart(b + 1, &my_kart);
+                    net_encode_kart(b + 1, &my_kart);
                     put32(b + 22, (uint32_t)now);
                     send_packet(6, b, 26);
                     last_kart = now;
@@ -427,7 +447,7 @@ void net_update(void) {
     }
     if(now - last_ping >= 1000 && state != NET_HELLO) {
         last_ping = now;
-        if(state == NET_JOINING) send_packet(7, NULL, 0);
+        if(state == NET_JOINING || (state == NET_LOBBY && spectating)) send_packet(7, NULL, 0);
     }
 }
 

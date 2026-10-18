@@ -3,6 +3,8 @@
 #define DK_ONLINE_H
 
 #include "dk.h"
+#include "kart.h"
+#include "net.h"
 
 void online_init(void);
 /* From the main menu: name entry, then connect. */
@@ -18,6 +20,8 @@ float online_countdown(void);
 float online_race_time(void);
 /* Remote karts from the network, and ours out to it. */
 void online_remote_karts(float dt);
+/* A kart as it goes over the wire. */
+void online_pack_kart(const Kart *k, NetKart *out);
 /* Mid-race Start opens a leave prompt; true when the player left. */
 bool online_race_input(void);
 void online_draw_race(void);

@@ -115,6 +115,21 @@ VMU, a full one or an unreadable file the game just starts from `CHAO`.
   gold, silver and bronze trophies for the top three.
 - After the results everyone is back in the same lobby. B leaves it for the
   lobby browser.
+- **Spectating:** press Y on any lobby in the browser (full or not) and Y
+  again to confirm, and you watch it instead of racing. Any number can watch
+  a lobby. You follow it in and out of every race, with a TV director
+  cutting between trackside cameras placed round each track (on the outside
+  of every bend, at the end of each long straight, and beside the run to
+  the line for every finish), the chase camera, a helicopter circling
+  behind, a camera on a kart's nose looking back at the pack and a blimp
+  overhead. It mostly follows the leader, often the closest fight for a
+  place. The overlay shows the standings with gaps, a live map, the kart
+  being followed and name tags. X or the triggers pick a camera (AUTO lets
+  the director choose), left/right pick a kart (AUTO, then by place), Y hides
+  the overlay for a clean picture, and Start leaves. Made for streaming.
+- **Demo lobby:** lobby 10 always has six bots racing in it, replaying real
+  races driven by the game's CPUs (each with its own driving style), on a
+  new track after every race. You can watch it but not join it.
 - If the server is running a newer version, the browser says a new version
   is out; if your version is too old to play, the game says so and asks you
   to download the latest.
@@ -172,7 +187,9 @@ the online name.
 ## Tests and captures
 
 - `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate and per-phase CPU time every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap) `-DDK_AT_TRACK=2` for Palm Harbour `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest) or `-DDK_AT_TRACK=4` for Neon Skyway (`-DDK_AT_FALL` steers your kart off the waves' open edge on the first lap, so the summary counts falls; that run fails on time by design), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, `-DDK_HOP_TRACE` to log every landing under 0.2 s after leaving the road (drift hops included; on hills a stream of them every few metres means karts are stuttering over the road instead of riding it), `-DDK_VOICE_TRACE` to log each Chao voice line (which clip, whose colour, volume and pitch), or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
-- **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 10, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results.
+- **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 9, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results. Add `-DDK_AT_SPECTATE` to watch lobby 10 (the demo lobby) instead: it presses Y twice on the browser, steps through every camera during the race (a screenshot of each on the capture build) and passes once it has seen a race's results and the next race's countdown.
+- **Spectator cameras:** `make VARIANT=capture dreamkarts-capture.elf EXTRA_CFLAGS=-DDK_AT_CAMTOUR` then `uv run tools/capture.py --out captures/tv --elf dreamkarts-capture.elf` screenshots every trackside spectator camera on every track (`tv-<track>-<camera>.png`) with the karts bunched in the middle of the stretch it films.
+- **Demo races:** `make VARIANT=record dreamkarts-record.elf EXTRA_CFLAGS=-DDK_RECORD` records six all-CPU 150cc races on every track (each CPU given a fresh personality, no rubber-banding) as fast as the CPU can step them, printing every kart 12 times a second; `tools/record_demo.py` turns the log into the server's `server/demo/races/` (see [server/README.md](server/README.md#demo-lobby)).
 - **VMU screens:** put `DK_SHOW_VMU=1` in front of `./run-flycast.sh` or `uv run tools/capture.py` to show the VMU screens in the corner of Flycast's window, so captures include them.
 - **Saved name:** `EXTRA_CFLAGS="-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0"` opens the name entry, checks the VMU gave back `QA0` (saved by the previous boot's `-DDK_AT_NAME=QA0`), then saves `QA1` the way Start does. Add `-DDK_AT_NAME_CORRUPT` to overwrite the file with junk first and check the game falls back to `CHAO`. These write to Flycast's real A1 card, so delete the `DREAMKARTS` file afterwards if you don't want the test name kept.
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown (with a wave on the grid), GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) the cheer if your kart wins, and the results. It screenshots the Flycast window at each step without taking over the screen.
@@ -260,6 +277,7 @@ which Git ignores.
 | `src/rumble.c` | Jump Pack vibration effects |
 | `src/main.c` | Race flow and cameras |
 | `src/online.c` | Online menus, lobby rooms and online races |
+| `src/spectate.c` | Spectating: trackside cameras, the camera director and the overlay |
 | `src/save.c` | The online name saved to a VMU, read and written on a worker thread |
 | `src/vmuscreen.c` | The VMU screens: logo, countdown, place, laps and results |
 | `src/net.c`, `src/net_version.h` | Online protocol client and the version numbers the server checks |

@@ -25,5 +25,12 @@ extern bool world_night;
 extern uint16_t world_light[3];
 /* The neon colour across the road at lateral offset d (cyan to magenta). */
 uint32_t world_lane_color(float d);
+/* Terrain height under (x, z), ignoring the road and props (the sky
+   track has none: a large negative value). */
+float world_ground_y(float x, float z);
+/* Neon gates over the road (Neon Skyway): their lap distances. */
+#define WORLD_MAX_GATES 8
+extern int world_gates;
+extern float world_gate_s[WORLD_MAX_GATES];
 
 #endif

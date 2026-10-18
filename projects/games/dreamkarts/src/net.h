@@ -16,8 +16,12 @@ enum { NREJ_TOO_OLD = 1, NREJ_FULL, NREJ_LOBBY_FULL, NREJ_BAD_NAME, NREJ_SESSION
 enum { NPF_LEADER = 1, NPF_RACING = 2, NPF_FINISHED = 4 };
 enum { NKF_FINISHED = 1, NKF_GROUNDED = 2, NKF_BOOST = 4, NKF_DRIFT = 8, NKF_DRIFT_RIGHT = 16, NKF_WAVE = 32 };
 
+enum { NLF_DEMO = 1 };   /* lobby flags: the server's bots race here (watch only) */
+#define NET_SPECTATOR 255  /* NetLobby.you while watching */
+
 typedef struct {
     uint8_t players, state, track;
+    uint8_t watchers, flags;
     char leader[NET_NAME_LEN];
 } NetLobbyInfo;
 
@@ -34,6 +38,7 @@ typedef struct {
     int track, laps, cc, race_id;
     uint64_t green_ms;      /* local timer_ms of the green light */
     uint8_t nonce;
+    int watchers, flags;
     int count;
     NetPlayer players[NET_MAX_PLAYERS];
 } NetLobby;
@@ -62,6 +67,9 @@ int net_latest_build(void);
 void net_want_list(bool want);
 const NetLobbyInfo *net_lobbies(void);
 void net_join(int id);
+/* Watch lobby id instead: no seat, no kart, full or not. */
+void net_spectate(int id);
+bool net_spectating(void);
 void net_leave(void);
 
 /* Inside a lobby. */
@@ -76,6 +84,9 @@ void net_press_start(void);
    interpolated to local time at_ms. */
 void net_set_kart(const NetKart *k, int race_id);
 bool net_remote_kart(int slot, uint64_t at_ms, NetKart *out);
+/* The 21 wire bytes of a kart (KART offsets 19-39: flags to race time). */
+#define NET_KART_BYTES 21
+void net_encode_kart(uint8_t *b, const NetKart *k);
 uint64_t net_now(void);
 /* This session's token (set once the link is up), and a name change before
    the server has said hello back (test builds). */

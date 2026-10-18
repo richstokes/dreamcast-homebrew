@@ -10,15 +10,15 @@ import (
 
 // Timing.
 const (
-	PlayerTimeout   = 10 * time.Second
-	CountdownLen    = 4 * time.Second
-	FinishGrace     = 30 * time.Second // after the first finisher
-	MaxRaceLen      = 15 * time.Minute // safety net
-	ResultsLen      = 8 * time.Second
-	LobbyInterval   = 250 * time.Millisecond
-	RaceInterval    = 83 * time.Millisecond
-	BrowseTimeout   = 30 * time.Second // a console on the lobby list
-	MaxSessions     = 300
+	PlayerTimeout    = 10 * time.Second
+	CountdownLen     = 4 * time.Second
+	FinishGrace      = 30 * time.Second // after the first finisher
+	MaxRaceLen       = 15 * time.Minute // safety net
+	ResultsLen       = 8 * time.Second
+	LobbyInterval    = 250 * time.Millisecond
+	RaceInterval     = 83 * time.Millisecond
+	BrowseTimeout    = 30 * time.Second // a console on the lobby list
+	MaxSessions      = 300
 	maxPacketsPerSec = 80
 )
 
@@ -29,10 +29,10 @@ var PlacePoints = [MaxPlayers]uint16{10, 8, 6, 4, 2, 1}
 var validLaps = map[byte]bool{3: true, 5: true, 10: true}
 
 const (
-	maxTrack  = 16 // tracks are validated loosely; the console clamps
-	ccCount   = 3
-	colours   = 8
-	noLobby   = -1
+	maxTrack = 16 // tracks are validated loosely; the console clamps
+	ccCount  = 3
+	colours  = 8
+	noLobby  = -1
 )
 
 // Player is one console session.
@@ -47,20 +47,23 @@ type Player struct {
 	LastSeen time.Time
 	PingMs   uint16
 
+	Spectating bool // watching Lobby, not in a slot
+	Bot        bool // a demo-lobby bot: no address, never times out
+
 	Colour     byte
 	Points     uint16
 	LastPlace  byte
 	StartNonce byte // newest seen from this console
 
 	// Race state.
-	Racing    bool
-	Grid      byte
-	Kart      [KartLen]byte
-	KartAt    time.Time
-	HasKart   bool
-	Finished  bool
-	FinishMs  uint32
-	Progress  float64 // laps * 100000 + lap distance, for unfinished places
+	Racing   bool
+	Grid     byte
+	Kart     [KartLen]byte
+	KartAt   time.Time
+	HasKart  bool
+	Finished bool
+	FinishMs uint32
+	Progress float64 // laps * 100000 + lap distance, for unfinished places
 
 	rateWindow time.Time
 	rateCount  int
@@ -70,7 +73,9 @@ type Player struct {
 type Lobby struct {
 	ID        int
 	Slots     [MaxPlayers]*Player
-	Leader    int // slot, -1 when empty
+	Watchers  []*Player // spectators, any number (bounded by MaxSessions)
+	Demo      bool      // the bots' demo lobby
+	Leader    int       // slot, -1 when empty
 	Track     byte
 	Laps      byte
 	CC        byte
@@ -95,13 +100,18 @@ type Server struct {
 	epoch       time.Time
 	send        func(netip.AddrPort, []byte)
 	lastRace    time.Time
+	demo        *demoLobby
 	Logf        func(string, ...any)
 }
 
 // New makes a server that writes packets through send.
 func New(send func(netip.AddrPort, []byte), now time.Time) *Server {
-	s := &Server{Latest: Build, Min: MinBuild, players: map[uint32]*Player{}, epoch: now, send: send,
-		Logf: log.Printf}
+	s := &Server{Latest: Build, Min: MinBuild, players: map[uint32]*Player{}, epoch: now, Logf: log.Printf}
+	s.send = func(to netip.AddrPort, b []byte) {
+		if to.IsValid() { // bots have no address
+			send(to, b)
+		}
+	}
 	for i := range s.Lobbies {
 		s.Lobbies[i] = &Lobby{ID: i, Leader: -1, Track: 0, Laps: 3, CC: 1}
 	}
@@ -141,7 +151,9 @@ func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
 	case TypeList:
 		s.sendLobbies(p, now)
 	case TypeJoin:
-		if len(body) >= 1 {
+		if len(body) >= 2 && body[1]&JoinSpectate != 0 {
+			s.spectate(p, int(body[0]), now)
+		} else if len(body) >= 1 {
 			s.join(p, int(body[0]), now)
 		}
 	case TypeLeave:
@@ -237,7 +249,24 @@ func (s *Server) sendLobbies(p *Player, now time.Time) {
 		}
 		b = appendName(b, leader)
 	}
+	for _, l := range s.Lobbies {
+		b = append(b, l.watcherCount(), l.flags())
+	}
 	s.send(p.Addr, b)
+}
+
+func (l *Lobby) watcherCount() byte {
+	if len(l.Watchers) > 255 {
+		return 255
+	}
+	return byte(len(l.Watchers))
+}
+
+func (l *Lobby) flags() byte {
+	if l.Demo {
+		return LobbyDemo
+	}
+	return 0
 }
 
 func (l *Lobby) count() int {
@@ -263,11 +292,15 @@ func (s *Server) join(p *Player, id int, now time.Time) {
 	if id < 0 || id >= MaxLobbies {
 		return
 	}
-	if p.Lobby == id {
+	if p.Lobby == id && !p.Spectating {
 		s.sendLobby(s.Lobbies[id], p, now) // a repeated JOIN gets its answer again
 		return
 	}
 	l := s.Lobbies[id]
+	if l.Demo && !p.Bot {
+		s.reject(p.Addr, RejectLobbyFul, now)
+		return
+	}
 	slot := -1
 	for i, q := range l.Slots {
 		if q == nil {
@@ -302,11 +335,46 @@ func (s *Server) join(p *Player, id int, now time.Time) {
 	s.sendLobby(l, p, now)
 }
 
+// spectate puts p in lobby id's audience: it gets the lobby and race state
+// but has no slot, kart or say in the race. Any number can watch, full or
+// not, including the demo lobby.
+func (s *Server) spectate(p *Player, id int, now time.Time) {
+	if id < 0 || id >= MaxLobbies {
+		return
+	}
+	l := s.Lobbies[id]
+	if p.Lobby == id && p.Spectating {
+		s.sendLobby(l, p, now)
+		return
+	}
+	if p.Lobby != noLobby {
+		s.leave(p, now)
+	}
+	p.Lobby, p.Slot, p.Spectating = id, -1, true
+	p.Racing, p.Finished, p.HasKart = false, false, false
+	l.Watchers = append(l.Watchers, p)
+	l.dirty = true
+	s.Logf("%q is watching lobby %d (%d watching)", p.Name, id, len(l.Watchers))
+	s.sendLobby(l, p, now)
+}
+
 func (s *Server) leave(p *Player, now time.Time) {
 	if p.Lobby == noLobby {
 		return
 	}
 	l := s.Lobbies[p.Lobby]
+	if p.Spectating {
+		for i, q := range l.Watchers {
+			if q == p {
+				l.Watchers = append(l.Watchers[:i], l.Watchers[i+1:]...)
+				break
+			}
+		}
+		p.Lobby, p.Slot, p.Spectating = noLobby, -1, false
+		l.dirty = true
+		s.Logf("%q stopped watching lobby %d", p.Name, l.ID)
+		return
+	}
 	l.Slots[p.Slot] = nil
 	s.Logf("%q left lobby %d", p.Name, l.ID)
 	if l.Leader == p.Slot {
@@ -324,13 +392,13 @@ func (s *Server) leave(p *Player, now time.Time) {
 	}
 	p.Lobby, p.Slot, p.Racing = noLobby, -1, false
 	if l.count() == 0 {
-		*l = Lobby{ID: l.ID, Leader: -1, Laps: 3, CC: 1, Track: l.Track}
+		*l = Lobby{ID: l.ID, Leader: -1, Laps: 3, CC: 1, Track: l.Track, Watchers: l.Watchers, Demo: l.Demo}
 	}
 	l.dirty = true
 }
 
 func (s *Server) wish(p *Player, b []byte, now time.Time) {
-	if p.Lobby == noLobby {
+	if p.Lobby == noLobby || p.Spectating {
 		return
 	}
 	l := s.Lobbies[p.Lobby]
@@ -399,18 +467,27 @@ func (s *Server) kart(p *Player, b []byte, now time.Time) {
 		return
 	}
 	l := s.Lobbies[p.Lobby]
-	if b[0] != l.RaceID || (l.State != StateCountdown && l.State != StateRacing && l.State != StateResults) {
+	if b[0] != l.RaceID {
 		return
 	}
-	copy(p.Kart[:], b[1:1+KartLen])
-	p.KartAt, p.HasKart = now, true
-	lap := b[14]
-	dist := binary.LittleEndian.Uint16(b[16:])
-	raceMs := binary.LittleEndian.Uint32(b[18:])
+	s.takeKart(l, p, b[1:1+KartLen], now, now)
+}
+
+// takeKart records a racer's kart (the 21 relayed bytes, flags to race
+// time) as it was at time at.
+func (s *Server) takeKart(l *Lobby, p *Player, k []byte, at, now time.Time) {
+	if l.State != StateCountdown && l.State != StateRacing && l.State != StateResults {
+		return
+	}
+	copy(p.Kart[:], k[:KartLen])
+	p.KartAt, p.HasKart = at, true
+	lap := k[13]
+	dist := binary.LittleEndian.Uint16(k[15:])
+	raceMs := binary.LittleEndian.Uint32(k[17:])
 	if !p.Finished {
 		p.Progress = float64(lap)*100000 + float64(dist)
 	}
-	if b[1]&KartFinished != 0 && !p.Finished && l.State == StateRacing {
+	if k[0]&KartFinished != 0 && !p.Finished && l.State == StateRacing {
 		p.Finished, p.FinishMs = true, raceMs
 		if l.FirstFin.IsZero() {
 			l.FirstFin = now
@@ -433,6 +510,7 @@ func (s *Server) Tick(now time.Time) {
 			s.Logf("%q timed out", p.Name)
 		}
 	}
+	s.tickDemo(now)
 	for _, l := range s.Lobbies {
 		s.advance(l, now)
 		if l.dirty || now.Sub(l.lastSent) >= LobbyInterval {
@@ -440,6 +518,9 @@ func (s *Server) Tick(now time.Time) {
 				if p != nil {
 					s.sendLobby(l, p, now)
 				}
+			}
+			for _, p := range l.Watchers {
+				s.sendLobby(l, p, now)
 			}
 			l.lastSent, l.dirty = now, false
 		}
@@ -524,7 +605,11 @@ func (s *Server) toWaiting(l *Lobby) {
 
 func (s *Server) sendLobby(l *Lobby, p *Player, now time.Time) {
 	b := serverHeader(make([]byte, 0, 160), TypeLobby, s.ms(now))
-	b = append(b, byte(l.ID), l.State, byte(p.Slot), byte(int8(l.Leader)), l.Track, l.Laps, l.CC, l.RaceID)
+	you := byte(p.Slot)
+	if p.Spectating {
+		you = SpectatorSlot
+	}
+	b = append(b, byte(l.ID), l.State, you, byte(int8(l.Leader)), l.Track, l.Laps, l.CC, l.RaceID)
 	var t int32
 	if l.State == StateCountdown || l.State == StateRacing {
 		t = int32(l.Green.Sub(now) / time.Millisecond)
@@ -552,6 +637,7 @@ func (s *Server) sendLobby(l *Lobby, p *Player, now time.Time) {
 		b = binary.LittleEndian.AppendUint16(b, q.Points)
 		b = append(b, q.LastPlace, q.Grid)
 	}
+	b = append(b, l.watcherCount(), l.flags())
 	s.send(p.Addr, b)
 }
 
@@ -581,5 +667,8 @@ func (s *Server) sendRace(l *Lobby, now time.Time) {
 		if p != nil {
 			s.send(p.Addr, b)
 		}
+	}
+	for _, p := range l.Watchers {
+		s.send(p.Addr, b)
 	}
 }

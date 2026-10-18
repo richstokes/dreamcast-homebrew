@@ -109,8 +109,9 @@ const CCParams cc_params[CC_COUNT] = {
 
 float kart_top_speed(const Kart *k) {
     float top = cc_params[game.cc].top_speed;
-    if(k->cpu) {
-        /* Rubber-band against the leading human. */
+    if(k->cpu && !karts[game.pl[0].kart].cpu) {
+        /* Rubber-band against the leading human (none in a recorded
+           all-CPU demo race). */
         float lead = karts[game.pl[0].kart].progress;
         if(game.num_players > 1) lead = fmaxf(lead, karts[game.pl[1].kart].progress);
         float behind = lead - k->progress;
@@ -700,7 +701,7 @@ void karts_collide(void) {
    sways about the kart's lane and how many times a lap (a whole number,
    so it meets itself at the line), how far (m) before or after the others
    it hops into a drift, and its odds of taking a bend on grip instead. */
-static const struct { float look, sway, sways, lead, grip; } ai_style[MAX_KARTS] = {
+static struct { float look, sway, sways, lead, grip; } ai_style[MAX_KARTS] = {
     {1.00f, 0.9f, 3, 4.0f, 0.10f}, {0.88f, 1.6f, 5, 11.0f, 0.05f}, {1.15f, 0.6f, 2, -3.0f, 0.25f},
     {0.95f, 1.3f, 4, 7.0f, 0.15f}, {1.08f, 1.8f, 3, 0.0f, 0.10f}, {0.92f, 1.0f, 6, -1.5f, 0.20f},
 };
@@ -794,8 +795,22 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
     in->drift = k->ai_drift_btn;
 }
 
+void kart_set_ai_style(int idx, float look, float sway, float sways, float lead, float grip) {
+    if(idx < 0 || idx >= MAX_KARTS) return;
+    ai_style[idx].look = look;
+    ai_style[idx].sway = sway;
+    ai_style[idx].sways = sways;
+    ai_style[idx].lead = lead;
+    ai_style[idx].grip = grip;
+}
+
+static uint32_t rand_state = 0x2026dcu;
+
 uint32_t dk_rand(void) {
-    static uint32_t state = 0x2026dcu;
-    state = state * 1664525u + 1013904223u;
-    return state >> 8;
+    rand_state = rand_state * 1664525u + 1013904223u;
+    return rand_state >> 8;
+}
+
+void dk_seed(uint32_t seed) {
+    rand_state = seed;
 }

@@ -16,6 +16,7 @@
 #include "world.h"
 #include "dolphins.h"
 #include "online.h"
+#include "spectate.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -364,6 +365,11 @@ static void chase_camera(Player *pl, float dt) {
     cam->fov = pl->fov;
 }
 
+/* The spectator director's chase shots use the same camera. */
+void game_chase_camera(Player *pl, float dt) {
+    chase_camera(pl, dt);
+}
+
 static void intro_camera(Camera *cam, float t) {
     const Kart *k = &karts[game.player];
     float e = clampf(t, 0, 1);
@@ -603,8 +609,9 @@ static void countdown_step(float dt) {
             audio_sfx(i < 3 ? DK_SFX_COUNT_BEEP : DK_SFX_GO, 230, 128);
         }
     }
-    /* Rocket start: press accelerate just as "2" fades, hold it through GO. */
-    for(int pi = 0; pi < game.num_players; pi++) {
+    /* Rocket start: press accelerate just as "2" fades, hold it through GO.
+       A spectator has no kart of its own. */
+    for(int pi = 0; pi < game.num_players && !spectate_on(); pi++) {
         Player *pl = &game.pl[pi];
         const Pad *pd = input_pad(pi);
         if(pd->pressed & BTN_A) pl->accel_press_t = before;
@@ -615,7 +622,7 @@ static void countdown_step(float dt) {
 #endif
     }
     if(game.countdown >= 3.0f) {
-        for(int pi = 0; pi < game.num_players; pi++) {
+        for(int pi = 0; pi < game.num_players && !spectate_on(); pi++) {
             Player *pl = &game.pl[pi];
             Kart *p = &karts[pl->kart];
             if(pl->accel_press_t >= 1.55f && pl->accel_press_t <= 2.4f) {
@@ -692,6 +699,8 @@ static void update(float dt) {
     emote_input(dt);
     world_update(dt);
     hud_update(dt);
+    if(game.online && spectate_on() && (game.state == ST_COUNTDOWN || game.state == ST_RACE || game.state == ST_RESULTS))
+        spectate_update(dt);
     switch(game.state) {
         case ST_ONLINE:
             online_update(dt);
@@ -827,6 +836,10 @@ static void update_camera(float dt) {
             results_camera(&game.cam, dt);
             break;
         default:
+            if(game.online && spectate_on()) {
+                spectate_camera(&game.pl[0].cam, dt);
+                break;
+            }
             for(int p = 0; p < game.num_players; p++)
                 chase_camera(&game.pl[p], game.paused ? 0 : dt);
             break;
@@ -927,7 +940,11 @@ static void render(void) {
         }
         case ST_COUNTDOWN:
         case ST_RACE:
-            if(views == 1) {
+            if(game.online && spectate_on()) {
+                spectate_draw();
+                hud_draw_countdown(0, 480);
+            }
+            else if(views == 1) {
                 hud_draw_race(0, 0, 480);
                 hud_draw_countdown(0, 480);
                 draw_finish_banner(0, 0, 480);
@@ -954,6 +971,94 @@ static void render(void) {
     prof_frames++;
 }
 
+#ifdef DK_RECORD
+/* Demo races for the lobby server's bots (server/demo): all-CPU races at
+   150cc, every kart's wire state 12 times a second over serial, stepped as
+   fast as the CPU allows. Each race gives the six CPUs new personalities so
+   the demo lobby never drives as one. tools/record_demo.py turns the log
+   into server/demo/races/. */
+#ifndef DK_RECORD_RACES
+#define DK_RECORD_RACES 6
+#endif
+
+static float rec_range(float lo, float hi) {
+    return lo + (hi - lo) * frand();
+}
+
+/* A personality: one of a few driving types, jittered. */
+static void record_personality(int i, Kart *k) {
+    float look = rec_range(0.9f, 1.1f), sway = rec_range(0.5f, 1.4f), lead = rec_range(-2.0f, 6.0f);
+    float grip = rec_range(0.05f, 0.2f), sways = (float)(2 + dk_rand() % 5);
+    k->lane = rec_range(-1.8f, 1.8f);
+    k->skill = rec_range(0.94f, 1.0f);
+    switch(dk_rand() % 6) {
+        case 0: grip = 0.0f; lead = rec_range(8.0f, 12.0f); look = rec_range(0.85f, 0.95f); break;  /* drifts early, always */
+        case 1: look = rec_range(1.12f, 1.22f); sway = rec_range(0.2f, 0.6f); break;                 /* smooth and tidy */
+        case 2: sway = rec_range(1.7f, 2.3f); sways = (float)(5 + dk_rand() % 2); break;             /* weaver */
+        case 3: grip = rec_range(0.45f, 0.7f); look = rec_range(1.0f, 1.15f); break;                 /* grips, rarely slides */
+        case 4: lead = rec_range(-4.0f, -2.0f); look = rec_range(0.85f, 0.92f); break;               /* late and twitchy */
+        default: k->lane = signf(frand_s()) * rec_range(2.0f, 2.6f); break;                          /* wide lines */
+    }
+    kart_set_ai_style(i, look, sway, sways, lead, grip);
+}
+
+static void boot_screen(uint64_t t0, float progress, const char *what);
+
+static void record_races(uint64_t t0) {
+    game.cc = CC_150;
+    game.mode = MODE_GP;
+    game.num_players = 1;
+    game.laps = DEFAULT_LAPS;
+    int total = TRACK_COUNT * DK_RECORD_RACES, done = 0;
+    for(int tr = 0; tr < TRACK_COUNT; tr++) {
+        game_load_track(tr);
+        for(int r = 0; r < DK_RECORD_RACES; r++, done++) {
+            dk_seed(0x5eed0000u + (uint32_t)tr * 977u + (uint32_t)r * 7919u);
+            race_setup();
+            for(int i = 0; i < kart_count; i++) {
+                karts[i].cpu = true;
+                record_personality(i, &karts[i]);
+            }
+            game.state = ST_COUNTDOWN;
+            while(game.state == ST_COUNTDOWN) {
+                countdown_step(DK_DT);
+                idle_karts_step(DK_DT);
+            }
+            printf("DKR BEGIN %d %d %d %d %d\n", tr, r, game.laps, game.cc, kart_count);
+            int steps = 0, frame = 0;
+            float all_home = -1;
+            for(;;) {
+                if(steps % 5 == 0) {
+                    char line[MAX_KARTS * NET_KART_BYTES * 2 + 1];
+                    char *o = line;
+                    for(int i = 0; i < kart_count; i++) {
+                        NetKart nk;
+                        uint8_t b[NET_KART_BYTES];
+                        online_pack_kart(&karts[i], &nk);
+                        net_encode_kart(b, &nk);
+                        for(int j = 0; j < NET_KART_BYTES; j++) o += sprintf(o, "%02x", b[j]);
+                    }
+                    printf("DKR F %d %s\n", frame++, line);
+                }
+                game.race_time += DK_DT;
+                race_step(DK_DT, true);
+                fx_update(DK_DT);
+                steps++;
+                int home = 0;
+                for(int i = 0; i < kart_count; i++) home += karts[i].finished;
+                if(home == kart_count && all_home < 0) all_home = game.race_time;
+                if((all_home >= 0 && game.race_time > all_home + 12.0f) || game.race_time > 420.0f) break;
+                if(steps % 900 == 0) boot_screen(t0, (done + game.race_time / 120.0f) / total, "RECORDING DEMO RACES");
+            }
+            printf("DKR END %d", frame);
+            for(int i = 0; i < kart_count; i++) printf(" %.2f", (double)karts[i].finish_time);
+            printf("\n");
+        }
+    }
+    printf("DKR DONE\n");
+}
+#endif
+
 /* One frame of the loading screen between boot steps. */
 static void boot_screen(uint64_t t0, float progress, const char *what) {
     float t = (float)(timer_us_gettime64() - t0) * 1e-6f;
@@ -976,6 +1081,43 @@ static void boot_screen(uint64_t t0, float progress, const char *what) {
     }
 #endif
 }
+
+#ifdef DK_AT_CAMTOUR
+/* Capture build: every trackside spectator camera on every track, with the
+   karts bunched in the middle of the stretch it films, for checking the
+   cameras sit somewhere sensible (uv run tools/capture.py --elf ...). */
+static void camera_tour(void) {
+    dk_probe_off |= PROBE_HUD;
+    game.state = ST_RESULTS;
+    for(int tr = 0; tr < TRACK_COUNT; tr++) {
+        game_load_track(tr);
+        spectate_begin();
+        for(int i = 0; i < spectate_tv_count(); i++) {
+            float mid = spectate_tv_preview(&game.cam, i) - 6.0f;
+            for(int k = 0; k < kart_count; k++) {
+                Kart *kt = &karts[k];
+                float s = mid + (float)(k / 2) * 6.0f, d = (k & 1) ? 2.5f : -2.5f;
+                kt->pos = track_point(s, d);
+                kt->pos.y = kt->gnd = track_road_y(track_wrap(s), d);
+                V3 t = track_tangent(s);
+                kt->heading = atan2f(t.x, t.z);
+                track_locate(kt->pos, -1, &kt->tp);
+            }
+            spectate_tv_preview(&game.cam, i);
+            for(int f = 0; f < 40; f++) {
+                pvr_wait_ready();
+                render();
+                if(f == 20) printf("DK SHOT tv-%d-%02d\n", tr, i + 1);
+            }
+        }
+    }
+    printf("DK AUTOTEST: PASS\n");
+    for(;;) {
+        pvr_wait_ready();
+        render();
+    }
+}
+#endif
 
 int main(int argc, char **argv) {
     (void)argc;
@@ -1015,6 +1157,13 @@ int main(int argc, char **argv) {
     game.pl[0].colour = 6;
 #endif
     race_setup();
+#ifdef DK_AT_CAMTOUR
+    camera_tour();
+#endif
+#ifdef DK_RECORD
+    record_races(boot_t0);
+    return 0;
+#endif
 #if defined(DK_AT_ONLINE) || defined(DK_AT_NAME)
     online_enter();
 #elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE)

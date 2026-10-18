@@ -53,11 +53,17 @@ redials keeps its seat if it comes back within the timeout.
 | --- | --- | --- | --- |
 | 1 | `HELLO` | name `char[11]` | until `WELCOME`, every 500 ms |
 | 2 | `LIST` | nothing | 2 Hz on the lobby browser |
-| 3 | `JOIN` | u8 lobby (0-9) | until the lobby state names this player |
+| 3 | `JOIN` | u8 lobby (0-9), u8 flags (bit0 spectate; build 4) | until the lobby state names this player (or shows it watching) |
 | 4 | `LEAVE` | nothing | 3 times |
 | 5 | `WISH` | u8 colour, u8 track, u8 laps, u8 cc, u8 start nonce | 4 Hz in a lobby |
 | 6 | `KART` | see below | 12 Hz in a race |
 | 7 | `PING` | nothing | 1 Hz otherwise idle (keeps NAT open) |
+
+A `JOIN` with the spectate flag makes the console a watcher: it gets the
+lobby's `LOBBY` and `RACE` packets but has no slot, kart or say. Any number
+can watch a lobby, full or not (the demo lobby included); a watcher sends
+`PING` once a second and `LEAVE` when it is done. A one-byte `JOIN` (build 3)
+always means play.
 
 `WISH`: everyone's colour applies (if free); track, laps (3, 5 or 10) and
 cc apply only from the leader. When the leader presses Start the console
@@ -95,7 +101,7 @@ Every server packet continues with:
 | --- | --- | --- |
 | 64 | `WELCOME` | u8 status, u16 latest build, u16 min build, u8 lobby count, u8 max players |
 | 65 | `REJECT` | u8 reason, u16 latest build, u16 min build |
-| 66 | `LOBBIES` | lobby count x (u8 players, u8 state, u8 track, char[11] leader) |
+| 66 | `LOBBIES` | lobby count x (u8 players, u8 state, u8 track, char[11] leader), then lobby count x (u8 watchers, u8 flags) |
 | 67 | `LOBBY` | see below |
 | 68 | `RACE` | see below |
 
@@ -110,7 +116,7 @@ latest version" and never gets further.
 | --- | --- | --- |
 | 8 | u8 | lobby id |
 | 9 | u8 | state: 0 waiting, 1 countdown, 2 racing, 3 results |
-| 10 | u8 | your slot |
+| 10 | u8 | your slot (255 while watching) |
 | 11 | u8 | leader slot |
 | 12 | u8 | track |
 | 13 | u8 | laps |
@@ -120,6 +126,11 @@ latest version" and never gets further.
 | 20 | u8 | start nonce the server last accepted from the leader |
 | 21 | u8 | player count n |
 | 22 | n x 20 bytes | players |
+| 22 + 20n | u8 | watchers (capped at 255) |
+| 23 + 20n | u8 | lobby flags: bit0 the server's demo lobby (bots race, watch only) |
+
+The watcher count and flags (also after the `LOBBIES` entries) arrived in
+build 4; older consoles ignore the extra bytes.
 
 Player entry (20 bytes): u8 slot, char[11] name, u8 colour, u8 flags (bit0
 leader, bit1 racing, bit2 finished), u16 ping ms, u16 points, u8 last place
@@ -144,5 +155,18 @@ time), 24 bytes per racer.
    player for as long as they stay in the lobby. Results show 8 seconds,
    then the lobby is waiting again.
 
-Players who join mid-race wait in the lobby until the next race. A player
-silent for 10 seconds is dropped.
+Players who join mid-race wait in the lobby until the next race; watchers
+who arrive mid-race go straight to it. A player or watcher silent for 10
+seconds is dropped.
+
+## Demo lobby
+
+The server can fill one lobby (lobby 10 by default) with six bots that are
+never dropped and never send packets. They replay races recorded from the
+console's own CPUs (`demo/races/`): 14 seconds in the lobby, then the leader
+picks another track at random and the server starts one of that track's
+recordings, dealing the bots onto its karts at random, so each bot drives
+differently every race. Their kart states are relayed exactly like a
+console's; the race ends, places and points work as usual. Points start
+again every 8 races. People joining it are told it is full; anyone can
+watch it.

@@ -16,6 +16,7 @@
 #include "netlink.h"
 #include "render.h"
 #include "save.h"
+#include "spectate.h"
 #include "title.h"
 #include "track.h"
 #include "world.h"
@@ -38,6 +39,7 @@ static int sel_track, sel_laps = 3, sel_cc = 1;
 static bool was_leader;
 static int raced_id = -1;      /* race id this console has set up */
 static bool leave_prompt;
+static bool watch_prompt;       /* lobby browser: "watch this lobby?" */
 static char kart_names[MAX_KARTS][NET_NAME_LEN];
 static const char *error_line1 = "", *error_line2 = "";
 static float fly_t;
@@ -56,6 +58,8 @@ static void set_screen(int s) {
     screen = s;
     screen_t = 0;
     leave_prompt = false;
+    watch_prompt = false;
+    if(s != OS_LOBBY) spectate_set(false);
 }
 
 void online_enter(void) {
@@ -115,7 +119,10 @@ static void setup_race(const NetLobby *l) {
         models_paint_kart(g);
         if(!k->remote) game.pl[0].kart = game.player = g;
     }
+    spectate_set(net_spectating());
+    if(net_spectating()) game.pl[0].kart = game.player = 0;   /* the director picks */
     race_reset();
+    if(net_spectating()) spectate_begin();
     raced_id = l->race_id;
     audio_music_start();
     audio_music_target(150);
@@ -132,6 +139,24 @@ float online_countdown(void) {
 
 float online_race_time(void) {
     return (float)((int64_t)net_now() - (int64_t)net_lobby()->green_ms) * 0.001f;
+}
+
+void online_pack_kart(const Kart *me, NetKart *nk) {
+    memset(nk, 0, sizeof(*nk));
+    nk->flags = (me->finished ? NKF_FINISHED : 0) | (me->grounded ? NKF_GROUNDED : 0) |
+                (me->boost_t > 0 ? NKF_BOOST : 0) | (me->drift == DRIFT_ACTIVE ? NKF_DRIFT : 0) |
+                (me->drift == DRIFT_ACTIVE && me->drift_dir > 0 ? NKF_DRIFT_RIGHT : 0) |
+                (me->wave_t > 0 ? NKF_WAVE : 0);
+    nk->x = me->pos.x;
+    nk->y = me->pos.y;
+    nk->z = me->pos.z;
+    nk->heading = me->heading;
+    nk->speed = me->speed;
+    nk->steer = me->steer;
+    nk->stage = me->drift == DRIFT_ACTIVE ? me->stage : 0;
+    nk->lap = me->lap;
+    nk->dist = me->tp.s;
+    nk->race_time = me->finished ? me->finish_time : fmaxf(game.race_time, 0);
 }
 
 void online_remote_karts(float dt) {
@@ -165,23 +190,10 @@ void online_remote_karts(float dt) {
             k->finish_time = nk.race_time;
         }
     }
-    /* Ours, for the next KART packet. */
-    const Kart *me = &karts[game.player];
-    NetKart nk = {0};
-    nk.flags = (me->finished ? NKF_FINISHED : 0) | (me->grounded ? NKF_GROUNDED : 0) |
-               (me->boost_t > 0 ? NKF_BOOST : 0) | (me->drift == DRIFT_ACTIVE ? NKF_DRIFT : 0) |
-               (me->drift == DRIFT_ACTIVE && me->drift_dir > 0 ? NKF_DRIFT_RIGHT : 0) |
-               (me->wave_t > 0 ? NKF_WAVE : 0);
-    nk.x = me->pos.x;
-    nk.y = me->pos.y;
-    nk.z = me->pos.z;
-    nk.heading = me->heading;
-    nk.speed = me->speed;
-    nk.steer = me->steer;
-    nk.stage = me->drift == DRIFT_ACTIVE ? me->stage : 0;
-    nk.lap = me->lap;
-    nk.dist = me->tp.s;
-    nk.race_time = me->finished ? me->finish_time : fmaxf(game.race_time, 0);
+    /* Ours, for the next KART packet (a watcher has none). */
+    if(net_spectating()) return;
+    NetKart nk;
+    online_pack_kart(&karts[game.player], &nk);
     net_set_kart(&nk, raced_id);
 }
 
@@ -191,9 +203,11 @@ static void follow_lobby(void) {
     const NetLobby *l = net_lobby();
     const NetPlayer *me = net_me();
     bool racing = me && (me->flags & NPF_RACING);
-    if(racing && (l->state == NLS_COUNTDOWN || l->state == NLS_RACING) && raced_id != l->race_id) {
+    bool watching = net_spectating();
+    if((racing || watching) && (l->state == NLS_COUNTDOWN || l->state == NLS_RACING) && raced_id != l->race_id) {
         setup_race(l);
-        game_set_state(ST_COUNTDOWN);
+        /* A watcher arriving mid-race goes straight to it. */
+        game_set_state(watching && l->state == NLS_RACING ? ST_RACE : ST_COUNTDOWN);
         game.countdown = synced_countdown(l);
         return;
     }
@@ -339,6 +353,7 @@ static void browser_update(void) {
     }
     if(net_state() == NET_LOBBY) {
         set_screen(OS_LOBBY);
+        spectate_set(net_spectating());
         my_colour = -1;
         was_leader = false;
         lobby_row = 0;
@@ -346,9 +361,28 @@ static void browser_update(void) {
         audio_sfx(DK_SFX_CHAO, 200, 128);
         return;
     }
+    /* Y: watch the lobby instead (full or not), once confirmed with Y. */
+    if(watch_prompt) {
+        if((pad.pressed & BTN_Y) && net_state() == NET_BROWSE) {
+            watch_prompt = false;
+            net_spectate(browse_sel);
+            audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
+        }
+        else if(pad.pressed & (BTN_B | BTN_A | BTN_START)) {
+            watch_prompt = false;
+            audio_sfx(DK_SFX_MENU_BACK, 180, 128);
+        }
+        return;
+    }
+    if((pad.pressed & BTN_Y) && net_state() == NET_BROWSE) {
+        watch_prompt = true;
+        audio_sfx(DK_SFX_MENU_MOVE, 220, 128);
+        return;
+    }
     if(pad.pressed & BTN_A && net_state() == NET_BROWSE) {
-        if(net_lobbies()[browse_sel].players >= NET_MAX_PLAYERS) {
+        if(net_lobbies()[browse_sel].players >= NET_MAX_PLAYERS || (net_lobbies()[browse_sel].flags & NLF_DEMO)) {
             audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+            watch_prompt = true;   /* full: offer to watch */
         }
         else {
             net_join(browse_sel);
@@ -384,11 +418,24 @@ static int lobby_rows(bool leader, int *rows) {
 static void lobby_update(void) {
     const NetLobby *l = net_lobby();
     const NetPlayer *me = net_me();
-    if(!me) return;
     if(net_state() == NET_BROWSE) {
         set_screen(OS_BROWSER);
         return;
     }
+    if(net_spectating()) {
+        /* Watching: the lobby's track behind the standings, until a race. */
+        if(l->track != game.track && l->state == NLS_WAITING) {
+            game_load_track(l->track);
+            fly_t = 0;
+        }
+        if(pad.pressed & BTN_B) {
+            audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+            net_leave();
+            set_screen(OS_BROWSER);
+        }
+        return;
+    }
+    if(!me) return;
     bool leader = l->leader == l->you;
     if(leader && !was_leader) {
         /* Becoming leader: start editing from the lobby's settings. */
@@ -499,7 +546,15 @@ static void name_autotest(float dt) {
 }
 #endif
 
+#ifdef DK_AT_SPECTATE
+static uint32_t at_press;   /* buttons the spectate autotest presses next frame */
+#endif
+
 void online_update(float dt) {
+#ifdef DK_AT_SPECTATE
+    pad.pressed |= at_press;
+    at_press = 0;
+#endif
     screen_t += dt;
     fly_t += dt;
     switch(screen) {
@@ -643,7 +698,7 @@ static void draw_browser(void) {
         hud_text(62, y, 0.58f, ALIGN_LEFT, col, buf);
         snprintf(buf, sizeof(buf), "%d/%d", e->players, NET_MAX_PLAYERS);
         hud_text(222, y, 0.58f, ALIGN_RIGHT, col, buf);
-        const char *st = e->players == 0 ? "EMPTY" : e->players >= NET_MAX_PLAYERS ? "FULL"
+        const char *st = (e->flags & NLF_DEMO) ? "DEMO" : e->players == 0 ? "EMPTY" : e->players >= NET_MAX_PLAYERS ? "FULL"
                        : e->state == NLS_WAITING ? "OPEN" : "RACING";
         uint32_t stc = e->players == 0 ? argb(200, 170, 190, 220) : e->state == NLS_WAITING ? argb(255, 120, 255, 140)
                                                                                            : argb(255, 255, 190, 80);
@@ -653,9 +708,24 @@ static void draw_browser(void) {
             hud_text(580, y, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), e->leader);
         }
     }
-    if(net_state() == NET_JOINING) hint("JOINING...");
-    else if(net_message()[0]) hud_text(320, 446, 0.5f, ALIGN_CENTER, argb(255, 255, 160, 120), net_message());
-    else hint("A: JOIN   B: BACK");
+    if(net_state() == NET_JOINING) hint(net_spectating() ? "TUNING IN..." : "JOINING...");
+    else if(net_message()[0] && !watch_prompt) hud_text(320, 446, 0.5f, ALIGN_CENTER, argb(255, 255, 160, 120), net_message());
+    else hint("A: JOIN   Y: WATCH   B: BACK");
+    const NetLobbyInfo *e = &ls[browse_sel];
+    if(e->watchers && !watch_prompt) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d WATCHING", e->watchers);
+        hud_text(584, 410, 0.42f, ALIGN_RIGHT, argb(220, 200, 225, 255), buf);
+    }
+    if(watch_prompt) {
+        panel(130, 170, 510, 330);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "WATCH LOBBY %d?", browse_sel + 1);
+        hud_text(320, 186, 0.85f, ALIGN_CENTER, argb(255, 255, 220, 60), buf);
+        hud_text(320, 232, 0.5f, ALIGN_CENTER, 0xffffffff, (e->flags & NLF_DEMO) ? "BOTS RACE HERE NONSTOP" : "YOU WILL SPECTATE, NOT RACE");
+        hud_text(320, 258, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "THE CAMERAS FOLLOW EVERY RACE");
+        hud_text(320, 292, 0.55f, ALIGN_CENTER, argb(255, 255, 255, 140), "Y: WATCH   B: CANCEL");
+    }
 }
 
 /* Players ranked by points (then slot) for the lobby and results. */
@@ -716,6 +786,29 @@ static void draw_lobby(void) {
     panel(24, 76, 356, 428);
     draw_standings(l, 24, 86, 356);
     panel(372, 76, 616, 428);
+    if(net_spectating()) {
+        float y = 92;
+        hud_text(494, y, 0.6f, ALIGN_CENTER, argb(255, 255, 220, 60), "SPECTATING");
+        y += 40;
+        static const char *const labels[] = {"TRACK", "LAPS", "SPEED"};
+        char vb[24];
+        for(int i = 0; i < 3; i++, y += 36) {
+            hud_text(386, y, 0.5f, ALIGN_LEFT, argb(255, 190, 205, 235), labels[i]);
+            const char *v = vb;
+            if(i == 0) v = track_names[l->track % TRACK_COUNT];
+            if(i == 1) snprintf(vb, sizeof(vb), "%d", l->laps);
+            if(i == 2) v = cc_names[l->cc % CC_COUNT];
+            hud_text(602, y + 2, i == 0 ? 0.42f : 0.5f, ALIGN_RIGHT, 0xffffffff, v);
+        }
+        snprintf(buf, sizeof(buf), "%d WATCHING", l->watchers);
+        hud_text(494, y + 6, 0.5f, ALIGN_CENTER, argb(220, 200, 225, 255), buf);
+        y = 340;
+        if(l->flags & NLF_DEMO) hud_text(494, y, 0.42f, ALIGN_CENTER, argb(255, 120, 255, 140), "THE BOTS RACE NONSTOP");
+        hud_text(494, y + 24, 0.45f, ALIGN_CENTER, l->state == NLS_WAITING ? 0xffffffff : argb(255, 255, 190, 80),
+                 l->state == NLS_WAITING ? "NEXT RACE SOON" : l->state == NLS_RESULTS ? "RESULTS ARE IN" : "RACE IN PROGRESS");
+        hint("B: STOP WATCHING");
+        return;
+    }
     bool leader = l->leader == l->you;
     int rows[6], n = lobby_rows(leader, rows);
     int show_track = leader ? sel_track : l->track, show_laps = leader ? sel_laps : l->laps;
@@ -799,7 +892,7 @@ void online_draw(void) {
 /* Over the race: the leave prompt, or who we are still waiting for. */
 void online_draw_race(void) {
     const Kart *me = &karts[game.player];
-    if(me->finished && game.state == ST_RACE)
+    if(me->finished && game.state == ST_RACE && !net_spectating())
         hud_text(320, 300, 0.6f, ALIGN_CENTER, 0xffffffff, "WAITING FOR THE OTHERS...");
     if(leave_prompt) {
         panel(170, 180, 470, 300);
@@ -849,7 +942,11 @@ const char *online_name(void) {
 /* Online autotest: type a name, connect, join lobby DK_AT_LOBBY, start a
    race as leader once two are in, let the CPU drive, then report. */
 #ifndef DK_AT_LOBBY
-#define DK_AT_LOBBY 9
+#ifdef DK_AT_SPECTATE
+#define DK_AT_LOBBY 9   /* lobby 10: the server's demo lobby */
+#else
+#define DK_AT_LOBBY 8   /* lobby 9 (lobby 10 is the bots' demo) */
+#endif
 #endif
 #if defined(DK_CAPTURE) && !defined(DK_HW)
 #define AT_SHOT(flag, label) do { if(!(flag)) { flag = true; printf("DK SHOT %s\n", label); } } while(0)
@@ -874,6 +971,33 @@ void online_autotest(float dt) {
         printf("DK ONLINE: connecting as %s\n", name);
     }
     if(screen == OS_BROWSER && screen_t > 1.0f) AT_SHOT(s_browser, "online-browser");
+#ifdef DK_AT_SPECTATE
+    /* Watch instead: Y on the lobby, then Y again to confirm. */
+    static int y_presses;
+    if(screen == OS_BROWSER && net_state() == NET_BROWSE && screen_t > 1.6f && y_presses < 2 &&
+       screen_t > 1.6f + y_presses * 0.8f) {
+        browse_sel = DK_AT_LOBBY;
+        at_press = BTN_Y;
+        if(y_presses++ == 0) AT_SHOT(s_lobby, "watch-prompt");
+    }
+    if(screen == OS_LOBBY && net_spectating()) {
+        static bool s_watch;
+        if(screen_t > 2.0f) AT_SHOT(s_watch, results_seen ? "watch-lobby-after" : "watch-lobby");
+        if(results_seen > 0 && spectate_saw_grid() && !reported && screen_t > 2.5f) {
+            printf("DK ONLINE: watched %d race(s), back in lobby %d with %d watching\n", results_seen, net_lobby()->id + 1,
+                   net_lobby()->watchers);
+            printf("DK AUTOTEST: PASS\n");
+            reported = true;
+        }
+    }
+    static bool s_err2;
+    if(screen == OS_ERROR && screen_t > 1.0f) AT_SHOT(s_err2, "watch-error");
+    if(screen == OS_ERROR && !reported && screen_t > 1.6f) {
+        printf("DK ONLINE: error: %s\nDK AUTOTEST: FAIL\n", error_line1);
+        reported = true;
+    }
+    return;
+#endif
     if(screen == OS_BROWSER && net_state() == NET_BROWSE && screen_t > 1.6f) {
         browse_sel = DK_AT_LOBBY;
         net_join(DK_AT_LOBBY);

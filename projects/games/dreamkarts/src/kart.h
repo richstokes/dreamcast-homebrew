@@ -129,6 +129,8 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive);
 void kart_start_boost(Kart *k, float seconds, float kick);
 void karts_collide(void);
 void ai_drive(Kart *k, KartInput *in, float dt);
+/* Replace a CPU's personality (the demo-race recorder varies them). */
+void kart_set_ai_style(int idx, float look, float sway, float sways, float lead, float grip);
 float kart_top_speed(const Kart *k);
 
 #endif

@@ -1819,6 +1819,24 @@ static const uint32_t neon_cyan = 0xff3cdcff, neon_violet = 0xff9646ff, neon_mag
 
 /* Across the road: cyan on the left, through violet, to magenta on the
    right (the karts' underglow picks it up). */
+int world_gates;
+float world_gate_s[WORLD_MAX_GATES];
+
+float world_ground_y(float x, float z) {
+    switch(track.id) {
+        case TRACK_BEACH: {
+            TrackPos tp;
+            track_locate(v3(x, 0, z), -1, &tp);
+            float db = tp.d > 0 ? tp.d - track_wall_out_at(&tp) : -tp.d - track_wall_in_at(&tp);
+            return db > 0 ? terrain_height(v3(x, 0, z), db, track.smp[tp.idx].shore) : 0.0f;
+        }
+        case TRACK_FIGURE8:
+        case TRACK_HARBOUR: return f8_ground_y(x, z);
+        case TRACK_TEMPLE: return th_terrain(x, z) + F8_GRASS_Y;
+        default: return -100.0f;   /* clouds */
+    }
+}
+
 uint32_t world_lane_color(float d) {
     float t = clampf((d + 9.6f) / 19.2f, 0.0f, 1.0f);
     return t < 0.5f ? color_lerp(neon_cyan, neon_violet, t * 2.0f) : color_lerp(neon_violet, neon_magenta, t * 2.0f - 1.0f);
@@ -2111,7 +2129,11 @@ static void sk_place_props(void) {
        crest into the plunge and the bottom of the infield dip. */
     float waves = track_seg_s(2) + 18.0f;
     float gates[] = {0.0f, 70.0f, waves + 26.0f, waves + 52.0f, track_seg_s(4) + 47.0f, track_seg_s(6) + 45.0f};
-    for(unsigned i = 0; i < sizeof(gates) / sizeof(gates[0]); i++) sk_gate(track_wrap(gates[i]));
+    world_gates = 0;
+    for(unsigned i = 0; i < sizeof(gates) / sizeof(gates[0]); i++) {
+        sk_gate(track_wrap(gates[i]));
+        world_gate_s[world_gates++] = track_wrap(gates[i]);
+    }
 
     sk_place_city();
 
@@ -2199,6 +2221,7 @@ void world_init(void) {
 }
 
 void world_build(void) {
+    world_gates = 0;
     if(!pool) return;
     pool_n = strip_n = chunk_n = palm_n = far_sprite_n = foam_count = 0;
     cur_chunk = NULL;

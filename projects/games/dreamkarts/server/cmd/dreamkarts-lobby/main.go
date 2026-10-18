@@ -9,9 +9,11 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/demo"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/lobby"
 )
 
@@ -24,6 +26,7 @@ func main() {
 	listen := flag.String("listen", envOr("DREAMKARTS_LISTEN", ":7535"), "UDP address to listen on")
 	latest := flag.Int("latest", lobby.Build, "console build to call the latest (default: src/net_version.h)")
 	minBuild := flag.Int("min", lobby.MinBuild, "oldest console build allowed to play")
+	demoLobby := flag.Int("demo-lobby", envInt("DREAMKARTS_DEMO_LOBBY", 10), "lobby (1-10) where bots race forever, 0 for none")
 	flag.Parse()
 	log.SetFlags(0) // journald adds timestamps
 
@@ -70,6 +73,14 @@ func main() {
 		log.Printf("overriding versions: latest %d, min %d", *latest, *minBuild)
 	}
 
+	if *demoLobby > 0 {
+		races, err := demo.Load()
+		if err != nil {
+			log.Fatalf("demo races: %v", err)
+		}
+		srv.EnableDemo(*demoLobby-1, races, time.Now().UnixNano(), time.Now())
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	tick := time.NewTicker(20 * time.Millisecond)
@@ -92,6 +103,13 @@ func main() {
 
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func envInt(k string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(k)); err == nil {
 		return v
 	}
 	return def

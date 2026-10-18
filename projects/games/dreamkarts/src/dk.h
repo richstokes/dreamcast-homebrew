@@ -81,6 +81,7 @@ static inline uint32_t color_alpha(uint32_t c, float a) {
 
 /* Small deterministic RNG for effects and AI variety. */
 uint32_t dk_rand(void);
+void dk_seed(uint32_t seed);
 static inline float frand(void) { return (float)(dk_rand() & 0xffff) / 65535.0f; }
 static inline float frand_s(void) { return frand() * 2.0f - 1.0f; }
 

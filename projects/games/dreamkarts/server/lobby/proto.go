@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 1
-	Build    = 3
+	Build    = 4
 	MinBuild = 3
 )
 
@@ -38,6 +38,15 @@ const (
 	TypeLobby   = 67
 	TypeRace    = 68
 )
+
+// JOIN flags (body byte 1; a one-byte JOIN from build 3 is a player).
+const JoinSpectate = 1 << 0
+
+// Lobby flags (LOBBY after the players, LOBBIES after the lobby entries).
+const LobbyDemo = 1 << 0 // the bots' demo lobby: spectate only
+
+// Spectator slot in a LOBBY packet's "your slot".
+const SpectatorSlot = 255
 
 // Reject reasons.
 const (
