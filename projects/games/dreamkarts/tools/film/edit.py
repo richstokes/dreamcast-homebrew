@@ -6,8 +6,9 @@ edl.json: {"xfade": 0.4, "clips": [{"src": "...mkv", "start": 12.3, "dur": 8,
             "overlays": [{"png": "cards/cap-beach.png", "at": 0.5, "dur": 4}],
             "xfade": 0.4 (into the next clip; 0 for a hard cut)}]}
 
-Each clip is cut (frame-accurate re-encode) with its overlays faded in and
-out, then the clips are joined with video and audio crossfades, the start
+Each clip is cut (frame-accurate re-encode) with any overlays faded in and
+out, then joined with straight cuts ("xfade": 0) or video and audio
+crossfades, the start
 fades up from black, the end fades out, and the audio is loudness-normalised
 for YouTube (-14 LUFS). Output: H.264 High 1080p60, AAC 320k, faststart."""
 import json, subprocess, sys
@@ -66,22 +67,36 @@ def main():
     for f in files:
         cmd += ['-i', str(f)]
     graph = []
-    vlast, alast = '0:v', '0:a'
-    t = clips[0]['dur']
-    for i in range(1, len(files)):
-        x = clips[i - 1].get('xfade', default_x)
-        if x <= 0:
-            x = 1 / 60   # a cut: the shortest crossfade
-        off = t - x
-        graph.append(f'[{vlast}][{i}:v]xfade=transition=fade:duration={x:.4f}:offset={off:.4f}[xv{i}]')
-        graph.append(f'[{alast}][{i}:a]acrossfade=d={x:.4f}:c1=tri:c2=tri[xa{i}]')
-        vlast, alast = f'xv{i}', f'xa{i}'
-        t = off + clips[i]['dur']
-    total = t
+    if default_x <= 0 and all(c.get('xfade', 0) <= 0 for c in clips):
+        # Straight cuts: concatenate, with 8 ms audio fades at each join so
+        # the cuts don't click.
+        ins = ''
+        for i, c in enumerate(clips):
+            graph.append(f"[{i}:a]afade=t=in:d=0.008,afade=t=out:st={c['dur'] - 0.008:.4f}:d=0.008[ca{i}]")
+            ins += f'[{i}:v][ca{i}]'
+        graph.append(f'{ins}concat=n={len(clips)}:v=1:a=1[cv][cat]')
+        vlast, alast = 'cv', 'cat'
+        total = sum(c['dur'] for c in clips)
+    else:
+        vlast, alast = '0:v', '0:a'
+        t = clips[0]['dur']
+        for i in range(1, len(files)):
+            x = clips[i - 1].get('xfade', default_x)
+            if x <= 0:
+                x = 1 / 60
+            off = t - x
+            graph.append(f'[{vlast}][{i}:v]xfade=transition=fade:duration={x:.4f}:offset={off:.4f}[xv{i}]')
+            graph.append(f'[{alast}][{i}:a]acrossfade=d={x:.4f}:c1=tri:c2=tri[xa{i}]')
+            vlast, alast = f'xv{i}', f'xa{i}'
+            t = off + clips[i]['dur']
+        total = t
     end_fade = edl.get('end_fade', 1.2)
-    graph.append(f'[{vlast}]fade=in:st=0:d=0.6,fade=out:st={total - end_fade:.3f}:d={end_fade},'
+    start_fade = edl.get('start_fade', 0.6)
+    vin = f'fade=in:st=0:d={start_fade},' if start_fade > 0 else ''
+    ain = f'afade=in:st=0:d={start_fade},' if start_fade > 0 else ''
+    graph.append(f'[{vlast}]{vin}fade=out:st={total - end_fade:.3f}:d={end_fade},'
                  f'format=yuv420p[vout]')
-    graph.append(f'[{alast}]afade=in:st=0:d=0.4,afade=out:st={total - end_fade:.3f}:d={end_fade},'
+    graph.append(f'[{alast}]{ain}afade=out:st={total - end_fade:.3f}:d={end_fade},'
                  'loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]')
     cmd += ['-filter_complex', ';'.join(graph), '-map', '[vout]', '-map', '[aout]']
     if preview:
