@@ -87,7 +87,7 @@ hw: pico8-hw.elf
 
 # The smoke suite and its per-cart timings on the console.
 hwbench: pico8-smoke.elf
-	$(DC_HW) run -c -T 600 -i 90 -u 'PICO8_TEST: (PASS|FAIL) ALL' -l $(HW_LOG) pico8-smoke.elf
+	$(DC_HW) run -c -o -T 600 -i 90 -u 'PICO8_TEST: (PASS|FAIL) ALL' -l $(HW_LOG) pico8-smoke.elf
 	grep -q 'PICO8_TEST: PASS ALL' $(HW_LOG)
 
 build/main-smoke.o: main.cpp platform.h

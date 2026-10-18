@@ -124,6 +124,9 @@ make hwbench   # 150 s of four CPU merchants with a 10 s performance heartbeat
 make hwsoak    # 30 minutes of two CPU merchants; fails on any stall report
 ```
 
+`hwbench` and `hwsoak` switch the console off when they finish; after
+`make hw`, switch it off with `../../../tools/dc-hw.sh power off`.
+
 Output goes to `hw-console.log` (`HW_LOG=` to change it; `HW_SECONDS=` and
 `SOAK_SECONDS=` set the run lengths). The heartbeat reports frame rate, CPU
 time per frame (average/max), the slowest CPU move decision, and the

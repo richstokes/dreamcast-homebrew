@@ -89,7 +89,7 @@ HW_LOG ?= captures/hw/hwbench.log
 hwbench:
 	$(MAKE) VARIANT=hwbench dreamkarts-hwbench.elf
 	mkdir -p captures/hw
-	$(DC_HW) run -c -T 420 -i 90 -u 'DK AUTOTEST: (PASS|FAIL)' -l $(HW_LOG) \
+	$(DC_HW) run -c -o -T 420 -i 90 -u 'DK AUTOTEST: (PASS|FAIL)' -l $(HW_LOG) \
 		dreamkarts-hwbench.elf -- -m $(CURDIR)/captures/hw
 	uv run --with pillow python -c "import glob,PIL.Image as I; [I.open(f).save(f[:-3]+'png') for f in glob.glob('captures/hw/*.ppm')]"
 	@/usr/bin/grep -a 'DK AUTOTEST' $(HW_LOG)

@@ -121,7 +121,7 @@ hw: $(TARGET)
 # Four CPU merchants with the 10-second CPU/render heartbeat.
 hwbench:
 	$(call hw_variant,totally-bazaar-hwbench.elf,-DBAZAAR_AUTOPLAY=4 -DBAZAAR_AUTOPLAY_GAMES=50 -DBAZAAR_DIAG -DBAZAAR_HW)
-	$(DC_HW) run -c -T $(HW_SECONDS) -u 'WATCHDOG|STALL' -l $(HW_LOG) \
+	$(DC_HW) run -c -o -T $(HW_SECONDS) -u 'WATCHDOG|STALL' -l $(HW_LOG) \
 		totally-bazaar-hwbench.elf || [ $$? -eq 124 ]
 	@! /usr/bin/grep -aE 'WATCHDOG|STALL' $(HW_LOG)
 	@/usr/bin/grep -a 'BAZAAR HB' $(HW_LOG) | tail -n 8
@@ -129,7 +129,7 @@ hwbench:
 # Long two-player CPU session to catch hangs; fails on a watchdog report.
 hwsoak:
 	$(call hw_variant,totally-bazaar-hwsoak.elf,-DBAZAAR_AUTOPLAY=2 -DBAZAAR_AUTOPLAY_GAMES=1000 -DBAZAAR_DIAG -DBAZAAR_HW -DBAZAAR_HB_SECONDS=60.0f)
-	$(DC_HW) run -c -T $(SOAK_SECONDS) -u 'WATCHDOG|STALL' -l $(HW_LOG) \
+	$(DC_HW) run -c -o -T $(SOAK_SECONDS) -u 'WATCHDOG|STALL' -l $(HW_LOG) \
 		totally-bazaar-hwsoak.elf || [ $$? -eq 124 ]
 	@! /usr/bin/grep -aE 'WATCHDOG|STALL' $(HW_LOG)
 	@echo "Soak passed: $$(/usr/bin/grep -ac 'scored' $(HW_LOG)) player-round scores, no stalls."

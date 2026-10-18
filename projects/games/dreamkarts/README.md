@@ -187,8 +187,9 @@ seconds, because each printf under dcload-ip stalls the console. It saves
 screenshots of the displayed framebuffer to `captures/hw/` through
 dc-tool-ip's `/pc/` share. At three heavy scenes it freezes the race and
 re-renders the same frame with each feature group switched off, printing the
-PVR render time for each (`DK GPU` lines). `make hw` plays the release build on
-the console.
+PVR render time for each (`DK GPU` lines), and switches the console off when it
+is done. `make hw` plays the release build on the console and leaves it on;
+switch it off afterwards with `tools/dc-hw.sh power off`.
 
 Measured on hardware on 2026-10-17, 150cc, six karts, over a full race:
 

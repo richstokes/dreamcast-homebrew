@@ -16,6 +16,8 @@
 #       -i, --idle N       give up if the program prints nothing for N seconds
 #       -u, --until REGEX  stop as soon as the output matches REGEX
 #       -l, --log FILE     also write the program's output to FILE
+#       -o, --off          switch the console off when the run ends (scripted
+#                          tests and benchmarks; leave it off for play sessions)
 #
 # "run" brings the console up if it is off or not answering, uploads the
 # program and prints what it prints. If the program prints nothing and
@@ -23,6 +25,10 @@
 # power cycle. It exits with 0 if
 # --until matched, 124 on timeout or --idle, 125 if the program never started,
 # otherwise with dc-tool-ip's own exit status.
+#
+# Switch the console off when a test is done: use --off for scripted runs, or
+# `dc-hw.sh power off` afterwards. Without --off, run ends with a reminder
+# that the console is still on.
 #
 # Programs that use the network (INIT_NET) take the adapter over from
 # dcload-ip, and dc-tool-ip does not always notice when they exit. Give those
@@ -188,7 +194,7 @@ cmd_power() {
 }
 
 cmd_run() {
-    local cycle=0 timeout=300 idle=0 until="" log="" elf=""
+    local cycle=0 timeout=300 idle=0 until="" log="" elf="" off=0
 
     while (( $# )); do
         case "$1" in
@@ -197,6 +203,7 @@ cmd_run() {
             -i|--idle)    idle="$2"; shift ;;
             -u|--until)   until="$2"; shift ;;
             -l|--log)     log="$2"; shift ;;
+            -o|--off)     off=1 ;;
             --)           shift; break ;;
             -*)           die "unknown option $1" ;;
             *)            elf="$1"; shift; [[ "${1:-}" == "--" ]] && shift; break ;;
@@ -204,7 +211,7 @@ cmd_run() {
         shift
     done
 
-    [[ -n "$elf" ]] || die "usage: dc-hw.sh run [-c] [-T secs] [-i secs] [-u regex] [-l log] prog.elf"
+    [[ -n "$elf" ]] || die "usage: dc-hw.sh run [-c] [-o] [-T secs] [-i secs] [-u regex] [-l log] prog.elf"
     [[ -f "$elf" ]] || die "$elf does not exist"
     [[ -x "$DC_TOOL" ]] || die "dc-tool-ip not found at $DC_TOOL"
 
@@ -314,6 +321,12 @@ cmd_run() {
     (( keep )) || rm -f "$out"
 
     say "finished in $(( SECONDS - start ))s, status $status"
+    if (( off )); then
+        plug_set false
+        say "power off"
+    else
+        say "the console is still on: 'dc-hw.sh power off' when you are done with it"
+    fi
     return "$status"
 }
 

@@ -112,6 +112,9 @@ make hw        # play on the console (pico8-hw.elf)
 make hwbench   # the smoke suite and per-cart timings on the console
 ```
 
+`make hwbench` switches the console off when it finishes; after `make hw`,
+switch it off with `../../../tools/dc-hw.sh power off`.
+
 Both write the console output to `build/hw-console.log` (`HW_LOG=` changes
 it). `pico8-hw.elf` is the normal player without boot-time networking:
 starting KOS networking under dcload-ip can hang during boot, so that build
