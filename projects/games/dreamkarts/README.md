@@ -204,8 +204,11 @@ Coral Crossing on the same day, with its jump and dolphins: 1P dropped 7 of
 Palm Harbour: 1P dropped 5 of 7,842 frames (11.4 ms), and 2P split dropped 1
 of 7,815 (11.3 ms). Temple Hill: 1P dropped 5 of 8,558 frames (12.1 ms), and
 2P split dropped 30 of 8,506 (12.2 ms), a few a lap on the switchbacks, where
-the whole hillside is in view twice. Add `-DDK_AT_TRACK=1` (Coral Crossing),
-`-DDK_AT_TRACK=2` (Palm Harbour), `-DDK_AT_TRACK=3` (Temple Hill) or `-DDK_AT_TRACK=4` (Neon Skyway, not yet measured on the console) to
+the whole hillside is in view twice. Neon Skyway: 1P dropped 5 of 9,867
+frames (10.2 ms), and 2P split dropped 9 of 9,858 (11.4 ms) once the split
+screen left out the deck's underside, the neon glows and the searchlights (58
+with them). Add `-DDK_AT_TRACK=1` (Coral Crossing),
+`-DDK_AT_TRACK=2` (Palm Harbour), `-DDK_AT_TRACK=3` (Temple Hill) or `-DDK_AT_TRACK=4` (Neon Skyway) to
 `EXTRA_CFLAGS` to benchmark them.
 
 Run the two-player benchmark with
