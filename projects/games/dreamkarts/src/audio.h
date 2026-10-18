@@ -35,6 +35,9 @@ void audio_sfx(int id, int vol, int pan);
 enum { CHAO_HI, CHAO_OUCH };
 void audio_chao(int mood, int colour, int vol, int pan);
 void audio_sfx_pitch(int id, int vol, int pan, float rate);
+/* Accelerate held on the grid (countdown) revs the engine freely; call each
+   frame it applies, before audio_kart_loops(). */
+void audio_kart_throttle(int slot, bool held);
 /* Engine, tyre and spark loops for player slot 0/1 follow the given kart
    (NULL silences them). */
 void audio_kart_loops(int slot, const Kart *k, float dt);

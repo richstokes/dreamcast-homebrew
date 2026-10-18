@@ -75,6 +75,16 @@ static const int voice_sfx[V_COUNT] = {
     DK_SFX_ENGINE_LOW, DK_SFX_ENGINE_HIGH, DK_SFX_DRIFT, DK_SFX_SPARKS, DK_SFX_OFFROAD
 };
 static bool voices_started;
+/* Free revs on the grid: throttle held during the countdown blips the
+   engine up, letting go lets it fall back; after GO it hands over to the
+   speed-driven revs instead of dropping. */
+static float grid_rev[MAX_PLAYERS], grid_flutter[MAX_PLAYERS];
+static int grid_held[MAX_PLAYERS];  /* frames the last "held" report lasts */
+
+void audio_kart_throttle(int slot, bool held) {
+    /* A few frames' grace: a render frame can pass with no game step. */
+    grid_held[slot & 1] = held ? 3 : 0;
+}
 
 static void *music_callback(snd_stream_hnd_t hnd, int req, int *got) {
     (void)hnd;
@@ -380,11 +390,18 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
     if(!voices_started) return;
     float target[V_COUNT] = {0};
     float rate[V_COUNT] = {1, 1, 1, 1, 1};
+    int gs = slot & 1;
+    float g = grid_rev[gs];
+    g = grid_held[gs] > 0 && k ? fminf(1.0f, g + dt * 2.6f) : fmaxf(0.0f, g - dt * 1.4f);
+    grid_rev[gs] = k ? g : 0.0f;
+    if(grid_held[gs] > 0) grid_held[gs]--;
     if(k) {
         float top = cc_params[CC_150].top_speed;
         float n = clampf(fabsf(k->speed) / top, 0, 1.35f);
         bool boost = k->boost_t > 0;
         float rev = n + (boost ? 0.15f : 0) + (k->burnout_t > 0 ? 0.6f : 0) + (!k->grounded ? 0.08f : 0);
+        /* Eased so a blip leaps up, then settles. */
+        if(g > 0) rev = fmaxf(rev, 1.05f * g * g * (3.0f - 2.0f * g));
         float hi = clampf((rev - 0.25f) / 0.5f, 0, 1);
         target[V_ENGINE_LOW] = 175.0f * (1.0f - hi * 0.85f) + 25.0f;
         target[V_ENGINE_HIGH] = 150.0f * hi;
@@ -402,6 +419,13 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
         if(game.num_players > 1)
             for(int i = 0; i < V_COUNT; i++) target[i] *= 0.75f;
     }
+    /* Held flat out on the grid, the rev limiter cuts in and out: a pitch
+       stutter applied after the smoothing so it isn't averaged away. */
+    float limiter = 1.0f;
+    if(g >= 1.0f) {
+        grid_flutter[gs] += dt;
+        if(fmodf(grid_flutter[gs] * 11.0f, 1.0f) < 0.35f) limiter = 0.94f;
+    }
     snd_sh4_to_aica_stop();
     for(int i = 0; i < V_COUNT; i++) {
         Voice *v = &voice_sets[slot & 1][i];
@@ -410,7 +434,7 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
         /* Glide pitch like a real engine instead of stepping on boosts. */
         if(v->rate <= 0) v->rate = rate[i];
         v->rate += (rate[i] - v->rate) * smooth_k(i <= V_ENGINE_HIGH ? 7.0f : 14.0f, dt);
-        int freq = (int)(DK_SFX_RATE * clampf(v->rate, 0.3f, 2.6f));
+        int freq = (int)(DK_SFX_RATE * clampf(v->rate, 0.3f, 2.6f) * (i <= V_ENGINE_HIGH ? limiter : 1.0f));
         freq = (freq + 32) & ~63;   /* avoid a command for tiny pitch changes */
         voice_set(v, freq, (int)v->vol);
     }

@@ -590,6 +590,7 @@ static void countdown_step(float dt) {
         const Pad *pd = input_pad(pi);
         if(pd->pressed & BTN_A) pl->accel_press_t = before;
         if(!(pd->held & BTN_A)) pl->accel_press_t = -1.0f;
+        audio_kart_throttle(pi, (pd->held & BTN_A) != 0);
 #ifdef DK_AUTOTEST
         pl->accel_press_t = 1.9f;
 #endif
