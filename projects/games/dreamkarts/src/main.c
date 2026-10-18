@@ -218,6 +218,7 @@ static struct {
     float log_t;
     bool done;
     int win_frames, win_missed, frames, missed;
+    int win_multi, win_zero, multi, zero;   /* frames that ran 2+ or 0 physics steps */
     float win_cpu_max, rnd_max_ms;
     size_t vtx_max;
 } at = {.min_fps = 999};
@@ -1185,22 +1186,36 @@ int main(int argc, char **argv) {
     uint64_t last = timer_us_gettime64();
     uint64_t fps_t0 = last;
     int fps_frames = 0;
-    float acc = 0;
+    /* Physics runs one step per displayed frame. pvr_wait_ready() paces
+       the loop to the display, whose period is not 1/60 s (16.68 ms on an
+       NTSC console, whatever the host gives in Flycast), so a fixed 1/60
+       step would owe the clock a whole step every few seconds and run
+       twice in one frame: a one-frame hitch of everything. The step is the
+       measured vblank period instead, nudged by up to 1% toward the time
+       still owed so game time stays on the clock; only a frame that missed
+       vblanks takes more than one step. */
+    float vbl_dt = DK_DT;   /* smoothed length of a single-vblank frame */
+    float owed = 0;         /* clock time not yet stepped: timer jitter, normally */
     while(!game.quit) {
         pvr_wait_ready();
         uint64_t now = timer_us_gettime64();
         float dt_real = (float)(now - last) * 1e-6f;
         last = now;
         if(dt_real > 0.1f) dt_real = 0.1f;
-        acc += dt_real;
-        int steps = (int)(acc / DK_DT + 0.25f);
-        if(steps > 4) {
-            steps = 4;
-            acc = 0;
+        owed += dt_real;
+        int steps = 1;
+        if(dt_real < 1.5f * vbl_dt) {
+            vbl_dt = clampf(vbl_dt + (dt_real - vbl_dt) * 0.01f, 0.8f * DK_DT, 1.25f * DK_DT);
         }
         else {
-            acc -= steps * DK_DT;
+            steps = (int)(dt_real / vbl_dt + 0.5f);
+            if(steps > 4) {   /* a stall: forget the time rather than replay it */
+                steps = 4;
+                owed = steps * vbl_dt;
+            }
         }
+        float dt = vbl_dt + clampf((owed / steps - vbl_dt) * 0.1f, -0.01f * vbl_dt, 0.01f * vbl_dt);
+        owed = clampf(owed - steps * dt, -vbl_dt, vbl_dt);
 
         uint64_t upd_t0 = timer_us_gettime64();
         input_update();
@@ -1216,7 +1231,7 @@ int main(int argc, char **argv) {
 #ifdef DK_CAPTURE
             capture_script();
 #endif
-            update(DK_DT);
+            update(dt);
             pad.pressed = pad2.pressed = 0;
             pad.released = pad2.released = 0;
         }
@@ -1262,6 +1277,14 @@ int main(int argc, char **argv) {
                     at.win_missed++;
                     at.missed++;
                 }
+                if(steps >= 2) {
+                    at.win_multi++;
+                    at.multi++;
+                }
+                else if(steps == 0) {
+                    at.win_zero++;
+                    at.zero++;
+                }
                 if(game.cpu_ms > at.win_cpu_max) at.win_cpu_max = game.cpu_ms;
                 pvr_stats_t ps;
                 if(pvr_get_stats(&ps) == 0 && ps.rnd_last_time < 100000000ull) {
@@ -1280,16 +1303,18 @@ int main(int argc, char **argv) {
             if(at.log_t >= AT_LOG_SECS) {
                 at.log_t = 0;
                 float f = prof_frames ? 1.0f / (prof_frames * 1000.0f) : 0;
-                printf("DK AT %s t=%.1f fps=%.1f missed=%d/%d cpu=%.2fms max=%.2fms [upd %.2f world %.2f karts %.2f "
-                       "pt %.2f tr %.2f] pvr=%.2fms tris=%d lap=%d place=%d spd=%.1f drift=%d stage=%d\n",
+                printf("DK AT %s t=%.1f fps=%.1f missed=%d/%d multi=%d zero=%d step=%.3fms cpu=%.2fms max=%.2fms "
+                       "[upd %.2f world %.2f karts %.2f pt %.2f tr %.2f] pvr=%.2fms tris=%d lap=%d place=%d spd=%.1f "
+                       "drift=%d stage=%d\n",
                        state_names[game.state], (double)game.race_time, (double)game.fps, at.win_missed,
-                       at.win_frames, (double)game.cpu_ms, (double)at.win_cpu_max, (double)(prof_us[0] * f),
+                       at.win_frames, at.win_multi, at.win_zero, (double)(vbl_dt * 1000.0f), (double)game.cpu_ms,
+                       (double)at.win_cpu_max, (double)(prof_us[0] * f),
                        (double)(prof_us[1] * f), (double)(prof_us[2] * f), (double)(prof_us[3] * f),
                        (double)(prof_us[4] * f), (double)at.rnd_max_ms, rstats.tris, p->lap, p->place,
                        (double)p->speed, p->drift, p->stage);
                 memset(prof_us, 0, sizeof(prof_us));
                 prof_frames = 0;
-                at.win_frames = at.win_missed = 0;
+                at.win_frames = at.win_missed = at.win_multi = at.win_zero = 0;
                 at.win_cpu_max = at.rnd_max_ms = 0;
                 at_skip = 2;
             }
@@ -1303,10 +1328,10 @@ int main(int argc, char **argv) {
                 audio_autotest_report();
                 printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d, falls %d\n", track.name,
                        kart_jumps, at.jumps, kart_rescues, kart_falls);
-                printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, cpu avg %.2fms max %.2fms, "
-                       "vertex buffer peak %lu KiB\n", (double)at.min_fps, at.missed, at.frames,
-                       (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)), (double)at.cpu_max,
-                       (unsigned long)(at.vtx_max / 1024));
+                printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, frames with 2+ steps %d, "
+                       "0 steps %d, cpu avg %.2fms max %.2fms, vertex buffer peak %lu KiB\n", (double)at.min_fps,
+                       at.missed, at.frames, at.multi, at.zero, (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)),
+                       (double)at.cpu_max, (unsigned long)(at.vtx_max / 1024));
                 for(int i = 0; i < kart_count; i++)
                     printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, karts[game.finish_order[i]].name,
                            (double)karts[game.finish_order[i]].finish_time);
