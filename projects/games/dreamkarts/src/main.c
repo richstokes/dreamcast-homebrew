@@ -17,6 +17,7 @@
 #include "dolphins.h"
 #include "online.h"
 #include "spectate.h"
+#include "film.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -546,7 +547,7 @@ static void race_step(float dt, bool drive) {
         KartInput in;
         int hp = human_of(i);
         bool ai = k->cpu || k->finished || hp < 0;
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) || defined(DK_FILM)
         ai = true;
 #endif
         if(ai) ai_drive(k, &in, dt);
@@ -618,7 +619,7 @@ static void countdown_step(float dt) {
         if(pd->pressed & BTN_A) pl->accel_press_t = before;
         if(!(pd->held & BTN_A)) pl->accel_press_t = -1.0f;
         audio_kart_throttle(pi, (pd->held & BTN_A) != 0);
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) || defined(DK_FILM)
         pl->accel_press_t = 1.9f;
 #endif
     }
@@ -1165,7 +1166,7 @@ int main(int argc, char **argv) {
     record_races(boot_t0);
     return 0;
 #endif
-#if defined(DK_AT_ONLINE) || defined(DK_AT_NAME)
+#if defined(DK_AT_ONLINE) || defined(DK_AT_NAME) || defined(DK_FILM_SPECTATE)
     online_enter();
 #elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE)
     game.cc = CC_150;
@@ -1230,6 +1231,9 @@ int main(int argc, char **argv) {
         for(int s = 0; s < steps; s++) {
 #ifdef DK_CAPTURE
             capture_script();
+#endif
+#ifdef DK_FILM
+            film_step(dt);
 #endif
             update(dt);
             pad.pressed = pad2.pressed = 0;

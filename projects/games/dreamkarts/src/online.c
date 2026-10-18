@@ -586,10 +586,38 @@ static void name_autotest(float dt) {
 static uint32_t at_press;   /* buttons the spectate autotest presses next frame */
 #endif
 
+#ifdef DK_FILM_SPECTATE
+/* Film build: connect as a watcher and watch the demo lobby (lobby 10)
+   from the browser with Y, Y, the way a player would. The name is not
+   saved to the VMU. */
+static void film_spectate(void) {
+    static int y_presses;
+    if(screen == OS_NAME && screen_t > 1.0f) {
+        snprintf(name, sizeof(name), "DKTV");
+        net_begin(name);
+        set_screen(OS_CONNECT);
+    }
+    if(screen == OS_BROWSER && net_state() == NET_BROWSE && screen_t > 2.5f && y_presses < 2 &&
+       screen_t > 2.5f + y_presses * 1.2f) {
+        browse_sel = NET_LOBBIES - 1;
+        pad.pressed |= BTN_Y;
+        y_presses++;
+    }
+    static bool reported;
+    if(screen == OS_ERROR && !reported) {
+        printf("DK FILM error %s %s\n", error_line1, error_line2);
+        reported = true;
+    }
+}
+#endif
+
 void online_update(float dt) {
 #ifdef DK_AT_SPECTATE
     pad.pressed |= at_press;
     at_press = 0;
+#endif
+#ifdef DK_FILM_SPECTATE
+    film_spectate();
 #endif
     screen_t += dt;
     fly_t += dt;

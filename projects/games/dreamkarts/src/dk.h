@@ -116,6 +116,9 @@ bool input_up(int player);
 bool input_down(int player);
 bool input_left(int player);
 bool input_right(int player);
+#ifdef DK_FILM
+void input_film_tap(int player, uint32_t btns);
+#endif
 
 typedef struct {
     float steer;         /* -1 left .. +1 right */

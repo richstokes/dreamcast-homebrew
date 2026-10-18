@@ -4,7 +4,7 @@ else
 
 TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c \
-	net.c netlink.c online.c save.c vmuscreen.c spectate.c
+	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
 GEN_HEADERS = $(wildcard $(GEN)/*.h)
@@ -25,6 +25,8 @@ VARIANT_FLAGS_release =
 VARIANT_FLAGS_autotest = -DDK_AUTOTEST
 VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
 VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
+# film: trailer footage (src/film.c), with -DDK_FILM_SPECTATE or -DDK_FILM_SHOW.
+VARIANT_FLAGS_film = -DDK_FILM
 # Extra -D flags get their own object directory so builds never mix.
 empty :=
 space := $(empty) $(empty)

@@ -262,7 +262,7 @@ void title_update(float dt) {
             menu_row++;
             audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
         }
-#ifndef DK_AUTOTEST
+#if !defined(DK_AUTOTEST) && !defined(DK_FILM)
         else if(game.num_players > 1 && !pad2.connected) {
             warn_t = 2.0f;
             audio_sfx(DK_SFX_MENU_BACK, 200, 128);
