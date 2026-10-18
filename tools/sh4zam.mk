@@ -7,6 +7,15 @@
 SH4ZAM_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
 SH4ZAM_UPDATE := $(dir $(lastword $(MAKEFILE_LIST)))update-sh4zam.sh
 
+# SH4ZAM checks alignment, sizes and indices with assert(), and upstream keeps
+# adding debug-only checks, so builds define NDEBUG as upstream asks for
+# release builds. DEBUG=1 keeps assert() for tracking down API misuse. This
+# covers the whole project, and make does not rebuild objects when flags
+# change: run make clean after switching.
+ifneq ($(DEBUG),1)
+export KOS_CFLAGS += -DNDEBUG
+endif
+
 .PHONY: sh4zam-build $(SH4ZAM_GOALS)
 $(SH4ZAM_GOALS): sh4zam-build ;
 

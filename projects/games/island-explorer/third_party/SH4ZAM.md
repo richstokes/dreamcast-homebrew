@@ -11,6 +11,12 @@ fetched and fast-forwarded. A failed fetch or non-fast-forward update stops the
 build. `make clean` works without fetching. `run-flycast.sh --skip-build` runs
 the already-built executable without fetching or rebuilding.
 
+The wrapper also adds `-DNDEBUG` to every build, as upstream asks for release
+builds: SH4ZAM's `assert()` checks of alignment, sizes and indices cost
+performance, and upstream adds more over time. `make DEBUG=1` keeps them for
+tracking down API misuse; run `make clean` when switching, since make does not
+rebuild objects when only flags change.
+
 The fetched C headers implement these operations inline on the SH-4:
 
 - XMTRX camera rotation and FTRV vertex transformation, including sky, water
