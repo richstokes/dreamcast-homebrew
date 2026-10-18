@@ -81,8 +81,9 @@ queue is unlocked and Flycast itself crashes on the PicoTCP thread
 frames are now queued and fed to picoTCP from its own thread before each
 stack tick.
 
-Neither networking race is fixed upstream as of October 2026; real Dreamcast
-hardware is unaffected.
+Both fixes are proposed upstream in
+[#2569](https://github.com/flyinghead/flycast/pull/2569); drop these patches
+once the pinned revision includes it. Real Dreamcast hardware is unaffected.
 
 ## Upload regression test
 
