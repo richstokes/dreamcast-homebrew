@@ -795,11 +795,16 @@ static void draw_lobby(void) {
         char vb[24];
         for(int i = 0; i < 3; i++, y += 36) {
             hud_text(386, y, 0.5f, ALIGN_LEFT, argb(255, 190, 205, 235), labels[i]);
+            if(i == 0) {
+                /* Track names are too long to share the label's line. */
+                hud_text(398, y + 26, 0.5f, ALIGN_LEFT, 0xffffffff, track_names[l->track % TRACK_COUNT]);
+                y += 26;
+                continue;
+            }
             const char *v = vb;
-            if(i == 0) v = track_names[l->track % TRACK_COUNT];
             if(i == 1) snprintf(vb, sizeof(vb), "%d", l->laps);
             if(i == 2) v = cc_names[l->cc % CC_COUNT];
-            hud_text(602, y + 2, i == 0 ? 0.42f : 0.5f, ALIGN_RIGHT, 0xffffffff, v);
+            hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, 0xffffffff, v);
         }
         snprintf(buf, sizeof(buf), "%d WATCHING", l->watchers);
         hud_text(494, y + 6, 0.5f, ALIGN_CENTER, argb(220, 200, 225, 255), buf);
@@ -845,7 +850,10 @@ static void draw_lobby(void) {
             int c = me ? me->colour : 0;
             swatch(560, y + 3, c);
             v = kart_colours[c % COLOUR_COUNT].name;
-            hud_text(552, y + 2, 0.5f, ALIGN_RIGHT, col, v);
+            /* Shrink long colour names to clear the label. */
+            float room = 552 - (386 + hud_text_width(labels[i], 0.55f) + 12), cs = 0.5f;
+            if(hud_text_width(v, cs) > room) cs = room / hud_text_width(v, 1.0f);
+            hud_text(552, y + 2 + (0.5f - cs) * 21, cs, ALIGN_RIGHT, col, v);
             v = "";
         }
         char shown[32];
@@ -853,7 +861,12 @@ static void draw_lobby(void) {
             snprintf(shown, sizeof(shown), "< %s >", v);
             v = shown;
         }
-        if(v[0]) hud_text(602, y + 2, row == LR_TRACK ? 0.45f : 0.5f, ALIGN_RIGHT, col, v);
+        if(row == LR_TRACK) {
+            /* Track names are too long to share the label's line. */
+            hud_text(398, y + 28, 0.5f, ALIGN_LEFT, col, v);
+            y += 28;
+        }
+        else if(v[0]) hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, col, v);
         y += 40;
     }
     y = 360;
