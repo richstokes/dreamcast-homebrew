@@ -33,7 +33,7 @@ which is newer than v2.7 and includes three fixes these projects rely on:
   timeout or retrying does not help on older builds, including v2.7; rebuild
   with the command above. Real BBA hardware does not use this proxy.
 
-Two local patches are applied by the builder:
+Four local patches are applied by the builder:
 
 - `macos-build.patch` turns off precompiled headers for the `flycast` target,
   which the command-line CMake build cannot share between C++ and Objective-C++.
@@ -43,6 +43,9 @@ Two local patches are applied by the builder:
   their modifiers and consumes one transition per actual Maple keyboard read.
   This applies to local Dreamcast keyboards; arcade, controller mappings, and
   GGPO retain their existing input path.
+- `bba-rx-thread.patch` and `pico-eth-thread.patch` move the emulated
+  Broadband Adapter's frame handoffs onto the right threads; see
+  [Network threading](#network-threading) below.
 
 Keyboard queues reset on menu changes, device removal/remapping, savestate loads,
 and guest keyboard resets. Each port holds at most 256 transitions; overflow
@@ -56,6 +59,30 @@ independently with a C++17 compiler and Git, without cloning Flycast:
 ```sh
 ./tools/flycast/test-keyboard-input.sh
 ```
+
+## Network threading
+
+`bba-rx-thread.patch` hands received network frames to the emulated
+Broadband Adapter on the emulation thread. Upstream, the TCP proxy and DCNet
+threads call into the RTL8139 model directly, so its receive interrupt is
+raised from another thread while the SH-4 rebuilds its interrupt table (KOS
+reprograms the timer's interrupt priority on most thread wakeups). The race
+leaves stray pending interrupts: a networked KOS program panics with
+"Unhandled exception ... code 3" and a random event such as `0640` (DMAC
+channel 0) or `03a0`, or simply freezes, typically after a minute or so of
+steady traffic such as an online race. Frames now wait in a 64-frame queue
+that the SH-4 scheduler drains every 100 us.
+
+`pico-eth-thread.patch` does the same in the other direction for the TCP
+proxy. Frames the guest sends were pushed into picoTCP from the emulation
+thread, but picoTCP is built without `PICO_SUPPORT_MUTEX`, so its device
+queue is unlocked and Flycast itself crashes on the PicoTCP thread
+(`Trace/BPT trap`, in `devloop_in` or `pico_socket_udp_deliver`). The
+frames are now queued and fed to picoTCP from its own thread before each
+stack tick.
+
+Neither networking race is fixed upstream as of October 2026; real Dreamcast
+hardware is unaffected.
 
 ## Upload regression test
 

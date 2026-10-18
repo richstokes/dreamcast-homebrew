@@ -23,7 +23,7 @@ fi
     echo "Unexpected source revision in $WORK_DIR/source; choose a fresh FLYCAST_BUILD_DIR." >&2; exit 1;
 }
 git -C "$WORK_DIR/source" submodule update --init --recursive --depth 1
-for patch in macos-build.patch keyboard-input.patch; do
+for patch in macos-build.patch keyboard-input.patch bba-rx-thread.patch pico-eth-thread.patch; do
     if git -C "$WORK_DIR/source" apply --check "$TOOLS_DIR/$patch" 2>/dev/null; then
         git -C "$WORK_DIR/source" apply "$TOOLS_DIR/$patch"
     else
