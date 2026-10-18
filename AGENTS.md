@@ -25,6 +25,19 @@ check), and redeploy with `projects/games/dreamkarts/server/deploy/deploy.sh`,
 which ends by checking the live server reports the new build. See
 `projects/games/dreamkarts/server/README.md`.
 
+## Worktrees and branches
+
+Finished work belongs on `main`. Sessions often run in a git worktree under
+`.claude/worktrees/` on their own branch; when the work there is done, commit
+it and push it to `origin/main` (rebase onto `origin/main`, then
+`git push origin HEAD:main`), including work a side session left on its own
+branch. Do not leave finished changes only in a worktree, a local branch or a
+stash. Before calling a task done, run `tools/check-worktrees.sh`: it fetches
+origin and lists any worktree with uncommitted files or commits not on
+`origin/main`, any branch with unmerged commits, and any stash, and exits 1
+if anything has not reached `main`. Work another session is still doing will
+show up there too; leave that to its session rather than merging it.
+
 ## Real Dreamcast hardware
 
 `tools/dc-hw.sh` runs programs on the physical console (power through a
