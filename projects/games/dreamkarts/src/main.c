@@ -65,7 +65,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[33];
+    static bool shot[34];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -148,12 +148,13 @@ static void capture_script(void) {
                 take_shot(sky_shots[i].name);
             }
     }
-    /* Cyberstone: the crest, down the drop, up the National straight and
-       round the banked Luffield helix. */
+    /* Cyberstone: the first chicane, the crest, down the drop, the
+       National straight's chicane and round the banked Luffield helix. */
     if(game.state == ST_RACE && track.id == TRACK_CYBERSTONE) {
-        static const struct { int seg; float at; const char *name; } cs_shots[4] = {
-            {2, 30.0f, "cs-crest"}, {2, 80.0f, "cs-drop"}, {6, 150.0f, "cs-national"}, {9, 40.0f, "cs-luffield"}};
-        for(int i = 0; i < 4; i++)
+        static const struct { int seg; float at; const char *name; } cs_shots[5] = {
+            {1, 2.0f, "cs-chicane"}, {6, 30.0f, "cs-crest"}, {6, 90.0f, "cs-drop"}, {11, 2.0f, "cs-national"},
+            {17, 40.0f, "cs-luffield"}};
+        for(int i = 0; i < 5; i++)
             if(!shot[29 + i] && fabsf(track_delta(track_seg_s(cs_shots[i].seg) + cs_shots[i].at, p->tp.s)) < 3.0f) {
                 shot[29 + i] = true;
                 take_shot(cs_shots[i].name);

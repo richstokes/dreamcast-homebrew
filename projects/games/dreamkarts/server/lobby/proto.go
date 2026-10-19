@@ -12,8 +12,8 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 1
-	Build    = 9
-	MinBuild = 9
+	Build    = 10
+	MinBuild = 10
 )
 
 const (

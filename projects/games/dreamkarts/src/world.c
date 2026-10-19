@@ -2133,14 +2133,13 @@ static void sk_place_props(void) {
     float gates[6];
     int ngates = 0;
     if(track.id == TRACK_CYBERSTONE) {
-        /* Gates: the line, down the start straight, on the crest before
-           the drop, and twice up the National straight. */
-        float nat = track_seg_s(6);
+        /* Gates: the line, out of the first chicane, on the crest before
+           the drop, up the National straight and between its rollers. */
         gates[ngates++] = 0.0f;
-        gates[ngates++] = 110.0f;
-        gates[ngates++] = track_seg_s(2) + 26.0f;
-        gates[ngates++] = nat + 50.0f;
-        gates[ngates++] = nat + 230.0f;
+        gates[ngates++] = track_seg_s(4) + 50.0f;
+        gates[ngates++] = track_seg_s(6) + 26.0f;
+        gates[ngates++] = track_seg_s(10) + 50.0f;
+        gates[ngates++] = track_seg_s(14) + 64.0f;
     }
     else {
         /* Gates: the line, the main straight, the waves' troughs, over the

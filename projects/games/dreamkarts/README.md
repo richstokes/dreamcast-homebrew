@@ -34,13 +34,14 @@ lefts bring you home. The deck glows under a cyan and magenta grid with
 lights running down its edges, glass rails carry neon tubes round the turns,
 octagonal neon gates frame the line, and towers with lit windows, neon
 crowns and signs rise out of the clouds under a crescent moon, with
-searchlights sweeping the sky. **Cyberstone** (1,067 m) takes Neon
+searchlights sweeping the sky. **Cyberstone** (1,058 m) takes Neon
 Skyway's road and city by night on a layout after Silverstone's National
-circuit, run clockwise, with plenty of hill and no jumps: the start straight
-climbs into Copse, a fast right, then the road crests and drops 11 m past
-the Maggotts kink to the tight Becketts right at the bottom of the valley.
-The long National straight climbs 17 m back across the city, over two
-gentle rollers, to Brooklands, a left at the summit, and Luffield, the
+circuit, run clockwise, with plenty of hill and no jumps: a quick left-right
+chicane halfway down the start straight, then a climb into Copse, a fast
+right, before the road crests and drops 11 m past the Maggotts kink to the
+tight Becketts right at the bottom of the valley. The long National
+straight climbs 17 m back across the city, through a right-left chicane and
+over two gentle rollers, to Brooklands, a left at the summit, and Luffield, the
 longest corner, banked hard as it spirals down to the fast Woodcote right
 and the line. You drive a Chao in a standard kart,
 in the colours you pick, against five CPU Chao, or race a friend in

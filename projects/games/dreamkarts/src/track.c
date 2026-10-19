@@ -32,12 +32,13 @@
    lefts bring it back to the line.
 
    Cyberstone: Neon Skyway's road and city on a layout after Silverstone's
-   National circuit, run clockwise. The start straight runs east, climbing
-   into Copse, a fast right; the road crests and drops 11 m down to the
-   Maggotts kink and the tight right at Becketts at the bottom of the
-   valley. The National straight then climbs 17 m back across the infield
-   to Brooklands, a left at the summit, and Luffield, the long banked right
-   that spirals down to the fast Woodcote right onto the line. */
+   National circuit, run clockwise. The start straight runs east through a
+   left-right chicane, climbing into Copse, a fast right; the road crests
+   and drops 11 m down to the Maggotts kink and the tight right at Becketts
+   at the bottom of the valley. The National straight then climbs 17 m back
+   across the infield, through a right-left chicane, to Brooklands, a left
+   at the summit, and Luffield, the long banked right that spirals down to
+   the fast Woodcote right onto the line. */
 #include "track.h"
 #include <stddef.h>
 
@@ -48,7 +49,7 @@ const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING",
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
                                                       "A NIGHT RIDE ABOVE THE CITY",
-                                                      "HILLS AND A BANKED HELIX"};
+                                                      "HILLS, CHICANES AND A HELIX"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -136,25 +137,33 @@ static Seg sk_seg[] = {
 };
 
 static Seg cs_seg[] = {
-    {0, 0, 277.4f, 0},        /*  0 start straight, east (solved) */
-    {34.0f, 100, 0, 0.08f},   /*  1 Copse, now south */
-    {0, 0, 145.0f, 0},        /*  2 over the crest and down the drop */
-    {40.0f, -30, 0, 0.06f},   /*  3 Maggotts kink */
+    {0, 0, 109.0f, 0},        /*  0 start straight, east (solved) */
+    {16.0f, -60, 0, 0},       /*  1 chicane: left */
+    {0, 0, 6.0f, 0},
+    {16.0f, 60, 0, 0},        /*  3 and right, east again */
+    {0, 0, 110.0f, 0},        /*  4 */
+    {34.0f, 100, 0, 0.08f},   /*  5 Copse, now south */
+    {0, 0, 170.0f, 0},        /*  6 over the crest and down the drop */
+    {40.0f, -30, 0, 0.06f},   /*  7 Maggotts kink */
     {0, 0, 8.0f, 0},
-    {20.0f, 145, 0, 0.10f},   /*  5 Becketts, now north-west */
-    {0, 0, 296.4f, 0},        /*  6 the National straight, climbing (solved) */
-    {24.0f, -80, 0, 0},       /*  7 Brooklands, at the summit */
+    {20.0f, 145, 0, 0.10f},   /*  9 Becketts, now north-west */
+    {0, 0, 106.3f, 0},        /* 10 the National straight, climbing (solved) */
+    {16.0f, 60, 0, 0},        /* 11 chicane: right */
+    {0, 0, 6.0f, 0},
+    {16.0f, -60, 0, 0},       /* 13 and left */
+    {0, 0, 135.0f, 0},        /* 14 on up the National straight */
+    {24.0f, -80, 0, 0},       /* 15 Brooklands, at the summit */
     {0, 0, 10.0f, 0},
-    {30.0f, 190, 0, 0.22f},   /*  9 Luffield, banked and spiralling down */
+    {30.0f, 190, 0, 0.22f},   /* 17 Luffield, banked and spiralling down */
     {0, 0, 30.0f, 0},
-    {60.0f, 35, 0, 0.06f},    /* 11 Woodcote onto the start straight */
+    {60.0f, 35, 0, 0.06f},    /* 19 Woodcote onto the start straight */
 };
 
 #define NSEGS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static Layout hb = {hb_seg, NSEGS(hb_seg), DK_PI * 0.5f, {-69.4f, 0, -98.8f}, 38.0f, 0, 16, {0}, {0}, {{0}}};
 static Layout th = {th_seg, NSEGS(th_seg), -DK_PI * 0.5f, {79.0f, 0, 60.0f}, 40.0f, 0, 13, {0}, {0}, {{0}}};
 static Layout sk = {sk_seg, NSEGS(sk_seg), DK_PI * 0.5f, {-72.0f, 0, -100.0f}, 40.0f, 0, 2, {0}, {0}, {{0}}};
-static Layout cs = {cs_seg, NSEGS(cs_seg), DK_PI * 0.5f, {-120.0f, 0, 119.0f}, 40.0f, 0, 6, {0}, {0}, {{0}}};
+static Layout cs = {cs_seg, NSEGS(cs_seg), DK_PI * 0.5f, {-106.0f, 0, 110.0f}, 40.0f, 0, 10, {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -576,8 +585,9 @@ static void init_skyway(float *turnk) {
 
 /* Cyberstone's road height: knots in layout distance eased with
    smoothsteps. Up into Copse, over the crest and down the drop to the
-   valley at Becketts, up the National straight (over two gentle rollers)
-   to the summit at Brooklands, then down round Luffield and Woodcote. */
+   valley at Becketts, up the National straight (through the chicane and
+   over two gentle rollers) to the summit at Brooklands, then down round
+   Luffield and Woodcote. */
 #define CS_KNOTS    10
 #define CS_ROLL_LEN 44.0f
 #define CS_ROLL_H   1.2f
@@ -601,24 +611,26 @@ static void init_cyberstone(float *turnk) {
     const float *u0 = cs.s0;
     float L = track.length;
     const float knots[CS_KNOTS][2] = {
-        {0.0f, 0.0f}, {u0[1] - 70.0f, 0.0f}, {u0[2] + 12.0f, 6.0f}, {u0[2] + 40.0f, 6.0f}, {u0[3] + 12.0f, -5.0f},
-        {u0[6] + 25.0f, -5.0f}, {u0[7] - 6.0f, 12.0f}, {u0[9] + 6.0f, 12.0f}, {u0[11] + 6.0f, 1.5f}, {L, 0.0f},
+        {0.0f, 0.0f}, {u0[5] - 70.0f, 0.0f}, {u0[6] + 12.0f, 6.0f}, {u0[6] + 40.0f, 6.0f}, {u0[7] + 12.0f, -5.0f},
+        {u0[10] + 25.0f, -5.0f}, {u0[15] - 6.0f, 12.0f}, {u0[17] + 6.0f, 12.0f}, {u0[19] + 6.0f, 1.5f}, {L, 0.0f},
     };
     memcpy(cs_knots, knots, sizeof(knots));
-    cs_roll_u = u0[6] + 70.0f;
+    cs_roll_u = u0[14] + 20.0f;
 
-    /* Dash panels: the start straight, the foot of the drop and the
-       National straight's climb. */
+    /* Dash panels: out of the first chicane, the foot of the drop and
+       into the rollers on the National straight. */
     track.npads = 3;
-    track.pads[0] = (DashPad){60.0f, 65.0f, -5.8f, -2.2f, 1.1f};
-    float drop = track_seg_s(2);
-    track.pads[1] = (DashPad){drop + 96.0f, drop + 101.0f, 2.2f, 5.8f, 1.1f};
-    float nat = track_seg_s(6);
-    track.pads[2] = (DashPad){nat + 190.0f, nat + 195.0f, -1.8f, 1.8f, 1.1f};
+    float out = track_seg_s(4);
+    track.pads[0] = (DashPad){out + 30.0f, out + 35.0f, -5.8f, -2.2f, 1.1f};
+    float drop = track_seg_s(6);
+    track.pads[1] = (DashPad){drop + 110.0f, drop + 115.0f, 2.2f, 5.8f, 1.1f};
+    float nat = track_seg_s(14);
+    track.pads[2] = (DashPad){nat + 6.0f, nat + 11.0f, -1.8f, 1.8f, 1.1f};
 
-    /* Open straights, railed turns. */
+    /* Open straights, railed turns and chicanes. */
     const float open_u[][2] = {
-        {u0[0] + 8.0f, u0[1] - 8.0f}, {u0[2] + 8.0f, u0[3] - 8.0f}, {u0[6] + 8.0f, u0[7] - 8.0f},
+        {u0[0] + 8.0f, u0[1] - 8.0f}, {u0[4] + 8.0f, u0[5] - 8.0f}, {u0[6] + 8.0f, u0[7] - 8.0f},
+        {u0[10] + 8.0f, u0[11] - 8.0f}, {u0[14] + 8.0f, u0[15] - 8.0f},
     };
     sky_rails_and_banking(&cs, open_u, NSEGS(open_u));
 }
