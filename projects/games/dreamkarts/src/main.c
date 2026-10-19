@@ -1281,6 +1281,9 @@ int main(int argc, char **argv) {
     boot_screen(boot_t0, 0.7f, "TUNING STEEL DRUMS");
     audio_init();
     boot_screen(boot_t0, 1.0f, "READY!");
+#ifdef DK_AT_FIXED
+    game.title_t = 0;   /* the loading screen set it from the clock */
+#endif
     printf("DreamKarts boot: %lu ms\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000));
 
     online_init();
@@ -1367,11 +1370,19 @@ int main(int argc, char **argv) {
            timing, and the frame held still while a screenshot is taken. */
         dt_real = dt = DK_DT;
         steps = 1;
+        /* Effects draw with frand() (flame lengths, drift glow), so each
+           held frame replays the same random state. */
+        static bool holding;
+        static uint32_t hold_rand;
         if(at_hold > 0) {
             at_hold--;
             steps = 0;
             dt_real = 0;
+            if(!holding) hold_rand = dk_rand_peek();
+            else dk_seed(hold_rand);
+            holding = true;
         }
+        else holding = false;
 #endif
 
         uint64_t upd_t0 = timer_us_gettime64();
