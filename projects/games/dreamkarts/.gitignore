@@ -4,6 +4,7 @@
 /assets/generated/previews/
 /captures/
 *.elf
+*.elf.debug
 *.o
 *.d
 *.log

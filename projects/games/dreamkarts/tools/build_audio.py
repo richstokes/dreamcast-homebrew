@@ -14,7 +14,7 @@ original and byte-for-byte reproducible. Outputs in --output-dir:
     sound_assets.h   effect table, music constants and song offsets
     previews/*.wav   listening copies (git-ignored)
 
-The music is three songs that play in order and loop:
+The music is four songs that play in order and loop:
 
     "Coral Speedway"  128 BPM in A major, 75 s: steel drum, marimba, FM
                       electric piano, slap bass, brass, Latin percussion
@@ -22,6 +22,9 @@ The music is three songs that play in order and loop:
                       fusion with a synth lead, slap bass, Rhodes, funk guitar
     "Temple Run"      133 BPM in D minor, 72 s: toms and taiko, marimba,
                       kalimba, flute lead and brass
+    "Neon Sunset"     107 BPM synthwave in B minor, 72 s: pumping polysynth
+                      pad, pulsing synth bass, arpeggio, gated snares, synth
+                      lead and a saxophone solo
 """
 
 from __future__ import annotations
@@ -530,6 +533,124 @@ def tom(f0, sr, variant=0, length=0.6):
     y += 0.5 * filt(nz, "bp", 1800, 0.8, sr=sr) * np.exp(-t / 0.005)
     y += 0.4 * filt(nz, "lp", 400, sr=sr) * np.exp(-t / 0.02)
     return fade(softsat(1.2 * y * np.minimum(t / 0.0005, 1), 1.2), 0.0, 0.05, sr)
+
+
+@lru_cache(maxsize=None)
+def poly_pad(notes, dur, sr, bright=1.0):
+    """Juno-style polysynth pad: five detuned saws per note, spread across
+    the stereo field, through a gentle low-pass, with a slow swell."""
+    n = int((dur + 0.7) * sr)
+    t = np.arange(n) / sr
+    out = np.zeros((n, 2))
+    fc = 2300.0 * bright
+    for note in notes:
+        f = float(midi_hz(note))
+        for det, pan in ((-15.0, -0.8), (-6.0, -0.35), (0.0, 0.0), (6.0, 0.35), (15.0, 0.8)):
+            fv = f * 2 ** (det / 1200)
+            hmax = int(min(0.45 * sr / fv, 36))
+            y = additive(np.full(n, fv), sr, lambda h: lp2_mag(h * f, fc, 0.75) / h, hmax=hmax)
+            a = (pan + 1) * np.pi / 4
+            out[:, 0] += y * np.cos(a)
+            out[:, 1] += y * np.sin(a)
+    env = np.clip(t / 0.22, 0, 1) ** 1.6
+    r = int(dur * sr)
+    rl = int(0.55 * sr)
+    env[r:r + rl] *= raised(rl)[::-1][:len(env[r:r + rl])]
+    env[r + rl:] = 0
+    return out * env[:, None] * 0.12
+
+
+@lru_cache(maxsize=None)
+def synth_bass(note, dur, sr):
+    """Pulsing synthwave bass: saw plus a square an octave down through a
+    low-pass that snaps open on each note."""
+    f = float(midi_hz(note))
+    n = int((dur + 0.04) * sr)
+    t = np.arange(n) / sr
+    fc = f * (1.6 + 9.0 * np.exp(-t / 0.055))
+    hmax = int(min(0.45 * sr / f, 60))
+    y = additive(np.full(n, f), sr, lambda h: lp2_mag(h * f, fc, 1.5) / h, hmax=hmax)
+    y += 0.7 * additive(np.full(n, 0.5 * f), sr,
+                        lambda h: (lp2_mag(h * 0.5 * f, fc, 0.9) / h) if h % 2 else 0, hmax=2 * hmax)
+    env = np.minimum(t / 0.002, 1.0) * (0.7 + 0.3 * np.exp(-t / 0.08))
+    r = int(dur * sr)
+    rl = int(0.025 * sr)
+    env[r:r + rl] *= raised(rl)[::-1][:len(env[r:r + rl])]
+    env[r + rl:] = 0
+    return softsat(y * env * 0.7, 1.3)
+
+
+@lru_cache(maxsize=None)
+def arp_pluck(note, sr):
+    """Short square-wave pluck for sequenced arpeggios."""
+    f = float(midi_hz(note))
+    n = int(0.35 * sr)
+    t = np.arange(n) / sr
+    fc = f * (1.3 + 8.0 * np.exp(-t / 0.045))
+    hmax = int(min(0.45 * sr / f, 40))
+    y = additive(np.full(n, f), sr, lambda h: (lp2_mag(h * f, fc, 1.2) / h) if h % 2 else 0, hmax=hmax)
+    return fade(y * np.exp(-t / 0.14) * np.minimum(t / 0.001, 1.0), 0.0, 0.03, sr)
+
+
+@lru_cache(maxsize=None)
+def gated_snare(sr, variant=0):
+    """80s gated-reverb snare: the drum plus a dense, bright room tail that
+    is cut off sharply after a quarter of a second."""
+    n = int(0.34 * sr)
+    t = np.arange(n) / sr
+    rng = rng_for(f"gsnare-{sr}-{variant}")
+    dry = pad_to(snare(sr, variant), n)
+    nz = filt(filt(rng.standard_normal(n), "hp", 900, sr=sr), "lp", 7500, sr=sr)
+    gate = np.clip((0.27 - t) / 0.012, 0, 1)
+    room = nz * np.exp(-t / 0.5) * gate * np.minimum(t / 0.006, 1.0)
+    return fade(dry + 0.55 * room, 0.0, 0.01, sr)
+
+
+@lru_cache(maxsize=None)
+def clap(sr, variant=0):
+    n = int(0.3 * sr)
+    t = np.arange(n) / sr
+    rng = rng_for(f"clap-{sr}-{variant}")
+    nz = filt(filt(rng.standard_normal(n), "bp", 1300, 0.7, sr=sr), "hp", 700, sr=sr)
+    env = np.zeros(n)
+    for d in (0.0, 0.009, 0.018):
+        env += np.where(t >= d, np.exp(-np.clip(t - d, 0, None) / 0.004), 0)
+    env += np.where(t >= 0.024, np.exp(-np.clip(t - 0.024, 0, None) / 0.07), 0) * 0.8
+    return fade(nz * env, 0.0, 0.02, sr)
+
+
+@lru_cache(maxsize=None)
+def sax(note, dur, sr, vel=0.9):
+    """Tenor-ish saxophone: a reedy harmonic spectrum shaped by two formants,
+    brightness that blooms with breath, a scoop into each note, delayed
+    vibrato, breath noise and a touch of growl."""
+    f0 = float(midi_hz(note))
+    n = int((dur + 0.15) * sr)
+    t = np.arange(n) / sr
+    rng = rng_for(f"sax-{note}-{sr}")
+    scoop = 1 - 0.028 * np.exp(-t / 0.045)
+    vib = 1 + 0.0075 * np.sin(TAU * 5.4 * t) * np.clip((t - 0.28) / 0.3, 0, 1)
+    f = f0 * scoop * vib
+    swell = np.clip((t - 0.3) / 0.8, 0, 1)
+    cut = 900.0 + 2600.0 * vel * (0.6 + 0.4 * np.exp(-t / 0.2)) + 900.0 * swell
+
+    def amp(h):
+        fh = h * f0
+        form = 0.5 + lp2_mag(fh, 550.0, 1.6) / 1.6 + 0.8 * lp2_mag(fh, 1550.0, 3.0) / 3.0
+        return form * h ** -0.55 * np.exp(-fh / cut)
+
+    hmax = int(min(0.45 * sr / f0, 40))
+    y = additive(f, sr, amp, hmax=hmax)
+    growl = 1 + 0.08 * filt(rng.standard_normal(n), "lp", 35, sr=sr) * 8
+    breath = filt(rng.standard_normal(n), "bp", 2600, 1.2, sr=sr) * 0.05
+    y = y / (np.max(np.abs(y)) + 1e-9)
+    env = (1 - np.exp(-t / 0.03)) * (0.85 + 0.15 * swell)
+    y = (y * growl + breath) * env
+    r = int(dur * sr)
+    rl = int(0.08 * sr)
+    y[r:r + rl] *= raised(rl)[::-1][:len(y[r:r + rl])]
+    y[r + rl:] = 0
+    return fade(y, 0.0, 0.02, sr) * 0.6
 
 
 # ---------- percussion ----------
@@ -2528,6 +2649,243 @@ def compose_temple():
 
 
 # ----------------------------------------------------------------------
+# Song 4: "Neon Sunset"
+# ----------------------------------------------------------------------
+# Synthwave at 106.7 BPM in B minor / D major: a pumping Juno-style pad,
+# an eighth-note synth bass, a sixteenth arpeggio through the echo, gated
+# snares and claps, a synth-lead verse, an anthemic chorus and a saxophone
+# solo. It opens on Bm (Temple Run's closing A7 resolves into it) and ends
+# on A, which leads into Coral Speedway's D major intro.
+
+NEON = Grid(4500, 32, 0.0)     # 106.7 BPM, straight, 32 bars = 72.0 s
+D_MAJOR_PCS = (2, 4, 6, 7, 9, 11, 1)
+
+NE_VOICING = {
+    "Bm": (35, (54, 59, 62, 66)),
+    "Gmaj7": (31, (55, 59, 62, 66)),
+    "D": (38, (57, 62, 66, 69)),
+    "A": (33, (57, 61, 64, 69)),
+    "Asus": (33, (57, 62, 64, 69)),
+    "Em7": (40, (55, 59, 62, 67)),
+    "F#m": (42, (57, 61, 66, 69)),
+}
+NE_INTRO = [["Bm"], ["Gmaj7"], ["D"], ["A"]]
+NE_VERSE = [["Bm"], ["Gmaj7"], ["D"], ["A"], ["Bm"], ["Gmaj7"], ["Em7"], ["Asus", "A"]]
+NE_CHORUS = [["Gmaj7"], ["A"], ["F#m"], ["Bm"], ["Em7"], ["Gmaj7"], ["Asus"], ["A"]]
+NE_SOLO = [["Bm"], ["Gmaj7"], ["D"], ["A"], ["Bm"], ["Gmaj7"], ["D"], ["A"]]
+NE_OUTRO = [["Gmaj7"], ["A"], ["Bm"], ["A"]]
+NE_SECTIONS = [("intro", 0, NE_INTRO), ("verse", 4, NE_VERSE), ("chorus", 12, NE_CHORUS),
+               ("solo", 20, NE_SOLO), ("outro", 28, NE_OUTRO)]
+
+NE_VERSE_LEAD = [
+    [(2, 2, 66), (4, 2, 69), (6, 4, 71), (10, 2, 69), (12, 4, 66)],
+    [(0, 2, 67), (2, 2, 66), (4, 6, 62), (12, 4, 64)],
+    [(2, 2, 66), (4, 2, 69), (6, 4, 74), (10, 2, 73), (12, 4, 69)],
+    [(0, 8, 73), (8, 4, 71), (12, 4, 69)],
+    [(2, 2, 66), (4, 2, 69), (6, 4, 71), (10, 2, 74), (12, 4, 73)],
+    [(0, 2, 71), (2, 2, 69), (4, 6, 67), (12, 4, 66)],
+    [(0, 4, 67), (4, 4, 71), (8, 4, 74), (12, 4, 76)],
+    [(0, 8, 76), (8, 4, 73), (12, 4, 69)],
+]
+NE_HOOK = [
+    [(0, 4, 74), (4, 2, 74), (6, 2, 76), (8, 4, 78), (12, 4, 74)],
+    [(0, 4, 76), (4, 2, 73), (6, 2, 76), (8, 6, 81), (14, 2, 78)],
+    [(0, 4, 78), (4, 2, 76), (6, 2, 73), (8, 8, 73)],
+    [(0, 4, 74), (4, 4, 73), (8, 8, 71)],
+    [(0, 4, 71), (4, 2, 74), (6, 2, 76), (8, 4, 79), (12, 4, 78)],
+    [(0, 4, 79), (4, 2, 78), (6, 2, 76), (8, 8, 74)],
+    [(0, 6, 76), (6, 2, 74), (8, 8, 76)],
+    [(0, 12, 73), (12, 4, 69)],
+]
+NE_SAX = [
+    [(0, 2, 71), (2, 2, 74), (4, 6, 78), (10, 2, 76), (12, 4, 74)],
+    [(0, 3, 79), (3, 3, 78), (6, 2, 76), (8, 8, 74)],
+    [(0, 2, 69), (2, 2, 74), (4, 2, 78), (6, 2, 81), (8, 6, 78), (14, 2, 76)],
+    [(0, 10, 76), (10, 2, 74), (12, 2, 73), (14, 2, 71)],
+    [(0, 1, 71), (1, 1, 73), (2, 2, 74), (4, 2, 76), (6, 2, 78), (8, 8, 83)],
+    [(0, 4, 81), (4, 2, 79), (6, 2, 78), (8, 4, 79), (12, 4, 78)],
+    [(0, 3, 74), (3, 3, 78), (6, 2, 81), (8, 4, 78), (12, 4, 76)],
+    [(0, 12, 76), (12, 2, 73), (14, 2, 69)],
+]
+NE_OUTRO_LINE = [NE_HOOK[0], NE_HOOK[1], NE_HOOK[3], [(0, 8, 73), (8, 8, 76)]]
+NE_ARP = (0, 1, 2, 3, 2, 1, 3, 2)
+
+NEON_STEMS = {
+    "kick": (-15.5, 0.0, 0.0),
+    "snare": (-19.5, 0.08, 0.0),
+    "clap": (-25.0, 0.12, 0.0),
+    "hats": (-31.5, 0.04, 0.0),
+    "toms": (-23.5, 0.2, 0.0),
+    "crash": (-31.0, 0.1, 0.0),
+    "bass": (-17.0, 0.0, 0.0),
+    "pad": (-23.5, 0.35, 0.0),
+    "arp": (-26.5, 0.15, 0.32),
+    "lead": (-18.5, 0.25, 0.2),
+    "sax": (-17.5, 0.3, 0.14),
+    "glock": (-31.0, 0.4, 0.25),
+}
+
+
+def ne_section(bar):
+    for name, start, prog in NE_SECTIONS:
+        if start <= bar < start + len(prog):
+            return name, bar - start, prog
+    raise ValueError(bar)
+
+
+def ne_chord(bar, step):
+    _, i, prog = ne_section(bar % NEON.bars)
+    chords = prog[i]
+    return NE_VOICING[chords[0] if (len(chords) == 1 or step < 8) else chords[1]]
+
+
+def compose_neon():
+    sr = MUSIC_RATE
+    rng = rng_for("music-neon")
+    S = {k: Stem(NEON.n) for k in NEON_STEMS}
+    toms = {"hi": 220.0, "mid": 165.0, "lo": 123.0, "floor": 92.0}
+    beats = []                  # kick frames, for the pad's pump
+
+    def hum(ms=0.8):
+        return int(rng.normal(0, ms * 0.001 * sr))
+
+    def vel(v, spread=0.05):
+        return v * (1 + rng.uniform(-spread, spread))
+
+    def lead_line(bar, notes, gain=1.0, octave=False):
+        for st, ln, note in notes:
+            d = steps_s(ln) * (0.95 if ln > 1 else 0.75)
+            S["lead"].add(fr(bar, st), lead_synth(note, d, sr, 0.8), gain=vel(gain, 0.03))
+            if octave:
+                S["lead"].add(fr(bar, st), lead_synth(note - 12, d, sr, 0.6), gain=gain * 0.45)
+
+    def sax_line(bar, notes, gain=1.0):
+        for st, ln, note in notes:
+            acc = 1.0 if st % 4 == 0 or ln >= 4 else 0.85
+            S["sax"].add(fr(bar, st) + hum(4), sax(note, steps_s(ln) * 0.95, sr, 0.9), pan=0.1,
+                         gain=vel(gain * acc, 0.04))
+
+    for bar in range(NEON.bars):
+        sec, bi, prog = ne_section(bar)
+        last = bi == len(prog) - 1
+        big = sec in ("chorus", "solo", "outro")
+
+        # ---------------- drums ----------------
+        fill = "toms" if last and sec != "intro" else ("riser" if sec == "intro" and last else None)
+        lim = 16 if fill is None else 8
+        if sec == "intro":
+            kicks = [] if bi < 2 else [(0, 1.0), (8, 0.9)]
+            snares, hats, ohats = [], ([(s, 0.35) for s in range(0, 16, 2)] if bi >= 1 else []), []
+        elif sec == "verse":
+            kicks = [(0, 1.0), (8, 0.95), (10, 0.5)]
+            snares = [(4, 1.0), (12, 1.0)]
+            hats = [(s, 0.55 if s % 4 == 2 else 0.35) for s in range(0, 16, 2)]
+            ohats = []
+        else:
+            kicks = [(0, 1.0), (4, 0.95), (8, 1.0), (12, 0.95)]
+            snares = [(4, 1.0), (12, 1.0)]
+            hats = [(s, 0.45 if s % 2 == 0 else 0.22) for s in range(16) if s % 4 != 2]
+            ohats = [(s, 0.5) for s in (2, 6, 10, 14)]
+        for s, v in kicks:
+            if s < lim:
+                S["kick"].add(fr(bar, s), kick(sr, 1), gain=vel(v, 0.03))
+                beats.append(fr(bar, s))
+        for s, v in snares:
+            if s < lim:
+                S["snare"].add(fr(bar, s) + hum(), gated_snare(sr, int(rng.integers(0, 4))), pan=-0.03,
+                               gain=vel(v))
+                if big:
+                    S["clap"].add(fr(bar, s) + hum(1.5), clap(sr, int(rng.integers(0, 3))), pan=0.15,
+                                  gain=vel(0.9))
+        for s, v in hats:
+            if s < lim:
+                S["hats"].add(fr(bar, s) + hum(), hat(sr, int(rng.integers(0, 4))), pan=0.35,
+                              gain=vel(v, 0.08))
+        for s, v in ohats:
+            if s < lim:
+                S["hats"].add(fr(bar, s) + hum(), hat(sr, int(rng.integers(0, 2)), True), pan=0.35,
+                              gain=vel(v))
+        if fill == "toms":
+            seq = [(8, "hi"), (9, "hi"), (10, "mid"), (11, "mid"), (12, "lo"), (13, "lo"), (14, "floor"),
+                   (15, "floor")]
+            for i, (s, k) in enumerate(seq):
+                S["toms"].add(fr(bar, s), tom(toms[k], sr, i % 3, 0.7),
+                              pan=(0.45, 0.45, 0.15, 0.15, -0.15, -0.15, -0.45, -0.45)[i], gain=0.7 + 0.04 * i)
+            S["kick"].add(fr(bar, 8), kick(sr, 1), gain=0.9)
+            beats.append(fr(bar, 8))
+            S["snare"].add(fr(bar, 12), gated_snare(sr, 1), gain=0.6)
+        elif fill == "riser":
+            for i in range(8, 16):
+                S["snare"].add(fr(bar, i), gated_snare(sr, i % 4), gain=0.15 + 0.08 * (i - 8))
+            for s, k in ((12, "lo"), (14, "floor")):
+                S["toms"].add(fr(bar, s), tom(toms[k], sr, s % 3, 0.7), gain=0.8)
+
+        if bar in (0, 4, 12, 20, 28):
+            S["crash"].add(fr(bar, 0), crash(sr, bar % 3), pan=-0.25, gain=0.7 if bar == 0 else 1.0)
+        if bar in (11, 19):
+            rev = crash(sr, 2, 1.2)[::-1] * np.linspace(0, 1, int(1.2 * sr)) ** 2
+            S["crash"].add(fr(bar + 1, 0) - len(rev), rev, pan=0.25, gain=0.9)
+
+        # ---------------- bass: eighth-note pulse ----------------
+        if sec == "intro" and bi < 2:
+            S["bass"].add(fr(bar, 0), synth_bass(ne_chord(bar, 0)[0], steps_s(15), sr), gain=0.75)
+        else:
+            for s in range(0, 16, 2):
+                if fill and s >= 8 and s % 4 != 0:
+                    continue
+                r = ne_chord(bar, s)[0]
+                note = r + (12 if s in (6, 14) and sec != "intro" else 0)
+                S["bass"].add(fr(bar, s), synth_bass(note, steps_s(2) * 0.8, sr),
+                              gain=vel(1.0 if s % 4 == 0 else 0.82, 0.04))
+
+        # ---------------- pad ----------------
+        chords = prog[bi]
+        for k in range(len(chords)):
+            ln = 16 // len(chords)
+            _, v = ne_chord(bar, k * ln)
+            g = {"intro": 0.9, "verse": 0.75}.get(sec, 1.0)
+            S["pad"].add(fr(bar, k * ln), poly_pad(v, steps_s(ln), sr, 1.25 if big else 1.0), gain=g)
+
+        # ---------------- arpeggio ----------------
+        if sec != "verse" or bi >= 4:
+            for s in range(16):
+                if fill and s >= 12:
+                    continue
+                _, v = ne_chord(bar, s)
+                note = v[NE_ARP[s % 8]] + (12 if sec != "intro" or bi >= 2 else 0)
+                S["arp"].add(fr(bar, s), arp_pluck(note, sr), pan=0.3 if s % 2 else -0.3,
+                             gain=vel(0.8 if s % 4 == 0 else 0.6, 0.06))
+
+        # ---------------- sparkle, melody, sax ----------------
+        if sec == "intro" and bi < 2:
+            for s, idx in ((0, 3), (6, 2), (10, 3), (12, 1)):
+                _, v = ne_chord(bar, s)
+                S["glock"].add(fr(bar, s), glock(v[idx] + 24, sr), pan=0.4, gain=vel(0.6))
+        if sec == "verse":
+            lead_line(bar, NE_VERSE_LEAD[bi], gain=0.95)
+        elif sec == "chorus":
+            lead_line(bar, NE_HOOK[bi], octave=True)
+            for st, ln, note in NE_HOOK[bi]:
+                if ln >= 4:
+                    S["glock"].add(fr(bar, st), glock(note + 12, sr), pan=0.45, gain=0.45)
+        elif sec == "solo":
+            sax_line(bar, NE_SAX[bi])
+        elif sec == "outro":
+            lead_line(bar, NE_OUTRO_LINE[bi], octave=True)
+            sax_line(bar, [(st, ln, n - 12) for st, ln, n in NE_OUTRO_LINE[bi]], gain=0.6)
+
+    # The pad pumps against the kick, as if side-chained.
+    pump = np.ones(len(S["pad"].buf))
+    shape = 1.0 - 0.5 * np.exp(-np.arange(int(0.35 * sr)) / (0.11 * sr))
+    for b in beats:
+        a = b + MUSIC_PRE
+        seg = pump[a:a + len(shape)]
+        np.minimum(seg, shape[:len(seg)], out=seg)
+    S["pad"].buf *= pump[:, None]
+    return S
+
+
+# ----------------------------------------------------------------------
 # The playlist, in play order; the music loops from the last song back to
 # the first, and each race starts at a random song.
 # ----------------------------------------------------------------------
@@ -2542,6 +2900,7 @@ SONGS = [
     Song("coral", "Coral Speedway", CORAL, CORAL_STEMS, compose_coral),
     Song("harbour", "Harbour Lights", HARBOUR, HARBOUR_STEMS, compose_harbour),
     Song("temple", "Temple Run", TEMPLE, TEMPLE_STEMS, compose_temple),
+    Song("neon", "Neon Sunset", NEON, NEON_STEMS, compose_neon),
 ]
 
 

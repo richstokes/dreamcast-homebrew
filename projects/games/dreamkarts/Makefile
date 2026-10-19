@@ -48,14 +48,24 @@ $(OBJDIR)/blobs.o: src/blobs.S $(BLOBS)
 	@mkdir -p $(@D)
 	kos-cc -c $< -o $@
 
-dreamkarts.elf: $(OBJS)
+# The music playlist alone is 9 MB, and with debug info the ELF passed 16 MB,
+# which Flycast will not boot. Keep the debug info beside it (for
+# sh-elf-addr2line on panic addresses) and strip it from the ELF.
+define link_elf
 	kos-cc -o $@ $(OBJS) -lppp -lm
+	$(KOS_OBJCOPY) --only-keep-debug $@ $@.debug
+	$(KOS_STRIP) -g $@
+	$(KOS_OBJCOPY) --add-gnu-debuglink=$@.debug $@
+endef
+
+dreamkarts.elf: $(OBJS)
+	$(link_elf)
 
 dreamkarts-$(VARIANT).elf: $(OBJS)
-	kos-cc -o $@ $(OBJS) -lppp -lm
+	$(link_elf)
 
 clean:
-	-rm -rf build dreamkarts.elf dreamkarts-*.elf
+	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug
 
 # Asset generators (outputs are committed so a plain build needs no Python).
 textures:
