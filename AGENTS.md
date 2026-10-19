@@ -185,6 +185,10 @@ project directory, source KOS as shown above, optionally build, and then run:
 launching terminal. Use absolute ELF paths so launching is independent of the
 caller's working directory.
 
+It is fine to run up to ten Flycast instances at once when that helps, for
+example to test several builds, tracks or online clients in parallel. Close
+only the instances you started, never the user's own.
+
 For non-networked programs, BBA configuration may be omitted. For networked
 programs:
 
