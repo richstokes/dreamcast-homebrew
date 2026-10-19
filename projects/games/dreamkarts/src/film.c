@@ -5,7 +5,8 @@
    TV director on AUTO. EXTRA_CFLAGS=-DDK_FILM_SHOW instead plays the title,
    the menus (stepping through the colours and the track select) and a set
    of single-player and split-screen races with the CPU driving every
-   kart, then starts the set again.
+   kart, then starts the set again. Add -DDK_FILM_CLEAN to leave out the HUD
+   and spectator overlay while racing (clean stills for thumbnails).
 
    Every interesting moment is logged as a "DK FILM" line (camera cuts,
    overtakes, jumps, falls, purple boosts, laps, finishes) so a recording
@@ -226,6 +227,11 @@ static void show_script(void) {
 
 void film_step(float dt) {
     (void)dt;
+#ifdef DK_FILM_CLEAN
+    /* Stills for thumbnails: no HUD or spectator overlay while racing. */
+    if(game.state == ST_COUNTDOWN || game.state == ST_RACE || game.state == ST_RESULTS) dk_probe_off |= PROBE_HUD;
+    else dk_probe_off &= ~PROBE_HUD;
+#endif
 #ifdef DK_FILM_SHOW
     show_script();
 #endif
