@@ -133,9 +133,10 @@ latest version" and never gets further.
 | 22 | n x 20 bytes | players |
 | 22 + 20n | u8 | watchers (capped at 255) |
 | 23 + 20n | u8 | lobby flags: bit0 the server's demo lobby (bots race, watch only) |
+| 24 + 20n | i32 | ms until the race ends after the first finisher (racing only; 0 until someone finishes) |
 
 The watcher count and flags (also after the `LOBBIES` entries) arrived in
-build 4; older consoles ignore the extra bytes.
+build 4, and the race end in build 7; older consoles ignore the extra bytes.
 
 Player entry (20 bytes): u8 slot, char[11] name, u8 colour, u8 flags (bit0
 leader, bit1 racing, bit2 finished), u16 ping ms, u16 points, u8 last place

@@ -968,8 +968,26 @@ void online_draw(void) {
 /* Over the race: the leave prompt, or who we are still waiting for. */
 void online_draw_race(void) {
     const Kart *me = &karts[game.player];
-    if(me->finished && game.state == ST_RACE && !net_spectating())
+    if(me->finished && game.state == ST_RACE && !net_spectating()) {
         hud_text(320, 300, 0.6f, ALIGN_CENTER, 0xffffffff, "WAITING FOR THE OTHERS...");
+        uint64_t end = net_lobby()->end_ms;
+        if(end) {
+            int64_t ms = (int64_t)end - (int64_t)net_now();
+            char buf[24];
+            snprintf(buf, sizeof(buf), "RACE ENDS IN %d", ms > 0 ? (int)((ms + 999) / 1000) : 0);
+            hud_text(320, 330, 0.55f, ALIGN_CENTER, argb(255, 255, 220, 60), buf);
+#ifdef DK_AT_ONLINE
+            static int shown = -1;
+            if(ms / 5000 != shown) {
+                shown = (int)(ms / 5000);
+                printf("DK ONLINE: %s\n", buf);
+#ifdef DK_CAPTURE
+                printf("DK SHOT online-waiting-%d\n", shown);
+#endif
+            }
+#endif
+        }
+    }
     if(leave_prompt) {
         panel(170, 180, 470, 300);
         hud_text(320, 196, 0.8f, ALIGN_CENTER, argb(255, 255, 220, 60), "LEAVE THE RACE?");

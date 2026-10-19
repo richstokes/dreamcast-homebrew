@@ -37,6 +37,7 @@ typedef struct {
     int id, state, you, leader;
     int track, laps, cc, race_id;
     uint64_t green_ms;      /* local timer_ms of the green light */
+    uint64_t end_ms;        /* local timer_ms the race ends after the first finisher (0 none) */
     uint8_t nonce;
     int watchers, flags;
     int count;

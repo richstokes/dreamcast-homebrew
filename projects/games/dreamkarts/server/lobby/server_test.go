@@ -97,6 +97,12 @@ func (c *client) lobby() lobbyView {
 	return v
 }
 
+// raceLeft reads the ms-until-the-race-ends after a LOBBY packet's players.
+func raceLeft(b []byte) int32 {
+	o := 22 + int(b[21])*20 + 2
+	return int32(binary.LittleEndian.Uint32(b[o:]))
+}
+
 // advance runs the server's 20 ms ticks and its kart relays up to d from now.
 func (h *harness) advance(d time.Duration) {
 	for end := h.now.Add(d); h.now.Before(end); {
@@ -228,9 +234,16 @@ func TestUnfinishedPlacesAndTimeout(t *testing.T) {
 	a.wish(0, 0, 3, 1)
 	h.advance(CountdownLen + 100*time.Millisecond)
 	id := a.lobby().raceID
+	if left := raceLeft(a.last(TypeLobby)); left != 0 {
+		t.Fatalf("race end announced before anyone finished: %d ms", left)
+	}
 	a.kart(id, KartFinished, 4, 0, 90000)
 	b.kart(id, 0, 3, 500, 90000)
 	c.kart(id, 0, 3, 100, 90000)
+	h.advance(5 * time.Second)
+	if left := raceLeft(b.last(TypeLobby)); left < 24500 || left > 25500 {
+		t.Fatalf("race ends in %d ms, want about 25 s", left)
+	}
 	// Keep b and c alive through the grace period.
 	for i := 0; i < 32; i++ {
 		h.advance(time.Second)

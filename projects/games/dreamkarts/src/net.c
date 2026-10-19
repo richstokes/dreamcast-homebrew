@@ -516,6 +516,18 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
             int tail = 22 + count * 20;
             l->watchers = tail + 2 <= n ? b[tail] : 0;
             l->flags = tail + 2 <= n ? b[tail + 1] : 0;
+            /* Build 7 servers add how long the race has left once someone
+               has finished. */
+            int32_t left = tail + 6 <= n ? (int32_t)get32(b + tail + 2) : 0;
+            if(l->state != NLS_RACING || left <= 0) {
+                l->end_ms = 0;
+            }
+            else {
+                /* Held like the green light so the seconds do not jitter. */
+                uint64_t est = now + left - my_ping() / 2;
+                int64_t d = (int64_t)est - (int64_t)l->end_ms;
+                if(!l->end_ms || d > 300 || d < -300) l->end_ms = est;
+            }
             state = NET_LOBBY;
             message = "";
             break;

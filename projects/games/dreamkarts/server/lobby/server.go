@@ -641,6 +641,13 @@ func (s *Server) sendLobby(l *Lobby, p *Player, now time.Time) {
 		b = append(b, q.LastPlace, q.Grid)
 	}
 	b = append(b, l.watcherCount(), l.flags())
+	var left int32
+	if l.State == StateRacing && !l.FirstFin.IsZero() {
+		if left = int32(l.FirstFin.Add(FinishGrace).Sub(now) / time.Millisecond); left < 1 {
+			left = 1
+		}
+	}
+	b = binary.LittleEndian.AppendUint32(b, uint32(left))
 	s.send(p.Addr, b)
 }
 

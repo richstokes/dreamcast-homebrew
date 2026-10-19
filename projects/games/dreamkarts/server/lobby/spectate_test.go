@@ -34,7 +34,7 @@ func TestSpectators(t *testing.T) {
 		t.Fatalf("spectator view %+v", v)
 	}
 	b := w.last(TypeLobby)
-	if tail := b[22+MaxPlayers*20:]; len(tail) != 2 || tail[0] != 1 {
+	if tail := b[22+MaxPlayers*20:]; len(tail) != 6 || tail[0] != 1 {
 		t.Fatalf("watcher count tail %v", tail)
 	}
 	// Its wishes change nothing.
