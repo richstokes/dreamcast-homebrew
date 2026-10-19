@@ -18,6 +18,7 @@
 #include "online.h"
 #include "spectate.h"
 #include "film.h"
+#include "prof.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -37,6 +38,77 @@ static bool split_screen(void) {
     return game.num_players > 1 && (game.state == ST_COUNTDOWN || game.state == ST_RACE);
 }
 
+/* Accumulated microseconds per phase: update, world OP, karts, PT, TR;
+   prof_last holds the latest frame's. */
+static uint64_t prof_us[6];
+static uint32_t prof_last[6];
+static int prof_frames;
+#define PROF_MARK(i) do { uint64_t _n = timer_us_gettime64(); prof_last[i] = (uint32_t)(_n - prof_t); \
+                          prof_us[i] += _n - prof_t; prof_t = _n; } while(0)
+
+#ifdef DK_PROF
+/* Section counters (src/prof.h), banked per counter-1 event each frame. */
+uint32_t prof_cyc[PS_COUNT], prof_ev[PS_COUNT], prof_n[PN_COUNT];
+static uint64_t prof_n_win[PN_COUNT];
+static uint64_t prof_cyc_win[PROF_EVENTS][PS_COUNT], prof_ev_win[PROF_EVENTS][PS_COUNT];
+static int prof_ev_frames[PROF_EVENTS], prof_ev_mode;
+static const perf_cntr_event_t prof_ev_kind[PROF_EVENTS] = {
+    PMCR_PIPELINE_FREEZE_BY_DCACHE_MISS_MODE, PMCR_PIPELINE_FREEZE_BY_FPU_MODE, PMCR_OPERAND_CACHE_MISS_MODE
+};
+
+static void prof_frame_end(void) {
+    for(int i = 0; i < PS_COUNT; i++) {
+        prof_cyc_win[prof_ev_mode][i] += prof_cyc[i];
+        prof_ev_win[prof_ev_mode][i] += prof_ev[i];
+        prof_cyc[i] = prof_ev[i] = 0;
+    }
+    for(int i = 0; i < PN_COUNT; i++) {
+        prof_n_win[i] += prof_n[i];
+        prof_n[i] = 0;
+    }
+    prof_ev_frames[prof_ev_mode]++;
+    prof_ev_mode = (prof_ev_mode + 1) % PROF_EVENTS;
+    perf_cntr_start(PRFC1, prof_ev_kind[prof_ev_mode], PMCR_COUNT_CPU_CYCLES);
+}
+
+/* One line per log window: each section's ms a frame, the share of its
+   cycles stalled on operand-cache misses (D) and on the FPU (F), and its
+   operand-cache misses a frame (M). */
+static void prof_print(void) {
+    static const char *const names[PS_COUNT] = {"mats", "light", "mxform", "msubmit", "dolphins", "chunks", "sky",
+                                                "sea", "foam", "upd", "world", "karts", "pt", "tr"};
+    char line[PS_COUNT * 40 + PN_COUNT * 20 + 16], *o = line;
+    o += sprintf(o, "DK PC");
+    for(int i = 0; i < PS_COUNT; i++) {
+        uint64_t cyc = 0;
+        int frames = 0;
+        for(int m = 0; m < PROF_EVENTS; m++) {
+            cyc += prof_cyc_win[m][i];
+            frames += prof_ev_frames[m];
+        }
+        float ms = frames ? (float)cyc * 5e-6f / frames : 0;
+        float share[2];
+        for(int m = 0; m < 2; m++)
+            share[m] = prof_cyc_win[m][i] ? 100.0f * (float)prof_ev_win[m][i] / (float)prof_cyc_win[m][i] : 0;
+        float miss = prof_ev_frames[2] ? (float)prof_ev_win[2][i] / prof_ev_frames[2] : 0;
+        o += sprintf(o, " %s=%.2f/D%.0f/F%.0f/M%.0f", names[i], (double)ms, (double)share[0], (double)share[1],
+                     (double)miss);
+    }
+    /* Work a frame: strip vertices transformed/emitted, strips culled and
+       clipped, mesh vertices, triangles sent and back faces, vertices lit. */
+    static const char *const counts[PN_COUNT] = {"sv", "se", "scull", "sclip", "mv", "mt", "mback", "lv"};
+    int frames = prof_ev_frames[0] + prof_ev_frames[1] + prof_ev_frames[2];
+    o += sprintf(o, " |");
+    for(int i = 0; i < PN_COUNT; i++)
+        o += sprintf(o, " %s=%lu", counts[i], (unsigned long)(frames ? prof_n_win[i] / frames : 0));
+    puts(line);
+    memset(prof_n_win, 0, sizeof(prof_n_win));
+    memset(prof_cyc_win, 0, sizeof(prof_cyc_win));
+    memset(prof_ev_win, 0, sizeof(prof_ev_win));
+    memset(prof_ev_frames, 0, sizeof(prof_ev_frames));
+}
+#endif
+
 #ifdef DK_AUTOTEST
 #ifdef DK_HW
 #define AT_LOG_SECS 10.0f   /* every printf under dcload-ip stalls the console */
@@ -44,6 +116,9 @@ static bool split_screen(void) {
 #define AT_LOG_SECS 2.0f
 #endif
 static int at_skip;         /* frames to leave out of timing after slow I/O */
+#endif
+#ifdef DK_AT_FIXED
+static int at_hold;         /* frames to hold still for a screenshot */
 #endif
 
 #ifdef DK_CAPTURE
@@ -56,7 +131,17 @@ static void take_shot(const char *name) {
     vid_screen_shot(path);
     at_skip = 3;
 #else
+#ifdef DK_AT_FIXED
+    /* State fingerprint: two runs of one build must print the same. */
+    uint32_t h = 2166136261u;
+    const uint8_t *kb = (const uint8_t *)karts;
+    for(size_t i = 0; i < sizeof(karts); i++) h = (h ^ kb[i]) * 16777619u;
+    printf("DK SHOT %s\nDK STATE %s karts=%08lx rand=%08lx t=%.4f\n", name, name, (unsigned long)h,
+           (unsigned long)dk_rand_peek(), (double)game.time);
+    at_hold = 150;
+#else
     printf("DK SHOT %s\n", name);
+#endif
 #endif
 }
 
@@ -187,7 +272,7 @@ static const struct { const char *name; uint32_t off; } probe_cfg[] = {
     {"base", 0}, {"-sky", PROBE_SKY}, {"-sea", PROBE_SEA}, {"-world", PROBE_WORLD},
     {"-karts", PROBE_KARTS}, {"-pt", PROBE_PT}, {"-distant", PROBE_DISTANT}, {"-foam", PROBE_FOAM},
     {"-shadows", PROBE_SHADOWS}, {"-fx", PROBE_FX}, {"-hud", PROBE_HUD}, {"autosort", PROBE_AUTOSORT},
-    {"-alltr", PROBE_DISTANT | PROBE_FOAM | PROBE_SHADOWS | PROBE_FX | PROBE_HUD}
+    {"-alltr", PROBE_DISTANT | PROBE_FOAM | PROBE_SHADOWS | PROBE_FX | PROBE_HUD}, {"-ta", PROBE_NOTA}
 };
 #define PROBE_CFGS ((int)(sizeof(probe_cfg) / sizeof(probe_cfg[0])))
 #define PROBE_FRAMES 24
@@ -197,7 +282,7 @@ static struct {
     int cfg, frame;
     float sum[PROBE_CFGS];
     int n[PROBE_CFGS];
-    float cpu[PROBE_CFGS];
+    float cpu[PROBE_CFGS], world[PROBE_CFGS], karts[PROBE_CFGS];
     bool done[3];
 } probe;
 
@@ -221,6 +306,8 @@ static bool probe_step(void) {
     if(probe.frame >= PROBE_SETTLE && pvr_get_stats(&ps) == 0 && ps.rnd_last_time < 100000000ull) {
         probe.sum[probe.cfg] += (float)ps.rnd_last_time * 1e-6f;
         probe.cpu[probe.cfg] += game.cpu_ms;
+        probe.world[probe.cfg] += prof_last[1] * 0.001f;
+        probe.karts[probe.cfg] += prof_last[2] * 0.001f;
         probe.n[probe.cfg]++;
     }
     if(++probe.frame >= PROBE_FRAMES) {
@@ -230,6 +317,14 @@ static bool probe_step(void) {
             for(int i = 0; i < PROBE_CFGS; i++)
                 printf(" %s=%.2f", probe_cfg[i].name, (double)(probe.n[i] ? probe.sum[i] / probe.n[i] : 0));
             printf(" (cpu base %.2f)\n", (double)(probe.n[0] ? probe.cpu[0] / probe.n[0] : 0));
+            /* CPU ms a frame per configuration: total/world OP/karts. */
+            printf("DK CPU %s:", probe.scene);
+            for(int i = 0; i < PROBE_CFGS; i++) {
+                float n = probe.n[i] ? 1.0f / probe.n[i] : 0;
+                printf(" %s=%.2f/%.2f/%.2f", probe_cfg[i].name, (double)(probe.cpu[i] * n), (double)(probe.world[i] * n),
+                       (double)(probe.karts[i] * n));
+            }
+            printf("\n");
             dk_probe_off = 0;
             probe.scene = NULL;
             at_skip = 3;
@@ -878,10 +973,6 @@ static void update_camera(float dt) {
     }
 }
 
-/* Accumulated microseconds per phase: update, world OP, karts, PT, TR. */
-static uint64_t prof_us[6];
-static int prof_frames;
-#define PROF_MARK(i) do { uint64_t _n = timer_us_gettime64(); prof_us[i] += _n - prof_t; prof_t = _n; } while(0)
 
 /* Views this frame: one full-screen view, or a top/bottom split while two
    players race. Every view is drawn inside each PVR list in turn. */
@@ -913,6 +1004,7 @@ static void draw_finish_banner(int pi, float y0, float y1) {
 
 static void render(void) {
     uint64_t prof_t = timer_us_gettime64();
+    PROF_BEGIN(pp);
     int views = view_count();
     world_split = views > 1;
     world_set_fog(world_split);
@@ -925,13 +1017,17 @@ static void render(void) {
         world_draw_op();
     }
     PROF_MARK(1);
+    PROF_LAP(PS_PHASE_WORLD, pp);
     if(!(dk_probe_off & PROBE_KARTS))
         for(int v = 0; v < views; v++) {
             set_view(v);
             models_draw_karts(view_kart(v));
+            PROF_BEGIN(pd);
             dolphins_draw();
+            PROF_LAP(PS_DOLPHINS, pd);
         }
     PROF_MARK(2);
+    PROF_LAP(PS_PHASE_KARTS, pp);
 
     r_list(PVR_LIST_PT_POLY);
     if(!(dk_probe_off & PROBE_PT))
@@ -940,6 +1036,7 @@ static void render(void) {
             world_draw_pt();
         }
     PROF_MARK(3);
+    PROF_LAP(PS_PHASE_PT, pp);
 
     r_list(PVR_LIST_TR_POLY);
     for(int v = 0; v < views; v++) {
@@ -1000,6 +1097,7 @@ static void render(void) {
     }
     r_frame_end();
     PROF_MARK(4);
+    PROF_LAP(PS_PHASE_TR, pp);
     prof_frames++;
 }
 
@@ -1228,6 +1326,9 @@ int main(int argc, char **argv) {
     audio_music_target(210);
 #endif
 
+#ifdef DK_PROF
+    perf_cntr_start(PRFC1, prof_ev_kind[0], PMCR_COUNT_CPU_CYCLES);
+#endif
     uint64_t last = timer_us_gettime64();
     uint64_t fps_t0 = last;
     int fps_frames = 0;
@@ -1261,8 +1362,20 @@ int main(int argc, char **argv) {
         }
         float dt = vbl_dt + clampf((owed / steps - vbl_dt) * 0.1f, -0.01f * vbl_dt, 0.01f * vbl_dt);
         owed = clampf(owed - steps * dt, -vbl_dt, vbl_dt);
+#ifdef DK_AT_FIXED
+        /* Repeatable captures: one 1/60 s step a frame whatever the host's
+           timing, and the frame held still while a screenshot is taken. */
+        dt_real = dt = DK_DT;
+        steps = 1;
+        if(at_hold > 0) {
+            at_hold--;
+            steps = 0;
+            dt_real = 0;
+        }
+#endif
 
         uint64_t upd_t0 = timer_us_gettime64();
+        PROF_BEGIN(pu);
         input_update();
         if(game.online) online_tick();
 #if defined(DK_HW) && defined(DK_CAPTURE)
@@ -1292,7 +1405,11 @@ int main(int argc, char **argv) {
         rumble_update(dt_real, (game.state == ST_RACE || game.state == ST_COUNTDOWN) && !game.paused);
         vmuscreen_update(dt_real);
         prof_us[0] += timer_us_gettime64() - upd_t0;
+        PROF_LAP(PS_PHASE_UPD, pu);
         render();
+#ifdef DK_PROF
+        prof_frame_end();
+#endif
 
         uint64_t end = timer_us_gettime64();
         game.cpu_ms = (float)(end - now) * 0.001f;
@@ -1360,6 +1477,9 @@ int main(int argc, char **argv) {
                        (double)(prof_us[1] * f), (double)(prof_us[2] * f), (double)(prof_us[3] * f),
                        (double)(prof_us[4] * f), (double)at.rnd_max_ms, rstats.tris, p->lap, p->place,
                        (double)p->speed, p->drift, p->stage);
+#ifdef DK_PROF
+                prof_print();
+#endif
                 memset(prof_us, 0, sizeof(prof_us));
                 prof_frames = 0;
                 at.win_frames = at.win_missed = at.win_multi = at.win_zero = 0;

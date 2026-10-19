@@ -8,6 +8,7 @@
    frame. */
 #include "world.h"
 #include "render.h"
+#include "prof.h"
 #include "track.h"
 #include "texture_assets.h"
 #include <malloc.h>
@@ -2503,10 +2504,14 @@ void world_set_fog(bool split) {
 
 void world_draw_op(void) {
     r_load_vp();
+    PROF_BEGIN(pm);
     if(!(dk_probe_off & PROBE_SKY)) draw_sky();
+    PROF_LAP(PS_SKY, pm);
     if(!(dk_probe_off & PROBE_SEA)) draw_sea();
+    PROF_LAP(PS_SEA, pm);
     if(!(dk_probe_off & PROBE_WORLD)) {
         draw_chunks(HF_OP);
+        PROF_LAP(PS_CHUNKS, pm);
         draw_dash_pads();
     }
 }
@@ -2710,7 +2715,9 @@ void world_draw_tr(void) {
         if(!(dk_probe_off & PROBE_WORLD)) draw_chunks(HF_TR);
         draw_sparkles();
     }
+    PROF_BEGIN(pm);
     draw_shore_foam();
+    PROF_LAP(PS_FOAM, pm);
     th_draw_flames();
     /* Dash panels pulse with a glow. */
     r_hdr(h_dash_glow);

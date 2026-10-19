@@ -42,7 +42,7 @@ def main():
             if wid:
                 subprocess.run(["screencapture", "-x", "-o", "-l", str(wid), str(a.out / f"{name}.png")])
                 print("captured", name, flush=True)
-        elif line.startswith("DK AUTOTEST") or "panic" in line:
+        elif line.startswith("DK AUTOTEST") or line.startswith("DK STATE") or "panic" in line:
             print(line, flush=True)
     return proc.wait()
 

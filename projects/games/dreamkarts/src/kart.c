@@ -818,6 +818,10 @@ uint32_t dk_rand(void) {
     return rand_state >> 8;
 }
 
+uint32_t dk_rand_peek(void) {
+    return rand_state;
+}
+
 void dk_seed(uint32_t seed) {
     rand_state = seed;
 }

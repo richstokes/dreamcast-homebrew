@@ -7,6 +7,7 @@
    cross the near plane are clipped in that homogeneous space, which keeps
    UVs, colours and depth linear. */
 #include "render.h"
+#include "prof.h"
 #include "texture_assets.h"
 #include <malloc.h>
 #include <sh4zam/shz_sh4zam.h>
@@ -150,8 +151,35 @@ void r_frame_begin(void) {
     rstats.tris = rstats.verts = 0;
 }
 
+#if defined(DK_HW) && defined(DK_CAPTURE)
+/* Tile Accelerator back-pressure probe (PROBE_NOTA): direct-render writes
+   go to a cached scratch line instead of the store queues, so the CPU time
+   of a frame without the TA can be set against the real one. Headers still
+   go to the TA through pvr_prim; the frame shows no geometry. */
+static uint8_t ta_sink[64] __attribute__((aligned(64)));
+static uint32_t ta_saved_addr;
+static bool ta_sunk;
+
+static void ta_sink_begin(void) {
+    if(!(dk_probe_off & PROBE_NOTA) || ta_sunk) return;
+    ta_saved_addr = pvr_dr_addr;
+    pvr_dr_addr = (uint32_t)ta_sink;
+    ta_sunk = true;
+}
+
+static void ta_sink_end(void) {
+    if(!ta_sunk) return;
+    pvr_dr_addr = ta_saved_addr;
+    ta_sunk = false;
+}
+#else
+static inline void ta_sink_begin(void) {}
+static inline void ta_sink_end(void) {}
+#endif
+
 void r_list(pvr_list_t list) {
     pvr_list_begin(list);
+    ta_sink_begin();
     sent_hdr = NULL;
     cur_hdr = NULL;
     list_open = true;
@@ -159,6 +187,7 @@ void r_list(pvr_list_t list) {
 }
 
 void r_frame_end(void) {
+    ta_sink_end();
     list_open = false;
     pvr_scene_finish();
 }
@@ -419,9 +448,11 @@ void r_strip(const RV *v, int n) {
         and_code &= code;
         or_code |= code;
     }
-    if(and_code & 16) return;
-    if(!(or_code & 16) && (and_code & 15)) return;
+    PROF_COUNT(PN_SVERTS, n);
+    if(and_code & 16) { PROF_COUNT(PN_SCULL, 1); return; }
+    if(!(or_code & 16) && (and_code & 15)) { PROF_COUNT(PN_SCULL, 1); return; }
     if(or_code & clip_mask) {
+        PROF_COUNT(PN_SCLIP, 1);
         static uint8_t codes[MAX_STRIP];
         for(int i = 0; i < n; i++) codes[i] = (uint8_t)outcode(&cvbuf[i]);
         for(int i = 0; i + 2 < n; i++) {
@@ -438,6 +469,7 @@ void r_strip(const RV *v, int n) {
     emit(&cvbuf[n - 1], PVR_CMD_VERTEX_EOL);
     rstats.tris += n - 2;
     rstats.verts += n;
+    PROF_COUNT(PN_SEMIT, n);
 }
 
 void r_quad(const RV *a, const RV *b, const RV *c, const RV *d) {
@@ -447,6 +479,7 @@ void r_quad(const RV *a, const RV *b, const RV *c, const RV *d) {
 
 void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
     if(nv > MAX_MESH_VERTS) nv = MAX_MESH_VERTS;
+    PROF_BEGIN(pm);
     /* Only the projected vertex is kept; the rare triangles that need
        near-plane clipping re-transform their corners (XMTRX still holds
        this mesh's matrix). */
@@ -467,6 +500,8 @@ void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
         }
     }
     rstats.verts += nv;
+    PROF_COUNT(PN_MVERTS, nv);
+    PROF_LAP(PS_MXFORM, pm);
     flush_hdr();
     for(int i = 0; i + 2 < ni; i += 3) {
         unsigned a = idx[i], b = idx[i + 1], c = idx[i + 2];
@@ -483,7 +518,7 @@ void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
         const pvr_vertex_t *pa = &mesh_pv[a], *pb = &mesh_pv[b], *pc = &mesh_pv[c];
         if(cull) {
             float area = (pb->x - pa->x) * (pc->y - pa->y) - (pb->y - pa->y) * (pc->x - pa->x);
-            if(area <= 0) continue;
+            if(area <= 0) { PROF_COUNT(PN_MBACK, 1); continue; }
         }
         pvr_vertex_t *d = pvr_dr_target();
         *d = *pa;
@@ -496,7 +531,9 @@ void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
         d->flags = PVR_CMD_VERTEX_EOL;
         pvr_dr_commit(d);
         rstats.tris++;
+        PROF_COUNT(PN_MTRIS, 1);
     }
+    PROF_LAP(PS_MSUBMIT, pm);
 }
 
 void r_billboard(V3 c, float w, float h, float rot, float u0, float v0, float u1, float v1, uint32_t col) {

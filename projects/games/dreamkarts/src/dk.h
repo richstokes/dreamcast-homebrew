@@ -82,6 +82,7 @@ static inline uint32_t color_alpha(uint32_t c, float a) {
 /* Small deterministic RNG for effects and AI variety. */
 uint32_t dk_rand(void);
 void dk_seed(uint32_t seed);
+uint32_t dk_rand_peek(void);   /* the generator's state, for QA fingerprints */
 static inline float frand(void) { return (float)(dk_rand() & 0xffff) / 65535.0f; }
 static inline float frand_s(void) { return frand() * 2.0f - 1.0f; }
 
@@ -187,7 +188,8 @@ extern Game game;
 enum {
     PROBE_SKY = 1 << 0, PROBE_SEA = 1 << 1, PROBE_WORLD = 1 << 2, PROBE_KARTS = 1 << 3,
     PROBE_PT = 1 << 4, PROBE_DISTANT = 1 << 5, PROBE_FOAM = 1 << 6, PROBE_SHADOWS = 1 << 7,
-    PROBE_FX = 1 << 8, PROBE_HUD = 1 << 9, PROBE_AUTOSORT = 1 << 10
+    PROBE_FX = 1 << 8, PROBE_HUD = 1 << 9, PROBE_AUTOSORT = 1 << 10,
+    PROBE_NOTA = 1 << 11   /* vertices to a cached scratch line, not the TA */
 };
 extern uint32_t dk_probe_off;
 

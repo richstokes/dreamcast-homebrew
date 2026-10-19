@@ -6,6 +6,7 @@
    3/4 the Chao's body and tip colours, blended per vertex. */
 #include "models.h"
 #include "render.h"
+#include "prof.h"
 #include "world.h"
 #include "models_data.h"
 #include "texture_assets.h"
@@ -268,7 +269,9 @@ static bool mesh_in_lod(const dk_mesh_t *m, int lod) {
 
 static void draw_kart_lod(int index, int lod) {
     const Kart *k = &karts[index];
+    PROF_BEGIN(pm);
     update_kart_mats(index);
+    PROF_LAP(PS_MATS, pm);
     int variant = emote_variant(k);
     int last_part = -1;
     V3 lp = light_dir;
@@ -288,6 +291,7 @@ static void draw_kart_lod(int index, int lod) {
         int nv = m->vert_count;
         RV *out = &kart_rv[index][m->first_vert];
         if(lit_frame[index][mi] != frame_id) {
+            PROF_RESTART(pm);
             lit_frame[index][mi] = frame_id;
             const uint32_t *col = &paint[index][m->first_vert];
             bool unlit = m->flags & 1;
@@ -305,6 +309,8 @@ static void draw_kart_lod(int index, int lod) {
                 unsigned r = (((c >> 16) & 255) * li) >> 8, g = (((c >> 8) & 255) * li) >> 8, b = ((c & 255) * li) >> 8;
                 out[i].c = 0xff000000u | ((r > 255 ? 255 : r) << 16) | ((g > 255 ? 255 : g) << 8) | (b > 255 ? 255 : b);
             }
+            PROF_LAP(PS_LIGHT, pm);
+            PROF_COUNT(PN_LVERTS, nv);
         }
         r_mesh(out, nv, &dk_model_indices[m->first_index], m->index_count, true);
     }
