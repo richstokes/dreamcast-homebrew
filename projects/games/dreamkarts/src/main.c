@@ -132,10 +132,19 @@ static void take_shot(const char *name) {
     at_skip = 3;
 #else
 #ifdef DK_AT_FIXED
-    /* State fingerprint: two runs of one build must print the same. */
+    /* State fingerprint: the karts' motion and race state and the random
+       generator; runs of any build of the same game must print the same. */
     uint32_t h = 2166136261u;
-    const uint8_t *kb = (const uint8_t *)karts;
-    for(size_t i = 0; i < sizeof(karts); i++) h = (h ^ kb[i]) * 16777619u;
+    for(int k = 0; k < MAX_KARTS; k++) {
+        const Kart *kt = &karts[k];
+        float f[] = {kt->pos.x, kt->pos.y, kt->pos.z, kt->vel.x, kt->vel.z, kt->vy, kt->heading, kt->speed,
+                     kt->steer, kt->charge, kt->progress, kt->vis_yaw, kt->boost_t, kt->emote_bob};
+        int n[] = {kt->drift, kt->stage, kt->lap, kt->place};
+        const uint8_t *b = (const uint8_t *)f;
+        for(size_t i = 0; i < sizeof(f); i++) h = (h ^ b[i]) * 16777619u;
+        b = (const uint8_t *)n;
+        for(size_t i = 0; i < sizeof(n); i++) h = (h ^ b[i]) * 16777619u;
+    }
     printf("DK SHOT %s\nDK STATE %s karts=%08lx rand=%08lx t=%.4f\n", name, name, (unsigned long)h,
            (unsigned long)dk_rand_peek(), (double)game.time);
     at_hold = 150;
