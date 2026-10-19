@@ -14,6 +14,7 @@ typedef struct {
     float life, max_life;
     float size, grow;
     float gravity, drag;
+    float floor;        /* road height under a puff: its disc is drawn no lower (see fx_draw) */
     uint32_t c0, c1;
     uint8_t type;
 } Particle;
@@ -85,6 +86,7 @@ static Particle *spawn(int type, V3 p, V3 v, float life, float size, uint32_t c0
     q->grow = 0;
     q->gravity = 0;
     q->drag = 0;
+    q->floor = -1e30f;
     q->c0 = c0;
     q->c1 = c1;
     q->type = (uint8_t)type;
@@ -241,6 +243,7 @@ void fx_kart(const Kart *k, float dt) {
                                 sand ? 0.45f : skid ? 0.26f : 0.35f, c, color_alpha(c, 0));
             q->grow = sand ? 1.8f : skid ? 0.9f : 1.4f;
             q->drag = 2.0f;
+            q->floor = base.y;
         }
     }
     if(k->burnout_t > 0) {
@@ -263,6 +266,7 @@ void fx_kart(const Kart *k, float dt) {
                                 argb(0, 250, 250, 250));
             q->grow = 2.0f;
             q->drag = 1.5f;
+            q->floor = (w ? wr : wl).y;
         }
     }
 
@@ -291,6 +295,7 @@ void fx_kart(const Kart *k, float dt) {
                                 color_alpha(c, 0));
             q->grow = 1.6f;
             q->drag = 3.0f;
+            q->floor = k->pos.y;
         }
     }
     if(ev & EV_WALL) {
@@ -300,6 +305,25 @@ void fx_kart(const Kart *k, float dt) {
     }
     if(bump_burst) burst_stars(vadd(k->pos, v3(0, 0.8f, 0)), 4, 0xffffffff, 4.0f);
     if(ev & EV_CHARGE_JUMP) burst_stars(vadd(k->pos, v3(0, 0.3f, 0)), 8, 0xffffffff, 3.5f);
+}
+
+/* Height the road gains over the horizontal offset o from a located
+   position: bank is its rise per metre to the right, slope per metre along
+   the tangent. */
+static float road_rise(V3 o, const TrackPos *tp, float bank, float slope) {
+    return bank * vdot(o, tp->right) + slope * vdot(o, tp->tangent);
+}
+
+/* Textured quad lying on the road plane: centre c, half extents f and r. */
+static void road_quad(V3 c, V3 f, V3 r, const TrackPos *tp, float bank, float slope, uint32_t col) {
+    float yf = road_rise(f, tp, bank, slope), yr = road_rise(r, tp, bank, slope);
+    RV q[4] = {
+        {c.x + f.x - r.x, c.y + yf - yr, c.z + f.z - r.z, 0, 0, col},
+        {c.x + f.x + r.x, c.y + yf + yr, c.z + f.z + r.z, 1, 0, col},
+        {c.x - f.x - r.x, c.y - yf - yr, c.z - f.z - r.z, 0, 1, col},
+        {c.x - f.x + r.x, c.y - yf + yr, c.z - f.z + r.z, 1, 1, col},
+    };
+    r_strip(q, 4);
 }
 
 static void draw_flames(void) {
@@ -327,14 +351,30 @@ static void draw_flames(void) {
                 r_billboard(ex, 0.45f, 0.45f, 0, 0, 0, 1, 1, argb(220, 255, 190, 90));
             }
         }
-        /* Charge glow at the rear tyres while drifting. */
+        /* Charge glow at the rear tyres while drifting: a pool of light on
+           the road under each tyre, lying in the road plane like the kart's
+           shadow, plus a small halo round the hub. A camera-facing quad at
+           the contact patch reached below the tarmac, and the depth test
+           sliced it off along a straight line. */
         if(k->drift == DRIFT_ACTIVE && k->grounded && r_sphere_visible(k->pos, 2.5f)) {
             uint32_t c = fx_stage_color(k->stage);
-            float s = (k->stage == 0 ? 0.25f : 0.42f + 0.08f * k->stage) * (0.85f + 0.3f * frand());
+            float s = (k->stage == 0 ? 0.32f : 0.52f + 0.1f * k->stage) * (0.85f + 0.3f * frand());
+            V3 fwd = heading_fwd(k->heading + k->vis_yaw), right = heading_right(k->heading + k->vis_yaw);
+            V3 f = vscale(fwd, s * 1.3f), r = vscale(right, s);
+            float ground = track_road_y(k->tp.s, k->tp.d);
+            float bank = track_bank(k->tp.s);
+            float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
+            float halo = fminf(s * 0.3f, 0.17f);
             for(int w = 2; w < 4; w++) {
-                V3 p = vadd(models_wheel_world(k, w), v3(0, 0.12f, 0));
-                r_billboard(p, s, s, 0, 0, 0, 1, 1, color_alpha(c, 0.9f));
-                r_billboard(p, s * 0.45f, s * 0.45f, 0, 0, 0, 1, 1, 0xd0ffffff);
+                V3 wp = models_wheel_world(k, w);
+                /* The pool sits a little behind the contact patch, where the
+                   sparks stream out, on the road plane under that tyre. */
+                V3 p = vmad(wp, fwd, -0.15f);
+                V3 o = vsub(p, k->pos);
+                p.y = ground + road_rise(o, &k->tp, bank, slope) + 0.08f;
+                road_quad(p, f, r, &k->tp, bank, slope, color_alpha(c, 0.9f));
+                road_quad(p, vscale(f, 0.45f), vscale(r, 0.45f), &k->tp, bank, slope, 0x90ffffff);
+                r_billboard(vadd(wp, v3(0, 0.23f, 0)), halo, halo, 0, 0, 0, 1, 1, color_alpha(c, 0.75f));
             }
         }
     }
@@ -380,13 +420,20 @@ void fx_draw(void) {
         depth[j] = z;
     }
     r_hdr(h_smoke);
+    /* A puff's disc reaches size * up.y below its centre on screen; one
+       spawned at a tyre would dip under the road and the depth test would
+       cut it off flat. Hold its centre high enough to keep the disc on the
+       tarmac (the smoke texture is clear outside that disc). */
+    float lift = fabsf(r_cam.up.y);
     for(int k = 0; k < n; k++) {
         const Particle *q = &parts[order[k]];
         float t = 1.0f - q->life / q->max_life;
         float size = fminf(q->size, 1.4f);
         uint32_t c = color_lerp(q->c0, q->c1, t);
         if(world_night) c = color_scale(c, 0.5f);   /* moonlit, not sunlit */
-        r_billboard(q->p, size, size, (float)order[k] * 0.7f, 0, 0, 1, 1, c);
+        V3 p = q->p;
+        p.y = fmaxf(p.y, q->floor + size * lift + 0.05f);
+        r_billboard(p, size, size, (float)order[k] * 0.7f, 0, 0, 1, 1, c);
     }
     draw_flames();
     r_hdr(h_spark_glow);
