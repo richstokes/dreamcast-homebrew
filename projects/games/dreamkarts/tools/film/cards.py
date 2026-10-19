@@ -117,10 +117,11 @@ CAPTIONS = {
     'harbour': ('PALM HARBOUR', 'Chicanes and hairpins by the sea'),
     'temple': ('TEMPLE HILL', '18 m of climb, a summit jump and a viaduct'),
     'skyway': ('NEON SKYWAY', 'A night run over a cyberpunk city, with a loop'),
+    'cyberstone': ('CYBERSTONE', 'Neon hills and a banked helix, after Silverstone'),
     'drift': ('DRIFT AND MINI-TURBO', 'Blue, orange, then purple sparks'),
     'split': ('TWO-PLAYER SPLIT SCREEN', 'Grand Prix or head-to-head Versus'),
     'setup': ('RACE SETUP', 'Eight Chao colours, 50 / 100 / 150cc'),
-    'tracks': ('TRACK SELECT', 'Five courses'),
+    'tracks': ('TRACK SELECT', 'Six courses'),
     'single': ('GRAND PRIX', 'Three laps against five CPU Chao'),
     'online': ('ONLINE MULTIPLAYER', 'Up to six Dreamcasts, by broadband or dial-up'),
 }

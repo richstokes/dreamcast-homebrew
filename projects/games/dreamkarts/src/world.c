@@ -2064,11 +2064,14 @@ static void sk_place_city(void) {
     V3 placed[SK_TOWERS];
     float size[SK_TOWERS], tops[SK_TOWERS];
     int n = 0;
-    uint32_t r = 0xc17eu;
+    /* Cyberstone is wider east to west than Neon Skyway. */
+    bool cs = track.id == TRACK_CYBERSTONE;
+    float ex = cs ? 270.0f : 250.0f, ez = cs ? 200.0f : 220.0f;
+    uint32_t r = cs ? 0x5717u : 0xc17eu;
     for(int tries = 0; tries < 600 && n < SK_TOWERS; tries++) {
         r = r * 1664525u + 1013904223u;
-        float x = -250.0f + (float)((r >> 8) & 1023) / 1023.0f * 500.0f;
-        float z = -220.0f + (float)((r >> 18) & 1023) / 1023.0f * 440.0f;
+        float x = -ex + (float)((r >> 8) & 1023) / 1023.0f * 2.0f * ex;
+        float z = -ez + (float)((r >> 18) & 1023) / 1023.0f * 2.0f * ez;
         float hs = 8.0f + (float)((r >> 4) & 15) * 0.6f;
         V3 p = v3(x, 0, z);
         float road = sk_road_dist(p);
@@ -2120,17 +2123,38 @@ static void sk_place_props(void) {
     }
     strip_end();
     chunk_end();
-    chunk_begin(HF_OP, 900.0f);
-    sk_jump_face(track_wrap(track.jump.cross + track.jump.lip), 1.0f);
-    sk_jump_face(track_wrap(track.jump.cross + track.jump.land), -1.0f);
-    chunk_end();
+    if(track.has_jump) {
+        chunk_begin(HF_OP, 900.0f);
+        sk_jump_face(track_wrap(track.jump.cross + track.jump.lip), 1.0f);
+        sk_jump_face(track_wrap(track.jump.cross + track.jump.land), -1.0f);
+        chunk_end();
+    }
 
-    /* Gates: the line, the main straight, the waves' troughs, over the
-       crest into the plunge and the bottom of the infield dip. */
-    float waves = track_seg_s(2) + 18.0f;
-    float gates[] = {0.0f, 70.0f, waves + 26.0f, waves + 52.0f, track_seg_s(4) + 47.0f, track_seg_s(6) + 45.0f};
+    float gates[6];
+    int ngates = 0;
+    if(track.id == TRACK_CYBERSTONE) {
+        /* Gates: the line, down the start straight, on the crest before
+           the drop, and twice up the National straight. */
+        float nat = track_seg_s(6);
+        gates[ngates++] = 0.0f;
+        gates[ngates++] = 110.0f;
+        gates[ngates++] = track_seg_s(2) + 26.0f;
+        gates[ngates++] = nat + 50.0f;
+        gates[ngates++] = nat + 230.0f;
+    }
+    else {
+        /* Gates: the line, the main straight, the waves' troughs, over the
+           crest into the plunge and the bottom of the infield dip. */
+        float waves = track_seg_s(2) + 18.0f;
+        gates[ngates++] = 0.0f;
+        gates[ngates++] = 70.0f;
+        gates[ngates++] = waves + 26.0f;
+        gates[ngates++] = waves + 52.0f;
+        gates[ngates++] = track_seg_s(4) + 47.0f;
+        gates[ngates++] = track_seg_s(6) + 45.0f;
+    }
     world_gates = 0;
-    for(unsigned i = 0; i < sizeof(gates) / sizeof(gates[0]); i++) {
+    for(int i = 0; i < ngates; i++) {
         sk_gate(track_wrap(gates[i]));
         world_gate_s[world_gates++] = track_wrap(gates[i]);
     }
@@ -2226,7 +2250,7 @@ void world_build(void) {
     pool_n = strip_n = chunk_n = palm_n = far_sprite_n = foam_count = 0;
     cur_chunk = NULL;
     built_ok = true;
-    world_night = track.id == TRACK_SKYWAY;
+    world_night = track.in_sky;
     /* The sun, or at night the moon (north-west, low over the waves). */
     world_sun_dir = world_night ? vnorm(v3(-0.50f, 0.33f, 0.80f)) : vnorm(v3(0.30f, 0.55f, 0.78f));
     /* Moonlight on the karts: dimmer and bluer (applied as they are painted). */
@@ -2236,7 +2260,7 @@ void world_build(void) {
     if(track.id == TRACK_FIGURE8) build_figure8();
     else if(track.id == TRACK_HARBOUR) build_harbour();
     else if(track.id == TRACK_TEMPLE) build_temple();
-    else if(track.id == TRACK_SKYWAY) build_skyway();
+    else if(track.in_sky) build_skyway();
     else build_beach();
     /* Release builds log only the first build: under dcload-ip each printf
        stalls the console with IRQs off. */

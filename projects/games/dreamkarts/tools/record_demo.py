@@ -4,6 +4,9 @@
     DK_ELF=dreamkarts-record.elf DK_EXIT_ON_LOG='DKR DONE' ./run-flycast.sh --skip-build > captures/record/record.log
     uv run tools/record_demo.py captures/record/record.log
 
+Add EXTRA_CFLAGS="-DDK_RECORD -DDK_RECORD_ONLY=<track id>" to record just one
+track; only that track's recordings are replaced.
+
 Each race becomes server/demo/races/<track>-<n>.dkr.gz: "DKR1", u8 track,
 u8 laps, u8 cc, u8 karts, u32 frames, then for every frame (12 a second
 from the green light) each kart's 21 wire bytes (KART offsets 19-39).
@@ -13,7 +16,7 @@ import pathlib
 import struct
 import sys
 
-SLUGS = ["beach", "coral", "harbour", "temple", "skyway"]
+SLUGS = ["beach", "coral", "harbour", "temple", "skyway", "cyberstone"]
 KART_BYTES = 21
 OUT = pathlib.Path(__file__).resolve().parent.parent / "server" / "demo" / "races"
 
@@ -44,8 +47,11 @@ def main(log_path):
                 races.append(cur)
             cur = None
     OUT.mkdir(parents=True, exist_ok=True)
-    for old in OUT.glob("*.dkr.gz"):
-        old.unlink()
+    # Replace the recordings of the tracks in this log (a DK_RECORD_ONLY run
+    # records one track and leaves the others alone).
+    for slug in {SLUGS[r["track"]] for r in races}:
+        for old in OUT.glob(f"{slug}-*.dkr.gz"):
+            old.unlink()
     for r in races:
         body = b"DKR1" + bytes([r["track"], r["laps"], r["cc"], r["karts"]]) + struct.pack("<I", len(r["frames"]))
         body += b"".join(r["frames"])

@@ -8,7 +8,7 @@
 
 enum { SURF_ROAD, SURF_CURB, SURF_SAND };
 enum { SEC_ASPHALT, SEC_BOARDWALK };
-enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_SKYWAY, TRACK_COUNT };
+enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_SKYWAY, TRACK_CYBERSTONE, TRACK_COUNT };
 /* TrackSample.open: a side with no barrier, where karts can fall off. */
 enum { OPEN_LEFT = 1, OPEN_RIGHT = 2 };
 
@@ -74,7 +74,7 @@ extern const char *const track_names[TRACK_COUNT];
 
 void track_init(int id);
 /* Lap distance where segment i of a straight-and-arc layout (Palm Harbour,
-   Temple Hill, Neon Skyway) begins. */
+   Temple Hill, Neon Skyway, Cyberstone) begins. */
 float track_seg_s(int i);
 /* Locate p on the track. hint is the previous segment index or -1. */
 void track_locate(V3 p, int hint, TrackPos *out);

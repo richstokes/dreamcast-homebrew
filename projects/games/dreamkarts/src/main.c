@@ -65,7 +65,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[29];
+    static bool shot[33];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -146,6 +146,17 @@ static void capture_script(void) {
             if(!shot[23 + i] && fabsf(track_delta(track_seg_s(sky_shots[i].seg) + sky_shots[i].at, p->tp.s)) < 3.0f) {
                 shot[23 + i] = true;
                 take_shot(sky_shots[i].name);
+            }
+    }
+    /* Cyberstone: the crest, down the drop, up the National straight and
+       round the banked Luffield helix. */
+    if(game.state == ST_RACE && track.id == TRACK_CYBERSTONE) {
+        static const struct { int seg; float at; const char *name; } cs_shots[4] = {
+            {2, 30.0f, "cs-crest"}, {2, 80.0f, "cs-drop"}, {6, 150.0f, "cs-national"}, {9, 40.0f, "cs-luffield"}};
+        for(int i = 0; i < 4; i++)
+            if(!shot[29 + i] && fabsf(track_delta(track_seg_s(cs_shots[i].seg) + cs_shots[i].at, p->tp.s)) < 3.0f) {
+                shot[29 + i] = true;
+                take_shot(cs_shots[i].name);
             }
     }
 #ifndef DK_HW
@@ -1029,8 +1040,16 @@ static void record_races(uint64_t t0) {
     game.mode = MODE_GP;
     game.num_players = 1;
     game.setup_laps = game.laps = DEFAULT_LAPS;
+#ifdef DK_RECORD_ONLY
+    /* Record a single track (-DDK_RECORD_ONLY=<id>), e.g. a new one. */
+    int total = DK_RECORD_RACES, done = 0;
+#else
     int total = TRACK_COUNT * DK_RECORD_RACES, done = 0;
+#endif
     for(int tr = 0; tr < TRACK_COUNT; tr++) {
+#ifdef DK_RECORD_ONLY
+        if(tr != DK_RECORD_ONLY) continue;
+#endif
         game_load_track(tr);
         for(int r = 0; r < DK_RECORD_RACES; r++, done++) {
             dk_seed(0x5eed0000u + (uint32_t)tr * 977u + (uint32_t)r * 7919u);

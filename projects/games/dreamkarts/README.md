@@ -9,7 +9,7 @@ Mario Kart-style handling. Hop into a drift, hold the powerslide round the
 corner by counter-steering, watch the sparks at the rear tyres turn blue, orange
 and then purple, and let go for a mini-turbo.
 
-There are five courses. **Emerald Beach** is an oval with a wooden boardwalk
+There are six courses. **Emerald Beach** is an oval with a wooden boardwalk
 straight over a turquoise sea, a natural rock arch, a lighthouse, palm trees,
 beach huts, a grandstand and Sonic-style dash panels. **Coral Crossing** is a
 classic figure 8 on a palm-lined headland: one leg launches you off a ramp,
@@ -34,7 +34,15 @@ lefts bring you home. The deck glows under a cyan and magenta grid with
 lights running down its edges, glass rails carry neon tubes round the turns,
 octagonal neon gates frame the line, and towers with lit windows, neon
 crowns and signs rise out of the clouds under a crescent moon, with
-searchlights sweeping the sky. You drive a Chao in a standard kart,
+searchlights sweeping the sky. **Cyberstone** (1,067 m) takes Neon
+Skyway's road and city by night on a layout after Silverstone's National
+circuit, run clockwise, with plenty of hill and no jumps: the start straight
+climbs into Copse, a fast right, then the road crests and drops 11 m past
+the Maggotts kink to the tight Becketts right at the bottom of the valley.
+The long National straight climbs 17 m back across the city, over two
+gentle rollers, to Brooklands, a left at the summit, and Luffield, the
+longest corner, banked hard as it spirals down to the fast Woodcote right
+and the line. You drive a Chao in a standard kart,
 in the colours you pick, against five CPU Chao, or race a friend in
 **two-player split screen** (Grand Prix with CPUs, or head-to-head Versus).
 
@@ -66,9 +74,9 @@ is also available.
 - **50cc, 100cc and 150cc** engine classes, with top speeds of 19.25, 23.65 and 28.05 m/s (about 69, 85 and 101 km/h) before boosts.
 - **3, 5 or 10 laps:** set the race length in the race setup menu (single player and split screen alike; it stays set until you change it).
 - **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
-- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. On Palm Harbour they race you along the seafront, through the chicane and down the beach straight, out past the moored boats. On Temple Hill they leap beside the beach straight as you leave the line. Neon Skyway has no sea, so no dolphins. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
+- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. On Palm Harbour they race you along the seafront, through the chicane and down the beach straight, out past the moored boats. On Temple Hill they leap beside the beach straight as you leave the line. Neon Skyway and Cyberstone have no sea, so no dolphins. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
 - **Hills (Temple Hill):** the road climbs and falls with smooth slopes, and the ground is shaped around it, so it runs through grassy cuttings on the switchbacks and along embankments down to the viaduct. Over a sharp crest a kart leaves the road whenever the road falls away faster than gravity can pull it down, so the summit hump gives about 2 m of air at speed.
-- **Falling off (Neon Skyway):** the straights have open edges. Go over one and your Chao yelps as you drop toward the clouds; ten metres down you are dropped back onto the road where you went over, from a few metres up and at a standstill. The banked turns tilt the karts and their shadows with the road, and each kart's underglow picks up the colour of the road beneath it.
+- **Falling off (Neon Skyway, Cyberstone):** the straights have open edges. Go over one and your Chao yelps as you drop toward the clouds; ten metres down you are dropped back onto the road where you went over, from a few metres up and at a standstill. The banked turns tilt the karts and their shadows with the road, and each kart's underglow picks up the colour of the road beneath it.
 - **Ramp jump (Coral Crossing):** the jump pad's long boost carries you up a 4 m kicker; karts leave the lip at a fixed climb rate under lighter gravity, so every class soars about 7 m over the karts passing underneath and lands on a deck that eases back down to the road. The jump pad's push varies a little each time (about -8% to +10%), so some karts sail further than others, but a minimum take-off speed means every kart always clears the gap. A drift in progress fires its mini-turbo at take-off.
 - **Dash panels** give a boost (on Emerald Beach, one on each straight and one on the exit of turn 1), and any boost lets you cut through sand.
 - **Presentation:**

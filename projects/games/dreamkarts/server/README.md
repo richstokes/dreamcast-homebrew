@@ -86,7 +86,7 @@ shows the whole track).
 
 `DREAMKARTS_DEMO_LOBBY` (or `-demo-lobby`, default 10, 0 for none) picks the
 lobby where six bots race forever. They are part of the server process, not
-consoles: they replay 30 recorded races (six per track) from `demo/races/`,
+consoles: they replay 36 recorded races (six per track) from `demo/races/`,
 which the build embeds. Each recording is a real all-CPU race from the
 console, so the bots drift, bump, boost and jump like players. Every race the
 leader picks another track at random, one of its recordings is chosen and the
@@ -106,6 +106,9 @@ cd .. && DK_ELF=dreamkarts-record.elf DK_EXIT_ON_LOG='DKR DONE' ./run-flycast.sh
 ```bash
 cd .. && uv run tools/record_demo.py captures/record/record.log
 ```
+
+To record only one track (a new one, say), add `-DDK_RECORD_ONLY=<track id>`
+to `EXTRA_CFLAGS`; `record_demo.py` then replaces just that track's races.
 
 The recorder steps races as fast as the SH-4 allows (about a minute each in
 Flycast) and gives every CPU a new personality per race: early drifters,

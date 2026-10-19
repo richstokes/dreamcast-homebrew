@@ -29,17 +29,26 @@
    loop climbs 11 m and flies over its own approach, heading west over a
    crest into the plunge and a jump across a gap in the road. A banked
    left hairpin, a dip through the infield, a tight right hairpin and two
-   lefts bring it back to the line. */
+   lefts bring it back to the line.
+
+   Cyberstone: Neon Skyway's road and city on a layout after Silverstone's
+   National circuit, run clockwise. The start straight runs east, climbing
+   into Copse, a fast right; the road crests and drops 11 m down to the
+   Maggotts kink and the tight right at Becketts at the bottom of the
+   valley. The National straight then climbs 17 m back across the infield
+   to Brooklands, a left at the summit, and Luffield, the long banked right
+   that spirals down to the fast Woodcote right onto the line. */
 #include "track.h"
 #include <stddef.h>
 
 Track track;
 
 const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL",
-                                              "NEON SKYWAY"};
+                                              "NEON SKYWAY", "CYBERSTONE"};
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
-                                                      "A NIGHT RIDE ABOVE THE CITY"};
+                                                      "A NIGHT RIDE ABOVE THE CITY",
+                                                      "HILLS AND A BANKED HELIX"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -51,7 +60,7 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
 
 static float f8_c, f8_l, f8_arc, f8_u0;   /* loop centre x, half leg, arc, start offset */
 
-/* Palm Harbour, Temple Hill and Neon Skyway are laid out from straights
+/* Palm Harbour, Temple Hill, Neon Skyway and Cyberstone are laid out from straights
    (radius 0) and arcs (degrees, + = right) end to end from an origin. Two
    straights are solved at init so the lap closes. An arc may be banked:
    its outside rises bank metres per metre from the centreline. */
@@ -126,10 +135,26 @@ static Seg sk_seg[] = {
     {34.0f, -90, 0, 0.16f},   /* 11 banked left onto the main straight */
 };
 
+static Seg cs_seg[] = {
+    {0, 0, 277.4f, 0},        /*  0 start straight, east (solved) */
+    {34.0f, 100, 0, 0.08f},   /*  1 Copse, now south */
+    {0, 0, 145.0f, 0},        /*  2 over the crest and down the drop */
+    {40.0f, -30, 0, 0.06f},   /*  3 Maggotts kink */
+    {0, 0, 8.0f, 0},
+    {20.0f, 145, 0, 0.10f},   /*  5 Becketts, now north-west */
+    {0, 0, 296.4f, 0},        /*  6 the National straight, climbing (solved) */
+    {24.0f, -80, 0, 0},       /*  7 Brooklands, at the summit */
+    {0, 0, 10.0f, 0},
+    {30.0f, 190, 0, 0.22f},   /*  9 Luffield, banked and spiralling down */
+    {0, 0, 30.0f, 0},
+    {60.0f, 35, 0, 0.06f},    /* 11 Woodcote onto the start straight */
+};
+
 #define NSEGS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static Layout hb = {hb_seg, NSEGS(hb_seg), DK_PI * 0.5f, {-69.4f, 0, -98.8f}, 38.0f, 0, 16, {0}, {0}, {{0}}};
 static Layout th = {th_seg, NSEGS(th_seg), -DK_PI * 0.5f, {79.0f, 0, 60.0f}, 40.0f, 0, 13, {0}, {0}, {{0}}};
 static Layout sk = {sk_seg, NSEGS(sk_seg), DK_PI * 0.5f, {-72.0f, 0, -100.0f}, 40.0f, 0, 2, {0}, {0}, {{0}}};
+static Layout cs = {cs_seg, NSEGS(cs_seg), DK_PI * 0.5f, {-120.0f, 0, 119.0f}, 40.0f, 0, 6, {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -269,7 +294,8 @@ float track_seg_s(int i) {
 }
 
 static V3 centreline(float s, V3 *tangent) {
-    if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY)
+    if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY ||
+       track.id == TRACK_CYBERSTONE)
         return lay_centreline(lay, s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
@@ -462,6 +488,32 @@ static void init_temple(float *turnk) {
     track.pads[2] = (DashPad){70.0f, 75.0f, 2.2f, 5.8f, 1.1f};
 }
 
+/* A road in the sky: glass rails on the turns, open edges over the
+   layout-distance ranges given, and each arc's banking eased over about
+   30 m each way. */
+static float sk_bank[TRACK_SAMPLES];
+
+static void sky_rails_and_banking(const Layout *l, const float (*open_u)[2], int nopen) {
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        TrackSample *t = &track.smp[i];
+        float u = lay_u(l, t->s);
+        const Seg *g = &l->seg[lay_seg_at(l, u)];
+        bool open = false;
+        for(int k = 0; k < nopen; k++)
+            if(u >= open_u[k][0] && u < open_u[k][1]) open = true;
+        t->open = open ? OPEN_LEFT | OPEN_RIGHT : 0;
+        t->wall_in = t->wall_out = open ? 60.0f : 10.2f;
+        /* Banking: outside up, eased in and out below. */
+        sk_bank[i] = g->r > 0 ? (g->deg > 0 ? -g->bank : g->bank) : 0.0f;
+    }
+    const int ease = 4;
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        float sum = 0;
+        for(int k = -ease; k <= ease; k++) sum += sk_bank[(i + k + TRACK_SAMPLES) % TRACK_SAMPLES];
+        track.smp[i].bank = sum / (float)(2 * ease + 1);
+    }
+}
+
 /* Neon Skyway's road height: knots in layout distance eased with
    smoothsteps (the loop's climb, the plunge, the infield dip), the waves,
    the crest hump over the crossing and the jump's ramp and deck. */
@@ -472,7 +524,6 @@ static void init_temple(float *turnk) {
 #define SK_TOP      11.0f      /* the loop's exit and the crossing deck */
 static float sk_knots[SK_KNOTS][2];
 static float sk_waves_u, sk_hump_u;
-static float sk_bank[TRACK_SAMPLES];
 
 static float sk_height(float s) {
     float u = lay_u(&sk, s);
@@ -520,25 +571,56 @@ static void init_skyway(float *turnk) {
         {u0[0] + 8.0f, u0[1] - 8.0f}, {u0[2] + 8.0f, u0[3] - 8.0f}, {u0[6] + 8.0f, u0[7] - 8.0f},
         {u0[8] + 8.0f, u0[9] - 8.0f},
     };
-    for(int i = 0; i < TRACK_SAMPLES; i++) {
-        TrackSample *t = &track.smp[i];
-        float u = lay_u(&sk, t->s);
-        const Seg *g = &sk.seg[lay_seg_at(&sk, u)];
-        bool open = false;
-        for(unsigned k = 0; k < sizeof(open_u) / sizeof(open_u[0]); k++)
-            if(u >= open_u[k][0] && u < open_u[k][1]) open = true;
-        t->open = open ? OPEN_LEFT | OPEN_RIGHT : 0;
-        t->wall_in = t->wall_out = open ? 60.0f : 10.2f;
-        /* Banking: outside up, eased in and out below. */
-        sk_bank[i] = g->r > 0 ? (g->deg > 0 ? -g->bank : g->bank) : 0.0f;
-    }
-    /* Ease the banking over about 30 m each way. */
-    const int ease = 4;
-    for(int i = 0; i < TRACK_SAMPLES; i++) {
-        float sum = 0;
-        for(int k = -ease; k <= ease; k++) sum += sk_bank[(i + k + TRACK_SAMPLES) % TRACK_SAMPLES];
-        track.smp[i].bank = sum / (float)(2 * ease + 1);
-    }
+    sky_rails_and_banking(&sk, open_u, NSEGS(open_u));
+}
+
+/* Cyberstone's road height: knots in layout distance eased with
+   smoothsteps. Up into Copse, over the crest and down the drop to the
+   valley at Becketts, up the National straight (over two gentle rollers)
+   to the summit at Brooklands, then down round Luffield and Woodcote. */
+#define CS_KNOTS    10
+#define CS_ROLL_LEN 44.0f
+#define CS_ROLL_H   1.2f
+static float cs_knots[CS_KNOTS][2];
+static float cs_roll_u;
+
+static float cs_height(float s) {
+    float u = lay_u(&cs, s);
+    int i = 0;
+    while(i + 2 < CS_KNOTS && u >= cs_knots[i + 1][0]) i++;
+    float t = (u - cs_knots[i][0]) / (cs_knots[i + 1][0] - cs_knots[i][0]);
+    float h = lerpf(cs_knots[i][1], cs_knots[i + 1][1], smoothstep01(t));
+    float w = (u - cs_roll_u) / CS_ROLL_LEN;
+    if(w > 0 && w < 2.0f) h += CS_ROLL_H * 0.5f * (1.0f - cosf(w * DK_TAU));
+    return h;
+}
+
+static void init_cyberstone(float *turnk) {
+    init_layout(&cs, turnk);
+    track.in_sky = true;
+    const float *u0 = cs.s0;
+    float L = track.length;
+    const float knots[CS_KNOTS][2] = {
+        {0.0f, 0.0f}, {u0[1] - 70.0f, 0.0f}, {u0[2] + 12.0f, 6.0f}, {u0[2] + 40.0f, 6.0f}, {u0[3] + 12.0f, -5.0f},
+        {u0[6] + 25.0f, -5.0f}, {u0[7] - 6.0f, 12.0f}, {u0[9] + 6.0f, 12.0f}, {u0[11] + 6.0f, 1.5f}, {L, 0.0f},
+    };
+    memcpy(cs_knots, knots, sizeof(knots));
+    cs_roll_u = u0[6] + 70.0f;
+
+    /* Dash panels: the start straight, the foot of the drop and the
+       National straight's climb. */
+    track.npads = 3;
+    track.pads[0] = (DashPad){60.0f, 65.0f, -5.8f, -2.2f, 1.1f};
+    float drop = track_seg_s(2);
+    track.pads[1] = (DashPad){drop + 96.0f, drop + 101.0f, 2.2f, 5.8f, 1.1f};
+    float nat = track_seg_s(6);
+    track.pads[2] = (DashPad){nat + 190.0f, nat + 195.0f, -1.8f, 1.8f, 1.1f};
+
+    /* Open straights, railed turns. */
+    const float open_u[][2] = {
+        {u0[0] + 8.0f, u0[1] - 8.0f}, {u0[2] + 8.0f, u0[3] - 8.0f}, {u0[6] + 8.0f, u0[7] - 8.0f},
+    };
+    sky_rails_and_banking(&cs, open_u, NSEGS(open_u));
 }
 
 void track_init(int id) {
@@ -551,6 +633,7 @@ void track_init(int id) {
     else if(id == TRACK_HARBOUR) init_harbour(turnk);
     else if(id == TRACK_TEMPLE) init_temple(turnk);
     else if(id == TRACK_SKYWAY) init_skyway(turnk);
+    else if(id == TRACK_CYBERSTONE) init_cyberstone(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and
@@ -605,6 +688,7 @@ bool track_in_gap(float s) {
 
 float track_height(float s) {
     if(track.id == TRACK_TEMPLE) return th_height(s);
+    if(track.id == TRACK_CYBERSTONE) return cs_height(s);
     float base = track.id == TRACK_SKYWAY ? sk_height(s) : 0.0f;
     if(!track.has_jump) return base;
     const Jump *j = &track.jump;
