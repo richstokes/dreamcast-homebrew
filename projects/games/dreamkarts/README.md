@@ -213,7 +213,7 @@ the online name.
 
 ### Real hardware
 
-`make hwbench` runs the same scripted title, menu and 150cc race on a real
+`make hwbench` runs the same scripted title, menu and 100cc race on a real
 Dreamcast through `tools/dc-hw.sh`. That script power-cycles the console with
 the Shelly plug and waits for dcload-ip; it finds the plug and the console on
 the network if their DHCP addresses change. The run logs timing every 10
@@ -244,7 +244,7 @@ frames (10.2 ms), and 2P split dropped 9 of 9,858 (11.4 ms) once the split
 screen left out the deck's underside, the neon glows and the searchlights (58
 with them). Add `-DDK_AT_TRACK=1` (Coral Crossing),
 `-DDK_AT_TRACK=2` (Palm Harbour), `-DDK_AT_TRACK=3` (Temple Hill) or `-DDK_AT_TRACK=4` (Neon Skyway) to
-`EXTRA_CFLAGS` to benchmark them.
+`EXTRA_CFLAGS` to benchmark them, and `-DDK_AT_CC=2` to race 150cc (the menu then starts on that class; it works for capture builds too).
 
 Run the two-player benchmark with
 `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.

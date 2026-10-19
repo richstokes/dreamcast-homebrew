@@ -43,7 +43,7 @@ make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE
 ```
 
 ```bash
-go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 8 -start -race 76 -path cmd/dk-bot/emerald-beach.path
+go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 8 -start -race 69 -path cmd/dk-bot/emerald-beach.path
 ```
 
 ```bash

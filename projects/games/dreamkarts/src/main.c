@@ -1176,6 +1176,9 @@ int main(int argc, char **argv) {
     game.num_players = 2;
     game.pl[0].colour = 6;
 #endif
+#if defined(DK_AT_CC) && defined(DK_CAPTURE)
+    game.cc = DK_AT_CC;     /* the menu starts on this class */
+#endif
     race_setup();
 #ifdef DK_AT_CAMTOUR
     camera_tour();
