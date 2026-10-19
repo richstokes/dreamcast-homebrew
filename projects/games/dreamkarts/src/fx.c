@@ -36,6 +36,15 @@ static int mark_head, mark_n;
 static V3 mark_last[MAX_KARTS][2];
 static bool mark_on[MAX_KARTS][2];
 
+/* Two karts leaning on each other raise EV_KART_BUMP every frame, so a
+   contact shows only its first BUMP_BURSTS star bursts. The count starts
+   again once the kart has gone BUMP_QUIET seconds without a bump, or when
+   it bumps a different kart. */
+#define BUMP_BURSTS 3
+#define BUMP_QUIET 2.0f
+static int bump_bursts[MAX_KARTS], bump_partner[MAX_KARTS];
+static float bump_quiet[MAX_KARTS];
+
 uint32_t fx_stage_color(int stage) {
     switch(stage) {
         case 1: return argb(255, 70, 170, 255);
@@ -59,6 +68,7 @@ void fx_clear(void) {
     memset(spawn_acc, 0, sizeof(spawn_acc));
     mark_head = mark_n = 0;
     memset(mark_on, 0, sizeof(mark_on));
+    memset(bump_bursts, 0, sizeof(bump_bursts));
 }
 
 static Particle *spawn(int type, V3 p, V3 v, float life, float size, uint32_t c0, uint32_t c1) {
@@ -152,6 +162,16 @@ void fx_kart(const Kart *k, float dt) {
     V3 fwd = heading_fwd(k->heading + k->vis_yaw), right = heading_right(k->heading + k->vis_yaw);
     V3 wl = models_wheel_world(k, 2), wr = models_wheel_world(k, 3);
     float spd = fabsf(k->speed);
+    bool bump_burst = false;
+    if(k->events & EV_KART_BUMP) {
+        if(bump_quiet[idx] >= BUMP_QUIET || k->bump_with != bump_partner[idx]) bump_bursts[idx] = 0;
+        bump_burst = bump_bursts[idx] < BUMP_BURSTS;
+        if(bump_burst) bump_bursts[idx]++;
+        bump_partner[idx] = k->bump_with;
+        bump_quiet[idx] = 0;
+    } else if(bump_quiet[idx] < BUMP_QUIET) {
+        bump_quiet[idx] += dt;
+    }
     /* Only karts near a human's camera are worth effects. */
     float near2 = 1e30f;
     for(int p = 0; p < game.num_players; p++) {
@@ -278,7 +298,7 @@ void fx_kart(const Kart *k, float dt) {
         V3 hit = vadd(vmad(k->pos, side, 0.9f), v3(0, 0.6f, 0));
         burst_stars(hit, 7, argb(255, 255, 230, 90), 5.0f);
     }
-    if(ev & EV_KART_BUMP) burst_stars(vadd(k->pos, v3(0, 0.8f, 0)), 4, 0xffffffff, 4.0f);
+    if(bump_burst) burst_stars(vadd(k->pos, v3(0, 0.8f, 0)), 4, 0xffffffff, 4.0f);
     if(ev & EV_CHARGE_JUMP) burst_stars(vadd(k->pos, v3(0, 0.3f, 0)), 8, 0xffffffff, 3.5f);
 }
 
