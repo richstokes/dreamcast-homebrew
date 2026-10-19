@@ -5,10 +5,10 @@
 Pad pad, pad2;
 static float repeat_t[MAX_PLAYERS][4];
 static bool repeat_fire[MAX_PLAYERS][4];
-#ifdef DK_FILM
+#if defined(DK_FILM) || defined(DK_CAPTURE)
 static uint32_t film_taps[MAX_PLAYERS];
 
-/* Film builds: hold these buttons for the next read, as a quick tap. */
+/* Film and capture builds: hold these buttons for the next read, as a quick tap. */
 void input_film_tap(int player, uint32_t btns) {
     film_taps[player & 1] |= btns;
 }
@@ -62,7 +62,7 @@ static void read_pad(Pad *pd, int port_index, int player) {
     else {
         pd->stick_x = pd->stick_y = pd->ltrig = pd->rtrig = 0;
     }
-#ifdef DK_FILM
+#if defined(DK_FILM) || defined(DK_CAPTURE)
     held |= film_taps[player];
     film_taps[player] = 0;
 #endif

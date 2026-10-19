@@ -143,13 +143,16 @@ static void main_update(void) {
 static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
 static float warn_t;
 
-enum { ROW_MODE, ROW_CC, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
+static const int laps_options[3] = {3, 5, 10};
+
+enum { ROW_MODE, ROW_CC, ROW_LAPS, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
 
 /* Menu rows: player 2's colour only appears in a two-player race. */
 static int menu_rows(int *rows) {
     int n = 0;
     rows[n++] = ROW_MODE;
     rows[n++] = ROW_CC;
+    rows[n++] = ROW_LAPS;
     rows[n++] = ROW_COLOUR1;
     if(game.num_players > 1) rows[n++] = ROW_COLOUR2;
     rows[n++] = ROW_START;
@@ -241,6 +244,10 @@ void title_update(float dt) {
         }
         else if(row == ROW_CC) {
             game.cc = (game.cc + dir + CC_COUNT) % CC_COUNT;
+        }
+        else if(row == ROW_LAPS) {
+            int i = game.setup_laps == 10 ? 2 : game.setup_laps == 5 ? 1 : 0;
+            game.laps = game.setup_laps = laps_options[(i + dir + 3) % 3];
         }
         else if(row == ROW_COLOUR1 || row == ROW_COLOUR2) {
             step_colour(row == ROW_COLOUR2, dir);
@@ -562,8 +569,10 @@ static void draw_menu(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
     float x0 = 640 - 300 * slide, x1 = x0 + 280;
     int rows[8], n = menu_rows(rows);
-    const float pitch = 50.0f;
-    float top = 112, y_first = 166;
+    /* Six rows (two players) close up a little to stay inside the screen. */
+    const float pitch = n > 5 ? 46.0f : 50.0f;
+    float top = n > 5 ? 96 : 112, y_first = top + 54;
+    char laps_buf[8];
     float bottom = y_first + n * pitch + 6;
     hud_panel(x0, top, x1, bottom, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
     hud_text((x0 + x1) * 0.5f, top + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "RACE SETUP");
@@ -574,7 +583,7 @@ static void draw_menu(void) {
         if(sel) {
             r_hdr(h_flat);
             float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
-            r_quad2d(x0 + 10, y - 6, x1 - 10, y + 42, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+            r_quad2d(x0 + 10, y - 6, x1 - 10, y + pitch - 8, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
         }
         uint32_t col = sel ? argb(255, 255, 255, 150) : argb(255, 200, 220, 255);
         uint32_t label = argb(255, 150, 200, 255);
@@ -592,6 +601,11 @@ static void draw_menu(void) {
                     uint32_t pc = p <= game.cc ? argb(255, 255, 200, 40) : argb(120, 255, 255, 255);
                     r_quad2d(x1 - 60 + p * 14, y + 30 - p * 4, x1 - 51 + p * 14, y + 36, 0, 0, 1, 1, pc, 16.5f);
                 }
+                break;
+            case ROW_LAPS:
+                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "LAPS");
+                snprintf(laps_buf, sizeof(laps_buf), "%d", game.setup_laps);
+                value = laps_buf;
                 break;
             case ROW_COLOUR1:
             case ROW_COLOUR2: {

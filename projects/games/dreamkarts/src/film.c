@@ -145,8 +145,9 @@ static void show_script(void) {
             }
             break;
         case ST_MENU: {
-            /* Rows: mode, cc, colour, (player 2's colour), start. 150cc,
-               then step through some colours, landing on the planned one. */
+            /* Rows: mode, cc, laps, colour, (player 2's colour), start.
+               150cc, then step through some colours, landing on the planned
+               one. */
             int start = (plan[r].colour[0] - plan[r].browse + 8) % 8;
             if(step == 0 && due(1.2f)) {
                 input_film_tap(0, BTN_DOWN);
@@ -157,6 +158,10 @@ static void show_script(void) {
                 else step = 2;
             }
             else if(step == 2 && due(0.5f)) {
+                input_film_tap(0, BTN_DOWN);   /* past the laps */
+                step = 3;
+            }
+            else if(step == 3 && due(0.4f)) {
                 input_film_tap(0, BTN_DOWN);
                 /* Already on screen, so stepping lands on the plan. A colour
                    the other player holds is skipped, so player 2 starts one
@@ -169,20 +174,20 @@ static void show_script(void) {
                     game.pl[1].colour = c2;
                 }
                 race_setup();
-                step = 3;
+                step = 4;
             }
-            else if(step == 3 && due(0.8f)) {
+            else if(step == 4 && due(0.8f)) {
                 if(game.pl[0].colour != plan[r].colour[0] && taps++ < 10) input_film_tap(0, BTN_RIGHT);
-                else step = 4, taps = 0;
+                else step = 5, taps = 0;
             }
-            else if(step == 4 && due(0.6f)) {
+            else if(step == 5 && due(0.6f)) {
                 if(plan[r].players > 1 && game.pl[1].colour != plan[r].colour[1] && taps++ < 10)
                     input_film_tap(1, BTN_RIGHT);
-                else step = 5;
+                else step = 6;
             }
-            else if(step == 5 && due(1.2f)) {
+            else if(step == 6 && due(1.2f)) {
                 pad.pressed |= BTN_START;
-                step = 6;
+                step = 7;
             }
             break;
         }

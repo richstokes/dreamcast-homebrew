@@ -307,16 +307,23 @@ void hud_draw_results(void) {
     }
     else {
         const Kart *k = &karts[game.pl[0].kart];
+        /* Three laps in one roomy column; five tighter; ten in two columns,
+           numbered without "LAP" to fit. */
+        int cols = game.laps > 5 ? 2 : 1, rows = (game.laps + cols - 1) / cols;
+        float pitch = rows > 3 ? 36.0f : 44.0f, scale = cols > 1 ? 0.62f : rows > 3 ? 0.8f : 0.9f;
+        float col_w = 320.0f / cols;
         for(int l = 0; l < game.laps; l++) {
             hud_format_time(t, k->lap_times[l]);
-            snprintf(buf, sizeof(buf), "LAP %d", l + 1);
+            snprintf(buf, sizeof(buf), cols > 1 ? "%d" : "LAP %d", l + 1);
             bool best = k->lap_times[l] == k->best_lap;
-            hud_text(x0 + 40, 130 + l * 44, 0.9f, ALIGN_LEFT, 0xffffffff, buf);
-            hud_text(x0 + 360, 130 + l * 44, 0.9f, ALIGN_RIGHT, best ? argb(255, 255, 220, 60) : 0xffffffff, t);
+            float lx = x0 + 40 + (l / rows) * (col_w + 20), ly = 130 + (l % rows) * pitch;
+            hud_text(lx, ly, scale, ALIGN_LEFT, cols > 1 ? argb(255, 150, 200, 255) : 0xffffffff, buf);
+            hud_text(lx + col_w - (cols > 1 ? 20 : 0), ly, scale, ALIGN_RIGHT, best ? argb(255, 255, 220, 60) : 0xffffffff, t);
         }
+        float total_y = rows > 3 ? 130 + rows * pitch + 14 : 280;
         hud_format_time(t, k->finish_time);
-        hud_text(x0 + 40, 280, 1.0f, ALIGN_LEFT, argb(255, 120, 230, 255), "TOTAL");
-        hud_text(x0 + 360, 280, 1.0f, ALIGN_RIGHT, argb(255, 120, 230, 255), t);
+        hud_text(x0 + 40, total_y, 1.0f, ALIGN_LEFT, argb(255, 120, 230, 255), "TOTAL");
+        hud_text(x0 + 360, total_y, 1.0f, ALIGN_RIGHT, argb(255, 120, 230, 255), t);
     }
     if(game.time > 1.0f && ((int)(hud_time * 2.5f) & 1) == 0)
         hud_text(x0 + 200, 380, 0.7f, ALIGN_CENTER, 0xffffffff, "A: RACE AGAIN    B: TITLE");

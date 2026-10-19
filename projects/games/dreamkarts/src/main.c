@@ -65,7 +65,7 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[28];
+    static bool shot[29];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
@@ -81,7 +81,25 @@ static void capture_script(void) {
     }
     if(game.state == ST_MENU) {
         if(game.time > 2.0f && !shot[1]) { shot[1] = true; take_shot("menu"); }
+#ifdef DK_AT_LAPS
+        /* Walk the setup menu like a player: time trial with DK_AT_TT, then
+           down to LAPS and right until it reads DK_AT_LAPS (3, 5 or 10). */
+        static float tap_t, laps_t;
+        static int taps;
+        if(game.time > 2.3f && game.setup_laps != DK_AT_LAPS && (tap_t += DK_DT) > 0.3f) {
+            tap_t = 0;
+#ifdef DK_AT_TT
+            if(game.mode != MODE_TT) input_film_tap(0, BTN_RIGHT);
+            else
+#endif
+            input_film_tap(0, taps++ < 2 ? BTN_DOWN : BTN_RIGHT);
+        }
+        if(game.setup_laps == DK_AT_LAPS) laps_t += DK_DT;
+        if(laps_t > 0.6f && !shot[28]) { shot[28] = true; take_shot("menu-laps"); }
+        if(shot[28] && laps_t > 1.2f && step < 1) { pad.pressed |= BTN_START; step++; }
+#else
         if(game.time > 3.5f && step < 1) { pad.pressed |= BTN_START; step++; }
+#endif
     }
     if(game.state == ST_TRACKS) {
         if(game.time > 2.5f && !shot[9]) { shot[9] = true; take_shot("tracks"); }
@@ -270,7 +288,7 @@ void race_setup(void) {
         kart_place_on_grid(k, i);
         models_paint_kart(i);
     }
-    if(!game.online) game.laps = DEFAULT_LAPS;
+    if(!game.online) game.laps = game.setup_laps;
     race_reset();
 }
 
@@ -1010,7 +1028,7 @@ static void record_races(uint64_t t0) {
     game.cc = CC_150;
     game.mode = MODE_GP;
     game.num_players = 1;
-    game.laps = DEFAULT_LAPS;
+    game.setup_laps = game.laps = DEFAULT_LAPS;
     int total = TRACK_COUNT * DK_RECORD_RACES, done = 0;
     for(int tr = 0; tr < TRACK_COUNT; tr++) {
         game_load_track(tr);
@@ -1149,7 +1167,7 @@ int main(int argc, char **argv) {
 
     online_init();
     game.cc = CC_100;
-    game.laps = DEFAULT_LAPS;
+    game.setup_laps = game.laps = DEFAULT_LAPS;
     game.mode = MODE_GP;
     game.num_players = 1;
     game.pl[0].colour = 0;
@@ -1339,7 +1357,7 @@ int main(int argc, char **argv) {
                 for(int i = 0; i < kart_count; i++)
                     printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, karts[game.finish_order[i]].name,
                            (double)karts[game.finish_order[i]].finish_time);
-                bool ok = p->finish_time > 0 && p->finish_time < 150.0f && at.drifts > 3 && kart_rescues == 0 &&
+                bool ok = p->finish_time > 0 && p->finish_time < 50.0f * game.laps && at.drifts > 3 && kart_rescues == 0 &&
                           (!track.has_jump || at.jumps >= game.laps);
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
 #ifdef DK_HW

@@ -85,7 +85,6 @@ void online_enter(void) {
 static void back_to_menu(void) {
     net_end();
     game.online = false;
-    game.laps = DEFAULT_LAPS;
     race_setup();
     game_set_state(ST_MAIN);
 }

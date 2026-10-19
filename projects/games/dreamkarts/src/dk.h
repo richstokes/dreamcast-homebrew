@@ -116,7 +116,7 @@ bool input_up(int player);
 bool input_down(int player);
 bool input_left(int player);
 bool input_right(int player);
-#ifdef DK_FILM
+#if defined(DK_FILM) || defined(DK_CAPTURE)
 void input_film_tap(int player, uint32_t btns);
 #endif
 
@@ -171,7 +171,8 @@ typedef struct {
     int finish_order[MAX_KARTS];
     int finished_count;
     float best_lap;
-    int laps;            /* laps in this race (DEFAULT_LAPS offline) */
+    int laps;            /* laps in this race */
+    int setup_laps;      /* laps picked in the race setup menu (offline races) */
     bool online;         /* in the online menus or an online race */
     bool final_lap_announced;
     Camera cam;          /* full-screen camera: title, intro, results */
