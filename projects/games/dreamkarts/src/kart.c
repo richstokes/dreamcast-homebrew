@@ -77,7 +77,7 @@ static void emote_update(Kart *k, const KartInput *in, float dt) {
 }
 
 const CCParams cc_params[CC_COUNT] = {
-    {17.5f}, {21.5f}, {25.5f}
+    {19.25f}, {23.65f}, {28.05f}
 };
 
 #define GRAVITY          30.0f
@@ -96,14 +96,16 @@ const CCParams cc_params[CC_COUNT] = {
 #define STAGE3           3.10f
 #define BOOST_TOP_MUL    1.22f
 /* Ramp jumps launch at a fixed climb rate under lighter gravity, so the
-   flight lasts the same at every class; the jump pad sets the distance. */
-#define JUMP_VY          9.0f
-#define JUMP_GRAVITY     11.0f
-#define JUMP_MIN_SPEED   21.0f
+   flight lasts the same at every class; the jump pad sets the distance.
+   The climb rate scales with the class speeds and gravity with their
+   square, so the arcs keep their shape if the speeds change. */
+#define JUMP_VY          9.9f
+#define JUMP_GRAVITY     13.31f
+#define JUMP_MIN_SPEED   23.1f
 /* The jump pad's kick varies per hit by this factor, so some karts sail
-   further than others. JUMP_MIN_SPEED still guarantees the gap: at 21 m/s
-   the 1.74 s flight covers ~37 m of the 32 m gap; the strongest 150cc kick
-   lands ~45 m past the gap centre, inside the 54 m landing deck. */
+   further than others. JUMP_MIN_SPEED still guarantees the gap: at 23.1 m/s
+   the 1.58 s flight covers ~37 m of the 32 m gap; the strongest 150cc kick
+   touches down ~50 m past the gap centre, on the 54 m landing deck. */
 #define JUMP_PAD_MIN     0.92f
 #define JUMP_PAD_MAX     1.10f
 
@@ -342,6 +344,11 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float prev_d, float d
     if(k->air_t < 0.2f)
         printf("DK MICROHOP kart %d s %.1f d %.1f air %.3f impact %.2f\n", (int)(k - karts), (double)k->tp.s,
                (double)k->tp.d, (double)k->air_t, (double)impact);
+#endif
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+    if(k->big_air)
+        printf("DK LAND kart %d %.1f m past the gap centre, air %.2f s\n", (int)(k - karts),
+               (double)track_jump_pos(k->tp.s), (double)k->air_t);
 #endif
     k->pos.y = k->gnd = ground;
     k->vy = road_vy;

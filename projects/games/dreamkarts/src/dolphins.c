@@ -208,7 +208,7 @@ static void start_show(const Kart *k) {
             sh->active = true;
             sh->t = 0;
             sh->kart = (int)(k - karts);
-            sh->speed = clampf(fabsf(k->speed), 12.0f, 30.0f);
+            sh->speed = clampf(fabsf(k->speed), 12.0f, 33.0f);
             sh->x = fminf(k->pos.x, 90.0f) - stage.ahead;
             sh->prev_y[0] = sh->prev_y[1] = LEAP_DEPTH;
             sh->last[0] = v3(sh->x, WATER_Y, stage.lane[0]);
@@ -245,7 +245,7 @@ void dolphins_update(float dt) {
            a crash doesn't leave them hovering) and ease back to AHEAD. */
         const Kart *k = &karts[sh->kart];
         float target = k->pos.x - stage.ahead;
-        sh->speed = clampf(-k->vel.x + (sh->x - target) * 0.8f, 12.0f, 32.0f);
+        sh->speed = clampf(-k->vel.x + (sh->x - target) * 0.8f, 12.0f, 35.0f);
         sh->x -= sh->speed * dt;
         if(sh->t > SHOW_LEN) {
             sh->active = false;

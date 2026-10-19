@@ -1188,6 +1188,9 @@ int main(int argc, char **argv) {
     online_enter();
 #elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE)
     game.cc = CC_150;
+#ifdef DK_AT_CC
+    game.cc = DK_AT_CC;
+#endif
 #ifdef DK_AT_TT
     game.mode = MODE_TT;
 #endif
@@ -1357,7 +1360,9 @@ int main(int argc, char **argv) {
                 for(int i = 0; i < kart_count; i++)
                     printf("DK AUTOTEST: %d. %s %.2f\n", i + 1, karts[game.finish_order[i]].name,
                            (double)karts[game.finish_order[i]].finish_time);
-                bool ok = p->finish_time > 0 && p->finish_time < 50.0f * game.laps && at.drifts > 3 && kart_rescues == 0 &&
+                /* 50 s a lap at 150cc; the slower classes get proportionally longer. */
+                float limit = 50.0f * game.laps * cc_params[CC_150].top_speed / cc_params[game.cc].top_speed;
+                bool ok = p->finish_time > 0 && p->finish_time < limit && at.drifts > 3 && kart_rescues == 0 &&
                           (!track.has_jump || at.jumps >= game.laps);
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
 #ifdef DK_HW
