@@ -12,9 +12,24 @@
 #include "texture_assets.h"
 
 static uint32_t paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
-/* Per-kart vertex buffers: positions are fixed, lit colours are refreshed
-   once per frame and shared by both split-screen views. */
-static RV kart_rv[MAX_KARTS][DK_MODEL_VERT_COUNT] __attribute__((aligned(32)));
+/* Model vertices, shared by every kart: position and lighting group. */
+static KV model_kv[DK_MODEL_VERT_COUNT] __attribute__((aligned(32)));
+/* Vertices of a mesh that share a normal and a paint (argb, slot, tip)
+   light alike, so lighting runs once per such group and each vertex takes
+   its group's colour. A mesh's groups are mesh_g0[mesh] onwards; each
+   model vertex holds its group within its mesh. Each kart's lit group
+   colours are refreshed once per frame and shared by both split-screen
+   views. Groups are found from the model data at boot (models_init); if
+   lighting ever depends on more than the normal and the paint, that must
+   join the group key. */
+static uint16_t mesh_g0[DK_MODEL_MESH_COUNT], mesh_gn[DK_MODEL_MESH_COUNT];
+static uint16_t group_vert[DK_MODEL_VERT_COUNT];        /* one vertex of each group */
+static float group_nrm[DK_MODEL_VERT_COUNT][3];
+static uint32_t group_paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
+static uint32_t group_lit[MAX_KARTS][DK_MODEL_VERT_COUNT] __attribute__((aligned(32)));
+static int group_count;
+/* The triangle lists as byte offsets of staged vertices (index * 32). */
+static uint16_t index_off[DK_MODEL_INDEX_COUNT];
 static uint32_t lit_frame[MAX_KARTS][DK_MODEL_MESH_COUNT];
 static uint32_t frame_id = 1;
 /* Kart part matrices, computed once per frame and shared by both views. */
@@ -44,13 +59,37 @@ void models_init(void) {
             n++;
         }
     if(n) ref_luma1 = fmaxf(sum / n, 0.05f);
-    for(int k = 0; k < MAX_KARTS; k++)
-        for(int i = 0; i < DK_MODEL_VERT_COUNT; i++)
-            kart_rv[k][i] = (RV){dk_model_verts[i].x, dk_model_verts[i].y, dk_model_verts[i].z, 0, 0, 0xffffffff};
+    for(int i = 0; i < DK_MODEL_VERT_COUNT; i++) {
+        model_kv[i].x = dk_model_verts[i].x;
+        model_kv[i].y = dk_model_verts[i].y;
+        model_kv[i].z = dk_model_verts[i].z;
+    }
     for(int i = 0; i < DK_MODEL_VERT_COUNT; i++) {
         normals[i][0] = dk_model_verts[i].nx * (1.0f / 127.0f);
         normals[i][1] = dk_model_verts[i].ny * (1.0f / 127.0f);
         normals[i][2] = dk_model_verts[i].nz * (1.0f / 127.0f);
+    }
+    for(int i = 0; i < DK_MODEL_INDEX_COUNT; i++) index_off[i] = (uint16_t)(dk_model_indices[i] * 32);
+    group_count = 0;
+    for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
+        const dk_mesh_t *m = &dk_model_meshes[mi];
+        mesh_g0[mi] = (uint16_t)group_count;
+        for(int i = m->first_vert; i < m->first_vert + m->vert_count; i++) {
+            const dk_mvert_t *v = &dk_model_verts[i];
+            int g = mesh_g0[mi];
+            for(; g < group_count; g++) {
+                const dk_mvert_t *w = &dk_model_verts[group_vert[g]];
+                if(v->nx == w->nx && v->ny == w->ny && v->nz == w->nz && v->argb == w->argb &&
+                   v->paint == w->paint && v->tip == w->tip) break;
+            }
+            if(g == group_count) {
+                group_vert[g] = (uint16_t)i;
+                memcpy(group_nrm[g], normals[i], sizeof(group_nrm[g]));
+                group_count++;
+            }
+            model_kv[i].group = (uint16_t)(g - mesh_g0[mi]);
+        }
+        mesh_gn[mi] = (uint16_t)(group_count - mesh_g0[mi]);
     }
     /* Key light from above, slightly in front of the karts' usual view. */
     light_dir = vnorm(v3(0.35f, 0.85f, 0.40f));
@@ -59,8 +98,8 @@ void models_init(void) {
     int meshes_max = 0;
     for(int i = 0; i < DK_MODEL_MESH_COUNT; i++)
         if(dk_model_meshes[i].vert_count > meshes_max) meshes_max = dk_model_meshes[i].vert_count;
-    printf("DreamKarts models: %d verts, %d tris, %d meshes (largest %d verts)\n",
-           DK_MODEL_VERT_COUNT, DK_MODEL_INDEX_COUNT / 3, DK_MODEL_MESH_COUNT, meshes_max);
+    printf("DreamKarts models: %d verts (%d lit alike groups), %d tris, %d meshes (largest %d verts)\n",
+           DK_MODEL_VERT_COUNT, group_count, DK_MODEL_INDEX_COUNT / 3, DK_MODEL_MESH_COUNT, meshes_max);
 }
 
 void models_paint_kart(int index) {
@@ -79,6 +118,7 @@ void models_paint_kart(int index) {
                  b = ((c & 255) * world_light[2]) >> 8;
         paint[index][i] = 0xff000000u | (r << 16) | (g << 8) | b;
     }
+    for(int g = 0; g < group_count; g++) group_paint[index][g] = paint[index][group_vert[g]];
 }
 
 static float smooth01(float x) {
@@ -288,31 +328,32 @@ static void draw_kart_lod(int index, int lod) {
             lp = part_light[index][m->part];
             last_part = m->part;
         }
-        int nv = m->vert_count;
-        RV *out = &kart_rv[index][m->first_vert];
+        int nv = m->vert_count, g0 = mesh_g0[mi], ng = mesh_gn[mi];
+        uint32_t *lit = &group_lit[index][g0];
         if(lit_frame[index][mi] != frame_id) {
             PROF_RESTART(pm);
             lit_frame[index][mi] = frame_id;
-            const uint32_t *col = &paint[index][m->first_vert];
             bool unlit = m->flags & 1;
-            const float (*nrm)[3] = &normals[m->first_vert];
-            /* Lighting in 8.8 fixed point: one float->int per vertex. */
+            /* Lighting in 8.8 fixed point: one float->int per group. */
             float lx = lp.x * 158.7f, ly = lp.y * 158.7f + 25.6f, lz = lp.z * 158.7f;
-            for(int i = 0; i < nv; i++) {
+            const uint32_t *col = &group_paint[index][g0];
+            const float (*nrm)[3] = &group_nrm[g0];
+            for(int i = 0; i < ng; i++) {
                 uint32_t c = col[i];
                 if(unlit) {
-                    out[i].c = c;
+                    lit[i] = c;
                     continue;
                 }
                 float d = nrm[i][0] * lx + nrm[i][1] * ly + nrm[i][2] * lz;
                 int li = 133 + (d > 0 ? (int)d : 0);
                 unsigned r = (((c >> 16) & 255) * li) >> 8, g = (((c >> 8) & 255) * li) >> 8, b = ((c & 255) * li) >> 8;
-                out[i].c = 0xff000000u | ((r > 255 ? 255 : r) << 16) | ((g > 255 ? 255 : g) << 8) | (b > 255 ? 255 : b);
+                lit[i] = 0xff000000u | ((r > 255 ? 255 : r) << 16) | ((g > 255 ? 255 : g) << 8) | (b > 255 ? 255 : b);
             }
             PROF_LAP(PS_LIGHT, pm);
-            PROF_COUNT(PN_LVERTS, nv);
+            PROF_COUNT(PN_LVERTS, ng);
         }
-        r_mesh(out, nv, &dk_model_indices[m->first_index], m->index_count, true);
+        r_mesh_kv(&model_kv[m->first_vert], lit, nv, &dk_model_indices[m->first_index],
+                  &index_off[m->first_index], m->index_count, true);
     }
 }
 

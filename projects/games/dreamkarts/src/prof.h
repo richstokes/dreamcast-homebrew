@@ -26,6 +26,11 @@ enum {
     PS_PHASE_KARTS,
     PS_PHASE_PT,
     PS_PHASE_TR,
+    PS_U_INPUT,     /* inside upd: controllers (and online, the probe) */
+    PS_U_STEP,      /* the simulation steps */
+    PS_U_CAMERA,
+    PS_U_AUDIO,     /* music, sound and engine loops */
+    PS_U_OTHER,     /* rumble and VMU screens */
     PS_COUNT
 };
 #define PROF_EVENTS 3   /* counter 1 modes, one per frame in turn */
@@ -39,6 +44,10 @@ enum {
     PN_MTRIS,       /* r_mesh triangles submitted */
     PN_MBACK,       /* r_mesh triangles culled as back faces */
     PN_LVERTS,      /* kart vertices lit */
+    PN_SIN,         /* bounded strips sent whole on their sphere */
+    PN_SOUT,        /* bounded strips culled on their sphere */
+    PN_STRIPS,      /* r_strip_bounded calls */
+    PN_HDRS,        /* polygon headers sent */
     PN_COUNT
 };
 

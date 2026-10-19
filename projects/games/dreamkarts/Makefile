@@ -32,7 +32,8 @@ empty :=
 space := $(empty) $(empty)
 FLAGTAG = $(subst =,-,$(subst $(space),,$(subst -D,+,$(EXTRA_CFLAGS))))
 OBJDIR = build/$(VARIANT)$(FLAGTAG)
-OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES)) $(OBJDIR)/blobs.o
+ASM_SOURCES = xform.S
+OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst %.S,$(OBJDIR)/%.o,$(ASM_SOURCES)) $(OBJDIR)/blobs.o
 
 KOS_BUILD_SUBARCHS = pristine
 
@@ -43,6 +44,10 @@ include $(KOS_BASE)/Makefile.rules
 $(OBJDIR)/%.o: src/%.c $(HEADERS)
 	@mkdir -p $(@D)
 	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
+
+$(OBJDIR)/xform.o: src/xform.S
+	@mkdir -p $(@D)
+	kos-cc -c $< -o $@
 
 $(OBJDIR)/blobs.o: src/blobs.S $(BLOBS)
 	@mkdir -p $(@D)

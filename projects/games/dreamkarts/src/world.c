@@ -22,6 +22,8 @@ uint16_t world_light[3] = {256, 256, 256};
 typedef struct {
     const pvr_poly_hdr_t *hdr;
     uint16_t first, count;
+    V3 c;              /* bounding sphere */
+    float r;
 } Strip;
 
 typedef struct {
@@ -137,6 +139,27 @@ static void svp(V3 p, float u, float v, uint32_t c) {
     sv(p.x, p.y, p.z, u, v, c);
 }
 
+/* A sphere round the strip's vertices for r_strip_bounded. World strips
+   never move once built; geometry that changes at run time goes through
+   r_strip (or would need its sphere recomputed). */
+static Strip strip_bound(Strip st) {
+    const RV *v = pool + st.first;
+    V3 lo = v3(v[0].x, v[0].y, v[0].z), hi = lo;
+    for(int i = 1; i < st.count; i++) {
+        lo.x = fminf(lo.x, v[i].x); hi.x = fmaxf(hi.x, v[i].x);
+        lo.y = fminf(lo.y, v[i].y); hi.y = fmaxf(hi.y, v[i].y);
+        lo.z = fminf(lo.z, v[i].z); hi.z = fmaxf(hi.z, v[i].z);
+    }
+    st.c = vscale(vadd(lo, hi), 0.5f);
+    float r2 = 0;
+    for(int i = 0; i < st.count; i++) {
+        V3 d = vsub(v3(v[i].x, v[i].y, v[i].z), st.c);
+        r2 = fmaxf(r2, vdot(d, d));
+    }
+    st.r = sqrtf(r2) * 1.001f + 0.01f;
+    return st;
+}
+
 static void strip_end(void) {
     int n = pool_n - cur_strip_first;
     if(!cur_chunk || n < 3 || strip_n >= MAX_STRIPS) {
@@ -148,7 +171,7 @@ static void strip_end(void) {
     int first = cur_strip_first;
     while(n >= 3) {
         int take = n > 240 ? 240 : n;
-        strips[strip_n++] = (Strip){strip_hdr, (uint16_t)first, (uint16_t)take};
+        strips[strip_n++] = strip_bound((Strip){strip_hdr, (uint16_t)first, (uint16_t)take, v3(0, 0, 0), 0});
         if(take == n) break;
         first += take - 2;
         n -= take - 2;
@@ -2303,7 +2326,7 @@ static void draw_chunks(int list) {
         for(int s = 0; s < c->nstrips; s++) {
             const Strip *st = &strips[c->first_strip + s];
             r_hdr(st->hdr);
-            r_strip(pool + st->first, st->count);
+            r_strip_bounded(pool + st->first, st->count, st->c, st->r);
         }
     }
 }
@@ -2371,6 +2394,41 @@ static uint32_t cloud_color(float x, float z) {
     return color_lerp(argb(255, 64, 70, 170), argb(255, 220, 80, 210), glow * 0.55f);
 }
 
+/* The sea's and the cloud sea's vertex colours depend only on where the
+   camera-centred grid lies, which changes when the camera crosses into
+   another cell: keep the colours of the last two grids (one per
+   split-screen view). Row j's colours at z = za and zb, column i. A colour
+   function that changed over time would need this cache dropped. */
+#define GRID_MAX 16
+typedef uint32_t (*GridColorFn)(float x, float z);
+typedef struct {
+    float cx, cz, cell;
+    GridColorFn fn;
+    uint32_t za[GRID_MAX][GRID_MAX + 1], zb[GRID_MAX][GRID_MAX + 1];
+} GridColors;
+
+static const GridColors *grid_colors(float cx, float cz, float cell, int n, float x0, float z0, GridColorFn fn) {
+    static GridColors cache[2];
+    static int next;
+    for(int c = 0; c < 2; c++)
+        if(cache[c].fn == fn && cache[c].cx == cx && cache[c].cz == cz && cache[c].cell == cell) return &cache[c];
+    GridColors *g = &cache[next];
+    next ^= 1;
+    g->fn = fn;
+    g->cx = cx;
+    g->cz = cz;
+    g->cell = cell;
+    for(int j = 0; j < n; j++) {
+        float za = z0 + j * cell, zb = za + cell;
+        for(int i = 0; i <= n; i++) {
+            float x = x0 + i * cell;
+            g->zb[j][i] = fn(x, zb);
+            g->za[j][i] = fn(x, za);
+        }
+    }
+    return g;
+}
+
 static void draw_clouds_below(void) {
     const float cell = world_split ? 90.0f : 64.0f;
     const int n = world_split ? 10 : 14;
@@ -2379,6 +2437,7 @@ static void draw_clouds_below(void) {
     float su = world_time * 0.006f, sv2 = world_time * 0.004f;
     const float uvs = 1.0f / 110.0f;
     r_hdr(h_cloudsea);
+    const GridColors *gc = grid_colors(cx, cz, cell, n, x0, z0, cloud_color);
     RV row[2 * (14 + 1)];
     for(int j = 0; j < n; j++) {
         float za = z0 + j * cell, zb = za + cell;
@@ -2387,8 +2446,13 @@ static void draw_clouds_below(void) {
         int k = 0;
         for(int i = 0; i <= n; i++) {
             float x = x0 + i * cell;
-            row[k++] = (RV){x, CLOUD_Y, zb, x * uvs + su, zb * uvs + sv2, cloud_color(x, zb)};
-            row[k++] = (RV){x, CLOUD_Y, za, x * uvs + su, za * uvs + sv2, cloud_color(x, za)};
+            row[k++] = (RV){x, CLOUD_Y, zb, x * uvs + su, zb * uvs + sv2, gc->zb[j][i]};
+            row[k++] = (RV){x, CLOUD_Y, za, x * uvs + su, za * uvs + sv2, gc->za[j][i]};
+#ifdef DK_XF_CHECK
+            extern uint32_t xf_checked, xf_mismatch;
+            xf_checked += 2;
+            xf_mismatch += (cloud_color(x, zb) != gc->zb[j][i]) + (cloud_color(x, za) != gc->za[j][i]);
+#endif
         }
         r_strip(row, k);
     }
@@ -2419,6 +2483,7 @@ static void draw_sea(void) {
     float x0 = cx - n * cell * 0.5f, z0 = cz - n * cell * 0.5f;
     float su = world_time * 0.018f, sv2 = world_time * 0.011f;
     r_hdr(h_water);
+    const GridColors *gc = grid_colors(cx, cz, cell, n, x0, z0, sea_color);
     RV row[2 * (16 + 1)];
     for(int j = 0; j < n; j++) {
         float za = z0 + j * cell, zb = za + cell;
@@ -2428,8 +2493,13 @@ static void draw_sea(void) {
         int k = 0;
         for(int i = 0; i <= n; i++) {
             float x = x0 + i * cell;
-            row[k++] = (RV){x, WATER_Y, zb, x / 26.0f + su, zb / 26.0f + sv2, sea_color(x, zb)};
-            row[k++] = (RV){x, WATER_Y, za, x / 26.0f + su, za / 26.0f + sv2, sea_color(x, za)};
+            row[k++] = (RV){x, WATER_Y, zb, x / 26.0f + su, zb / 26.0f + sv2, gc->zb[j][i]};
+            row[k++] = (RV){x, WATER_Y, za, x / 26.0f + su, za / 26.0f + sv2, gc->za[j][i]};
+#ifdef DK_XF_CHECK
+            extern uint32_t xf_checked, xf_mismatch;
+            xf_checked += 2;
+            xf_mismatch += (sea_color(x, zb) != gc->zb[j][i]) + (sea_color(x, za) != gc->za[j][i]);
+#endif
         }
         r_strip(row, k);
     }

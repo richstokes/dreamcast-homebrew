@@ -5,7 +5,13 @@
    in front of the near plane are divided with FSRRA and written straight to
    the Tile Accelerator through the store queues (pvr_dr). Triangles that
    cross the near plane are clipped in that homogeneous space, which keeps
-   UVs, colours and depth linear. */
+   UVs, colours and depth linear.
+
+   The per-vertex loops (transform, outcodes, projection, store-queue
+   writes, triangle tests) are SH-4 assembly in src/xform.S; this file keeps
+   the decisions around them and the rare paths (near-plane clipping).
+   Build with -DDK_XF_CHECK to run the C each routine replaces beside it and
+   count any difference (DK XFCHECK lines in the autotest log). */
 #include "render.h"
 #include "prof.h"
 #include "texture_assets.h"
@@ -33,9 +39,21 @@ static float view_y0 = 0, view_y1 = 480, view_cx = 320, view_cy = 240;
 static unsigned clip_mask = 16;
 static const pvr_poly_hdr_t *cur_hdr, *sent_hdr;
 static bool list_open;
-static CV cvbuf[MAX_STRIP] __attribute__((aligned(32)));
-static pvr_vertex_t mesh_pv[MAX_MESH_VERTS] __attribute__((aligned(32)));
-static uint8_t mesh_code[MAX_MESH_VERTS];
+/* Projected vertices and their clip outcodes, staged in the operand cache
+   by dk_xf_stage (src/xform.S) for r_strip and r_mesh. */
+static pvr_vertex_t stage_pv[MAX_MESH_VERTS] __attribute__((aligned(32)));
+static uint8_t stage_code[MAX_MESH_VERTS];
+
+/* src/xform.S */
+typedef struct { float near_w, xmax, y0, y1; uint8_t *codes; const uint32_t *col; } XfParams;
+typedef struct { const pvr_vertex_t *pv; const uint8_t *codes; uint32_t clip_mask, sent, back; } MeshSubmit;
+uint32_t dk_xf_stage(const RV *v, int n, pvr_vertex_t *out, const XfParams *p);
+uint32_t dk_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p);
+void dk_sq_run(const pvr_vertex_t *src, int n);
+void dk_xf_emit(const RV *v, int n);
+int dk_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull);
+void dk_sq_tris_in(MeshSubmit *ms, const uint16_t *off, int ntri);
+static XfParams xf = {NEAR_W, 640.0f, 0.0f, 480.0f, stage_code, NULL};
 
 typedef struct { int key; pvr_poly_hdr_t hdr __attribute__((aligned(32))); } HeaderSlot;
 #define MAX_HEADERS 160
@@ -44,10 +62,6 @@ static int header_count;
 
 /* ------------------------------------------------------------------ */
 /* Setup                                                               */
-
-static void clear_pv_specular(void) {
-    for(int i = 0; i < MAX_MESH_VERTS; i++) mesh_pv[i].oargb = 0;
-}
 
 static void load_textures(void) {
     size_t used = 0;
@@ -87,7 +101,6 @@ void render_init(void) {
     pvr_fog_table_color(1.0f, 0.74f, 0.89f, 0.98f);
     pvr_fog_table_linear(160.0f, 820.0f);
     headers = memalign(32, sizeof(HeaderSlot) * MAX_HEADERS);
-    clear_pv_specular();
     load_textures();
 }
 
@@ -262,6 +275,8 @@ void r_set_viewport(float y0, float y1) {
     view_y0 = y0;
     view_y1 = y1;
     view_cy = (y0 + y1) * 0.5f;
+    xf.y0 = y0;
+    xf.y1 = y1;
     clip_mask = 16u;
     /* Tell the TA (only valid inside an open list). */
     if(list_open) {
@@ -276,6 +291,10 @@ void r_set_viewport(float y0, float y1) {
         sent_hdr = NULL;                          /* resend the header after it */
     }
 }
+
+/* Lengths of the clip-plane gradients in view space, for r_strip_bounded:
+   left, right, top, bottom (set by r_set_camera). */
+static float plane_g[4];
 
 void r_set_camera(const Camera *c) {
     r_cam = *c;
@@ -295,6 +314,10 @@ void r_set_camera(const Camera *c) {
     for(int col = 0; col < 4; col++)
         for(int rr = 0; rr < 4; rr++)
             vp.elem[col * 4 + rr] = row[rr][col];
+    plane_g[0] = sqrtf(F * F + CX * CX);
+    plane_g[1] = sqrtf(F * F + (640.0f - CX) * (640.0f - CX));
+    plane_g[2] = sqrtf(F * F + (CY - view_y0) * (CY - view_y0));
+    plane_g[3] = sqrtf(F * F + (view_y1 - CY) * (view_y1 - CY));
 }
 
 void r_load_vp(void) {
@@ -341,6 +364,7 @@ void r_hdr(const pvr_poly_hdr_t *h) {
 
 static inline void flush_hdr(void) {
     if(cur_hdr != sent_hdr) {
+        PROF_COUNT(PN_HDRS, 1);
         pvr_prim(cur_hdr, sizeof(pvr_poly_hdr_t));
         sent_hdr = cur_hdr;
     }
@@ -439,34 +463,146 @@ static void clip_tri(const CV *a, const CV *b, const CV *c) {
         emit_tri(&p[0], &p[i], &p[i + 1]);
 }
 
-void r_strip(const RV *v, int n) {
-    if(n < 3 || n > MAX_STRIP) return;
+#ifdef DK_XF_CHECK
+/* Checks the assembly against the C it replaced: every staged vertex and
+   code, and every triangle decision (src/xform.S must match bit for bit). */
+uint32_t xf_checked, xf_mismatch;
+
+static void check_stage(const RV *v, int n, uint32_t codes) {
     unsigned and_code = 31, or_code = 0;
     for(int i = 0; i < n; i++) {
-        xform(&v[i], &cvbuf[i]);
-        unsigned code = outcode(&cvbuf[i]);
+        CV c;
+        xform(&v[i], &c);
+        unsigned code = outcode(&c);
         and_code &= code;
         or_code |= code;
+        xf_checked++;
+        if(stage_code[i] != code) {
+            xf_mismatch++;
+            continue;
+        }
+        if(c.w < NEAR_W) continue;
+        float inv = shz_invf_fsrra(c.w);
+        pvr_vertex_t e;
+        e.flags = PVR_CMD_VERTEX;
+        e.x = c.x * inv;
+        e.y = c.y * inv;
+        e.z = inv;
+        e.u = c.u;
+        e.v = c.v;
+        e.argb = c.c;
+        e.oargb = 0;
+        if(memcmp(&e, &stage_pv[i], sizeof(e))) xf_mismatch++;
     }
+    if(codes != (and_code | or_code << 8)) xf_mismatch++;
+}
+#endif
+
+void r_strip(const RV *v, int n) {
+    if(n < 3 || n > MAX_STRIP) return;
+    uint32_t codes = dk_xf_stage(v, n, stage_pv, &xf);
+#ifdef DK_XF_CHECK
+    check_stage(v, n, codes);
+#endif
+    unsigned and_code = codes & 0xff, or_code = codes >> 8;
     PROF_COUNT(PN_SVERTS, n);
     if(and_code & 16) { PROF_COUNT(PN_SCULL, 1); return; }
     if(!(or_code & 16) && (and_code & 15)) { PROF_COUNT(PN_SCULL, 1); return; }
     if(or_code & clip_mask) {
         PROF_COUNT(PN_SCLIP, 1);
-        static uint8_t codes[MAX_STRIP];
-        for(int i = 0; i < n; i++) codes[i] = (uint8_t)outcode(&cvbuf[i]);
+        /* Triangle by triangle; only those crossing the near plane go back
+           to C, re-transformed from the source vertices. */
         for(int i = 0; i + 2 < n; i++) {
-            unsigned ca = codes[i], cb = codes[i + 1], cc = codes[i + 2];
+            unsigned ca = stage_code[i], cb = stage_code[i + 1], cc = stage_code[i + 2];
             if(ca & cb & cc) continue;
-            if((ca | cb | cc) & clip_mask) clip_tri(&cvbuf[i], &cvbuf[i + 1], &cvbuf[i + 2]);
-            else emit_tri(&cvbuf[i], &cvbuf[i + 1], &cvbuf[i + 2]);
+            if((ca | cb | cc) & clip_mask) {
+                CV ta, tb, tc;
+                xform(&v[i], &ta);
+                xform(&v[i + 1], &tb);
+                xform(&v[i + 2], &tc);
+                clip_tri(&ta, &tb, &tc);
+            }
+            else {
+                flush_hdr();
+                dk_sq_run(&stage_pv[i], 3);
+                rstats.tris++;
+            }
         }
         return;
     }
     flush_hdr();
-    for(int i = 0; i < n - 1; i++)
-        emit(&cvbuf[i], PVR_CMD_VERTEX);
-    emit(&cvbuf[n - 1], PVR_CMD_VERTEX_EOL);
+    dk_sq_run(stage_pv, n);
+    rstats.tris += n - 2;
+    rstats.verts += n;
+    PROF_COUNT(PN_SEMIT, n);
+}
+
+/* Where a sphere lies against the clip planes r_strip tests each vertex
+   against: SPHERE_OUT if wholly outside one of them, SPHERE_IN if wholly
+   inside all five, else SPHERE_CROSS. The planes are those of the
+   outcodes in view space (x right, y up, z forward):
+     X >= 0           F x + CX z
+     X <= 640 W       (640 - CX) z - F x
+     Y >= y0 W        -F y + (CY - y0) z
+     Y <= y1 W        F y + (y1 - CY) z
+     W >= near        z - near
+   Each margin is far wider than the rounding of FTRV or of this test, so
+   SPHERE_OUT strips are ones r_strip would cull (or skip triangle by
+   triangle) and SPHERE_IN strips ones it would send whole. */
+enum { SPHERE_IN, SPHERE_OUT, SPHERE_CROSS };
+
+static int sphere_class(V3 c, float radius) {
+    V3 d = vsub(c, r_cam.pos);
+    float x = vdot(d, r_cam.right), y = vdot(d, r_cam.up), z = vdot(d, r_cam.fwd);
+    float F = cam_f;
+    float mag = fabsf(x) + fabsf(y) + fabsf(z) + radius;
+    float v[5] = {F * x + view_cx * z, (640.0f - view_cx) * z - F * x, -F * y + (view_cy - view_y0) * z,
+                  F * y + (view_y1 - view_cy) * z, z - NEAR_W};
+    bool inside = true;
+    for(int p = 0; p < 5; p++) {
+        float g = p < 4 ? plane_g[p] : 1.0f;
+        float m = g * (radius * 1.01f + mag * 1e-4f + 0.01f);
+        if(v[p] < -m) return SPHERE_OUT;
+        if(v[p] < m) inside = false;
+    }
+    return inside ? SPHERE_IN : SPHERE_CROSS;
+}
+
+void r_strip_bounded(const RV *v, int n, V3 c, float radius) {
+    if(n < 3 || n > MAX_STRIP) return;
+    PROF_COUNT(PN_STRIPS, 1);
+    int cls = sphere_class(c, radius);
+#ifdef DK_XF_CHECK
+    if(cls != SPHERE_CROSS) {
+        /* The vertex outcodes must agree with the sphere. */
+        uint32_t codes = dk_xf_stage(v, n, stage_pv, &xf);
+        unsigned and_code = codes & 0xff, or_code = codes >> 8;
+        extern uint32_t xf_checked, xf_mismatch;
+        xf_checked++;
+        if(cls == SPHERE_IN && or_code != 0) xf_mismatch++;
+        if(cls == SPHERE_OUT && and_code == 0) {
+            /* No plane has every vertex outside: every triangle must
+               still share one. */
+            for(int i = 0; i + 2 < n; i++)
+                if(!(stage_code[i] & stage_code[i + 1] & stage_code[i + 2])) {
+                    xf_mismatch++;
+                    break;
+                }
+        }
+    }
+#endif
+    if(cls == SPHERE_OUT) {
+        PROF_COUNT(PN_SOUT, 1);
+        return;
+    }
+    if(cls == SPHERE_CROSS) {
+        r_strip(v, n);
+        return;
+    }
+    PROF_COUNT(PN_SIN, 1);
+    PROF_COUNT(PN_SVERTS, n);
+    flush_hdr();
+    dk_xf_emit(v, n);
     rstats.tris += n - 2;
     rstats.verts += n;
     PROF_COUNT(PN_SEMIT, n);
@@ -477,63 +613,101 @@ void r_quad(const RV *a, const RV *b, const RV *c, const RV *d) {
     r_strip(q, 4);
 }
 
-void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
+#ifdef DK_XF_CHECK
+/* The C triangle decisions dk_sq_tris must reproduce: sent, back faces. */
+static void check_tris(const uint16_t *idx, int ntri, bool cull, uint32_t sent, uint32_t back) {
+    uint32_t s = 0, b = 0;
+    for(int t = 0; t < ntri; t++) {
+        unsigned a = idx[t * 3], bb = idx[t * 3 + 1], c = idx[t * 3 + 2];
+        unsigned ca = stage_code[a], cb = stage_code[bb], cc = stage_code[c];
+        if(ca & cb & cc) continue;
+        if((ca | cb | cc) & clip_mask) break;
+        const pvr_vertex_t *pa = &stage_pv[a], *pb = &stage_pv[bb], *pc = &stage_pv[c];
+        if(cull) {
+            float area = (pb->x - pa->x) * (pc->y - pa->y) - (pb->y - pa->y) * (pc->x - pa->x);
+            if(area <= 0) { b++; continue; }
+        }
+        s++;
+    }
+    if(s != sent || b != back) xf_mismatch++;
+}
+#endif
+
+/* A mesh's vertex i as an RV: from the RV array, or a KV and its colour
+   with u = v = 0. */
+static inline RV mesh_vertex(const RV *v, const KV *kv, const uint32_t *col, int i) {
+    if(v) return v[i];
+    return (RV){kv[i].x, kv[i].y, kv[i].z, 0, 0, col[kv[i].group]};
+}
+
+static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, const uint16_t *idx,
+                      const uint16_t *off, int ni, bool cull) {
     if(nv > MAX_MESH_VERTS) nv = MAX_MESH_VERTS;
+    if(nv < 1) return;
     PROF_BEGIN(pm);
     /* Only the projected vertex is kept; the rare triangles that need
        near-plane clipping re-transform their corners (XMTRX still holds
        this mesh's matrix). */
-    for(int i = 0; i < nv; i++) {
-        CV c;
-        xform(&v[i], &c);
-        mesh_code[i] = (uint8_t)outcode(&c);
-        if(c.w >= NEAR_W) {
-            float inv = shz_invf_fsrra(c.w);
-            pvr_vertex_t *p = &mesh_pv[i];
-            p->flags = PVR_CMD_VERTEX;
-            p->x = c.x * inv;
-            p->y = c.y * inv;
-            p->z = inv;
-            p->u = c.u;
-            p->v = c.v;
-            p->argb = c.c;
-        }
+    uint32_t codes;
+    if(v) codes = dk_xf_stage(v, nv, stage_pv, &xf);
+    else {
+        xf.col = col;
+        codes = dk_xf_stage_kv(kv, nv, stage_pv, &xf);
     }
+#ifdef DK_XF_CHECK
+    {
+        static RV tmp[MAX_MESH_VERTS];
+        for(int i = 0; i < nv; i++) tmp[i] = mesh_vertex(v, kv, col, i);
+        check_stage(tmp, nv, codes);
+    }
+#endif
     rstats.verts += nv;
     PROF_COUNT(PN_MVERTS, nv);
     PROF_LAP(PS_MXFORM, pm);
     flush_hdr();
-    for(int i = 0; i + 2 < ni; i += 3) {
-        unsigned a = idx[i], b = idx[i + 1], c = idx[i + 2];
-        unsigned ca = mesh_code[a], cb = mesh_code[b], cc = mesh_code[c];
-        if(ca & cb & cc) continue;
-        if((ca | cb | cc) & clip_mask) {
-            CV ta, tb, tc;
-            xform(&v[a], &ta);
-            xform(&v[b], &tb);
-            xform(&v[c], &tc);
-            clip_tri(&ta, &tb, &tc);
-            continue;
-        }
-        const pvr_vertex_t *pa = &mesh_pv[a], *pb = &mesh_pv[b], *pc = &mesh_pv[c];
-        if(cull) {
-            float area = (pb->x - pa->x) * (pc->y - pa->y) - (pb->y - pa->y) * (pc->x - pa->x);
-            if(area <= 0) { PROF_COUNT(PN_MBACK, 1); continue; }
-        }
-        pvr_vertex_t *d = pvr_dr_target();
-        *d = *pa;
-        pvr_dr_commit(d);
-        d = pvr_dr_target();
-        *d = *pb;
-        pvr_dr_commit(d);
-        d = pvr_dr_target();
-        *d = *pc;
-        d->flags = PVR_CMD_VERTEX_EOL;
-        pvr_dr_commit(d);
-        rstats.tris++;
-        PROF_COUNT(PN_MTRIS, 1);
+    MeshSubmit ms = {stage_pv, stage_code, clip_mask, 0, 0};
+    int ntri = ni / 3;
+    if(off && cull && (codes >> 8) == 0) {
+        /* Every vertex inside every clip plane: only back faces to test. */
+        dk_sq_tris_in(&ms, off, ntri);
+#ifdef DK_XF_CHECK
+        check_tris(idx, ntri, cull, ms.sent, ms.back);
+#endif
+        ntri = 0;
     }
+    for(int t = 0; t < ntri;) {
+#ifdef DK_XF_CHECK
+        uint32_t sent0 = ms.sent, back0 = ms.back;
+#endif
+        int done = dk_sq_tris(&ms, idx + t * 3, ntri - t, cull);
+#ifdef DK_XF_CHECK
+        check_tris(idx + t * 3, ntri - t, cull, ms.sent - sent0, ms.back - back0);
+#endif
+        t += done;
+        if(t >= ntri) break;
+        /* Triangle t crosses the near plane. */
+        RV a = mesh_vertex(v, kv, col, idx[t * 3]), b = mesh_vertex(v, kv, col, idx[t * 3 + 1]),
+           c = mesh_vertex(v, kv, col, idx[t * 3 + 2]);
+        CV ta, tb, tc;
+        xform(&a, &ta);
+        xform(&b, &tb);
+        xform(&c, &tc);
+        clip_tri(&ta, &tb, &tc);
+        t++;
+    }
+    rstats.tris += ms.sent;
+    PROF_COUNT(PN_MTRIS, ms.sent);
+    PROF_COUNT(PN_MBACK, ms.back);
     PROF_LAP(PS_MSUBMIT, pm);
+}
+
+void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
+    mesh_draw(v, NULL, NULL, nv, idx, NULL, ni, cull);
+}
+
+void r_mesh_kv(const KV *v, const uint32_t *col, int nv, const uint16_t *idx, const uint16_t *off, int ni,
+               bool cull) {
+    mesh_draw(NULL, v, col, nv, idx, off, ni, cull);
 }
 
 void r_billboard(V3 c, float w, float h, float rot, float u0, float v0, float u1, float v1, uint32_t col) {

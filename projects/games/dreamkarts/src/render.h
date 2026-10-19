@@ -43,9 +43,25 @@ void r_hdr(const pvr_poly_hdr_t *h);
 
 /* Transform with XMTRX, clip against the near plane and submit. */
 void r_strip(const RV *v, int n);
+/* r_strip for a strip whose vertices all lie within the sphere (c, radius):
+   the sphere decides whole strips, and only those it cannot are tested
+   vertex by vertex. */
+void r_strip_bounded(const RV *v, int n, V3 c, float radius);
 void r_quad(const RV *a, const RV *b, const RV *c, const RV *d);  /* strip order */
 /* Lit/coloured indexed triangles (already filled RV array). */
 void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull);
+/* Kart vertex: position and the colour (lighting group) it takes. Karts
+   are untextured (u = v = 0); a textured part would draw through r_mesh. */
+typedef struct {
+    float x, y, z;
+    uint16_t group, pad;
+} KV;
+/* r_mesh for KV vertices, with u = v = 0 and vertex i coloured
+   col[v[i].group]; off holds idx times 32 (byte offsets of the staged
+   vertices), for the fast path taken when no vertex is outside a clip
+   plane. */
+void r_mesh_kv(const KV *v, const uint32_t *col, int nv, const uint16_t *idx, const uint16_t *off, int ni,
+               bool cull);
 
 /* Camera-facing quad in world space (XMTRX must hold the view-projection). */
 void r_billboard(V3 c, float w, float h, float rot, float u0, float v0, float u1, float v1, uint32_t col);

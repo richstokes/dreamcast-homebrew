@@ -76,7 +76,8 @@ static void prof_frame_end(void) {
    operand-cache misses a frame (M). */
 static void prof_print(void) {
     static const char *const names[PS_COUNT] = {"mats", "light", "mxform", "msubmit", "dolphins", "chunks", "sky",
-                                                "sea", "foam", "upd", "world", "karts", "pt", "tr"};
+                                                "sea", "foam", "upd", "world", "karts", "pt", "tr", "u-input",
+                                                "u-step", "u-camera", "u-audio", "u-other"};
     char line[PS_COUNT * 40 + PN_COUNT * 20 + 16], *o = line;
     o += sprintf(o, "DK PC");
     for(int i = 0; i < PS_COUNT; i++) {
@@ -96,7 +97,8 @@ static void prof_print(void) {
     }
     /* Work a frame: strip vertices transformed/emitted, strips culled and
        clipped, mesh vertices, triangles sent and back faces, vertices lit. */
-    static const char *const counts[PN_COUNT] = {"sv", "se", "scull", "sclip", "mv", "mt", "mback", "lv"};
+    static const char *const counts[PN_COUNT] = {"sv", "se", "scull", "sclip", "mv", "mt", "mback", "lv", "sin",
+                                                 "sout", "strips", "hdrs"};
     int frames = prof_ev_frames[0] + prof_ev_frames[1] + prof_ev_frames[2];
     o += sprintf(o, " |");
     for(int i = 0; i < PN_COUNT; i++)
@@ -1396,6 +1398,7 @@ int main(int argc, char **argv) {
 
         uint64_t upd_t0 = timer_us_gettime64();
         PROF_BEGIN(pu);
+        PROF_BEGIN(pus);
         input_update();
         if(game.online) online_tick();
 #if defined(DK_HW) && defined(DK_CAPTURE)
@@ -1405,6 +1408,7 @@ int main(int argc, char **argv) {
         }
         pvr_set_presort_mode((dk_probe_off & PROBE_AUTOSORT) == 0);
 #endif
+        PROF_LAP(PS_U_INPUT, pus);
         for(int s = 0; s < steps; s++) {
 #ifdef DK_CAPTURE
             capture_script();
@@ -1416,14 +1420,18 @@ int main(int argc, char **argv) {
             pad.pressed = pad2.pressed = 0;
             pad.released = pad2.released = 0;
         }
+        PROF_LAP(PS_U_STEP, pus);
         update_camera(dt_real);
+        PROF_LAP(PS_U_CAMERA, pus);
         audio_update(dt_real);
         bool engines = (game.state == ST_RACE || game.state == ST_COUNTDOWN || game.state == ST_RESULTS) &&
                        !game.paused;
         for(int p = 0; p < MAX_PLAYERS; p++)
             audio_kart_loops(p, engines && p < game.num_players ? &karts[game.pl[p].kart] : NULL, dt_real);
+        PROF_LAP(PS_U_AUDIO, pus);
         rumble_update(dt_real, (game.state == ST_RACE || game.state == ST_COUNTDOWN) && !game.paused);
         vmuscreen_update(dt_real);
+        PROF_LAP(PS_U_OTHER, pus);
         prof_us[0] += timer_us_gettime64() - upd_t0;
         PROF_LAP(PS_PHASE_UPD, pu);
         render();
@@ -1499,6 +1507,13 @@ int main(int argc, char **argv) {
                        (double)p->speed, p->drift, p->stage);
 #ifdef DK_PROF
                 prof_print();
+#endif
+#ifdef DK_XF_CHECK
+                {
+                    extern uint32_t xf_checked, xf_mismatch;
+                    printf("DK XFCHECK checked=%lu mismatch=%lu\n", (unsigned long)xf_checked,
+                           (unsigned long)xf_mismatch);
+                }
 #endif
                 memset(prof_us, 0, sizeof(prof_us));
                 prof_frames = 0;
