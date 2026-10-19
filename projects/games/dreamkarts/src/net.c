@@ -415,6 +415,9 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
     switch(b[3]) {
         case 64:   /* WELCOME */
             if(n < 15) return;
+#ifdef DK_NET_TRACE
+            if(state == NET_HELLO) printf("DK NET welcome, build %u\n", (unsigned)get16(b + 9));
+#endif
             update_available = b[8] == 1;
             latest_build = get16(b + 9);
             min_build = get16(b + 11);
@@ -560,6 +563,9 @@ void net_update(void) {
             state = NET_HELLO;
             last_hello = 0;
             last_rx = now;
+#ifdef DK_NET_TRACE
+            printf("DK NET hello to %s via %s\n", inet_ntoa(server.sin_addr), link_status());
+#endif
         }
         else if(ls == LINK_FAILED) {
             state = NET_LOST;
@@ -584,6 +590,9 @@ void net_update(void) {
     if(now - last_rx > (state == NET_HELLO ? 12000u : 6000u)) {
         state = NET_LOST;
         message = "LOST CONNECTION TO THE SERVER";
+#ifdef DK_NET_TRACE
+        printf("DK NET no answer from the server\n");
+#endif
         return;
     }
 
