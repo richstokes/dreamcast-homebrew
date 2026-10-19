@@ -220,6 +220,10 @@ the online name.
 - **Saved name:** `EXTRA_CFLAGS="-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0"` opens the name entry, checks the VMU gave back `QA0` (saved by the previous boot's `-DDK_AT_NAME=QA0`), then saves `QA1` the way Start does. Add `-DDK_AT_NAME_CORRUPT` to overwrite the file with junk first and check the game falls back to `CHAO`. These write to Flycast's real A1 card, so delete the `DREAMKARTS` file afterwards if you don't want the test name kept.
 - `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown (with a wave on the grid), GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) the cheer if your kart wins, and the results. It screenshots the Flycast window at each step without taking over the screen. Add `EXTRA_CFLAGS=-DDK_AT_LAPS=10` (or 5) to have it step the setup menu down to LAPS and pick that many first (`menu-laps.png`; with `-DDK_AT_TT` it switches to Time Trial too, so `results.png` shows the lap list).
 
+- **Repeatable captures:** add `EXTRA_CFLAGS=-DDK_AT_FIXED` to the capture (or autotest) build for one 1/60 s step a frame whatever Flycast's timing, with each screenshot frame held still. Two runs then give the same race and pixel-identical screenshots (apart from the loading screen, which animates from the boot clock), and each shot prints a `DK STATE` fingerprint of the karts and the random generator. Capture two builds this way, one after the other with nothing over the Flycast window, and compare the folders to check a change leaves the picture untouched.
+- **Assembly check:** `EXTRA_CFLAGS="-DDK_AT_FIXED -DDK_XF_CHECK"` on the autotest runs the C each routine in `src/xform.S` replaces beside it, compares every staged vertex, outcode and triangle decision (and the cached sea colours, and the strip-sphere culling), and prints `DK XFCHECK checked=... mismatch=...`; it must stay at 0. When changing what a vertex loop computes, change the C there first, then the assembly to match.
+- **Microbenchmark:** `make -C tools/microbench run` uploads a small program to the console that times each assembly routine in cycles a vertex (or triangle), in the cache and streamed from RAM, in about a minute, which is the quick way to try a change to a loop before a full `make hwbench`.
+
 ### Real hardware
 
 `make hwbench` runs the same scripted title, menu and 100cc race on a real
@@ -230,35 +234,57 @@ seconds, because each printf under dcload-ip stalls the console. It saves
 screenshots of the displayed framebuffer to `captures/hw/` through
 dc-tool-ip's `/pc/` share. At three heavy scenes it freezes the race and
 re-renders the same frame with each feature group switched off, printing the
-PVR render time for each (`DK GPU` lines), and switches the console off when it
-is done. `make hw` plays the release build on the console and leaves it on;
+PVR render time for each (`DK GPU` lines) and the CPU time, world time and kart
+time for each (`DK CPU` lines); the `-ta` configuration sends the vertices to a
+cached scratch line instead of the Tile Accelerator, so the difference from
+`base` is the time the CPU spends waiting on the TA (about 0.1 ms). Each 10 s
+window also prints a `DK PC` line from the SH-4 performance counters: every
+render section's ms a frame (kart matrices, lighting, mesh transform, mesh
+triangles, world chunks, sky, sea, foam, and the update phase's parts), the
+share of it stalled on operand-cache misses (`D`) and on the FPU (`F`), its
+cache misses (`M`), and the frame's work (strip and mesh vertices transformed
+and sent, triangles, back faces, lighting groups, strips sent whole or culled
+on their bounding spheres, headers). It switches the console off when it is
+done. `make hw` plays the release build on the console and leaves it on;
 switch it off afterwards with `tools/dc-hw.sh power off`.
 
-Measured on hardware on 2026-10-17, 150cc, six karts, over a full race:
+Measured on hardware on 2026-10-19, 150cc, six karts, over a full race,
+before and after the assembly vertex loops and the other CPU savings below.
+CPU is the game's time a frame (the display's frame is 16.68 ms); the worst
+window is the highest 10 s average during the race; dropped vblanks count
+the whole run, and nearly all of those now fall in the menus while the
+benchmark writes its screenshots.
 
-| | Dropped vblanks | CPU per frame (avg) | PVR render, start grid |
-| --- | --- | --- | --- |
-| 1P, first build | 208 of 6,652 frames | 13.0 ms | 21.0 ms |
-| 1P now | 3 of 6,802 frames | 12.1 ms | 10.4 ms |
-| 2P split, first build | 1,142 of 5,390 frames | 20.1 ms | 13.0 ms |
-| 2P split now | 10 of 6,767 frames | 12.4 ms | 11.5 ms |
+| | CPU avg | Worst frame | Worst 10 s window | Dropped vblanks |
+| --- | --- | --- | --- | --- |
+| Emerald Beach 1P | 11.8 → 8.7 ms | 17.7 → 14.2 ms | 13.9 → 10.1 ms | 5 → 4 of ~5,800 |
+| Coral Crossing 1P | 12.2 → 8.5 ms | 22.6 → 14.1 ms | 13.6 → 10.1 ms | 6 → 3 of ~6,300 |
+| Palm Harbour 1P | 9.7 → 7.6 ms | 16.0 → 12.5 ms | 11.5 → 8.4 ms | 2 → 4 of ~6,400 |
+| Temple Hill 1P | 11.7 → 8.3 ms | 19.7 → 13.7 ms | 13.5 → 9.9 ms | 5 → 4 of ~7,050 |
+| Neon Skyway 1P | 11.3 → 8.1 ms | 21.0 → 18.0 ms | 13.6 → 10.2 ms | 3 → 4 of ~8,000 |
+| Cyberstone 1P | 8.7 → 6.9 ms | 13.5 → 11.4 ms | 10.6 → 7.9 ms | 3 → 4 of ~8,250 |
+| Emerald Beach 2P split | 13.5 → 9.8 ms | 20.8 → 15.5 ms | 15.2 → 10.9 ms | 58 → 5 of ~5,750 |
+| Temple Hill 2P split | 12.9 → 9.5 ms | 22.6 → 16.8 ms | 15.4 → 11.6 ms | 60 → 3 of ~7,000 |
 
-Coral Crossing on the same day, with its jump and dolphins: 1P dropped 7 of
-7,599 frames (13.0 ms average CPU), and 2P split dropped 15 of 7,604 (12.6 ms).
-Palm Harbour: 1P dropped 5 of 7,842 frames (11.4 ms), and 2P split dropped 1
-of 7,815 (11.3 ms). Temple Hill: 1P dropped 5 of 8,558 frames (12.1 ms), and
-2P split dropped 30 of 8,506 (12.2 ms), a few a lap on the switchbacks, where
-the whole hillside is in view twice. Neon Skyway: 1P dropped 5 of 9,867
-frames (10.2 ms), and 2P split dropped 9 of 9,858 (11.4 ms) once the split
-screen left out the deck's underside, the neon glows and the searchlights (58
-with them). Add `-DDK_AT_TRACK=1` (Coral Crossing),
-`-DDK_AT_TRACK=2` (Palm Harbour), `-DDK_AT_TRACK=3` (Temple Hill) or `-DDK_AT_TRACK=4` (Neon Skyway) to
+The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so it
+is now as close to the frame's limit as the CPU. On 2026-10-17 the first
+build had dropped 208 vblanks in a 1P race and 1,142 in a 2P race, mostly
+to the hardware's translucency autosort.
+
+Add `-DDK_AT_TRACK=1` (Coral Crossing),
+`-DDK_AT_TRACK=2` (Palm Harbour), `-DDK_AT_TRACK=3` (Temple Hill), `-DDK_AT_TRACK=4` (Neon Skyway) or `-DDK_AT_TRACK=5` (Cyberstone) to
 `EXTRA_CFLAGS` to benchmark them, and `-DDK_AT_CC=2` to race 150cc (the menu then starts on that class; it works for capture builds too).
 
 Run the two-player benchmark with
 `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.
 
 What made the difference:
+
+- **Vertex loops in SH-4 assembly** (`src/xform.S`, 2026-10-19). The performance counters showed the CPU, not the Tile Accelerator, was the limit: about 111 cycles for each world strip vertex, 88 for each kart vertex and 111 for each kart triangle. The transform, outcodes, projection and store-queue writes are now hand-written loops (88, 57 and 86 cycles, about 1.5 ms a frame), producing the same words as the C did, bit for bit (`-DDK_XF_CHECK` checks it).
+- **Bounding spheres on world strips.** Each strip of the prebuilt scenery has a sphere; a strip whose sphere is wholly off screen is skipped without transforming a vertex, and one wholly on screen goes to the TA in one pass with no outcodes. Only the strips crossing the screen edge are tested vertex by vertex. 0.6 to 0.9 ms a frame.
+- **Kart lighting once per group.** Kart vertices that share a normal and a paint get the same light, so lighting runs once for each such group (950 of the 1,614 vertices) and each vertex takes its group's colour. 0.7 to 0.8 ms a frame.
+- **Sea colours kept.** The sea's (and the cloud sea's) vertex colours depend only on where the camera-centred grid lies, so they are worked out when the camera moves into another cell instead of every frame. 0.3 to 0.55 ms a frame.
+- **Kart triangles in view.** When every vertex of a kart mesh is inside the screen, its triangles skip the outcode tests and only test for back faces. 0.2 to 0.45 ms a frame.
 
 - **Presorted translucency.** Translucent polygons are submitted back to front instead of using the hardware autosort, which cost about 7 ms a frame.
 - **Particle fill.** Smoke puffs close to the camera are skipped and puff size is capped; the large "GO!" glow is gone.
@@ -270,8 +296,16 @@ What made the difference:
 - **Split-screen scenery.** Fog and draw distance come in, the outermost terrain is dropped, and fewer palms and clouds are drawn.
 - **One physics step per frame.** The display's period is not 1/60 s (16.68 ms on an NTSC console, about 16.72 ms in Flycast), so a fixed 1/60 s step owed the clock a whole step every 4 to 16 seconds and ran twice in one frame: a one-frame hitch of the camera and world. The step is now the measured vblank period, nudged by up to 1% so game time stays on the clock, and only a frame that missed vblanks takes more than one step. The autotest counts frames with two or more steps and with none (`multi=` and `zero=` on the `DK AT` lines, and the summary): 18 and 2 of 5,269 frames in Flycast before, 0 of 5,231 after. On the console the step settles at 16.68 ms and the only frames with two steps are the ones that dropped a vblank around a screenshot write: 6 of 7,099, none during the race.
 
+Measured and left out, as not worth their code: DMA to the TA (the CPU waits
+on it about 0.1 ms a frame), software-pipelining the assembly loops (under
+0.1 ms), placing the staging buffer to dodge cache conflicts (nothing),
+lighting in assembly (no faster than the C once lighting is per group), and
+the 4x4 matrix product in assembly (about 0.1 ms). Prefetching with `pref`
+made no difference at any distance: streaming the world's vertices from RAM
+costs about 20 cycles a 32-byte line however it is done.
+
 In Flycast the 1P race averages about 6 ms of CPU, so the console is about
-1.5x slower than the emulator for this code.
+1.4x slower than the emulator for this code.
 
 ## Assets
 
@@ -297,6 +331,8 @@ which Git ignores.
 | `src/track.c` | Track centrelines, road heights, the jump, surfaces, walls and dash panels |
 | `src/world.c` | Scenery building and the animated sky and sea |
 | `src/render.c` | PVR lists, SH4ZAM transforms, clipping and submission |
+| `src/xform.S` | The renderer's per-vertex loops in SH-4 assembly: transform, outcodes, projection, store-queue writes and triangle tests |
+| `src/prof.h` | Section timers and SH-4 performance counters for the benchmark builds |
 | `src/models.c` | Lit, animated kart and Chao rendering |
 | `src/fx.c` | Sparks, flames, smoke and confetti |
 | `src/hud.c`, `src/title.c` | Overlays and menus |
