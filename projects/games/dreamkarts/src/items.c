@@ -20,6 +20,7 @@
 #define PICK_HEIGHT       1.3f    /* a kart flying over does not take it */
 #define SNEAKERS_MIN      2.1f    /* boost seconds in 1st place... */
 #define SNEAKERS_MAX      3.1f    /* ...and in 6th */
+#define SNEAKERS_LAST_MUL 1.5f    /* times longer again for the kart in last place */
 #define SPEAR_SPEED_MUL   1.6f    /* times the class top speed */
 #define SPEAR_RANGE       60.0f   /* lock-on range */
 #define SPEAR_LIFE        4.0f
@@ -582,9 +583,17 @@ static void use_item(Kart *k, bool back) {
     switch(item) {
         case ITEM_SNEAKERS: {
             float f = clampf((float)(k->place - 1) / 5.0f, 0, 1);
-            kart_start_boost(k, lerpf(SNEAKERS_MIN, SNEAKERS_MAX, f), 1.12f);
+            float seconds = lerpf(SNEAKERS_MIN, SNEAKERS_MAX, f);
+            /* Last of the field (not a kart alone on the track) gets half as long again. */
+            bool last = kart_count > 1 && k->place >= kart_count;
+            if(last) seconds *= SNEAKERS_LAST_MUL;
+            kart_start_boost(k, seconds, 1.12f);
             k->boost_stage = 3;
             k->events |= EV_BOOST;
+#if ITEMS_LOG
+            printf("DK ITEM kart %d (%s) uses sneakers in place %d of %d: %.2f s%s\n", idx, k->name, k->place, kart_count,
+                   (double)seconds, last ? ", last place" : "");
+#endif
             break;
         }
         case ITEM_SPEAR: {

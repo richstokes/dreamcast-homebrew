@@ -6,7 +6,8 @@
    race, picked from a seed every console shares, and holds a spinning
    emerald whose colour is its item:
 
-     blue   Power Sneakers  a boost, longer the further back you are
+     blue   Power Sneakers  a boost, longer the further back you are and
+                            half as long again in last place
      red    Chaos Spear     a homing shot along the track at the kart ahead
                             (or, with down held, the kart behind)
      green  Barrier         a bubble that soaks up one Spear or Mine

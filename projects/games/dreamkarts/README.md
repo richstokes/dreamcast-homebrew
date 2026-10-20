@@ -65,7 +65,7 @@ one; a kart already holding something drives past.
 
 | Emerald | Item | On Y |
 | --- | --- | --- |
-| Blue | Power Sneakers | A boost like a purple mini-turbo, 2.1 s in first place to 3.1 s in sixth; cuts through sand like any boost |
+| Blue | Power Sneakers | A boost like a purple mini-turbo, 2.1 s in first place to 3.1 s in sixth, and half as long again when you are last; cuts through sand like any boost |
 | Red | Chaos Spear | A homing shot that flies along the track at the next kart ahead within 60 m (behind you with down held), spinning out whoever it hits for a second; it follows bends and jumps, and a late swerve can dodge it |
 | Yellow | Mine | Dropped on the road behind you, where it waits 25 s for anyone (you included, after a moment) to drive over it and spin out; a charge jump clears it |
 | Green | Barrier | A bubble for six seconds that soaks up one Spear or Mine |
