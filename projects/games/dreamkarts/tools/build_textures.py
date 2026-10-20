@@ -396,8 +396,8 @@ def tex_smoke(n=64):
 
 def tex_shadow(n=64):
     """Kart footprint seen from above: u across the kart, v along it. The
-    quad is 1.9 m by 2.7 m (models.c), so the kart's 1.3 m by 2.1 m body is
-    a rounded box out to about 0.7 by 0.75, with a soft edge and darker
+    quad is 1.76 m by 2.4 m (models.c), so the kart's 1.3 m by 2.1 m body is
+    a rounded box whose soft edge fades out by 0.8 by 0.9, and darker
     contact patches under the four tyres."""
     yy, xx = np.mgrid[0:n, 0:n]
     x = (xx - (n - 1) / 2) / (n / 2)
@@ -409,8 +409,8 @@ def tex_shadow(n=64):
     t = np.clip(1 - (sd + 0.06) / 0.30, 0, 1)
     body = t * t * (3 - 2 * t)
     wheel = np.zeros_like(x)
-    for wx in (-0.59, 0.59):
-        for wy in (-0.46, 0.46):
+    for wx in (-0.64, 0.64):
+        for wy in (-0.52, 0.52):
             w = np.clip(1 - np.hypot((x - wx) / 0.17, (y - wy) / 0.24), 0, 1)
             wheel = np.maximum(wheel, w ** 0.7)
     a = np.clip(body * 0.78 + wheel * 0.22, 0, 1)

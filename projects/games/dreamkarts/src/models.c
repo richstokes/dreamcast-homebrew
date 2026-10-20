@@ -412,7 +412,7 @@ void models_draw_shadows(void) {
     r_hdr(h_shadow);
     V3 sun_off = v3(world_sun_dir.x, 0, world_sun_dir.z);
     float sl = sqrtf(vdot(sun_off, sun_off));
-    sun_off = sl > 0.01f ? vscale(sun_off, 0.45f / sl) : v3(0, 0, 0);
+    sun_off = sl > 0.01f ? vscale(sun_off, 0.12f / sl) : v3(0, 0, 0);
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
         if(!r_sphere_visible(k->pos, 2.0f)) continue;
@@ -424,9 +424,9 @@ void models_draw_shadows(void) {
         if(h > 12.0f) continue;
         float a = clampf(0.80f - h * 0.40f, 0.15f, 0.80f);
         float s = 1.0f + h * 0.25f;
-        V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 1.35f * s), r = vscale(heading_right(k->heading + k->vis_yaw), 0.95f * s);
-        /* The kart-shaped shadow falls a little away from the sun, so it
-           shows past the body from the chase camera. */
+        V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 1.2f * s), r = vscale(heading_right(k->heading + k->vis_yaw), 0.88f * s);
+        /* The kart-shaped shadow leans a touch away from the sun; any more
+           and it swings visibly round the kart as it turns. */
         V3 c = v3(k->pos.x - sun_off.x, ground + 0.04f, k->pos.z - sun_off.z);
         /* On a banked road the shadow tilts with it. */
         float bank = track_bank(k->tp.s);
