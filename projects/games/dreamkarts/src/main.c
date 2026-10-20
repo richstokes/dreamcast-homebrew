@@ -21,6 +21,7 @@
 #include "film.h"
 #include "gp.h"
 #include "prof.h"
+#include "version.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -1477,7 +1478,7 @@ static void camera_tour(void) {
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
-    printf("\nDreamKarts starting (KallistiOS, %s %s)\n", __DATE__, __TIME__);
+    printf("\nDreamKarts %s starting (KallistiOS, %s %s)\n", DK_GIT_SHA, __DATE__, __TIME__);
     uint64_t boot_t0 = timer_us_gettime64();
     input_init();
     render_init();

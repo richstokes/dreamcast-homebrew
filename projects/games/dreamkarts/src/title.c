@@ -15,6 +15,7 @@
 #include "gp.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
+#include "version.h"
 #include "sound_assets.h"
 #include <ctype.h>
 
@@ -851,6 +852,8 @@ void title_draw(void) {
         snprintf(sub, sizeof(sub), "%s GRAND PRIX", track.name);
         hud_text(320, 196, 0.62f, ALIGN_CENTER, argb(255, 255, 255, 255), sub);
         hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(200, 230, 240, 255), "github.com/richstokes - 2026");
+        /* Build id for bug reports: the commit this was built from. */
+        hud_text(604, 446, 0.32f, ALIGN_RIGHT, argb(150, 230, 240, 255), DK_GIT_SHA);
     }
     else if(game.state == ST_TRACKS) {
         draw_tracks();

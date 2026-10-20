@@ -15,7 +15,7 @@ HEADERS = $(wildcard src/*.h) $(GEN_HEADERS) $(SH4ZAM_HEADERS)
 # -ffast-math lets GCC use the SH-4's FSCA for sinf/cosf (KOS passes -mfsca
 # but libm calls remain without it) and plain FSQRT for sqrtf.
 WARN = -std=gnu17 -O2 -ffast-math -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(EXTRA_CFLAGS)
-INCLUDES = -Isrc -I$(GEN) -Ithird_party/sh4zam/include
+INCLUDES = -Isrc -I$(GEN) -Ibuild -Ithird_party/sh4zam/include
 BLENDER ?= blender
 
 # Build variants share sources; each gets its own object directory.
@@ -70,6 +70,18 @@ LINK_STAMP = build/$(VARIANT).flags
 $(LINK_STAMP): force
 	@mkdir -p build
 	@echo '$(FLAGTAG)' | cmp -s - $@ || echo '$(FLAGTAG)' > $@
+
+# The commit the game was built from, shown on the title screen so bug
+# reports can name it. Short SHA plus "-dirty" when this directory has
+# uncommitted changes; DK_GIT_SHA=... overrides it (CI, tarballs). Only
+# rewritten when it changes so a new commit relinks title.o and main.o
+# rather than everything.
+DK_GIT_SHA ?= $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD -- . 2>/dev/null || echo -dirty)
+VERSION_H = build/version.h
+$(VERSION_H): force
+	@mkdir -p build
+	@echo '#define DK_GIT_SHA "$(DK_GIT_SHA)"' | cmp -s - $@ || echo '#define DK_GIT_SHA "$(DK_GIT_SHA)"' > $@
+$(OBJDIR)/title.o $(OBJDIR)/main.o: $(VERSION_H)
 
 dreamkarts.elf: $(OBJS) $(LINK_STAMP)
 	$(link_elf)

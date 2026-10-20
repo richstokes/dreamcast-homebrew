@@ -92,6 +92,9 @@ Before a hardware build, apply
 [`patches/kos-dhcp-fast-retry.patch`](patches/kos-dhcp-fast-retry.patch) to
 KOS and rebuild it (`make -C $KOS_BASE/kernel`), as the release workflow
 does. Debug info is split into `dreamkarts.elf.debug` for `sh-elf-addr2line`.
+The title screen shows the commit the game was built from (bottom right,
+`-dirty` when built with uncommitted changes); please include it in bug
+reports. `DK_GIT_SHA=...` on the make line overrides it.
 
 Launcher environment: `DK_ELF` picks another ELF, `DK_EXIT_ON_LOG` and
 `DK_FAIL_ON_LOG` stop Flycast on a serial line, `DK_NET=modem` swaps the

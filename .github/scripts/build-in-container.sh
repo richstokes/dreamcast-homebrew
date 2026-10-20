@@ -11,7 +11,9 @@ kos_ports="$workspace/.ci/kos-ports"
 apk add --no-cache cmake
 
 # The SDK checkouts are owned by the host runner, while this container runs as
-# root. KOS reads its Git revision while building its banner.
+# root. KOS reads its Git revision while building its banner, and DreamKarts
+# puts the workspace commit on its title screen.
+git config --global --add safe.directory "$workspace"
 git config --global --add safe.directory "$kos_base"
 git config --global --add safe.directory "$kos_ports"
 
