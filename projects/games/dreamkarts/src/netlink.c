@@ -1,5 +1,6 @@
-/* DreamKarts network link: the Broadband/LAN adapter, or the modem dialling
-   a dial-up server (a DreamPi or any other PPP setup).
+/* DreamKarts network link: the Broadband/LAN adapter, a WIZnet W5500 on the
+   serial port, or the modem dialling a dial-up server (a DreamPi or any
+   other PPP setup).
 
    Nothing touches the network until the player picks Online, so normal
    boots stay fast and never wait on an unplugged adapter. Entering the
@@ -20,6 +21,7 @@
 #include <dc/modem/modem.h>
 #include <dc/net/broadband_adapter.h>
 #include <dc/net/lan_adapter.h>
+#include <dc/net/w5500_adapter.h>
 #include <ppp/ppp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -104,7 +106,7 @@ static bool dial(void) {
     uint8_t fallback_dns[4] = {0, 0, 0, 0};
     int rate = 0;
     if(!modem_init()) {
-        failure = "NO BROADBAND ADAPTER OR MODEM";
+        failure = "NO NETWORK ADAPTER OR MODEM";
         return false;
     }
     modem_owned = true;
@@ -204,6 +206,10 @@ static void *link_worker(void *unused) {
         NET_TRACE("bba_init");
         la_init();
         NET_TRACE("la_init");
+        /* Registered last so a BBA wins if both are plugged in. Probing
+           briefly borrows the serial port, then hands it back. */
+        w5500_adapter_init(NULL, true);
+        NET_TRACE("w5500_adapter_init");
         arch_init_net();
         NET_TRACE("arch_init_net (adapter start, DHCP)");
 #ifdef DK_NET_TRACE
@@ -218,8 +224,8 @@ static void *link_worker(void *unused) {
             goto failed;
         }
         modem_link = false;
-        snprintf(status_buf, sizeof(status_buf), "BROADBAND %d.%d.%d.%d", n->ip_addr[0], n->ip_addr[1],
-                 n->ip_addr[2], n->ip_addr[3]);
+        snprintf(status_buf, sizeof(status_buf), "%s %d.%d.%d.%d", strcmp(n->name, "w5500") ? "BROADBAND" : "W5500",
+                 n->ip_addr[0], n->ip_addr[1], n->ip_addr[2], n->ip_addr[3]);
     }
     else {
         if(!want_dial) {

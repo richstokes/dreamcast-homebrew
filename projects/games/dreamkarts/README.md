@@ -22,7 +22,7 @@ Six courses:
 Highlights:
 
 - Grand Prix (3, 5 or 10 laps at 50/100/150cc), Time Trial and two-player split screen (GP with CPUs or Versus)
-- Online multiplayer over a Broadband Adapter or dial-up modem, with lobbies, points and a spectator TV director
+- Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear and a Barrier, offline and online
 - Rocket starts, charge jumps, burnouts, emotes and final-lap dolphins
@@ -98,7 +98,8 @@ VMU screens over the game.
 ## Online play
 
 Pick ONLINE MULTIPLAYER, type a name (up to 10 of `A-Z 0-9 - .`) and press
-Start. A Broadband or LAN adapter is used if one is plugged in (DHCP);
+Start. A Broadband, LAN or WIZnet W5500 (serial port) adapter is used if one
+is plugged in (DHCP);
 otherwise the modem dials with the saved PlanetWeb or DreamPassport settings,
 falling back to `555` with login `dream` / `cast`, which a
 [DreamPi](https://github.com/Kazade/dreampi) accepts. The name is saved to
@@ -226,6 +227,7 @@ the 4x4 matrix product in assembly (~0.1 ms).
 - Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches
 - Looping voices (engine, squeal, crackle) need channels reserved with `snd_sfx_chn_alloc()`, or one-shots steal them and pitch updates retune the wrong sound (`src/audio.c`)
 - Flycast's DCNet dial-up does not complete the game's PPP login; test the modem path with `DK_NET=modem`
+- Flycast does not emulate the W5500, and probing for one there spins on SCI timeouts for ~0.9 s. It runs once, on the link thread while the player types a name, so nobody waits on it
 - Online, two level karts each see the other ~150 ms behind, so a power-up hit is only ever judged by the console driving the kart hit, and a spear spawned from a packet is moved on by the draw delay (`src/items.c`)
 - One emerald per band starves a tight pack if it takes any time to come back: six CPUs cross a band within a second, so it pops back at once
 - Anything translucent drawn round your own kart fills most of the chase view: the Barrier's first bubble (three 2.5-2.9 m billboards) pushed the PVR to 20 ms and dropped ~70 frames a race; it is a 1.3 m core and ten small orbiting sparks now (`src/items.c`)

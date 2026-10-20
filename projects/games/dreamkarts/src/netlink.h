@@ -1,4 +1,4 @@
-/* DreamKarts network link: Broadband/LAN adapter or a dial-up modem,
+/* DreamKarts network link: Broadband/LAN/W5500 adapter or a dial-up modem,
    brought up on a worker thread when the player goes online. */
 #ifndef DK_NETLINK_H
 #define DK_NETLINK_H
