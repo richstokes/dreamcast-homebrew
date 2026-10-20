@@ -82,43 +82,43 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {764864u, 32768u, 256, 64, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* mountains */
     {797632u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
     {808576u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* smoke */
-    {819520u, 2048u, 32, 32, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* shadow */
-    {821568u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* star */
-    {832512u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* flare */
-    {843456u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* flame */
-    {854400u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* dash */
-    {865344u, 2752u, 32, 32, DK_TEXFMT_RGB565, 1, {0, 0}},  /* checker */
-    {868096u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* thatch */
-    {879040u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* crowd */
-    {889984u, 65536u, 256, 128, DK_TEXFMT_RGB565, 0, {0, 0}},  /* banner */
-    {955520u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
-    {1217664u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {1479808u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* bigtext */
-    {1741952u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* stone */
-    {1785664u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_0 */
-    {1796608u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_1 */
-    {1807552u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_2 */
-    {1818496u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_3 */
-    {1829440u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_4 */
-    {1840384u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_5 */
-    {1851328u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_6 */
-    {1862272u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_7 */
-    {1873216u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_8 */
-    {1884160u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_9 */
-    {1895104u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_10 */
-    {1906048u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_11 */
-    {1916992u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_12 */
-    {1927936u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_13 */
-    {1938880u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_14 */
-    {1949824u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_15 */
-    {1960768u, 131072u, 256, 256, DK_TEXFMT_RGB565, 0, {0, 0}},  /* nightsky */
-    {2091840u, 32768u, 256, 64, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* skyline */
-    {2124608u, 8192u, 64, 64, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
-    {2132800u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* cloudsea */
-    {2176512u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* tower */
-    {2187456u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* signs */
+    {819520u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
+    {830464u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* star */
+    {841408u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* flare */
+    {852352u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* flame */
+    {863296u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* dash */
+    {874240u, 2752u, 32, 32, DK_TEXFMT_RGB565, 1, {0, 0}},  /* checker */
+    {876992u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* thatch */
+    {887936u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* crowd */
+    {898880u, 65536u, 256, 128, DK_TEXFMT_RGB565, 0, {0, 0}},  /* banner */
+    {964416u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {1226560u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {1488704u, 262144u, 512, 256, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* bigtext */
+    {1750848u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* stone */
+    {1794560u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_0 */
+    {1805504u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_1 */
+    {1816448u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_2 */
+    {1827392u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_3 */
+    {1838336u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_4 */
+    {1849280u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_5 */
+    {1860224u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_6 */
+    {1871168u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_7 */
+    {1882112u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_8 */
+    {1893056u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_9 */
+    {1904000u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_10 */
+    {1914944u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_11 */
+    {1925888u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_12 */
+    {1936832u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_13 */
+    {1947776u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_14 */
+    {1958720u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* skyroad_15 */
+    {1969664u, 131072u, 256, 256, DK_TEXFMT_RGB565, 0, {0, 0}},  /* nightsky */
+    {2100736u, 32768u, 256, 64, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* skyline */
+    {2133504u, 8192u, 64, 64, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
+    {2141696u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* cloudsea */
+    {2185408u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* tower */
+    {2196352u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* signs */
 };
 
-#define DK_TEXTURES_BYTES 2231168u
+#define DK_TEXTURES_BYTES 2240064u
 
 #endif

@@ -394,9 +394,27 @@ def tex_smoke(n=64):
     return to_image(np.full((n, n, 3), 255.0), a * 255)
 
 
-def tex_shadow(n=32):
-    a = radial(n, lambda r: np.clip(1.0 - r, 0, 1) ** 0.8)
-    return to_image(np.zeros((n, n, 3)), a * 200)
+def tex_shadow(n=64):
+    """Kart footprint seen from above: u across the kart, v along it. The
+    quad is 1.9 m by 2.7 m (models.c), so the kart's 1.3 m by 2.1 m body is
+    a rounded box out to about 0.7 by 0.75, with a soft edge and darker
+    contact patches under the four tyres."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    x = (xx - (n - 1) / 2) / (n / 2)
+    y = (yy - (n - 1) / 2) / (n / 2)
+    hx, hy, rc = 0.56, 0.66, 0.30
+    qx = np.abs(x) - (hx - rc)
+    qy = np.abs(y) - (hy - rc)
+    sd = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - rc
+    t = np.clip(1 - (sd + 0.06) / 0.30, 0, 1)
+    body = t * t * (3 - 2 * t)
+    wheel = np.zeros_like(x)
+    for wx in (-0.59, 0.59):
+        for wy in (-0.46, 0.46):
+            w = np.clip(1 - np.hypot((x - wx) / 0.17, (y - wy) / 0.24), 0, 1)
+            wheel = np.maximum(wheel, w ** 0.7)
+    a = np.clip(body * 0.78 + wheel * 0.22, 0, 1)
+    return to_image(np.zeros((n, n, 3)), a * 255)
 
 
 def tex_star(n=64):
@@ -870,7 +888,7 @@ def build(out: Path) -> None:
         (Spec("mountains", "ARGB4444", False, True), tex_mountains()),
         (Spec("glow", "ARGB4444", True, False), tex_glow()),
         (Spec("smoke", "ARGB4444", True, False), tex_smoke()),
-        (Spec("shadow", "ARGB4444", False, False), tex_shadow()),
+        (Spec("shadow", "ARGB4444", True, False), tex_shadow()),
         (Spec("star", "ARGB4444", True, False), tex_star()),
         (Spec("flare", "ARGB4444", True, False), tex_flare()),
         (Spec("flame", "ARGB4444", True, False), tex_flame()),
