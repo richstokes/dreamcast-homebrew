@@ -301,6 +301,14 @@ static void capture_script(void) {
         if(!audio_music_enabled()) pad.pressed |= BTN_A;
         else pad.pressed |= BTN_START;
     }
+    /* Squeeze both triggers for a look behind. */
+    static float look_t;
+    if(game.state == ST_RACE && shot[3] && shot[4] && shot[8] && !game.paused && (look_t += DK_DT) > 1.0f &&
+       look_t < 3.0f) {
+        if(look_t < 1.0f + DK_DT * 1.5f) pad.pressed |= BTN_L | BTN_R;
+        pad.held |= BTN_L | BTN_R;
+        if(look_t > 2.0f && !shot[45]) { shot[45] = true; take_shot("lookback"); }
+    }
 #endif
 }
 #endif
@@ -510,7 +518,9 @@ static void camera_basis(Camera *c, V3 pos, V3 look) {
     c->up = vcross(c->fwd, c->right);
 }
 
-static void chase_camera(Player *pl, float dt) {
+/* behind: turned round, from in front of the kart, a little higher and
+   looking further back so the kart doesn't hide who's chasing. */
+static void chase_camera(Player *pl, float dt, bool behind) {
     const Kart *k = &karts[pl->kart];
     Camera *cam = &pl->cam;
     float top = kart_top_speed(k);
@@ -526,11 +536,13 @@ static void chase_camera(Player *pl, float dt) {
     float air = k->pos.y - k->gnd;
     float h_t = 2.25f + k->gnd + air * 0.5f;
     pl->cam_height += (h_t - pl->cam_height) * smooth_k(6.0f, dt);
-    V3 back = heading_fwd(pl->cam_yaw);
-    V3 pos = vmad(k->pos, back, -pl->cam_dist);
+    V3 dir = heading_fwd(pl->cam_yaw);
+    if(behind) dir = vscale(dir, -1.0f);
+    V3 pos = vmad(k->pos, dir, -pl->cam_dist);
     pos.y = fmaxf(pl->cam_height, 0.8f);
-    V3 look = vmad(k->pos, back, 3.0f);
+    V3 look = vmad(k->pos, dir, behind ? 7.0f : 3.0f);
     look.y = k->gnd + 0.95f + air * 0.6f;
+    if(behind) pos.y += 0.5f;
     float shake = cam->shake;
     if(shake > 0) {
         pos = vadd(pos, v3(frand_s() * shake, frand_s() * shake, frand_s() * shake));
@@ -545,7 +557,7 @@ static void chase_camera(Player *pl, float dt) {
 
 /* The spectator director's chase shots use the same camera. */
 void game_chase_camera(Player *pl, float dt) {
-    chase_camera(pl, dt);
+    chase_camera(pl, dt, false);
 }
 
 static void intro_camera(Camera *cam, float t) {
@@ -576,11 +588,12 @@ static void results_camera(Camera *cam, float dt) {
 /* ------------------------------------------------------------------ */
 /* Race                                                                */
 
-/* Waving: Y, or squeezing both triggers together (the second within
-   0.25 s of the first). A trigger wave stops the triggers drifting until
-   both are let go, so it doesn't start a slide or charge a jump. */
+/* Squeezing both triggers together (the second within 0.25 s of the
+   first) looks behind until either is let go. The squeeze stops the
+   triggers drifting until both are let go, so it doesn't start a slide or
+   charge a jump. */
 static float trig_t[MAX_PLAYERS];        /* seconds a trigger has been held */
-static bool trig_wave[MAX_PLAYERS];
+static bool trig_squeeze[MAX_PLAYERS], look_back[MAX_PLAYERS];
 static bool wave_press[MAX_PLAYERS];
 static bool item_press[MAX_PLAYERS], item_back[MAX_PLAYERS];
 
@@ -593,16 +606,14 @@ static void emote_input(float dt) {
         const Pad *pd = input_pad(p);
         uint32_t lr = pd->held & (BTN_L | BTN_R);
         trig_t[p] = lr ? trig_t[p] + dt : 0;
-        /* Y fires a held power-up (backwards with down held); it waves
-           otherwise, and both triggers always wave. */
+        /* Y fires a held power-up (backwards with down held) and waves
+           otherwise. */
         item_press[p] = (pd->pressed & BTN_Y) && holding_item(p);
         item_back[p] = (pd->held & BTN_DOWN) || pd->stick_y > 0.5f;
         wave_press[p] = (pd->pressed & BTN_Y) && !item_press[p];
-        if(lr == (BTN_L | BTN_R) && (pd->pressed & lr) && trig_t[p] <= 0.25f + dt) {
-            wave_press[p] = true;
-            trig_wave[p] = true;
-        }
-        if(!lr) trig_wave[p] = false;
+        if(lr == (BTN_L | BTN_R) && (pd->pressed & lr) && trig_t[p] <= 0.25f + dt) trig_squeeze[p] = true;
+        if(!lr) trig_squeeze[p] = false;
+        look_back[p] = trig_squeeze[p] && lr == (BTN_L | BTN_R);
     }
 }
 
@@ -657,7 +668,7 @@ static void player_input(int player, KartInput *in) {
     in->steer = steer;
     in->accel = (pd->held & BTN_A) != 0;
     in->brake = (pd->held & BTN_B) != 0;
-    in->drift = (pd->held & BTN_X) || (!trig_wave[player] && (pd->held & (BTN_R | BTN_L)));
+    in->drift = (pd->held & BTN_X) || (!trig_squeeze[player] && (pd->held & (BTN_R | BTN_L)));
     in->item = item_press[player];
     in->item_back = item_back[player];
 }
@@ -1047,7 +1058,7 @@ static void update_camera(float dt) {
                 break;
             }
             for(int p = 0; p < game.num_players; p++)
-                chase_camera(&game.pl[p], game.paused ? 0 : dt);
+                chase_camera(&game.pl[p], game.paused ? 0 : dt, look_back[p] && !game.paused);
             break;
     }
 }

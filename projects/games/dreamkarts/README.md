@@ -44,7 +44,7 @@ is also available.
 | B | C | Brake, even while holding A; reverse with A released (menus: back) |
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
 | Y | D | Use the held power-up (with down held, throw a Chaos Spear backwards); wave when holding nothing |
-| Both triggers together | F and V together | Wave |
+| Both triggers together | F and V together | Look behind while held |
 | Start | Return | Pause (continue / restart / music on-off / quit) |
 
 Player 2 uses the second controller with the same layout; a Jump Pack in
