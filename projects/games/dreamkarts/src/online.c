@@ -714,6 +714,18 @@ static void swatch(float x, float y, int colour) {
     r_quad2d(x + 12, y, x + 24, y + 14, 0, 0, 1, 1, c->ui | 0xff000000, 16.5f);
 }
 
+/* Player names can be up to ten wide letters, so shrink one that would run
+   into the next column, keeping it centred on its usual line. */
+static void fit_text(float x, float y, float scale, int align, uint32_t col, const char *s, float max_w) {
+    float w = hud_text_width(s, scale);
+    if(w > max_w && max_w > 0) {
+        float fit = scale * max_w / w;
+        y += (scale - fit) * 21.0f; /* half the 42 px font row */
+        scale = fit;
+    }
+    hud_text(x, y, scale, align, col, s);
+}
+
 static uint32_t ping_colour(int ms) {
     return ms < 120 ? argb(255, 120, 255, 140) : ms < 250 ? argb(255, 255, 220, 80) : argb(255, 255, 110, 90);
 }
@@ -820,8 +832,10 @@ static void draw_browser(void) {
                                                                                            : argb(255, 255, 190, 80);
         hud_text(240, y, 0.5f, ALIGN_LEFT, stc, st);
         if(e->players) {
-            hud_text(340, y, 0.5f, ALIGN_LEFT, col, track_names[e->track % TRACK_COUNT]);
-            hud_text(580, y, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), e->leader);
+            const char *tn = track_names[e->track % TRACK_COUNT];
+            hud_text(340, y, 0.5f, ALIGN_LEFT, col, tn);
+            fit_text(580, y, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), e->leader,
+                     580 - (340 + hud_text_width(tn, 0.5f) + 10));
         }
     }
     if(net_state() == NET_JOINING) hint(net_spectating() ? "TUNING IN..." : "JOINING...");
@@ -867,7 +881,7 @@ static void draw_standings(const NetLobby *l, float x0, float y0, float x1) {
     int order[NET_MAX_PLAYERS], n = ranked(l, order);
     average_pings(l);
     hud_text(x0 + 16, y0, 0.5f, ALIGN_LEFT, argb(220, 200, 225, 255), "PLAYER");
-    hud_text(x1 - 96, y0, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), "PING");
+    hud_text(x1 - 64, y0, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), "PING");
     hud_text(x1 - 16, y0, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), "PTS");
     for(int r = 0; r < n; r++) {
         const NetPlayer *p = &l->players[order[r]];
@@ -885,12 +899,14 @@ static void draw_standings(const NetLobby *l, float x0, float y0, float x1) {
         }
         swatch(x0 + 46, y + 4, p->colour);
         bool lead = (p->flags & NPF_LEADER) != 0;
-        hud_text(x0 + 80, lead ? y - 5 : y, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, p->name);
-        if(lead) hud_text(x0 + 82, y + 20, 0.36f, ALIGN_LEFT, argb(255, 255, 220, 60), "LOBBY LEADER");
         char buf[16];
         int ping = shown_ping(p);
         snprintf(buf, sizeof(buf), "%dms", ping);
-        hud_text(x1 - 96, y + 3, 0.5f, ALIGN_RIGHT, ping_colour(ping), buf);
+        float ping_x = x1 - 64 - hud_text_width(buf, 0.42f);
+        hud_text(ping_x, y + 5, 0.42f, ALIGN_LEFT, ping_colour(ping), buf);
+        fit_text(x0 + 80, lead ? y - 5 : y, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, p->name,
+                 ping_x - 8 - (x0 + 80));
+        if(lead) hud_text(x0 + 82, y + 20, 0.36f, ALIGN_LEFT, argb(255, 255, 220, 60), "LOBBY LEADER");
         snprintf(buf, sizeof(buf), "%d", p->points);
         hud_text(x1 - 16, y, 0.62f, ALIGN_RIGHT, argb(255, 255, 226, 70), buf);
     }
@@ -996,7 +1012,7 @@ static void draw_lobby(void) {
     else if(!leader) {
         const NetPlayer *ld = net_player(l->leader);
         snprintf(buf, sizeof(buf), "WAITING FOR %s", ld ? ld->name : "THE LEADER");
-        hud_text(494, y, 0.48f, ALIGN_CENTER, 0xffffffff, buf);
+        fit_text(494, y, 0.48f, ALIGN_CENTER, 0xffffffff, buf, 228);
         hud_text(494, y + 22, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "TO START THE RACE");
     }
     hint(leader ? "A: SELECT   LEFT/RIGHT: CHANGE   B: LEAVE" : "LEFT/RIGHT: COLOUR   B: LEAVE LOBBY");
