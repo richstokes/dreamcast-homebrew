@@ -172,7 +172,8 @@ submission, visibility and hero-car tables.
 
 Powered by [KallistiOS](https://kos-docs.dreamcast.wiki/), the independent Sega
 Dreamcast SDK. KallistiOS is distributed under its BSD-like KOS license and
-requires attribution.
+requires attribution. Renderer maths uses [SH4ZAM](https://sh4zam.com/) by
+Falco Girgis and contributors (MIT License).
 
 Recorded engine audio uses [“Eight-cylinder engine idling.wav” by
 Lumamorph](https://freesound.org/people/Lumamorph/sounds/636066/) under CC BY

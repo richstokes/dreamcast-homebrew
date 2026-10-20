@@ -89,3 +89,9 @@ These projects are powered by
 [KallistiOS](https://kos-docs.dreamcast.wiki/), the independent Dreamcast SDK.
 KallistiOS is distributed separately under its BSD-like KOS license and
 requires attribution.
+
+Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally
+Bazaar use [SH4ZAM](https://sh4zam.com/), the SH-4 math library by Falco
+Girgis and contributors, available under the
+[MIT License](https://github.com/gyrovorbis/sh4zam/blob/master/LICENSE).
+It is fetched at build time and not included in this repository.

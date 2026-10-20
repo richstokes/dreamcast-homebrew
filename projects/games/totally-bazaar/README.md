@@ -137,6 +137,7 @@ Real console, `make hwbench`, October 2026 build:
 
 Built on [KallistiOS](https://kos-docs.dreamcast.wiki/), distributed under
 its BSD-like KOS license, which requires attribution. Fast trig and `exp`
-come from [SH4ZAM](https://sh4zam.com/). The bitmap fonts are rendered from
+come from [SH4ZAM](https://sh4zam.com/) by Falco Girgis and contributors
+(MIT License). The bitmap fonts are rendered from
 Inter as shipped with Blender (SIL Open Font License); goods art and the
 logo are Blender renders from `tools/render_art_blender.py`.
