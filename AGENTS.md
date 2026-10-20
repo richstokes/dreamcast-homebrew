@@ -46,6 +46,13 @@ whether the console is free before anything that powers, power-cycles,
 resets or uploads to it, and check `ps aux | grep dc-hw` for another session
 holding it.
 
+Under dcload-ip every `printf` is a network round trip made with interrupts
+off, and a lost packet freezes the console. Hardware builds log a line every
+few seconds at most, never per frame, per move or per packet. `INIT_NET` can
+hang at boot under dcload, which owns the adapter, so hardware builds skip
+KOS networking unless the test needs it (DreamKarts' online hardware test
+shows how). Never detach dc-tool-ip mid-run.
+
 When you are done with an explicit hardware test, switch the console off:
 pass `-o`/`--off` to `dc-hw.sh run` for scripted tests and benchmarks (the
 `hwbench`/`hwsoak` Makefile targets already do), or run
@@ -60,8 +67,16 @@ play on it (`make hw`).
 - SH-4 compiler: `/Users/rich/.local/share/dreamcast/sh-elf`
 - ARM7 compiler: `/Users/rich/.local/share/dreamcast/arm-eabi`
 - kos-ports: `/Users/rich/.local/share/dreamcast/kos-ports`
-- Flycast: `/Applications/Flycast.app/Contents/MacOS/Flycast`
-- Known working baseline: KOS 2.3.0, GCC 15.2.0, Flycast 2.7
+- Flycast: `~/.local/share/dreamcast/flycast/Flycast.app`, built by
+  `tools/flycast/build-macos.sh`. The launchers fall back to
+  `/Applications/Flycast.app`, and `FLYCAST_BIN` overrides both
+- Known working baseline: KOS 2.3.0, GCC 15.2.0, Flycast master `628bd3d`
+  with the patches in `tools/flycast/`
+
+Stock Flycast 2.7 stalls uploads through its TCP proxy, drops short keyboard
+presses that land between guest polls, and crashes or panics the guest under
+steady BBA traffic. Anything that tests networking or a Dreamcast keyboard in
+Flycast needs the local build; `tools/flycast/README.md` has the details.
 
 Use the checked-out SDK headers, examples, and source as the primary API
 reference. Useful locations:
@@ -79,63 +94,27 @@ from the web.
 
 ## Starting a project
 
-A minimal project normally contains:
+`projects/apps/ping-cube/` is the known-good reference: the standard KOS
+Makefile layout, a `run-flycast.sh` launcher that sources KOS, builds and
+boots the ELF, BBA and modem bring-up with `net_default_dev` inspection,
+BIOS-font text on a PowerVR texture, controller input and clean shutdown.
+Copy its Makefile and launcher, rename the target and sources, and remove
+the rendering and network code you do not need. Do not modify Ping Cube
+merely to use it as a template.
 
-```text
-projects/apps/example/
-├── Makefile
-├── example.c
-└── run-flycast.sh
-```
+Always build through KOS's `Makefile.rules` with `kos-cc` (or `kos-c++` for
+`.cpp` sources); never call the host compiler. Add libraries after the
+objects, for example `kos-cc -o $@ $(OBJS) -lm`. Prefer KOS APIs over host
+POSIX assumptions; this is a freestanding SH-4 target, not a macOS
+executable. Use `KOS_INIT_FLAGS(INIT_DEFAULT)`, or `INIT_DEFAULT | INIT_NET`
+when networking is required: KOS then initializes the available network
+device, runs DHCP, and handles ARP and ICMP echo replies. Check
+`net_default_dev` before using its address or other interface fields.
 
-Use this Makefile shape for a single-file C application:
-
-```make
-TARGET = example.elf
-OBJS = example.o
-
-KOS_BUILD_SUBARCHS = pristine
-
-all: $(TARGET)
-
-include $(KOS_BASE)/Makefile.rules
-
-clean:
-	-rm -f $(OBJS) $(TARGET)
-
-$(TARGET): $(OBJS)
-	kos-cc -o $@ $(OBJS)
-
-run: $(TARGET)
-	./run-flycast.sh --skip-build
-
-.PHONY: all clean run
-```
-
-For C++, use `.cpp` files and link with `kos-c++`. Add libraries after the
-objects, for example `kos-cc -o $@ $(OBJS) -lm`. Prefer KOS APIs over host POSIX
-assumptions; this is a freestanding SH-4 target, not a macOS executable.
-
-A minimal source file starts like this:
-
-```c
-#include <kos.h>
-
-KOS_INIT_FLAGS(INIT_DEFAULT);
-
-int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-
-    /* Application loop. */
-    return 0;
-}
-```
-
-Use `KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET)` when networking is required. KOS
-then initializes the available network device, runs DHCP, and handles ARP and
-ICMP echo replies. Check `net_default_dev` before using its address or other
-interface fields.
+Projects that use SH4ZAM clone or fast-forward an ignored
+`third_party/sh4zam` checkout to upstream `master` on every build
+(`tools/sh4zam.mk`, `tools/update-sh4zam.sh`). It is never vendored or
+pinned.
 
 ## Building
 
@@ -156,9 +135,8 @@ source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/apps/example
 ```
 
-Always build through KOS's `Makefile.rules` and `kos-cc`/`kos-c++`; do not call
-the host compiler. Keep generated `.o`, `.elf`, `.bin`, disc images, and other
-build products out of source patches unless the user asks to retain an artifact.
+Keep generated `.o`, `.elf`, `.bin`, disc images, and other build products
+out of source patches unless the user asks to retain an artifact.
 
 After building, perform at least these checks:
 
@@ -213,38 +191,32 @@ creates the blank set.
 Do not describe `DCNet=no` as bridged mode. Do not make persistent Flycast or
 macOS network changes when transient `-config` flags are sufficient.
 
-## Dreamcast-specific implementation notes
+## Dreamcast-specific notes
 
-- The retail display target is normally 640x480. Initialize video/PVR before
+- The retail display target is 640x480. Initialize video/PVR before
   rendering and keep the main loop responsive to the controller.
-- Use `<dc/pvr.h>` for hardware-accelerated rendering and `<dc/biosfont.h>` for
-  the built-in font. The BIOS font's default western encoding is ISO-8859-1,
-  not UTF-8; encode non-ASCII glyphs accordingly (copyright is `\xa9`).
-- PowerVR texture allocations come from `pvr_mem_malloc`; free them with
-  `pvr_mem_free`. CPU-side buffers used by transfer routines should satisfy
-  the required alignment.
-- Use KOS timing functions such as `timer_ms_gettime64()` and SH-4 math helpers
-  where appropriate.
-- Handle allocation, missing controller, and missing network-device cases.
-  Emit useful `printf` diagnostics because the Flycast serial console is the
-  fastest way to diagnose startup failures.
-- Keep application logic portable enough to run on real Dreamcast hardware.
-  Emulator-only behavior must be documented and isolated in launch tooling.
+- The BIOS font (`<dc/biosfont.h>`) is ISO-8859-1, not UTF-8; encode
+  non-ASCII glyphs accordingly (copyright is `\xa9`).
+- PowerVR textures come from `pvr_mem_malloc` and go back with
+  `pvr_mem_free`. CPU-side buffers used by transfer routines need the
+  required alignment.
+- Handle a missing controller and a missing network device, and print useful
+  diagnostics: the Flycast serial console is the fastest way to diagnose a
+  startup failure.
+- Keep the code portable to real hardware. Emulator-only behavior must be
+  documented and isolated in launch tooling.
 
-## Existing reference project
+## Documentation
 
-`projects/apps/ping-cube/` is the known-good local example. It demonstrates:
-
-- the standard KOS Makefile layout;
-- direct ELF launching in Flycast;
-- BBA initialization, DHCP, and `net_default_dev` inspection;
-- BIOS-font text rendered into a PowerVR texture;
-- a low-level textured 3D cube;
-- controller input and clean resource shutdown.
-
-When scaffolding a new project, copy its build and launcher structure, rename
-targets and sources, and remove application-specific rendering/network code.
-Do not modify Ping Cube merely to use it as a template.
+READMEs are for humans with short attention spans. A project README covers
+what it is, download links, controls, build and run, make-target tables for
+assets and checks, a compact performance table, gotchas, known limitations
+and credits, in roughly that order. Project descriptions in the root README
+tables are one sentence. No implementation detail: the code is the source of
+truth, so put mechanics in a code comment instead. No narration of how a
+result was reached. Keep benchmark numbers and lessons learned; for any other
+line, ask whether it will aid future development or stop us repeating past
+effort, and cut it if not.
 
 ## Definition of done
 
@@ -256,4 +228,5 @@ For each new Dreamcast application:
 4. Core behavior is exercised in Flycast, with serial output inspected.
 5. Network behavior is tested with the intended Flycast backend and its routing
    limitations are reported accurately.
-6. Project-local build/run instructions are added to its README.
+6. Project-local build/run instructions are added to its README, following
+   the Documentation rules above.
