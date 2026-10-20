@@ -7,15 +7,6 @@ Every project ships as a self-booting CDI and a plain ELF. The CDI is the
 easiest way to play: open it in an emulator, burn it to CD-R, or load it on a
 real console with GDEMU or similar. Each project directory has its own README.
 
-## dcvmu.com
-
-Cloud saves for the Dreamcast. The console client backs up VMU saves to
-[dcvmu.com](https://dcvmu.com) and restores them, from the Dreamcast itself.
-
-| Preview | Project | Latest download | Guide |
-| --- | --- | --- | --- |
-| <img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="360"> | **[DCVMU](projects/dcvmu.com/client/)**<br>Browse, upload and download VMU saves on the console. The [web service](projects/dcvmu.com/service/) lives here too. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf) | [Getting started](https://dcvmu.com/getting-started) |
-
 ## Games
 
 | Preview | Project | Latest download | Try in browser |
@@ -26,6 +17,15 @@ Cloud saves for the Dreamcast. The console client backs up VMU saves to
 | <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/games/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdemon-bazooka.elf&name=Demon%20Bazooka) |
 | <img src="docs/screenshots/totally-bazaar.png" alt="Totally Bazaar" width="360"> | **[Totally Bazaar](projects/games/totally-bazaar/)**<br>A traditional market trading card game for 2-4 players: hot-seat play with hidden hands, CPU merchants, 3D-rendered goods, animated cards and tokens, and a synthesized bazaar soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Ftotally-bazaar.elf&name=Totally%20Bazaar) |
 | <img src="docs/screenshots/island-explorer.png" alt="Island Explorer on the resort beach" width="360"> | **[Island Explorer](projects/games/island-explorer/)** (experimental)<br>A coastal exploration prototype with walking, swimming and dolphins, built on locally extracted Sonic Adventure assets. | Source only | - |
+
+## dcvmu.com
+
+Cloud saves for the Dreamcast. The console client backs up VMU saves to
+[dcvmu.com](https://dcvmu.com) and restores them, from the Dreamcast itself.
+
+| Preview | Project | Latest download | Guide |
+| --- | --- | --- | --- |
+| <img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="360"> | **[DCVMU](projects/dcvmu.com/client/)**<br>Browse, upload and download VMU saves on the console. The [web service](projects/dcvmu.com/service/) lives here too. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf) | [Getting started](https://dcvmu.com/getting-started) |
 
 ## Apps and demos
 
