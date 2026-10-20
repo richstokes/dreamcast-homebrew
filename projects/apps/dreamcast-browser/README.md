@@ -6,10 +6,11 @@
 
 A deliberately limited HTTPS browser for the Sega Dreamcast, built with
 KallistiOS. It renders word-wrapped text, links, headings, lists, data tables,
-basic forms and PNG/JPEG/GIF images over a Broadband Adapter or a modem
-(DreamPi), driven by a Dreamcast keyboard, a mouse, or a controller with an
-on-screen keyboard. JavaScript is never downloaded or run and there is no CSS
-layout. It is meant for the readable web and small sites.
+basic forms and PNG/JPEG/GIF images over a Broadband Adapter, a WIZnet W5500
+serial-port adapter or a modem (DreamPi), driven by a Dreamcast keyboard, a
+mouse, or a controller with an on-screen keyboard. JavaScript is never
+downloaded or run and there is no CSS layout. It is meant for the readable web
+and small sites.
 
 ## Download
 
@@ -73,12 +74,12 @@ with DuckDuckGo Lite; start with `?` to force a search. Build with
   logout on https://dcvmu.com work
 - Network: HTTP and HTTPS (TLS 1.2 or newer, bundled Mozilla CA store,
   hostname verified). One connection and TLS session per site is reused, and
-  any load can be canceled. A Broadband Adapter is preferred; otherwise the
-  modem dials with the console's saved PlanetWeb or DreamPassport profile,
-  falling back to DreamPi defaults (`555`, `dream` / `cast`). Tone dialing
-  only, flash is never written. Dialing can take a minute; `Esc` or `B`
-  cancels after the current step, `F5` retries, and a dropped call redials on
-  the next page
+  any load can be canceled. A Broadband Adapter or W5500 is preferred;
+  otherwise the modem dials with the console's saved PlanetWeb or
+  DreamPassport profile, falling back to DreamPi defaults (`555`, `dream` /
+  `cast`). Tone dialing only, flash is never written. Dialing can take a
+  minute; `Esc` or `B` cancels after the current step, `F5` retries, and a
+  dropped call redials on the next page
 - Bookmarks and history: up to 16 bookmarks in `DCBROWSE.BMK` on the first
   VMU found (RAM only without one). Back and Forward hold 8 pages each, and
   the HTML of the last 8 pages is kept (3 MiB) so going back needs no network

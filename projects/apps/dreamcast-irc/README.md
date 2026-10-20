@@ -4,13 +4,13 @@
   <img src="../../../docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC joined to #netsplit on Libera.Chat" width="640">
 </p>
 
-A small KallistiOS IRC client for the Broadband Adapter or a Dreamcast modem
-with DreamPi. By default it connects to `irc.libera.chat` and joins
-`#dreamcastdev`. There is a server page plus up to ten channel pages; type with
-a Dreamcast keyboard and move around with the controller. Nickname, server and
-open channels are saved to `DCIRC_CFG` on the first VMU and restored next
-launch (defaults without a VMU). The default nickname is `DCIRC_` plus three
-random digits.
+A small KallistiOS IRC client for the Broadband Adapter, a WIZnet W5500
+serial-port Ethernet adapter, or a Dreamcast modem with DreamPi. By default it
+connects to `irc.libera.chat` and joins `#dreamcastdev`. There is a server
+page plus up to ten channel pages; type with a Dreamcast keyboard and move
+around with the controller. Nickname, server and open channels are saved to
+`DCIRC_CFG` on the first VMU and restored next launch (defaults without a
+VMU). The default nickname is `DCIRC_` plus three random digits.
 
 ## Download
 
@@ -39,8 +39,8 @@ is also available.
 
 ## Modem / DreamPi
 
-Set up and test DreamPi with another app first. A BBA is always preferred; the
-modem is only used when no Ethernet adapter is found.
+Set up and test DreamPi with another app first. A BBA or W5500 is always
+preferred; the modem is only used when no Ethernet adapter is found.
 
 - Dials at startup with the console's saved PlanetWeb ISP settings, then
   DreamPassport, then the DreamPi defaults (`555`, `dream` / `cast`). Tone

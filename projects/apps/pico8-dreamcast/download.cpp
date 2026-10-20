@@ -107,7 +107,7 @@ struct Modem {
         if (result < 0) return fail("PPP login setup failed.");
         if (!checkpoint()) return false;
         result = ppp_modem_init(digits.c_str(), blind, nullptr);
-        if (result < 0) return fail(result == -1 ? "No BBA or modem detected." :
+        if (result < 0) return fail(result == -1 ? "No BBA, W5500 or modem detected." :
             result == -2 ? "No dial tone. Check modem setup." : "Dial failed. Check modem / ISP.");
         if (!checkpoint()) return false;
         message("Negotiating PPP connection...");

@@ -154,7 +154,7 @@ static void *modem_worker(void *unused) {
     failure_retryable = 0;
 
     if(!modem_init()) {
-        failure = "NO BBA OR MODEM";
+        failure = "NO ETHERNET OR MODEM";
         goto failed;
     }
     modem_owned = 1;

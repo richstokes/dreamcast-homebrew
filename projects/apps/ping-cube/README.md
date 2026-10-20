@@ -6,18 +6,18 @@
 
 Ping Cube is a small KallistiOS demo and the reference project for this
 workspace's Makefile and launcher layout. It brings up the network (Broadband
-Adapter with DHCP, or the modem dialing a DreamPi-style PPP peer when no BBA is
-present), pings `8.8.8.8`, `1.1.1.1` or the gateway every 250 ms, and shows the
-link details and ping statistics on the six faces of a tumbling cube. The cube
-is green for fast replies (under 50 ms on a BBA, 200 ms on dial-up), shades to
-red as they slow and turns red on a timeout. A console panel behind it logs
-each reply, and any attached VMU shows the latest latency with a graph of
-recent pings.
+Adapter or a WIZnet W5500 serial-port adapter with DHCP, or the modem dialing
+a DreamPi-style PPP peer when neither is present), pings `8.8.8.8`, `1.1.1.1`
+or the gateway every 250 ms, and shows the link details and ping statistics on
+the six faces of a tumbling cube. The cube is green for fast replies (under 50
+ms on a BBA, 200 ms on dial-up), shades to red as they slow and turns red on a
+timeout. A console panel behind it logs each reply, and any attached VMU shows
+the latest latency with a graph of recent pings.
 
 It demonstrates:
 
 - The standard KOS Makefile and `run-flycast.sh` launcher that new projects copy
-- BBA DHCP, or modem PPP through `libppp` on a worker thread, with `net_default_dev` inspection
+- BBA or W5500 DHCP, or modem PPP through `libppp` on a worker thread, with `net_default_dev` inspection
 - ICMP echo through `net_icmp_send_echo` and the `net_icmp_echo_cb` reply hook
 - BIOS-font text rendered into PowerVR textures on a low-level textured cube
 - Controller input, including the analog triggers, and VMU LCD drawing

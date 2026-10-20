@@ -1,7 +1,7 @@
 /*
  * Dreamcast IRC -- a small KallistiOS IRC client for irc.libera.chat.
  *
- * The application uses the Dreamcast BBA or modem/DreamPi for a plain
+ * The application uses the Dreamcast BBA, a W5500 or modem/DreamPi for a plain
  * TCP IRC connection and a Maple keyboard for text entry. It joins
  * #dreamcastdev automatically after registration.
  */

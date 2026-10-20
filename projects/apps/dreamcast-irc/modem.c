@@ -93,7 +93,7 @@ int irc_modem_connect(void) {
     /* Detection may have succeeded even if cancellation was requested. */
     modem_owned=job.result==0;
     if(result<0) {
-        failure="No modem found. Attach a modem or BBA and restart.";
+        failure="No modem found. Attach a modem, BBA or W5500 and restart.";
         goto failed;
     }
     load_settings(&cfg);

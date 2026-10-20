@@ -1,11 +1,12 @@
 /*
  * Ping Cube -- a network-aware KallistiOS demo for the Sega Dreamcast.
  *
- * The Broadband Adapter is acquired through KOS's built-in DHCP client. When
- * no Ethernet adapter is present the demo dials a DreamPi-style PPP peer with
- * the Dreamcast modem instead (see modem.c). KOS's IPv4 stack handles ICMP
- * echo requests, so the assigned address is pingable whenever the emulator or
- * link exposes the console at layer 2/3.
+ * The Broadband Adapter (or a WIZnet W5500 on the serial port) is acquired
+ * through KOS's built-in DHCP client. When no Ethernet adapter is present the
+ * demo dials a DreamPi-style PPP peer with the Dreamcast modem instead (see
+ * modem.c). KOS's IPv4 stack handles ICMP echo requests, so the assigned
+ * address is pingable whenever the emulator or link exposes the console at
+ * layer 2/3.
  *
  * Each of the six cube faces carries a different panel of link information,
  * drawn with the BIOS font into its own texture and mapped with the low-level
@@ -370,6 +371,8 @@ static const char *adapter_name(void) {
         return "BROADBAND ADAPTER";
     if(netif && !strcmp(netif->name, "la"))
         return "LAN ADAPTER";
+    if(netif && !strcmp(netif->name, "w5500"))
+        return "W5500 ETHERNET";
     if(netif)
         return netif->descr ? "KOS NET DEVICE" : "UNKNOWN ADAPTER";
     return "NONE DETECTED";
@@ -564,7 +567,7 @@ static void build_adapter_panel(face_panel_t *panel) {
     else {
         set_line(panel, 3, COLOR_LABEL, "STATUS");
         set_line(panel, 4, COLOR_VALUE, "%s", link_status_text());
-        set_line(panel, 5, COLOR_DIM, "BBA OR MODEM");
+        set_line(panel, 5, COLOR_DIM, "BBA, W5500 OR MODEM");
     }
 }
 
@@ -755,6 +758,8 @@ static void console_link_summary(char *buffer, size_t size) {
         snprintf(buffer, size, "BBA");
     else if(net_default_dev && !strcmp(net_default_dev->name, "la"))
         snprintf(buffer, size, "LAN ADAPTER");
+    else if(net_default_dev && !strcmp(net_default_dev->name, "w5500"))
+        snprintf(buffer, size, "W5500");
     else if(net_default_dev)
         snprintf(buffer, size, "%.12s", net_default_dev->name);
     else

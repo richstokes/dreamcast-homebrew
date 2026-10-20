@@ -1,11 +1,11 @@
 # DCVMU Dreamcast client
 
-A KallistiOS app that backs up VMU saves to [dcvmu.com](https://dcvmu.com)
-and installs them again, from the console itself. It needs a Broadband
-Adapter or a Dreamcast modem with a working DreamPi, plus a controller or
-Dreamcast keyboard. Log in with your dcvmu.com account; the
-[getting started guide](https://dcvmu.com/getting-started) covers setup and
-everyday use.
+A KallistiOS app that backs up VMU saves to [dcvmu.com](https://dcvmu.com) and
+installs them again, from the console itself. It needs a Broadband Adapter, a
+WIZnet W5500 serial-port adapter or a Dreamcast modem with a working DreamPi,
+plus a controller or Dreamcast keyboard. Log in with your dcvmu.com account;
+the [getting started guide](https://dcvmu.com/getting-started) covers setup
+and everyday use.
 
 <img src="../service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="456">
 

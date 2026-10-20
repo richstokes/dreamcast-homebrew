@@ -65,7 +65,7 @@ D-pad moves, A types, X toggles case, Y deletes, L/R move the cursor and B goes
 back or cancels; a Dreamcast keyboard also works. Downloads live in `/ram` and
 stay in the picker until the player quits. Nothing is written to a VMU.
 
-- Broadband Adapter: DHCP; the download waits for an address
+- Broadband Adapter or WIZnet W5500 (serial port): DHCP; the download waits for an address
 - Modem: dials the saved PlanetWeb/DreamPassport ISP profile, or the DreamPi
   defaults (`555`, `dream` / `cast`). Tone dialing only, no prefixes
 - Flycast: `EmulateBBA=yes,DCNet=no` by default (outbound proxy, not LAN

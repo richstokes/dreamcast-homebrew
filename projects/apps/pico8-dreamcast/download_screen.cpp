@@ -52,7 +52,7 @@ struct Screen {
             std::fill(pixels + y * width + x, pixels + y * width + x + 12, accent);
         }
         text(16, 154, canceling ? "Canceling; waiting for network call..." :
-             !notice.empty() ? notice : status.message.empty() ? "BBA / saved ISP / DreamPi supported" : status.message, accent);
+             !notice.empty() ? notice : status.message.empty() ? "BBA / W5500 / ISP / DreamPi supported" : status.message, accent);
         if (status.busy) {
             char progress[64];
             if (status.total) snprintf(progress, sizeof(progress), "%lu / %lu bytes  -  B cancels",
