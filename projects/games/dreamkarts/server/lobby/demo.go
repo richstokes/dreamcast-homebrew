@@ -13,7 +13,7 @@ import (
 // but never join it, so a stream always has a race to show.
 //
 // The recordings carry the bots' power-ups: what each held, its barrier,
-// spin-outs and spears, relayed like a console's. A race replays under the
+// spin-outs, spears and mines, relayed like a console's. A race replays under the
 // race id the recording seeded its emeralds from (in the lobby it was made
 // for), so watchers light the slots the bots drive through, and a spear's
 // target (a kart index in the recording) goes out as that bot's slot.

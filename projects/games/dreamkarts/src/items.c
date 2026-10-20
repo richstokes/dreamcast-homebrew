@@ -28,6 +28,15 @@
 #define SPEAR_HIT_LATERAL 1.4f
 #define SPEAR_HIT_HEIGHT  1.8f
 #define RAISE_LEN         0.45f   /* the Chao holds the gem up on use */
+#define MINE_DROP_BACK    2.6f    /* metres behind the kart's centre it lands */
+#define MINE_OWNER_GRACE  1.5f    /* seconds before it can catch the kart that dropped it */
+#define MINE_HIT_ALONG    1.5f
+#define MINE_HIT_LATERAL  1.35f
+#define MINE_HIT_HEIGHT   1.2f    /* a charge jump clears it; a hop does not */
+#define MINE_FALL_LEN     0.35f   /* seconds from the toss to the road */
+#define MINE_REST         0.30f   /* body centre above the road */
+#define MINE_SCALE        1.4f    /* about 0.8 m across */
+#define MINE_LEAD_MAX     0.4f    /* longest sweep back when a packet's mine lands */
 /* CPU rivals leave the leading human alone on their final lap. */
 #define AI_SPARE_LEADER_FINAL_LAP 1
 /* Serial log of pickups, throws and hits (DK ITEM): autotests and the demo
@@ -49,19 +58,31 @@ typedef struct {
     bool active;
     bool remote;         /* run from a rival's packets; hits judged here only on local karts */
     int owner, target;   /* kart indices, target -1 none */
-    int seq, dir;        /* 1-7 and +1 forward / -1 back */
+    int seq, dir;        /* 1-15 and +1 forward / -1 back */
     float s, d, life, speed;
     V3 pos;
 } Spear;
 
+/* A mine sits where it landed until something drives over it or it times
+   out; one per kart, so dropping another takes the old one away. */
+typedef struct {
+    bool active;
+    bool remote;         /* as for a spear */
+    int owner, seq;      /* kart index and 1-15 */
+    float s, d, life, age;
+    V3 pos;              /* resting on the road (the toss is drawn from age) */
+} Mine;
+
 static Emerald emeralds[MAX_ITEM_BANDS];
 static Spear spears[MAX_KARTS];
+static Mine mines[MAX_KARTS];
 static int remote_seq[MAX_KARTS];     /* a rival's last spear sequence, to spawn each once */
+static int remote_mine_seq[MAX_KARTS];
 static bool remote_spun[MAX_KARTS], remote_shield[MAX_KARTS];
 static float last_s[MAX_KARTS];
 static uint32_t rng_state;
 static const pvr_poly_hdr_t *h_back, *h_front, *h_glow, *h_star, *h_flat2d, *h_pool;
-int items_got, items_used, items_fired, items_hits, items_spins;
+int items_got, items_used, items_fired, items_dropped, items_hits, items_spins;
 
 /* Slot lateral positions as a fraction of the road's half width. */
 static const float slot_frac[ITEM_SLOTS] = {-0.72f, -0.24f, 0.24f, 0.72f};
@@ -124,6 +145,7 @@ uint32_t items_colour(int item) {
         case ITEM_SNEAKERS: return argb(255, 60, 150, 255);
         case ITEM_SPEAR: return argb(255, 255, 60, 70);
         case ITEM_SHIELD: return argb(255, 70, 240, 120);
+        case ITEM_MINE: return argb(255, 255, 210, 40);
         default: return argb(255, 230, 230, 230);
     }
 }
@@ -133,6 +155,7 @@ const char *items_name(int item) {
         case ITEM_SNEAKERS: return "POWER SNEAKERS";
         case ITEM_SPEAR: return "CHAOS SPEAR";
         case ITEM_SHIELD: return "BARRIER";
+        case ITEM_MINE: return "MINE";
         default: return "";
     }
 }
@@ -200,10 +223,10 @@ static uint32_t irand(void) {
     return rng_state >> 8;
 }
 
-/* Blue is common, red less so, green rare. */
+/* Blue is common, red less so, yellow and green rare. */
 static int roll_item(void) {
     uint32_t r = irand() % 100;
-    return r < 45 ? ITEM_SNEAKERS : r < 80 ? ITEM_SPEAR : ITEM_SHIELD;
+    return r < 40 ? ITEM_SNEAKERS : r < 68 ? ITEM_SPEAR : r < 85 ? ITEM_MINE : ITEM_SHIELD;
 }
 
 float items_slot_d(int band, int slot) {
@@ -232,7 +255,9 @@ void items_reset(uint32_t seed) {
         emeralds[b].age = 10.0f;
     }
     memset(spears, 0, sizeof(spears));
+    memset(mines, 0, sizeof(mines));
     memset(remote_seq, 0, sizeof(remote_seq));
+    memset(remote_mine_seq, 0, sizeof(remote_mine_seq));
     memset(remote_spun, 0, sizeof(remote_spun));
     memset(remote_shield, 0, sizeof(remote_shield));
     for(int i = 0; i < MAX_KARTS; i++) {
@@ -243,8 +268,9 @@ void items_reset(uint32_t seed) {
         karts[i].shield_t = 0;
         karts[i].raise_t = 0;
         karts[i].spear_seq = 0;
+        karts[i].mine_seq = 0;
     }
-    items_got = items_used = items_fired = items_hits = items_spins = 0;
+    items_got = items_used = items_fired = items_dropped = items_hits = items_spins = 0;
 #if ITEMS_LOG
     if(game.items)
         for(int b = 0; b < track.nbands; b++)
@@ -384,6 +410,109 @@ float items_threat(const Kart *k) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Mines                                                                */
+
+static void mine_end(Mine *m, bool blast) {
+    if(blast) {
+        fx_burst(m->pos, 16, argb(255, 255, 170, 50), 6.5f);
+        fx_burst(vadd(m->pos, v3(0, 0.3f, 0)), 10, argb(255, 110, 110, 120), 3.5f);
+    }
+    else {
+        fx_burst(m->pos, 6, argb(255, 120, 120, 130), 2.0f);
+    }
+    m->active = false;
+}
+
+/* Kart k's mine lands at (s, d). Over a jump's gap it carries on to the
+   landing deck. */
+static void mine_drop(Kart *k, int seq, float s, float d, bool remote) {
+    int idx = (int)(k - karts);
+    Mine *m = &mines[idx];
+    if(m->active) mine_end(m, false);
+    s = track_wrap(s);
+    if(track.has_jump && track_in_gap(s)) s = track_wrap(track.jump.cross + track.jump.land + 1.0f);
+    m->active = true;
+    m->remote = remote;
+    m->owner = idx;
+    m->seq = seq;
+    m->s = s;
+    m->d = d;
+    m->life = MINE_LIFE;
+    m->age = 0;
+    m->pos = track_point(s, d);
+    m->pos.y = track_road_y(s, d) + MINE_REST;
+    items_dropped++;
+#if ITEMS_LOG
+    printf("DK ITEM kart %d drops a mine at %.0f m, d %.1f (seq %d%s)\n", idx, (double)m->s, (double)m->d, seq,
+           remote ? ", from the network" : "");
+#endif
+}
+
+/* Is kart o on mine m, or has it crossed it in the last back metres? */
+static bool mine_under(const Mine *m, const Kart *o, float back) {
+    float along = track_delta(m->s, o->tp.s);
+    if(along < -MINE_HIT_ALONG || along > MINE_HIT_ALONG + back) return false;
+    if(fabsf(o->tp.d - m->d) > MINE_HIT_LATERAL) return false;
+    return fabsf(o->pos.y - m->pos.y) < MINE_HIT_HEIGHT;
+}
+
+/* A mine goes off under a kart this console drives: it spins out, or its
+   barrier pops. (A rival's fate is its own console's call, as for a
+   spear: the mine stays here until that console's packets say the rival
+   spun out or lost its barrier beside it.) */
+static void mine_hit(Mine *m, Kart *o) {
+    int oi = (int)(o - karts);
+    (void)oi;
+    items_hits++;
+    o->events |= EV_MINE_HIT;
+    if(o->shield_t > 0) {
+        o->shield_t = 0;
+        o->events |= EV_SHIELD_POP;
+        fx_burst(vadd(o->pos, v3(0, 0.8f, 0)), 18, items_colour(ITEM_SHIELD), 6.0f);
+#if ITEMS_LOG
+        printf("DK ITEM mine from %d pops kart %d's barrier\n", m->owner, oi);
+#endif
+        mine_end(m, true);
+        return;
+    }
+    kart_spin_out(o, o->tp.d < m->d ? -1 : 1);
+    items_spins++;
+#if ITEMS_LOG
+    printf("DK ITEM mine from %d spins kart %d (%s) at %.1f s\n", m->owner, oi, o->name, (double)game.race_time);
+#endif
+    mine_end(m, true);
+}
+
+static void mine_step(Mine *m, float dt) {
+    m->age += dt;
+    m->life -= dt;
+    if(m->life <= 0) {
+        mine_end(m, false);
+        return;
+    }
+    for(int j = 0; j < kart_count; j++) {
+        Kart *o = &karts[j];
+        if(o->remote || o->finished) continue;
+        if(j == m->owner && m->age < MINE_OWNER_GRACE) continue;
+        if(!mine_under(m, o, 0.0f)) continue;
+        mine_hit(m, o);
+        return;
+    }
+}
+
+float items_mine_ahead(const Kart *k) {
+    float best = 1e9f;
+    for(int i = 0; i < MAX_KARTS; i++) {
+        const Mine *m = &mines[i];
+        if(!m->active) continue;
+        float ahead = track_delta(k->tp.s, m->s);
+        if(ahead < 0 || ahead > best || fabsf(m->d - k->tp.d) > 4.0f || fabsf(m->pos.y - k->pos.y) > 4.0f) continue;
+        best = ahead;
+    }
+    return best;
+}
+
+/* ------------------------------------------------------------------ */
 
 void items_update(float dt) {
     if(!game.items) return;
@@ -400,6 +529,8 @@ void items_update(float dt) {
     }
     for(int i = 0; i < MAX_KARTS; i++)
         if(spears[i].active) spear_step(&spears[i], dt);
+    for(int i = 0; i < MAX_KARTS; i++)
+        if(mines[i].active) mine_step(&mines[i], dt);
 }
 
 static void take_emerald(int band, Kart *k, bool give) {
@@ -458,7 +589,7 @@ static void use_item(Kart *k, bool back) {
         }
         case ITEM_SPEAR: {
             int dir = back ? -1 : 1;
-            k->spear_seq = k->spear_seq % 7 + 1;
+            k->spear_seq = k->spear_seq % 15 + 1;
             spear_launch(k, dir, k->spear_seq, pick_target(k, dir, SPEAR_RANGE), k->tp.s + (float)dir * 2.5f, k->tp.d,
                          false);
             k->events |= EV_SPEAR;
@@ -467,6 +598,11 @@ static void use_item(Kart *k, bool back) {
         case ITEM_SHIELD:
             k->shield_t = SHIELD_LEN;
             k->events |= EV_SHIELD_UP;
+            break;
+        case ITEM_MINE:
+            k->mine_seq = k->mine_seq % 15 + 1;
+            mine_drop(k, k->mine_seq, k->tp.s - MINE_DROP_BACK, k->tp.d, false);
+            k->events |= EV_MINE;
             break;
         default:
             break;
@@ -505,11 +641,18 @@ void items_pack(const Kart *k, NetItems *out) {
         out->spear_d = sp->d;
         out->spear_target = sp->target >= 0 ? karts[sp->target].net_slot : -1;
     }
+    const Mine *m = &mines[idx];
+    if(m->active && !m->remote) {
+        out->mine_seq = m->seq;
+        out->mine_s = m->s;
+        out->mine_d = m->d;
+    }
 }
 
 /* A rival's packets say it spun out or lost its barrier: whichever spear
-   was on it here ends in a burst. */
-static void remote_struck(const Kart *k) {
+   was on it here ends in a burst, and so does the nearest mine it could
+   have set off. */
+static void remote_struck(Kart *k) {
     int idx = (int)(k - karts);
     for(int i = 0; i < MAX_KARTS; i++) {
         Spear *sp = &spears[i];
@@ -521,6 +664,24 @@ static void remote_struck(const Kart *k) {
         printf("DK ITEM spear from %d struck rival %d, by its console\n", sp->owner, idx);
 #endif
         spear_end(sp, true);
+    }
+    Mine *hit = NULL;
+    float best = 7.0f;
+    for(int i = 0; i < MAX_KARTS; i++) {
+        Mine *m = &mines[i];
+        if(!m->active) continue;
+        float along = fabsf(track_delta(m->s, k->tp.s));
+        if(along >= best || fabsf(m->d - k->tp.d) > MINE_HIT_LATERAL + 1.5f || fabsf(m->pos.y - k->pos.y) > 4.0f) continue;
+        best = along;
+        hit = m;
+    }
+    if(hit) {
+        items_hits++;
+        k->events |= EV_MINE_HIT;
+#if ITEMS_LOG
+        printf("DK ITEM mine from %d struck rival %d, by its console\n", hit->owner, idx);
+#endif
+        mine_end(hit, true);
     }
 }
 
@@ -534,9 +695,10 @@ void items_remote(Kart *k, const NetItems *in, float lead, float dt) {
         static NetItems last[MAX_KARTS];
         if(memcmp(&last[idx], in, sizeof(*in)) != 0) {
             last[idx] = *in;
-            printf("DK ONLINE: slot %d items: held %d shield %d spun %d spear %d (back %d, %.0f m, d %.1f, target %d)\n",
+            printf("DK ONLINE: slot %d items: held %d shield %d spun %d spear %d (back %d, %.0f m, d %.1f, target %d) "
+                   "mine %d (%.0f m, d %.1f)\n",
                    k->net_slot, in->item, in->shield, in->spun, in->spear_seq, in->spear_back, (double)in->spear_s,
-                   (double)in->spear_d, in->spear_target);
+                   (double)in->spear_d, in->spear_target, in->mine_seq, (double)in->mine_s, (double)in->mine_d);
         }
     }
 #endif
@@ -577,13 +739,66 @@ void items_remote(Kart *k, const NetItems *in, float lead, float dt) {
 #endif
     }
     remote_seq[idx] = in->spear_seq;
+    if(in->mine_seq != remote_mine_seq[idx]) {
+        Mine *m = &mines[idx];
+        if(in->mine_seq == 0) {
+            /* The owner's copy has gone: set off (its victim's packets
+               normally end it here first), replaced, or timed out. */
+            if(m->active) {
+#if ITEMS_LOG
+                printf("DK ITEM kart %d's mine has gone, by its console (%.1f s left)\n", idx, (double)m->life);
+#endif
+                mine_end(m, m->life > 0.5f);
+            }
+        }
+        else {
+            mine_drop(k, in->mine_seq, in->mine_s, in->mine_d, true);
+            k->raise_t = RAISE_LEN;
+            k->events |= EV_MINE;
+            /* It landed lead seconds ago: a kart here that has crossed
+               the spot since is on it. */
+            float back = fminf(fmaxf(lead, 0), MINE_LEAD_MAX);
+            for(int j = 0; j < kart_count; j++) {
+                Kart *o = &karts[j];
+                if(o->remote || o->finished || !mine_under(m, o, fabsf(o->speed) * back)) continue;
+                mine_hit(m, o);
+                break;
+            }
+#ifdef DK_AUTOTEST
+            printf("DK ONLINE: slot %d mine %d at %.0f m, d %.1f\n", k->net_slot, in->mine_seq, (double)in->mine_s,
+                   (double)in->mine_d);
+#endif
+        }
+    }
+    remote_mine_seq[idx] = in->mine_seq;
 }
 
 /* ------------------------------------------------------------------ */
 /* CPU drivers                                                          */
 
+/* CPUs spot three mines in four (by mine and kart, so the same kart always
+   misses the same one) and never while mid-slide. */
+static bool ai_spots(const Kart *k, const Mine *m) {
+    return ((m->seq * 5 + m->owner * 3 + (int)(k - karts) * 7) & 3) != 0;
+}
+
 float items_ai_lane(const Kart *k, float s, float d) {
-    if(!game.items || k->item != ITEM_NONE || k->drift == DRIFT_ACTIVE) return d;
+    if(!game.items || k->drift == DRIFT_ACTIVE) return d;
+    /* Round a mine on the line ahead, to whichever side has the road. */
+    for(int i = 0; i < MAX_KARTS; i++) {
+        const Mine *m = &mines[i];
+        if(!m->active || !ai_spots(k, m)) continue;
+        float ahead = track_delta(k->tp.s, m->s);
+        if(ahead < 1.0f || ahead > 40.0f || fabsf(m->pos.y - k->pos.y) > 4.0f) continue;
+        float gap = d - m->d, need = MINE_HIT_LATERAL + 0.9f;
+        if(fabsf(gap) >= need) continue;
+        int si = (int)(m->s / track.ds) % TRACK_SAMPLES;
+        float half = track.smp[si].half - 0.3f;
+        float side = gap != 0 ? signf(gap) : (m->d > 0 ? -1.0f : 1.0f);
+        if(fabsf(m->d + side * need) > half) side = -side;
+        return clampf(m->d + side * need, -half, half);
+    }
+    if(k->item != ITEM_NONE) return d;
     for(int b = 0; b < track.nbands; b++) {
         float ahead = track_delta(k->tp.s, track.bands[b].s);
         if(ahead < 4.0f || ahead > 75.0f) continue;
@@ -646,6 +861,14 @@ void items_ai(Kart *k, KartInput *in, float dt) {
         case ITEM_SHIELD:
             if(items_threat(k) < 30.0f || k->item_t > 6.0f) in->item = true;
             break;
+        case ITEM_MINE: {
+            /* Under a kart close behind, or anywhere after a while, unless
+               the kart it leaves alone is the one coming. */
+            int near = pick_target(k, -1, 16.0f), far = pick_target(k, -1, 45.0f);
+            if(near >= 0 && !spare(k, near)) in->item = true;
+            else if(k->item_t > 6.0f && !(far >= 0 && spare(k, far))) in->item = true;
+            break;
+        }
         default:
             break;
     }
@@ -654,7 +877,7 @@ void items_ai(Kart *k, KartInput *in, float dt) {
 /* ------------------------------------------------------------------ */
 /* Drawing                                                              */
 
-typedef struct { V3 p; float yaw, sc, depth, alpha; int item; } GemDraw;
+typedef struct { V3 p; float yaw, sc, depth, alpha; int item; const Mine *mine; } GemDraw;
 
 static void pool_quad(V3 c, float s, float d, float r, uint32_t col) {
     V3 t = track_tangent(s), rt = v3(t.z, 0, -t.x);
@@ -665,13 +888,65 @@ static void pool_quad(V3 c, float s, float d, float r, uint32_t col) {
     r_strip(q, 4);
 }
 
+/* A mine: the gem mesh squashed into a dark steel puck, a red light
+   blinking on top. Tossed, it falls from kart height to the road over its
+   first MINE_FALL_LEN seconds. */
+static void mine_draw(const Mine *m) {
+    float fall = m->age < MINE_FALL_LEN ? 1.0f - m->age / MINE_FALL_LEN : 0.0f;
+    V3 p = m->pos;
+    p.y += 0.9f * fall * fall;
+    float yaw = (float)m->seq * 0.7f + (float)m->owner + fall * 4.0f;
+    float mat[16];
+    m4_translate_rotate(mat, p, yaw, 0, 0);
+    m4_scale_apply(mat, MINE_SCALE * 1.25f, MINE_SCALE * 0.62f, MINE_SCALE * 1.25f);
+    float cy = cosf(yaw), sy = sinf(yaw);
+    V3 L = world_sun_dir;
+    V3 V = vnorm(vsub(r_cam.pos, p));
+    V3 H = vnorm(vadd(L, V));
+    float night = world_night ? 1.0f : 0.0f;
+    static uint32_t col[GEM_FACETS];
+    for(int f = 0; f < GEM_FACETS; f++) {
+        const float *n0 = gem_n[f];
+        V3 n = v3(n0[0] * cy + n0[2] * sy, n0[1], -n0[0] * sy + n0[2] * cy);
+        float diff = fmaxf(vdot(n, L), 0.0f);
+        float sp = fmaxf(vdot(n, H), 0.0f);
+        sp *= sp; sp *= sp; sp *= sp; sp *= sp;          /* ^16 */
+        float lit = 0.22f + 0.70f * diff + 0.25f * night;
+        float r = 66.0f * lit + 230.0f * sp, g = 68.0f * lit + 230.0f * sp, b = 80.0f * lit + 230.0f * sp;
+        col[f] = argb(255, r > 255 ? 255 : (int)r, g > 255 ? 255 : (int)g, b > 255 ? 255 : (int)b);
+    }
+    r_load_model(mat);
+    for(int f = 0; f < GEM_FACETS; f++) gem_v[f * 3].c = gem_v[f * 3 + 1].c = gem_v[f * 3 + 2].c = col[f];
+    r_hdr(h_front);
+    r_mesh(gem_v, GEM_VERTS, gem_idx, GEM_VERTS, true);
+    r_load_vp();
+    /* The light blinks about twice a second, and the glow it throws. */
+    float blink = sinf(world_time * 13.0f + (float)m->owner * 1.9f) > 0.1f ? 1.0f : 0.2f;
+    V3 lp = vadd(p, v3(0, 0.17f * MINE_SCALE * 0.62f + 0.08f, 0));
+    r_hdr(h_glow);
+    r_billboard(lp, 0.45f, 0.45f, 0, 0, 0, 1, 1, color_alpha(argb(255, 255, 50, 30), 0.5f * blink));
+    r_billboard(lp, 0.14f, 0.14f, 0, 0, 0, 1, 1, color_alpha(argb(255, 255, 170, 150), blink));
+}
+
 void items_draw(void) {
     if(!game.items) return;
-    GemDraw gems[MAX_ITEM_BANDS + MAX_KARTS];
+    GemDraw gems[MAX_ITEM_BANDS + MAX_KARTS * 2];
     int n = 0;
     r_load_vp();
-    /* Pools of light on the road under the emeralds. */
+    /* Pools of light on the road under the emeralds, and under the mines
+       so they read from a distance. */
     r_hdr(h_pool);
+    for(int i = 0; i < MAX_KARTS; i++) {
+        const Mine *m = &mines[i];
+        if(!m->active || !r_sphere_visible(m->pos, 1.5f)) continue;
+        float a = 0.16f + 0.08f * sinf(world_time * 13.0f + (float)m->owner * 1.9f);
+        pool_quad(m->pos, m->s, m->d, 0.95f, color_alpha(items_colour(ITEM_MINE), a));
+        GemDraw *g = &gems[n++];
+        memset(g, 0, sizeof(*g));
+        g->p = m->pos;
+        g->mine = m;
+        g->depth = r_view_depth(m->pos);
+    }
     for(int b = 0; b < track.nbands; b++) {
         V3 p;
         int item;
@@ -687,6 +962,7 @@ void items_draw(void) {
         g->sc = EMERALD_SCALE * (pop < 1.0f ? pop * (1.4f - 0.4f * pop) : 1.0f);
         g->item = item;
         g->alpha = 1.0f;
+        g->mine = NULL;
         g->depth = r_view_depth(p);
     }
     /* Gems trailing the karts that hold one, and held up when used. */
@@ -703,6 +979,7 @@ void items_draw(void) {
             if(item == ITEM_NONE) item = ITEM_SNEAKERS;
             if(k->shield_t > SHIELD_LEN - RAISE_LEN) item = ITEM_SHIELD;
             else if(spears[i].active && spears[i].life > SPEAR_LIFE - RAISE_LEN) item = ITEM_SPEAR;
+            else if(mines[i].active && mines[i].age < RAISE_LEN) item = ITEM_MINE;
         }
         V3 p = models_kart_point_world(k, local);
         p.y += 0.05f * sinf(world_time * 3.0f + (float)i);
@@ -713,6 +990,7 @@ void items_draw(void) {
         g->sc = sc;
         g->item = item;
         g->alpha = k->raise_t > 0 ? k->raise_t / RAISE_LEN : 1.0f;
+        g->mine = NULL;
         g->depth = r_view_depth(p);
     }
     /* Far to near: the translucent list is presorted. */
@@ -725,7 +1003,10 @@ void items_draw(void) {
         }
         gems[j] = g;
     }
-    for(int i = 0; i < n; i++) gem_draw(gems[i].p, gems[i].yaw, gems[i].sc, gems[i].item, gems[i].alpha);
+    for(int i = 0; i < n; i++) {
+        if(gems[i].mine) mine_draw(gems[i].mine);
+        else gem_draw(gems[i].p, gems[i].yaw, gems[i].sc, gems[i].item, gems[i].alpha);
+    }
 
     /* Barriers: a faint core and a ring of sparks orbiting the kart. Fill
        is what the console pays for in the translucent list, and a big

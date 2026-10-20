@@ -11,16 +11,16 @@ import (
 
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
-	Proto    = 2
-	Build    = 12
-	MinBuild = 11
+	Proto    = 3
+	Build    = 13
+	MinBuild = 13
 )
 
 const (
 	MaxLobbies = 10
 	MaxPlayers = 6
 	NameLen    = 11 // 10 characters and a NUL
-	KartLen    = 25 // KART body bytes relayed in RACE packets (offsets 19-43)
+	KartLen    = 29 // KART body bytes relayed in RACE packets (offsets 19-47)
 )
 
 // Packet types.
@@ -71,9 +71,10 @@ const (
 	KartWaving   = 1 << 5 // relayed as-is; consoles animate the wave
 )
 
-// The item byte (KART offset 33) and the spear bytes (40-43) are relayed
-// as-is: the held power-up, barrier, spin-out and the kart's spear in
-// flight. Consoles judge hits on their own karts.
+// The item byte (KART offset 33), the sequence byte (40), the spear bytes
+// (41-44) and the mine bytes (45-47) are relayed as-is: the held power-up,
+// barrier, spin-out, the kart's spear in flight and its mine on the road.
+// Consoles judge hits on their own karts.
 
 // WISH flags (body byte 5, build 11).
 const WishItems = 1 << 0 // the leader's power-ups switch

@@ -162,11 +162,11 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[48];
+    static bool shot[56];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     /* Power-ups: an emerald coming up, the gem held, a spear in flight,
-       the barrier and a kart spun out nearby. */
+       the barrier, a kart spun out nearby and a mine on the road ahead. */
     if(game.state == ST_RACE && game.items && !shot[40] && game.race_time > 3.0f)
         for(int b = 0; b < track.nbands; b++) {
             V3 ep;
@@ -187,6 +187,19 @@ static void capture_script(void) {
     if(game.state == ST_RACE && (p->events & EV_SPEAR)) spear_shot_t = 0.001f;
     if(spear_shot_t > 0 && (spear_shot_t += DK_DT) > 0.35f && !shot[42]) { shot[42] = true; take_shot("spear"); }
     if(game.state == ST_RACE && p->shield_t > SHIELD_LEN - 0.6f && !shot[43]) { shot[43] = true; take_shot("barrier"); }
+    if(game.state == ST_RACE && !shot[48]) {
+        float m = items_mine_ahead(p);
+        if(m > 16.0f && m < 24.0f) { shot[48] = true; take_shot("mine"); }
+    }
+    /* Our own mine: a look behind once it has landed (-DDK_AT_MINE_TEST
+       hands us one). */
+    static float mine_t;
+    if(game.state == ST_RACE && (p->events & EV_MINE) && !shot[49]) mine_t = 0.001f;
+    if(mine_t > 0 && (mine_t += DK_DT) > 0.05f && mine_t < 1.2f && !game.paused) {
+        if(mine_t < 0.05f + DK_DT * 1.5f) pad.pressed |= BTN_L | BTN_R;
+        pad.held |= BTN_L | BTN_R;
+        if(mine_t > 0.5f && !shot[49]) { shot[49] = true; take_shot("mine-behind"); }
+    }
     if(game.state == ST_RACE && !shot[44])
         for(int i = 0; i < kart_count; i++)
             if(karts[i].spin_t > 0.45f && karts[i].spin_t < 0.7f && vlen(vsub(karts[i].pos, p->pos)) < 22.0f) {
@@ -393,7 +406,7 @@ static bool probe_step(void) {
 #ifdef DK_AUTOTEST
 static struct {
     int drifts, boosts[4], walls, dash, laps, jumps;
-    int items, uses, spears, spun;
+    int items, uses, spears, mines, spun;
     float min_fps, cpu_sum, cpu_max;
     int cpu_n;
     float log_t;
@@ -807,6 +820,28 @@ static void race_step(float dt, bool drive) {
         }
     }
 #endif
+#ifdef DK_AT_MINE_TEST
+    /* A Mine every 12 s (or every -DDK_AT_MINE_TEST=<s>), for the player
+       and the kart ahead of it in turn (the CPU drops it at once): the
+       capture looks behind at the one and drives at the other. */
+    {
+        static float next = 5.0f;
+        static int round;
+        if(game.state == ST_RACE && game.race_time >= next) {
+            next += DK_AT_MINE_TEST > 1 ? (float)DK_AT_MINE_TEST : 12.0f;
+            int who = game.player;
+            if(round++ & 1) {
+                float best = 30.0f;
+                for(int i = 0; i < kart_count; i++) {
+                    float ahead = track_delta(karts[game.player].tp.s, karts[i].tp.s);
+                    if(i != game.player && ahead > 3.0f && ahead < best) { best = ahead; who = i; }
+                }
+            }
+            karts[who].item = ITEM_MINE;
+            karts[who].item_t = 10.0f;
+        }
+    }
+#endif
 #ifdef DK_AUTOTEST
     {
         uint32_t ev = karts[game.player].events;
@@ -819,6 +854,7 @@ static void race_step(float dt, bool drive) {
         if(ev & EV_ITEM_GET) at.items++;
         if(ev & EV_ITEM_USE) at.uses++;
         if(ev & EV_SPEAR) at.spears++;
+        if(ev & EV_MINE) at.mines++;
         if(ev & EV_SPIN) at.spun++;
     }
 #endif
@@ -1641,9 +1677,10 @@ int main(int argc, char **argv) {
                 for(int l = 0; l < game.laps; l++) printf(" %.2f", (double)p->lap_times[l]);
                 printf("\nDK AUTOTEST: drifts %d boosts blue %d orange %d purple %d dash %d walls %d\n",
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
-                printf("DK AUTOTEST: items %s: player took %d, used %d, fired %d spears, spun out %d; all karts took %d, "
-                       "used %d, fired %d, %d hits, %d spin-outs\n", game.items ? "on" : "off", at.items, at.uses,
-                       at.spears, at.spun, items_got, items_used, items_fired, items_hits, items_spins);
+                printf("DK AUTOTEST: items %s: player took %d, used %d, fired %d spears, dropped %d mines, spun out %d; "
+                       "all karts took %d, used %d, fired %d, dropped %d, %d hits, %d spin-outs\n",
+                       game.items ? "on" : "off", at.items, at.uses, at.spears, at.mines, at.spun, items_got, items_used,
+                       items_fired, items_dropped, items_hits, items_spins);
                 printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
                 audio_autotest_report();
                 printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d, falls %d\n", track.name,

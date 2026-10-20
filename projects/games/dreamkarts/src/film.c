@@ -82,6 +82,8 @@ static void film_log(void) {
             held[i] = k->item;
         }
         if(k->events & EV_SPEAR) printf("DK FILM spear %s\n", k->name);
+        if(k->events & EV_MINE) printf("DK FILM mine %s\n", k->name);
+        if(k->events & EV_MINE_HIT) printf("DK FILM mine-hit %s\n", k->name);
         if(k->events & EV_SPIN) printf("DK FILM spin %s\n", k->name);
         if(k->events & EV_SHIELD_UP) printf("DK FILM barrier %s\n", k->name);
         if(k->events & EV_SHIELD_POP) printf("DK FILM barrier-pop %s\n", k->name);

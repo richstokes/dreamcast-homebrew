@@ -236,7 +236,7 @@ func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
 		rt = 0
 	}
 	binary.LittleEndian.PutUint32(b[18:], uint32(rt/time.Millisecond))
-	b[25] = 255 // no spear target
+	b[26] = 255 // no spear target
 	binary.LittleEndian.PutUint32(b[1+lobby.KartLen:], uint32(time.Now().UnixMilli()))
 	return b
 }

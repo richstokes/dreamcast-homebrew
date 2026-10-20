@@ -1538,6 +1538,39 @@ def sfx_barrier_pop():
     return add_reverb(pop + body + shards, 0.25, seconds=0.4, t60=0.35, seed="popr")[:int(0.5 * SR)]
 
 
+def sfx_mine():
+    """Dropping a Mine: a heavy clank on the road and a two-tone arming beep."""
+    n = int(0.55 * SR)
+    y = np.zeros(n)
+    clank = body_hit("mineclank", 0.32, [(290, 0.07, 1.0), (640, 0.045, 0.7), (1420, 0.025, 0.45),
+                                        (2700, 0.012, 0.25)], (95, 58, 0.06), 6, 0.4, thunk_gain=1.3)
+    clank /= max(np.max(np.abs(clank)), 1e-6)
+    y[:len(clank)] += clank * 0.9
+    for st, f in ((0.17, 1480.0), (0.31, 2220.0)):
+        b = beep(f, 0.06, 0.13, harm=0.5) * 0.28
+        place(y, st * SR, b)
+    return softsat(y, 1.2)
+
+
+def sfx_mine_hit():
+    """A Mine going off: a deep boom, a crack of air and debris pattering down."""
+    rng = rng_for("minehit")
+    n = int(0.95 * SR)
+    t = np.arange(n) / SR
+    bf = 28 + 160 * np.exp(-t / 0.04)
+    boom = np.sin(TAU * np.cumsum(bf) / SR) * np.exp(-t / 0.24) * 1.3
+    crack = filt(rng.standard_normal(n), "bp", 1900, 0.6) * np.exp(-t / 0.045) * 1.1
+    rumble = svf(rng.standard_normal(n), 230 * np.exp(-t / 0.3) + 60, 1.2, SR, "lp") * np.exp(-t / 0.32) * 1.3
+    debris = np.zeros(n)
+    for _ in range(16):
+        st = 0.12 + rng.uniform(0, 0.55)
+        m = int(0.04 * SR)
+        tb = np.arange(m) / SR
+        f = rng.uniform(900, 3400)
+        place(debris, st * SR, np.sin(TAU * f * tb) * np.exp(-tb / 0.012) * rng.uniform(0.08, 0.2))
+    return softsat(boom + crack + rumble + debris, 1.5)
+
+
 SFX = [
     ("ENGINE_LOW", sfx_engine_low, True, 0.75),
     ("ENGINE_HIGH", sfx_engine_high, True, 0.65),
@@ -1576,6 +1609,8 @@ SFX = [
     ("SPEAR_HIT", sfx_spear_hit, False, 0.8),
     ("BARRIER", sfx_barrier, False, 0.6),
     ("BARRIER_POP", sfx_barrier_pop, False, 0.7),
+    ("MINE", sfx_mine, False, 0.7),
+    ("MINE_HIT", sfx_mine_hit, False, 0.85),
 ]
 
 
@@ -3206,7 +3241,7 @@ SFX_LABELS = {
     "CHAO_CHU": "CHU-CHU", "CHAO_YAY": "YA-YA", "CHAO_WAH": "WAH!", "CHAO_BUU": "BUU!", "CHAO_HYA": "HYA!",
     "WHOOSH": "WHOOSH", "STAR": "STAR",
     "EMERALD": "EMERALD", "SPEAR": "CHAOS SPEAR", "SPEAR_HIT": "SPEAR HIT", "BARRIER": "BARRIER",
-    "BARRIER_POP": "BARRIER POP",
+    "BARRIER_POP": "BARRIER POP", "MINE": "MINE", "MINE_HIT": "MINE BLAST",
 }
 
 

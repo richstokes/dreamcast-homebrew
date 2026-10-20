@@ -46,9 +46,11 @@ typedef struct {
     NetPlayer players[NET_MAX_PLAYERS];
 } NetLobby;
 
-/* Item byte (KART offset 33): the held item, a barrier up, spun out,
-   this kart's spear sequence number (0 none) and whether it flew backwards. */
-enum { NKI_ITEM_MASK = 3, NKI_SHIELD = 4, NKI_SPUN = 8, NKI_SEQ_SHIFT = 4, NKI_SEQ_MASK = 7 << 4, NKI_BACK = 128 };
+/* Item byte (KART offset 33): the held item, a barrier up, spun out and
+   whether the spear flew backwards. The sequence byte (offset 40) numbers
+   this kart's spear in its low nibble and its mine in the high one, 0 for
+   none. */
+enum { NKI_ITEM_MASK = 7, NKI_SHIELD = 8, NKI_SPUN = 16, NKI_BACK = 32, NKI_SEQ_MASK = 15, NKI_MINE_SHIFT = 4 };
 
 /* A kart as sent over the wire. */
 typedef struct {
@@ -100,8 +102,8 @@ int net_interp_ms(void);
 /* Test builds: a line about a slot's sample history for the serial log. */
 const char *net_debug_sample(int slot);
 #endif
-/* The 25 wire bytes of a kart (KART offsets 19-43: flags to the spear). */
-#define NET_KART_BYTES 25
+/* The 29 wire bytes of a kart (KART offsets 19-47: flags to the mine). */
+#define NET_KART_BYTES 29
 void net_encode_kart(uint8_t *b, const NetKart *k);
 uint64_t net_now(void);
 /* This session's token (set once the link is up), and a name change before

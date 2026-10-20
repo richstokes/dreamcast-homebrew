@@ -502,12 +502,14 @@ void audio_kart_events(const Kart *k, bool is_player) {
         pan = (int)clampf(128.0f + side * 100.0f, 0, 255);
         /* Rivals only make the big noises, and say hi when they wave. */
         ev &= EV_BOOST | EV_DASH | EV_WALL | EV_KART_BUMP | EV_WAVE | EV_FALL | EV_ITEM_GET | EV_SPEAR | EV_SPIN |
-              EV_SHIELD_UP | EV_SHIELD_POP;
+              EV_SHIELD_UP | EV_SHIELD_POP | EV_MINE | EV_MINE_HIT;
     }
     if(ev & EV_ITEM_GET) audio_sfx(DK_SFX_EMERALD, vol * 190 / 255, pan);
     if(ev & EV_SPEAR) audio_sfx(DK_SFX_SPEAR, vol * 215 / 255, pan);
+    if(ev & EV_MINE) audio_sfx(DK_SFX_MINE, vol * 180 / 255, pan);
+    if(ev & EV_MINE_HIT) audio_sfx(DK_SFX_MINE_HIT, vol * 235 / 255, pan);
     if(ev & EV_SPIN) {
-        audio_sfx(DK_SFX_SPEAR_HIT, vol * 225 / 255, pan);
+        if(!(ev & EV_MINE_HIT)) audio_sfx(DK_SFX_SPEAR_HIT, vol * 225 / 255, pan);
         audio_chao(CHAO_OUCH, k->colour, vol * 210 / 255, pan);
     }
     if(ev & EV_SHIELD_UP) audio_sfx(DK_SFX_BARRIER, vol * 190 / 255, pan);

@@ -97,7 +97,7 @@ func TestSpectators(t *testing.T) {
 func fakeRace(t *testing.T, track byte, secs float64, raceID byte) *demo.Race {
 	frames := int(secs*demo.Rate) + 3*demo.Rate
 	var b bytes.Buffer
-	b.WriteString("DKR2")
+	b.WriteString("DKR3")
 	b.Write([]byte{track, 3, 2, MaxPlayers})
 	binary.Write(&b, binary.LittleEndian, uint32(frames))
 	b.Write([]byte{9, raceID, 0, 0})
@@ -120,7 +120,7 @@ func fakeRace(t *testing.T, track byte, secs float64, raceID byte) *demo.Race {
 				e[demo.KartItems] = 2 // holding a Chaos Spear
 			}
 			if k == 0 && f >= 2*demo.Rate && f < frames-demo.Rate {
-				e[demo.KartItems] = 1 << 4 // spear 1 in flight
+				e[demo.KartSeqs] = 1 // spear 1 in flight
 				e[demo.KartTarget] = 1
 			}
 			b.Write(e)
@@ -192,8 +192,8 @@ func TestDemoLobby(t *testing.T) {
 		adv(CountdownLen + 3*time.Second)
 		spears := 0
 		for i, r := 0, c.last(TypeRace); i < int(r[9]); i++ {
-			e := r[10+28*i:]
-			if e[3+demo.KartItems]>>4&7 == 0 {
+			e := r[10+(3+demo.KartLen)*i:]
+			if e[3+demo.KartSeqs]&15 == 0 {
 				continue
 			}
 			spears++

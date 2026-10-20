@@ -481,9 +481,9 @@ func (s *Server) kart(p *Player, b []byte, now time.Time) {
 	s.takeKart(l, p, b[1:1+KartLen], now, now)
 }
 
-// takeKart records a racer's kart (the relayed bytes, flags to the spear)
+// takeKart records a racer's kart (the relayed bytes, flags to the mine)
 // as it was at time at. A shorter body is padded with zeros: no item, no
-// spear.
+// spear, no mine.
 func (s *Server) takeKart(l *Lobby, p *Player, k []byte, at, now time.Time) {
 	if l.State != StateCountdown && l.State != StateRacing && l.State != StateResults {
 		return

@@ -18,13 +18,14 @@ import (
 const Rate = 12
 
 // KartLen is one kart's recorded state: the KART body bytes the server
-// relays (flags to the spear target).
-const KartLen = 25
+// relays (flags to the mine).
+const KartLen = 29
 
 // Offsets within a kart's bytes that the replay reads.
 const (
-	KartItems  = 14 // item byte: held, barrier, spun out, spear sequence
-	KartTarget = 24 // the kart its spear homes on (255 none)
+	KartItems  = 14 // item byte: held, barrier, spun out, spear thrown backwards
+	KartSeqs   = 21 // sequence byte: spear in the low nibble, mine in the high
+	KartTarget = 25 // the kart its spear homes on (255 none)
 )
 
 // NoTarget is a spear without a target.
@@ -32,9 +33,12 @@ const NoTarget = 255
 
 // Headers. DKR1 recorded 21-byte karts before the item bytes existed; the
 // loader pads them with zeros (no item, no spear). DKR2 adds the lobby and
-// race id the recording seeded its emeralds from.
+// race id the recording seeded its emeralds from, with the 25-byte kart of
+// protocol 2 (no mine), which the loader rewrites into today's layout.
+// DKR3 holds the 29-byte kart of protocol 3.
 const (
 	kartLen1 = 21
+	kartLen2 = 25
 	header1  = 12
 	header2  = 16
 )
@@ -107,12 +111,15 @@ func Parse(gz []byte) (*Race, error) {
 	switch string(b[:4]) {
 	case "DKR1":
 		r.frames = pad(b[header1:], kartLen1)
-	case "DKR2":
+	case "DKR2", "DKR3":
 		if len(b) < header2 {
-			return nil, fmt.Errorf("short DKR2 header")
+			return nil, fmt.Errorf("short %s header", b[:4])
 		}
 		r.Lobby, r.RaceID = b[12], b[13]
 		r.frames = b[header2:]
+		if string(b[:4]) == "DKR2" {
+			r.frames = upgrade2(r.frames)
+		}
 	default:
 		return nil, fmt.Errorf("not a DKR recording")
 	}
@@ -120,6 +127,29 @@ func Parse(gz []byte) (*Race, error) {
 		return nil, fmt.Errorf("bad size: %d karts, %d frames, %d bytes", r.Karts, r.Frames, len(r.frames))
 	}
 	return r, nil
+}
+
+// upgrade2 rewrites protocol 2 karts (25 bytes) into the KartLen layout:
+// the held item grows to three bits, the barrier, spin-out and backwards
+// bits move up, the spear sequence gets its own byte and the spear bytes
+// follow it; no mine.
+func upgrade2(b []byte) []byte {
+	if len(b)%kartLen2 != 0 {
+		return b
+	}
+	out := make([]byte, 0, len(b)/kartLen2*KartLen)
+	for i := 0; i < len(b); i += kartLen2 {
+		k := b[i : i+kartLen2]
+		n := make([]byte, KartLen)
+		copy(n, k[:KartItems])
+		old := k[KartItems]
+		n[KartItems] = (old & 3) | ((old >> 2) & 1 << 3) | ((old >> 3) & 1 << 4) | ((old >> 7) & 1 << 5)
+		copy(n[KartItems+1:KartSeqs], k[KartItems+1:KartSeqs])
+		n[KartSeqs] = (old >> 4) & 7
+		copy(n[KartSeqs+1:], k[KartSeqs:])
+		out = append(out, n...)
+	}
+	return out
 }
 
 // pad widens karts of n bytes to KartLen with zeros.

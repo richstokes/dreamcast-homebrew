@@ -22,14 +22,16 @@ port 7535). Everything fits a 56k dial-up modem: the console sends about
   each console from its own green light and repeated in every kart packet
   until the results arrive.
 - **Power-ups are state too.** A kart packet carries what its kart holds,
-  whether its barrier is up or it is spun out, and its spear in flight
-  (sequence number, position, target). Every console runs its own copy of
-  each spear from those packets and judges hits on its own kart only: a
-  hit shows up as that kart's spun-out (or barrier-popped) state in its
-  next packet, and the thrower's console drops the spear when its copy
-  arrives or that state shows. Which emerald slot is lit comes from a seed
-  every console derives from the lobby, race id and track, so nothing
-  about the emeralds themselves is sent.
+  whether its barrier is up or it is spun out, its spear in flight
+  (sequence number, position, target) and its mine on the road (sequence
+  number, position). Every console runs its own copy of each spear and
+  mine from those packets and judges hits on its own kart only: a hit
+  shows up as that kart's spun-out (or barrier-popped) state in its next
+  packet, and the owner's console drops the spear or mine when its own
+  copy arrives or that state shows beside it; a mine whose number leaves
+  the owner's packets leaves every console. Which emerald slot is lit
+  comes from a seed every console derives from the lobby, race id and
+  track, so nothing about the emeralds themselves is sent.
 - **Bytes, not structs.** All fields are packed explicitly, little-endian,
   with no padding (the SH-4 faults on unaligned loads). Strings are fixed
   width, ASCII `A-Z 0-9 space - .`, NUL padded.
@@ -43,7 +45,7 @@ port 7535). Everything fits a 56k dial-up modem: the console sends about
 | Offset | Type | Field |
 | --- | --- | --- |
 | 0 | u8[2] | magic `'D' 'K'` |
-| 2 | u8 | protocol (`DK_NET_PROTO`, currently 2) |
+| 2 | u8 | protocol (`DK_NET_PROTO`, currently 3) |
 | 3 | u8 | packet type |
 
 A packet with a bad magic or a different protocol number gets a `REJECT`
@@ -85,7 +87,7 @@ leaves the switch alone). When the leader presses Start the console
 increments the start nonce; the server starts a race when it sees a new
 nonce from the leader and at least two players are in the lobby.
 
-`KART` (body 30 bytes, 48 in all):
+`KART` (body 34 bytes, 52 in all):
 
 | Offset | Type | Field |
 | --- | --- | --- |
@@ -99,13 +101,16 @@ nonce from the leader and at least two players are in the lobby.
 | 30 | i8 | steer * 127 |
 | 31 | u8 | spark stage 0-3 |
 | 32 | u8 | lap (0 = before the line) |
-| 33 | u8 | items: bits 0-1 held (0 none, 1 Power Sneakers, 2 Chaos Spear, 3 Barrier), bit 2 barrier up, bit 3 spun out, bits 4-6 spear sequence (0 none, else 1-7, a new number per throw), bit 7 spear thrown backwards |
+| 33 | u8 | items: bits 0-2 held (0 none, 1 Power Sneakers, 2 Chaos Spear, 3 Barrier, 4 Mine), bit 3 barrier up, bit 4 spun out, bit 5 spear thrown backwards |
 | 34 | u16 | lap distance * 16 (m) |
 | 36 | u32 | race time in ms (finish time once finished); receivers space samples by it |
-| 40 | u16 | spear lap distance * 16 (m) |
-| 42 | i8 | spear lateral offset * 4 (m, + = right) |
-| 43 | u8 | spear target slot (255 none) |
-| 44 | u32 | client clock ms (unused; not relayed) |
+| 40 | u8 | bits 0-3 spear sequence (0 none, else 1-15, a new number per throw), bits 4-7 mine sequence (0 none, else 1-15, a new number per drop; 0 again once the mine has gone) |
+| 41 | u16 | spear lap distance * 16 (m) |
+| 43 | i8 | spear lateral offset * 4 (m, + = right) |
+| 44 | u8 | spear target slot (255 none) |
+| 45 | u16 | mine lap distance * 16 (m) |
+| 47 | i8 | mine lateral offset * 4 (m, + = right) |
+| 48 | u32 | client clock ms (unused; not relayed) |
 
 ## Server to client
 
@@ -159,8 +164,8 @@ leader, bit1 racing, bit2 finished), u16 ping ms, u16 points, u8 last place
 
 `RACE` (every 83 ms during countdown, race and results, on the server's
 own beat): u8 race id, u8 count, then per racer: u8 slot, u16 age ms (how
-old the state is at send time), then the 25 bytes of the `KART` body at
-offsets 19-43 (flags through the spear), 28 bytes per racer. A racer whose
+old the state is at send time), then the 29 bytes of the `KART` body at
+offsets 19-47 (flags through the mine), 32 bytes per racer. A racer whose
 kart has not changed since the last relay is sent again as is; consoles
 drop the repeat.
 
@@ -194,8 +199,8 @@ exactly like a console's; the race ends, places and points work as usual.
 Points start again every 8 races. People joining it are told it is full;
 anyone can watch it.
 
-A recording keeps the full 25-byte kart, so the bots hold emeralds, throw
-spears, raise barriers and spin out as the CPUs did. Each was made with its
+A recording keeps the full 29-byte kart, so the bots hold emeralds, throw
+spears, drop mines, raise barriers and spin out as the CPUs did. Each was made with its
 emeralds seeded as a watcher of the demo lobby will seed them (lobby 10, a
 race id of its own, its track; `DK_RECORD_LOBBY` in `src/main.c`), and the
 server starts it under that race id, so the gems watchers see are the ones

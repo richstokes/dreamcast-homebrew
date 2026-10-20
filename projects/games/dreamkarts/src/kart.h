@@ -16,7 +16,7 @@ enum {
     EV_CHARGE_JUMP = 1 << 12, EV_ROCKET = 1 << 13, EV_BURNOUT = 1 << 14,
     EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17, EV_FALL = 1 << 18,
     EV_ITEM_GET = 1 << 19, EV_ITEM_USE = 1 << 20, EV_SPEAR = 1 << 21, EV_SPIN = 1 << 22,
-    EV_SHIELD_UP = 1 << 23, EV_SHIELD_POP = 1 << 24
+    EV_SHIELD_UP = 1 << 23, EV_SHIELD_POP = 1 << 24, EV_MINE = 1 << 25, EV_MINE_HIT = 1 << 26
 };
 
 typedef struct {
@@ -93,7 +93,8 @@ typedef struct {
     float spin_t;       /* seconds of spin-out left (0 = driving) */
     int spin_dir;
     float shield_t;     /* seconds of barrier left */
-    int spear_seq;      /* this kart's last spear number, 1-7 */
+    int spear_seq;      /* this kart's last spear number, 1-15 */
+    int mine_seq;       /* this kart's last mine number, 1-15 */
 
     /* Identity */
     bool cpu;
@@ -139,7 +140,7 @@ extern const CCParams cc_params[CC_COUNT];
 void kart_place_on_grid(Kart *k, int slot);
 void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive);
 void kart_start_boost(Kart *k, float seconds, float kick);
-/* Hit by a spear: a spin with the controls dead for SPIN_LEN seconds. */
+/* Hit by a spear or a mine: a spin with the controls dead for SPIN_LEN seconds. */
 void kart_spin_out(Kart *k, int dir);
 void karts_collide(void);
 void ai_drive(Kart *k, KartInput *in, float dt);

@@ -217,14 +217,16 @@ func TestItemsSwitch(t *testing.T) {
 	if l := b.last(TypeLobby); l[len(l)-1] != 1 {
 		t.Fatalf("the leader could not switch items back on: %v", l)
 	}
-	// Item and spear bytes are relayed as sent.
+	// Item, spear and mine bytes are relayed as sent.
 	a.nonce++
 	a.wishItems(0, 0, 3, 1, true)
 	h.advance(CountdownLen + 100*time.Millisecond)
 	v := a.lobby()
 	k := make([]byte, 1+KartLen+4)
-	k[0], k[1], k[14], k[15] = v.raceID, 2, 1, 0x32 // spear seq 3, holding a spear
-	k[22], k[23], k[24], k[25] = 0x10, 0x27, 0xf8, 1  // spear at 625 m, d -2, after slot 1
+	k[0], k[1], k[14], k[15] = v.raceID, 2, 1, 0x02  // holding a spear
+	k[22] = 0x53                                     // spear seq 3, mine seq 5
+	k[23], k[24], k[25], k[26] = 0x10, 0x27, 0xf8, 1 // spear at 625 m, d -2, after slot 1
+	k[27], k[28], k[29] = 0xa0, 0x0f, 0x08           // mine at 250 m, d 2
 	a.send(TypeKart, k)
 	h.advance(100 * time.Millisecond)
 	r := b.last(TypeRace)
@@ -232,7 +234,8 @@ func TestItemsSwitch(t *testing.T) {
 		t.Fatalf("race relay %v", r)
 	}
 	got := r[10+3 : 10+3+KartLen]
-	if got[14] != 0x32 || got[21] != 0x10 || got[22] != 0x27 || got[23] != 0xf8 || got[24] != 1 {
+	if got[14] != 0x02 || got[21] != 0x53 || got[22] != 0x10 || got[23] != 0x27 || got[24] != 0xf8 || got[25] != 1 ||
+		got[26] != 0xa0 || got[27] != 0x0f || got[28] != 0x08 {
 		t.Fatalf("item bytes not relayed: %v", got)
 	}
 }

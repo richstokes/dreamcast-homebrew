@@ -82,6 +82,8 @@ void rumble_kart(int player, const Kart *k) {
     if(ev & EV_SPEAR) rumble_pulse(player, 4, 30, 0.15f);
     if(ev & EV_SHIELD_UP) rumble_pulse(player, 3, 40, 0.15f);
     if(ev & EV_SHIELD_POP) rumble_pulse(player, 5, 24, 0.2f);
+    if(ev & EV_MINE) rumble_pulse(player, 2, 36, 0.1f);
+    if(ev & EV_MINE_HIT) rumble_pulse(player, 7, 14, 0.3f);
     if(ev & EV_SPIN) rumble_pulse(player, 6, 16, 0.5f);
     if(k->spin_t > 0) rumble_hold(player, 3, 12);
 

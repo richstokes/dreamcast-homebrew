@@ -34,10 +34,10 @@ func TestRecordings(t *testing.T) {
 			}
 			for f := 0; f < r.Frames; f++ {
 				b := r.Kart(f, k)
-				if b[KartItems]&3 != 0 {
+				if b[KartItems]&7 != 0 {
 					held++
 				}
-				if b[KartItems]>>4&7 != 0 {
+				if b[KartSeqs]&15 != 0 {
 					spears++
 				}
 				if tg := b[KartTarget]; tg != NoTarget && int(tg) >= r.Karts {
@@ -69,7 +69,8 @@ func gz(t *testing.T, b []byte) []byte {
 }
 
 // A DKR1 file (21-byte karts) loads with its item bytes zeroed; a DKR2 file
-// keeps its 25 bytes and names its lobby and race id.
+// has its protocol 2 item bits moved into today's layout and names its
+// lobby and race id; a DKR3 file is taken as is.
 func TestFormats(t *testing.T) {
 	var b bytes.Buffer
 	b.WriteString("DKR1")
@@ -97,8 +98,11 @@ func TestFormats(t *testing.T) {
 	binary.Write(&b, binary.LittleEndian, uint32(3))
 	b.Write([]byte{9, 17, 0, 0})
 	for i := 0; i < 3; i++ {
-		k := make([]byte, KartLen)
-		k[KartItems], k[KartTarget] = 0x12, 5
+		k := make([]byte, kartLen2)
+		// Holding a Barrier, spun out, spear 3 thrown backwards at 625 m,
+		// d -2, after kart 5.
+		k[KartItems], k[20] = 0xbb, 0x44
+		k[21], k[22], k[23], k[24] = 0x10, 0x27, 0xf8, 5
 		b.Write(k)
 	}
 	r, err = Parse(gz(t, b.Bytes()))
@@ -108,10 +112,30 @@ func TestFormats(t *testing.T) {
 	if r.Lobby != 9 || r.RaceID != 17 || r.Frames != 3 || r.Karts != 1 {
 		t.Fatalf("DKR2 header %+v", r)
 	}
-	if k := r.Kart(2, 0); k[KartItems] != 0x12 || k[KartTarget] != 5 {
+	if k := r.Kart(2, 0); len(k) != KartLen || k[KartItems] != 0x33 || k[20] != 0x44 || k[KartSeqs] != 3 ||
+		k[22] != 0x10 || k[23] != 0x27 || k[24] != 0xf8 || k[KartTarget] != 5 || k[26] != 0 || k[28] != 0 {
 		t.Fatalf("DKR2 kart %v", k)
 	}
 	if _, err := Parse(gz(t, b.Bytes()[:len(b.Bytes())-1])); err == nil {
 		t.Fatal("a short file parsed")
+	}
+
+	b.Reset()
+	b.WriteString("DKR3")
+	b.Write([]byte{4, 3, 2, 1})
+	binary.Write(&b, binary.LittleEndian, uint32(2))
+	b.Write([]byte{9, 18, 0, 0})
+	for i := 0; i < 2; i++ {
+		k := make([]byte, KartLen)
+		k[KartItems], k[KartSeqs], k[KartTarget], k[28] = 0x04, 0x50, NoTarget, 0xf8 // a mine held, mine 5 out
+		b.Write(k)
+	}
+	r, err = Parse(gz(t, b.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k := r.Kart(1, 0); r.RaceID != 18 || k[KartItems] != 4 || k[KartSeqs] != 0x50 || k[KartTarget] != NoTarget ||
+		k[28] != 0xf8 {
+		t.Fatalf("DKR3 kart %v", k)
 	}
 }

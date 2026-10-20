@@ -257,12 +257,15 @@ void net_encode_kart(uint8_t *b, const NetKart *k) {
     b[13] = (uint8_t)clampf((float)k->lap, 0, 255);
     const NetItems *it = &k->items;
     b[14] = (uint8_t)((it->item & NKI_ITEM_MASK) | (it->shield ? NKI_SHIELD : 0) | (it->spun ? NKI_SPUN : 0) |
-                      ((it->spear_seq << NKI_SEQ_SHIFT) & NKI_SEQ_MASK) | (it->spear_back ? NKI_BACK : 0));
+                      (it->spear_back ? NKI_BACK : 0));
     put16(b + 15, (uint16_t)clampf(k->dist * 16.0f, 0, 65535));
     put32(b + 17, (uint32_t)(fmaxf(k->race_time, 0) * 1000.0f));
-    put16(b + 21, (uint16_t)clampf(it->spear_s * 16.0f, 0, 65535));
-    b[23] = (uint8_t)(int8_t)clampf(it->spear_d * 4.0f, -127, 127);
-    b[24] = it->spear_target >= 0 && it->spear_target < NET_MAX_PLAYERS ? (uint8_t)it->spear_target : 255;
+    b[21] = (uint8_t)((it->spear_seq & NKI_SEQ_MASK) | ((it->mine_seq & NKI_SEQ_MASK) << NKI_MINE_SHIFT));
+    put16(b + 22, (uint16_t)clampf(it->spear_s * 16.0f, 0, 65535));
+    b[24] = (uint8_t)(int8_t)clampf(it->spear_d * 4.0f, -127, 127);
+    b[25] = it->spear_target >= 0 && it->spear_target < NET_MAX_PLAYERS ? (uint8_t)it->spear_target : 255;
+    put16(b + 26, (uint16_t)clampf(it->mine_s * 16.0f, 0, 65535));
+    b[28] = (uint8_t)(int8_t)clampf(it->mine_d * 4.0f, -127, 127);
 }
 
 static void decode_kart(const uint8_t *b, NetKart *k) {
@@ -280,13 +283,17 @@ static void decode_kart(const uint8_t *b, NetKart *k) {
     NetItems *it = &k->items;
     memset(it, 0, sizeof(*it));
     it->item = b[14] & NKI_ITEM_MASK;
+    if(it->item >= ITEM_COUNT) it->item = ITEM_NONE;
     it->shield = (b[14] & NKI_SHIELD) != 0;
     it->spun = (b[14] & NKI_SPUN) != 0;
-    it->spear_seq = (b[14] & NKI_SEQ_MASK) >> NKI_SEQ_SHIFT;
     it->spear_back = (b[14] & NKI_BACK) != 0;
-    it->spear_s = (float)get16(b + 21) / 16.0f;
-    it->spear_d = (float)(int8_t)b[23] / 4.0f;
-    it->spear_target = b[24] == 255 ? -1 : b[24];
+    it->spear_seq = b[21] & NKI_SEQ_MASK;
+    it->mine_seq = (b[21] >> NKI_MINE_SHIFT) & NKI_SEQ_MASK;
+    it->spear_s = (float)get16(b + 22) / 16.0f;
+    it->spear_d = (float)(int8_t)b[24] / 4.0f;
+    it->spear_target = b[25] == 255 ? -1 : b[25];
+    it->mine_s = (float)get16(b + 26) / 16.0f;
+    it->mine_d = (float)(int8_t)b[28] / 4.0f;
 }
 
 static void copy_name(char *dst, const uint8_t *src) {
@@ -663,11 +670,13 @@ void net_update(void) {
                     put32(b + 1 + NET_KART_BYTES, (uint32_t)now);
 #if defined(DK_AUTOTEST) && !defined(DK_HW)
                     {
-                        static uint8_t last_item;
-                        if(b[15] != last_item) {
+                        static uint8_t last_item, last_seq;
+                        if(b[15] != last_item || b[22] != last_seq) {
                             last_item = b[15];
-                            printf("DK NET send item byte %02x, spear at %u/16 m d %d/4 target %u\n", b[15],
-                                   (unsigned)get16(b + 22), (int8_t)b[24], b[25]);
+                            last_seq = b[22];
+                            printf("DK NET send item byte %02x seq %02x, spear at %u/16 m d %d/4 target %u, mine at "
+                                   "%u/16 m d %d/4\n", b[15], b[22], (unsigned)get16(b + 23), (int8_t)b[25], b[26],
+                                   (unsigned)get16(b + 27), (int8_t)b[29]);
                         }
                     }
 #endif
