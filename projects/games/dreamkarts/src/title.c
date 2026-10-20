@@ -1,8 +1,10 @@
 /* Title screen: the track in the background with the grid lined up, a
    rotating Sega-style sunburst, a bouncing per-letter logo, sparkles and a
    pulsing PRESS START. Then a slide-in menu for mode and engine class, and
-   a track select that flies over each course as it is picked. The main menu
-   also opens a sound test for the music and effects. */
+   a track select that flies over each course as it is picked. Two players
+   pick their karts side by side on a split-screen kart select, each with
+   their own pad. The main menu also opens a sound test for the music and
+   effects. */
 #include "title.h"
 #include "audio.h"
 #include "hud.h"
@@ -26,6 +28,9 @@ static float track_swap;     /* card slide when the track changes, +-1 -> 0 */
 static float fly_t;          /* time since the flyover camera last reset */
 
 static void tracks_update(float dt);
+static void karts_enter(void);
+static void karts_update(float dt);
+static void tracks_enter(void);
 
 /* Main menu: single player, two-player split screen, online or the sound
    test. */
@@ -145,22 +150,21 @@ static float warn_t;
 
 static const int laps_options[3] = {3, 5, 10};
 
-enum { ROW_MODE, ROW_CC, ROW_LAPS, ROW_ITEMS, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
+enum { ROW_MODE, ROW_CC, ROW_LAPS, ROW_ITEMS, ROW_COLOUR, ROW_START };
 
 /* A solo time trial never has power-ups: lap times stay comparable. */
 static bool items_locked(void) {
     return game.mode == MODE_TT && game.num_players == 1;
 }
 
-/* Menu rows: player 2's colour only appears in a two-player race. */
+/* Menu rows: two players pick their colours on the kart select instead. */
 static int menu_rows(int *rows) {
     int n = 0;
     rows[n++] = ROW_MODE;
     rows[n++] = ROW_CC;
     rows[n++] = ROW_LAPS;
     rows[n++] = ROW_ITEMS;
-    rows[n++] = ROW_COLOUR1;
-    if(game.num_players > 1) rows[n++] = ROW_COLOUR2;
+    if(game.num_players == 1) rows[n++] = ROW_COLOUR;
     rows[n++] = ROW_START;
     return n;
 }
@@ -170,15 +174,21 @@ static const char *mode_name(void) {
     return game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
 }
 
-/* Step a player's colour, skipping the other player's choice. */
+/* Step a player's colour, skipping the other player's choice. The grid is
+   set up again (rivals take the colours left over), so a wave the other
+   player's kart is in the middle of carries over. */
 static void step_colour(int player, int dir) {
     int c = game.pl[player].colour;
     do {
         c = (c + dir + COLOUR_COUNT) % COLOUR_COUNT;
     } while(game.num_players > 1 && c == game.pl[player ^ 1].colour);
     game.pl[player].colour = c;
+    float wave[MAX_PLAYERS];
+    for(int p = 0; p < game.num_players; p++) wave[p] = karts[game.pl[p].kart].wave_t;
     race_setup();
-    audio_chao(CHAO_HI, c, 150, player ? 190 : 66);
+    for(int p = 0; p < game.num_players; p++)
+        if(p != player) karts[game.pl[p].kart].wave_t = wave[p];
+    audio_chao(CHAO_HI, c, 150, game.num_players == 1 ? 128 : player ? 190 : 66);
 }
 
 void title_init(void) {
@@ -228,6 +238,10 @@ void title_update(float dt) {
         tracks_update(dt);
         return;
     }
+    if(game.state == ST_KARTS) {
+        karts_update(dt);
+        return;
+    }
     /* ST_MENU */
     menu_slide = fminf(1.0f, menu_slide + dt * 4.0f);
     if(warn_t > 0) warn_t -= dt;
@@ -261,15 +275,10 @@ void title_update(float dt) {
                 race_setup();
             }
         }
-        else if(row == ROW_COLOUR1 || row == ROW_COLOUR2) {
-            step_colour(row == ROW_COLOUR2, dir);
+        else if(row == ROW_COLOUR) {
+            step_colour(0, dir);
         }
         if(row != ROW_START) audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
-    }
-    /* Player 2 picks their own colour with their pad at any time. */
-    if(game.num_players > 1) {
-        int dir2 = input_left(1) ? -1 : input_right(1) ? 1 : 0;
-        if(dir2) step_colour(1, dir2);
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
@@ -291,11 +300,66 @@ void title_update(float dt) {
             audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
             race_setup();
-            game_set_state(ST_TRACKS);
-            tracks_slide = 0;
-            track_swap = 0;
-            fly_t = 0;
+            if(game.num_players > 1) karts_enter();
+            else tracks_enter();
         }
+    }
+}
+
+static void tracks_enter(void) {
+    game_set_state(ST_TRACKS);
+    tracks_slide = 0;
+    track_swap = 0;
+    fly_t = 0;
+}
+
+/* Two-player kart select: each half of the split screen shows that
+   player's kart, and each pad steps through the colours and readies up on
+   its own. The track select follows once both are ready. */
+static bool kart_ready[MAX_PLAYERS];
+static float karts_slide, karts_go_t, ready_pop[MAX_PLAYERS];
+
+static void karts_enter(void) {
+    game_set_state(ST_KARTS);
+    karts_slide = 0;
+    karts_go_t = 0;
+    for(int p = 0; p < MAX_PLAYERS; p++) kart_ready[p] = false, ready_pop[p] = 0;
+}
+
+static void karts_update(float dt) {
+    karts_slide = fminf(1.0f, karts_slide + dt * 4.0f);
+    for(int p = 0; p < 2; p++) {
+        const Pad *pd = input_pad(p);
+        if(ready_pop[p] > 0) ready_pop[p] = fmaxf(0.0f, ready_pop[p] - dt * 3.0f);
+        int dir = input_left(p) ? -1 : input_right(p) ? 1 : 0;
+        if(dir && !kart_ready[p]) {
+            step_colour(p, dir);
+            audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        }
+        if((pd->pressed & (BTN_A | BTN_START)) && !kart_ready[p]) {
+            kart_ready[p] = true;
+            ready_pop[p] = 1.0f;
+            kart_wave(&karts[game.pl[p].kart]);
+            audio_sfx(DK_SFX_MENU_SELECT, 230, p ? 190 : 66);
+        }
+        else if(pd->pressed & BTN_B) {
+            if(kart_ready[p]) {
+                kart_ready[p] = false;
+                audio_sfx(DK_SFX_MENU_BACK, 200, p ? 190 : 66);
+            }
+            else if(p == 0) {
+                audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+                game_set_state(ST_MENU);
+                menu_slide = 0;
+                return;
+            }
+        }
+    }
+    /* A short beat with both ready, so a late B can still back out. */
+    karts_go_t = kart_ready[0] && kart_ready[1] ? karts_go_t + dt : 0;
+    if(karts_go_t > 0.7f) {
+        audio_sfx(DK_SFX_WHOOSH, 160, 128);
+        tracks_enter();
     }
 }
 
@@ -313,7 +377,8 @@ static void tracks_update(float dt) {
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
-        game_set_state(ST_MENU);
+        if(game.num_players > 1) karts_enter();
+        else game_set_state(ST_MENU);
         return;
     }
     if(pad.pressed & (BTN_A | BTN_START)) {
@@ -362,6 +427,25 @@ void title_camera(Camera *cam, float dt) {
     cam->right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
     cam->up = vcross(cam->fwd, cam->right);
     cam->fov = 1.20f;
+}
+
+/* Kart select: each player's view orbits their own kart, starting on
+   opposite sides, with the kart left of centre clear of the panel. */
+void title_kart_cameras(void) {
+    for(int p = 0; p < game.num_players; p++) {
+        Camera *cam = &game.pl[p].cam;
+        V3 target = vadd(karts[game.pl[p].kart].pos, v3(0, 0.75f, 0));
+        float a = game.title_t * 0.35f + (float)p * DK_PI;
+        float r = 5.2f;
+        cam->pos = vadd(target, v3(sinf(a) * r, 1.6f + 0.4f * sinf(game.title_t * 0.17f + p), cosf(a) * r));
+        cam->fwd = vnorm(vsub(target, cam->pos));
+        V3 right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
+        cam->fwd = vnorm(vmad(cam->fwd, right, 0.30f));
+        cam->right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
+        cam->up = vcross(cam->fwd, cam->right);
+        cam->fov = 1.20f;
+        cam->shake = 0;
+    }
 }
 
 static void draw_sunburst(float cx, float cy, float radius, float spin, float alpha) {
@@ -581,9 +665,9 @@ static void draw_menu(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
     float x0 = 640 - 300 * slide, x1 = x0 + 280;
     int rows[8], n = menu_rows(rows);
-    /* Six or seven rows (two players) close up to stay inside the screen. */
-    const float pitch = n > 6 ? 42.0f : n > 5 ? 46.0f : 50.0f;
-    float top = n > 6 ? 84 : n > 5 ? 96 : 112, y_first = top + 54;
+    /* Six rows (one player's colour too) close up to stay inside the screen. */
+    const float pitch = n > 5 ? 46.0f : 50.0f;
+    float top = n > 5 ? 96 : 112, y_first = top + 54;
     char laps_buf[8];
     float bottom = y_first + n * pitch + 6;
     hud_panel(x0, top, x1, bottom, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
@@ -624,15 +708,11 @@ static void draw_menu(void) {
                 value = items_locked() ? "OFF IN TIME TRIAL" : game.setup_items ? "ON" : "OFF";
                 if(items_locked()) col = argb(255, 160, 180, 220);
                 break;
-            case ROW_COLOUR1:
-            case ROW_COLOUR2: {
-                int pl = row == ROW_COLOUR2;
-                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label,
-                         game.num_players > 1 ? (pl ? "P2 COLOUR" : "P1 COLOUR") : "COLOUR");
-                value = kart_colours[game.pl[pl].colour].name;
-                colour_swatch(x1 - 58, y - 4, game.pl[pl].colour);
+            case ROW_COLOUR:
+                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "COLOUR");
+                value = kart_colours[game.pl[0].colour].name;
+                colour_swatch(x1 - 58, y - 4, game.pl[0].colour);
                 break;
-            }
             default: {
                 float s = sel ? 1.1f + 0.06f * sinf(game.title_t * 8) : 0.95f;
                 hud_text((x0 + x1) * 0.5f, y, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : col, "NEXT");
@@ -646,11 +726,55 @@ static void draw_menu(void) {
             hud_text(x1 - 22 + bob, y + 10, 0.75f, ALIGN_RIGHT, col, ">");
         }
     }
-    if(game.num_players > 1)
-        hud_text(24, 404, 0.45f, ALIGN_LEFT, argb(230, 255, 255, 255), "P2: LEFT/RIGHT = COLOUR");
     hud_text(24, 428, 0.5f, ALIGN_LEFT, argb(230, 255, 255, 255), "A: OK   B: BACK");
     if(warn_t > 0 && ((int)(game.title_t * 6) & 1))
         hud_text(320, 72, 0.7f, ALIGN_CENTER, 0xffff8080, "CONNECT CONTROLLER 2");
+}
+
+static void draw_karts(void) {
+    float slide = karts_slide * karts_slide * (3 - 2 * karts_slide);
+    /* Divider between the views, as in the race. */
+    r_hdr(h_flat);
+    r_quad2d_grad(0, 224, 640, 256, 0xff1c3a8a, 0xff0c1a48, 17.0f);
+    r_quad2d(0, 224, 640, 226, 0, 0, 1, 1, 0xfff0f0ff, 17.05f);
+    r_quad2d(0, 254, 640, 256, 0, 0, 1, 1, 0xfff0f0ff, 17.05f);
+    hud_text(320, 223, 0.8f, ALIGN_CENTER, argb(255, 255, 220, 60), "SELECT KART");
+    hud_text(20, 230, 0.42f, ALIGN_LEFT, argb(230, 255, 255, 255), "B: BACK");
+    for(int p = 0; p < 2; p++) {
+        float y0 = p ? 256.0f : 0.0f;
+        float x0 = 640 - 268 * slide, x1 = x0 + 248, top = y0 + 22, bottom = y0 + 202;
+        int c = game.pl[p].colour;
+        bool ready = kart_ready[p];
+        hud_panel(x0, top, x1, bottom, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+        float cx = (x0 + x1) * 0.5f;
+        hud_text(cx, top + 6, 0.75f, ALIGN_CENTER, argb(255, 255, 220, 60), p ? "PLAYER 2" : "PLAYER 1");
+        uint32_t col = ready ? argb(255, 200, 220, 255) : argb(255, 255, 255, 150);
+        hud_text(cx, top + 50, 0.75f, ALIGN_CENTER, col, kart_colours[c].name);
+        if(!ready) {
+            float bob = 3.0f * sinf(game.title_t * 9);
+            hud_text(x0 + 18 - bob, top + 50, 0.75f, ALIGN_LEFT, col, "<");
+            hud_text(x1 - 18 + bob, top + 50, 0.75f, ALIGN_RIGHT, col, ">");
+        }
+        colour_swatch(cx - 16, top + 94, c);
+        if(ready) {
+            float s = 1.0f + 0.5f * ready_pop[p] * ready_pop[p];
+            hud_text(cx, top + 124, s, ALIGN_CENTER, argb(255, 120, 255, 120), "READY!");
+        }
+        else if(p == 1 && !pad2.connected) {
+#if !defined(DK_AUTOTEST) && !defined(DK_FILM)
+            if((int)(game.title_t * 4) & 1)
+                hud_text(cx, top + 130, 0.5f, ALIGN_CENTER, 0xffff8080, "CONNECT CONTROLLER 2");
+#endif
+        }
+        else {
+            float pulse = 0.5f + 0.5f * sinf(game.title_t * 5.0f);
+            hud_text(cx, top + 130, 0.5f, ALIGN_CENTER,
+                     color_lerp(argb(255, 255, 255, 255), argb(255, 255, 210, 60), pulse), "A: READY");
+        }
+        if(ready && !kart_ready[p ^ 1])
+            hud_text(20, y0 + 180, 0.45f, ALIGN_LEFT, argb(230, 255, 255, 255),
+                     p ? "WAITING FOR PLAYER 1" : "WAITING FOR PLAYER 2");
+    }
 }
 
 static void draw_tracks(void) {
@@ -710,6 +834,9 @@ void title_draw(void) {
     }
     else if(game.state == ST_TRACKS) {
         draw_tracks();
+    }
+    else if(game.state == ST_KARTS) {
+        draw_karts();
     }
     else if(game.state == ST_MAIN && sound_open) {
         draw_sunburst(320, 60, 420, game.title_t * 0.25f, 0.3f);

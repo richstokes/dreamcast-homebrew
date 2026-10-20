@@ -8,6 +8,8 @@ void title_init(void);
 void title_enter(void);
 void title_update(float dt);
 void title_camera(Camera *cam, float dt);
+/* Two-player kart select: each player's camera on their own kart. */
+void title_kart_cameras(void);
 void title_draw(void);
 /* Boot loading screen: progress 0..1, what is loading, seconds since boot. */
 void title_draw_loading(float progress, const char *what, float t);

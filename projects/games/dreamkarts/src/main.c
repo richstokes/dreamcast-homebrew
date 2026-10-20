@@ -36,7 +36,7 @@ static float finish_wait;
 static bool countdown_beeped[4];
 
 static bool split_screen(void) {
-    return game.num_players > 1 && (game.state == ST_COUNTDOWN || game.state == ST_RACE);
+    return game.num_players > 1 && (game.state == ST_COUNTDOWN || game.state == ST_RACE || game.state == ST_KARTS);
 }
 
 /* Accumulated microseconds per phase: update, world OP, karts, PT, TR;
@@ -225,6 +225,12 @@ static void capture_script(void) {
 #else
         if(game.time > 3.5f && step < 1) { pad.pressed |= BTN_START; step++; }
 #endif
+    }
+    if(game.state == ST_KARTS) {
+        /* Two-player kart select: both ready up. */
+        if(game.time > 1.5f && !shot[46]) { shot[46] = true; take_shot("karts"); }
+        if(game.time > 2.0f) { pad.pressed |= BTN_A; pad2.pressed |= BTN_A; }
+        if(game.time > 2.1f && !shot[47]) { shot[47] = true; take_shot("karts-ready"); }
     }
     if(game.state == ST_TRACKS) {
         if(game.time > 2.5f && !shot[9]) { shot[9] = true; take_shot("tracks"); }
@@ -495,7 +501,8 @@ void game_load_track(int id) {
 void game_set_state(int state) {
     game.state = state;
     game.time = 0;
-    if(state == ST_TITLE || state == ST_MENU || state == ST_TRACKS || state == ST_MAIN || state == ST_ONLINE) {
+    if(state == ST_TITLE || state == ST_MENU || state == ST_TRACKS || state == ST_MAIN || state == ST_ONLINE ||
+       state == ST_KARTS) {
         if(state == ST_TITLE) title_enter();
         audio_kart_loops(0, NULL, DK_DT);
         audio_kart_loops(1, NULL, DK_DT);
@@ -930,6 +937,7 @@ static void update(float dt) {
         case ST_MAIN:
         case ST_MENU:
         case ST_TRACKS:
+        case ST_KARTS:
             title_update(dt);
             /* Idle karts on the grid still bounce a little. */
             for(int i = 0; i < kart_count; i++) {
@@ -1043,6 +1051,9 @@ static void update_camera(float dt) {
         case ST_TRACKS:
             title_camera(&game.cam, dt);
             break;
+        case ST_KARTS:
+            title_kart_cameras();
+            break;
         case ST_ONLINE:
             online_camera(&game.cam, dt);
             break;
@@ -1065,22 +1076,25 @@ static void update_camera(float dt) {
 
 
 /* Views this frame: one full-screen view, or a top/bottom split while two
-   players race. Every view is drawn inside each PVR list in turn. */
+   players race or pick their karts. Every view is drawn inside each PVR list in turn. */
 static int view_count(void) {
     return split_screen() ? 2 : 1;
 }
 
+/* Racing or on the kart select, each player has their own camera. */
+static bool player_views(void) {
+    return game.state == ST_COUNTDOWN || game.state == ST_RACE || game.state == ST_KARTS;
+}
+
 static void set_view(int v) {
-    bool racing = game.state == ST_COUNTDOWN || game.state == ST_RACE;
     /* Split: two 7-tile views with the HUD band (tile row 7) between. */
     if(view_count() == 2) r_set_viewport(v ? 256.0f : 0.0f, v ? 480.0f : 224.0f);
     else r_set_viewport(0, 480.0f);
-    r_set_camera(racing ? &game.pl[v].cam : &game.cam);
+    r_set_camera(player_views() ? &game.pl[v].cam : &game.cam);
 }
 
 static int view_kart(int v) {
-    bool racing = game.state == ST_COUNTDOWN || game.state == ST_RACE;
-    return racing ? game.pl[v].kart : game.player;
+    return player_views() ? game.pl[v].kart : game.player;
 }
 
 static void draw_finish_banner(int pi, float y0, float y1) {
@@ -1144,6 +1158,7 @@ static void render(void) {
         case ST_MAIN:
         case ST_MENU:
         case ST_TRACKS:
+        case ST_KARTS:
             title_draw();
             break;
         case ST_ONLINE:

@@ -388,7 +388,8 @@ void models_draw_karts(int view_kart) {
     int view = 0;
     for(int p = 0; p < game.num_players; p++)
         if(game.pl[p].kart == view_kart) view = p;
-    int sp = world_split ? 1 : 0;
+    /* The kart select shows each player's kart close up: full detail. */
+    int sp = world_split && game.state != ST_KARTS ? 1 : 0;
     /* A zoomed-in (TV) camera sees a far kart as if it were near. */
     float zoom = r_cam.fov < 1.2f ? r_cam.fov / 1.3f : 1.0f;
     for(int i = 0; i < kart_count; i++) {

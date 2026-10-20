@@ -23,7 +23,7 @@
 #ifdef DK_FILM
 
 static const char *const state_names[] = {"title", "menu", "tracks", "intro", "countdown", "race", "results",
-                                          "main", "online"};
+                                          "main", "online", "karts"};
 
 /* What happened since the last step, for the highlight log. */
 static void film_log(void) {
@@ -159,9 +159,9 @@ static void show_script(void) {
             }
             break;
         case ST_MENU: {
-            /* Rows: mode, cc, laps, power-ups, colour, (player 2's colour), start.
+            /* Rows: mode, cc, laps, power-ups, colour (one player), start.
                150cc, then step through some colours, landing on the planned
-               one. */
+               one. Two players pick theirs on the kart select. */
             int start = (plan[r].colour[0] - plan[r].browse + 8) % 8;
             if(step == 0 && due(1.2f)) {
                 input_film_tap(0, BTN_DOWN);
@@ -177,31 +177,54 @@ static void show_script(void) {
             }
             else if(step == 3 && due(0.4f)) {
                 input_film_tap(0, BTN_DOWN);
-                /* Already on screen, so stepping lands on the plan. A colour
-                   the other player holds is skipped, so player 2 starts one
-                   short of theirs and off player 1's path. */
-                game.pl[0].colour = start;
                 if(plan[r].players > 1) {
-                    int c2 = (plan[r].colour[1] + 7) % 8;
-                    for(int i = 0; i <= plan[r].browse; i++)
-                        if((start + i) % 8 == c2) c2 = plan[r].colour[1];
-                    game.pl[1].colour = c2;
+                    step = 6;
+                    break;
                 }
+                /* Already on screen, so stepping lands on the plan. */
+                game.pl[0].colour = start;
                 race_setup();
                 step = 4;
             }
             else if(step == 4 && due(0.8f)) {
                 if(game.pl[0].colour != plan[r].colour[0] && taps++ < 10) input_film_tap(0, BTN_RIGHT);
-                else step = 5, taps = 0;
-            }
-            else if(step == 5 && due(0.6f)) {
-                if(plan[r].players > 1 && game.pl[1].colour != plan[r].colour[1] && taps++ < 10)
-                    input_film_tap(1, BTN_RIGHT);
-                else step = 6;
+                else step = 6, taps = 0;
             }
             else if(step == 6 && due(1.2f)) {
                 pad.pressed |= BTN_START;
                 step = 7;
+            }
+            break;
+        }
+        case ST_KARTS: {
+            /* Each player browses to their planned colour and readies up. A
+               colour the other player holds is skipped, so player 2 starts
+               one short of theirs and off player 1's path. */
+            int start = (plan[r].colour[0] - plan[r].browse + 8) % 8;
+            if(step == 0 && due(0.6f)) {
+                game.pl[0].colour = start;
+                int c2 = (plan[r].colour[1] + 7) % 8;
+                for(int i = 0; i <= plan[r].browse; i++)
+                    if((start + i) % 8 == c2) c2 = plan[r].colour[1];
+                game.pl[1].colour = c2;
+                race_setup();
+                step = 1;
+            }
+            else if(step == 1 && due(0.8f)) {
+                if(game.pl[0].colour != plan[r].colour[0] && taps++ < 10) input_film_tap(0, BTN_RIGHT);
+                else step = 2, taps = 0;
+            }
+            else if(step == 2 && due(0.6f)) {
+                input_film_tap(0, BTN_A);
+                step = 3;
+            }
+            else if(step == 3 && due(0.6f)) {
+                if(game.pl[1].colour != plan[r].colour[1] && taps++ < 10) input_film_tap(1, BTN_RIGHT);
+                else step = 4;
+            }
+            else if(step == 4 && due(0.6f)) {
+                input_film_tap(1, BTN_A);
+                step = 5;
             }
             break;
         }
