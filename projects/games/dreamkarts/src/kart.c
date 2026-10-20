@@ -10,7 +10,8 @@
    - Holding the button without steering charges a jump (Mario Kart World's
      charge jump); release to spring into the air.
 
-   Physics run at a fixed 60 Hz step. Velocity follows the heading through a
+   Physics step once per displayed frame, at the measured vblank period
+   (see main.c). Velocity follows the heading through a
    grip blend, so slides drift outward naturally while the body is drawn
    yawed into the turn. */
 #include "kart.h"
