@@ -13,7 +13,7 @@
    themselves and the one slot you have to drive through. */
 #define EMERALD_RESPAWN   0.3f
 #define EMERALD_HOVER     0.85f   /* gem centre above the road */
-#define EMERALD_SCALE     2.07f   /* about a metre tall */
+#define EMERALD_SCALE     2.28f   /* about 1.1 m tall */
 #define HELD_SCALE        0.62f
 #define PICK_ALONG        0.9f    /* metres either side of the band */
 #define PICK_LATERAL      1.45f
