@@ -137,10 +137,8 @@ static void *worker(void *arg) {
             read_name(name);
             mutex_lock(&lock);
             strcpy(on_card, name);
-            if(name[0]) {
-                strcpy(loaded, name);
-                load_done = true;
-            }
+            strcpy(loaded, name);   /* a pulled or junked card forgets the old one */
+            if(name[0]) load_done = true;
         }
         else if(want[0] && strcmp(want, on_card) != 0) {
             strcpy(name, want);
@@ -172,6 +170,14 @@ void save_load_name(void) {
     mutex_unlock(&lock);
 }
 
+bool save_peek_name(char *out, size_t size) {
+    mutex_lock(&lock);
+    bool got = loaded[0] != '\0';
+    if(got) snprintf(out, size, "%s", loaded);
+    mutex_unlock(&lock);
+    return got;
+}
+
 bool save_take_name(char *out, size_t size) {
     mutex_lock(&lock);     /* the worker never holds it across card access */
     bool got = load_done;
@@ -184,6 +190,7 @@ bool save_take_name(char *out, size_t size) {
 void save_store_name(const char *name) {
     mutex_lock(&lock);
     snprintf(want, sizeof(want), "%s", name);
+    strcpy(loaded, want);   /* the name to show from now on, card or no card */
     wake_worker();
     mutex_unlock(&lock);
 }

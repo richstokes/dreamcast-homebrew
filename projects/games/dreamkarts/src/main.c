@@ -1032,6 +1032,11 @@ static void update(float dt) {
         case ST_MENU:
         case ST_TRACKS:
         case ST_KARTS:
+#ifdef DK_AT_NAME
+            /* The name test goes online from the title a couple of seconds
+               in, as a player would, with the boot read done by then. */
+            if(game.state == ST_TITLE && game.time > 2.0f) { online_enter(); break; }
+#endif
             title_update(dt);
             /* Idle karts on the grid still bounce a little. */
             for(int i = 0; i < kart_count; i++) {
@@ -1537,9 +1542,9 @@ int main(int argc, char **argv) {
     record_races(boot_t0);
     return 0;
 #endif
-#if defined(DK_AT_ONLINE) || defined(DK_AT_NAME) || defined(DK_FILM_SPECTATE)
+#if defined(DK_AT_ONLINE) || defined(DK_FILM_SPECTATE)
     online_enter();
-#elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE)
+#elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE) && !defined(DK_AT_NAME)
     game.cc = CC_150;
 #ifdef DK_AT_CC
     game.cc = DK_AT_CC;

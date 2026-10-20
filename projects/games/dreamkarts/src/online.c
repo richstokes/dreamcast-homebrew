@@ -56,6 +56,9 @@ static struct {
 } rmotion;
 #endif
 static const pvr_poly_hdr_t *h_flat;
+#ifdef DK_AT_NAME
+static char entry_name[NET_NAME_LEN];   /* the name the screen opened on */
+#endif
 
 static const char *const key_rows[4] = {"ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ0123", "456789-. "};
 static const int laps_options[3] = {3, 5, 10};
@@ -63,6 +66,9 @@ static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
 
 void online_init(void) {
     h_flat = r_header(TEX_NONE, HF_TR | HF_NOFOG | HF_NOZTEST);
+    /* Read the saved name now, while the title plays, so the name screen
+       opens on it instead of flashing the default first. */
+    save_load_name();
 }
 
 static void set_screen(int s) {
@@ -80,7 +86,12 @@ void online_enter(void) {
     link_prepare();
     key_row = key_col = 0;
     name_typed = false;
-    save_load_name();
+    save_load_name();   /* again, for a card put in since boot */
+    save_peek_name(name, sizeof(name));   /* the known name, before the re-read lands */
+#ifdef DK_AT_NAME
+    printf("DK NAME: entry %s\n", name);
+    strcpy(entry_name, name);
+#endif
 }
 
 static void back_to_menu(void) {
@@ -559,10 +570,11 @@ static void lobby_update(void) {
 
 #ifdef DK_AT_NAME
 /* VMU name test: report the name the card gave back (it should match
-   DK_AT_NAME_WANT, saved by an earlier boot), then save DK_AT_NAME the way
-   pressing Start does and give the worker time to write it. With
-   DK_AT_NAME_CORRUPT it first overwrites the file with junk and checks a
-   reload keeps the default. */
+   DK_AT_NAME_WANT, saved by an earlier boot, and already be there when the
+   screen opens, since the boot read ran during the title), then save
+   DK_AT_NAME the way pressing Start does and give the worker time to write
+   it. With DK_AT_NAME_CORRUPT it first overwrites the file with junk and
+   checks a reload keeps the default. */
 #include <dc/vmufs.h>
 #define AT_STR_(x) #x
 #define AT_STR(x) AT_STR_(x)
@@ -574,7 +586,7 @@ static void name_autotest(float dt) {
     if(step == 0 && t > 3.0f) {
         printf("DK NAME: loaded %s\n", name);
 #ifdef DK_AT_NAME_WANT
-        ok = strcmp(name, AT_STR(DK_AT_NAME_WANT)) == 0;
+        ok = strcmp(name, AT_STR(DK_AT_NAME_WANT)) == 0 && strcmp(entry_name, AT_STR(DK_AT_NAME_WANT)) == 0;
 #endif
 #ifdef DK_AT_NAME_CORRUPT
         static uint8_t junk[1024];
