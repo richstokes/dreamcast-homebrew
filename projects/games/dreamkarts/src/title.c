@@ -851,7 +851,7 @@ void title_draw(void) {
         char sub[48];
         snprintf(sub, sizeof(sub), "%s GRAND PRIX", track.name);
         hud_text(320, 196, 0.62f, ALIGN_CENTER, argb(255, 255, 255, 255), sub);
-        hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(200, 230, 240, 255), "github.com/richstokes - 2026");
+        hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(200, 230, 240, 255), "github.com/richstokes");
         /* Build id for bug reports: the commit this was built from. */
         hud_text(604, 446, 0.32f, ALIGN_RIGHT, argb(150, 230, 240, 255), DK_GIT_SHA);
     }
