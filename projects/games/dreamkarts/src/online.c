@@ -718,6 +718,42 @@ static uint32_t ping_colour(int ms) {
     return ms < 120 ? argb(255, 120, 255, 140) : ms < 250 ? argb(255, 255, 220, 80) : argb(255, 255, 110, 90);
 }
 
+/* The server re-measures ping with every packet, a few times a second, so
+   the raw figure flickers. The lobby shows each player's average over the
+   last second instead, all changing together once a second. */
+typedef struct {
+    char name[NET_NAME_LEN];
+    int shown, sum, samples;
+} PingAvg;
+static PingAvg ping_avg[NET_MAX_PLAYERS];
+static uint64_t ping_tick;
+
+static void average_pings(const NetLobby *l) {
+    for(int i = 0; i < l->count; i++) {
+        const NetPlayer *p = &l->players[i];
+        if(p->slot >= NET_MAX_PLAYERS) continue;
+        PingAvg *a = &ping_avg[p->slot];
+        if(strcmp(a->name, p->name)) {   /* someone new in the slot */
+            memset(a, 0, sizeof(*a));
+            strcpy(a->name, p->name);
+        }
+        a->sum += p->ping;
+        a->samples++;
+    }
+    uint64_t now = net_now();
+    if(now - ping_tick < 1000) return;
+    ping_tick = now;
+    for(int s = 0; s < NET_MAX_PLAYERS; s++) {
+        if(ping_avg[s].samples) ping_avg[s].shown = (ping_avg[s].sum + ping_avg[s].samples / 2) / ping_avg[s].samples;
+        ping_avg[s].sum = ping_avg[s].samples = 0;
+    }
+}
+
+static int shown_ping(const NetPlayer *p) {
+    if(p->slot >= NET_MAX_PLAYERS || !ping_avg[p->slot].shown) return p->ping;   /* first second */
+    return ping_avg[p->slot].shown;
+}
+
 static void draw_name(void) {
     title_bar("ONLINE");
     panel(100, 84, 540, 420);
@@ -829,6 +865,7 @@ static int ranked(const NetLobby *l, int *order) {
 
 static void draw_standings(const NetLobby *l, float x0, float y0, float x1) {
     int order[NET_MAX_PLAYERS], n = ranked(l, order);
+    average_pings(l);
     hud_text(x0 + 16, y0, 0.5f, ALIGN_LEFT, argb(220, 200, 225, 255), "PLAYER");
     hud_text(x1 - 96, y0, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), "PING");
     hud_text(x1 - 16, y0, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), "PTS");
@@ -851,8 +888,9 @@ static void draw_standings(const NetLobby *l, float x0, float y0, float x1) {
         hud_text(x0 + 80, lead ? y - 5 : y, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, p->name);
         if(lead) hud_text(x0 + 82, y + 20, 0.36f, ALIGN_LEFT, argb(255, 255, 220, 60), "LOBBY LEADER");
         char buf[16];
-        snprintf(buf, sizeof(buf), "%dms", p->ping);
-        hud_text(x1 - 96, y + 3, 0.5f, ALIGN_RIGHT, ping_colour(p->ping), buf);
+        int ping = shown_ping(p);
+        snprintf(buf, sizeof(buf), "%dms", ping);
+        hud_text(x1 - 96, y + 3, 0.5f, ALIGN_RIGHT, ping_colour(ping), buf);
         snprintf(buf, sizeof(buf), "%d", p->points);
         hud_text(x1 - 16, y, 0.62f, ALIGN_RIGHT, argb(255, 255, 226, 70), buf);
     }
