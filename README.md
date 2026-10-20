@@ -95,3 +95,9 @@ Bazaar use [SH4ZAM](https://sh4zam.com/), the SH-4 math library by Falco
 Girgis and contributors, available under the
 [MIT License](https://github.com/gyrovorbis/sh4zam/blob/master/LICENSE).
 It is fetched at build time and not included in this repository.
+
+## Support
+
+If you enjoy these projects and want to support my work, you can buy me a coffee. Totally optional, but much appreciated!
+
+<a href="https://buymeacoffee.com/richstokes"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a>
