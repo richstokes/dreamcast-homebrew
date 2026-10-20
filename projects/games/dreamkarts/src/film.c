@@ -6,7 +6,8 @@
    the menus (stepping through the colours and the track select) and a set
    of single-player and split-screen races with the CPU driving every
    kart, then starts the set again. Add -DDK_FILM_CLEAN to leave out the HUD
-   and spectator overlay while racing (clean stills for thumbnails).
+   and spectator overlay while racing (clean stills for thumbnails), and
+   -DDK_FILM_NO_MUSIC for the sound effects without the music.
 
    Every interesting moment is logged as a "DK FILM" line (camera cuts,
    overtakes, jumps, falls, purple boosts, laps, finishes) so a recording
@@ -16,6 +17,8 @@
 #include "spectate.h"
 #include "track.h"
 #include "dolphins.h"
+#include "items.h"
+#include "audio.h"
 
 #ifdef DK_FILM
 
@@ -27,12 +30,14 @@ static void film_log(void) {
     static int last_state = -1, last_track = -1, last_lap, last_mode = -1, last_target = -1;
     static int order[MAX_KARTS];
     static bool air[MAX_KARTS], fell[MAX_KARTS], done[MAX_KARTS], dolphins;
+    static int held[MAX_KARTS];
     static float order_t;
     if(game.state != last_state || game.track != last_track) {
         if(game.state == ST_INTRO || game.state == ST_COUNTDOWN || game.track != last_track) {
             memset(air, 0, sizeof(air));
             memset(fell, 0, sizeof(fell));
             memset(done, 0, sizeof(done));
+            memset(held, 0, sizeof(held));
             memset(order, 0xff, sizeof(order));
             last_lap = 0;
             dolphins = false;
@@ -69,6 +74,17 @@ static void film_log(void) {
         if(k->events & EV_KART_BUMP) printf("DK FILM bump %s\n", k->name);
         if(k->events & EV_JUMP) printf("DK FILM jump %s\n", k->name);
         if(k->events & EV_FALL) printf("DK FILM fall %s\n", k->name);
+        /* Power-ups, from state as well as events: a watched rival's item
+           comes from the network. */
+        if(k->item != held[i]) {
+            if(k->item != ITEM_NONE) printf("DK FILM get %s %s\n", k->name, items_name(k->item));
+            else if(held[i] == ITEM_SNEAKERS) printf("DK FILM sneakers %s\n", k->name);
+            held[i] = k->item;
+        }
+        if(k->events & EV_SPEAR) printf("DK FILM spear %s\n", k->name);
+        if(k->events & EV_SPIN) printf("DK FILM spin %s\n", k->name);
+        if(k->events & EV_SHIELD_UP) printf("DK FILM barrier %s\n", k->name);
+        if(k->events & EV_SHIELD_POP) printf("DK FILM barrier-pop %s\n", k->name);
     }
     if(lead_lap != last_lap && lead_lap > 0) {
         printf("DK FILM lap %d of %d\n", lead_lap, game.laps);
@@ -97,12 +113,10 @@ static void film_log(void) {
 /* The set of races: players, track, each player's colour, and how many
    colours to step through first so the menu kart changes on camera. */
 static const struct { int players, track, colour[2], browse; } plan[] = {
-    {1, TRACK_BEACH, {6, 0}, 4},
+    {1, TRACK_CYBERSTONE, {6, 0}, 3},
     {2, TRACK_FIGURE8, {2, 5}, 2},
-    {1, TRACK_SKYWAY, {5, 0}, 2},
-    {2, TRACK_TEMPLE, {6, 3}, 1},
-    {1, TRACK_HARBOUR, {3, 0}, 2},
-    {2, TRACK_SKYWAY, {0, 7}, 1},
+    {1, TRACK_TEMPLE, {5, 0}, 2},
+    {2, TRACK_BEACH, {0, 7}, 1},
 };
 #define PLAN_N ((int)(sizeof(plan) / sizeof(plan[0])))
 
@@ -145,7 +159,7 @@ static void show_script(void) {
             }
             break;
         case ST_MENU: {
-            /* Rows: mode, cc, laps, colour, (player 2's colour), start.
+            /* Rows: mode, cc, laps, power-ups, colour, (player 2's colour), start.
                150cc, then step through some colours, landing on the planned
                one. */
             int start = (plan[r].colour[0] - plan[r].browse + 8) % 8;
@@ -158,8 +172,8 @@ static void show_script(void) {
                 else step = 2;
             }
             else if(step == 2 && due(0.5f)) {
-                input_film_tap(0, BTN_DOWN);   /* past the laps */
-                step = 3;
+                input_film_tap(0, BTN_DOWN);   /* past the laps, then the power-ups */
+                if(++taps == 2) step = 3, taps = 0;
             }
             else if(step == 3 && due(0.4f)) {
                 input_film_tap(0, BTN_DOWN);
@@ -232,6 +246,10 @@ static void show_script(void) {
 
 void film_step(float dt) {
     (void)dt;
+#ifdef DK_FILM_NO_MUSIC
+    /* Effects only, for footage that gets its own soundtrack. */
+    audio_music_enable(false);
+#endif
 #ifdef DK_FILM_CLEAN
     /* Stills for thumbnails: no HUD or spectator overlay while racing. */
     if(game.state == ST_COUNTDOWN || game.state == ST_RACE || game.state == ST_RESULTS) dk_probe_off |= PROBE_HUD;

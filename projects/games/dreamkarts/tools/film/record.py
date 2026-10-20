@@ -6,7 +6,7 @@
 """Record a DreamKarts film ELF in Flycast through OBS.
 
 usage: OBS_WS_PASSWORD=... uv run tools/film/record.py <elf> <name>
-           [--max-secs N] [--stop-on TEXT] [--setup-only] [--no-record]
+           [--max-secs N] [--stop-on TEXT [--stop-after SECS]] [--setup-only] [--no-record]
 OBS must be running with its websocket server on port 4455.
 
 OBS gets its own profile and scene collection ("DreamKarts Film") so the
@@ -127,6 +127,7 @@ def main():
     ap.add_argument('name')
     ap.add_argument('--max-secs', type=float, default=600)
     ap.add_argument('--stop-on', default='')
+    ap.add_argument('--stop-after', type=float, default=0, help='keep recording this long after --stop-on')
     ap.add_argument('--setup-only', action='store_true')
     ap.add_argument('--no-record', action='store_true')
     a = ap.parse_args()
@@ -174,9 +175,9 @@ def main():
         t0 = time.time()
     log = open(out / f'{a.name}.log', 'w')
     pos = 0
-    stop = False
+    stop_at = None
     try:
-        while not stop:
+        while stop_at is None or time.time() < stop_at:
             time.sleep(0.05)
             if proc.poll() is not None:
                 print('Flycast exited', proc.returncode)
@@ -194,8 +195,8 @@ def main():
                         log.flush()
                         if 'state' in line or 'error' in line or 'panic' in line or 'Unhandled' in line:
                             print(f'{now:8.1f} {line}', flush=True)
-                        if a.stop_on and a.stop_on in line:
-                            stop = True
+                        if a.stop_on and a.stop_on in line and stop_at is None:
+                            stop_at = time.time() + a.stop_after
             if now > a.max_secs:
                 break
     finally:

@@ -160,7 +160,10 @@ needs no Python.
 Other builds: `VARIANT=record` with `-DDK_RECORD` records the server's demo
 races (see [server/README.md](server/README.md#demo-lobby)); `VARIANT=film`
 with `-DDK_FILM_SPECTATE` or `-DDK_FILM_SHOW` plays trailer footage with
-`DK FILM` highlight lines, recorded through OBS and cut by `tools/film/`.
+`DK FILM` highlight lines, recorded through OBS and cut by `tools/film/`
+(`-DDK_FILM_NO_MUSIC` for effects only, `-DDK_FILM_CLEAN` for no HUD). To film
+chosen tracks, point it at a local lobby server (`-DDK_NET_TEST_HOST=<Mac IP>`)
+whose demo races are limited to those tracks.
 
 ## Performance
 
