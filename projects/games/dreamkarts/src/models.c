@@ -473,6 +473,10 @@ V3 models_exhaust_world(const Kart *k, int which) {
     return kart_point(k, v3(e[0], e[1], e[2]));
 }
 
+V3 models_kart_point_world(const Kart *k, V3 local) {
+    return kart_point(k, local);
+}
+
 V3 models_wheel_world(const Kart *k, int wheel) {
     const float *p = dk_part_pivot[DK_PART_WHEEL_FL + wheel];
     return kart_point(k, v3(p[0], 0.02f, p[2]));

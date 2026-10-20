@@ -14,7 +14,9 @@ enum {
     EV_BOOST = 1 << 6, EV_DASH = 1 << 7, EV_WALL = 1 << 8,
     EV_KART_BUMP = 1 << 9, EV_LAP = 1 << 10, EV_FINISH = 1 << 11,
     EV_CHARGE_JUMP = 1 << 12, EV_ROCKET = 1 << 13, EV_BURNOUT = 1 << 14,
-    EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17, EV_FALL = 1 << 18
+    EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17, EV_FALL = 1 << 18,
+    EV_ITEM_GET = 1 << 19, EV_ITEM_USE = 1 << 20, EV_SPEAR = 1 << 21, EV_SPIN = 1 << 22,
+    EV_SHIELD_UP = 1 << 23, EV_SHIELD_POP = 1 << 24
 };
 
 typedef struct {
@@ -82,6 +84,16 @@ typedef struct {
     float wave_back_t;  /* CPU: seconds until it waves back at a human */
     float cheer_t;      /* seconds spent cheering a win */
     float arm_up[2];    /* left/right arm off the wheel and raised, 0..1 */
+    float raise_t;      /* seconds left holding a used emerald overhead */
+
+    /* Power-ups (items.c) */
+    int item;           /* ITEM_* held */
+    float item_t;       /* seconds held */
+    float ai_item_delay;/* CPU: seconds before it thinks about using it */
+    float spin_t;       /* seconds of spin-out left (0 = driving) */
+    int spin_dir;
+    float shield_t;     /* seconds of barrier left */
+    int spear_seq;      /* this kart's last spear number, 1-7 */
 
     /* Identity */
     bool cpu;
@@ -127,6 +139,8 @@ extern const CCParams cc_params[CC_COUNT];
 void kart_place_on_grid(Kart *k, int slot);
 void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive);
 void kart_start_boost(Kart *k, float seconds, float kick);
+/* Hit by a spear: a spin with the controls dead for SPIN_LEN seconds. */
+void kart_spin_out(Kart *k, int dir);
 void karts_collide(void);
 void ai_drive(Kart *k, KartInput *in, float dt);
 /* Replace a CPU's personality (the demo-race recorder varies them). */

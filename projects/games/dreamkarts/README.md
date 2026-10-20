@@ -24,6 +24,7 @@ Highlights:
 - Grand Prix (3, 5 or 10 laps at 50/100/150cc), Time Trial and two-player split screen (GP with CPUs or Versus)
 - Online multiplayer over a Broadband Adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
+- Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear and a Barrier, offline and online
 - Rocket starts, charge jumps, burnouts, emotes and final-lap dolphins
 - Four original songs, 32 effects, Chao voices by colour and Jump Pack rumble
 - VMU screens for the countdown, place, lap and results
@@ -42,13 +43,37 @@ is also available.
 | A | X | Accelerate (menus: OK) |
 | B | C | Brake, even while holding A; reverse with A released (menus: back) |
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
-| Y, or both triggers together | D (or F and V together) | Wave |
+| Y | D | Use the held power-up (with down held, throw a Chaos Spear backwards); wave when holding nothing |
+| Both triggers together | F and V together | Wave |
 | Start | Return | Pause (continue / restart / music on-off / quit) |
 
 Player 2 uses the second controller with the same layout; a Jump Pack in
 either slot vibrates for that player. To drift, hold A, press and hold R as
 you turn in, push the stick inward to tighten or outward to widen, and
 release when the sparks are orange or purple.
+
+## Power-ups
+
+Chaos Emeralds hover over the road at two to four bands a lap, each in one
+of four slots across the road, picked per race from a seed every console
+shares, so the inside or outside slot costs you a tenth or two. Drive
+through one and your Chao keeps it: a gem trails your kart and a small one
+sits beside the lap counter with a Y. A taken emerald bursts and pops
+straight back in a new colour, so a whole pack through the band each gets
+one; a kart already holding something drives past.
+
+| Emerald | Item | On Y |
+| --- | --- | --- |
+| Blue | Power Sneakers | A boost like a purple mini-turbo, 1.6 s in first place to 2.6 s in sixth; cuts through sand like any boost |
+| Red | Chaos Spear | A homing shot that flies along the track at the next kart ahead within 60 m (behind you with down held), spinning out whoever it hits for a second; it follows bends and jumps, and a late swerve can dodge it |
+| Green | Barrier | A bubble for six seconds that soaks up one Spear |
+
+CPU rivals take emeralds on their line and use them after a moment's
+thought, and leave the leading human alone on their final lap. The race
+setup menu's ITEMS switch turns them off; a solo time trial never has them,
+so lap times stay honest. Online the lobby leader has the same switch, and
+a Spear's hit is judged only by the console driving the kart it hits (see
+[server/PROTOCOL.md](server/PROTOCOL.md)).
 
 ## Build and run
 
@@ -79,7 +104,7 @@ falling back to `555` with login `dream` / `cast`, which a
 [DreamPi](https://github.com/Kazade/dreampi) accepts. The name is saved to
 the first VMU found.
 
-- Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps and class, and starts once two are in
+- Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps, class and whether power-ups are on, and starts once two are in
 - Each console drives its own kart; the server starts the countdown and decides places. Points (10/8/6/4/2/1) add up while you stay in the lobby
 - Y on any lobby spectates it, with a TV director: X or the triggers pick a camera, left/right a kart, Y hides the overlay
 - Lobby 10 is a demo lobby of bots, watch only
@@ -88,7 +113,7 @@ the first VMU found.
 The Go server, its test bot, the local test recipe and the checklist for any
 change to online play are in [server/README.md](server/README.md); the wire
 format is in [server/PROTOCOL.md](server/PROTOCOL.md). A race uses about
-1 KB/s up and 2.5 KB/s down on a 56k modem.
+1 KB/s up and under 3 KB/s down on a 56k modem.
 
 ## Assets
 
@@ -107,8 +132,8 @@ needs no Python.
 
 | Command | What it checks |
 | --- | --- |
-| `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue or a missed jump) |
-| `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` |
+| `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, every emerald taken, spear thrown and hit as `DK ITEM` lines (and `misses band` for a kart that crossed a band off the slot), prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue or a missed jump) |
+| `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` (an emerald ahead, the held gem, a spear, a barrier and a spin-out included); `--log FILE` keeps the whole serial console |
 | `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh` (ask before touching it): 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
 | `make hw` | Plays the release build on the console and leaves it on (`tools/dc-hw.sh power off` afterwards) |
 | `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
@@ -121,6 +146,7 @@ needs no Python.
 | `-DDK_AT_TRACK=n` | Track 0-5 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone) |
 | `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
+| `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill |
 | `-DDK_AT_FIXED` | One 1/60 s step a frame and held screenshot frames: two runs give pixel-identical captures and `DK STATE` fingerprints, for before/after diffs |
 | `-DDK_XF_CHECK` (with `-DDK_AT_FIXED`) | Runs the C beside each `src/xform.S` routine; `DK XFCHECK ... mismatch=` must stay 0 |
 | `-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<ip>` | Goes online: joins lobby 9, races, passes when the results arrive (recipe in server/README.md) |
@@ -161,6 +187,14 @@ mostly to the translucency autosort. Flycast averages about 6 ms of CPU in
 the 1P race, so the console is about 1.4x slower for this code; `make
 hwbench` is the measurement that counts.
 
+Power-ups (2026-10-19, after the assembly loops): the same 150cc Emerald
+Beach race with emeralds, spears and barriers in play dropped 7 of 5,717
+frames (one in the race, at a 16 ms render) at 7.7 ms average CPU and a
+16.0 ms worst frame, within the table above. With `-DDK_AT_SHIELD_TEST`
+handing the player a Barrier every 12 s (36 of the race's 69 s under one),
+the PVR stayed at 11 to 13.5 ms and no race frame dropped. The GPU probe
+puts the items together with the particles at 0.1 to 0.7 ms.
+
 What each change saved on the console (ms a frame unless stated):
 
 | Change | Saving | Lesson |
@@ -192,6 +226,9 @@ the 4x4 matrix product in assembly (~0.1 ms).
 - Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches
 - Looping voices (engine, squeal, crackle) need channels reserved with `snd_sfx_chn_alloc()`, or one-shots steal them and pitch updates retune the wrong sound (`src/audio.c`)
 - Flycast's DCNet dial-up does not complete the game's PPP login; test the modem path with `DK_NET=modem`
+- Online, two level karts each see the other ~150 ms behind, so a power-up hit is only ever judged by the console driving the kart hit, and a spear spawned from a packet is moved on by the draw delay (`src/items.c`)
+- One emerald per band starves a tight pack if it takes any time to come back: six CPUs cross a band within a second, so it pops back at once
+- Anything translucent drawn round your own kart fills most of the chase view: the Barrier's first bubble (three 2.5-2.9 m billboards) pushed the PVR to 20 ms and dropped ~70 frames a race; it is a 1.3 m core and ten small orbiting sparks now (`src/items.c`)
 
 ## Known limitations
 

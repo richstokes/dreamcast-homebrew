@@ -1463,6 +1463,81 @@ def sfx_star():
     return add_reverb(y * 0.6 + sh, 0.35, seconds=0.5, t60=0.45, seed="starr")[:int(0.52 * SR)]
 
 
+def sfx_emerald():
+    """Picking up a Chaos Emerald: a quick rising chime, Sonic style."""
+    rng = rng_for("emerald")
+    n = int(0.75 * SR)
+    t = np.arange(n) / SR
+    y = np.zeros(n)
+    for st, note, a in ((0.0, 88, 0.8), (0.06, 92, 0.85), (0.12, 95, 0.9), (0.18, 100, 1.0), (0.30, 104, 0.6)):
+        s = int(st * SR)
+        y[s:] += a * bell(midi_hz(note), n - s, CHIME, strike=0.12, seed=f"em{note}")
+    shimmer = filt(rng.standard_normal(n), "hp", 6500) * np.exp(-t / 0.18) * (0.5 + 0.5 * np.sin(TAU * 41 * t)) * 0.12
+    return add_reverb(y * 0.7 + shimmer, 0.3, seconds=0.6, t60=0.5, seed="emr")[:int(0.8 * SR)]
+
+
+def sfx_spear():
+    """A Chaos Spear leaving: a rising zap and a burst of air."""
+    rng = rng_for("spear")
+    n = int(0.55 * SR)
+    t = np.arange(n) / SR
+    zf = 260 * 2 ** (np.clip(t / 0.14, 0, 1) * 3.4)
+    zap = np.sin(TAU * np.cumsum(zf) / SR) * np.exp(-t / 0.09) * np.minimum(t / 0.003, 1)
+    zap += 0.4 * np.sin(TAU * np.cumsum(zf * 1.5) / SR) * np.exp(-t / 0.06)
+    wf = 500 * 2 ** (np.clip(t / 0.3, 0, 1) * 2.2)
+    whoosh = svf(rng.standard_normal(n), wf, 1.8, SR, "bp") * np.sin(np.pi * np.clip(t / 0.5, 0, 1)) ** 1.3 * 0.9
+    crackle = filt(rng.standard_normal(n), "hp", 4000) * np.exp(-t / 0.05) * 0.35
+    return softsat(zap * 0.9 + whoosh + crackle, 1.3)
+
+
+def sfx_spear_hit():
+    """A spear landing: a thump, a crack and the kart whipping round."""
+    rng = rng_for("spearhit")
+    n = int(0.7 * SR)
+    t = np.arange(n) / SR
+    tf = 40 + 110 * np.exp(-t / 0.035)
+    thump = np.sin(TAU * np.cumsum(tf) / SR) * np.exp(-t / 0.14) * 1.1
+    crack = filt(rng.standard_normal(n), "bp", 2200, 0.8) * np.exp(-t / 0.03) * 0.9
+    wf = 900 * 2 ** (-np.clip(t / 0.5, 0, 1) * 2.0)
+    trem = 0.5 + 0.5 * np.sin(TAU * 18 * t)
+    whirl = svf(rng.standard_normal(n), wf, 3.0, SR, "bp") * trem * np.exp(-t / 0.22) * 0.8
+    tone = np.sin(TAU * np.cumsum(wf * 0.5) / SR) * np.exp(-t / 0.2) * 0.25
+    return softsat(thump + crack + whirl + tone, 1.4)
+
+
+def sfx_barrier():
+    """The Barrier going up: a swell into a soft, bright chord."""
+    rng = rng_for("barrier")
+    n = int(0.8 * SR)
+    t = np.arange(n) / SR
+    swell = svf(rng.standard_normal(n), 300 + 2500 * np.clip(t / 0.25, 0, 1), 2.5, SR, "bp")
+    swell *= np.sin(np.pi * np.clip(t / 0.3, 0, 1)) ** 2 * 0.6
+    chord = np.zeros(n)
+    for note, a in ((64, 0.5), (71, 0.4), (76, 0.45), (83, 0.3)):
+        f = midi_hz(note)
+        chord += a * (np.sin(TAU * f * t) + 0.4 * np.sin(TAU * f * 2.01 * t)) * np.minimum(t / 0.08, 1)
+    chord *= np.where(t < 0.3, 1.0, np.exp(-(t - 0.3) / 0.25))
+    tick = bell(midi_hz(100), n, CHIME[:3], seed="bar")
+    tick = np.roll(tick, int(0.22 * SR)) * 0.35
+    tick[:int(0.22 * SR)] = 0
+    return add_reverb(swell + chord * 0.35 + tick, 0.3, seconds=0.6, t60=0.5, seed="barr")[:int(0.85 * SR)]
+
+
+def sfx_barrier_pop():
+    """A spear bursting on the Barrier: a glassy pop."""
+    rng = rng_for("barrierpop")
+    n = int(0.45 * SR)
+    t = np.arange(n) / SR
+    pop = filt(rng.standard_normal(n), "hp", 2500) * np.exp(-t / 0.018) * 1.2
+    pf = 1400 * np.exp(-t / 0.05) + 200
+    body = np.sin(TAU * np.cumsum(pf) / SR) * np.exp(-t / 0.06) * 0.8
+    shards = np.zeros(n)
+    for st, note in ((0.02, 103), (0.05, 99), (0.09, 106), (0.13, 96)):
+        s = int(st * SR)
+        shards[s:] += 0.4 * bell(midi_hz(note), n - s, CHIME[:3], seed=f"sh{note}")
+    return add_reverb(pop + body + shards, 0.25, seconds=0.4, t60=0.35, seed="popr")[:int(0.5 * SR)]
+
+
 SFX = [
     ("ENGINE_LOW", sfx_engine_low, True, 0.75),
     ("ENGINE_HIGH", sfx_engine_high, True, 0.65),
@@ -1496,6 +1571,11 @@ SFX = [
     ("CHAO_HYA", sfx_chao_hya, False, 0.65),
     ("WHOOSH", sfx_whoosh, False, 0.6),
     ("STAR", sfx_star, False, 0.5),
+    ("EMERALD", sfx_emerald, False, 0.6),
+    ("SPEAR", sfx_spear, False, 0.75),
+    ("SPEAR_HIT", sfx_spear_hit, False, 0.8),
+    ("BARRIER", sfx_barrier, False, 0.6),
+    ("BARRIER_POP", sfx_barrier_pop, False, 0.7),
 ]
 
 
@@ -3125,6 +3205,8 @@ SFX_LABELS = {
     "MENU_BACK": "MENU BACK", "CHAO": "CHAO", "CHAO_HAPPY": "HAPPY CHAO", "CHAO_HEY": "CHAO?",
     "CHAO_CHU": "CHU-CHU", "CHAO_YAY": "YA-YA", "CHAO_WAH": "WAH!", "CHAO_BUU": "BUU!", "CHAO_HYA": "HYA!",
     "WHOOSH": "WHOOSH", "STAR": "STAR",
+    "EMERALD": "EMERALD", "SPEAR": "CHAOS SPEAR", "SPEAR_HIT": "SPEAR HIT", "BARRIER": "BARRIER",
+    "BARRIER_POP": "BARRIER POP",
 }
 
 

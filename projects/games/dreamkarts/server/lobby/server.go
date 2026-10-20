@@ -79,6 +79,7 @@ type Lobby struct {
 	Track     byte
 	Laps      byte
 	CC        byte
+	Items     bool // power-ups (the leader's choice; on by default)
 	State     byte
 	RaceID    byte
 	Green     time.Time // countdown target / race start
@@ -112,7 +113,7 @@ func New(send func(netip.AddrPort, []byte), now time.Time) *Server {
 		}
 	}
 	for i := range s.Lobbies {
-		s.Lobbies[i] = &Lobby{ID: i, Leader: -1, Track: 0, Laps: 3, CC: 1}
+		s.Lobbies[i] = &Lobby{ID: i, Leader: -1, Track: 0, Laps: 3, CC: 1, Items: true}
 	}
 	return s
 }
@@ -162,7 +163,7 @@ func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
 			s.wish(p, body, now)
 		}
 	case TypeKart:
-		if len(body) >= 26 {
+		if len(body) >= 1+KartLen {
 			s.kart(p, body, now)
 		}
 	case TypePing:
@@ -402,6 +403,10 @@ func (s *Server) wish(p *Player, b []byte, now time.Time) {
 	}
 	l := s.Lobbies[p.Lobby]
 	colour, track, laps, cc, nonce := b[0], b[1], b[2], b[3], b[4]
+	items, hasItems := true, len(b) >= 6
+	if hasItems {
+		items = b[5]&WishItems != 0
+	}
 	if l.State == StateWaiting && colour < colours && colour != p.Colour && l.colourFree(colour, p) {
 		p.Colour = colour
 		l.dirty = true
@@ -423,6 +428,9 @@ func (s *Server) wish(p *Player, b []byte, now time.Time) {
 		}
 		if cc < ccCount && cc != l.CC {
 			l.CC, l.dirty = cc, true
+		}
+		if hasItems && items != l.Items {
+			l.Items, l.dirty = items, true
 		}
 		if nonce != l.Nonce && l.count() >= 2 {
 			s.startRace(l, now)
@@ -458,7 +466,8 @@ func (s *Server) startRace(l *Lobby, now time.Time) {
 	l.Green = now.Add(CountdownLen)
 	l.FirstFin = time.Time{}
 	l.dirty = true
-	s.Logf("lobby %d race %d: %d racers, track %d, %d laps, cc %d", l.ID, l.RaceID, len(racers), l.Track, l.Laps, l.CC)
+	s.Logf("lobby %d race %d: %d racers, track %d, %d laps, cc %d, items %v", l.ID, l.RaceID, len(racers), l.Track,
+		l.Laps, l.CC, l.Items)
 }
 
 func (s *Server) kart(p *Player, b []byte, now time.Time) {
@@ -472,13 +481,18 @@ func (s *Server) kart(p *Player, b []byte, now time.Time) {
 	s.takeKart(l, p, b[1:1+KartLen], now, now)
 }
 
-// takeKart records a racer's kart (the 21 relayed bytes, flags to race
-// time) as it was at time at.
+// takeKart records a racer's kart (the relayed bytes, flags to the spear)
+// as it was at time at. A shorter body (a demo recording made before the
+// item bytes) is padded with zeros: no item, no spear.
 func (s *Server) takeKart(l *Lobby, p *Player, k []byte, at, now time.Time) {
 	if l.State != StateCountdown && l.State != StateRacing && l.State != StateResults {
 		return
 	}
-	copy(p.Kart[:], k[:KartLen])
+	if len(k) > KartLen {
+		k = k[:KartLen]
+	}
+	p.Kart = [KartLen]byte{}
+	copy(p.Kart[:], k)
 	p.KartAt, p.HasKart = at, true
 	lap := k[13]
 	dist := binary.LittleEndian.Uint16(k[15:])
@@ -648,6 +662,11 @@ func (s *Server) sendLobby(l *Lobby, p *Player, now time.Time) {
 		}
 	}
 	b = binary.LittleEndian.AppendUint32(b, uint32(left))
+	var items byte
+	if l.Items {
+		items = 1
+	}
+	b = append(b, items)
 	s.send(p.Addr, b)
 }
 

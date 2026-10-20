@@ -15,6 +15,7 @@
    grip blend, so slides drift outward naturally while the body is drawn
    yawed into the turn. */
 #include "kart.h"
+#include "items.h"
 
 Kart karts[MAX_KARTS];
 int kart_count;
@@ -72,7 +73,8 @@ static void emote_update(Kart *k, const KartInput *in, float dt) {
     k->cheer_t = cheer ? k->cheer_t + dt : 0;
     if(cheer) k->wave_t = 0;
     k->wave_t = fmaxf(k->wave_t - dt, 0);
-    float up_l = cheer ? 1.0f : 0.0f, up_r = cheer || k->wave_t > ARM_LOWER ? 1.0f : 0.0f;
+    /* The right arm also goes up to hold a used emerald overhead. */
+    float up_l = cheer ? 1.0f : 0.0f, up_r = cheer || k->wave_t > ARM_LOWER || k->raise_t > 0 ? 1.0f : 0.0f;
     k->arm_up[0] = approach(k->arm_up[0], up_l, 4.5f * dt);
     k->arm_up[1] = approach(k->arm_up[1], up_r, 4.5f * dt);
 }
@@ -179,6 +181,24 @@ static void end_drift(Kart *k, bool award) {
     k->stage = 0;
     k->drift_t = 0;
     k->charge_jump_t = 0;
+}
+
+void kart_spin_out(Kart *k, int dir) {
+    if(k->drift != DRIFT_NONE) end_drift(k, false);
+    k->spin_t = SPIN_LEN;
+    k->spin_dir = dir < 0 ? -1 : 1;
+    k->speed *= SPIN_SPEED_MUL;
+    k->boost_t = 0;
+    k->charge_jump_t = 0;
+    k->events |= EV_SPIN;
+}
+
+/* The body whips round during a spin-out, slowing to a stop as the
+   controls come back. */
+static float spin_yaw(const Kart *k) {
+    float f = 1.0f - k->spin_t / SPIN_LEN;
+    f = f * f * (3.0f - 2.0f * f);
+    return (float)k->spin_dir * f * DK_TAU;
 }
 
 static void start_drift(Kart *k, int dir) {
@@ -400,6 +420,11 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
     float yaw_target = k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * (0.40f + 0.12f * steer * (float)k->drift_dir)
                                                 : steer * 0.10f * clampf(spd / 8.0f, 0, 1);
     k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
+    if(k->spin_t > 0) {
+        k->spin_t -= dt;
+        k->vis_yaw = k->spin_t > 0 ? spin_yaw(k) : 0;
+        if(k->spin_t < 0) k->spin_t = 0;
+    }
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -steer * 0.05f * clampf(spd / top, 0, 1);
     if(grounded) lean += bank_roll(k);
     k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
@@ -426,6 +451,17 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
 void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->events = 0;
     float top = kart_top_speed(k);
+    /* Spun out: no steering, throttle or drift until it stops. */
+    static const KartInput dead = {0};
+    bool spinning = k->spin_t > 0;
+    if(spinning) {
+        k->spin_t -= dt;
+        if(k->spin_t <= 0) {
+            k->spin_t = 0;
+            k->vis_yaw = 0;
+        }
+        in = &dead;
+    }
     bool btn = in->drift && can_drive;
     bool pressed = btn && !k->prev_drift_btn;
     bool released = !btn && k->prev_drift_btn;
@@ -639,6 +675,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     else
         yaw_target = k->steer * 0.10f * clampf(spd / 8.0f, 0, 1);
     k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
+    if(k->spin_t > 0) k->vis_yaw = spin_yaw(k);
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -k->steer * 0.05f * clampf(spd / top, 0, 1);
     if(k->grounded) lean += bank_roll(k);
     k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
@@ -741,6 +778,7 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         lane += sway * sinf(s * (DK_TAU / track.length) * ai_style[idx].sways + (float)idx * 1.7f);
     }
     float td = clampf(track_line(s + look) + lane, -6.0f, 6.0f);
+    td = items_ai_lane(k, s + look, td);
     V3 tp = track_point(s + look, td);
     float dx = tp.x - k->pos.x, dz = tp.z - k->pos.z;
     float dist = fmaxf(sqrtf(dx * dx + dz * dz), 1.0f);
@@ -801,6 +839,7 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         }
     }
     in->drift = k->ai_drift_btn;
+    items_ai(k, in, dt);
 }
 
 void kart_set_ai_style(int idx, float look, float sway, float sways, float lead, float grip) {

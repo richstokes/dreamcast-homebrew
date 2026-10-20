@@ -11,16 +11,16 @@ import (
 
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
-	Proto    = 1
-	Build    = 10
-	MinBuild = 10
+	Proto    = 2
+	Build    = 11
+	MinBuild = 11
 )
 
 const (
 	MaxLobbies = 10
 	MaxPlayers = 6
 	NameLen    = 11 // 10 characters and a NUL
-	KartLen    = 21 // KART body bytes relayed in RACE packets (offsets 19-39)
+	KartLen    = 25 // KART body bytes relayed in RACE packets (offsets 19-43)
 )
 
 // Packet types.
@@ -70,6 +70,13 @@ const (
 	KartFinished = 1 << 0
 	KartWaving   = 1 << 5 // relayed as-is; consoles animate the wave
 )
+
+// The item byte (KART offset 33) and the spear bytes (40-43) are relayed
+// as-is: the held power-up, barrier, spin-out and the kart's spear in
+// flight. Consoles judge hits on their own karts.
+
+// WISH flags (body byte 5, build 11).
+const WishItems = 1 << 0 // the leader's power-ups switch
 
 // ClientHeader is the block every console packet starts with.
 type ClientHeader struct {

@@ -52,7 +52,7 @@ static NetLobbyInfo lobbies[NET_LOBBIES];
 static NetLobby lobby;
 static int join_id = -1;
 static bool spectating;
-static int wish_colour, wish_track, wish_laps = 3, wish_cc = 1;
+static int wish_colour, wish_track, wish_laps = 3, wish_cc = 1, wish_items = 1;
 static uint8_t start_nonce;
 static NetKart my_kart;
 static int my_race_id;
@@ -220,12 +220,14 @@ void net_leave(void) {
     last_list = 0;
 }
 
-void net_wish(int colour, int track, int laps, int cc) {
-    bool changed = colour != wish_colour || track != wish_track || laps != wish_laps || cc != wish_cc;
+void net_wish(int colour, int track, int laps, int cc, int items) {
+    bool changed = colour != wish_colour || track != wish_track || laps != wish_laps || cc != wish_cc ||
+                   items != wish_items;
     wish_colour = colour;
     wish_track = track;
     wish_laps = laps;
     wish_cc = cc;
+    wish_items = items;
     if(changed) last_wish = 0;   /* send now */
 }
 
@@ -253,9 +255,14 @@ void net_encode_kart(uint8_t *b, const NetKart *k) {
     b[11] = (uint8_t)(int8_t)clampf(k->steer * 127.0f, -127, 127);
     b[12] = (uint8_t)k->stage;
     b[13] = (uint8_t)clampf((float)k->lap, 0, 255);
-    b[14] = 0;
+    const NetItems *it = &k->items;
+    b[14] = (uint8_t)((it->item & NKI_ITEM_MASK) | (it->shield ? NKI_SHIELD : 0) | (it->spun ? NKI_SPUN : 0) |
+                      ((it->spear_seq << NKI_SEQ_SHIFT) & NKI_SEQ_MASK) | (it->spear_back ? NKI_BACK : 0));
     put16(b + 15, (uint16_t)clampf(k->dist * 16.0f, 0, 65535));
     put32(b + 17, (uint32_t)(fmaxf(k->race_time, 0) * 1000.0f));
+    put16(b + 21, (uint16_t)clampf(it->spear_s * 16.0f, 0, 65535));
+    b[23] = (uint8_t)(int8_t)clampf(it->spear_d * 4.0f, -127, 127);
+    b[24] = it->spear_target >= 0 && it->spear_target < NET_MAX_PLAYERS ? (uint8_t)it->spear_target : 255;
 }
 
 static void decode_kart(const uint8_t *b, NetKart *k) {
@@ -270,6 +277,16 @@ static void decode_kart(const uint8_t *b, NetKart *k) {
     k->lap = b[13];
     k->dist = (float)get16(b + 15) / 16.0f;
     k->race_time = (float)get32(b + 17) / 1000.0f;
+    NetItems *it = &k->items;
+    memset(it, 0, sizeof(*it));
+    it->item = b[14] & NKI_ITEM_MASK;
+    it->shield = (b[14] & NKI_SHIELD) != 0;
+    it->spun = (b[14] & NKI_SPUN) != 0;
+    it->spear_seq = (b[14] & NKI_SEQ_MASK) >> NKI_SEQ_SHIFT;
+    it->spear_back = (b[14] & NKI_BACK) != 0;
+    it->spear_s = (float)get16(b + 21) / 16.0f;
+    it->spear_d = (float)(int8_t)b[23] / 4.0f;
+    it->spear_target = b[24] == 255 ? -1 : b[24];
 }
 
 static void copy_name(char *dst, const uint8_t *src) {
@@ -519,6 +536,8 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
             /* Build 7 servers add how long the race has left once someone
                has finished. */
             int32_t left = tail + 6 <= n ? (int32_t)get32(b + tail + 2) : 0;
+            /* Build 11 servers add the lobby's items switch. */
+            l->items = tail + 7 <= n ? b[tail + 6] : 1;
             if(l->state != NLS_RACING || left <= 0) {
                 l->end_ms = 0;
             }
@@ -549,8 +568,9 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
                 kart_armed = true;
             }
             int count = b[9];
-            for(int i = 0; i < count && 10 + i * 24 + 24 <= n; i++) {
-                const uint8_t *e = b + 10 + i * 24;
+            const int per = 3 + NET_KART_BYTES;
+            for(int i = 0; i < count && 10 + i * per + per <= n; i++) {
+                const uint8_t *e = b + 10 + i * per;
                 int slot = e[0];
                 if(slot < NET_MAX_PLAYERS && slot != lobby.you) take_kart(slot, e, now);
             }
@@ -637,20 +657,30 @@ void net_update(void) {
                receive path. */
             if(racing && have_kart && my_race_id == lobby.race_id && !received) {
                 if(now >= kart_due) {
-                    uint8_t b[26];
+                    uint8_t b[1 + NET_KART_BYTES + 4];
                     b[0] = (uint8_t)lobby.race_id;
                     net_encode_kart(b + 1, &my_kart);
-                    put32(b + 22, (uint32_t)now);
-                    send_packet(6, b, 26);
+                    put32(b + 1 + NET_KART_BYTES, (uint32_t)now);
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+                    {
+                        static uint8_t last_item;
+                        if(b[15] != last_item) {
+                            last_item = b[15];
+                            printf("DK NET send item byte %02x, spear at %u/16 m d %d/4 target %u\n", b[15],
+                                   (unsigned)get16(b + 22), (int8_t)b[24], b[25]);
+                        }
+                    }
+#endif
+                    send_packet(6, b, sizeof(b));
                     last_kart = now;
                     kart_armed = false;
                     kart_due = now + RELAY_MS + 25;   /* only if no relay arrives to set it */
                 }
             }
             if(now - last_wish >= 250) {
-                uint8_t b[5] = {(uint8_t)wish_colour, (uint8_t)wish_track, (uint8_t)wish_laps, (uint8_t)wish_cc,
-                                start_nonce};
-                send_packet(5, b, 5);
+                uint8_t b[6] = {(uint8_t)wish_colour, (uint8_t)wish_track, (uint8_t)wish_laps, (uint8_t)wish_cc,
+                                start_nonce, (uint8_t)(wish_items ? 1 : 0)};
+                send_packet(5, b, 6);
                 last_wish = now;
             }
             break;

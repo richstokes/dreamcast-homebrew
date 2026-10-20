@@ -4,6 +4,7 @@
 #define DK_NET_H
 
 #include "dk.h"
+#include "items.h"
 #include "net_version.h"
 
 #define NET_LOBBIES     10
@@ -36,6 +37,7 @@ typedef struct {
 typedef struct {
     int id, state, you, leader;
     int track, laps, cc, race_id;
+    int items;              /* power-ups on in this lobby's races */
     uint64_t green_ms;      /* local timer_ms of the green light */
     uint64_t end_ms;        /* local timer_ms the race ends after the first finisher (0 none) */
     uint8_t nonce;
@@ -44,12 +46,17 @@ typedef struct {
     NetPlayer players[NET_MAX_PLAYERS];
 } NetLobby;
 
+/* Item byte (KART offset 33): the held item, a barrier up, spun out,
+   this kart's spear sequence number (0 none) and whether it flew backwards. */
+enum { NKI_ITEM_MASK = 3, NKI_SHIELD = 4, NKI_SPUN = 8, NKI_SEQ_SHIFT = 4, NKI_SEQ_MASK = 7 << 4, NKI_BACK = 128 };
+
 /* A kart as sent over the wire. */
 typedef struct {
     uint8_t flags;
     float x, y, z, heading, speed, steer;
     int stage, lap;
     float dist, race_time;
+    NetItems items;
 } NetKart;
 
 /* Go online as name: bring the link up, then say hello. */
@@ -78,7 +85,7 @@ const NetLobby *net_lobby(void);
 const NetPlayer *net_me(void);
 const NetPlayer *net_player(int slot);
 /* What this console wants: everyone's colour; the leader's race settings. */
-void net_wish(int colour, int track, int laps, int cc);
+void net_wish(int colour, int track, int laps, int cc, int items);
 void net_press_start(void);
 
 /* Racing: our kart for the next KART packet, and others' karts as they
@@ -93,8 +100,8 @@ int net_interp_ms(void);
 /* Test builds: a line about a slot's sample history for the serial log. */
 const char *net_debug_sample(int slot);
 #endif
-/* The 21 wire bytes of a kart (KART offsets 19-39: flags to race time). */
-#define NET_KART_BYTES 21
+/* The 25 wire bytes of a kart (KART offsets 19-43: flags to the spear). */
+#define NET_KART_BYTES 25
 void net_encode_kart(uint8_t *b, const NetKart *k);
 uint64_t net_now(void);
 /* This session's token (set once the link is up), and a name change before

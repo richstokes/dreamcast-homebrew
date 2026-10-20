@@ -37,6 +37,14 @@ typedef struct {
 
 #define MAX_DASH_PADS 4
 
+/* An invisible band across the road where a power-up emerald can sit, in
+   one of ITEM_SLOTS slots across its width (items.c). */
+typedef struct {
+    float s;         /* lap distance */
+} ItemBand;
+
+#define MAX_ITEM_BANDS 4
+
 /* A ramp jump: the road climbs to a lip, opens over a gap (another stretch
    of track passes beneath) and comes down a landing deck. */
 typedef struct {
@@ -54,6 +62,8 @@ typedef struct {
     float back_start, turn2_start;   /* Emerald Beach boardwalk straight */
     DashPad pads[MAX_DASH_PADS];
     int npads;
+    ItemBand bands[MAX_ITEM_BANDS];
+    int nbands;
     bool has_jump;
     Jump jump;
     bool has_bridge;     /* a viaduct: lap distance of its centre, half span */

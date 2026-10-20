@@ -10,6 +10,7 @@
 #include "audio.h"
 #include "fx.h"
 #include "hud.h"
+#include "items.h"
 #include "kart.h"
 #include "models.h"
 #include "net.h"
@@ -34,7 +35,7 @@ static bool name_typed;        /* edited since entering; a saved name arriving l
 static int browse_sel;
 static int lobby_row;
 static int my_colour = -1;
-static int sel_track, sel_laps = 3, sel_cc = 1;
+static int sel_track, sel_laps = 3, sel_cc = 1, sel_items = 1;
 static bool was_leader;
 static int raced_id = -1;      /* race id this console has set up */
 static bool leave_prompt;
@@ -109,6 +110,7 @@ static void setup_race(const NetLobby *l) {
     }
     game.cc = l->cc;
     game.laps = l->laps;
+    game.items = l->items != 0;
     game.mode = MODE_GP;
     game.num_players = 1;
     int order[NET_MAX_PLAYERS], n = 0;
@@ -147,6 +149,11 @@ float online_countdown(void) {
     return synced_countdown(net_lobby());
 }
 
+uint32_t online_items_seed(void) {
+    const NetLobby *l = net_lobby();
+    return (uint32_t)l->id * 7919u + (uint32_t)l->race_id * 977u + (uint32_t)l->track * 31u + 0x1735u;
+}
+
 float online_race_time(void) {
     return (float)((int64_t)net_now() - (int64_t)net_lobby()->green_ms) * 0.001f;
 }
@@ -167,6 +174,7 @@ void online_pack_kart(const Kart *me, NetKart *nk) {
     nk->lap = me->lap;
     nk->dist = me->tp.s;
     nk->race_time = me->finished ? me->finish_time : fmaxf(game.race_time, 0);
+    items_pack(me, &nk->items);
 }
 
 void online_remote_karts(float dt) {
@@ -180,6 +188,7 @@ void online_remote_karts(float dt) {
         int dir = (nk.flags & NKF_DRIFT) ? ((nk.flags & NKF_DRIFT_RIGHT) ? 1 : -1) : 0;
         kart_remote_update(k, v3(nk.x, nk.y, nk.z), nk.heading, nk.speed, nk.steer, dir, nk.stage,
                            (nk.flags & NKF_BOOST) != 0, (nk.flags & NKF_GROUNDED) != 0, dt);
+        items_remote(k, &nk.items, (float)net_interp_ms() * 0.001f, dt);
 #ifdef DK_AUTOTEST
         if(game.state == ST_RACE && !(nk.flags & NKF_FINISHED)) {
             if(net_interp_ms() > rmotion.delay_max) rmotion.delay_max = net_interp_ms();
@@ -436,7 +445,7 @@ static bool colour_taken(const NetLobby *l, int c) {
     return false;
 }
 
-enum { LR_TRACK, LR_LAPS, LR_CC, LR_COLOUR, LR_START };
+enum { LR_TRACK, LR_LAPS, LR_CC, LR_ITEMS, LR_COLOUR, LR_START };
 
 static int lobby_rows(bool leader, int *rows) {
     int n = 0;
@@ -444,6 +453,7 @@ static int lobby_rows(bool leader, int *rows) {
         rows[n++] = LR_TRACK;
         rows[n++] = LR_LAPS;
         rows[n++] = LR_CC;
+        rows[n++] = LR_ITEMS;
     }
     rows[n++] = LR_COLOUR;
     if(leader) rows[n++] = LR_START;
@@ -477,6 +487,7 @@ static void lobby_update(void) {
         sel_track = l->track;
         sel_laps = l->laps;
         sel_cc = l->cc;
+        sel_items = l->items;
         lobby_row = 0;
     }
     was_leader = leader;
@@ -505,6 +516,7 @@ static void lobby_update(void) {
                 sel_laps = laps_options[(i + dir + 3) % 3];
             }
             if(row == LR_CC) sel_cc = (sel_cc + dir + CC_COUNT) % CC_COUNT;
+            if(row == LR_ITEMS) sel_items = !sel_items;
             if(row == LR_COLOUR) {
                 int c = my_colour;
                 for(int tries = 0; tries < COLOUR_COUNT; tries++) {
@@ -530,7 +542,8 @@ static void lobby_update(void) {
             audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
         }
     }
-    net_wish(my_colour, leader ? sel_track : l->track, leader ? sel_laps : l->laps, leader ? sel_cc : l->cc);
+    net_wish(my_colour, leader ? sel_track : l->track, leader ? sel_laps : l->laps, leader ? sel_cc : l->cc,
+             leader ? sel_items : l->items);
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
         net_leave();
@@ -853,9 +866,9 @@ static void draw_lobby(void) {
         float y = 92;
         hud_text(494, y, 0.6f, ALIGN_CENTER, argb(255, 255, 220, 60), "SPECTATING");
         y += 40;
-        static const char *const labels[] = {"TRACK", "LAPS", "SPEED"};
+        static const char *const labels[] = {"TRACK", "LAPS", "SPEED", "ITEMS"};
         char vb[24];
-        for(int i = 0; i < 3; i++, y += 36) {
+        for(int i = 0; i < 4; i++, y += 36) {
             hud_text(386, y, 0.5f, ALIGN_LEFT, argb(255, 190, 205, 235), labels[i]);
             if(i == 0) {
                 /* Track names are too long to share the label's line. */
@@ -866,6 +879,7 @@ static void draw_lobby(void) {
             const char *v = vb;
             if(i == 1) snprintf(vb, sizeof(vb), "%d", l->laps);
             if(i == 2) v = cc_names[l->cc % CC_COUNT];
+            if(i == 3) v = l->items ? "ON" : "OFF";
             hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, 0xffffffff, v);
         }
         snprintf(buf, sizeof(buf), "%d WATCHING", l->watchers);
@@ -879,14 +893,14 @@ static void draw_lobby(void) {
     bool leader = l->leader == l->you;
     int rows[6], n = lobby_rows(leader, rows);
     int show_track = leader ? sel_track : l->track, show_laps = leader ? sel_laps : l->laps;
-    int show_cc = leader ? sel_cc : l->cc;
+    int show_cc = leader ? sel_cc : l->cc, show_items = leader ? sel_items : l->items;
     const NetPlayer *me = net_me();
-    float y = 92;
+    float y = 90;
     hud_text(494, y, 0.55f, ALIGN_CENTER, argb(220, 200, 225, 255), leader ? "YOU ARE THE LEADER" : "RACE SETTINGS");
-    y += 36;
-    static const char *labels[] = {"TRACK", "LAPS", "SPEED", "COLOUR", "START RACE"};
-    int shown_rows[5] = {LR_TRACK, LR_LAPS, LR_CC, LR_COLOUR, LR_START};
-    for(int i = 0; i < 5; i++) {
+    y += 34;
+    static const char *labels[] = {"TRACK", "LAPS", "SPEED", "ITEMS", "COLOUR", "START RACE"};
+    int shown_rows[6] = {LR_TRACK, LR_LAPS, LR_CC, LR_ITEMS, LR_COLOUR, LR_START};
+    for(int i = 0; i < 6; i++) {
         int row = shown_rows[i];
         if(row == LR_START && !leader) break;
         int sel_index = -1;
@@ -908,6 +922,7 @@ static void draw_lobby(void) {
         if(row == LR_TRACK) v = track_names[show_track % TRACK_COUNT];
         if(row == LR_LAPS) { snprintf(vb, sizeof(vb), "%d", show_laps); v = vb; }
         if(row == LR_CC) v = cc_names[show_cc % CC_COUNT];
+        if(row == LR_ITEMS) v = show_items ? "ON" : "OFF";
         if(row == LR_COLOUR) {
             int c = me ? me->colour : 0;
             swatch(560, y + 3, c);
@@ -929,9 +944,9 @@ static void draw_lobby(void) {
             y += 28;
         }
         else if(v[0]) hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, col, v);
-        y += 40;
+        y += 36;
     }
-    y = 360;
+    y = 366;
     if(l->state != NLS_WAITING) {
         hud_text(494, y, 0.5f, ALIGN_CENTER, argb(255, 255, 190, 80), "RACE IN PROGRESS");
         hud_text(494, y + 22, 0.42f, ALIGN_CENTER, 0xffffffff, "YOU WILL JOIN THE NEXT ONE");

@@ -127,6 +127,8 @@ typedef struct {
     bool drift;          /* hop/drift button held */
     bool look_back;
     bool wave;           /* start a wave this step */
+    bool item;           /* use the held power-up this step */
+    bool item_back;      /* ...fired backwards (down held) */
 } KartInput;
 
 /* ---- Game state ---- */
@@ -175,6 +177,8 @@ typedef struct {
     int laps;            /* laps in this race */
     int setup_laps;      /* laps picked in the race setup menu (offline races) */
     bool online;         /* in the online menus or an online race */
+    bool items;          /* power-ups in this race */
+    bool setup_items;    /* the race setup menu's ITEMS switch */
     bool final_lap_announced;
     Camera cam;          /* full-screen camera: title, intro, results */
     int pause_owner;

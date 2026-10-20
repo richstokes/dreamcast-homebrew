@@ -165,7 +165,7 @@ func main() {
 			}
 		default:
 			if now.Sub(lastWish) > 250*time.Millisecond {
-				send(lobby.TypeWish, []byte{byte(*colour), 0, 3, 1, nonce})
+				send(lobby.TypeWish, []byte{byte(*colour), 0, 3, 1, nonce, lobby.WishItems})
 				lastWish = now
 			}
 			if (state == lobby.StateCountdown || state == lobby.StateRacing) && !now.Before(kartDue) &&
@@ -194,7 +194,7 @@ func logPlaces(b []byte) {
 
 // kartBody reports progress for race time t (negative before the green).
 func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
-	b := make([]byte, 26)
+	b := make([]byte, 1+lobby.KartLen+4)
 	b[0] = raceID
 	frac := t.Seconds() / *raceSecs
 	if frac < 0 {
@@ -236,7 +236,8 @@ func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
 		rt = 0
 	}
 	binary.LittleEndian.PutUint32(b[18:], uint32(rt/time.Millisecond))
-	binary.LittleEndian.PutUint32(b[22:], uint32(time.Now().UnixMilli()))
+	b[25] = 255 // no spear target
+	binary.LittleEndian.PutUint32(b[1+lobby.KartLen:], uint32(time.Now().UnixMilli()))
 	return b
 }
 

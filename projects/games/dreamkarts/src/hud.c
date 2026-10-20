@@ -6,6 +6,7 @@
 #include "render.h"
 #include "track.h"
 #include "fx.h"
+#include "items.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
 
@@ -189,6 +190,8 @@ void hud_draw_race(int pi, float y0, float y1) {
         hud_format_time(buf, p->finished ? p->finish_time : game.race_time);
         hud_text(606, 25, 1.0f, ALIGN_RIGHT, 0xffffffff, buf);
     }
+    /* The held power-up, as a small gem beside the lap counter. */
+    items_draw_hud(pi, split ? lx + 236 * k : lx + 158 * k + 30, ly + 23 * k, k);
     if(game.mode == MODE_TT && p->best_lap > 0 && game.num_players == 1) {
         char t[20];
         hud_format_time(t, p->best_lap);

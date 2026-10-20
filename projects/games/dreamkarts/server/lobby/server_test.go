@@ -47,11 +47,20 @@ func (c *client) send(typ byte, body []byte) {
 func (c *client) hello(name string) { c.send(TypeHello, appendName(nil, name)) }
 
 func (c *client) wish(colour, track, laps, cc byte) {
-	c.send(TypeWish, []byte{colour, track, laps, cc, c.nonce})
+	c.send(TypeWish, []byte{colour, track, laps, cc, c.nonce, WishItems})
+}
+
+// wishItems is a build 11 wish with the power-ups switch set as given.
+func (c *client) wishItems(colour, track, laps, cc byte, items bool) {
+	var f byte
+	if items {
+		f = WishItems
+	}
+	c.send(TypeWish, []byte{colour, track, laps, cc, c.nonce, f})
 }
 
 func (c *client) kart(raceID, flags, lap byte, dist uint16, raceMs uint32) {
-	b := make([]byte, 26)
+	b := make([]byte, 1+KartLen+4)
 	b[0], b[1], b[14] = raceID, flags, lap
 	binary.LittleEndian.PutUint16(b[16:], dist)
 	binary.LittleEndian.PutUint32(b[18:], raceMs)
@@ -153,7 +162,7 @@ func TestRaceLifecycle(t *testing.T) {
 	a.kart(v.raceID, 0, 2, 100, 30000)
 	b.kart(v.raceID, 0, 1, 900, 30000)
 	h.advance(100 * time.Millisecond)
-	if r := b.last(TypeRace); r == nil || r[9] != 2 {
+	if r := b.last(TypeRace); r == nil || r[9] != 2 || len(r) != 10+2*(3+KartLen) {
 		t.Fatalf("race relay %v", r)
 	}
 	b.kart(v.raceID, KartFinished, 6, 0, 61000)
@@ -172,6 +181,59 @@ func TestRaceLifecycle(t *testing.T) {
 	h.advance(ResultsLen + 100*time.Millisecond)
 	if v = a.lobby(); v.state != StateWaiting {
 		t.Fatalf("not back in the lobby: %+v", v)
+	}
+}
+
+func TestItemsSwitch(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	a.hello("ann")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{4})
+	b.send(TypeJoin, []byte{4})
+	h.advance(300 * time.Millisecond)
+	// Items are on until the leader says otherwise; a build 10 wish (no
+	// flags byte) leaves the switch alone.
+	if l := b.last(TypeLobby); l == nil || l[len(l)-1] != 1 {
+		t.Fatalf("items not on by default: %v", l)
+	}
+	a.send(TypeWish, []byte{0, 0, 3, 1, a.nonce})
+	h.advance(300 * time.Millisecond)
+	if l := b.last(TypeLobby); l[len(l)-1] != 1 {
+		t.Fatalf("a short wish changed the switch: %v", l)
+	}
+	b.wishItems(5, 0, 3, 1, false) // not the leader
+	h.advance(300 * time.Millisecond)
+	if l := a.last(TypeLobby); l[len(l)-1] != 1 {
+		t.Fatalf("a non-leader switched items off: %v", l)
+	}
+	a.wishItems(0, 0, 3, 1, false)
+	h.advance(300 * time.Millisecond)
+	if l := b.last(TypeLobby); l[len(l)-1] != 0 {
+		t.Fatalf("the leader could not switch items off: %v", l)
+	}
+	a.wishItems(0, 0, 3, 1, true)
+	h.advance(300 * time.Millisecond)
+	if l := b.last(TypeLobby); l[len(l)-1] != 1 {
+		t.Fatalf("the leader could not switch items back on: %v", l)
+	}
+	// Item and spear bytes are relayed as sent.
+	a.nonce++
+	a.wishItems(0, 0, 3, 1, true)
+	h.advance(CountdownLen + 100*time.Millisecond)
+	v := a.lobby()
+	k := make([]byte, 1+KartLen+4)
+	k[0], k[1], k[14], k[15] = v.raceID, 2, 1, 0x32 // spear seq 3, holding a spear
+	k[22], k[23], k[24], k[25] = 0x10, 0x27, 0xf8, 1  // spear at 625 m, d -2, after slot 1
+	a.send(TypeKart, k)
+	h.advance(100 * time.Millisecond)
+	r := b.last(TypeRace)
+	if r == nil || r[9] != 1 {
+		t.Fatalf("race relay %v", r)
+	}
+	got := r[10+3 : 10+3+KartLen]
+	if got[14] != 0x32 || got[21] != 0x10 || got[22] != 0x27 || got[23] != 0xf8 || got[24] != 1 {
+		t.Fatalf("item bytes not relayed: %v", got)
 	}
 }
 

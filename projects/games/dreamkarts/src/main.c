@@ -15,6 +15,7 @@
 #include "track.h"
 #include "world.h"
 #include "dolphins.h"
+#include "items.h"
 #include "online.h"
 #include "spectate.h"
 #include "film.h"
@@ -161,9 +162,37 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
     static float t;
     static int step;
-    static bool shot[34];
+    static bool shot[48];
     t += DK_DT;
     const Kart *p = &karts[game.player];
+    /* Power-ups: an emerald coming up, the gem held, a spear in flight,
+       the barrier and a kart spun out nearby. */
+    if(game.state == ST_RACE && game.items && !shot[40] && game.race_time > 3.0f)
+        for(int b = 0; b < track.nbands; b++) {
+            V3 ep;
+            float ahead = track_delta(p->tp.s, track.bands[b].s);
+            if(!items_emerald(b, &ep, NULL) || ahead < 11.0f || ahead > 16.0f || fabsf(ep.y - p->pos.y) > 3.0f) continue;
+            /* Only with a clear view: nobody between us and it to take it first. */
+            bool clear = true;
+            for(int i = 0; i < kart_count; i++) {
+                float a = track_delta(p->tp.s, karts[i].tp.s);
+                if(i != game.player && a > -2.0f && a < ahead + 6.0f) clear = false;
+            }
+            if(!clear) continue;
+            shot[40] = true;
+            take_shot("emerald");
+        }
+    if(game.state == ST_RACE && p->item != ITEM_NONE && p->item_t > 0.05f && !shot[41]) { shot[41] = true; take_shot("item"); }
+    static float spear_shot_t;
+    if(game.state == ST_RACE && (p->events & EV_SPEAR)) spear_shot_t = 0.001f;
+    if(spear_shot_t > 0 && (spear_shot_t += DK_DT) > 0.35f && !shot[42]) { shot[42] = true; take_shot("spear"); }
+    if(game.state == ST_RACE && p->shield_t > SHIELD_LEN - 0.6f && !shot[43]) { shot[43] = true; take_shot("barrier"); }
+    if(game.state == ST_RACE && !shot[44])
+        for(int i = 0; i < kart_count; i++)
+            if(karts[i].spin_t > 0.45f && karts[i].spin_t < 0.7f && vlen(vsub(karts[i].pos, p->pos)) < 22.0f) {
+                shot[44] = true;
+                take_shot("spin");
+            }
     if(game.state == ST_TITLE && game.time > 3.5f && !shot[0]) { shot[0] = true; take_shot("title"); }
     /* Hidden trigger track cycle: R to the next track, grab it, L back. */
     static int trig_step;
@@ -350,6 +379,7 @@ static bool probe_step(void) {
 #ifdef DK_AUTOTEST
 static struct {
     int drifts, boosts[4], walls, dash, laps, jumps;
+    int items, uses, spears, spun;
     float min_fps, cpu_sum, cpu_max;
     int cpu_n;
     float log_t;
@@ -374,6 +404,11 @@ void race_setup(void) {
        otherwise. */
     for(int p = 0; p < humans; p++)
         game.pl[p].kart = gp ? MAX_KARTS - humans + p : p;
+#ifdef DK_AT_SOLO
+    /* Captures of the track itself: the humans alone, no rivals in the way. */
+    kart_count = humans;
+    for(int p = 0; p < humans; p++) game.pl[p].kart = p;
+#endif
     game.player = game.pl[0].kart;
     int next_colour = 0, rival = 0;
     for(int i = 0; i < kart_count; i++) {
@@ -406,7 +441,11 @@ void race_setup(void) {
         kart_place_on_grid(k, i);
         models_paint_kart(i);
     }
-    if(!game.online) game.laps = game.setup_laps;
+    if(!game.online) {
+        game.laps = game.setup_laps;
+        /* No power-ups in a solo time trial, so lap times stay honest. */
+        game.items = game.setup_items && !(game.mode == MODE_TT && game.num_players == 1);
+    }
     race_reset();
 }
 
@@ -435,6 +474,7 @@ void race_reset(void) {
     dolphins_reset();
     hud_reset();
     update_places();
+    items_reset(game.online ? online_items_seed() : dk_rand());
 }
 
 void game_load_track(int id) {
@@ -542,13 +582,22 @@ static void results_camera(Camera *cam, float dt) {
 static float trig_t[MAX_PLAYERS];        /* seconds a trigger has been held */
 static bool trig_wave[MAX_PLAYERS];
 static bool wave_press[MAX_PLAYERS];
+static bool item_press[MAX_PLAYERS], item_back[MAX_PLAYERS];
+
+static bool holding_item(int p) {
+    return game.items && p < game.num_players && karts[game.pl[p].kart].item != ITEM_NONE;
+}
 
 static void emote_input(float dt) {
     for(int p = 0; p < MAX_PLAYERS; p++) {
         const Pad *pd = input_pad(p);
         uint32_t lr = pd->held & (BTN_L | BTN_R);
         trig_t[p] = lr ? trig_t[p] + dt : 0;
-        wave_press[p] = (pd->pressed & BTN_Y) != 0;
+        /* Y fires a held power-up (backwards with down held); it waves
+           otherwise, and both triggers always wave. */
+        item_press[p] = (pd->pressed & BTN_Y) && holding_item(p);
+        item_back[p] = (pd->held & BTN_DOWN) || pd->stick_y > 0.5f;
+        wave_press[p] = (pd->pressed & BTN_Y) && !item_press[p];
         if(lr == (BTN_L | BTN_R) && (pd->pressed & lr) && trig_t[p] <= 0.25f + dt) {
             wave_press[p] = true;
             trig_wave[p] = true;
@@ -609,6 +658,8 @@ static void player_input(int player, KartInput *in) {
     in->accel = (pd->held & BTN_A) != 0;
     in->brake = (pd->held & BTN_B) != 0;
     in->drift = (pd->held & BTN_X) || (!trig_wave[player] && (pd->held & (BTN_R | BTN_L)));
+    in->item = item_press[player];
+    in->item_back = item_back[player];
 }
 
 static void update_places(void) {
@@ -697,8 +748,10 @@ static void race_step(float dt, bool drive) {
         /* Humans can still wave once the CPU has taken over after the line. */
         if(hp >= 0) in.wave = wave_press[hp];
         kart_update(k, &in, dt, drive);
+        items_kart(k, &in, dt);
     }
     wave_events();
+    items_update(dt);
     karts_collide();
     update_places();
     dolphins_update(dt);
@@ -725,6 +778,17 @@ static void race_step(float dt, bool drive) {
         }
     }
 #endif
+#ifdef DK_AT_SHIELD_TEST
+    /* A Barrier for the player every 12 s, to measure its fill on the console. */
+    {
+        static float next = 5.0f;
+        if(game.state == ST_RACE && game.race_time >= next) {
+            next += 12.0f;
+            karts[game.player].item = ITEM_SHIELD;
+            karts[game.player].item_t = 10.0f;
+        }
+    }
+#endif
 #ifdef DK_AUTOTEST
     {
         uint32_t ev = karts[game.player].events;
@@ -734,6 +798,10 @@ static void race_step(float dt, bool drive) {
         if(ev & EV_DASH) at.dash++;
         if(ev & EV_LAP) at.laps++;
         if(ev & EV_JUMP) at.jumps++;
+        if(ev & EV_ITEM_GET) at.items++;
+        if(ev & EV_ITEM_USE) at.uses++;
+        if(ev & EV_SPEAR) at.spears++;
+        if(ev & EV_SPIN) at.spun++;
     }
 #endif
 }
@@ -1054,7 +1122,10 @@ static void render(void) {
         set_view(v);
         world_draw_tr();
         if(!(dk_probe_off & PROBE_SHADOWS)) models_draw_shadows();
-        if(!(dk_probe_off & PROBE_FX)) fx_draw();
+        if(!(dk_probe_off & PROBE_FX)) {
+            items_draw();
+            fx_draw();
+        }
     }
     r_set_viewport(0, 480.0f);
     if(!(dk_probe_off & PROBE_HUD)) switch(game.state) {
@@ -1288,6 +1359,7 @@ int main(int argc, char **argv) {
     boot_screen(boot_t0, 0.55f, "POLISHING KARTS");
     models_init();
     fx_init();
+    items_init();
     dolphins_init();
     boot_screen(boot_t0, 0.7f, "TUNING STEEL DRUMS");
     audio_init();
@@ -1300,6 +1372,10 @@ int main(int argc, char **argv) {
     online_init();
     game.cc = CC_100;
     game.setup_laps = game.laps = DEFAULT_LAPS;
+    game.setup_items = true;
+#ifdef DK_AT_NO_ITEMS
+    game.setup_items = false;
+#endif
     game.mode = MODE_GP;
     game.num_players = 1;
     game.pl[0].colour = 0;
@@ -1527,6 +1603,9 @@ int main(int argc, char **argv) {
                 for(int l = 0; l < game.laps; l++) printf(" %.2f", (double)p->lap_times[l]);
                 printf("\nDK AUTOTEST: drifts %d boosts blue %d orange %d purple %d dash %d walls %d\n",
                        at.drifts, at.boosts[1], at.boosts[2], at.boosts[3], at.dash, at.walls);
+                printf("DK AUTOTEST: items %s: player took %d, used %d, fired %d spears, spun out %d; all karts took %d, "
+                       "used %d, fired %d, %d hits, %d spin-outs\n", game.items ? "on" : "off", at.items, at.uses,
+                       at.spears, at.spun, items_got, items_used, items_fired, items_hits, items_spins);
                 printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
                 audio_autotest_report();
                 printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d, falls %d\n", track.name,

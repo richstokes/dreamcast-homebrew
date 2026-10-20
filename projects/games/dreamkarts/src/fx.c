@@ -141,6 +141,22 @@ static void burst_stars(V3 p, int n, uint32_t col, float speed) {
     }
 }
 
+void fx_burst(V3 p, int count, uint32_t col, float speed) {
+    burst_stars(p, count, col, speed);
+}
+
+void fx_trail(V3 p, V3 v, uint32_t col, float dt) {
+    static float acc;
+    acc += 70.0f * dt;
+    while(acc >= 1.0f) {
+        acc -= 1.0f;
+        Particle *q = spawn(P_SPARK, vadd(p, v3(frand_s() * 0.15f, frand_s() * 0.15f, frand_s() * 0.15f)), v,
+                            0.18f + frand() * 0.2f, 0.07f, color_lerp(0xffffffff, col, 0.5f), color_alpha(col, 0));
+        q->gravity = 4.0f;
+        q->drag = 3.0f;
+    }
+}
+
 void fx_splash(V3 p, float strength) {
     int puffs = (int)(9 * strength), drops = (int)(12 * strength);
     for(int i = 0; i < puffs; i++) {

@@ -27,14 +27,19 @@ def main():
     ap.add_argument("--out", type=Path, default=Path("captures"))
     ap.add_argument("--elf", default="dreamkarts-capture.elf")
     ap.add_argument("--delay", type=float, default=0.25)
+    ap.add_argument("--log", type=Path, help="also keep the whole serial console here")
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     here = Path(__file__).resolve().parent.parent
     env = dict(os.environ, DK_ELF=a.elf, DK_EXIT_ON_LOG="DK AUTOTEST: PASS", DK_FAIL_ON_LOG="DK AUTOTEST: FAIL")
     proc = subprocess.Popen([str(here / "run-flycast.sh"), "--skip-build"], cwd=here, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    log = open(a.log, "w") if a.log else None
     for raw in proc.stdout:
         line = raw.decode("latin-1").rstrip()
+        if log:
+            log.write(line + "\n")
+            log.flush()
         if line.startswith("DK SHOT "):
             name = line[8:].strip()
             time.sleep(a.delay)

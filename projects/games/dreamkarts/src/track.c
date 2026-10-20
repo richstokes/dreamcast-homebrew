@@ -356,6 +356,12 @@ static void init_oval(float *turnk) {
     track.pads[0] = (DashPad){mid_back - 2.5f, mid_back + 2.5f, -1.8f, 1.8f, 1.1f};
     track.pads[1] = (DashPad){front_start + 32.0f, front_start + 37.0f, 2.2f, 5.8f, 1.1f};
     track.pads[2] = (DashPad){back_start - 30.0f, back_start - 25.0f, -5.8f, -2.2f, 1.1f};
+
+    /* Power-ups: onto the boardwalk, and out of turn 2 before its dash
+       panel. */
+    track.nbands = 2;
+    track.bands[0] = (ItemBand){back_start + 45.0f};
+    track.bands[1] = (ItemBand){front_start + 40.0f};
 }
 
 static float smoothstep01(float x) {
@@ -410,6 +416,12 @@ static void init_figure8(float *turnk) {
     /* Full-width jump pad: a long boost so every class clears the gap. */
     track.pads[0] = (DashPad){track_wrap(cross_a - 58.0f), track_wrap(cross_a - 53.0f), -7.6f, 7.6f, 2.2f};
     track.pads[1] = (DashPad){track_wrap(cross_b + 30.0f), track_wrap(cross_b + 35.0f), 2.2f, 5.8f, 1.1f};
+
+    /* Power-ups: halfway round each loop, inside line or outside. */
+    float west = track_wrap(cross_b + f8_l), east = track_wrap(cross_a + f8_l);
+    track.nbands = 2;
+    track.bands[0] = (ItemBand){track_wrap(west + f8_arc * 0.5f)};
+    track.bands[1] = (ItemBand){track_wrap(east + f8_arc * 0.5f)};
 }
 
 /* Centreline, curvature and default widths for a straight-and-arc layout. */
@@ -453,6 +465,13 @@ static void init_harbour(float *turnk) {
     track.pads[0] = (DashPad){sea + 8.0f, sea + 13.0f, -5.8f, -2.2f, 1.1f};
     track.pads[1] = (DashPad){beach + 38.0f, beach + 43.0f, 2.2f, 5.8f, 1.1f};
     track.pads[2] = (DashPad){infield + 22.0f, infield + 27.0f, -1.8f, 1.8f, 1.1f};
+
+    /* Power-ups: into the sweeper, down the beach straight before the
+       hairpin, and on the run back toward the main straight. */
+    track.nbands = 3;
+    track.bands[0] = (ItemBand){track_seg_s(2) + 12.0f};
+    track.bands[1] = (ItemBand){beach + 58.0f};
+    track.bands[2] = (ItemBand){track_seg_s(14) + 30.0f};
 }
 
 /* Temple Hill's road height: knots (layout distance, metres) eased with
@@ -495,6 +514,13 @@ static void init_temple(float *turnk) {
     track.pads[1] = (DashPad){track_wrap(TH_HUMP_U - th.start - 40.0f), track_wrap(TH_HUMP_U - th.start - 35.0f),
                               -1.8f, 1.8f, 1.1f};
     track.pads[2] = (DashPad){70.0f, 75.0f, 2.2f, 5.8f, 1.1f};
+
+    /* Power-ups: up the first climb, along the summit ridge before the
+       hump and over the viaduct. */
+    track.nbands = 3;
+    track.bands[0] = (ItemBand){track_seg_s(4) + 50.0f};
+    track.bands[1] = (ItemBand){track_seg_s(8) + 25.0f};
+    track.bands[2] = (ItemBand){track_seg_s(13) + 15.0f};
 }
 
 /* A road in the sky: glass rails on the turns, open edges over the
@@ -574,6 +600,15 @@ static void init_skyway(float *turnk) {
     track.pads[1] = (DashPad){dip + 30.0f, dip + 35.0f, -1.8f, 1.8f, 1.1f};
     track.pads[2] = (DashPad){50.0f, 55.0f, 2.2f, 5.8f, 1.1f};
 
+    /* Power-ups: past the main straight's dash panel, the end of the
+       waves before the loop, after the crossing before the hump, and
+       out of the infield dip. */
+    track.nbands = 4;
+    track.bands[0] = (ItemBand){62.0f};
+    track.bands[1] = (ItemBand){track_seg_s(2) + 95.0f};
+    track.bands[2] = (ItemBand){track_seg_s(4) + 15.0f};
+    track.bands[3] = (ItemBand){dip + 60.0f};
+
     /* Barriers sit close in (glass rails on the turns, the loop and the
        jump); the straights are open, with nothing between you and the sky. */
     const float open_u[][2] = {
@@ -626,6 +661,15 @@ static void init_cyberstone(float *turnk) {
     track.pads[1] = (DashPad){drop + 110.0f, drop + 115.0f, 2.2f, 5.8f, 1.1f};
     float nat = track_seg_s(14);
     track.pads[2] = (DashPad){nat + 6.0f, nat + 11.0f, -1.8f, 1.8f, 1.1f};
+
+    /* Power-ups: the run to Copse, the foot of the drop before Maggotts,
+       up the National straight past the rollers, and between Luffield
+       and Woodcote. */
+    track.nbands = 4;
+    track.bands[0] = (ItemBand){out + 50.0f};
+    track.bands[1] = (ItemBand){drop + 140.0f};
+    track.bands[2] = (ItemBand){nat + 70.0f};
+    track.bands[3] = (ItemBand){track_seg_s(18) + 10.0f};
 
     /* Open straights, railed turns and chicanes. */
     const float open_u[][2] = {

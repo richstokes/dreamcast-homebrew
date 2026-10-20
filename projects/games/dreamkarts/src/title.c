@@ -145,7 +145,12 @@ static float warn_t;
 
 static const int laps_options[3] = {3, 5, 10};
 
-enum { ROW_MODE, ROW_CC, ROW_LAPS, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
+enum { ROW_MODE, ROW_CC, ROW_LAPS, ROW_ITEMS, ROW_COLOUR1, ROW_COLOUR2, ROW_START };
+
+/* A solo time trial never has power-ups: lap times stay comparable. */
+static bool items_locked(void) {
+    return game.mode == MODE_TT && game.num_players == 1;
+}
 
 /* Menu rows: player 2's colour only appears in a two-player race. */
 static int menu_rows(int *rows) {
@@ -153,6 +158,7 @@ static int menu_rows(int *rows) {
     rows[n++] = ROW_MODE;
     rows[n++] = ROW_CC;
     rows[n++] = ROW_LAPS;
+    rows[n++] = ROW_ITEMS;
     rows[n++] = ROW_COLOUR1;
     if(game.num_players > 1) rows[n++] = ROW_COLOUR2;
     rows[n++] = ROW_START;
@@ -248,6 +254,12 @@ void title_update(float dt) {
         else if(row == ROW_LAPS) {
             int i = game.setup_laps == 10 ? 2 : game.setup_laps == 5 ? 1 : 0;
             game.laps = game.setup_laps = laps_options[(i + dir + 3) % 3];
+        }
+        else if(row == ROW_ITEMS) {
+            if(!items_locked()) {
+                game.setup_items = !game.setup_items;
+                race_setup();
+            }
         }
         else if(row == ROW_COLOUR1 || row == ROW_COLOUR2) {
             step_colour(row == ROW_COLOUR2, dir);
@@ -569,9 +581,9 @@ static void draw_menu(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
     float x0 = 640 - 300 * slide, x1 = x0 + 280;
     int rows[8], n = menu_rows(rows);
-    /* Six rows (two players) close up a little to stay inside the screen. */
-    const float pitch = n > 5 ? 46.0f : 50.0f;
-    float top = n > 5 ? 96 : 112, y_first = top + 54;
+    /* Six or seven rows (two players) close up to stay inside the screen. */
+    const float pitch = n > 6 ? 42.0f : n > 5 ? 46.0f : 50.0f;
+    float top = n > 6 ? 84 : n > 5 ? 96 : 112, y_first = top + 54;
     char laps_buf[8];
     float bottom = y_first + n * pitch + 6;
     hud_panel(x0, top, x1, bottom, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
@@ -606,6 +618,11 @@ static void draw_menu(void) {
                 hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "LAPS");
                 snprintf(laps_buf, sizeof(laps_buf), "%d", game.setup_laps);
                 value = laps_buf;
+                break;
+            case ROW_ITEMS:
+                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "ITEMS");
+                value = items_locked() ? "OFF IN TIME TRIAL" : game.setup_items ? "ON" : "OFF";
+                if(items_locked()) col = argb(255, 160, 180, 220);
                 break;
             case ROW_COLOUR1:
             case ROW_COLOUR2: {

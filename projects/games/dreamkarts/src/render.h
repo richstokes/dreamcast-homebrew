@@ -20,7 +20,8 @@ enum {
     HF_CLAMP = 1 << 4,
     HF_NOZWRITE = 1 << 5,
     HF_NOZTEST = 1 << 6,
-    HF_POINT = 1 << 7
+    HF_POINT = 1 << 7,
+    HF_ZWRITE = 1 << 8    /* translucent polygons that still write depth */
 };
 
 #define TEX_NONE -1

@@ -16,5 +16,7 @@ void models_draw_shadows(void);        /* translucent list */
 /* Kart-space exhaust tips, for flames and smoke. */
 V3 models_exhaust_world(const Kart *k, int which);
 V3 models_wheel_world(const Kart *k, int wheel);
+/* A kart-space point (x right, y up, z forward, metres) in the world. */
+V3 models_kart_point_world(const Kart *k, V3 local);
 
 #endif

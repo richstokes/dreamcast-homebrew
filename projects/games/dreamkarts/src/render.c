@@ -114,7 +114,7 @@ void render_shutdown(void) {
 }
 
 const pvr_poly_hdr_t *r_header(int tex, int flags) {
-    int key = ((tex + 1) << 8) | flags;
+    int key = ((tex + 1) << 10) | flags;
     for(int i = 0; i < header_count; i++)
         if(headers[i].key == key) return &headers[i].hdr;
     if(header_count >= MAX_HEADERS) {
@@ -153,6 +153,7 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
        further away, even through its clear texels (one cloud cutting a
        straight edge through another). */
     if(flags & HF_NOZWRITE) c.depth.write = PVR_DEPTHWRITE_DISABLE;
+    if(flags & HF_ZWRITE) c.depth.write = PVR_DEPTHWRITE_ENABLE;
     if(flags & HF_NOZTEST) c.depth.comparison = PVR_DEPTHCMP_ALWAYS;
     HeaderSlot *s = &headers[header_count++];
     s->key = key;

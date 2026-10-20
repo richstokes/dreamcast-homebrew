@@ -78,6 +78,12 @@ void rumble_kart(int player, const Kart *k) {
     if(ev & EV_DASH) rumble_pulse(player, 5, 34, 0.3f);
     if(ev & EV_KART_BUMP) rumble_pulse(player, 4, 22, 0.15f);
     if(ev & EV_WALL) rumble_pulse(player, (int)clampf(3.0f + k->wall_v * 0.3f, 4, 7), 18, 0.22f);
+    if(ev & EV_ITEM_GET) rumble_pulse(player, 2, 46, 0.08f);
+    if(ev & EV_SPEAR) rumble_pulse(player, 4, 30, 0.15f);
+    if(ev & EV_SHIELD_UP) rumble_pulse(player, 3, 40, 0.15f);
+    if(ev & EV_SHIELD_POP) rumble_pulse(player, 5, 24, 0.2f);
+    if(ev & EV_SPIN) rumble_pulse(player, 6, 16, 0.5f);
+    if(k->spin_t > 0) rumble_hold(player, 3, 12);
 
     /* Rumble strips rattle faster and harder with speed; sand grinds. */
     float spd = fabsf(k->speed);

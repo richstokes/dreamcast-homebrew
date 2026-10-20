@@ -50,6 +50,11 @@ typedef enum {
     DK_SFX_CHAO_HYA,
     DK_SFX_WHOOSH,
     DK_SFX_STAR,
+    DK_SFX_EMERALD,
+    DK_SFX_SPEAR,
+    DK_SFX_SPEAR_HIT,
+    DK_SFX_BARRIER,
+    DK_SFX_BARRIER_POP,
     DK_SFX_COUNT
 } dk_sfx_id_t;
 
@@ -87,6 +92,11 @@ static const dk_sfx_asset_t dk_sfx_assets[DK_SFX_COUNT] __attribute__((unused)) 
     { 807552u, 15904u, 0u }, /* CHAO_HYA     vol 166 */
     { 823456u, 26464u, 0u }, /* WHOOSH       vol 153 */
     { 849920u, 22944u, 0u }, /* STAR         vol 128 */
+    { 872864u, 35296u, 0u }, /* EMERALD      vol 153 */
+    { 908160u, 24256u, 0u }, /* SPEAR        vol 191 */
+    { 932416u, 30880u, 0u }, /* SPEAR_HIT    vol 204 */
+    { 963296u, 37504u, 0u }, /* BARRIER      vol 153 */
+    { 1000800u, 22080u, 0u }, /* BARRIER_POP  vol 178 */
 };
 
 /* Effect names for the sound test. */
@@ -123,6 +133,11 @@ static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {
     "HYA!",
     "WHOOSH",
     "STAR",
+    "EMERALD",
+    "CHAOS SPEAR",
+    "SPEAR HIT",
+    "BARRIER",
+    "BARRIER POP",
 };
 
 #endif /* DK_SOUND_ASSETS_H */

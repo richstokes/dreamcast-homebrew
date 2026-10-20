@@ -17,7 +17,8 @@ import struct
 import sys
 
 SLUGS = ["beach", "coral", "harbour", "temple", "skyway", "cyberstone"]
-KART_BYTES = 21
+KART_BYTES = 21        # the demo files keep the build 10 body: the bots carry no items
+WIRE_BYTES = 25        # what the record build prints (src/net.h NET_KART_BYTES)
 OUT = pathlib.Path(__file__).resolve().parent.parent / "server" / "demo" / "races"
 
 
@@ -37,6 +38,8 @@ def main(log_path):
                 data = bytes.fromhex(parts[3])
             except ValueError:
                 data = b""
+            if len(data) == cur["karts"] * WIRE_BYTES:
+                data = b"".join(data[i * WIRE_BYTES:i * WIRE_BYTES + KART_BYTES] for i in range(cur["karts"]))
             if int(parts[2]) == len(cur["frames"]) and len(data) == cur["karts"] * KART_BYTES:
                 cur["frames"].append(data)
             else:

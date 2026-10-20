@@ -501,8 +501,17 @@ void audio_kart_events(const Kart *k, bool is_player) {
         float side = vdot(vnorm(d), r_cam.right);
         pan = (int)clampf(128.0f + side * 100.0f, 0, 255);
         /* Rivals only make the big noises, and say hi when they wave. */
-        ev &= EV_BOOST | EV_DASH | EV_WALL | EV_KART_BUMP | EV_WAVE | EV_FALL;
+        ev &= EV_BOOST | EV_DASH | EV_WALL | EV_KART_BUMP | EV_WAVE | EV_FALL | EV_ITEM_GET | EV_SPEAR | EV_SPIN |
+              EV_SHIELD_UP | EV_SHIELD_POP;
     }
+    if(ev & EV_ITEM_GET) audio_sfx(DK_SFX_EMERALD, vol * 190 / 255, pan);
+    if(ev & EV_SPEAR) audio_sfx(DK_SFX_SPEAR, vol * 215 / 255, pan);
+    if(ev & EV_SPIN) {
+        audio_sfx(DK_SFX_SPEAR_HIT, vol * 225 / 255, pan);
+        audio_chao(CHAO_OUCH, k->colour, vol * 210 / 255, pan);
+    }
+    if(ev & EV_SHIELD_UP) audio_sfx(DK_SFX_BARRIER, vol * 190 / 255, pan);
+    if(ev & EV_SHIELD_POP) audio_sfx(DK_SFX_BARRIER_POP, vol * 215 / 255, pan);
     if(ev & EV_FALL) audio_chao(CHAO_OUCH, k->colour, vol * 220 / 255, pan);   /* over the edge */
     if(ev & EV_WAVE) audio_chao(CHAO_HI, k->colour, vol * 190 / 255, pan);
     if((ev & EV_KART_BUMP) && bump_voice(k)) audio_chao(CHAO_OUCH, k->colour, vol * 200 / 255, pan);
