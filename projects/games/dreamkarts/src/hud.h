@@ -26,7 +26,17 @@ void hud_draw_split_overlay(void);
 /* Track outline centred on (cx, cy) at sc pixels per metre; z orders it
    among other overlay quads. Karts are drawn on top when asked. */
 void hud_draw_track_map(float cx, float cy, float sc, float z, bool show_karts);
+/* Results after a single race, time trial or versus, with the menu of what
+   to do next. */
+enum { RESULTS_AGAIN, RESULTS_TRACK, RESULTS_TITLE, RESULTS_ITEMS };
 void hud_draw_results(void);
+/* A little cup in gold, silver or bronze. */
+#define HUD_GOLD   argb(255, 255, 210, 60)
+#define HUD_SILVER argb(255, 216, 224, 234)
+#define HUD_BRONZE argb(255, 216, 144, 74)
+void hud_trophy(float x, float y, float s, uint32_t col);
+/* A colour preset's kart paint and Chao colour side by side, 24 x 14. */
+void hud_swatch(float x, float y, int colour);
 enum { PAUSE_CONTINUE, PAUSE_RESTART, PAUSE_MUSIC, PAUSE_QUIT, PAUSE_ITEMS };
 void hud_draw_pause(void);
 /* Pop-up messages ("FINAL LAP!", lap times). */

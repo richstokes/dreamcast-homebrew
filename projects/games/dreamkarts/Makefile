@@ -4,7 +4,7 @@ else
 
 TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c \
-	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c
+	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
 GEN_HEADERS = $(wildcard $(GEN)/*.h)
@@ -63,10 +63,18 @@ define link_elf
 	$(KOS_OBJCOPY) --add-gnu-debuglink=$@.debug $@
 endef
 
-dreamkarts.elf: $(OBJS)
+# A build with other EXTRA_CFLAGS has its own objects, but the ELF it links
+# is named the same, so switching back would leave the newer ELF in place:
+# the stamp changes with the flags and forces the link.
+LINK_STAMP = build/$(VARIANT).flags
+$(LINK_STAMP): force
+	@mkdir -p build
+	@echo '$(FLAGTAG)' | cmp -s - $@ || echo '$(FLAGTAG)' > $@
+
+dreamkarts.elf: $(OBJS) $(LINK_STAMP)
 	$(link_elf)
 
-dreamkarts-$(VARIANT).elf: $(OBJS)
+dreamkarts-$(VARIANT).elf: $(OBJS) $(LINK_STAMP)
 	$(link_elf)
 
 clean:
@@ -115,6 +123,6 @@ hwbench:
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf
 
-.PHONY: all clean run textures models audio vmu assets autotest hwbench hw
+.PHONY: all clean run textures models audio vmu assets autotest hwbench hw force
 
 endif

@@ -19,6 +19,7 @@
 #include "online.h"
 #include "spectate.h"
 #include "film.h"
+#include "gp.h"
 #include "prof.h"
 #include <stddef.h>
 
@@ -268,7 +269,27 @@ static void capture_script(void) {
     if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
     if(game.state == ST_RACE && dolphins_show_time() > 0.85f && !shot[11]) { shot[11] = true; take_shot("dolphins"); }
     if(game.state == ST_RACE && dolphins_show_time() > 3.65f && !shot[12]) { shot[12] = true; take_shot("dolphins2"); }
-    if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot("results"); }
+    if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot(gp.active ? "gp-results" : "results"); }
+#ifdef DK_AT_GP
+    /* Grand Prix: the standings after the first race, the next race's intro
+       with the grid in standings order, and the final standings. */
+    if(game.state == ST_RESULTS && gp.active && gp.page == 1 && game.time > 1.5f) {
+        if(!gp_over() && !shot[52]) { shot[52] = true; take_shot("gp-standings"); }
+        if(gp_over() && !shot[53]) { shot[53] = true; take_shot("gp-final"); }
+    }
+    if(game.state == ST_INTRO && gp.race == 1 && game.time > 1.6f && !shot[54]) { shot[54] = true; take_shot("gp-intro2"); }
+    if(game.state == ST_COUNTDOWN && gp.race == 1 && game.countdown > 0.3f && !shot[55]) { shot[55] = true; take_shot("gp-grid2"); }
+#endif
+#ifdef DK_AT_NEXT_TRACK
+    /* Single race: NEW TRACK from the results, the next course along, and
+       race that too (the summary comes after the second race). */
+    static int again;
+    if(game.state == ST_RESULTS && !gp.active && again == 0 && game.time > 2.0f) { input_film_tap(0, BTN_RIGHT); again = 1; }
+    if(game.state == ST_RESULTS && again == 1 && game.time > 2.6f) { pad.pressed |= BTN_A; again = 2; }
+    if(game.state == ST_TRACKS && again == 2 && game.time > 1.5f) { input_film_tap(0, BTN_RIGHT); again = 3; }
+    if(game.state == ST_TRACKS && again == 3 && game.time > 3.0f) { take_shot("tracks-again"); again = 4; }
+    if(game.state == ST_TRACKS && again == 4 && game.time > 3.8f) { pad.pressed |= BTN_START; again = 5; }
+#endif
     if(game.online && game.state == ST_COUNTDOWN && game.countdown > 1.2f && !shot[17]) { shot[17] = true; take_shot("online-countdown"); }
     if(game.online && game.state == ST_RACE && game.race_time > 9.0f && !shot[18]) { shot[18] = true; take_shot("online-race"); }
     if(game.state == ST_RACE && !p->grounded && p->pos.y - track_height(p->tp.s) > 0.9f && !p->big_air &&
@@ -411,6 +432,7 @@ static struct {
     int cpu_n;
     float log_t;
     bool done;
+    bool gp_done, gp_fail;   /* Grand Prix: verdict printed, a race failed */
     int win_frames, win_missed, frames, missed;
     int win_multi, win_zero, multi, zero;   /* frames that ran 2+ or 0 physics steps */
     float win_cpu_max, rnd_max_ms;
@@ -423,14 +445,13 @@ static void update_places(void);
 /* ------------------------------------------------------------------ */
 
 void race_setup(void) {
-    bool gp = game.mode == MODE_GP;
+    bool rivals = game.mode != MODE_TT;   /* Grand Prix and single races have CPUs */
     int humans = game.num_players < 1 ? 1 : game.num_players;
     game.num_players = humans;
-    kart_count = gp ? MAX_KARTS : humans;
-    /* Humans start at the back of a Grand Prix grid, alone at the front
-       otherwise. */
+    kart_count = rivals ? MAX_KARTS : humans;
+    /* Humans start at the back of a full grid, alone at the front otherwise. */
     for(int p = 0; p < humans; p++)
-        game.pl[p].kart = gp ? MAX_KARTS - humans + p : p;
+        game.pl[p].kart = rivals ? MAX_KARTS - humans + p : p;
 #ifdef DK_AT_SOLO
     /* Captures of the track itself: the humans alone, no rivals in the way. */
     kart_count = humans;
@@ -465,7 +486,8 @@ void race_setup(void) {
             k->lane = rival_ai[rival].lane;
             rival++;
         }
-        kart_place_on_grid(k, i);
+        /* From a Grand Prix's second race the grid follows the standings. */
+        kart_place_on_grid(k, gp.active && gp.race > 0 ? gp_grid_slot(i) : i);
         models_paint_kart(i);
     }
     if(!game.online) {
@@ -514,6 +536,8 @@ void game_load_track(int id) {
 void game_set_state(int state) {
     game.state = state;
     game.time = 0;
+    if(state == ST_RESULTS) game.results_sel = RESULTS_AGAIN;
+    if(state == ST_TITLE || state == ST_MAIN || state == ST_ONLINE) gp.active = false;
     if(state == ST_TITLE || state == ST_MENU || state == ST_TRACKS || state == ST_MAIN || state == ST_ONLINE ||
        state == ST_KARTS) {
         if(state == ST_TITLE) title_enter();
@@ -597,7 +621,8 @@ static void intro_camera(Camera *cam, float t) {
 }
 
 static void results_camera(Camera *cam, float dt) {
-    const Kart *k = &karts[game.player];
+    /* The Grand Prix standings page circles the leader. */
+    const Kart *k = &karts[gp.active && gp.page == 1 ? gp.rank[0] : game.player];
     float a = game.time * 0.3f + k->heading + DK_PI * 0.75f;
     V3 target = vadd(k->pos, v3(0, 0.9f, 0));
     camera_basis(cam, vadd(target, v3(sinf(a) * 6.5f, 2.2f, cosf(a) * 6.5f)), target);
@@ -953,6 +978,38 @@ static void pause_update(void) {
     }
 }
 
+/* After a single race, time trial or versus: race again, pick another
+   course or back to the title. Either pad chooses. */
+static void results_menu_update(void) {
+    if(game.time < 1.0f) return;
+    int dir = 0;
+    for(int p = 0; p < game.num_players; p++) dir = input_left(p) ? -1 : input_right(p) ? 1 : dir;
+    if(dir) {
+        game.results_sel = (game.results_sel + dir + RESULTS_ITEMS) % RESULTS_ITEMS;
+        audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+    }
+    uint32_t pressed = pad.pressed | pad2.pressed;
+    if(pressed & BTN_A) {
+        audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
+        race_setup();
+        if(game.results_sel == RESULTS_AGAIN) {
+            game_set_state(ST_INTRO);
+        }
+        else if(game.results_sel == RESULTS_TRACK) {
+            audio_sfx(DK_SFX_WHOOSH, 160, 128);
+            title_tracks_enter();
+        }
+        else {
+            game_set_state(ST_TITLE);
+        }
+    }
+    else if(pressed & BTN_B) {
+        audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+        race_setup();
+        game_set_state(ST_TITLE);
+    }
+}
+
 static void update(float dt) {
     game.time += dt;
     game.title_t += dt;
@@ -1046,15 +1103,17 @@ static void update(float dt) {
                 if(game.humans_done_t < 0) game.humans_done_t = 0;
                 game.humans_done_t += dt;
             }
+            bool done = false;
             if(home == game.num_players) {
                 finish_wait += dt;
-                if(finish_wait > 4.5f) {
-                    finalize_results();
-                    game_set_state(ST_RESULTS);
-                }
+                done = finish_wait > 4.5f;
             }
             else if(home > 0 && game.humans_done_t > 20.0f) {
+                done = true;
+            }
+            if(done) {
                 finalize_results();
+                if(gp.active) gp_race_done();
                 game_set_state(ST_RESULTS);
             }
             if(home == 1 && finish_wait == 0) audio_music_target(game.num_players > 1 ? 130 : 90);
@@ -1064,16 +1123,8 @@ static void update(float dt) {
             game.race_time += dt;
             race_step(dt, true);
             if(game.online) break;
-            if(game.time > 1.0f && ((pad.pressed | pad2.pressed) & BTN_A)) {
-                audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
-                race_setup();
-                game_set_state(ST_INTRO);
-            }
-            else if(game.time > 1.0f && ((pad.pressed | pad2.pressed) & BTN_B)) {
-                audio_sfx(DK_SFX_MENU_BACK, 200, 128);
-                race_setup();
-                game_set_state(ST_TITLE);
-            }
+            if(gp.active) gp_results_update();
+            else results_menu_update();
             break;
     }
     fx_update(dt);
@@ -1205,10 +1256,19 @@ static void render(void) {
             static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
             hud_panel(0, 330, 640, 410, argb((int)(170 * a), 20, 70, 180), argb((int)(170 * a), 10, 30, 90), 15);
             hud_text(320 + (1 - a) * 200, 334, 1.2f, ALIGN_CENTER, color_alpha(argb(255, 255, 220, 60), a), track.name);
-            char buf[48];
-            const char *mode = game.mode == MODE_GP ? "GRAND PRIX" : game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
-            snprintf(buf, sizeof(buf), "%s%s  -  %s", game.num_players > 1 ? "2P " : "", mode, cc_names[game.cc]);
-            hud_text(320 - (1 - a) * 200, 378, 0.65f, ALIGN_CENTER, color_alpha(0xffffffff, a), buf);
+            char buf[64];
+            const char *mode = game.mode == MODE_GP ? "GRAND PRIX" : game.mode == MODE_RACE ? "SINGLE RACE"
+                               : game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
+            float s = 0.65f;
+            if(gp.active) {
+                snprintf(buf, sizeof(buf), "%sGRAND PRIX  -  RACE %d OF %d  -  %s", game.num_players > 1 ? "2P " : "",
+                         gp.race + 1, gp.count, cc_names[game.cc]);
+                s = 0.58f;
+            }
+            else {
+                snprintf(buf, sizeof(buf), "%s%s  -  %s", game.num_players > 1 ? "2P " : "", mode, cc_names[game.cc]);
+            }
+            hud_text(320 - (1 - a) * 200, 378, s, ALIGN_CENTER, color_alpha(0xffffffff, a), buf);
             break;
         }
         case ST_COUNTDOWN:
@@ -1236,6 +1296,7 @@ static void render(void) {
             break;
         case ST_RESULTS:
             if(game.online) online_draw_results();
+            else if(gp.active) gp_draw_results();
             else hud_draw_results();
             break;
     }
@@ -1289,7 +1350,7 @@ static void boot_screen(uint64_t t0, float progress, const char *what);
 
 static void record_races(uint64_t t0) {
     game.cc = CC_150;
-    game.mode = MODE_GP;
+    game.mode = MODE_RACE;
     game.num_players = 1;
     game.setup_laps = game.laps = DEFAULT_LAPS;
 #ifdef DK_RECORD_ONLY
@@ -1451,6 +1512,12 @@ int main(int argc, char **argv) {
     game.setup_items = false;
 #endif
     game.mode = MODE_GP;
+#if defined(DK_AUTOTEST) || defined(DK_FILM)
+    game.mode = MODE_RACE;   /* the scripted runs race one course */
+#endif
+#ifdef DK_AT_GP
+    game.mode = MODE_GP;     /* ...or a whole Grand Prix */
+#endif
     game.num_players = 1;
     game.pl[0].colour = 0;
     game.pl[1].colour = 1;
@@ -1482,8 +1549,12 @@ int main(int argc, char **argv) {
 #ifdef DK_AT_2P
     game.num_players = 2;
 #endif
+#ifdef DK_AT_GP
+    gp_start();
+#else
     race_setup();
     game_set_state(ST_INTRO);
+#endif
 #else
     game_set_state(ST_TITLE);
     audio_music_start();
@@ -1607,7 +1678,7 @@ int main(int argc, char **argv) {
 #ifdef DK_AUTOTEST
         {
             static const char *const state_names[] = {"title", "menu", "tracks", "intro", "countdown", "race", "results",
-                                                     "main", "online"};
+                                                     "main", "online", "karts"};
             const Kart *p = &karts[game.player];
             /* A displayed frame that took more than 1.5 vblanks dropped one. */
             if(at_skip > 0) {
@@ -1671,7 +1742,45 @@ int main(int argc, char **argv) {
                 at.win_cpu_max = at.rnd_max_ms = 0;
                 at_skip = 2;
             }
-            if(game.state == ST_RESULTS && game.time > 3.0f && !at.done && !game.online) {
+#ifdef DK_AT_GP
+            /* A Grand Prix: a summary per race, the verdict with the final standings. */
+            if(game.state == ST_INTRO && at.done) {
+                at.done = false;
+                at.drifts = at.walls = at.dash = at.laps = at.jumps = at.items = at.uses = at.spears = at.spun = 0;
+                memset(at.boosts, 0, sizeof(at.boosts));
+            }
+            if(game.state == ST_RESULTS && gp.active && gp_over() && gp.page == 1 && game.time > 2.5f && !at.gp_done) {
+                at.gp_done = true;
+                /* Audit: every total is the sum of its places' points, every
+                   race handed out one of each place. */
+                static const int pts[MAX_KARTS] = {10, 8, 6, 4, 2, 1};
+                bool ok = !at.gp_fail && gp.race == gp.count;
+                for(int i = 0; i < kart_count; i++) {
+                    int sum = 0;
+                    for(int r = 0; r < gp.race; r++) sum += pts[gp.history[r][i] - 1];
+                    if(sum != gp.points[i]) ok = false;
+                    if(i > 0 && gp.points[gp.rank[i]] > gp.points[gp.rank[i - 1]]) ok = false;
+                }
+                for(int r = 0; r < gp.race; r++) {
+                    int seen = 0;
+                    for(int i = 0; i < kart_count; i++) seen |= 1 << (gp.history[r][i] - 1);
+                    if(seen != (1 << kart_count) - 1) ok = false;
+                }
+                printf("DK AUTOTEST: grand prix %d races, player %d%s with %d points\n", gp.race,
+                       gp_standing(game.player), hud_ordinal(gp_standing(game.player)), gp.points[game.player]);
+                for(int i = 0; i < kart_count; i++) {
+                    int k = gp.rank[i];
+                    printf("DK AUTOTEST: %d. %s %d pts, places", i + 1, karts[k].name, gp.points[k]);
+                    for(int r = 0; r < gp.race; r++) printf(" %d", gp.history[r][k]);
+                    printf("\n");
+                }
+                printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
+#ifdef DK_HW
+                game.quit = true;   /* hand the console back to dcload-ip */
+#endif
+            }
+#endif
+            if(game.state == ST_RESULTS && game.time > 3.0f && !at.done && !game.online && (!gp.active || gp.page == 0)) {
                 at.done = true;
                 printf("DK AUTOTEST: player finish %.2fs place %d laps", (double)p->finish_time, p->place);
                 for(int l = 0; l < game.laps; l++) printf(" %.2f", (double)p->lap_times[l]);
@@ -1696,8 +1805,15 @@ int main(int argc, char **argv) {
                 float limit = 50.0f * game.laps * cc_params[CC_150].top_speed / cc_params[game.cc].top_speed;
                 bool ok = p->finish_time > 0 && p->finish_time < limit && at.drifts > 3 && kart_rescues == 0 &&
                           (!track.has_jump || at.jumps >= game.laps);
+#ifdef DK_AT_GP
+                /* A failed race fails the cup there and then. */
+                if(ok) printf("DK AUTOTEST: race %d/%d ok\n", gp.race, gp.count);
+                else printf("DK AUTOTEST: FAIL (race %d/%d)\n", gp.race, gp.count);
+                at.gp_fail |= !ok;
+#else
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
-#ifdef DK_HW
+#endif
+#if defined(DK_HW) && !defined(DK_AT_GP)
                 game.quit = true;   /* hand the console back to dcload-ip */
 #endif
             }

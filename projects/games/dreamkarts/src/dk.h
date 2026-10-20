@@ -133,7 +133,9 @@ typedef struct {
 
 /* ---- Game state ---- */
 enum { CC_50, CC_100, CC_150, CC_COUNT };
-enum { MODE_GP, MODE_TT };
+/* Grand Prix: every course back to back on points; Single Race: one course
+   against the rivals; Time Trial (Versus with two players). */
+enum { MODE_GP, MODE_RACE, MODE_TT, MODE_COUNT };
 enum {
     ST_TITLE, ST_MENU, ST_TRACKS, ST_INTRO, ST_COUNTDOWN, ST_RACE, ST_RESULTS,
     ST_MAIN,     /* single player / two player / online */
@@ -167,6 +169,7 @@ typedef struct {
     bool paused;
     int pause_sel;
     int menu_sel;
+    int results_sel;     /* RESULTS_* choice after a single race */
     float fps, cpu_ms;
     int player;          /* player 1's kart index */
     int num_players;     /* 1 or 2 (split screen) */

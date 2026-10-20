@@ -21,7 +21,8 @@ Six courses:
 
 Highlights:
 
-- Grand Prix (3, 5 or 10 laps at 50/100/150cc), Time Trial and two-player split screen (GP with CPUs or Versus, each player picking their own kart)
+- Grand Prix: all six courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
+- Two-player split screen in every mode (Versus instead of Time Trial), each player picking their own kart
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
@@ -149,6 +150,8 @@ needs no Python.
 | `-DDK_AT_TRACK=n` | Track 0-5 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone) |
 | `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
+| `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all six |
+| `-DDK_AT_NEXT_TRACK` (capture) | Picks NEW TRACK from the results, the next course along, and races that too |
 | `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST`, `-DDK_AT_MINE_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill; hand the player a Mine every 12 s, or every `=<s>` (the capture looks behind at it; alone with `=30` the player laps round to its own) |
 | `-DDK_AT_FIXED` | One 1/60 s step a frame and held screenshot frames: two runs give pixel-identical captures and `DK STATE` fingerprints, for before/after diffs |
 | `-DDK_XF_CHECK` (with `-DDK_AT_FIXED`) | Runs the C beside each `src/xform.S` routine; `DK XFCHECK ... mismatch=` must stay 0 |

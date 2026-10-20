@@ -12,6 +12,7 @@
 #include "render.h"
 #include "track.h"
 #include "online.h"
+#include "gp.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
 #include "sound_assets.h"
@@ -171,7 +172,21 @@ static int menu_rows(int *rows) {
 
 static const char *mode_name(void) {
     if(game.mode == MODE_GP) return "GRAND PRIX";
+    if(game.mode == MODE_RACE) return "SINGLE RACE";
     return game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
+}
+
+static const char *mode_blurb(void) {
+    if(game.mode == MODE_GP) return "ALL SIX COURSES, POINTS EVERY RACE";
+    if(game.mode == MODE_RACE) return "ONE RACE ON A COURSE YOU PICK";
+    return game.num_players > 1 ? "JUST THE TWO OF YOU" : "ALONE AGAINST THE CLOCK";
+}
+
+/* After the setup (and the kart select with two players): a Grand Prix
+   starts on its first course, anything else picks a course. */
+static void setup_done(void) {
+    if(game.mode == MODE_GP) gp_start();
+    else tracks_enter();
 }
 
 /* Step a player's colour, skipping the other player's choice. The grid is
@@ -259,7 +274,7 @@ void title_update(float dt) {
     int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
     if(dir) {
         if(row == ROW_MODE) {
-            game.mode = game.mode == MODE_GP ? MODE_TT : MODE_GP;
+            game.mode = (game.mode + dir + MODE_COUNT) % MODE_COUNT;
             race_setup();
         }
         else if(row == ROW_CC) {
@@ -301,7 +316,7 @@ void title_update(float dt) {
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
             race_setup();
             if(game.num_players > 1) karts_enter();
-            else tracks_enter();
+            else setup_done();
         }
     }
 }
@@ -311,6 +326,10 @@ static void tracks_enter(void) {
     tracks_slide = 0;
     track_swap = 0;
     fly_t = 0;
+}
+
+void title_tracks_enter(void) {
+    tracks_enter();
 }
 
 /* Two-player kart select: each half of the split screen shows that
@@ -359,7 +378,7 @@ static void karts_update(float dt) {
     karts_go_t = kart_ready[0] && kart_ready[1] ? karts_go_t + dt : 0;
     if(karts_go_t > 0.7f) {
         audio_sfx(DK_SFX_WHOOSH, 160, 128);
-        tracks_enter();
+        setup_done();
     }
 }
 
@@ -573,7 +592,7 @@ static void draw_main(void) {
         float s = sel ? 0.86f + 0.04f * sinf(game.title_t * 8) : 0.8f;
         hud_text(320, y + 2, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255), main_items[i]);
     }
-    static const char *const blurbs[MAIN_ITEMS] = {"RACE FIVE CPU CHAO", "SPLIT SCREEN WITH A FRIEND",
+    static const char *const blurbs[MAIN_ITEMS] = {"GRAND PRIX, SINGLE RACE OR TIME TRIAL", "SPLIT SCREEN WITH A FRIEND",
                                                    "UP TO SIX PLAYERS (BROADBAND ADAPTER OR MODEM)",
                                                    "LISTEN TO THE MUSIC AND SOUND EFFECTS"};
     hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(220, 230, 240, 255), blurbs[main_row]);
@@ -727,6 +746,7 @@ static void draw_menu(void) {
         }
     }
     hud_text(24, 428, 0.5f, ALIGN_LEFT, argb(230, 255, 255, 255), "A: OK   B: BACK");
+    hud_text(176, 100, 0.4f, ALIGN_CENTER, argb(220, 230, 240, 255), mode_blurb());
     if(warn_t > 0 && ((int)(game.title_t * 6) & 1))
         hud_text(320, 72, 0.7f, ALIGN_CENTER, 0xffff8080, "CONNECT CONTROLLER 2");
 }

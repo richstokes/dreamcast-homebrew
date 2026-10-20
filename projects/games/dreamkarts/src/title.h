@@ -6,6 +6,8 @@
 
 void title_init(void);
 void title_enter(void);
+/* The track select, from the results of a single race. */
+void title_tracks_enter(void);
 void title_update(float dt);
 void title_camera(Camera *cam, float dt);
 /* Two-player kart select: each player's camera on their own kart. */

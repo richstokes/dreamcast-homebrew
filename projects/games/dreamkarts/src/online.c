@@ -111,7 +111,9 @@ static void setup_race(const NetLobby *l) {
     game.cc = l->cc;
     game.laps = l->laps;
     game.items = l->items != 0;
-    game.mode = MODE_GP;
+    /* One race at a time, the lobby keeping the points: a time trial's HUD
+       would hide the places, so only that is overridden. */
+    if(game.mode == MODE_TT) game.mode = MODE_RACE;
     game.num_players = 1;
     int order[NET_MAX_PLAYERS], n = 0;
     for(int g = 0; g < NET_MAX_PLAYERS; g++)
@@ -676,9 +678,6 @@ void online_camera(Camera *cam, float dt) {
 
 #define PANEL_TOP argb(225, 30, 100, 220)
 #define PANEL_BOT argb(225, 12, 36, 120)
-#define GOLD   argb(255, 255, 210, 60)
-#define SILVER argb(255, 216, 224, 234)
-#define BRONZE argb(255, 216, 144, 74)
 
 static void panel(float x0, float y0, float x1, float y1) {
     hud_panel(x0, y0, x1, y1, PANEL_TOP, PANEL_BOT, 15);
@@ -692,26 +691,6 @@ static void title_bar(const char *text) {
 static void hint(const char *text) {
     if(((int)(screen_t * 2.5f) & 1) == 0 || screen_t < 1.0f)
         hud_text(320, 446, 0.5f, ALIGN_CENTER, argb(230, 255, 255, 255), text);
-}
-
-/* A little cup: bowl, handles, stem and base, in gold, silver or bronze. */
-static void trophy(float x, float y, float s, uint32_t col) {
-    uint32_t dark = color_scale(col, 0.7f);
-    r_hdr(h_flat);
-    r_tri2d(x - 7 * s, y, x + 7 * s, y, x, y + 10 * s, col, col, dark, 16.8f);
-    r_quad2d(x - 7 * s, y - 1 * s, x + 7 * s, y + 3 * s, 0, 0, 1, 1, col, 16.8f);
-    r_quad2d(x - 10 * s, y + 1 * s, x - 7 * s, y + 5 * s, 0, 0, 1, 1, dark, 16.75f);
-    r_quad2d(x + 7 * s, y + 1 * s, x + 10 * s, y + 5 * s, 0, 0, 1, 1, dark, 16.75f);
-    r_quad2d(x - 1.5f * s, y + 8 * s, x + 1.5f * s, y + 13 * s, 0, 0, 1, 1, dark, 16.8f);
-    r_quad2d(x - 5 * s, y + 13 * s, x + 5 * s, y + 16 * s, 0, 0, 1, 1, col, 16.8f);
-}
-
-static void swatch(float x, float y, int colour) {
-    const KartColour *c = &kart_colours[colour % COLOUR_COUNT];
-    r_hdr(h_flat);
-    r_quad2d(x - 1, y - 1, x + 25, y + 15, 0, 0, 1, 1, 0xff0c1430, 16.4f);
-    r_quad2d(x, y, x + 12, y + 14, 0, 0, 1, 1, (c->paint1 ? c->paint1 : 0xffe02828) | 0xff000000, 16.5f);
-    r_quad2d(x + 12, y, x + 24, y + 14, 0, 0, 1, 1, c->ui | 0xff000000, 16.5f);
 }
 
 /* Player names can be up to ten wide letters, so shrink one that would run
@@ -891,13 +870,13 @@ static void draw_standings(const NetLobby *l, float x0, float y0, float x1) {
             r_hdr(h_flat);
             r_quad2d(x0 + 8, y - 4, x1 - 8, y + 30, 0, 0, 1, 1, argb(90, 255, 255, 255), 15.5f);
         }
-        if(p->points > 0 && r < 3) trophy(x0 + 26, y + 4, 1.1f, r == 0 ? GOLD : r == 1 ? SILVER : BRONZE);
+        if(p->points > 0 && r < 3) hud_trophy(x0 + 26, y + 4, 1.1f, r == 0 ? HUD_GOLD : r == 1 ? HUD_SILVER : HUD_BRONZE);
         else {
             char rank[8];
             snprintf(rank, sizeof(rank), "%d", r + 1);
             hud_text(x0 + 26, y, 0.6f, ALIGN_CENTER, 0xffffffff, rank);
         }
-        swatch(x0 + 46, y + 4, p->colour);
+        hud_swatch(x0 + 46, y + 4, p->colour);
         bool lead = (p->flags & NPF_LEADER) != 0;
         char buf[16];
         int ping = shown_ping(p);
@@ -983,7 +962,7 @@ static void draw_lobby(void) {
         if(row == LR_ITEMS) v = show_items ? "ON" : "OFF";
         if(row == LR_COLOUR) {
             int c = me ? me->colour : 0;
-            swatch(560, y + 3, c);
+            hud_swatch(560, y + 3, c);
             v = kart_colours[c % COLOUR_COUNT].name;
             /* Shrink long colour names to clear the label. */
             float room = 552 - (386 + hud_text_width(labels[i], 0.55f) + 12), cs = 0.5f;
@@ -1089,7 +1068,7 @@ void online_draw_results(void) {
             char buf[16];
             snprintf(buf, sizeof(buf), "%d%s", place, hud_ordinal(place));
             hud_text(x0 + 24, y, 0.75f, ALIGN_LEFT, hud_place_color(place), buf);
-            swatch(x0 + 90, y + 6, p->colour);
+            hud_swatch(x0 + 90, y + 6, p->colour);
             hud_text(x0 + 122, y + 2, 0.65f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, p->name);
             snprintf(buf, sizeof(buf), "+%d", gained[place - 1]);
             hud_text(x0 + 300, y + 2, 0.65f, ALIGN_RIGHT, argb(255, 120, 255, 140), buf);

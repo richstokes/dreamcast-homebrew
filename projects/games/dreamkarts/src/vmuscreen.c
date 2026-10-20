@@ -9,6 +9,7 @@
    a maple frame and never waits: if the card is busy (a save in progress)
    the screen just tries again next frame. */
 #include "vmuscreen.h"
+#include "gp.h"
 #include "kart.h"
 #include "online.h"
 #include "track.h"
@@ -237,6 +238,14 @@ static void draw_finished(const Kart *k) {
         checks(26, lcd_t);
         return;
     }
+    if(gp.active && game.state == ST_RESULTS && gp.page == 1) {
+        /* The Grand Prix standings page: this player's standing. */
+        int s = gp_standing(k - karts);
+        draw_place(s, 2, 1);
+        sprite(s <= 3 ? LCD_TROPHY : LCD_FLAG, 32, 3);
+        text_c(26, gp_over() ? (s == 1 ? "CHAMPION!" : "GRAND PRIX") : "STANDINGS");
+        return;
+    }
     draw_place(k->place, 2, 1);
     sprite(k->place <= 3 ? LCD_TROPHY : LCD_FLAG, 32, 3);
     if((int)(lcd_t * 2.0f) & 1 || game.state == ST_RESULTS) text_c(26, "FINISH!");
@@ -256,7 +265,7 @@ static void compose(int player) {
     else if(game.state == ST_COUNTDOWN || (game.state == ST_RACE && game.race_time < 0.8f)) draw_countdown();
     else if(racing && k && (k->finished || game.state == ST_RESULTS)) draw_finished(k);
     else if(game.state == ST_RACE && k) {
-        if(game.mode == MODE_GP || game.num_players > 1) draw_race(k);
+        if(game.mode != MODE_TT || game.num_players > 1) draw_race(k);
         else draw_time_trial(k);
     }
     else if(racing || game.state == ST_INTRO) draw_drive(lcd_t);
