@@ -18,8 +18,8 @@
 #define PICK_ALONG        0.9f    /* metres either side of the band */
 #define PICK_LATERAL      1.45f
 #define PICK_HEIGHT       1.3f    /* a kart flying over does not take it */
-#define SNEAKERS_MIN      1.6f    /* boost seconds in 1st place... */
-#define SNEAKERS_MAX      2.6f    /* ...and in 6th */
+#define SNEAKERS_MIN      2.1f    /* boost seconds in 1st place... */
+#define SNEAKERS_MAX      3.1f    /* ...and in 6th */
 #define SPEAR_SPEED_MUL   1.6f    /* times the class top speed */
 #define SPEAR_RANGE       60.0f   /* lock-on range */
 #define SPEAR_LIFE        4.0f
