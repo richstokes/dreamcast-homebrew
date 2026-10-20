@@ -1188,9 +1188,18 @@ static void render(void) {
    150cc, every kart's wire state 12 times a second over serial, stepped as
    fast as the CPU allows. Each race gives the six CPUs new personalities so
    the demo lobby never drives as one. tools/record_demo.py turns the log
-   into server/demo/races/. */
+   into server/demo/races/.
+
+   The emeralds are lit from the seed a watcher of the demo lobby derives
+   (lobby DK_RECORD_LOBBY, a race id unique to the recording, the track), so
+   the server replays each recording under that race id and the gems burst
+   where the bots take them. Spear targets go out as kart indices (the
+   server maps them to its bots' slots). */
 #ifndef DK_RECORD_RACES
 #define DK_RECORD_RACES 6
+#endif
+#ifndef DK_RECORD_LOBBY
+#define DK_RECORD_LOBBY 9   /* lobby 10, the server's default demo lobby */
 #endif
 
 static float rec_range(float lo, float hi) {
@@ -1235,8 +1244,11 @@ static void record_races(uint64_t t0) {
         for(int r = 0; r < DK_RECORD_RACES; r++, done++) {
             dk_seed(0x5eed0000u + (uint32_t)tr * 977u + (uint32_t)r * 7919u);
             race_setup();
+            int race_id = tr * DK_RECORD_RACES + r + 1;   /* 1-255: never 0, never two tracks alike */
+            items_reset(online_items_seed_for(DK_RECORD_LOBBY, race_id, tr));
             for(int i = 0; i < kart_count; i++) {
                 karts[i].cpu = true;
+                karts[i].net_slot = i;
                 record_personality(i, &karts[i]);
             }
             game.state = ST_COUNTDOWN;
@@ -1244,7 +1256,7 @@ static void record_races(uint64_t t0) {
                 countdown_step(DK_DT);
                 idle_karts_step(DK_DT);
             }
-            printf("DKR BEGIN %d %d %d %d %d\n", tr, r, game.laps, game.cc, kart_count);
+            printf("DKR BEGIN %d %d %d %d %d %d %d\n", tr, r, game.laps, game.cc, kart_count, DK_RECORD_LOBBY, race_id);
             int steps = 0, frame = 0;
             float all_home = -1;
             for(;;) {

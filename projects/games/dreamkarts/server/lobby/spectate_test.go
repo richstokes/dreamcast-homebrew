@@ -90,13 +90,17 @@ func TestSpectators(t *testing.T) {
 	}
 }
 
-// fakeRace records six karts that cross the line one by one after secs.
-func fakeRace(t *testing.T, track byte, secs float64) *demo.Race {
+// fakeRace records six karts that cross the line one by one after secs,
+// made for lobby 9 as race raceID. Kart 0 holds a spear from the first
+// second and throws it at kart 1 a second later, where it flies until the
+// last second.
+func fakeRace(t *testing.T, track byte, secs float64, raceID byte) *demo.Race {
 	frames := int(secs*demo.Rate) + 3*demo.Rate
 	var b bytes.Buffer
-	b.WriteString("DKR1")
+	b.WriteString("DKR2")
 	b.Write([]byte{track, 3, 2, MaxPlayers})
 	binary.Write(&b, binary.LittleEndian, uint32(frames))
+	b.Write([]byte{9, raceID, 0, 0})
 	for f := 0; f < frames; f++ {
 		for k := 0; k < MaxPlayers; k++ {
 			e := make([]byte, demo.KartLen)
@@ -111,6 +115,14 @@ func fakeRace(t *testing.T, track byte, secs float64) *demo.Race {
 			}
 			binary.LittleEndian.PutUint16(e[15:], uint16(f*16))
 			binary.LittleEndian.PutUint32(e[17:], ms)
+			e[demo.KartTarget] = demo.NoTarget
+			if k == 0 && f >= demo.Rate && f < 2*demo.Rate {
+				e[demo.KartItems] = 2 // holding a Chaos Spear
+			}
+			if k == 0 && f >= 2*demo.Rate && f < frames-demo.Rate {
+				e[demo.KartItems] = 1 << 4 // spear 1 in flight
+				e[demo.KartTarget] = 1
+			}
 			b.Write(e)
 		}
 	}
@@ -127,8 +139,9 @@ func fakeRace(t *testing.T, track byte, secs float64) *demo.Race {
 
 func TestDemoLobby(t *testing.T) {
 	h := newHarness(t)
-	races := []*demo.Race{fakeRace(t, 0, 5), fakeRace(t, 2, 6), fakeRace(t, 4, 5)}
+	races := []*demo.Race{fakeRace(t, 0, 5, 1), fakeRace(t, 2, 6, 3), fakeRace(t, 4, 5, 5)}
 	h.s.EnableDemo(9, races, 1, h.now)
+	d := h.s.demo
 	l := h.s.Lobbies[9]
 	if l.count() != MaxPlayers || !l.Demo {
 		t.Fatalf("demo lobby has %d bots", l.count())
@@ -171,6 +184,27 @@ func TestDemoLobby(t *testing.T) {
 			t.Fatalf("race %d: started after %v in the lobby", race, waited)
 		}
 		tracks = append(tracks, l.Track)
+		if l.RaceID != d.race.RaceID {
+			t.Fatalf("race %d: id %d, recording %s wants %d", race, l.RaceID, d.race.Name, d.race.RaceID)
+		}
+		// Mid-race the bot on the recording's kart 0 has its spear out at
+		// the bot on kart 1, by slot.
+		adv(CountdownLen + 3*time.Second)
+		spears := 0
+		for i, r := 0, c.last(TypeRace); i < int(r[9]); i++ {
+			e := r[10+28*i:]
+			if e[3+demo.KartItems]>>4&7 == 0 {
+				continue
+			}
+			spears++
+			if e[0] != d.slotOf[0] || e[3+demo.KartTarget] != d.slotOf[1] {
+				t.Fatalf("race %d: slot %d's spear targets slot %d; karts 0 and 1 are slots %d and %d", race, e[0],
+					e[3+demo.KartTarget], d.slotOf[0], d.slotOf[1])
+			}
+		}
+		if spears != 1 {
+			t.Fatalf("race %d: %d spears in the relay", race, spears)
+		}
 		until(race, StateResults, CountdownLen+12*time.Second)
 		if r := c.last(TypeRace); r == nil || r[9] != MaxPlayers {
 			t.Fatalf("race %d: spectator race packet %v", race, r)

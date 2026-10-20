@@ -101,5 +101,9 @@ cd .. && uv run tools/record_demo.py captures/record/record.log
 ```
 
 Add `-DDK_RECORD_ONLY=<track id>` to `EXTRA_CFLAGS` to record one track;
-`record_demo.py` then replaces only that track's races. `go test ./demo`
-checks every recording loads and every kart finishes.
+`record_demo.py` then replaces only that track's races and prints how many
+emeralds, spears and spin-outs each has. `go test ./demo` checks every
+recording loads, every kart finishes and the bots use power-ups. The
+recordings seed their emeralds for lobby 10 (`-DDK_RECORD_LOBBY=<id - 1>`
+for another demo lobby); replayed elsewhere, the bots still race but the
+gems watchers see are not the ones they take.

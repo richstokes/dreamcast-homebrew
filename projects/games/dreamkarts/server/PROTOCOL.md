@@ -186,11 +186,18 @@ seconds is dropped.
 
 The server can fill one lobby (lobby 10 by default) with six bots that are
 never dropped and never send packets. They replay races recorded from the
-console's own CPUs (`demo/races/`, whose 21-byte karts predate the item
-bytes and are padded with zeros: the bots carry nothing): 14 seconds in the lobby, then the leader
+console's own CPUs (`demo/races/`): 14 seconds in the lobby, then the leader
 picks another track at random and the server starts one of that track's
 recordings, dealing the bots onto its karts at random, so each bot drives
-differently every race. Their kart states are relayed exactly like a
-console's; the race ends, places and points work as usual. Points start
-again every 8 races. People joining it are told it is full; anyone can
-watch it.
+differently every race. Their kart states, power-ups included, are relayed
+exactly like a console's; the race ends, places and points work as usual.
+Points start again every 8 races. People joining it are told it is full;
+anyone can watch it.
+
+A recording keeps the full 25-byte kart, so the bots hold emeralds, throw
+spears, raise barriers and spin out as the CPUs did. Each was made with its
+emeralds seeded as a watcher of the demo lobby will seed them (lobby 10, a
+race id of its own, its track; `DK_RECORD_LOBBY` in `src/main.c`), and the
+server starts it under that race id, so the gems watchers see are the ones
+the bots take. A recorded spear's target is a kart index; the server sends
+the slot of the bot driving that kart.

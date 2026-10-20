@@ -18,8 +18,26 @@ import (
 const Rate = 12
 
 // KartLen is one kart's recorded state: the KART body bytes the server
-// relays (flags to race time).
-const KartLen = 21
+// relays (flags to the spear target).
+const KartLen = 25
+
+// Offsets within a kart's bytes that the replay reads.
+const (
+	KartItems  = 14 // item byte: held, barrier, spun out, spear sequence
+	KartTarget = 24 // the kart its spear homes on (255 none)
+)
+
+// NoTarget is a spear without a target.
+const NoTarget = 255
+
+// Headers. DKR1 recorded 21-byte karts before the item bytes existed; the
+// loader pads them with zeros (no item, no spear). DKR2 adds the lobby and
+// race id the recording seeded its emeralds from.
+const (
+	kartLen1 = 21
+	header1  = 12
+	header2  = 16
+)
 
 //go:embed races/*.dkr.gz
 var files embed.FS
@@ -29,8 +47,12 @@ type Race struct {
 	Name            string
 	Track, Laps, CC byte
 	Karts           int
-	frames          []byte
-	Frames          int
+	// Lobby and RaceID seeded the recording's emeralds (0 = unknown, a
+	// DKR1 file): replayed as that race id in that lobby, watchers see the
+	// gems where the bots took them.
+	Lobby, RaceID byte
+	frames        []byte
+	Frames        int
 }
 
 // Kart returns kart k's state at frame f (clamped to the recording).
@@ -78,13 +100,37 @@ func Parse(gz []byte) (*Race, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(b) < 12 || string(b[:4]) != "DKR1" {
-		return nil, fmt.Errorf("not a DKR1 recording")
+	if len(b) < header1 {
+		return nil, fmt.Errorf("not a DKR recording")
 	}
 	r := &Race{Track: b[4], Laps: b[5], CC: b[6], Karts: int(b[7]), Frames: int(binary.LittleEndian.Uint32(b[8:]))}
-	r.frames = b[12:]
+	switch string(b[:4]) {
+	case "DKR1":
+		r.frames = pad(b[header1:], kartLen1)
+	case "DKR2":
+		if len(b) < header2 {
+			return nil, fmt.Errorf("short DKR2 header")
+		}
+		r.Lobby, r.RaceID = b[12], b[13]
+		r.frames = b[header2:]
+	default:
+		return nil, fmt.Errorf("not a DKR recording")
+	}
 	if r.Karts < 1 || r.Frames < 1 || len(r.frames) != r.Frames*r.Karts*KartLen {
 		return nil, fmt.Errorf("bad size: %d karts, %d frames, %d bytes", r.Karts, r.Frames, len(r.frames))
 	}
 	return r, nil
+}
+
+// pad widens karts of n bytes to KartLen with zeros.
+func pad(b []byte, n int) []byte {
+	if len(b)%n != 0 {
+		return b
+	}
+	out := make([]byte, 0, len(b)/n*KartLen)
+	for i := 0; i < len(b); i += n {
+		out = append(out, b[i:i+n]...)
+		out = append(out, make([]byte, KartLen-n)...)
+	}
+	return out
 }

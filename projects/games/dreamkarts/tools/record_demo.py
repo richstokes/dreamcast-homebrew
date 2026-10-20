@@ -7,9 +7,13 @@
 Add EXTRA_CFLAGS="-DDK_RECORD -DDK_RECORD_ONLY=<track id>" to record just one
 track; only that track's recordings are replaced.
 
-Each race becomes server/demo/races/<track>-<n>.dkr.gz: "DKR1", u8 track,
-u8 laps, u8 cc, u8 karts, u32 frames, then for every frame (12 a second
-from the green light) each kart's 21 wire bytes (KART offsets 19-39).
+Each race becomes server/demo/races/<track>-<n>.dkr.gz: "DKR2", u8 track,
+u8 laps, u8 cc, u8 karts, u32 frames, u8 lobby, u8 race id, u8[2] zero,
+then for every frame (12 a second from the green light) each kart's 25 wire
+bytes (KART offsets 19-43: flags to the spear target, which is a kart index
+here). The lobby and race id are what the record build seeded the emeralds
+from; the server replays the race under them so watchers see the gems where
+the bots took them.
 """
 import gzip
 import pathlib
@@ -17,9 +21,27 @@ import struct
 import sys
 
 SLUGS = ["beach", "coral", "harbour", "temple", "skyway", "cyberstone"]
-KART_BYTES = 21        # the demo files keep the build 10 body: the bots carry no items
-WIRE_BYTES = 25        # what the record build prints (src/net.h NET_KART_BYTES)
+KART_BYTES = 25        # what the record build prints (src/net.h NET_KART_BYTES)
+ITEM_BYTE = 14         # held item, barrier, spun out and spear sequence
 OUT = pathlib.Path(__file__).resolve().parent.parent / "server" / "demo" / "races"
+
+
+def item_stats(frames, karts):
+    """Emeralds taken, spears thrown and spin-outs over a race, from the item bytes."""
+    taken = spears = spins = 0
+    held, seq, spun = [0] * karts, [0] * karts, [False] * karts
+    for data in frames:
+        for k in range(karts):
+            b = data[k * KART_BYTES + ITEM_BYTE]
+            item, s, sp = b & 3, (b >> 4) & 7, bool(b & 8)
+            if item and not held[k]:
+                taken += 1
+            if s and s != seq[k]:
+                spears += 1
+            if sp and not spun[k]:
+                spins += 1
+            held[k], seq[k], spun[k] = item, s, sp
+    return taken, spears, spins
 
 
 def main(log_path):
@@ -32,14 +54,14 @@ def main(log_path):
         parts = line[i:].split()
         if parts[1] == "BEGIN":
             track, n, laps, cc, karts = map(int, parts[2:7])
-            cur = {"track": track, "n": n, "laps": laps, "cc": cc, "karts": karts, "frames": []}
+            lobby, race_id = map(int, parts[7:9]) if len(parts) >= 9 else (0, 0)
+            cur = {"track": track, "n": n, "laps": laps, "cc": cc, "karts": karts, "lobby": lobby,
+                   "race_id": race_id, "frames": []}
         elif parts[1] == "F" and cur is not None and len(parts) == 4:
             try:
                 data = bytes.fromhex(parts[3])
             except ValueError:
                 data = b""
-            if len(data) == cur["karts"] * WIRE_BYTES:
-                data = b"".join(data[i * WIRE_BYTES:i * WIRE_BYTES + KART_BYTES] for i in range(cur["karts"]))
             if int(parts[2]) == len(cur["frames"]) and len(data) == cur["karts"] * KART_BYTES:
                 cur["frames"].append(data)
             else:
@@ -56,13 +78,16 @@ def main(log_path):
         for old in OUT.glob(f"{slug}-*.dkr.gz"):
             old.unlink()
     for r in races:
-        body = b"DKR1" + bytes([r["track"], r["laps"], r["cc"], r["karts"]]) + struct.pack("<I", len(r["frames"]))
+        body = b"DKR2" + bytes([r["track"], r["laps"], r["cc"], r["karts"]]) + struct.pack("<I", len(r["frames"]))
+        body += bytes([r["lobby"], r["race_id"], 0, 0])
         body += b"".join(r["frames"])
         path = OUT / f"{SLUGS[r['track']]}-{r['n'] + 1}.dkr.gz"
         with open(path, "wb") as f:
             with gzip.GzipFile(fileobj=f, mode="wb", mtime=0, compresslevel=9) as g:
                 g.write(body)
-        print(f"{path.name}: {len(r['frames'])} frames ({len(r['frames']) / 12:.0f} s), {path.stat().st_size // 1024} KiB")
+        taken, spears, spins = item_stats(r["frames"], r["karts"])
+        print(f"{path.name}: {len(r['frames'])} frames ({len(r['frames']) / 12:.0f} s), {path.stat().st_size // 1024} KiB,"
+              f" race id {r['race_id']}: {taken} emeralds taken, {spears} spears, {spins} spin-outs")
     print(f"{len(races)} races")
 
 

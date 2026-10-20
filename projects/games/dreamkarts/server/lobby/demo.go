@@ -11,6 +11,12 @@ import (
 // races (each recording gave its six CPUs different personalities). After
 // every race the leader picks another track at random. People can watch it
 // but never join it, so a stream always has a race to show.
+//
+// The recordings carry the bots' power-ups: what each held, its barrier,
+// spin-outs and spears, relayed like a console's. A race replays under the
+// race id the recording seeded its emeralds from (in the lobby it was made
+// for), so watchers light the slots the bots drive through, and a spear's
+// target (a kart index in the recording) goes out as that bot's slot.
 const (
 	DemoWait   = 14 * time.Second // in the lobby between races
 	DemoCup    = 8                // races before the points start again
@@ -29,6 +35,7 @@ type demoLobby struct {
 	race    *demo.Race
 	raceID  byte
 	kartOf  map[*Player]int
+	slotOf  [MaxPlayers]byte // the bot slot driving each of the recording's karts
 	rng     *rand.Rand
 	state   byte
 	waitTo  time.Time
@@ -54,6 +61,17 @@ func (s *Server) EnableDemo(id int, races []*demo.Race, seed int64, now time.Tim
 	}
 	if len(d.tracks) == 0 {
 		return
+	}
+	elsewhere := 0
+	for _, rs := range d.byTrack {
+		for _, r := range rs {
+			if r.RaceID != 0 && int(r.Lobby) != id {
+				elsewhere++
+			}
+		}
+	}
+	if elsewhere > 0 {
+		s.Logf("demo lobby %d: %d recordings were made for another lobby: their emeralds will not line up", id, elsewhere)
 	}
 	d.l.Demo = true
 	names := d.rng.Perm(len(demoNames))
@@ -118,23 +136,38 @@ func (s *Server) tickDemo(now time.Time) {
 		}
 		for _, p := range d.bots {
 			if k, ok := d.kartOf[p]; ok && p.Racing {
-				s.takeKart(l, p, d.race.Kart(f, k), at, now)
+				var kart [demo.KartLen]byte
+				copy(kart[:], d.race.Kart(f, k))
+				if t := kart[demo.KartTarget]; t != demo.NoTarget {
+					kart[demo.KartTarget] = demo.NoTarget
+					if int(t) < len(d.slotOf) {
+						kart[demo.KartTarget] = d.slotOf[t]
+					}
+				}
+				s.takeKart(l, p, kart[:], at, now)
 			}
 		}
 	}
 }
 
 // startDemoRace starts the chosen recording with the bots dealt onto its
-// karts at random, so a bot drives differently every race.
+// karts at random, so a bot drives differently every race. The race takes
+// the recording's id so watchers derive its emerald seed (a different id
+// from the last race, or consoles would not see a new race).
 func (s *Server) startDemoRace(d *demoLobby, now time.Time) {
 	l := d.l
+	last := l.RaceID
 	s.startRace(l, now)
+	if d.race.RaceID != 0 && d.race.RaceID != last {
+		l.RaceID = d.race.RaceID
+	}
 	d.raceID, d.last = l.RaceID, d.race
 	d.races++
 	order := d.rng.Perm(len(d.bots))
 	for i, p := range d.bots {
 		d.kartOf[p] = order[i]
 		p.Grid = byte(order[i]) // the recording's grid slot
+		d.slotOf[order[i]] = byte(p.Slot)
 	}
-	s.Logf("demo lobby %d: replaying %s", l.ID, d.race.Name)
+	s.Logf("demo lobby %d: replaying %s as race %d", l.ID, d.race.Name, l.RaceID)
 }

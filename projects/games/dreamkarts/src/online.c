@@ -149,9 +149,13 @@ float online_countdown(void) {
     return synced_countdown(net_lobby());
 }
 
+uint32_t online_items_seed_for(int lobby, int race_id, int track) {
+    return (uint32_t)lobby * 7919u + (uint32_t)race_id * 977u + (uint32_t)track * 31u + 0x1735u;
+}
+
 uint32_t online_items_seed(void) {
     const NetLobby *l = net_lobby();
-    return (uint32_t)l->id * 7919u + (uint32_t)l->race_id * 977u + (uint32_t)l->track * 31u + 0x1735u;
+    return online_items_seed_for(l->id, l->race_id, l->track);
 }
 
 float online_race_time(void) {

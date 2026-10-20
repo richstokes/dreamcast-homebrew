@@ -482,8 +482,8 @@ func (s *Server) kart(p *Player, b []byte, now time.Time) {
 }
 
 // takeKart records a racer's kart (the relayed bytes, flags to the spear)
-// as it was at time at. A shorter body (a demo recording made before the
-// item bytes) is padded with zeros: no item, no spear.
+// as it was at time at. A shorter body is padded with zeros: no item, no
+// spear.
 func (s *Server) takeKart(l *Lobby, p *Player, k []byte, at, now time.Time) {
 	if l.State != StateCountdown && l.State != StateRacing && l.State != StateResults {
 		return

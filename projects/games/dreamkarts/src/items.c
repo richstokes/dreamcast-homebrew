@@ -30,6 +30,13 @@
 #define RAISE_LEN         0.45f   /* the Chao holds the gem up on use */
 /* CPU rivals leave the leading human alone on their final lap. */
 #define AI_SPARE_LEADER_FINAL_LAP 1
+/* Serial log of pickups, throws and hits (DK ITEM): autotests and the demo
+   recording build, never on hardware. */
+#if (defined(DK_AUTOTEST) || defined(DK_RECORD)) && !defined(DK_HW)
+#define ITEMS_LOG 1
+#else
+#define ITEMS_LOG 0
+#endif
 
 typedef struct {
     int lit;             /* slot holding the emerald this race */
@@ -238,7 +245,7 @@ void items_reset(uint32_t seed) {
         karts[i].spear_seq = 0;
     }
     items_got = items_used = items_fired = items_hits = items_spins = 0;
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#if ITEMS_LOG
     if(game.items)
         for(int b = 0; b < track.nbands; b++)
             printf("DK ITEM band %d at %.0f m (%.0f m to the line), slot %d d %.1f: %s\n", b,
@@ -288,7 +295,7 @@ static void spear_launch(Kart *k, int dir, int seq, int target, float s, float d
     sp->pos = track_point(sp->s, sp->d);
     sp->pos.y = spear_y(sp->s, sp->d);
     items_fired++;
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#if ITEMS_LOG
     printf("DK ITEM kart %d fires a spear %s at %s (seq %d%s)\n", idx, dir > 0 ? "ahead" : "behind",
            target >= 0 ? karts[target].name : "nobody", seq, remote ? ", from the network" : "");
 #endif
@@ -311,7 +318,7 @@ static void spear_hit(Spear *sp, Kart *o) {
         o->shield_t = 0;
         o->events |= EV_SHIELD_POP;
         fx_burst(vadd(o->pos, v3(0, 0.8f, 0)), 18, items_colour(ITEM_SHIELD), 6.0f);
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#if ITEMS_LOG
         printf("DK ITEM spear from %d pops kart %d's barrier\n", sp->owner, oi);
 #endif
         spear_end(sp, true);
@@ -319,7 +326,7 @@ static void spear_hit(Spear *sp, Kart *o) {
     }
     kart_spin_out(o, sp->dir > 0 ? 1 : -1);
     items_spins++;
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#if ITEMS_LOG
     printf("DK ITEM spear from %d spins kart %d (%s) at %.1f s\n", sp->owner, oi, o->name, (double)game.race_time);
 #endif
     spear_end(sp, true);
@@ -406,7 +413,7 @@ static void take_emerald(int band, Kart *k, bool give) {
         k->ai_item_delay = 0.35f + frand() * 0.7f;
         k->events |= EV_ITEM_GET;
         items_got++;
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#if ITEMS_LOG
         printf("DK ITEM kart %d (%s) takes %s at band %d, %.1f s\n", (int)(k - karts), k->name, items_name(e->item), band,
                (double)game.race_time);
 #endif
@@ -426,7 +433,7 @@ static bool crossed(const Kart *k, int b, float prev_s) {
     if(!over) return false;
     bool beside = fabsf(k->tp.d - items_slot_d(b, e->lit)) <= PICK_LATERAL;
     bool low = fabsf(k->pos.y - track_road_y(k->tp.s, k->tp.d)) < PICK_HEIGHT;
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#if ITEMS_LOG
     if((!beside || !low) && before < -PICK_ALONG && k->item == ITEM_NONE)
         printf("DK ITEM kart %d (%s) misses band %d: d %.1f, slot d %.1f%s\n", (int)(k - karts), k->name, b,
                (double)k->tp.d, (double)items_slot_d(b, e->lit), low ? "" : ", in the air");
@@ -510,7 +517,7 @@ static void remote_struck(const Kart *k) {
         if(sp->target != idx && fabsf(track_delta(sp->s, k->tp.s)) > 12.0f) continue;
         sp->pos = vadd(k->pos, v3(0, 0.6f, 0));
         items_hits++;
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#if ITEMS_LOG
         printf("DK ITEM spear from %d struck rival %d, by its console\n", sp->owner, idx);
 #endif
         spear_end(sp, true);

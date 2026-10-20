@@ -22,8 +22,11 @@ float online_race_time(void);
 void online_remote_karts(float dt);
 /* A kart as it goes over the wire. */
 void online_pack_kart(const Kart *k, NetKart *out);
-/* The lit emerald slots for this race, agreed by every console. */
+/* The lit emerald slots for this race, agreed by every console: a seed from
+   the lobby, race id and track. The demo recordings (DK_RECORD) use the same
+   formula so watchers of the bots see the emeralds the bots took. */
 uint32_t online_items_seed(void);
+uint32_t online_items_seed_for(int lobby, int race_id, int track);
 /* Mid-race Start opens a leave prompt; true when the player left. */
 bool online_race_input(void);
 void online_draw_race(void);
