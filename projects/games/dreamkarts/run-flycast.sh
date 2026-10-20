@@ -21,7 +21,8 @@ DK_FAIL_ON_LOG stop Flycast when that text appears on the serial console.
 Online play goes through Flycast's emulated broadband adapter by default,
 whatever Flycast's saved network settings say. DK_NET=modem uses the
 emulated modem instead (both through Flycast's local proxy, not DCNet).
-DK_SHOW_VMU=1 shows the VMU screens over the game.
+DK_SHOW_VMU=1 shows the VMU screens over the game. DK_KEYBOARD=1 plugs a
+Dreamcast keyboard into port B, fed by this Mac's keyboard (lobby chat).
 USAGE
 }
 
@@ -55,6 +56,9 @@ case "${DK_NET:-bba}" in
 esac
 if [[ "${DK_SHOW_VMU:-}" == 1 ]]; then
     FLYCAST_CONFIG+=",config:rend.FloatVMUs=yes"
+fi
+if [[ "${DK_KEYBOARD:-}" == 1 ]]; then
+    FLYCAST_CONFIG+=",input:device2=5,input:maple_sdl_keyboard=1"
 fi
 ELF_PATH="${PROJECT_DIR}/${ELF_NAME}"
 

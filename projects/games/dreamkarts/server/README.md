@@ -3,9 +3,10 @@
 The online server for [DreamKarts](../README.md): Go, ten lobbies of up to
 six Dreamcasts over UDP port 7535 at `dcvmu.com`, reachable by broadband
 adapter or 56k modem. The wire format is in [PROTOCOL.md](PROTOCOL.md). It
-keeps lobby state, runs each race's countdown, results and points, and
-relays everyone's kart 12 times a second. Nothing is stored on disk: a
-restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
+keeps lobby state, runs each race's countdown, results and points, relays
+everyone's kart 12 times a second and passes lobby chat round with bad
+words starred out (`lobby/filter.go` holds the list; a name that trips it
+is refused). Nothing is stored on disk: a restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
 bots that anyone can watch.
 
 ## Online change checklist
@@ -54,10 +55,15 @@ address (Flycast's proxy does not reach 127.0.0.1) and run the online
 autotest:
 
 ```bash
-go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 8 -start -race 69 -path cmd/dk-bot/emerald-beach.path
+go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A SHITHEAD"
 make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=192.168.1.184"
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
+
+`-chat` makes the bot say each line in turn once two are in the lobby (said
+again whenever company arrives) and log every line it hears; the autotest
+expects those two lines, the second starred by the filter. `-start-delay`
+gives the chat time before the bot starts the race.
 
 `DK_NET=modem` in front of the launcher uses Flycast's emulated modem, which
 dials and runs PPP like a real dial-up server. Two Flycast windows can race

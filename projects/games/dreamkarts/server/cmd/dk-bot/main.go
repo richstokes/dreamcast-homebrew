@@ -4,6 +4,7 @@
 //	dk-bot -name BOT1 -lobby 0         join lobby 0 and race when a race starts
 //	dk-bot -name BOT1 -lobby 0 -start  also start races as soon as two are in
 //	dk-bot -name BOT1 -lobby 0 -wave   also wave every few seconds
+//	dk-bot -lobby 0 -chat "GG;HI ALL"  say each line in turn while waiting, and log the lobby's chat
 //	dk-bot -lobby 9 -spectate          watch lobby 9 and log its races
 //
 // A bot's kart has no physics: it sits on the grid and reports progress at
@@ -42,6 +43,8 @@ var (
 	path     = flag.String("path", "", "replay kart states from this file (lines: ms x y z heading speed lap dist)")
 	wave     = flag.Bool("wave", false, "wave for 1.7 s every 5 s in the countdown and race")
 	spectate = flag.Bool("spectate", false, "watch the lobby instead of racing")
+	chat     = flag.String("chat", "", "lines to say in the lobby, ';' separated, one every 4 s once two are in")
+	startIn  = flag.Duration("start-delay", 3*time.Second, "with -start: how long to wait in a ready lobby first")
 )
 
 type pathPoint struct {
@@ -87,11 +90,20 @@ func main() {
 	buf := make([]byte, 1500)
 	welcomed, joined := false, false
 	racePackets := 0
+	mySlot := -1
 	var nonce byte
 	var state, raceID, laps byte = 0, 0, 3
 	var green time.Time
 	var lastWish, lastHello, lastKart, readySince time.Time
 	var kartDue time.Time
+	var lines []string // left to say; said again from the top each time company arrives
+	if *chat != "" {
+		lines = strings.Split(*chat, ";")
+	}
+	var chatID byte
+	var chatEcho bool
+	var lastLine string
+	var chatSince, lastChat, chatResend time.Time
 	began := time.Now()
 	for *duration == 0 || time.Since(began) < *duration {
 		conn.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
@@ -112,11 +124,20 @@ func main() {
 				}
 			case lobby.TypeReject:
 				log.Fatalf("rejected: reason %d", b[8])
+			case lobby.TypeChatMsg:
+				if n >= 8+1+lobby.NameLen+2+lobby.ChatLen {
+					who := lobby.CleanName(b[9 : 9+lobby.NameLen])
+					if b[8] == byte(mySlot) && b[9+lobby.NameLen+1] == chatID {
+						chatEcho = true
+					}
+					log.Printf("chat %s: %s", who, lobby.CleanChat(b[9+lobby.NameLen+2:]))
+				}
 			case lobby.TypeLobby:
 				if !joined {
 					log.Printf("in lobby %d as slot %d", b[8], b[10])
 				}
 				joined = true
+				mySlot = int(b[10])
 				ns, rid := b[9], b[15]
 				laps = b[13]
 				t := int32(binary.LittleEndian.Uint32(b[16:]))
@@ -129,12 +150,22 @@ func main() {
 				if ns == lobby.StateCountdown || ns == lobby.StateRacing {
 					green = time.Now().Add(time.Duration(t) * time.Millisecond)
 				}
+				if b[21] >= 2 && ns == lobby.StateWaiting {
+					if chatSince.IsZero() {
+						chatSince = time.Now()
+						if *chat != "" {
+							lines = strings.Split(*chat, ";")
+						}
+					}
+				} else {
+					chatSince = time.Time{}
+				}
 				ready := *start && ns == lobby.StateWaiting && b[11] == b[10] && b[21] >= 2
 				if !ready {
 					readySince = time.Time{}
 				} else if readySince.IsZero() {
 					readySince = time.Now()
-				} else if time.Since(readySince) > 3*time.Second {
+				} else if time.Since(readySince) > *startIn {
 					nonce++
 					readySince = time.Now().Add(time.Hour) // once per wait
 					log.Printf("starting a race")
@@ -167,6 +198,26 @@ func main() {
 			if now.Sub(lastWish) > 250*time.Millisecond {
 				send(lobby.TypeWish, []byte{byte(*colour), 0, 3, 1, nonce, lobby.WishItems})
 				lastWish = now
+			}
+			// Chat like a console: a line every 4 s once two are in, resent
+			// every half second until its echo comes back (or 3 s pass).
+			sayAgain := chatID != 0 && !chatEcho && now.Sub(lastChat) < 3*time.Second && now.Sub(chatResend) > 500*time.Millisecond
+			sayNext := len(lines) > 0 && !chatSince.IsZero() && time.Since(chatSince) > 3*time.Second &&
+				(chatID == 0 || chatEcho || now.Sub(lastChat) >= 3*time.Second) && now.Sub(lastChat) > 4*time.Second
+			if sayNext {
+				chatID++
+				chatEcho = false
+				lastLine, lines = lines[0], lines[1:]
+				log.Printf("saying %q", lastLine)
+				lastChat = now
+				sayAgain = true
+			}
+			if sayAgain {
+				body := make([]byte, 1+lobby.ChatLen)
+				body[0] = chatID
+				copy(body[1:lobby.ChatLen], lastLine)
+				send(lobby.TypeChat, body)
+				chatResend = now
 			}
 			if (state == lobby.StateCountdown || state == lobby.StateRacing) && !now.Before(kartDue) &&
 				now.Sub(lastKart) > 40*time.Millisecond {

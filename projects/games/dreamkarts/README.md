@@ -99,7 +99,8 @@ reports. `DK_GIT_SHA=...` on the make line overrides it.
 Launcher environment: `DK_ELF` picks another ELF, `DK_EXIT_ON_LOG` and
 `DK_FAIL_ON_LOG` stop Flycast on a serial line, `DK_NET=modem` swaps the
 emulated broadband adapter for the emulated modem, `DK_SHOW_VMU=1` shows the
-VMU screens over the game.
+VMU screens over the game, `DK_KEYBOARD=1` puts a Dreamcast keyboard in port
+B fed by the Mac's keyboard (for the lobby chat).
 
 ## Online play
 
@@ -113,7 +114,7 @@ the first VMU found.
 
 - Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps, class and whether power-ups are on, and starts once two are in
 - Each console drives its own kart; the server starts the countdown and decides places. Points (10/8/6/4/2/1) add up while you stay in the lobby
-- Y on any lobby spectates it, with a TV director: X or the triggers pick a camera, left/right a kart, Y hides the overlay
+- X in the lobby room opens the chat: type on the on-screen keys (quick phrases included) or a Dreamcast keyboard in any port, Start or Enter sends. Closed, a strip shows the newest line and a badge counts what you have not read. Chat is per lobby, watchers can read it, and the server stars out bad words
 - Lobby 10 is a demo lobby of bots, watch only
 - An old console is told a newer version is out, or refused if too old to play
 
@@ -158,7 +159,7 @@ needs no Python.
 | `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST`, `-DDK_AT_MINE_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill; hand the player a Mine every 12 s, or every `=<s>` (the capture looks behind at it; alone with `=30` the player laps round to its own) |
 | `-DDK_AT_FIXED` | One 1/60 s step a frame and held screenshot frames: two runs give pixel-identical captures and `DK STATE` fingerprints, for before/after diffs |
 | `-DDK_XF_CHECK` (with `-DDK_AT_FIXED`) | Runs the C beside each `src/xform.S` routine; `DK XFCHECK ... mismatch=` must stay 0 |
-| `-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<ip>` | Goes online: joins lobby 9, races, passes when the results arrive (recipe in server/README.md) |
+| `-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<ip>` | Goes online: joins lobby 9, chats with the bot (a line from a faked keyboard, one from the on-screen keys, the bot's rude line starred), races, passes when the results arrive (recipe in server/README.md) |
 | `-DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
 | `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU: the name screen must open on the saved name (and recover from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |

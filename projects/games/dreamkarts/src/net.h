@@ -10,6 +10,8 @@
 #define NET_LOBBIES     10
 #define NET_MAX_PLAYERS 6
 #define NET_NAME_LEN    11   /* 10 characters and a NUL */
+#define NET_CHAT_LEN    33   /* a chat line: 32 characters and a NUL */
+#define NET_CHAT_KEEP   10   /* chat lines remembered */
 
 enum { NET_OFF, NET_LINK, NET_HELLO, NET_BROWSE, NET_JOINING, NET_LOBBY, NET_REJECTED, NET_LOST };
 enum { NLS_WAITING, NLS_COUNTDOWN, NLS_RACING, NLS_RESULTS };
@@ -45,6 +47,25 @@ typedef struct {
     int count;
     NetPlayer players[NET_MAX_PLAYERS];
 } NetLobby;
+
+/* A lobby chat line as the server relayed it. */
+typedef struct {
+    uint8_t slot, colour, id;   /* slot 255: not a player */
+    char name[NET_NAME_LEN];
+    char text[NET_CHAT_LEN];
+    uint64_t at;                /* local ms it arrived */
+} NetChat;
+
+/* Lobby chat. net_say() sends a line, resent until the server echoes it
+   back (net_say_state() says how that went; one line at a time). The lines
+   heard since joining this lobby are numbered from 0; the newest
+   NET_CHAT_KEEP are kept, so net_chat(i) is valid for
+   i >= net_chat_count() - NET_CHAT_KEEP. */
+enum { NET_SAY_IDLE, NET_SAY_SENDING, NET_SAY_SENT, NET_SAY_FAILED };
+bool net_say(const char *text);
+int net_say_state(void);
+int net_chat_count(void);
+const NetChat *net_chat(int i);
 
 /* Item byte (KART offset 33): the held item, a barrier up, spun out and
    whether the spear flew backwards. The sequence byte (offset 40) numbers

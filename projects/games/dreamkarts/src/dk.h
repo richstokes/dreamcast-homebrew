@@ -120,6 +120,15 @@ bool input_right(int player);
 #if defined(DK_FILM) || defined(DK_CAPTURE)
 void input_film_tap(int player, uint32_t btns);
 #endif
+/* A Dreamcast keyboard on any port: this frame's key presses, as the
+   capital letters and symbols they type or one of the keys below. */
+enum { KEY_ENTER = 1, KEY_BACKSPACE, KEY_ESCAPE, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT };
+#define MAX_KEYS 16
+bool input_keyboard(void);
+int input_keys(const uint8_t **keys);
+#ifdef DK_AUTOTEST
+void input_fake_keys(const uint8_t *keys, int n);
+#endif
 
 typedef struct {
     float steer;         /* -1 left .. +1 right */

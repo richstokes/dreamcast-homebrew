@@ -74,6 +74,7 @@ redials keeps its seat if it comes back within the timeout.
 | 5 | `WISH` | u8 colour, u8 track, u8 laps, u8 cc, u8 start nonce, u8 flags (bit0 power-ups on; build 11) | 4 Hz in a lobby |
 | 6 | `KART` | see below | once per `RACE` relay in a race (12 Hz) |
 | 7 | `PING` | nothing | 1 Hz otherwise idle (keeps NAT open) |
+| 8 | `CHAT` | u8 message id, text `char[33]` (build 14) | every 500 ms until the `CHAT` echo names this id, for up to 3 s |
 
 A `JOIN` with the spectate flag makes the console a watcher: it gets the
 lobby's `LOBBY` and `RACE` packets but has no slot, kart or say. Any number
@@ -127,6 +128,7 @@ Every server packet continues with:
 | 66 | `LOBBIES` | lobby count x (u8 players, u8 state, u8 track, char[11] leader), then lobby count x (u8 watchers, u8 flags) |
 | 67 | `LOBBY` | see below |
 | 68 | `RACE` | see below |
+| 69 | `CHAT` | u8 slot (255 none), name `char[11]`, u8 colour, u8 message id, text `char[33]` (build 14) |
 
 `WELCOME` status: 0 up to date, 1 a newer build exists (playable). `REJECT`
 reasons: 1 client too old (below min build), 2 server full, 3 lobby full,
@@ -168,6 +170,20 @@ old the state is at send time), then the 29 bytes of the `KART` body at
 offsets 19-47 (flags through the mine), 32 bytes per racer. A racer whose
 kart has not changed since the last relay is sent again as is; consoles
 drop the repeat.
+
+## Lobby chat
+
+A player (not a watcher) in a lobby sends a `CHAT` with a fresh message id
+and the line it typed; the server cleans it (printable ASCII in capitals,
+32 characters), stars out bad words (`lobby/filter.go`; a name that trips
+the filter gets `REJECT` 4) and sends it as a server `CHAT` to every player
+and watcher of that lobby, the sender included. That echo is the only
+acknowledgement: the console resends the same id every 500 ms until it
+sees it, and the server answers a repeat of the newest id with the echo
+again instead of a second copy. Each player may send a burst of three
+messages, then one a second; anything faster is dropped, and the
+console's resends carry it in once the bucket refills. Chat is kept
+nowhere: a console sees only what arrives while it is in the lobby.
 
 ## Race lifecycle
 

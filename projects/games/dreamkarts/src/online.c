@@ -8,6 +8,7 @@
    results, then back to the room. */
 #include "online.h"
 #include "audio.h"
+#include "chat.h"
 #include "fx.h"
 #include "hud.h"
 #include "items.h"
@@ -342,6 +343,27 @@ static void name_update(void) {
     char saved[NET_NAME_LEN];
     if(save_take_name(saved, sizeof(saved)) && !name_typed) strcpy(name, saved);
     int len = (int)strlen(name);
+    /* A Dreamcast keyboard types the name too (the characters a name may
+       hold); Enter is Start. */
+    const uint8_t *keys;
+    int nk = input_keys(&keys);
+    bool key_done = false;
+    for(int i = 0; i < nk; i++) {
+        uint8_t k = keys[i];
+        if(k == KEY_ENTER) key_done = true;
+        else if(k == KEY_BACKSPACE && len > 0) {
+            name[--len] = '\0';
+            name_typed = true;
+            audio_sfx(DK_SFX_MENU_BACK, 160, 128);
+        }
+        else if(((k >= 'A' && k <= 'Z') || (k >= '0' && k <= '9') || k == ' ' || k == '-' || k == '.') &&
+                len < NET_NAME_LEN - 1) {
+            name[len++] = (char)k;
+            name[len] = '\0';
+            name_typed = true;
+            audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
+        }
+    }
     if(input_menu_up()) key_row = (key_row + 4) % 5;
     if(input_menu_down()) key_row = (key_row + 1) % 5;
     if(input_menu_left()) key_col--;
@@ -350,7 +372,7 @@ static void name_update(void) {
     key_col = (key_col % n + n) % n;
     if(input_menu_up() || input_menu_down() || input_menu_left() || input_menu_right())
         audio_sfx(DK_SFX_MENU_MOVE, 160, 128);
-    bool done = (pad.pressed & BTN_START) != 0;
+    bool done = (pad.pressed & BTN_START) != 0 || key_done;
     if(pad.pressed & BTN_A) {
         if(key_row < 4) {
             if(len < NET_NAME_LEN - 1) {
@@ -419,6 +441,7 @@ static void browser_update(void) {
         was_leader = false;
         lobby_row = 0;
         fly_t = 0;
+        chat_enter_lobby();
         audio_sfx(DK_SFX_CHAO, 200, 128);
         return;
     }
@@ -477,7 +500,7 @@ static int lobby_rows(bool leader, int *rows) {
     return n;
 }
 
-static void lobby_update(void) {
+static void lobby_update(float dt) {
     const NetLobby *l = net_lobby();
     const NetPlayer *me = net_me();
     if(net_state() == NET_BROWSE) {
@@ -490,6 +513,7 @@ static void lobby_update(void) {
             game_load_track(l->track);
             fly_t = 0;
         }
+        if(chat_update(dt, false)) return;
         if(pad.pressed & BTN_B) {
             audio_sfx(DK_SFX_MENU_BACK, 200, 128);
             net_leave();
@@ -515,6 +539,13 @@ static void lobby_update(void) {
     }
     int rows[6], n = lobby_rows(leader, rows);
     if(lobby_row >= n) lobby_row = n - 1;
+    /* The chat box takes every button while it is open; our wishes still
+       go out. */
+    if(chat_update(dt, true)) {
+        net_wish(my_colour, leader ? sel_track : l->track, leader ? sel_laps : l->laps, leader ? sel_cc : l->cc,
+                 leader ? sel_items : l->items);
+        return;
+    }
     if(l->state == NLS_WAITING) {
         if(input_menu_up()) {
             lobby_row = (lobby_row + n - 1) % n;
@@ -655,7 +686,7 @@ void online_update(float dt) {
         case OS_NAME: name_update(); break;
         case OS_CONNECT: connect_update(); break;
         case OS_BROWSER: browser_update(); break;
-        case OS_LOBBY: lobby_update(); break;
+        case OS_LOBBY: lobby_update(dt); break;
         case OS_ERROR:
             if(screen_t > 0.5f && (pad.pressed & (BTN_A | BTN_B | BTN_START))) {
                 audio_sfx(DK_SFX_MENU_BACK, 200, 128);
@@ -701,6 +732,7 @@ static void title_bar(const char *text) {
 }
 
 static void hint(const char *text) {
+    if(chat_hint()) text = chat_hint();
     if(((int)(screen_t * 2.5f) & 1) == 0 || screen_t < 1.0f)
         hud_text(320, 446, 0.5f, ALIGN_CENTER, argb(230, 255, 255, 255), text);
 }
@@ -908,9 +940,9 @@ static void draw_lobby(void) {
     char buf[64];
     snprintf(buf, sizeof(buf), "LOBBY %d", l->id + 1);
     title_bar(buf);
-    panel(24, 76, 356, 428);
+    panel(24, 76, 356, 398);
     draw_standings(l, 24, 86, 356);
-    panel(372, 76, 616, 428);
+    panel(372, 76, 616, 398);
     if(net_spectating()) {
         float y = 92;
         hud_text(494, y, 0.6f, ALIGN_CENTER, argb(255, 255, 220, 60), "SPECTATING");
@@ -933,10 +965,11 @@ static void draw_lobby(void) {
         }
         snprintf(buf, sizeof(buf), "%d WATCHING", l->watchers);
         hud_text(494, y + 6, 0.5f, ALIGN_CENTER, argb(220, 200, 225, 255), buf);
-        y = 340;
+        y = 330;
         hud_text(494, y + 24, 0.45f, ALIGN_CENTER, l->state == NLS_WAITING ? 0xffffffff : argb(255, 255, 190, 80),
                  l->state == NLS_WAITING ? "NEXT RACE SOON" : l->state == NLS_RESULTS ? "RESULTS ARE IN" : "RACE IN PROGRESS");
-        hint("B: STOP WATCHING");
+        chat_draw(screen_t);
+        hint("X: CHAT   B: STOP WATCHING");
         return;
     }
     bool leader = l->leader == l->you;
@@ -995,7 +1028,7 @@ static void draw_lobby(void) {
         else if(v[0]) hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, col, v);
         y += 36;
     }
-    y = 366;
+    y = 354;
     if(l->state != NLS_WAITING) {
         hud_text(494, y, 0.5f, ALIGN_CENTER, argb(255, 255, 190, 80), "RACE IN PROGRESS");
         hud_text(494, y + 22, 0.42f, ALIGN_CENTER, 0xffffffff, "YOU WILL JOIN THE NEXT ONE");
@@ -1006,7 +1039,8 @@ static void draw_lobby(void) {
         fit_text(494, y, 0.48f, ALIGN_CENTER, 0xffffffff, buf, 228);
         hud_text(494, y + 22, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "TO START THE RACE");
     }
-    hint(leader ? "A: SELECT   LEFT/RIGHT: CHANGE   B: LEAVE" : "LEFT/RIGHT: COLOUR   B: LEAVE LOBBY");
+    chat_draw(screen_t);
+    hint(leader ? "A: SELECT   LEFT/RIGHT: CHANGE   X: CHAT   B: LEAVE" : "LEFT/RIGHT: COLOUR   X: CHAT   B: LEAVE");
 }
 
 static void draw_error(void) {
@@ -1112,7 +1146,7 @@ const char *online_name(void) {
 #endif
 void online_autotest(float dt) {
     static float t;
-    static bool reported, s_name, s_browser, s_lobby, s_after;
+    static bool reported, s_name, s_browser, s_lobby, s_after, chat_ok;
     t += dt;
     if(screen == OS_NAME && t > 0.6f) AT_SHOT(s_name, "online-name");
     if(screen == OS_NAME && t > 1.2f) {
@@ -1164,6 +1198,77 @@ void online_autotest(float dt) {
         static float ready_t;
         ready_t = l->count >= 2 && l->leader == l->you && l->state == NLS_WAITING ? ready_t + dt : 0;
         if(l->count >= 2 && screen_t > 1.5f) AT_SHOT(s_lobby, "online-lobby");
+        /* The chat, once two are in and nothing has been raced yet: open
+           the box with X, say GG from a (faked) keyboard, then HI! from
+           the on-screen keys, and wait to hear the bot (started with
+           -chat "HELLO FROM BOT;YOU ARE A SHITHEAD", the second line
+           starred out by the server). */
+        static int chat_step;
+        static float chat_t;
+        static bool s_chat, s_chat_strip;
+        if(l->count >= 2 && results_seen == 0 && l->state == NLS_WAITING && chat_step < 9) {
+            chat_t += dt;
+            int count = net_chat_count();
+            if(chat_step == 0 && chat_t > 2.0f) {
+                chat_at_press(BTN_X);
+                chat_step = 1;
+            }
+            else if(chat_step == 1 && chat_open() && chat_t > 2.6f) {
+                static const uint8_t keys[] = {'G', 'G', KEY_ENTER};
+                input_fake_keys(keys, 3);
+                printf("DK CHAT: typed GG on the keyboard\n");
+                chat_step = 2;
+            }
+            else if(chat_step == 2 && net_say_state() != NET_SAY_SENDING && chat_t > 3.0f) {
+                printf("DK CHAT: GG %s\n", net_say_state() == NET_SAY_SENT ? "echoed" : "NOT SENT");
+                chat_at_pick("HI!");
+                chat_at_press(BTN_A);
+                chat_step = 3;
+            }
+            else if(chat_step == 3) {
+                chat_at_press(BTN_START);
+                printf("DK CHAT: sent HI! from the on-screen keys\n");
+                chat_step = 4;
+            }
+            else if(chat_step == 4 && net_say_state() != NET_SAY_SENDING) {
+                printf("DK CHAT: HI! %s\n", net_say_state() == NET_SAY_SENT ? "echoed" : "NOT SENT");
+                chat_step = 5;
+            }
+            else if(chat_step == 5 && (count >= 3 || chat_t > 12.0f)) {
+                AT_SHOT(s_chat, "online-chat");
+                chat_t = 100;   /* then a moment for the screenshot */
+                chat_step = 6;
+            }
+            else if(chat_step == 6 && chat_t > 101.0f) {
+                chat_at_press(BTN_X);   /* close: the strip shows the newest line */
+                chat_step = 7;
+            }
+            else if(chat_step == 7 && !chat_open() && (count >= 4 || chat_t > 112.0f)) {
+                /* The bot's second line lands while the box is closed, so
+                   the strip wears its NEW badge. */
+                chat_step = 8;
+            }
+            else if(chat_step == 8) {
+                AT_SHOT(s_chat_strip, "online-chat-strip");
+                bool mine_gg = false, mine_hi = false, bot_hello = false, bot_starred = false, bot_raw = false;
+                for(int i = count - NET_CHAT_KEEP < 0 ? 0 : count - NET_CHAT_KEEP; i < count; i++) {
+                    const NetChat *c = net_chat(i);
+                    if(!c) continue;
+                    printf("DK CHAT: heard %d: %s: %s\n", i, c->name, c->text);
+                    bool me = c->slot == l->you;
+                    if(me && strcmp(c->text, "GG") == 0) mine_gg = true;
+                    if(me && strcmp(c->text, "HI!") == 0) mine_hi = true;
+                    if(!me && strcmp(c->text, "HELLO FROM BOT") == 0) bot_hello = true;
+                    if(!me && strcmp(c->text, "YOU ARE A ********") == 0) bot_starred = true;
+                    if(!me && strstr(c->text, "SHIT")) bot_raw = true;
+                }
+                chat_ok = mine_gg && mine_hi && bot_hello && bot_starred && !bot_raw;
+                printf("DK CHAT: %d lines, mine %s %s, bot %s %s%s: %s\n", count, mine_gg ? "GG" : "-",
+                       mine_hi ? "HI!" : "-", bot_hello ? "hello" : "-", bot_starred ? "starred" : "-",
+                       bot_raw ? " UNFILTERED" : "", chat_ok ? "OK" : "FAIL");
+                chat_step = 9;
+            }
+        }
 #ifdef DK_AT_TRACK
         /* As leader, pick the race the way a player would. */
         if(l->leader == l->you) {
@@ -1172,7 +1277,7 @@ void online_autotest(float dt) {
         }
 #endif
         if(results_seen > 0 && screen_t > 2.0f) AT_SHOT(s_after, "online-lobby-after");
-        if(ready_t > 3.0f && results_seen == 0) {
+        if(ready_t > 3.0f && results_seen == 0 && chat_step >= 9) {
             printf("DK ONLINE: starting a race with %d players\n", l->count);
             net_press_start();
             ready_t = -100;
@@ -1185,7 +1290,7 @@ void online_autotest(float dt) {
                    (double)(rmotion.steps ? rmotion.delay_sum / (float)(rmotion.steps + 1) : 0), rmotion.delay_max);
             printf("DK ONLINE: race over, place %d, points %d, ping %d ms\n", me ? me->place : 0, me ? me->points : 0,
                    me ? me->ping : 0);
-            printf("DK AUTOTEST: %s\n", me && me->place > 0 ? "PASS" : "FAIL");
+            printf("DK AUTOTEST: %s\n", me && me->place > 0 && chat_ok ? "PASS" : "FAIL");
             reported = true;
         }
     }

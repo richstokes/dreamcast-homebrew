@@ -4,7 +4,7 @@ else
 
 TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c \
-	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c
+	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
 GEN_HEADERS = $(wildcard $(GEN)/*.h)

@@ -65,6 +65,15 @@ type Player struct {
 	FinishMs uint32
 	Progress float64 // laps * 100000 + lap distance, for unfinished places
 
+	// Chat: the newest message id taken from this console and the packet it
+	// became, sent again when the console resends that id (its echo was
+	// lost); the token bucket that limits how fast it may talk.
+	ChatID     byte
+	ChatSeen   bool
+	ChatEcho   []byte
+	chatTokens float64
+	chatAt     time.Time
+
 	rateWindow time.Time
 	rateCount  int
 }
@@ -166,6 +175,10 @@ func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
 		if len(body) >= 1+KartLen {
 			s.kart(p, body, now)
 		}
+	case TypeChat:
+		if len(body) >= 2 {
+			s.chat(p, body, now)
+		}
 	case TypePing:
 	}
 }
@@ -203,7 +216,7 @@ func (s *Server) hello(from netip.AddrPort, h ClientHeader, body []byte, p *Play
 		return
 	}
 	name := CleanName(body[:NameLen])
-	if name == "" {
+	if name == "" || Censor(name) != name {
 		s.reject(from, RejectBadName, now)
 		return
 	}
@@ -318,6 +331,7 @@ func (s *Server) join(p *Player, id int, now time.Time) {
 	s.joinSeq++
 	p.Lobby, p.Slot, p.JoinSeq = id, slot, s.joinSeq
 	p.Points, p.LastPlace, p.Racing, p.Finished, p.HasKart = 0, 0, false, false, false
+	p.ChatSeen, p.ChatEcho = false, nil
 	if !l.colourFree(p.Colour, p) {
 		for c := byte(0); c < colours; c++ {
 			if l.colourFree(c, p) {
@@ -479,6 +493,56 @@ func (s *Server) kart(p *Player, b []byte, now time.Time) {
 		return
 	}
 	s.takeKart(l, p, b[1:1+KartLen], now, now)
+}
+
+// chat relays a player's message to everyone in its lobby, the sender
+// included (that echo is how the console knows it arrived), with the bad
+// words starred out. A watcher has no say. A console resends a message
+// until it sees its echo, so a repeat of the newest id gets the echo again
+// rather than a second copy; a message over the rate limit is dropped, and
+// the console's resends carry it in once the bucket refills.
+func (s *Server) chat(p *Player, b []byte, now time.Time) {
+	if p.Lobby == noLobby || p.Spectating {
+		return
+	}
+	id := b[0]
+	if p.ChatSeen && id == p.ChatID {
+		s.send(p.Addr, p.ChatEcho)
+		return
+	}
+	if !p.chatAt.IsZero() {
+		p.chatTokens += now.Sub(p.chatAt).Seconds()
+	} else {
+		p.chatTokens = ChatBurst
+	}
+	if p.chatTokens > ChatBurst {
+		p.chatTokens = ChatBurst
+	}
+	p.chatAt = now
+	if p.chatTokens < 1 {
+		return
+	}
+	text := Censor(CleanChat(b[1:]))
+	if text == "" {
+		return
+	}
+	p.chatTokens--
+	l := s.Lobbies[p.Lobby]
+	pkt := serverHeader(make([]byte, 0, 8+1+NameLen+2+ChatLen), TypeChatMsg, s.ms(now))
+	pkt = append(pkt, byte(p.Slot))
+	pkt = appendName(pkt, p.Name)
+	pkt = append(pkt, p.Colour, id)
+	pkt = appendChat(pkt, text)
+	p.ChatID, p.ChatSeen, p.ChatEcho = id, true, pkt
+	s.Logf("lobby %d chat %q: %s", l.ID, p.Name, text)
+	for _, q := range l.Slots {
+		if q != nil {
+			s.send(q.Addr, pkt)
+		}
+	}
+	for _, q := range l.Watchers {
+		s.send(q.Addr, pkt)
+	}
 }
 
 // takeKart records a racer's kart (the relayed bytes, flags to the mine)

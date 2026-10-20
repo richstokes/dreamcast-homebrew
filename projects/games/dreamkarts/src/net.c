@@ -72,8 +72,15 @@ static uint64_t kart_due;   /* when the next KART goes out */
 static bool kart_armed;     /* kart_due was set from a relay (not the fallback) */
 static bool received;       /* a packet arrived in this net_update */
 static bool green_locked;   /* green_ms is settled for this race */
+static NetChat chat_ring[NET_CHAT_KEEP];
+static int chat_total;      /* lines heard since joining this lobby */
+static char say_text[NET_CHAT_LEN];
+static uint8_t say_id;
+static int say_state;
+static uint64_t say_since, say_last;
 
 static void forget_karts(void);
+static void copy_name(char *dst, const uint8_t *src);
 
 uint64_t net_now(void) {
     return timer_ms_gettime64();
@@ -147,9 +154,15 @@ static void open_socket(void) {
     server.sin_addr.s_addr = link_server_ip();
 }
 
+static void forget_chat(void) {
+    chat_total = 0;
+    say_state = NET_SAY_IDLE;
+}
+
 void net_begin(const char *name) {
     memset(my_name, 0, sizeof(my_name));
     strncpy(my_name, name, NET_NAME_LEN - 1);
+    forget_chat();
     reject_reason = 0;
     message = "";
     join_id = -1;
@@ -200,6 +213,7 @@ void net_join(int id) {
     spectating = false;
     state = NET_JOINING;
     last_join = 0;
+    forget_chat();
 }
 
 void net_spectate(int id) {
@@ -218,6 +232,49 @@ void net_leave(void) {
     lobby.id = -1;
     join_id = -1;
     last_list = 0;
+    forget_chat();
+}
+
+/* ---- lobby chat ---- */
+
+bool net_say(const char *text) {
+    if(state != NET_LOBBY || spectating || say_state == NET_SAY_SENDING || !text[0]) return false;
+    memset(say_text, 0, sizeof(say_text));
+    strncpy(say_text, text, NET_CHAT_LEN - 1);
+    if(++say_id == 0) say_id = 1;
+    say_state = NET_SAY_SENDING;
+    say_since = net_now();
+    say_last = 0;   /* goes out in the next update */
+    return true;
+}
+
+int net_say_state(void) { return say_state; }
+int net_chat_count(void) { return chat_total; }
+
+const NetChat *net_chat(int i) {
+    if(i < 0 || i >= chat_total || i < chat_total - NET_CHAT_KEEP) return NULL;
+    return &chat_ring[i % NET_CHAT_KEEP];
+}
+
+static void take_chat(const uint8_t *e, uint64_t now) {
+    NetChat c;
+    c.slot = e[0];
+    copy_name(c.name, e + 1);
+    c.colour = e[12];
+    c.id = e[13];
+    memcpy(c.text, e + 14, NET_CHAT_LEN);
+    c.text[NET_CHAT_LEN - 1] = '\0';
+    for(char *p = c.text; *p; p++)
+        if((unsigned char)*p < 32 || (unsigned char)*p > 126) *p = '?';
+    c.at = now;
+    if(say_state == NET_SAY_SENDING && c.slot == lobby.you && c.id == say_id) say_state = NET_SAY_SENT;
+    /* The echo of a line we resent can arrive twice; so can nothing else. */
+    if(chat_total > 0) {
+        const NetChat *last = &chat_ring[(chat_total - 1) % NET_CHAT_KEEP];
+        if(last->slot == c.slot && last->id == c.id && strcmp(last->text, c.text) == 0) return;
+    }
+    chat_ring[chat_total % NET_CHAT_KEEP] = c;
+    chat_total++;
 }
 
 void net_wish(int colour, int track, int laps, int cc, int items) {
@@ -558,6 +615,10 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
             message = "";
             break;
         }
+        case 69:   /* CHAT */
+            if(n < 8 + 1 + NET_NAME_LEN + 2 + NET_CHAT_LEN || state != NET_LOBBY) return;
+            take_chat(b + 8, now);
+            break;
         case 68: { /* RACE */
             if(n < 10 || state != NET_LOBBY || b[8] != lobby.race_id) return;
             /* The server relays on a steady beat: send our next kart so it
@@ -691,6 +752,20 @@ void net_update(void) {
                                 start_nonce, (uint8_t)(wish_items ? 1 : 0)};
                 send_packet(5, b, 6);
                 last_wish = now;
+            }
+            /* A chat line goes again every half second until its echo
+               comes back; after 3 s it is given up on. */
+            if(say_state == NET_SAY_SENDING) {
+                if(now - say_since > 3000) {
+                    say_state = NET_SAY_FAILED;
+                }
+                else if(now - say_last >= 500) {
+                    uint8_t b[1 + NET_CHAT_LEN];
+                    b[0] = say_id;
+                    memcpy(b + 1, say_text, NET_CHAT_LEN);
+                    send_packet(8, b, sizeof(b));
+                    say_last = now;
+                }
             }
             break;
         }

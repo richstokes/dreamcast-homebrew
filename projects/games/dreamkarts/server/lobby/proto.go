@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 3
-	Build    = 13
+	Build    = 14
 	MinBuild = 13
 )
 
@@ -21,6 +21,7 @@ const (
 	MaxPlayers = 6
 	NameLen    = 11 // 10 characters and a NUL
 	KartLen    = 29 // KART body bytes relayed in RACE packets (offsets 19-47)
+	ChatLen    = 33 // a chat line: 32 characters and a NUL
 )
 
 // Packet types.
@@ -32,12 +33,19 @@ const (
 	TypeWish    = 5
 	TypeKart    = 6
 	TypePing    = 7
+	TypeChat    = 8 // u8 message id, char[ChatLen] text (build 14)
 	TypeWelcome = 64
 	TypeReject  = 65
 	TypeLobbies = 66
 	TypeLobby   = 67
 	TypeRace    = 68
+	TypeChatMsg = 69 // u8 slot, char[NameLen] name, u8 colour, u8 message id, char[ChatLen] text (build 14)
 )
+
+// Chat rate limit per player: a burst of ChatBurst messages, then one every
+// ChatRefill. Messages over the limit are dropped; the console keeps
+// resending for a few seconds, so a short burst still gets through in turn.
+const ChatBurst = 3
 
 // JOIN flags (body byte 1; a one-byte JOIN from build 3 is a player).
 const JoinSpectate = 1 << 0
@@ -152,4 +160,41 @@ func appendName(dst []byte, name string) []byte {
 	var n [NameLen]byte
 	copy(n[:NameLen-1], name)
 	return append(dst, n[:]...)
+}
+
+// CleanChat keeps the printable ASCII the console's font draws, in capitals
+// like the rest of the game, with runs of spaces collapsed, and cuts the
+// line to what fits a chat packet.
+func CleanChat(raw []byte) string {
+	var sb strings.Builder
+	space := false
+	for _, c := range raw {
+		if c == 0 {
+			break
+		}
+		if c >= 'a' && c <= 'z' {
+			c -= 32
+		}
+		if c < 32 || c > 126 {
+			continue
+		}
+		if c == ' ' {
+			space = true
+			continue
+		}
+		if space && sb.Len() > 0 {
+			sb.WriteByte(' ')
+		}
+		space = false
+		if sb.Len() < ChatLen-1 {
+			sb.WriteByte(c)
+		}
+	}
+	return strings.TrimRight(sb.String(), " ")
+}
+
+func appendChat(dst []byte, text string) []byte {
+	var t [ChatLen]byte
+	copy(t[:ChatLen-1], text)
+	return append(dst, t[:]...)
 }
