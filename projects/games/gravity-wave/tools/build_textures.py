@@ -3,7 +3,13 @@
 # requires-python = ">=3.10"
 # dependencies = ["Pillow>=10,<13"]
 # ///
-"""Build Gravity Wave's source atlases into PVR-ready 16-bit texture data."""
+"""Build Gravity Wave's source atlases into PVR-ready 16-bit texture data.
+
+Each SPECS entry crops one atlas quadrant, resizes it to a power of two,
+cross-blends the edges of tileable materials, applies 4x4 ordered dithering and
+packs RGB565 or ARGB4444 texels into 32-byte-aligned C arrays that the game
+hands to pvr_txr_load(). A preview PNG per texture goes to previews/.
+"""
 
 from __future__ import annotations
 

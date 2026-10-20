@@ -1938,7 +1938,7 @@ draw_scene:
     sts.l   pr, @-r15
     mov.l   r9, @-r15
 
-    ! The global frame counter is wrapped at 6144 by the main loop. Convert it
+    ! The global frame counter is wrapped at 6912 by the main loop. Convert it
     ! here into a scene number and a private 0..767 local frame so every act
     ! can use the same compact time arithmetic and restart deterministically.
     mov.l   .Lscene_length, r1
@@ -2075,6 +2075,13 @@ draw_scene:
 .Lfn_scene_navigator: .long draw_scene_navigator
 .Lfn_scene_horizon:   .long draw_scene_event_horizon
 .Lfn_scene_transition:.long draw_scene_transition
+
+! ---------------------------------------------------------------------------
+! Scene 01: Orbit Core
+!
+! A corkscrewing camera dive around a generated torus with holographic layers
+! threaded through it. The per-pass comments below describe each layer.
+! ---------------------------------------------------------------------------
 
 draw_scene_orbit:
     sts.l   pr, @-r15

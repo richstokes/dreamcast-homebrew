@@ -47,7 +47,8 @@ MATERIAL_IDS = {
 }
 
 # Axles stay at the game's 3.10-unit wheelbase; body and staggered tires
-# are scaled from C7 dimensions. Keep the preview and runtime wheel rigs aligned.
+# are scaled from C7 dimensions (2.71 m wheelbase, 4.49 m length, 1.88 m body
+# width, 1.24 m height). Keep the preview and runtime wheel rigs aligned.
 FRONT_AXLE_Y = 1.55
 REAR_AXLE_Y = -1.55
 FRONT_ARCH_Z = .400

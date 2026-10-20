@@ -2385,6 +2385,11 @@ static void recover_stalled_animation(void) {
         flights[i].active = false;
 }
 
+/* UI test (-DBAZAAR_UITEST, make uitest): a scripted hot-seat session that
+ * drives the human seats by injecting button presses into in_pressed each
+ * frame. Every planned move must come out of the real hint-bar move builder
+ * (build_move), so the cursor, pick and herd controls are exercised end to
+ * end; pause, hints, pass screens and 3/4-player games are covered too. */
 #ifdef BAZAAR_UITEST
 #ifndef BAZAAR_UITEST_GAMES
 #define BAZAAR_UITEST_GAMES 2

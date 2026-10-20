@@ -1,11 +1,12 @@
 # Visual asset pipeline
 
-The three files in `source/` are the full-resolution production atlases used
-for Gravity Wave's terrain, vehicles, structures, foliage, mist, rift energy,
-and volcanic effects. They are intentionally kept as source art.
+The three atlases in `source/` are the full-resolution production art for
+Gravity Wave's terrain, vehicles, structures, foliage and effects. Keep them as
+source. The derived data in `generated/` is compiled into the ELF, so the game
+needs no disc filesystem at runtime.
 
-Run the deterministic converter from the project root whenever an atlas is
-updated:
+After changing an atlas, rerun the converter from the project root (or
+`make textures`):
 
 ```sh
 uv run tools/build_textures.py \
@@ -13,8 +14,5 @@ uv run tools/build_textures.py \
   --output-dir assets/generated
 ```
 
-The tool crops each atlas quadrant, downsamples to a PVR-compatible power of
-two, conditions wrapped material edges, applies ordered dithering, emits
-RGB565 or ARGB4444 texels, and saves preview PNGs. The generated C data is
-aligned for `pvr_txr_load()` and compiled directly into the ELF, so the game
-does not require a disc filesystem at runtime.
+`tools/build_textures.py` documents how each quadrant becomes a PVR texture;
+`generated/previews/` shows the results.

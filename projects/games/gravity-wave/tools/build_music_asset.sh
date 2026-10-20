@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Rebuild assets/generated/gravity_wave_music.adpcm, the embedded eight-song
+# album: render the masters with tools/render_soundtrack.py, run
+# tools/analyze_soundtrack.py over them, build a catalog-only ELF and boot it in
+# Flycast to read the runtime catalog fingerprint, encode the album with that
+# fingerprint via tools/build_music_album.py, install it atomically, then do a
+# clean rebuild. Needs uv, python3, KOS and Flycast; takes several minutes.
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

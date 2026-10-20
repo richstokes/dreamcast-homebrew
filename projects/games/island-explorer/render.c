@@ -1,3 +1,5 @@
+/* PowerVR rendering at 640x480: SH4ZAM camera transforms, material batches,
+   near clipping, CPU culling, fog, ocean and foam, explorer, dolphins and UI. */
 #include "engine.h"
 #include "render_math.h"
 #include "dolphins.h"
@@ -45,6 +47,8 @@ static Vertex lerp_vertex(Vertex a,Vertex b,float t){
     for(int s=0;s<32;s+=8)r.color|=(uint32_t)mixf((a.color>>s)&255,(b.color>>s)&255,t)<<s;
     return r;
 }
+/* Cap each frame at 12,000 triangles so submissions stay inside the 1280 KB
+   PVR vertex buffer set in renderer_init. draw_stage applies the same cap. */
 static void submit_triangle(const pvr_poly_hdr_t *h,Vertex a,Vertex b,Vertex c,bool background){
     if(game.triangles>=12000||a.p.z<NEAR||b.p.z<NEAR||c.p.z<NEAR)return;
     Vertex vv[3]={a,b,c};pvr_vertex_t out[3] __attribute__((aligned(32)));
@@ -131,6 +135,10 @@ bool renderer_init(void){
     initialized=true;
     pvr_set_bg_color(.34f,.68f,.88f);
     pvr_fog_table_color(1,.57f,.79f,.86f);pvr_fog_table_linear(2300,5000);
+    /* IET2 packs hold upload-ready mip chains: tools/pvr.py prepends the four
+       bytes that standard layout-2 PVR files omit from the hardware mip-chain
+       prefix. Uploading a file verbatim shifts every level and draws dotted
+       texels, which is what the older IET1 packs did, so refuse them. */
     if(memcmp(textures_start,"IET2",4)){
         printf("[render] stale texture pack: run make assets to rebuild hardware mipmaps\n");
         return false;
@@ -178,6 +186,7 @@ static void gather_visible(void){
         Vec3 d=sub(m->center,game.camera.position);
         float z=dot(d,game.camera.forward),r=m->radius;
         if(z+r<NEAR||z-r>FAR_CLIP)continue;
+        /* SET props (reserved=1) with radius under 150 are culled beyond 1,000 units. */
         if(m->reserved && dot(d,d)>1000.f*1000.f && m->radius<150)continue;
         if(fabsf(dot(d,game.camera.right))>z*.68f+r*1.22f||fabsf(dot(d,game.camera.up))>z*.52f+r*1.14f)continue;
         mesh_list[visible_count++]=i;
@@ -360,6 +369,8 @@ static void draw_player(void){
         world_triangle(&solid,body_point(v3(0,10.7f+bob,0)),r,s,0xfff5dfa0);
     }
 }
+/* Dolphins and splashes are culled beyond 1,000 units and outside the view;
+   they share the stage triangle budget. */
 static bool wildlife_visible(Vec3 position,float radius){
     Vec3 d=sub(position,game.camera.position);
     float z=dot(d,game.camera.forward);

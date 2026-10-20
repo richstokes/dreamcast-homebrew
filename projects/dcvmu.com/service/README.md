@@ -1,77 +1,29 @@
 # DCVMU service
 
-[dcvmu.com](https://dcvmu.com) hosts a small server-rendered VMU save archive.
-Flask, SQLite and Gunicorn run behind Caddy. Browsing, account management and
-card imports work without JavaScript. The drawing studio needs a modern browser.
+[dcvmu.com](https://dcvmu.com) is a small server-rendered archive for
+Dreamcast VMU saves: Flask, SQLite and Gunicorn behind Caddy. Browsing,
+accounts, card imports and archives work without JavaScript; the icon studio
+needs a modern browser. End-user instructions live in the
+[getting started guide](https://dcvmu.com/getting-started).
 
 ## What it does
 
-- Accounts register with a username, password and email. Usernames are 3–24
-  ASCII letters, numbers or underscores; passwords are 5–128 ASCII characters
-  for console keyboard compatibility. There is no password-reset email yet.
-- The [Dreamcast client](../client/) uploads VMS data saves with a title, notes
-  and a public/private choice. Owners can edit those on the website, and delete
-  saves after confirming.
-- Public saves can be browsed, filtered by game and user (case-insensitive
-  substrings), sorted, and viewed as cards or a list, 20 per page. Private saves
-  are visible only to their owner and return 404 to everyone else.
-- Saves show their embedded 32×32 VMU icon, and downloads preserve the raw file
-  byte-for-byte.
-- Re-uploading a save with the same VMU filename offers to replace an existing
-  backup or keep both. Replaced bytes are not retained.
-- Dark mode and the Cards/List preference work without JavaScript.
-- Browse pagination shows the current page, total pages and filtered save count.
-- The VMU studio creates custom Dreamcast-menu and VMU-screen icons.
-- The card importer previews `.bin`, `.vmu`, `.dcm` and `.dci` files, then imports
-  selected saves or custom icons without replacing existing cloud backups.
-- VMU archives snapshot a whole card in one step, with an optional friendly
-  name and an automatic datestamp, and restore it in one step from the client.
+- Accounts (username, password, email) and a plain-text API v1 used by the [Dreamcast client](../client/)
+- Save uploads with title, notes and public/private visibility; public saves are browsable and filterable by game and user, 20 per page, with their embedded VMU icons. Re-uploading the same VMU filename offers replace or keep both
+- Downloads return the original bytes; private saves 404 for everyone but their owner
+- VMU studio (`/studio`) draws 32x32 Dreamcast-menu and VMU-screen icon sets, optionally with the hidden 3D BIOS animation
+- Card importer (`/import`) previews `.bin`, `.vmu`, `.dcm` and `.dci` images, then imports the selected saves or icons without replacing existing backups
+- Whole-VMU archives (`/archives`) snapshot one 128 KiB card with DCVMU login saves scrubbed out, for one-step restore from the client
 
-The studio (`/studio`) draws or converts images to 32×32, 16-colour Dreamcast
-menu icons and monochrome VMU icons, with live previews and undo. Each set takes
-two blocks and can optionally enable the hidden 3D BIOS animation. Save it to
-your account, then install from **Download a save** in the updated client.
-
-The importer (`/import`) accepts one standard 128 KiB card bank or one Nexus
-DCI file. File bytes and VMS header offsets are preserved; original directory
-timestamps and copy-protection flags are not restored by the client. Mini-games,
-unsupported filenames, damaged/cross-linked files and login saves are excluded
-with reasons shown. It never restores a whole card or changes the source image.
-
-VMU archives (`/archives`) are separate from individual saves. The Dreamcast
-client's **Archive a VMU** reads every block of one standard 128 KiB card and
-uploads it as a single private snapshot; the website accepts the same `.bin`,
-`.vmu` or `.dcm` card images. The optional name is for finding the archive
-later; the archive date is recorded automatically. Before storage the card is
-scrubbed: `DCVMU_AUTH` login saves (by name, application ID or token marker)
-are removed from the directory and allocation table, and every user block not
-owned by a remaining file is zeroed so stale tokens cannot linger in free
-space. Every other file, directory entry, timestamp, header offset and copy
-flag is kept byte-for-byte, including mini-games and damaged entries. A card
-that still contains login data after scrubbing is rejected. The detail page
-lists the card contents, and **Download .bin** returns the scrubbed image for
-emulators. **Restore a VMU** in the client writes the image back to a chosen
-card after confirmation and verifies it by reading every block.
-
-Both tools default to private entries. Import previews belong to their owner
-and expire after 30 minutes. Only validated file payloads are staged, never the
-original card or excluded login data. A new preview replaces the previous one;
-completion or **Discard preview** removes it. Expired previews are purged on
-subsequent import requests. A selection imports in one transaction: reaching
-the account limit leaves both the archive and preview unchanged.
-
-Limits: 200 saves and 20 VMU archives per account, saves at most 120.5 KiB
-(241 VMU blocks) and archives exactly 128 KiB, and 60 upload attempts per hour
-shared between saves and archives. Uploads must be a single valid VMS data save with a
-correct CRC; whole-card images, archives, `ICONDATA_VMS`, and the client's
-`DCVMU_AUTH` login save are rejected by the normal upload endpoint. Use the
-separate card importer or studio for custom icons. Login saves remain excluded.
+Limits per account: 200 saves, 20 archives, 60 uploads an hour. Saves are at
+most 120.5 KiB (241 blocks) and archives exactly 128 KiB. `DCVMU_AUTH` login
+saves are never stored, and `ICONDATA_VMS` only arrives through the studio or
+importer.
 
 ## Local development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
-Keep dependency versions in `requirements.txt` and use uv to manage the virtual
-environment and package installation.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
+Dependency versions live in `requirements.txt`.
 
 ```sh
 uv venv --python python3 .venv
@@ -80,131 +32,83 @@ uv pip install --python .venv/bin/python -r requirements.txt
 DCVMU_DATABASE=/tmp/dcvmu-dev.sqlite3 .venv/bin/gunicorn --bind 127.0.0.1:8090 wsgi:app
 ```
 
-The application requires HTTPS, including locally, so use a local HTTPS reverse
-proxy for interactive development. Never expose Gunicorn directly to the
-network.
+The app refuses plain HTTP, locally too, so put a local HTTPS reverse proxy
+in front for interactive work. Never expose Gunicorn directly.
 
-The unlinked `/stats` page is readable without a login and sends
-`X-Robots-Tag: noindex, nofollow`. It shows aggregate account, save, archive and
-file-storage totals, plus additions over the last seven days. Saves include
-custom icons; archives are separate. Counts cover currently stored records,
-including private entries, without exposing their contents. Its paginated user
-table sorts by username, join date or public-save count and links to profiles at
-`/users/<username>`. Profiles show only that exact account's public saves and
-custom icons, even to the signed-in owner; private saves and VMU archives are
-excluded. Profiles also send `noindex, nofollow` and never link back to stats.
-Stats is an unlisted page, not an access-controlled one; keep it out of site
-navigation.
+## Tests
 
-## API v1
+`.venv/bin/python -m unittest -v` runs everything; CI runs it on every push
+to `main`, followed by the client's host tests.
 
-Responses are UTF-8 plain text so the SH-4 client needs no JSON parser. All
-endpoints require HTTPS, and everything except login uses a bearer token.
-
-| Request | Body / result |
+| Module | Covers |
 | --- | --- |
-| `POST /api/v1/login` | Form fields `username`, `password`, optional `remember=1` for a 90-day session. Returns one bearer token line. |
-| `GET /api/v1/me` | Returns the username, or 401. |
-| `POST /api/v1/logout` | Revokes the token. |
-| `POST /api/v1/saves` | Multipart upload (fields below). HTTP 201: `OK`, save ID, and final title on separate lines. |
-| `POST /api/v1/saves/<id>/rename` | Form fields `name` and `revision`. Returns `OK`. |
-| `GET /api/v1/saves` | Lists saves (parameters below). |
-| `GET /api/v1/saves/<id>/download?revision=<revision>` | Returns the exact save bytes; 409 if the revision changed. |
-| `POST /api/v1/archives` | Multipart whole-card upload: `image` (exactly 128 KiB), optional `name` (max 64) and `source` (max 24, e.g. `VMU A1`). HTTP 201: `OK`, archive ID and display name. Login saves are scrubbed server-side. |
-| `GET /api/v1/archives?page=<n>` | Lists the caller's archives: `MORE<TAB>0|1`, then up to seven rows of id, revision, name, created (Unix seconds), file count, byte size, SHA-256 and source. |
-| `GET /api/v1/archives/<id>/download?revision=<revision>` | Returns the scrubbed 128 KiB image; 409 if the revision changed. |
-
-Upload fields: `save` (binary file), `filename` (original VMU name, max 12),
-`name` (title, max 64), `notes` (max 500), `private` (`0` or `1`),
-`match=filename`, and `mode` (`ask`, `replace`, or `keep`). With `ask`, an
-existing backup of the same filename returns `409 MATCHES`; `replace` then
-requires the chosen `save_id` and `revision`, while `keep` creates another
-entry. Requests without `match` use the legacy name-matching behavior.
-
-List parameters: `scope=mine|public` and `page`. Public scope takes an exact
-`user` and an optional `game` substring; `scope=mine` takes an optional exact
-`filename`. The response is `MORE<TAB>0|1` followed by up to seven
-tab-separated rows of percent-encoded fields: id, revision, original filename,
-title, game, username, byte size, SHA-256, and VMS header offset in blocks.
-
-Icon-aware clients send `include_icons=1` when listing or downloading saves.
-`GET /api/v1/saves/<id>/icon-header?revision=<revision>` provides the custom
-icon preview in the client's VMS header format. Older clients only see data saves.
-Icon entries have filename `ICONDATA_VMS` and header offset zero. They use a
-special icon format, not a VMS header or data CRC. The preview response is
-640 bytes and applies normal access/revision checks; downloads always return
-the original file bytes. Older clients cannot download icons without opting in.
-
-Errors are 400/401/409/413/429 with a readable message. A response can be lost
-after a successful write, so clients should not replay mutations automatically.
+| `test_service.py` | Web pages, API v1, sessions and CSRF, rate limits, icons, duplicate handling, catalog labels |
+| `test_vmu_tools.py` | Studio icon data, card and Nexus import extraction, preview expiry, atomic imports |
+| `test_archives.py` | Whole-card login scrubbing, archive pages and the console archive API |
+| `test_stats.py` | Unlisted stats page, sortable user table, public-only profiles |
 
 ## Security
 
-- Passwords are hashed with Argon2id; plaintext passwords are never stored.
-- Session tokens are random 256-bit values stored only as SHA-256 hashes. Website logins last
-  one year and renew on activity at most once per day. API sessions are separate
-  and expire after 24 hours, or 90 days for a remembered VMU login.
-- Cookies are Secure, HttpOnly and SameSite=Lax, and every web mutation checks a
-  CSRF value.
-- Login, registration and uploads are rate limited, and request sizes and
-  per-account storage are bounded.
-- Uploads are served only as attachment downloads, and request bodies are not
-  logged.
+- Passwords are hashed with Argon2id; session tokens are random 256-bit values stored only as SHA-256 hashes
+- Web logins last a year and renew on activity at most once a day. API tokens last 24 hours, or 90 days for a remembered VMU login
+- Cookies are Secure, HttpOnly and SameSite=Lax; every web mutation checks the Origin and a per-session CSRF value, while API calls use a bearer token
+- Login, registration, uploads and imports are rate limited; request sizes and per-account storage are bounded
+- Saves are served only as attachment downloads, and request bodies are not logged
 
 ## Deploy
 
-Shared server configuration is owned by
-[infra/servers/netsplit.vip](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip).
-That is the source of truth for Caddy, domains, backend port allocations and
-host operations. This project owns the service build/deploy script, base
-systemd unit, application settings and SQLite backup/restore.
+Shared host configuration (Caddy, domains, port allocations, host tooling)
+lives in [infra/servers/netsplit.vip](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip);
+register new applications and ingress changes there. This repository owns
+the deploy script, the base systemd unit, application settings and database
+backup/restore.
 
-```sh
-./deploy/deploy.sh
-ssh root@dcvmu.com 'systemctl status dcvmu --no-pager'
-curl --fail https://dcvmu.com/healthz
-```
+1. Back up first; schema migrations run at service start: `./deploy/backup.py`
+2. Deploy (runs the tests, uploads an explicit source manifest, installs requirements with `uv` into `/opt/dcvmu/.venv`, restarts the unit): `./deploy/deploy.sh`
+3. Check: `ssh root@dcvmu.com 'systemctl status dcvmu --no-pager'` and `curl --fail https://dcvmu.com/healthz`
+4. On trouble: `journalctl -u dcvmu -u caddy --since '10 minutes ago'`
 
-The SSH default is `root@dcvmu.com` (infra knows this host as `netsplit.vip`);
-override it with `DCVMU_DEPLOY_HOST`. The public URL stays `https://dcvmu.com`.
-Deployment requires `uv` in `PATH` locally and in the remote root SSH session.
-It installs requirements with uv into the existing `.venv` on each side,
-creating a virtual environment only if needed. The systemd Gunicorn path is
-unchanged. Host-level tool installation is managed through infra's runbook.
-From a sibling infra checkout, `python3 servers/netsplit.vip/manage.py deploy dcvmu`
-dispatches this same script. Register new applications and ingress changes in
-infra; app deployment must preserve its shared configuration.
+| | |
+| --- | --- |
+| SSH target | `root@dcvmu.com` (infra knows the host as `netsplit.vip`); override with `DCVMU_DEPLOY_HOST` |
+| From an infra checkout | `python3 servers/netsplit.vip/manage.py deploy dcvmu` runs the same script |
+| Prerequisite | `uv` in `PATH` locally and in the remote root SSH session; host tooling is infra's runbook |
+| Source | `/opt/dcvmu`; the previous release is kept in `/opt/dcvmu-previous.tar.gz` |
+| Database | `/var/lib/dcvmu/archive.sqlite3`, preserved across deploys |
+| Gunicorn | `127.0.0.1:8090` behind the infra-managed Caddy. The host is shared with Valley Rangers and others: restart only `dcvmu` |
 
-Source is installed under `/opt/dcvmu` and the live database is
-`/var/lib/dcvmu/archive.sqlite3`. Deployment preserves the database and keeps
-the previous source in `/opt/dcvmu-previous.tar.gz`. Schema migrations run at
-service startup, so back up first, and deploy the service before releasing a
-client that depends on new API behavior.
+Deploy the service before releasing a client that depends on new API
+behavior. Client binaries are not hosted here: GitHub Actions publishes
+`dcvmu-client.cdi` and `dcvmu-client.elf` to the rolling release and the
+website links to them.
 
-The server is shared with Valley Rangers and other applications. Keep Gunicorn
-on `127.0.0.1:8090` behind the infra-managed Caddy ingress and restart only
-`dcvmu` for application changes. Inspect errors with
-`journalctl -u dcvmu -u caddy --since '10 minutes ago'`.
+## Backups and restore
 
-Client binaries are not hosted here: GitHub Actions publishes
-`dcvmu-client.cdi` and `dcvmu-client.elf` to the rolling GitHub release, and
-the website links to them.
+`./deploy/backup.py` takes an online SQLite snapshot over SSH while the site
+keeps running, verifies it (integrity check, foreign keys, every save's
+SHA-256) and writes `dcvmu-<UTC timestamp>/` with `archive.sqlite3`, a
+manifest and restore notes under `~/Dropbox/DCVMU_Backups`. Older backups are
+kept; `--destination` and `--host` override the defaults. Backups hold
+accounts, password hashes and private saves, so treat them as private.
 
-## Backups
+Restore:
 
-```sh
-./deploy/backup.py
-```
+1. `systemctl stop dcvmu` (only dcvmu; leave Caddy and the other apps running)
+2. Move the current `/var/lib/dcvmu/archive.sqlite3` aside for rollback
+3. Copy the backup's `archive.sqlite3` into place, owner `dcvmu:dcvmu`, mode `0600`
+4. Remove stale `archive.sqlite3-wal` and `archive.sqlite3-shm` files
+5. `systemctl start dcvmu`, then `curl --fail https://dcvmu.com/healthz`
 
-Each run creates a verified `dcvmu-<UTC timestamp>/` directory under
-`~/Dropbox/DCVMU_Backups` containing `archive.sqlite3`, a manifest, and restore
-instructions, while the website stays running. Older backups are kept. Use
-`--destination` and `--host` to override the defaults.
+## Gotchas
 
-The database contains accounts, password hashes, and all public and private
-saves, so treat backups as private data.
+- A deploy can migrate the database at startup, so take a backup before every deploy
+- `/stats` and `/users/<username>` are unlisted (`noindex, nofollow`), not access-controlled. Keep them out of site navigation and never show private saves or archives there
+- Profiles show public saves only, even to the signed-in owner
+- Import previews are per account and expire after 30 minutes; only validated payloads are staged, never the source card or login data
 
-To restore, stop only `dcvmu`, keep the current database for rollback, restore
-`archive.sqlite3` to `/var/lib/dcvmu/archive.sqlite3` with owner `dcvmu:dcvmu`
-and mode `0600`, remove stale WAL/SHM files, then start the service and check
-`/healthz`.
+## Known limitations
+
+- No password-reset email
+- Replacing a save discards the previous bytes
+- Imports keep bytes and header offsets, not directory timestamps or copy-protection flags
+- The studio needs a modern browser

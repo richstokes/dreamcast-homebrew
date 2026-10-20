@@ -1,3 +1,5 @@
+/* Game loop: controller and Maple keyboard input, movement, gravity, swimming,
+   camera, travel journal and pause. */
 #include "engine.h"
 #include <dc/maple/controller.h>
 #include <dc/maple/keyboard.h>

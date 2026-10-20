@@ -1,3 +1,6 @@
+/* Remembered login: a revocable API token (never the password) kept in a
+   one-block DCVMU_AUTH save on a VMU. Signing out deletes it; the service
+   expires it after 90 days. */
 #include <kos.h>
 #include <dc/vmufs.h>
 #include <dc/vmu_pkg.h>

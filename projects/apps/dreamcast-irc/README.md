@@ -4,19 +4,13 @@
   <img src="../../../docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC joined to #netsplit on Libera.Chat" width="640">
 </p>
 
-Dreamcast IRC is a small KallistiOS IRC client that connects over a Broadband
-Adapter or a Dreamcast modem with a working DreamPi setup. By default it
-connects to `irc.libera.chat` and joins `#dreamcastdev`. It renders a
-scrollable chat view with the Dreamcast BIOS font and accepts text from a
-Dreamcast keyboard, with a server page followed by up to ten channel pages.
-
-It supports multiple channels, messages, actions, notices, topics, names,
-channel listing, and automatic reconnects. The default nickname is `DCIRC_`
-plus a random three-digit number.
-
-Your nickname, server, and open channels are saved to a `DCIRC_CFG` file on the
-first available VMU and restored on the next launch. Without a VMU it falls
-back to the defaults.
+A small KallistiOS IRC client for the Broadband Adapter or a Dreamcast modem
+with DreamPi. By default it connects to `irc.libera.chat` and joins
+`#dreamcastdev`. There is a server page plus up to ten channel pages; type with
+a Dreamcast keyboard and move around with the controller. Nickname, server and
+open channels are saved to `DCIRC_CFG` on the first VMU and restored next
+launch (defaults without a VMU). The default nickname is `DCIRC_` plus three
+random digits.
 
 ## Download
 
@@ -24,94 +18,81 @@ Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast
 for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.elf)
 is also available.
 
-## Build
+## Controls
 
-Modem support requires the repository's
-[PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch).
-Apply it once to your KOS tree from this project directory, then rebuild KOS
-and PPP (CI does this automatically):
+| Input | Action |
+| --- | --- |
+| Keyboard, Enter | Type and send |
+| D-pad or keyboard Left/Right | Switch between the server and channel pages |
+| D-pad Up/Down, keyboard Up/Down/PgUp/PgDn | Scroll the current page |
+| X+Y | Jump back to the newest messages |
+| A+B | Reconnect to the current network |
+| Start | Quit cleanly |
+
+| Command | Notes |
+| --- | --- |
+| `/server HOST [PORT]` | Disconnects and connects to the new host; one network at a time. Without a port it tries 6667, then 8000 |
+| `/join #CHANNEL[,#CHANNEL]` | |
+| `/part [#CHANNEL] [MESSAGE]` | |
+| `/list [#CHANNEL\|#MASK*]` | Bare `/list` asks for channels with more than 500 users; results are capped at 80 |
+| `/me ACTION`, `/nick NAME`, `/clear`, `/reconnect`, `/quit [MESSAGE]`, `/help` | |
+
+## Modem / DreamPi
+
+Set up and test DreamPi with another app first. A BBA is always preferred; the
+modem is only used when no Ethernet adapter is found.
+
+- Dials at startup with the console's saved PlanetWeb ISP settings, then
+  DreamPassport, then the DreamPi defaults (`555`, `dream` / `cast`). Tone
+  dialing only
+- Dialing can take ~65 seconds before timing out; progress shows on the server
+  page
+- Carrier loss triggers an automatic redial and channel rejoin. `/reconnect` or
+  A+B hangs up and redials
+
+## Build and run
+
+Modem support needs the repository's
+[PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch)
+applied once to your KOS tree, then a kernel and `libppp` rebuild (CI does
+this). From this directory:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 git -C "$KOS_BASE" apply "$PWD/../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch"
-make -C "$KOS_BASE/kernel" -j4
-make -C "$KOS_BASE/addons/libppp" -j4
-```
-
-From this project directory, build with the SH-4 toolchain:
-
-```sh
-source "$HOME/.local/share/dreamcast/kos/environ.sh"
+make -C "$KOS_BASE/kernel" -j4 && make -C "$KOS_BASE/addons/libppp" -j4
 make
+./run-flycast.sh            # BBA over Flycast's picoTCP proxy; --skip-build works
+./run-flycast.sh --modem    # Flycast's modem emulation, not a physical DreamPi
 ```
 
-This produces `dreamcast-irc.elf`, which Flycast can boot directly.
-
-## Run in Flycast
-
-```sh
-./run-flycast.sh
-# Exercise the modem/PPP path instead of BBA:
-./run-flycast.sh --modem
-```
-
-The launcher attaches a Dreamcast keyboard, forwards host keyboard input, and
-does not modify the saved Flycast configuration. `--modem` uses Flycast's modem
-emulation, not a physical DreamPi. `--skip-build` works with either mode.
-
-## Modem / DreamPi
-
-Configure and test DreamPi with another app first. A Broadband Adapter is
-always preferred; the modem is used only when no Ethernet adapter is found.
-
-The client dials on startup using the console's saved PlanetWeb ISP settings,
-falling back to DreamPassport, and then to the DreamPi defaults (`555`,
-`dream` / `cast`). Only tone dialing is supported.
-
-Dialing can take about 65 seconds before timing out, with progress shown on
-the server page. Carrier loss triggers an automatic redial and channel rejoin.
-`/reconnect` or A+B hangs up and redials.
-
-Real Dreamcast/DreamPi hardware testing is still required.
+The launcher puts a keyboard on port B fed by the host keyboard and leaves the
+saved Flycast configuration alone. `KOS_ENV` and `FLYCAST_BIN` override the
+default paths.
 
 ## Tests
 
-The network test runs a private IRC server and a temporary ELF in Flycast; no
-public IRC network is contacted. From the repository root, supply the Mac's
-LAN IPv4 address:
+`tests/run_network.py` builds a temporary ELF, runs a private IRC fixture
+server and drives Flycast against it; no public IRC network is contacted. Run
+from the repository root with the Mac's LAN IPv4 address (`--flycast` and
+`--kos-env` override tool paths).
 
-```sh
-python3 projects/apps/dreamcast-irc/tests/run_network.py --host <Mac-LAN-IP>
-python3 projects/apps/dreamcast-irc/tests/run_network.py --modem --host <Mac-LAN-IP>
-python3 projects/apps/dreamcast-irc/tests/run_network.py --modem --cancel-dial --host <Mac-LAN-IP>
-```
+| Command | Checks |
+| --- | --- |
+| `python3 projects/apps/dreamcast-irc/tests/run_network.py --host <Mac-LAN-IP> --log-dir <dir>` | BBA: register, join, chat, recover from a server-side drop and from `/reconnect`, clean shutdown |
+| `... --modem --host <Mac-LAN-IP> --log-dir <dir>` | The same over emulated PPP, plus a forced carrier loss and automatic redial |
+| `... --modem --cancel-dial --host <Mac-LAN-IP> --log-dir <dir>` | Cancelling mid-dial shuts down cleanly |
 
-## Controls
+`--log-dir` receives `build.log`, `flycast.log` and `result.txt`.
 
-- Type with a Dreamcast keyboard and press Enter to send.
-- D-pad or keyboard Left/Right switches between the server and channel pages.
-- D-pad Up/Down or keyboard Up/Down/Page Up/Page Down scrolls the current page.
-- X+Y returns to the newest messages.
-- A+B reconnects to the current IRC network.
-- Start quits cleanly.
+## Known limitations
 
-Available commands are `/server HOST [PORT]`, `/join #CHANNEL[,#CHANNEL]`,
-`/part [#CHANNEL] [MESSAGE]`, `/list [#CHANNEL|#MASK*]`, `/me ACTION`, `/nick NAME`,
-`/clear`, `/reconnect`, `/quit [MESSAGE]`, and `/help`.
-
-`/server` disconnects from the current network and connects to the new host;
-only one network is connected at a time. Omitting the port tries 6667 and then
-8000. Bare `/list` requests channels with more than 500 users, and results are
-capped at 80.
-
-## Network and security notes
-
-This client uses unencrypted IRC and does not implement TLS, SASL, or NickServ
-authentication. Do not send passwords or other sensitive information through
-it.
-
-Incoming UTF-8 is converted to the BIOS font's ISO-8859-1 character set;
-characters outside that set appear as `?`.
+- Plain-text IRC only: no TLS, SASL or NickServ. Do not send passwords through
+  it
+- Incoming UTF-8 is mapped to the BIOS font's ISO-8859-1; anything outside it
+  shows as `?`
+- Not yet tested on a real Dreamcast with DreamPi
+- One network at a time, up to ten channels
 
 ## Credits
 

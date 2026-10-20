@@ -547,7 +547,9 @@ static void split_line(void) {
     modified = true;
 }
 
-/* AUTO: the number for a line following `row`, or -1 if none fits. */
+/* AUTO: the number for a line following `row`, or -1 if none fits. Ten more
+   than `row`'s, or halfway to the next numbered line when inserting between
+   two. Unnumbered programs are left alone. */
 static long next_auto_number(int row) {
     const long current = renum_line_number(text_lines[row]);
     long candidate, following = -1;

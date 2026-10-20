@@ -4,7 +4,8 @@
 
 /*
  * Renumbers a program 10, 20, 30... in text order and rewrites the line
- * numbers after GOTO, GOSUB, THEN, ELSE and RESTORE. A program without any
+ * numbers after GOTO, GOSUB, THEN, ELSE and RESTORE, and in ON ... GOTO
+ * lists; strings, remarks and DATA are left untouched. A program without any
  * line numbers gains them, and its targets - which meant editor lines - are
  * converted. `lines` holds `count` NUL-terminated buffers of `capacity`
  * bytes, edited in place.

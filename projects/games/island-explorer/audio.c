@@ -1,3 +1,5 @@
+/* AICA audio: streams the generated seamless stereo soundscape loop and plays
+   footstep effects. */
 #include "engine.h"
 #include <dc/sound/stream.h>
 #include <dc/sound/sfxmgr.h>

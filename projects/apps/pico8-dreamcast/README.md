@@ -1,11 +1,10 @@
 # PICO-8 player for Dreamcast
 
-A KallistiOS port of [FAKE-08](https://github.com/jtothebell/fake-08), with a
-controller-driven cartridge picker and seven freely licensed games embedded
-in the ELF. This interprets actual PICO-8 cartridge code using Z8lua's 16.16
-fixed-point numbers and PICO-8 syntax. It is a cartridge runtime, not the
-proprietary PICO-8 editor/development environment. It is not affiliated with
-Lexaloffle.
+A KallistiOS port of [FAKE-08](https://github.com/jtothebell/fake-08) with a
+controller-driven cartridge picker, seven freely licensed games built into the
+ELF, and Download & Play for fetching `.p8` / `.p8.png` carts over HTTPS. It
+runs real PICO-8 cartridge code (Z8lua, 16.16 fixed point). It is not the
+proprietary PICO-8 editor and is not affiliated with Lexaloffle.
 
 ## Screenshots
 
@@ -23,7 +22,61 @@ Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast
 for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.elf)
 is also available.
 
-## Build and play
+## Playing
+
+| Dreamcast control | Action |
+| --- | --- |
+| D-pad or analog stick | Move the selection / PICO-8 directions |
+| Left/right in the picker | Show the selected game's credits |
+| A or X | PICO-8 O button / launch the selected game |
+| B or Y | PICO-8 X button / launch the selected game |
+| Y in the picker | Open Download & Play |
+| Start | Pause/resume (games may add their own pause-menu items) |
+| Both triggers + Start | Return to the picker |
+
+Picolumia starts with A+B together. Pikoralli steers with left/right, up/down
+accelerates/reverses and A is the handbrake. WIZRND: up jumps, down while
+standing raises a shield, A fires lightning, B a magic missile. The other
+games show their controls in-game.
+
+Bundled games (chosen for verifiable licenses, not popularity; sources, pinned
+revisions and hashes in [samples/README.md](samples/README.md)):
+
+| Game | Author | License |
+| --- | --- | --- |
+| [Anteform](https://github.com/Feneric/Anteform) | Eric W. Brown / Feneric | GPL-3.0 |
+| [Bull Sheep](https://github.com/derpycoder/bull-sheep) | Abhijit Kar | MIT |
+| [Elephant in the Room](https://github.com/ekaktusz/elephant) | Csaba Ekart and contributors | MIT |
+| [NanoMan](https://github.com/FunFetched/NanoMan) | Fun Fetched (music by Gruber) | GPL-3.0 |
+| [Picolumia](https://github.com/andrewedstrom/picolumia) | Andrew Edstrom | MIT |
+| [Pikoralli](https://github.com/nothke/pikoralli) | Ivan Notaros | MIT |
+| [WIZRND](https://github.com/mattleblanc/WIZRND) | mattleblanc | Apache-2.0 |
+
+To add your own, copy `.p8` or `.p8.png` files (PICO-8 cart PNGs, not plain
+images) into `romdisk/carts/` with any `#include` files beside them and run
+`make`. A disc build also scans `/carts/` at the CD root; that path is
+untested on hardware.
+
+### Download & Play
+
+Press Y in the picker, enter a direct `https://` link to a `.p8` or `.p8.png`
+(a GitHub Raw link, not the game's page) and press Start. On the keyboard the
+D-pad moves, A types, X toggles case, Y deletes, L/R move the cursor and B goes
+back or cancels; a Dreamcast keyboard also works. Downloads live in `/ram` and
+stay in the picker until the player quits. Nothing is written to a VMU.
+
+- Broadband Adapter: DHCP; the download waits for an address
+- Modem: dials the saved PlanetWeb/DreamPassport ISP profile, or the DreamPi
+  defaults (`555`, `dream` / `cast`). Tone dialing only, no prefixes
+- Flycast: `EmulateBBA=yes,DCNet=no` by default (outbound proxy, not LAN
+  bridging); `./run-flycast.sh --modem` uses its modem PPP peer
+
+HTTPS only, TLS 1.2 with the bundled Mozilla roots and no way to skip
+verification (set the console clock). Limits: 1 MiB carts, 1,024-character
+ASCII URLs, five redirects, no HTTP downgrade, single-file text carts. No
+logins, cookies, proxies or IPv6.
+
+## Build and run
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
@@ -31,275 +84,125 @@ make -C projects/apps/pico8-dreamcast -j8
 ./projects/apps/pico8-dreamcast/run-flycast.sh --skip-build
 ```
 
-Run those commands from the repository root. The launcher builds by default
-when `--skip-build` is omitted, resolves absolute paths and respects `KOS_ENV`
-and `FLYCAST_BIN`. It uses transient serial-console configuration and requires
-no persistent network changes. The runtime and cartridges are checked in;
-HTTPS additionally links the `curl` / `mbedtls` kos-ports and KOS's `libppp`.
-The baseline is KOS 2.3.0 / SH-4 GCC 15.2.0. Build/link use `kos-c++` and KOS's
-`Makefile.rules`; Z8lua's `.c` sources must also compile as C++.
-Each build clones or fast-forwards the ignored, unpinned `third_party/sh4zam`
-checkout to the latest upstream SH4ZAM `master` before compiling. The selected C headers require no
-separate SH4ZAM build or SDK installation. See the
-[integration notes](third_party/SH4ZAM.md).
+`run-flycast.sh` builds unless `--skip-build` is given and honors `KOS_ENV`
+and `FLYCAST_BIN`. Baseline: KOS 2.3.0, SH-4 GCC 15.2.0, Flycast 2.7. Beyond
+stock KOS it needs:
 
-If needed, install the `mbedtls` and `curl` kos-ports from the sourced environment:
-`make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`.
-The tested versions are Mbed TLS 3.6.6 and curl 8.18.0 with its Mbed TLS backend.
-Debug symbols are saved separately under `build/*.elf.debug`; the bootable ELF
-has debug sections removed to stay below Flycast's 16 MiB ELF-file limit.
-Modem teardown requires the workspace's existing
-[KOS PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch).
-It is already present in the local SDK. For a new SDK checkout, apply that patch
-if missing and rebuild `$KOS_BASE/kernel` and `$KOS_BASE/addons/libppp`.
-The tested SDK also includes this project's
-[maple receive-buffer fix](patches/kos-maple-rx-cache.patch) and the workspace's
-[BBA receive fix](../../dcvmu.com/client/patches/kos-bba-rx-consumer.patch),
-[TCP window fix](../../dcvmu.com/client/patches/kos-tcp-upload-window.patch),
-[TCP poll-lock fix](../dreamcast-browser/patches/kos-tcp-poll-lock.patch), and
-[keyboard attach fix](../dreamcast-browser/patches/kos-keyboard-attach.patch).
-The repository CI applies these before building.
+- kos-ports `mbedtls` (tested 3.6.6) and `curl` (tested 8.18.0, Mbed TLS backend):
+  `make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`
+- KOS patches, in the local SDK and applied by CI ([release.yml](../../../.github/workflows/release.yml)):
+  this project's [maple receive-buffer fix](patches/kos-maple-rx-cache.patch), DCVMU's
+  [PPP lifecycle](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch),
+  [BBA receive](../../dcvmu.com/client/patches/kos-bba-rx-consumer.patch) and
+  [TCP window](../../dcvmu.com/client/patches/kos-tcp-upload-window.patch) patches, and the browser's
+  [TCP poll-lock](../dreamcast-browser/patches/kos-tcp-poll-lock.patch) and
+  [keyboard attach](../dreamcast-browser/patches/kos-keyboard-attach.patch) fixes. On a fresh SDK,
+  apply them and rebuild `$KOS_BASE/kernel` and `$KOS_BASE/addons/libppp`
+- [SH4ZAM](third_party/SH4ZAM.md), header-only and never pinned: every build
+  fast-forwards the ignored `third_party/sh4zam` checkout to upstream `master`
 
-## Controls
+On a real Dreamcast ([`tools/dc-hw.sh`](../../../tools/dc-hw.sh): dcload-ip
+over the network, Shelly plug power), from this directory:
 
-| Dreamcast control | Action |
+```sh
+make hw        # play: builds pico8-hw.elf and keeps dc-tool-ip attached
+make hwbench   # smoke suite and per-cart timings, then powers the console off
+```
+
+Both log to `build/hw-console.log` (`HW_LOG=` overrides). After `make hw`,
+run `../../../tools/dc-hw.sh power off`. `pico8-hw.elf` has no Download &
+Play; see gotchas.
+
+## Updating FAKE-08
+
+FAKE-08, Z8lua and LodePNG are vendored at pinned revisions with local
+changes, both listed in [third_party/README.md](third_party/README.md). No
+script: copy the new upstream files over, re-apply the local changes, and run
+the smoke and kernel tests (the PCM hashes must still match).
+
+## Tests
+
+Run from this directory with KOS sourced. The Flycast runners need a desktop
+session and stop only the Flycast they start.
+
+| Command | Verifies |
 | --- | --- |
-| D-pad or analog stick | Select a game / PICO-8 directions |
-| Left/right in the picker | Show game credits |
-| A or X | PICO-8 O button (button 4) / launch selected game |
-| B or Y | PICO-8 X button (button 5) / launch selected game |
-| Y in the cartridge picker | Open Download & Play |
-| Start | Pause/resume; games can provide their own pause-menu items |
-| Hold both triggers and press Start | Return to the cartridge picker |
+| `uv run tests/check_samples.py` | Bundled cart hashes, manifest, readable sources and license notices (CI runs this) |
+| `uv run tests/run_smoke.py` | 360 scripted VM ticks per game, framebuffer changes, audio counts and timings, fixed-point/graphics/memory/cartdata API checks, picker and pause path |
+| `uv run tests/run_smoke.py --kernels` | Rendering kernels and exact PCM hashes only |
+| `uv run tests/run_smoke.py --profile --log build/profile.log`, then `uv run tests/analyze_profile.py build/profile.log` | Scheduler PC-sampling profile per symbol; keep the matching `pico8-profile.elf` with each log |
+| `uv run tests/run_network.py [--modem] [--host <Mac IPv4>] [--no-public]` | Real HTTPS transfers against local TLS fixtures: both cart formats, redirects, chunked encoding, certificate failures, malformed/oversized/truncated data, cancellation, the URL screen, and a pinned GitHub cart |
+| `./run-flycast.sh --smoke-test` | The smoke ELF, left visible for inspection |
 
-In Flycast, use the keys assigned to these Dreamcast controls in your existing
-controller mapping. No persistent input configuration is changed by the launcher.
-Missing/disconnected controllers are handled without crashing.
+CI builds and validates the ELF and packages the CDI through
+[.github/console-projects.txt](../../../.github/console-projects.txt).
 
-Picolumia starts with **A+B together**. Pikoralli uses left/right to steer,
-up/down to accelerate/reverse and A for the handbrake. In WIZRND, up jumps,
-down while standing raises a shield, A fires lightning and B a magic missile.
-The other games show their controls in-game. Anteform's pause menu includes help.
+## Performance
 
-## Bundled games and adding your own
+Seconds for the smoke test's 360 VM ticks on a retail Dreamcast (6.0 is full
+speed, including each game's startup): the September 2026 build, then the two
+2026-10-16 passes (audio/allocator, then the Lua interpreter).
 
-Anteform, Pikoralli, Elephant in the Room, Bull Sheep, Picolumia, NanoMan and
-WIZRND are bundled.
-See [sample selection, sources and licenses](samples/README.md). These were
-selected for verifiable MIT/GPL/Apache licensing; they are not a popularity chart.
+| Cartridge | Sept 2026 | Oct 16 pass 1 | Oct 16 pass 2 |
+| --- | ---: | ---: | ---: |
+| Anteform | 7.0 | 6.8 | 6.7 |
+| Bull Sheep | 13.7 | 7.8 | 6.8 |
+| Elephant in the Room | 16.4 | 10.6 | 8.3 |
+| NanoMan | | 6.7 | 6.5 |
+| Picolumia | 12.5 | 8.4 | 7.7 |
+| Pikoralli | 15.1 | 7.6 | 6.7 |
+| WIZRND | | 6.4 | 6.4 |
 
-Copy additional `.p8` or `.p8.png` cartridges into `romdisk/carts/`, then run
-`make`. They appear automatically in the picker and become part of the ELF.
-Keep any `.p8` `#include` files beside their cartridge in the expected relative
-paths. The ROM disk is regenerated when carts are added, changed or removed.
-For a disc build, an additional `/carts/`
-directory at the CD root is scanned as `/cd/carts/`; real CD/GDEMU loading has
-not been tested on hardware. The built-in games never depend on it.
+Anteform, NanoMan and WIZRND run at full speed. The rest spend most of their
+time in Z8lua dispatch and string-keyed table lookups; Elephant also spends
+about 30% drawing. Flycast is faster than the console for the same build.
+Details: [hardware pass 1](VALIDATION.md#real-hardware-2026-10-16),
+[pass 2](VALIDATION.md#lua-interpreter-on-hardware-2026-10-16-second-pass)
+and the [earlier emulator numbers](VALIDATION.md#sh4-optimization-results).
 
-The ROM disk is mounted read-only at `/rd`. Unknown PNGs are not game cartridges: use PICO-8's cart
-PNG format, which carries the code and data inside the image.
+## Gotchas
 
-## Run on a Dreamcast
+Each is also commented where it lives in the code.
 
-[`tools/dc-hw.sh`](../../../tools/dc-hw.sh) drives a console that boots
-dcload-ip from GDEMU/openMenu and is powered through a Shelly smart plug: it
-power-cycles the console, finds dcload-ip on the network, uploads with
-`dc-tool-ip` and shows the console output. From this directory, with KOS
-sourced:
+- Under dcload-ip, `INIT_NET` can hang at boot and every `printf` blocks with
+  interrupts off until dc-tool-ip reads it, so hardware builds skip networking
+  and `make hw` keeps dc-tool-ip attached (`main.cpp`, `Makefile`)
+- A stale cache line evicted over a DMA-filled maple receive buffer broke boot
+  (`cont_cond_t` assertion) on some link layouts; CI applies
+  [patches/kos-maple-rx-cache.patch](patches/kos-maple-rx-cache.patch)
+- Data placement moves audio mixer speed by up to 60%; the ROM disk is padded
+  to 16 KiB multiples (the operand cache size) so cart changes do not shift
+  everything linked after it (`Makefile`)
+- `-O2` beats `-O3` for the VM and rasterizers on the 8 KiB instruction cache;
+  the audio files stay at `-O3` because their PCM hashes depend on code
+  generation. No `-ffast-math`: fixed-point results must stay exact (`Makefile`)
+- Z8lua is compiled as C++, so without `LUA_USE_LONGJMP` every coroutine
+  yield (one per frame) was a C++ throw costing milliseconds (`Makefile`)
+- newlib's malloc takes a KOS mutex whose unlock scans the wait queues (about
+  7% of a busy cart); Lua uses a lock-free small-block allocator (`lua_alloc.cpp`)
+- kos-ports builds Mbed TLS without certificate date checks; `download.cpp`
+  checks dates itself, hence the console clock
+- FAKE-08's `assert()` only prints and calls `stop()`, which the main loop
+  clears; the test carts override it to fail the run (`romdisk/tests/api.p8`)
+- The release ELF is stripped (debug info in `build/*.elf.debug`) to stay
+  under Flycast's 16 MiB ELF limit (`Makefile`)
 
-```sh
-make hw        # play on the console (pico8-hw.elf)
-make hwbench   # the smoke suite and per-cart timings on the console
-```
+## Known limitations
 
-`make hwbench` switches the console off when it finishes; after `make hw`,
-switch it off with `../../../tools/dc-hw.sh power off`.
+- One controller. No mouse, in-game keyboard text, screenshots, file writes
+  or save states
+- `cartdata` persists for the session only (32 keys); quitting loses saves
+- Demanding carts run below 60 ticks/s on the 200 MHz SH-4, and heavy scenes
+  can miss audio deadlines
+- Compatibility is FAKE-08's. A passing smoke test does not certify a whole
+  game; runtime errors drop back to the picker and are logged on serial
+- Untested on hardware: `/cd/carts` from a disc and Download & Play
 
-Both write the console output to `build/hw-console.log` (`HW_LOG=` changes
-it). `pico8-hw.elf` is the normal player without boot-time networking:
-starting KOS networking under dcload-ip can hang during boot, so that build
-leaves out Download & Play. `make hw` keeps `dc-tool-ip` attached while you
-play, because under dcload-ip every `printf` waits for it with interrupts off.
-The normal ELF and the disc image start networking as usual.
+## Licenses
 
-## Download & Play
-
-Press **Y in the cartridge picker**, enter an `https://` URL, and press **Start**
-to download and launch the game. Use a direct `.p8` or `.p8.png` download link,
-such as a GitHub **Raw** link, rather than the game's web page. The file format
-is detected from its contents; the URL can contain a query string and need not
-end with a cartridge extension.
-
-On the on-screen keyboard, move with the D-pad or stick, press **A** to type,
-**X** to toggle case, **Y** to delete, and **L/R** to move the insertion point.
-**B** goes back or cancels a transfer. A Dreamcast keyboard can enter the URL
-directly; Enter submits, Backspace/Delete edit, arrows move the cursor, and
-Escape goes back. The URL editor remembers its text for this session.
-
-The screen shows connection stages, byte progress, and errors. A successful
-download starts automatically. The latest downloaded text cart and PNG cart
-also appear in the picker, stored in `/ram/download.p8` and
-`/ram/download.p8.png`. They disappear when the player quits; no VMU writes
-are made. Downloads are limited to 1 MiB and URLs to 1,024 ASCII characters
-(use percent encoding for other characters). Text carts must be exported as a
-single file; remote `#include` trees are not fetched.
-
-Networking:
-
-- **Broadband Adapter:** KOS initializes Ethernet and DHCP. Downloading waits
-  for an address and reports an error when the adapter has no connection.
-- **Modem:** when no Ethernet device is present, the download worker dials the
-  saved PlanetWeb or DreamPassport ISP profile. If neither has a phone number,
-  it uses the KOS DreamPi defaults: `555`, login `dream`, password `cast`.
-  Set up the ISP/DreamPi beforehand. The app reads flash settings without
-  changing them, and hangs up its own PPP connection after each download.
-  Pulse dialing, dial prefixes and AT/pause syntax are unsupported and reported
-  instead of silently changing the number.
-- **Flycast:** the launcher defaults to `EmulateBBA=yes,DCNet=no`, the local
-  outbound proxy. Use `./run-flycast.sh --modem` for its modem PPP peer. This is
-  not LAN bridging. No inbound port forwarding is required for ordinary
-  downloads.
-
-HTTPS uses TLS 1.2, the bundled Mozilla roots, hostname/chain verification,
-and explicit certificate date checks. Set the console's clock correctly;
-verification failures cannot be bypassed. Up to five HTTPS redirects are
-followed, including relative redirects; HTTP downgrades are rejected. HTTP
-chunked responses are supported. This is a direct download client, not Splore
-or a web browser: login pages, cookies, proxies, IPv6-only hosts, and HTML game
-pages are unsupported.
-
-Transfers have a 90-second connection / low-speed timeout and a ten-minute
-overall limit. Downloads are paced to at most 64 KiB/s to bound receive bursts.
-Cancellation keeps the screen responsive, but KOS's blocking DNS, modem dial,
-and PPP calls must return before cancellation completes. No network worker is
-killed while holding SDK locks. There is no automatic dialing on app startup.
-
-## Runtime support and limits
-
-- PICO-8 Lua dialect through Z8lua, drawing primitives, sprites/maps, palettes,
-  camera/clip, memory operations and the upstream FAKE-08 APIs.
-- 128x128 RGB565 texture rendered through PowerVR at a centered 3x integer
-  scale on a 640x480 output. No smoothing is applied.
-- Four-channel PICO-8 music/SFX synthesis, mixed to 22,050 Hz mono PCM for AICA.
-  The host polls audio on the VM thread, avoiding races with cart resets.
-- A 60 Hz VM tick target; the core schedules `_update` at 30 Hz and
-  `_update60` at 60 Hz. This is a target, not a guarantee: demanding carts
-  slow down on the 200 MHz SH-4. See the measured smoke-test timings in
-  [VALIDATION.md](VALIDATION.md).
-- `cartdata`/`dget`/`dset` persist across cartridge switches **for this session
-  only** (up to 32 keys). There is no VMU persistence; quitting loses saves.
-- One controller/player. Mouse, in-game keyboard text input, screenshots,
-  external file writes and save states are not implemented by this host.
-- Compatibility inherits FAKE-08's limitations. A passing short smoke test
-  does not certify an entire game or compatibility with every PICO-8 version.
-  Bad-cart/runtime errors return to the picker and are reported on serial.
-
-## Verification
-
-The repository release workflow builds and validates this project's SH-4 ELF
-and packages its CDI using [.github/console-projects.txt](../../../.github/console-projects.txt).
-CI also verifies the bundled cartridge hashes, source files, and license notices.
-Flycast runtime tests below are run locally.
-
-```sh
-source "$HOME/.local/share/dreamcast/kos/environ.sh"
-cd projects/apps/pico8-dreamcast
-file pico8-dreamcast.elf
-sh-elf-readelf -h pico8-dreamcast.elf
-uv run tests/check_samples.py
-uv run tests/run_smoke.py
-uv run tests/run_network.py
-uv run tests/run_network.py --modem
-```
-
-The smoke runner builds a separate `pico8-smoke.elf`, boots it in Flycast and
-checks serial results. It exercises 360 VM ticks for each game with scripted
-input, checks framebuffer changes, reports audio sample counts and timings,
-tests fixed-point arithmetic/graphics/memory/cartdata, and drives the real
-picker and pause/resume path. It stops only the Flycast process it starts.
-Use `--timeout 300 --log /tmp/pico8-smoke.log` to customize it. It needs a
-desktop session; it is not a headless unit test.
-
-For visual inspection, `./run-flycast.sh --smoke-test` leaves test execution
-visible. Use `make clean` to remove generated objects and ELF/ROM-disk outputs.
-Normal `make` never enables scripted controls.
-
-## Performance and profiling
-
-The Dreamcast build optimizes the Lua dispatch loop after fixing its signed
-wraparound checks, converts two RGB565 pixels per store, and uses packed sprite
-and patterned-shape rasterizers. Unchanged frames retain the displayed PowerVR
-image while VM/input/audio processing continues. Palette, transform and scale
-changes force a redraw, as does returning from a modal screen.
-
-[SH4ZAM](https://sh4zam.com/) supplies SH-4 truncation for oscillator phases.
-Audio also caches exact note frequencies/rates and per-buffer metadata. The
-mixer hoists everything that cannot change during a callback and brings
-silent channels up to date in one step between music pattern changes. These
-changes preserve the reference PCM hashes; PICO-8's fixed-point math remains
-exact and global fast-math is disabled. AICA uses 1,024-sample refills to reduce
-individual synthesis stalls. Heavy scenes can still miss audio deadlines.
-
-Measured on a real console, the main costs besides Lua itself were C++
-exception unwinding on every coroutine yield (Z8lua now uses `longjmp`),
-KOS's malloc lock on every Lua allocation (Lua now has its own small-block
-allocator) and audio synthesis. The SH-4's 8 KiB instruction cache and
-direct-mapped 16 KiB operand cache make code size and data placement matter:
-the project builds at `-O2`, with the audio mixer at `-O3`.
-
-Seconds for the smoke test's 360 VM ticks on hardware (6.0 is full speed,
-including each game's startup):
-
-| Cartridge | Before | Now |
-| --- | ---: | ---: |
-| Anteform | 7.0 | 6.8 |
-| Bull Sheep | 13.7 | 7.8 |
-| Elephant in the Room | 16.4 | 10.6 |
-| NanoMan | | 6.7 |
-| Picolumia | 12.5 | 8.4 |
-| Pikoralli | 15.1 | 7.6 |
-| WIZRND | | 6.4 |
-
-Anteform, NanoMan and WIZRND run at full speed. The others now spend most of
-their time interpreting Lua: dispatch and table lookups in Z8lua are the next
-target. See [the hardware measurements](VALIDATION.md#real-hardware-2026-10-16)
-and [earlier emulator measurements](VALIDATION.md#sh4-optimization-results).
-
-```sh
-# From this project directory, with KOS sourced:
-uv run tests/run_smoke.py --kernels   # Rendering and exact PCM regressions
-uv run tests/run_smoke.py --profile --log build/profile.log
-uv run tests/analyze_profile.py build/profile.log --elf pico8-profile.elf
-# The same on the console:
-make pico8-profile.elf && ../../../tools/dc-hw.sh run -c -i 90 \
-  -u 'PICO8_TEST: (PASS|FAIL) ALL' -l build/profile.log pico8-profile.elf
-```
-
-The separate profile ELF samples the active player's program counter from the
-KOS scheduler (100 Hz in the tested SDK), using 16-byte buckets. Its report
-attributes samples to symbols; inlining, bucket boundaries and scheduler timing
-make it statistical rather than an exact cycle count. Keep the matching ELF
-with each log and analyze it before rebuilding. The ordinary smoke ELF reports
-elapsed guest time, VM/video/audio time, submitted frames, and median/95th/max
-tick duration without the PC sampler. VM ticks are not game FPS: `_update`
-cartridges run game logic every other tick. Normal release builds contain no
-sampler or scripted test loop.
-
-## Network regression tests
-
-The network suite creates short-lived TLS servers on the Mac, with generated
-test certificates trusted **only in its separate test ELF**. It tests real
-socket/TLS transfers, both cart formats and launch, redirects/chunked encoding,
-certificate failures, malformed/oversized/truncated responses, cancellation,
-and URL-screen entry. It checks 360 idle launcher frames and the raw Y-button
-mapping, including held-button suppression and normal in-game behavior.
-It also downloads the pinned Bull Sheep cart from GitHub.
-Use `--host <Mac IPv4>` when automatic route detection picks the wrong interface,
-or `--no-public` to omit the internet fixture. Tests stop only the Flycast process
-they launch and remove their generated private keys.
-
-The Dreamcast host/launcher use the repository's MIT license. See
-[runtime provenance and local patches](third_party/README.md) and the
-individual [game license notices](licenses/). Full license notices are also
-embedded in the ELF's ROM disk at `/rd/NOTICE.txt`; HTTPS dependency notices
-are included under `/rd/certs/`.
+The Dreamcast host and launcher use the repository's MIT license. Runtime
+provenance, local changes and third-party notices (FAKE-08, Z8lua, LodePNG,
+SH4ZAM, curl, Mbed TLS, libppp, Mozilla roots): [third_party/README.md](third_party/README.md).
+Game licenses: [samples/README.md](samples/README.md) and [licenses/](licenses/).
+Full notices are embedded in the ELF at `/rd/NOTICE.txt`, with HTTPS dependency
+notices under `/rd/certs/`.

@@ -38,6 +38,7 @@ cont_state_t test_pad_state{};
 uint64_t deadline = 0, previous_frame = 0, sample_count = 0, nonzero_count = 0;
 uint64_t frame_us = 33333;
 double frame_delta_ms = 33.333;
+// 128x128 shown at a 3x integer scale, centered on 640x480; StretchToFit uses 480.
 int display_size = 384;
 std::map<std::string, std::string> session_saves;
 
@@ -83,6 +84,7 @@ bool dc_menu_requested() {
     return value;
 }
 void dc_reset_input() { previous_buttons = 0; deadline = 0; release_input = true; frame_valid = false; }
+// Polled from the player thread only, so synthesis runs there and never races a cart reset.
 void dc_poll_audio() { if (stream != SND_STREAM_INVALID) snd_stream_poll(stream); }
 void dc_audio_enable(bool enabled) { sound_enabled = enabled; }
 

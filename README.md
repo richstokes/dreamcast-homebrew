@@ -1,111 +1,84 @@
 # Dreamcast Homebrew
 
-A collection of my original Sega Dreamcast games, network applications, and
-technical demos.
+My original Sega Dreamcast games, network apps and technical demos.
 
-## dcvmu.com - cloud saves for Dreamcast
+**[Download the latest builds](https://github.com/richstokes/dreamcast-homebrew/releases/latest).**
+Every project ships as a self-booting CDI and a plain ELF. The CDI is the
+easiest way to play: open it in an emulator, burn it to CD-R, or load it on a
+real console with GDEMU or similar. Each project directory has its own README.
 
-I made [dcvmu.com](https://dcvmu.com) because I wanted a safe place to keep a copy of my games progress!
+## dcvmu.com
 
-The [Dreamcast client for this service](projects/dcvmu.com/client/) uploads and downloads VMU files to and from the service, directly from the Dreamcast itself. 
+Cloud saves for the Dreamcast. The console client backs up VMU saves to
+[dcvmu.com](https://dcvmu.com) and restores them, from the Dreamcast itself.
 
-<img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="456">
-
-Check [the getting started guide](https://dcvmu.com/getting-started) for more info!
-
+| Preview | Project | Latest download | Guide |
+| --- | --- | --- | --- |
+| <img src="projects/dcvmu.com/service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="360"> | **[DCVMU](projects/dcvmu.com/client/)**<br>Browse, upload and download VMU saves on the console. The [web service](projects/dcvmu.com/service/) lives here too. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf) | [Getting started](https://dcvmu.com/getting-started) |
 
 ## Games
 
 | Preview | Project | Latest download | Try in browser |
 | --- | --- | --- | --- |
-| <img src="docs/screenshots/dreamkarts.png" alt="DreamKarts" width="360"> | **[DreamKarts](projects/games/dreamkarts/)**<br>A kart racer with Mario Kart-style hop-into-drift handling: counter-steered powerslides, blue/orange/purple mini-turbo sparks, rocket starts and dash panels. Race a Chao against five CPU rivals or a friend in two-player split screen, on a tropical beach oval, a figure 8 with a big jump, a twisty harbour circuit with hairpins and a chicane, a jungle hill climb with switchbacks and a stone viaduct, or a neon night ride above a cyberpunk city, with banked turns, a flyover loop and open edges to fall off, at 50/100/150cc. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdreamkarts.elf&name=DreamKarts) |
+| <img src="docs/screenshots/dreamkarts.png" alt="DreamKarts" width="360"> | **[DreamKarts](projects/games/dreamkarts/)**<br>A Mario Kart-style kart racer with hop-into-drift handling and mini-turbos, six courses, CPU rivals, two-player split screen and online races. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdreamkarts.elf&name=DreamKarts) |
 | <img src="docs/screenshots/drift-los-angeles.png" alt="Drift Los Angeles" width="360"> | **[Drift Los Angeles](projects/games/drift-los-angeles/)**<br>An open-city arcade street-drifting game with a C7-inspired coupe, four Los Angeles-style districts, traffic, drift chains, dense tire smoke, and recorded V8 audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdrift-los-angeles.elf&name=Drift%20Los%20Angeles) |
 | <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/games/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fgravity-wave.elf&name=Gravity%20Wave) |
 | <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/games/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdemon-bazooka.elf&name=Demon%20Bazooka) |
 | <img src="docs/screenshots/totally-bazaar.png" alt="Totally Bazaar" width="360"> | **[Totally Bazaar](projects/games/totally-bazaar/)**<br>A traditional market trading card game for 2-4 players: hot-seat play with hidden hands, CPU merchants, 3D-rendered goods, animated cards and tokens, and a synthesized bazaar soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Ftotally-bazaar.elf&name=Totally%20Bazaar) |
-
-**[Island Explorer](projects/games/island-explorer/)** is a coastal exploration
-prototype with a walking character, swimming and ocean ambience. It currently
-requires locally extracted Sonic Adventure assets; its source and conversion
-tools are included, with no downloadable game build.
+| <img src="docs/screenshots/island-explorer.png" alt="Island Explorer on the resort beach" width="360"> | **[Island Explorer](projects/games/island-explorer/)** (experimental)<br>A coastal exploration prototype with walking, swimming and dolphins, built on locally extracted Sonic Adventure assets. | Source only | - |
 
 ## Apps and demos
 
 | Preview | Project | Latest download | Try in browser |
 | --- | --- | --- | --- |
 | <img src="docs/screenshots/chroma-circuit.png" alt="Chroma Circuit Hyperfold scene" width="360"> | **[Chroma Circuit](projects/apps/chroma-circuit/)**<br>A nine-act, 60 Hz Dreamcast demo built entirely in SH-4 assembly, with raw PowerVR2 graphics and AICA music. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/chroma-circuit.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/chroma-circuit.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fchroma-circuit.elf&name=Chroma%20Circuit) |
+| <img src="docs/screenshots/dream-tos.jpg" alt="Dream TOS desktop with the D: drive window open" width="360"> | **[Dream TOS](https://github.com/richstokes/Dream-TOS)** (separate repo)<br>A native port of EmuTOS, the open-source Atari TOS desktop, with bundled apps, games and utilities. | **[CDI](https://github.com/richstokes/Dream-TOS/releases/latest/download/DreamTOS.cdi)**<br>[ELF](https://github.com/richstokes/Dream-TOS/releases/latest/download/dream-tos.elf) | - |
 | <img src="docs/screenshots/dreamcast-basic.png" alt="Dreamcast BASIC editor" width="360"> | **[Dreamcast BASIC](projects/apps/dreamcast-basic/)**<br>A BASIC interpreter and full-screen editor for the Dreamcast keyboard, with QBasic-style graphics, `PLAY` music, one VMU save per program, and classic games such as Super Star Trek bundled as examples. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdreamcast-basic.elf&name=Dreamcast%20BASIC) |
 | <img src="docs/screenshots/dreamcast-browser.png" alt="Dreamcast Browser" width="360"> | **[Dreamcast Browser](projects/apps/dreamcast-browser/)**<br>A deliberately limited HTTPS browser supporting basic text, links, raster images, and Dreamcast keyboard, mouse, and controller input. JavaScript is not executed. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-browser.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-browser.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdreamcast-browser.elf&name=Dreamcast%20Browser) |
 | <img src="docs/screenshots/dreamcast-irc.png" alt="Dreamcast IRC" width="360"> | **[Dreamcast IRC](projects/apps/dreamcast-irc/)**<br>An IRC client for Broadband Adapter or modem/DreamPi, with server and channel pages, fixed-size scrollback, keyboard input, and controller navigation. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fdreamcast-irc.elf&name=Dreamcast%20IRC) |
 | <img src="docs/screenshots/pico8-dreamcast.jpg" alt="PICO-8 Player cartridge picker with five bundled games" width="360"> | **[PICO-8 Player](projects/apps/pico8-dreamcast/)**<br>A native FAKE-08 port with a cartridge picker, sound, controller support, HTTPS downloads over BBA or modem, and five MIT/GPL-licensed sample games. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fpico8-dreamcast.elf&name=PICO-8%20Player) |
 | <img src="docs/screenshots/ping-cube.png" alt="Ping Cube" width="360"> | **[Ping Cube](projects/apps/ping-cube/)**<br>A networking and PowerVR demo that continuously pings `8.8.8.8`, visualizes latency through the cube's color, and displays live replies, loss, and timing statistics. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ping-cube.elf) | [Play](https://appsbyrich.com/dreamcast?rom=continuous%2Fping-cube.elf&name=Ping%20Cube) |
 
-Each project directory contains its own README with more info/instructions.
-
-The CDI links are the easiest way to play: download the image and open it in
-an emulator, burn it to CD-R, or load on a real console with GDEMU/similar.
-
 ## Building and running
 
-The projects use the Dreamcast SH-4 cross-toolchain. Most also use [KallistiOS](https://kos-docs.dreamcast.wiki/);
-Chroma Circuit (written in assembly) invokes only `sh-elf-as`, `sh-elf-ld`, and the matching binary
-inspection tools. The known-working development baseline is:
-
-- KallistiOS 2.3.0
-- GCC 15.2.0 SH-4 toolchain
-- Flycast 2.7
-
-For native macOS emulator setup, see [the Flycast build instructions](tools/flycast/README.md).
+Known-working baseline: KallistiOS 2.3.0, GCC 15.2.0 SH-4 toolchain, Flycast 2.7.
+For a native macOS Flycast with the fixes these projects rely on, see
+[tools/flycast](tools/flycast/README.md).
 
 ```sh
 git clone https://github.com/richstokes/dreamcast-homebrew.git
 cd dreamcast-homebrew
-```
-
-Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally Bazaar depend on [SH4ZAM](https://sh4zam.com/),
-which is neither vendored nor pinned. Each build clones or fast-forwards an
-ignored `third_party/sh4zam` checkout to the latest upstream `master` before
-compiling. CI does the same for its published projects. To refresh checkouts manually, run
-`tools/update-sh4zam.sh` with their paths from the repository root.
-
-Source the KOS environment, then build a project:
-
-```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/games/drift-los-angeles
+./projects/games/drift-los-angeles/run-flycast.sh --skip-build
 ```
 
-Chroma Circuit needs no KOS build and can be assembled directly:
+Each project's `run-flycast.sh` builds by default, then opens the ELF in
+Flycast. `KOS_ENV` and `FLYCAST_BIN` override the installed dependencies.
 
-```sh
-make -C projects/apps/chroma-circuit
-make -C projects/apps/chroma-circuit verify
-```
+- Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally
+  Bazaar depend on [SH4ZAM](https://sh4zam.com/), which is neither vendored nor
+  pinned, to ensure we always get the latest gainz (granted - at the potential
+  cost of instability). Each build fast-forwards an ignored `third_party/sh4zam`
+  checkout to upstream `master`; `tools/update-sh4zam.sh` refreshes them by hand
+- Chroma Circuit is pure assembly and needs no KOS:
+  `make -C projects/apps/chroma-circuit verify`
+- DCVMU and Dreamcast Browser need the kos-ports curl, mbedTLS, zlib and
+  stb_image. The [Dreamcast Browser README](projects/apps/dreamcast-browser/README.md)
+  has the install commands and the compatibility patch
 
-Launch it directly in Flycast:
+## Layout and releases
 
-```sh
-./projects/games/drift-los-angeles/run-flycast.sh
-```
+- `projects/games/`: games
+- `projects/apps/`: apps and demos
+- `projects/dcvmu.com/`: DCVMU client and web service
+- `tools/`: Flycast build, real-hardware runner, SH4ZAM updater
 
-The launchers build by default and accept `KOS_ENV` and `FLYCAST_BIN`
-overrides. When the ELF already exists, use `--skip-build` or the project's
-`make run` target.
-
-DCVMU and Dreamcast Browser additionally require the KOS ports for curl, mbedTLS, zlib,
-and stb_image. Its [project README](projects/apps/dreamcast-browser/README.md)
-documents the included compatibility patch and installation commands.
-
-## Repository layout and releases
-
-- `projects/dcvmu.com/`: client and web service.
-- `projects/games/`: playable games.
-- `projects/apps/`: applications and technical demos.
-
-[The release manifest](.github/console-projects.txt) is the single list of console
-projects for CI building, validation, and ELF/CDI packaging. Every push to `main`
-tests DCVMU, builds every console project with pinned SDK dependencies,
-and publishes [the rolling GitHub release](https://github.com/richstokes/dreamcast-homebrew/releases/latest).
+Every push to `main` runs the tests, builds each project in
+[the release manifest](.github/console-projects.txt) against pinned SDK
+commits, and republishes
+[the rolling release](https://github.com/richstokes/dreamcast-homebrew/releases/latest)
+with CDI and ELF files.
 
 ## License and attribution
 

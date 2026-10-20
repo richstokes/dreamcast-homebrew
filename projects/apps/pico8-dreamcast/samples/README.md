@@ -1,7 +1,7 @@
-# Seven license-first sample games
+# Sample games
 
-These are real third-party cartridges, not rewritten approximations. The menu
-loads all seven directly from the embedded ROM disk, without downloads.
+Seven real third-party cartridges, bundled in the ROM disk and loaded by the
+picker without downloads.
 
 | Game | Creator | License | GitHub stars when checked | Exercises |
 | --- | --- | --- | --- | --- |
@@ -13,35 +13,34 @@ loads all seven directly from the embedded ROM disk, without downloads.
 | [NanoMan](https://github.com/FunFetched/NanoMan) | Fun Fetched (music by Gruber) | GPL-3.0 | 30 | Action platformer, 60 Hz updates, music |
 | [WIZRND](https://github.com/mattleblanc/WIZRND) | mattleblanc | Apache-2.0 | 3 | Procedurally generated platformer, 30 Hz |
 
-The first five were checked 2026-09-24; NanoMan and WIZRND were added
-2026-10-16 from the same kind of search, widened to other permissive licenses
-(PICO-CRATE was passed over because its music is noncommercially licensed).
-Selection used GitHub searches for `pico-8` / `pico8` with
-MIT and GPL licenses, sorted by stars, followed by inspection of the actual
-cartridges and license files. Stars are a limited popularity proxy, not a
-global PICO-8 ranking. These are **not claimed to be the most popular
-PICO-8 games overall**. The unrestricted-license requirement rules out many
-better-known carts with noncommercial terms, missing licenses or restricted
-assets. Engines, visual-only demos, incomplete cartridge sets and obvious
-third-party asset restrictions were also excluded.
+Picked by searching GitHub for `pico-8` / `pico8` carts under MIT, GPL and
+other permissive licenses, sorted by stars, then inspecting the actual
+cartridge and license files. Stars are a rough proxy; this is not a PICO-8
+popularity list. Better-known carts with noncommercial terms, missing licenses
+or restricted assets were excluded, as were engines, visual-only demos,
+incomplete cartridge sets and PICO-CRATE (noncommercially licensed music). The
+first five were checked 2026-09-24, NanoMan and WIZRND on 2026-10-16.
 
 MIT, Apache-2.0 and GPL all permit commercial use; GPL's source-sharing
-conditions still apply. Preserve each game's license and attribution. The complete interpreted
-source is included in each `.p8`, with Picolumia's readable source separately in
-`source/picolumia.p8`. The PNG is the author's checked-in playable release;
-the readable `.p8` comes from the same repository revision. Their packaging
-need not be byte-identical. Elephant's `#include` files and Picolumia's readable
-source are flattened without changing gameplay code. Anteform is playable,
-but its author describes the story as not yet winnable. NanoMan's repository
-holds its main cartridge; the author mentions separate map carts that are
-not published. The main cart makes no `reload` or `cstore` calls and passed
-the smoke test; finishing the whole game was not checked.
+conditions still apply. Preserve each game's license and attribution. Every
+`.p8` carries its complete interpreted source. Picolumia's readable source is
+in `source/picolumia.p8`; the PNG is the author's checked-in playable release
+from the same revision, so the packaging need not be byte-identical. No
+upstream HTML/JavaScript exports are included, since they embed the
+proprietary web runtime.
 
-[manifest.json](manifest.json) records exact upstream revisions, cartridge
-paths, licenses, changes and SHA-256 hashes. [../licenses/](../licenses/) contains
-the unmodified upstream license texts and available README attribution.
-No upstream HTML/JavaScript exports (which embed the proprietary web runtime)
-are included.
+Per-game notes:
 
-Run `uv run tests/check_samples.py` from the project directory to verify the
-checked-in bundle. Normal builds are fully offline and do not need Python.
+- Elephant's `#include` files are flattened into one cartridge; gameplay code
+  is unchanged
+- Anteform is playable, but its author describes the story as not yet winnable
+- NanoMan's repository holds the main cartridge only; the author mentions
+  unpublished map carts. The main cart makes no `reload`/`cstore` calls and
+  passes the smoke test; finishing the whole game was not checked
+- WIZRND is renamed to `wizrnd.p8`, contents unchanged
+
+[manifest.json](manifest.json) records the exact upstream revisions, cartridge
+paths, licenses, changes and SHA-256 hashes. [../licenses/](../licenses/)
+holds the unmodified upstream license texts and available README attribution.
+`uv run tests/check_samples.py` (from the project directory; CI runs it too)
+verifies the checked-in bundle. Normal builds are offline and need no Python.

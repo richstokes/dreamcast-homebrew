@@ -146,6 +146,11 @@ def four_bar_chords(*chords: tuple[int, str]) -> tuple[Harmony, ...]:
 # Pitch is a semitone offset from the track's lead root.  The first two bars are
 # the antecedent and the latter two answer or develop it.  Long durations and
 # written rests keep the album out of the old universal sequencer cadence.
+#
+# Tempo and section form must match soundtrack_defs and music_song_forms in
+# gravity-wave.c. After changing either side run make music, so the album's
+# catalog fingerprint matches the runtime catalog; otherwise the game rejects
+# the embedded album and plays no music.
 TRACKS: tuple[Track, ...] = (
     Track(
         name="MIDNIGHT VECTOR", slug="midnight-vector", bpm=122.0,

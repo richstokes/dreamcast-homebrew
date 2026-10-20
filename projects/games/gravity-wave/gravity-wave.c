@@ -7893,6 +7893,8 @@ static void collect_pickup(pickup_t *pickup) {
                 set_message("NOVA BONUS 750", 1.3f);
             }
             break;
+        /* One temporary weapon slot: Fast Laser and Phase Wave replace each
+           other. Speed Boost is timed separately and stacks with either. */
         case PICKUP_SPEED_BOOST:
             game.speed_boost_time = SPEED_BOOST_SECONDS;
             game.boost = 100.0f;

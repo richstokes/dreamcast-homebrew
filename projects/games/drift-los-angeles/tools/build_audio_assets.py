@@ -448,6 +448,8 @@ def build(idle_source_path: Path, load_source_path: Path,
         peak = max(abs(value) for value in pcm) / 32768.0
         rms = math.sqrt(sum(value * value for value in pcm) / len(pcm)) / 32768.0
         macro_ratio, macro_floor = macro_loudness_ratio(pcm, rate, channels)
+        # A slow loudness swing over 1.15:1 is audible as pumping once the
+        # loop repeats, so reject it here rather than hearing it in game.
         if macro_ratio > 1.15 or macro_floor < 0.90:
             raise ValueError(
                 f"{spec.name} loop has a slow loudness pulse: "

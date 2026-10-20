@@ -4,19 +4,10 @@
   <img src="../../../docs/screenshots/drift-los-angeles.png" alt="Drift Los Angeles coupe drifting through the downtown core at dusk" width="640">
 </p>
 
-Drift Los Angeles is an original open-city street-drifting game built for Sega
-Dreamcast with KallistiOS. Drive a C7 Corvette through an
-unbounded, deterministic Los Angeles-inspired street grid at blue hour, link
-drifts between wide boulevards, and bank increasingly valuable score chains.
-
-The player car is a low-polygon C7 Stingray recreation authored for this game:
-a sculpted hood with extractor louvers, swept projector lamps with white LED
-blades, a black targa roof, narrow painted A-pillars, rear-quarter windows,
-fender vents, broad rear haunches, four angular tail-light rings, a rear lip
-spoiler, diffuser, and four center exhaust tips. Its staggered wheels have
-rounded tire shoulders, beveled five-spoke rims, recessed rotors and red
-calipers. They steer and spin, and the brake lights brighten the same lamp
-geometry used by the body mesh.
+Drift Los Angeles is an original open-city street-drifting game for the Sega
+Dreamcast, built with KallistiOS. Drive a C7 Corvette through an endless,
+deterministic Los Angeles-inspired street grid at blue hour, link drifts
+between the boulevards and bank score chains.
 
 ## Download
 
@@ -26,50 +17,12 @@ is also available.
 
 ## Highlights
 
-- An endless, streamed open city with no world edge or loading screens
-- Four distinct neighborhoods, each with its own landmark, lighting, and street
-  furniture: Downtown Core, Pacific Coast, Arts Quarter, and Neon Strip
-- Every block is a ring of two to four street-wall properties per side, each
-  with its own height, facade, tint, setback, cornice and rooftop (plant, water
-  tank, billboard or mast), with the block's tower or warehouse rising behind
-- Block geometry is generated once into a static cache with blue-hour lighting
-  baked into the vertices (warm street level, cooler and darker upper floors,
-  shaded undersides), then replayed each frame with one transform per vertex
-- Textured street furniture from painted rigs: benches, litter bins, hydrants,
-  parking meters, newspaper boxes, bollards, bus shelters with ad panels,
-  magazine kiosks, mailboxes, dumpsters, cafe tables and chairs, planters and
-  street signs, tinted per district where they are painted metal
-- A C7 Corvette lofted from authored cross-sections (wheel wells,
-  haunches, rocker and cabin tub are part of the surface), with hard-edge
-  normals, baked ambient occlusion, a horizon-gradient pearl paint, sun
-  highlights along the creases, view-dependent paint/glass reflections,
-  working lights, steering, and wheels, and a modelled cabin (dash, seats,
-  wheel) visible through translucent glass
-- Drift physics with throttle oversteer, clutch kicks, handbrake initiation,
-  burnouts, and power donuts
-- Thirty-six traffic cars that obey lanes and signals, lofted as five real body
-  types (sedan, hatchback, SUV, van, pickup, plus taxis) with spinning spoked
-  wheels, lamps, grilles and plates at three detail levels; parked cars share
-  the same models
-- Articulated pedestrians: sixteen-part textured bodies with faces, hair,
-  caps, glasses, four outfit styles, denim and shoes, each tinted from its
-  seed and walking a knee-and-elbow cycle, with two mesh detail levels and a
-  billboard fallback in the distance
-- Solid street collisions: lampposts and parked cars take a rigid-body
-  impulse that bounces and spins the car, while pedestrians you run down are
-  thrown tumbling into the air and lie on the pavement until you leave the block
-- Modular storefronts, upper floors and cornices with mipmapped architecture
-- Blue-hour lighting with soft headlights, oriented tire/contact shadows,
-  curved streetlamps and neon
-- Detailed palm fronds, dimensional tree crowns, Art Deco roof tiers and
-  sawtooth warehouse roofs
-- Drift scoring with a six-times chain multiplier, hold timer, and duration
-  bonuses
-- Long skid marks, layered tire smoke, and high-RPM exhaust flames
-- A recorded V8 engine and tire squeal, plus an original three-track outrun
-  soundtrack in the style of 1980s synth records
-- Compact arcade HUD with a traffic-aware minimap
-- Title screen, automated demo tour, pause, and controller hot-plugging
+- Endless streamed city with four districts (Downtown Core, Pacific Coast, Arts Quarter, Neon Strip) and no loading screens
+- Drift physics with throttle oversteer, clutch kicks, handbrake, burnouts and donuts, scored through a six-times chain multiplier
+- Lane-following traffic, parked cars and articulated pedestrians, all with solid collisions
+- Lofted C7 Corvette with working lights, steering and wheels, and a modelled cabin behind translucent glass
+- Recorded V8 and tire audio plus an original three-track 1980s-style synth soundtrack
+- Title screen, automated demo tour, pause and controller hot-plugging
 
 ## Screenshots
 
@@ -110,284 +63,110 @@ On the title screen, Start or A begins, X launches the automated four-district
 demo tour, and B exits. In the demo, Start or A takes control and B returns to
 the title. From the pause screen, B returns to the title.
 
-## Build
-
-From this project directory, source the installed KallistiOS environment and
-run `make`. The build fetches the latest upstream SH4ZAM `master` first:
+## Build and run
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-make
+make                # fetches the latest SH4ZAM master, then builds drift-los-angeles.elf
+./run-flycast.sh    # builds and launches; --skip-build launches the existing ELF
+make showcase       # hands-off tour that changes district every 15 s (X on the title screen does the same)
 ```
 
-This creates `drift-los-angeles.elf`.
+The launcher uses a connected gamepad, or the keyboard when none is present,
+without changing saved Flycast preferences. Force one with `--input gamepad`
+or `--input keyboard` (or `DRIFT_LA_INPUT`). `KOS_ENV` and `FLYCAST_BIN`
+override the installed KOS environment and Flycast binary.
+`DRIFT_LA_EXIT_ON_LOG` and `DRIFT_LA_FAIL_ON_LOG` stop the launcher when a
+serial line appears; the QA targets use them.
 
-## Run in Flycast
+Beyond KOS and Flycast: every `make` clones or fast-forwards
+[SH4ZAM](https://sh4zam.com/) into the ignored `third_party/sh4zam` checkout
+(see [third_party/SH4ZAM.md](third_party/SH4ZAM.md); `DEBUG=1` keeps its
+asserts). The asset generators need `uv`, and the mesh targets need `blender`
+(`BLENDER=` overrides the binary). All generated assets are checked in, so a
+normal build needs neither.
 
-```sh
-./run-flycast.sh
-```
+## Regenerating assets
 
-The launcher builds by default. On macOS it uses a connected gamepad, or the
-keyboard if none is present, without changing saved Flycast preferences.
+Rerun the matching target after changing a source. Keep geometry and art edits
+in the generators, not the generated files, so the target reproduces them.
 
-Override automatic selection when testing with:
+| Target | Regenerates |
+| --- | --- |
+| `make textures` | `assets/generated/texture_assets.{c,h}` from `assets/source/`; runs `architecture` and `effects` first. ImageGen prompts are in `assets/PROMPTS.md` |
+| `make architecture` | Upper-wall, storefront and cornice crops in `assets/source/` from the source paintings |
+| `make effects` | Smoke, contact-shadow, headlight and palm alpha sprites in `assets/source/` |
+| `make audio` | Engine and tire loops in `assets/generated/audio_assets.{c,h}`, plus `music`; a preview sweep lands in `assets/generated/previews/` |
+| `make music` | Renders the three songs and packs `assets/generated/music_asset.*`; WAV previews in `assets/generated/previews/soundtrack/` |
+| `make model` | `model_data.h` (player car) through Blender; pass `--blend` and `--preview-dir` to `tools/build_car_blender.py` to keep a scene and previews |
+| `make vehicles` | `assets/source/vehicle-atlas.png` and `vehicle_data.h`; then `make textures` |
+| `make props` | `assets/source/prop-atlas.png` and `prop_data.h`; then `make textures` |
+| `make pedestrians` | `assets/source/pedestrian-atlas.png`, `pedestrian_data.h` and a Blender contact sheet; then `make textures` |
 
-```sh
-./run-flycast.sh --input gamepad
-./run-flycast.sh --input keyboard
-```
-
-Launch an existing build with:
-
-```sh
-./run-flycast.sh --skip-build
-```
-
-Set `KOS_ENV` or `FLYCAST_BIN` to override either installed dependency.
-
-For a hands-off visual tour that changes district every fifteen seconds:
-
-```sh
-make showcase
-```
-
-The same tour is available from the normal title screen by pressing X.
-
-## Rebuild the textures
-
-The generated C assets are checked in, so the normal Dreamcast build has no
-host-side image dependency. After changing a source atlas or the title art,
-regenerate the PVR data and local previews with:
-
-```sh
-make textures
-```
-
-This needs `uv`. The ImageGen prompts are preserved in `assets/PROMPTS.md`.
-The target also rebuilds the reproducible architecture crops and procedural
-effect sprites. Run `make architecture` to extract separate upper-wall,
-storefront and cornice modules from the source paintings, or `make effects`
-to regenerate smoke, contact-shadow and palm alpha sprites independently.
-The final converter emits aligned, twiddled 16-bit textures, including
-mip levels for selected world materials and ARGB4444 alpha for effect sprites.
-
-## Rebuild the audio
-
-The generated engine, tire, and music banks are checked in, so the normal
-build does not need a host audio tool. To rebuild them:
-
-```sh
-make audio
-```
-
-`tools/build_audio_assets.py` cuts seamless idle and held-rev engine loops from
-the V8 recordings. The tire recording is a single 1.3 s screech with a swell
-and a fade, so it is not looped directly: the sustained core is re-sequenced
-into a 1.92 s granular texture (random-position, rate-jittered grains with
-equal-power crossfades, then macro-levelled) so a long drift sounds continuous
-rather than like a one-shot re-triggering. Every loop is rejected if its slow
-loudness envelope swings more than 1.15:1. A preview of the engine sweep and
-the tire loop lands in `assets/generated/previews/v8-engine-rpm-sweep.wav`.
-
-In game the three stereo loops play on adjacent channel pairs reserved with
-`snd_sfx_chn_alloc()`, and their pitch and volume change in place with AICA
-channel UPDATE commands. KOS's `snd_sfx_play()` assigns channels round-robin
-and skips only reserved ones, so a loop on an unreserved channel could be
-replaced by a later one-shot effect that the updates would then retune.
-
-`make music` rebuilds only the soundtrack: `tools/compose_soundtrack.py`
-renders the three songs from their notation, then `tools/build_music_asset.py`
-packs them into a 4-bit ADPCM playlist bank (both run through `uv`). Rendered
-WAV previews land in `assets/generated/previews/soundtrack/`. Source links and
-licenses are recorded in `assets/source/audio/README.md`.
-
-## Regenerate the car mesh
-
-The car is authored procedurally in Blender by `tools/build_car_blender.py`:
-one closed loft of cross-section stations for the body (the wheel openings,
-wells, fender haunches, rocker and cabin tub are authored into the profiles,
-not cut afterwards), an open loft for the greenhouse whose quads are assigned
-paint, glass or carbon per row and segment (A-pillars, roof, B-pillar, sail
-panels, hatch), and flat trim that is snapped onto the finished surface. The
-generated `model_data.h` is checked in so Blender is not needed for a normal
-build. To regenerate it:
-
-```sh
-make model
-```
-
-To retain an editable Blender scene and front, rear, side and three-quarter
-previews alongside the game export:
-
-```sh
-blender --background --python tools/build_car_blender.py -- \
-  --header model_data.h \
-  --blend assets/generated/previews/c7-corvette/c7-corvette.blend \
-  --preview-dir assets/generated/previews/c7-corvette
-```
-
-The generator can also run in the open Blender session through Blender MCP.
-Keep geometry edits in the generator so `make model` reproduces them. The
-wheel-arch stations are ordered front to back; trim is tessellated before
-projection onto the body so the hood and fender vents remain visible. Bumper
-trim is clipped to the underlying fascia triangles to follow its curvature.
-The silhouette uses the C7's 2.71 m wheelbase, 4.49 m length, 1.88 m body width
-and 1.24 m height as proportion references. The
-export includes brake-lamp triangle indices, keeping braking aligned with the
-four hollow tail-light rings and the spoiler's center stop lamp. Run
-`make textures` after changing the LED swatches in `tools/build_textures.py`.
-
-## Regenerate the vehicles
-
-Traffic and parked cars are authored procedurally in `tools/build_vehicles.py`
-from cross-section stations, sharing the rig format and tintable-atlas
-approach of the pedestrians (`tools/rig_export.py`). The generated
-`assets/source/vehicle-atlas.png` and `vehicle_data.h` are checked in:
-
-```sh
-make vehicles
-make textures
-```
-
-## Regenerate the street furniture
-
-`tools/build_props.py` paints the prop atlas and builds the furniture rigs;
-`assets/source/prop-atlas.png` and `prop_data.h` are checked in:
-
-```sh
-make props
-make textures
-```
-
-## Regenerate the pedestrians
-
-The pedestrian atlas and the two-level articulated mesh are authored
-procedurally in `tools/build_pedestrians.py`; the generated
-`assets/source/pedestrian-atlas.png` and `pedestrian_data.h` are checked in.
-To regenerate them and render a Blender contact sheet of posed variants into
-`assets/generated/previews/pedestrians-*.png`:
-
-```sh
-make pedestrians
-make textures
-```
-
-The atlas is tintable: every region is painted in light neutral tones and the
-game multiplies each body part by a per-figure colour, so skin tones, shirts,
-trousers, hair and shoes all come from the pedestrian's seed. Parts swap atlas
-cells for short sleeves, jacket sleeves or bare shins.
+Texture pipeline notes are in [assets/README.md](assets/README.md); audio
+source links and licenses are in
+[assets/source/audio/README.md](assets/source/audio/README.md).
 
 ## QA
 
-`make qa` checks the car mesh and texture inventory, `make qa-run` runs a
-60-second district tour with telemetry, and `make physics-qa-run` runs the
-burnout and donut regression suite in Flycast; it also fails if anything took
-over the reserved AICA channel pairs of the engine and tire loops (every build
-reads those channels back every 60 frames, prints a `BUG` line on a change and
-reports the totals at shutdown). `make collision-qa-run` drives
-the car into a lamppost, a parked car and a walking pedestrian in turn and
-checks that each impact registers, that the car never passes through the
-obstacle, and that the pedestrian is launched and comes to rest.
+The Flycast targets clean and rebuild with QA defines first. Run
+`make clean && make` afterwards to get the playable build back.
 
-`make visibility-qa-build` builds `render-visibility-qa.elf`. Boot it in Flycast
-or on a Dreamcast and check for `Render visibility QA: PASS`. It reproduces the
-turning-camera building disappearance, compares box culling against an
-independent corner reference, and checks road selection across signed grid
-boundaries.
+| Target | Checks |
+| --- | --- |
+| `make qa` | Asset audit: car mesh limits and texture inventory (`tools/visual_qa.py --strict`) |
+| `make qa-tools` | Host tests for the log parser, mesh audit, PVR texture packing and geometry-log compare |
+| `make qa-run` | 60-second four-district tour with telemetry |
+| `make qa-benchmark` | Same tour; exits when the aggregate arrives and checks the 30 FPS average. Log and JSON land in `assets/generated/previews/visual-qa/` (`QA_LOG=` overrides) |
+| `make geometry-qa-run` | Fixed 30 Hz tour printing whole-tour triangle/vertex totals; compare runs with `uv run tools/compare_geometry_logs.py before.log after.log` |
+| `make physics-qa-run` | Burnout and donut regression; also fails if anything took the engine or tire loops' reserved AICA channels |
+| `make collision-qa-run` | Lamppost, parked car and pedestrian impacts register, nothing is passed through, the pedestrian is launched and comes to rest |
+| `make math-qa-build` | Builds `render-math-qa.elf`; boot it and look for `Render math QA: PASS` |
+| `make visibility-qa-build` | Builds `render-visibility-qa.elf`; boot it and look for `Render visibility QA: PASS` |
+| `make qa-capture-run`, `make qa-visual` | Per-district captures (`QA_SEGMENT=`) and a contact sheet with report |
 
-`make qa-benchmark` records the full district tour, exits Flycast when the
-aggregate telemetry arrives, and checks a **30 FPS average** target. The log
-and JSON report are saved to `assets/generated/previews/visual-qa/benchmark.log`
-and `benchmark.log.json`; override the log location with `QA_LOG=/path/to/run.log`.
-The average uses rendered frame count divided by real elapsed time, including
-frame waits and audio work. Periodic PVR FPS and registration-time samples are
-reported separately. Emulator results do not establish real-hardware performance.
+Check an existing benchmark log with `uv run tools/analyze_render_log.py run.log`.
+It needs the aggregate line and at least 30 measured seconds; periodic FPS
+samples alone do not count.
 
-An existing log can be checked with:
+## Performance
 
-```sh
-uv run tools/analyze_render_log.py /path/to/run.log
-```
+Every figure is the 60-second four-district Flycast tour (`make qa-benchmark`,
+game audio on, Flycast null audio backend). Real Dreamcast hardware has not
+been measured. [PERFORMANCE.md](PERFORMANCE.md) has the per-step SH4ZAM,
+submission, visibility and hero-car tables.
 
-The parser requires aggregate telemetry and at least 30 measured seconds;
-older logs containing only FPS samples cannot establish a whole-run average.
-`make qa-tools` runs regression checks for the log parser, mesh audit and
-PowerVR texture/mipmap packing.
+| Date | Change | FPS avg | Peak tris | Textures + HUD / free VRAM |
+| --- | --- | ---: | ---: | --- |
+| 2026-09-23 | Before the graphics upgrade | 27.20 | | |
+| 2026-09-23 | Graphics upgrade | 32.00 | | 3,965,248 / 1,144,648 bytes |
+| 2026-09-23 | SH4ZAM, store-queue submission, referenced-vertex shading, visibility fix | 47.97 | 6,841 | unchanged |
+| 2026-09-24 | Articulated pedestrians (256x256 mipmapped atlas, up to ~480 tris per close figure) | 46.54 | 7,014 | |
+| 2026-09-24 | Lofted traffic (second 256x256 atlas), per-lot street walls, car cabin | 37.13 | 7,312 | |
+| 2026-09-25 | Static block cache, textured street furniture, baked vertex lighting | 35.63 | 7,984 | 4,489,600 / 620,200 bytes |
+| 2026-09-26 | Hero car rebuilt (3,811 to 2,296 vertices) | 37.91 | 7,497 | unchanged |
 
-Texture bytes are an inventory rather than a fixed 4 MiB allowance: the
-Dreamcast's 8 MiB VRAM also holds framebuffers, vertex buffers and tile bins.
-The benchmark reports successful resident allocations and remaining VRAM.
+- 30 FPS is an average target, not a floor; sampled intervals dip below it
+- Free VRAM is after the 768 KiB PVR vertex buffer. At the block-cache build the ELF was 14.4 MB, 3.6 MB of it the cache
+- Of the SH4ZAM-era gain, most came from shading only car vertices referenced by front-facing faces (37.6 to 47.9 FPS); the FTRV/FSRRA math itself was worth ~2.5 FPS
+- The hero car gain is entirely the player phase (6.11 to 4.89 ms); city, pedestrian, vehicle and translucent phases did not move
 
-The September 2026 graphics upgrade completed the 60-second four-district
-Flycast tour at **32.00 FPS average** (1,922 frames / 60.062 seconds), compared
-with 27.20 FPS before the upgrade under the same host configuration. This is
-an average target, not a locked minimum: individual sampled intervals can
-fall below 30 FPS. Textures and HUD occupy 3,965,248 bytes (3.78 MiB), with
-1,144,648 bytes (1.09 MiB) free after PVR allocations and a 768 KiB vertex
-buffer. The benchmark kept game audio synthesis enabled and used Flycast's
-null host-audio backend. Real Dreamcast hardware remains to be measured.
+## Lessons learned
 
-The articulated pedestrians add a 256x256 mipmapped atlas (170 KiB) and up to
-about 480 triangles per close figure. With them, the same tour averaged
-**46.54 FPS** (2,794 frames / 60.034 seconds) with a peak of 7,014 triangles
-per frame.
+- KOS `snd_sfx_play()` hands out channels round-robin and skips only reserved ones, so a loop on an unreserved channel gets replaced by a later one-shot, which the loop's UPDATE commands then retune. The engine and tire loops reserve adjacent pairs with `snd_sfx_chn_alloc()`; every build reads the channels back every 60 frames and prints a `BUG` line if one was taken
+- The texture arrays are pre-twiddled. Upload them with `pvr_txr_load`; `pvr_txr_load_ex` would twiddle them a second time
+- `-fno-math-errno -ffinite-math-only` on the game object only lets GCC inline `fminf`/`fmaxf` (33 to 44 FPS in Flycast). The QA tools build without it so their `isfinite()` checks are real
+- Flycast's JIT does not reward FTRV or FSRRA over scalar math, so emulator numbers say nothing about SH-4 math wins or losses. Measure on hardware before claiming either
+- The tire recording is a 1.3 s one-shot with a swell and a fade. Looping it directly re-plays the swell every cycle, so `make audio` re-sequences its sustained core into a stationary loop and rejects any loop whose slow loudness envelope swings more than 1.15:1
+- The render pass owns XMTRX. Anything that loads another matrix during it must reload the camera rotation before drawing
+- Make does not rebuild when CFLAGS change. `make clean` after switching QA defines or `DEBUG=1`
+- Texture bytes are an inventory, not a budget: the 8 MiB of VRAM also holds framebuffers, the vertex buffer and tile bins. `make qa-benchmark` reports what is left after allocation
 
-The world upgrade that followed (lofted traffic vehicles with a second
-256x256 atlas, per-lot street walls on every block, and the player car's cabin
-behind translucent glass) averaged **37.13 FPS** (2,230 frames / 60.052
-seconds) with a peak of 7,312 triangles per frame.
+## Known limitations
 
-The static geometry cache, textured street furniture and baked vertex
-lighting then took the tour to **35.63 FPS** (2,214 frames / 62.139 seconds,
-peak 7,984 triangles) with considerably more on screen: every block's walls,
-roofs, props, palms and road kit are generated once into a 3x3 sub-cell cache
-(nine full-detail blocks around the car, forty volume-only blocks beyond) and
-replayed with one transform per vertex, culled per sub-cell against the
-frustum, per quad against its outward normal, and by a detail level that
-mirrors the old distance gates. The player car uses one FTRV per vertex with
-lighting in car-local space and refreshes its shading only when the heading
-changes; its wheels are rigs rather than hundreds of immediate primitives.
-Per-frame phase timing is printed by the benchmark build (`benchmark phases`
-and `benchmark city` lines). Flycast's JIT does not reward FTRV over scalar
-math, so real-hardware figures should be better than these. Textures and HUD
-occupy 4,489,600 bytes (4.28 MiB) with 620,200 bytes free after allocation,
-and the ELF is 14.4 MB including the 3.6 MB cache.
-
-Vertex-count telemetry gives a lower bound on stream bytes; polygon headers
-also consume the PVR vertex buffer. The mesh audit checks the renderer's
-4,096-vertex and 4,096-face limits after UV/normal/material splits, welded
-body proportions, noncollapsed texture UVs, atlas bounds, AO values and
-material face ranges. Each material has separate vertices for cached shading.
-
-## SH4 rendering acceleration
-
-The renderer uses [SH4ZAM](https://sh4zam.com/) headers from the ignored,
-unpinned clone at `third_party/sh4zam`, updated to the latest upstream `master`
-before each build, for
-batched camera transforms, positive-depth reciprocals, reflection normalization
-and paired sine/cosine. No extra SDK installation is required; see the
-[integration notes](third_party/SH4ZAM.md). The car's draw
-cache keeps each vertex's frequently used fields together on SH4 cache lines.
-Vertices now go straight to PowerVR through the store queues, and the car shades
-only vertices referenced by front-facing faces. Wheel transforms reuse their
-rotation pairs, and fixed scene colors are folded at their call sites. These
-changes and the visibility corrections give a **47.97 FPS** four-district tour
-in Flycast with the upgraded artwork and unchanged VRAM allocations. See [PERFORMANCE.md](PERFORMANCE.md)
-for the measurements, limits and reproducible checks.
-
-Build the standalone numerical checks with `make math-qa-build`, then boot
-`render-math-qa.elf` in Flycast or on a Dreamcast. It prints maximum errors and
-`Render math QA: PASS` to the serial console. Run `make physics-qa-run` and
-`make qa-benchmark` for the driving regression and full graphics tour.
-
-`make geometry-qa-run` runs the tour with a fixed 30 Hz simulation step and
-prints whole-tour triangle/vertex totals. Compare two captured logs with
-`uv run tools/compare_geometry_logs.py before.log after.log`. This checks
-geometry counts independently of renderer throughput; it does not measure FPS
-or compare pixel colors. For a submission-path comparison, clean and add
-`-DDRIFT_LA_STAGED_SUBMISSION` to the geometry QA CFLAGS. Rebuild without QA
-defines to return to normal play.
+- Performance has only been measured in Flycast; real Dreamcast timing is unverified
+- The 30 FPS target is a whole-run average and individual intervals fall below it
+- `make geometry-qa-run` deliberately omits the benchmark aggregate, so its logs fail `analyze_render_log.py`
 
 ## Credits
 
@@ -403,5 +182,5 @@ The tire recording is [“Distant car tire screetch” by
 Sadiquecat](https://freesound.org/people/Sadiquecat/sounds/737192/) under CC0.
 The soundtrack (“Blue Hour Boulevard”, “Pacific Coast Highway” and “Neon
 Strip”) is original to this project, composed and synthesized in
-`tools/compose_soundtrack.py`.
-Conversion and loop-processing details are in `assets/source/audio/README.md`.
+`tools/compose_soundtrack.py`. Source links, hashes and licenses are in
+`assets/source/audio/README.md`.

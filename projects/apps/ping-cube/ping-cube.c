@@ -945,6 +945,9 @@ static void draw_scene(float angle_x, float angle_y, color_tint_t tint) {
     pvr_scene_finish();
 }
 
+/* Cube tint from the latest ping: green below latency_good_ms(), shading to
+   red by latency_bad_ms(); timeouts and send errors are red; pale blue while
+   no result is in yet for the current link or target. */
 static color_tint_t ping_color(void) {
     color_tint_t tint;
 

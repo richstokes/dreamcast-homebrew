@@ -54,6 +54,8 @@ struct Modem {
             (cfg.valid_fields & FLASHROM_ISP_PHONE1) && cfg.phone1[0];
         if (!saved) saved = flashrom_get_ispcfg(&cfg) == 0 &&
             (cfg.valid_fields & FLASHROM_ISP_PHONE1) && cfg.phone1[0];
+        // No saved PlanetWeb/DreamPassport number: use the KOS DreamPi defaults
+        // (555, login dream / cast below).
         if (!saved) { memset(&cfg, 0, sizeof(cfg)); strcpy(cfg.phone1, "555"); }
         // Honor a saved profile as a whole; don't silently dial a changed number.
         if (cfg.flags & FLASHROM_ISP_PULSE_DIAL) {
@@ -263,6 +265,7 @@ bool fetch(const std::string& url, std::vector<unsigned char>& bytes) {
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 90L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    // A small buffer and 64 KiB/s pacing bound receive bursts.
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 4096L);
     curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE, curl_off_t(65536));
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, curl_off_t(DC_CART_LIMIT));

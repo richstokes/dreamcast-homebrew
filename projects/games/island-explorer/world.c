@@ -1,3 +1,5 @@
+/* Geometry pack loading and collision against the original stage collision
+   meshes: walkable floors, body/wall sliding and camera ray queries. */
 #include "engine.h"
 #include <string.h>
 #include <float.h>

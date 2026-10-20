@@ -1,3 +1,5 @@
+/* Dolphin pods: independent per-pod schedules and curved breach paths, sampled
+   from the shared game clock so they keep moving in postcard view and menus. */
 #include "dolphins.h"
 
 const DolphinPod dolphin_pods[DOLPHIN_PODS]={

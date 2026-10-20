@@ -13,6 +13,7 @@
 bool dc_network_smoke(Host&, Vm&);
 #endif
 
+// INIT_FS_RND provides /dev/urandom, Mbed TLS's entropy source for HTTPS.
 #if defined(DC_SMOKE_TEST) || defined(DC_KERNEL_TEST) || defined(DC_DCLOAD)
 // Builds for hardware runs under dcload-ip leave the network adapter to it:
 // starting KOS networking there can hang during boot.

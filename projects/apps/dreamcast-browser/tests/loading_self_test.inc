@@ -211,7 +211,12 @@ static void run_loading_self_test(void) {
     back_count = forward_count = 0;
 #ifdef BROWSER_LOADING_STRESS
     /* Repeats the heaviest traffic the fixture has: a page whose images
-       include two that are cut off while the server is still sending. */
+       include two that are cut off while the server is still sending.
+       Stock Flycast raises BBA interrupts from its network thread; under
+       this load about one run in four crashed the emulator, double-faulted
+       the guest or stalled, release builds included. The patches in
+       tools/flycast fix that, so rerun on a patched build before blaming
+       the browser. */
     for(int round = 0; round < BROWSER_LOADING_STRESS; ++round) {
         LOADING_CHECK(load_page(BROWSER_LOADING_TEST_BASE "/gallery") == 0,
                       "stress: gallery page");

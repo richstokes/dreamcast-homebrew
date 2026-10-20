@@ -1,100 +1,51 @@
 # Native Flycast on macOS
 
-All project launchers prefer the locally built Flycast at
-`~/.local/share/dreamcast/flycast/Flycast.app`. They fall back to
-`/Applications/Flycast.app`, and an explicit `FLYCAST_BIN` overrides either.
-Apple Silicon runs natively; Rosetta is not needed.
-
-To build and install:
+Project launchers use `~/.local/share/dreamcast/flycast/Flycast.app` when it
+exists, otherwise `/Applications/Flycast.app`. `FLYCAST_BIN` overrides both
+(see `resolve.sh`). The local build runs natively on Apple Silicon.
 
 ```sh
 brew install cmake pkg-config sdl2
 ./tools/flycast/build-macos.sh
-./projects/dcvmu.com/client/run-flycast.sh
 ```
 
-Xcode command-line tools are required. The build uses OpenGL and the host SDL
-library. It leaves the application in `/Applications` alone. Sources and build
-products stay outside this repository; only the patch and builder are tracked.
-The installed app depends on the Homebrew libraries used during the build.
+The build needs the Xcode command-line tools. Sources and build products go
+under `~/Library/Caches` (override with `FLYCAST_BUILD_DIR`); only the patches
+and the builder are tracked here, and `/Applications/Flycast.app` is left
+alone.
 
-## Pinned revision
+## Why not stock Flycast 2.7
 
-The build uses Flycast master at
+The builder pins Flycast master at
 [`628bd3d`](https://github.com/flyinghead/flycast/commit/628bd3dbb160ea2750230fc6b00c0bb8173cb1f6),
-which is newer than v2.7 and includes three fixes these projects rely on:
+newer than v2.7, for three merged fixes:
 
-- [#2492](https://github.com/flyinghead/flycast/pull/2492): opening a game at
-  launch on macOS no longer trips the SH-4 recompiler's `sq_buffer` assertion.
-- [#2500](https://github.com/flyinghead/flycast/pull/2500): that fix no longer
-  crashes with Homebrew's `sdl2`, which is the sdl2-compat shim over SDL3.
+- [#2492](https://github.com/flyinghead/flycast/pull/2492) and
+  [#2500](https://github.com/flyinghead/flycast/pull/2500): opening a game at
+  launch on macOS no longer crashes (SH-4 recompiler `sq_buffer` assertion,
+  then a crash with Homebrew's sdl2-compat)
 - [#2497](https://github.com/flyinghead/flycast/pull/2497): uploads through the
-  TCP proxy (`DCNet=no`) no longer stall and time out. Raising the client
-  timeout or retrying does not help on older builds, including v2.7; rebuild
-  with the command above. Real BBA hardware does not use this proxy.
+  TCP proxy (`DCNet=no`) no longer stall. Longer timeouts and retries do not
+  help on v2.7, so DCVMU uploads need this build. Real BBA hardware is
+  unaffected
 
-Four local patches are applied by the builder:
+It then applies four local patches. Each patch explains itself in code
+comments; the short version:
 
-- `macos-build.patch` turns off precompiled headers for the `flycast` target,
-  which the command-line CMake build cannot share between C++ and Objective-C++.
-- `keyboard-input.patch` preserves short keyboard presses until the Dreamcast
-  reads them. Upstream keeps only the keys currently held, so a press and release
-  arriving between guest polls disappears. The patch queues keys together with
-  their modifiers and consumes one transition per actual Maple keyboard read.
-  This applies to local Dreamcast keyboards; arcade, controller mappings, and
-  GGPO retain their existing input path.
-- `bba-rx-thread.patch` and `pico-eth-thread.patch` move the emulated
-  Broadband Adapter's frame handoffs onto the right threads; see
-  [Network threading](#network-threading) below.
+| Patch | Why |
+| --- | --- |
+| `macos-build.patch` | Precompiled headers off; the command-line CMake build cannot share them between C++ and Objective-C++ |
+| `keyboard-input.patch` | Short host key presses were lost when pressed and released between guest polls. Needed by the keyboard apps (BASIC, IRC, Browser). Local Dreamcast keyboards only; controller mappings, arcade and GGPO are untouched |
+| `bba-rx-thread.patch` | Received BBA frames raised the receive interrupt from a network thread, racing the SH-4 interrupt table. KOS programs panicked with "Unhandled exception ... code 3" or froze after a minute or so of steady traffic (online races) |
+| `pico-eth-thread.patch` | Sent frames were pushed into picoTCP from the emulation thread with no locking, and Flycast itself crashed (`Trace/BPT trap` in `devloop_in` or `pico_socket_udp_deliver`) |
 
-Keyboard queues reset on menu changes, device removal/remapping, savestate loads,
-and guest keyboard resets. Each port holds at most 256 transitions; overflow
-releases guest keys and resynchronizes to the current host state. Very large
-synthetic bursts beyond this limit may be shortened. Held keys still use the
-guest's normal repeat behavior.
+The two threading fixes are proposed upstream in
+[#2569](https://github.com/flyinghead/flycast/pull/2569), still open as of
+October 2026. Drop those patches once the pinned revision includes it.
 
-The focused keyboard regression tests run automatically before each build, or
-independently with a C++17 compiler and Git, without cloning Flycast:
+## Tests
 
-```sh
-./tools/flycast/test-keyboard-input.sh
-```
-
-## Network threading
-
-`bba-rx-thread.patch` hands received network frames to the emulated
-Broadband Adapter on the emulation thread. Upstream, the TCP proxy and DCNet
-threads call into the RTL8139 model directly, so its receive interrupt is
-raised from another thread while the SH-4 rebuilds its interrupt table (KOS
-reprograms the timer's interrupt priority on most thread wakeups). The race
-leaves stray pending interrupts: a networked KOS program panics with
-"Unhandled exception ... code 3" and a random event such as `0640` (DMAC
-channel 0) or `03a0`, or simply freezes, typically after a minute or so of
-steady traffic such as an online race. Frames now wait in a 64-frame queue
-that the SH-4 scheduler drains every 100 us.
-
-`pico-eth-thread.patch` does the same in the other direction for the TCP
-proxy. Frames the guest sends were pushed into picoTCP from the emulation
-thread, but picoTCP is built without `PICO_SUPPORT_MUTEX`, so its device
-queue is unlocked and Flycast itself crashes on the PicoTCP thread
-(`Trace/BPT trap`, in `devloop_in` or `pico_socket_udp_deliver`). The
-frames are now queued and fed to picoTCP from its own thread before each
-stack tick.
-
-Both fixes are proposed upstream in
-[#2569](https://github.com/flyinghead/flycast/pull/2569); drop these patches
-once the pinned revision includes it. Real Dreamcast hardware is unaffected.
-
-## Upload regression test
-
-With KOS, curl/mbedTLS ports, Python 3 and OpenSSL installed, run:
-
-```sh
-python3 projects/dcvmu.com/client/tests/run_upload_stress.py \
-  --host "$(ipconfig getifaddr en0)" --log-dir /tmp/dcvmu-upload-check
-```
-
-`--host` must be this Mac's reachable LAN IPv4 address, and
-`--flycast /path/to/Flycast` selects another build. The test sends 30 synthetic
-uploads to a temporary local HTTPS server; the public service and personal VMUs
-are not touched. Flycast v2.7 and earlier time out on the first upload.
+| Command | Checks |
+| --- | --- |
+| `./tools/flycast/test-keyboard-input.sh` | The queue helper from `keyboard-input.patch`, host-side with any C++17 compiler, no Flycast clone needed. Also runs before every build |
+| `python3 projects/dcvmu.com/client/tests/run_upload_stress.py --host "$(ipconfig getifaddr en0)" --log-dir /tmp/dcvmu-upload-check` | 30 synthetic uploads through the TCP proxy to a temporary local HTTPS server. Needs KOS, the curl/mbedTLS ports, Python 3 and OpenSSL. `--host` is this Mac's LAN IPv4 and `--flycast` picks another build. The public service and real VMUs are not touched. Flycast v2.7 fails on the first upload |

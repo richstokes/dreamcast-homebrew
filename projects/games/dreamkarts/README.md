@@ -4,151 +4,35 @@
   <img src="../../../docs/screenshots/dreamkarts.png" alt="DreamKarts Chao drifting with purple mini-turbo sparks on the beach oval" width="640">
 </p>
 
-A kart racer for the Sega Dreamcast with early-2000s Dreamcast looks and modern
-Mario Kart-style handling. Hop into a drift, hold the powerslide round the
-corner by counter-steering, watch the sparks at the rear tyres turn blue, orange
-and then purple, and let go for a mini-turbo.
+A kart racer for the Sega Dreamcast: early-2000s looks, modern Mario
+Kart-style handling. Hop into a drift, hold the powerslide with
+counter-steer, watch the sparks turn blue, orange and purple, then let go
+for a mini-turbo. You drive a Chao against five CPU rivals, a friend in
+split screen, or up to five other Dreamcasts online.
 
-There are six courses. **Emerald Beach** is an oval with a wooden boardwalk
-straight over a turquoise sea, a natural rock arch, a lighthouse, palm trees,
-beach huts, a grandstand and Sonic-style dash panels. **Coral Crossing** is a
-classic figure 8 on a palm-lined headland: one leg launches you off a ramp,
-high over the other leg where it crosses, after a full-width jump pad that
-makes sure every kart has the speed to clear it. **Palm Harbour** is a
-twisty circuit by the harbour: a fast right-hand sweeper out of turn 1, a long
-left onto the seafront, a tight right-left chicane toward the water, a beach
-straight, then a left hairpin into the infield and a right hairpin back out
-before two lefts onto the main straight. **Temple Hill** is the technical one,
-with 18 m of climb: from the beach straight, two hairpin switchbacks climb a
-jungle hillside to a summit ridge lined with ancient columns below a stepped
-temple, where a hump throws you into the air (higher still off its dash
-panel). Descending esses then drop onto an arched stone viaduct over a sea
-inlet, between lit braziers, and a last left runs down to the line. Carved
-stone heads watch the hairpins. **Neon Skyway** is the long one (1,056 m) and the
-first at night: a neon road hung over a cyberpunk city, above a sea of cloud.
-A banked left leads onto the waves, a rolling straight with no rails at all;
-a banked loop climbs 11 m and flies back over its own approach, then a crest
-throws you into the plunge and a jump across a gap in the road. A banked
-hairpin, a dip through the infield past the towers, a tight hairpin and two
-lefts bring you home. The deck glows under a cyan and magenta grid with
-lights running down its edges, glass rails carry neon tubes round the turns,
-octagonal neon gates frame the line, and towers with lit windows, neon
-crowns and signs rise out of the clouds under a crescent moon, with
-searchlights sweeping the sky. **Cyberstone** (1,058 m) takes Neon
-Skyway's road and city by night on a layout after Silverstone's National
-circuit, run clockwise, with plenty of hill and no jumps: a quick left-right
-chicane halfway down the start straight, then a climb into Copse, a fast
-right, before the road crests and drops 11 m past the Maggotts kink to the
-tight Becketts right at the bottom of the valley. The long National
-straight climbs 17 m back across the city, through a right-left chicane and
-over two gentle rollers, to Brooklands, a left at the summit, and Luffield, the
-longest corner, banked hard as it spirals down to the fast Woodcote right
-and the line. You drive a Chao in a standard kart,
-in the colours you pick, against five CPU Chao, or race a friend in
-**two-player split screen** (Grand Prix with CPUs, or head-to-head Versus).
+Six courses:
+
+- Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels
+- Coral Crossing: a figure 8 whose ramp jumps one leg over the other
+- Palm Harbour: a twisty harbour circuit with a chicane and two hairpins
+- Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct
+- Neon Skyway: 1,056 m of neon road above a cyberpunk city at night, with a banked loop, a gap jump and open edges to fall off
+- Cyberstone: Neon Skyway's city on a layout after Silverstone's National circuit, all hills and no jumps
+
+Highlights:
+
+- Grand Prix (3, 5 or 10 laps at 50/100/150cc), Time Trial and two-player split screen (GP with CPUs or Versus)
+- Online multiplayer over a Broadband Adapter or dial-up modem, with lobbies, points and a spectator TV director
+- CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
+- Rocket starts, charge jumps, burnouts, emotes and final-lap dolphins
+- Four original songs, 32 effects, Chao voices by colour and Jump Pack rumble
+- VMU screens for the countdown, place, lap and results
 
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**
 for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.elf)
 is also available.
-
-## Features
-
-- **Drift handling inspired by Mario Kart World:**
-  - Press the drift button to hop. If you land steering, you start a powerslide; a short grace window lets you pick the direction just after landing.
-  - While sliding, steering into the turn tightens the slide and counter-steering widens it, down to a gentle arc. A new slide starts at the neutral arc and tightens to full lock over about a third of a second, so the stick still held hard over from picking a direction doesn't snap you into the inside wall. You can hold a slide through a whole corner.
-  - The mini-turbo charges faster when you steer in tight and stops charging on sand. Stage 1 (blue) gives a 0.45 s boost, stage 2 (orange) 0.95 s and stage 3 (purple) 1.55 s.
-  - Sparks spray from both rear tyres, with a glow, and a gauge at the bottom of the screen shows the charge.
-  - Hold the drift button without steering to charge a jump (Mario Kart World's charge jump), then release to spring into the air.
-  - A rocket start: press accelerate as the "2" fades and hold it through GO. Press too early and you burn out.
-  - Rev the engine on the grid: hold accelerate during the countdown and it climbs to the rev limiter, then falls back when you let go.
-  - Braking hard at speed lays dark tyre marks that fade over a few seconds, with a wisp of tyre smoke.
-  - Hold accelerate and brake together at a standstill for a burnout: the rear tyres spin on the spot, the kart squats and shakes, the engine revs and a cloud of smoke builds and rolls out to either side. Let go of either button to drive off.
-- **Grand Prix:** a 3-lap race against five CPU Chao (four in two-player). They drive a racing line, drift and use mini-turbos, and have mild rubber-banding against the leading human. Each has its own style: smoother or twitchier steering, a line that weaves a little on the straights, an early or late turn-in, and a habit of now and then taking a bend on grip, so the pack doesn't hop into every corner in single file.
-- **Time Trial:** a solo 3-lap run with lap splits and your best lap.
-- **Two-player split screen:** top/bottom views, one controller each. Play a Grand Prix with four CPUs, or Versus (just the two of you). Each player has their own chase camera, HUD, countdown, rocket start and engine sound; a centre bar shows the race clock and a shared minimap. Either player's Start pauses the game and that player drives the pause menu, which can also switch the music off.
-- **Emotes:** press Y (or both triggers together) and your Chao lets go of the wheel to wave, with a "chao!"; the nearest CPU Chao waves back. Bump into another kart and one of you may cry out (often when a player is in the bump, now and then when two CPUs are). Win a race and your Chao cheers, flapping both arms and bouncing in its seat with a heart overhead, through the results. Online, everyone sees your wave. Far-away karts (and the other player's kart in split screen) use the far model, which shows the arms only while they are raised.
-- **Main menu:** after the title, choose SINGLE PLAYER, TWO PLAYER or ONLINE MULTIPLAYER.
-- **Online multiplayer:** race up to five other Dreamcasts over the internet with a Broadband Adapter or a dial-up modem (for example through a [DreamPi](https://github.com/Kazade/dreampi)). See [Online](#online) below.
-- **Colours:** pick your Chao and kart colour from eight presets (CLASSIC, HAWK, MANGO, CORAL, PEBBLE, MIDNIGHT, HERO, LIME) in the race setup menu. The kart in the menu updates as you choose; in two-player, P2 changes theirs with their own pad's left/right. CPU rivals take the presets nobody picked.
-- **50cc, 100cc and 150cc** engine classes, with top speeds of 19.25, 23.65 and 28.05 m/s (about 69, 85 and 101 km/h) before boosts.
-- **3, 5 or 10 laps:** set the race length in the race setup menu (single player and split screen alike; it stays set until you change it).
-- **Track select:** after race setup, pick a course on a screen that flies over it, with its map and lap length.
-- **Final-lap dolphins:** on the final lap a pair of dolphins surfaces in the sea and races alongside you, making three splashy leaps each. On Emerald Beach they appear as you leave turn 1, beside the boardwalk about 26 m ahead and to the right. On Coral Crossing, whose shore is further off, they leap larger and higher past the shallows as you run up leg B from the crossing toward the west loop. On Palm Harbour they race you along the seafront, through the chicane and down the beach straight, out past the moored boats. On Temple Hill they leap beside the beach straight as you leave the line. Neon Skyway and Cyberstone have no sea, so no dolphins. In two-player each player gets the show, shared if you arrive together. Measured on the console, it costs no noticeable frame time.
-- **Hills (Temple Hill):** the road climbs and falls with smooth slopes, and the ground is shaped around it, so it runs through grassy cuttings on the switchbacks and along embankments down to the viaduct. Over a sharp crest a kart leaves the road whenever the road falls away faster than gravity can pull it down, so the summit hump gives about 2 m of air at speed.
-- **Falling off (Neon Skyway, Cyberstone):** the straights have open edges. Go over one and your Chao yelps as you drop toward the clouds; ten metres down you are dropped back onto the road where you went over, from a few metres up and at a standstill. The banked turns tilt the karts and their shadows with the road, and each kart's underglow picks up the colour of the road beneath it.
-- **Ramp jump (Coral Crossing):** the jump pad's long boost carries you up a 4 m kicker; karts leave the lip at a fixed climb rate under lighter gravity, so every class soars about 7 m over the karts passing underneath and lands on a deck that eases back down to the road. The jump pad's push varies a little each time (about -8% to +10%), so some karts sail further than others, but a minimum take-off speed means every kart always clears the gap. A drift in progress fires its mini-turbo at take-off.
-- **Dash panels** give a boost (on Emerald Beach, one on each straight and one on the exit of turn 1), and any boost lets you cut through sand.
-- **Presentation:**
-  - Title screen with a rotating Sega-style sunburst, a bouncing logo whose letters drop in one by one, sparkles, and the grid in the background.
-  - A slide-in race setup menu.
-  - A sound test on the main menu: play any song (with its time, tempo and a beat-synced equaliser) or any of the effects, and hear the final lap's 6% speed-up.
-  - A fly-in intro, then a 3-2-1-GO countdown.
-  - "FINAL LAP!" with the music sped up 6%, a FINISH! banner with confetti, and a results screen.
-- **Audio:** four original synthesized songs that play back to back and loop: "Coral Speedway" (the title theme: steel drums, marimba, slap bass, electric piano and brass; 128 BPM, 75 s), "Harbour Lights" (city-pop fusion with a synth lead, slap bass, Rhodes, funk guitar and brass, with a last chorus a step up; 137 BPM, 77 s) "Temple Run" (toms and taiko, marimba, kalimba, flute and brass in D minor; 133 BPM, 72 s) and "Neon Sunset" (synthwave: a pumping polysynth pad, pulsing synth bass, arpeggios, gated snares, a synth-lead verse and a saxophone solo; 107 BPM, 72 s). The title screen plays the theme and each race starts on a random other song, then the playlist carries on in order. The songs are mixed and ADPCM-encoded as one continuous loop, so each change of song flows without a gap or click. There are also 32 effects, eight of them Chao voices: "chao!", "chao?", "chu-chu!", "ya-ya!" and a happy giggle, plus a "wah!", a pouty "buu!" and a startled "hya!" for when karts collide. Each colour of Chao has its own voice pitch, and a voice never repeats the same clip twice running. The player's engine is two pitch-shifted loops crossfaded by speed, with tyre squeal, spark crackle and sand rumble loops alongside.
-- **Vibration:** with a Jump Pack in the controller, rumble strips rattle harder and faster the quicker you cross them, sand grinds, and wall hits, kart bumps, hops, landings, mini-turbo stages, boosts, dash panels and rocket starts each give their own jolt. In two-player, each pack follows its own player.
-- **VMU screen:** in the menus every VMU shows the DreamKarts logo taking turns with a Chao driving past palm trees. In a race, the VMU in each player's controller shows the 3-2-1-GO countdown, then their place, lap and a little kart creeping towards the chequered flag, with FINAL LAP flashing as the last lap starts. At the end it shows where you finished, with a trophy for the top three. Time Trial shows the lap, the clock and your best lap instead. Pausing shows PAUSED, and the online menus show your name.
-- **Graphics:** a custom PowerVR renderer using [SH4ZAM](https://sh4zam.com/). Matrix transforms use FTRV, perspective divides use FSRRA, polygons go straight to the store queues, and triangles crossing the near plane are clipped. It also has table fog, chunked frustum culling, distance LODs for palms and karts, an animated sea and shore foam, a sky dome, clouds and a lens flare. Neon Skyway swaps in a starry night dome, a drifting cloud sea, a far skyline ring and a road texture cycled through 16 frames so its lights run along it.
-
-## Online
-
-Pick ONLINE MULTIPLAYER, type a name (up to 10 letters, digits, `-` or `.`)
-on the on-screen keyboard and press Start. The game uses a Broadband or LAN
-adapter if one is plugged in (DHCP), and otherwise dials out with the modem
-using the dial-up settings saved by PlanetWeb or DreamPassport, falling back
-to dialling `555` with login `dream` / `cast` (which a DreamPi accepts).
-Dialling can take up to a minute. Nothing touches the network until you
-choose Online; a Broadband or LAN adapter then starts (link and DHCP, about
-3 to 5 seconds on a real console) while you type your name, and the modem
-dials only once you press Start. In Flycast, `./run-flycast.sh` uses the emulated broadband
-adapter whatever Flycast's saved network settings are; `DK_NET=modem` uses
-the emulated modem through Flycast's local proxy. (Flycast's DCNet dial-up
-service, if switched on in its settings, does not complete the game's PPP
-login.)
-
-The name is saved to the first VMU found (a 3-block `DREAMKARTS` file whose
-icon, a Chao in a kart, bobs in the memory manager) when you press Start, and filled in for you next time. With no
-VMU, a full one or an unreadable file the game just starts from `CHAO`.
-
-- **Lobbies:** ten lobbies of up to six players. The browser shows each
-  one's players, whether it is open or racing, its track and its leader.
-- **Leader:** the first player into a lobby leads it (the next to have joined
-  takes over if they leave). The leader picks the track, 3, 5 or 10 laps and
-  50/100/150cc, and starts the race whenever at least two are in.
-- **Everyone** picks their own colour (no two the same), and sees each
-  player's ping next to their name.
-- **Races** have no CPU karts. Each Dreamcast drives its own kart; the others
-  are drawn from the network about a tenth of a second behind, smoothed
-  between updates. The server starts everyone's countdown together and
-  decides the places. Start during a race offers to leave it.
-- **Points:** 10, 8, 6, 4, 2 and 1 for places one to six, added up for as
-  long as you stay in the lobby. The lobby ranks players by points, with
-  gold, silver and bronze trophies for the top three.
-- After the results everyone is back in the same lobby. B leaves it for the
-  lobby browser.
-- **Spectating:** press Y on any lobby in the browser (full or not) and Y
-  again to confirm, and you watch it instead of racing. Any number can watch
-  a lobby. You follow it in and out of every race, with a TV director
-  cutting between trackside cameras placed round each track (on the outside
-  of every bend, at the end of each long straight, and beside the run to
-  the line for every finish), the chase camera, a helicopter circling
-  behind, a camera on a kart's nose looking back at the pack and a blimp
-  overhead. It mostly follows the leader, often the closest fight for a
-  place. The overlay shows the standings with gaps, a live map, the kart
-  being followed and name tags. X or the triggers pick a camera (AUTO lets
-  the director choose), left/right pick a kart (AUTO, then by place), Y hides
-  the overlay for a clean picture, and Start leaves. Made for streaming.
-- **Demo lobby:** lobby 10 always has six bots racing in it, replaying real
-  races driven by the game's CPUs (each with its own driving style), on a
-  new track after every race. You can watch it but not join it.
-- If the server is running a newer version, the browser says a new version
-  is out; if your version is too old to play, the game says so and asks you
-  to download the latest.
-
-The server is in [server/](server/README.md) (Go, UDP port 7535 at
-`dcvmu.com`); its protocol is in [server/PROTOCOL.md](server/PROTOCOL.md). On
-a 56k modem a race uses about 1 KB/s up and 2.5 KB/s down.
 
 ## Controls
 
@@ -161,99 +45,103 @@ a 56k modem a race uses about 1 KB/s up and 2.5 KB/s down.
 | Y, or both triggers together | D (or F and V together) | Wave |
 | Start | Return | Pause (continue / restart / music on-off / quit) |
 
-Player 2 uses the second controller with the same layout. A Jump Pack in
-either expansion slot of a player's controller vibrates for that player.
-
-To wave, press Y, or squeeze both triggers together (the second within a
-quarter of a second of the first; the triggers then don't drift until you
-let go of both). You can wave on the grid, while racing and after the line.
-
-To drift: hold accelerate, press and hold R as you turn in, and keep holding it
-through the corner. Push the stick toward the inside to tighten the slide and
-away to widen it. Release R when the sparks are orange or purple.
+Player 2 uses the second controller with the same layout; a Jump Pack in
+either slot vibrates for that player. To drift, hold A, press and hold R as
+you turn in, push the stick inward to tighten or outward to widen, and
+release when the sparks are orange or purple.
 
 ## Build and run
-
-From the repository root:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/games/dreamkarts
-file projects/games/dreamkarts/dreamkarts.elf
-sh-elf-readelf -h projects/games/dreamkarts/dreamkarts.elf
+projects/games/dreamkarts/run-flycast.sh      # builds first unless --skip-build
 ```
 
-The link step moves the debug info into `dreamkarts.elf.debug` (point
-`sh-elf-addr2line -e` at it to decode a panic address) and strips it from the
-ELF: with the music the full ELF passed 16 MB, which Flycast will not boot.
+Every build fast-forwards the ignored `third_party/sh4zam` checkout (see the
+repository README); asset generators and QA scripts run through `uv run`.
+Before a hardware build, apply
+[`patches/kos-dhcp-fast-retry.patch`](patches/kos-dhcp-fast-retry.patch) to
+KOS and rebuild it (`make -C $KOS_BASE/kernel`), as the release workflow
+does. Debug info is split into `dreamkarts.elf.debug` for `sh-elf-addr2line`.
 
-Every build clones or fast-forwards an ignored `third_party/sh4zam` checkout
-of upstream SH4ZAM `master` (see the repository README); it is never pinned.
+Launcher environment: `DK_ELF` picks another ELF, `DK_EXIT_ON_LOG` and
+`DK_FAIL_ON_LOG` stop Flycast on a serial line, `DK_NET=modem` swaps the
+emulated broadband adapter for the emulated modem, `DK_SHOW_VMU=1` shows the
+VMU screens over the game.
 
-Apply [`patches/kos-dhcp-fast-retry.patch`](patches/kos-dhcp-fast-retry.patch)
-to the KOS checkout and rebuild it (`make -C $KOS_BASE/kernel`), as the
-release workflow does. Stock KOS waits 4 seconds before resending a DHCP
-request, and the first one, sent as the adapter's link comes up, is often
-lost: on the test console online took 7 to 12 seconds to connect before the
-patch and 4 to 5 after. The patch resends after 1 s, 2 s, 4 s and so on,
-and keeps waiting for the ACK when a second OFFER answers a resent DISCOVER.
+## Online play
 
-Run it in Flycast with the serial console on your terminal:
+Pick ONLINE MULTIPLAYER, type a name (up to 10 of `A-Z 0-9 - .`) and press
+Start. A Broadband or LAN adapter is used if one is plugged in (DHCP);
+otherwise the modem dials with the saved PlanetWeb or DreamPassport settings,
+falling back to `555` with login `dream` / `cast`, which a
+[DreamPi](https://github.com/Kazade/dreampi) accepts. The name is saved to
+the first VMU found.
 
-```sh
-projects/games/dreamkarts/run-flycast.sh
-```
+- Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps and class, and starts once two are in
+- Each console drives its own kart; the server starts the countdown and decides places. Points (10/8/6/4/2/1) add up while you stay in the lobby
+- Y on any lobby spectates it, with a TV director: X or the triggers pick a camera, left/right a kart, Y hides the overlay
+- Lobby 10 is a demo lobby of bots, watch only
+- An old console is told a newer version is out, or refused if too old to play
 
-The launcher builds first unless you pass `--skip-build`. It uses only
-transient `-config` flags and Flycast's own VMU in A1, where the game saves
-the online name.
+The Go server, its test bot, the local test recipe and the checklist for any
+change to online play are in [server/README.md](server/README.md); the wire
+format is in [server/PROTOCOL.md](server/PROTOCOL.md). A race uses about
+1 KB/s up and 2.5 KB/s down on a 56k modem.
+
+## Assets
+
+Everything is generated and the outputs are committed, so a plain build
+needs no Python.
+
+| Target | Regenerates |
+| --- | --- |
+| `make textures` | Procedural textures, the HUD font, logo and countdown lettering (`assets/generated/textures.pak`) |
+| `make models` | The kart and Chao meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
+| `make audio` | Songs and effects, encoded to AICA ADPCM (`sfx.pak`, `music.adpcm`) |
+| `make vmu` | The save file's icon and the VMU screen sprites and fonts |
+| `make assets` | All of the above |
 
 ## Tests and captures
 
-- `make autotest` builds `dreamkarts-autotest.elf`: a CPU drives your kart through a full 150cc Grand Prix. It logs frame rate, per-phase CPU time and how many frames ran two or zero physics steps every 2 seconds, prints a summary (lap times, drifts, mini-turbos by stage, walls hit, results), then exits on `DK AUTOTEST: PASS`. Add `EXTRA_CFLAGS=-DDK_AT_TRACK=1` to race Coral Crossing (it then also fails unless your kart makes every jump and no kart ever needs rescuing from the gap; `DK JUMP` and `DK LAND` lines give every kart's take-off speed and where it touched down, which should stay on the deck that ends 54 m past the gap centre) `-DDK_AT_TRACK=2` for Palm Harbour `-DDK_AT_TRACK=3` for Temple Hill (`-DDK_AIR_TRACE` logs your kart's height above the road whenever it is airborne off a crest) or `-DDK_AT_TRACK=4` for Neon Skyway (`-DDK_AT_FALL` steers your kart off the waves' open edge on the first lap, so the summary counts falls; that run fails on time by design), `-DDK_AT_CC=0` or `-DDK_AT_CC=1` to race 50cc or 100cc instead (the time limit stretches to match), `-DDK_AT_TT` for Time Trial, `-DDK_AT_2P` for a two-player split-screen race (both humans driven by the CPU; combine with `-DDK_AT_TT` for Versus), `-DDK_AI_TRACE` to log the CPU's drift decisions, `-DDK_HOP_TRACE` to log every landing under 0.2 s after leaving the road (drift hops included; on hills a stream of them every few metres means karts are stuttering over the road instead of riding it), `-DDK_VOICE_TRACE` to log each Chao voice line (which clip, whose colour, volume and pitch), or `-DDK_RUMBLE_TRACE` to log every vibration level the game asks for (it logs with or without a Jump Pack attached, so you can check effects without one).
-- **Online:** `EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<server>"` makes the autotest go online instead: it connects, joins lobby 9, starts a race as leader once two are in, lets the CPU drive, and passes once the server's results bring it back to the lobby. `./run-flycast.sh` uses Flycast's emulated broadband adapter (put `DK_NET=modem` in front for its emulated modem), against a local server and a `dk-bot`, or two Flycast windows against each other (see [server/README.md](server/README.md)). The same flags on the capture build screenshot the name entry, lobby browser, lobby room, race and results. Add `-DDK_AT_SPECTATE` to watch lobby 10 (the demo lobby) instead: it presses Y twice on the browser, steps through every camera during the race (a screenshot of each on the capture build) and passes once it has seen a race's results and the next race's countdown.
-- **Network start-up timing:** add `-DDK_NET_TRACE` to an online autotest to print how long each step of bringing the adapter up took (adapter link, DHCP address, DNS, and when the name was entered). Keep it off normal hardware builds: printing under dcload-ip can stall the console.
-- **Spectator cameras:** `make VARIANT=capture dreamkarts-capture.elf EXTRA_CFLAGS=-DDK_AT_CAMTOUR` then `uv run tools/capture.py --out captures/tv --elf dreamkarts-capture.elf` screenshots every trackside spectator camera on every track (`tv-<track>-<camera>.png`) with the karts bunched in the middle of the stretch it films.
-- **Demo races:** `make VARIANT=record dreamkarts-record.elf EXTRA_CFLAGS=-DDK_RECORD` records six all-CPU 150cc races on every track (each CPU given a fresh personality, no rubber-banding) as fast as the CPU can step them, printing every kart 12 times a second; `tools/record_demo.py` turns the log into the server's `server/demo/races/` (see [server/README.md](server/README.md#demo-lobby)).
-- **Trailer footage:** `make VARIANT=film dreamkarts-film.elf EXTRA_CFLAGS=-DDK_FILM_SPECTATE` goes online and watches the demo lobby for as long as it runs, with the TV director on AUTO. `EXTRA_CFLAGS=-DDK_FILM_SHOW` instead plays the title, the race setup (stepping through colours) and the track select (flying over every course), then a set of single-player and split-screen Grand Prix races with the CPU driving every kart, and starts again. Both print `DK FILM` lines for camera cuts, overtakes, jumps, falls, purple boosts, laps and finishes, so a recording script can timestamp the highlights. `OBS_WS_PASSWORD=... uv run tools/film/record.py dreamkarts-film.elf <name>` records one: it sets up its own OBS profile and scene (1080p60, a window capture of Flycast with the title bar cropped and no cursor, Flycast's audio only), launches Flycast through `tools/film/flycast-film.sh` and timestamps the `DK FILM` lines against the recording in `captures/film/runs/`. `tools/film/analyze.py` lists each race's highlights and makes labelled contact sheets, `cards.py` draws titles and captions in the game's lettering, and `edit.py` cuts a JSON edit list into a loudness-normalised 1080p60 MP4 (straight cuts or crossfades). Add `-DDK_FILM_CLEAN` for a build with no HUD or spectator overlay in races, for clean stills; `tools/film/cover.py` turns one into a 1280x720 YouTube thumbnail with the title-screen logo and banners.
-- **VMU screens:** put `DK_SHOW_VMU=1` in front of `./run-flycast.sh` or `uv run tools/capture.py` to show the VMU screens in the corner of Flycast's window, so captures include them.
-- **Saved name:** `EXTRA_CFLAGS="-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0"` opens the name entry, checks the VMU gave back `QA0` (saved by the previous boot's `-DDK_AT_NAME=QA0`), then saves `QA1` the way Start does. Add `-DDK_AT_NAME_CORRUPT` to overwrite the file with junk first and check the game falls back to `CHAO`. These write to Flycast's real A1 card, so delete the `DREAMKARTS` file afterwards if you don't want the test name kept.
-- `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` plays scripted button presses through the title, menu, intro, countdown (with a wave on the grid), GO!, a drift, a boost, the boardwalk, the pause menu (switching the music off and back on) the cheer if your kart wins, and the results. It screenshots the Flycast window at each step without taking over the screen. Add `EXTRA_CFLAGS=-DDK_AT_LAPS=10` (or 5) to have it step the setup menu down to LAPS and pick that many first (`menu-laps.png`; with `-DDK_AT_TT` it switches to Time Trial too, so `results.png` shows the lap list).
+| Command | What it checks |
+| --- | --- |
+| `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue or a missed jump) |
+| `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` |
+| `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh` (ask before touching it): 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
+| `make hw` | Plays the release build on the console and leaves it on (`tools/dc-hw.sh power off` afterwards) |
+| `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
+| `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
 
-- **Repeatable captures:** add `EXTRA_CFLAGS=-DDK_AT_FIXED` to the capture (or autotest) build for one 1/60 s step a frame whatever Flycast's timing, with each screenshot frame held still. Two runs then give the same race and pixel-identical screenshots (apart from the loading screen, which animates from the boot clock), and each shot prints a `DK STATE` fingerprint of the karts and the random generator. Capture two builds this way, one after the other with nothing over the Flycast window, and compare the folders to check a change leaves the picture untouched.
-- **Assembly check:** `EXTRA_CFLAGS="-DDK_AT_FIXED -DDK_XF_CHECK"` on the autotest runs the C each routine in `src/xform.S` replaces beside it, compares every staged vertex, outcode and triangle decision (and the cached sea colours, and the strip-sphere culling), and prints `DK XFCHECK checked=... mismatch=...`; it must stay at 0. When changing what a vertex loop computes, change the C there first, then the assembly to match.
-- **Microbenchmark:** `make -C tools/microbench run` uploads a small program to the console that times each assembly routine in cycles a vertex (or triangle), in the cache and streamed from RAM, in about a minute, which is the quick way to try a change to a loop before a full `make hwbench`.
+`EXTRA_CFLAGS` for the autotest, capture and hwbench builds:
 
-### Real hardware
+| Flag | Effect |
+| --- | --- |
+| `-DDK_AT_TRACK=n` | Track 0-5 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone) |
+| `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
+| `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
+| `-DDK_AT_FIXED` | One 1/60 s step a frame and held screenshot frames: two runs give pixel-identical captures and `DK STATE` fingerprints, for before/after diffs |
+| `-DDK_XF_CHECK` (with `-DDK_AT_FIXED`) | Runs the C beside each `src/xform.S` routine; `DK XFCHECK ... mismatch=` must stay 0 |
+| `-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<ip>` | Goes online: joins lobby 9, races, passes when the results arrive (recipe in server/README.md) |
+| `-DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
+| `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU (and recovery from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
+| `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
+| `-DDK_AT_FALL` | Steers off Neon Skyway's open edge on lap 1 to count falls (fails on time by design) |
+| `-DDK_AI_TRACE`, `-DDK_HOP_TRACE`, `-DDK_AIR_TRACE`, `-DDK_VOICE_TRACE`, `-DDK_RUMBLE_TRACE`, `-DDK_NET_TRACE`, `-DDK_PATH_LOG` | Per-event logs: CPU drift decisions, short hops (a stream of them on hills means karts stuttering over the road), airtime, voice lines, rumble levels, network start-up timing (never on hardware builds), the kart path `dk-bot -path` replays |
 
-`make hwbench` runs the same scripted title, menu and 100cc race on a real
-Dreamcast through `tools/dc-hw.sh`. That script power-cycles the console with
-the Shelly plug and waits for dcload-ip; it finds the plug and the console on
-the network if their DHCP addresses change. The run logs timing every 10
-seconds, because each printf under dcload-ip stalls the console. It saves
-screenshots of the displayed framebuffer to `captures/hw/` through
-dc-tool-ip's `/pc/` share. At three heavy scenes it freezes the race and
-re-renders the same frame with each feature group switched off, printing the
-PVR render time for each (`DK GPU` lines) and the CPU time, world time and kart
-time for each (`DK CPU` lines); the `-ta` configuration sends the vertices to a
-cached scratch line instead of the Tile Accelerator, so the difference from
-`base` is the time the CPU spends waiting on the TA (about 0.1 ms). Each 10 s
-window also prints a `DK PC` line from the SH-4 performance counters: every
-render section's ms a frame (kart matrices, lighting, mesh transform, mesh
-triangles, world chunks, sky, sea, foam, and the update phase's parts), the
-share of it stalled on operand-cache misses (`D`) and on the FPU (`F`), its
-cache misses (`M`), and the frame's work (strip and mesh vertices transformed
-and sent, triangles, back faces, lighting groups, strips sent whole or culled
-on their bounding spheres, headers). It switches the console off when it is
-done. `make hw` plays the release build on the console and leaves it on;
-switch it off afterwards with `tools/dc-hw.sh power off`.
+Other builds: `VARIANT=record` with `-DDK_RECORD` records the server's demo
+races (see [server/README.md](server/README.md#demo-lobby)); `VARIANT=film`
+with `-DDK_FILM_SPECTATE` or `-DDK_FILM_SHOW` plays trailer footage with
+`DK FILM` highlight lines, recorded through OBS and cut by `tools/film/`.
 
-Measured on hardware on 2026-10-19, 150cc, six karts, over a full race,
-before and after the assembly vertex loops and the other CPU savings below.
-CPU is the game's time a frame (the display's frame is 16.68 ms); the worst
-window is the highest 10 s average during the race; dropped vblanks count
-the whole run, and nearly all of those now fall in the menus while the
-benchmark writes its screenshots.
+## Performance
+
+Real console, 2026-10-19, 150cc, six karts, a full race, before and after
+the SH-4 assembly vertex loops and the other savings below. CPU is the
+game's time a frame (the display's frame is 16.68 ms); the worst window is
+the highest 10 s average in the race; dropped vblanks count the whole run
+and now fall almost entirely in the menus while screenshots are written.
 
 | | CPU avg | Worst frame | Worst 10 s window | Dropped vblanks |
 | --- | --- | --- | --- | --- |
@@ -266,85 +154,54 @@ benchmark writes its screenshots.
 | Emerald Beach 2P split | 13.5 → 9.8 ms | 20.8 → 15.5 ms | 15.2 → 10.9 ms | 58 → 5 of ~5,750 |
 | Temple Hill 2P split | 12.9 → 9.5 ms | 22.6 → 16.8 ms | 15.4 → 11.6 ms | 60 → 3 of ~7,000 |
 
-The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so it
-is now as close to the frame's limit as the CPU. On 2026-10-17 the first
-build had dropped 208 vblanks in a 1P race and 1,142 in a 2P race, mostly
-to the hardware's translucency autosort.
+The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so
+the GPU is now as close to the limit as the CPU. Baseline, 2026-10-17: the
+first hardware build dropped 208 vblanks in a 1P race and 1,142 in 2P,
+mostly to the translucency autosort. Flycast averages about 6 ms of CPU in
+the 1P race, so the console is about 1.4x slower for this code; `make
+hwbench` is the measurement that counts.
 
-Add `-DDK_AT_TRACK=1` (Coral Crossing),
-`-DDK_AT_TRACK=2` (Palm Harbour), `-DDK_AT_TRACK=3` (Temple Hill), `-DDK_AT_TRACK=4` (Neon Skyway) or `-DDK_AT_TRACK=5` (Cyberstone) to
-`EXTRA_CFLAGS` to benchmark them, and `-DDK_AT_CC=2` to race 150cc (the menu then starts on that class; it works for capture builds too).
+What each change saved on the console (ms a frame unless stated):
 
-Run the two-player benchmark with
-`make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log`.
-
-What made the difference:
-
-- **Vertex loops in SH-4 assembly** (`src/xform.S`, 2026-10-19). The performance counters showed the CPU, not the Tile Accelerator, was the limit: about 111 cycles for each world strip vertex, 88 for each kart vertex and 111 for each kart triangle. The transform, outcodes, projection and store-queue writes are now hand-written loops (88, 57 and 86 cycles, about 1.5 ms a frame), producing the same words as the C did, bit for bit (`-DDK_XF_CHECK` checks it).
-- **Bounding spheres on world strips.** Each strip of the prebuilt scenery has a sphere; a strip whose sphere is wholly off screen is skipped without transforming a vertex, and one wholly on screen goes to the TA in one pass with no outcodes. Only the strips crossing the screen edge are tested vertex by vertex. 0.6 to 0.9 ms a frame.
-- **Kart lighting once per group.** Kart vertices that share a normal and a paint get the same light, so lighting runs once for each such group (950 of the 1,614 vertices) and each vertex takes its group's colour. 0.7 to 0.8 ms a frame.
-- **Sea colours kept.** The sea's (and the cloud sea's) vertex colours depend only on where the camera-centred grid lies, so they are worked out when the camera moves into another cell instead of every frame. 0.3 to 0.55 ms a frame.
-- **Kart triangles in view.** When every vertex of a kart mesh is inside the screen, its triangles skip the outcode tests and only test for back faces. 0.2 to 0.45 ms a frame.
-
-- **Presorted translucency.** Translucent polygons are submitted back to front instead of using the hardware autosort, which cost about 7 ms a frame.
-- **Particle fill.** Smoke puffs close to the camera are skipped and puff size is capped; the large "GO!" glow is gone.
-- **Hardware split clipping.** Each split view is seven whole 32-pixel tile rows, with the clock and map in the band between, and the PVR's user tile clip trims each view in hardware. Software clipping at a 240-pixel split had broken most ground strips into clipped triangles.
-- **Music speed-up in place.** The final lap's 6% faster music used to restart the stream, which refilled its whole 32 KiB AICA buffer in one frame: 16.5 ms, enough to drop a vblank as the final lap began. The stream's two channels now get a new pitch in place, as the engine loops do, in about 0.06 ms. The benchmark summary prints this cost and the stream's byte rate before and after (`DK AUTOTEST: music speed-up`).
-- **Fast math.** `-ffast-math` lets GCC use the SH-4's FSCA for `sinf`/`cosf`. KOS passes `-mfsca`, but without fast-math every call still went to libm.
-- **Kart work shared between views.** Each kart's part matrices and lighting are computed once per frame and reused by both views, and matrices are composed with the FTRV unit.
-- **Kart detail.** Karts use one of three models by distance, with a margin so they don't flicker between models. In single player: full detail within ~16 m, a 330-triangle model built to match it from the chase camera out to ~42 m, and a ~150-triangle far model beyond. In split screen each view's own kart drops the hidden steering wheel and uses simpler wheels, and every other kart uses the far model.
-- **Split-screen scenery.** Fog and draw distance come in, the outermost terrain is dropped, and fewer palms and clouds are drawn.
-- **One physics step per frame.** The display's period is not 1/60 s (16.68 ms on an NTSC console, about 16.72 ms in Flycast), so a fixed 1/60 s step owed the clock a whole step every 4 to 16 seconds and ran twice in one frame: a one-frame hitch of the camera and world. The step is now the measured vblank period, nudged by up to 1% so game time stays on the clock, and only a frame that missed vblanks takes more than one step. The autotest counts frames with two or more steps and with none (`multi=` and `zero=` on the `DK AT` lines, and the summary): 18 and 2 of 5,269 frames in Flycast before, 0 of 5,231 after. On the console the step settles at 16.68 ms and the only frames with two steps are the ones that dropped a vblank around a screenshot write: 6 of 7,099, none during the race.
-
-Measured and left out, as not worth their code: DMA to the TA (the CPU waits
-on it about 0.1 ms a frame), software-pipelining the assembly loops (under
-0.1 ms), placing the staging buffer to dodge cache conflicts (nothing),
-lighting in assembly (no faster than the C once lighting is per group), and
-the 4x4 matrix product in assembly (about 0.1 ms). Prefetching with `pref`
-made no difference at any distance: streaming the world's vertices from RAM
-costs about 20 cycles a 32-byte line however it is done.
-
-In Flycast the 1P race averages about 6 ms of CPU, so the console is about
-1.4x slower than the emulator for this code.
-
-## Assets
-
-Everything is generated from code, and the generated files are committed so a
-plain build needs no Python:
-
-| Command | Script | Output |
+| Change | Saving | Lesson |
 | --- | --- | --- |
-| `make textures` | `tools/build_textures.py` | Procedural textures, the HUD font, the logo and the countdown lettering, packed as twiddled, mipmapped PVR textures (`tools/pvr_texture.py`) |
-| `make models` | `tools/build_models.py` | The kart and Chao as rigid parts with LODs, rival paint slots and outward winding checks. Preview them with `tools/preview_models_blender.py` (Blender) |
-| `make audio` | `tools/build_audio.py` | Effects and music synthesized with numpy and encoded to AICA ADPCM with KOS `wav2adpcm` |
-| `make vmu` | `tools/build_vmu.py` | The save file's animated icon, and the VMU screen's sprites, 3x5 pixel font and big digits |
+| Translucency presorted, PVR autosort off (`src/render.c`) | ~7 | Autosort peels layers per tile; submit back to front instead |
+| Vertex loops in SH-4 assembly (`src/xform.S`) | ~1.5 | 111 → 88 cycles a world vertex, 88 → 57 a kart vertex, 111 → 86 a kart triangle. The CPU, not the Tile Accelerator, was the limit |
+| Bounding spheres on world strips (`src/render.c`) | 0.6-0.9 | Whole strips culled or sent without outcodes; only edge-crossers tested per vertex |
+| Kart lighting once per normal/paint group (`src/models.c`) | 0.7-0.8 | 950 groups cover 1,614 vertices |
+| Sea and cloud-sea colours cached per camera cell (`src/world.c`) | 0.3-0.55 | |
+| Kart triangles skip outcodes when the mesh is wholly on screen | 0.2-0.45 | |
+| Final-lap music speed-up retuned in place (`src/audio.c`) | 16.5 ms spike → 0.06 ms | Restarting the stream refilled its whole 32 KiB AICA buffer in one frame and dropped a vblank |
+| Physics step = measured vblank period (`src/main.c`) | one-frame hitch every 4-16 s gone | A fixed 1/60 s step owed the 16.68 ms display a double step; 18 double and 2 zero-step frames of 5,269 → 0 |
+| Split views on whole 32-pixel tile rows with the PVR user tile clip | | Software clipping at a 240-pixel split broke most ground strips into triangles |
+| Kart LODs with hysteresis (`src/models.c`); far model for split-screen rivals | ~140 → 10 dropped frames a split race | |
+| `-ffast-math` (`Makefile`) | | Without it `sinf`/`cosf` stay libm calls despite `-mfsca` |
+| Kart matrices and lighting shared by both split views; less split-screen scenery; near smoke puffs skipped and capped; "GO!" glow removed | | Translucent fill is the console's bottleneck |
 
-The HUD, logo and VMU lettering uses the DejaVu Sans Bold Oblique font bundled with
-matplotlib (Bitstream Vera licence). Previews go to `assets/generated/previews/`,
-which Git ignores.
+Measured and not worth the code: TA DMA (the CPU waits on the TA only
+~0.1 ms a frame), software-pipelining the assembly loops (under 0.1 ms),
+`pref` at any distance (streaming vertices from RAM costs ~20 cycles a
+32-byte line regardless), staging-buffer placement (nothing), lighting or
+the 4x4 matrix product in assembly (~0.1 ms).
 
-## Layout
+## Gotchas
 
-| File | Contents |
-| --- | --- |
-| `src/kart.c` | Handling, drifting, boosts, laps and CPU drivers |
-| `src/track.c` | Track centrelines, road heights, the jump, surfaces, walls and dash panels |
-| `src/world.c` | Scenery building and the animated sky and sea |
-| `src/render.c` | PVR lists, SH4ZAM transforms, clipping and submission |
-| `src/xform.S` | The renderer's per-vertex loops in SH-4 assembly: transform, outcodes, projection, store-queue writes and triangle tests |
-| `src/prof.h` | Section timers and SH-4 performance counters for the benchmark builds |
-| `src/models.c` | Lit, animated kart and Chao rendering |
-| `src/fx.c` | Sparks, flames, smoke and confetti |
-| `src/hud.c`, `src/title.c` | Overlays and menus |
-| `src/audio.c` | Music stream and effect voices |
-| `src/rumble.c` | Jump Pack vibration effects |
-| `src/main.c` | Race flow and cameras |
-| `src/online.c` | Online menus, lobby rooms and online races |
-| `src/spectate.c` | Spectating: trackside cameras, the camera director and the overlay |
-| `src/film.c` | Film builds: scripted footage for trailers and its highlight log |
-| `src/save.c` | The online name saved to a VMU, read and written on a worker thread |
-| `src/vmuscreen.c` | The VMU screens: logo, countdown, place, laps and results |
-| `src/net.c`, `src/net_version.h` | Online protocol client and the version numbers the server checks |
-| `src/netlink.c` | Broadband/LAN adapter or dial-up modem link, brought up on a worker thread |
-| `server/` | The Go lobby server, a test bot and the deploy script |
-| `patches/` | KOS patches the game needs (faster DHCP), applied to the SDK and in CI |
+- An ELF over 16 MB will not boot in Flycast; the link strips debug info into `dreamkarts.elf.debug` (`Makefile`)
+- Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `patches/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
+- Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/main.c`, `src/netlink.c`)
+- Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches
+- Looping voices (engine, squeal, crackle) need channels reserved with `snd_sfx_chn_alloc()`, or one-shots steal them and pitch updates retune the wrong sound (`src/audio.c`)
+- Flycast's DCNet dial-up does not complete the game's PPP login; test the modem path with `DK_NET=modem`
+
+## Known limitations
+
+- Online races have no CPU karts
+- A server restart, including every deploy, empties the lobbies and sends everyone back to the lobby browser
+- Dial-up needs a PPP server that accepts the saved ISP settings or `555` with `dream` / `cast`; dialling can take up to a minute
+
+## Credits
+
+Renderer maths uses [SH4ZAM](https://sh4zam.com/). The HUD, logo and VMU
+lettering use the DejaVu Sans Bold Oblique font bundled with matplotlib
+(Bitstream Vera licence). The music and effects are original, synthesized
+by `tools/build_audio.py`.

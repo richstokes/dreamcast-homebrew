@@ -1,3 +1,6 @@
+/* Drawing: the toolbar, page, on-screen keyboard and help, composed in main
+   RAM and presented through double-buffered video RAM. */
+
 #include "browser.h"
 
 #include <dc/biosfont.h>

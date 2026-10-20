@@ -23,7 +23,14 @@
 
    Calling convention: arguments in r4-r7, r0-r7 and fr0-fr11 are
    scratch, r8-r14 and fr12-fr15 are preserved. FPSCR keeps PR = 0 (single
-   precision); SZ is switched to 1 only around the 64-bit copies. */
+   precision); SZ is switched to 1 only around the 64-bit copies.
+
+   Measured on the console (2026-10-19) and not worth their code: software
+   pipelining these loops (under 0.1 ms a frame), pref at any distance (no
+   change: streaming vertices from RAM costs about 20 cycles a 32-byte line
+   however it is done), placing the staging buffer to dodge cache conflicts
+   (nothing), lighting in assembly (no faster than the per-group C) and the
+   4x4 matrix product in assembly (about 0.1 ms). */
 
 #define VTX_FLAGS 0xe0000000    /* PVR_CMD_VERTEX */
 #define EOL_FLAGS 0xf0000000    /* PVR_CMD_VERTEX_EOL */

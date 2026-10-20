@@ -1,3 +1,6 @@
+/* Network: HTTP and HTTPS through curl on one long-lived worker thread, so
+   the frame loop never waits on a transfer, plus the BBA receive worker. */
+
 #include "browser.h"
 
 #include <curl/curl.h>

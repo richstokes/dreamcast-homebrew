@@ -1,3 +1,7 @@
+/* Parsing and layout: turns downloaded HTML into the items render.c draws.
+   Also text decoding, reader view, data tables, form fields, section
+   targets and choosing which image source to download. */
+
 #include "browser.h"
 
 #include <ctype.h>
@@ -1290,6 +1294,7 @@ static void handle_input(browser_document_t *doc, parse_state_t *st, const char 
     attr_lower(tag, "type", type, sizeof(type));
     if(!type[0]) snprintf(type, sizeof(type), "text");
     if(!strcmp(type, "reset") || !strcmp(type, "button")) return;
+    /* File uploads are not supported, so a form containing one is blocked. */
     if(!strcmp(type, "file")) {
         doc->forms[st->current_form].valid = 0;
         return;

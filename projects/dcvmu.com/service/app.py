@@ -21,6 +21,7 @@ from vmu_tools import (ICON_NAME, MAX_IMAGE, UNLOCK, build_icondata, validate_ic
                        icon_header, icon_png, extract_image, is_login, scrub_card,
                        card_free_blocks, swap_words)
 
+# Argon2id; plaintext passwords are never stored.
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 WEB_SESSION_SECONDS = 365 * 86400
 CLIENT_RELEASE_BASE = 'https://github.com/richstokes/dreamcast-homebrew/releases/latest/download'
@@ -121,6 +122,7 @@ def create_app(config=None):
         if 'db' in g:
             g.db.close()
 
+    # Session tokens are random 256-bit values; only their SHA-256 digest is stored.
     def digest(token):
         return hashlib.sha256(token.encode()).hexdigest()
 
@@ -136,6 +138,8 @@ def create_app(config=None):
             abort(429, 'Too many attempts. Please try again later.')
 
     def new_session(user_id=None, kind='web', remembered=False):
+        # Lifetimes: web login one year (renewed daily in headers()), API token 24 hours,
+        # or 90 days when the console asked to be remembered; guest sessions one hour.
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         with database() as db:
@@ -157,6 +161,8 @@ def create_app(config=None):
 
     @app.before_request
     def identify():
+        # HTTPS only, locally too (tests set app.testing). Web forms need a same-origin
+        # request plus the session's CSRF value; API requests send a bearer token instead.
         if not request.is_secure and not app.testing:
             abort(400, 'HTTPS is required.')
         token = request.cookies.get('dcvmu_session', '')
@@ -327,6 +333,10 @@ def create_app(config=None):
         response.delete_cookie('dcvmu_session', secure=True, httponly=True, samesite='Lax')
         return response
 
+    # Console API v1. Responses are UTF-8 plain text so the SH-4 client needs no JSON
+    # parser; errors are 400/401/409/413/429 with a one-line message. Everything except
+    # login takes "Authorization: Bearer <token>". A response can be lost after a
+    # successful write, so clients never replay mutations automatically.
     @app.post('/api/v1/login')
     def api_login():
         token, _ = new_session(credentials(), 'api', request.form.get('remember') == '1')
@@ -400,6 +410,8 @@ def create_app(config=None):
 
     @app.get('/stats')
     def stats():
+        # Unlisted, readable without a login and marked noindex: aggregate counts only,
+        # never save contents. Not access-controlled, so keep it out of site navigation.
         user_sort_options = {
             'username_asc': 'u.username COLLATE NOCASE ASC,u.id ASC',
             'username_desc': 'u.username COLLATE NOCASE DESC,u.id DESC',
@@ -555,6 +567,8 @@ def create_app(config=None):
             rows = extract_image(files[0].read(MAX_IMAGE + 1), files[0].filename or '')
         except ValueError as error:
             abort(400, str(error))
+        # One pending preview per account, expiring after 30 minutes. Only validated
+        # payloads are staged (extract_image); the source card is never kept.
         batch = secrets.token_urlsafe(32)
         with database() as db:
             db.execute('DELETE FROM imports WHERE expires<=? OR user_id=?', (int(time.time()), g.user['id']))
@@ -722,6 +736,8 @@ def create_app(config=None):
             abort(409, 'This archive changed. Reload and review it before deleting.')
         return redirect(url_for('archives'), 303)
 
+    # Multipart: image (exactly 128 KiB), optional name (64) and source (24, e.g. "VMU A1").
+    # Login saves are scrubbed before storage. 201 returns OK, archive id and display name.
     @app.post('/api/v1/archives')
     def api_archive_upload():
         require_user()
@@ -741,6 +757,8 @@ def create_app(config=None):
 
     @app.get('/api/v1/archives')
     def api_archives():
+        # "MORE<TAB>0|1", then up to seven tab-separated, percent-encoded rows:
+        # id, revision, name, created (Unix seconds), files, size, sha256, source.
         require_user()
         try:
             page_num = int(request.args.get('page', '0'))
@@ -861,6 +879,11 @@ def create_app(config=None):
 
     @app.get('/api/v1/saves')
     def api_saves():
+        # scope=mine|public and page. Public takes an exact user and an optional game
+        # substring; mine takes an optional exact filename. include_icons=1 adds
+        # ICONDATA_VMS entries. Response: "MORE<TAB>0|1", then up to seven tab-separated,
+        # percent-encoded rows: id, revision, filename, title, game, username, size,
+        # sha256, header offset in blocks.
         require_user()
         scope = request.args.get('scope', 'mine')
         if scope not in ('mine', 'public'):
@@ -907,6 +930,7 @@ def create_app(config=None):
 
     @app.get('/api/v1/saves/<int:sid>/download')
     def api_download(sid):
+        # Exact stored bytes; 409 when the revision changed since the list was fetched.
         require_user()
         row = visible_save(sid)
         if row['kind'] == 'icon' and request.args.get('include_icons') != '1':
@@ -917,6 +941,8 @@ def create_app(config=None):
 
     @app.get('/api/v1/saves/<int:sid>/icon-header')
     def api_icon_header(sid):
+        # 640-byte preview of a custom icon set in the client's VMS header format;
+        # the download endpoint always returns the original file bytes.
         require_user()
         row = visible_save(sid)
         if row['kind'] != 'icon':
@@ -927,6 +953,12 @@ def create_app(config=None):
 
     @app.post('/api/v1/saves')
     def upload():
+        # Multipart: save (.vms bytes), filename (VMU name), name (title), notes, private,
+        # header_offset, match=filename and mode=ask|replace|keep. ask answers "409 MATCHES"
+        # when a backup with the same VMU filename exists; replace then needs save_id and
+        # revision; keep adds another entry. Requests without match use the legacy name
+        # matching below. 201 returns OK, save id and final title. The hourly upload limit
+        # is shared with archives, the studio and the importer.
         require_user()
         limit('upload:' + str(g.user['id']), 60, 3600)
         name = save_title()

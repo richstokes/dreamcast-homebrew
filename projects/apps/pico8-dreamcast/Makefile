@@ -17,6 +17,8 @@ OBJS = $(patsubst %.cpp,build/%.o,$(CPP_SRC)) $(patsubst %.c,build/%.o,$(LUA_SRC
 OPT ?= -O2
 AUDIO_OBJS = $(addprefix build/$(CORE)/source/,Audio.o synth.o filter.o)
 $(AUDIO_OBJS): OPT = -O3
+# No -ffast-math: PICO-8's fixed-point results and the audio PCM hashes must
+# stay exact.
 CXXFLAGS = -std=gnu++17 $(OPT) -flto -fno-strict-aliasing -fwrapv -ffunction-sections -fdata-sections -MMD -MP
 CPPFLAGS = -I$(CORE)/source -I$(LUA) -I$(CORE)/libs/lodepng -DVER_STR=\"Dreamcast\" -DLOAD_PACK_INS=0
 
@@ -61,6 +63,8 @@ build/romdisk-padded: romdisk.img
 	 head -c $$(( (16384 - size % 16384) % 16384 )) /dev/zero >> romdisk.img
 	@touch $@
 
+# Debug info goes to build/*.elf.debug; the stripped ELF stays under Flycast's
+# 16 MiB ELF-file limit.
 $(TARGET): $(OBJS)
 	kos-c++ $(OPT) -flto -Wl,--gc-sections -o $@ $(OBJS) $(LIBS)
 	kos-objcopy --only-keep-debug $@ build/$@.debug

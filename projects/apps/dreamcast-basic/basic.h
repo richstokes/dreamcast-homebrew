@@ -1,6 +1,10 @@
 /*
  * A Microsoft-style BASIC interpreter: line numbers or labels, the GW-BASIC
  * statement set, and QBasic's structured loops, graphics and sound.
+ *
+ * Written from scratch rather than ported: portable interpreters such as
+ * MY-BASIC deliberately reject the line-numbered, packed-keyword dialect
+ * (FORI=1TO9, ON X GOTO) that period listings depend on.
  */
 #ifndef BASIC_H
 #define BASIC_H

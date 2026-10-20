@@ -31,6 +31,7 @@ for act in range(2):
     collision.hide_render=True;collision.hide_viewport=True
     for m in json.loads((assets/f'coast{act}.json').read_text()):
         mesh=bpy.data.meshes.new(m['name'])
+        # Dreamcast (x,y,z) -> Blender (x,-z,y): SA1 is Y-up, Blender is Z-up.
         mesh.from_pydata([(v[0],-v[2],v[1]) for v in m['vertices']],[],m['triangles']);mesh.update()
         uv=mesh.uv_layers.new(name='Dreamcast UV')
         for loop in mesh.loops:

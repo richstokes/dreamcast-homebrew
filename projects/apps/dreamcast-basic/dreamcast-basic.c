@@ -621,6 +621,8 @@ static void build_icon(vmu_pkg_t *header, uint8_t *icon) {
     header->icon_data = icon;
 }
 
+/* One VMU file per program, NAME.BAS, with the text stored as-is: a typical
+   listing takes a few blocks, Super Star Trek about 42. */
 const char *plat_storage_save(const char *name, const char *text,
                               size_t size) {
     static uint8_t icon[512];

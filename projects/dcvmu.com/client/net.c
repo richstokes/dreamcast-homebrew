@@ -122,6 +122,8 @@ static CURL *request_new(const char *path) {
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+    /* HTTPS only, verifying the certificate and hostname against the bundled
+       CA file. There is no insecure fallback, so the console clock must be right. */
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_CAINFO, "/rd/cacert.pem");
@@ -204,6 +206,8 @@ int service_upload(const char *token, const char *name, const char *filename,
     snprintf(auth, sizeof(auth), "Authorization: Bearer %s", token);
     headers = curl_slist_append(headers, auth);
     headers = curl_slist_append(headers, "Expect:");
+    /* mode: ask (409 MATCHES when this VMU filename is already backed up),
+       replace (needs save_id and revision) or keep. 201 returns OK, id, title. */
     part(mime, "name", name); part(mime, "filename", filename);
     part(mime, "match", "filename");
     if(save_id>0){snprintf(version,sizeof(version),"%d",save_id);part(mime,"save_id",version);}
@@ -278,6 +282,9 @@ static int list_filtered(const char *token,const char *owner,const char *game_fi
         size_t used=strlen(path);snprintf(path+used,sizeof(path)-used,"&filename=%s",file);curl_free(file);
     }
     CURL *curl=request_new(path);if(!curl)return -1;
+    /* Plain-text list: "MORE<TAB>0|1", then up to seven tab-separated,
+       percent-encoded rows (id, revision, filename, title, game, user, size,
+       sha256, header offset). Every field is validated before use. */
     struct curl_slist *headers=authorize(curl,token);
     long status=perform(curl);curl_slist_free_all(headers);
     if(status!=200){curl_easy_reset(curl);return -1;}
@@ -431,6 +438,8 @@ int service_archive_upload(const char *token,const char *name,const char *source
 int service_archive_list(const char *token,int page,remote_archive_t *items,int *count,int *more) {
     *count=0;*more=0;
     char path[64];snprintf(path,sizeof(path),"/api/v1/archives?page=%d",page);
+    /* Same shape as the save list: MORE line, then rows of id, revision, name,
+       created (Unix seconds), files, size, sha256, source. */
     CURL *curl=request_new(path);if(!curl)return -1;
     struct curl_slist *headers=authorize(curl,token);
     long status=perform(curl);curl_slist_free_all(headers);

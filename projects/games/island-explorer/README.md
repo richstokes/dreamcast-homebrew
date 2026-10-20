@@ -1,42 +1,20 @@
 # Island Explorer
 
-A native Dreamcast / KallistiOS coastal exploration game. This first pass brings
-both Sonic sections of Emerald Coast into a new engine, with a walking explorer,
-jumping, swimming, a collision-aware orbit camera, a six-stop travel journal,
-animated ocean, shoreline wash, leaping dolphins, and an original stereo coastal
-soundscape.
+<p align="center">
+  <img src="../../../docs/screenshots/island-explorer.png" alt="Island Explorer on the resort beach at Emerald Coast" width="640">
+</p>
 
-The visual direction is a quiet, bright summer holiday: original low-resolution
-textures, soft distance haze, turquoise water, unobtrusive field-note typography,
-and no time limit or score. The explorer is deliberately a simple animated
-placeholder with a sunhat and backpack.
+A coastal exploration prototype for the Dreamcast, built on KallistiOS. It
+brings both Sonic sections of Emerald Coast into a new engine: walk, jog, jump
+and swim around the beaches, pier, lagoon and cliffs with a collision-aware
+orbit camera, a six-stop travel journal, animated ocean and shoreline wash,
+leaping dolphin pods and an original stereo soundscape. No timer, no score.
 
-Eight small dolphin pods inhabit the two areas: watch from the resort beach,
-ocean pier, crescent beach, far sandbar, blue lagoon, clifftop bay, outer cove,
-and eastern shore. Each pair surfaces roughly every 20–35 seconds, with staggered
-leaps, changing direction and height, flexing tails, spray and expanding splash
-rings. They begin appearing a few seconds after launch; simply wander or wait
-by the water. Their animation follows the ocean clock, including in postcard
-view and while menus are open.
+This is an experimental prototype, not a release. It needs Sonic Adventure
+assets extracted locally from your own disc image, so there is no downloadable
+build and no game data in this repository.
 
-## Play
-
-From the repository root:
-
-```sh
-projects/games/island-explorer/run-flycast.sh
-```
-
-The launcher sources KOS, builds, and opens the ELF in Flycast with serial output.
-Use `--skip-build` to run the existing build. It uses the repository's Flycast
-resolver and does not change persistent emulator or network settings. Networking
-is not used. Launch from a terminal to keep startup and performance diagnostics.
-
-Every build fetches the latest upstream [SH4ZAM](https://sh4zam.com/) `master`
-into an ignored local checkout before compiling. It is not bundled or pinned;
-a failed update stops the build. `make clean` does not need network access.
-See [integration details](third_party/SH4ZAM.md) and
-[measured performance](PERFORMANCE.md).
+## Controls
 
 | Action | Dreamcast controller | Flycast default keyboard mapping |
 | --- | --- | --- |
@@ -53,20 +31,16 @@ See [integration details](third_party/SH4ZAM.md) and
 | Toggle postcard view | X | S |
 | Toggle sound while paused | B | C |
 
-Flycast's Tab key opens its own menu. Its Space key is fast-forward, not jump.
-Custom emulator mappings take precedence. Exit the game with
-Start + A + B + X + Y, or close Flycast. The game continues safely without a
-controller; connect one to resume input.
+Exit with Start + A + B + X + Y, or close Flycast. The game keeps running
+without a controller. Flycast's Tab opens its own menu and its Space is
+fast-forward, not jump. A Maple keyboard also works: WASD walk, E jog, Space
+jump, arrows look, P pause, Tab travel, C postcard, F3 diagnostics.
 
-A real Dreamcast keyboard is also supported if configured as a Maple keyboard:
-WASD walk, E jog, Space jump, arrows look, P pause, Tab travel, C postcard, F3
-diagnostics. This is distinct from a host keyboard emulating a controller.
+## Build and run
 
-## Rebuild the local assets
-
-The asset converter reads the user's GDI and track files without modifying them.
-The tested disc is **Sonic Adventure v1.003 PAL (M5)**. The converter validates
-stage table counts and data pointers; other revisions need their offsets checked.
+Tested disc: Sonic Adventure v1.003 PAL (M5). The extractor checks the stage
+table counts and data pointers and stops on any other layout; other revisions
+need their offsets checked in `tools/extract_stage.py`.
 
 ```sh
 cd projects/games/island-explorer
@@ -74,137 +48,92 @@ uv run tools/extract_stage.py --gdi "/absolute/path/to/Sonic Adventure.gdi"
 uv run tools/build_atmosphere.py
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make
-file island-explorer.elf
-sh-elf-readelf -h island-explorer.elf
+./run-flycast.sh --skip-build
 ```
 
-On this workstation the extractor also discovers the existing PAL GDI in
-`~/Dropbox/Games/ROMs/DREAMCAST/Sonic Adventure (EU) # SDC/` when `--gdi` is omitted.
-After sourcing KOS, `make assets GDI="/absolute/path/to/disc.gdi"` runs both steps.
-Changes to the converter also refresh the stage/texture pack during a normal
-build; pass `GDI="/absolute/path/to/disc.gdi"` to `make` if needed.
-Python dependencies are managed by `uv` script metadata. Font generation uses
-the workstation's Avenir Next, falling back to Arial.
+`run-flycast.sh` without `--skip-build` builds first; run it from a terminal
+to see the serial diagnostics. `make assets GDI=/path/to/disc.gdi` runs both
+extraction steps, and a normal `make` re-runs the extractor whenever the
+converter changes, so pass `GDI=` there too unless the disc is at the default
+`~/Dropbox/Games/ROMs/DREAMCAST/Sonic Adventure (EU) # SDC/`. Python
+dependencies come from `uv` script metadata; the font generator wants Avenir
+Next and falls back to Arial.
 
-Generated files are local and ignored by Git:
+Every build fetches the latest upstream [SH4ZAM](https://sh4zam.com/) `master`
+into the ignored `third_party/sh4zam/` before compiling. A failed fetch stops
+the build; `make clean` needs no network. See
+[third_party/SH4ZAM.md](third_party/SH4ZAM.md).
 
-- `assets/extracted/`: selected disc files, decoded texture previews, editable
-  mesh JSON and a manifest with SHA-256 hashes of the extracted source files.
-- `assets/generated/`: native geometry/texture packs, font, PCM, a WAV preview
-  and audio measurements.
-- `assets/island-explorer.blend`: editable Blender scenes with packed textures.
-- `build/` and `captures/`: diagnostic logs and screenshots.
-- `third_party/sh4zam/`: the fetched upstream library checkout.
+Everything generated (`assets/extracted/`, `assets/generated/`,
+`assets/island-explorer.blend`, `build/`, `captures/`, `third_party/sh4zam/`)
+is ignored by Git.
 
-Sonic Adventure geometry, textures, and original placements remain Sega's work.
-They are extracted locally and are not included in the source patch. This is a
-local development prototype; no game data has been uploaded or published.
+## Blender
 
-## Blender handoff
-
-Open `assets/island-explorer.blend`. There are two named Emerald Coast scenes;
-the original default scene is preserved. Each scene separates visible geometry
-from a hidden collision-only collection. Meshes retain original UVs, texture
-indices and surface/material flags as custom properties. Coordinates convert
-Dreamcast `(x,y,z)` to Blender `(x,-z,y)`.
-
-To regenerate the scene in Blender's Python console:
+`assets/island-explorer.blend` holds an editable scene per area. Regenerate it
+from Blender's Python console:
 
 ```python
 import runpy
 runpy.run_path("/absolute/path/to/island-explorer/tools/import_blender.py")
 ```
 
-Save edited scenes under another filename before regenerating. The importer
-replaces its named scenes. The current engine pipeline builds from extracted
-mesh data; Blender edits are not yet exported back into the runtime.
+The importer replaces its named scenes, so save edits under another filename
+first. Blender edits are not exported back into the runtime yet.
 
-## Engine and conversion
+## Checks
 
-- `main.c`: controller input, movement, gravity, swimming, camera and travel.
-- `world.c`: validated geometry pack access, walkable floors, body/wall sliding
-  and camera ray queries. The original stage collision meshes are retained.
-- `render.c`: PowerVR rendering at 640x480, SH-4 matrix transforms, material
-  batches, near clipping, CPU culling, fog, ocean, foam, explorer and UI.
-- `render_math.h`: SH4ZAM camera transforms, guarded positive reciprocals and
-  paired sine/cosine. Physics retains its scalar arithmetic.
-- `dolphins.c` / `dolphins.h`: independent pod schedules and curved breach paths.
-  The original procedural dolphin mesh and bounded splash effects in `render.c`
-  allocate no texture memory. Wildlife is culled beyond 1,000 units and outside
-  the camera view; it shares the existing triangle budget.
-- `audio.c`: AICA stereo streaming plus footsteps. The original procedural
-  28-second soundscape layers rolling surf, breaking foam and distant gulls.
-- `tools/disc.py`, `ninja.py`, `pvr.py`, `extract_stage.py`: bounded PRS decoding,
-  GDI/ISO reading, Ninja BASIC geometry and native PVR texture conversion.
+| Target | Verifies |
+| --- | --- |
+| `make check-import` | Python unit tests for the disc, PRS, Ninja and PVR readers |
+| `make check-math` | SH4ZAM camera transform, reciprocal and sine/cosine against scalar math on the emulated SH-4 |
+| `make check-runtime` | Collision queries, menus and truncated-asset handling, then a walk-and-jump tour of all six stops (about 72 s) |
+| `make check-dolphins` | Pod schedules in both areas, then an 88 s visual tour of every pod |
+| `make benchmark` | SH4ZAM renderer against the reference renderer at 24 fixed poses |
 
-The two areas contain 122,331 triangles in 6,781 material batches, including
-1,049 decorative/traversable SET placements and the original long ocean pier.
-286 original textures stay in their native mipmapped/VQ formats for Dreamcast
-VRAM efficiency. Both areas are resident, allowing immediate travel. Small
-props are distance-culled; a 12,000-triangle submission limit protects the PVR
-buffer. These are compromises for the retail 16 MB RAM / 8 MB VRAM target.
+Each target runs its diagnostic ELF in its own Flycast process and terminates
+only that one; close other Flycast instances before `make benchmark`.
+`FLYCAST_BIN` selects the emulator. Logs and benchmark JSON land in `build/`.
 
-The `IET2` texture pack restores the four padding bytes omitted by standard
-uncompressed mipmapped PVR files before uploading them. This fixes the dotted
-cloud/foliage pattern caused by incorrect texel addresses. The sky retains its
-original 256×256 image and bilinear filtering; no upscaling or extra texture
-memory is required. Old `IET1` packs are rejected with a rebuild instruction.
+## Performance
 
-Format layouts and stage offsets were checked against
-[X-Hax SA Tools](https://github.com/X-Hax/sa_tools) at commit
-`5d52a39a04e056b8a7e690ce87386750b4b07058`, particularly
-`GameConfig/DC_SA1/STG01.ini`, SAModel's Ninja structures and the Emerald Coast
-level-effects definition. A small portable converter is used here instead of
-requiring the Windows-oriented editor. The Blender scene was created through
-the connected Blender MCP; it does not require the Sonic Adventure IO add-on.
+Flycast measurements, not console numbers. Method and full tables are in
+[PERFORMANCE.md](PERFORMANCE.md).
 
-## Verification
+| Change | Result (24-pose benchmark) | Lesson |
+| --- | --- | --- |
+| SH4ZAM transforms, FSRRA reciprocals, Store Queue vertex copies, shared water corners (2026-09-29) | Render CPU 18.9 -> 17.3 ms, 46.6 -> 49.3 fps | Copying already-projected vertices straight to the TA was the biggest single win; camera math alone gave 2.2% |
+| `-fno-math-errno -ffinite-math-only` on the game objects (see `Makefile`) | Render CPU 17.4 -> 11.4 ms | Without it `clampf`'s fminf/fmaxf stay libm calls. The render-math QA build keeps IEEE semantics so its `isfinite()` checks hold |
 
-```sh
-source "$HOME/.local/share/dreamcast/kos/environ.sh"
-make clean
-make
-make check-import
-make check-math
-make check-runtime
-make check-dolphins
-make benchmark
-```
+## Lessons learned
 
-The diagnostic ELF checks floor/wall/camera queries, menu actions and truncated
-assets on the SH-4, then visits all six locations. Each stop must register a
-jump, an airborne state and meaningful movement. It prints a PASS/FAIL summary
-and exits KOS cleanly after about 72 seconds. This drives the game logic directly;
-it is not a physical controller-input test.
+- Standard layout-2 (uncompressed, mipmapped) PVR files omit four bytes of the
+  hardware mip-chain prefix. Upload one verbatim and every level shifts,
+  giving dotted clouds and foliage. `tools/pvr.py` restores the bytes when it
+  writes the `IET2` pack and `render.c` refuses older `IET1` packs
+- The render pass owns XMTRX from camera load to scene submission; no
+  matrix-mutating SH4ZAM or KOS helper may run inside it (`render_math.h`)
+- FSRRA reciprocals are used only after the near-plane test; triangle clipping
+  and physics keep signed division
+- Submission is capped at 12,000 triangles a frame so the 1280 KB PVR vertex
+  buffer cannot overflow. Small SET props and wildlife are culled beyond
+  1,000 units (`render.c`)
 
-The runtime checks also sample two minutes of dolphin schedules in both areas,
-verify paired appearances and quiet periods, check the correct water height,
-and probe the actual collision geometry along each route. `make check-dolphins`
-runs these checks and an 88-second visual tour with close views of every pod's
-leap, entry/exit and splash effects. Its inspection camera is diagnostic only.
-The eight-pod tour passed with 636 land-clearance probes and no runtime or audio
-errors; the close inspection views ran at approximately 32–60 fps in Flycast.
+## Known limitations
 
-The check runner starts each diagnostic ELF serially, verifies its completion
-marker and clean exit, and terminates only the emulator process it created.
-Close other Flycast instances before running performance checks. Logs and the
-24-pose benchmark comparison are written to ignored `build/` files. Set
-`FLYCAST_BIN` to choose another Flycast executable.
+- Not tested on real Dreamcast hardware
+- Travel between the two areas is a menu jump; nothing streams
+- Enemies, set pieces, springs, objects and mission logic are not imported,
+  nor is Big's alternate layout. No saves, collectibles or objectives
+- The explorer is a placeholder character; some collision edge cases and
+  worst-case frame pacing still need work
 
-Validated on 2026-09-29 with KOS 2.3.0, GCC 15.2.0 and the repository's locally
-built Flycast. The normal ELF is 32-bit, little-endian Renesas SH. The six-stop
-tour passed with no KOS panic, missing resource or audio underrun. The initial
-renderer measured roughly 28–59 fps depending on viewpoint; the repeatable
-SH4ZAM comparison is recorded in [PERFORMANCE.md](PERFORMANCE.md). The procedural audio
-measurement reports no clipped samples and zero sample discontinuity at its
-loop seam. These checks do not replace listening on speakers/headphones.
+## Credits and licenses
 
-## First-pass boundaries
-
-Real Dreamcast hardware has not been tested. Character art, transitions between
-the two areas, some collision edge cases and worst-case frame pacing still need
-refinement. Travel connects the two original areas; there is no seamless world
-streaming yet. This preserves the level as an exploration environment, not its
-original enemies, scripted set pieces, spring routes, objects or mission logic.
-Big's alternate layout is not imported. There are no saves, collectibles or
-objectives in this pass.
+Sonic Adventure geometry, textures and placements are Sega's work. They are
+extracted locally from the user's own disc and are not included in this
+repository or published anywhere. Format layouts and stage offsets were
+cross-checked against [X-Hax SA Tools](https://github.com/X-Hax/sa_tools);
+the small portable converter here stands in for the Windows editor. SH4ZAM is
+MIT licensed: its notice is embedded in the ELF by `assets.S`, and the full
+checkout with its license lives in `third_party/sh4zam/`.

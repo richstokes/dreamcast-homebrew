@@ -1,10 +1,11 @@
 # DCVMU Dreamcast client
 
-A KallistiOS application that uploads and downloads VMU data saves with [dcvmu.com](https://dcvmu.com).
-Register on the website, then log in here with the same username and password.
-Requires a broadband adapter **or a Dreamcast modem with a working DreamPi setup**,
-and a controller or Dreamcast keyboard. Uploading reads the source save without
-changing it. Downloads write to a chosen VMU only after confirmation.
+A KallistiOS app that backs up VMU saves to [dcvmu.com](https://dcvmu.com)
+and installs them again, from the console itself. It needs a Broadband
+Adapter or a Dreamcast modem with a working DreamPi, plus a controller or
+Dreamcast keyboard. Log in with your dcvmu.com account; the
+[getting started guide](https://dcvmu.com/getting-started) covers setup and
+everyday use.
 
 <img src="../service/static/dcvmu-client.png" alt="DCVMU browsing VMU saves with game icons and Power Stone selected" width="456">
 
@@ -14,202 +15,98 @@ Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast
 for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf)
 is also available. Real hardware has not been verified yet.
 
-## Using the client
+## What it does
 
-The title screen features a bobbing VMU companion with a blinking pixel face.
-Press **Start** (or **Enter** on a Dreamcast keyboard) to connect and load the
-app with a short, rising confirmation chime. Holding the button does not repeat
-the sound. A remembered VMU login is restored after the title screen. The short
-greeting waits for the button to be released before continuing.
-
-Menus use quiet clicks for controller and keyboard navigation: a soft tick for
-moving or typing, a higher click for selecting, and a lower click for going back.
-Rapid movement clicks are limited so keyboard repeats stay unobtrusive.
-
-After login, the main menu offers **Upload a save**, **Download a save**,
-**Archive a VMU**, **Restore a VMU**, **Browse Public Saves**, and **Sign out**.
-
-- **Upload**: pick a save from any attached VMU, optionally edit its title,
-  notes, and visibility, then upload. Visibility starts **public**; toggle it to
-  **private** if only your account should see the save. If a backup of the same
-  VMU file already exists, you can replace it or keep both. VMU mini-games are
-  not listed.
-- **Download**: opens **My saves**, including private ones. Selecting a save
-  downloads and verifies it, then asks which VMU to install it on. Existing
-  saves require explicit replacement, and nothing is written before you
-  confirm.
-- **Archive a VMU**: pick a card and every block is copied as one private
-  snapshot, so you do not have to back up each save individually. Give it an
-  optional friendly name; the date is recorded automatically. Your `DCVMU_AUTH`
-  login save is removed from the copy before upload, and free blocks are
-  zeroed. Mini-games and custom icons are included. The card is only read.
-- **Restore a VMU**: choose an archive, then a destination VMU, and confirm.
-  Every block is written, then read back and compared. This replaces
-  everything on that card, so archive it first if you may want it back. If the
-  destination held your remembered login, the login save is written again
-  afterwards. Reinsert the VMU so its menu refreshes.
-- **Browse Public Saves**: enter another user's exact username (find it on
-  dcvmu.com first) and optionally part of a game title, then select
-  **Find saves**. Only that account's public saves appear.
-
-**Custom icons:** choose **Customise my VMU** in your website account to draw or
-import artwork, then find the saved icon set under **Download a save** here.
-Select a VMU and confirm installation of `ICONDATA_VMS`. Replacing an icon set
-asks first and keeps game saves. Restart the Dreamcast/VMU to see the menu icons;
-the optional hidden 3D BIOS animation is included in the file. Custom icon files
-are excluded from the upload list; archive an existing set using the card importer.
-
-**Imported saves:** the website's **Import a memory card** accepts `.bin`, `.vmu`,
-`.dcm` and `.dci`. Selected files appear in **My saves**, ready to install. Their
-bytes and header offsets are preserved; original directory timestamps and
-copy-protection flags are not restored.
-
-Do not remove the VMU or power off while a save is being written.
+- Upload a save from any attached VMU with a title, notes and public/private visibility; an existing backup of the same VMU file can be replaced or kept alongside
+- Download from My saves (private ones included) and install on a chosen VMU, with nothing written before you confirm
+- Archive a whole VMU as one private snapshot, and restore one block for block with read-back verification
+- Browse another user's public saves by exact username
+- Install custom icon sets (`ICONDATA_VMS`) drawn in the website studio
+- Remember the login in a revocable `DCVMU_AUTH` save on a VMU (never the password); sign out before lending that card
 
 ## Controls
 
-- D-pad / keyboard arrows: choose a field or save. Tab advances fields.
-- Left/right on the save list: cycle between all cards and each attached VMU.
-  On cloud lists, left/right changes page.
-- A / Start / Enter: edit, select, or confirm.
-- B / Escape / Backspace: go back, or cancel an active network transfer. From
-  the login screen or main menu, B returns to the title screen.
-- Y / R: rescan VMUs, or refresh a cloud list, including archives.
-- X / N on **My saves**: rename the selected cloud save. Public saves cannot be
-  renamed.
-- X / L at the main menu: sign out.
-- Text editing: type with a keyboard, or use the on-screen keyboard with the
-  D-pad and A (or Start). X erases, Y finishes, B cancels.
+| Input | Action |
+| --- | --- |
+| D-pad / arrows, Tab | Choose a field or save; Tab advances fields |
+| Left / Right | Save list: cycle all cards and each VMU. Cloud lists: change page |
+| A / Start / Enter | Edit, select or confirm |
+| B / Escape / Backspace | Back, or cancel a network transfer. From the login screen or main menu, return to the title |
+| Y / R | Rescan VMUs, or refresh a cloud list |
+| X / N on My saves | Rename the selected cloud save (public saves cannot be renamed) |
+| X / L at the main menu | Sign out |
+| On-screen keyboard | D-pad and A (or Start) type, X erases, Y finishes, B cancels |
 
-On-screen hints show the controller buttons only; the keyboard shortcuts above
-still work. The app has no exit: power off or reset the console when finished.
-A remembered login is kept. A login that could not be saved to a VMU is signed
-out when you return to the title screen.
-
-A canceled or failed request may already have reached the server; check your
-account before retrying.
-
-## Login and security
-
-Every request uses HTTPS with certificate and hostname verification; there is
-no insecure fallback. Keep the Dreamcast clock correct.
-
-Your password is never written anywhere. After login, a revocable token is
-stored in a one-block `DCVMU_AUTH` save on an available VMU so the next launch
-can sign in automatically. Keep the same VMU attached. Remembered sessions
-expire after 90 days, and signing out revokes the token and deletes the save.
-
-Anyone with that VMU login save can access your account until the token expires
-or is revoked, so sign out before lending the card to someone.
-
-## Modem / DreamPi
-
-A Broadband Adapter is always preferred; the modem is used only when no
-Ethernet adapter is found.
-
-Set up and test DreamPi with another application first. DCVMU dials on every
-boot using the phone number and PPP login from the console's saved
-**PlanetWeb** profile, falling back to **DreamPassport**, and then to the
-DreamPi defaults (`555`, `dream` / `cast`). Only tone dialing is supported, and
-dialing prefixes are not used; configure the direct DreamPi number.
-
-Dialing can take up to 65 seconds. Failures show a connection error; restart to
-dial again. A dropped connection is not redialed. Real modem and DreamPi
-hardware validation is still outstanding.
+On-screen hints show controller buttons only. The app has no exit: power off
+or reset when done. A canceled or failed request may already have reached
+the server, so check your account before retrying.
 
 ## Build
 
-Uses the KOS 2.3 toolchain and the kos-ports curl, mbedTLS and zlib. The
-[browser project's README](../../apps/dreamcast-browser/README.md) documents
-the ports compatibility patch.
-
-Apply this project's KOS networking fixes once, then rebuild KOS (CI does this
-automatically):
+Needs KOS 2.3 with the kos-ports `curl`, `mbedtls` and `zlib`; the install
+commands and the ports compatibility patch are in the
+[Dreamcast Browser README](../../apps/dreamcast-browser/README.md#dependencies).
+Apply this project's KOS networking patches once and rebuild KOS (CI does the
+same), then build the ELF:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 for p in patches/kos-*.patch; do git -C "$KOS_BASE" apply "$PWD/$p"; done
 make -C "$KOS_BASE/kernel" -j4
 make -C "$KOS_BASE/addons/libppp" -j4
-```
-
-Then build the ELF from this directory:
-
-```sh
 make
 ```
 
 ## Run in Flycast
 
 ```sh
-./run-flycast.sh
+./run-flycast.sh               # build, then launch with BBA, controllers, VMUs and keyboard
+./run-flycast.sh --skip-build
+./run-flycast.sh --list-vmus   # show Flycast's cards and their saves
+./run-flycast.sh --dry-run     # everything except starting Flycast
 ```
 
-The launcher enables the emulated BBA, attaches controllers, VMUs, and a
-keyboard, and changes no saved Flycast settings. Click the Flycast window to
-focus it, then press Enter at the title screen. Use arrows/Tab to navigate and
-Enter to edit a field before typing. If uploads time out intermittently, install the
-[native Flycast build](../../../tools/flycast/README.md#tcp-upload-fix).
-
-The launcher runs the client on **Flycast's own memory cards**, in the same
-slots Flycast uses, so a save installed by the client appears in games and in
-the Dreamcast BIOS file manager. Per-game VMUs are switched off for the session;
-the cards are the shared `vmu_save_A1.bin`, `vmu_save_A2.bin`, ... images, and
-the DCVMU login is stored on one of them as it is on a real console. Every card
-is backed up to `~/Library/Application Support/DCVMU/backups` before launch.
-
-`./run-flycast.sh --list-vmus` shows the cards and their saves, and `--dry-run`
-does everything except start Flycast.
+`FLYCAST_BIN` and `KOS_ENV` override the Flycast binary and KOS environment.
+The client runs on Flycast's own shared cards (`vmu_save_A1.bin`, ...), so
+installed saves show up in games and the BIOS file manager. Every card is
+backed up to `~/Library/Application Support/DCVMU/backups` before launch.
+Click the window to focus it, then press Enter at the title.
 
 ## Tests
 
-The integration tests run in Flycast against a temporary local HTTPS service
-with synthetic accounts and isolated VMUs. Supply the Mac's LAN IPv4 address,
-and add `--modem` to use Flycast's modem emulation:
+The Flycast runners build in a temporary directory, serve a local HTTPS
+fixture with synthetic accounts, and hand Flycast a folder of blank cards, so
+real VMUs are never touched. `--host` is this Mac's LAN IPv4 address; add
+`--modem` to use Flycast's modem emulation instead of the BBA.
 
-```sh
-python3 projects/dcvmu.com/client/tests/run_modem_checks.py
-projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-public-test
-projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py --tools --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-tools-test
-python3 projects/dcvmu.com/client/tests/run_upload_stress.py --host <Mac-LAN-IP>
-python3 -m unittest discover -s projects/dcvmu.com/client/tests
-```
+| Command | Checks |
+| --- | --- |
+| `python3 -m unittest discover -s projects/dcvmu.com/client/tests` | Host checks (CI runs these): the launcher uses Flycast's cards and backs them up; every script with a custom VMU folder fills it with blank cards first |
+| `python3 projects/dcvmu.com/client/tests/run_modem_checks.py --log-dir /tmp/dcvmu-modem-checks` | Modem profile selection and failure paths on SH-4, without dialing |
+| `python3 projects/dcvmu.com/client/tests/run_upload_stress.py --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-upload-check` | 30 HTTPS uploads (`--transfers` to change) and a large download through Flycast's TCP proxy, every payload verified byte for byte |
+| `projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-public-test` | Public browsing: pagination and failed-page recovery, installing another user's save, replace/keep-both and cloud rename |
+| Same runner with `--tools --log-dir /tmp/dcvmu-tools-test` | Studio icons and card-imported saves: install, cancel, header offsets, icon replacement keeps game saves, upload list excludes icons and login files, whole-VMU archive and restore with the login save rewritten, no login data in stored archives |
+| Manual, normal build | Title idles with the bob and blink; holding Start or Enter plays one chime and the greeting waits for release without selecting anything |
 
-Each runner gives Flycast a temporary VMU folder that already contains a blank
-card for every slot (`tests/isolated_cards.py`). Flycast moves real cards into a
-custom VMU folder that lacks them, so never point it at an empty one.
+Real-hardware icon display and the BIOS animation still need checking on a
+physical Dreamcast and VMU.
 
-The `--tools` test creates icons through the studio and saves through the card
-importer, then checks HTTPS downloads, cancellation, installation, replacement,
-header offsets and preservation of existing saves in Flycast. It also verifies
-that the upload list excludes icons/login files, archives a whole VMU, restores
-it over the login card with the login save rewritten, and confirms that neither
-stored archive contains login data. Add `--modem` for modem testing.
-Real-hardware icon display and the BIOS animation still need verification on a
-physical Dreamcast/VMU.
+## Gotchas
 
-Add `--tools --log-dir /tmp/dcvmu-tools-test` to `run_public_browse.py` to verify
-custom icon downloads and card-imported saves on isolated VMUs.
+- Flycast 2.7 and earlier stall on the first upload through the TCP proxy, and longer timeouts do not help. Use the [patched native build](../../../tools/flycast/README.md)
+- Never point Flycast at an empty `Dreamcast.VMUPath` folder: it moves the real cards in and deletes the originals. `tests/isolated_cards.py` creates a blank card for every slot first
+- Self-test builds (`CPPFLAGS=-DDCVMU_SELF_TEST` and friends) read credentials from git-ignored `romdisk/test-*` files. Remove them and run `make clean && make` before a release (the Makefile's `release-check` refuses otherwise), and never run the fixtures against personal VMUs
+- Uploads use a fresh connection and never retry automatically (`net.c`): the server may already have stored the save
+- On the BBA the client gates the PCI IRQ and polls for received frames instead (`net.c`); re-enabling the IRQ at shutdown brought back Flycast IRQ re-entry
+- Modem shutdown needs `patches/kos-ppp-lifecycle.patch`; stock KOS 2.3 `ppp_shutdown` does not stop its worker
+- Every request is HTTPS with certificate and hostname checks and no fallback, so a wrong Dreamcast clock breaks login
 
-Self-test builds (`CPPFLAGS=-DDCVMU_SELF_TEST` and similar) read disposable
-credentials from git-ignored `romdisk/test-*` files. Never distribute one, and
-never run the test fixtures against personal VMUs; remove those files and run
-`make clean && make` before a release.
+## Known limitations
 
-The existing integration self-tests skip the title screen. To check it manually,
-boot a normal build, leave it idle for five seconds to see the bob and blink,
-then hold Start (or Enter): one chime should play, and the greeting should wait
-until release and open the usual login/menu without immediately selecting
-anything. Press B at the login screen or main menu to return to the title, then
-Start to come back. The title is drawn with untextured PowerVR polygons; its chime
-is synthesized into a small PCM sample played by the AICA. Title graphics and
-chime resources are released before the existing framebuffer UI starts. Menu
-clicks use one 2 KiB sample and one sound channel, released while the title is
-shown. Each UI screen is composed in memory and copied to the framebuffer in
-one pass, so moving the on-screen keyboard cursor should not flicker.
-Check arrows/Tab, Enter, typing/deleting, and Escape in a login field for the
-movement, selection, and back clicks. No external artwork, audio files, or VMU
-writes are needed for either the title or the clicks.
+- Real Dreamcast hardware, a real modem and DreamPi are not verified yet
+- Modem: tone dialing of a plain number only. The number and PPP login come from the saved PlanetWeb profile, then DreamPassport, then the DreamPi defaults (`555`, `dream` / `cast`); a dropped call is not redialed
+- VMU mini-games are not listed for upload; archive the whole card instead
+- Imported saves keep their bytes and header offsets, not the original directory timestamps or copy-protection flags
 
 ## Credits
 

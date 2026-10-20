@@ -7419,6 +7419,8 @@ static int init_graphics(void) {
             vid_set_enabled(1);
             return -1;
         }
+        /* The arrays are already twiddled (tools/pvr_texture.py), so plain
+           pvr_txr_load; pvr_txr_load_ex would twiddle them a second time. */
         pvr_txr_load(asset->pixels,texture_vram[i],asset->byte_size);
         texture_bytes+=asset->byte_size;
     }

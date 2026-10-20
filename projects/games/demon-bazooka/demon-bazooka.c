@@ -3,7 +3,8 @@
  *
  * Everything visible is submitted as untextured colored geometry through the
  * low-level KallistiOS PowerVR API. Even the UI font is a tiny polygon font.
- * Sound effects are synthesized at startup; there are no external assets.
+ * Music, sound effects and the demonic speech are synthesized at startup;
+ * there are no external assets (no textures, models, fonts or audio files).
  */
 
 #include <kos.h>

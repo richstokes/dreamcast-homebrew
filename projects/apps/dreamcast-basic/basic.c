@@ -685,6 +685,8 @@ static void out_text(const char *s) {
     out_chars(s, (int)strlen(s));
 }
 
+/* Microsoft style: whole numbers print plain, others with seven significant
+   digits, and a leading zero is dropped (.5). */
 static int fmt_number(double v, char *out) {
     char *zero;
 
@@ -999,6 +1001,8 @@ static void seed_random(double seed) {
     next_random();
 }
 
+/* INKEY$: arrow and function keys arrive as the PC's two-byte codes, a NUL
+   followed by the scan code, so listings written for GW-BASIC work as-is. */
 static const char *inkey(int *len) {
     static const struct { int key; char code; } extended[] = {
         {K_UP, 72}, {K_DOWN, 80}, {K_LEFT, 75}, {K_RIGHT, 77}, {K_HOME, 71},
@@ -2971,6 +2975,7 @@ static bool statement(void) {
             scr.status_dirty = true;
             break;
         case KW_DEF:
+        /* Accepted and ignored so old listings keep running. */
         case KW_WIDTH:
         case KW_VIEW:
         case KW_POKE:
@@ -3036,6 +3041,8 @@ static void load_program(const char *source) {
     emit(T_END, 0, 0, 0);
     emit(T_END, 0, 0, 0);
 
+    /* Lines run in text order, never sorted by number; sorted_lines only
+       serves jump-target lookup. */
     sorted_lines = xrealloc(NULL, sizeof(int) * (size_t)(nlines + 1));
     any_line_numbers = false;
     for(i = 0; i < nlines; ++i) {

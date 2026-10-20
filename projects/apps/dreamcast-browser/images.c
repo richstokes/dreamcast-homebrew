@@ -1,3 +1,7 @@
+/* Image loading: fetches each <img> through the network worker, decodes it
+   with stb_image inside the page's byte and pixel budgets, and scales it
+   to the page width. */
+
 #include "browser.h"
 
 #include <kos/timer.h>

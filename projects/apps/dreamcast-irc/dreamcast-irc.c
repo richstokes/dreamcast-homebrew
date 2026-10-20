@@ -36,6 +36,7 @@
 #ifndef IRC_SERVER
 #define IRC_SERVER "irc.libera.chat"
 #endif
+/* /server without a port tries the primary port, then the fallback. */
 #ifndef IRC_PRIMARY_PORT
 #define IRC_PRIMARY_PORT "6667"
 #endif
@@ -1186,6 +1187,8 @@ static void handle_irc_line(const char *wire_line) {
                 active_page = page_index;
         }
         join_default_channel_on_connect = false;
+        /* Rejoin every open channel page after each (re)registration, so a
+           redial or reconnect restores the session. */
         for(i = 1; i < irc_page_count; ++i) {
             pages[i].joined = false;
             pages[i].join_pending = true;
