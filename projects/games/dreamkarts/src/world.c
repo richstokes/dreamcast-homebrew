@@ -1659,12 +1659,15 @@ static void th_place_props(void) {
         }
     }
 
-    /* A colonnade along the summit ridge, some columns fallen short. */
+    /* A colonnade along the summit ridge, some columns fallen short. They
+       stand at the ridge's level, not on the hump, which only lifts the
+       road: one raised with it shows its plinth floating over the barrier. */
     float ridge = track_seg_s(8);
+    float ridge_y = track_height(ridge + 6.0f) - 0.2f;
     for(int i = 0; i < 9; i++) {
         float s = ridge + 6.0f + i * 14.0f;
         V3 p = track_point(s, 17.5f);
-        p.y = track_height(s) - 0.2f;
+        p.y = ridge_y;
         bool broken = (i % 3) == 1;
         th_column(p, broken ? 2.0f + (float)(i % 2) * 1.5f : 6.5f, broken);
     }
