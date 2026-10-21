@@ -15,8 +15,9 @@ VMU). The default nickname is `DCIRC_` plus three random digits.
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.cdi)**
-for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.elf)
-is also available.
+for Flycast or GDEMU. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc.elf) is also available.
+If you are burning a physical CD-R, you may want to try the padded
+[CD-R image](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-irc-cdr.zip) instead (unzip before burning).
 
 ## Controls
 

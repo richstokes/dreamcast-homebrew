@@ -17,6 +17,8 @@ while IFS='|' read -r directory slug title; do
 
     elf="$directory/$slug.elf"
     cdi="$output_dir/$slug.cdi"
+    cdr_cdi="$output_dir/$slug-cdr.cdi"
+    cdr_zip="$output_dir/$slug-cdr.zip"
     release_elf="$output_dir/$slug.elf"
 
     if [ ! -f "$elf" ]; then
@@ -24,7 +26,9 @@ while IFS='|' read -r directory slug title; do
         exit 1
     fi
 
-    rm -f "$cdi" "$release_elf"
+    rm -f "$cdi" "$cdr_cdi" "$cdr_zip" "$release_elf"
+
+    # Unpadded: a small image for emulators and GDEMU.
     "$mkdcdisc" \
         --quiet \
         --disable-data-track-padding \
@@ -32,5 +36,20 @@ while IFS='|' read -r directory slug title; do
         --title "$title" \
         --author richstokes \
         --output "$cdi"
+
+    # Padded to a full 74-minute disc for burning. Unpadded, the whole boot
+    # binary sits on the innermost tracks of the CD-R, where a Dreamcast's
+    # CAV drive reads slowest and least reliably; burnt discs of the unpadded
+    # image were reported hanging at the Dreamcast logo. The padding is ~720 MB
+    # of filler that zips back down to roughly the size of the small image.
+    "$mkdcdisc" \
+        --quiet \
+        --main-elf "$elf" \
+        --title "$title" \
+        --author richstokes \
+        --output "$cdr_cdi"
+    (cd "$output_dir" && zip -q -9 "$slug-cdr.zip" "$slug-cdr.cdi")
+    rm -f "$cdr_cdi"
+
     cp "$elf" "$release_elf"
 done < .github/console-projects.txt

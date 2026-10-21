@@ -12,8 +12,9 @@ and everyday use.
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.cdi)**
-for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf)
-is also available. Real hardware has not been verified yet.
+for Flycast or GDEMU. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client.elf) is also available.
+If you are burning a physical CD-R, you may want to try the padded
+[CD-R image](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dcvmu-client-cdr.zip) instead (unzip before burning). Real hardware has not been verified yet.
 
 ## What it does
 

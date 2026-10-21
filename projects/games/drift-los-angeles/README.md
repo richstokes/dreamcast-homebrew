@@ -12,8 +12,9 @@ between the boulevards and bank score chains.
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.cdi)**
-for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.elf)
-is also available.
+for Flycast or GDEMU. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.elf) is also available.
+If you are burning a physical CD-R, you may want to try the padded
+[CD-R image](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles-cdr.zip) instead (unzip before burning).
 
 ## Highlights
 

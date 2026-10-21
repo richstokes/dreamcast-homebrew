@@ -19,8 +19,9 @@ Captured from the Dreamcast build running in Flycast.
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.cdi)**
-for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.elf)
-is also available.
+for Flycast or GDEMU. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast.elf) is also available.
+If you are burning a physical CD-R, you may want to try the padded
+[CD-R image](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/pico8-dreamcast-cdr.zip) instead (unzip before burning).
 
 ## Playing
 

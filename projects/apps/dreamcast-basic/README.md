@@ -18,8 +18,9 @@ adds the QBasic conveniences (optional line numbers, labels, block `IF`,
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic.cdi)**
-for Flycast or CD-R. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic.elf)
-is also available.
+for Flycast or GDEMU. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic.elf) is also available.
+If you are burning a physical CD-R, you may want to try the padded
+[CD-R image](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamcast-basic-cdr.zip) instead (unzip before burning).
 
 ## Using it
 
