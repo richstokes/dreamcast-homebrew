@@ -646,6 +646,11 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         }
         track_locate(k->pos, k->tp.idx, &k->tp);
     }
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+    if(fabsf(k->tp.d) > fmaxf(track_wall_out_at(&k->tp), track_wall_in_at(&k->tp)) + 0.3f)
+        printf("DK ESCAPE kart %d s %.0f d %.1f y %.1f road %.1f below %d\n", (int)(k - karts), (double)k->tp.s, (double)k->tp.d,
+               (double)k->pos.y, (double)track_road_y(k->tp.s, k->tp.d), (int)below);
+#endif
     if(k->bump_t > 0) k->bump_t -= dt;
     update_lap(k, prev_s);
     kart_vertical(k, btn, prev_s, prev_d, dt);

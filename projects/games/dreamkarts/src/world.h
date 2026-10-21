@@ -18,18 +18,24 @@ extern V3 world_sun_dir;
 extern float world_time;
 /* Two-player split: shorter draw distance and lighter far scenery. */
 extern bool world_split;
-/* A night track (Neon Skyway): moonlight, neon and a starry sky. */
+/* A night track (Neon Skyway, Cyberstone): moonlight, neon and a starry sky. */
 extern bool world_night;
+/* Spiral Canyon: a spring valley with rock towers, hoops and a lake. */
+extern bool world_canyon;
 /* Kart light tint per channel, 256 = full (lower and bluer at night); set
    by world_build, baked into the kart paint by models_paint_kart. */
 extern uint16_t world_light[3];
-/* The neon colour across the road at lateral offset d (cyan to magenta). */
+/* The road's light colour across it at lateral offset d (Neon Skyway: cyan
+   to magenta; Spiral Canyon: pink to sky blue). */
 uint32_t world_lane_color(float d);
 /* Terrain height under (x, z), ignoring the road and props (the sky
    track has none: a large negative value). */
 float world_ground_y(float x, float z);
+bool world_leak_point(float s, float d, V3 *out);
+void world_diag_mode(int mode);   /* -DDK_ROCK_TINT builds only */
+float world_rock_mesh_top(float x, float z, int *count, float *lowest);
 /* Neon gates over the road (Neon Skyway): their lap distances. */
-#define WORLD_MAX_GATES 8
+#define WORLD_MAX_GATES 12
 extern int world_gates;
 extern float world_gate_s[WORLD_MAX_GATES];
 

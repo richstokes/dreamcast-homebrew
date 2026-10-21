@@ -25,6 +25,8 @@ int spectate_tv_count(void);
 /* Test builds: put the camera on TV camera i, looking along its stretch;
    returns the lap distance it looks at. */
 float spectate_tv_preview(Camera *cam, int i);
+/* A camera at pos looking at look (QA views). */
+void spectate_set_camera(Camera *cam, V3 pos, V3 look, float fov);
 #ifdef DK_AT_SPECTATE
 bool spectate_saw_grid(void);
 #endif

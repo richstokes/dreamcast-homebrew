@@ -864,6 +864,189 @@ def tex_cloudsea(n=128):
     return to_image(np.repeat((lum * 255)[..., None], 3, axis=2))
 
 
+# ---------------------------------------------------------------------------
+# Spiral Canyon (a spring valley: meadows, blue rock, a cobbled road and
+# trails of orange beads).
+
+ORANGE = np.array([255, 150, 50.0])
+ORANGE_DARK = np.array([205, 90, 20.0])
+GRASS = np.array([118, 192, 100.0])
+
+
+def tex_canyonroad(n=64):
+    """The canyon road's cobbles over 16 m (u) and one ~8 m repeat (v): eight
+    across, six along, sand in the joints; the curbs beside it are the
+    shared curb texture, as on the day tracks."""
+    d = ((np.arange(n) + 0.5) / n - 0.5) * 16.0
+    v = (np.arange(n) + 0.5) / n
+    cob_w, cob_l = 16.0 / 8, 1.0 / 6
+    across = ((d + 8.0) / cob_w) % 1.0
+    along = (v / cob_l) % 1.0
+    across = np.where((np.floor(v / cob_l) % 2)[:, None] == 1, (across[None, :] + 0.5) % 1.0, across[None, :])
+    edge = np.minimum(np.minimum(across, 1 - across) * cob_w, np.minimum(along, 1 - along)[:, None] * cob_l * 8.0)
+    joint = np.clip(1.0 - edge / 0.16, 0, 1)
+    tone = fbm(n, n, 6, 3, 5003)
+    stone = lerp_color((214, 192, 150), (240, 224, 186), tone)
+    stone *= (1.0 - 0.08 * np.abs(d / 8.0))[None, :, None]
+    sand = np.array([176, 150, 110.0])
+    rgb = stone * (1 - joint)[..., None] + sand[None, None, :] * joint[..., None]
+    return to_image(rgb)
+
+
+def tex_meadow(n=128):
+    """An island's top: vivid spring grass with light streaks and a
+    scatter of flowers."""
+    rng = np.random.default_rng(5041)
+    g = fbm(n, n, 6, 4, 5043)
+    streak = np.clip((fbm(n, n, 3, 2, 5045) - 0.5) * 5, 0, 1)
+    rgb = lerp_color((88, 168, 80), (142, 214, 104), g) + streak[..., None] * np.array([50, 44, 18.0])
+    flowers = [(255, 150, 200), (255, 236, 110), (255, 255, 255), (255, 170, 80), (190, 150, 255)]
+    for _ in range(110):
+        x, y = int(rng.integers(1, n - 1)), int(rng.integers(1, n - 1))
+        c = np.array(flowers[int(rng.integers(0, len(flowers)))], dtype=float)
+        rgb[y, x] = c
+        rgb[y, (x + 1) % n] = rgb[y, (x + 1) % n] * 0.4 + c * 0.6
+        rgb[(y + 1) % n, x] = rgb[(y + 1) % n, x] * 0.4 + c * 0.6
+    return to_image(rgb)
+
+
+def tex_islandrock(n=64):
+    """Slate: cool grey-blue rock streaked with white, cracked."""
+    base = fbm(n, n, 5, 4, 5051)
+    streak = np.clip((fbm(n, n, 3, 3, 5053) - 0.52) * 6, 0, 1)
+    cracks = np.clip(1 - np.abs(fbm(n, n, 6, 3, 5055) - 0.5) * 10, 0, 1)
+    rgb = lerp_color((122, 128, 152), (204, 208, 220), base) + streak[..., None] * np.array([44, 44, 32.0])
+    rgb *= (1 - 0.3 * cracks)[..., None]
+    return to_image(rgb)
+
+
+# ---------------------------------------------------------------------------
+# Spiral Canyon's hill-zone touches: checkered loops and outcrops,
+# sunflowers and gold rings.
+
+def tex_checker_rock(c0, c1, seed, n=64):
+    """Checkered rock: four cells across, each with a soft darker edge and a
+    little grain, tileable."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    cell = n // 4
+    which = ((xx // cell) + (yy // cell)) % 2
+    rgb = np.where(which[..., None] == 0, np.array(c0, dtype=float), np.array(c1, dtype=float))
+    ex = np.minimum(xx % cell, cell - 1 - xx % cell)
+    ey = np.minimum(yy % cell, cell - 1 - yy % cell)
+    edge = np.clip(1.0 - np.minimum(ex, ey) / 1.5, 0, 1) * 0.22
+    rgb = rgb * (1 - edge)[..., None]
+    rgb *= (0.94 + 0.12 * fbm(n, n, 8, 2, seed))[..., None]
+    return to_image(rgb)
+
+
+def tex_waterfall(w=64, h=64):
+    """Falling water: white streaks over pale blue, tileable along v so it
+    can scroll, thinner and more see-through between the streaks."""
+    rng = np.random.default_rng(5201)
+    yy, xx = np.mgrid[0:h, 0:w]
+    streak = np.zeros((h, w))
+    for _ in range(14):
+        x0 = rng.integers(0, w)
+        width = 0.6 + rng.random() * 1.4
+        wob = rng.random() * 6.28
+        xs = (x0 + 1.2 * np.sin(yy / h * 2 * math.pi + wob)) % w
+        dx = np.minimum(np.abs(xx - xs), w - np.abs(xx - xs))
+        streak = np.maximum(streak, np.exp(-(dx / width) ** 2) * (0.6 + 0.4 * rng.random()))
+    grain = fbm(w, h, 2, 3, 5203)
+    a = np.clip(0.35 + 0.65 * streak, 0, 1) * (0.8 + 0.2 * grain)
+    rgb = lerp_color((150, 200, 240), (255, 255, 255), np.clip(streak * 1.2, 0, 1))
+    return to_image(rgb, a * 255)
+
+
+def tex_sunflower(n=64):
+    """A sunflower head: a ring of yellow petals round a brown centre."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    x = (xx - (n - 1) / 2) / (n / 2)
+    y = (yy - (n - 1) / 2) / (n / 2)
+    r = np.hypot(x, y)
+    ang = np.arctan2(y, x)
+    petal = 0.62 + 0.3 * np.abs(np.cos(ang * 8))
+    a = (r < petal).astype(float)
+    rgb = np.where((r < 0.36)[..., None], np.array([110, 70, 30.0]), np.array([255, 214, 40.0]))
+    rgb = rgb * (1 - 0.25 * np.clip((r - 0.5) / 0.4, 0, 1))[..., None]
+    seeds = ((xx * 7 + yy * 3) % 5 == 0) & (r < 0.34)
+    rgb[seeds] = (80, 48, 20)
+    return to_image(rgb, a * 255)
+
+
+def tex_totem(n=64):
+    """Totem pole carving, no faces: four 32-pixel cells (one per block,
+    chosen by UV), each natural wood with a carved rim top and bottom and a
+    painted band: red and black chevrons, a teal diamond lattice, stacked
+    stripes, and stepped triangles."""
+    c = n // 2
+    yy, xx = np.mgrid[0:c, 0:c]
+    u = (xx + 0.5) / c
+    v = (yy + 0.5) / c
+    wood = np.array([186, 128, 74.0]) * (0.9 + 0.1 * np.sin(u * 2 * math.pi * 5))[..., None]
+    red, black, teal, cream = (np.array(x, dtype=float) for x in ((196, 52, 36), (36, 28, 24), (40, 150, 150), (238, 220, 180)))
+
+    def rimmed(rgb):
+        rim = (v < 0.12) | (v > 0.88)
+        rgb[rim] = rgb[rim] * 0.62
+        groove = (np.abs(v - 0.12) < 0.03) | (np.abs(v - 0.88) < 0.03)
+        rgb[groove] = black
+        return rgb
+
+    cells = []
+    # Chevrons pointing up, red edged in black.
+    rgb = wood.copy()
+    zig = v - (0.5 - 0.22 * np.abs((u * 2 % 1.0) - 0.5) * 2)
+    rgb[(zig > -0.1) & (zig < 0.1)] = red
+    rgb[((zig > -0.14) & (zig <= -0.1)) | ((zig >= 0.1) & (zig < 0.14))] = black
+    cells.append(rimmed(rgb))
+    # A lattice of teal diamonds outlined black.
+    rgb = wood.copy()
+    dm = np.abs((u * 3 % 1.0) - 0.5) * 1.15 + np.abs(v - 0.5) * 1.3
+    rgb[dm < 0.3] = teal
+    rgb[(dm >= 0.3) & (dm < 0.36)] = black
+    rgb[dm < 0.1] = cream
+    cells.append(rimmed(rgb))
+    # Stacked stripes, red, cream and black, with notches.
+    rgb = wood.copy()
+    for y0, y1, col in ((0.24, 0.36, red), (0.42, 0.5, cream), (0.56, 0.64, black), (0.7, 0.78, red)):
+        rgb[(v >= y0) & (v < y1)] = col
+    notch = (np.abs((u * 4 % 1.0) - 0.5) < 0.08) & (v > 0.42) & (v < 0.5)
+    rgb[notch] = black
+    cells.append(rimmed(rgb))
+    # Stepped triangles (a sawtooth), teal over red.
+    rgb = wood.copy()
+    saw = (u * 3 % 1.0)
+    step = np.floor(saw * 4) / 4
+    rgb[(v > 0.2) & (v < 0.2 + step * 0.32)] = teal
+    rgb[(v > 0.8 - step * 0.32) & (v < 0.8)] = red
+    rgb[(np.abs(v - 0.5) < 0.03)] = black
+    cells.append(rimmed(rgb))
+    out = np.zeros((n, n, 3))
+    for k, cell in enumerate(cells):
+        out[(k // 2) * c:(k // 2 + 1) * c, (k % 2) * c:(k % 2 + 1) * c] = cell
+    out *= (0.95 + 0.08 * fbm(n, n, 8, 2, 7101))[..., None]
+    return to_image(out)
+
+
+def tex_bush(n=64):
+    """A hill-zone bush: rounded clusters of leaves, bright on their tops
+    and deep green between, tileable."""
+    rng = np.random.default_rng(7301)
+    yy, xx = np.mgrid[0:n, 0:n]
+    light = np.zeros((n, n))
+    for _ in range(46):
+        cx, cy, r = rng.random() * n, rng.random() * n, 4 + rng.random() * 5
+        dx = (xx - cx + n / 2) % n - n / 2
+        dy = (yy - cy + n / 2) % n - n / 2
+        d = np.hypot(dx, dy) / r
+        blob = np.clip(1 - d, 0, 1)
+        light = np.maximum(light, blob * (0.6 + 0.4 * np.clip(-dy / r, 0, 1)))
+    rgb = lerp_color((34, 112, 40), (120, 214, 80), light)
+    rgb *= (0.92 + 0.12 * fbm(n, n, 8, 2, 7303))[..., None]
+    return to_image(rgb)
+
+
 def build(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     previews = out / "previews"
@@ -908,6 +1091,14 @@ def build(out: Path) -> None:
         (Spec("cloudsea", "RGB565", True, True), tex_cloudsea()),
         (Spec("tower", "RGB565", True, True), tex_tower()),
         (Spec("signs", "RGB565", True, False), tex_signs()),
+        (Spec("canyonroad", "RGB565", True, True), tex_canyonroad()),
+        (Spec("meadow", "RGB565", True, True), tex_meadow()),
+        (Spec("islandrock", "RGB565", True, True), tex_islandrock()),
+        (Spec("ehchecker", "RGB565", True, True), tex_checker_rock((112, 62, 54), (206, 146, 92), 5113)),
+        (Spec("sunflower", "ARGB4444", True, False), tex_sunflower()),
+        (Spec("totem", "RGB565", False, False), tex_totem()),
+        (Spec("bush", "RGB565", True, True), tex_bush()),
+        (Spec("waterfall", "ARGB4444", True, True), tex_waterfall()),
     ]
     pak = bytearray()
     table = []

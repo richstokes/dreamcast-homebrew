@@ -61,6 +61,14 @@ enum {
     TEX_CLOUDSEA,
     TEX_TOWER,
     TEX_SIGNS,
+    TEX_CANYONROAD,
+    TEX_MEADOW,
+    TEX_ISLANDROCK,
+    TEX_EHCHECKER,
+    TEX_SUNFLOWER,
+    TEX_TOTEM,
+    TEX_BUSH,
+    TEX_WATERFALL,
     TEX_COUNT
 };
 
@@ -117,8 +125,16 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {2141696u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* cloudsea */
     {2185408u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* tower */
     {2196352u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* signs */
+    {2240064u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* canyonroad */
+    {2251008u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* meadow */
+    {2294720u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* islandrock */
+    {2305664u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* ehchecker */
+    {2316608u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* sunflower */
+    {2327552u, 8192u, 64, 64, DK_TEXFMT_RGB565, 0, {0, 0}},  /* totem */
+    {2335744u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* bush */
+    {2346688u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* waterfall */
 };
 
-#define DK_TEXTURES_BYTES 2240064u
+#define DK_TEXTURES_BYTES 2357632u
 
 #endif

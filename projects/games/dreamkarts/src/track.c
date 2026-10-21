@@ -38,18 +38,27 @@
    at the bottom of the valley. The National straight then climbs 17 m back
    across the infield, through a right-left chicane, to Brooklands, a left
    at the summit, and Luffield, the long banked right that spirals down to
-   the fast Woodcote right onto the line. */
+   the fast Woodcote right onto the line.
+
+   Spiral Canyon: a cobbled road through a spring valley, run
+   anticlockwise. The start straight runs east into a banked left, then a
+   right-hand corkscrew climbs 20 m round a crystal spire, a turn and a
+   quarter, onto the summit, where a hump throws karts through a hoop; a
+   left-hand corkscrew winds back down round a second spire, a left leads
+   onto the long way home west, through a right-left chicane, and two
+   lefts bring it back to the line. */
 #include "track.h"
 #include <stddef.h>
 
 Track track;
 
 const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL",
-                                              "NEON SKYWAY", "CYBERSTONE"};
+                                              "NEON SKYWAY", "CYBERSTONE", "SPIRAL CANYON"};
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
                                                       "A NIGHT RIDE ABOVE THE CITY",
-                                                      "HILLS, CHICANES AND A HELIX"};
+                                                      "HILLS, CHICANES AND A HELIX",
+                                                      "SPIRALS UP TWO ROCK TOWERS"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -61,7 +70,7 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
 
 static float f8_c, f8_l, f8_arc, f8_u0;   /* loop centre x, half leg, arc, start offset */
 
-/* Palm Harbour, Temple Hill, Neon Skyway and Cyberstone are laid out from straights
+/* Palm Harbour, Temple Hill, Neon Skyway, Cyberstone and Spiral Canyon are laid out from straights
    (radius 0) and arcs (degrees, + = right) end to end from an origin. Two
    straights are solved at init so the lap closes. An arc may be banked:
    its outside rises bank metres per metre from the centreline. */
@@ -159,11 +168,31 @@ static Seg cs_seg[] = {
     {60.0f, 35, 0, 0.06f},    /* 19 Woodcote onto the start straight */
 };
 
+static Seg dr_seg[] = {
+    {0, 0, 80.0f, 0},         /*  0 start straight, east */
+    {34.0f, -90, 0, 0.16f},   /*  1 banked left, now north */
+    {0, 0, 16.0f, 0},
+    {24.0f, 450, 0, 0.16f},   /*  3 the corkscrew up: a turn and a quarter, now east */
+    {0, 0, 50.0f, 0},         /*  4 the summit, over the hump */
+    {22.0f, -450, 0, 0.16f},  /*  5 the corkscrew down, now north */
+    {0, 0, 16.0f, 0},
+    {30.0f, -90, 0, 0.12f},   /*  7 left, now west */
+    {0, 0, 80.3f, 0},         /*  8 the long way home (solved) */
+    {16.0f, 60, 0, 0},        /*  9 chicane: right */
+    {0, 0, 6.0f, 0},
+    {16.0f, -60, 0, 0},       /* 11 and left, west again */
+    {0, 0, 75.0f, 0},
+    {30.0f, -90, 0, 0.12f},   /* 13 left, now south */
+    {0, 0, 97.2f, 0},         /* 14 (solved) */
+    {36.0f, -90, 0, 0.16f},   /* 15 left onto the start straight */
+};
+
 #define NSEGS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static Layout hb = {hb_seg, NSEGS(hb_seg), DK_PI * 0.5f, {-69.4f, 0, -98.8f}, 38.0f, 0, 16, {0}, {0}, {{0}}};
 static Layout th = {th_seg, NSEGS(th_seg), -DK_PI * 0.5f, {79.0f, 0, 60.0f}, 40.0f, 0, 13, {0}, {0}, {{0}}};
 static Layout sk = {sk_seg, NSEGS(sk_seg), DK_PI * 0.5f, {-72.0f, 0, -100.0f}, 40.0f, 0, 2, {0}, {0}, {{0}}};
 static Layout cs = {cs_seg, NSEGS(cs_seg), DK_PI * 0.5f, {-106.0f, 0, 110.0f}, 40.0f, 0, 10, {0}, {0}, {{0}}};
+static Layout dr = {dr_seg, NSEGS(dr_seg), DK_PI * 0.5f, {-60.0f, 0, -90.0f}, 40.0f, 8, 14, {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -304,7 +333,7 @@ float track_seg_s(int i) {
 
 static V3 centreline(float s, V3 *tangent) {
     if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY ||
-       track.id == TRACK_CYBERSTONE)
+       track.id == TRACK_CYBERSTONE || track.id == TRACK_CANYON)
         return lay_centreline(lay, s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
@@ -679,6 +708,69 @@ static void init_cyberstone(float *turnk) {
     sky_rails_and_banking(&cs, open_u, NSEGS(open_u));
 }
 
+/* Spiral Canyon's road height: each corkscrew climbs or drops DR_TOP at a
+   steady grade, eased in and out over DR_EASE metres (a trapezoid of
+   slope, so the helix never steepens in the middle the way a smoothstep
+   would), plus the hump on the summit. */
+#define DR_TOP    20.0f
+#define DR_EASE   30.0f
+#define DR_HUMP_LEN 18.0f
+#define DR_HUMP_H 1.6f
+static float dr_up0, dr_up1, dr_dn0, dr_dn1, dr_hump_u;
+
+/* 0 to 1 over [0, len]: slope ramps up over e, holds, ramps down over e. */
+static float dr_ramp(float x, float len, float e) {
+    if(x <= 0) return 0.0f;
+    if(x >= len) return 1.0f;
+    float sm = 1.0f / (len - e);
+    if(x < e) return sm * x * x / (2.0f * e);
+    if(x > len - e) return 1.0f - sm * (len - x) * (len - x) / (2.0f * e);
+    return sm * (x - e * 0.5f);
+}
+
+static float dr_height(float s) {
+    float u = lay_u(&dr, s);
+    float h = DR_TOP * dr_ramp(u - dr_up0, dr_up1 - dr_up0, DR_EASE) -
+              DR_TOP * dr_ramp(u - dr_dn0, dr_dn1 - dr_dn0, DR_EASE);
+    float x = (u - dr_hump_u) / DR_HUMP_LEN;
+    if(x > -0.5f && x < 0.5f) h += DR_HUMP_H * 0.5f * (1.0f + cosf(x * DK_TAU));
+    return h;
+}
+
+static void init_canyon(float *turnk) {
+    init_layout(&dr, turnk);
+    track.in_sky = true;
+    const float *u0 = dr.s0;
+    /* The climb runs from just before the first corkscrew to just onto the
+       summit; the drop from just before the second to just after it. */
+    dr_up0 = u0[3] - 10.0f;
+    dr_up1 = u0[4] + 6.0f;
+    dr_dn0 = u0[5] - 6.0f;
+    dr_dn1 = u0[6] + 10.0f;
+    dr_hump_u = u0[4] + 28.0f;
+
+    /* Dash panels: the start straight, the run at the summit hump (a boost
+       there means bigger air) and the long way home before the chicane. */
+    float summit = track_seg_s(4), home = track_seg_s(8);
+    track.npads = 3;
+    track.pads[0] = (DashPad){40.0f, 45.0f, 2.2f, 5.8f, 1.1f};
+    track.pads[1] = (DashPad){summit + 6.0f, summit + 11.0f, -1.8f, 1.8f, 1.1f};
+    track.pads[2] = (DashPad){home + 14.0f, home + 19.0f, -5.8f, -2.2f, 1.1f};
+
+    /* Power-ups: past the start straight's dash panel, halfway up the
+       first corkscrew, on the long way home before the chicane, and down
+       the last straight. */
+    track.nbands = 4;
+    track.bands[0] = (ItemBand){60.0f};
+    track.bands[1] = (ItemBand){track_seg_s(3) + 94.0f};
+    track.bands[2] = (ItemBand){home + 46.0f};
+    track.bands[3] = (ItemBand){track_seg_s(14) + 40.0f};
+
+    /* Railed all the way round (the string of beads is the trail): the
+       valley floor is scenery, not somewhere to drive. */
+    sky_rails_and_banking(&dr, NULL, 0);
+}
+
 void track_init(int id) {
     memset(&track, 0, sizeof(track));
     track.id = id = (id % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
@@ -690,6 +782,7 @@ void track_init(int id) {
     else if(id == TRACK_TEMPLE) init_temple(turnk);
     else if(id == TRACK_SKYWAY) init_skyway(turnk);
     else if(id == TRACK_CYBERSTONE) init_cyberstone(turnk);
+    else if(id == TRACK_CANYON) init_canyon(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and
@@ -745,6 +838,7 @@ bool track_in_gap(float s) {
 float track_height(float s) {
     if(track.id == TRACK_TEMPLE) return th_height(s);
     if(track.id == TRACK_CYBERSTONE) return cs_height(s);
+    if(track.id == TRACK_CANYON) return dr_height(s);
     float base = track.id == TRACK_SKYWAY ? sk_height(s) : 0.0f;
     if(!track.has_jump) return base;
     const Jump *j = &track.jump;
@@ -862,6 +956,14 @@ void track_locate(V3 p, int hint, TrackPos *out) {
         float t = clampf((px * sx + pz * sz) / (sx * sx + sz * sz), 0.0f, 1.0f);
         float qx = px - sx * t, qz = pz - sz * t;
         float d2 = qx * qx + qz * qz;
+        /* A whole-lap search on a track that passes over itself (a
+           corkscrew's stacked quarter, the road under a ledge) must pick
+           the road at the kart's height: landed on the lap above, a kart
+           reads as under the road and drives through every rail. */
+        if(hint < 0 && track.in_sky) {
+            float dy = p.y - track_height(a->s);
+            d2 += dy * dy * 0.25f;
+        }
         if(d2 < best) {
             best = d2;
             best_i = i;

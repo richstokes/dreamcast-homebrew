@@ -1,4 +1,4 @@
-/* Grand Prix: the six courses in order, the same field every race, points
+/* Grand Prix: every course in order, the same field every race, points
    for each finishing place (as the online lobbies award them) and the
    standings between the races. The results screen has two pages, the
    race with its points and the standings, and a quit prompt so a cup is
@@ -43,11 +43,11 @@ void gp_start(void) {
     /* Test builds: a shorter cup. */
     if(gp.count > DK_AT_GP_RACES) gp.count = DK_AT_GP_RACES;
 #endif
-    for(int i = 0; i < TRACK_COUNT; i++) {
-        gp.order[i] = i;
+    for(int i = 0; i < TRACK_COUNT; i++) gp.order[i] = i;
+    for(int i = 0; i < MAX_KARTS; i++) {
         gp.place[i] = MAX_KARTS;
+        gp.rank[i] = i;
     }
-    for(int i = 0; i < MAX_KARTS; i++) gp.rank[i] = i;
     if(game.track != gp.order[0]) game_load_track(gp.order[0]);
     else race_setup();
     game_set_state(ST_INTRO);

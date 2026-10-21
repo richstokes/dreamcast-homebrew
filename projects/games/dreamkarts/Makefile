@@ -99,13 +99,24 @@ textures:
 models:
 	uv run tools/build_models.py --out $(GEN)/models.h
 
+# Spiral Canyon's rock: a -DDK_DUMP_ROCK build prints the rock's height
+# field, tunnel bores and road clearance, and Blender cuts one mesh from
+# them (captures/canyon_rock.blend to look at, the header to draw).
+canyon-rock:
+	$(MAKE) VARIANT=autotest EXTRA_CFLAGS="-DDK_AT_TRACK=6 -DDK_DUMP_ROCK" dreamkarts-autotest.elf
+	mkdir -p captures
+	DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DKR END' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' \
+		./run-flycast.sh --skip-build > captures/canyon-rock-dump.log 2>&1
+	$(BLENDER) --background --python tools/build_canyon_rock.py -- --dump captures/canyon-rock-dump.log \
+		--header $(GEN)/canyon_rock.h --blend captures/canyon_rock.blend
+
 audio:
 	uv run tools/build_audio.py --output-dir $(GEN)
 
 vmu:
 	uv run tools/build_vmu.py --output-dir $(GEN)
 
-assets: textures models audio vmu
+assets: textures models audio vmu canyon-rock
 
 run: $(TARGET)
 	./run-flycast.sh --skip-build
@@ -135,6 +146,6 @@ hwbench:
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf
 
-.PHONY: all clean run textures models audio vmu assets autotest hwbench hw force
+.PHONY: canyon-rock all clean run textures models audio vmu assets autotest hwbench hw force
 
 endif

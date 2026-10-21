@@ -10,7 +10,7 @@ counter-steer, watch the sparks turn blue, orange and purple, then let go
 for a mini-turbo. You drive a Chao against five CPU rivals, a friend in
 split screen, or up to five other Dreamcasts online.
 
-Six courses:
+Seven courses:
 
 - Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels
 - Coral Crossing: a figure 8 whose ramp jumps one leg over the other
@@ -18,10 +18,11 @@ Six courses:
 - Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct
 - Neon Skyway: 1,056 m of neon road above a cyberpunk city at night, with a banked loop, a gap jump and open edges to fall off
 - Cyberstone: Neon Skyway's city on a layout after Silverstone's National circuit, all hills and no jumps
+- Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches under rolling green hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
 
 Highlights:
 
-- Grand Prix: all six courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
+- Grand Prix: all seven courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
 - Two-player split screen in every mode (Versus instead of Time Trial), each player picking their own kart
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
@@ -133,6 +134,7 @@ needs no Python.
 | --- | --- |
 | `make textures` | Procedural textures, the HUD font, logo and countdown lettering (`assets/generated/textures.pak`) |
 | `make models` | The kart and Chao meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
+| `make canyon-rock` | Spiral Canyon's rock (`canyon_rock.h`): a `-DDK_DUMP_ROCK` build prints the rock's height field, tunnel bores and road clearance, and Blender (`tools/build_canyon_rock.py`, ~5 s) cuts one mesh from them; open `captures/canyon_rock.blend` to look at it. Rerun after changing the track's layout, heights or the rock's shape |
 | `make audio` | Songs and effects, encoded to AICA ADPCM (`sfx.pak`, `music.adpcm`) |
 | `make vmu` | The save file's icon and the VMU screen sprites and fonts |
 | `make assets` | All of the above |
@@ -152,10 +154,10 @@ needs no Python.
 
 | Flag | Effect |
 | --- | --- |
-| `-DDK_AT_TRACK=n` | Track 0-5 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone) |
+| `-DDK_AT_TRACK=n` | Track 0-6 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon) |
 | `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
-| `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all six |
+| `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all seven |
 | `-DDK_AT_NEXT_TRACK` (capture) | Picks NEW TRACK from the results, the next course along, and races that too |
 | `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST`, `-DDK_AT_MINE_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill; hand the player a Mine every 12 s, or every `=<s>` (the capture looks behind at it; alone with `=30` the player laps round to its own) |
 | `-DDK_AT_WRONG_WAY` | Turns the player round 10 s in (player 2 at 12 s) and drives it back up the track for 5 s; `DK WRONG WAY` lines log the banner coming and going (capture shots `wrong-way`, `wrong-way-p2`) |
@@ -165,6 +167,11 @@ needs no Python.
 | `-DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
 | `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU: the name screen must open on the saved name (and recover from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
+| `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` fixed cameras at the spots that matter (every tunnel mouth from inside, outside and above, the exits' flanks, waterfalls, loops, both mountains from overhead), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
+| `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |
+| `-DDK_CHUNK_STATS` | Spiral Canyon: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
+| `-DDK_AT_PVRSPIKE=15.0f` | Logs where any race frame's PVR render runs over that many ms (`DK PVRSPIKE`, the player's lap distance and heading), at most one line in 2.5 s |
+| `-DDK_AT_WALLRIDE`, `-DDK_AT_ZIGZAG` | The player rides the right rail all of lap 1 and the left all of lap 2, or slams the rails at an angle every 1.5 s; any kart ending up past a rail logs `DK ESCAPE` |
 | `-DDK_AT_FALL` | Steers off Neon Skyway's open edge on lap 1 to count falls (fails on time by design) |
 | `-DDK_AI_TRACE`, `-DDK_HOP_TRACE`, `-DDK_AIR_TRACE`, `-DDK_VOICE_TRACE`, `-DDK_RUMBLE_TRACE`, `-DDK_NET_TRACE`, `-DDK_PATH_LOG` | Per-event logs: CPU drift decisions, short hops (a stream of them on hills means karts stuttering over the road), airtime, voice lines, rumble levels, network start-up timing (never on hardware builds), the kart path `dk-bot -path` replays |
 
@@ -194,6 +201,25 @@ and now fall almost entirely in the menus while screenshots are written.
 | Cyberstone 1P | 8.7 → 6.9 ms | 13.5 → 11.4 ms | 10.6 → 7.9 ms | 3 → 4 of ~8,250 |
 | Emerald Beach 2P split | 13.5 → 9.8 ms | 20.8 → 15.5 ms | 15.2 → 10.9 ms | 58 → 5 of ~5,750 |
 | Temple Hill 2P split | 12.9 → 9.5 ms | 22.6 → 16.8 ms | 15.4 → 11.6 ms | 60 → 3 of ~7,000 |
+
+Spiral Canyon on the console (2026-10-21, `make hwbench`, 150cc, six
+karts), before and after cutting its world draw (better strips for the
+baked rock, a coarser rock and road copy beyond 25 m in a split screen):
+
+| | CPU avg | Worst frame | Dropped race frames |
+| --- | --- | --- | --- |
+| Spiral Canyon 1P | 10.5 → 9.2 ms | 23.5 → 24.5 ms | 6 → 1 of ~7,500 |
+| Spiral Canyon 2P split | 13.3 → 11.2 ms | 47.6 → 20.0 ms | 197 → 4 of ~7,500 |
+
+Re-run with the totem poles and bushes (2026-10-22): 1P 8.9 ms and 1
+dropped race frame, 2P 11.7 ms and 8, with the world's CPU time back under
+the earlier run. Each prop is one or two joined strips: drawn as separate
+pieces they cost ~0.4 ms a frame in split screen and the 2P drops went to 19.
+
+The 2P drops left are on lap 1 with the pack bunched; laps 2 and 3 drop
+none. The scenery alone peaks at 10.8 ms of PVR render (the run down to the
+start line, both mountains in view; `-DDK_AT_VIEWS=2` on the console), so the
+rare render spikes over 16.7 ms in a race come from karts and their effects.
 
 The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so
 the GPU is now as close to the limit as the CPU. Baseline, 2026-10-17: the

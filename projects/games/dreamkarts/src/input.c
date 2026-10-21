@@ -77,6 +77,14 @@ static void read_pad(Pad *pd, int port_index, int player) {
     else {
         pd->stick_x = pd->stick_y = pd->ltrig = pd->rtrig = 0;
     }
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+    /* Scripted runs in Flycast drive themselves, and Flycast hands every
+       instance the host's gamepad whichever window is in front: a stray
+       press from a game being played alongside would cycle the title's
+       track or pick two players. The script's own taps still land. */
+    held = 0;
+    pd->stick_x = pd->stick_y = pd->ltrig = pd->rtrig = 0;
+#endif
 #if defined(DK_FILM) || defined(DK_CAPTURE)
     held |= film_taps[player];
     film_taps[player] = 0;

@@ -586,6 +586,10 @@ void spectate_camera(Camera *cam, float dt) {
     cut = false;
 }
 
+void spectate_set_camera(Camera *cam, V3 pos, V3 look, float fov) {
+    basis(cam, pos, look, fov);
+}
+
 float spectate_tv_preview(Camera *cam, int i) {
     if(ntv == 0) place_cameras();
     if(i < 0 || i >= ntv) return 0;

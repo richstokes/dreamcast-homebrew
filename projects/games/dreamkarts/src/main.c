@@ -314,6 +314,20 @@ static void capture_script(void) {
                 take_shot(sky_shots[i].name);
             }
     }
+    /* Spiral Canyon: into the first tunnel, up the corkscrew, through the
+       summit hoop, down the second corkscrew and out of its tunnel, and the
+       chicane on the long way home. */
+    if(game.state == ST_RACE && track.id == TRACK_CANYON) {
+        static const struct { int seg; float at; const char *name; } dr_shots[11] = {
+            {2, 2.0f, "ds-tunnel"}, {3, 70.0f, "ds-corkscrew"}, {6, 4.0f, "ds-tunnel2"}, {4, 20.0f, "ds-summit"},
+            {5, 100.0f, "ds-descent"}, {9, 2.0f, "ds-chicane"}, {3, 170.0f, "ds-g1"}, {5, 6.0f, "ds-g2"},
+            {7, 10.0f, "ds-g3"}, {14, 30.0f, "ds-g4"}, {8, 6.0f, "ds-g5"}};
+        for(int i = 0; i < 11; i++)
+            if(!shot[34 + (i < 6 ? i : i + 10)] && fabsf(track_delta(track_seg_s(dr_shots[i].seg) + dr_shots[i].at, p->tp.s)) < 3.0f) {
+                shot[34 + (i < 6 ? i : i + 10)] = true;
+                take_shot(dr_shots[i].name);
+            }
+    }
     /* Cyberstone: the first chicane, the crest, down the drop, the
        National straight's chicane and round the banked Luffield helix. */
     if(game.state == ST_RACE && track.id == TRACK_CYBERSTONE) {
@@ -841,6 +855,15 @@ static void race_step(float dt, bool drive) {
            check the drop back onto the road. */
         if(hp == 0 && track.in_sky && k->lap == 1 && fabsf(track_delta(track_seg_s(2) + 60.0f, k->tp.s)) < 25.0f)
             in.steer = 1.0f;
+#endif
+#ifdef DK_AT_WALLRIDE
+        /* Ride the right wall all of lap 1 and the left all of lap 2, to
+           check the rails hold (DK ESCAPE lines in the log if not). */
+        if(hp == 0 && k->lap >= 1) in.steer = (k->lap & 1) ? 1.0f : -1.0f;
+#endif
+#ifdef DK_AT_ZIGZAG
+        /* Slam the rails at an angle every couple of seconds. */
+        if(hp == 0) in.steer = fmodf(game.time, 3.0f) < 1.5f ? 1.0f : -1.0f;
 #endif
         /* Humans can still wave once the CPU has taken over after the line. */
         if(hp >= 0) in.wave = wave_press[hp];
@@ -1483,6 +1506,247 @@ static void boot_screen(uint64_t t0, float progress, const char *what) {
 #endif
 }
 
+#ifdef DK_AT_VIEWS
+/* Capture build: fixed cameras round Spiral Canyon's rock, at the spots
+   where its tunnels, ridge and mountains meet the road, for checking
+   the rock is closed from where a player sees it. Each is a camera
+   position and a point to look at, in track coordinates (segment, metres
+   along it, lateral offset, height above the road there). */
+static V3 view_pt(int seg, float at, float d, float h) __attribute__((unused));
+static V3 view_pt(int seg, float at, float d, float h) {
+    if(seg < 0) return v3(at, h, d);   /* world coordinates */
+    float s = track_wrap(track_seg_s(seg) + at);
+    V3 p = track_point(s, d);
+    p.y = track_road_y(s, clampf(d, -9.0f, 9.0f)) + h;
+    return p;
+}
+
+/* One shot: the camera set, a second's frames so the capture tool's
+   screenshot lands well after the marker. */
+static void tour_shot(const char *name, V3 pos, V3 look) {
+    spectate_set_camera(&game.cam, pos, look, 1.1f);
+#ifdef DK_HW
+    /* On the console: no screenshots, the render time from this camera
+       instead, one line per shot (every 2 s: each printf under dcload
+       stalls the console). */
+    float rsum = 0, rmax = 0, csum = 0, cmax = 0;
+    int rn = 0;
+    for(int f = 0; f < 120; f++) {
+        pvr_wait_ready();
+        world_update(DK_DT);
+        uint64_t t0 = timer_us_gettime64();
+        render();
+        float cpu = (float)(timer_us_gettime64() - t0) * 0.001f;
+        pvr_stats_t ps;
+        if(f >= 30 && pvr_get_stats(&ps) == 0 && ps.rnd_last_time < 100000000ull) {
+            float rnd = (float)ps.rnd_last_time * 1e-6f;
+            rsum += rnd;
+            rmax = fmaxf(rmax, rnd);
+            csum += cpu;
+            cmax = fmaxf(cmax, cpu);
+            rn++;
+        }
+    }
+    printf("DK HWVIEW %s pvr %.2f/%.2f render cpu %.2f/%.2f tris %d\n", name, (double)(rn ? rsum / rn : 0), (double)rmax,
+           (double)(rn ? csum / rn : 0), (double)cmax, rstats.tris);
+    return;
+#endif
+    for(int f = 0; f < 45; f++) {
+        pvr_wait_ready();
+        world_update(DK_DT);
+        render();
+        if(f == 12) printf("DK SHOT %s\n", name);
+        if(f == 11) printf("DK SHOTSTATS %s tris=%d verts=%d\n", name, rstats.tris, rstats.verts);
+#ifdef DK_CHUNK_STATS
+        {
+            extern void world_chunk_stats(bool print);
+            if(f == 10) world_chunk_stats(false);   /* count one frame */
+            if(f == 11) {
+                printf("DK SHOTKIND %s ", name);
+                world_chunk_stats(true);
+            }
+        }
+#endif
+    }
+}
+
+static void view_tour(void) {
+    static const struct { int seg; float at, d, h; int lseg; float lat, ld, lh; } views[] = {
+        {2, 2.0f, 0.0f, 1.6f, 3, 20.0f, 0.0f, 3.0f},       /* 1 into the first tunnel */
+        {3, 150.0f, 0.0f, 2.5f, 3, 60.0f, 0.0f, 2.0f},     /* 2 top of the first corkscrew, down it */
+        {4, 10.0f, 0.0f, 2.0f, 3, 170.0f, -6.0f, 10.0f},   /* 3 summit start, back at the rock */
+        {4, 40.0f, 0.0f, 2.0f, 5, 30.0f, 0.0f, 2.0f},      /* 4 summit end, into the second corkscrew */
+        {5, 96.0f, 0.0f, 2.0f, 5, 118.0f, 0.0f, 2.5f},     /* 5 descent, at the second mouth */
+        {5, 160.0f, 0.0f, 1.6f, 6, 8.0f, 0.0f, 2.0f},      /* 6 inside the second tunnel */
+        {6, 4.0f, 0.0f, 1.6f, 7, 10.0f, 0.0f, 2.0f},       /* 7 leaving it */
+        {7, 30.0f, 0.0f, 2.0f, 7, 14.0f, 0.0f, 3.0f},      /* 8 from the exit turn, back at its mouth */
+        {8, 10.0f, 0.0f, 2.5f, 5, 60.0f, -14.0f, 12.0f},   /* 9 the long way home, at the second mountain */
+        {0, 20.0f, 0.0f, 2.5f, 3, 100.0f, -14.0f, 10.0f},  /* 10 start straight, at the first mountain */
+        {14, 40.0f, 0.0f, 3.0f, 4, 25.0f, 0.0f, 10.0f},    /* 11 from the lake side, at the ridge */
+        {3, 80.0f, 0.0f, 2.0f, 3, 120.0f, 0.0f, 3.0f},     /* 12 up the first corkscrew, out of its tunnel */
+        {2, 14.0f, -8.0f, 1.2f, 3, 12.0f, 8.0f, 6.0f},     /* 13 at the first mouth, up at its face */
+        {7, 36.0f, 8.0f, 1.2f, 7, 20.0f, -8.0f, 8.0f},     /* 14 at the second mouth, back at its face */
+        {-1, 20.0f, -110.0f, 3.0f, -1, 60.0f, -75.0f, 6.0f},  /* 15 the first mountain's waterfall (world) */
+        {-1, 74.0f, 60.0f, 3.0f, -1, 102.0f, 32.0f, 5.0f},    /* 16 the second mountain's waterfall (world) */
+        {7, 30.0f, 0.0f, 2.5f, 8, 20.0f, 0.0f, 2.0f},      /* 17 the exit turn, ahead */
+        {0, 106.0f, 4.0f, 2.0f, 2, -6.0f, 0.0f, 3.0f},     /* 18 turn 1, into the first mouth (lap s 66) */
+        {2, 6.0f, 0.0f, 2.0f, 3, 14.0f, 0.0f, 2.0f},       /* 19 end of the lead-in, at the first mouth */
+        {3, 20.0f, 0.0f, 1.6f, 3, 60.0f, 0.0f, 4.0f},      /* 20 inside the first tunnel, ahead and up */
+        {4, 8.0f, 0.0f, 2.0f, 4, 40.0f, 14.0f, 4.0f},      /* 21 summit start, along the ridge's side */
+        {5, 150.0f, 0.0f, 1.6f, 5, 172.0f, 0.0f, 4.0f},    /* 22 inside the second tunnel, ahead and up */
+        {3, 82.0f, 0.0f, 2.0f, 3, 64.0f, 0.0f, 3.0f},      /* 23 past the first exit, back at its mouth */
+        {5, 165.0f, 0.0f, 1.6f, 5, 140.0f, 0.0f, 2.0f},    /* 24 just inside the mouth, looking back in */
+        {5, 168.0f, 0.0f, 1.6f, 6, 4.0f, 0.0f, 1.6f},      /* 25 the last metres to the exit */
+        {5, 165.0f, 0.0f, 1.6f, 5, 165.0f, 9.0f, 1.6f},    /* 26 at the mouth, square at the outer wall */
+        {6, 20.0f, 24.0f, 10.0f, 6, 14.0f, -4.0f, 2.0f},    /* 27 above and outside the second exit, down at it */
+        {8, 10.0f, 0.0f, 8.0f, 6, 24.0f, 0.0f, 4.0f},       /* 28 from the long way home, at the second exit */
+        {1, 49.0f, 0.0f, 2.0f, 2, 4.0f, -10.0f, 3.0f},      /* 29 just inside the first mouth, at its left wall */
+        {5, 104.0f, -4.0f, 2.5f, 5, 124.0f, 0.0f, 6.0f},    /* 30 the second mouth, from the inside of the bend */
+        {0, 52.0f, 2.0f, 1.5f, 0, 40.0f, -13.0f, 0.5f},     /* 31 the line's loop, at its foot (the line is 40 m into segment 0) */
+        {0, 100.0f, 0.0f, 3.0f, 1, 48.0f, 0.0f, 2.0f},      /* 32 the mouth from turn 1's start */
+        {1, 44.0f, 0.0f, 30.0f, 1, 52.0f, 0.0f, 0.0f},      /* 33 straight down on the first mouth */
+        {-1, 24.0f, -64.0f, 6.0f, -1, 46.0f, -64.0f, 3.0f},  /* 34 the first mouth's left flank, from the west (world) */
+        {5, 118.0f, 0.0f, 30.0f, 5, 126.0f, 0.0f, 0.0f},    /* 35 straight down on the second mouth */
+        {4, 46.0f, 12.0f, 3.0f, 5, 124.0f, 0.0f, 4.0f},     /* 36 the second mouth from the summit's end, outside */
+        {1, 46.0f, 0.0f, 2.8f, 2, 8.0f, -4.0f, 1.5f},       /* 37 the chase camera at the first portal */
+        {7, 6.0f, 0.0f, 2.5f, 7, 28.0f, -6.0f, 5.0f},       /* 38 the chase camera in the exit cutting, under the ledge */
+        {6, 8.0f, 0.0f, 2.5f, 7, 14.0f, -6.0f, 5.0f},       /* 39 the same from inside the second exit */
+        {8, 30.0f, 0.0f, 2.5f, 8, 70.0f, 0.0f, 20.0f},      /* 40 the long way home: the horizon */
+        {-1, 155.0f, 25.0f, 12.3f, -1, 155.0f, 45.0f, 12.3f},   /* 41 leak camera s396 d10.6: north */
+        {-1, 155.0f, 25.0f, 12.3f, -1, 175.0f, 25.0f, 12.3f},   /* 42 ... east */
+        {-1, 155.0f, 25.0f, 12.3f, -1, 135.0f, 25.0f, 12.3f},   /* 43 ... west */
+        {-1, 155.0f, 25.0f, 12.3f, -1, 155.0f, 5.0f, 12.3f},    /* 44 ... south */
+        {-1, 139.0f, 24.0f, 11.1f, -1, 139.0f, 44.0f, 11.1f},   /* 45 leak camera s540 d-10.6: north */
+        {-1, 139.0f, 24.0f, 11.1f, -1, 119.0f, 24.0f, 11.1f},   /* 46 ... west */
+        {-1, 170.0f, 60.0f, 6.0f, -1, 150.0f, 25.0f, 10.0f},    /* 47 from the north-east, at the exit's outer flank */
+        {-1, 180.0f, 10.0f, 14.0f, -1, 152.0f, 22.0f, 10.0f},   /* 48 from the east, at the ledge over the exit */
+        {-1, 78.0f, -40.0f, 150.0f, -1, 78.0f, -39.0f, 0.0f},   /* 49 straight down on the first mountain */
+        {-1, 128.0f, 6.0f, 150.0f, -1, 128.0f, 7.0f, 0.0f},     /* 50 straight down on the second */
+        {-1, 20.0f, -150.0f, 60.0f, -1, 78.0f, -40.0f, 10.0f},  /* 51 the first mountain from the south-west, high */
+        {-1, 200.0f, 60.0f, 60.0f, -1, 128.0f, 6.0f, 10.0f},    /* 52 the second from the north-east, high */
+        {7, 1.0f, 0.0f, 2.6f, 7, 8.0f, -16.0f, 2.0f},       /* 53 sweep 068-l: out of the second exit, left */
+        {7, 20.0f, 12.0f, 22.0f, 7, 4.0f, -18.0f, 2.0f},    /* 54 above, at the inside of the exit turn */
+        {7, 30.0f, -24.0f, 4.0f, 7, 2.0f, -14.0f, 3.0f},    /* 55 inside the exit turn, back at the mouth's flank */
+        {8, 0.0f, -10.0f, 30.0f, 7, 6.0f, -16.0f, 0.0f},    /* 56 high over the turn's inside, down at the notch */
+        {7, 1.0f, -8.0f, 60.0f, 7, 1.0f, -7.0f, 0.0f},      /* 57 straight down on the second exit */
+        {7, 14.0f, -4.0f, 1.5f, 7, 2.0f, -12.0f, 2.5f},     /* 58 past the exit, back at its left wing wall */
+        {6, 8.0f, -20.0f, 5.0f, 7, 4.0f, -10.0f, 3.0f},     /* 59 left of the exit, along its flank */
+        {4, 2.0f, -3.0f, 2.6f, -1, 99.0f, -8.9f, 21.0f},    /* 60 the summit, at the verge of the descent beside it */
+        {1, 30.0f, -2.0f, 2.2f, 2, 4.0f, -6.0f, 1.0f},      /* 61 turn 1, the chase camera, the inside bank */
+        {1, 46.0f, -6.0f, 2.0f, 2, 8.0f, -10.0f, 0.5f},     /* 62 the lead-in, low on the inside, at the grass */
+        {0, 70.0f, 0.0f, 2.6f, 1, 20.0f, -6.0f, 1.0f},      /* 63 into turn 1 */
+        {-1, 20.0f, -108.0f, 3.0f, -1, 20.0f, -128.0f, 3.0f},   /* 64 the totem pole south of the start straight */
+        {-1, -108.0f, 52.0f, 2.5f, -1, -122.0f, 63.0f, 3.5f},   /* 65 a totem pole by the long way home, close */
+        {-1, 136.0f, 68.0f, 3.0f, -1, 145.0f, 83.0f, 3.0f},     /* 66 a totem pole by the exit turn */
+        {-1, 92.0f, -40.0f, 28.0f, -1, 78.0f, -40.0f, 25.2f},   /* 67 the first tower's sunflower, level */
+        {-1, 128.0f, 22.0f, 29.0f, -1, 128.0f, 6.0f, 25.2f},    /* 68 the second tower's sunflower, level */
+        {-1, 96.0f, -28.0f, 19.0f, -1, 78.0f, -40.0f, 25.2f},   /* 69 the first tower's sunflower from below */
+    };
+    const int n = (int)(sizeof(views) / sizeof(views[0]));
+    (void)n;
+    dk_probe_off |= PROBE_HUD;
+#ifdef DK_ROCK_TINT
+    dk_probe_off |= PROBE_SKY | PROBE_SEA | PROBE_DISTANT | PROBE_FOAM;   /* the leak test: black beyond the rock */
+#endif
+    game_load_track(TRACK_CANYON);
+    game.state = ST_RESULTS;
+#if DK_AT_VIEWS == 2
+    /* The sweep: the chase camera every 8 m round the lap, and every 16 m
+       a look left and right, so the whole lap is seen as a player does. */
+    char name[32];
+    int idx = 0;
+#ifndef DK_SWEEP_FROM
+#define DK_SWEEP_FROM 0
+#define DK_SWEEP_TO 100000
+#endif
+    for(float s = 0; s < track.length; s += 8.0f, idx++) {
+        if(s < DK_SWEEP_FROM || s > DK_SWEEP_TO) continue;
+        V3 pos = track_point(track_wrap(s - 6.0f), 0);
+        pos.y = track_road_y(track_wrap(s - 6.0f), 0) + 2.6f;
+        V3 look = track_point(track_wrap(s + 10.0f), 0);
+        look.y = track_road_y(track_wrap(s + 10.0f), 0) + 1.0f;
+        snprintf(name, sizeof name, "sweep-%03d-f", idx);
+        tour_shot(name, pos, look);
+#ifdef DK_HW
+        continue;   /* the console: forward only, 128 shots in about four minutes */
+#endif
+        if(idx & 1) continue;
+        for(int side = -1; side <= 1; side += 2) {
+            look = track_point(track_wrap(s + 1.0f), side * 16.0f);
+            look.y = track_road_y(track_wrap(s + 1.0f), 0) + 2.0f;
+            snprintf(name, sizeof name, "sweep-%03d-%c", idx, side < 0 ? 'l' : 'r');
+            tour_shot(name, pos, look);
+        }
+    }
+#elif DK_AT_VIEWS == 3
+    /* The leak test: cameras inside the rock every 8 m, over each tunnel
+       and under the mountainsides, looking along, across and up. With
+       -DDK_ROCK_TINT everything beyond the rock is black, so any black
+       in a shot is a hole (tools/leakcheck.py finds them). */
+    static const float offs[] = {0.0f, -10.6f, 10.6f, -13.5f, 13.5f, -18.5f, 18.5f, -24.5f, 24.5f};
+    char name[40];
+    int idx = 0;
+    /* The list first, with the real rock over each point, so the log
+       alone says where the meshes fall short of the height function. */
+    for(float s = 0; s < track.length; s += 12.0f) {
+        for(int o = 0; o < (int)(sizeof(offs) / sizeof(offs[0])); o++) {
+            V3 pos;
+            world_leak_point(s, offs[o], &pos);
+        }
+    }
+    printf("DK LEAKLIST done\n");
+#ifndef DK_LEAK_FROM
+#define DK_LEAK_FROM 0
+#define DK_LEAK_TO 100000
+#endif
+    for(float s = 0; s < track.length; s += 12.0f, idx++) {
+        if(s < DK_LEAK_FROM || s > DK_LEAK_TO) continue;   /* -DDK_LEAK_FROM=a -DDK_LEAK_TO=b: a stretch only */
+        for(int o = 0; o < (int)(sizeof(offs) / sizeof(offs[0])); o++) {
+            V3 pos;
+            if(!world_leak_point(s, offs[o], &pos)) continue;
+            V3 t = track_tangent(s), r = v3(t.z, 0, -t.x);
+            const V3 dirs[4] = {t, vscale(r, -1), r, vadd(vscale(t, 0.27f), v3(0, 1, 0))};   /* f l r u */
+            for(int k = 0; k < 4; k++) {
+                /* The same shot twice: the real world, then the reference rock. */
+                for(int mode = 0; mode < 2; mode++) {
+                    world_diag_mode(mode);
+                    snprintf(name, sizeof name, "leak-%03d-%d-%c-%c", idx, o, "flru"[k], "ab"[mode]);
+                    tour_shot(name, pos, vmad(pos, dirs[k], 10.0f));
+                }
+            }
+        }
+    }
+    world_diag_mode(0);
+#else
+    for(int i = 0; i < n; i++) {
+        V3 pos = view_pt(views[i].seg, views[i].at, views[i].d, views[i].h);
+        V3 look = view_pt(views[i].lseg, views[i].lat, views[i].ld, views[i].lh);
+        if(views[i].seg >= 0)
+            printf("DK VIEW %d at s %.0f (seg %d starts at %.0f)\n", i + 1, (double)track_wrap(track_seg_s(views[i].seg) + views[i].at),
+                   views[i].seg, (double)track_seg_s(views[i].seg));
+        char name[32];
+        snprintf(name, sizeof name, "view-%02d", i + 1);
+        tour_shot(name, pos, look);
+#ifdef DK_ROCK_TINT
+        /* The outside views again with only the reference rock, to check
+           the reference itself. */
+        if(i == 14 || i == 15 || i == 32 || i == 34 || i == 46 || i == 47 || (i >= 48 && i < 52)) {
+            world_diag_mode(1);
+            snprintf(name, sizeof name, "view-%02d-ref", i + 1);
+            tour_shot(name, pos, look);
+            world_diag_mode(0);
+        }
+#endif
+    }
+#endif
+    printf("DK AUTOTEST: PASS\n");
+    for(;;) {
+        pvr_wait_ready();
+        render();
+    }
+}
+#endif
+
 #ifdef DK_AT_CAMTOUR
 /* Capture build: every trackside spectator camera on every track, with the
    karts bunched in the middle of the stretch it films, for checking the
@@ -1577,6 +1841,9 @@ int main(int argc, char **argv) {
     race_setup();
 #ifdef DK_AT_CAMTOUR
     camera_tour();
+#endif
+#ifdef DK_AT_VIEWS
+    view_tour();
 #endif
 #ifdef DK_RECORD
     record_races(boot_t0);
@@ -1750,6 +2017,17 @@ int main(int argc, char **argv) {
                 if(pvr_get_stats(&ps) == 0 && ps.rnd_last_time < 100000000ull) {
                     float rnd = (float)ps.rnd_last_time * 1e-6f;
                     if(rnd > at.rnd_max_ms) at.rnd_max_ms = rnd;
+#ifdef DK_AT_PVRSPIKE
+                    /* Where a slow render happens, at most one line in 4 s
+                       (each printf under dcload stalls the console). */
+                    static float spike_t = -10.0f;
+                    if(rnd > DK_AT_PVRSPIKE && game.state == ST_RACE && game.race_time - spike_t > 2.5f) {
+                        spike_t = game.race_time;
+                        printf("DK PVRSPIKE t=%.1f rnd=%.2fms s=%.0f d=%.1f lap=%d heading=%.2f tris=%d verts=%d\n",
+                               (double)game.race_time, (double)rnd, (double)p->tp.s, (double)p->tp.d, p->lap, (double)p->heading,
+                               rstats.tris, rstats.verts);
+                    }
+#endif
                     if(ps.vtx_buffer_used_max > at.vtx_max) at.vtx_max = ps.vtx_buffer_used_max;
                 }
                 if(game.state == ST_RACE || game.state == ST_RESULTS) {
