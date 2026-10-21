@@ -166,6 +166,7 @@ typedef struct {
     float cam_yaw, cam_height, cam_dist, fov;
     float accel_press_t; /* rocket start timing */
     bool final_lap_seen;
+    float wrong_way_t;   /* seconds spent driving against the race direction */
 } Player;
 
 typedef struct {

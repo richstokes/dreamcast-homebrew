@@ -519,6 +519,7 @@ void race_reset(void) {
         pl->fov = 1.30f;
         pl->cam.shake = 0;
         pl->final_lap_seen = false;
+        pl->wrong_way_t = 0;
     }
     fx_clear();
     dolphins_reset();
@@ -754,10 +755,32 @@ static void finalize_results(void) {
     update_places();
 }
 
-static void player_events(int pi) {
+static void player_events(int pi, float dt) {
     Player *pl = &game.pl[pi];
     Kart *p = &karts[pl->kart];
     uint32_t ev = p->events;
+    /* Wrong way: moving back along the track for a second or so. A spin,
+       a fall or a quick reverse off a wall doesn't count, and it clears a
+       little after the kart is pointing the right way again. */
+    bool wrong = !p->finished && p->spin_t <= 0 && !p->over_edge && vdot(p->vel, p->tp.tangent) < -5.0f;
+    pl->wrong_way_t = wrong ? fminf(pl->wrong_way_t + dt, 2.0f) : fmaxf(pl->wrong_way_t - 2.0f * dt, 0.0f);
+#ifdef DK_AUTOTEST
+    {
+        static bool shown[MAX_PLAYERS];
+        if(shown[pi] != (pl->wrong_way_t > 1.0f)) {
+            shown[pi] = !shown[pi];
+            printf("DK WRONG WAY P%d %s t=%.1f s=%.0f\n", pi + 1, shown[pi] ? "on" : "off", (double)game.race_time,
+                   (double)p->tp.s);
+        }
+#ifdef DK_CAPTURE
+        static bool shot[MAX_PLAYERS];
+        if(pl->wrong_way_t > 1.6f && !shot[pi]) {
+            shot[pi] = true;
+            take_shot(pi ? "wrong-way-p2" : "wrong-way");
+        }
+#endif
+    }
+#endif
     if(ev & EV_LAP) {
         if(p->lap == game.laps && !pl->final_lap_seen) {
             pl->final_lap_seen = true;
@@ -796,6 +819,23 @@ static void race_step(float dt, bool drive) {
 #endif
         if(ai) ai_drive(k, &in, dt);
         else player_input(hp, &in);
+#ifdef DK_AT_WRONG_WAY
+        /* Turn the player round 10 s in (player 2 at 12 s), drive it back
+           up the track for 5 s, then turn it round again for the CPU (which
+           can't find its way back from facing dead backwards), to check the
+           wrong way banner comes and goes. */
+        float ww0 = 10.0f + 2.0f * (float)hp;
+        if(hp >= 0 && game.race_time >= ww0 && game.race_time - dt < ww0 + 5.0f) {
+            if(game.race_time - dt < ww0 || game.race_time >= ww0 + 5.0f) {
+                k->heading = wrap_angle(k->heading + DK_PI);
+                k->vel = vscale(heading_fwd(k->heading), k->speed);
+            }
+            if(game.race_time < ww0 + 5.0f) {
+                memset(&in, 0, sizeof(in));
+                in.accel = true;
+            }
+        }
+#endif
 #ifdef DK_AT_FALL
         /* Steer the player off the open edge on the first lap's waves, to
            check the drop back onto the road. */
@@ -819,7 +859,7 @@ static void race_step(float dt, bool drive) {
         audio_kart_events(k, kart_is_human(i));
     }
     for(int p = 0; p < game.num_players; p++) {
-        player_events(p);
+        player_events(p, dt);
         rumble_kart(p, &karts[game.pl[p].kart]);
     }
 #ifdef DK_PATH_LOG

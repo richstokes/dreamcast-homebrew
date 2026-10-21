@@ -244,6 +244,15 @@ void hud_draw_race(int pi, float y0, float y1) {
         if(pm[pi].lap_best)
             hud_text(320, ly2 + 32 * k, 0.7f * k, ALIGN_CENTER, color_alpha(argb(255, 120, 255, 160), a), "BEST LAP!");
     }
+    /* Wrong way: a red banner, its lettering flashing white and yellow. */
+    if(game.pl[pi].wrong_way_t > 1.0f && !p->finished) {
+        float a = clampf((game.pl[pi].wrong_way_t - 1.0f) / 0.2f, 0, 1);
+        float cy = y0 + (split ? 96 : 104), w = 140 * k, h = 26 * k;
+        hud_panel(320 - w, cy - h, 320 + w, cy + h, color_alpha(argb(255, 210, 30, 30), 0.85f * a),
+                  color_alpha(argb(255, 110, 0, 0), 0.85f * a), 15);
+        uint32_t col = ((int)(hud_time * 4) & 1) ? 0xffffffff : argb(255, 255, 220, 60);
+        hud_text(320, cy - 23 * k, 1.1f * k, ALIGN_CENTER, color_alpha(col, a), "WRONG WAY");
+    }
     const Pad *pd = input_pad(pi);
     if(!pd->connected && ((int)(hud_time * 2) & 1)) {
         snprintf(buf, sizeof(buf), "CONNECT CONTROLLER %d", pi + 1);
