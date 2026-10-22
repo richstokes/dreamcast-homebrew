@@ -6,8 +6,7 @@ My original Sega Dreamcast games, network apps and technical demos.
 Every project ships as a self-booting CDI and a plain ELF. The CDI is the
 easiest way to play: open it in an emulator, or load it on a real console with
 GDEMU or similar. If you are burning a physical CD-R, you may want to try the
-**CD-R** download instead: the same disc padded out to a full CD, zipped (unzip
-before burning). Each project directory has its own README.
+**CD-R** download instead. Each project directory has its own README.
 
 ## Games
 
