@@ -2,6 +2,7 @@
 
 usage: uv run --with pillow --with numpy --with matplotlib tools/film/cover.py
            <still.png> <out.png> [--y 0.5] [--zoom 1] [--side right] [--ribbon TEXT] [--tag TEXT]
+           [--title TEXT] [--logo-y PX] [--ribbon-size PT]
 
 The still is a Flycast window grab (title bar on top, the game's 1440x1080
 between thin side bars); its game area is cropped to 16:9 (--y picks the
@@ -85,15 +86,26 @@ def main():
     ap.add_argument('--ribbon', default='NEW DREAMCAST KART RACER')
     ap.add_argument('--side', choices=['left', 'right'], default='right')
     ap.add_argument('--tag', default='ONLINE  ·  SPLIT SCREEN  ·  5 TRACKS')
+    ap.add_argument('--title', default='', help='a big second line in the logo lettering, under the logo')
+    ap.add_argument('--logo-y', type=int, default=-18, help='top of the logo, pixels')
+    ap.add_argument('--ribbon-size', type=int, default=50)
+    ap.add_argument('--tag-size', type=int, default=30)
     a = ap.parse_args()
     c = background(a.still, a.y, a.zoom)
     logo = shadow(cards.logo(118))
-    c.alpha_composite(logo, ((W - logo.width) // 2, -18))
-    rb = shadow(ribbon(a.ribbon, 50, (235, 40, 30), (170, 15, 20)), blur=6, offset=(4, 6))
+    c.alpha_composite(logo, ((W - logo.width) // 2, a.logo_y))
+    if a.title:
+        tl = shadow(cards.text(78, a.title, cards.WARM, ow=6), blur=8, offset=(5, 7))
+        c.alpha_composite(tl, ((W - tl.width) // 2, a.logo_y + logo.height - 70))
+    rb = shadow(ribbon(a.ribbon, a.ribbon_size, (235, 40, 30), (170, 15, 20)), blur=6, offset=(4, 6))
     x = (lambda img: W - img.width + 10) if a.side == 'right' else (lambda img: -10)
-    c.alpha_composite(rb, (x(rb), H - rb.height - 78))
     if a.tag:
-        tg = shadow(ribbon(a.tag, 30, (30, 110, 230), (15, 55, 160)), blur=5, offset=(3, 5))
+        tg = shadow(ribbon(a.tag, a.tag_size, (30, 110, 230), (15, 55, 160)), blur=5, offset=(3, 5))
+        c.alpha_composite(rb, (x(rb), H - tg.height - rb.height + 6))
+    else:
+        c.alpha_composite(rb, (x(rb), H - rb.height - 78))
+    if a.tag:
+        tg = shadow(ribbon(a.tag, a.tag_size, (30, 110, 230), (15, 55, 160)), blur=5, offset=(3, 5))
         c.alpha_composite(tg, (x(tg), H - tg.height - 18))
     c.convert('RGB').save(a.out, quality=92)
     print(a.out, Path(a.out).stat().st_size // 1024, 'KiB')
