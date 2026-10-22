@@ -3110,9 +3110,6 @@ static void dr_add_pinwheel(V3 base, uint32_t h) {
     /* A sunflower: a green stem, the head turns to the camera and spins. */
     cylinder(h_col, base, 0.16f, 0.12f, 4.2f, 5, argb(255, 60, 140, 40), argb(255, 90, 180, 60), 1, 1);
     dr_pinwheel[dr_pinwheel_n++] = (Pinwheel){vadd(base, v3(0, 4.4f, 0)), axis, 1.5f};
-#ifdef DK_AUTOTEST
-    printf("DK SUNFLOWER (%.0f, %.1f, %.0f)\n", (double)base.x, (double)base.y, (double)base.z);
-#endif
 }
 
 /* A meadow disc (the rim polygon as one zigzag strip). */
@@ -3201,10 +3198,6 @@ static void dr_place_fall(const Mountain *m, float a) {
     f->knee = vlerp(f->lip, f->foot, 0.5f);
     f->n = dir;
     f->t = v3(dir.z, 0, -dir.x);
-#ifdef DK_AUTOTEST
-    printf("DK FALL %d lip (%.0f, %.0f, %.0f) foot (%.0f, %.0f, %.0f)\n", dr_fall_n, (double)f->lip.x, (double)f->lip.y,
-           (double)f->lip.z, (double)f->foot.x, (double)f->foot.y, (double)f->foot.z);
-#endif
     chunk_begin(HF_OP, 1500.0f);
     strip_begin(h_water);
     const int sides = 10;
@@ -3413,9 +3406,6 @@ static void dr_place_props(void) {
             V3 to = vsub(tp.center, v3(x, 0, z));
             to.y = 0;
             dr_totem(v3(x, y, z), vnorm(to), r >> 3);
-#ifdef DK_AUTOTEST
-            printf("DK TOTEM (%.0f, %.1f, %.0f) road %.0f m away, at s %.0f\n", (double)x, (double)y, (double)z, (double)vlen(to), (double)tp.s);
-#endif
             chunk_begin(HF_OP, 1400.0f);
             rocks++;
         }
@@ -4341,6 +4331,10 @@ void world_set_fog(bool split) {
    tunnel it is just above the arch's crown; elsewhere two metres under
    the rock's surface where the rock stands well clear of the ground,
    never inside a tower, a tunnel's bore or a road's deck. */
+#ifdef DK_ROCK_TINT
+static float world_rock_mesh_top(float x, float z, int *count, float *lowest);
+#endif
+
 bool world_leak_point(float s, float d, V3 *out) {
     if(!world_canyon) return false;
     V3 p = track_point(s, d);
@@ -4412,7 +4406,7 @@ bool world_leak_point(float s, float d, V3 *out) {
 #ifdef DK_ROCK_TINT
 /* For the leak test: the highest and lowest real rock vertices within
    3 m of (x, z) horizontally, and how many there are. */
-float world_rock_mesh_top(float x, float z, int *count, float *lowest) {
+static float world_rock_mesh_top(float x, float z, int *count, float *lowest) {
     float top = -1e9f, low = 1e9f;
     int n = 0;
     int end = chunks[diag_ref_first].first_strip < strip_n ? strips[chunks[diag_ref_first].first_strip].first : pool_n;

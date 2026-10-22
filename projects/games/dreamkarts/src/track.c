@@ -42,9 +42,9 @@
 
    Spiral Canyon: a cobbled road through a spring valley, run
    anticlockwise. The start straight runs east into a banked left, then a
-   right-hand corkscrew climbs 20 m round a crystal spire, a turn and a
+   right-hand corkscrew climbs 20 m round a slate tower, a turn and a
    quarter, onto the summit, where a hump throws karts through a hoop; a
-   left-hand corkscrew winds back down round a second spire, a left leads
+   left-hand corkscrew winds back down round a second tower, a left leads
    onto the long way home west, through a right-left chicane, and two
    lefts bring it back to the line. */
 #include "track.h"

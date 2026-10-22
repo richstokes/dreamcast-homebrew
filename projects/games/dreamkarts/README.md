@@ -167,7 +167,7 @@ needs no Python.
 | `-DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
 | `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU: the name screen must open on the saved name (and recover from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
-| `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` fixed cameras at the spots that matter (every tunnel mouth from inside, outside and above, the exits' flanks, waterfalls, loops, both mountains from overhead), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
+| `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
 | `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |
 | `-DDK_CHUNK_STATS` | Spiral Canyon: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
 | `-DDK_AT_PVRSPIKE=15.0f` | Logs where any race frame's PVR render runs over that many ms (`DK PVRSPIKE`, the player's lap distance and heading), at most one line in 2.5 s |
@@ -211,17 +211,14 @@ baked rock, a coarser rock and road copy beyond 25 m in a split screen):
 | Spiral Canyon 1P | 10.5 → 9.2 ms | 23.5 → 24.5 ms | 6 → 1 of ~7,500 |
 | Spiral Canyon 2P split | 13.3 → 11.2 ms | 47.6 → 20.0 ms | 197 → 4 of ~7,500 |
 
-Re-run with the totem poles and bushes (2026-10-22): 1P 8.9 ms and 1
-dropped race frame, 2P 11.7 ms and 8, with the world's CPU time back under
-the earlier run. Each prop is one or two joined strips: drawn as separate
-pieces they cost ~0.4 ms a frame in split screen and the 2P drops went to 19.
-The golden-hour sunset adds ~1 ms of PVR render (mostly the sun and its
-glow): 1P 9.9 ms and 3 dropped race frames, 2P 11.5 ms and 7.
-
-The 2P drops left are on lap 1 with the pack bunched; laps 2 and 3 drop
-none. The scenery alone peaks at 10.8 ms of PVR render (the run down to the
-start line, both mountains in view; `-DDK_AT_VIEWS=2` on the console), so the
-rare render spikes over 16.7 ms in a race come from karts and their effects.
+With the totem poles, bushes and golden-hour sunset (2026-10-22): 1P 9.9 ms
+and 3 dropped race frames, 2P 11.5 ms and 7, most on lap 1 with the pack
+bunched. The sun and its glow cost ~1 ms of PVR render. Props need to be
+joined strips: drawn as separate pieces the totems and bushes cost ~0.4 ms a
+frame in split screen and took the 2P drops from 4 to 19. The scenery alone
+peaks at 10.8 ms of PVR render (the run down to the start line, both
+mountains in view; `-DDK_AT_VIEWS=2` on the console), so the rare render
+spikes over 16.7 ms in a race come from karts and their effects.
 
 The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so
 the GPU is now as close to the limit as the CPU. Baseline, 2026-10-17: the

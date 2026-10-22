@@ -1507,11 +1507,11 @@ static void boot_screen(uint64_t t0, float progress, const char *what) {
 }
 
 #ifdef DK_AT_VIEWS
-/* Capture build: fixed cameras round Spiral Canyon's rock, at the spots
-   where its tunnels, ridge and mountains meet the road, for checking
-   the rock is closed from where a player sees it. Each is a camera
-   position and a point to look at, in track coordinates (segment, metres
-   along it, lateral offset, height above the road there). */
+/* Capture build: Spiral Canyon's rock from outside (=1), the chase camera
+   round the lap (=2) or cameras inside the rock (=3). The fixed views are
+   a camera position and a point to look at, each in world coordinates
+   (seg -1: x, z, y) or track coordinates (segment, metres along it,
+   lateral offset, height above the road there). */
 static V3 view_pt(int seg, float at, float d, float h) __attribute__((unused));
 static V3 view_pt(int seg, float at, float d, float h) {
     if(seg < 0) return v3(at, h, d);   /* world coordinates */
@@ -1572,75 +1572,14 @@ static void tour_shot(const char *name, V3 pos, V3 look) {
 
 static void view_tour(void) {
     static const struct { int seg; float at, d, h; int lseg; float lat, ld, lh; } views[] = {
-        {2, 2.0f, 0.0f, 1.6f, 3, 20.0f, 0.0f, 3.0f},       /* 1 into the first tunnel */
-        {3, 150.0f, 0.0f, 2.5f, 3, 60.0f, 0.0f, 2.0f},     /* 2 top of the first corkscrew, down it */
-        {4, 10.0f, 0.0f, 2.0f, 3, 170.0f, -6.0f, 10.0f},   /* 3 summit start, back at the rock */
-        {4, 40.0f, 0.0f, 2.0f, 5, 30.0f, 0.0f, 2.0f},      /* 4 summit end, into the second corkscrew */
-        {5, 96.0f, 0.0f, 2.0f, 5, 118.0f, 0.0f, 2.5f},     /* 5 descent, at the second mouth */
-        {5, 160.0f, 0.0f, 1.6f, 6, 8.0f, 0.0f, 2.0f},      /* 6 inside the second tunnel */
-        {6, 4.0f, 0.0f, 1.6f, 7, 10.0f, 0.0f, 2.0f},       /* 7 leaving it */
-        {7, 30.0f, 0.0f, 2.0f, 7, 14.0f, 0.0f, 3.0f},      /* 8 from the exit turn, back at its mouth */
-        {8, 10.0f, 0.0f, 2.5f, 5, 60.0f, -14.0f, 12.0f},   /* 9 the long way home, at the second mountain */
-        {0, 20.0f, 0.0f, 2.5f, 3, 100.0f, -14.0f, 10.0f},  /* 10 start straight, at the first mountain */
-        {14, 40.0f, 0.0f, 3.0f, 4, 25.0f, 0.0f, 10.0f},    /* 11 from the lake side, at the ridge */
-        {3, 80.0f, 0.0f, 2.0f, 3, 120.0f, 0.0f, 3.0f},     /* 12 up the first corkscrew, out of its tunnel */
-        {2, 14.0f, -8.0f, 1.2f, 3, 12.0f, 8.0f, 6.0f},     /* 13 at the first mouth, up at its face */
-        {7, 36.0f, 8.0f, 1.2f, 7, 20.0f, -8.0f, 8.0f},     /* 14 at the second mouth, back at its face */
-        {-1, 20.0f, -110.0f, 3.0f, -1, 60.0f, -75.0f, 6.0f},  /* 15 the first mountain's waterfall (world) */
-        {-1, 74.0f, 60.0f, 3.0f, -1, 102.0f, 32.0f, 5.0f},    /* 16 the second mountain's waterfall (world) */
-        {7, 30.0f, 0.0f, 2.5f, 8, 20.0f, 0.0f, 2.0f},      /* 17 the exit turn, ahead */
-        {0, 106.0f, 4.0f, 2.0f, 2, -6.0f, 0.0f, 3.0f},     /* 18 turn 1, into the first mouth (lap s 66) */
-        {2, 6.0f, 0.0f, 2.0f, 3, 14.0f, 0.0f, 2.0f},       /* 19 end of the lead-in, at the first mouth */
-        {3, 20.0f, 0.0f, 1.6f, 3, 60.0f, 0.0f, 4.0f},      /* 20 inside the first tunnel, ahead and up */
-        {4, 8.0f, 0.0f, 2.0f, 4, 40.0f, 14.0f, 4.0f},      /* 21 summit start, along the ridge's side */
-        {5, 150.0f, 0.0f, 1.6f, 5, 172.0f, 0.0f, 4.0f},    /* 22 inside the second tunnel, ahead and up */
-        {3, 82.0f, 0.0f, 2.0f, 3, 64.0f, 0.0f, 3.0f},      /* 23 past the first exit, back at its mouth */
-        {5, 165.0f, 0.0f, 1.6f, 5, 140.0f, 0.0f, 2.0f},    /* 24 just inside the mouth, looking back in */
-        {5, 168.0f, 0.0f, 1.6f, 6, 4.0f, 0.0f, 1.6f},      /* 25 the last metres to the exit */
-        {5, 165.0f, 0.0f, 1.6f, 5, 165.0f, 9.0f, 1.6f},    /* 26 at the mouth, square at the outer wall */
-        {6, 20.0f, 24.0f, 10.0f, 6, 14.0f, -4.0f, 2.0f},    /* 27 above and outside the second exit, down at it */
-        {8, 10.0f, 0.0f, 8.0f, 6, 24.0f, 0.0f, 4.0f},       /* 28 from the long way home, at the second exit */
-        {1, 49.0f, 0.0f, 2.0f, 2, 4.0f, -10.0f, 3.0f},      /* 29 just inside the first mouth, at its left wall */
-        {5, 104.0f, -4.0f, 2.5f, 5, 124.0f, 0.0f, 6.0f},    /* 30 the second mouth, from the inside of the bend */
-        {0, 52.0f, 2.0f, 1.5f, 0, 40.0f, -13.0f, 0.5f},     /* 31 the line's loop, at its foot (the line is 40 m into segment 0) */
-        {0, 100.0f, 0.0f, 3.0f, 1, 48.0f, 0.0f, 2.0f},      /* 32 the mouth from turn 1's start */
-        {1, 44.0f, 0.0f, 30.0f, 1, 52.0f, 0.0f, 0.0f},      /* 33 straight down on the first mouth */
-        {-1, 24.0f, -64.0f, 6.0f, -1, 46.0f, -64.0f, 3.0f},  /* 34 the first mouth's left flank, from the west (world) */
-        {5, 118.0f, 0.0f, 30.0f, 5, 126.0f, 0.0f, 0.0f},    /* 35 straight down on the second mouth */
-        {4, 46.0f, 12.0f, 3.0f, 5, 124.0f, 0.0f, 4.0f},     /* 36 the second mouth from the summit's end, outside */
-        {1, 46.0f, 0.0f, 2.8f, 2, 8.0f, -4.0f, 1.5f},       /* 37 the chase camera at the first portal */
-        {7, 6.0f, 0.0f, 2.5f, 7, 28.0f, -6.0f, 5.0f},       /* 38 the chase camera in the exit cutting, under the ledge */
-        {6, 8.0f, 0.0f, 2.5f, 7, 14.0f, -6.0f, 5.0f},       /* 39 the same from inside the second exit */
-        {8, 30.0f, 0.0f, 2.5f, 8, 70.0f, 0.0f, 20.0f},      /* 40 the long way home: the horizon */
-        {-1, 155.0f, 25.0f, 12.3f, -1, 155.0f, 45.0f, 12.3f},   /* 41 leak camera s396 d10.6: north */
-        {-1, 155.0f, 25.0f, 12.3f, -1, 175.0f, 25.0f, 12.3f},   /* 42 ... east */
-        {-1, 155.0f, 25.0f, 12.3f, -1, 135.0f, 25.0f, 12.3f},   /* 43 ... west */
-        {-1, 155.0f, 25.0f, 12.3f, -1, 155.0f, 5.0f, 12.3f},    /* 44 ... south */
-        {-1, 139.0f, 24.0f, 11.1f, -1, 139.0f, 44.0f, 11.1f},   /* 45 leak camera s540 d-10.6: north */
-        {-1, 139.0f, 24.0f, 11.1f, -1, 119.0f, 24.0f, 11.1f},   /* 46 ... west */
-        {-1, 170.0f, 60.0f, 6.0f, -1, 150.0f, 25.0f, 10.0f},    /* 47 from the north-east, at the exit's outer flank */
-        {-1, 180.0f, 10.0f, 14.0f, -1, 152.0f, 22.0f, 10.0f},   /* 48 from the east, at the ledge over the exit */
-        {-1, 78.0f, -40.0f, 150.0f, -1, 78.0f, -39.0f, 0.0f},   /* 49 straight down on the first mountain */
-        {-1, 128.0f, 6.0f, 150.0f, -1, 128.0f, 7.0f, 0.0f},     /* 50 straight down on the second */
-        {-1, 20.0f, -150.0f, 60.0f, -1, 78.0f, -40.0f, 10.0f},  /* 51 the first mountain from the south-west, high */
-        {-1, 200.0f, 60.0f, 60.0f, -1, 128.0f, 6.0f, 10.0f},    /* 52 the second from the north-east, high */
-        {7, 1.0f, 0.0f, 2.6f, 7, 8.0f, -16.0f, 2.0f},       /* 53 sweep 068-l: out of the second exit, left */
-        {7, 20.0f, 12.0f, 22.0f, 7, 4.0f, -18.0f, 2.0f},    /* 54 above, at the inside of the exit turn */
-        {7, 30.0f, -24.0f, 4.0f, 7, 2.0f, -14.0f, 3.0f},    /* 55 inside the exit turn, back at the mouth's flank */
-        {8, 0.0f, -10.0f, 30.0f, 7, 6.0f, -16.0f, 0.0f},    /* 56 high over the turn's inside, down at the notch */
-        {7, 1.0f, -8.0f, 60.0f, 7, 1.0f, -7.0f, 0.0f},      /* 57 straight down on the second exit */
-        {7, 14.0f, -4.0f, 1.5f, 7, 2.0f, -12.0f, 2.5f},     /* 58 past the exit, back at its left wing wall */
-        {6, 8.0f, -20.0f, 5.0f, 7, 4.0f, -10.0f, 3.0f},     /* 59 left of the exit, along its flank */
-        {4, 2.0f, -3.0f, 2.6f, -1, 99.0f, -8.9f, 21.0f},    /* 60 the summit, at the verge of the descent beside it */
-        {1, 30.0f, -2.0f, 2.2f, 2, 4.0f, -6.0f, 1.0f},      /* 61 turn 1, the chase camera, the inside bank */
-        {1, 46.0f, -6.0f, 2.0f, 2, 8.0f, -10.0f, 0.5f},     /* 62 the lead-in, low on the inside, at the grass */
-        {0, 70.0f, 0.0f, 2.6f, 1, 20.0f, -6.0f, 1.0f},      /* 63 into turn 1 */
-        {-1, 20.0f, -108.0f, 3.0f, -1, 20.0f, -128.0f, 3.0f},   /* 64 the totem pole south of the start straight */
-        {-1, -108.0f, 52.0f, 2.5f, -1, -122.0f, 63.0f, 3.5f},   /* 65 a totem pole by the long way home, close */
-        {-1, 136.0f, 68.0f, 3.0f, -1, 145.0f, 83.0f, 3.0f},     /* 66 a totem pole by the exit turn */
-        {-1, 92.0f, -40.0f, 28.0f, -1, 78.0f, -40.0f, 25.2f},   /* 67 the first tower's sunflower, level */
-        {-1, 128.0f, 22.0f, 29.0f, -1, 128.0f, 6.0f, 25.2f},    /* 68 the second tower's sunflower, level */
-        {-1, 96.0f, -28.0f, 19.0f, -1, 78.0f, -40.0f, 25.2f},   /* 69 the first tower's sunflower from below */
+        {-1, 78.0f, -40.0f, 150.0f, -1, 78.0f, -39.0f, 0.0f},   /* 1 straight down on the first mountain */
+        {-1, 128.0f, 6.0f, 150.0f, -1, 128.0f, 7.0f, 0.0f},     /* 2 straight down on the second */
+        {-1, 20.0f, -150.0f, 60.0f, -1, 78.0f, -40.0f, 10.0f},  /* 3 the first mountain from the south-west, high */
+        {-1, 200.0f, 60.0f, 60.0f, -1, 128.0f, 6.0f, 10.0f},    /* 4 the second from the north-east, high */
+        {1, 44.0f, 0.0f, 30.0f, 1, 52.0f, 0.0f, 0.0f},          /* 5 straight down on the first tunnel's mouth */
+        {5, 118.0f, 0.0f, 30.0f, 5, 126.0f, 0.0f, 0.0f},        /* 6 straight down on the second's */
+        {-1, 20.0f, -110.0f, 3.0f, -1, 60.0f, -75.0f, 6.0f},    /* 7 the first mountain's waterfall */
+        {-1, 74.0f, 60.0f, 3.0f, -1, 102.0f, 32.0f, 5.0f},      /* 8 the second's */
     };
     const int n = (int)(sizeof(views) / sizeof(views[0]));
     (void)n;
@@ -1721,21 +1660,16 @@ static void view_tour(void) {
     for(int i = 0; i < n; i++) {
         V3 pos = view_pt(views[i].seg, views[i].at, views[i].d, views[i].h);
         V3 look = view_pt(views[i].lseg, views[i].lat, views[i].ld, views[i].lh);
-        if(views[i].seg >= 0)
-            printf("DK VIEW %d at s %.0f (seg %d starts at %.0f)\n", i + 1, (double)track_wrap(track_seg_s(views[i].seg) + views[i].at),
-                   views[i].seg, (double)track_seg_s(views[i].seg));
         char name[32];
         snprintf(name, sizeof name, "view-%02d", i + 1);
         tour_shot(name, pos, look);
 #ifdef DK_ROCK_TINT
-        /* The outside views again with only the reference rock, to check
-           the reference itself. */
-        if(i == 14 || i == 15 || i == 32 || i == 34 || i == 46 || i == 47 || (i >= 48 && i < 52)) {
-            world_diag_mode(1);
-            snprintf(name, sizeof name, "view-%02d-ref", i + 1);
-            tour_shot(name, pos, look);
-            world_diag_mode(0);
-        }
+        /* Each again with only the reference rock, to check the reference
+           itself. */
+        world_diag_mode(1);
+        snprintf(name, sizeof name, "view-%02d-ref", i + 1);
+        tour_shot(name, pos, look);
+        world_diag_mode(0);
 #endif
     }
 #endif

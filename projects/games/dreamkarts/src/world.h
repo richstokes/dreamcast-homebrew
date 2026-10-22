@@ -31,9 +31,10 @@ uint32_t world_lane_color(float d);
 /* Terrain height under (x, z), ignoring the road and props (the sky
    track has none: a large negative value). */
 float world_ground_y(float x, float z);
+/* Spiral Canyon's leak test (main.c's view tour): a camera spot inside
+   the rock, and which rock to draw (-DDK_ROCK_TINT builds only). */
 bool world_leak_point(float s, float d, V3 *out);
-void world_diag_mode(int mode);   /* -DDK_ROCK_TINT builds only */
-float world_rock_mesh_top(float x, float z, int *count, float *lowest);
+void world_diag_mode(int mode);
 /* Neon gates over the road (Neon Skyway): their lap distances. */
 #define WORLD_MAX_GATES 12
 extern int world_gates;

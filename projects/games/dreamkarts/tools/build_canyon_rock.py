@@ -296,7 +296,7 @@ def simplify(rock, angle_deg):
     bm.free()
 
 
-def stripify(tris, swaps=True, normals=None, limit_deg=180.0):
+def stripify(tris, swaps=True):
     """Strips for the PowerVR, where every strip costs a submit of its own,
     so fewer and longer is what matters. Each strip starts from the unused
     triangle with the fewest unused neighbours (it would otherwise be
@@ -315,23 +315,10 @@ def stripify(tris, swaps=True, normals=None, limit_deg=180.0):
         a, b_, c = tris[t]
         return sum(1 for e in ((a, b_), (b_, c), (c, a)) for u in edge_tris[frozenset(e)] if u != t and not used[u])
 
-    cos_lim = math.cos(math.radians(limit_deg))
-
-    def fits(t, taken):
-        # Within limit_deg of the strip's first triangle, so its normal cone
-        # stays narrow enough to cull the strip when it faces away.
-        if normals is None or limit_deg >= 180.0:
-            return True
-        n0 = normals[taken_first[0]]
-        n = normals[t]
-        return n0[0] * n[0] + n0[1] * n[1] + n0[2] * n[2] >= cos_lim
-
-    taken_first = [0]
-
     def grow(seq, taken):
         while True:
             e = frozenset(seq[-2:])
-            nxt = next((t for t in edge_tris.get(e, ()) if not used[t] and t not in taken and fits(t, taken)), None)
+            nxt = next((t for t in edge_tris.get(e, ()) if not used[t] and t not in taken), None)
             if nxt is not None:
                 taken.add(nxt)
                 seq.append(next(v for v in tris[nxt] if v not in e))
@@ -342,7 +329,7 @@ def stripify(tris, swaps=True, normals=None, limit_deg=180.0):
             # newest vertex and the one before last), reached by repeating
             # the one before last, a degenerate triangle the hardware drops.
             e2 = frozenset((seq[-3], seq[-1]))
-            nxt = next((t for t in edge_tris.get(e2, ()) if not used[t] and t not in taken and fits(t, taken)), None)
+            nxt = next((t for t in edge_tris.get(e2, ()) if not used[t] and t not in taken), None)
             if nxt is None:
                 return seq
             taken.add(nxt)
@@ -361,7 +348,6 @@ def stripify(tris, swaps=True, normals=None, limit_deg=180.0):
             heapq.heappush(heap, (nd, t))
             continue
         a, b_, c = tris[t]
-        taken_first[0] = t
         best = None
         for rot in ((a, b_, c), (b_, c, a), (c, a, b_)):
             taken = {t}
@@ -375,19 +361,18 @@ def stripify(tris, swaps=True, normals=None, limit_deg=180.0):
     return strips
 
 
-def box_uvs(me, size, per_vertex):
+def box_uvs(me, size):
     """Box projection in world metres: the dominant axis of the face's
-    normal (per_vertex: of the vertex's own normal) picks the plane. Per
-    face nothing is stretched, but faces on different planes need their own
-    copies of the vertices they share, which breaks the strips there. Per
-    vertex keeps one UV a vertex and longer strips, but on the steep cut
-    walls the averaged normals pick the top plane and the texture streaks
-    down them: per face it is."""
+    normal picks the plane. Faces on different planes need their own copies
+    of the vertices they share, which breaks the strips there; choosing by
+    each vertex's own normal keeps one UV a vertex and longer strips, but on
+    the steep cut walls the averaged normals pick the top plane and the
+    texture streaks down them."""
     uv = []
     for poly in me.polygons:
         for li in poly.loop_indices:
             vi = me.loops[li].vertex_index
-            n = me.vertices[vi].normal if per_vertex else poly.normal   # Blender axes: x, y (= -game z), z (= game y)
+            n = poly.normal   # Blender axes: x, y (= -game z), z (= game y)
             ax = max(range(3), key=lambda k: abs(n[k]) * (1.9 if k == 2 else 1.0))
             co = me.vertices[vi].co
             if ax == 2:
@@ -399,42 +384,10 @@ def box_uvs(me, size, per_vertex):
     return uv
 
 
-def cull_estimate(cams, cones, spheres, lens):
-    """The rock's console cost for each chase camera (position, forward):
-    strips in a 100 by 75 degree view, less those facing wholly away."""
-    hx, hy = math.tan(math.radians(50)), math.tan(math.radians(37.5))
-    costs = []
-    culled = total = 0
-    for e, fwd in cams:
-        right = fwd.cross(Vector((0.0, 1.0, 0.0))).normalized()
-        up = right.cross(fwd)
-        cost = 0.0
-        for (c, r), cone, n in zip(spheres, cones, lens):
-            d = c - e
-            z = d.dot(fwd)
-            if z + r < 0.25 or abs(d.dot(right)) > z * hx + r * 1.6 or abs(d.dot(up)) > z * hy + r * 1.4:
-                continue
-            total += n
-            if cone is not None:
-                ax, ang = cone
-                dl = d.length
-                if dl > r:
-                    q = r / dl
-                    x = math.acos(q)
-                    a = math.radians(ang + 3.0)
-                    if x > a and d.dot(ax) / dl > math.cos(x - a):
-                        culled += n
-                        continue
-            cost += 0.00041 * n + 0.0016
-        costs.append(cost)
-    return sum(costs) / len(costs), max(costs), culled / max(1, total)
-
-
-def export(rock, f, prefix: str, tex_size: float, per_vertex_uv: bool, tile: float, swaps: bool,
-           cone_limit: float = 180.0, cams=None):
+def export(rock, f, prefix: str, tex_size: float, tile: float, swaps: bool):
     me = rock.data
     me.calc_loop_triangles()
-    uv = box_uvs(me, tex_size, per_vertex_uv)
+    uv = box_uvs(me, tex_size)
     # One export vertex per distinct (vertex, uv).
     key_to_out = {}
     verts, normals, uvs = [], [], []
@@ -458,48 +411,24 @@ def export(rock, f, prefix: str, tex_size: float, per_vertex_uv: bool, tile: flo
         cx = sum(verts[i][0] for i in t) / 3
         cz = sum(verts[i][2] for i in t) / 3
         tiles.setdefault((math.floor(cx / tile), math.floor(cz / tile)), []).append(t)
-    def tri_normal(t):
-        a, b_, c = (Vector(verts[i]) for i in t)
-        n = (b_ - a).cross(c - a)
-        return n.normalized() if n.length > 1e-9 else Vector((0.0, 1.0, 0.0))
-
     chunks = []
     out_idx = []
     strip_lens = []
-    cones = []      # per strip: axis (game x, y, z), half-angle degrees (None: never culled)
-    spheres = []
     for key in sorted(tiles):
-        tl = tiles[key]
-        tn = [tri_normal(t) for t in tl]
-        strips = stripify(tl, swaps, tn, cone_limit)
+        strips = stripify(tiles[key], swaps)
         chunks.append((len(strip_lens), len(strips)))
-        for seq, ids in strips:
+        for seq, _ in strips:
             strip_lens.append(len(seq))
             out_idx.extend(seq)
-            ax = Vector((0.0, 0.0, 0.0))
-            for t in ids:
-                ax += tn[t]
-            if ax.length < 1e-6:
-                cones.append(None)
-            else:
-                ax.normalize()
-                ang = max(math.degrees(math.acos(max(-1.0, min(1.0, ax.dot(tn[t]))))) for t in ids)
-                cones.append((ax, ang) if ang < 85.0 else None)
-            pts = [Vector(verts[i]) for i in seq]
-            c = sum(pts, Vector((0.0, 0.0, 0.0))) / len(pts)
-            spheres.append((c, max((p - c).length for p in pts)))
     pool = sum(strip_lens)
-    # The game draws every strip in view (cone culling was tried: the
-    # strips mix slopes, so it skipped only 7-19% and cost more strips).
-    est = cull_estimate(cams, [None] * len(cones), spheres, strip_lens) if cams else None
+    # The game draws every strip in view (culling strips that face away was
+    # tried: they mix slopes, so it skipped only 7-19% and cost more strips).
     # The console's cost to draw it all, from hardware timings: 0.41 us a
     # strip vertex, 1.6 us a strip.
     cost = 0.00041 * pool + 0.0016 * len(strip_lens)
     print(f"canyon rock {prefix}: {len(verts)} verts, {len(tris)} tris, {len(strip_lens)} strips "
           f"({pool / max(1, len(strip_lens)):.1f} verts each), {len(chunks)} chunks, {pool} pool verts, "
           f"~{cost:.2f} ms a view on the console")
-    if est:
-        print(f"canyon rock {prefix}: chase cameras round the lap: {est[0]:.2f} ms a view on average, {est[1]:.2f} ms at worst")
     if max(strip_lens) > 255:
         sys.exit("canyon rock: a strip over 255 vertices; split it")
     P, N = prefix, prefix.upper()
@@ -522,24 +451,6 @@ def export(rock, f, prefix: str, tex_size: float, per_vertex_uv: bool, tile: flo
     return pool
 
 
-def chase_cameras(lofts):
-    """Chase-camera positions along the road (every profile station, the
-    camera 6 m back and 2.6 m up looking along the road), game axes."""
-    cams = []
-    for kind, stations in lofts:
-        cs = []
-        for prof in stations:
-            l, r = Vector(prof[0]), Vector(prof[-1])
-            cs.append((l + r) / 2 + Vector((0.0, 0.6, 0.0)))
-        for k in range(1, len(cs)):
-            fwd = cs[k] - cs[k - 1]
-            if fwd.length < 1e-3:
-                continue
-            fwd.normalize()
-            cams.append((cs[k] - fwd * 6.0 + Vector((0.0, 2.6, 0.0)), fwd))
-    return cams
-
-
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     ap = argparse.ArgumentParser()
@@ -553,14 +464,11 @@ def main():
     ap.add_argument("--split-tris", type=int, default=1200, help="the same for the split-screen rock")
     ap.add_argument("--split-clear-step", type=int, default=2, help="split-screen rock: use every nth clearance station")
     ap.add_argument("--tex", type=float, default=6.0, help="metres per texture repeat")
-    ap.add_argument("--uv", choices=("face", "vertex"), default="face", help="box projection chosen per face or per vertex")
     ap.add_argument("--tile", type=float, default=64.0, help="chunk size, metres")
     ap.add_argument("--swaps", type=int, default=1, help="let strips continue through a repeated vertex")
-    ap.add_argument("--cone", type=float, default=180.0, help="keep each strip's normals within this of its first, degrees")
     a = ap.parse_args(argv)
 
     grid, H, G, lofts, towers = parse_dump(a.dump)
-    cams = chase_cameras(lofts)
     total = 0
     with a.header.open("w") as f:
         f.write("/* Generated by tools/build_canyon_rock.py (Blender). Do not edit. */\n")
@@ -587,7 +495,7 @@ def main():
             if a.blend and prefix == "dk_rock":
                 a.blend.parent.mkdir(parents=True, exist_ok=True)
                 bpy.ops.wm.save_as_mainfile(filepath=str(a.blend.resolve()))
-            total += export(rock, f, prefix, a.tex, a.uv == "vertex", a.tile, a.swaps, a.cone, cams)
+            total += export(rock, f, prefix, a.tex, a.tile, a.swaps)
         f.write("#endif\n")
     if total > MAX_VERTS:
         sys.exit(f"canyon rock: {total} strip vertices in all, over the {MAX_VERTS} budget")
