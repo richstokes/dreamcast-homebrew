@@ -256,8 +256,5 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 
 ## Credits
 
-Renderer maths uses [SH4ZAM](https://sh4zam.com/) by Falco Girgis and
-contributors (MIT License). The HUD, logo and VMU
-lettering use the DejaVu Sans Bold Oblique font bundled with matplotlib
-(Bitstream Vera licence). The music and effects are original, synthesized
-by `tools/build_audio.py`.
+Built on KallistiOS and SH4ZAM; the font, tools and thanks are in
+[CREDITS.md](CREDITS.md), with the licence notices binary releases carry.
