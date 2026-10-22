@@ -35,7 +35,8 @@ mode. If discovery finds nothing (some networks drop broadcasts), pick
 
 | Input | Browsing | Playing |
 | --- | --- | --- |
-| A / Start | Open folder, play | Pause / resume |
+| A | Open folder, play | Pause / resume |
+| Start | Picture mode | Picture mode |
 | B | Up a folder | Stop, back to the list |
 | D-pad Up/Down | Move | Volume |
 | D-pad Left/Right | | Seek 30 s (hold to scrub) |
@@ -44,6 +45,20 @@ mode. If discovery finds nothing (some networks drop broadcasts), pick
 | X | | Stats: decode time, buffers, network |
 
 At the end of a file the next one in the folder plays.
+
+## Picture modes
+
+Start cycles through these; the choice and the last server are saved to the
+first VMU.
+
+| Mode | For | Widescreen video | 4:3 video |
+| --- | --- | --- | --- |
+| FIT | 4:3 TVs, and 16:9 TVs showing the Dreamcast as 4:3 | Black bars top and bottom | Full screen |
+| ZOOM | The same TVs, without the bars | Sides cropped to fill the screen (by the server, so the whole decode budget goes on what you see) | Full screen |
+| WIDE | 16:9 TVs set to stretch the picture | Full screen | Black bars at the sides |
+
+Switching into or out of ZOOM restarts the stream where you are, which takes
+about a second.
 
 ## Build and run
 
@@ -62,27 +77,32 @@ build it in with `EXTRA_CFLAGS='-DLP_SERVER=\"http://IP:8200/description.xml\"'`
 | `make` | `lemonplay.elf` |
 | `make VARIANT=qa EXTRA_CFLAGS=...LP_SERVER...` | Plays the first video from 5:00, seeks, prints `LP QA: PASS`. Run with `LP_ELF=lemonplay-qa.elf LP_EXIT_ON_LOG="LP QA: done" ./run-flycast.sh --skip-build`. Add `-DLP_QA_LINGER=4000` to pause on each screen for screenshots |
 | `make VARIANT=decodebench EXTRA_CFLAGS=...LP_SERVER...` | Downloads 10 s clips at several sizes and bitrates and times the decoder (`LP DECODEBENCH` lines) |
-| `make VARIANT=bench EXTRA_CFLAGS=...LP_SERVER...` | Real-time playback with a stats line every 10 s |
+| `make VARIANT=bench EXTRA_CFLAGS=...LP_SERVER...` | Plays 45 s at each of several server budgets and prints `LP PLAYBENCH` lines: decode load, dropped frames, hitches (gaps over 2.5 frames), I-frame skips, rebuffers |
 | `make hw` | Real Dreamcast via `tools/dc-hw.sh` |
 
 ## Performance
 
-MPEG-1 decode costs a roughly fixed time per 16x16 macroblock, rising with
-bitrate. Decode benchmark, 10 s of 23.976 fps Friends at 0.5 bits/pixel:
+Measured on a real Dreamcast with a Broadband Adapter, 23.976 fps Friends.
+MPEG-1 decode costs a roughly fixed time per 16x16 macroblock that rises
+with bitrate: about **26 + 78 x bits-per-pixel us per macroblock** in
+isolation (`decodebench`), plus ~25% during playback for networking and
+drawing. I-frames take 2.5-3x the average.
 
-| Size | kbps | Flycast avg / p95 / max ms |
-| --- | --- | --- |
-| 320x176 | 718 | 12.4 / 19.0 / 44.7 |
-| 368x208 | 955 | 16.8 / 26.4 / 53.8 |
-| 448x240 | 1310 | 23.4 / 35.5 / 71.7 |
-| 512x288 | 1761 | 31.9 / 47.4 / 94.4 |
-| 640x352 | 2650 | 48.7 / 65.7 / 130.8 |
+| Size | bpp | Isolated decode avg / max | Playback decode avg | Decoder busy | Result |
+| --- | --- | --- | --- | --- | --- |
+| 368x208 | 0.5 | 19.7 / 55 ms | 19.8 ms | 48% | Smooth |
+| **448x256** | **0.35** | | **27.6-29.5 ms** | **66-71%** | **Server default: smooth over 3 x 60 s** |
+| 448x256 | 0.5 | 27.4 / 76 (448x240) | 36.5 ms | 85% | 1 skip, 2 hitches in 45 s |
+| 448x336 | 0.35 | | 35.1 ms | 84% | Smooth, borderline |
+| 512x288 | 0.5 | 40.0 / 97 | 41.9 ms | 90% | 3 hitches in 10 s |
+| 640x352 | 0.5 | 57.9 / 134 | | | Not real time |
 
-That is ~18,000 macroblocks/s in Flycast at 0.5 bpp (~27,000 at 0.25,
-~14,000 at 1.0). I-frames take ~2.7x the average. Uploading a picture through
-the YUV converter costs under 1 ms. Real hardware numbers are still to come;
-until then the server's budget is a conservative 7,500 macroblocks/s
-(368x208 at 24 fps).
+Playback stays smooth while the decoder thread is under ~80% busy and starts
+skipping (dropping to the next I-frame) around 85%. ZeroConfigDLNA's default
+budget, 11,000 macroblocks/s at 0.35 bpp, sits at ~70%: 448x256 for 24 fps
+widescreen, 384x288 in ZOOM or for 4:3. TCP from a Mac reached ~4.5 MB/s;
+a stream needs ~0.3 MB/s, so the network is never the limit. Uploading a
+picture through the YUV converter costs ~1 ms (3.7 ms at 640 wide).
 
 ## Gotchas
 
@@ -91,8 +111,17 @@ until then the server's budget is a conservative 7,500 macroblocks/s
 - The Dreamcast pl_mpeg port's buffers are power-of-two rings: feed it with
   `plm_buffer_create_with_capacity` + `plm_buffer_write`. Its fixed-memory
   mode silently decodes garbage
+- Decoding is bit-exact between Flycast and the console (`decodebench`
+  prints a hash per clip), so a picture problem that only shows on hardware
+  is in the upload or display path, not the decoder
 - Translucent UI polys use depth compare ALWAYS with autosort off, so they
   stack in submission order over the video
+- The YUV converter is part of the TA, which KOS re-initialises from its
+  interrupt handler when a scene's lists are done. Feed it only between
+  `pvr_scene_begin` and the first list, from the render thread; uploads from
+  another thread at arbitrary times garbled pictures on the console
+- Flycast decodes ~17% faster than the console and doesn't emulate the
+  cache: tune budgets on hardware (`make VARIANT=bench`, `decodebench`)
 - Yamaha ADPCM would cut audio bandwidth 4x, but the AICA restarts its
   predictor whenever a stream starts, so resuming mid-file after a pause or
   rebuffer drifts. PCM is only ~176 KB/s on a LAN
@@ -102,6 +131,7 @@ until then the server's budget is a conservative 7,500 macroblocks/s
 - Broadband Adapter (or LAN adapter) only; the modem is far too slow
 - Plays only ZeroConfigDLNA `--dreamcast-mode` streams. Photos aren't shown yet
 - No subtitles
+- In WIDE mode the menus and on-screen bar are stretched by the TV too
 
 ## Credits
 

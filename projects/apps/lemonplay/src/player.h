@@ -15,6 +15,9 @@ typedef enum {
     PLAY_FAILED      /* see the error text */
 } play_result_t;
 
+/* Appended to stream requests (benchmarks try other server profiles). */
+extern const char *player_extra_query;
+
 play_result_t player_play(const entry_t *entry, double start_seconds, char *error, size_t error_size);
 
 #endif

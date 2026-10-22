@@ -9,6 +9,7 @@
 #include "input.h"
 #include "netlink.h"
 #include "player.h"
+#include "settings.h"
 #include "upnp.h"
 
 #include <dc/sound/sound.h>
@@ -57,17 +58,41 @@ static uint64_t sel_since;
 
 static char message[96];
 static uint64_t message_until;
+static int message_is_error;
 
 /* Worker job */
 static volatile int job = JOB_NONE;
 static volatile int job_done;
 static int job_result;
+static int remembered_lookup;   /* JOB_DESCRIBE is for the saved server, not a typed one */
 static char job_arg[256];
 static server_t job_server;
 
 static void say(const char *text) {
     snprintf(message, sizeof(message), "%s", text);
     message_until = timer_ms_gettime64() + 5000;
+    message_is_error = 1;
+}
+
+static void cycle_picture(void) {
+    settings.picture = (settings.picture + 1) % PICTURE_MODES;
+    settings_changed();
+    snprintf(message, sizeof(message), "Picture %s: %s", picture_name(settings.picture), picture_help(settings.picture));
+    message_until = timer_ms_gettime64() + 3000;
+    message_is_error = 0;
+}
+
+/* Fill the address screen from a saved server URL. */
+static void address_from(const char *location) {
+    url_t u;
+    unsigned a, b, c, d;
+    if(url_parse(location, &u) == 0 && sscanf(u.host, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+        address[0] = a;
+        address[1] = b;
+        address[2] = c;
+        address[3] = d;
+        port = u.port;
+    }
 }
 
 static void *job_thread(void *unused) {
@@ -101,6 +126,10 @@ static void browse(const char *id) {
 
 static void open_server(const server_t *s) {
     current = *s;
+    if(strcmp(settings.server, s->location) && strlen(s->location) < sizeof(settings.server)) {
+        snprintf(settings.server, sizeof(settings.server), "%s", s->location);
+        settings_changed();
+    }
     depth = 0;
     snprintf(stack[0].id, sizeof(stack[0].id), "0");
     snprintf(stack[0].title, sizeof(stack[0].title), "%s", s->name);
@@ -126,8 +155,27 @@ static void job_finish(void) {
         }
 #endif
         printf("LemonPlay: found %d media server(s)\n", server_count);
+#ifndef LP_SERVER
+        /* The last server opened, in case discovery can't see it. */
+        if(settings.server[0]) {
+            int listed = 0;
+            for(int i = 0; i < server_count; i++) listed |= !strcmp(servers[i].location, settings.server);
+            if(!listed) {
+                snprintf(job_arg, sizeof(job_arg), "%s", settings.server);
+                job_start(JOB_DESCRIBE);
+                remembered_lookup = 1;
+                return;
+            }
+        }
+#endif
     }
     else if(which == JOB_DESCRIBE) {
+        int remembered = remembered_lookup;
+        remembered_lookup = 0;
+        if(remembered) {
+            if(job_result == 0 && server_count < MAX_SERVERS) servers[server_count++] = job_server;
+            return;
+        }
         if(job_result == 0) {
             int dup = 0;
             for(int i = 0; i < server_count; i++) dup |= !strcmp(servers[i].location, job_server.location);
@@ -171,13 +219,15 @@ static int playable(const entry_t *e) {
     return e->playable && (e->kind == ENTRY_VIDEO || e->kind == ENTRY_AUDIO);
 }
 
+static double play_start = LP_START_SECONDS;
+
 static void play_from(int index) {
     char error[96];
     while(index >= 0 && index < entry_count) {
         entry_t *e = &entries[index];
         stack[depth].sel = index;
         printf("LemonPlay: playing %s\n", e->title);
-        play_result_t r = player_play(e, LP_START_SECONDS, error, sizeof(error));
+        play_result_t r = player_play(e, play_start, error, sizeof(error));
         if(r == PLAY_FAILED) {
             printf("LemonPlay: playback failed: %s\n", error);
             say(error);
@@ -234,10 +284,14 @@ static void update(const input_t *in) {
             int count = server_count + 2;
             int top = 0;
             list_move(&server_sel, &top, count, in);
-            if(in->pressed & (CONT_A | CONT_START)) {
+            if(in->pressed & CONT_START) cycle_picture();
+            if(in->pressed & CONT_A) {
                 if(server_sel < server_count) open_server(&servers[server_sel]);
                 else if(server_sel == server_count) job_start(JOB_DISCOVER);
-                else screen = SCREEN_ADDRESS;
+                else {
+                    if(settings.server[0]) address_from(settings.server);
+                    screen = SCREEN_ADDRESS;
+                }
             }
             break;
         }
@@ -251,7 +305,7 @@ static void update(const input_t *in) {
                 else port = (uint16_t)(port + d);
             }
             if(in->pressed & CONT_B) screen = SCREEN_SERVERS;
-            if(in->pressed & (CONT_A | CONT_START)) {
+            if(in->pressed & CONT_A) {
                 snprintf(job_arg, sizeof(job_arg), "http://%d.%d.%d.%d:%u/description.xml",
                          address[0], address[1], address[2], address[3], port);
                 job_start(JOB_DESCRIBE);
@@ -273,9 +327,10 @@ static void update(const input_t *in) {
                 browse(stack[depth].id);
                 break;
             }
+            if(in->pressed & CONT_START) cycle_picture();
             if(!entry_count) break;
             list_move(&stack[depth].sel, &stack[depth].top, entry_count, in);
-            if(in->pressed & (CONT_A | CONT_START)) {
+            if(in->pressed & CONT_A) {
                 entry_t *e = &entries[stack[depth].sel];
                 if(e->kind == ENTRY_FOLDER) {
                     if(depth + 1 < MAX_DEPTH) {
@@ -312,13 +367,18 @@ static void draw_header(const char *subtitle) {
 }
 
 static void draw_footer(const char *hints) {
+    char line[96];
     gfx_rect_alpha(0, 446, SCREEN_W, 34, 0xff1d1a11);
     gfx_text(24, 451, COL_MUTED, 1, hints);
+    if(screen == SCREEN_SERVERS || screen == SCREEN_BROWSE) {
+        snprintf(line, sizeof(line), "Start %s", picture_name(settings.picture));
+        gfx_text(SCREEN_W - 24 - gfx_text_width(line, 1), 451, COL_LEMON_DIM, 1, line);
+    }
     if(timer_ms_gettime64() < message_until) {
         float w = gfx_text_width(message, 1);
         if(w > SCREEN_W - 40) w = SCREEN_W - 40;
-        gfx_rect_alpha((SCREEN_W - w) / 2 - 12, 400, w + 24, 36, 0xf0402818);
-        gfx_text_clip((SCREEN_W - w) / 2, 406, COL_ERROR, 1, message, SCREEN_W - 40);
+        gfx_rect_alpha((SCREEN_W - w) / 2 - 12, 400, w + 24, 36, message_is_error ? 0xf0402818 : 0xf0302c1a);
+        gfx_text_clip((SCREEN_W - w) / 2, 406, message_is_error ? COL_ERROR : COL_LEMON, 1, message, SCREEN_W - 40);
     }
 }
 
@@ -451,7 +511,7 @@ static void draw(void) {
                     gfx_rect_alpha(SCREEN_W - 8, LIST_Y + h * top / entry_count, 3, bar, COL_LEMON_DIM);
                 }
             }
-            draw_footer("A Play/Open  B Back  Y Refresh  L/R Page");
+            draw_footer("A Open  B Back  Y Refresh");
             break;
         }
     }
@@ -498,6 +558,21 @@ static void qa_step(void) {
             played = 1;
 #ifdef LP_DECODE_BENCH
             bench_run(entries[i].url);
+#elif defined(LP_BENCH)
+            /* Server profiles to try, each played for LP_BENCH_SECONDS on the
+               console from several points in the file. An empty query is
+               the server's default. */
+            static const struct {
+                const char *query;
+                double start;
+            } runs[] = {
+                {"", 300}, {"", 600}, {"", 900},
+            };
+            for(size_t k = 0; k < sizeof(runs) / sizeof(runs[0]); k++) {
+                player_extra_query = runs[k].query;
+                play_start = runs[k].start;
+                play_from(i);
+            }
 #else
             play_from(i);
 #endif
@@ -525,12 +600,14 @@ int main(int argc, char **argv) {
     printf("LemonPlay starting\n");
     gfx_init();
     snd_stream_init();
+    settings_load();
     link_start();
 
     for(;;) {
         input_t in;
         input_poll(&in);
         update(&in);
+        settings_poll();
 #if defined(LP_QA) || defined(LP_BENCH) || defined(LP_DECODE_BENCH)
         qa_step();
 #endif

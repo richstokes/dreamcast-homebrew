@@ -1,6 +1,6 @@
 TARGET = lemonplay.elf
 SRCS = src/main.c src/gfx.c src/input.c src/netlink.c src/http.c src/upnp.c \
-       src/player.c src/mpeg.c src/bench.c
+       src/player.c src/mpeg.c src/bench.c src/settings.c
 
 KOS_BUILD_SUBARCHS = pristine
 KOS_CSTD = -std=gnu17
@@ -23,11 +23,16 @@ all: $(ELF)
 
 include $(KOS_BASE)/Makefile.rules
 
-$(BUILD)/%.o: src/%.c $(wildcard src/*.h) | $(BUILD)
+# Rebuild when the flags change, not only the sources.
+FLAGS_STAMP = $(BUILD)/flags
+$(FLAGS_STAMP): FORCE | $(BUILD)
+	@echo '$(CFLAGS_LP)' | cmp -s - $@ || echo '$(CFLAGS_LP)' > $@
+
+$(BUILD)/%.o: src/%.c $(wildcard src/*.h) $(FLAGS_STAMP) | $(BUILD)
 	kos-cc $(KOS_CFLAGS) $(CFLAGS_LP) -c $< -o $@
 
 # pl_mpeg's own warnings are not ours to fix.
-$(BUILD)/mpeg.o: src/mpeg.c src/mpeg.h third_party/pl_mpeg/pl_mpeg.h | $(BUILD)
+$(BUILD)/mpeg.o: src/mpeg.c src/mpeg.h third_party/pl_mpeg/pl_mpeg.h $(FLAGS_STAMP) | $(BUILD)
 	kos-cc $(KOS_CFLAGS) $(CFLAGS_LP) -w -c $< -o $@
 
 $(BUILD):
@@ -47,4 +52,4 @@ DC_HW = ../../../tools/dc-hw.sh
 hw: $(TARGET)
 	$(DC_HW) run -c $(TARGET)
 
-.PHONY: all clean run hw
+.PHONY: all clean run hw FORCE

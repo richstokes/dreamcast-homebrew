@@ -1743,38 +1743,12 @@ inline void plm_buffer_ring_sync_guard(plm_buffer_t *self) {
     self->bytes[self->capacity + 3] = self->bytes[3];
 }
 
+// LemonPlay: this used to copy through the store queues, which write RAM
+// behind the operand cache. Cached (possibly dirty) lines of the ring buffer
+// then gave the decoder stale bytes, or overwrote the new ones on write-back:
+// corrupt macroblocks on real hardware only (Flycast has no cache).
 inline void plm_sq_copy_bytes(void *dest, const void *src, size_t length) {
-    uint8_t *d = (uint8_t *)dest;
-    const uint8_t *s = (const uint8_t *)src;
-
-    size_t prefix = ((size_t)32 - ((uintptr_t)d & 31)) & 31;
-    if (prefix > length) {
-        prefix = length;
-    }
-
-    for (size_t i = 0; i < prefix; i++) {
-        d[i] = s[i];
-    }
-    d += prefix;
-    s += prefix;
-    length -= prefix;
-
-    if (length >= 32 && (((uintptr_t)s & 7) == 0)) {
-        size_t block_bytes = length & ~(size_t)31;
-        size_t blocks = block_bytes >> 5;
-
-        sq_lock(d);
-        sq_fast_cpy(SQ_MASK_DEST(d), s, blocks);
-        sq_unlock();
-
-        d += block_bytes;
-        s += block_bytes;
-        length -= block_bytes;
-    }
-
-    while (length--) {
-        *d++ = *s++;
-    }
+    memcpy(dest, src, length);
 }
 
 int plm_buffer_ring_grow_memalign(plm_buffer_t *self, size_t new_capacity) {

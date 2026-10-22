@@ -141,6 +141,9 @@ void bench_run(const char *media_url) {
         while(th < hgt) th <<= 1;
         int n = 0;
         uint64_t total = 0, upload_us = 0;
+        /* FNV-1a over every decoded picture: decoding is integer-only, so
+           Flycast and the console must agree bit for bit. */
+        uint32_t hash = 2166136261u;
         for(;;) {
             while(fed < pictures && fed < n + 3) {
                 plm_buffer_write(pb, buf + pos[fed], sizes[fed]);
@@ -153,6 +156,9 @@ void bench_run(const char *media_url) {
             if(!f) break;
             upload(f, tex, tw, th);
             uint64_t c = timer_us_gettime64();
+            const uint8_t *px = (const uint8_t *)f->display;
+            for(int k = 0, len = (f->y.width >> 4) * (f->y.height >> 4) * 384; k < len; k++)
+                hash = (hash ^ px[k]) * 16777619u;
             if(n < MAX_PICTURES) times[n] = (uint32_t)(b - a);
             n++;
             total += b - a;
@@ -169,8 +175,9 @@ void bench_run(const char *media_url) {
         float p95 = times[kept * 95 / 100] / 1000.0f, mx = times[kept - 1] / 1000.0f;
         int mbs = (w / 16) * (hgt / 16);
         float kbps = es * 8.0f / 1000.0f / (pictures / (fps > 0 ? fps : 24));
-        printf("LP DECODEBENCH: %dx%d %.2ffps %.0fkbps bpp %.2f | net %.0f KB/s | decode %.2f %.2f %.2f ms | upload %.2f ms | %.0f MB/s\n",
-               w, hgt, fps, kbps, cfg->bpp, net, avg, p95, mx, upload_us / 1000.0f / n, mbs / (avg / 1000.0f));
+        printf("LP DECODEBENCH: %dx%d %.2ffps %.0fkbps bpp %.2f | net %.0f KB/s | decode %.2f %.2f %.2f ms | upload %.2f ms | %.0f MB/s | %d pictures hash %08lx\n",
+               w, hgt, fps, kbps, cfg->bpp, net, avg, p95, mx, upload_us / 1000.0f / n, mbs / (avg / 1000.0f),
+               n, (unsigned long)hash);
     }
     pvr_mem_free(tex);
     free(times);

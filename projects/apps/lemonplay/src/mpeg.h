@@ -25,4 +25,8 @@
 
 #include "pl_mpeg.h"
 
+/* Make the next decoded picture write its macroblocks to display (which
+   must hold mb_width * mb_height * 384 bytes, 32-byte aligned). */
+void lp_video_set_output(plm_video_t *video, uint32_t *display);
+
 #endif
