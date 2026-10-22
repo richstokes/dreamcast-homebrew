@@ -128,7 +128,14 @@ static const struct { int players, track, colour[2], browse; } plan[] = {
 #endif
 static int race_i = DK_FILM_FIRST, step, taps;
 static float wait_t;
+/* -DDK_FILM_TRACK=n races every entry of the set on track n, no tour. */
+#ifdef DK_FILM_TRACK
+#define PLAN_TRACK(r) DK_FILM_TRACK
+static bool tracks_toured = true;
+#else
+#define PLAN_TRACK(r) plan[r].track
 static bool tracks_toured = DK_FILM_FIRST > 0;
+#endif
 
 /* One scripted action every `gap` seconds of the current state. */
 static bool due(float gap) {
@@ -238,7 +245,7 @@ static void show_script(void) {
                     input_film_tap(0, BTN_RIGHT);
                     taps++;
                 }
-                else if(game.track != plan[r].track) {
+                else if(game.track != PLAN_TRACK(r)) {
                     input_film_tap(0, BTN_RIGHT);
                 }
                 else step = 1;
