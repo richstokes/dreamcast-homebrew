@@ -28,8 +28,18 @@ static float group_nrm[DK_MODEL_VERT_COUNT][3];
 static uint32_t group_paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
 static uint32_t group_lit[MAX_KARTS][DK_MODEL_VERT_COUNT] __attribute__((aligned(32)));
 static int group_count;
-/* The triangle lists as byte offsets of staged vertices (index * 32). */
-static uint16_t index_off[DK_MODEL_INDEX_COUNT];
+/* A mesh's vertices that differ only in normal or paint share a position,
+   which r_mesh_kv transforms once: each mesh's distinct positions are
+   mesh_p0[mesh] onwards. */
+static float model_pos[DK_MODEL_VERT_COUNT][4] __attribute__((aligned(32)));
+static uint16_t mesh_p0[DK_MODEL_MESH_COUNT], mesh_np[DK_MODEL_MESH_COUNT];
+static uint16_t vert_pos[DK_MODEL_VERT_COUNT];   /* a vertex's position within its mesh */
+/* Each mesh's triangles as strips for r_mesh_kv (format in render.h), the
+   winding of every source triangle kept. Worst case is a strip per
+   triangle. */
+#define STRIP_DATA_MAX (DK_MODEL_INDEX_COUNT / 3 * 7 + DK_MODEL_MESH_COUNT)
+static uint16_t strip_data[STRIP_DATA_MAX];
+static uint16_t mesh_strips[DK_MODEL_MESH_COUNT];   /* first word in strip_data */
 static uint32_t lit_frame[MAX_KARTS][DK_MODEL_MESH_COUNT];
 static uint32_t frame_id = 1;
 /* Kart part matrices, computed once per frame and shared by both views. */
@@ -44,6 +54,128 @@ static V3 light_dir;
 
 static float luma(uint32_t c) {
     return (0.30f * ((c >> 16) & 255) + 0.59f * ((c >> 8) & 255) + 0.11f * (c & 255)) / 255.0f;
+}
+
+/* Does triangle t (indices tri[t*3..]) have the cyclic order (a, b, c)? */
+static bool tri_is(const uint16_t *tri, int t, unsigned a, unsigned b, unsigned c) {
+    const uint16_t *p = tri + t * 3;
+    for(int r = 0; r < 3; r++)
+        if(p[r] == a && p[(r + 1) % 3] == b && p[(r + 2) % 3] == c) return true;
+    return false;
+}
+
+/* Greedy strip from triangle t started at rotation rot into out (vertex
+   indices), taking unused triangles that continue it with the right
+   winding; marks taken ones with stamp. Returns the strip's vertex count. */
+static int grow_strip(const uint16_t *tri, int ntri, uint16_t *used, uint16_t stamp, int t, int rot,
+                      uint16_t *out) {
+    const uint16_t *p = tri + t * 3;
+    int n = 0;
+    for(int k = 0; k < 3; k++) out[n++] = p[(rot + k) % 3];
+    used[t] = stamp;
+    while(n - 2 < R_MESH_STRIP_TRIS) {
+        /* Next triangle k = n - 2: (q, r, x) wound as (q, r, x) for even
+           k, (r, q, x) for odd. */
+        unsigned q = out[n - 2], r = out[n - 1];
+        bool odd = (n - 2) & 1;
+        int found = -1;
+        unsigned x = 0;
+        for(int u = 0; u < ntri && found < 0; u++) {
+            if(used[u]) continue;
+            for(int k = 0; k < 3; k++) {
+                unsigned c = tri[u * 3 + k];
+                if(c == q || c == r) continue;
+                if(odd ? tri_is(tri, u, r, q, c) : tri_is(tri, u, q, r, c)) {
+                    found = u;
+                    x = c;
+                    break;
+                }
+            }
+        }
+        if(found < 0) break;
+        used[found] = stamp;
+        out[n++] = (uint16_t)x;
+    }
+    return n;
+}
+
+/* Strip each mesh's triangle list (once, at boot), trying the three
+   rotations of each starting triangle and keeping the longest. */
+static void build_strips(void) {
+    static uint16_t used[DK_MODEL_INDEX_COUNT / 3], strip[R_MESH_STRIP_TRIS + 2];
+    int o = 0, strips = 0, nsv = 0;
+    for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
+        const dk_mesh_t *m = &dk_model_meshes[mi];
+        const uint16_t *tri = &dk_model_indices[m->first_index];
+        int ntri = m->index_count / 3;
+        mesh_strips[mi] = (uint16_t)o;
+        memset(used, 0, sizeof(used));
+        for(int t = 0; t < ntri; t++) {
+            if(used[t]) continue;
+            int best = 0, best_n = 0;
+            for(int rot = 0; rot < 3; rot++) {
+                /* Trial runs mark with stamp 2 + rot and are undone. */
+                int n = grow_strip(tri, ntri, used, (uint16_t)(2 + rot), t, rot, strip);
+                for(int u = 0; u < ntri; u++)
+                    if(used[u] == 2 + rot) used[u] = 0;
+                if(n > best_n) {
+                    best_n = n;
+                    best = rot;
+                }
+            }
+            int n = grow_strip(tri, ntri, used, 1, t, best, strip);
+#ifdef DK_XF_CHECK
+            /* Every strip triangle must be an unclaimed source triangle,
+               wound the same way. */
+            extern uint32_t xf_checked, xf_mismatch;
+            static uint8_t claimed[DK_MODEL_INDEX_COUNT / 3];
+            if(t == 0) memset(claimed, 0, sizeof(claimed));
+            for(int k = 0; k + 2 < n; k++) {
+                unsigned a = strip[k + (k & 1)], b = strip[k + 1 - (k & 1)], c = strip[k + 2];
+                int u = 0;
+                while(u < ntri && (claimed[u] || !tri_is(tri, u, a, b, c))) u++;
+                if(u < ntri) claimed[u] = 1;
+                else xf_mismatch++;
+                xf_checked++;
+            }
+#endif
+            strip_data[o++] = (uint16_t)n;
+            for(int k = 0; k < n; k++) {
+                int v = m->first_vert + strip[k];
+                strip_data[o++] = (uint16_t)(vert_pos[v] * 16);
+                strip_data[o++] = (uint16_t)(model_kv[v].group * 4);
+            }
+            strips++;
+            nsv += n;
+        }
+        strip_data[o++] = 0;
+    }
+    printf("DreamKarts models: %d strips, %d strip vertices for %d triangles\n", strips, nsv,
+           DK_MODEL_INDEX_COUNT / 3);
+}
+
+/* Each mesh's distinct positions, and each vertex's among them. */
+static void find_positions(void) {
+    int np = 0;
+    for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
+        const dk_mesh_t *m = &dk_model_meshes[mi];
+        mesh_p0[mi] = (uint16_t)np;
+        for(int i = m->first_vert; i < m->first_vert + m->vert_count; i++) {
+            const KV *v = &model_kv[i];
+            int p = mesh_p0[mi];
+            while(p < np && !(model_pos[p][0] == v->x && model_pos[p][1] == v->y && model_pos[p][2] == v->z)) p++;
+            if(p == np) {
+                model_pos[np][0] = v->x;
+                model_pos[np][1] = v->y;
+                model_pos[np][2] = v->z;
+                model_pos[np][3] = 0;
+                np++;
+            }
+            vert_pos[i] = (uint16_t)(p - mesh_p0[mi]);
+        }
+        mesh_np[mi] = (uint16_t)(np - mesh_p0[mi]);
+    }
+    printf("DreamKarts models: %d distinct positions for %d vertices\n", np, DK_MODEL_VERT_COUNT);
 }
 
 void models_init(void) {
@@ -69,7 +201,6 @@ void models_init(void) {
         normals[i][1] = dk_model_verts[i].ny * (1.0f / 127.0f);
         normals[i][2] = dk_model_verts[i].nz * (1.0f / 127.0f);
     }
-    for(int i = 0; i < DK_MODEL_INDEX_COUNT; i++) index_off[i] = (uint16_t)(dk_model_indices[i] * 32);
     group_count = 0;
     for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
         const dk_mesh_t *m = &dk_model_meshes[mi];
@@ -91,6 +222,8 @@ void models_init(void) {
         }
         mesh_gn[mi] = (uint16_t)(group_count - mesh_g0[mi]);
     }
+    find_positions();
+    build_strips();
     /* Key light from above, slightly in front of the karts' usual view. */
     light_dir = vnorm(v3(0.35f, 0.85f, 0.40f));
     for(int i = 0; i < DK_MODEL_MESH_COUNT; i++)
@@ -352,8 +485,9 @@ static void draw_kart_lod(int index, int lod) {
             PROF_LAP(PS_LIGHT, pm);
             PROF_COUNT(PN_LVERTS, ng);
         }
-        r_mesh_kv(&model_kv[m->first_vert], lit, nv, &dk_model_indices[m->first_index],
-                  &index_off[m->first_index], m->index_count, true);
+        const KMesh km = {&model_kv[m->first_vert], nv, &dk_model_indices[m->first_index], m->index_count,
+                          &model_pos[mesh_p0[mi]], mesh_np[mi], &strip_data[mesh_strips[mi]]};
+        r_mesh_kv(&km, lit);
     }
 }
 

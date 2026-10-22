@@ -43,6 +43,8 @@ static bool list_open;
    by dk_xf_stage (src/xform.S) for r_strip and r_mesh. */
 static pvr_vertex_t stage_pv[MAX_MESH_VERTS] __attribute__((aligned(32)));
 static uint8_t stage_code[MAX_MESH_VERTS];
+/* A kart mesh's projected positions {X/W, Y/W, 1/W, -}, from dk_xf_pos. */
+static float stage_pos[MAX_MESH_VERTS][4] __attribute__((aligned(32)));
 
 /* src/xform.S */
 typedef struct { float near_w, xmax, y0, y1; uint8_t *codes; const uint32_t *col; } XfParams;
@@ -52,7 +54,9 @@ uint32_t dk_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p
 void dk_sq_run(const pvr_vertex_t *src, int n);
 void dk_xf_emit(const RV *v, int n);
 int dk_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull);
-void dk_sq_tris_in(MeshSubmit *ms, const uint16_t *off, int ntri);
+typedef struct { const float (*pos)[4]; const uint32_t *col; uint32_t sent, back; } StripSubmit;
+uint32_t dk_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p);
+void dk_sq_strips(StripSubmit *ss, const uint16_t *strips);
 static XfParams xf = {NEAR_W, 640.0f, 0.0f, 480.0f, stage_code, NULL};
 
 typedef struct { int key; pvr_poly_hdr_t hdr __attribute__((aligned(32))); } HeaderSlot;
@@ -634,6 +638,39 @@ static void check_tris(const uint16_t *idx, int ntri, bool cull, uint32_t sent, 
     }
     if(s != sent || b != back) xf_mismatch++;
 }
+
+/* The C dk_xf_pos must reproduce: each position's projection, bit for
+   bit, and the AND and OR of the outcodes. */
+static void check_pos(const float (*pos)[4], int n, uint32_t codes) {
+    unsigned and_code = 31, or_code = 0;
+    for(int i = 0; i < n; i++) {
+        CV c;
+        xform(&(RV){pos[i][0], pos[i][1], pos[i][2], 0, 0, 0}, &c);
+        unsigned code = outcode(&c);
+        and_code &= code;
+        or_code |= code;
+        xf_checked++;
+        float inv = shz_invf_fsrra(c.w), e[3] = {c.x * inv, c.y * inv, inv};
+        if(c.w >= NEAR_W && memcmp(e, stage_pos[i], sizeof(e))) xf_mismatch++;
+    }
+    if(codes != (and_code | or_code << 8)) xf_mismatch++;
+}
+
+/* The C dk_sq_strips must reproduce: each strip triangle is a front
+   face if its area is positive (counted in sent), else a back face. */
+static void check_strips(const uint16_t *s, uint32_t sent, uint32_t back) {
+    uint32_t sn = 0, bk = 0;
+    for(int n; (n = *s++) != 0; s += n * 2) {
+        for(int k = 0; k + 2 < n; k++) {
+            const float *pa = stage_pos[s[(k + (k & 1)) * 2] / 16], *pb = stage_pos[s[(k + 1 - (k & 1)) * 2] / 16];
+            const float *pc = stage_pos[s[(k + 2) * 2] / 16];
+            float area = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
+            if(area > 0) sn++;
+            else bk++;
+        }
+    }
+    if(sn != sent || bk != back) xf_mismatch++;
+}
 #endif
 
 /* A mesh's vertex i as an RV: from the RV array, or a KV and its colour
@@ -643,8 +680,8 @@ static inline RV mesh_vertex(const RV *v, const KV *kv, const uint32_t *col, int
     return (RV){kv[i].x, kv[i].y, kv[i].z, 0, 0, col[kv[i].group]};
 }
 
-static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, const uint16_t *idx,
-                      const uint16_t *off, int ni, bool cull) {
+static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, const uint16_t *idx, int ni,
+                      bool cull) {
     if(nv > MAX_MESH_VERTS) nv = MAX_MESH_VERTS;
     if(nv < 1) return;
     PROF_BEGIN(pm);
@@ -657,6 +694,7 @@ static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, co
         xf.col = col;
         codes = dk_xf_stage_kv(kv, nv, stage_pv, &xf);
     }
+    (void)codes;   /* the triangle tests read stage_code; the check build reads codes */
 #ifdef DK_XF_CHECK
     {
         static RV tmp[MAX_MESH_VERTS];
@@ -670,14 +708,6 @@ static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, co
     flush_hdr();
     MeshSubmit ms = {stage_pv, stage_code, clip_mask, 0, 0};
     int ntri = ni / 3;
-    if(off && cull && (codes >> 8) == 0) {
-        /* Every vertex inside every clip plane: only back faces to test. */
-        dk_sq_tris_in(&ms, off, ntri);
-#ifdef DK_XF_CHECK
-        check_tris(idx, ntri, cull, ms.sent, ms.back);
-#endif
-        ntri = 0;
-    }
     for(int t = 0; t < ntri;) {
 #ifdef DK_XF_CHECK
         uint32_t sent0 = ms.sent, back0 = ms.back;
@@ -705,12 +735,35 @@ static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, co
 }
 
 void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
-    mesh_draw(v, NULL, NULL, nv, idx, NULL, ni, cull);
+    mesh_draw(v, NULL, NULL, nv, idx, ni, cull);
 }
 
-void r_mesh_kv(const KV *v, const uint32_t *col, int nv, const uint16_t *idx, const uint16_t *off, int ni,
-               bool cull) {
-    mesh_draw(NULL, v, col, nv, idx, off, ni, cull);
+void r_mesh_kv(const KMesh *m, const uint32_t *col) {
+    if(m->npos > MAX_MESH_VERTS) return;
+    PROF_BEGIN(pm);
+    uint32_t codes = dk_xf_pos(m->pos, m->npos, stage_pos, &xf);
+#ifdef DK_XF_CHECK
+    check_pos(m->pos, m->npos, codes);
+#endif
+    PROF_LAP(PS_MXFORM, pm);
+    if(codes >> 8) {
+        /* A vertex outside a clip plane: triangle by triangle, each one
+           skipped, clipped or sent. */
+        mesh_draw(NULL, m->v, col, m->nv, m->idx, m->ni, true);
+        return;
+    }
+    PROF_COUNT(PN_MVERTS, m->npos);
+    flush_hdr();
+    StripSubmit ss = {stage_pos, col, 0, 0};
+    dk_sq_strips(&ss, m->strips);
+#ifdef DK_XF_CHECK
+    check_strips(m->strips, ss.sent, ss.back);
+#endif
+    rstats.verts += m->npos;
+    rstats.tris += ss.sent;
+    PROF_COUNT(PN_MTRIS, ss.sent);
+    PROF_COUNT(PN_MBACK, ss.back);
+    PROF_LAP(PS_MSUBMIT, pm);
 }
 
 void r_billboard(V3 c, float w, float h, float rot, float u0, float v0, float u1, float v1, uint32_t col) {

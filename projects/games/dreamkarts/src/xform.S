@@ -14,8 +14,9 @@
    dk_sq_tris    an indexed triangle list from staged vertices: skip
                  triangles outside one clip plane, cull back faces, send the
                  rest; stop at a triangle that needs near-plane clipping.
-   dk_sq_tris_in the same for a mesh wholly inside the clip planes: only
-                 the back-face test.
+   dk_xf_pos     dk_xf_stage for a kart mesh's distinct positions only.
+   dk_sq_strips  a kart mesh wholly inside the clip planes, as strips:
+                 back faces tested, runs of front faces sent as strips.
 
    Each has a C reference in render.c's -DDK_XF_CHECK build, which runs the
    C beside the assembly and counts any word that differs: change the C
@@ -30,7 +31,9 @@
    change: streaming vertices from RAM costs about 20 cycles a 32-byte line
    however it is done), placing the staging buffer to dodge cache conflicts
    (nothing), lighting in assembly (no faster than the per-group C) and the
-   4x4 matrix product in assembly (about 0.1 ms). */
+   4x4 matrix product in assembly (about 0.1 ms). On 2026-10-21, letting
+   the PVR cull kart back faces (whole strips sent, no area tests) saved
+   another 0.3-0.4 ms of CPU but cost 0.1-0.5 ms of render time. */
 
 #define VTX_FLAGS 0xe0000000    /* PVR_CMD_VERTEX */
 #define EOL_FLAGS 0xf0000000    /* PVR_CMD_VERTEX_EOL */
@@ -424,83 +427,251 @@ _dk_xf_emit:
 .Leol_flags3:
     .long   EOL_FLAGS
 
+/* uint32_t dk_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p)
 
-/* void dk_sq_tris_in(MeshSubmit *ms, const uint16_t *off, int ntri)
-
-   dk_sq_tris with culling for a mesh whose vertices are all inside every
-   clip plane (no outcodes to test), its triangles given as byte offsets
-   into ms->pv (index * 32). Counts into ms->sent and ms->back. */
-
+   dk_xf_stage for a kart mesh's distinct positions {x, y, z, -}: for each
+   of n >= 1, the same transform, outcode and projection, out = {X inv,
+   Y inv, inv, (unwritten)}. Returns the AND of the codes | their OR << 8. */
     .balign 32
-    .global _dk_sq_tris_in
-_dk_sq_tris_in:
+    .global _dk_xf_pos
+_dk_xf_pos:
     mov.l   r8,@-r15
     mov.l   r9,@-r15
-    mov.l   r10,@-r15
-    mov.l   r11,@-r15
-    mov.l   r12,@-r15
-    mov.l   r4,@-r15            /* ms */
-    mov.l   @r4,r8              /* pv */
-    add     #4,r8               /* -> x of vertex 0 */
-    mov.l   @(12,r4),r11        /* sent */
-    mov.l   @(16,r4),r12        /* back */
-    mov.l   .Lsqi_dr,r0
-    mov.l   @r0,r7              /* pvr_dr_addr */
-    mov.l   .Lsqi_eol,r9
-    mov     #32,r10
+    fmov.s  fr12,@-r15
+    fmov.s  fr13,@-r15
+    fmov.s  fr14,@-r15
+    fmov.s  fr15,@-r15
+    fmov.s  @r7+,fr12           /* near_w */
+    fmov.s  @r7+,fr13           /* 640 */
+    fmov.s  @r7+,fr14           /* y0 */
+    fmov.s  @r7+,fr15           /* y1 */
     fldi0   fr6
-    mov     #4,r0
-    cmp/pl  r6
-    bf      .Lsqi_done
-.Lsqi_loop:
-    mov.w   @r5+,r1
-    mov.w   @r5+,r2
-    mov.w   @r5+,r3
-    extu.w  r1,r1
-    extu.w  r2,r2
-    extu.w  r3,r3
-    add     r8,r1
-    add     r8,r2
-    add     r8,r3
-    /* area = (bx - ax)(cy - ay) + (by - ay)(ax - cx), as in dk_sq_tris */
-    fmov.s  @r1,fr2             /* ax */
-    fmov.s  @(r0,r1),fr4        /* ay */
-    fmov.s  @r2,fr0             /* bx */
-    fmov.s  @(r0,r2),fr1        /* by */
-    fmov.s  @r3,fr5             /* cx */
-    fmov.s  @(r0,r3),fr3        /* cy */
+    mov     #31,r8              /* AND of the codes */
+    mov     #0,r9               /* OR of the codes */
+    add     #12,r6              /* r6 -> past the record's inv */
+.Lxp_loop:
+    fmov.s  @r4+,fr8
+    fmov.s  @r4+,fr9
+    fmov.s  @r4+,fr10
+    fldi1   fr11
+    ftrv    xmtrx,fv8
+    add     #4,r4
+    mov     #0,r1
+    fmov    fr11,fr0
+    fmul    fr0,fr0             /* W * W */
+    fmov    fr13,fr1
+    fmul    fr11,fr1            /* 640 W */
+    fmov    fr14,fr2
+    fmul    fr11,fr2            /* y0 W */
+    fmov    fr15,fr3
+    fmul    fr11,fr3            /* y1 W */
+    fsrra   fr0                 /* inv = 1 / |W| */
+    fcmp/gt fr11,fr12           /* near > W */
+    rotcl   r1
+    fcmp/gt fr3,fr9             /* Y > y1 W */
+    rotcl   r1
+    fcmp/gt fr9,fr2             /* y0 W > Y */
+    rotcl   r1
+    fcmp/gt fr1,fr8             /* X > 640 W */
+    rotcl   r1
+    fcmp/gt fr8,fr6             /* 0 > X */
+    rotcl   r1
+    fmul    fr0,fr8
+    fmul    fr0,fr9
+    and     r1,r8
+    or      r1,r9
+    fmov.s  fr0,@-r6
+    fmov.s  fr9,@-r6
+    fmov.s  fr8,@-r6
+    dt      r5
+    bf.s    .Lxp_loop
+    add     #28,r6              /* past the next record's inv */
+    mov     r9,r0
+    shll8   r0
+    or      r8,r0
+    fmov.s  @r15+,fr15
+    fmov.s  @r15+,fr14
+    fmov.s  @r15+,fr13
+    fmov.s  @r15+,fr12
+    mov.l   @r15+,r9
+    rts
+    mov.l   @r15+,r8
+
+/* void dk_sq_strips(StripSubmit *ss, const uint16_t *strips)
+
+   ss: {const float (*pos)[4] (from dk_xf_pos); const uint32_t *col;
+        uint32_t sent, back}. A kart mesh wholly inside the clip planes,
+   as strips (format in render.h, at most 32 triangles each). Each strip's
+   triangles are tested first, area > 0 as in dk_sq_tris (else counted in
+   ss->back), into a mask; then each run of consecutive front faces goes
+   to the TA as one strip (counted in ss->sent), each vertex built from
+   its position and colour, {VERTEX, x, y, inv, 0, 0, col, 0}, the run's
+   last flagged end of strip. */
+
+/* T = area of (\a, \b, \c) > 0; each points at a position's x, r0 = 4. */
+.macro STRIP_AREA a, b, c
+    fmov.s  @\a,fr2             /* ax */
+    fmov.s  @(r0,\a),fr4        /* ay */
+    fmov.s  @\b,fr0             /* bx */
+    fmov.s  @(r0,\b),fr1        /* by */
+    fmov.s  @\c,fr5             /* cx */
+    fmov.s  @(r0,\c),fr3        /* cy */
     fsub    fr4,fr1
     fsub    fr4,fr3
     fsub    fr2,fr0
     fsub    fr5,fr2
     fmul    fr2,fr1
     fmac    fr0,fr3,fr1
-    fcmp/gt fr6,fr1             /* area > 0 */
-    bt      .Lsqi_send
-    dt      r6
-    bf/s    .Lsqi_loop
-    add     #1,r12              /* back face */
-    bra     .Lsqi_done
+    fcmp/gt fr6,fr1
+.endm
+
+/* Send the strip vertex at @(\disp,r14) (position offset, colour offset)
+   through the next store queue. r8 = positions, r9 = colours, r7 =
+   pvr_dr_addr, r10 = 32, fr6 = 0, fr7 = VERTEX flags, fr11 = EOL flags. */
+.macro STRIP_SEND disp, eol
+    mov.w   @(\disp+2,r14),r0
+    extu.w  r0,r0
+    mov.l   @(r0,r9),r2         /* argb */
+    mov.w   @(\disp,r14),r0
+    extu.w  r0,r3
+    add     r8,r3
+    fmov.s  @r3+,fr8
+    fmov.s  @r3+,fr9
+    fmov.s  @r3,fr10
+    xor     r10,r7
+    mov     r7,r4
+    add     #32,r4
+    fmov.s  fr6,@-r4            /* oargb */
+    mov.l   r2,@-r4
+    fmov.s  fr6,@-r4            /* v */
+    fmov.s  fr6,@-r4            /* u */
+    fmov.s  fr10,@-r4           /* z = inv */
+    fmov.s  fr9,@-r4
+    fmov.s  fr8,@-r4
+.if \eol
+    fmov.s  fr11,@-r4
+.else
+    fmov.s  fr7,@-r4
+.endif
+    pref    @r7
+.endm
+
+    .balign 32
+    .global _dk_sq_strips
+_dk_sq_strips:
+    mov.l   r8,@-r15
+    mov.l   r9,@-r15
+    mov.l   r10,@-r15
+    mov.l   r11,@-r15
+    mov.l   r12,@-r15
+    mov.l   r13,@-r15
+    mov.l   r14,@-r15
+    mov.l   r4,@-r15            /* ss */
+    mov.l   @r4+,r8             /* positions */
+    mov.l   @r4+,r9             /* colours */
+    mov.l   @r4+,r11            /* sent */
+    mov.l   @r4,r12             /* back */
+    mov.l   .Lsc_dr,r0
+    mov.l   @r0,r7              /* pvr_dr_addr */
+    mov     #32,r10
+    mova    .Lsc_flags,r0
+    fmov.s  @r0+,fr7            /* VERTEX */
+    fmov.s  @r0,fr11            /* EOL */
+.Lsc_strip:
+    mov.w   @r5+,r6             /* n */
+    extu.w  r6,r6
+    tst     r6,r6
+    bf      .Lsc_go
+    bra     .Lsc_done
     nop
-.Lsqi_send:
-    add     #-4,r1
-    add     #-4,r2
-    add     #-4,r3
-    fschg
-    SQ_VERTEX r1, 0, r10, r9
-    SQ_VERTEX r2, 0, r10, r9
-    SQ_VERTEX r3, 1, r10, r9
-    fschg
-    fldi0   fr6                 /* the copy used fr0-fr7 */
+.Lsc_go:
+    mov     r5,r14              /* s */
+    mov     r6,r0
+    shll2   r0
+    add     r0,r5               /* the next strip */
+    add     #-2,r6              /* m triangles */
+    add     r6,r12              /* back += m, less the front faces below */
+    /* Pass 1: the mask, triangle 0 in bit m - 1 (rotcl). */
+    mov.w   @r14+,r1
+    extu.w  r1,r1
+    add     r8,r1
+    add     #2,r14
+    mov.w   @r14+,r2
+    extu.w  r2,r2
+    add     r8,r2
+    add     #2,r14
+    mov     r6,r13              /* triangles left */
+    mov     #0,r4               /* mask */
+    fldi0   fr6
+    mov     #4,r0
+.Lsc_even:
+    mov.w   @r14+,r3
+    extu.w  r3,r3
+    add     r8,r3
+    STRIP_AREA r1, r2, r3
+    rotcl   r4
+    add     #2,r14
+    mov     r2,r1
+    dt      r13
+    bt.s    .Lsc_tested
+    mov     r3,r2
+    mov.w   @r14+,r3
+    extu.w  r3,r3
+    add     r8,r3
+    STRIP_AREA r2, r1, r3
+    rotcl   r4
+    add     #2,r14
+    mov     r2,r1
+    dt      r13
+    bf.s    .Lsc_even
+    mov     r3,r2
+.Lsc_tested:
+    /* Front faces to the top: triangle k in bit 31 after k shifts. */
+    mov     #32,r0
+    sub     r6,r0
+    shld    r0,r4
+    mov     r4,r13
+    mov     r6,r0
+    shll2   r0
+    add     #8,r0
+    sub     r0,r14              /* back to s */
+    mov     #0,r1               /* a run is open */
+.Lsc_emit:
+    shll    r13                 /* T = triangle k is a front face */
+    bf      .Lsc_back
     add     #1,r11
+    add     #-1,r12
+    tst     r1,r1
+    bf      .Lsc_third
+    STRIP_SEND 0, 0
+    STRIP_SEND 4, 0
+    mov     #1,r1
+.Lsc_third:
+    cmp/pz  r13                 /* T: triangle k + 1 is not a front face */
+    bf      .Lsc_more
+    STRIP_SEND 8, 1
+    bra     .Lsc_next
+    mov     #0,r1
+.Lsc_more:
+    STRIP_SEND 8, 0
+    bra     .Lsc_next
+    nop
+.Lsc_back:
+    mov     #0,r1
+.Lsc_next:
     dt      r6
-    bf      .Lsqi_loop
-.Lsqi_done:
-    mov.l   .Lsqi_dr,r0
+    bf.s    .Lsc_emit
+    add     #4,r14
+    bra     .Lsc_strip
+    nop
+.Lsc_done:
+    mov.l   .Lsc_dr,r0
     mov.l   r7,@r0
     mov.l   @r15+,r4
-    mov.l   r11,@(12,r4)
-    mov.l   r12,@(16,r4)
+    mov.l   r11,@(8,r4)
+    mov.l   r12,@(12,r4)
+    mov.l   @r15+,r14
+    mov.l   @r15+,r13
     mov.l   @r15+,r12
     mov.l   @r15+,r11
     mov.l   @r15+,r10
@@ -509,7 +680,8 @@ _dk_sq_tris_in:
     mov.l   @r15+,r8
 
     .balign 4
-.Lsqi_dr:
+.Lsc_dr:
     .long   _pvr_dr_addr
-.Lsqi_eol:
+.Lsc_flags:
+    .long   VTX_FLAGS
     .long   EOL_FLAGS

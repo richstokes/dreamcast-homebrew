@@ -22,7 +22,9 @@ uint32_t dk_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p
 void dk_sq_run(const pvr_vertex_t *src, int n);
 void dk_xf_emit(const RV *v, int n);
 int dk_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull);
-void dk_sq_tris_in(MeshSubmit *ms, const uint16_t *off, int ntri);
+typedef struct { const float (*pos)[4]; const uint32_t *col; uint32_t sent, back; } StripSubmit;
+uint32_t dk_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p);
+void dk_sq_strips(StripSubmit *ss, const uint16_t *strips);
 
 #define BIG (1 << 21)   /* bytes streamed for the cold cases, > 100x the cache */
 static uint8_t sink[64] __attribute__((aligned(64)));
@@ -143,15 +145,32 @@ int main(int argc, char **argv) {
         c0 = cyc(); e0 = ev();
         for(int r = 0; r < 20; r++) dk_sq_tris(&ms, idx, 4096, 0);
         report("sq_tris no cull (per tri)", cyc() - c0, ev() - e0, 20 * 4096);
-        static uint16_t off[3 * 4096];
-        for(int i = 0; i < 3 * 4096; i++) off[i] = (uint16_t)(idx[i] * 32);
-        MeshSubmit mi = {stage, codes, 16, 0, 0}, mc = {stage, codes, 16, 0, 0};
+        /* The kart fast path: 200 distinct positions, then strips of 8
+           triangles over them (synthetic, so front and back faces mix). */
+        static float p4[200][4] __attribute__((aligned(32))), pout[200][4] __attribute__((aligned(32)));
+        static uint16_t kstrips[4096 / 8 * 21 + 1];
+        for(int i = 0; i < 200; i++) {
+            p4[i][0] = pos[i * 3];
+            p4[i][1] = pos[i * 3 + 1];
+            p4[i][2] = pos[i * 3 + 2];
+        }
+        int o = 0;
+        for(int s = 0; s < 4096 / 8; s++) {
+            kstrips[o++] = 10;
+            for(int k = 0; k < 10; k++) {
+                kstrips[o++] = (uint16_t)(((s * 7 + k * 13) % 200) * 16);
+                kstrips[o++] = (uint16_t)(((s + k) % 150) * 4);
+            }
+        }
+        kstrips[o] = 0;
         c0 = cyc(); e0 = ev();
-        for(int r = 0; r < 20; r++) dk_sq_tris_in(&mi, off, 4096);
-        report("sq_tris_in (per tri)", cyc() - c0, ev() - e0, 20 * 4096);
-        for(int r = 0; r < 20; r++) dk_sq_tris(&mc, idx, 4096, 1);
-        printf("MICRO: sq_tris_in sent %lu back %lu, sq_tris sent %lu back %lu\n", (unsigned long)mi.sent,
-               (unsigned long)mi.back, (unsigned long)mc.sent, (unsigned long)mc.back);
+        for(int r = 0; r < 200; r++) dk_xf_pos(p4, 200, pout, &xp);
+        report("xf_pos hot n=200", cyc() - c0, ev() - e0, 200 * 200);
+        StripSubmit ss = {pout, col, 0, 0};
+        c0 = cyc(); e0 = ev();
+        for(int r = 0; r < 20; r++) dk_sq_strips(&ss, kstrips);
+        report("sq_strips (per tri)", cyc() - c0, ev() - e0, 20 * 4096);
+        printf("MICRO: sq_strips sent %lu back %lu\n", (unsigned long)ss.sent, (unsigned long)ss.back);
     }
     /* The kart path with controlled cache placement: vertices, colours
        and the staging window at chosen offsets modulo 16 KB. */

@@ -220,6 +220,7 @@ What each change saved on the console (ms a frame unless stated):
 | Kart lighting once per normal/paint group (`src/models.c`) | 0.7-0.8 | 950 groups cover 1,614 vertices |
 | Sea and cloud-sea colours cached per camera cell (`src/world.c`) | 0.3-0.55 | |
 | Kart triangles skip outcodes when the mesh is wholly on screen | 0.2-0.45 | |
+| Kart meshes as strips over each mesh's distinct positions (`src/models.c`, `src/xform.S`) | 0.1-0.4 CPU, 0.05-0.25 render | 959 of 1,614 kart vertices differ only in normal or paint, so only those positions are transformed; strips alone saved render time, not CPU |
 | Final-lap music speed-up retuned in place (`src/audio.c`) | 16.5 ms spike → 0.06 ms | Restarting the stream refilled its whole 32 KiB AICA buffer in one frame and dropped a vblank |
 | Physics step = measured vblank period (`src/main.c`) | one-frame hitch every 4-16 s gone | A fixed 1/60 s step owed the 16.68 ms display a double step; 18 double and 2 zero-step frames of 5,269 → 0 |
 | Split views on whole 32-pixel tile rows with the PVR user tile clip | | Software clipping at a 240-pixel split broke most ground strips into triangles |
@@ -231,7 +232,8 @@ Measured and not worth the code: TA DMA (the CPU waits on the TA only
 ~0.1 ms a frame), software-pipelining the assembly loops (under 0.1 ms),
 `pref` at any distance (streaming vertices from RAM costs ~20 cycles a
 32-byte line regardless), staging-buffer placement (nothing), lighting or
-the 4x4 matrix product in assembly (~0.1 ms).
+the 4x4 matrix product in assembly (~0.1 ms), letting the PVR cull kart
+back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 
 ## Gotchas
 

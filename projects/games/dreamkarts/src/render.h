@@ -57,12 +57,25 @@ typedef struct {
     float x, y, z;
     uint16_t group, pad;
 } KV;
-/* r_mesh for KV vertices, with u = v = 0 and vertex i coloured
-   col[v[i].group]; off holds idx times 32 (byte offsets of the staged
-   vertices), for the fast path taken when no vertex is outside a clip
-   plane. */
-void r_mesh_kv(const KV *v, const uint32_t *col, int nv, const uint16_t *idx, const uint16_t *off, int ni,
-               bool cull);
+/* A kart mesh: KV vertices (u = v = 0, vertex i coloured by its group),
+   the triangle list, and for the fast path taken when no vertex is outside
+   a clip plane, the vertices' distinct positions {x, y, z, -} and the
+   triangles as strips: {n, then n pairs (position index * 16, group * 4)}
+   per strip, 0 after the last. Strip triangle k is vertices k, k+1, k+2,
+   the first two swapped when k is odd; a strip has at most
+   R_MESH_STRIP_TRIS triangles. */
+#define R_MESH_STRIP_TRIS 32
+typedef struct {
+    const KV *v;
+    int nv;
+    const uint16_t *idx;
+    int ni;
+    const float (*pos)[4];
+    int npos;
+    const uint16_t *strips;
+} KMesh;
+/* Draw a kart mesh with back faces culled, coloured col[group]. */
+void r_mesh_kv(const KMesh *m, const uint32_t *col);
 
 /* Camera-facing quad in world space (XMTRX must hold the view-projection). */
 void r_billboard(V3 c, float w, float h, float rot, float u0, float v0, float u1, float v1, uint32_t col);
