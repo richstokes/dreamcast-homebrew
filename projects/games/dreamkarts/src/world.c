@@ -4403,6 +4403,31 @@ bool world_leak_point(float s, float d, V3 *out) {
     return true;
 }
 
+/* True where p is in Spiral Canyon's rock, or less than margin metres
+   above it, and not in a tunnel's bore: for keeping the spectator's
+   cameras and their sight lines clear of it. Off the canyon there is no
+   rock. */
+bool world_in_rock(V3 p, float margin) {
+    if(!world_canyon) return false;
+    /* The rock never stands above the bare rock: most points stop here. */
+    if(p.y > dr_bare_rock_y(p.x, p.z) + margin) return false;
+    float dist, rock = dr_rock_at(p.x, p.z, &dist);
+    if(p.y > rock + margin) return false;
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        int k = (i + 1) % TRACK_SAMPLES;
+        if(dr_class[i] != ROCK_BURIED && dr_class[k] != ROCK_BURIED) continue;
+        V3 a = track.smp[i].p, b = track.smp[k].p;
+        float ax = b.x - a.x, az = b.z - a.z;
+        float u = clampf(((p.x - a.x) * ax + (p.z - a.z) * az) / (ax * ax + az * az), 0.0f, 1.0f);
+        float px = a.x + ax * u - p.x, pz = a.z + az * u - p.z, out = sqrtf(px * px + pz * pz);
+        if(out > DR_TUNNEL_D - margin) continue;
+        float road = lerpf(dr_road_y[i], dr_road_y[k], u);
+        float arch = lerpf(DR_TUNNEL_WALL, dr_crown(track.smp[i].s), cosf(out / DR_TUNNEL_D * DK_PI * 0.5f));
+        if(p.y > road - 0.5f && p.y < road + arch - margin) return false;
+    }
+    return true;
+}
+
 #ifdef DK_ROCK_TINT
 /* For the leak test: the highest and lowest real rock vertices within
    3 m of (x, z) horizontally, and how many there are. */

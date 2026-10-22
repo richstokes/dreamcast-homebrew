@@ -35,6 +35,9 @@ float world_ground_y(float x, float z);
    the rock, and which rock to draw (-DDK_ROCK_TINT builds only). */
 bool world_leak_point(float s, float d, V3 *out);
 void world_diag_mode(int mode);
+/* Spiral Canyon: p is in the rock or less than margin metres above it,
+   outside the tunnels' bores (false on every other track). */
+bool world_in_rock(V3 p, float margin);
 /* Neon gates over the road (Neon Skyway): their lap distances. */
 #define WORLD_MAX_GATES 12
 extern int world_gates;

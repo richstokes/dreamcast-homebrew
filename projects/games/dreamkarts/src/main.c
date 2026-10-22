@@ -1703,7 +1703,7 @@ static void camera_tour(void) {
                 track_locate(kt->pos, -1, &kt->tp);
             }
             spectate_tv_preview(&game.cam, i);
-            for(int f = 0; f < 40; f++) {
+            for(int f = 0; f < 90; f++) {   /* 1.5 s: capture.py's screenshots fall behind at less */
                 pvr_wait_ready();
                 render();
                 if(f == 20) printf("DK SHOT tv-%d-%02d\n", tr, i + 1);
