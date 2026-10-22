@@ -387,6 +387,24 @@ def tex_glow(n=64):
     return to_image(np.full((n, n, 3), 255.0), a * 255)
 
 
+def tex_retrosun(n=128):
+    """A retrowave sun: yellow at the top to hot pink at the bottom, with
+    horizontal gaps from just above its middle that widen towards the
+    bottom."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    u = (xx + 0.5) / n * 2 - 1
+    v = (yy + 0.5) / n * 2 - 1   # -1 top, +1 bottom
+    r = np.hypot(u, v)
+    alpha = np.clip((0.97 - r) * n * 0.5, 0, 1)
+    for i in range(6):
+        c, hw = -0.12 + i * 0.17, 0.02 + 0.014 * i
+        alpha *= np.clip((np.abs(v - c) - hw) * n * 0.5, 0, 1)
+    t = np.clip((v + 1) / 2, 0, 1)[..., None]
+    top, mid, bot = np.array([255, 238, 120.0]), np.array([255, 150, 70.0]), np.array([255, 48, 140.0])
+    rgb = np.where(t < 0.5, top + (mid - top) * (t / 0.5), mid + (bot - mid) * ((t - 0.5) / 0.5))
+    return to_image(rgb, alpha * 255)
+
+
 def tex_smoke(n=64):
     base = radial(n, lambda r: np.clip(1 - r, 0, 1) ** 1.4)
     noise = fbm(n, n, 4, 3, 131)
@@ -1099,6 +1117,7 @@ def build(out: Path) -> None:
         (Spec("totem", "RGB565", False, False), tex_totem()),
         (Spec("bush", "RGB565", True, True), tex_bush()),
         (Spec("waterfall", "ARGB4444", True, True), tex_waterfall()),
+        (Spec("retrosun", "ARGB4444", True, False), tex_retrosun()),
     ]
     pak = bytearray()
     table = []

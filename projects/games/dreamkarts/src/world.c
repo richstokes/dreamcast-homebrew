@@ -19,6 +19,22 @@ float world_time;
 bool world_split;
 bool world_night;
 bool world_canyon;
+/* Spiral Canyon at golden hour: a low sun ahead down the start straight,
+   everything graded warm, a retrowave sun sinking behind purple hills. */
+static bool world_sunset;
+static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
+
+/* The golden-hour grade, applied to vertex colours as they are built and
+   to the few sprites coloured at run time. */
+static uint32_t sunset_grade(uint32_t c) {
+    if(!world_sunset) return c;
+    unsigned r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+    r = r * 278 >> 8;
+    if(r > 255) r = 255;
+    g = g * 206 >> 8;
+    b = b * 158 >> 8;
+    return (c & 0xff000000u) | (r << 16) | (g << 8) | b;
+}
 uint16_t world_light[3] = {256, 256, 256};
 
 typedef struct {
@@ -116,7 +132,7 @@ static const pvr_poly_hdr_t *h_road, *h_board, *h_curb, *h_sand, *h_grass, *h_ba
     *h_frond, *h_palm_far, *h_dash, *h_sky, *h_cloud, *h_mount, *h_foam, *h_glow_add,
     *h_flare, *h_dash_glow, *h_stone, *h_flame, *h_nightsky, *h_skyline, *h_moon, *h_cloudsea, *h_star_add,
     *h_tower, *h_signs, *h_hills, *h_meadow, *h_islandrock, *h_ehchecker, *h_sunflower, *h_totem, *h_bush,
-    *h_waterfall;
+    *h_waterfall, *h_retrosun, *h_sky_nz;
 /* The sky roads (Neon Skyway's neon deck, Spiral Canyon's ribbon): the
    strips point at one header whose texture is swapped each frame through
    the phases, so the lights run along it. */
@@ -207,6 +223,7 @@ static uint32_t diag_colour(V3 p, uint32_t c) {
 
 static void svp(V3 p, float u, float v, uint32_t c) {
     if(svp_tint) c = svp_tint(p, c);
+    c = sunset_grade(c);
 #ifdef DK_ROCK_TINT
     if(diag_on) c = diag_colour(p, c);
 #endif
@@ -3454,7 +3471,7 @@ static void dr_draw_pt(void) {
         /* Half a metre toward the camera, so the head always covers the
            top of its stem (which ends just under the hub). */
         V3 c = vmad(w->hub, vnorm(vscale(d, -1.0f)), 0.5f);
-        r_billboard(c, w->size * 2.0f, w->size * 2.0f, t, 0, 0, 1, 1, 0xffffffff);
+        r_billboard(c, w->size * 2.0f, w->size * 2.0f, t, 0, 0, 1, 1, sunset_grade(0xffffffff));
     }
 }
 
@@ -3886,6 +3903,8 @@ void world_init(void) {
     h_totem = r_header(TEX_TOTEM, HF_OP);
     h_bush = r_header(TEX_BUSH, HF_OP);
     h_waterfall = r_header(TEX_WATERFALL, HF_TR);
+    h_retrosun = r_header(TEX_RETROSUN, HF_TR | HF_NOFOG);
+    h_sky_nz = r_header(TEX_NONE, HF_OP | HF_NOFOG | HF_NOZWRITE);
 
     static const float elev[] = {-0.25f, 0.0f, 0.10f, 0.28f, 0.62f, 1.05f, 1.5708f};
     for(int e = 0; e < 7; e++)
@@ -3907,13 +3926,30 @@ void world_build(void) {
     built_ok = true;
     world_canyon = track.id == TRACK_CANYON;
     world_night = track.in_sky && !world_canyon;
+#ifdef DK_ROCK_TINT
+    world_sunset = false;   /* the leak test reads colours */
+#else
+    world_sunset = world_canyon;
+#endif
     th_flame_n = 0;
     /* The sun, or at night the moon (north-west, low over the waves). */
     world_sun_dir = world_night ? vnorm(v3(-0.50f, 0.33f, 0.80f)) : vnorm(v3(0.30f, 0.55f, 0.78f));
+    sun_disc_dir = world_sun_dir;
     /* Moonlight on the karts: dimmer and bluer (applied as they are painted). */
     world_light[0] = world_night ? 176 : 256;
     world_light[1] = world_night ? 168 : 256;
     world_light[2] = world_night ? 240 : 256;
+    if(world_sunset) {
+        /* Dead ahead along the start straight: the light from ~20 degrees
+           up, the disc low enough for the far hills to cut off its foot. */
+        V3 a = track_point(track_wrap(-30.0f), 0.0f), b = track_point(30.0f, 0.0f);
+        V3 f = vnorm(v3(b.x - a.x, 0.0f, b.z - a.z));
+        world_sun_dir = vnorm(vadd(f, v3(0, 0.36f, 0)));
+        sun_disc_dir = vnorm(vadd(f, v3(0, 0.11f, 0)));
+        world_light[0] = 256;   /* no higher: the kart paint doesn't clamp */
+        world_light[1] = 209;
+        world_light[2] = 172;
+    }
     if(track.id == TRACK_FIGURE8) build_figure8();
     else if(track.id == TRACK_HARBOUR) build_harbour();
     else if(track.id == TRACK_TEMPLE) build_temple();
@@ -4033,9 +4069,43 @@ static void draw_night_sky(void) {
 }
 
 /* Sky dome around the camera: vertex-coloured gradient, no fog. */
+/* The golden-hour sky: orange under the sun, pink and purple round the
+   rest of the horizon, up to indigo overhead. */
+static void draw_sunset_sky(void) {
+    static const uint32_t sun_side[7] = {
+        0xffffb070, 0xffffb070, 0xffff9060, 0xffff6878, 0xffc04898, 0xff5a2c8c, 0xff261c5e
+    };
+    static const uint32_t far_side[7] = {
+        0xfff08088, 0xfff08088, 0xffd86090, 0xffa04490, 0xff642e86, 0xff3a2272, 0xff261c5e
+    };
+    const int az = 12;
+    const float R = 1500.0f;
+    V3 c = r_cam.pos, sd = vnorm(v3(sun_disc_dir.x, 0, sun_disc_dir.z));
+    /* No depth, so the sun's glow (as far out as the dome) is never cut
+       by the dome's facets. */
+    r_hdr(h_sky_nz);
+    for(int e = 0; e < 6; e++) {
+        RV v[2 * 13];
+        int n = 0;
+        for(int i = 0; i <= az; i++) {
+            for(int k = 1; k >= 0; k--) {
+                V3 d = sky_dir[e + k][i];
+                float t = 0.5f + 0.5f * (d.x * sd.x + d.z * sd.z) / fmaxf(0.01f, sqrtf(d.x * d.x + d.z * d.z));
+                v[n++] = (RV){c.x + d.x * R, c.y + d.y * R, c.z + d.z * R, 0, 0,
+                              color_lerp(far_side[e + k], sun_side[e + k], t * t)};
+            }
+        }
+        r_strip(v, n);
+    }
+}
+
 static void draw_sky(void) {
     if(world_night) {
         draw_night_sky();
+        return;
+    }
+    if(world_sunset) {
+        draw_sunset_sky();
         return;
     }
     static const uint32_t cols[] = {
@@ -4239,13 +4309,18 @@ void world_set_fog(bool split) {
        once the previous frame's render has finished, before a new scene.
        At night it fades to the purple of the sky's horizon. */
     static int fog_mode = -1;
-    int mode = (int)split | (world_night ? 2 : 0) | (world_canyon ? 4 : 0);
+    int mode = (int)split | (world_night ? 2 : 0) | (world_canyon ? 4 : 0) | (world_sunset ? 8 : 0);
     if(fog_mode == mode) return;
     fog_mode = mode;
     pvr_wait_ready();
     if(world_night) {
         pvr_fog_table_color(1.0f, 20 / 255.0f, 16 / 255.0f, 56 / 255.0f);
         pvr_set_bg_color(20 / 255.0f, 16 / 255.0f, 56 / 255.0f);
+    }
+    else if(world_sunset) {
+        /* A rose haze, between the horizon's orange and its pink. */
+        pvr_fog_table_color(1.0f, 0.97f, 0.56f, 0.50f);
+        pvr_set_bg_color(0.97f, 0.56f, 0.50f);
     }
     else {
         pvr_fog_table_color(1.0f, 0.74f, 0.89f, 0.98f);
@@ -4389,12 +4464,12 @@ void world_draw_pt(void) {
         if(d2 < near * near || d2 > far * far) continue;
         V3 mid = vadd(palms[i].base, v3(0, palms[i].height * 0.6f, 0));
         if(!r_sphere_visible(mid, palms[i].height)) continue;
-        r_billboard_y(palms[i].base, palms[i].height * 0.62f, palms[i].height * 1.25f, 0, 0, 1, 1, 0xffffffff);
+        r_billboard_y(palms[i].base, palms[i].height * 0.62f, palms[i].height * 1.25f, 0, 0, 1, 1, sunset_grade(0xffffffff));
     }
     for(int i = 0; i < far_sprite_n; i += world_split ? 2 : 1) {
         V3 mid = vadd(far_sprites[i], v3(0, far_sprite_h[i] * 0.6f, 0));
         if(!r_sphere_visible(mid, far_sprite_h[i])) continue;
-        r_billboard_y(far_sprites[i], far_sprite_h[i] * 0.62f, far_sprite_h[i] * 1.25f, 0, 0, 1, 1, 0xffd8e8d8);
+        r_billboard_y(far_sprites[i], far_sprite_h[i] * 0.62f, far_sprite_h[i] * 1.25f, 0, 0, 1, 1, sunset_grade(0xffd8e8d8));
     }
 }
 
@@ -4524,6 +4599,11 @@ static void draw_canyon_hills(void) {
         float t = (float)layer / 2.0f;
         uint32_t ridge = color_lerp(argb(255, 150, 222, 126), argb(255, 112, 148, 158), t);
         uint32_t foot = color_lerp(argb(255, 176, 216, 232), argb(255, 150, 176, 214), t);
+        if(world_sunset) {
+            /* Purple silhouettes against the sunset, hazier further off. */
+            ridge = color_lerp(argb(255, 58, 30, 92), argb(255, 132, 62, 128), t);
+            foot = color_lerp(argb(255, 176, 84, 120), argb(255, 226, 120, 128), t);
+        }
         /* In pieces, each drawn only when on screen: most of the ring is
            behind the camera, and a strip that crosses the view takes the
            clipping path. */
@@ -4583,7 +4663,30 @@ static void draw_clouds_and_mountains(void) {
         if(!r_sphere_visible(p, 260.0f)) continue;
         float w = 150.0f + (float)(i % 3) * 50.0f;
         float u0 = (i & 1) ? 0.5f : 0.0f;
-        r_billboard(p, w, w * 0.8f, 0, u0, 0, u0 + 0.5f, 1, color_alpha(0xffffffff, 0.92f));
+        uint32_t col = color_alpha(0xffffffff, 0.92f);
+        if(world_sunset) {
+            /* None in front of the low sun: a cloud drifting within ~35
+               degrees of it fades out (gone by ~30). */
+            float sd = (sinf(a) * sun_disc_dir.x + cosf(a) * sun_disc_dir.z) /
+                       fmaxf(0.01f, sqrtf(sun_disc_dir.x * sun_disc_dir.x + sun_disc_dir.z * sun_disc_dir.z));
+            float fade = clampf((0.87f - sd) / 0.05f, 0.0f, 1.0f);
+            if(fade <= 0.0f) continue;
+            col = argb((int)(220.0f * fade), 255, 168, 156);
+        }
+        r_billboard(p, w, w * 0.8f, 0, u0, 0, u0 + 0.5f, 1, col);
+    }
+
+    if(world_sunset) {
+        /* The retrowave sun, beyond the hills so they hide its foot, in a
+           wide pink glow. */
+        V3 sp = vmad(c, sun_disc_dir, 1450.0f);
+        if(r_sphere_visible(sp, 420.0f)) {
+            r_hdr(h_glow_add);
+            r_billboard(sp, 900.0f, 620.0f, 0, 0, 0, 1, 1, argb(150, 255, 110, 120));
+            r_hdr(h_retrosun);
+            r_billboard(sp, 340.0f, 340.0f, 0, 0, 0, 1, 1, 0xffffffff);
+        }
+        return;
     }
 
     /* The sun. */
@@ -4597,7 +4700,8 @@ static void draw_clouds_and_mountains(void) {
 
 /* Lens flare ghosts along the line from the sun through the screen centre. */
 static void draw_lens_flare(void) {
-    V3 sp = vmad(r_cam.pos, world_sun_dir, 1300.0f);
+    if(world_sunset) return;   /* the sun is low and ahead: it would flare through the tunnels */
+    V3 sp = vmad(r_cam.pos, sun_disc_dir, 1300.0f);
     float sx, sy, w;
     if(!r_project(sp, &sx, &sy, &w)) return;
     if(sx < -40 || sx > 680 || sy < -40 || sy > 520) return;

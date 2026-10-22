@@ -58,7 +58,7 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
                                                       "A NIGHT RIDE ABOVE THE CITY",
                                                       "HILLS, CHICANES AND A HELIX",
-                                                      "SPIRALS UP TWO ROCK TOWERS"};
+                                                      "OUTRUN THE SUN"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f

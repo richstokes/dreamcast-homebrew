@@ -69,6 +69,7 @@ enum {
     TEX_TOTEM,
     TEX_BUSH,
     TEX_WATERFALL,
+    TEX_RETROSUN,
     TEX_COUNT
 };
 
@@ -133,8 +134,9 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {2327552u, 8192u, 64, 64, DK_TEXFMT_RGB565, 0, {0, 0}},  /* totem */
     {2335744u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* bush */
     {2346688u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* waterfall */
+    {2357632u, 43712u, 128, 128, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* retrosun */
 };
 
-#define DK_TEXTURES_BYTES 2357632u
+#define DK_TEXTURES_BYTES 2401344u
 
 #endif

@@ -18,7 +18,7 @@ Seven courses:
 - Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct
 - Neon Skyway: 1,056 m of neon road above a cyberpunk city at night, with a banked loop, a gap jump and open edges to fall off
 - Cyberstone: Neon Skyway's city on a layout after Silverstone's National circuit, all hills and no jumps
-- Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches under rolling green hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
+- Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches at golden hour, a retrowave sun setting behind the hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
 
 Highlights:
 
@@ -215,6 +215,8 @@ Re-run with the totem poles and bushes (2026-10-22): 1P 8.9 ms and 1
 dropped race frame, 2P 11.7 ms and 8, with the world's CPU time back under
 the earlier run. Each prop is one or two joined strips: drawn as separate
 pieces they cost ~0.4 ms a frame in split screen and the 2P drops went to 19.
+The golden-hour sunset adds ~1 ms of PVR render (mostly the sun and its
+glow): 1P 9.9 ms and 3 dropped race frames, 2P 11.5 ms and 7.
 
 The 2P drops left are on lap 1 with the pack bunched; laps 2 and 3 drop
 none. The scenery alone peaks at 10.8 ms of PVR render (the run down to the
