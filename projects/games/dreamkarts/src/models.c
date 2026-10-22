@@ -542,6 +542,31 @@ void models_draw_karts(int view_kart) {
     }
 }
 
+/* The sky tracks' decks are drawn as quads between track samples (every
+   other sample in a split screen's far copy), each split into two flat
+   triangles. Where the road twists, its bank or slope changing, the drawn
+   triangle can sit a few centimetres over track_road_y, enough to bury a
+   shadow (the back of Spiral Canyon's grid). How far to lift one to clear
+   either split of either quad at (s, d). */
+static float deck_lift(float s, float d) {
+    if(!track.in_sky) return 0.0f;
+    float half = world_canyon ? 8.0f : 9.6f;
+    float v = clampf((d + half) / (2.0f * half), 0.0f, 1.0f);
+    int i = (int)(track_wrap(s) / track.ds);
+    float base = track_road_y(s, d), lift = 0.0f;
+    for(int span = 1; span <= 2; span++) {
+        float sa = (float)(span == 2 ? i & ~1 : i) * track.ds, sb = track_wrap(sa + (float)span * track.ds);
+        float u = clampf(track_delta(sa, s) / ((float)span * track.ds), 0.0f, 1.0f);
+        float y00 = track_road_y(sa, -half), y01 = track_road_y(sa, half);
+        float y10 = track_road_y(sb, -half), y11 = track_road_y(sb, half);
+        float a = u + v <= 1.0f ? y00 + (y10 - y00) * u + (y01 - y00) * v
+                                : y11 + (y01 - y11) * (1.0f - u) + (y10 - y11) * (1.0f - v);
+        float b = u >= v ? y00 + (y10 - y00) * u + (y11 - y10) * v : y00 + (y01 - y00) * v + (y11 - y01) * u;
+        lift = fmaxf(lift, fmaxf(a, b) - base);
+    }
+    return lift;
+}
+
 void models_draw_shadows(void) {
     r_load_vp();
     r_hdr(h_shadow);
@@ -562,7 +587,7 @@ void models_draw_shadows(void) {
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 1.2f * s), r = vscale(heading_right(k->heading + k->vis_yaw), 0.88f * s);
         /* The kart-shaped shadow leans a touch away from the sun; any more
            and it swings visibly round the kart as it turns. */
-        V3 c = v3(k->pos.x - sun_off.x, ground + 0.04f, k->pos.z - sun_off.z);
+        V3 c = v3(k->pos.x - sun_off.x, ground + deck_lift(k->tp.s, k->tp.d) + 0.04f, k->pos.z - sun_off.z);
         /* On a banked road the shadow tilts with it. */
         float bank = track_bank(k->tp.s);
         c.y -= bank * vdot(sun_off, k->tp.right);
@@ -589,7 +614,7 @@ void models_draw_shadows(void) {
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 2.3f), r = vscale(heading_right(k->heading + k->vis_yaw), 1.8f);
         float bank = track_bank(k->tp.s);
         float yf = bank * vdot(f, k->tp.right), yr = bank * vdot(r, k->tp.right);
-        V3 c = v3(k->pos.x, ground + 0.06f, k->pos.z);
+        V3 c = v3(k->pos.x, ground + deck_lift(k->tp.s, k->tp.d) + 0.06f, k->pos.z);
         uint32_t col = color_alpha(world_lane_color(k->tp.d), a);
         RV q[4] = {
             {c.x + f.x - r.x, c.y + yf - yr, c.z + f.z - r.z, 0, 0, col},
