@@ -2,6 +2,7 @@ package lobby
 
 import (
 	"encoding/binary"
+	"fmt"
 	"log"
 	"net/netip"
 	"sort"
@@ -113,7 +114,12 @@ type Server struct {
 	send        func(netip.AddrPort, []byte)
 	demo        *demoLobby
 	Logf        func(string, ...any)
+	rejected    map[string]time.Time // address+reason of each rejected HELLO logged, to log it once a minute
 }
+
+// rejectLogEvery is how often one address's rejected HELLO is logged for
+// one reason: a console keeps saying hello every half second for 12 s.
+const rejectLogEvery = time.Minute
 
 // New makes a server that writes packets through send.
 func New(send func(netip.AddrPort, []byte), now time.Time) *Server {
@@ -139,6 +145,11 @@ func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
 	h, body, err := ParseClient(pkt)
 	if err != nil {
 		if len(pkt) >= 4 && pkt[0] == 'D' && pkt[1] == 'K' && pkt[2] != Proto && pkt[3] == TypeHello {
+			var body []byte
+			if len(pkt) >= clientHeaderLen {
+				body = pkt[clientHeaderLen:]
+			}
+			s.logReject(from, pkt[2], helloName(body), helloBuild(pkt), fmt.Sprintf("protocol %d, this server speaks %d", pkt[2], Proto), now)
 			s.reject(from, RejectTooOld, now)
 		}
 		return
@@ -215,6 +226,7 @@ func (s *Server) updatePing(p *Player, h ClientHeader, now time.Time) {
 
 func (s *Server) hello(from netip.AddrPort, h ClientHeader, body []byte, p *Player, now time.Time) {
 	if h.Build < s.Min {
+		s.logReject(from, Proto, helloName(body), h.Build, fmt.Sprintf("build %d is below the minimum %d", h.Build, s.Min), now)
 		s.reject(from, RejectTooOld, now)
 		return
 	}
@@ -223,11 +235,13 @@ func (s *Server) hello(from netip.AddrPort, h ClientHeader, body []byte, p *Play
 	}
 	name := CleanName(body[:NameLen])
 	if name == "" || s.Filter.Censor(name) != name {
+		s.logReject(from, Proto, name, h.Build, "name refused", now)
 		s.reject(from, RejectBadName, now)
 		return
 	}
 	if p == nil {
 		if len(s.players) >= MaxSessions {
+			s.logReject(from, Proto, name, h.Build, fmt.Sprintf("server full (%d sessions)", len(s.players)), now)
 			s.reject(from, RejectFull, now)
 			return
 		}
@@ -246,6 +260,48 @@ func (s *Server) hello(from netip.AddrPort, h ClientHeader, body []byte, p *Play
 	b = binary.LittleEndian.AppendUint16(b, s.Min)
 	b = append(b, MaxLobbies, MaxPlayers)
 	s.send(from, b)
+}
+
+// helloName reads the name from a HELLO body, for the log only. The name
+// has followed the 18-byte header since protocol 1, so this also reads
+// hellos from other protocols.
+func helloName(body []byte) string {
+	if len(body) < NameLen {
+		return ""
+	}
+	return CleanName(body[:NameLen])
+}
+
+// helloBuild reads the build from a whole packet of any protocol, for the log.
+func helloBuild(pkt []byte) uint16 {
+	if len(pkt) < clientHeaderLen {
+		return 0
+	}
+	return binary.LittleEndian.Uint16(pkt[14:])
+}
+
+// logReject writes one line for a rejected HELLO, once per address and
+// reason every rejectLogEvery, so a console retrying twice a second shows
+// up once. Rejected hellos used to leave no trace, which made "lost
+// connection" reports from old builds impossible to tell from network
+// trouble.
+func (s *Server) logReject(from netip.AddrPort, proto byte, name string, build uint16, why string, now time.Time) {
+	if s.rejected == nil {
+		s.rejected = map[string]time.Time{}
+	}
+	key := from.Addr().String() + "|" + why
+	if at, ok := s.rejected[key]; ok && now.Sub(at) < rejectLogEvery {
+		return
+	}
+	if len(s.rejected) > 256 {
+		for k, at := range s.rejected {
+			if now.Sub(at) >= rejectLogEvery {
+				delete(s.rejected, k)
+			}
+		}
+	}
+	s.rejected[key] = now
+	s.Logf("rejected hello %q protocol %d build %d from %v: %s", name, proto, build, from, why)
 }
 
 func (s *Server) reject(to netip.AddrPort, reason byte, now time.Time) {

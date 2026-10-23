@@ -49,7 +49,11 @@ port 7535). Everything fits a 56k dial-up modem: the console sends about
 | 3 | u8 | packet type |
 
 A packet with a bad magic or a different protocol number gets a `REJECT`
-(if it is a `HELLO`) or is dropped.
+(if it is a `HELLO`) or is dropped. The `REJECT` carries the server's
+protocol byte; consoles from build 18 read a `REJECT` whatever its
+protocol byte (earlier builds dropped it and reported a lost connection
+after a protocol bump). The server logs every rejected `HELLO`, at most
+once a minute per address and reason.
 
 ## Client to server
 

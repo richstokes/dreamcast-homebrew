@@ -501,7 +501,27 @@ static void take_kart(int slot, const uint8_t *e, uint64_t now) {
 }
 
 static void handle(const uint8_t *b, int n, uint64_t now) {
-    if(n < 8 || b[0] != 'D' || b[1] != 'K' || b[2] != DK_NET_PROTO) return;
+    if(n < 8 || b[0] != 'D' || b[1] != 'K') return;
+    if(b[2] != DK_NET_PROTO) {
+        /* A server on another protocol answers our HELLO with a REJECT
+           stamped with its own protocol byte. The header and the reject
+           body have never moved, so read it: a console that dropped it
+           (builds up to 17 did) heard nothing for 12 seconds and reported
+           a lost connection instead of being told to update. */
+        if(b[3] != 65 || n < 9) return;
+        last_rx = now;
+        if(n >= 13) {
+            latest_build = get16(b + 9);
+            min_build = get16(b + 11);
+        }
+        reject_reason = NREJ_TOO_OLD;
+        message = "THIS VERSION IS TOO OLD TO PLAY ONLINE";
+        state = NET_REJECTED;
+#ifdef DK_NET_TRACE
+        printf("DK NET rejected by a protocol %u server, latest build %u\n", b[2], (unsigned)latest_build);
+#endif
+        return;
+    }
     last_rx = now;
     received = true;
     echo_ms = get32(b + 4);

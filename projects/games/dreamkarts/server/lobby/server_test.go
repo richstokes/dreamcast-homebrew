@@ -2,7 +2,9 @@ package lobby
 
 import (
 	"encoding/binary"
+	"fmt"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -337,6 +339,54 @@ func TestRetireStaysInLobby(t *testing.T) {
 	h.advance(100 * time.Millisecond)
 	if v := a.lobby(); v.state != StateWaiting || v.players[0].points != 10 {
 		t.Fatalf("expected the lobby waiting with points kept: %+v", v)
+	}
+}
+
+// A rejected HELLO is logged (name, build, why) once a minute per address
+// and reason, whatever its protocol byte: a console retrying every half
+// second must not flood the journal, and an old build must be traceable.
+func TestRejectedHelloLogged(t *testing.T) {
+	h := newHarness(t)
+	var lines []string
+	h.s.Logf = func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
+
+	// Another protocol: the raw packet is parsed by hand.
+	old := h.client(1, 1)
+	pkt := AppendClient(nil, ClientHeader{Type: TypeHello, Token: 1, Build: 16}, appendName(nil, "COMIC"))
+	pkt[2] = Proto - 1
+	for i := 0; i < 5; i++ {
+		h.s.Handle(old.addr, pkt, h.now)
+		h.now = h.now.Add(500 * time.Millisecond)
+	}
+	if r := old.last(TypeReject); r == nil || r[8] != RejectTooOld {
+		t.Fatalf("reject %v", r)
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], `rejected hello "COMIC" protocol 3 build 16 from 10.0.0.1:1`) || !strings.Contains(lines[0], "protocol 3") {
+		t.Fatalf("log %q", lines)
+	}
+
+	// Too old on our protocol: a different reason, so a new line.
+	h.s.Min = 10
+	oldb := h.client(2, 2)
+	oldb.build = 9
+	oldb.hello("OLDIE")
+	oldb.hello("OLDIE")
+	if len(lines) != 2 || !strings.Contains(lines[1], `"OLDIE" protocol 4 build 9`) || !strings.Contains(lines[1], "below the minimum 10") {
+		t.Fatalf("log %q", lines)
+	}
+
+	// After a minute the same console is logged again.
+	h.now = h.now.Add(rejectLogEvery)
+	oldb.hello("OLDIE")
+	if len(lines) != 3 {
+		t.Fatalf("log %q", lines)
+	}
+
+	// A refused name.
+	bad := h.client(3, 3)
+	bad.hello("BLORP")
+	if len(lines) != 4 || !strings.Contains(lines[3], "name refused") {
+		t.Fatalf("log %q", lines)
 	}
 }
 
