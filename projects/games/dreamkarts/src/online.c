@@ -49,6 +49,9 @@ static float fly_t;
 static int results_seen;       /* races this session that reached results */
 static int bell_lobby = -1;    /* lobby whose players bell_seen covers */
 static uint8_t bell_seen;      /* slots present last time we looked (the bell rings for a new one) */
+static char toast[NET_NAME_LEN + 24];   /* "X JOINED THE LOBBY", shown until toast_until */
+static uint64_t toast_until;
+#define TOAST_MS 2500
 #ifdef DK_AT_PRACTICE
 static uint32_t practice_press;   /* buttons the practice autotest presses mid-race */
 static struct {
@@ -335,6 +338,12 @@ static void lobby_bell(void) {
     bell_seen = now;
     if(!fresh) return;
     audio_sfx(DK_SFX_BELL, 230, 128);
+    for(int i = 0; i < l->count; i++)
+        if(fresh & (1 << l->players[i].slot)) snprintf(toast, sizeof(toast), "%s JOINED THE LOBBY", l->players[i].name);
+    toast_until = net_now() + TOAST_MS;
+#if defined(DK_AT_PRACTICE) && defined(DK_CAPTURE)
+    printf("DK SHOT practice-toast\n");
+#endif
 #ifdef DK_AT_PRACTICE
     pr.bell = true;
 #endif
@@ -967,6 +976,20 @@ static int shown_ping(const NetPlayer *p) {
     return ping_avg[p->slot].shown;
 }
 
+/* The join toast: a line that fades in, holds and fades out, centred on
+   (x, y). In the room it sits under the player list; in a race it is a
+   slim band at the top of the screen, clear of the lap and timer boxes. */
+static void draw_toast(float x, float y, bool band) {
+    int64_t left = (int64_t)toast_until - (int64_t)net_now();
+    if(left <= 0 || left > TOAST_MS) return;
+    float a = fminf((float)(TOAST_MS - left) / 200.0f, fminf((float)left / 400.0f, 1.0f));
+    if(band) {
+        float w = hud_text_width(toast, 0.42f) + 32;
+        hud_panel(x - w * 0.5f, y - 4, x + w * 0.5f, y + 24, color_alpha(PANEL_TOP, a), color_alpha(PANEL_BOT, a), 15);
+    }
+    hud_text(x, y, 0.42f, ALIGN_CENTER, color_alpha(argb(255, 255, 226, 70), a), toast);
+}
+
 static void draw_name(void) {
     title_bar("ONLINE");
     panel(100, 84, 540, 420);
@@ -1120,6 +1143,7 @@ static void draw_lobby(void) {
     title_bar(buf);
     panel(24, 76, 356, 398);
     draw_standings(l, 24, 86, 356);
+    draw_toast(190, 366, false);   /* below six rows of players */
     panel(372, 76, 616, 398);
     if(net_spectating()) {
         float y = 92;
@@ -1239,8 +1263,10 @@ void online_draw(void) {
     }
 }
 
-/* Over the race: the leave prompt, or who we are still waiting for. */
+/* Over the race: the join toast, the leave prompt, or who we are still
+   waiting for. */
 void online_draw_race(void) {
+    draw_toast(320, 8, true);
     const Kart *me = &karts[game.player];
     if(me->finished && game.state == ST_RACE && !net_spectating()) {
         hud_text(320, 300, 0.6f, ALIGN_CENTER, 0xffffffff, "WAITING FOR THE OTHERS...");
@@ -1272,6 +1298,7 @@ void online_draw_race(void) {
 }
 
 void online_draw_results(void) {
+    draw_toast(320, 8, true);
     const NetLobby *l = net_lobby();
     float a = clampf(game.time / 0.5f, 0, 1);
     float x0 = 100 + (1 - a) * 440;
