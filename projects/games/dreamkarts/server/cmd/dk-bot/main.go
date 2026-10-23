@@ -145,8 +145,8 @@ func main() {
 				mySlot = int(b[10])
 				ns, rid := b[9], b[15]
 				racing = false
-				for i := 0; i < int(b[21]) && 22+i*20+20 <= n; i++ {
-					if e := b[22+i*20:]; int(e[0]) == mySlot && e[13]&2 != 0 {
+				for i := 0; i < int(b[21]) && 22+i*lobby.PlayerLen+lobby.PlayerLen <= n; i++ {
+					if e := b[22+i*lobby.PlayerLen:]; int(e[0]) == mySlot && e[13]&2 != 0 {
 						racing = true
 					}
 				}
