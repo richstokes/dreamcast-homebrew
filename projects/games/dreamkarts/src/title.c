@@ -931,7 +931,7 @@ static void draw_custom(void) {
     float y_save = y_first + 3 * pitch + 2;
     hud_panel(x0, top, x1, y_save + 52, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
     hud_text(cx, top + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "CUSTOMIZE");
-    static const char *const labels[3] = {"KART BODY", "KART TRIM", "CHAO"};
+    static const char *const labels[3] = {"KART BODY", "KART TRIM", "AVATAR"};
     float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
     float bob = 3.0f * sinf(game.title_t * 9);
     for(int i = 0; i < 3; i++) {
