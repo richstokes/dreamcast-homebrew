@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/lobby"
+	"os/signal"
+	"syscall"
 )
 
 var (
@@ -109,8 +111,20 @@ func main() {
 	var chatEcho bool
 	var lastLine string
 	var chatSince, lastChat, chatResend time.Time
+	// Ctrl-C or a kill from a test harness leaves the lobby properly,
+	// so the next test does not find the bot's seat still taken for the
+	// 10 s session timeout.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	began := time.Now()
 	for *duration == 0 || time.Since(began) < *duration {
+		select {
+		case <-stop:
+			log.Printf("stopping")
+			send(lobby.TypeLeave, nil)
+			return
+		default:
+		}
 		conn.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
 		if n, err := conn.Read(buf); err == nil && n >= 8 && buf[0] == 'D' && buf[1] == 'K' {
 			b := buf[:n]

@@ -30,7 +30,7 @@ SERVER_DIR="${PROJECT_DIR}/server"
 KOS_ENV="${KOS_ENV:-$HOME/.local/share/dreamcast/kos/environ.sh}"
 LIVE="${DK_QA_LIVE:-0}"
 PORT="${DK_QA_PORT:-7535}"
-TIMEOUT="${DK_QA_TIMEOUT:-360}"   # seconds a scenario may take
+TIMEOUT="${DK_QA_TIMEOUT:-360}"   # seconds a scenario may take (spectate gets 600: it may catch a race mid-way)
 OUT="${PROJECT_DIR}/captures/online-qa"
 mkdir -p "${OUT}"
 
@@ -106,7 +106,8 @@ build_client() {   # build_client <cflags>
         { echo "build failed, see ${OUT}/${scenario}-build.log" >&2; return 1; }
 }
 run_client() {   # run_client [cue]: Flycast until PASS/FAIL; on the cue line, restart the server
-    local cue="${1:-}" log="${OUT}/${scenario}.log" start cued=0
+    local cue="${1:-}" log="${OUT}/${scenario}.log" start cued=0 limit="${TIMEOUT}"
+    [[ "${scenario}" == spectate && "${limit}" -lt 600 ]] && limit=600
     : > "${log}"
     DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' \
         "${PROJECT_DIR}/run-flycast.sh" --skip-build > "${log}" 2>&1 &
@@ -119,8 +120,8 @@ run_client() {   # run_client [cue]: Flycast until PASS/FAIL; on the cue line, r
             stop_server
             start_server "${OUT}/${scenario}-server.log" ${server_flags[@]+"${server_flags[@]}"}
         fi
-        if (( $(date +%s) - start > TIMEOUT )); then
-            echo "   timed out after ${TIMEOUT} s"
+        if (( $(date +%s) - start > limit )); then
+            echo "   timed out after ${limit} s"
             kill "${lp}" 2>/dev/null || true
             wait "${lp}" 2>/dev/null || true
             return 1
@@ -169,6 +170,11 @@ for scenario in "${scenarios[@]}"; do
         *) echo "unknown scenario ${scenario}" >&2; exit 2 ;;
     esac
     status=1
+    if [[ "${LIVE}" == 1 && ${#results[@]} -gt 0 ]]; then
+        # A killed Flycast sends no LEAVE: let the live server time its
+        # console out (10 s) so the lobby is empty for the next scenario.
+        sleep 12
+    fi
     if build_client "${cflags}"; then
         start_server "${OUT}/${scenario}-server.log" ${server_flags[@]+"${server_flags[@]}"}
         [[ ${#bot_args[@]} -gt 0 ]] && bot "${bot_delay}" ${bot_args[@]+"${bot_args[@]}"}
