@@ -159,6 +159,7 @@ void hud_draw_track_map(float cx, float cy, float sc, float z, bool show_karts) 
             bool me = kart_is_human(i);
             if(me != (pass == 1)) continue;
             const Kart *k = &karts[i];
+            if(k->gone) continue;
             float x = cx + k->pos.x * sc, y = cy - k->pos.z * sc;
             float r = me ? 5.0f + sinf(hud_time * 8) * 0.8f : 3.6f;
             r_quad2d(x - r - 1.5f, y - r - 1.5f, x + r + 1.5f, y + r + 1.5f, 0, 0, 1, 1,

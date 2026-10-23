@@ -5,7 +5,9 @@
    others are drawn from the network a little in the past (net.c). The server
    decides the start time, the places and the points; this side just
    follows its lobby state: waiting (the lobby room), countdown, racing,
-   results, then back to the room. */
+   results, then back to the room. A race can be started alone, as
+   practice while waiting for company (a bell rings when someone joins),
+   and Start mid-race drops out of it back to the room, not the lobby. */
 #include "online.h"
 #include "audio.h"
 #include "chat.h"
@@ -45,6 +47,17 @@ static char kart_names[MAX_KARTS][NET_NAME_LEN];
 static const char *error_line1 = "", *error_line2 = "";
 static float fly_t;
 static int results_seen;       /* races this session that reached results */
+static int bell_lobby = -1;    /* lobby whose players bell_seen covers */
+static uint8_t bell_seen;      /* slots present last time we looked (the bell rings for a new one) */
+#ifdef DK_AT_PRACTICE
+static uint32_t practice_press;   /* buttons the practice autotest presses mid-race */
+static struct {
+    int step;
+    uint64_t t;   /* ms the step began */
+    bool solo, bell, back1, two, gone, back2, reported;
+} pr;
+static void practice_autotest(void);
+#endif
 #ifdef DK_AUTOTEST
 /* Remote kart motion while racing: how far each step's move departs from
    the kart's own speed (a pop or a stall), and heading jumps. */
@@ -200,7 +213,23 @@ void online_remote_karts(float dt) {
     uint64_t at = net_draw_time(dt);
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
-        if(!k->remote) continue;
+        if(!k->remote || k->gone) continue;
+        /* A rival who dropped out (or left the lobby) is gone from the
+           race: no more samples will come, so take its kart off the track
+           rather than leave it frozen there, and sweep its spear and mine. */
+        const NetPlayer *p = net_player(k->net_slot);
+        if(!p || !(p->flags & NPF_RACING)) {
+            k->gone = true;
+            k->finished = true;   /* nothing waits for it; it places last */
+            k->speed = k->boost_t = k->wave_t = 0;
+            NetItems none;
+            memset(&none, 0, sizeof(none));
+            items_remote(k, &none, 0, dt);
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+            printf("DK ONLINE: slot %d dropped out of the race\n", k->net_slot);
+#endif
+            continue;
+        }
         NetKart nk;
         if(!net_remote_kart(k->net_slot, at, &nk)) continue;
         int dir = (nk.flags & NKF_DRIFT) ? ((nk.flags & NKF_DRIFT_RIGHT) ? 1 : -1) : 0;
@@ -289,10 +318,41 @@ static void follow_lobby(void) {
     }
 }
 
+/* Someone new in the lobby rings the bell: a player in a slot that was
+   empty last time (not us; nothing on the first look at a lobby). Rings
+   mid-race too, which is the point of racing alone while waiting. */
+static void lobby_bell(void) {
+    const NetLobby *l = net_lobby();
+    uint8_t now = 0;
+    for(int i = 0; i < l->count; i++)
+        if(l->players[i].slot < NET_MAX_PLAYERS && l->players[i].slot != l->you) now |= 1 << l->players[i].slot;
+    if(l->id != bell_lobby) {
+        bell_lobby = l->id;
+        bell_seen = now;
+        return;
+    }
+    uint8_t fresh = now & ~bell_seen;
+    bell_seen = now;
+    if(!fresh) return;
+    audio_sfx(DK_SFX_BELL, 230, 128);
+#ifdef DK_AT_PRACTICE
+    pr.bell = true;
+#endif
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+    for(int i = 0; i < l->count; i++)
+        if(fresh & (1 << l->players[i].slot)) printf("DK ONLINE: %s joined the lobby (bell)\n", l->players[i].name);
+#endif
+}
+
 /* Called every frame from the main loop while game.online. */
 void online_tick(void) {
     net_update();
     int ns = net_state();
+#ifdef DK_AT_PRACTICE
+    practice_autotest();
+#endif
+    if(ns == NET_LOBBY) lobby_bell();
+    else bell_lobby = -1;
     if(ns == NET_LOST || ns == NET_REJECTED) {
         if(screen != OS_ERROR || game.state != ST_ONLINE) {
             bool old = ns == NET_REJECTED && net_reject_reason() == NREJ_TOO_OLD;
@@ -308,8 +368,15 @@ void online_tick(void) {
     }
 }
 
-/* Mid-race Start: offer to leave (the race carries on behind the prompt). */
+/* Mid-race Start: offer to drop out (the race carries on behind the
+   prompt). A yes goes back to the lobby room, still in the lobby: the
+   race runs on without us (raced_id keeps it from being set up again) and
+   the room shows it in progress until the server is waiting again. */
 bool online_race_input(void) {
+#ifdef DK_AT_PRACTICE
+    pad.pressed |= practice_press;
+    practice_press = 0;
+#endif
     if(!leave_prompt) {
         if(pad.pressed & BTN_START) {
             leave_prompt = true;
@@ -319,10 +386,12 @@ bool online_race_input(void) {
     }
     if(pad.pressed & BTN_A) {
         leave_prompt = false;
-        net_leave();
-        raced_id = -1;
+        if(!net_spectating()) net_retire(net_lobby()->race_id);
         game_set_state(ST_ONLINE);
-        set_screen(OS_BROWSER);
+        set_screen(OS_LOBBY);
+        fly_t = 0;
+        audio_kart_loops(0, NULL, DK_DT);
+        audio_sfx(DK_SFX_MENU_BACK, 200, 128);
         return true;
     }
     if(pad.pressed & (BTN_B | BTN_START)) {
@@ -577,13 +646,8 @@ static void lobby_update(float dt) {
             if(row != LR_START) audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
         }
         if((pad.pressed & (BTN_A | BTN_START)) && leader && (row == LR_START || (pad.pressed & BTN_START))) {
-            if(l->count >= 2) {
-                net_press_start();
-                audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
-            }
-            else {
-                audio_sfx(DK_SFX_MENU_BACK, 200, 128);
-            }
+            net_press_start();   /* alone too: practice until company arrives */
+            audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
         }
         else if((pad.pressed & BTN_A) && row != LR_START) {
             lobby_row = (lobby_row + 1) % n;
@@ -598,6 +662,120 @@ static void lobby_update(float dt) {
         set_screen(OS_BROWSER);
     }
 }
+
+#ifdef DK_AT_PRACTICE
+/* Practice autotest (-DDK_AT_ONLINE -DDK_AT_PRACTICE, an empty lobby, a
+   bot joining ~20 s in with -retire 6s): start a race alone, hear the bell
+   as the bot joins mid-race, drop out back to the room and find the lobby
+   waiting again, start again with the bot, see the bot drop out (its kart
+   leaves the race), drop out too, and end up in a waiting lobby. Runs
+   every frame while online, whatever the game state. */
+#ifdef DK_CAPTURE
+#define PR_SHOT(label) do { static bool shot; if(!shot) { shot = true; printf("DK SHOT %s\n", label); } } while(0)
+#else
+#define PR_SHOT(label) do { } while(0)
+#endif
+static void practice_autotest(void) {
+    if(net_state() != NET_LOBBY || pr.reported) return;
+    uint64_t now = net_now();
+    const NetLobby *l = net_lobby();
+    const NetPlayer *me = net_me();
+    bool room = screen == OS_LOBBY && game.state == ST_ONLINE;
+    bool leader = me && l->leader == l->you;
+    switch(pr.step) {
+        case 0:   /* alone in the room: start anyway */
+            if(room && leader && l->state == NLS_WAITING && l->count == 1 && screen_t > 1.0f) PR_SHOT("practice-alone");
+            if(room && leader && l->state == NLS_WAITING && l->count == 1 && screen_t > 2.0f) {
+                printf("DK PRACTICE: starting a race alone\n");
+                net_press_start();
+                pr.step = 1;
+                pr.t = now;
+            }
+            break;
+        case 1:   /* racing alone until the bot joins (the bell), then Start */
+            if((game.state == ST_COUNTDOWN || game.state == ST_RACE) && kart_count == 1 && !pr.solo) {
+                pr.solo = true;
+                printf("DK PRACTICE: racing alone (race %d)\n", l->race_id);
+            }
+            if(game.state == ST_RACE && ((pr.bell && l->count >= 2 && game.race_time > 2.0f) || game.race_time > 45.0f)) {
+                printf("DK PRACTICE: %s, dropping out\n", pr.bell ? "heard the bell" : "NO BELL after 45 s");
+                practice_press = BTN_START;
+                pr.step = 2;
+                pr.t = now;
+            }
+            break;
+        case 2:
+            if(now - pr.t > 150) PR_SHOT("practice-prompt");
+            if(now - pr.t > 700) {
+                practice_press = BTN_A;
+                pr.step = 3;
+                pr.t = now;
+            }
+            break;
+        case 3:   /* back in the room; the lobby should be waiting soon */
+            if(room && l->state == NLS_WAITING) {
+                pr.back1 = true;
+                printf("DK PRACTICE: back in the room, lobby waiting %lu ms after dropping out\n", (unsigned long)(now - pr.t));
+                pr.step = 4;
+                pr.t = now;
+            }
+            else if(now - pr.t > 8000) {
+                printf("DK PRACTICE: lobby still in state %d 8 s after dropping out (room %d)\n", l->state, room);
+                pr.step = 4;
+                pr.t = now;
+            }
+            break;
+        case 4:   /* start again, with the bot */
+            if(room && leader && l->state == NLS_WAITING && l->count >= 2 && now - pr.t > 3000) {
+                printf("DK PRACTICE: starting a race with %d players\n", l->count);
+                net_press_start();
+                pr.step = 5;
+                pr.t = now;
+            }
+            break;
+        case 5: { /* the bot drops out: its kart leaves; then we drop out too */
+            if(game.state == ST_RACE && kart_count == 2 && !pr.two) {
+                pr.two = true;
+                printf("DK PRACTICE: racing the bot (race %d)\n", l->race_id);
+            }
+            bool gone = false;
+            for(int i = 0; i < kart_count; i++)
+                if(karts[i].remote && karts[i].gone) gone = true;
+            if(gone && !pr.gone) {
+                pr.gone = true;
+                printf("DK PRACTICE: the bot dropped out at %.1f s, place %d of %d\n", (double)game.race_time,
+                       karts[game.player].place, kart_count);
+                pr.t = now;
+            }
+            if(pr.gone && now - pr.t > 800) PR_SHOT("practice-bot-gone");
+            if(game.state == ST_RACE && ((pr.gone && now - pr.t > 1500) || game.race_time > 45.0f)) {
+                printf("DK PRACTICE: %sdropping out\n", pr.gone ? "" : "bot NEVER dropped out, ");
+                practice_press = BTN_START;
+                pr.step = 6;
+                pr.t = now;
+            }
+            break;
+        }
+        case 6:
+            if(now - pr.t > 300) {
+                practice_press = BTN_A;
+                pr.step = 7;
+                pr.t = now;
+            }
+            break;
+        case 7:
+            if((room && l->state == NLS_WAITING) || now - pr.t > 8000) {
+                pr.back2 = room && l->state == NLS_WAITING;
+                bool ok = pr.solo && pr.bell && pr.back1 && pr.two && pr.gone && pr.back2;
+                printf("DK PRACTICE: solo %d bell %d back %d two %d bot-gone %d back %d, %d in the lobby, points %d\n",
+                       pr.solo, pr.bell, pr.back1, pr.two, pr.gone, pr.back2, l->count, me ? me->points : -1);
+                printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
+                pr.reported = true;
+            }
+            break;
+    }
+}
+#endif
 
 #ifdef DK_AT_NAME
 /* VMU name test: report the name the card gave back (it should match
@@ -993,9 +1171,8 @@ static void draw_lobby(void) {
         uint32_t col = sel ? argb(255, 255, 255, 140) : editable ? 0xffffffff : argb(255, 190, 205, 235);
         if(row == LR_START) {
             y += 8;
-            const char *t = l->count >= 2 ? "START RACE" : "NEED 2 PLAYERS";
             float s = sel ? 0.8f + 0.05f * sinf(screen_t * 8) : 0.75f;
-            hud_text(494, y, s, ALIGN_CENTER, l->count >= 2 ? col : argb(255, 255, 160, 120), t);
+            hud_text(494, y, s, ALIGN_CENTER, col, l->count >= 2 ? "START RACE" : "PRACTICE ALONE");
             break;
         }
         hud_text(386, y, 0.55f, ALIGN_LEFT, col, labels[i]);
@@ -1032,6 +1209,10 @@ static void draw_lobby(void) {
     if(l->state != NLS_WAITING) {
         hud_text(494, y, 0.5f, ALIGN_CENTER, argb(255, 255, 190, 80), "RACE IN PROGRESS");
         hud_text(494, y + 22, 0.42f, ALIGN_CENTER, 0xffffffff, "YOU WILL JOIN THE NEXT ONE");
+    }
+    else if(leader && l->count < 2) {
+        /* Under the START row (which ends about y = 372). */
+        hud_text(494, 374, 0.38f, ALIGN_CENTER, argb(220, 200, 225, 255), "A BELL RINGS WHEN SOMEONE JOINS");
     }
     else if(!leader) {
         const NetPlayer *ld = net_player(l->leader);
@@ -1088,7 +1269,9 @@ void online_draw_race(void) {
     if(leave_prompt) {
         panel(170, 180, 470, 300);
         hud_text(320, 196, 0.8f, ALIGN_CENTER, argb(255, 255, 220, 60), "LEAVE THE RACE?");
-        hud_text(320, 250, 0.6f, ALIGN_CENTER, 0xffffffff, "A: LEAVE   B: KEEP RACING");
+        hud_text(320, 232, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "BACK TO THE LOBBY ROOM");
+        hud_text(320, 262, 0.6f, ALIGN_CENTER, 0xffffffff,
+                 net_spectating() ? "A: LEAVE   B: KEEP WATCHING" : "A: LEAVE   B: KEEP RACING");
     }
 }
 
@@ -1194,6 +1377,9 @@ void online_autotest(float dt) {
         net_join(DK_AT_LOBBY);
     }
     if(screen == OS_LOBBY) {
+#ifdef DK_AT_PRACTICE
+        return;   /* practice_autotest() drives the lobby from here */
+#endif
         const NetLobby *l = net_lobby();
         static float ready_t;
         ready_t = l->count >= 2 && l->leader == l->you && l->state == NLS_WAITING ? ready_t + dt : 0;

@@ -296,7 +296,7 @@ static int pick_target(const Kart *k, int dir, float range) {
     float best_d = range;
     for(int j = 0; j < kart_count; j++) {
         const Kart *o = &karts[j];
-        if(o == k || o->finished) continue;
+        if(o == k || o->finished || o->gone) continue;
         float ahead = track_delta(k->tp.s, o->tp.s) * (float)dir;
         if(ahead <= 1.0f || ahead >= best_d) continue;
         if(fabsf(o->pos.y - k->pos.y) > 6.0f) continue;   /* the other leg of a crossing */

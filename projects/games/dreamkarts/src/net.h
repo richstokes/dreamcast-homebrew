@@ -110,6 +110,9 @@ const NetPlayer *net_player(int slot);
 /* What this console wants: everyone's colour; the leader's race settings. */
 void net_wish(int colour, int track, int laps, int cc, int items);
 void net_press_start(void);
+/* Drop out of the race being run (race_id), staying in the lobby: resent
+   until the lobby state shows this console not racing. */
+void net_retire(int race_id);
 
 /* Racing: our kart for the next KART packet, and others' karts as they
    were at local time at_ms. Call net_draw_time() once a step for the

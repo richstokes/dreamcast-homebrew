@@ -179,6 +179,10 @@ func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
 		if len(body) >= 2 {
 			s.chat(p, body, now)
 		}
+	case TypeRetire:
+		if len(body) >= 1 {
+			s.retire(p, body[0], now)
+		}
 	case TypePing:
 	}
 }
@@ -446,8 +450,8 @@ func (s *Server) wish(p *Player, b []byte, now time.Time) {
 		if hasItems && items != l.Items {
 			l.Items, l.dirty = items, true
 		}
-		if nonce != l.Nonce && l.count() >= 2 {
-			s.startRace(l, now)
+		if nonce != l.Nonce {
+			s.startRace(l, now) // alone is fine: practice until company arrives
 		}
 	}
 	l.Nonce = nonce
@@ -482,6 +486,24 @@ func (s *Server) startRace(l *Lobby, now time.Time) {
 	l.dirty = true
 	s.Logf("lobby %d race %d: %d racers, track %d, %d laps, cc %d, items %v", l.ID, l.RaceID, len(racers), l.Track,
 		l.Laps, l.CC, l.Items)
+}
+
+// retire takes p out of the race it is in (the console pressed Start and
+// chose to go back to the lobby room) without leaving the lobby: no place
+// or points this race, and its kart leaves everyone's RACE packets. The
+// console resends until the lobby state shows it not racing, so a repeat
+// is a no-op; an old race id is ignored.
+func (s *Server) retire(p *Player, raceID byte, now time.Time) {
+	if p.Lobby == noLobby || !p.Racing {
+		return
+	}
+	l := s.Lobbies[p.Lobby]
+	if raceID != l.RaceID || (l.State != StateCountdown && l.State != StateRacing) {
+		return
+	}
+	p.Racing, p.Finished, p.HasKart, p.LastPlace = false, false, false, 0
+	l.dirty = true
+	s.Logf("lobby %d: %q retired from race %d", l.ID, p.Name, l.RaceID)
 }
 
 func (s *Server) kart(p *Player, b []byte, now time.Time) {
@@ -643,7 +665,9 @@ func (s *Server) advance(l *Lobby, now time.Time) {
 			}
 		}
 		grace := !l.FirstFin.IsZero() && now.Sub(l.FirstFin) >= FinishGrace
-		if done || grace || len(r) == 0 || now.Sub(l.Green) > MaxRaceLen {
+		if len(r) == 0 {
+			s.toWaiting(l) // everyone retired or left: no results to show
+		} else if done || grace || now.Sub(l.Green) > MaxRaceLen {
 			s.finishRace(l, now)
 		}
 	case StateResults:

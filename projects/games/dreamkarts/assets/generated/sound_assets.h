@@ -57,6 +57,7 @@ typedef enum {
     DK_SFX_BARRIER_POP,
     DK_SFX_MINE,
     DK_SFX_MINE_HIT,
+    DK_SFX_BELL,
     DK_SFX_COUNT
 } dk_sfx_id_t;
 
@@ -101,6 +102,7 @@ static const dk_sfx_asset_t dk_sfx_assets[DK_SFX_COUNT] __attribute__((unused)) 
     { 1000800u, 22080u, 0u }, /* BARRIER_POP  vol 178 */
     { 1022880u, 18912u, 0u }, /* MINE         vol 178 */
     { 1041792u, 41920u, 0u }, /* MINE_HIT     vol 217 */
+    { 1083712u, 61760u, 0u }, /* BELL         vol 191 */
 };
 
 /* Effect names for the sound test. */
@@ -144,6 +146,7 @@ static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {
     "BARRIER POP",
     "MINE",
     "MINE BLAST",
+    "LOBBY BELL",
 };
 
 #endif /* DK_SOUND_ASSETS_H */

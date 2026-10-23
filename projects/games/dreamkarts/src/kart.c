@@ -721,6 +721,7 @@ void karts_collide(void) {
     for(int i = 0; i < kart_count; i++) {
         for(int j = i + 1; j < kart_count; j++) {
             Kart *a = &karts[i], *b = &karts[j];
+            if(a->gone || b->gone) continue;
             float dx = b->pos.x - a->pos.x, dz = b->pos.z - a->pos.z;
             float d2 = dx * dx + dz * dz;
             const float min = KART_RADIUS * 2.0f;

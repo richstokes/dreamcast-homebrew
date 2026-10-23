@@ -742,7 +742,8 @@ static void update_places(void) {
         while(j >= 0) {
             const Kart *a = &karts[order[j]], *b = &karts[v];
             bool b_ahead;
-            if(a->finished && b->finished) b_ahead = b->finish_time < a->finish_time;
+            if(a->gone != b->gone) b_ahead = a->gone;   /* a dropped-out rival places last */
+            else if(a->finished && b->finished) b_ahead = b->finish_time < a->finish_time;
             else if(a->finished != b->finished) b_ahead = b->finished;
             else b_ahead = b->progress > a->progress;
             if(!b_ahead) break;

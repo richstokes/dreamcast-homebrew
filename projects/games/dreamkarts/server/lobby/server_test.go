@@ -240,7 +240,7 @@ func TestItemsSwitch(t *testing.T) {
 	}
 }
 
-func TestStartNeedsTwoAndLeaderHandover(t *testing.T) {
+func TestSoloStartAndLeaderHandover(t *testing.T) {
 	h := newHarness(t)
 	a, b := h.client(1, 11), h.client(2, 22)
 	a.hello("ann")
@@ -250,22 +250,89 @@ func TestStartNeedsTwoAndLeaderHandover(t *testing.T) {
 	a.nonce++
 	a.wish(0, 0, 3, 1)
 	h.advance(40 * time.Millisecond)
-	if a.lobby().state != StateWaiting {
-		t.Fatal("started with one player")
+	// Alone is enough: a practice race while waiting for company.
+	if v := a.lobby(); v.state != StateCountdown || v.players[0].flags&2 == 0 {
+		t.Fatalf("did not start alone: %+v", v)
 	}
 	b.send(TypeJoin, []byte{0})
 	b.nonce = 7 // bob's own counter is not a press
 	b.wish(1, 0, 3, 1)
+	h.advance(40 * time.Millisecond)
+	if v := b.lobby(); v.state != StateCountdown || len(v.players) != 2 || v.players[1].flags&2 != 0 {
+		t.Fatalf("bob should sit out the running race: %+v", v)
+	}
 	a.send(TypeLeave, nil)
 	h.advance(100 * time.Millisecond)
 	v := b.lobby()
 	if v.leader != v.you {
 		t.Fatalf("bob did not take over: %+v", v)
 	}
+	if v.state != StateWaiting {
+		t.Fatalf("race should end when its only racer leaves: %+v", v)
+	}
 	b.wish(1, 0, 3, 1)
 	h.advance(40 * time.Millisecond)
 	if b.lobby().state != StateWaiting {
 		t.Fatal("handover started a race")
+	}
+}
+
+func TestRetireStaysInLobby(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	a.hello("ann")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{3})
+	b.send(TypeJoin, []byte{3})
+	a.wish(0, 0, 3, 1)
+	b.wish(1, 0, 3, 1)
+	a.nonce++
+	a.wish(0, 0, 3, 1)
+	h.advance(CountdownLen + 100*time.Millisecond)
+	id := a.lobby().raceID
+	a.kart(id, 0, 1, 100, 5000)
+	b.kart(id, 0, 1, 50, 5000)
+	h.advance(RaceInterval + 20*time.Millisecond)
+	if r := b.last(TypeRace); r == nil || r[9] != 2 {
+		t.Fatalf("expected both karts relayed, got %v", r)
+	}
+	// A stale race id is ignored; the current one takes bob out.
+	b.send(TypeRetire, []byte{id + 1})
+	h.advance(40 * time.Millisecond)
+	if v := b.lobby(); v.players[1].flags&2 == 0 {
+		t.Fatalf("old race id retired bob: %+v", v)
+	}
+	b.send(TypeRetire, []byte{id})
+	b.send(TypeRetire, []byte{id}) // the console resends until the state shows it
+	h.advance(RaceInterval + 20*time.Millisecond)
+	v := b.lobby()
+	if v.state != StateRacing || len(v.players) != 2 || v.players[1].flags&2 != 0 || v.players[0].flags&2 == 0 {
+		t.Fatalf("bob should be in the lobby but out of the race: %+v", v)
+	}
+	if r := b.last(TypeRace); r == nil || r[9] != 1 || r[10] != 0 {
+		t.Fatalf("only ann's kart should be relayed now, got %v", r)
+	}
+	b.kart(id, 0, 2, 100, 20000) // a late kart from bob changes nothing
+	a.kart(id, KartFinished, 4, 0, 90000)
+	h.advance(time.Second)
+	v = a.lobby()
+	if v.state != StateResults {
+		t.Fatalf("race should end when the last racer finishes: %+v", v)
+	}
+	if v.players[0].place != 1 || v.players[0].points != 10 || v.players[1].place != 0 || v.players[1].points != 0 {
+		t.Fatalf("places/points %+v", v.players)
+	}
+	h.advance(ResultsLen + 100*time.Millisecond)
+	// Everyone retiring ends the race with no results.
+	a.nonce++
+	a.wish(0, 0, 3, 1)
+	h.advance(CountdownLen + 100*time.Millisecond)
+	id = a.lobby().raceID
+	a.send(TypeRetire, []byte{id})
+	b.send(TypeRetire, []byte{id})
+	h.advance(100 * time.Millisecond)
+	if v := a.lobby(); v.state != StateWaiting || v.players[0].points != 10 {
+		t.Fatalf("expected the lobby waiting with points kept: %+v", v)
 	}
 }
 

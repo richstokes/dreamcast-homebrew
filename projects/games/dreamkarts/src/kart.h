@@ -100,6 +100,7 @@ typedef struct {
     bool cpu;
     bool remote;        /* online rival driven by another console */
     int net_slot;       /* its lobby slot */
+    bool gone;          /* online rival that dropped out of the race: not drawn, hit or placed */
     float skill;        /* CPU top-speed factor */
     float lane;         /* CPU lateral bias */
     float ai_drift_hold;

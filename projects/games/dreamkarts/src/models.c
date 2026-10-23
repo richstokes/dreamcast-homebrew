@@ -528,6 +528,7 @@ void models_draw_karts(int view_kart) {
     float zoom = r_cam.fov < 1.2f ? r_cam.fov / 1.3f : 1.0f;
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
+        if(k->gone) continue;
         V3 d = vsub(k->pos, r_cam.pos);
         float dist = sqrtf(vdot(d, d)) * zoom;
         uint8_t *st = &lod_state[view][i];
@@ -575,7 +576,7 @@ void models_draw_shadows(void) {
     sun_off = sl > 0.01f ? vscale(sun_off, 0.12f / sl) : v3(0, 0, 0);
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
-        if(!r_sphere_visible(k->pos, 2.0f)) continue;
+        if(k->gone || !r_sphere_visible(k->pos, 2.0f)) continue;
         /* Cast onto the road below: the floor under a jump's gap is y = 0
            (in the sky there is nothing there). */
         if(track_off_edge(&k->tp)) continue;

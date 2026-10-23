@@ -1325,6 +1325,18 @@ A_VOWEL = (900.0, 1380.0, 3000.0)
 O_VOWEL = (520.0, 900.0, 2750.0)
 
 
+def sfx_bell():
+    """The lobby bell: a two-note ding-dong when someone joins."""
+    n = int(1.3 * SR)
+    y = np.zeros(n)
+    for i, note in enumerate((88, 84)):                             # E6 then C6
+        st = int(i * 0.32 * SR)
+        y[st:] += bell(midi_hz(note), n - st, ((1, 1, 0.5), (2.0, 0.4, 0.22), (2.76, 0.22, 0.12), (4.1, 0.08, 0.05)),
+                       strike=0.12, seed=f"bl{i}") * (1.0 - 0.12 * i)
+        y[st:] += 0.35 * fit(glock(note, SR, 0.6), n - st)
+    return add_reverb(y, 0.25, seconds=1.0, t60=0.9, seed="blr")[:int(1.4 * SR)]
+
+
 def sfx_chao():
     n = int(0.5 * SR)
     y = chao_syllable(n, 0.0, A_VOWEL, O_VOWEL, 720.0, 760.0, "chao1")
@@ -1611,6 +1623,7 @@ SFX = [
     ("BARRIER_POP", sfx_barrier_pop, False, 0.7),
     ("MINE", sfx_mine, False, 0.7),
     ("MINE_HIT", sfx_mine_hit, False, 0.85),
+    ("BELL", sfx_bell, False, 0.75),
 ]
 
 
@@ -3241,7 +3254,7 @@ SFX_LABELS = {
     "CHAO_CHU": "CHU-CHU", "CHAO_YAY": "YA-YA", "CHAO_WAH": "WAH!", "CHAO_BUU": "BUU!", "CHAO_HYA": "HYA!",
     "WHOOSH": "WHOOSH", "STAR": "STAR",
     "EMERALD": "EMERALD", "SPEAR": "CHAOS SPEAR", "SPEAR_HIT": "SPEAR HIT", "BARRIER": "BARRIER",
-    "BARRIER_POP": "BARRIER POP", "MINE": "MINE", "MINE_HIT": "MINE BLAST",
+    "BARRIER_POP": "BARRIER POP", "MINE": "MINE", "MINE_HIT": "MINE BLAST", "BELL": "LOBBY BELL",
 }
 
 

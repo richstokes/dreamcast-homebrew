@@ -3,9 +3,10 @@
 The online server for [DreamKarts](../README.md): Go, ten lobbies of up to
 six Dreamcasts over UDP port 7535 at `dcvmu.com`, reachable by broadband
 adapter or 56k modem. The wire format is in [PROTOCOL.md](PROTOCOL.md). It
-keeps lobby state, runs each race's countdown, results and points, relays
-everyone's kart 12 times a second and passes lobby chat round with bad
-words starred out (`lobby/filter.go` holds the list; a name that trips it
+keeps lobby state, runs each race's countdown, results and points (a race
+can be started alone, as practice while waiting, and Start mid-race drops a
+player out of it back to the lobby room), relays everyone's kart 12 times
+a second and passes lobby chat round with bad words starred out (`lobby/filter.go` holds the list; a name that trips it
 is refused). Nothing is stored on disk: a restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
 bots that anyone can watch.
 
@@ -64,6 +65,17 @@ cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FA
 again whenever company arrives) and log every line it hears; the autotest
 expects those two lines, the second starred by the filter. `-start-delay`
 gives the chat time before the bot starts the race.
+
+The practice flow (start alone, the join bell, dropping out back to the
+room, a rival's kart leaving when it drops out) has its own autotest in an
+empty lobby, with a bot that joins ~25 s in and drops out 6 s into each
+race:
+
+```bash
+make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6 -DDK_NET_TEST_HOST=192.168.1.184"
+(sleep 25; go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 6 -retire 6s -for 150s) &
+cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
+```
 
 `DK_NET=modem` in front of the launcher uses Flycast's emulated modem, which
 dials and runs PPP like a real dial-up server. Two Flycast windows can race

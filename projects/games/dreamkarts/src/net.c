@@ -57,6 +57,8 @@ static uint8_t start_nonce;
 static NetKart my_kart;
 static int my_race_id;
 static bool have_kart;
+static int retire_id = -1;  /* race we are dropping out of, -1 none */
+static uint64_t last_retire;
 static Sample history[NET_MAX_PLAYERS][HISTORY];
 static int hist_n[NET_MAX_PLAYERS];
 static uint8_t last_raw[NET_MAX_PLAYERS][NET_KART_BYTES];   /* the newest sample's bytes: a relay repeat is skipped */
@@ -186,6 +188,7 @@ void net_end(void) {
     state = NET_OFF;
     lobby.id = -1;
     join_id = -1;
+    retire_id = -1;
 }
 
 int net_state(void) { return state; }
@@ -232,7 +235,15 @@ void net_leave(void) {
     lobby.id = -1;
     join_id = -1;
     last_list = 0;
+    retire_id = -1;
     forget_chat();
+}
+
+void net_retire(int race_id) {
+    if(state != NET_LOBBY || spectating) return;
+    retire_id = race_id;
+    have_kart = false;
+    last_retire = 0;   /* goes out in the next update */
 }
 
 /* ---- lobby chat ---- */
@@ -720,6 +731,17 @@ void net_update(void) {
             if(spectating) break;   /* watchers only ping */
             const NetPlayer *me = net_me();
             bool racing = me && (me->flags & NPF_RACING) && lobby.state != NLS_WAITING;
+            /* Dropping out: ask every 250 ms until the state shows us out
+               of the race (or the race is over). */
+            if(retire_id >= 0 && (!racing || lobby.race_id != retire_id)) retire_id = -1;
+            if(retire_id >= 0) {
+                racing = false;
+                if(now - last_retire >= 250) {
+                    uint8_t b[1] = {(uint8_t)retire_id};
+                    send_packet(9, b, 1);
+                    last_retire = now;
+                }
+            }
             /* Not in a frame that received something: the next frame is
                soon enough, and keeps our sends clear of the adapter's
                receive path. */

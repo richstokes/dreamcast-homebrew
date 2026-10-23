@@ -3,6 +3,7 @@
 //	dk-bot -smoke                      check the server answers (exit 0/1)
 //	dk-bot -name BOT1 -lobby 0         join lobby 0 and race when a race starts
 //	dk-bot -name BOT1 -lobby 0 -start  also start races as soon as two are in
+//	dk-bot -lobby 0 -retire 5s         drop out of each race 5 s after the green, staying in the lobby
 //	dk-bot -name BOT1 -lobby 0 -wave   also wave every few seconds
 //	dk-bot -lobby 0 -chat "GG;HI ALL"  say each line in turn while waiting, and log the lobby's chat
 //	dk-bot -lobby 9 -spectate          watch lobby 9 and log its races
@@ -45,6 +46,7 @@ var (
 	spectate = flag.Bool("spectate", false, "watch the lobby instead of racing")
 	chat     = flag.String("chat", "", "lines to say in the lobby, ';' separated, one every 4 s once two are in")
 	startIn  = flag.Duration("start-delay", 3*time.Second, "with -start: how long to wait in a ready lobby first")
+	retire   = flag.Duration("retire", 0, "drop out of every race this long after the green (0 = race to the end)")
 )
 
 type pathPoint struct {
@@ -94,7 +96,8 @@ func main() {
 	var nonce byte
 	var state, raceID, laps byte = 0, 0, 3
 	var green time.Time
-	var lastWish, lastHello, lastKart, readySince time.Time
+	var lastWish, lastHello, lastKart, readySince, lastRetire time.Time
+	racing := false // our slot's racing flag in the newest LOBBY packet
 	var kartDue time.Time
 	var lines []string // left to say; said again from the top each time company arrives
 	if *chat != "" {
@@ -139,6 +142,12 @@ func main() {
 				joined = true
 				mySlot = int(b[10])
 				ns, rid := b[9], b[15]
+				racing = false
+				for i := 0; i < int(b[21]) && 22+i*20+20 <= n; i++ {
+					if e := b[22+i*20:]; int(e[0]) == mySlot && e[13]&2 != 0 {
+						racing = true
+					}
+				}
 				laps = b[13]
 				t := int32(binary.LittleEndian.Uint32(b[16:]))
 				if ns != state {
@@ -219,7 +228,20 @@ func main() {
 				send(lobby.TypeChat, body)
 				chatResend = now
 			}
-			if (state == lobby.StateCountdown || state == lobby.StateRacing) && !now.Before(kartDue) &&
+			// Retiring: like a console, ask every 250 ms until the lobby
+			// state shows us out of the race.
+			quit := *retire > 0 && state == lobby.StateRacing && now.Sub(green) > *retire
+			if quit && racing && now.Sub(lastRetire) > 250*time.Millisecond {
+				if lastRetire.IsZero() {
+					log.Printf("retiring from race %d", raceID)
+				}
+				send(lobby.TypeRetire, []byte{raceID})
+				lastRetire = now
+			}
+			if state == lobby.StateWaiting {
+				lastRetire = time.Time{}
+			}
+			if (state == lobby.StateCountdown || state == lobby.StateRacing) && racing && !quit && !now.Before(kartDue) &&
 				now.Sub(lastKart) > 40*time.Millisecond {
 				lastKart = now
 				kartDue = now.Add(100 * time.Millisecond) // unless a relay comes first

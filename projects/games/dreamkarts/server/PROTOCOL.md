@@ -75,6 +75,7 @@ redials keeps its seat if it comes back within the timeout.
 | 6 | `KART` | see below | once per `RACE` relay in a race (12 Hz) |
 | 7 | `PING` | nothing | 1 Hz otherwise idle (keeps NAT open) |
 | 8 | `CHAT` | u8 message id, text `char[33]` (build 14) | every 500 ms until the `CHAT` echo names this id, for up to 3 s |
+| 9 | `RETIRE` | u8 race id (build 16) | every 250 ms until the lobby state shows this player not racing |
 
 A `JOIN` with the spectate flag makes the console a watcher: it gets the
 lobby's `LOBBY` and `RACE` packets but has no slot, kart or say. Any number
@@ -86,7 +87,14 @@ always means play.
 and the power-ups switch apply only from the leader (a five-byte wish
 leaves the switch alone). When the leader presses Start the console
 increments the start nonce; the server starts a race when it sees a new
-nonce from the leader and at least two players are in the lobby.
+nonce from the leader, even with nobody else in the lobby (practice while
+waiting; anyone who joins meanwhile sits out until the next race).
+
+`RETIRE` (build 16) drops the player out of the race named (the current
+one; any other is ignored) without leaving the lobby: no place or points
+that race, and its kart leaves the `RACE` packets, so other consoles take
+it off the track. A race whose every racer has retired or left goes
+straight back to waiting with no results.
 
 `KART` (body 34 bytes, 52 in all):
 
@@ -193,7 +201,8 @@ nowhere: a console sees only what arrives while it is in the lobby.
    the lobby), their grid order (points, then join order) and a race id,
    and counts 4 seconds to green.
 3. **Racing:** ends when every racer has finished, 30 seconds after the
-   first finisher, or when fewer than one racer is still connected.
+   first finisher, or (with no results) when no racer is left: everyone
+   retired or disconnected.
 4. **Results:** places by finish time, then unfinished racers by distance
    covered. Points: 10, 8, 6, 4, 2, 1 for places 1-6. Points accumulate per
    player for as long as they stay in the lobby. Results show 8 seconds,

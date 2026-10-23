@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 3
-	Build    = 15
+	Build    = 16
 	MinBuild = 15
 )
 
@@ -34,6 +34,7 @@ const (
 	TypeKart    = 6
 	TypePing    = 7
 	TypeChat    = 8 // u8 message id, char[ChatLen] text (build 14)
+	TypeRetire  = 9 // u8 race id: drop out of that race, staying in the lobby (build 16)
 	TypeWelcome = 64
 	TypeReject  = 65
 	TypeLobbies = 66
