@@ -10,6 +10,9 @@ Type=simple
 User=dreamkarts
 Group=dreamkarts
 EnvironmentFile=/etc/dreamkarts/lobby.env
+# Keeps the last downloaded bad word list (STATE_DIRECTORY, writable under
+# ProtectSystem=strict) for restarts while its host is unreachable.
+StateDirectory=dreamkarts
 ExecStart=/opt/dreamkarts/bin/dreamkarts-lobby
 Restart=always
 RestartSec=3

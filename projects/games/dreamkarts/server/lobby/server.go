@@ -104,6 +104,7 @@ type Lobby struct {
 // one goroutine feeds it packets and ticks.
 type Server struct {
 	Latest, Min uint16
+	Filter      *Filter // chat and name word filter; New leaves it empty
 	Lobbies     [MaxLobbies]*Lobby
 	players     map[uint32]*Player
 	joinSeq     uint64
@@ -115,7 +116,7 @@ type Server struct {
 
 // New makes a server that writes packets through send.
 func New(send func(netip.AddrPort, []byte), now time.Time) *Server {
-	s := &Server{Latest: Build, Min: MinBuild, players: map[uint32]*Player{}, epoch: now, Logf: log.Printf}
+	s := &Server{Latest: Build, Min: MinBuild, Filter: &Filter{}, players: map[uint32]*Player{}, epoch: now, Logf: log.Printf}
 	s.send = func(to netip.AddrPort, b []byte) {
 		if to.IsValid() { // bots have no address
 			send(to, b)
@@ -220,7 +221,7 @@ func (s *Server) hello(from netip.AddrPort, h ClientHeader, body []byte, p *Play
 		return
 	}
 	name := CleanName(body[:NameLen])
-	if name == "" || Censor(name) != name {
+	if name == "" || s.Filter.Censor(name) != name {
 		s.reject(from, RejectBadName, now)
 		return
 	}
@@ -544,7 +545,7 @@ func (s *Server) chat(p *Player, b []byte, now time.Time) {
 	if p.chatTokens < 1 {
 		return
 	}
-	text := Censor(CleanChat(b[1:]))
+	text := s.Filter.Censor(CleanChat(b[1:]))
 	if text == "" {
 		return
 	}

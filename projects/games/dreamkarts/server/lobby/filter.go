@@ -2,37 +2,68 @@ package lobby
 
 import "strings"
 
-// The lobby chat's word filter. Censor stars out the words below, reading
-// through the usual disguises: case, letter look-alikes (0 for O, 3 for E,
-// @ for A, $ for S...) and dots, dashes or other punctuation pushed between
-// the letters ("f.u.c.k"). Spaces still separate words, so "push it" is not
-// read as one. The short entries that also start ordinary words (ass,
-// cock, tit...) only match as whole words, so "assist", "cocktail" and
-// "title" pass; the rest match anywhere, so "shithead" does not.
+// The lobby chat's word filter. The words come from a public list the
+// server downloads when it starts (words.go), so nothing rude lives in this
+// repository. Censor reads through the usual disguises: case, letter
+// look-alikes (0 for O, 3 for E, @ for A, $ for S...) and dots, dashes or
+// other punctuation pushed between the letters ("f.u.c.k"). Spaces still
+// separate words, so "push it" is not read as one.
+//
+// Entries match whole words, so "assist", "cocktail", "title" and
+// "Scunthorpe" pass. A word also matches when it is an entry followed by a
+// common ending ("shithead", "asses", "fuckers"), several entries glued
+// together ("fuckfuck") or one of a few glue prefixes on either of those
+// ("bullshit", "dumbass"). Entries of several words ("blow job") match as a
+// phrase.
 
-// Matched anywhere in a word.
-var censorAnywhere = []string{
-	"FUCK", "SHIT", "CUNT", "BITCH", "ASSHOLE", "ARSEHOLE", "DICKHEAD", "BASTARD", "WANKER", "BOLLOCK",
-	"COCKSUCK", "MOTHERFUCK", "TWAT", "WHORE", "SLUT", "NIGGER", "NIGGA", "FAGGOT", "FAGOT", "RETARD",
-	"SPASTIC", "TRANNY", "WETBACK", "RAPIST", "PEDO", "PAEDO", "BLOWJOB", "HANDJOB", "DOUCHE", "DILDO",
-	"JIZZ", "CUMSHOT", "VAGINA", "PENIS", "PORN", "PISSED", "PISSING", "SHAG",
+// Filter holds a word list ready for matching. The zero value censors
+// nothing.
+type Filter struct {
+	words   map[string]bool // normalized single-word entries
+	phrases []string        // normalized entries of several words
 }
 
-// Innocent words that contain one of the above (the Scunthorpe problem).
-var censorAllow = []string{"SCUNTHORPE", "SHITAKE", "SHIITAKE"}
-
-// Matched only as whole words.
-var censorWholeWord = []string{
-	"ASS", "ASSES", "ARSE", "COCK", "COCKS", "DICK", "DICKS", "TIT", "TITS", "TITTIES", "BOOB", "BOOBS",
-	"CUM", "PISS", "FAG", "FAGS", "HOMO", "HOMOS", "KIKE", "KIKES", "CHINK", "CHINKS", "SPIC", "SPICS",
-	"PAKI", "PAKIS", "DYKE", "DYKES", "GOOK", "GOOKS", "BEANER", "BEANERS", "NEGRO", "NEGROS", "RAPE",
-	"PUSSY", "PUSSIES", "HOE", "HOES", "NONCE",
+// endings a bad word may carry and still be the same word.
+var endings = map[string]bool{
+	"S": true, "ES": true, "ED": true, "ER": true, "ERS": true, "ING": true, "INGS": true,
+	"HEAD": true, "HEADS": true, "FACE": true, "FACES": true, "HOLE": true, "HOLES": true,
+	"BAG": true, "BAGS": true, "WIT": true, "WITS": true, "WAD": true, "WADS": true, "TARD": true, "TARDS": true,
 }
+
+// glue prefixes that make a bad word of what follows.
+var glue = []string{"DUMB", "JACK", "SMART", "BULL", "HORSE", "DOG", "DIP", "MOTHER", "FAT"}
 
 // lookalike maps the characters people type for letters.
 var lookalike = map[byte]byte{
 	'0': 'O', '1': 'I', '3': 'E', '4': 'A', '5': 'S', '6': 'G', '7': 'T', '8': 'B', '@': 'A', '$': 'S',
 	'!': 'I', '|': 'I', '+': 'T', '(': 'C', '<': 'C', '[': 'C', '{': 'C',
+}
+
+// NewFilter builds a filter from a word list as ParseWords returns it.
+// Entries are normalized like the text they match; those that come out
+// shorter than three letters are dropped.
+func NewFilter(words []string) *Filter {
+	f := &Filter{words: map[string]bool{}}
+	for _, w := range words {
+		n, _ := normalize(w)
+		if len(strings.ReplaceAll(n, " ", "")) < 3 {
+			continue
+		}
+		if strings.Contains(n, " ") {
+			f.phrases = append(f.phrases, n)
+		} else {
+			f.words[n] = true
+		}
+	}
+	return f
+}
+
+// Len returns the number of entries the filter matches.
+func (f *Filter) Len() int {
+	if f == nil {
+		return 0
+	}
+	return len(f.words) + len(f.phrases)
 }
 
 // normalize rewrites s for matching: capitals, look-alikes read as their
@@ -68,10 +99,31 @@ func normalize(s string) (string, []int) {
 	return sb.String(), src
 }
 
+// bad reports whether the normalized word w is an entry, an entry followed
+// by an ending or another bad word, or a glue prefix on a bad word.
+func (f *Filter) bad(w string) bool {
+	if f.words[w] {
+		return true
+	}
+	for i := 3; i < len(w); i++ {
+		if f.words[w[:i]] && (endings[w[i:]] || f.bad(w[i:])) {
+			return true
+		}
+	}
+	for _, g := range glue {
+		if len(w) > len(g) && strings.HasPrefix(w, g) && f.bad(w[len(g):]) {
+			return true
+		}
+	}
+	return false
+}
+
 // Censor returns s with its bad words replaced by asterisks of the same
-// length. A bad word inside a longer one ("shithead") takes the whole word
-// with it. Text with nothing to hide comes back unchanged.
-func Censor(s string) string {
+// length. Text with nothing to hide comes back unchanged.
+func (f *Filter) Censor(s string) string {
+	if f.Len() == 0 {
+		return s
+	}
 	n, src := normalize(s)
 	if n == "" {
 		return s
@@ -86,41 +138,25 @@ func Censor(s string) string {
 		}
 		hit = true
 	}
-	allowed := func(word string) bool {
-		for _, a := range censorAllow {
-			if word == a {
-				return true
-			}
+	for from := 0; from < len(n); {
+		to := strings.IndexByte(n[from:], ' ')
+		if to < 0 {
+			to = len(n)
+		} else {
+			to += from
 		}
-		return false
+		if f.bad(n[from:to]) {
+			mark(from, to)
+		}
+		from = to + 1
 	}
-	for _, w := range censorAnywhere {
+	for _, p := range f.phrases {
 		for at := 0; ; {
-			i := strings.Index(n[at:], w)
+			i := strings.Index(n[at:], p)
 			if i < 0 {
 				break
 			}
-			// The whole word around the hit.
-			from, to := at+i, at+i+len(w)
-			for from > 0 && n[from-1] != ' ' {
-				from--
-			}
-			for to < len(n) && n[to] != ' ' {
-				to++
-			}
-			if !allowed(n[from:to]) {
-				mark(from, to)
-			}
-			at = to
-		}
-	}
-	for _, w := range censorWholeWord {
-		for at := 0; ; {
-			i := strings.Index(n[at:], w)
-			if i < 0 {
-				break
-			}
-			from, to := at+i, at+i+len(w)
+			from, to := at+i, at+i+len(p)
 			if (from == 0 || n[from-1] == ' ') && (to == len(n) || n[to] == ' ') {
 				mark(from, to)
 			}

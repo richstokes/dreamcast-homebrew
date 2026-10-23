@@ -6,8 +6,16 @@ adapter or 56k modem. The wire format is in [PROTOCOL.md](PROTOCOL.md). It
 keeps lobby state, runs each race's countdown, results and points (a race
 can be started alone, as practice while waiting, and Start mid-race drops a
 player out of it back to the lobby room), relays everyone's kart 12 times
-a second and passes lobby chat round with bad words starred out (`lobby/filter.go` holds the list; a name that trips it
-is refused). Nothing is stored on disk: a restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
+a second and passes lobby chat round with bad words starred out (a name
+that trips the filter is refused). The word list is not in this
+repository: the server downloads the English list from
+[LDNOOBW](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words)
+when it starts, keeps a copy in its state directory for restarts while
+GitHub is down, and does not start without one or the other.
+`DREAMKARTS_BAD_WORDS_URL` points it at another list (one word per line)
+and `DREAMKARTS_BAD_WORDS_EXTRA` adds words of your own, comma-separated;
+`lobby/filter.go` says how a word matches. Nothing else is stored on disk: a
+restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
 bots that anyone can watch.
 
 ## Online change checklist

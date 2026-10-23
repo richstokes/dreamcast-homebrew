@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"math/rand"
@@ -10,7 +11,9 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +31,9 @@ func main() {
 	latest := flag.Int("latest", lobby.Build, "console build to call the latest (default: src/net_version.h)")
 	minBuild := flag.Int("min", lobby.MinBuild, "oldest console build allowed to play")
 	demoLobby := flag.Int("demo-lobby", envInt("DREAMKARTS_DEMO_LOBBY", 10), "lobby (1-10) where bots race forever, 0 for none")
+	wordsURL := flag.String("words-url", envOr("DREAMKARTS_BAD_WORDS_URL", lobby.DefaultWordsURL), "bad word list to download at start, one word per line")
+	wordsExtra := flag.String("words-extra", os.Getenv("DREAMKARTS_BAD_WORDS_EXTRA"), "comma-separated words to filter on top of the list")
+	wordsCache := flag.String("words-cache", defaultWordsCache(), "file keeping the last downloaded list, read when the download fails (empty: none)")
 	lag := flag.Duration("lag", 0, "testing: pretend every console is this far away (round trip)")
 	jitter := flag.Duration("jitter", 0, "testing: plus up to this much extra on every packet, each way")
 	flag.Parse()
@@ -102,6 +108,7 @@ func main() {
 		write(to, b)
 	}, time.Now())
 	srv.Latest, srv.Min = uint16(*latest), uint16(*minBuild)
+	srv.Filter = loadFilter(*wordsURL, *wordsExtra, *wordsCache)
 	if *latest != lobby.Build || *minBuild != lobby.MinBuild {
 		log.Printf("overriding versions: latest %d, min %d", *latest, *minBuild)
 	}
@@ -136,6 +143,43 @@ func main() {
 			return
 		}
 	}
+}
+
+// loadFilter downloads the bad word list, trying for a while before giving
+// up on the download and falling back to the cached copy. Without either
+// the server does not start: systemd restarts it until the list arrives.
+func loadFilter(url, extra, cache string) *lobby.Filter {
+	var words []string
+	var from string
+	var err error
+	for attempt := 1; ; attempt++ {
+		words, from, err = lobby.FetchWords(context.Background(), url, cache)
+		if err == nil || attempt == 3 {
+			break
+		}
+		log.Printf("bad word list: %v (retrying)", err)
+		time.Sleep(5 * time.Second)
+	}
+	if err != nil {
+		log.Fatalf("bad word list: %v", err)
+	}
+	for _, w := range strings.Split(extra, ",") {
+		if w = strings.TrimSpace(w); w != "" {
+			words = append(words, w)
+		}
+	}
+	f := lobby.NewFilter(words)
+	log.Printf("bad word list: %d entries from %s", f.Len(), from)
+	return f
+}
+
+// defaultWordsCache is a file in systemd's state directory for the service
+// (StateDirectory= in the unit sets $STATE_DIRECTORY), or none.
+func defaultWordsCache() string {
+	if dir := os.Getenv("STATE_DIRECTORY"); dir != "" {
+		return filepath.Join(dir, "bad-words.txt")
+	}
+	return ""
 }
 
 func envOr(k, def string) string {

@@ -24,6 +24,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, now: time.Unix(1000, 0)}
 	h.s = New(func(to netip.AddrPort, b []byte) { h.out = append(h.out, sent{to, append([]byte(nil), b...)}) }, h.now)
 	h.s.Logf = func(string, ...any) {}
+	h.s.Filter = NewFilter(testWords)
 	return h
 }
 
