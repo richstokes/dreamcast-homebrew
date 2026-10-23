@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/netip"
 	"sort"
 	"time"
@@ -130,7 +131,12 @@ func New(send func(netip.AddrPort, []byte), now time.Time) *Server {
 		}
 	}
 	for i := range s.Lobbies {
-		s.Lobbies[i] = &Lobby{ID: i, Leader: -1, Track: 0, Laps: 3, CC: 1, Items: true}
+		// Race ids start somewhere random: a console remembers the race it
+		// last set up, and after a restart (every lobby back at race 1) a
+		// console that was in race 1 would take the new race 1 for the old
+		// one and stay in the room. Consoles from build 19 forget the id
+		// when they leave a lobby or the server; this covers older ones.
+		s.Lobbies[i] = &Lobby{ID: i, Leader: -1, Track: 0, Laps: 3, CC: 1, Items: true, RaceID: byte(rand.Intn(256))}
 	}
 	return s
 }
@@ -471,7 +477,9 @@ func (s *Server) leave(p *Player, now time.Time) {
 	}
 	p.Lobby, p.Slot, p.Racing = noLobby, -1, false
 	if l.count() == 0 {
-		*l = Lobby{ID: l.ID, Leader: -1, Laps: 3, CC: 1, Track: l.Track, Watchers: l.Watchers, Demo: l.Demo}
+		// The race id keeps counting: a console that leaves and comes
+		// back must not meet the id of the race it last set up.
+		*l = Lobby{ID: l.ID, Leader: -1, Laps: 3, CC: 1, Track: l.Track, Watchers: l.Watchers, Demo: l.Demo, RaceID: l.RaceID}
 	}
 	l.dirty = true
 }

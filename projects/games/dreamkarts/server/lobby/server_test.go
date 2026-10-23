@@ -390,6 +390,58 @@ func TestRejectedHelloLogged(t *testing.T) {
 	}
 }
 
+// A lobby's race ids go on counting after it empties, and do not start at
+// 1 on a fresh server: a console remembers the id of the race it set up
+// and would sit out a new race carrying the same id.
+func TestRaceIDsKeepCounting(t *testing.T) {
+	startAlone := func(h *harness, c *client) byte {
+		c.hello("ALONE")
+		c.send(TypeJoin, []byte{0, 0})
+		h.advance(50 * time.Millisecond)
+		c.wish(0, 0, 3, 1) // syncs the nonce
+		h.advance(50 * time.Millisecond)
+		c.nonce++
+		c.wish(0, 0, 3, 1) // the press
+		h.advance(50 * time.Millisecond)
+		v := c.lobby()
+		if v.state != StateCountdown {
+			t.Fatalf("not counting down: %+v", v)
+		}
+		return v.raceID
+	}
+	allZero := true
+	for i := 0; i < 8; i++ {
+		if newHarness(t).s.Lobbies[0].RaceID != 0 {
+			allZero = false
+		}
+	}
+	if allZero {
+		t.Fatalf("eight fresh servers all began lobby 0 at race 1")
+	}
+	h := newHarness(t)
+	h.s.Lobbies[0].RaceID = 0 // as an emptied lobby once was
+	a := h.client(1, 1)
+	first := startAlone(h, a)
+	if first != 1 {
+		t.Fatalf("first race id %d", first)
+	}
+	a.send(TypeLeave, nil)
+	h.advance(50 * time.Millisecond)
+	if h.s.Lobbies[0].State != StateWaiting {
+		t.Fatalf("lobby not waiting after its only racer left")
+	}
+	a.send(TypeJoin, []byte{0, 0})
+	h.advance(50 * time.Millisecond)
+	a.wish(0, 0, 3, 1)
+	h.advance(50 * time.Millisecond)
+	a.nonce++
+	a.wish(0, 0, 3, 1)
+	h.advance(50 * time.Millisecond)
+	if got := a.lobby().raceID; got == first {
+		t.Fatalf("race id %d repeated after leaving and rejoining", got)
+	}
+}
+
 func TestOldClientRejected(t *testing.T) {
 	h := newHarness(t)
 	h.s.Min = 5

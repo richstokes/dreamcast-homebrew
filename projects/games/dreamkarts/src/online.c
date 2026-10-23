@@ -60,6 +60,8 @@ static struct {
     int step;
     uint64_t t;   /* ms the step began */
     bool solo, bell, back1, two, gone, back2, reported;
+    bool rejoined;   /* left the lobby after a race and got into its next one */
+    int first_id;    /* the race id of that first race */
 } pr;
 static void practice_autotest(void);
 #endif
@@ -380,6 +382,13 @@ static void lobby_bell(void) {
 void online_tick(void) {
     net_update();
     int ns = net_state();
+    /* Out of a lobby (left it, or the server restarted and we said hello
+       again): forget the race we set up. An emptied lobby's first race, or
+       a restarted server's, is "race 1" again, and a console still
+       remembering a race 1 sat in the room showing RACE IN PROGRESS, the
+       only racer, until the server gave up on the race (seen on the
+       console, 2026-10-23). */
+    if(ns != NET_LOBBY) raced_id = -1;
 #ifdef DK_AT_PRACTICE
     practice_autotest();
 #endif
@@ -726,8 +735,11 @@ static void lobby_update(float dt) {
 
 #ifdef DK_AT_PRACTICE
 /* Practice autotest (-DDK_AT_ONLINE -DDK_AT_PRACTICE, an empty lobby, a
-   bot joining ~20 s in with -retire 6s): start a race alone, hear the bell
-   as the bot joins mid-race, drop out back to the room and find the lobby
+   bot joining ~20 s in with -retire 6s): start a race alone, drop out,
+   leave the lobby and rejoin it, start alone again and get into that
+   race (an emptied lobby counts races from 1 again, which once left the
+   console in the room showing RACE IN PROGRESS); then hear the bell as
+   the bot joins mid-race, drop out back to the room and find the lobby
    waiting again, start again with the bot, see the bot drop out (its kart
    leaves the race), drop out too, and end up in a waiting lobby. Runs
    every frame while online, whatever the game state. */
@@ -747,10 +759,74 @@ static void practice_autotest(void) {
         case 0:   /* alone in the room: start anyway */
             if(room && leader && l->state == NLS_WAITING && l->count == 1 && screen_t > 1.0f) PR_SHOT("practice-alone");
             if(room && leader && l->state == NLS_WAITING && l->count == 1 && screen_t > 2.0f) {
-                printf("DK PRACTICE: starting a race alone\n");
+                printf("DK PRACTICE: starting a race alone%s\n", pr.rejoined ? "" : " to drop out of, then leave and rejoin");
                 net_press_start();
+                pr.step = pr.rejoined ? 1 : 10;
+                pr.t = now;
+            }
+            break;
+        case 10:  /* the first race, alone: drop out once it is under way */
+            if(game.state == ST_RACE && game.race_time > 1.0f) {
+                pr.first_id = l->race_id;
+                printf("DK PRACTICE: in race %d alone, dropping out\n", pr.first_id);
+                practice_press = BTN_START;
+                pr.step = 11;
+                pr.t = now;
+            }
+            else if(now - pr.t > 15000) {
+                printf("DK PRACTICE: not racing 15 s after starting alone (state %d)\n", game.state);
+                printf("DK AUTOTEST: FAIL\n");
+                pr.reported = true;
+            }
+            break;
+        case 11:
+            if(now - pr.t > 700) {
+                practice_press = BTN_A;
+                pr.step = 12;
+                pr.t = now;
+            }
+            break;
+        case 12:  /* back in the room and waiting: leave the lobby and come back */
+            if(room && l->state == NLS_WAITING) {
+                printf("DK PRACTICE: leaving lobby %d and rejoining it\n", l->id);
+                net_leave();
+                set_screen(OS_BROWSER);
+                net_join(DK_AT_LOBBY);
+                pr.step = 13;
+                pr.t = now;
+            }
+            else if(now - pr.t > 8000) {
+                printf("DK PRACTICE: lobby still in state %d 8 s after dropping out (room %d)\n", l->state, room);
+                printf("DK AUTOTEST: FAIL\n");
+                pr.reported = true;
+            }
+            break;
+        case 13:  /* rejoined and alone again: start, and we must get into this race */
+            if(room && leader && l->state == NLS_WAITING && l->count == 1 && now - pr.t > 1500) {
+                printf("DK PRACTICE: rejoined, starting alone again\n");
+                net_press_start();
+                pr.step = 14;
+                pr.t = now;
+            }
+            else if(now - pr.t > 10000) {
+                printf("DK PRACTICE: not back in a waiting room 10 s after rejoining (room %d, state %d, count %d, leader %d)\n",
+                       room, l->state, l->count, leader);
+                printf("DK AUTOTEST: FAIL\n");
+                pr.reported = true;
+            }
+            break;
+        case 14:
+            if(game.state == ST_COUNTDOWN || game.state == ST_RACE) {
+                pr.rejoined = true;
+                printf("DK PRACTICE: in race %d after rejoining (the first was race %d)\n", l->race_id, pr.first_id);
                 pr.step = 1;
                 pr.t = now;
+            }
+            else if(now - pr.t > 8000) {
+                printf("DK PRACTICE: STUCK in the room 8 s after starting again: lobby state %d race %d, first race %d\n",
+                       l->state, l->race_id, pr.first_id);
+                printf("DK AUTOTEST: FAIL\n");
+                pr.reported = true;
             }
             break;
         case 1:   /* racing alone until the bot joins (the bell), then Start */
@@ -827,9 +903,9 @@ static void practice_autotest(void) {
         case 7:
             if((room && l->state == NLS_WAITING) || now - pr.t > 8000) {
                 pr.back2 = room && l->state == NLS_WAITING;
-                bool ok = pr.solo && pr.bell && pr.back1 && pr.two && pr.gone && pr.back2;
-                printf("DK PRACTICE: solo %d bell %d back %d two %d bot-gone %d back %d, %d in the lobby, points %d\n",
-                       pr.solo, pr.bell, pr.back1, pr.two, pr.gone, pr.back2, l->count, me ? me->points : -1);
+                bool ok = pr.rejoined && pr.solo && pr.bell && pr.back1 && pr.two && pr.gone && pr.back2;
+                printf("DK PRACTICE: rejoined %d solo %d bell %d back %d two %d bot-gone %d back %d, %d in the lobby, points %d\n",
+                       pr.rejoined, pr.solo, pr.bell, pr.back1, pr.two, pr.gone, pr.back2, l->count, me ? me->points : -1);
                 printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
                 pr.reported = true;
             }
