@@ -902,13 +902,16 @@ static void draw_settings(void) {
         }
         uint32_t col = sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255);
         float s = sel ? 0.72f + 0.03f * sinf(game.title_t * 8) : 0.68f;
+        const char *text = labels[i];
         if(i == SET_MUSIC) {
-            hud_text(184, y + 2, s, ALIGN_LEFT, col, labels[i]);
-            snprintf(buf, sizeof(buf), "%s%s%s", sel ? "< " : "", save.music ? "ON" : "OFF", sel ? " >" : "");
-            hud_text(456, y + 2, s, ALIGN_RIGHT, col, buf);
+            snprintf(buf, sizeof(buf), "MUSIC: %s", save.music ? "ON" : "OFF");
+            text = buf;
         }
-        else {
-            hud_text(320, y + 2, s, ALIGN_CENTER, col, labels[i]);
+        hud_text(320, y + 2, s, ALIGN_CENTER, col, text);
+        if(sel && i == SET_MUSIC) {
+            float half = hud_text_width(text, s) * 0.5f, bob = 3.0f * sinf(game.title_t * 9);
+            hud_text(320 - half - 18 - bob, y + 2, s, ALIGN_CENTER, col, "<");
+            hud_text(320 + half + 18 + bob, y + 2, s, ALIGN_CENTER, col, ">");
         }
     }
     const char *blurb = "LISTEN TO THE MUSIC AND SOUND EFFECTS";
