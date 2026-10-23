@@ -510,13 +510,13 @@ void audio_kart_events(const Kart *k, bool is_player) {
     if(ev & EV_MINE_HIT) audio_sfx(DK_SFX_MINE_HIT, vol * 235 / 255, pan);
     if(ev & EV_SPIN) {
         if(!(ev & EV_MINE_HIT)) audio_sfx(DK_SFX_SPEAR_HIT, vol * 225 / 255, pan);
-        audio_chao(CHAO_OUCH, k->colour, vol * 210 / 255, pan);
+        audio_chao(CHAO_OUCH, k->voice, vol * 210 / 255, pan);
     }
     if(ev & EV_SHIELD_UP) audio_sfx(DK_SFX_BARRIER, vol * 190 / 255, pan);
     if(ev & EV_SHIELD_POP) audio_sfx(DK_SFX_BARRIER_POP, vol * 215 / 255, pan);
-    if(ev & EV_FALL) audio_chao(CHAO_OUCH, k->colour, vol * 220 / 255, pan);   /* over the edge */
-    if(ev & EV_WAVE) audio_chao(CHAO_HI, k->colour, vol * 190 / 255, pan);
-    if((ev & EV_KART_BUMP) && bump_voice(k)) audio_chao(CHAO_OUCH, k->colour, vol * 200 / 255, pan);
+    if(ev & EV_FALL) audio_chao(CHAO_OUCH, k->voice, vol * 220 / 255, pan);   /* over the edge */
+    if(ev & EV_WAVE) audio_chao(CHAO_HI, k->voice, vol * 190 / 255, pan);
+    if((ev & EV_KART_BUMP) && bump_voice(k)) audio_chao(CHAO_OUCH, k->voice, vol * 200 / 255, pan);
     if(ev & EV_HOP) audio_sfx(DK_SFX_HOP, vol * 150 / 255, pan);
     if(ev & EV_LAND) audio_sfx(DK_SFX_LAND, vol * 170 / 255, pan);
     if(ev & EV_JUMP) {

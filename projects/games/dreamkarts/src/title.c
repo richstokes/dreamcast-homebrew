@@ -3,13 +3,16 @@
    pulsing PRESS START. Then a slide-in menu for mode and engine class, and
    a track select that flies over each course as it is picked. Two players
    pick their karts side by side on a split-screen kart select, each with
-   their own pad. The main menu also opens a sound test for the music and
-   effects. */
+   their own pad. The main menu's Settings page holds the sound test, the
+   online name, the music switch and the Customize screen, where the player
+   paints a kart of their own and watches it change. */
 #include "title.h"
 #include "audio.h"
 #include "hud.h"
 #include "kart.h"
+#include "models.h"
 #include "render.h"
+#include "save.h"
 #include "track.h"
 #include "online.h"
 #include "gp.h"
@@ -34,20 +37,43 @@ static void karts_enter(void);
 static void karts_update(float dt);
 static void tracks_enter(void);
 
-/* Main menu: single player, two-player split screen, online or the sound
-   test. */
-enum { MAIN_ITEMS = 4, MAIN_SOUND = 3 };
+/* Main menu: single player, two-player split screen, online or the
+   settings. */
+enum { MAIN_ITEMS = 4, MAIN_ONLINE = 2, MAIN_SETTINGS = 3 };
 static int main_row;
 static const char *const main_items[MAIN_ITEMS] = {"SINGLE PLAYER", "TWO PLAYER", "ONLINE MULTIPLAYER",
-                                                   "SOUND TEST"};
+                                                   "SETTINGS"};
+
+/* Settings: a page of the main menu (the backdrop stays put) opening the
+   sound test, the online name entry, the music switch and the Customize
+   screen. */
+enum { SET_SOUND, SET_NAME, SET_MUSIC, SET_CUSTOM, SET_ROWS };
+static bool settings_open;
+static float settings_slide;
+static int settings_row;
 
 /* Sound test: pick and play any song or effect, and hear the final-lap
-   speed-up. It is a page of the main menu, so the backdrop stays put. */
+   speed-up. */
 enum { SND_MUSIC, SND_SFX, SND_SPEED, SND_ROWS };
 static bool sound_open;
 static float sound_slide;
 static int sound_row, sound_song, sound_sfx;
 static float sfx_flash;       /* highlight pulse when an effect is played */
+
+/* Customize: the player's own kart, three palette picks (body paint, trim,
+   Chao) painted onto the kart in the background as they change. Saved to
+   the VMU, it joins the colour choices as CUSTOM. */
+enum { CUS_BODY, CUS_TRIM, CUS_CHAO, CUS_SAVE, CUS_ROWS };
+static bool custom_open;
+static float custom_slide;
+static int custom_row;
+static KartCustom edit;
+static int custom_prev;       /* player 1's colour before editing, for a cancel */
+
+/* Colour choices: the presets, and the custom kart once one is saved. */
+static int colour_options(void) {
+    return COLOUR_COUNT + (save.custom_on ? 1 : 0);
+}
 
 static void sound_enter(void) {
     sound_open = true;
@@ -86,8 +112,9 @@ static void sound_update(void) {
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
         audio_music_rate(1.0f);
+        audio_music_enable(save.music);   /* a song played here with the music off stops */
         sound_open = false;
-        menu_slide = 0;
+        settings_slide = 0;
         return;
     }
     if(pad.pressed & (BTN_A | BTN_START)) {
@@ -106,9 +133,137 @@ static void sound_update(void) {
     }
 }
 
+static void music_toggle(void) {
+    save.music = !save.music;
+    audio_music_enable(save.music);
+    save_store();
+    audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
+}
+
+static void custom_apply(void) {
+    kart_apply_look(&karts[game.player], COLOUR_CUSTOM, &edit);
+    models_paint_kart(game.player);
+}
+
+static void custom_enter(void) {
+    custom_open = true;
+    custom_slide = 0;
+    custom_row = CUS_BODY;
+    edit = save.custom_on ? save.custom : kart_custom_default;
+    custom_prev = game.pl[0].colour;
+    custom_apply();
+}
+
+static uint8_t *custom_pick(int row) {
+    return row == CUS_BODY ? &edit.body : row == CUS_TRIM ? &edit.trim : &edit.chao;
+}
+
+static void custom_close(void) {
+    custom_open = false;
+    settings_slide = 0;
+}
+
+static void custom_update(void) {
+    custom_slide = fminf(1.0f, custom_slide + DK_DT * 4.0f);
+    if(input_menu_up()) {
+        custom_row = (custom_row + CUS_ROWS - 1) % CUS_ROWS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(input_menu_down()) {
+        custom_row = (custom_row + 1) % CUS_ROWS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
+    if(dir && custom_row != CUS_SAVE) {
+        uint8_t *pick = custom_pick(custom_row);
+        *pick = (uint8_t)((*pick + dir + PALETTE_COUNT) % PALETTE_COUNT);
+        custom_apply();
+        audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        if(custom_row == CUS_CHAO) audio_chao(CHAO_HI, kart_voice(COLOUR_CUSTOM, &edit), 150, 128);
+    }
+    if(pad.pressed & BTN_B) {
+        /* Cancel: the kart goes back to the colour it had. */
+        audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+        kart_apply_colour(&karts[game.player], custom_prev);
+        models_paint_kart(game.player);
+        custom_close();
+        return;
+    }
+    if(!(pad.pressed & (BTN_A | BTN_START))) return;
+    if(custom_row != CUS_SAVE && !(pad.pressed & BTN_START)) {
+        custom_row++;
+        audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
+        return;
+    }
+    /* Save: the custom kart is player 1's choice from here on. */
+    save.custom = edit;
+    save.custom_on = true;
+    save_store();
+    game.pl[0].colour = COLOUR_CUSTOM;
+    if(game.pl[1].colour == COLOUR_CUSTOM) game.pl[1].colour = 0;
+    race_setup();
+    audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
+    audio_chao(CHAO_HI, kart_voice(COLOUR_CUSTOM, &edit), 200, 128);
+    custom_close();
+}
+
+static void settings_enter(void) {
+    settings_open = true;
+    settings_slide = 0;
+    settings_row = SET_SOUND;
+}
+
+static void settings_update(void) {
+    settings_slide = fminf(1.0f, settings_slide + DK_DT * 4.0f);
+    if(input_menu_up()) {
+        settings_row = (settings_row + SET_ROWS - 1) % SET_ROWS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(input_menu_down()) {
+        settings_row = (settings_row + 1) % SET_ROWS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(settings_row == SET_MUSIC && (input_menu_left() || input_menu_right())) {
+        music_toggle();
+        return;
+    }
+    if(pad.pressed & BTN_B) {
+        audio_sfx(DK_SFX_MENU_BACK, 200, 128);
+        settings_open = false;
+        menu_slide = 0;
+        return;
+    }
+    if(!(pad.pressed & (BTN_A | BTN_START))) return;
+    if(settings_row == SET_MUSIC) {
+        music_toggle();
+        return;
+    }
+    audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
+    if(settings_row == SET_SOUND) sound_enter();
+    else if(settings_row == SET_NAME) online_name_enter();
+    else custom_enter();
+}
+
+void title_settings_enter(void) {
+    game_set_state(ST_MAIN);
+    main_row = MAIN_SETTINGS;
+    menu_slide = 1;
+    sound_open = custom_open = false;
+    settings_enter();
+    settings_row = SET_NAME;
+}
+
 static void main_update(void) {
+    if(custom_open) {
+        custom_update();
+        return;
+    }
     if(sound_open) {
         sound_update();
+        return;
+    }
+    if(settings_open) {
+        settings_update();
         return;
     }
     menu_slide = fminf(1.0f, menu_slide + DK_DT * 4.0f);
@@ -131,12 +286,12 @@ static void main_update(void) {
 #endif
     audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
     audio_sfx(DK_SFX_WHOOSH, 160, 128);
-    if(main_row == 2) {
+    if(main_row == MAIN_ONLINE) {
         online_enter();
         return;
     }
-    if(main_row == MAIN_SOUND) {
-        sound_enter();
+    if(main_row == MAIN_SETTINGS) {
+        settings_enter();
         return;
     }
     game.num_players = main_row + 1;
@@ -194,9 +349,9 @@ static void setup_done(void) {
    set up again (rivals take the colours left over), so a wave the other
    player's kart is in the middle of carries over. */
 static void step_colour(int player, int dir) {
-    int c = game.pl[player].colour;
+    int c = game.pl[player].colour, opts = colour_options();
     do {
-        c = (c + dir + COLOUR_COUNT) % COLOUR_COUNT;
+        c = (c + dir + opts) % opts;
     } while(game.num_players > 1 && c == game.pl[player ^ 1].colour);
     game.pl[player].colour = c;
     float wave[MAX_PLAYERS];
@@ -204,8 +359,138 @@ static void step_colour(int player, int dir) {
     race_setup();
     for(int p = 0; p < game.num_players; p++)
         if(p != player) karts[game.pl[p].kart].wave_t = wave[p];
-    audio_chao(CHAO_HI, c, 150, game.num_players == 1 ? 128 : player ? 190 : 66);
+    audio_chao(CHAO_HI, kart_voice(c, NULL), 150, game.num_players == 1 ? 128 : player ? 190 : 66);
 }
+
+#ifdef DK_AT_SETTINGS
+/* Settings autotest (capture build, on an isolated VMU): walks the Settings
+   page as a player would, a press every 0.4 s: music off, a custom kart
+   painted LIME / RED / BLACK and saved, the race setup's COLOUR row on
+   CUSTOM and stepping either side of it, then the online name saved from
+   its row. A press is repeated until its target shows (a screenshot stalls
+   Flycast, and a tap held over a multi-step frame fires once per step),
+   checks run along the way, "DK SHOT" lines are for capture.py, and
+   "DK AUTOTEST: PASS" comes once the card has had time to take the write.
+   With DK_AT_SETTINGS_WANT (a second boot on the same card) it instead
+   checks the saved settings came back. */
+typedef struct {
+    uint32_t btn;
+    const char *shot;
+    int until;   /* press until this condition holds (0: press once) */
+    int check;   /* this condition must hold now */
+} AtStep;
+
+enum {
+    C_MAIN = 1, C_ROW_SETTINGS, C_SETTINGS, C_ROW_MUSIC, C_MUSIC_OFF, C_ROW_CUSTOM, C_CUSTOM, C_BODY, C_ROW_TRIM,
+    C_TRIM, C_ROW_CHAO, C_CHAO, C_ROW_SAVE, C_SAVED, C_ROW_SINGLE, C_MENU, C_ROW_COLOUR, C_LIME, C_IS_CUSTOM,
+    C_ROW_NAME, C_NAME_SCREEN, C_BACK_ON_NAME, C_SAVED_LOOK
+};
+
+static bool at_cond(int c) {
+    const Kart *k = &karts[game.player];
+    switch(c) {
+        case C_MAIN: return game.state == ST_MAIN && !settings_open && !custom_open && !sound_open;
+        case C_ROW_SETTINGS: return main_row == MAIN_SETTINGS;
+        case C_SETTINGS: return settings_open;
+        case C_ROW_MUSIC: return settings_row == SET_MUSIC;
+        case C_MUSIC_OFF: return !save.music && !audio_music_enabled();
+        case C_ROW_CUSTOM: return settings_row == SET_CUSTOM;
+        case C_CUSTOM: return custom_open;
+        case C_BODY: return edit.body == 3;
+        case C_ROW_TRIM: return custom_row == CUS_TRIM;
+        case C_TRIM: return edit.trim == 0;
+        case C_ROW_CHAO: return custom_row == CUS_CHAO;
+        case C_CHAO: return edit.chao == 15;
+        case C_ROW_SAVE: return custom_row == CUS_SAVE;
+        case C_SAVED: return !custom_open && save.custom_on;
+        case C_ROW_SINGLE: return main_row == 0;
+        case C_MENU: return game.state == ST_MENU;
+        case C_ROW_COLOUR: return menu_row == 4;
+        case C_LIME: return game.pl[0].colour == COLOUR_COUNT - 1;
+        case C_IS_CUSTOM: return game.pl[0].colour == COLOUR_CUSTOM;
+        case C_ROW_NAME: return settings_row == SET_NAME;
+        case C_NAME_SCREEN: return game.state == ST_ONLINE && !game.online;
+        case C_BACK_ON_NAME: return game.state == ST_MAIN && settings_open && settings_row == SET_NAME;
+        case C_SAVED_LOOK:
+            return save.custom.body == 3 && save.custom.trim == 0 && save.custom.chao == 15 &&
+                   game.pl[0].colour == COLOUR_CUSTOM && k->paint1 == kart_palette[3].rgb &&
+                   k->paint2 == kart_palette[0].rgb && k->chao == kart_palette[15].rgb;
+        default: return true;
+    }
+}
+
+#define PAUSE {0, NULL, 0, 0}, {0, NULL, 0, 0}
+static const AtStep at_steps[] = {
+    {BTN_START, NULL, C_MAIN, 0}, {BTN_DOWN, NULL, C_ROW_SETTINGS, 0}, {0, "settings-main", 0, 0}, PAUSE,
+    {BTN_A, NULL, C_SETTINGS, 0}, {0, "settings", 0, 0}, PAUSE,
+    {BTN_DOWN, NULL, C_ROW_MUSIC, 0}, {BTN_RIGHT, NULL, C_MUSIC_OFF, 0}, {0, "settings-music-off", 0, C_MUSIC_OFF}, PAUSE,
+    {BTN_DOWN, NULL, C_ROW_CUSTOM, 0}, {BTN_A, NULL, C_CUSTOM, 0}, {0, "customize", 0, 0}, PAUSE,
+    {BTN_RIGHT, NULL, C_BODY, 0}, {BTN_DOWN, NULL, C_ROW_TRIM, 0}, {BTN_RIGHT, NULL, C_TRIM, 0},
+    {BTN_DOWN, NULL, C_ROW_CHAO, 0}, {BTN_RIGHT, NULL, C_CHAO, 0}, {0, "customize-picked", 0, 0}, PAUSE,
+    {BTN_DOWN, NULL, C_ROW_SAVE, 0}, {BTN_A, NULL, C_SAVED, 0}, {0, "settings-saved", 0, C_SAVED_LOOK}, PAUSE,
+    {BTN_B, NULL, C_MAIN, 0}, {BTN_UP, NULL, C_ROW_SINGLE, 0}, {BTN_A, NULL, C_MENU, 0},
+    {0, "menu-custom", 0, C_IS_CUSTOM}, PAUSE,
+    {BTN_UP, NULL, C_ROW_COLOUR, 0}, {BTN_LEFT, NULL, C_LIME, 0}, {BTN_RIGHT, NULL, C_IS_CUSTOM, 0},
+    {BTN_B, NULL, C_MAIN, 0}, {BTN_DOWN, NULL, C_ROW_SETTINGS, 0}, {BTN_A, NULL, C_SETTINGS, 0},
+    {BTN_DOWN, NULL, C_ROW_NAME, 0}, PAUSE, {BTN_A, NULL, C_NAME_SCREEN, 0}, {0, "settings-name", 0, 0}, PAUSE,
+    {BTN_START, NULL, C_BACK_ON_NAME, 0}, {0, "settings-after-name", 0, C_BACK_ON_NAME}, PAUSE,
+};
+
+static void settings_autotest(float dt) {
+    static float t;
+    static int step, tries;
+    static bool ok = true, done;
+    if(done) return;
+    t += dt;
+#ifdef DK_AT_SETTINGS_WANT
+    if(t > 3.0f) {
+        ok = !save.music && !audio_music_enabled() && save.custom_on && save.custom.body == 3 && save.custom.trim == 0 &&
+             save.custom.chao == 15 && strcmp(save.name, "CHAO") == 0;
+        printf("DK SETTINGS: loaded music %d custom %d (%d %d %d) name %s\nDK AUTOTEST: %s\n", save.music,
+               save.custom_on, save.custom.body, save.custom.trim, save.custom.chao, save.name, ok ? "PASS" : "FAIL");
+        done = true;
+    }
+    return;
+#endif
+    if(step >= (int)(sizeof(at_steps) / sizeof(at_steps[0]))) {
+        if(t > 3.0f) {   /* the card's write */
+            printf("DK SETTINGS: saved music %d custom %d (%d %d %d) name %s\nDK AUTOTEST: %s\n", save.music,
+                   save.custom_on, save.custom.body, save.custom.trim, save.custom.chao, save.name, ok ? "PASS" : "FAIL");
+            done = true;
+        }
+        return;
+    }
+    if(t < 0.4f) return;
+    t = 0;
+    const AtStep *s = &at_steps[step];
+    if(s->until && (at_cond(s->until) || tries >= 40)) {
+        if(tries >= 40) {
+            printf("DK SETTINGS: step %d never reached condition %d (state %d)\n", step, s->until, game.state);
+            ok = false;
+        }
+        step++;
+        tries = 0;
+        return;
+    }
+    if(s->btn & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT)) input_film_tap(0, s->btn);
+    else if(s->btn) pad.pressed |= s->btn;
+    if(s->shot) printf("DK SHOT %s\n", s->shot);
+    if(s->check && !at_cond(s->check)) {
+        printf("DK SETTINGS: check %d failed at step %d (state %d colour %d music %d custom %d %d %d %d)\n", s->check,
+               step, game.state, game.pl[0].colour, save.music, save.custom_on, save.custom.body, save.custom.trim,
+               save.custom.chao);
+        ok = false;
+    }
+    if(s->until) tries++;
+    else step++;
+}
+
+/* Ticked by the capture script every frame, whatever the state (the name
+   screen is not a title state). */
+void title_settings_autotest(float dt) {
+    settings_autotest(dt);
+}
+#endif
 
 void title_init(void) {
     h_logo = r_header(TEX_LOGO, HF_TR | HF_NOFOG | HF_NOZTEST | HF_CLAMP);
@@ -226,7 +511,7 @@ void title_update(float dt) {
     logo_in = fminf(1.0f, logo_in + dt * 1.3f);
     if(chao_call_t > 0) {
         chao_call_t -= dt;
-        if(chao_call_t <= 0) audio_chao(CHAO_HI, game.pl[0].colour, 200, 128);
+        if(chao_call_t <= 0) audio_chao(CHAO_HI, kart_voice(game.pl[0].colour, NULL), 200, 128);
     }
     if(game.state == ST_TITLE) {
         menu_slide = fmaxf(0.0f, menu_slide - dt * 4.0f);
@@ -242,7 +527,7 @@ void title_update(float dt) {
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
             game_set_state(ST_MAIN);
             main_row = 0;
-            sound_open = false;
+            sound_open = settings_open = custom_open = false;
         }
         return;
     }
@@ -432,14 +717,15 @@ void title_camera(Camera *cam, float dt) {
     float a = game.title_t * 0.22f + 2.3f;
     float r = 8.5f + 1.5f * sinf(game.title_t * 0.13f);
     V3 target = vadd(p->pos, v3(0, 1.0f, 0));
-    if(game.state == ST_MENU) {
+    bool closeup = game.state == ST_MENU || (game.state == ST_MAIN && custom_open);
+    if(closeup) {
         /* Close-up showing off the driver, framed to the left of the menu. */
         a = game.title_t * 0.35f;
         r = 5.0f;
     }
     cam->pos = vadd(target, v3(sinf(a) * r, 2.4f + 0.8f * sinf(game.title_t * 0.17f), cosf(a) * r));
     cam->fwd = vnorm(vsub(target, cam->pos));
-    if(game.state == ST_MENU) {
+    if(closeup) {
         /* Shift the view so the kart sits left of centre. */
         V3 right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
         cam->fwd = vnorm(vmad(cam->fwd, right, 0.28f));
@@ -570,12 +856,12 @@ void title_draw_loading(float progress, const char *what, float t) {
 }
 
 static void colour_swatch(float x, float y, int colour) {
-    const KartColour *c = &kart_colours[colour];
+    KartColour c = kart_colour_look(colour, NULL);
     r_hdr(h_flat);
-    uint32_t kart = c->paint1 ? c->paint1 : 0xffe02828;
+    uint32_t kart = c.paint1 ? c.paint1 : 0xffe02828;
     r_quad2d(x - 1, y - 1, x + 33, y + 17, 0, 0, 1, 1, 0xff0c1430, 16.4f);
     r_quad2d(x, y, x + 16, y + 16, 0, 0, 1, 1, kart | 0xff000000, 16.5f);
-    r_quad2d(x + 16, y, x + 32, y + 16, 0, 0, 1, 1, c->ui | 0xff000000, 16.5f);
+    r_quad2d(x + 16, y, x + 32, y + 16, 0, 0, 1, 1, c.ui | 0xff000000, 16.5f);
 }
 
 static void draw_main(void) {
@@ -595,8 +881,94 @@ static void draw_main(void) {
     }
     static const char *const blurbs[MAIN_ITEMS] = {"GRAND PRIX, SINGLE RACE OR TIME TRIAL", "SPLIT SCREEN WITH A FRIEND",
                                                    "UP TO SIX PLAYERS (BROADBAND ADAPTER OR MODEM)",
-                                                   "LISTEN TO THE MUSIC AND SOUND EFFECTS"};
+                                                   "SOUND TEST, ONLINE NAME, MUSIC AND YOUR OWN KART"};
     hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(220, 230, 240, 255), blurbs[main_row]);
+}
+
+static void draw_settings(void) {
+    float slide = settings_slide * settings_slide * (3 - 2 * settings_slide);
+    float y0 = 196 + (1 - slide) * 300;
+    hud_panel(150, y0, 490, y0 + 214, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    hud_text(320, y0 + 4, 0.7f, ALIGN_CENTER, argb(255, 255, 220, 60), "SETTINGS");
+    static const char *const labels[SET_ROWS] = {"SOUND TEST", "ONLINE NAME", "MUSIC", "CUSTOMIZE KART"};
+    char buf[48];
+    for(int i = 0; i < SET_ROWS; i++) {
+        bool sel = i == settings_row;
+        float y = y0 + 42 + i * 42;
+        if(sel) {
+            r_hdr(h_flat);
+            float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
+            r_quad2d(166, y - 5, 474, y + 35, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+        }
+        uint32_t col = sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255);
+        float s = sel ? 0.72f + 0.03f * sinf(game.title_t * 8) : 0.68f;
+        if(i == SET_MUSIC) {
+            hud_text(184, y + 2, s, ALIGN_LEFT, col, labels[i]);
+            snprintf(buf, sizeof(buf), "%s%s%s", sel ? "< " : "", save.music ? "ON" : "OFF", sel ? " >" : "");
+            hud_text(456, y + 2, s, ALIGN_RIGHT, col, buf);
+        }
+        else {
+            hud_text(320, y + 2, s, ALIGN_CENTER, col, labels[i]);
+        }
+    }
+    const char *blurb = "LISTEN TO THE MUSIC AND SOUND EFFECTS";
+    if(settings_row == SET_NAME) {
+        if(save.name[0]) snprintf(buf, sizeof(buf), "THE NAME OTHER PLAYERS SEE ONLINE: %s", save.name);
+        else snprintf(buf, sizeof(buf), "THE NAME OTHER PLAYERS SEE ONLINE");
+        blurb = buf;
+    }
+    else if(settings_row == SET_MUSIC) blurb = "MUSIC IN THE MENUS AND RACES, SAVED TO THE VMU";
+    else if(settings_row == SET_CUSTOM) blurb = save.custom_on ? "REPAINT YOUR OWN KART" : "PAINT A KART OF YOUR OWN";
+    hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(220, 230, 240, 255), blurb);
+}
+
+/* The Customize panel sits right of the kart like the race setup, each
+   colour row showing the whole palette with the pick framed. */
+static void draw_custom(void) {
+    float slide = custom_slide * custom_slide * (3 - 2 * custom_slide);
+    float x0 = 640 - 300 * slide, x1 = x0 + 280, cx = (x0 + x1) * 0.5f;
+    const float top = 84, y_first = top + 54, pitch = 74;
+    float y_save = y_first + 3 * pitch + 2;
+    hud_panel(x0, top, x1, y_save + 52, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    hud_text(cx, top + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "CUSTOMIZE");
+    static const char *const labels[3] = {"KART BODY", "KART TRIM", "CHAO"};
+    float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
+    float bob = 3.0f * sinf(game.title_t * 9);
+    for(int i = 0; i < 3; i++) {
+        bool sel = i == custom_row;
+        float y = y_first + i * pitch;
+        if(sel) {
+            r_hdr(h_flat);
+            r_quad2d(x0 + 10, y - 6, x1 - 10, y + pitch - 10, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+        }
+        uint32_t col = sel ? argb(255, 255, 255, 150) : argb(255, 200, 220, 255);
+        int pick = *custom_pick(i);
+        hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, argb(255, 150, 200, 255), labels[i]);
+        hud_text(x1 - 20, y - 6, 0.5f, ALIGN_RIGHT, col, kart_palette[pick].name);
+        /* The palette strip: 16 cells, the pick framed in white. */
+        float sx = x0 + 30, sy = y + 22, cell = 12, gap = 2;
+        r_hdr(h_flat);
+        r_quad2d(sx - 3, sy - 3, sx + PALETTE_COUNT * (cell + gap) + 1, sy + cell + 3, 0, 0, 1, 1, 0xff0c1430, 16.3f);
+        for(int c = 0; c < PALETTE_COUNT; c++) {
+            float x = sx + c * (cell + gap);
+            if(c == pick) r_quad2d(x - 2, sy - 2, x + cell + 2, sy + cell + 2, 0, 0, 1, 1, 0xfffffff0, 16.4f);
+            r_quad2d(x, sy, x + cell, sy + cell, 0, 0, 1, 1, kart_palette[c].rgb, 16.5f);
+        }
+        if(sel) {
+            hud_text(x0 + 16 - bob, sy - 10, 0.6f, ALIGN_CENTER, col, "<");
+            hud_text(x1 - 16 + bob, sy - 10, 0.6f, ALIGN_CENTER, col, ">");
+        }
+    }
+    bool sel = custom_row == CUS_SAVE;
+    if(sel) {
+        r_hdr(h_flat);
+        r_quad2d(x0 + 10, y_save - 6, x1 - 10, y_save + 40, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+    }
+    float s = sel ? 1.1f + 0.06f * sinf(game.title_t * 8) : 0.95f;
+    hud_text(cx, y_save, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255), "SAVE");
+    hud_text(24, 428, 0.5f, ALIGN_LEFT, argb(230, 255, 255, 255),
+             sel ? "A: SAVE   B: CANCEL" : "LEFT/RIGHT: COLOUR   A: NEXT   B: CANCEL");
+    hud_text(176, 100, 0.4f, ALIGN_CENTER, argb(220, 230, 240, 255), "YOUR KART, SAVED TO THE VMU");
 }
 
 static void upper_copy(char *dst, size_t n, const char *src) {
@@ -730,7 +1102,7 @@ static void draw_menu(void) {
                 break;
             case ROW_COLOUR:
                 hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "COLOUR");
-                value = kart_colours[game.pl[0].colour].name;
+                value = kart_colour_look(game.pl[0].colour, NULL).name;
                 colour_swatch(x1 - 58, y - 4, game.pl[0].colour);
                 break;
             default: {
@@ -770,7 +1142,7 @@ static void draw_karts(void) {
         float cx = (x0 + x1) * 0.5f;
         hud_text(cx, top + 6, 0.75f, ALIGN_CENTER, argb(255, 255, 220, 60), p ? "PLAYER 2" : "PLAYER 1");
         uint32_t col = ready ? argb(255, 200, 220, 255) : argb(255, 255, 255, 150);
-        hud_text(cx, top + 50, 0.75f, ALIGN_CENTER, col, kart_colours[c].name);
+        hud_text(cx, top + 50, 0.75f, ALIGN_CENTER, col, kart_colour_look(c, NULL).name);
         if(!ready) {
             float bob = 3.0f * sinf(game.title_t * 9);
             hud_text(x0 + 18 - bob, top + 50, 0.75f, ALIGN_LEFT, col, "<");
@@ -861,6 +1233,10 @@ void title_draw(void) {
     else if(game.state == ST_KARTS) {
         draw_karts();
     }
+    else if(game.state == ST_MAIN && custom_open) {
+        draw_logo(180, 62, 0.36f);
+        draw_custom();
+    }
     else if(game.state == ST_MAIN && sound_open) {
         draw_sunburst(320, 60, 420, game.title_t * 0.25f, 0.3f);
         draw_logo(320, 60, 0.36f);
@@ -869,7 +1245,8 @@ void title_draw(void) {
     else if(game.state == ST_MAIN) {
         draw_sunburst(320, 112, 420, game.title_t * 0.25f, 0.4f);
         draw_logo(320, 112, 0.5f);
-        draw_main();
+        if(settings_open) draw_settings();
+        else draw_main();
     }
     else {
         draw_logo(180, 62, 0.36f);

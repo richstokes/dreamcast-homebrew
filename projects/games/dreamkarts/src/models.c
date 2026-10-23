@@ -2,8 +2,8 @@
 
    Each part gets its own matrix (kart pose * pivot * part rotation). The sun
    is rotated into part space once, so per-vertex lighting is one dot
-   product. Rival karts recolour paint slots: slot 1 is the body paint, slots
-   3/4 the Chao's body and tip colours, blended per vertex. */
+   product. Rival karts recolour paint slots: slot 1 is the body paint, slot 2
+   the trim, slots 3/4 the Chao's body and tip colours, blended per vertex. */
 #include "models.h"
 #include "render.h"
 #include "prof.h"
@@ -47,7 +47,7 @@ static float part_mats[MAX_KARTS][DK_PART_COUNT][16];
 static V3 part_light[MAX_KARTS][DK_PART_COUNT];
 static uint32_t mats_frame[MAX_KARTS];
 static const pvr_poly_hdr_t *h_model, *h_shadow, *h_underglow;
-static float ref_luma1 = 1.0f;
+static float ref_luma1 = 1.0f, ref_luma2 = 1.0f;
 static int far_lod = 1;   /* lod 3 when the model has a far level */
 static float normals[DK_MODEL_VERT_COUNT][3];
 static V3 light_dir;
@@ -182,15 +182,18 @@ void models_init(void) {
     h_model = r_header(TEX_NONE, HF_OP);
     h_shadow = r_header(TEX_SHADOW, HF_TR);
     h_underglow = r_header(TEX_GLOW, HF_TR | HF_ADD);
-    /* Reference brightness of the default body paint. */
-    float sum = 0;
-    int n = 0;
-    for(int i = 0; i < DK_MODEL_VERT_COUNT; i++)
-        if(dk_model_verts[i].paint == 1) {
-            sum += luma(dk_model_verts[i].argb);
-            n++;
+    /* Reference brightness of the default body and trim paints. */
+    float sum[2] = {0, 0};
+    int n[2] = {0, 0};
+    for(int i = 0; i < DK_MODEL_VERT_COUNT; i++) {
+        int p = dk_model_verts[i].paint;
+        if(p == 1 || p == 2) {
+            sum[p - 1] += luma(dk_model_verts[i].argb);
+            n[p - 1]++;
         }
-    if(n) ref_luma1 = fmaxf(sum / n, 0.05f);
+    }
+    if(n[0]) ref_luma1 = fmaxf(sum[0] / n[0], 0.05f);
+    if(n[1]) ref_luma2 = fmaxf(sum[1] / n[1], 0.05f);
     for(int i = 0; i < DK_MODEL_VERT_COUNT; i++) {
         model_kv[i].x = dk_model_verts[i].x;
         model_kv[i].y = dk_model_verts[i].y;
@@ -242,6 +245,9 @@ void models_paint_kart(int index) {
         uint32_t c = v->argb;
         if(v->paint == 1 && k->paint1) {
             c = color_scale(k->paint1, luma(v->argb) / ref_luma1);
+        }
+        else if(v->paint == 2 && k->paint2) {
+            c = color_scale(k->paint2, luma(v->argb) / ref_luma2);
         }
         else if((v->paint == 3 || v->paint == 4) && k->chao) {
             c = color_lerp(k->chao, k->chao_tip, (float)v->tip / 255.0f);

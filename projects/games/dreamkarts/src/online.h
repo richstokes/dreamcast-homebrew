@@ -9,6 +9,8 @@
 void online_init(void);
 /* From the main menu: name entry, then connect. */
 void online_enter(void);
+/* From the Settings menu: the name entry alone, saved to the VMU. */
+void online_name_enter(void);
 /* Once a frame while game.online: network, and following the lobby. */
 void online_tick(void);
 void online_update(float dt);

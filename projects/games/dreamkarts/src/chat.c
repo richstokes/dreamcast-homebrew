@@ -18,6 +18,8 @@
 #include "render.h"
 #include <string.h>
 
+static const KartCustom *chat_custom(const NetChat *c);
+
 /* The box over the lobby room. */
 #define BOX_X0 24
 #define BOX_X1 616
@@ -190,7 +192,7 @@ bool chat_update(float dt, bool can_say) {
     if(count > heard) {
         const NetChat *c = net_chat(count - 1);
         if(c && c->slot == net_lobby()->you) audio_sfx(DK_SFX_MENU_SELECT, 120, 128);
-        else if(c) audio_chao(CHAO_HI, c->colour % COLOUR_COUNT, 150, 128);
+        else if(c) audio_chao(CHAO_HI, kart_voice(c->colour, chat_custom(c)), 150, 128);
         heard = count;
     }
     if(net_say_state() == NET_SAY_FAILED && fail_t <= 0 && !line[0]) fail_t = 2.5f;
@@ -226,6 +228,13 @@ const char *chat_hint(void) {
     return "A: TYPE   B: DELETE   START: SEND   X: CLOSE";
 }
 
+/* A custom-coloured sender's picks, from their lobby seat (the default
+   colours once they have left). */
+static const KartCustom *chat_custom(const NetChat *c) {
+    const NetPlayer *p = c->slot < NET_MAX_PLAYERS ? net_player(c->slot) : NULL;
+    return p ? &p->custom : &kart_custom_default;
+}
+
 /* "NAME: TEXT", the name in the sender's colour, shrunk to fit max_w. */
 static void draw_line(const NetChat *c, float x, float y, float scale, float max_w, bool me) {
     char name[NET_NAME_LEN + 2];
@@ -237,7 +246,7 @@ static void draw_line(const NetChat *c, float x, float y, float scale, float max
         scale = fit;
     }
     uint32_t col = me ? argb(255, 255, 255, 140) : c->slot == NET_SPECTATOR ? argb(255, 200, 225, 255)
-                                                                             : (kart_colours[c->colour % COLOUR_COUNT].ui | 0xff000000);
+                                                                             : (kart_colour_look(c->colour, chat_custom(c)).ui | 0xff000000);
     hud_text(x, y, scale, ALIGN_LEFT, col, name);
     hud_text(x + hud_text_width(name, scale) + hud_text_width(" ", scale), y, scale, ALIGN_LEFT, 0xffffffff, c->text);
 }

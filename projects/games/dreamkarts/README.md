@@ -29,6 +29,7 @@ Highlights:
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
 - Rocket starts, charge jumps, burnouts, emotes and final-lap dolphins
 - Four original songs, 32 effects, Chao voices by colour and Jump Pack rumble
+- A Settings menu with the sound test, your online name, a music switch and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
 - VMU screens for the countdown, place, lap and results
 
 ## Download
@@ -102,7 +103,8 @@ Launcher environment: `DK_ELF` picks another ELF, `DK_EXIT_ON_LOG` and
 `DK_FAIL_ON_LOG` stop Flycast on a serial line, `DK_NET=modem` swaps the
 emulated broadband adapter for the emulated modem, `DK_SHOW_VMU=1` shows the
 VMU screens over the game, `DK_KEYBOARD=1` puts a Dreamcast keyboard in port
-B fed by the Mac's keyboard (for the lobby chat).
+B fed by the Mac's keyboard (for the lobby chat), `DK_VMU_DIR=<folder>` swaps
+in that folder's memory cards (every slot's file must already exist).
 
 ## Online play
 
@@ -112,7 +114,8 @@ is plugged in (DHCP);
 otherwise the modem dials with the saved PlanetWeb or DreamPassport settings,
 falling back to `555` with login `dream` / `cast`, which a
 [DreamPi](https://github.com/Kazade/dreampi) accepts. The name is saved to
-the first VMU found.
+the first VMU found, alongside the music switch and the custom kart (the
+Settings menu edits all three).
 
 - Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps, class and whether power-ups are on, and starts the race, alone if nobody else has turned up yet (a bell rings when someone joins; they race from the next one)
 - Start mid-race offers to drop out: that goes back to the lobby room, not the browser, so a practice lap ends the moment company arrives
@@ -168,6 +171,8 @@ needs no Python.
 | `-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=<n>` | Online practice: starts a race alone in an empty lobby, hears the bell as a bot joins mid-race, drops out back to the lobby room, races the bot, sees the bot's kart leave when it drops out (`dk-bot -retire`), drops out again (recipe in server/README.md) |
 | `-DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
 | `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU: the name screen must open on the saved name (and recover from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
+| `-DDK_AT_SETTINGS` (capture), then `-DDK_AT_SETTINGS_WANT` | Walks the Settings menu: music off, a custom kart painted and saved, CUSTOM on the race setup's colour row, the online name saved; the second build checks a reboot loads them all. Run both with `DK_VMU_DIR=<folder of blank cards>` so the real VMU is left alone |
+| `-DDK_AT_ONLINE -DDK_AT_CUSTOM` | Goes online with a custom kart; `DK ONLINE: kart` lines show every racer's colour and picks as the lobby sent them (pair with `dk-bot -colour 8 -custom 2,3,4`) |
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
 | `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
 | `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |

@@ -105,7 +105,8 @@ typedef struct {
     float lane;         /* CPU lateral bias */
     float ai_drift_hold;
     bool ai_drift_btn;
-    int colour;         /* kart_colours[] preset (sets its voice too) */
+    int colour;         /* kart_colours[] preset, or COLOUR_CUSTOM */
+    int voice;          /* Chao voice pitch, 0..COLOUR_COUNT-1 */
     uint32_t paint1, paint2, chao, chao_tip;
     uint32_t ui_color;
     const char *name;
@@ -113,16 +114,34 @@ typedef struct {
     uint32_t events;
 } Kart;
 
-/* Colour presets: kart paint, Chao body and tip (0 = the model's own), plus
-   a flat colour for HUD dots and swatches. */
+/* Colour presets: kart body and trim paint, Chao body and tip (0 = the
+   model's own), plus a flat colour for HUD dots and swatches. */
 typedef struct {
     const char *name;
-    uint32_t paint1, chao, tip, ui;
+    uint32_t paint1, paint2, chao, tip, ui;
 } KartColour;
 
 #define COLOUR_COUNT 8
 extern const KartColour kart_colours[COLOUR_COUNT];
-void kart_apply_colour(Kart *k, int colour);
+/* A ninth choice: the player's own colours from the Customize screen, three
+   picks from kart_palette[] (body paint, trim paint, Chao). Online each
+   player's picks travel with their colour byte (net.h). */
+#define COLOUR_CUSTOM COLOUR_COUNT
+#define PALETTE_COUNT 16
+typedef struct {
+    const char *name;
+    uint32_t rgb, tip;   /* tip: the Chao's points when this is its body */
+} PaletteColour;
+extern const PaletteColour kart_palette[PALETTE_COUNT];
+typedef struct { uint8_t body, trim, chao; } KartCustom;
+extern const KartCustom kart_custom_default;
+/* The colours of a choice: a preset, or COLOUR_CUSTOM's from custom (NULL:
+   the local player's saved picks). */
+KartColour kart_colour_look(int colour, const KartCustom *custom);
+/* The Chao voice of a choice (presets each have their own pitch). */
+int kart_voice(int colour, const KartCustom *custom);
+void kart_apply_look(Kart *k, int colour, const KartCustom *custom);
+static inline void kart_apply_colour(Kart *k, int colour) { kart_apply_look(k, colour, NULL); }
 bool kart_is_human(int index);
 /* Emotes: a wave with the right arm, and both arms pumping in a cheer for
    as long as the kart has won the race. */

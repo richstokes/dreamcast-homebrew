@@ -45,7 +45,7 @@ port 7535). Everything fits a 56k dial-up modem: the console sends about
 | Offset | Type | Field |
 | --- | --- | --- |
 | 0 | u8[2] | magic `'D' 'K'` |
-| 2 | u8 | protocol (`DK_NET_PROTO`, currently 3) |
+| 2 | u8 | protocol (`DK_NET_PROTO`, currently 4) |
 | 3 | u8 | packet type |
 
 A packet with a bad magic or a different protocol number gets a `REJECT`
@@ -71,7 +71,7 @@ redials keeps its seat if it comes back within the timeout.
 | 2 | `LIST` | nothing | 2 Hz on the lobby browser |
 | 3 | `JOIN` | u8 lobby (0-9), u8 flags (bit0 spectate; build 4) | until the lobby state names this player (or shows it watching) |
 | 4 | `LEAVE` | nothing | 3 times |
-| 5 | `WISH` | u8 colour, u8 track, u8 laps, u8 cc, u8 start nonce, u8 flags (bit0 power-ups on; build 11) | 4 Hz in a lobby |
+| 5 | `WISH` | u8 colour, u8 track, u8 laps, u8 cc, u8 start nonce, u8 flags (bit0 power-ups on; build 11), u8[3] custom kart picks (body, trim, Chao palette indices; build 17) | 4 Hz in a lobby |
 | 6 | `KART` | see below | once per `RACE` relay in a race (12 Hz) |
 | 7 | `PING` | nothing | 1 Hz otherwise idle (keeps NAT open) |
 | 8 | `CHAT` | u8 message id, text `char[33]` (build 14) | every 500 ms until the `CHAT` echo names this id, for up to 3 s |
@@ -85,7 +85,11 @@ always means play.
 
 `WISH`: everyone's colour applies (if free); track, laps (3, 5 or 10), cc
 and the power-ups switch apply only from the leader (a five-byte wish
-leaves the switch alone). When the leader presses Start the console
+leaves the switch alone). Colours 0-7 are the presets, one player each;
+colour 8 is the player's own kart, which any number may pick, painted from
+the three palette picks that follow the flags (a six-byte wish leaves the
+picks alone). The picks are kept whatever the colour, so a player switching
+back to custom gets their kart back. When the leader presses Start the console
 increments the start nonce; the server starts a race when it sees a new
 nonce from the leader, even with nobody else in the lobby (practice while
 waiting; anyone who joins meanwhile sits out until the next race).
@@ -158,19 +162,23 @@ latest version" and never gets further.
 | 16 | i32 | ms until the green light (countdown) or since it (racing) |
 | 20 | u8 | start nonce the server last accepted from the leader |
 | 21 | u8 | player count n |
-| 22 | n x 20 bytes | players |
-| 22 + 20n | u8 | watchers (capped at 255) |
-| 23 + 20n | u8 | lobby flags: bit0 the server's demo lobby (bots race, watch only) |
-| 24 + 20n | i32 | ms until the race ends after the first finisher (racing only; 0 until someone finishes) |
-| 28 + 20n | u8 | power-ups on (the leader's switch; on by default) |
+| 22 | n x 23 bytes | players |
+| 22 + 23n | u8 | watchers (capped at 255) |
+| 23 + 23n | u8 | lobby flags: bit0 the server's demo lobby (bots race, watch only) |
+| 24 + 23n | i32 | ms until the race ends after the first finisher (racing only; 0 until someone finishes) |
+| 28 + 23n | u8 | power-ups on (the leader's switch; on by default) |
 
 The watcher count and flags (also after the `LOBBIES` entries) arrived in
 build 4, the race end in build 7 and the power-ups switch in build 11;
-older consoles ignore the extra bytes.
+older consoles ignore the extra bytes. Protocol 4 (build 17) grew the
+player entry from 20 to 23 bytes for the custom kart.
 
-Player entry (20 bytes): u8 slot, char[11] name, u8 colour, u8 flags (bit0
-leader, bit1 racing, bit2 finished), u16 ping ms, u16 points, u8 last place
-(0 none), u8 grid position.
+Player entry (23 bytes): u8 slot, char[11] name, u8 colour (0-7 a preset,
+8 the player's own kart), u8 flags (bit0 leader, bit1 racing, bit2
+finished), u16 ping ms, u16 points, u8 last place (0 none), u8 grid
+position, u8[3] custom kart picks (body, trim, Chao; meaningful with
+colour 8). A `CHAT` from a custom-coloured player carries colour 8; the
+console colours the name from that player's lobby entry.
 
 `RACE` (every 83 ms during countdown, race and results, on the server's
 own beat): u8 race id, u8 count, then per racer: u8 slot, u16 age ms (how

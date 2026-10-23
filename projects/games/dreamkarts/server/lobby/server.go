@@ -31,7 +31,7 @@ var validLaps = map[byte]bool{3: true, 5: true, 10: true}
 const (
 	maxTrack = 16 // tracks are validated loosely; the console clamps
 	ccCount  = 3
-	colours  = 8
+	colours  = Colours
 	noLobby  = -1
 )
 
@@ -51,6 +51,7 @@ type Player struct {
 	Bot        bool // a demo-lobby bot: no address, never times out
 
 	Colour     byte
+	Custom     [CustomLen]byte // palette picks, shown when Colour is ColourCustom
 	Points     uint16
 	LastPlace  byte
 	StartNonce byte // newest seen from this console
@@ -298,6 +299,9 @@ func (l *Lobby) count() int {
 }
 
 func (l *Lobby) colourFree(c byte, except *Player) bool {
+	if c == ColourCustom {
+		return true
+	}
 	for _, q := range l.Slots {
 		if q != nil && q != except && q.Colour == c {
 			return false
@@ -426,7 +430,15 @@ func (s *Server) wish(p *Player, b []byte, now time.Time) {
 	if hasItems {
 		items = b[5]&WishItems != 0
 	}
-	if l.State == StateWaiting && colour < colours && colour != p.Colour && l.colourFree(colour, p) {
+	if len(b) >= 6+CustomLen {
+		var custom [CustomLen]byte
+		copy(custom[:], b[6:6+CustomLen])
+		if custom != p.Custom {
+			p.Custom = custom
+			l.dirty = l.dirty || p.Colour == ColourCustom
+		}
+	}
+	if l.State == StateWaiting && (colour < colours || colour == ColourCustom) && colour != p.Colour && l.colourFree(colour, p) {
 		p.Colour = colour
 		l.dirty = true
 	}
@@ -742,6 +754,7 @@ func (s *Server) sendLobby(l *Lobby, p *Player, now time.Time) {
 		b = binary.LittleEndian.AppendUint16(b, q.PingMs)
 		b = binary.LittleEndian.AppendUint16(b, q.Points)
 		b = append(b, q.LastPlace, q.Grid)
+		b = append(b, q.Custom[:]...)
 	}
 	b = append(b, l.watcherCount(), l.flags())
 	var left int32

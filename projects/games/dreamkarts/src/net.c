@@ -53,6 +53,7 @@ static NetLobby lobby;
 static int join_id = -1;
 static bool spectating;
 static int wish_colour, wish_track, wish_laps = 3, wish_cc = 1, wish_items = 1;
+static KartCustom wish_custom;
 static uint8_t start_nonce;
 static NetKart my_kart;
 static int my_race_id;
@@ -288,10 +289,11 @@ static void take_chat(const uint8_t *e, uint64_t now) {
     chat_total++;
 }
 
-void net_wish(int colour, int track, int laps, int cc, int items) {
+void net_wish(int colour, const KartCustom *custom, int track, int laps, int cc, int items) {
     bool changed = colour != wish_colour || track != wish_track || laps != wish_laps || cc != wish_cc ||
-                   items != wish_items;
+                   items != wish_items || memcmp(custom, &wish_custom, sizeof(*custom)) != 0;
     wish_colour = colour;
+    wish_custom = *custom;
     wish_track = track;
     wish_laps = laps;
     wish_cc = cc;
@@ -593,8 +595,8 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
             l->nonce = b[20];
             int count = b[21];
             l->count = 0;
-            for(int i = 0; i < count && i < NET_MAX_PLAYERS && 22 + i * 20 + 20 <= n; i++) {
-                const uint8_t *e = b + 22 + i * 20;
+            for(int i = 0; i < count && i < NET_MAX_PLAYERS && 22 + i * NET_PLAYER_BYTES + NET_PLAYER_BYTES <= n; i++) {
+                const uint8_t *e = b + 22 + i * NET_PLAYER_BYTES;
                 NetPlayer *p = &l->players[l->count++];
                 p->slot = e[0];
                 copy_name(p->name, e + 1);
@@ -604,8 +606,11 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
                 p->points = get16(e + 16);
                 p->place = e[18];
                 p->grid = e[19];
+                p->custom.body = e[20] % PALETTE_COUNT;
+                p->custom.trim = e[21] % PALETTE_COUNT;
+                p->custom.chao = e[22] % PALETTE_COUNT;
             }
-            int tail = 22 + count * 20;
+            int tail = 22 + count * NET_PLAYER_BYTES;
             l->watchers = tail + 2 <= n ? b[tail] : 0;
             l->flags = tail + 2 <= n ? b[tail + 1] : 0;
             /* Build 7 servers add how long the race has left once someone
@@ -770,9 +775,10 @@ void net_update(void) {
                 }
             }
             if(now - last_wish >= 250) {
-                uint8_t b[6] = {(uint8_t)wish_colour, (uint8_t)wish_track, (uint8_t)wish_laps, (uint8_t)wish_cc,
-                                start_nonce, (uint8_t)(wish_items ? 1 : 0)};
-                send_packet(5, b, 6);
+                uint8_t b[9] = {(uint8_t)wish_colour, (uint8_t)wish_track, (uint8_t)wish_laps, (uint8_t)wish_cc,
+                                start_nonce, (uint8_t)(wish_items ? 1 : 0), wish_custom.body, wish_custom.trim,
+                                wish_custom.chao};
+                send_packet(5, b, sizeof(b));
                 last_wish = now;
             }
             /* A chat line goes again every half second until its echo

@@ -26,6 +26,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,7 +39,8 @@ var (
 	name     = flag.String("name", "BOT", "player name")
 	lobbyID  = flag.Int("lobby", 0, "lobby to join")
 	start    = flag.Bool("start", false, "start a race whenever the bot leads and two are in")
-	colour   = flag.Int("colour", 7, "colour 0-7")
+	colour   = flag.Int("colour", 7, "colour 0-7, or 8 for a custom kart (-custom)")
+	custom   = flag.String("custom", "0,11,6", "custom kart palette picks: body,trim,chao (0-15)")
 	raceSecs = flag.Float64("race", 90, "seconds the bot takes for the whole race")
 	duration = flag.Duration("for", 0, "quit after this long (0 = forever)")
 	path     = flag.String("path", "", "replay kart states from this file (lines: ms x y z heading speed lap dist)")
@@ -205,7 +207,7 @@ func main() {
 			}
 		default:
 			if now.Sub(lastWish) > 250*time.Millisecond {
-				send(lobby.TypeWish, []byte{byte(*colour), 0, 3, 1, nonce, lobby.WishItems})
+				send(lobby.TypeWish, append([]byte{byte(*colour), 0, 3, 1, nonce, lobby.WishItems}, customPicks()...))
 				lastWish = now
 			}
 			// Chat like a console: a line every 4 s once two are in, resent
@@ -252,12 +254,26 @@ func main() {
 	send(lobby.TypeLeave, nil)
 }
 
+// customPicks parses -custom into the three palette bytes of a WISH.
+func customPicks() []byte {
+	picks := []byte{0, 11, 6}
+	for i, f := range strings.Split(*custom, ",") {
+		if i >= len(picks) {
+			break
+		}
+		if v, err := strconv.Atoi(strings.TrimSpace(f)); err == nil && v >= 0 && v < 16 {
+			picks[i] = byte(v)
+		}
+	}
+	return picks
+}
+
 // logPlaces prints a LOBBY packet's players by their last place.
 func logPlaces(b []byte) {
 	n := int(b[21])
 	for place := byte(1); place <= lobby.MaxPlayers; place++ {
-		for i := 0; i < n && 22+i*20+20 <= len(b); i++ {
-			e := b[22+i*20:]
+		for i := 0; i < n && 22+i*lobby.PlayerLen+lobby.PlayerLen <= len(b); i++ {
+			e := b[22+i*lobby.PlayerLen:]
 			if e[18] == place {
 				log.Printf("  %d. %s (%d points)", place, lobby.CleanName(e[1:12]), binary.LittleEndian.Uint16(e[16:]))
 			}

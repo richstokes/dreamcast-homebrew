@@ -23,6 +23,9 @@ whatever Flycast's saved network settings say. DK_NET=modem uses the
 emulated modem instead (both through Flycast's local proxy, not DCNet).
 DK_SHOW_VMU=1 shows the VMU screens over the game. DK_KEYBOARD=1 plugs a
 Dreamcast keyboard into port B, fed by this Mac's keyboard (lobby chat).
+DK_VMU_DIR=<folder> uses that folder's memory cards instead of the real
+ones; it must already hold vmu_save_A1.bin to D2.bin (blank 131072-byte
+files do), or Flycast moves the real cards there.
 USAGE
 }
 
@@ -59,6 +62,12 @@ if [[ "${DK_SHOW_VMU:-}" == 1 ]]; then
 fi
 if [[ "${DK_KEYBOARD:-}" == 1 ]]; then
     FLYCAST_CONFIG+=",input:device2=5,input:maple_sdl_keyboard=1"
+fi
+if [[ -n "${DK_VMU_DIR:-}" ]]; then
+    for slot in A1 A2 B1 B2 C1 C2 D1 D2; do
+        [[ -f "${DK_VMU_DIR}/vmu_save_${slot}.bin" ]] || { echo "DK_VMU_DIR lacks vmu_save_${slot}.bin (Flycast would move the real card)" >&2; exit 2; }
+    done
+    FLYCAST_CONFIG+=",config:Dreamcast.VMUPath=${DK_VMU_DIR}"
 fi
 ELF_PATH="${PROJECT_DIR}/${ELF_NAME}"
 

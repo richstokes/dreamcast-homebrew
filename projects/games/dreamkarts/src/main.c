@@ -17,6 +17,7 @@
 #include "dolphins.h"
 #include "items.h"
 #include "online.h"
+#include "save.h"
 #include "spectate.h"
 #include "film.h"
 #include "gp.h"
@@ -162,6 +163,10 @@ static void take_shot(const char *name) {
 /* Scripted presses so a capture run walks title -> menu -> race on its own;
    "DK SHOT <name>" lines tell the capture tool when to grab the window. */
 static void capture_script(void) {
+#ifdef DK_AT_SETTINGS
+    title_settings_autotest(DK_DT);   /* title.c walks the menus instead */
+    return;
+#endif
     static float t;
     static int step;
     static bool shot[56];
@@ -1022,7 +1027,9 @@ static void pause_update(void) {
     }
     /* The music switch flips with A or left/right and keeps the game paused. */
     if(game.pause_sel == PAUSE_MUSIC && ((pd->pressed & BTN_A) || input_left(o) || input_right(o))) {
-        audio_music_enable(!audio_music_enabled());
+        save.music = !audio_music_enabled();
+        audio_music_enable(save.music);
+        save_store();
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
         return;
     }
@@ -1729,6 +1736,7 @@ int main(int argc, char **argv) {
     hud_init();
     title_init();
     boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");
+    save_init();   /* the card is read while the rest loads */
 #ifdef DK_AT_TRACK
     game.track = DK_AT_TRACK;
 #endif
@@ -1783,6 +1791,15 @@ int main(int argc, char **argv) {
 #ifdef DK_RECORD
     record_races(boot_t0);
     return 0;
+#endif
+#ifdef DK_AT_CUSTOM
+    /* Online test: go in with a custom kart (LIME body, RED trim, BLACK
+       Chao) so the lobby sends it and the race paints it. */
+    save.custom_on = true;
+    save.custom = (KartCustom){3, 0, 15};
+    save_store();
+    game.pl[0].colour = COLOUR_CUSTOM;
+    race_setup();
 #endif
 #if defined(DK_AT_ONLINE) || defined(DK_FILM_SPECTATE)
     online_enter();
@@ -1869,6 +1886,7 @@ int main(int argc, char **argv) {
         PROF_BEGIN(pu);
         PROF_BEGIN(pus);
         input_update();
+        if(save_tick()) audio_music_enable(save.music);
         if(game.online) online_tick();
 #if defined(DK_HW) && defined(DK_CAPTURE)
         if(probe_step()) {

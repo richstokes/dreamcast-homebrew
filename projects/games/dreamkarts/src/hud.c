@@ -301,12 +301,11 @@ void hud_trophy(float x, float y, float s, uint32_t col) {
     r_quad2d(x - 5 * s, y + 13 * s, x + 5 * s, y + 16 * s, 0, 0, 1, 1, col, 16.8f);
 }
 
-void hud_swatch(float x, float y, int colour) {
-    const KartColour *c = &kart_colours[colour % COLOUR_COUNT];
+void hud_swatch(float x, float y, uint32_t paint1, uint32_t ui) {
     r_hdr(h_flat);
     r_quad2d(x - 1, y - 1, x + 25, y + 15, 0, 0, 1, 1, 0xff0c1430, 16.4f);
-    r_quad2d(x, y, x + 12, y + 14, 0, 0, 1, 1, (c->paint1 ? c->paint1 : 0xffe02828) | 0xff000000, 16.5f);
-    r_quad2d(x + 12, y, x + 24, y + 14, 0, 0, 1, 1, c->ui | 0xff000000, 16.5f);
+    r_quad2d(x, y, x + 12, y + 14, 0, 0, 1, 1, (paint1 ? paint1 : 0xffe02828) | 0xff000000, 16.5f);
+    r_quad2d(x + 12, y, x + 24, y + 14, 0, 0, 1, 1, ui | 0xff000000, 16.5f);
 }
 
 void hud_draw_results(void) {
@@ -329,7 +328,7 @@ void hud_draw_results(void) {
             }
             snprintf(buf, sizeof(buf), "%d%s", pos + 1, hud_ordinal(pos + 1));
             hud_text(x0 + 24, y, 0.8f, ALIGN_LEFT, hud_place_color(pos + 1), buf);
-            hud_swatch(x0 + 92, y + 10, k->colour);
+            hud_swatch(x0 + 92, y + 10, k->paint1, k->ui_color);
             hud_text(x0 + 128, y + 3, 0.68f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, k->name);
             hud_format_time(t, k->finish_time);
             hud_text(x1 - 24, y + 3, 0.68f, ALIGN_RIGHT, 0xffffffff, k->finished ? t : "--'--\"--");

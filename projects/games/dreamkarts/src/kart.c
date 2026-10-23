@@ -16,29 +16,77 @@
    yawed into the turn. */
 #include "kart.h"
 #include "items.h"
+#include "save.h"
 
 Kart karts[MAX_KARTS];
 int kart_count;
 int kart_jumps, kart_rescues, kart_falls;
 
 const KartColour kart_colours[COLOUR_COUNT] = {
-    {"CLASSIC", 0, 0, 0, 0xff8cc8f0},                          /* red kart, sky-blue Chao */
-    {"HAWK", 0xff2c6ee6, 0xffffa8d0, 0xffff5a96, 0xffffa8d0},
-    {"MANGO", 0xffff8c14, 0xffffd25a, 0xffff8c28, 0xffffd25a},
-    {"CORAL", 0xff9646dc, 0xffff8c78, 0xffffdc78, 0xffff8c78},
-    {"PEBBLE", 0xff28b450, 0xffe6ebf5, 0xff96c8ff, 0xffe6ebf5},
-    {"MIDNIGHT", 0xff32323c, 0xff6e5a96, 0xffe63c50, 0xff6e5a96},
-    {"HERO", 0xfff0f0f4, 0xfffaf4e0, 0xffffc830, 0xffffe890},
-    {"LIME", 0xffffd020, 0xff82e07a, 0xff2fa84f, 0xff82e07a},
+    {"CLASSIC", 0, 0, 0, 0, 0xff8cc8f0},                          /* red kart, sky-blue Chao */
+    {"HAWK", 0xff2c6ee6, 0, 0xffffa8d0, 0xffff5a96, 0xffffa8d0},
+    {"MANGO", 0xffff8c14, 0, 0xffffd25a, 0xffff8c28, 0xffffd25a},
+    {"CORAL", 0xff9646dc, 0, 0xffff8c78, 0xffffdc78, 0xffff8c78},
+    {"PEBBLE", 0xff28b450, 0, 0xffe6ebf5, 0xff96c8ff, 0xffe6ebf5},
+    {"MIDNIGHT", 0xff32323c, 0, 0xff6e5a96, 0xffe63c50, 0xff6e5a96},
+    {"HERO", 0xfff0f0f4, 0, 0xfffaf4e0, 0xffffc830, 0xffffe890},
+    {"LIME", 0xffffd020, 0, 0xff82e07a, 0xff2fa84f, 0xff82e07a},
 };
 
-void kart_apply_colour(Kart *k, int colour) {
-    const KartColour *c = &kart_colours[(colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT];
-    k->paint1 = c->paint1;
-    k->chao = c->chao;
-    k->chao_tip = c->tip;
-    k->ui_color = c->ui;
-    k->colour = (colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT;
+/* The Customize screen's palette. The first and twelfth are the model's own
+   red and white, so the default custom kart is the classic one. */
+const PaletteColour kart_palette[PALETTE_COUNT] = {
+    {"RED", 0xffe8161e, 0xff8c0a14},
+    {"ORANGE", 0xffff8c14, 0xffc85a00},
+    {"YELLOW", 0xffffd020, 0xffe08a10},
+    {"LIME", 0xff82e07a, 0xff2fa84f},
+    {"GREEN", 0xff28b450, 0xff146e32},
+    {"TEAL", 0xff20c8b4, 0xff128c82},
+    {"SKY", 0xff8cc8f0, 0xff4a8cd2},
+    {"BLUE", 0xff2c6ee6, 0xff1a3c9c},
+    {"PURPLE", 0xff9646dc, 0xff5a2096},
+    {"PINK", 0xffffa8d0, 0xffff5a96},
+    {"CORAL", 0xffff8c78, 0xffffdc78},
+    {"WHITE", 0xfff0f0f4, 0xff96c8ff},
+    {"CREAM", 0xfffaf4e0, 0xffffc830},
+    {"SILVER", 0xffa8acb8, 0xff6e7280},
+    {"GUNMETAL", 0xff4a4e58, 0xff2a2c32},
+    {"BLACK", 0xff32323c, 0xff6e5a96},
+};
+const KartCustom kart_custom_default = {0, 11, 6};
+
+static int palette_index(int i) {
+    return (i % PALETTE_COUNT + PALETTE_COUNT) % PALETTE_COUNT;
+}
+
+KartColour kart_colour_look(int colour, const KartCustom *custom) {
+    if(colour == COLOUR_CUSTOM) {
+        if(!custom) custom = &save.custom;
+        KartColour c = {"CUSTOM", kart_palette[palette_index(custom->body)].rgb,
+                        kart_palette[palette_index(custom->trim)].rgb, kart_palette[palette_index(custom->chao)].rgb,
+                        kart_palette[palette_index(custom->chao)].tip, kart_palette[palette_index(custom->chao)].rgb};
+        return c;
+    }
+    return kart_colours[(colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT];
+}
+
+int kart_voice(int colour, const KartCustom *custom) {
+    if(colour == COLOUR_CUSTOM) {
+        if(!custom) custom = &save.custom;
+        return palette_index(custom->chao) % COLOUR_COUNT;
+    }
+    return (colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT;
+}
+
+void kart_apply_look(Kart *k, int colour, const KartCustom *custom) {
+    KartColour c = kart_colour_look(colour, custom);
+    k->paint1 = c.paint1;
+    k->paint2 = c.paint2;
+    k->chao = c.chao;
+    k->chao_tip = c.tip;
+    k->ui_color = c.ui;
+    k->colour = colour == COLOUR_CUSTOM ? COLOUR_CUSTOM : (colour % COLOUR_COUNT + COLOUR_COUNT) % COLOUR_COUNT;
+    k->voice = kart_voice(colour, custom);
 }
 
 bool kart_is_human(int index) {
@@ -130,7 +178,7 @@ void kart_place_on_grid(Kart *k, int slot) {
     float s = -7.0f - row * 7.5f - col * 3.5f;
     float d = col ? 3.6f : -3.6f;
     uint32_t p1 = k->paint1, p2 = k->paint2, ch = k->chao, tip = k->chao_tip, ui = k->ui_color;
-    int colour = k->colour;
+    int colour = k->colour, voice = k->voice;
     const char *name = k->name;
     bool cpu = k->cpu, remote = k->remote;
     int net_slot = k->net_slot;
@@ -140,6 +188,7 @@ void kart_place_on_grid(Kart *k, int slot) {
     k->net_slot = net_slot;
     k->paint1 = p1; k->paint2 = p2; k->chao = ch; k->chao_tip = tip; k->ui_color = ui;
     k->colour = colour;
+    k->voice = voice;
     k->name = name;
     k->cpu = cpu; k->skill = skill; k->lane = lane;
     k->pos = track_point(s, d);

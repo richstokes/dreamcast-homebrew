@@ -99,7 +99,7 @@ static void champion_party(bool first) {
     fx_confetti(vadd(c->pos, v3(0, 1.5f, 0)), game.num_players > 1 ? 50 : 90);
     if(first) {
         audio_sfx(DK_SFX_FINISH, 240, 128);
-        audio_chao(CHAO_HI, c->colour, 210, 128);
+        audio_chao(CHAO_HI, c->voice, 210, 128);
     }
 }
 
@@ -185,7 +185,7 @@ static void draw_race_page(float x0, float x1) {
         if(me) row_highlight(x0, x1, y);
         snprintf(buf, sizeof(buf), "%d%s", pos + 1, hud_ordinal(pos + 1));
         hud_text(x0 + 22, y - 2, 0.75f, ALIGN_LEFT, hud_place_color(pos + 1), buf);
-        hud_swatch(x0 + 88, y + 6, k->colour);
+        hud_swatch(x0 + 88, y + 6, k->paint1, k->ui_color);
         hud_text(x0 + 122, y + 2, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, k->name);
         hud_format_time(t, k->finish_time);
         hud_text(x1 - 150, y + 4, 0.55f, ALIGN_RIGHT, 0xffffffff, t);
@@ -224,7 +224,7 @@ static void draw_standings_page(float x0, float x1) {
             snprintf(buf, sizeof(buf), "%d%s", pos + 1, hud_ordinal(pos + 1));
             hud_text(x0 + 22, y - 2, 0.75f, ALIGN_LEFT, hud_place_color(pos + 1), buf);
         }
-        hud_swatch(x0 + 88, y + 6, k->colour);
+        hud_swatch(x0 + 88, y + 6, k->paint1, k->ui_color);
         hud_text(x0 + 122, y + 2, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, k->name);
         for(int r = 0; r < gp.race; r++) {
             int place = gp.history[r][i];

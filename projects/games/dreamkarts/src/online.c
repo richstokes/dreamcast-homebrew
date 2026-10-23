@@ -35,6 +35,8 @@ static float screen_t;
 static char name[NET_NAME_LEN] = "CHAO";
 static int key_row, key_col;
 static bool name_typed;        /* edited since entering; a saved name arriving late stays out */
+static bool name_only;         /* the Settings menu's ONLINE NAME: type it, save it, back */
+static int name_gen;           /* save_gen() when the name screen last took the saved name */
 static int browse_sel;
 static int lobby_row;
 static int my_colour = -1;
@@ -83,9 +85,25 @@ static const char *const cc_names[] = {"50cc", "100cc", "150cc"};
 
 void online_init(void) {
     h_flat = r_header(TEX_NONE, HF_TR | HF_NOFOG | HF_NOZTEST);
-    /* Read the saved name now, while the title plays, so the name screen
-       opens on it instead of flashing the default first. */
-    save_load_name();
+}
+
+static void set_screen(int s);
+
+/* The name screen opens on the saved name (read at boot), and takes a
+   name a re-read turns up until the player types. */
+static void name_screen_open(void) {
+    game_set_state(ST_ONLINE);
+    set_screen(OS_NAME);
+    key_row = key_col = 0;
+    name_typed = false;
+    save_load();   /* again, for a card put in since boot */
+    name_gen = save_gen();
+    if(save.name[0]) snprintf(name, sizeof(name), "%s", save.name);
+}
+
+void online_name_enter(void) {
+    name_only = true;
+    name_screen_open();
 }
 
 static void set_screen(int s) {
@@ -98,13 +116,9 @@ static void set_screen(int s) {
 
 void online_enter(void) {
     game.online = true;
-    game_set_state(ST_ONLINE);
-    set_screen(OS_NAME);
+    name_only = false;
+    name_screen_open();
     link_prepare();
-    key_row = key_col = 0;
-    name_typed = false;
-    save_load_name();   /* again, for a card put in since boot */
-    save_peek_name(name, sizeof(name));   /* the known name, before the re-read lands */
 #ifdef DK_AT_NAME
     printf("DK NAME: entry %s\n", name);
     strcpy(entry_name, name);
@@ -112,6 +126,11 @@ void online_enter(void) {
 }
 
 static void back_to_menu(void) {
+    if(name_only) {
+        name_only = false;
+        title_settings_enter();
+        return;
+    }
     net_end();
     game.online = false;
     race_setup();
@@ -154,9 +173,13 @@ static void setup_race(const NetLobby *l) {
         memset(k, 0, sizeof(*k));
         k->remote = p->slot != l->you;
         k->net_slot = p->slot;
-        kart_apply_colour(k, p->colour % COLOUR_COUNT);
+        kart_apply_look(k, p->colour, &p->custom);
         memcpy(kart_names[g], p->name, NET_NAME_LEN);
         k->name = kart_names[g];
+#ifdef DK_AUTOTEST
+        printf("DK ONLINE: kart %d %s colour %d custom %d %d %d%s\n", g, p->name, p->colour, p->custom.body,
+               p->custom.trim, p->custom.chao, k->remote ? "" : " (me)");
+#endif
         kart_place_on_grid(k, g);
         models_paint_kart(g);
         if(!k->remote) game.pl[0].kart = game.player = g;
@@ -418,8 +441,10 @@ static int key_count(int row) {
 }
 
 static void name_update(void) {
-    char saved[NET_NAME_LEN];
-    if(save_take_name(saved, sizeof(saved)) && !name_typed) strcpy(name, saved);
+    if(save_gen() != name_gen) {
+        name_gen = save_gen();
+        if(!name_typed && save.name[0]) snprintf(name, sizeof(name), "%s", save.name);
+    }
     int len = (int)strlen(name);
     /* A Dreamcast keyboard types the name too (the characters a name may
        hold); Enter is Start. */
@@ -487,7 +512,12 @@ static void name_update(void) {
         if(*c != ' ' && *c != '-' && *c != '.') any = true;
     if(done && any) {
         audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
-        save_store_name(name);
+        snprintf(save.name, sizeof(save.name), "%s", name);
+        save_store();
+        if(name_only) {
+            back_to_menu();
+            return;
+        }
         net_begin(name);
         set_screen(OS_CONNECT);
     }
@@ -557,7 +587,19 @@ static void browser_update(void) {
     }
 }
 
+/* Colour choices: the presets, and the custom kart once one is saved. */
+static int colour_options(void) {
+    return COLOUR_COUNT + (save.custom_on ? 1 : 0);
+}
+
+static void player_swatch(float x, float y, const NetPlayer *p) {
+    KartColour c = kart_colour_look(p->colour, &p->custom);
+    hud_swatch(x, y, c.paint1, c.ui);
+}
+
+/* Any number of players may race their own colours. */
 static bool colour_taken(const NetLobby *l, int c) {
+    if(c == COLOUR_CUSTOM) return false;
     for(int i = 0; i < l->count; i++)
         if(l->players[i].slot != l->you && l->players[i].colour == c) return true;
     return false;
@@ -610,7 +652,17 @@ static void lobby_update(float dt) {
         lobby_row = 0;
     }
     was_leader = leader;
-    if(my_colour < 0) my_colour = me->colour;
+    /* The server seats us in a free preset; a player who picked their own
+       kart for the race setup (or just painted it) keeps it online. */
+    if(my_colour < 0) my_colour = game.pl[0].colour == COLOUR_CUSTOM && save.custom_on ? COLOUR_CUSTOM : me->colour;
+#ifdef DK_AUTOTEST
+    static int echoed = -1;
+    if(me->colour != echoed) {
+        echoed = me->colour;
+        printf("DK ONLINE: lobby shows my colour %d custom %d %d %d\n", me->colour, me->custom.body, me->custom.trim,
+               me->custom.chao);
+    }
+#endif
     if(l->track != game.track && l->state == NLS_WAITING) {
         game_load_track(l->track);
         fly_t = 0;
@@ -620,8 +672,8 @@ static void lobby_update(float dt) {
     /* The chat box takes every button while it is open; our wishes still
        go out. */
     if(chat_update(dt, true)) {
-        net_wish(my_colour, leader ? sel_track : l->track, leader ? sel_laps : l->laps, leader ? sel_cc : l->cc,
-                 leader ? sel_items : l->items);
+        net_wish(my_colour, &save.custom, leader ? sel_track : l->track, leader ? sel_laps : l->laps,
+                 leader ? sel_cc : l->cc, leader ? sel_items : l->items);
         return;
     }
     if(l->state == NLS_WAITING) {
@@ -644,13 +696,13 @@ static void lobby_update(float dt) {
             if(row == LR_CC) sel_cc = (sel_cc + dir + CC_COUNT) % CC_COUNT;
             if(row == LR_ITEMS) sel_items = !sel_items;
             if(row == LR_COLOUR) {
-                int c = my_colour;
-                for(int tries = 0; tries < COLOUR_COUNT; tries++) {
-                    c = (c + dir + COLOUR_COUNT) % COLOUR_COUNT;
+                int c = my_colour, opts = colour_options();
+                for(int tries = 0; tries < opts; tries++) {
+                    c = (c + dir + opts) % opts;
                     if(!colour_taken(l, c)) break;
                 }
                 my_colour = c;
-                audio_chao(CHAO_HI, c, 150, 128);
+                audio_chao(CHAO_HI, kart_voice(c, NULL), 150, 128);
             }
             if(row != LR_START) audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
         }
@@ -663,8 +715,8 @@ static void lobby_update(float dt) {
             audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
         }
     }
-    net_wish(my_colour, leader ? sel_track : l->track, leader ? sel_laps : l->laps, leader ? sel_cc : l->cc,
-             leader ? sel_items : l->items);
+    net_wish(my_colour, &save.custom, leader ? sel_track : l->track, leader ? sel_laps : l->laps,
+             leader ? sel_cc : l->cc, leader ? sel_items : l->items);
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
         net_leave();
@@ -811,7 +863,7 @@ static void name_autotest(float dt) {
         memset(junk, 0x5a, sizeof(junk));
         vmufs_write(maple_enum_type(0, MAPLE_FUNC_MEMCARD), "DREAMKARTS", junk, sizeof(junk), VMUFS_OVERWRITE);
         strcpy(name, "CHAO");
-        save_load_name();
+        save_load();
 #endif
         step = 1;
     }
@@ -820,7 +872,8 @@ static void name_autotest(float dt) {
         printf("DK NAME: after junk %s\n", name);
         ok = ok && strcmp(name, "CHAO") == 0;
 #endif
-        save_store_name(AT_STR(DK_AT_NAME));
+        snprintf(save.name, sizeof(save.name), "%s", AT_STR(DK_AT_NAME));
+        save_store();
         step = 2;
     }
     if(step == 2 && t > 11.0f) {
@@ -990,7 +1043,7 @@ static void draw_toast(void) {
 }
 
 static void draw_name(void) {
-    title_bar("ONLINE");
+    title_bar(name_only ? "ONLINE NAME" : "ONLINE");
     panel(100, 84, 540, 420);
     hud_text(320, 94, 0.7f, ALIGN_CENTER, argb(255, 200, 225, 255), "ENTER YOUR NAME");
     r_hdr(h_flat);
@@ -1120,7 +1173,7 @@ static void draw_standings(const NetLobby *l, float x0, float y0, float x1) {
             snprintf(rank, sizeof(rank), "%d", r + 1);
             hud_text(x0 + 26, y, 0.6f, ALIGN_CENTER, 0xffffffff, rank);
         }
-        hud_swatch(x0 + 46, y + 4, p->colour);
+        player_swatch(x0 + 46, y + 4, p);
         bool lead = (p->flags & NPF_LEADER) != 0;
         char buf[16];
         int ping = shown_ping(p);
@@ -1205,9 +1258,9 @@ static void draw_lobby(void) {
         if(row == LR_CC) v = cc_names[show_cc % CC_COUNT];
         if(row == LR_ITEMS) v = show_items ? "ON" : "OFF";
         if(row == LR_COLOUR) {
-            int c = me ? me->colour : 0;
-            hud_swatch(560, y + 3, c);
-            v = kart_colours[c % COLOUR_COUNT].name;
+            KartColour c = me ? kart_colour_look(me->colour, &me->custom) : kart_colours[0];
+            hud_swatch(560, y + 3, c.paint1, c.ui);
+            v = c.name;
             /* Shrink long colour names to clear the label. */
             float room = 552 - (386 + hud_text_width(labels[i], 0.55f) + 12), cs = 0.5f;
             if(hud_text_width(v, cs) > room) cs = room / hud_text_width(v, 1.0f);
@@ -1318,7 +1371,7 @@ void online_draw_results(void) {
             char buf[16];
             snprintf(buf, sizeof(buf), "%d%s", place, hud_ordinal(place));
             hud_text(x0 + 24, y, 0.75f, ALIGN_LEFT, hud_place_color(place), buf);
-            hud_swatch(x0 + 90, y + 6, p->colour);
+            player_swatch(x0 + 90, y + 6, p);
             hud_text(x0 + 122, y + 2, 0.65f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, p->name);
             snprintf(buf, sizeof(buf), "+%d", gained[place - 1]);
             hud_text(x0 + 300, y + 2, 0.65f, ALIGN_RIGHT, argb(255, 120, 255, 140), buf);

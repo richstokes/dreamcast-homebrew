@@ -5,6 +5,7 @@
 
 #include "dk.h"
 #include "items.h"
+#include "kart.h"
 #include "net_version.h"
 
 #define NET_LOBBIES     10
@@ -12,6 +13,7 @@
 #define NET_NAME_LEN    11   /* 10 characters and a NUL */
 #define NET_CHAT_LEN    33   /* a chat line: 32 characters and a NUL */
 #define NET_CHAT_KEEP   10   /* chat lines remembered */
+#define NET_PLAYER_BYTES 23  /* a LOBBY packet's player entry */
 
 enum { NET_OFF, NET_LINK, NET_HELLO, NET_BROWSE, NET_JOINING, NET_LOBBY, NET_REJECTED, NET_LOST };
 enum { NLS_WAITING, NLS_COUNTDOWN, NLS_RACING, NLS_RESULTS };
@@ -31,9 +33,10 @@ typedef struct {
 typedef struct {
     uint8_t slot;
     char name[NET_NAME_LEN];
-    uint8_t colour, flags;
+    uint8_t colour, flags;      /* colour: a kart_colours[] preset or COLOUR_CUSTOM */
     uint16_t ping, points;
     uint8_t place, grid;
+    KartCustom custom;          /* their own colours, meaningful with COLOUR_CUSTOM */
 } NetPlayer;
 
 typedef struct {
@@ -107,8 +110,9 @@ void net_leave(void);
 const NetLobby *net_lobby(void);
 const NetPlayer *net_me(void);
 const NetPlayer *net_player(int slot);
-/* What this console wants: everyone's colour; the leader's race settings. */
-void net_wish(int colour, int track, int laps, int cc, int items);
+/* What this console wants: everyone's colour (and their custom kart's
+   colours, sent along for COLOUR_CUSTOM); the leader's race settings. */
+void net_wish(int colour, const KartCustom *custom, int track, int laps, int cc, int items);
 void net_press_start(void);
 /* Drop out of the race being run (race_id), staying in the lobby: resent
    until the lobby state shows this console not racing. */

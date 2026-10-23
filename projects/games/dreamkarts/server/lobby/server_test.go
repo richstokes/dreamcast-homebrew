@@ -90,6 +90,7 @@ type playerView struct {
 	colour, flags byte
 	points        uint16
 	place         byte
+	custom        [CustomLen]byte
 }
 
 func (c *client) lobby() lobbyView {
@@ -100,16 +101,18 @@ func (c *client) lobby() lobbyView {
 	v := lobbyView{id: b[8], state: b[9], you: b[10], leader: b[11], track: b[12], laps: b[13], cc: b[14], raceID: b[15]}
 	n := int(b[21])
 	for i := 0; i < n; i++ {
-		e := b[22+i*20:]
-		v.players = append(v.players, playerView{slot: e[0], name: CleanName(e[1:12]), colour: e[12], flags: e[13],
-			points: binary.LittleEndian.Uint16(e[16:]), place: e[18]})
+		e := b[22+i*PlayerLen:]
+		pv := playerView{slot: e[0], name: CleanName(e[1:12]), colour: e[12], flags: e[13],
+			points: binary.LittleEndian.Uint16(e[16:]), place: e[18]}
+		copy(pv.custom[:], e[20:23])
+		v.players = append(v.players, pv)
 	}
 	return v
 }
 
 // raceLeft reads the ms-until-the-race-ends after a LOBBY packet's players.
 func raceLeft(b []byte) int32 {
-	o := 22 + int(b[21])*20 + 2
+	o := 22 + int(b[21])*PlayerLen + 2
 	return int32(binary.LittleEndian.Uint32(b[o:]))
 }
 
@@ -395,5 +398,42 @@ func TestUnfinishedPlacesAndTimeout(t *testing.T) {
 	h.advance(PlayerTimeout + 2*time.Second)
 	if n := len(h.s.players); n != 0 {
 		t.Fatalf("%d sessions left after everyone went quiet", n)
+	}
+}
+
+// Custom colours: colour 8 carries three palette picks that the lobby echoes
+// to everyone, any number of players may pick it, and a wish without the
+// picks (an older bot) leaves them alone.
+func TestCustomColours(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	a.hello("ann")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{4})
+	b.send(TypeJoin, []byte{4})
+	a.send(TypeWish, []byte{ColourCustom, 0, 3, 1, a.nonce, WishItems, 3, 0, 15})
+	b.send(TypeWish, []byte{ColourCustom, 0, 3, 1, b.nonce, WishItems, 2, 3, 4})
+	h.advance(300 * time.Millisecond)
+	v := b.lobby()
+	if len(v.players) != 2 || v.players[0].colour != ColourCustom || v.players[1].colour != ColourCustom {
+		t.Fatalf("custom colours not taken: %+v", v)
+	}
+	if v.players[0].custom != [CustomLen]byte{3, 0, 15} || v.players[1].custom != [CustomLen]byte{2, 3, 4} {
+		t.Fatalf("picks not echoed: %+v", v)
+	}
+	if tail := b.last(TypeLobby)[22+2*PlayerLen:]; len(tail) != 7 {
+		t.Fatalf("lobby tail after %d-byte players: %v", PlayerLen, tail)
+	}
+	// Repainting while custom shows up; a preset again, with a short wish, keeps the picks.
+	a.send(TypeWish, []byte{ColourCustom, 0, 3, 1, a.nonce, WishItems, 7, 7, 7})
+	h.advance(300 * time.Millisecond)
+	if v = b.lobby(); v.players[0].custom != [CustomLen]byte{7, 7, 7} {
+		t.Fatalf("repaint not echoed: %+v", v)
+	}
+	a.wish(1, 0, 3, 1)
+	a.send(TypeWish, []byte{9, 0, 3, 1, a.nonce, WishItems, 1, 1, 1}) // no such colour
+	h.advance(300 * time.Millisecond)
+	if v = b.lobby(); v.players[0].colour != 1 || v.players[0].custom != [CustomLen]byte{1, 1, 1} {
+		t.Fatalf("preset after custom: %+v", v)
 	}
 }

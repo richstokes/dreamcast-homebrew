@@ -11,9 +11,9 @@ import (
 
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
-	Proto    = 3
-	Build    = 16
-	MinBuild = 15
+	Proto    = 4
+	Build    = 17
+	MinBuild = 17
 )
 
 const (
@@ -22,6 +22,15 @@ const (
 	NameLen    = 11 // 10 characters and a NUL
 	KartLen    = 29 // KART body bytes relayed in RACE packets (offsets 19-47)
 	ChatLen    = 33 // a chat line: 32 characters and a NUL
+	PlayerLen  = 23 // a LOBBY packet's player entry (proto 4)
+	CustomLen  = 3  // a custom kart's palette picks: body, trim, Chao
+)
+
+// Colours: eight presets, or ColourCustom with the player's own palette
+// picks beside it (any number of players may race their own colours).
+const (
+	Colours      = 8
+	ColourCustom = 8
 )
 
 // Packet types.
@@ -30,7 +39,7 @@ const (
 	TypeList    = 2
 	TypeJoin    = 3
 	TypeLeave   = 4
-	TypeWish    = 5
+	TypeWish    = 5 // u8 colour, track, laps, cc, nonce, flags, then the custom picks (proto 4)
 	TypeKart    = 6
 	TypePing    = 7
 	TypeChat    = 8 // u8 message id, char[ChatLen] text (build 14)
