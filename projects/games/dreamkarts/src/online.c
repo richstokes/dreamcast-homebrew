@@ -231,7 +231,7 @@ void online_pack_kart(const Kart *me, NetKart *nk) {
     nk->flags = (me->finished ? NKF_FINISHED : 0) | (me->grounded ? NKF_GROUNDED : 0) |
                 (me->boost_t > 0 ? NKF_BOOST : 0) | (me->drift == DRIFT_ACTIVE ? NKF_DRIFT : 0) |
                 (me->drift == DRIFT_ACTIVE && me->drift_dir > 0 ? NKF_DRIFT_RIGHT : 0) |
-                (me->wave_t > 0 ? NKF_WAVE : 0);
+                (me->wave_t > 0 ? NKF_WAVE : 0) | (me->wave_t > 0 && me->wave_left ? NKF_WAVE_LEFT : 0);
     nk->x = me->pos.x;
     nk->y = me->pos.y;
     nk->z = me->pos.z;
@@ -310,6 +310,7 @@ void online_remote_karts(float dt) {
         else if(wave) {
             k->wave_t = fmaxf(k->wave_t, 0.3f);
         }
+        if(wave) k->wave_left = (nk.flags & NKF_WAVE_LEFT) != 0;
         waving[i] = wave;
         k->lap = nk.lap;
         k->progress = (float)nk.lap * track.length + nk.dist;

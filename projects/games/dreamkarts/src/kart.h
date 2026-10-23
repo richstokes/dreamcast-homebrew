@@ -81,6 +81,8 @@ typedef struct {
     float emote_bob;
     bool skid;          /* braking hard: the tyres smoke */
     float wave_t;       /* seconds of wave left (0 = not waving) */
+    bool wave_left;     /* the wave is on the left arm */
+    uint8_t waves;      /* waves started: each takes the other arm */
     float wave_back_t;  /* CPU: seconds until it waves back at a human */
     float cheer_t;      /* seconds spent cheering a win */
     float arm_up[2];    /* left/right arm off the wheel and raised, 0..1 */

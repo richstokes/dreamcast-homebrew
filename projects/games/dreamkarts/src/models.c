@@ -290,7 +290,7 @@ static void chao_body_local(float *m, const Kart *k, float lift) {
    to the hand on the wheel, swings toward a pose out to the side, theta
    above horizontal, and stretches (cartoon-style) so the hand clears the
    big head; the hand grows a little so it reads from the chase camera.
-   A wave sweeps the right arm up and down; a cheer flaps both arms. With
+   A wave sweeps one arm up and down; a cheer flaps both arms. With
    hand set, this is the matrix for the hand at the end of the arm. */
 static void arm_local(float *out, const Kart *k, int side, bool hand, float lift) {
     const float *sp = dk_part_pivot[DK_PART_ARM_L + side], *hp = dk_part_pivot[DK_PART_HAND_L + side];
@@ -359,7 +359,8 @@ static void part_matrix(float *out, const float *kart, int part, const Kart *k) 
             /* A cheering Chao throws its head back; a waving one leans
                away from its raised arm. */
             float nod[16];
-            m4_rot_z(local, -k->head_tilt + (k->cheer_t > 0 ? 0.0f : 0.22f * smooth01(k->arm_up[1])));
+            float lean = 0.22f * (smooth01(k->arm_up[1]) - smooth01(k->arm_up[0]));
+            m4_rot_z(local, -k->head_tilt + (k->cheer_t > 0 ? 0.0f : lean));
             m4_rot_x(nod, 0.06f * sinf(k->emote_bob * 1.3f) - k->pitch * 1.5f + 0.2f * smooth01(k->cheer_t * 3.0f));
             m4_mul(local, local, nod);
             local[13] += lift;

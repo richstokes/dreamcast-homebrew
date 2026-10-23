@@ -100,7 +100,9 @@ bool kart_is_human(int index) {
 
 void kart_wave(Kart *k) {
     if(kart_cheering(k)) return;
-    /* Another press mid-wave keeps the arm up rather than restarting. */
+    /* Arms take turns, right first; a press mid-wave hands it to the other
+       arm without restarting the wave. */
+    k->wave_left = k->waves++ & 1;
     if(k->wave_t <= ARM_LOWER) k->events |= EV_WAVE;
     k->wave_t = WAVE_LEN;
 }
@@ -122,7 +124,9 @@ static void emote_update(Kart *k, const KartInput *in, float dt) {
     if(cheer) k->wave_t = 0;
     k->wave_t = fmaxf(k->wave_t - dt, 0);
     /* The right arm also goes up to hold a used emerald overhead. */
-    float up_l = cheer ? 1.0f : 0.0f, up_r = cheer || k->wave_t > ARM_LOWER || k->raise_t > 0 ? 1.0f : 0.0f;
+    bool wave = k->wave_t > ARM_LOWER;
+    float up_l = cheer || (wave && k->wave_left) ? 1.0f : 0.0f;
+    float up_r = cheer || (wave && !k->wave_left) || k->raise_t > 0 ? 1.0f : 0.0f;
     k->arm_up[0] = approach(k->arm_up[0], up_l, 4.5f * dt);
     k->arm_up[1] = approach(k->arm_up[1], up_r, 4.5f * dt);
 }

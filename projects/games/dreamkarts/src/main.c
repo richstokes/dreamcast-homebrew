@@ -264,7 +264,12 @@ static void capture_script(void) {
     if(game.state == ST_COUNTDOWN && !game.online && game.countdown > 0.2f && p->wave_t <= 0 && !shot[20])
         pad.pressed |= BTN_Y;
     if(game.state == ST_COUNTDOWN && p->wave_t > 0 && p->wave_t < 1.2f && !shot[20]) { shot[20] = true; take_shot("wave"); }
-    if(game.state == ST_COUNTDOWN && p->wave_t > 0 && p->wave_t < 1.0f && !shot[22]) { shot[22] = true; take_shot("wave2"); }
+    if(game.state == ST_COUNTDOWN && p->wave_t > 0 && p->wave_t < 1.0f && !shot[22]) {
+        shot[22] = true;
+        take_shot("wave2");
+        pad.pressed |= BTN_Y;   /* the left arm takes over */
+    }
+    if(game.state == ST_COUNTDOWN && shot[22] && p->arm_up[0] > 0.95f && !shot[23]) { shot[23] = true; take_shot("wave-left"); }
     /* A win: the cheer from the chase camera before the results cover it. */
     if(game.state == ST_RACE && p->finished && !shot[21]) {
         if(kart_cheering(p) && p->cheer_t > 1.3f) { shot[21] = true; take_shot("cheer"); }
