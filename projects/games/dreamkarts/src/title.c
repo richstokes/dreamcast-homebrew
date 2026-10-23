@@ -968,7 +968,7 @@ static void draw_custom(void) {
     hud_text(cx, y_save, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255), "SAVE");
     hud_text(24, 428, 0.5f, ALIGN_LEFT, argb(230, 255, 255, 255),
              sel ? "A: SAVE   B: CANCEL" : "LEFT/RIGHT: COLOUR   A: NEXT   B: CANCEL");
-    hud_text(176, 100, 0.4f, ALIGN_CENTER, argb(220, 230, 240, 255), "YOUR KART, SAVED TO THE VMU");
+    hud_text(176, 100, 0.4f, ALIGN_CENTER, argb(220, 230, 240, 255), "CUSTOMIZE YOUR LOOK!");
 }
 
 static void upper_copy(char *dst, size_t n, const char *src) {
