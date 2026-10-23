@@ -976,18 +976,17 @@ static int shown_ping(const NetPlayer *p) {
     return ping_avg[p->slot].shown;
 }
 
-/* The join toast: a line that fades in, holds and fades out, centred on
-   (x, y). In the room it sits under the player list; in a race it is a
-   slim band at the top of the screen, clear of the lap and timer boxes. */
-static void draw_toast(float x, float y, bool band) {
+/* The join toast, over a race only (the room's player list already shows
+   who came in): a slim band at the top of the screen, clear of the lap
+   and timer boxes, that fades in, holds and fades out. It tells a lone
+   racer company has arrived, so they can drop back to the room. */
+static void draw_toast(void) {
     int64_t left = (int64_t)toast_until - (int64_t)net_now();
     if(left <= 0 || left > TOAST_MS) return;
     float a = fminf((float)(TOAST_MS - left) / 200.0f, fminf((float)left / 400.0f, 1.0f));
-    if(band) {
-        float w = hud_text_width(toast, 0.42f) + 32;
-        hud_panel(x - w * 0.5f, y - 4, x + w * 0.5f, y + 24, color_alpha(PANEL_TOP, a), color_alpha(PANEL_BOT, a), 15);
-    }
-    hud_text(x, y, 0.42f, ALIGN_CENTER, color_alpha(argb(255, 255, 226, 70), a), toast);
+    float w = hud_text_width(toast, 0.42f) + 32;
+    hud_panel(320 - w * 0.5f, 4, 320 + w * 0.5f, 32, color_alpha(PANEL_TOP, a), color_alpha(PANEL_BOT, a), 15);
+    hud_text(320, 8, 0.42f, ALIGN_CENTER, color_alpha(argb(255, 255, 226, 70), a), toast);
 }
 
 static void draw_name(void) {
@@ -1143,7 +1142,6 @@ static void draw_lobby(void) {
     title_bar(buf);
     panel(24, 76, 356, 398);
     draw_standings(l, 24, 86, 356);
-    draw_toast(190, 366, false);   /* below six rows of players */
     panel(372, 76, 616, 398);
     if(net_spectating()) {
         float y = 92;
@@ -1266,7 +1264,7 @@ void online_draw(void) {
 /* Over the race: the join toast, the leave prompt, or who we are still
    waiting for. */
 void online_draw_race(void) {
-    draw_toast(320, 8, true);
+    draw_toast();
     const Kart *me = &karts[game.player];
     if(me->finished && game.state == ST_RACE && !net_spectating()) {
         hud_text(320, 300, 0.6f, ALIGN_CENTER, 0xffffffff, "WAITING FOR THE OTHERS...");
@@ -1298,7 +1296,7 @@ void online_draw_race(void) {
 }
 
 void online_draw_results(void) {
-    draw_toast(320, 8, true);
+    draw_toast();
     const NetLobby *l = net_lobby();
     float a = clampf(game.time / 0.5f, 0, 1);
     float x0 = 100 + (1 - a) * 440;
