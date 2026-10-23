@@ -6,84 +6,70 @@ import (
 	"testing"
 )
 
-// testWords stands in for the downloaded list: enough entries to exercise
-// the matching rules. The real list is checked by TestLiveWords.
-var testWords = []string{
-	"fuck", "shit", "cunt", "bitch", "nigga", "ass", "cock", "tit", "cum", "rape", "spic", "homo",
-	"arsehole", "blow job", "piece of shit", "xx", "#comment-looking", "Scunthorpe",
-}
+// testWords stands in for the downloaded list: made-up words, so nothing
+// rude lives in this repository, enough to exercise the matching rules.
+// The real list is checked by TestLiveWords.
+var testWords = []string{"blorp", "zap", "gronk", "flim flam", "xx", "#comment-looking"}
 
 func TestCensor(t *testing.T) {
 	f := NewFilter(testWords)
 	cases := map[string]string{
-		"GG EVERYONE":        "GG EVERYONE",
-		"YOU ARE A SHITHEAD": "YOU ARE A ********",
-		"what the fuck":      "what the ****",
-		"F.U.C.K YOU":        "******* YOU",
-		"sh1t":               "****",
-		"$HIT":               "****",
-		"PUSH IT":            "PUSH IT",
-		"ASSISTANT":          "ASSISTANT",
-		"CLASS ACT":          "CLASS ACT",
-		"KISS MY ASS":        "KISS MY ***",
-		"COCKTAIL HOUR":      "COCKTAIL HOUR",
-		"COCKY DRIVER":       "COCKY DRIVER",
-		"TITLE SCREEN":       "TITLE SCREEN",
-		"GRAPE JUICE":        "GRAPE JUICE",
-		"ARSENAL FAN":        "ARSENAL FAN",
-		"SCUNTHORPE UNITED":  "********** UNITED", // in the fixture list: it is just a word
-		"MISSISSIPPI":        "MISSISSIPPI",
-		"YOU C U N T":        "YOU C U N T", // spaces keep words apart
-		"FUCKFUCK":           "********",
-		"FUCKERS":            "*******",
-		"BULLSHIT":           "********",
-		"DUMBASS":            "*******",
-		"BULLSEYE":           "BULLSEYE",
-		"":                   "",
-		"***":                "***",
-		"B1TCH PLEASE":       "***** PLEASE",
-		"NICE RACE N1GG4":    "NICE RACE *****",
-		"ASSES":              "*****",
-		"ASSET":              "ASSET",
-		"CUMBERLAND":         "CUMBERLAND",
-		"SPICE GIRLS":        "SPICE GIRLS",
-		"HOMEWARD":           "HOMEWARD",
-		"A BLOW JOB":         "A **** ***",
-		"BLOW JOBS":          "BLOW JOBS", // phrases match exactly
-		"XX":                 "XX",        // too short to be an entry
+		"GG EVERYONE":         "GG EVERYONE",
+		"YOU ARE A BLORPHEAD": "YOU ARE A *********",
+		"what the blorp":      "what the *****",
+		"B.L.O.R.P YOU":       "********* YOU",
+		"bl0rp":               "*****",
+		"8LORP":               "*****",
+		"PUSH IT":             "PUSH IT",
+		"ZAPPER":              "ZAPPER", // an entry with a longer tail is another word
+		"ZAPS":                "****",
+		"ZAPPED":              "ZAPPED",
+		"KISS MY ZAP":         "KISS MY ***",
+		"UNBLORPED":           "UNBLORPED", // an entry inside a word does not count
+		"BLORPTAIL":           "BLORPTAIL",
+		"YOU B L O R P":       "YOU B L O R P", // spaces keep words apart
+		"BLORPBLORP":          "**********",
+		"BLORPERS":            "********",
+		"BULLBLORP":           "*********",
+		"DUMBZAP":             "*******",
+		"BULLSEYE":            "BULLSEYE",
+		"":                    "",
+		"***":                 "***",
+		"GR0NK PLEASE":        "***** PLEASE",
+		"NICE RACE GR0NK":     "NICE RACE *****",
+		"A FLIM FLAM":         "A **** ****",
+		"FLIM FLAMS":          "FLIM FLAMS", // phrases match exactly
+		"XX":                  "XX",         // too short to be an entry
 	}
 	for in, want := range cases {
 		if got := f.Censor(in); got != want {
 			t.Errorf("Censor(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if got := f.Censor("YOU CUNT"); got != "YOU ****" {
-		t.Errorf("got %q", got)
-	}
 	if n := f.Len(); n != len(testWords)-1 { // xx is too short; # is only a comment to ParseWords
 		t.Errorf("filter has %d entries, want %d", n, len(testWords)-1)
 	}
 	// An empty filter changes nothing.
 	for _, e := range []*Filter{nil, {}, NewFilter(nil)} {
-		if got := e.Censor("what the fuck"); got != "what the fuck" {
+		if got := e.Censor("what the blorp"); got != "what the blorp" {
 			t.Errorf("empty filter: %q", got)
 		}
 	}
 }
 
 func TestParseWords(t *testing.T) {
-	words, err := ParseWords(strings.NewReader("# a comment\r\nfuck\r\n\r\n  blow job  \nshit\n"))
+	words, err := ParseWords(strings.NewReader("# a comment\r\nblorp\r\n\r\n  flim flam  \nzap\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"fuck", "blow job", "shit"}
+	want := []string{"blorp", "flim flam", "zap"}
 	if strings.Join(words, "|") != strings.Join(want, "|") {
 		t.Errorf("got %q, want %q", words, want)
 	}
 }
 
-// TestLiveWords downloads the real list, as the server does, and checks it
-// still covers what the Dreamcast autotest and our players expect of it.
+// TestLiveWords downloads the real list, as the server does, and checks
+// that it stars out its own entries and leaves innocent words alone.
 func TestLiveWords(t *testing.T) {
 	if testing.Short() {
 		t.Skip("downloads the word list")
@@ -96,26 +82,26 @@ func TestLiveWords(t *testing.T) {
 	if f.Len() < 300 {
 		t.Fatalf("%d entries from %s, expected hundreds", f.Len(), from)
 	}
-	cases := map[string]string{
-		"YOU ARE A SHITHEAD": "YOU ARE A ********", // the autotest's line
-		"GG EVERYONE":        "GG EVERYONE",
-		"HELLO FROM BOT":     "HELLO FROM BOT",
-		"KISS MY ASS":        "KISS MY ***",
-		"ASSISTANT":          "ASSISTANT",
-		"CLASS ACT":          "CLASS ACT",
-		"COCKTAIL HOUR":      "COCKTAIL HOUR",
-		"TITLE SCREEN":       "TITLE SCREEN",
-		"GRAPE JUICE":        "GRAPE JUICE",
-		"SCUNTHORPE UNITED":  "SCUNTHORPE UNITED",
-		"MISSISSIPPI":        "MISSISSIPPI",
-		"NICE RACE N1GG4":    "NICE RACE *****",
-		"SONIC":              "SONIC",
-		"TAILS":              "TAILS",
-		"KNUCKLES":           "KNUCKLES",
+	starred := 0
+	for _, w := range words {
+		if n, _ := normalize(w); len(n) < 3 {
+			continue
+		}
+		if got := f.Censor(w); strings.ContainsAny(strings.ToUpper(got), "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+			t.Errorf("list entry %d came back as %q", len(w), got) // the length, not the word
+		} else {
+			starred++
+		}
 	}
-	for in, want := range cases {
-		if got := f.Censor(in); got != want {
-			t.Errorf("Censor(%q) = %q, want %q", in, got, want)
+	if starred < 300 {
+		t.Errorf("only %d entries starred", starred)
+	}
+	for _, in := range []string{
+		"GG EVERYONE", "HELLO FROM BOT", "ASSISTANT", "CLASS ACT", "COCKTAIL HOUR", "TITLE SCREEN",
+		"GRAPE JUICE", "SCUNTHORPE UNITED", "MISSISSIPPI", "SONIC", "TAILS", "KNUCKLES", "NICE RACE",
+	} {
+		if got := f.Censor(in); got != in {
+			t.Errorf("Censor(%q) = %q", in, got)
 		}
 	}
 }

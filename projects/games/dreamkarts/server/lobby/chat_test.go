@@ -65,13 +65,13 @@ func TestChat(t *testing.T) {
 	// Bad words are starred out; a watcher has no say; another lobby hears
 	// nothing.
 	h.advance(2 * time.Second)
-	b.say(1, "you shithead")
+	b.say(1, "you blorphead")
 	w.say(1, "boo")
 	o := h.client(4, 44)
 	o.hello("oth")
 	o.send(TypeJoin, []byte{5})
 	o.say(1, "anyone here?")
-	want = []string{"ANN: HELLO THERE", "BOB: YOU ********"}
+	want = []string{"ANN: HELLO THERE", "BOB: YOU *********"}
 	if got := b.chats(); !equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -96,7 +96,7 @@ func TestChat(t *testing.T) {
 func TestBadNameRejected(t *testing.T) {
 	h := newHarness(t)
 	c := h.client(1, 1)
-	c.hello("SH1THEAD")
+	c.hello("BL0RPHEAD")
 	if r := c.last(TypeReject); r == nil || r[8] != RejectBadName {
 		t.Fatalf("reject %v", r)
 	}

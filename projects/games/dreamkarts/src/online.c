@@ -1383,8 +1383,9 @@ void online_autotest(float dt) {
         /* The chat, once two are in and nothing has been raced yet: open
            the box with X, say GG from a (faked) keyboard, then HI! from
            the on-screen keys, and wait to hear the bot (started with
-           -chat "HELLO FROM BOT;YOU ARE A SHITHEAD", the second line
-           starred out by the server). */
+           -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD" against a server
+           started with -words-extra BLORP, so the second line comes back
+           starred out). */
         static int chat_step;
         static float chat_t;
         static bool s_chat, s_chat_strip;
@@ -1441,8 +1442,8 @@ void online_autotest(float dt) {
                     if(me && strcmp(c->text, "GG") == 0) mine_gg = true;
                     if(me && strcmp(c->text, "HI!") == 0) mine_hi = true;
                     if(!me && strcmp(c->text, "HELLO FROM BOT") == 0) bot_hello = true;
-                    if(!me && strcmp(c->text, "YOU ARE A ********") == 0) bot_starred = true;
-                    if(!me && strstr(c->text, "SHIT")) bot_raw = true;
+                    if(!me && strcmp(c->text, "YOU ARE A *********") == 0) bot_starred = true;
+                    if(!me && strstr(c->text, "BLORP")) bot_raw = true;
                 }
                 chat_ok = mine_gg && mine_hi && bot_hello && bot_starred && !bot_raw;
                 printf("DK CHAT: %d lines, mine %s %s, bot %s %s%s: %s\n", count, mine_gg ? "GG" : "-",

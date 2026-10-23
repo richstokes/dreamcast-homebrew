@@ -9,12 +9,11 @@ import "strings"
 // other punctuation pushed between the letters ("f.u.c.k"). Spaces still
 // separate words, so "push it" is not read as one.
 //
-// Entries match whole words, so "assist", "cocktail", "title" and
-// "Scunthorpe" pass. A word also matches when it is an entry followed by a
-// common ending ("shithead", "asses", "fuckers"), several entries glued
-// together ("fuckfuck") or one of a few glue prefixes on either of those
-// ("bullshit", "dumbass"). Entries of several words ("blow job") match as a
-// phrase.
+// Entries match whole words, so an innocent word that merely contains one
+// ("assist", "cocktail", "Scunthorpe") passes. For an entry WORD, a word
+// also matches when it is the entry with a common ending (WORDHEAD, WORDS,
+// WORDED), entries glued together (WORDWORD) or a glue prefix on either of
+// those (BULLWORD, DUMBWORDS). Entries of several words match as a phrase.
 
 // Filter holds a word list ready for matching. The zero value censors
 // nothing.
@@ -27,7 +26,7 @@ type Filter struct {
 var endings = map[string]bool{
 	"S": true, "ES": true, "ED": true, "ER": true, "ERS": true, "ING": true, "INGS": true,
 	"HEAD": true, "HEADS": true, "FACE": true, "FACES": true, "HOLE": true, "HOLES": true,
-	"BAG": true, "BAGS": true, "WIT": true, "WITS": true, "WAD": true, "WADS": true, "TARD": true, "TARDS": true,
+	"BAG": true, "BAGS": true, "WIT": true, "WITS": true, "WAD": true, "WADS": true,
 }
 
 // glue prefixes that make a bad word of what follows.

@@ -53,7 +53,7 @@ ssh root@dcvmu.com journalctl -u dreamkarts-lobby -n 50
 ## Run locally
 
 ```bash
-go run ./cmd/dreamkarts-lobby -listen :7535     # -lag 40ms -jitter 8ms fakes a WAN
+go run ./cmd/dreamkarts-lobby -listen :7535 -words-extra BLORP     # -lag 40ms -jitter 8ms fakes a WAN
 go run ./cmd/dk-bot -addr 127.0.0.1:7535 -smoke
 ```
 
@@ -64,14 +64,16 @@ address (Flycast's proxy does not reach 127.0.0.1) and run the online
 autotest:
 
 ```bash
-go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A SHITHEAD"
+go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD"
 make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=192.168.1.184"
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
 
 `-chat` makes the bot say each line in turn once two are in the lobby (said
 again whenever company arrives) and log every line it hears; the autotest
-expects those two lines, the second starred by the filter. `-start-delay`
+expects those two lines, the second starred by the filter (BLORP stands
+in for a bad word, added with `-words-extra` above, so none sits in this
+repository). `-start-delay`
 gives the chat time before the bot starts the race.
 
 The practice flow (start alone, the join bell, dropping out back to the
