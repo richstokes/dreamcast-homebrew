@@ -24,7 +24,7 @@ const (
 	demoTokens = 0xd0000000 // bot tokens (never in the session map)
 )
 
-var demoNames = []string{"TURBO", "HAN", "ZIPPY", "BLITZ", "BLAZE", "NITRO", "PIXEL", "ROCKET", "SPARKY",
+var demoNames = []string{"TURBO", "HAN", "JOBEN", "BLITZ", "BLAZE", "NITRO", "PIXEL", "ROCKET", "SPARKY",
 	"DASH", "VORTEX", "BREEZE", "JETT", "MAVERICK", "SUNNY", "BOLT"}
 
 type demoLobby struct {
