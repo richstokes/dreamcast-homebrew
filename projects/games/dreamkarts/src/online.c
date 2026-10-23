@@ -1210,10 +1210,6 @@ static void draw_lobby(void) {
         hud_text(494, y, 0.5f, ALIGN_CENTER, argb(255, 255, 190, 80), "RACE IN PROGRESS");
         hud_text(494, y + 22, 0.42f, ALIGN_CENTER, 0xffffffff, "YOU WILL JOIN THE NEXT ONE");
     }
-    else if(leader && l->count < 2) {
-        /* Under the START row (which ends about y = 372). */
-        hud_text(494, 374, 0.38f, ALIGN_CENTER, argb(220, 200, 225, 255), "A BELL RINGS WHEN SOMEONE JOINS");
-    }
     else if(!leader) {
         const NetPlayer *ld = net_player(l->leader);
         snprintf(buf, sizeof(buf), "WAITING FOR %s", ld ? ld->name : "THE LEADER");
