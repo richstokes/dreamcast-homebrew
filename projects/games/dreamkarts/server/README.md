@@ -50,6 +50,21 @@ go run ./cmd/dk-bot -smoke
 ssh root@dcvmu.com journalctl -u dreamkarts-lobby -n 50
 ```
 
+## Online QA
+
+`make online-qa` in the game directory runs every online scenario (race and
+chat, custom karts, practice, spectating, a server on a newer protocol, a
+server restart mid-race) against a server built from this directory, each
+in its own Flycast with the bots it needs, and `DK_QA_LIVE=1 make online-qa`
+runs the first four against dcvmu.com. `tools/online-qa.sh` has the
+details; the recipes below are what it runs, for doing one by hand.
+
+Testing flags on the server: `-reject-proto 9` answers every hello as a
+server on protocol 9 would (the console must show the too-old screen),
+`-race-seed 40` starts every lobby at race 41 so a restarted server repeats
+its race ids (the console must still get into the next race), `-lag` and
+`-jitter` fake a WAN.
+
 ## Run locally
 
 ```bash

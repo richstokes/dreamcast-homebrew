@@ -128,6 +128,13 @@ autotest:
 	DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' \
 		DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 
+# Every online scenario (race, custom kart, practice, spectate, old
+# protocol, server restart) against a local lobby server, each in its own
+# Flycast with the bots it needs; DK_QA_LIVE=1 runs the first four against
+# dcvmu.com. QA="race restart" picks scenarios.
+online-qa:
+	tools/online-qa.sh $(QA)
+
 # Real Dreamcast through tools/dc-hw.sh (Shelly plug power cycle +
 # dcload-ip): the scripted title/menu/race benchmark with 10 s timing lines,
 # screenshots written to captures/hw/ over dcload's /pc/ share (as PNG).

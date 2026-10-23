@@ -65,6 +65,15 @@ static struct {
 } pr;
 static void practice_autotest(void);
 #endif
+#ifdef DK_AT_RESTART
+static struct {
+    int step;
+    uint64_t t;   /* ms the step began */
+    int first_id; /* the race the server restarted under */
+    bool reported;
+} rs;
+static void restart_autotest(void);
+#endif
 #ifdef DK_AUTOTEST
 /* Remote kart motion while racing: how far each step's move departs from
    the kart's own speed (a pop or a stall), and heading jumps. */
@@ -391,6 +400,9 @@ void online_tick(void) {
     if(ns != NET_LOBBY) raced_id = -1;
 #ifdef DK_AT_PRACTICE
     practice_autotest();
+#endif
+#ifdef DK_AT_RESTART
+    restart_autotest();
 #endif
     if(ns == NET_LOBBY) lobby_bell();
     else bell_lobby = -1;
@@ -910,6 +922,77 @@ static void practice_autotest(void) {
                 pr.reported = true;
             }
             break;
+    }
+}
+#endif
+
+#ifdef DK_AT_RESTART
+/* Restart autotest (-DDK_AT_ONLINE -DDK_AT_RESTART -DDK_AT_LOBBY=n, the
+   harness restarting the server on cue with the same -race-seed): start a
+   race alone, ask for the restart, come back through the browser (the
+   session is refused, the console says hello again), rejoin, start alone
+   again and get into that race, whose id repeats the one the restart
+   interrupted. Before build 19 the console took it for the old race and
+   sat in the room showing RACE IN PROGRESS. */
+static void restart_autotest(void) {
+    if(rs.reported) return;
+    uint64_t now = net_now();
+    int ns = net_state();
+    const NetLobby *l = net_lobby();
+    const NetPlayer *me = net_me();
+    bool room = ns == NET_LOBBY && screen == OS_LOBBY && game.state == ST_ONLINE;
+    bool leader = ns == NET_LOBBY && me && l->leader == l->you;
+    const char *fail = NULL;
+    switch(rs.step) {
+        case 0:   /* alone in the room: start */
+            if(room && leader && l->state == NLS_WAITING && l->count == 1 && screen_t > 2.0f) {
+                printf("DK RESTART: starting a race alone\n");
+                net_press_start();
+                rs.step = 1;
+                rs.t = now;
+            }
+            break;
+        case 1:   /* racing: cue the harness */
+            if(ns == NET_LOBBY && game.state == ST_RACE && game.race_time > 2.0f) {
+                rs.first_id = l->race_id;
+                printf("DK RESTART: racing race %d, restart the server now\n", rs.first_id);
+                rs.step = 2;
+                rs.t = now;
+            }
+            else if(now - rs.t > 15000) fail = "not racing 15 s after starting alone";
+            break;
+        case 2:   /* the restart refuses our session; we say hello again and land in the browser */
+            if(screen == OS_BROWSER && ns == NET_BROWSE) {
+                printf("DK RESTART: back in the browser %lu ms after the cue\n", (unsigned long)(now - rs.t));
+                rs.step = 3;
+                rs.t = now;
+            }
+            else if(now - rs.t > 60000) fail = "not back in the browser 60 s after the cue";
+            break;
+        case 3:   /* online_autotest() rejoins the lobby: start alone again */
+            if(room && leader && l->state == NLS_WAITING && l->count == 1 && screen_t > 1.5f) {
+                printf("DK RESTART: rejoined lobby %d, starting alone again\n", l->id + 1);
+                net_press_start();
+                rs.step = 4;
+                rs.t = now;
+            }
+            else if(now - rs.t > 20000) fail = "not back in a waiting room 20 s after the restart";
+            break;
+        case 4:
+            if(game.state == ST_COUNTDOWN || game.state == ST_RACE) {
+                printf("DK RESTART: in race %d after the restart (race %d before it)\nDK AUTOTEST: PASS\n", l->race_id, rs.first_id);
+                rs.reported = true;
+            }
+            else if(now - rs.t > 8000) {
+                printf("DK RESTART: STUCK in the room 8 s after starting again: lobby state %d race %d, raced %d before the restart\n",
+                       l->state, l->race_id, rs.first_id);
+                fail = "the new race was taken for the old one";
+            }
+            break;
+    }
+    if(fail) {
+        printf("DK RESTART: %s (step %d, screen %d, net %d, game %d)\nDK AUTOTEST: FAIL\n", fail, rs.step, screen, ns, game.state);
+        rs.reported = true;
     }
 }
 #endif
@@ -1527,8 +1610,8 @@ void online_autotest(float dt) {
         net_join(DK_AT_LOBBY);
     }
     if(screen == OS_LOBBY) {
-#ifdef DK_AT_PRACTICE
-        return;   /* practice_autotest() drives the lobby from here */
+#if defined(DK_AT_PRACTICE) || defined(DK_AT_RESTART)
+        return;   /* practice_autotest() / restart_autotest() drive the lobby from here */
 #endif
         const NetLobby *l = net_lobby();
         static float ready_t;
@@ -1600,6 +1683,11 @@ void online_autotest(float dt) {
                     if(!me && strstr(c->text, "BLORP")) bot_raw = true;
                 }
                 chat_ok = mine_gg && mine_hi && bot_hello && bot_starred && !bot_raw;
+#ifdef DK_AT_LIVE
+                /* The live server's word list has no BLORP: the second
+                   line comes through as the bot said it. */
+                chat_ok = mine_gg && mine_hi && bot_hello;
+#endif
                 printf("DK CHAT: %d lines, mine %s %s, bot %s %s%s: %s\n", count, mine_gg ? "GG" : "-",
                        mine_hi ? "HI!" : "-", bot_hello ? "hello" : "-", bot_starred ? "starred" : "-",
                        bot_raw ? " UNFILTERED" : "", chat_ok ? "OK" : "FAIL");
@@ -1634,8 +1722,24 @@ void online_autotest(float dt) {
     static bool s_error;
     if(screen == OS_ERROR && screen_t > 1.0f) AT_SHOT(s_error, "online-error");
     if(screen == OS_ERROR && !reported && screen_t > 1.6f) {
+#ifdef DK_AT_REJECT
+        /* Against a server started with -reject-proto (one that moved on
+           to another protocol): the too-old screen, with the download
+           prompt and the build the server called latest, is the pass. */
+        bool old = net_reject_reason() == NREJ_TOO_OLD && strcmp(error_line1, "THIS VERSION IS TOO OLD TO PLAY ONLINE") == 0 &&
+                   error_line2[0] && net_latest_build() > 0;
+        printf("DK ONLINE: error: %s / %s (reason %d, latest build %d)\nDK AUTOTEST: %s\n", error_line1, error_line2,
+               net_reject_reason(), net_latest_build(), old ? "PASS" : "FAIL");
+#else
         printf("DK ONLINE: error: %s\nDK AUTOTEST: FAIL\n", error_line1);
+#endif
         reported = true;
     }
+#ifdef DK_AT_REJECT
+    if(!reported && t > 30.0f) {
+        printf("DK ONLINE: no error screen 30 s in (screen %d, net state %d)\nDK AUTOTEST: FAIL\n", screen, net_state());
+        reported = true;
+    }
+#endif
 }
 #endif

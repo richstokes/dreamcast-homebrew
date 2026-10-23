@@ -442,6 +442,40 @@ func TestRaceIDsKeepCounting(t *testing.T) {
 	}
 }
 
+// -reject-proto: every HELLO, on our protocol or not, gets a too-old REJECT
+// stamped with the pretend protocol, and no session.
+func TestRejectProto(t *testing.T) {
+	h := newHarness(t)
+	h.s.RejectProto = 9
+	c := h.client(1, 1)
+	c.hello("NEW")
+	r := c.last(TypeReject)
+	if r == nil || r[2] != 9 || r[8] != RejectTooOld || binary.LittleEndian.Uint16(r[9:]) != Build {
+		t.Fatalf("reject %v", r)
+	}
+	if h.s.Players() != 0 {
+		t.Fatalf("a rejected hello made a session")
+	}
+}
+
+// -race-seed: every lobby's first race is the seed plus one.
+func TestSeedRaces(t *testing.T) {
+	h := newHarness(t)
+	h.s.SeedRaces(40)
+	c := h.client(1, 1)
+	c.hello("ALONE")
+	c.send(TypeJoin, []byte{3, 0})
+	h.advance(50 * time.Millisecond)
+	c.wish(0, 0, 3, 1)
+	h.advance(50 * time.Millisecond)
+	c.nonce++
+	c.wish(0, 0, 3, 1)
+	h.advance(50 * time.Millisecond)
+	if v := c.lobby(); v.state != StateCountdown || v.raceID != 41 {
+		t.Fatalf("lobby %+v", v)
+	}
+}
+
 func TestOldClientRejected(t *testing.T) {
 	h := newHarness(t)
 	h.s.Min = 5

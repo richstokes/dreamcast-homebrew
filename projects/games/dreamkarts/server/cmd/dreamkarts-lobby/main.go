@@ -36,6 +36,8 @@ func main() {
 	wordsCache := flag.String("words-cache", defaultWordsCache(), "file keeping the last downloaded list, read when the download fails (empty: none)")
 	lag := flag.Duration("lag", 0, "testing: pretend every console is this far away (round trip)")
 	jitter := flag.Duration("jitter", 0, "testing: plus up to this much extra on every packet, each way")
+	rejectProto := flag.Int("reject-proto", 0, "testing: answer every HELLO with a REJECT stamped with this protocol byte, like a server that moved on")
+	raceSeed := flag.Int("race-seed", -1, "testing: every lobby's first race is this plus one (default random), so a restart repeats race ids")
 	flag.Parse()
 	log.SetFlags(0) // journald adds timestamps
 
@@ -108,6 +110,14 @@ func main() {
 		write(to, b)
 	}, time.Now())
 	srv.Latest, srv.Min = uint16(*latest), uint16(*minBuild)
+	if *rejectProto != 0 {
+		srv.RejectProto = byte(*rejectProto)
+		log.Printf("testing: rejecting every hello as protocol %d", *rejectProto)
+	}
+	if *raceSeed >= 0 {
+		srv.SeedRaces(byte(*raceSeed))
+		log.Printf("testing: race ids start at %d", *raceSeed+1)
+	}
 	srv.Filter = loadFilter(*wordsURL, *wordsExtra, *wordsCache)
 	if *latest != lobby.Build || *minBuild != lobby.MinBuild {
 		log.Printf("overriding versions: latest %d, min %d", *latest, *minBuild)

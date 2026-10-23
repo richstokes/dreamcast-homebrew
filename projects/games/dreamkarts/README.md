@@ -153,6 +153,7 @@ needs no Python.
 | `make hw` | Plays the release build on the console and leaves it on (`tools/dc-hw.sh power off` afterwards) |
 | `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
 | `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
+| `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat, custom karts, practice, spectating, a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
 
 `EXTRA_CFLAGS` for the autotest, capture and hwbench builds:
 
@@ -169,7 +170,10 @@ needs no Python.
 | `-DDK_XF_CHECK` (with `-DDK_AT_FIXED`) | Runs the C beside each `src/xform.S` routine; `DK XFCHECK ... mismatch=` must stay 0 |
 | `-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<ip>` | Goes online: joins lobby 9, chats with the bot (a line from a faked keyboard, one from the on-screen keys, the bot's second line starred by the word filter), races, passes when the results arrive (recipe in server/README.md) |
 | `-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=<n>` | Online practice: starts a race alone in an empty lobby, drops out, leaves and rejoins the lobby and gets into its next race, hears the bell as a bot joins mid-race, drops out back to the lobby room, races the bot, sees the bot's kart leave when it drops out (`dk-bot -retire`), drops out again (recipe in server/README.md) |
-| `-DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
+| `-DDK_AT_ONLINE -DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
+| `-DDK_AT_ONLINE -DDK_AT_REJECT` | Against a server started with `-reject-proto 9`: passes on THIS VERSION IS TOO OLD with the download prompt, fails on anything else (builds up to 17 showed LOST CONNECTION after a protocol bump) |
+| `-DDK_AT_ONLINE -DDK_AT_RESTART -DDK_AT_LOBBY=<n>` | Starts a race alone, prints `restart the server now`, and once the harness has restarted the server with the same `-race-seed` must come back through the browser, rejoin and get into the next race, whose id repeats (builds up to 18 sat in the room showing RACE IN PROGRESS) |
+| `-DDK_AT_LIVE` | With the online autotests against dcvmu.com: the chat check no longer expects the bot's second line starred (the live word list has no BLORP) |
 | `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU: the name screen must open on the saved name (and recover from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
 | `-DDK_AT_SETTINGS` (capture), then `-DDK_AT_SETTINGS_WANT` | Walks the Settings menu: music off, a custom kart painted and saved, CUSTOM on the race setup's colour row, the online name saved; the second build checks a reboot loads them all. Run both with `DK_VMU_DIR=<folder of blank cards>` so the real VMU is left alone |
 | `-DDK_AT_ONLINE -DDK_AT_CUSTOM` | Goes online with a custom kart; `DK ONLINE: kart` lines show every racer's colour and picks as the lobby sent them (pair with `dk-bot -colour 8 -custom 2,3,4`, the rest as in server/README.md) |

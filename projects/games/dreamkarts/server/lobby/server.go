@@ -116,6 +116,12 @@ type Server struct {
 	demo        *demoLobby
 	Logf        func(string, ...any)
 	rejected    map[string]time.Time // address+reason of each rejected HELLO logged, to log it once a minute
+	// RejectProto, when not 0, answers every HELLO with a REJECT stamped
+	// with that protocol byte, as a server that moved on to a newer
+	// protocol answers a console on this one. Testing only: the console's
+	// too-old screen has to come up on it (builds up to 17 dropped the
+	// packet and reported a lost connection instead).
+	RejectProto byte
 }
 
 // rejectLogEvery is how often one address's rejected HELLO is logged for
@@ -148,6 +154,16 @@ func (s *Server) Players() int { return len(s.players) }
 
 // Handle processes one datagram.
 func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
+	if s.RejectProto != 0 && len(pkt) >= 4 && pkt[0] == 'D' && pkt[1] == 'K' && pkt[3] == TypeHello {
+		s.logReject(from, pkt[2], "", helloBuild(pkt), fmt.Sprintf("pretending to speak protocol %d", s.RejectProto), now)
+		b := append([]byte{'D', 'K', s.RejectProto, TypeReject}, 0, 0, 0, 0)
+		binary.LittleEndian.PutUint32(b[4:], s.ms(now))
+		b = append(b, RejectTooOld)
+		b = binary.LittleEndian.AppendUint16(b, s.Latest)
+		b = binary.LittleEndian.AppendUint16(b, s.Min)
+		s.send(from, b)
+		return
+	}
 	h, body, err := ParseClient(pkt)
 	if err != nil {
 		if len(pkt) >= 4 && pkt[0] == 'D' && pkt[1] == 'K' && pkt[2] != Proto && pkt[3] == TypeHello {
@@ -266,6 +282,15 @@ func (s *Server) hello(from netip.AddrPort, h ClientHeader, body []byte, p *Play
 	b = binary.LittleEndian.AppendUint16(b, s.Min)
 	b = append(b, MaxLobbies, MaxPlayers)
 	s.send(from, b)
+}
+
+// SeedRaces makes every lobby's next race id first+1 (the ids are random
+// otherwise). Testing only: a restarted server then repeats its race ids,
+// which is what a console must cope with.
+func (s *Server) SeedRaces(first byte) {
+	for _, l := range s.Lobbies {
+		l.RaceID = first
+	}
 }
 
 // helloName reads the name from a HELLO body, for the log only. The name
