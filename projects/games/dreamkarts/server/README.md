@@ -10,8 +10,8 @@ a second and passes lobby chat round with bad words starred out (a name
 that trips the filter is refused). The word list is not in this
 repository: the server downloads the English list from
 [LDNOOBW](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words)
-when it starts, keeps a copy in its state directory for restarts while
-GitHub is down, and does not start without one or the other.
+when it starts and keeps a copy in its state directory for restarts while
+GitHub is down; with neither it starts unfiltered and says so in the log.
 `DREAMKARTS_BAD_WORDS_URL` points it at another list (one word per line)
 and `DREAMKARTS_BAD_WORDS_EXTRA` adds words of your own, comma-separated;
 `lobby/filter.go` says how a word matches. Nothing else is stored on disk: a

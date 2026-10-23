@@ -147,7 +147,8 @@ func main() {
 
 // loadFilter downloads the bad word list, trying for a while before giving
 // up on the download and falling back to the cached copy. Without either
-// the server does not start: systemd restarts it until the list arrives.
+// the server still starts, filtering only the extra words: an unfiltered
+// lobby beats no lobby.
 func loadFilter(url, extra, cache string) *lobby.Filter {
 	var words []string
 	var from string
@@ -161,7 +162,8 @@ func loadFilter(url, extra, cache string) *lobby.Filter {
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("bad word list: %v", err)
+		log.Printf("bad word list: %v; starting without one", err)
+		from = "nowhere"
 	}
 	for _, w := range strings.Split(extra, ",") {
 		if w = strings.TrimSpace(w); w != "" {
