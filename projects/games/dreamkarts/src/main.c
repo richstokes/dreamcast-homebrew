@@ -23,6 +23,7 @@
 #include "gp.h"
 #include "prof.h"
 #include "version.h"
+#include "perfhud.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -351,19 +352,28 @@ static void capture_script(void) {
             }
     }
 #ifndef DK_HW
-    /* Pause mid-race, switch the music off, grab the menu, switch it back on. */
+    /* Pause mid-race, switch the music off and the performance overlay on,
+       grab the menu (the overlay behind it has had time to fill in), then
+       switch both back. A -DDK_PERF_HUD build leaves the overlay alone. */
     static float pause_t;
     if(game.state == ST_RACE && game.race_time > 6.0f && !shot[8] && !game.online) {
         if(!game.paused) { pad.pressed |= BTN_START; pause_t = 0; }
         else {
             pause_t += DK_DT;
-            game.pause_sel = PAUSE_MUSIC;
-            if(pause_t > 0.3f && audio_music_enabled() && pause_t < 1.0f) pad.pressed |= BTN_A;
-            if(pause_t > 1.2f) { shot[8] = true; take_shot("pause"); }
+            game.pause_sel = pause_t < 0.6f ? PAUSE_MUSIC : PAUSE_PERF;
+            if(pause_t > 0.3f && audio_music_enabled() && pause_t < 0.6f) pad.pressed |= BTN_A;
+#ifndef DK_PERF_HUD
+            if(pause_t > 0.7f && !perfhud_on && pause_t < 1.0f) pad.pressed |= BTN_A;
+#endif
+            if(pause_t > 1.8f) { shot[8] = true; take_shot("pause"); }
         }
     }
-    if(shot[8] && game.paused && (pause_t += DK_DT) > 1.6f) {
-        if(!audio_music_enabled()) pad.pressed |= BTN_A;
+    if(shot[8] && game.paused && (pause_t += DK_DT) > 2.2f) {
+#ifndef DK_PERF_HUD
+        if(perfhud_on) { game.pause_sel = PAUSE_PERF; pad.pressed |= BTN_A; }
+        else
+#endif
+        if(!audio_music_enabled()) { game.pause_sel = PAUSE_MUSIC; pad.pressed |= BTN_A; }
         else pad.pressed |= BTN_START;
     }
     /* Squeeze both triggers for a look behind. */
@@ -385,7 +395,10 @@ static const struct { const char *name; uint32_t off; } probe_cfg[] = {
     {"base", 0}, {"-sky", PROBE_SKY}, {"-sea", PROBE_SEA}, {"-world", PROBE_WORLD},
     {"-karts", PROBE_KARTS}, {"-pt", PROBE_PT}, {"-distant", PROBE_DISTANT}, {"-foam", PROBE_FOAM},
     {"-shadows", PROBE_SHADOWS}, {"-fx", PROBE_FX}, {"-hud", PROBE_HUD}, {"autosort", PROBE_AUTOSORT},
-    {"-alltr", PROBE_DISTANT | PROBE_FOAM | PROBE_SHADOWS | PROBE_FX | PROBE_HUD}, {"-ta", PROBE_NOTA}
+    {"-alltr", PROBE_DISTANT | PROBE_FOAM | PROBE_SHADOWS | PROBE_FX | PROBE_HUD}, {"-ta", PROBE_NOTA},
+#ifdef DK_PERF_HUD
+    {"-perfhud", PROBE_PERFHUD},
+#endif
 };
 #define PROBE_CFGS ((int)(sizeof(probe_cfg) / sizeof(probe_cfg[0])))
 #define PROBE_FRAMES 24
@@ -1038,6 +1051,12 @@ static void pause_update(void) {
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
         return;
     }
+    /* So does the performance overlay's. */
+    if(game.pause_sel == PAUSE_PERF && ((pd->pressed & BTN_A) || input_left(o) || input_right(o))) {
+        perfhud_enable(!perfhud_on);
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+        return;
+    }
     if(pd->pressed & BTN_A) {
         audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
         game.paused = false;
@@ -1301,6 +1320,10 @@ static void render(void) {
         }
     PROF_MARK(2);
     PROF_LAP(PS_PHASE_KARTS, pp);
+    if(perfhud_on && !(dk_probe_off & (PROBE_HUD | PROBE_PERFHUD))) {
+        r_set_viewport(0, 480.0f);
+        perfhud_draw(views > 1);
+    }
 
     r_list(PVR_LIST_PT_POLY);
     if(!(dk_probe_off & PROBE_PT))
@@ -1933,6 +1956,25 @@ int main(int argc, char **argv) {
 
         uint64_t end = timer_us_gettime64();
         game.cpu_ms = (float)(end - now) * 0.001f;
+        {
+            /* This frame's share of the phase totals (the autotest zeroes
+               them every log line), kept up while the overlay is off so
+               switching it on doesn't start with one huge frame. */
+            static uint64_t prof_prev[5];
+            float phase_ms[5];
+            for(int i = 0; i < 5; i++) {
+                uint64_t d = prof_us[i] >= prof_prev[i] ? prof_us[i] - prof_prev[i] : prof_us[i];
+                phase_ms[i] = (float)d * 0.001f;
+                prof_prev[i] = prof_us[i];
+            }
+            int missed = dt_real > 1.5f * vbl_dt ? (int)(dt_real / vbl_dt + 0.5f) - 1 : 0;
+#ifdef DK_AUTOTEST
+            /* Leave out the frames a screenshot or log line stalled, as the
+               autotest's own timing does. */
+            if(at_skip == 0)
+#endif
+                if(perfhud_on) perfhud_frame(dt_real, game.cpu_ms, phase_ms, missed);
+        }
         fps_frames++;
         if(end - fps_t0 >= 1000000) {
             game.fps = fps_frames * 1e6f / (float)(end - fps_t0);

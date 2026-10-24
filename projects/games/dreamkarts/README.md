@@ -49,7 +49,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
 | Y | D | Use the held power-up (with down held, throw a Chaos Spear backwards; a Mine always drops behind); wave when holding nothing, arms taking turns |
 | Both triggers together | F and V together | Look behind while held |
-| Start | Return | Pause (continue / restart / music on-off / quit) |
+| Start | Return | Pause (continue / restart / music on-off / performance overlay on-off / quit) |
 
 Player 2 uses the second controller with the same layout; a Jump Pack in
 either slot vibrates for that player. To drift, hold A, press and hold R as
@@ -181,6 +181,7 @@ needs no Python.
 | `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
 | `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |
 | `-DDK_CHUNK_STATS` | Spiral Canyon: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
+| `-DDK_PERF_HUD` | Starts with the performance overlay on (the pause menu's PERF switch): frame CPU time and its phases, PVR render time, vertex buffer, triangles and missed vblanks, half-second averages and maxima against the 16.68 ms frame. It costs ~0.3 ms of CPU a frame on the console. In Flycast the PVR row is a constant 7.50 ms and VTX reads `--`, so judge headroom on hardware. hwbench adds a `-perfhud` probe step |
 | `-DDK_AT_PVRSPIKE=15.0f` | Logs where any race frame's PVR render runs over that many ms (`DK PVRSPIKE`, the player's lap distance and heading), at most one line in 2.5 s |
 | `-DDK_AT_WALLRIDE`, `-DDK_AT_ZIGZAG` | The player rides the right rail all of lap 1 and the left all of lap 2, or slams the rails at an angle every 1.5 s; any kart ending up past a rail logs `DK ESCAPE` |
 | `-DDK_AT_FALL` | Steers off Neon Skyway's open edge on lap 1 to count falls (fails on time by design) |

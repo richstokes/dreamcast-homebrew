@@ -38,7 +38,7 @@ void hud_trophy(float x, float y, float s, uint32_t col);
 /* A colour preset's kart paint and Chao colour side by side, 24 x 14. */
 /* A kart's two-tone swatch: its body paint (0 = the model's red) and flat colour. */
 void hud_swatch(float x, float y, uint32_t paint1, uint32_t ui);
-enum { PAUSE_CONTINUE, PAUSE_RESTART, PAUSE_MUSIC, PAUSE_QUIT, PAUSE_ITEMS };
+enum { PAUSE_CONTINUE, PAUSE_RESTART, PAUSE_MUSIC, PAUSE_PERF, PAUSE_QUIT, PAUSE_ITEMS };
 void hud_draw_pause(void);
 /* Pop-up messages ("FINAL LAP!", lap times). */
 void hud_message(int player, const char *text, uint32_t col, float seconds);
