@@ -6,8 +6,8 @@
    jumps to the start of a random other song. Effects live in AICA RAM as
    16-bit mono PCM.
 
-   The player's engine (two crossfaded loops), tyre squeal, spark crackle and
-   sand rumble are looping hardware voices. Each one owns a channel reserved
+   The player's engine (two crossfaded loops), tyre squeal, spark crackle,
+   sand rumble and brake screech are looping hardware voices. Each one owns a channel reserved
    with snd_sfx_chn_alloc(): snd_sfx_play() hands out channels round-robin
    and skips only reserved ones, so an unreserved loop is soon replaced by a
    one-shot, after which its pitch updates retune the wrong sound. Pitch and
@@ -67,12 +67,12 @@ typedef struct {
     float vol, rate;
 } Voice;
 
-enum { V_ENGINE_LOW, V_ENGINE_HIGH, V_DRIFT, V_SPARKS, V_OFFROAD, V_COUNT };
+enum { V_ENGINE_LOW, V_ENGINE_HIGH, V_DRIFT, V_SPARKS, V_OFFROAD, V_BRAKE, V_COUNT };
 /* One set of loops per human player. */
 static Voice voice_sets[MAX_PLAYERS][V_COUNT];
 #define voices voice_sets[0]
 static const int voice_sfx[V_COUNT] = {
-    DK_SFX_ENGINE_LOW, DK_SFX_ENGINE_HIGH, DK_SFX_DRIFT, DK_SFX_SPARKS, DK_SFX_OFFROAD
+    DK_SFX_ENGINE_LOW, DK_SFX_ENGINE_HIGH, DK_SFX_DRIFT, DK_SFX_SPARKS, DK_SFX_OFFROAD, DK_SFX_BRAKE
 };
 static bool voices_started;
 /* Free revs on the grid: throttle held during the countdown blips the
@@ -389,7 +389,7 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
     if(k) start_voices();
     if(!voices_started) return;
     float target[V_COUNT] = {0};
-    float rate[V_COUNT] = {1, 1, 1, 1, 1};
+    float rate[V_COUNT] = {1, 1, 1, 1, 1, 1};
     int gs = slot & 1;
     float g = grid_rev[gs];
     g = grid_held[gs] > 0 && k ? fminf(1.0f, g + dt * 2.6f) : fmaxf(0.0f, g - dt * 1.4f);
@@ -415,6 +415,13 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
         }
         if(k->surface == SURF_SAND && k->grounded && fabsf(k->speed) > 2.0f)
             target[V_OFFROAD] = 70.0f + 80.0f * clampf(fabsf(k->speed) / 15.0f, 0, 1);
+        /* Hard braking: louder the faster it starts, and the pitch sags as
+           the kart slows. */
+        if(k->skid && k->grounded && k->surface != SURF_SAND) {
+            float b = clampf((k->speed - 9.0f) / (top - 9.0f), 0, 1);
+            target[V_BRAKE] = 90.0f + 80.0f * b;
+            rate[V_BRAKE] = 0.86f + 0.18f * b;
+        }
         /* Two engines at once: trim each so the mix doesn't swamp the music. */
         if(game.num_players > 1)
             for(int i = 0; i < V_COUNT; i++) target[i] *= 0.75f;
@@ -429,7 +436,7 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
     snd_sh4_to_aica_stop();
     for(int i = 0; i < V_COUNT; i++) {
         Voice *v = &voice_sets[slot & 1][i];
-        float speed = (i == V_DRIFT || i == V_SPARKS) ? 900.0f : 500.0f;
+        float speed = (i == V_DRIFT || i == V_SPARKS || i == V_BRAKE) ? 900.0f : 500.0f;
         v->vol = approach(v->vol, target[i], speed * dt);
         /* Glide pitch like a real engine instead of stepping on boosts. */
         if(v->rate <= 0) v->rate = rate[i];
@@ -437,6 +444,14 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
         int freq = (int)(DK_SFX_RATE * clampf(v->rate, 0.3f, 2.6f) * (i <= V_ENGINE_HIGH ? limiter : 1.0f));
         freq = (freq + 32) & ~63;   /* avoid a command for tiny pitch changes */
         voice_set(v, freq, (int)v->vol);
+#ifdef DK_AT_BRAKE
+        static int brake_on;
+        if(i == V_BRAKE && slot == 0 && (v->vol > 0) != brake_on) {
+            brake_on = v->vol > 0;
+            printf("DK BRAKE %.2f %s speed %.1f target %.0f\n", game.race_time, brake_on ? "on" : "off",
+                   k ? k->speed : 0.0f, target[i]);
+        }
+#endif
     }
     snd_sh4_to_aica_start();
 }

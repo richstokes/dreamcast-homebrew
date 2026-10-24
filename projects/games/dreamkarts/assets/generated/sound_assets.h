@@ -23,6 +23,7 @@ typedef enum {
     DK_SFX_DRIFT,
     DK_SFX_SPARKS,
     DK_SFX_OFFROAD,
+    DK_SFX_BRAKE,
     DK_SFX_HOP,
     DK_SFX_LAND,
     DK_SFX_CHARGE1,
@@ -68,41 +69,42 @@ static const dk_sfx_asset_t dk_sfx_assets[DK_SFX_COUNT] __attribute__((unused)) 
     { 45216u, 26464u, 1u }, /* DRIFT        vol 140 */
     { 71712u, 26464u, 1u }, /* SPARKS       vol 115 */
     { 98208u, 26464u, 1u }, /* OFFROAD      vol 153 */
-    { 124704u, 7968u, 0u }, /* HOP          vol 153 */
-    { 132672u, 11488u, 0u }, /* LAND         vol 191 */
-    { 144160u, 22080u, 0u }, /* CHARGE1      vol 140 */
-    { 166240u, 25600u, 0u }, /* CHARGE2      vol 140 */
-    { 191840u, 29120u, 0u }, /* CHARGE3      vol 153 */
-    { 220960u, 39712u, 0u }, /* BOOST        vol 217 */
-    { 260672u, 35296u, 0u }, /* DASH         vol 204 */
-    { 295968u, 15904u, 0u }, /* BUMP         vol 204 */
-    { 311872u, 10592u, 0u }, /* KART_BUMP    vol 178 */
-    { 322464u, 16320u, 0u }, /* COUNT_BEEP   vol 178 */
-    { 338784u, 36192u, 0u }, /* GO           vol 191 */
-    { 374976u, 29120u, 0u }, /* LAP          vol 178 */
-    { 404096u, 71456u, 0u }, /* FINAL_LAP    vol 204 */
-    { 475552u, 108064u, 0u }, /* FINISH       vol 217 */
-    { 583616u, 1984u, 0u }, /* MENU_MOVE    vol 115 */
-    { 585600u, 18528u, 0u }, /* MENU_SELECT  vol 153 */
-    { 604128u, 13248u, 0u }, /* MENU_BACK    vol 140 */
-    { 617376u, 24704u, 0u }, /* CHAO         vol 178 */
-    { 642080u, 54688u, 0u }, /* CHAO_HAPPY   vol 178 */
-    { 696768u, 24704u, 0u }, /* CHAO_HEY     vol 178 */
-    { 721472u, 19872u, 0u }, /* CHAO_CHU     vol 166 */
-    { 741344u, 24256u, 0u }, /* CHAO_YAY     vol 178 */
-    { 765600u, 19872u, 0u }, /* CHAO_WAH     vol 178 */
-    { 785472u, 22080u, 0u }, /* CHAO_BUU     vol 178 */
-    { 807552u, 15904u, 0u }, /* CHAO_HYA     vol 166 */
-    { 823456u, 26464u, 0u }, /* WHOOSH       vol 153 */
-    { 849920u, 22944u, 0u }, /* STAR         vol 128 */
-    { 872864u, 35296u, 0u }, /* EMERALD      vol 153 */
-    { 908160u, 24256u, 0u }, /* SPEAR        vol 191 */
-    { 932416u, 30880u, 0u }, /* SPEAR_HIT    vol 204 */
-    { 963296u, 37504u, 0u }, /* BARRIER      vol 153 */
-    { 1000800u, 22080u, 0u }, /* BARRIER_POP  vol 178 */
-    { 1022880u, 18912u, 0u }, /* MINE         vol 178 */
-    { 1041792u, 41920u, 0u }, /* MINE_HIT     vol 217 */
-    { 1083712u, 61760u, 0u }, /* BELL         vol 191 */
+    { 124704u, 26464u, 1u }, /* BRAKE        vol 128 */
+    { 151200u, 7968u, 0u }, /* HOP          vol 153 */
+    { 159168u, 11488u, 0u }, /* LAND         vol 191 */
+    { 170656u, 22080u, 0u }, /* CHARGE1      vol 140 */
+    { 192736u, 25600u, 0u }, /* CHARGE2      vol 140 */
+    { 218336u, 29120u, 0u }, /* CHARGE3      vol 153 */
+    { 247456u, 39712u, 0u }, /* BOOST        vol 217 */
+    { 287168u, 35296u, 0u }, /* DASH         vol 204 */
+    { 322464u, 15904u, 0u }, /* BUMP         vol 204 */
+    { 338368u, 10592u, 0u }, /* KART_BUMP    vol 178 */
+    { 348960u, 16320u, 0u }, /* COUNT_BEEP   vol 178 */
+    { 365280u, 36192u, 0u }, /* GO           vol 191 */
+    { 401472u, 29120u, 0u }, /* LAP          vol 178 */
+    { 430592u, 71456u, 0u }, /* FINAL_LAP    vol 204 */
+    { 502048u, 108064u, 0u }, /* FINISH       vol 217 */
+    { 610112u, 1984u, 0u }, /* MENU_MOVE    vol 115 */
+    { 612096u, 18528u, 0u }, /* MENU_SELECT  vol 153 */
+    { 630624u, 13248u, 0u }, /* MENU_BACK    vol 140 */
+    { 643872u, 24704u, 0u }, /* CHAO         vol 178 */
+    { 668576u, 54688u, 0u }, /* CHAO_HAPPY   vol 178 */
+    { 723264u, 24704u, 0u }, /* CHAO_HEY     vol 178 */
+    { 747968u, 19872u, 0u }, /* CHAO_CHU     vol 166 */
+    { 767840u, 24256u, 0u }, /* CHAO_YAY     vol 178 */
+    { 792096u, 19872u, 0u }, /* CHAO_WAH     vol 178 */
+    { 811968u, 22080u, 0u }, /* CHAO_BUU     vol 178 */
+    { 834048u, 15904u, 0u }, /* CHAO_HYA     vol 166 */
+    { 849952u, 26464u, 0u }, /* WHOOSH       vol 153 */
+    { 876416u, 22944u, 0u }, /* STAR         vol 128 */
+    { 899360u, 35296u, 0u }, /* EMERALD      vol 153 */
+    { 934656u, 24256u, 0u }, /* SPEAR        vol 191 */
+    { 958912u, 30880u, 0u }, /* SPEAR_HIT    vol 204 */
+    { 989792u, 37504u, 0u }, /* BARRIER      vol 153 */
+    { 1027296u, 22080u, 0u }, /* BARRIER_POP  vol 178 */
+    { 1049376u, 18912u, 0u }, /* MINE         vol 178 */
+    { 1068288u, 41920u, 0u }, /* MINE_HIT     vol 217 */
+    { 1110208u, 61760u, 0u }, /* BELL         vol 191 */
 };
 
 /* Effect names for the sound test. */
@@ -112,6 +114,7 @@ static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {
     "TYRE SQUEAL",
     "DRIFT SPARKS",
     "SAND RUMBLE",
+    "BRAKE SCREECH",
     "HOP",
     "LANDING",
     "MINI-TURBO 1",

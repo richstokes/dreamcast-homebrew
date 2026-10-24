@@ -883,6 +883,28 @@ def sfx_drift():
     return periodic(lambda s: filt(filt(s, "lp", 4800), "hp", 60), y)
 
 
+def sfx_brake():
+    # Higher and harsher than the drift squeal: a stick-slip screech whose
+    # pitch judders as the tyre grabs and lets go.
+    rng = rng_for("brake")
+    L = 13232                                                 # 0.60 s
+    slow = plfo(L, 3.0, rng)
+    judder = plfo(L, 34.0, rng)
+    grit = plfo(L, 120.0, rng)
+    f1 = fix_cycles(2350 * (1 + 0.02 * slow + 0.014 * judder), SR)
+    ph1 = TAU * np.cumsum(f1) / SR
+    f2 = fix_cycles(2350 * 1.41 * (1 + 0.025 * slow - 0.02 * judder), SR)
+    ph2 = TAU * np.cumsum(f2) / SR
+    tone = np.sin(ph1) + 0.3 * np.sin(2 * ph1 + 0.7) + 0.12 * np.sin(3 * ph1 + 2.1)
+    tone += 0.22 * np.sin(ph2)
+    am = (1 - 0.5 * (0.5 + 0.5 * np.tanh(3.0 * judder))) * (1 - 0.2 * (0.5 + 0.5 * grit))
+    scrub = periodic(lambda s: filt(filt(s, "bp", 3600, 0.9), "hp", 1200),
+                     rng.standard_normal(L))
+    scrub *= 0.28 * (0.5 + 0.5 * np.abs(judder))
+    y = softsat(tone * am, 1.6) + scrub
+    return periodic(lambda s: filt(filt(s, "lp", 7500), "hp", 300), y)
+
+
 def sfx_sparks():
     rng = rng_for("sparks")
     L = 13232                                                 # 0.60 s
@@ -1589,6 +1611,7 @@ SFX = [
     ("DRIFT", sfx_drift, True, 0.55),
     ("SPARKS", sfx_sparks, True, 0.45),
     ("OFFROAD", sfx_offroad, True, 0.6),
+    ("BRAKE", sfx_brake, True, 0.5),
     ("HOP", sfx_hop, False, 0.6),
     ("LAND", sfx_land, False, 0.75),
     ("CHARGE1", sfx_charge1, False, 0.55),
@@ -3245,7 +3268,7 @@ def build_sfx(out, previews):
 # Names shown in the sound test.
 SFX_LABELS = {
     "ENGINE_LOW": "ENGINE (LOW)", "ENGINE_HIGH": "ENGINE (HIGH)", "DRIFT": "TYRE SQUEAL",
-    "SPARKS": "DRIFT SPARKS", "OFFROAD": "SAND RUMBLE", "HOP": "HOP", "LAND": "LANDING",
+    "SPARKS": "DRIFT SPARKS", "OFFROAD": "SAND RUMBLE", "BRAKE": "BRAKE SCREECH", "HOP": "HOP", "LAND": "LANDING",
     "CHARGE1": "MINI-TURBO 1", "CHARGE2": "MINI-TURBO 2", "CHARGE3": "MINI-TURBO 3",
     "BOOST": "BOOST", "DASH": "DASH PANEL", "BUMP": "WALL HIT", "KART_BUMP": "KART BUMP",
     "COUNT_BEEP": "COUNTDOWN BEEP", "GO": "GO!", "LAP": "LAP", "FINAL_LAP": "FINAL LAP",

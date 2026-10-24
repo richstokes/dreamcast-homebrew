@@ -894,6 +894,13 @@ static void race_step(float dt, bool drive) {
         /* Slam the rails at an angle every couple of seconds. */
         if(hp == 0) in.steer = fmodf(game.time, 3.0f) < 1.5f ? 1.0f : -1.0f;
 #endif
+#ifdef DK_AT_BRAKE
+        /* Stand on the brakes for a second every 6 s, for the screech. */
+        if(hp == 0 && fmodf(game.race_time, 6.0f) > 5.0f) {
+            in.accel = false;
+            in.brake = true;
+        }
+#endif
         /* Humans can still wave once the CPU has taken over after the line. */
         if(hp >= 0) in.wave = wave_press[hp];
         kart_update(k, &in, dt, drive);
