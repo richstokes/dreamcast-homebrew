@@ -1,0 +1,54 @@
+#!/bin/sh
+
+set -eu
+
+# Builds the KallistiOS and kos-ports checkouts that fetch-sdk.sh made. CI
+# caches the result keyed on this file, so a change here rebuilds the SDK.
+
+workspace=/workspace
+kos_base="$workspace/.ci/kos"
+kos_ports="$workspace/.ci/kos-ports"
+
+# The official compiler image is intentionally minimal. kos-ports uses CMake
+# for mbedTLS and curl, so install it in this ephemeral build container.
+apk add --no-cache cmake
+
+# The SDK checkouts are owned by the host runner, while this container runs as
+# root. KOS reads its Git revision while building its banner.
+git config --global --add safe.directory "$kos_base"
+git config --global --add safe.directory "$kos_ports"
+
+cp "$kos_base/doc/environ.sh.sample" "$kos_base/environ.sh"
+sed -i "s|^export KOS_BASE=.*|export KOS_BASE=\"$kos_base\"|" "$kos_base/environ.sh"
+sed -i "s|^export KOS_PORTS=.*|export KOS_PORTS=\"$kos_ports\"|" "$kos_base/environ.sh"
+
+# KOS probes optional variables while its environment is sourced, so nounset
+# must be temporarily disabled (as it is for local builds in AGENTS.md).
+set +u
+# shellcheck disable=SC1091
+. "$kos_base/environ.sh"
+set -u
+
+jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')
+
+make -C "$kos_base" -j"$jobs"
+
+# Dreamcast Browser, DCVMU, and PICO-8 Player use kos-ports dependencies. Building
+# them here also proves the checked-in compatibility patch still applies.
+# The pinned zlib port still uses plain HTTP. GitHub Actions has intermittently
+# received a small HTML response from that endpoint with a successful HTTP
+# status, which only fails later at kos-ports' distfile validation. The
+# upstream zlib GitHub release hosts the byte-identical archive; distinfo keeps
+# enforcing its pinned SHA-256 and size after this download-site override.
+make -C "$kos_ports/zlib" \
+    DOWNLOAD_SITE=https://github.com/madler/zlib/releases/download/v1.3.2 \
+    install
+make -C "$kos_ports/mbedtls" force-install
+make -C "$kos_ports/curl" install
+make -C "$kos_ports/stb_image" install
+
+# Installed ports link to their inst/ directories. The unpacked sources and
+# objects (~350 MB) are not needed after that, so keep them out of the cache.
+for port in zlib mbedtls curl stb_image; do
+    rm -rf "$kos_ports/$port/build" "$kos_ports/$port/dist"
+done

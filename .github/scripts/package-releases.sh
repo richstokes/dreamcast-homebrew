@@ -12,8 +12,10 @@ output_dir=$2
 
 mkdir -p "$output_dir"
 
-while IFS='|' read -r directory slug title; do
-    [ -n "$slug" ] || continue
+package() {
+    directory=$1
+    slug=$2
+    title=$3
 
     elf="$directory/$slug.elf"
     # A project with a disc/ directory reads assets from the disc (DreamKarts
@@ -68,4 +70,42 @@ while IFS='|' read -r directory slug title; do
     if [ "$publish_elf" = 1 ]; then
         cp "$elf" "$release_elf"
     fi
+
+    echo "packaged $slug"
+}
+
+# Each project spends ~12 s in single-threaded mkdcdisc and zip runs, so
+# package one per CPU at a time. pids holds "slug:pid" for each one running.
+jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')
+pids=""
+running=0
+failed=0
+
+wait_oldest() {
+    # shellcheck disable=SC2086
+    set -- $pids
+    oldest=$1
+    shift
+    pids="$*"
+    running=$((running - 1))
+    if ! wait "${oldest#*:}"; then
+        echo "packaging ${oldest%%:*} failed" >&2
+        failed=1
+    fi
+}
+
+while IFS='|' read -r directory slug title; do
+    [ -n "$slug" ] || continue
+    package "$directory" "$slug" "$title" < /dev/null &
+    pids="$pids $slug:$!"
+    running=$((running + 1))
+    if [ "$running" -ge "$jobs" ]; then
+        wait_oldest
+    fi
 done < .github/console-projects.txt
+
+while [ "$running" -gt 0 ]; do
+    wait_oldest
+done
+
+exit "$failed"
