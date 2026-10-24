@@ -106,6 +106,13 @@ typedef struct {
 #define MAX_PALMS  48
 #define MAX_SPRITES 64
 
+/* The vertex pool is static, not malloc'd: 816 KB from the heap left the
+   heap within a megabyte of the top of RAM when the music is linked in,
+   and KOS copies every sound effect through a temporary heap block its
+   own size, so the bigger effects failed to load (35 of 41 on Emerald
+   Beach, 29 on the console under dcload). In .bss the pool costs the same
+   RAM but leaves the heap to the small, short-lived things. */
+static RV pool_mem[MAX_POOL] __attribute__((aligned(32)));
 static RV *pool;
 static int pool_n;
 static Strip strips[MAX_STRIPS];
@@ -4679,7 +4686,7 @@ static void build_tsudoken(void) {
 
 void world_init(void) {
     world_sun_dir = vnorm(v3(0.30f, 0.55f, 0.78f));
-    pool = memalign(32, sizeof(RV) * MAX_POOL);
+    pool = pool_mem;
     if(!pool) {
         printf("DreamKarts world: out of memory for scenery\n");
         built_ok = false;
