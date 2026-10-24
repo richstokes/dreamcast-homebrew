@@ -3193,7 +3193,7 @@ static void dr_draw_waterfalls(void) {
         const Waterfall *f = &dr_fall[i];
         if(!r_sphere_visible(f->knee, vlen(vsub(f->lip, f->foot)) * 0.6f + 4.0f)) continue;
         float h = f->lip.y - f->foot.y, reps = h / 5.0f;
-        float scroll = world_time * 1.6f + (float)i * 0.37f;
+        float scroll = fmodf(world_time * 1.6f + (float)i * 0.37f, 1.0f);
         r_hdr(h_waterfall);
         const int segs = 6;
         RV v[2 * (6 + 1)];
@@ -4277,7 +4277,7 @@ static void draw_clouds_below(void) {
     const int n = world_split ? 10 : 14;
     float cx = floorf(r_cam.pos.x / cell) * cell, cz = floorf(r_cam.pos.z / cell) * cell;
     float x0 = cx - n * cell * 0.5f, z0 = cz - n * cell * 0.5f;
-    float su = world_time * 0.006f, sv2 = world_time * 0.004f;
+    float su = fmodf(world_time * 0.006f, 1.0f), sv2 = fmodf(world_time * 0.004f, 1.0f);
     const float uvs = 1.0f / 110.0f;
     r_hdr(h_cloudsea);
     GridColorFn fn = cloud_color;
@@ -4326,7 +4326,7 @@ static void draw_sea(void) {
     const int n = world_split ? 10 : 16;
     float cx = floorf(r_cam.pos.x / cell) * cell, cz = floorf(r_cam.pos.z / cell) * cell;
     float x0 = cx - n * cell * 0.5f, z0 = cz - n * cell * 0.5f;
-    float su = world_time * 0.018f, sv2 = world_time * 0.011f;
+    float su = fmodf(world_time * 0.018f, 1.0f), sv2 = fmodf(world_time * 0.011f, 1.0f);
     r_hdr(h_water);
     const GridColors *gc = grid_colors(cx, cz, cell, n, x0, z0, sea_color);
     RV row[2 * (16 + 1)];
@@ -4375,8 +4375,13 @@ static void draw_sea(void) {
     }
 }
 
+/* The dash pads' chevrons point toward v = 0, at s1, and run forward that
+   way. The scroll stays inside one repeat of the texture: the real PVR
+   loses texture precision on large UVs, so a scroll that grew with
+   world_time broke the chevrons up after a long session (Flycast does not
+   show it). */
 static void draw_dash_pads(void) {
-    float scroll = -world_time * 2.2f;
+    float scroll = fmodf(world_time * 2.2f, 1.0f);
     r_hdr(h_dash);
     for(int i = 0; i < track.npads; i++) {
         const DashPad *p = &track.pads[i];
