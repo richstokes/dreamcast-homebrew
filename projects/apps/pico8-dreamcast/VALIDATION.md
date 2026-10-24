@@ -86,7 +86,7 @@ Problems found on hardware:
   == ..." failed at controller.c:170`, every time. The buffer lives in
   `calloc()`ed memory zeroed through the cache, is filled by DMA and read
   uncached; evicting a stale line overwrote the controller's reply.
-  [patches/kos-maple-rx-cache.patch](patches/kos-maple-rx-cache.patch) writes
+  [kos-maple-rx-cache.patch](../../../tools/kos/patches/kos/kos-maple-rx-cache.patch) writes
   back and invalidates those lines when a frame is initialized. With it, the
   failing build passed every run. CI applies it.
 - **Networking under dcload-ip.** The normal ELF (INIT_NET) hung while KOS

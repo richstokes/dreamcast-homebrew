@@ -47,14 +47,13 @@ the server, so check your account before retrying.
 Needs KOS 2.3 with the kos-ports `curl`, `mbedtls` and `zlib`; the install
 commands and the ports compatibility patch are in the
 [Dreamcast Browser README](../../apps/dreamcast-browser/README.md#dependencies).
-Apply this project's KOS networking patches once and rebuild KOS (CI does the
-same), then build the ELF:
+Apply the repository's [KOS patches](../../../tools/kos/README.md) once and
+rebuild KOS (CI does the same), then build the ELF:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-for p in patches/kos-*.patch; do git -C "$KOS_BASE" apply "$PWD/$p"; done
-make -C "$KOS_BASE/kernel" -j4
-make -C "$KOS_BASE/addons/libppp" -j4
+../../../tools/kos/apply-patches.sh
+make -C "$KOS_BASE" -j4
 make
 ```
 
@@ -99,7 +98,7 @@ physical Dreamcast and VMU.
 - Self-test builds (`CPPFLAGS=-DDCVMU_SELF_TEST` and friends) read credentials from git-ignored `romdisk/test-*` files. Remove them and run `make clean && make` before a release (the Makefile's `release-check` refuses otherwise), and never run the fixtures against personal VMUs
 - Uploads use a fresh connection and never retry automatically (`net.c`): the server may already have stored the save
 - On the BBA the client gates the PCI IRQ and polls for received frames instead (`net.c`); re-enabling the IRQ at shutdown brought back Flycast IRQ re-entry
-- Modem shutdown needs `patches/kos-ppp-lifecycle.patch`; stock KOS 2.3 `ppp_shutdown` does not stop its worker
+- Modem shutdown needs `tools/kos/patches/kos/kos-ppp-lifecycle.patch`; stock KOS 2.3 `ppp_shutdown` does not stop its worker
 - Every request is HTTPS with certificate and hostname checks and no fallback, so a wrong Dreamcast clock breaks login
 
 ## Known limitations

@@ -90,39 +90,21 @@ with DuckDuckGo Lite; start with `?` to force a search. Build with
 ## Dependencies
 
 The browser links the official KOS ports for `curl`, `mbedtls`, `zlib` and
-`stb_image`. Apply the compatibility patch, then install the ports from a
-sourced KOS environment:
+`stb_image`, and needs the repository's [KOS patches](../../../tools/kos/README.md)
+(keyboard attach, the TCP fixes, PPP lifecycle and the kos-ports
+compatibility patch). From the repository root, in a sourced KOS environment:
 
 ```sh
-git -C "$KOS_PORTS" apply \
-  /absolute/path/to/dreamcast-browser/patches/kos-ports-kos23.patch
+tools/kos/apply-patches.sh
+make -C "$KOS_BASE"
 make -C "$KOS_PORTS/mbedtls" force-install
 make -C "$KOS_PORTS/curl" install
 make -C "$KOS_PORTS/stb_image" install
 ```
 
-The installed KOS also needs three fixes. Each script rebuilds only the
-object it touches and the SDK archives, is safe to rerun, stops if the source
-no longer matches, and leaves other local SDK changes alone. Relink the
-browser afterward (the Makefile tracks the SDK archive).
-
-```sh
-./scripts/fix-kos-keyboard.sh      # keyboard attach cleared memory past its own state
-./scripts/fix-kos-tcp-poll.sh      # receive/poll/close lock cycle deadlocked after a few pages
-./scripts/fix-kos-tcp-orphans.sh   # sockets closed mid-transfer were never reset and leaked
-```
-
-| Local patch | Upstream |
-| --- | --- |
-| `kos-keyboard-attach.patch` | [KallistiOS#1537](https://github.com/KallistiOS/KallistiOS/pull/1537) (the same fix, from another contributor) |
-| `kos-tcp-poll-lock.patch` | [KallistiOS#1550](https://github.com/KallistiOS/KallistiOS/pull/1550) |
-| `kos-tcp-orphan-reset.patch` | [KallistiOS#1551](https://github.com/KallistiOS/KallistiOS/pull/1551) |
-
-Drop a patch and its script once the SDK in use has that fix. The modem path
-also needs [DCVMU's PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch)
-and `libppp` from the SDK add-ons. Release CI applies all of these after the
-shared DCVMU networking patches. `make update-cacert` refreshes the bundled
-CA store (needs host internet access).
+Relink the browser afterward (the Makefile tracks the SDK archive).
+`make update-cacert` refreshes the bundled CA store (needs host internet
+access).
 
 ## Build and run
 
@@ -177,8 +159,8 @@ distribute either.
 - KOS never reset a connection that `close()` released while the server was
   still sending. Each one stranded a socket and 128 KiB of buffers, and after
   about eight, transfers stopped. If the heap grows in 128 KiB steps after
-  cancels or oversized images, check `kos-tcp-orphan-reset.patch` is in the
-  linked SDK
+  cancels or oversized images, check `tools/kos/apply-patches.sh --check`
+  passes for the linked SDK
 - A KOS TCP receive notification could deadlock against poll and socket
   cleanup after a few page loads, with even cancellation stuck.
   `kos-tcp-poll-lock.patch` moves the notification outside both locks

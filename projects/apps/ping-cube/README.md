@@ -53,14 +53,13 @@ make
 `KOS_ENV` and `FLYCAST_BIN` override the installed dependencies; the launcher
 does not change saved Flycast settings.
 
-Dial-up support needs `kos-ppp-lifecycle.patch` from
-[`projects/dcvmu.com/client/patches`](../../dcvmu.com/client/patches) applied
-to your KOS tree, then a `libppp` rebuild (run from this directory):
+Dial-up support needs the repository's [KOS patches](../../../tools/kos/README.md)
+(PPP lifecycle in particular) applied to your KOS tree, then a rebuild (run
+from this directory):
 
 ```sh
-git -C "$KOS_BASE" apply "$PWD/../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch"
-make -C "$KOS_BASE/kernel" -j4
-make -C "$KOS_BASE/addons/libppp" -j4
+../../../tools/kos/apply-patches.sh
+make -C "$KOS_BASE" -j4
 ```
 
 ## Dial-up (modem / DreamPi)

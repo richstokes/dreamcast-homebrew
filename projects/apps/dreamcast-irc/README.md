@@ -53,15 +53,13 @@ preferred; the modem is only used when no Ethernet adapter is found.
 
 ## Build and run
 
-Modem support needs the repository's
-[PPP lifecycle patch](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch)
-applied once to your KOS tree, then a kernel and `libppp` rebuild (CI does
-this). From this directory:
+Modem support needs the repository's [KOS patches](../../../tools/kos/README.md)
+(PPP lifecycle in particular) applied once to your KOS tree, then a rebuild
+(CI does this). From this directory:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-git -C "$KOS_BASE" apply "$PWD/../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch"
-make -C "$KOS_BASE/kernel" -j4 && make -C "$KOS_BASE/addons/libppp" -j4
+../../../tools/kos/apply-patches.sh && make -C "$KOS_BASE" -j4
 make
 ./run-flycast.sh            # BBA over Flycast's picoTCP proxy; --skip-build works
 ./run-flycast.sh --modem    # Flycast's modem emulation, not a physical DreamPi

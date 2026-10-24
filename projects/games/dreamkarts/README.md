@@ -100,10 +100,9 @@ hold the music linked in. `run-flycast.sh` wraps the ELF and `disc/` in a
 throwaway CDI (`build/cdi/`) with [mkdcdisc](https://gitlab.com/simulant/mkdcdisc),
 built once by `tools/mkdcdisc/build-macos.sh`; `make disc` builds the CDI the
 releases ship; under dcload the project directory is mapped at `/pc`.
-Before a hardware build, apply
-[`patches/kos-dhcp-fast-retry.patch`](patches/kos-dhcp-fast-retry.patch) to
-KOS and rebuild it (`make -C $KOS_BASE/kernel`), as the release workflow
-does. Debug info is split into `dreamkarts.elf.debug` for `sh-elf-addr2line`.
+Before a hardware build, apply the repository's
+[KOS patches](../../../tools/kos/README.md) (`tools/kos/apply-patches.sh`, then
+`make -C $KOS_BASE`), as the release workflow does. Debug info is split into `dreamkarts.elf.debug` for `sh-elf-addr2line`.
 The title screen shows the commit the game was built from (bottom right,
 `-dirty` when built with uncommitted changes); please include it in bug
 reports. `DK_GIT_SHA=...` on the make line overrides it.
@@ -301,7 +300,7 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 ## Gotchas
 
 - RAM is the limit, not the ELF's size: with the music linked in (14.6 MB of the 16 MB) the heap had about a megabyte, a release shipped with sound effects failing to load and no online worker thread (`Out of memory` on the serial console), and KOS copies each effect through a temporary heap block its own size. The music streams from the disc now and the world's vertex pool is static; the link still strips debug info into `dreamkarts.elf.debug`
-- Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `patches/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
+- Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `tools/kos/patches/kos/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
 - Music read over dcload's `/pc` drops a frame or two about once a second, so it plays silent there unless built with `MUSIC=1`; console timings taken with it on are not comparable
 - Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/main.c`, `src/netlink.c`)
 - Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches

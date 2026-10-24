@@ -75,8 +75,8 @@ jobs:
         run: docker pull "$TOOLCHAIN_IMAGE"
 
       # KallistiOS and kos-ports take ~2.5 minutes to build and only change
-      # with their pins, their patches, the compiler image or the two scripts
-      # that fetch and build them, so the built SDK is cached on exactly those.
+      # with their pins, their patches, the compiler image or the scripts that
+      # fetch, patch and build them, so the built SDK is cached on exactly those.
       - name: Work out the SDK cache key
         id: sdk-key
         run: |
@@ -85,7 +85,8 @@ jobs:
               printf '%s\n' "$KOS_COMMIT" "$KOS_PORTS_COMMIT" "$TOOLCHAIN_IMAGE"
               cat .github/scripts/fetch-sdk.sh \
                 .github/scripts/build-sdk-in-container.sh \
-                projects/*/*/patches/kos-*.patch
+                tools/kos/apply-patches.sh \
+                tools/kos/patches/*/*.patch
             } | sha256sum | cut -c1-16
           )
           echo "key=kos-sdk-$hash" >> "$GITHUB_OUTPUT"

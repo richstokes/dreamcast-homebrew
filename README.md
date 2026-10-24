@@ -45,12 +45,14 @@ Cloud saves for the Dreamcast. The console client backs up VMU saves to
 
 Known-working baseline: KallistiOS 2.3.0, GCC 15.2.0 SH-4 toolchain, Flycast 2.7.
 For a native macOS Flycast with the fixes these projects rely on, see
-[tools/flycast](tools/flycast/README.md).
+[tools/flycast](tools/flycast/README.md). The SDK needs the repository's
+[KOS patches](tools/kos/README.md) applied once, then a KOS rebuild.
 
 ```sh
 git clone https://github.com/richstokes/dreamcast-homebrew.git
 cd dreamcast-homebrew
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
+tools/kos/apply-patches.sh && make -C "$KOS_BASE"
 make -C projects/games/drift-los-angeles
 ./projects/games/drift-los-angeles/run-flycast.sh --skip-build
 ```
@@ -74,7 +76,8 @@ Flycast. `KOS_ENV` and `FLYCAST_BIN` override the installed dependencies.
 - `projects/games/`: games
 - `projects/apps/`: apps and demos
 - `projects/dcvmu.com/`: DCVMU client and web service
-- `tools/`: Flycast build, real-hardware runner, SH4ZAM updater
+- `projects/common/`: code shared between projects
+- `tools/`: Flycast build, KOS patches, real-hardware runner, SH4ZAM updater
 
 Every push to `main` runs the tests, builds each project in
 [the release manifest](.github/console-projects.txt) against pinned SDK

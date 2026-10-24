@@ -92,14 +92,10 @@ stock KOS it needs:
 
 - kos-ports `mbedtls` (tested 3.6.6) and `curl` (tested 8.18.0, Mbed TLS backend):
   `make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`
-- KOS patches, in the local SDK and applied by CI ([release.yml](../../../.github/workflows/release.yml)):
-  this project's [maple receive-buffer fix](patches/kos-maple-rx-cache.patch), DCVMU's
-  [PPP lifecycle](../../dcvmu.com/client/patches/kos-ppp-lifecycle.patch),
-  [BBA receive](../../dcvmu.com/client/patches/kos-bba-rx-consumer.patch) and
-  [TCP window](../../dcvmu.com/client/patches/kos-tcp-upload-window.patch) patches, and the browser's
-  [TCP poll-lock](../dreamcast-browser/patches/kos-tcp-poll-lock.patch) and
-  [keyboard attach](../dreamcast-browser/patches/kos-keyboard-attach.patch) fixes. On a fresh SDK,
-  apply them and rebuild `$KOS_BASE/kernel` and `$KOS_BASE/addons/libppp`
+- The repository's [KOS patches](../../../tools/kos/README.md), which CI also
+  applies: `tools/kos/apply-patches.sh`, then `make -C "$KOS_BASE"`. This
+  project needs the maple receive-buffer, PPP lifecycle, BBA receive, TCP
+  window, TCP poll-lock and keyboard attach fixes
 - [SH4ZAM](third_party/SH4ZAM.md), header-only and never pinned: every build
   fast-forwards the ignored `third_party/sh4zam` checkout to upstream `master`
 
@@ -171,7 +167,7 @@ Each is also commented where it lives in the code.
   and `make hw` keeps dc-tool-ip attached (`main.cpp`, `Makefile`)
 - A stale cache line evicted over a DMA-filled maple receive buffer broke boot
   (`cont_cond_t` assertion) on some link layouts; CI applies
-  [patches/kos-maple-rx-cache.patch](patches/kos-maple-rx-cache.patch)
+  [kos-maple-rx-cache.patch](../../../tools/kos/patches/kos/kos-maple-rx-cache.patch)
 - Data placement moves audio mixer speed by up to 60%; the ROM disk is padded
   to 16 KiB multiples (the operand cache size) so cart changes do not shift
   everything linked after it (`Makefile`)

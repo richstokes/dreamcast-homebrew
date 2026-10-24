@@ -9,8 +9,8 @@ original, built from the scripts in `tools/`.
   Lawrence Sebald and the KallistiOS contributors listed in its
   [AUTHORS](https://github.com/KallistiOS/KallistiOS/blob/master/AUTHORS) file
   (KOS License, BSD-style): the kernel, PowerVR, AICA, maple, VMU,
-  networking and PPP. `patches/kos-dhcp-fast-retry.patch` changes its DHCP
-  retry timing. Built with its GCC and newlib toolchain
+  networking and PPP. `tools/kos/patches/kos/kos-dhcp-fast-retry.patch`
+  changes its DHCP retry timing. Built with its GCC and newlib toolchain
 - [SH4ZAM](https://sh4zam.com/) by Falco Girgis and contributors (MIT): the
   renderer's matrix, transform and reciprocal maths
 - The DejaVu Sans Bold Oblique font, bundled with matplotlib (Bitstream Vera
