@@ -41,6 +41,9 @@ void audio_kart_throttle(int slot, bool held);
 /* Engine, tyre and spark loops for player slot 0/1 follow the given kart
    (NULL silences them). */
 void audio_kart_loops(int slot, const Kart *k, float dt);
+/* Spiral Canyon's biplane drone, a loop retuned every frame: volume
+   0-255 (0 silences it), pan and playback rate. */
+void audio_plane(int vol, int pan, float rate);
 /* One-shot effects for a kart's events this step; distance attenuated. */
 void audio_kart_events(const Kart *k, bool is_player);
 

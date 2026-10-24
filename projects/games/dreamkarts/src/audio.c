@@ -98,6 +98,10 @@ typedef struct {
 enum { V_ENGINE_LOW, V_ENGINE_HIGH, V_DRIFT, V_SPARKS, V_OFFROAD, V_BRAKE, V_COUNT };
 /* One set of loops per human player. */
 static Voice voice_sets[MAX_PLAYERS][V_COUNT];
+/* The biplane's drone: one more loop on its own reserved channel, started
+   the first time it is heard and kept for the rest of the run. */
+static Voice plane_voice = { -1, -1, -1, 0, 0 };
+static int plane_pan = -1;
 #define voices voice_sets[0]
 static const int voice_sfx[V_COUNT] = {
     DK_SFX_ENGINE_LOW, DK_SFX_ENGINE_HIGH, DK_SFX_DRIFT, DK_SFX_SPARKS, DK_SFX_OFFROAD, DK_SFX_BRAKE
@@ -240,7 +244,7 @@ void audio_init(void) {
     int loaded = 0;
     for(int i = 0; i < DK_SFX_COUNT; i++) {
         const dk_sfx_asset_t *a = &dk_sfx_assets[i];
-        sfx[i] = snd_sfx_load_raw_buf((char *)(dk_sfx_pak + a->offset), a->bytes, DK_SFX_RATE, 16, 1);
+        sfx[i] = snd_sfx_load_raw_buf((char *)(dk_sfx_pak + a->offset), a->bytes, a->rate, 16, 1);
         if(sfx[i] == SFXHND_INVALID) printf("DreamKarts audio: effect %d failed to load\n", i);
         else loaded++;
     }
@@ -298,6 +302,11 @@ void audio_shutdown(void) {
                 v->channel = -1;
             }
         }
+    if(plane_voice.channel >= 0) {
+        snd_sfx_stop(plane_voice.channel);
+        snd_sfx_chn_free(plane_voice.channel);
+        plane_voice.channel = -1;
+    }
     snd_sfx_stop_all();
     snd_sfx_unload_all();
     snd_stream_shutdown();
@@ -498,7 +507,7 @@ void audio_sfx_pitch(int id, int vol, int pan, float rate) {
     d.idx = sfx[id];
     d.vol = vol > 255 ? 255 : vol;
     d.pan = pan;
-    d.freq = (int)(DK_SFX_RATE * rate);
+    d.freq = (int)(dk_sfx_assets[id].rate * rate);
     int chn = snd_sfx_play_ex(&d);
     for(int i = 0; i < V_COUNT * MAX_PLAYERS; i++)
         if(chn >= 0 && chn == voice_sets[i / V_COUNT][i % V_COUNT].channel)
@@ -555,6 +564,44 @@ static void voice_set(Voice *v, int freq, int vol) {
     snd_sh4_to_aica(packet, cmd->size);
     v->last_freq = freq;
     v->last_vol = vol;
+}
+
+void audio_plane(int vol, int pan, float rate) {
+    if(!ready || sfx[DK_SFX_PLANE] == SFXHND_INVALID) return;
+    Voice *v = &plane_voice;
+    if(v->channel < 0) {
+        if(vol <= 0) return;
+        int chn = snd_sfx_chn_alloc();
+        if(chn < 0) return;
+        sfx_play_data_t d;
+        memset(&d, 0, sizeof(d));
+        d.chn = chn;
+        d.idx = sfx[DK_SFX_PLANE];
+        d.vol = 0;
+        d.pan = 128;
+        d.loop = 1;
+        d.freq = (int)dk_sfx_assets[DK_SFX_PLANE].rate;
+        d.loopend = dk_sfx_assets[DK_SFX_PLANE].bytes / 2;
+        v->channel = snd_sfx_play_ex(&d);
+        if(v->channel < 0) {
+            snd_sfx_chn_free(chn);
+            return;
+        }
+        v->last_freq = v->last_vol = -1;
+    }
+    vol = vol < 0 ? 0 : vol > 255 ? 255 : vol;
+    voice_set(v, (int)(dk_sfx_assets[DK_SFX_PLANE].rate * clampf(rate, 0.5f, 2.0f)), vol);
+    if(vol > 0 && pan != plane_pan) {
+        AICA_CMDSTR_CHANNEL(packet, cmd, chan);
+        cmd->cmd = AICA_CMD_CHAN;
+        cmd->timestamp = 0;
+        cmd->size = AICA_CMDSTR_CHANNEL_SIZE;
+        cmd->cmd_id = (uint32_t)v->channel;
+        chan->cmd = AICA_CH_CMD_UPDATE | AICA_CH_UPDATE_SET_PAN;
+        chan->pan = (uint32_t)pan;
+        snd_sh4_to_aica(packet, cmd->size);
+        plane_pan = pan;
+    }
 }
 
 void audio_kart_loops(int slot, const Kart *k, float dt) {

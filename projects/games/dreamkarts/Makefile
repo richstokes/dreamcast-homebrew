@@ -3,7 +3,7 @@ include ../../../tools/sh4zam.mk
 else
 
 TARGET = dreamkarts.elf
-SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c \
+SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
@@ -125,13 +125,21 @@ tsudoken-props:
 	$(BLENDER) --background --python tools/build_tsudoken_props.py -- --header $(GEN)/tsudoken_props.h \
 		--blend captures/tsudoken_props.blend --preview captures/tsudoken-props
 
+# Spiral Canyon's final-lap biplane: Blender models it and bakes the body
+# and propeller meshes; captures/biplane.blend and captures/biplane/*.png
+# to look at.
+biplane:
+	mkdir -p captures
+	$(BLENDER) --background --python tools/build_biplane.py -- --header $(GEN)/biplane_mesh.h \
+		--blend captures/biplane.blend --preview captures/biplane
+
 audio:
 	uv run tools/build_audio.py --output-dir $(GEN)
 
 vmu:
 	uv run tools/build_vmu.py --output-dir $(GEN)
 
-assets: textures models audio vmu canyon-rock tsudoken-props
+assets: textures models audio vmu canyon-rock tsudoken-props biplane
 
 run: $(TARGET)
 	./run-flycast.sh --skip-build
@@ -184,6 +192,6 @@ disc: disc-elf
 hw: disc-elf
 	$(DC_HW) run -c -T 86400 dreamkarts-disc.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props all clean run textures models audio vmu assets autotest hwbench hw disc disc-elf force
+.PHONY: canyon-rock tsudoken-props biplane all clean run textures models audio vmu assets autotest hwbench hw disc disc-elf force
 
 endif

@@ -14,6 +14,7 @@
 #include "title.h"
 #include "track.h"
 #include "world.h"
+#include "biplane.h"
 #include "dolphins.h"
 #include "items.h"
 #include "online.h"
@@ -281,6 +282,11 @@ static void capture_script(void) {
     if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
     if(game.state == ST_RACE && dolphins_show_time() > 0.85f && !shot[11]) { shot[11] = true; take_shot("dolphins"); }
     if(game.state == ST_RACE && dolphins_show_time() > 3.65f && !shot[12]) { shot[12] = true; take_shot("dolphins2"); }
+    if(game.state == ST_RACE && biplane_show_time() > 1.2f && !shot[56]) { shot[56] = true; take_shot("biplane"); }
+    if(game.state == ST_RACE && biplane_show_time() > 2.6f && !shot[57]) { shot[57] = true; take_shot("biplane2"); }
+    if(game.state == ST_RACE && biplane_show_time() > 4.0f && !shot[58]) { shot[58] = true; take_shot("biplane3"); }
+    if(game.state == ST_RACE && biplane_show_time() > 5.4f && !shot[59]) { shot[59] = true; take_shot("biplane4"); }
+    if(game.state == ST_RACE && biplane_show_time() > 6.8f && !shot[60]) { shot[60] = true; take_shot("biplane5"); }
     if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot(gp.active ? "gp-results" : "results"); }
 #ifdef DK_AT_GP
     /* Grand Prix: the standings after the first race, the next race's intro
@@ -579,6 +585,7 @@ void race_reset(void) {
     }
     fx_clear();
     dolphins_reset();
+    biplane_reset();
     hud_reset();
     update_places();
     items_reset(game.online ? online_items_seed() : dk_rand());
@@ -925,6 +932,7 @@ static void race_step(float dt, bool drive) {
     karts_collide();
     update_places();
     dolphins_update(dt);
+    biplane_update(dt);
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
         if(k->events & EV_FINISH) game.finished_count++;
@@ -1342,6 +1350,7 @@ static void render(void) {
             models_draw_karts(view_kart(v));
             PROF_BEGIN(pd);
             dolphins_draw();
+            biplane_draw();
             PROF_LAP(PS_DOLPHINS, pd);
         }
     PROF_MARK(2);
@@ -1810,6 +1819,7 @@ int main(int argc, char **argv) {
     fx_init();
     items_init();
     dolphins_init();
+    biplane_init();
     boot_screen(boot_t0, 0.7f, "TUNING STEEL DRUMS");
     audio_init();
     boot_screen(boot_t0, 1.0f, "READY!");
@@ -1976,6 +1986,7 @@ int main(int argc, char **argv) {
                        !game.paused;
         for(int p = 0; p < MAX_PLAYERS; p++)
             audio_kart_loops(p, engines && p < game.num_players ? &karts[game.pl[p].kart] : NULL, dt_real);
+        biplane_audio(engines && game.state == ST_RACE);
         PROF_LAP(PS_U_AUDIO, pus);
         rumble_update(dt_real, (game.state == ST_RACE || game.state == ST_COUNTDOWN) && !game.paused);
         vmuscreen_update(dt_real);

@@ -39,7 +39,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from scipy.signal import fftconvolve, lfilter
+from scipy.signal import fftconvolve, lfilter, resample_poly
 
 SFX_RATE = 22050
 MUSIC_RATE = 32000
@@ -1605,6 +1605,26 @@ def sfx_mine_hit():
     return softsat(boom + crack + rumble + debris, 1.5)
 
 
+def sfx_plane():
+    """Spiral Canyon's biplane: a radial engine's lumpy drone and the prop's
+    chop, as a seamless loop. The game retunes it each frame for distance
+    and doppler as the plane weaves ahead of the kart. 73.5 Hz exactly
+    (300 samples), the lumps a quarter of that, so 12000 samples hold
+    whole cycles of everything."""
+    rng = rng_for("plane")
+    L = 12000
+    t = np.arange(L)
+    ph = TAU * t / 300
+    drone = np.zeros(L)
+    for k in range(1, 28):
+        drone += np.sin(k * ph + rng.uniform(0, TAU)) / k ** 0.85
+    lump = 1.0 + 0.35 * np.sin(ph * 0.5 + 0.7) + 0.2 * np.sin(ph * 0.25)
+    chop = 0.75 + 0.25 * np.sin(2 * ph)
+    body = periodic(lambda x: filt(x, "lp", 2600, 0.8), drone * lump * chop)
+    air = periodic(lambda x: filt(x, "bp", 1500, 0.9), rng.standard_normal(L)) * 0.25
+    return softsat(body * 0.32 + air, 1.3)
+
+
 SFX = [
     ("ENGINE_LOW", sfx_engine_low, True, 0.75),
     ("ENGINE_HIGH", sfx_engine_high, True, 0.65),
@@ -1647,6 +1667,7 @@ SFX = [
     ("MINE", sfx_mine, False, 0.7),
     ("MINE_HIT", sfx_mine_hit, False, 0.85),
     ("BELL", sfx_bell, False, 0.75),
+    ("PLANE", sfx_plane, True, 0.8, 2),
 ]
 
 
@@ -3226,11 +3247,22 @@ def build_sfx(out, previews):
     pak = bytearray()
     entries = []
     print(f"{'effect':12s} {'secs':>5s} {'peak':>6s} {'rms':>6s} {'dc':>8s}  notes")
-    for name, fn, loop, vol in SFX:
+    for name, fn, loop, vol, *down in SFX:
         x = np.asarray(fn(), dtype=np.float64)
         if not np.all(np.isfinite(x)):
             raise SystemExit(f"{name}: non-finite samples")
         x = finish_loop(x) if loop else finish_oneshot(x)
+        # A trailing factor stores the effect at a fraction of the rate
+        # (main RAM is tight; a low drone loses nothing at 11 kHz).
+        div = down[0] if down else 1
+        if div > 1:
+            # Loops resample as three copies, keeping the middle one, so
+            # the seam stays continuous.
+            n = len(x)
+            x = resample_poly(np.tile(x, 3) if loop else x, 1, div)
+            if loop:
+                x = x[n // div:2 * n // div]
+        rate = SR // div
         if len(x) > MAX_SFX_SAMPLES:
             raise SystemExit(f"{name}: {len(x)} samples exceeds AICA limit")
         pcm = to_pcm16(x)
@@ -3242,7 +3274,7 @@ def build_sfx(out, previews):
             # Guard samples: the start of the loop again, outside `bytes`, so
             # interpolation that peeks past the loop end reads continuous data.
             pak += pcm[:16].tobytes()
-        entries.append((name, off, len(pcm) * 2, int(loop), vol))
+        entries.append((name, off, len(pcm) * 2, int(loop), vol, rate))
         d = np.abs(np.diff(x))
         peak = 20 * np.log10(np.max(np.abs(x)))
         rms = 20 * np.log10(np.sqrt(np.mean(x ** 2)))
@@ -3256,8 +3288,8 @@ def build_sfx(out, previews):
         else:
             note = f"edges {abs(x[0]):.4f}/{np.max(np.abs(x[-32:])):.4f}"
             preview = x
-        print(f"{name:12s} {len(x) / SR:5.2f} {peak:6.1f} {rms:6.1f} {np.mean(x):+8.5f}  {note}")
-        write_wav(previews / f"{name.lower()}.wav", preview, SR, 1)
+        print(f"{name:12s} {len(x) / rate:5.2f} {peak:6.1f} {rms:6.1f} {np.mean(x):+8.5f}  {note}")
+        write_wav(previews / f"{name.lower()}.wav", preview, rate, 1)
     while len(pak) % 32:
         pak.append(0)
     (out / "sfx.pak").write_bytes(bytes(pak))
@@ -3278,6 +3310,7 @@ SFX_LABELS = {
     "WHOOSH": "WHOOSH", "STAR": "STAR",
     "EMERALD": "EMERALD", "SPEAR": "CHAOS SPEAR", "SPEAR_HIT": "SPEAR HIT", "BARRIER": "BARRIER",
     "BARRIER_POP": "BARRIER POP", "MINE": "MINE", "MINE_HIT": "MINE BLAST", "BELL": "LOBBY BELL",
+    "PLANE": "BIPLANE",
 }
 
 
@@ -3298,16 +3331,16 @@ def write_header(out, entries, music_bytes, song_starts):
          "static const float dk_music_song_bpm[DK_MUSIC_SONG_COUNT] __attribute__((unused)) = {"
          + ", ".join(f"{song.grid.bpm:.3f}f" for song in SONGS) + "};",
          "",
-         "/* offset/bytes into sfx.pak, loop=1 for seamless loops */",
-         "typedef struct { uint32_t offset, bytes, loop; } dk_sfx_asset_t;", "",
+         "/* offset/bytes into sfx.pak, loop=1 for seamless loops, sample rate */",
+         "typedef struct { uint32_t offset, bytes, loop, rate; } dk_sfx_asset_t;", "",
          "typedef enum {"]
     for name, *_ in entries:
         h.append(f"    DK_SFX_{name},")
     h += ["    DK_SFX_COUNT", "} dk_sfx_id_t;", "",
           "/* Trailing comment: suggested snd_sfx volume (0-255) at full intensity. */",
           "static const dk_sfx_asset_t dk_sfx_assets[DK_SFX_COUNT] __attribute__((unused)) = {"]
-    for name, off, size, loop, vol in entries:
-        h.append(f"    {{ {off}u, {size}u, {loop}u }}, /* {name:12s} vol {int(round(vol * 255))} */")
+    for name, off, size, loop, vol, rate in entries:
+        h.append(f"    {{ {off}u, {size}u, {loop}u, {rate}u }}, /* {name:12s} vol {int(round(vol * 255))} */")
     h += ["};", "", "/* Effect names for the sound test. */",
           "static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {"]
     for name, *_ in entries:

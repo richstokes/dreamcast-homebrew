@@ -28,7 +28,7 @@ Highlights:
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
-- Rocket starts, charge jumps, burnouts, emotes and final-lap dolphins
+- Rocket starts, charge jumps, burnouts, emotes, final-lap dolphins and a biplane weaving ahead on Spiral Canyon's final lap
 - Four original songs, 32 effects, Chao voices by colour and Jump Pack rumble
 - A Settings menu with the sound test, your online name, a music switch and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
 - VMU screens for the countdown, place, lap and results
@@ -147,6 +147,7 @@ needs no Python.
 | `make models` | The kart and Chao meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
 | `make canyon-rock` | Spiral Canyon's rock (`canyon_rock.h`): a `-DDK_DUMP_ROCK` build prints the rock's height field, tunnel bores and road clearance, and Blender (`tools/build_canyon_rock.py`, ~5 s) cuts one mesh from them; open `captures/canyon_rock.blend` to look at it. Rerun after changing the track's layout, heights or the rock's shape |
 | `make tsudoken-props` | Tsudoken Drift's props (`tsudoken_props.h`): Blender (`tools/build_tsudoken_props.py`, ~2 s) models Mt Fuji, the cherry trees, torii, stone lanterns, pagoda, grandstand, race control, pit garages, teahouse and bridge, and bakes each as strips per material; `captures/tsudoken_props.blend` holds the scene and `captures/tsudoken-props/` a render of each |
+| `make biplane` | Spiral Canyon's final-lap biplane (`biplane_mesh.h`): Blender (`tools/build_biplane.py`, ~2 s) models the plane and its propeller; `captures/biplane.blend` holds the scene and `captures/biplane/` renders from five angles |
 | `make audio` | Songs and effects, encoded to AICA ADPCM (`sfx.pak`, `music.adpcm`) |
 | `make vmu` | The save file's icon and the VMU screen sprites and fonts |
 | `make assets` | All of the above |

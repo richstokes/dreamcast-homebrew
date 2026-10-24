@@ -16,7 +16,7 @@ enum {
     PS_LIGHT,       /* per-vertex kart lighting */
     PS_MXFORM,      /* r_mesh: transform, outcode and projection */
     PS_MSUBMIT,     /* r_mesh: per-triangle cull and store-queue submit */
-    PS_DOLPHINS,    /* dolphins_draw, all of it */
+    PS_DOLPHINS,    /* dolphins_draw and biplane_draw, all of them */
     PS_CHUNKS,      /* draw_chunks (OP), culling and r_strip */
     PS_SKY,
     PS_SEA,
