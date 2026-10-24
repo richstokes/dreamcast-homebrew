@@ -856,9 +856,17 @@ func (s *Server) sendLobby(l *Lobby, p *Player, now time.Time) {
 		b = append(b, q.Custom[:]...)
 	}
 	b = append(b, l.watcherCount(), l.flags())
-	var left int32
+	// Racing: until the race ends after the first finisher. Results
+	// (build 21): until the lobby goes back to waiting.
+	var end time.Time
 	if l.State == StateRacing && !l.FirstFin.IsZero() {
-		if left = int32(l.FirstFin.Add(FinishGrace).Sub(now) / time.Millisecond); left < 1 {
+		end = l.FirstFin.Add(FinishGrace)
+	} else if l.State == StateResults {
+		end = l.ResultsTo
+	}
+	var left int32
+	if !end.IsZero() {
+		if left = int32(end.Sub(now) / time.Millisecond); left < 1 {
 			left = 1
 		}
 	}

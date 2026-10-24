@@ -169,11 +169,11 @@ latest version" and never gets further.
 | 22 | n x 23 bytes | players |
 | 22 + 23n | u8 | watchers (capped at 255) |
 | 23 + 23n | u8 | lobby flags: bit0 the server's demo lobby (bots race, watch only) |
-| 24 + 23n | i32 | ms until the race ends after the first finisher (racing only; 0 until someone finishes) |
+| 24 + 23n | i32 | racing: ms until the race ends after the first finisher (0 until someone finishes); results: ms until back to the lobby (build 21); otherwise 0 |
 | 28 + 23n | u8 | power-ups on (the leader's switch; on by default) |
 
 The watcher count and flags (also after the `LOBBIES` entries) arrived in
-build 4, the race end in build 7 and the power-ups switch in build 11;
+build 4, the race end in build 7, the power-ups switch in build 11 and the results time in build 21;
 older consoles ignore the extra bytes. Protocol 4 (build 17) grew the
 player entry from 20 to 23 bytes for the custom kart.
 

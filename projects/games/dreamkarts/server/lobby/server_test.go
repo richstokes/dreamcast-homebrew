@@ -184,6 +184,9 @@ func TestRaceLifecycle(t *testing.T) {
 			t.Errorf("%s has %d points, want %d", p.name, p.points, want)
 		}
 	}
+	if left := raceLeft(a.last(TypeLobby)); left < 7500 || left > 8000 {
+		t.Fatalf("back to the lobby in %d ms, want about %v", left, ResultsLen)
+	}
 	h.advance(ResultsLen + 100*time.Millisecond)
 	if v = a.lobby(); v.state != StateWaiting {
 		t.Fatalf("not back in the lobby: %+v", v)

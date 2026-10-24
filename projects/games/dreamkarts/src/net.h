@@ -44,7 +44,8 @@ typedef struct {
     int track, laps, cc, race_id;
     int items;              /* power-ups on in this lobby's races */
     uint64_t green_ms;      /* local timer_ms of the green light */
-    uint64_t end_ms;        /* local timer_ms the race ends after the first finisher (0 none) */
+    uint64_t end_ms;        /* local timer_ms the race ends after the first finisher, or
+                               results go back to the lobby (0 none) */
     uint8_t nonce;
     int watchers, flags;
     int count;

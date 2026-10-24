@@ -634,11 +634,11 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
             l->watchers = tail + 2 <= n ? b[tail] : 0;
             l->flags = tail + 2 <= n ? b[tail + 1] : 0;
             /* Build 7 servers add how long the race has left once someone
-               has finished. */
+               has finished, build 21 servers how long the results stay up. */
             int32_t left = tail + 6 <= n ? (int32_t)get32(b + tail + 2) : 0;
             /* Build 11 servers add the lobby's items switch. */
             l->items = tail + 7 <= n ? b[tail + 6] : 1;
-            if(l->state != NLS_RACING || left <= 0) {
+            if((l->state != NLS_RACING && l->state != NLS_RESULTS) || left <= 0) {
                 l->end_ms = 0;
             }
             else {

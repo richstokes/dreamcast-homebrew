@@ -1539,7 +1539,20 @@ void online_draw_results(void) {
             hud_text(x0 + 420, y + 2, 0.65f, ALIGN_RIGHT, argb(255, 255, 226, 70), buf);
         }
     }
-    hud_text(x0 + 220, 386, 0.5f, ALIGN_CENTER, 0xffffffff, "BACK TO THE LOBBY SOON");
+    char buf[32] = "BACK TO THE LOBBY SOON";
+    uint64_t end = l->end_ms;
+    if(end) {
+        int64_t ms = (int64_t)end - (int64_t)net_now();
+        snprintf(buf, sizeof(buf), "BACK TO THE LOBBY IN %d", ms > 1000 ? (int)((ms + 999) / 1000) : 1);
+    }
+#ifdef DK_AT_ONLINE
+    static char shown[32];
+    if(strcmp(buf, shown)) {
+        strcpy(shown, buf);
+        printf("DK ONLINE: %s\n", buf);
+    }
+#endif
+    hud_text(x0 + 220, 386, 0.5f, ALIGN_CENTER, 0xffffffff, buf);
 }
 
 const char *online_name(void) {
