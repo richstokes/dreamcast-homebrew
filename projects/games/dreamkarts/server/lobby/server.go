@@ -122,6 +122,9 @@ type Server struct {
 	// too-old screen has to come up on it (builds up to 17 dropped the
 	// packet and reported a lost connection instead).
 	RejectProto byte
+	// OnEvent, when set, hears about lobby joins and races starting (see
+	// Event), on the goroutine that feeds the server.
+	OnEvent func(Event, time.Time)
 }
 
 // rejectLogEvery is how often one address's rejected HELLO is logged for
@@ -443,6 +446,9 @@ func (s *Server) join(p *Player, id int, now time.Time) {
 	l.dirty = true
 	s.Logf("%q joined lobby %d slot %d", p.Name, id, slot)
 	s.sendLobby(l, p, now)
+	if !p.Bot && !l.Demo {
+		s.emit(Event{Kind: EventJoin, Lobby: id + 1, Name: p.Name, Players: names(l.Slots[:])}, now)
+	}
 }
 
 // spectate puts p in lobby id's audience: it gets the lobby and race state
@@ -588,6 +594,10 @@ func (s *Server) startRace(l *Lobby, now time.Time) {
 	l.dirty = true
 	s.Logf("lobby %d race %d: %d racers, track %d, %d laps, cc %d, items %v", l.ID, l.RaceID, len(racers), l.Track,
 		l.Laps, l.CC, l.Items)
+	if len(racers) >= 2 && !l.Demo {
+		s.emit(Event{Kind: EventRace, Lobby: l.ID + 1, Players: names(racers), Track: l.Track, Laps: l.Laps, CC: l.CC,
+			Items: l.Items}, now)
+	}
 }
 
 // retire takes p out of the race it is in (the console pressed Start and

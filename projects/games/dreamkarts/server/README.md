@@ -18,6 +18,28 @@ and `DREAMKARTS_BAD_WORDS_EXTRA` adds words of your own, comma-separated;
 restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
 bots that anyone can watch.
 
+## Discord alerts
+
+The server posts to Discord webhooks when someone joins a lobby (at most
+one every 5 minutes per webhook) and when a race with two or more racers
+starts (every time). Bots, the demo lobby and solo practice races never
+post. Webhook URLs are secret, so they live in the private
+[infra repo](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip)
+(`config/dreamkarts/discord.json`), which installs them to
+`/etc/dreamkarts/discord.json`; change them there with `manage.py check` and
+`apply --restart-apps`. Missing file: no alerts. Each webhook picks its
+events and can override a throttle:
+
+```json
+{"webhooks": [
+  {"name": "dcnet", "url": "https://discord.com/api/webhooks/...", "events": ["lobby_join", "race_start"]},
+  {"name": "races", "url": "https://discord.com/api/webhooks/...", "events": ["race_start"], "throttle": {"race_start": "1m"}}
+]}
+```
+
+`-discord file.json` (or `DREAMKARTS_DISCORD_CONFIG`) points a local server
+at a file; plain `http://127.0.0.1:...` URLs are allowed for testing.
+
 ## Online change checklist
 
 [`../src/net_version.h`](../src/net_version.h) is the single source of

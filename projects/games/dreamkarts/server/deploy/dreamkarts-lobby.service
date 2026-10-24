@@ -10,6 +10,9 @@ Type=simple
 User=dreamkarts
 Group=dreamkarts
 EnvironmentFile=/etc/dreamkarts/lobby.env
+# Discord webhooks for lobby alerts, installed (root:dreamkarts 0640) by
+# richstokes/infra since the URLs are secret. Missing: no alerts.
+Environment=DREAMKARTS_DISCORD_CONFIG=/etc/dreamkarts/discord.json
 # Keeps the last downloaded bad word list (STATE_DIRECTORY, writable under
 # ProtectSystem=strict) for restarts while its host is unreachable.
 StateDirectory=dreamkarts
