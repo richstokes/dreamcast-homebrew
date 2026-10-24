@@ -43,7 +43,7 @@ Cloud saves for the Dreamcast. The console client backs up VMU saves to
 
 ## Building and running
 
-Known-working baseline: KallistiOS 2.3.0, GCC 15.2.0 SH-4 toolchain, Flycast 2.7.
+Known-working baseline: KallistiOS 2.3.0 master `e7ab1a2`, GCC 15.2.0 SH-4 toolchain, Flycast 2.7.
 For a native macOS Flycast with the fixes these projects rely on, see
 [tools/flycast](tools/flycast/README.md). The SDK needs the repository's
 [KOS patches](tools/kos/README.md) applied once, then a KOS rebuild.

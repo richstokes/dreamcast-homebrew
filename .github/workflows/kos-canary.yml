@@ -1,0 +1,80 @@
+name: KOS canary
+
+# Builds every project against the newest KallistiOS and kos-ports with our
+# patches, so drift shows up between pin bumps: a patch that went upstream
+# or no longer applies, or a build that breaks. It fails rather than opening
+# issues, and never publishes. Bumping the pin stays a deliberate step
+# (tools/kos/README.md), gated on the hardware benchmarks.
+on:
+  schedule:
+    - cron: '23 7 * * 1'   # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read the release pins
+        run: |
+          grep -E '^  (KOS_COMMIT|TOOLCHAIN_IMAGE):' .github/workflows/release.yml |
+            sed -E 's/^  ([A-Z_]+): */\1=/' >> "$GITHUB_ENV"
+
+      - name: Fetch latest upstream SH4ZAM
+        run: |
+          tools/update-sh4zam.sh \
+            projects/apps/pico8-dreamcast/third_party/sh4zam \
+            projects/games/drift-los-angeles/third_party/sh4zam \
+            projects/games/dreamkarts/third_party/sh4zam \
+            projects/games/totally-bazaar/third_party/sh4zam
+
+      - name: Check out KallistiOS and kos-ports master
+        run: |
+          mkdir -p .ci
+          git clone --filter=blob:none https://github.com/KallistiOS/KallistiOS.git .ci/kos
+          git clone --depth 1 https://github.com/KallistiOS/kos-ports.git .ci/kos-ports
+
+      - name: Report how far master is from the pin
+        run: |
+          {
+            echo "## KallistiOS master $(git -C .ci/kos rev-parse --short HEAD)"
+            echo
+            echo "$(git -C .ci/kos rev-list --count "$KOS_COMMIT..HEAD") commits since the pin \`${KOS_COMMIT:0:7}\`."
+            echo
+            echo "Commits touching files our patches change:"
+            echo
+            echo '```'
+            git -C .ci/kos log --oneline "$KOS_COMMIT..HEAD" -- \
+              $(sed -n 's|^+++ b/||p' tools/kos/patches/kos/*.patch | sort -u) || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Any patch already in master went upstream and should be dropped.
+      - name: Apply our patches
+        run: tools/kos/apply-patches.sh --fresh .ci/kos .ci/kos-ports
+
+      - name: Install pinned SH-4 compiler toolchain
+        run: docker pull "$TOOLCHAIN_IMAGE"
+
+      - name: Build KallistiOS and kos-ports
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            "$TOOLCHAIN_IMAGE" \
+            sh .github/scripts/build-sdk-in-container.sh
+
+      - name: Build every project
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            "$TOOLCHAIN_IMAGE" \
+            sh .github/scripts/build-in-container.sh

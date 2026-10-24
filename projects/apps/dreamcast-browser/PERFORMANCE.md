@@ -72,9 +72,10 @@ not LAN bridging.
 The installed KOS keyboard driver also used `state + sizeof(kbd_state_t)` for
 its private-state reset. C scales that offset by the size of the pointed-to
 struct: the compiled driver cleared 76 bytes at offset 73,984 within a 348-byte
-allocation. The one-line
-[`kos-keyboard-attach.patch`](../../../tools/kos/patches/kos/kos-keyboard-attach.patch)
-uses `state + 1`, offset 272. The rebuilt archive's disassembly confirms the corrected offset. This is a memory safety
+allocation. The one-line keyboard attach fix (upstream as
+[KallistiOS#1537](https://github.com/KallistiOS/KallistiOS/pull/1537)) uses
+`state + 1`, offset 272. The rebuilt archive's disassembly confirms the
+corrected offset. This is a memory safety
 repair, separate from the timing improvements above.
 
 ## Reproduce
@@ -146,7 +147,7 @@ polling held that mutex while trying to acquire a read lock; socket cleanup
 could hold the writer gate while waiting for existing readers. In that state
 the UI remained responsive but the HTTP worker could not finish or cancel.
 
-[`kos-tcp-poll-lock.patch`](../../../tools/kos/patches/kos/kos-tcp-poll-lock.patch)
+The poll-lock fix (upstream as [KallistiOS#1550](https://github.com/KallistiOS/KallistiOS/pull/1550))
 moves the receive notification outside both TCP locks. Descriptor/event values are copied before unlocking,
 so notification does not dereference a socket that cleanup may have freed.
 The patched SDK passed the streaming suite and the live-site navigation above.
@@ -210,7 +211,7 @@ of its 64 KiB buffers. Eight rounds of loading a page with two oversized
 images left 2 MiB allocated after a 35-second idle, and a fifth round stopped
 transferring altogether.
 
-[`kos-tcp-orphan-reset.patch`](../../../tools/kos/patches/kos/kos-tcp-orphan-reset.patch):
+The orphan-reset fix (upstream as [KallistiOS#1551](https://github.com/KallistiOS/KallistiOS/pull/1551)):
 data arriving for a socket that `close()` has released resets the connection,
 closing with unread data sends a reset instead of a FIN, and a released socket
 is given thirty seconds to finish closing. With it, the heap in use after each

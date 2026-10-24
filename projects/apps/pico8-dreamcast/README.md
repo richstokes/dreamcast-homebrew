@@ -94,8 +94,8 @@ stock KOS it needs:
   `make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`
 - The repository's [KOS patches](../../../tools/kos/README.md), which CI also
   applies: `tools/kos/apply-patches.sh`, then `make -C "$KOS_BASE"`. This
-  project needs the maple receive-buffer, PPP lifecycle, BBA receive, TCP
-  window, TCP poll-lock and keyboard attach fixes
+  project needs the maple receive-buffer, PPP lifecycle, BBA receive and
+  TCP window fixes
 - [SH4ZAM](third_party/SH4ZAM.md), header-only and never pinned: every build
   fast-forwards the ignored `third_party/sh4zam` checkout to upstream `master`
 

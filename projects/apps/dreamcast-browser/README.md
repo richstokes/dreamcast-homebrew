@@ -91,7 +91,7 @@ with DuckDuckGo Lite; start with `?` to force a search. Build with
 
 The browser links the official KOS ports for `curl`, `mbedtls`, `zlib` and
 `stb_image`, and needs the repository's [KOS patches](../../../tools/kos/README.md)
-(keyboard attach, the TCP fixes, PPP lifecycle and the kos-ports
+(PPP lifecycle, BBA receive, TCP window and the kos-ports
 compatibility patch). From the repository root, in a sourced KOS environment:
 
 ```sh
@@ -159,11 +159,11 @@ distribute either.
 - KOS never reset a connection that `close()` released while the server was
   still sending. Each one stranded a socket and 128 KiB of buffers, and after
   about eight, transfers stopped. If the heap grows in 128 KiB steps after
-  cancels or oversized images, check `tools/kos/apply-patches.sh --check`
-  passes for the linked SDK
+  cancels or oversized images, check the linked SDK has KallistiOS#1551
+  (KOS master has it)
 - A KOS TCP receive notification could deadlock against poll and socket
   cleanup after a few page loads, with even cancellation stuck.
-  `kos-tcp-poll-lock.patch` moves the notification outside both locks
+  KOS master moves the notification outside both locks (KallistiOS#1550)
 - Stock Flycast raises BBA interrupts from its network thread. Under
   `-DBROWSER_LOADING_STRESS=40` about one run in four ended in an emulator
   crash, a guest double fault or a stall, release builds included. The
