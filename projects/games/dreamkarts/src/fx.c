@@ -14,7 +14,12 @@ typedef struct {
     float life, max_life;
     float size, grow;
     float gravity, drag;
-    float floor;        /* road height under a puff: its disc is drawn no lower (see fx_draw) */
+    /* Road plane under the particle, y = floor + fgx * x + fgz * z: sparks
+       and confetti bounce off it, a puff's disc is drawn no lower (see
+       fx_draw). The road is not at y = 0 on the hill tracks (Cyberstone's
+       valley is 5 m below it), so a world floor left drift sparks hanging
+       in the air there. */
+    float floor, fgx, fgz;
     uint32_t c0, c1;
     uint8_t type;
 } Particle;
@@ -24,6 +29,29 @@ static Particle parts[MAX_PARTICLES];
 static int part_n;
 static const pvr_poly_hdr_t *h_add, *h_smoke, *h_star, *h_flame, *h_spark_glow, *h_mark;
 static float spawn_acc[MAX_KARTS][3];
+
+#define NO_FLOOR -1e30f
+
+static float floor_at(const Particle *q) {
+    return q->floor + q->fgx * q->p.x + q->fgz * q->p.z;
+}
+
+/* The road plane through at, rising by grad (metres per metre, in xz). */
+static void set_floor(Particle *q, V3 at, V3 grad) {
+    q->fgx = grad.x;
+    q->fgz = grad.z;
+    q->floor = at.y - grad.x * at.x - grad.z * at.z;
+}
+
+/* How the road under a kart rises per metre across (its bank) and along
+   (its slope), as a horizontal gradient. */
+static V3 road_grad(const Kart *k) {
+    float bank = track_bank(k->tp.s);
+    float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
+    V3 g = vadd(vscale(k->tp.right, bank), vscale(k->tp.tangent, slope));
+    g.y = 0;
+    return g;
+}
 
 /* Skid marks: a ring of short dark strips laid behind each rear tyre while
    a kart brakes hard, fading out over MARK_LIFE seconds. */
@@ -86,7 +114,8 @@ static Particle *spawn(int type, V3 p, V3 v, float life, float size, uint32_t c0
     q->grow = 0;
     q->gravity = 0;
     q->drag = 0;
-    q->floor = -1e30f;
+    q->floor = NO_FLOOR;
+    q->fgx = q->fgz = 0;
     q->c0 = c0;
     q->c1 = c1;
     q->type = (uint8_t)type;
@@ -108,20 +137,20 @@ void fx_update(float dt) {
             q->v = vscale(q->v, k);
         }
         q->p = vmad(q->p, q->v, dt);
-        if(q->p.y < 0.02f && q->type == P_SPARK) {
-            q->p.y = 0.02f;
-            q->v.y = -q->v.y * 0.35f;
-        }
-        if(q->type == P_CONFETTI && q->p.y < 0.02f) {
-            q->p.y = 0.02f;
-            q->v = v3(0, 0, 0);
+        if(q->type == P_SPARK || q->type == P_CONFETTI) {
+            float road = floor_at(q) + 0.02f;
+            if(q->p.y < road) {
+                q->p.y = road;
+                if(q->type == P_SPARK) q->v.y = -q->v.y * 0.35f;
+                else q->v = v3(0, 0, 0);
+            }
         }
         q->size += q->grow * dt;
         i++;
     }
 }
 
-void fx_confetti(V3 p, int count) {
+void fx_confetti(V3 p, float ground, int count) {
     static const uint32_t cols[] = {0xffff4040, 0xffffd030, 0xff40c0ff, 0xff60e060, 0xffff70d0, 0xffffffff};
     for(int i = 0; i < count; i++) {
         V3 v = v3(frand_s() * 7.0f, 6.0f + frand() * 8.0f, frand_s() * 7.0f);
@@ -129,6 +158,7 @@ void fx_confetti(V3 p, int count) {
                             2.5f + frand() * 1.5f, 0.16f, cols[i % 6], cols[i % 6]);
         q->gravity = 7.0f;
         q->drag = 1.6f;
+        set_floor(q, v3(p.x, ground, p.z), v3(0, 0, 0));
     }
 }
 
@@ -145,7 +175,7 @@ void fx_burst(V3 p, int count, uint32_t col, float speed) {
     burst_stars(p, count, col, speed);
 }
 
-void fx_trail(V3 p, V3 v, uint32_t col, float dt) {
+void fx_trail(V3 p, float ground, V3 v, uint32_t col, float dt) {
     static float acc;
     acc += 70.0f * dt;
     while(acc >= 1.0f) {
@@ -154,6 +184,7 @@ void fx_trail(V3 p, V3 v, uint32_t col, float dt) {
                             0.18f + frand() * 0.2f, 0.07f, color_lerp(0xffffffff, col, 0.5f), color_alpha(col, 0));
         q->gravity = 4.0f;
         q->drag = 3.0f;
+        set_floor(q, v3(p.x, ground, p.z), v3(0, 0, 0));
     }
 }
 
@@ -172,6 +203,7 @@ void fx_splash(V3 p, float strength) {
         Particle *q = spawn(P_SPARK, vadd(p, v3(0, 0.1f, 0)), v, 0.5f + frand() * 0.3f, 0.05f,
                             0xffffffff, argb(0, 200, 235, 255));
         q->gravity = 12.0f;
+        set_floor(q, p, v3(0, 0, 0));
     }
 }
 
@@ -200,6 +232,7 @@ void fx_kart(const Kart *k, float dt) {
     /* Two views double the fill: halve particle rates in a split screen. */
     float split = game.num_players > 1 ? 0.5f : 1.0f;
     dt *= split;
+    V3 grad = road_grad(k);
 
     /* Drift sparks from both rear tyres. */
     if(k->drift == DRIFT_ACTIVE && k->grounded) {
@@ -216,6 +249,7 @@ void fx_kart(const Kart *k, float dt) {
             Particle *q = spawn(P_SPARK, vadd(base, v3(0, 0.05f, 0)), v, life,
                                 k->stage == 0 ? 0.035f : 0.06f, color_lerp(0xffffffff, c, k->stage == 0 ? 0.4f : 0.8f), color_alpha(c, 0));
             q->gravity = 14.0f;
+            set_floor(q, base, grad);
         }
     }
     /* Skid marks from both rear tyres while braking hard on tarmac. */
@@ -259,7 +293,7 @@ void fx_kart(const Kart *k, float dt) {
                                 sand ? 0.45f : skid ? 0.26f : 0.35f, c, color_alpha(c, 0));
             q->grow = sand ? 1.8f : skid ? 0.9f : 1.4f;
             q->drag = 2.0f;
-            q->floor = base.y;
+            set_floor(q, base, grad);
         }
     }
     if(k->burnout_t > 0) {
@@ -282,7 +316,7 @@ void fx_kart(const Kart *k, float dt) {
                                 argb(0, 250, 250, 250));
             q->grow = 2.0f;
             q->drag = 1.5f;
-            q->floor = (w ? wr : wl).y;
+            set_floor(q, w ? wr : wl, grad);
         }
     }
 
@@ -311,7 +345,7 @@ void fx_kart(const Kart *k, float dt) {
                                 color_alpha(c, 0));
             q->grow = 1.6f;
             q->drag = 3.0f;
-            q->floor = k->pos.y;
+            set_floor(q, k->pos, grad);
         }
     }
     if(ev & EV_WALL) {
@@ -448,7 +482,7 @@ void fx_draw(void) {
         uint32_t c = color_lerp(q->c0, q->c1, t);
         if(world_night) c = color_scale(c, 0.5f);   /* moonlit, not sunlit */
         V3 p = q->p;
-        p.y = fmaxf(p.y, q->floor + size * lift + 0.05f);
+        p.y = fmaxf(p.y, floor_at(q) + size * lift + 0.05f);
         r_billboard(p, size, size, (float)order[k] * 0.7f, 0, 0, 1, 1, c);
     }
     draw_flames();

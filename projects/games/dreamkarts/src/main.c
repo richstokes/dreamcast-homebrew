@@ -865,7 +865,7 @@ static void player_events(int pi, float dt) {
     if(ev & EV_FINISH) {
         audio_sfx(DK_SFX_FINISH, 240, 128);
         if(game.mode == MODE_TT || p->place <= 3) audio_sfx(DK_SFX_CHAO_HAPPY, 210, 128);
-        fx_confetti(vadd(p->pos, v3(0, 1.5f, 0)), game.num_players > 1 ? 50 : 90);
+        fx_confetti(vadd(p->pos, v3(0, 1.5f, 0)), p->pos.y, game.num_players > 1 ? 50 : 90);
     }
     if(ev & (EV_WALL)) pl->cam.shake = fmaxf(pl->cam.shake, 0.12f);
     if(ev & (EV_BOOST | EV_DASH | EV_ROCKET)) pl->cam.shake = fmaxf(pl->cam.shake, 0.04f);

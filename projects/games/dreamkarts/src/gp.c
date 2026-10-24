@@ -96,7 +96,7 @@ static void gp_quit(void) {
 /* The champion's moment on the final standings: confetti and a cheer. */
 static void champion_party(bool first) {
     const Kart *c = &karts[gp.rank[0]];
-    fx_confetti(vadd(c->pos, v3(0, 1.5f, 0)), game.num_players > 1 ? 50 : 90);
+    fx_confetti(vadd(c->pos, v3(0, 1.5f, 0)), c->pos.y, game.num_players > 1 ? 50 : 90);
     if(first) {
         audio_sfx(DK_SFX_FINISH, 240, 128);
         audio_chao(CHAO_HI, c->voice, 210, 128);

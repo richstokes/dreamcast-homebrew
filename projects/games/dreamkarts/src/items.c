@@ -381,7 +381,7 @@ static void spear_step(Spear *sp, float dt) {
         return;
     }
     V3 back = vscale(vnorm(vsub(sp->pos, track_point(s0, sp->d))), -1.0f);
-    fx_trail(sp->pos, vmad(vscale(back, 6.0f), v3(frand_s(), 1.0f + frand(), frand_s()), 2.5f),
+    fx_trail(sp->pos, track_road_y(sp->s, sp->d), vmad(vscale(back, 6.0f), v3(frand_s(), 1.0f + frand(), frand_s()), 2.5f),
              argb(255, 255, 150, 60), dt);
     /* Hits: anyone but the thrower, within the band it swept this step. */
     for(int j = 0; j < kart_count; j++) {
