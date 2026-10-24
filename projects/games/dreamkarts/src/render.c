@@ -104,6 +104,11 @@ void render_init(void) {
     }
     pvr_set_bg_color(0.55f, 0.82f, 0.98f);
     PVR_SET(PVR_PT_ALPHA_REF, 0x60);
+    /* FPU_CULL_VAL: the area under which PVR_CULLING_SMALL drops a
+       triangle. KOS leaves it as the boot left it; this only has to catch
+       the zero-area joins between strips, not real slivers. */
+    union { float f; uint32_t u; } cull_val = {0.01f};
+    PVR_SET(PVR_OBJECT_CLIP, cull_val.u);
     pvr_fog_table_color(1.0f, 0.74f, 0.89f, 0.98f);
     pvr_fog_table_linear(160.0f, 820.0f);
     headers = memalign(32, sizeof(HeaderSlot) * MAX_HEADERS);
@@ -141,7 +146,11 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
     else {
         pvr_poly_cxt_col(&c, list);
     }
-    c.gen.culling = PVR_CULLING_NONE;
+    /* Small, not none: strips are joined with zero-area triangles, which
+       Flycast drops but the console rasterizes as dark streaks out to the
+       tile edge (Tsudoken's lanterns and roof edges against the sky). It
+       never culls by winding. */
+    c.gen.culling = PVR_CULLING_SMALL;
     c.gen.clip_mode = PVR_USERCLIP_INSIDE;
     c.gen.fog_type = (flags & HF_NOFOG) ? PVR_FOG_DISABLE : PVR_FOG_TABLE;
     if(list == PVR_LIST_TR_POLY) {
