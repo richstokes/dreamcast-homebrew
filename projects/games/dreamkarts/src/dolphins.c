@@ -1,8 +1,10 @@
 /* Final-lap dolphins.
 
    On the final lap two dolphins surface in the sea and race alongside: they
-   swim west at the kart's speed, keeping a set distance ahead, making three
-   leaps each and splashing in and out. On Emerald Beach that is out of
+   swim west at the kart's speed, keeping a set distance ahead, making up to
+   three leaps each and splashing in and out. A leap that would land past
+   the stage's west limit is skipped, so at boost speed you see two leaps
+   rather than a dolphin diving into the sand. On Emerald Beach that is out of
    turn 1, beside the boardwalk (about 26 m ahead, 15-20 m right); on Coral
    Crossing, where the sea is further off, up leg B and over the west loop
    (about 80 m ahead, larger and leaping higher); on Palm Harbour, from
@@ -35,6 +37,7 @@ typedef struct {
     float scale;       /* cartoon-sized so they read at distance */
     float peak;        /* leap rise from the start depth */
     float splash;
+    float west;        /* re-entry x must stay east of this */
 } Stage;
 
 static Stage stage;
@@ -59,6 +62,7 @@ typedef struct {
     V3 last[2];
     float x, speed;    /* pod position (x) and westward swimming speed */
     int kart;          /* the kart they race alongside */
+    uint8_t dry[2];    /* per dolphin, bit k: leap k skipped */
 } Show;
 
 static Show shows[MAX_SHOWS];
@@ -140,15 +144,19 @@ void dolphins_init(void) {
 }
 
 /* Emerald Beach: just beyond the boardwalk's outer rail (z 66), out of
-   turn 1. Coral Crossing: the sea lies north of the loops (waterline near
+   turn 1. West of x -62 the outer wall widens towards turn 2 and the
+   lanes run onto the sand shoulder, so leaps must land by x -57. Coral
+   Crossing: the sea lies north of the loops (waterline near
    z 102), so the pod leaps just past the shallows, well ahead, as karts
    run up leg B from the crossing and over the top of the west loop. Palm
    Harbour's sea is the same distance off, north of the seafront. */
+#define NO_LIMIT (-1.0e6f)
+
 static void stage_for_track(void) {
     staged_id = track.id;
     staged = true;
     if(track.id == TRACK_BEACH) {
-        stage = (Stage){track.back_start - 8.0f, {69.5f, 72.2f}, 26.0f, 1.4f, 4.4f, 1.0f};
+        stage = (Stage){track.back_start - 8.0f, {69.5f, 72.2f}, 26.0f, 1.4f, 4.4f, 1.0f, -57.0f};
         return;
     }
     if(track.id == TRACK_FIGURE8) {
@@ -159,19 +167,19 @@ static void stage_for_track(void) {
             if(t->t.x < 0 && t->p.x * t->p.x + t->p.z * t->p.z < 9.0f) cross_b = t->s;
         }
         if(cross_b >= 0) {
-            stage = (Stage){track_wrap(cross_b + 15.0f), {106.0f, 109.5f}, 78.0f, 2.5f, 7.5f, 2.2f};
+            stage = (Stage){track_wrap(cross_b + 15.0f), {106.0f, 109.5f}, 78.0f, 2.5f, 7.5f, 2.2f, NO_LIMIT};
             return;
         }
     }
     if(track.id == TRACK_HARBOUR) {
         /* From the seafront straight, through the chicane and down the
            beach straight, out past the shallows. */
-        stage = (Stage){track_wrap(track_seg_s(6) + 2.0f), {108.0f, 111.5f}, 60.0f, 2.3f, 6.5f, 2.0f};
+        stage = (Stage){track_wrap(track_seg_s(6) + 2.0f), {108.0f, 111.5f}, 60.0f, 2.3f, 6.5f, 2.0f, NO_LIMIT};
         return;
     }
     if(track.id == TRACK_TEMPLE) {
         /* Out of the start line along the beach straight. */
-        stage = (Stage){6.0f, {108.0f, 111.5f}, 48.0f, 2.2f, 6.5f, 2.0f};
+        stage = (Stage){6.0f, {108.0f, 111.5f}, 48.0f, 2.2f, 6.5f, 2.0f, NO_LIMIT};
         return;
     }
     staged = false;
@@ -191,7 +199,7 @@ static bool dolphin_pose(const Show *sh, int i, float t, V3 *pos, float *pitch) 
     float x = sh->x + sh->speed * stagger_t[i] + stagger_x[i];
     for(int k = 0; k < LEAPS; k++) {
         float u = (tau - (FIRST_LEAP + k * LEAP_GAP)) / LEAP_TIME;
-        if(u < 0 || u > 1) continue;
+        if(u < 0 || u > 1 || (sh->dry[i] & (1u << k))) continue;
         float y = LEAP_DEPTH + stage.peak * 4.0f * u * (1.0f - u);
         *pos = v3(x, y, stage.lane[i]);
         float vy = stage.peak * 4.0f * (1.0f - 2.0f * u) / LEAP_TIME;
@@ -208,6 +216,7 @@ static void start_show(const Kart *k) {
             sh->active = true;
             sh->t = 0;
             sh->kart = (int)(k - karts);
+            sh->dry[0] = sh->dry[1] = 0;
             sh->speed = clampf(fabsf(k->speed), 12.0f, 33.0f);
             sh->x = fminf(k->pos.x, 90.0f) - stage.ahead;
             sh->prev_y[0] = sh->prev_y[1] = LEAP_DEPTH;
@@ -240,6 +249,7 @@ void dolphins_update(float dt) {
     for(int i = 0; i < MAX_SHOWS; i++) {
         Show *sh = &shows[i];
         if(!sh->active) continue;
+        float was = sh->t;
         sh->t += dt;
         /* Pace the kart: match its westward speed (never below 12 m/s, so
            a crash doesn't leave them hovering) and ease back to AHEAD. */
@@ -252,6 +262,15 @@ void dolphins_update(float dt) {
             continue;
         }
         if(newest_t < 0 || sh->t < newest_t) newest_t = sh->t;
+        /* As each leap begins, skip it if it would land west of the limit
+           at the current pace. */
+        for(int d = 0; d < 2; d++)
+            for(int k = 0; k < LEAPS; k++) {
+                float at = stagger_t[d] + FIRST_LEAP + k * LEAP_GAP;
+                if(was >= at || sh->t < at) continue;
+                float x = sh->x + sh->speed * stagger_t[d] + stagger_x[d];
+                if(x - sh->speed * LEAP_TIME < stage.west) sh->dry[d] |= (uint8_t)(1u << k);
+            }
         /* Splashes where each dolphin breaks or re-enters the surface. */
         for(int d = 0; d < 2; d++) {
             V3 pos = sh->last[d];
