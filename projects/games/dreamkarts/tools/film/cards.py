@@ -119,10 +119,11 @@ CAPTIONS = {
     'skyway': ('NEON SKYWAY', 'A night run over a cyberpunk city, with a loop'),
     'cyberstone': ('CYBERSTONE', 'Neon hills and a banked helix, after Silverstone'),
     'spiralcanyon': ('SPIRAL CANYON', 'Corkscrews up two rock towers, through checkered loops'),
+    'tsudoken': ('TSUDOKEN DRIFT', 'A club circuit under Mt Fuji at golden hour, with a jump'),
     'drift': ('DRIFT AND MINI-TURBO', 'Blue, orange, then purple sparks'),
     'split': ('TWO-PLAYER SPLIT SCREEN', 'Grand Prix or head-to-head Versus'),
     'setup': ('RACE SETUP', 'Eight Chao colours, 50 / 100 / 150cc'),
-    'tracks': ('TRACK SELECT', 'Six courses'),
+    'tracks': ('TRACK SELECT', 'Eight courses'),
     'single': ('GRAND PRIX', 'Three laps against five CPU Chao'),
     'online': ('ONLINE MULTIPLAYER', 'Up to six Dreamcasts, by broadband or dial-up'),
 }

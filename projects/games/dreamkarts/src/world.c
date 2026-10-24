@@ -12,6 +12,7 @@
 #include "track.h"
 #include "texture_assets.h"
 #include "canyon_rock.h"
+#include "tsudoken_props.h"
 #include <malloc.h>
 
 V3 world_sun_dir;
@@ -19,8 +20,11 @@ float world_time;
 bool world_split;
 bool world_night;
 bool world_canyon;
-/* Spiral Canyon at golden hour: a low sun ahead down the start straight,
-   everything graded warm, a retrowave sun sinking behind purple hills. */
+/* Tsudoken Drift: a flat circuit on the plain under Mt Fuji. */
+static bool world_tk;
+/* Golden hour (Spiral Canyon, Tsudoken Drift): a low sun, everything
+   graded warm; the canyon's is a retrowave sun ahead down the start
+   straight, Tsudoken's sets beside Fuji in the south-west. */
 static bool world_sunset;
 static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
 
@@ -132,7 +136,9 @@ static const pvr_poly_hdr_t *h_road, *h_board, *h_curb, *h_sand, *h_grass, *h_ba
     *h_frond, *h_palm_far, *h_dash, *h_sky, *h_cloud, *h_mount, *h_foam, *h_glow_add,
     *h_flare, *h_dash_glow, *h_stone, *h_flame, *h_nightsky, *h_skyline, *h_moon, *h_cloudsea, *h_star_add,
     *h_tower, *h_signs, *h_hills, *h_meadow, *h_islandrock, *h_ehchecker, *h_sunflower, *h_totem, *h_bush,
-    *h_waterfall, *h_retrosun, *h_sky_nz;
+    *h_waterfall, *h_retrosun, *h_sky_nz, *h_tkroad, *h_tkcurb, *h_verge, *h_paddy, *h_hoarding, *h_ishigaki,
+    *h_kawara, *h_sakura, *h_sakurafar, *h_sakurabark, *h_petal, *h_tkcrowd, *h_plaster, *h_tkbanner, *h_pitwall,
+    *h_sundisc, *h_stream, *h_far_sprite;
 /* The sky roads (Neon Skyway's neon deck, Spiral Canyon's ribbon): the
    strips point at one header whose texture is swapped each frame through
    the phases, so the lights run along it. */
@@ -1146,19 +1152,53 @@ static bool in_bridge(float s) {
 
 static void th_banks(const float *sv, int n);
 
+/* The materials of a day track's road (Coral Crossing, Temple Hill,
+   Tsudoken Drift): set before its chunks are built. */
+static struct {
+    const pvr_poly_hdr_t *road, *curb, *shoulder, *barrier, *skirt;
+    uint32_t cap, stripe_a, stripe_b;   /* barrier top, the jump faces' hazard stripes */
+    float shoulder_uv;
+    float wall_h, barrier_u;            /* barrier height, metres of lap per repeat of its texture */
+    bool split_lod;                     /* the chunk is the near half of a split-screen pair (a coarse copy follows) */
+    void (*extra)(const float *sv, int n);   /* more ribbons in the chunk (Tsudoken's verges) */
+} f8m;
+
+/* The barrier texture's u per metre of lap: backwards on the right wall,
+   which faces the other way, so lettering on it reads the right way round. */
+static float f8m_barrier_u(int side) {
+    return (side > 0 ? -1.0f : 1.0f) / f8m.barrier_u;
+}
+
+static void f8m_default(void) {
+    f8m.road = h_road;
+    f8m.curb = h_curb;
+    f8m.shoulder = h_sand;
+    f8m.barrier = h_barrier;
+    f8m.skirt = h_wood;
+    f8m.cap = argb(255, 255, 212, 50);
+    f8m.stripe_a = argb(255, 40, 40, 44);
+    f8m.stripe_b = argb(255, 255, 206, 30);
+    f8m.shoulder_uv = 4.0f;
+    f8m.wall_h = 1.0f;
+    f8m.barrier_u = 4.0f;
+    f8m.split_lod = false;
+    f8m.extra = NULL;
+}
+
 static void f8_build_track_chunk(int c) {
     float sv[MAX_SVALS];
     int n = f8_chunk_svals(c, sv);
     chunk_begin(HF_OP, 2000.0f);
+    if(cur_chunk && f8m.split_lod) cur_chunk->lod = 1;
     /* Asphalt and curbs. */
-    f8_ribbon(sv, n, h_road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, 8.0f, false, argb(255, 250, 250, 250),
+    f8_ribbon(sv, n, f8m.road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, 8.0f, false, argb(255, 250, 250, 250),
               argb(255, 250, 250, 250));
-    f8_ribbon(sv, n, h_curb, -9.6f, -8.0f, 0.01f, 0.01f, 0, 0.0f, 2.4f, false, 0xffffffff, 0xffffffff);
-    f8_ribbon(sv, n, h_curb, 8.0f, 9.6f, 0.01f, 0.01f, 0, 1.0f, 2.4f, false, 0xffffffff, 0xffffffff);
-    /* Sand shoulders to the barriers. */
-    f8_ribbon(sv, n, h_sand, -9.6f, -1.0f, 0.0f, 0.0f, RB_WALL1, 4.0f, 0, true, argb(255, 238, 238, 238),
+    f8_ribbon(sv, n, f8m.curb, -9.6f, -8.0f, 0.01f, 0.01f, 0, 0.0f, 2.4f, false, 0xffffffff, 0xffffffff);
+    f8_ribbon(sv, n, f8m.curb, 8.0f, 9.6f, 0.01f, 0.01f, 0, 1.0f, 2.4f, false, 0xffffffff, 0xffffffff);
+    /* Shoulders (sand, or grass verges) to the barriers. */
+    f8_ribbon(sv, n, f8m.shoulder, -9.6f, -1.0f, 0.0f, 0.0f, RB_WALL1, f8m.shoulder_uv, 0, true, argb(255, 238, 238, 238),
               argb(255, 214, 214, 214));
-    f8_ribbon(sv, n, h_sand, 1.0f, 9.6f, 0.0f, 0.0f, RB_WALL0, 4.0f, 0, true, argb(255, 214, 214, 214),
+    f8_ribbon(sv, n, f8m.shoulder, 1.0f, 9.6f, 0.0f, 0.0f, RB_WALL0, f8m.shoulder_uv, 0, true, argb(255, 214, 214, 214),
               argb(255, 238, 238, 238));
     /* Barriers with a top cap (stone parapets across a viaduct), then the
        ramp's wooden side skirts or a hill's embankments. */
@@ -1180,18 +1220,18 @@ static void f8_build_track_chunk(int c) {
                 uint32_t col = shade(argb(255, 255, 255, 255), vscale(r, (float)-side));
                 V3 b = f8_pt(s, side * f8_wall(s), 0.0f);
                 if(side < 0) {
-                    svp(vadd(b, v3(0, 1.0f, 0)), s / 4.0f, 0.0f, col);
-                    svp(b, s / 4.0f, 1.0f, color_scale(col, 0.8f));
+                    svp(vadd(b, v3(0, f8m.wall_h, 0)), s * f8m_barrier_u(side), 0.0f, col);
+                    svp(b, s * f8m_barrier_u(side), 1.0f, color_scale(col, 0.8f));
                 }
                 else {
-                    svp(b, s / 4.0f, 1.0f, color_scale(col, 0.8f));
-                    svp(vadd(b, v3(0, 1.0f, 0)), s / 4.0f, 0.0f, col);
+                    svp(b, s * f8m_barrier_u(side), 1.0f, color_scale(col, 0.8f));
+                    svp(vadd(b, v3(0, f8m.wall_h, 0)), s * f8m_barrier_u(side), 0.0f, col);
                 }
                 strip_end();
                 open = false;
             }
             if(!open) {
-                strip_begin(br > 0 ? h_stone : h_barrier);
+                strip_begin(br > 0 ? h_stone : f8m.barrier);
                 run_bridge = br;
                 open = true;
             }
@@ -1200,18 +1240,18 @@ static void f8_build_track_chunk(int c) {
             V3 b = f8_pt(s, side * f8_wall(s), 0.0f);
             /* Wind the faces toward the road on both sides. */
             if(side < 0) {
-                svp(vadd(b, v3(0, 1.0f, 0)), s / 4.0f, 0.0f, col);
-                svp(b, s / 4.0f, 1.0f, color_scale(col, 0.8f));
+                svp(vadd(b, v3(0, f8m.wall_h, 0)), s * f8m_barrier_u(side), 0.0f, col);
+                svp(b, s * f8m_barrier_u(side), 1.0f, color_scale(col, 0.8f));
             }
             else {
-                svp(b, s / 4.0f, 1.0f, color_scale(col, 0.8f));
-                svp(vadd(b, v3(0, 1.0f, 0)), s / 4.0f, 0.0f, col);
+                svp(b, s * f8m_barrier_u(side), 1.0f, color_scale(col, 0.8f));
+                svp(vadd(b, v3(0, f8m.wall_h, 0)), s * f8m_barrier_u(side), 0.0f, col);
             }
         }
         if(open) strip_end();
         /* Top cap, +-0.25 m about the barrier line (2% of a 12.5 m wall). */
-        uint32_t cap = track.has_bridge ? argb(255, 214, 190, 140) : argb(255, 255, 212, 50);
-        f8_ribbon(sv, n, h_col, side * 0.98f, side * 1.02f, 1.0f, 1.0f, RB_WALL0 | RB_WALL1, 1, 1, true, cap, cap);
+        uint32_t cap = track.has_bridge ? argb(255, 214, 190, 140) : f8m.cap;
+        f8_ribbon(sv, n, h_col, side * 0.98f, side * 1.02f, f8m.wall_h, f8m.wall_h, RB_WALL0 | RB_WALL1, 1, 1, true, cap, cap);
     }
     if(track.id == TRACK_TEMPLE) {
         th_banks(sv, n);
@@ -1232,7 +1272,7 @@ static void f8_build_track_chunk(int c) {
                 continue;
             }
             if(!open) {
-                strip_begin(h_wood);
+                strip_begin(f8m.skirt);
                 open = true;
             }
             float h = track_height(s);
@@ -1251,6 +1291,7 @@ static void f8_build_track_chunk(int c) {
         }
         if(open) strip_end();
     }
+    if(f8m.extra) f8m.extra(sv, n);
     chunk_end();
 }
 
@@ -1266,11 +1307,11 @@ static void f8_jump_face(float s, float dir) {
     V3 lb = l, rb = r;
     lb.y = rb.y = F8_GRASS_Y;
     float band = 0.7f;
-    quad(h_wood, vsub(l, v3(0, band, 0)), vsub(r, v3(0, band, 0)), lb, rb, 0, 0, 2.0f * w / 3.0f, h / 3.0f, col);
+    quad(f8m.skirt, vsub(l, v3(0, band, 0)), vsub(r, v3(0, band, 0)), lb, rb, 0, 0, 2.0f * w / 3.0f, h / 3.0f, col);
     const int stripes = 10;
     for(int i = 0; i < stripes; i++) {
         V3 a = vlerp(l, r, (float)i / stripes), b = vlerp(l, r, (float)(i + 1) / stripes);
-        uint32_t sc = (i & 1) ? argb(255, 40, 40, 44) : argb(255, 255, 206, 30);
+        uint32_t sc = (i & 1) ? f8m.stripe_a : f8m.stripe_b;
         quad(h_col, a, b, vsub(a, v3(0, band, 0)), vsub(b, v3(0, band, 0)), 0, 0, 1, 1, sc);
     }
 }
@@ -1897,6 +1938,7 @@ static void th_place_props(void) {
 }
 
 static void build_temple(void) {
+    f8m_default();
     gnd_xw = 170.0f;
     gnd_zn = 84.0f;
     gnd_zs = 125.0f;
@@ -1943,6 +1985,7 @@ static void th_draw_flames(void) {
 }
 
 static void build_figure8(void) {
+    f8m_default();
     gnd_xw = 200.0f;
     gnd_zn = 84.0f;
     gnd_zs = 96.0f;
@@ -2008,6 +2051,7 @@ int world_gates;
 float world_gate_s[WORLD_MAX_GATES];
 
 static float dr_terrain(float x, float z);
+static float tk_terrain(float x, float z);
 
 float world_ground_y(float x, float z) {
     switch(track.id) {
@@ -2021,6 +2065,7 @@ float world_ground_y(float x, float z) {
         case TRACK_HARBOUR: return f8_ground_y(x, z);
         case TRACK_TEMPLE: return th_terrain(x, z) + F8_GRASS_Y;
         case TRACK_CANYON: return dr_terrain(x, z);
+        case TRACK_TSUDOKEN: return tk_terrain(x, z);
         default: return -100.0f;   /* clouds */
     }
 }
@@ -3886,6 +3931,755 @@ static void build_skyway(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Tsudoken Drift                                                       */
+
+/* A flat club circuit on the Kanto plain at golden hour: paddies to the
+   horizon, Mt Fuji in the south-west with the sun setting beside it,
+   cherry trees in blossom, tyre walls, a grandstand under a swept tiled
+   roof along the start straight, race control and the pit garages
+   opposite, torii over the road, stone lanterns at the bends, a pagoda
+   beyond turn 1, teahouses, and a stream that runs under the jump into
+   a koi pond in the infield, crossed by a red footbridge. The props are
+   meshes baked by tools/build_tsudoken_props.py (Blender), instanced
+   here. */
+#define TK_LANTERNS   24
+#define TK_PETALS     40
+#define TK_STREAM_PTS 8
+#define TK_WATER_Y    (-1.3f)
+#define TK_CHANNEL_D  2.2f       /* stream depth */
+#define TK_CHANNEL_HW 5.0f       /* flat bed half width; banks ease over TK_BANK */
+#define TK_BANK       6.0f
+#define TK_POND_R     12.0f
+#define TK_FUJI_DIR   (212.0f * DK_PI / 180.0f)   /* bearing, 0 = north */
+#define TK_SUN_DIR    (240.0f * DK_PI / 180.0f)
+/* Tsudoken is lit for early afternoon: a high white sun in the
+   south-west, the day sky, a blue haze on the hills and Fuji.
+   -DDK_TK_GOLDEN_HOUR builds it at golden hour instead (the warm grade,
+   the low sun setting beside Fuji, the lanterns lit). */
+#ifdef DK_TK_GOLDEN_HOUR
+#define TK_AFTERNOON 0
+#else
+#define TK_AFTERNOON 1
+#endif
+#define TK_TSUKUBA_DIR (38.0f * DK_PI / 180.0f)   /* Mt Tsukuba's twin peaks on the hills ring */
+static const pvr_poly_hdr_t *tk_mat_hdr[TKM_COUNT];
+static V3 tk_stream[TK_STREAM_PTS];     /* the stream's course, control points, the plain to the pond */
+#define TK_PATH_PTS 72
+static V3 tk_path[TK_PATH_PTS];         /* the course as a smooth curve through them */
+static int tk_path_n;
+static V3 tk_pond;
+static V3 tk_lantern[TK_LANTERNS];      /* the fire boxes, for the glows */
+static int tk_lantern_n;
+static RV tk_fuji[2400], tk_fuji_lo[600];   /* the mountain, lit, about the origin; a coarse one for a split screen */
+static int tk_fuji_strips[200], tk_fuji_n, tk_fuji_lo_strips[60], tk_fuji_lo_n;
+static float tk_fuji_scale;
+
+/* The stream's channel and the pond, carved into the plain: depth 0 at
+   TK_CHANNEL_HW + TK_BANK from the centreline, the full depth within
+   TK_CHANNEL_HW. */
+static float tk_water_cut(float x, float z) {
+    V3 p = v3(x, 0, z);
+    float d = 1e9f;
+    for(int i = 0; i + 1 < tk_path_n; i++) d = fminf(d, seg_dist(p, tk_path[i], tk_path[i + 1]));
+    float dp = sqrtf((x - tk_pond.x) * (x - tk_pond.x) + (z - tk_pond.z) * (z - tk_pond.z)) - (TK_POND_R - TK_CHANNEL_HW);
+    d = fminf(d, dp);
+    return -TK_CHANNEL_D * (1.0f - smooth01(TK_CHANNEL_HW, TK_CHANNEL_HW + TK_BANK, d));
+}
+
+/* The plain: flat round the circuit, rolling gently beyond 150 m, with
+   the stream and the pond cut in. */
+static float tk_terrain(float x, float z) {
+    float r = sqrtf(x * x + z * z);
+    float roll = smooth01(150.0f, 420.0f, r) *
+                 (5.0f + 3.0f * sinf(x * 0.013f + 0.4f) + 2.5f * sinf(z * 0.011f + 1.3f) + 2.0f * sinf((x + z) * 0.007f));
+    return roll + tk_water_cut(x, z) + F8_GRASS_Y;
+}
+
+static bool tk_clear(float x, float z, float margin) {
+    if(sk_road_dist(v3(x, 0, z)) < 12.5f + margin) return false;
+    if(tk_water_cut(x, z) < -0.01f) return false;
+    return true;
+}
+
+static void tk_stream_init(void) {
+    float cross = track.jump.cross;
+    V3 c = track_point(cross, 0.0f);
+    V3 t = track_tangent(cross), r = v3(t.z, 0, -t.x);
+    /* The circuit runs clockwise, so the infield is on the right (+r) of
+       the back straight and open country on the left. Out there the
+       stream runs off to the plain, straight under the gap and meandering
+       beyond; on the infield side it turns to the pond. */
+    tk_stream[0] = vmad(vmad(c, r, -320.0f), t, -40.0f);
+    tk_stream[1] = vmad(vmad(c, r, -230.0f), t, 22.0f);
+    tk_stream[2] = vmad(vmad(c, r, -150.0f), t, -16.0f);
+    tk_stream[3] = vmad(c, r, -70.0f);
+    tk_stream[4] = vmad(c, r, -22.0f);
+    tk_stream[5] = vmad(c, r, 22.0f);
+    /* The pond sits in the infield between turn 5's straight and the back
+       straight. */
+    float leg = track_seg_s(8) + 28.0f;
+    tk_pond = track_point(leg, 35.0f);
+    tk_pond.y = 0;
+    tk_stream[6] = vlerp(vmad(c, r, 22.0f), tk_pond, 0.5f);
+    tk_stream[6] = vmad(tk_stream[6], t, 8.0f);
+    tk_stream[7] = tk_pond;
+    /* The course as a Catmull-Rom curve through the control points, a
+       station every ~8 m: the channel and the water follow it, so the
+       bends are rounded rather than kinked (a kink pinched the water
+       ribbon where the stream turns off toward the pond). */
+    tk_path_n = 0;
+    for(int i = 0; i + 1 < TK_STREAM_PTS; i++) {
+        V3 p0 = tk_stream[i > 0 ? i - 1 : i], p1 = tk_stream[i], p2 = tk_stream[i + 1],
+           p3 = tk_stream[i + 2 < TK_STREAM_PTS ? i + 2 : i + 1];
+        int steps = (int)(vlen(vsub(p2, p1)) / 8.0f) + 1;
+        for(int k = 0; k < steps && tk_path_n < TK_PATH_PTS - 1; k++) {
+            float u = (float)k / steps, u2 = u * u, u3 = u2 * u;
+            V3 q = vscale(p1, 2.0f);
+            q = vmad(q, vsub(p2, p0), u);
+            q = vmad(q, vadd(vsub(vadd(vscale(p0, 2.0f), vscale(p2, 4.0f)), vscale(p1, 5.0f)), vscale(p3, -1.0f)), u2);
+            q = vmad(q, vadd(vsub(vscale(p1, 3.0f), vscale(p2, 3.0f)), vsub(p3, p0)), u3);
+            tk_path[tk_path_n++] = vscale(q, 0.5f);
+        }
+    }
+    tk_path[tk_path_n++] = tk_stream[TK_STREAM_PTS - 1];
+}
+
+/* The ground: an 8 m grid over the circuit (fine enough for the stream's
+   banks), coarser bands out to 400 m, then a flat plain to the horizon,
+   all paddies; the stream bed and the pond floor darken to mud. */
+#define TK_GN 40
+#define TK_GSTEP 10.0f
+static float tk_gy[TK_GN][TK_GN];
+
+static uint32_t tk_ground_color(float y, float x, float z) {
+    float cut = tk_water_cut(x, z);
+    uint32_t c = argb(255, 255, 255, 255);
+    if(cut < -0.05f) c = color_lerp(c, argb(255, 120, 96, 70), clampf(-cut / TK_CHANNEL_D, 0.0f, 1.0f));
+    return c;
+}
+
+static void tk_build_ground(void) {
+    const float g0 = -TK_GSTEP * (TK_GN - 1) * 0.5f;
+    for(int j = 0; j < TK_GN; j++)
+        for(int i = 0; i < TK_GN; i++) tk_gy[j][i] = tk_terrain(g0 + i * TK_GSTEP, g0 + j * TK_GSTEP);
+    for(int cz = 0; cz + 1 < TK_GN; cz += 4) {
+        for(int cx = 0; cx + 1 < TK_GN; cx += 8) {
+            chunk_begin(HF_OP, 2000.0f);
+            for(int j = cz; j < cz + 4 && j + 1 < TK_GN; j++) {
+                strip_begin(h_paddy);
+                for(int i = cx; i <= cx + 8 && i < TK_GN; i++) {
+                    for(int k = 1; k >= 0; k--) {
+                        float x = g0 + i * TK_GSTEP, z = g0 + (j + k) * TK_GSTEP, y = tk_gy[j + k][i];
+                        uint32_t col = tk_ground_color(y, x, z);
+                        if(i + 1 < TK_GN) {
+                            float gx = (tk_gy[j + k][i + 1] - y) / TK_GSTEP;
+                            col = color_scale(col, clampf(1.0f + gx * 0.6f, 0.7f, 1.1f));
+                        }
+                        svp(v3(x, y, z), x / 24.0f, z / 24.0f, col);
+                    }
+                }
+                strip_end();
+            }
+            chunk_end();
+        }
+    }
+    /* Coarser rings of the rolling plain, then the flat horizon. */
+    const float G = -g0, E = 3000.0f;
+    static const float rings[] = {0.0f, 40.0f, 90.0f, 150.0f, 220.0f};
+    const int nr = (int)(sizeof(rings) / sizeof(rings[0]));
+    /* Drawn in a split screen too (a few hundred vertices): the plain's
+       edge at 195 m is well inside the split screen's fog. */
+    for(int side = 0; side < 4; side++) {
+        chunk_begin(HF_OP, 4000.0f);
+        for(int b = 0; b + 1 < nr; b++) {
+            strip_begin(h_paddy);
+            for(int k = 0; k <= 16; k++) {
+                float t = -1.0f + 2.0f * (float)k / 16.0f;
+                for(int q = 1; q >= 0; q--) {
+                    float e = G + rings[b + q];
+                    float x, z;
+                    if(side == 0) { x = t * e; z = e; }
+                    else if(side == 1) { x = t * e; z = -e; }
+                    else if(side == 2) { x = e; z = t * (e - 0.001f); }
+                    else { x = -e; z = t * (e - 0.001f); }
+                    float y = tk_terrain(x, z);
+                    svp(v3(x, y, z), x / 24.0f, z / 24.0f, 0xffffffff);
+                }
+            }
+            strip_end();
+        }
+        chunk_end();
+    }
+    chunk_begin(HF_OP, 6000.0f);
+    {
+        const float R = G + rings[nr - 1], y = tk_terrain(R, R);
+        quad(h_paddy, v3(-E, y, E), v3(E, y, E), v3(-E, y, R), v3(E, y, R), -E / 24, E / 24, E / 24, R / 24, 0xffffffff);
+        quad(h_paddy, v3(-E, y, -R), v3(E, y, -R), v3(-E, y, -E), v3(E, y, -E), -E / 24, -R / 24, E / 24, -E / 24, 0xffffffff);
+        quad(h_paddy, v3(-E, y, R), v3(-R, y, R), v3(-E, y, -R), v3(-R, y, -R), -E / 24, R / 24, -R / 24, -R / 24, 0xffffffff);
+        quad(h_paddy, v3(R, y, R), v3(E, y, R), v3(R, y, -R), v3(E, y, -R), R / 24, R / 24, E / 24, -R / 24, 0xffffffff);
+    }
+    chunk_end();
+    /* The water: a ribbon down the stream and a disc on the pond. */
+    chunk_begin(HF_OP, 1200.0f);
+    /* The water ribbon: at each station the cross-section bisects the
+       two segments meeting there (mitred, so the width holds round a
+       bend). In pieces, so the chunks can be culled. */
+    for(int i0 = 0; i0 + 1 < tk_path_n; i0 += 12) {
+        strip_begin(h_stream);
+        for(int i = i0; i <= i0 + 12 && i < tk_path_n; i++) {
+            V3 a = tk_path[i > 0 ? i - 1 : i], b = tk_path[i], c2 = tk_path[i + 1 < tk_path_n ? i + 1 : i];
+            V3 d = vnorm(vadd(vnorm(v3(b.x - a.x, 0, b.z - a.z)), vnorm(v3(c2.x - b.x, 0, c2.z - b.z))));
+            V3 r = v3(d.z, 0, -d.x);
+            float hw = TK_CHANNEL_HW + TK_BANK * 0.55f;
+            V3 l = vmad(b, r, -hw), rr = vmad(b, r, hw);
+            l.y = rr.y = TK_WATER_Y;
+            svp(l, l.x / 12.0f, l.z / 12.0f, 0xffffffff);
+            svp(rr, rr.x / 12.0f, rr.z / 12.0f, 0xffffffff);
+        }
+        strip_end();
+    }
+    strip_begin(h_stream);
+    const int sides = 14;
+    for(int k = 0; k < sides; k++) {
+        int i = (k & 1) ? (sides - (k + 1) / 2) % sides : k / 2;
+        float a = (float)i / sides * DK_TAU;
+        float rr = TK_POND_R + TK_BANK * 0.55f;
+        V3 p = v3(tk_pond.x + sinf(a) * rr, TK_WATER_Y, tk_pond.z + cosf(a) * rr);
+        svp(p, p.x / 12.0f, p.z / 12.0f, 0xffffffff);
+    }
+    strip_end();
+    chunk_end();
+}
+
+/* Grass verges from each barrier's foot out over the paddies, at the
+   plain's height (so they stay down where the ramp climbs); built into
+   each road chunk through f8m.extra. */
+static void tk_verges(const float *sv, int n) {
+    for(int side = -1; side <= 1; side += 2) {
+        strip_begin(h_verge);
+        for(int k = 0; k < n; k++) {
+            float s = sv[k], w = f8_wall(s);
+            V3 a = track_point(s, side * (w + 0.3f)), b = track_point(s, side * (w + 7.0f));
+            a.y = tk_terrain(a.x, a.z) + 0.03f;
+            b.y = tk_terrain(b.x, b.z) + 0.02f;
+            uint32_t ca = argb(255, 236, 240, 226), cb = argb(255, 210, 220, 196);
+            if(side > 0) {
+                svp(a, a.x / 6.0f, a.z / 6.0f, ca);
+                svp(b, b.x / 6.0f, b.z / 6.0f, cb);
+            }
+            else {
+                svp(b, b.x / 6.0f, b.z / 6.0f, cb);
+                svp(a, a.x / 6.0f, a.z / 6.0f, ca);
+            }
+        }
+        strip_end();
+    }
+}
+
+/* The road as a split screen draws it beyond SPLIT_NEAR (its pair, built
+   straight after the full chunk): every other station, the asphalt, one
+   verge ribbon a side from the road's edge over the curb and shoulder
+   out onto the paddies, and the tyre wall; no caps or skirts. Five strips
+   where the full road has thirteen. On this flat circuit nearly the whole
+   lap is in view, so the road was most of a split screen's vertices. */
+static void tk_build_deck_coarse(int c) {
+    float full[MAX_SVALS], sv[MAX_SVALS];
+    int n = f8_chunk_svals(c, full), m = 0;
+    for(int k = 0; k < n; k++)
+        if((k & 1) == 0 || k == n - 1) sv[m++] = full[k];
+    chunk_begin(HF_OP, 2000.0f);
+    if(cur_chunk) cur_chunk->lod = 2;
+    f8_ribbon(sv, m, f8m.road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, 8.0f, false, argb(255, 250, 250, 250),
+              argb(255, 250, 250, 250));
+    for(int side = -1; side <= 1; side += 2) {
+        strip_begin(h_verge);
+        for(int k = 0; k < m; k++) {
+            float s = sv[k], w = f8_wall(s);
+            V3 a = f8_pt(s, side * 8.0f, 0.01f), b = track_point(s, side * (w + 7.0f));
+            b.y = tk_terrain(b.x, b.z) + 0.02f;
+            uint32_t ca = argb(255, 232, 236, 222), cb = argb(255, 210, 220, 196);
+            if(side > 0) {
+                svp(a, a.x / 6.0f, a.z / 6.0f, ca);
+                svp(b, b.x / 6.0f, b.z / 6.0f, cb);
+            }
+            else {
+                svp(b, b.x / 6.0f, b.z / 6.0f, cb);
+                svp(a, a.x / 6.0f, a.z / 6.0f, ca);
+            }
+        }
+        strip_end();
+        strip_begin(f8m.barrier);
+        for(int k = 0; k < m; k++) {
+            float s = sv[k];
+            V3 r = vsub(track_point(s, 1.0f), track_point(s, 0.0f));
+            uint32_t col = shade(argb(255, 255, 255, 255), vscale(r, (float)-side));
+            V3 b = f8_pt(s, side * f8_wall(s), 0.0f);
+            if(side < 0) {
+                svp(vadd(b, v3(0, f8m.wall_h, 0)), s * f8m_barrier_u(side), 0.0f, col);
+                svp(b, s * f8m_barrier_u(side), 1.0f, color_scale(col, 0.8f));
+            }
+            else {
+                svp(b, s * f8m_barrier_u(side), 1.0f, color_scale(col, 0.8f));
+                svp(vadd(b, v3(0, f8m.wall_h, 0)), s * f8m_barrier_u(side), 0.0f, col);
+            }
+        }
+        strip_end();
+    }
+    chunk_end();
+}
+
+/* One baked prop at p, turned by yaw (its +z to heading yaw) and scaled,
+   each vertex lit by its normal. The strips of one material run on as
+   one strip (small pieces cost a submit each on the console), in a chunk
+   per list the prop needs. */
+static void tk_prop(int which, V3 p, float yaw, float scale, float lod_far, bool far) {
+    const dk_prop_t *m = &dk_props[which];
+    float cs = cosf(yaw), sn = sinf(yaw);
+    float unit = (m->cm ? 0.01f : 0.001f) * scale;
+    for(int list = 0; list < 2; list++) {
+        bool any = false;
+        for(int s = 0; s < m->nstrips; s++)
+            if((int)((TKM_PT_MASK >> m->strip_mat[s]) & 1u) == list) any = true;
+        if(!any) continue;
+        chunk_begin(list ? HF_PT : HF_OP, lod_far);
+        if(cur_chunk && far) cur_chunk->far = 1;
+        int at = 0, cur_mat = -1;
+        for(int s = 0; s < m->nstrips; s++) {
+            int n = m->strip_len[s], mat = m->strip_mat[s];
+            if((int)((TKM_PT_MASK >> mat) & 1u) != list) {
+                at += n;
+                continue;
+            }
+            if(mat != cur_mat) {
+                if(cur_mat >= 0) strip_end();
+                strip_begin(tk_mat_hdr[mat]);
+                cur_mat = mat;
+            }
+            for(int q = 0; q < n; q++) {
+                const dk_prop_vert_t *v = &m->verts[m->index[at + q]];
+                float x = v->x * unit, y = v->y * unit, z = v->z * unit;
+                V3 w = v3(p.x + x * cs + z * sn, p.y + y, p.z - x * sn + z * cs);
+                V3 nn = v3(v->nx * cs + v->nz * sn, v->ny, -v->nx * sn + v->nz * cs);
+                uint32_t col = shade(argb(255, v->r, v->g, v->b), nn);
+                if(q == 0) svj(w, v->u / 256.0f, v->v / 256.0f, col);
+                else svp(w, v->u / 256.0f, v->v / 256.0f, col);
+            }
+            at += n;
+        }
+        if(cur_mat >= 0) strip_end();
+        chunk_end();
+    }
+}
+
+/* A torii over the road at lap distance s: the gate itself, and at the
+   line the course banner hung between its pillars. */
+static void tk_torii(float s, float scale, bool banner) {
+    V3 c = track_point(s, 0.0f);
+    V3 t = track_tangent(s);
+    float yaw = atan2f(t.x, t.z);
+    c.y = F8_GRASS_Y;
+    tk_prop(TKP_TORII, c, yaw, scale, 1400.0f, false);
+    if(banner) {
+        V3 r = v3(t.z, 0, -t.x);
+        float hw = 2.9f * scale, y1 = 4.1f * scale, y0 = y1 - 1.45f * scale;   /* under the tie beam, between the pillars */
+        V3 l = vmad(c, r, -hw), rr = vmad(c, r, hw);
+        chunk_begin(HF_OP, 1400.0f);
+        for(int f = -1; f <= 1; f += 2) {
+            V3 o = vscale(t, 0.12f * f);
+            V3 a = vadd(vadd(f < 0 ? l : rr, o), v3(0, y1, 0)), b2 = vadd(vadd(f < 0 ? rr : l, o), v3(0, y1, 0));
+            V3 cc = vadd(vadd(f < 0 ? l : rr, o), v3(0, y0, 0)), d = vadd(vadd(f < 0 ? rr : l, o), v3(0, y0, 0));
+            strip_begin(h_tkbanner);
+            svp(a, 0, 0, 0xffffffff); svp(b2, 1, 0, 0xffffffff);
+            svp(cc, 0, 0.5f, 0xffffffff); svp(d, 1, 0.5f, 0xffffffff);
+            strip_end();
+        }
+        chunk_end();
+    }
+    if(world_gates < WORLD_MAX_GATES) world_gate_s[world_gates++] = track_wrap(s);
+}
+
+static void tk_lantern_at(float s, float d) {
+    if(tk_lantern_n >= TK_LANTERNS) return;
+    V3 p = track_point(s, d);
+    if(!tk_clear(p.x, p.z, -11.0f)) return;
+    p.y = tk_terrain(p.x, p.z);
+    V3 t = track_tangent(s);
+    tk_prop(TKP_LANTERN, p, atan2f(t.x, t.z), 1.0f, 240.0f, false);
+    tk_lantern[tk_lantern_n++] = vadd(p, v3(0, 1.92f, 0));
+}
+
+/* A cherry tree, if the spot is clear of the road and the water. */
+static int tk_trees;
+static void tk_sakura(float x, float z, uint32_t seed) {
+    if(!tk_clear(x, z, 3.0f)) return;
+    float scale = 1.5f + (float)((seed >> 8) & 7) * 0.08f;
+    V3 p = v3(x, tk_terrain(x, z), z);
+    /* A split screen draws everything twice: it leaves out every third
+       tree and sees the rest less far. */
+    tk_prop((seed & 1) ? TKP_SAKURA_B : TKP_SAKURA_A, p, (float)((seed >> 4) & 255) / 255.0f * DK_TAU, scale, 300.0f,
+            tk_trees % 3 == 2);
+    tk_trees++;
+}
+
+static void tk_place_props(void) {
+    tk_lantern_n = 0;
+    tk_trees = 0;
+    world_gates = 0;
+    const TrackSample *t0 = &track.smp[0];
+    float h0 = atan2f(t0->t.x, t0->t.z);
+
+    /* The line: a great torii with the banner, the chequered strip. */
+    tk_torii(0.0f, 3.1f, true);
+    chunk_begin(HF_OP, 600.0f);
+    strip_begin(h_checker);
+    for(int k = 0; k <= 1; k++) {
+        float s = (k ? 1.2f : -1.2f);
+        V3 a = track_point(s, -8.0f), b = track_point(s, 8.0f);
+        a.y = b.y = 0.025f;
+        svp(a, 0, s / 1.2f, 0xffffffff);
+        svp(b, 8, s / 1.2f, 0xffffffff);
+    }
+    strip_end();
+    chunk_end();
+
+    /* The grandstand along the outside of the start straight, five
+       modules facing the road; race control and the pits opposite. */
+    for(int i = 0; i < 5; i++) {
+        float s = -27.0f + 24.0f * (float)i;
+        V3 p = track_point(s, -17.0f);
+        p.y = F8_GRASS_Y;
+        tk_prop(TKP_STAND, p, h0 - DK_PI * 0.5f, 1.0f, 1600.0f, false);
+        tk_prop(TKP_CHOCHIN, p, h0 - DK_PI * 0.5f, 1.0f, 500.0f, true);
+    }
+    /* The infield here is only ~9 m wide between the two barriers (turn
+       1's exit runs back down beside the start straight), so race control
+       and the pits are slim and sit right behind the tyre wall. */
+    {
+        V3 p = track_point(-4.0f, 16.4f);
+        p.y = F8_GRASS_Y;
+        tk_prop(TKP_TOWER, p, h0 + DK_PI * 0.5f, 1.0f, 1600.0f, false);
+    }
+    for(int i = 0; i < 3; i++) {
+        V3 p = track_point(22.0f + 24.0f * (float)i, 14.2f);
+        p.y = F8_GRASS_Y;
+        tk_prop(TKP_PITS, p, h0 + DK_PI * 0.5f, 1.0f, 1400.0f, false);
+    }
+
+    /* Torii over the road: out of the hairpin at turn 4, and framing the
+       run at the jump. */
+    tk_torii(track_seg_s(8) + 26.0f, 2.4f, false);
+    tk_torii(track_wrap(track.jump.cross - 76.0f), 2.4f, false);
+
+    /* The pagoda beyond turn 1, teahouses outside turns 8 and 9 and by
+       the stream, the footbridge over the stream east of the road. */
+    {
+        V3 p = track_point(track_seg_s(1) + 30.0f, -58.0f);
+        p.y = tk_terrain(p.x, p.z);
+        tk_prop(TKP_PAGODA, p, h0 + 0.3f, 1.0f, 2000.0f, true);
+    }
+    {
+        float s8 = track_seg_s(15) + 30.0f;
+        V3 p = track_point(s8, -34.0f), q = track_point(s8, 0.0f);
+        p.y = tk_terrain(p.x, p.z);
+        tk_prop(TKP_TEAHOUSE, p, atan2f(q.x - p.x, q.z - p.z), 1.0f, 900.0f, true);
+    }
+    {
+        float s9 = track_seg_s(17) + 75.0f;
+        V3 p = track_point(s9, -40.0f), q = track_point(s9, 0.0f);
+        p.y = tk_terrain(p.x, p.z);
+        tk_prop(TKP_TEAHOUSE, p, atan2f(q.x - p.x, q.z - p.z), 1.0f, 900.0f, true);
+    }
+    {
+        /* Out on the open side of the back straight (left, -r). */
+        V3 c = track_point(track.jump.cross, 0.0f), t = track_tangent(track.jump.cross), r = v3(t.z, 0, -t.x);
+        V3 p = vmad(c, r, -48.0f);
+        p.y = F8_GRASS_Y;
+        tk_prop(TKP_BRIDGE, p, atan2f(t.x, t.z) + DK_PI * 0.5f, 1.0f, 900.0f, true);
+        V3 th = vmad(vmad(c, r, -52.0f), t, 26.0f), q = vmad(c, r, -48.0f);
+        th.y = tk_terrain(th.x, th.z);
+        tk_prop(TKP_TEAHOUSE, th, atan2f(q.x - th.x, q.z - th.z), 1.0f, 900.0f, true);
+    }
+
+#ifdef DK_CHUNK_STATS
+    ck_first[CK_PROPS] = chunk_n;
+    ck_first[CK_TORCH] = ck_first[CK_N] = 100000;   /* unused kinds */
+#endif
+    /* Stone lanterns: three round the outside of every bend, and a pair
+       by the line. */
+    for(int i = 0; i < track_seg_count(); i++) {
+        float r = track_seg_radius(i), deg = track_seg_deg(i);
+        if(r <= 0) continue;
+        float s0 = track_seg_s(i), len = r * fabsf(deg) * (DK_PI / 180.0f);
+        float side = deg > 0 ? -1.0f : 1.0f;   /* the outside of a right turn is the left */
+        for(int k = 0; k < 2; k++) tk_lantern_at(track_wrap(s0 + len * (0.25f + 0.5f * k)), side * 15.6f);
+    }
+    tk_lantern_at(-12.0f, 15.6f);
+    tk_lantern_at(12.0f, 15.6f);
+
+    /* Cherry trees: an avenue down both sides of the back straight (clear
+       of the jump), a line behind the grandstand, groves round the pagoda,
+       the pond and the teahouses, and a scatter beyond. */
+    uint32_t seed = 0x5a1cu;
+    float back = track_seg_s(TK_BACK_SEG), back_len = track_seg_s(TK_BACK_SEG + 1) - back;
+    for(float u = 10.0f; u < back_len - 10.0f; u += 17.0f) {
+        float s = back + u;
+        if(fabsf(track_delta(track.jump.cross, s)) < 44.0f) continue;
+        for(int side = -1; side <= 1; side += 2) {
+            seed = seed * 1664525u + 1013904223u;
+            V3 p = track_point(s, side * 20.5f);
+            tk_sakura(p.x, p.z, seed);
+        }
+    }
+    for(float s = -36.0f; s < 95.0f; s += 19.0f) {
+        seed = seed * 1664525u + 1013904223u;
+        V3 p = track_point(s, -38.0f + (float)((seed >> 12) & 3));
+        tk_sakura(p.x, p.z, seed);
+    }
+    for(int i = 0; i < 8; i++) {
+        seed = seed * 1664525u + 1013904223u;
+        float a = (float)i / 8.0f * DK_TAU;
+        V3 p = track_point(track_seg_s(1) + 30.0f, -58.0f);
+        tk_sakura(p.x + sinf(a) * 20.0f, p.z + cosf(a) * 20.0f, seed);
+    }
+    for(int i = 0; i < 6; i++) {
+        seed = seed * 1664525u + 1013904223u;
+        float a = (float)i / 6.0f * DK_TAU + 0.3f;
+        tk_sakura(tk_pond.x + sinf(a) * (TK_POND_R + 9.0f), tk_pond.z + cosf(a) * (TK_POND_R + 9.0f), seed);
+    }
+    for(int tries = 0; tries < 400 && tk_trees < 58; tries++) {
+        seed = seed * 1664525u + 1013904223u;
+        float x = -260.0f + (float)((seed >> 8) & 1023) / 1023.0f * 520.0f;
+        float z = -240.0f + (float)((seed >> 18) & 1023) / 1023.0f * 480.0f;
+        if(sk_road_dist(v3(x, 0, z)) < 36.0f) continue;
+        tk_sakura(x, z, seed);
+    }
+    /* Far trees as sprites out on the plain. */
+    for(int i = 0; i < MAX_SPRITES; i++) {
+        uint32_t h = (uint32_t)i * 2654435761u + 77u;
+        float a = (float)(h & 1023) / 1023.0f * DK_TAU, d = 230.0f + (float)((h >> 10) & 255);
+        float x = sinf(a) * d, z = cosf(a) * d;
+        far_sprites[far_sprite_n] = v3(x, tk_terrain(x, z), z);
+        far_sprite_h[far_sprite_n] = 9.0f + (float)((h >> 18) & 7);
+        far_sprite_n++;
+    }
+#ifdef DK_AUTOTEST
+    printf("DreamKarts tsudoken props: %d cherry trees, %d lanterns, %d torii\n", tk_trees, tk_lantern_n, world_gates);
+#endif
+}
+
+/* Mt Fuji: the baked unit mountain lit and scaled, kept about the origin;
+   drawn each frame at a fixed bearing from the camera, so it never comes
+   nearer, beyond the fog. It goes in the opaque list: nothing culls its
+   back faces, and in the translucent list (drawn in submission order,
+   autosort off) they painted dark wedges over the front. */
+static void tk_fuji_bake(const dk_prop_t *m, RV *out, int out_max, int *strips, int strips_max, int *nstrips) {
+    *nstrips = 0;
+    int at = 0, n_out = 0;
+    for(int s = 0; s < m->nstrips && *nstrips < strips_max; s++) {
+        int n = m->strip_len[s];
+        if(n_out + n > out_max) break;
+        for(int q = 0; q < n; q++) {
+            const dk_prop_vert_t *v = &m->verts[m->index[at + q]];
+            V3 nn = vnorm(v3(v->nx, v->ny, v->nz));
+            /* Lit softly from the sun's side, the haze keeping it flat. */
+            float l = 0.80f + 0.26f * fmaxf(0.0f, vdot(nn, world_sun_dir));
+            /* The golden-hour grade over the whole mountain, then a fifth
+               of the way into the haze: the snow goes peach and the cap all
+               but dissolves into the sky, which reads as distance. */
+            /* Atmospheric perspective: the foot all but dissolves into the
+               horizon's haze, the summit stands clearer. */
+            uint32_t haze = TK_AFTERNOON ? argb(255, 189, 230, 248) : argb(255, 243, 184, 150);
+            float hz = clampf(v->y / 1000.0f, 0.0f, 1.0f);
+            float mix = TK_AFTERNOON ? lerpf(0.78f, 0.38f, hz) : lerpf(0.62f, 0.22f, hz);
+            uint32_t col = color_lerp(sunset_grade(color_scale(argb(255, v->r, v->g, v->b), l)), haze, mix);
+            out[n_out++] = (RV){v->x * 0.001f * tk_fuji_scale, v->y * 0.001f * tk_fuji_scale, v->z * 0.001f * tk_fuji_scale, 0, 0, col};
+        }
+        strips[(*nstrips)++] = n;
+        at += n;
+    }
+}
+
+static void tk_fuji_init(void) {
+    tk_fuji_scale = 290.0f;
+    tk_fuji_bake(&dk_props[TKP_FUJI], tk_fuji, 2400, tk_fuji_strips, 200, &tk_fuji_n);
+    tk_fuji_bake(&dk_props[TKP_FUJI_LO], tk_fuji_lo, 600, tk_fuji_lo_strips, 60, &tk_fuji_lo_n);
+}
+
+static void tk_draw_fuji(void) {
+    V3 c = r_cam.pos;
+    V3 base = v3(c.x + sinf(TK_FUJI_DIR) * 1420.0f, -14.0f, c.z + cosf(TK_FUJI_DIR) * 1420.0f);
+    if(!r_sphere_visible(vadd(base, v3(0, tk_fuji_scale * 0.5f, 0)), tk_fuji_scale * 2.4f)) return;
+    r_hdr(h_sky);   /* opaque, no fog */
+    const RV *src = world_split ? tk_fuji_lo : tk_fuji;
+    const int *lens = world_split ? tk_fuji_lo_strips : tk_fuji_strips;
+    int count = world_split ? tk_fuji_lo_n : tk_fuji_n;
+    RV v[256];
+    int at = 0;
+    for(int s = 0; s < count; s++) {
+        int n = lens[s];
+        for(int q = 0; q < n; q++) {
+            v[q] = src[at + q];
+            v[q].x += base.x;
+            v[q].y += base.y;
+            v[q].z += base.z;
+        }
+        r_strip(v, n);
+        at += n;
+    }
+}
+
+/* A band of haze across Fuji's lower slopes: one gradient strip at the
+   mountain's distance, the horizon's colour, solid at its foot and gone
+   two fifths of the way up, so the mountain rises out of mist rather
+   than standing cut out against the sky. */
+static void tk_draw_mist(void) {
+    V3 c = r_cam.pos;
+    V3 d = v3(sinf(TK_FUJI_DIR), 0, cosf(TK_FUJI_DIR)), r = v3(d.z, 0, -d.x);
+    V3 base = v3(c.x + d.x * 1400.0f, -14.0f, c.z + d.z * 1400.0f);
+    float hw = tk_fuji_scale * 2.6f, top = tk_fuji_scale * 0.42f;
+    if(!r_sphere_visible(vadd(base, v3(0, top * 0.5f, 0)), hw)) return;
+    uint32_t haze = TK_AFTERNOON ? argb(255, 189, 230, 248) : argb(255, 243, 184, 150);
+    r_hdr(h_hills);
+    RV v[8];
+    int n = 0;
+    for(int i = 0; i <= 3; i++) {
+        float t = (float)i / 3.0f;
+        V3 p = vmad(base, r, lerpf(-hw, hw, t));
+        /* Thinner toward the ends, so the band has no hard sides. */
+        float side = 1.0f - 0.6f * fabsf(t - 0.5f) * 2.0f;
+        v[n++] = (RV){p.x, p.y + top, p.z, 0, 0, color_alpha(haze, 0.0f)};
+        v[n++] = (RV){p.x, p.y, p.z, 0, 0, color_alpha(haze, 0.85f * side)};
+    }
+    r_strip(v, n);
+}
+
+/* The horizon: two ranges of low hills all round in the evening haze,
+   Mt Tsukuba's twin peaks rising in the north-east. */
+static void tk_draw_hills(void) {
+    V3 c = r_cam.pos;
+    enum { SEGS = 96, PIECE = 8 };
+    RV v[2 * (PIECE + 1)];
+    r_hdr(h_hills);
+    /* Barely darker than the haze they stand in: the plain runs out to
+       them fogged to the horizon's peach, so anything bolder reads as a
+       wall. The foot is the fog colour exactly. */
+    for(int layer = 0; layer < 2; layer++) {
+        float R = 1360.0f - 50.0f * layer;
+        uint32_t ridge = layer ? argb(255, 186, 136, 156) : argb(255, 214, 158, 158);
+        uint32_t foot = argb(255, 243, 184, 150);
+        if(TK_AFTERNOON) {
+            ridge = layer ? argb(255, 128, 160, 184) : argb(255, 158, 190, 210);
+            foot = argb(255, 189, 230, 248);
+        }
+        for(int p0 = 0; p0 < SEGS; p0 += PIECE) {
+            float am = (p0 + PIECE * 0.5f) / SEGS * DK_TAU;
+            V3 mid = v3(c.x + sinf(am) * R, 30.0f, c.z + cosf(am) * R);
+            if(!r_sphere_visible(mid, R * sinf(DK_PI * PIECE / SEGS) + 80.0f)) continue;
+            int n = 0;
+            for(int i = p0; i <= p0 + PIECE; i++) {
+                float a = (float)i / SEGS * DK_TAU;
+                float h = 16.0f - 5.0f * layer + 6.0f * sinf(a * 3.0f + layer * 1.7f) + 3.5f * sinf(a * 7.0f + layer * 0.9f) +
+                          2.0f * sinf(a * 13.0f + layer * 2.3f);
+                /* Mt Tsukuba: two peaks a few degrees apart. */
+                float da = wrap_angle(a - TK_TSUKUBA_DIR);
+                if(layer == 1) h += 70.0f * expf(-da * da * 320.0f) + 60.0f * expf(-(da - 0.06f) * (da - 0.06f) * 420.0f);
+                float x = c.x + sinf(a) * R, z = c.z + cosf(a) * R;
+                v[n++] = (RV){x, h, z, 0, 0, ridge};
+                v[n++] = (RV){x, -6.0f, z, 0, 0, foot};
+            }
+            r_strip(v, n);
+        }
+    }
+}
+
+/* Cherry petals drifting past the camera on the breeze: a fixed set of
+   positions in a box that follows the camera, each falling and swaying. */
+static void tk_draw_petals(void) {
+    if(world_split) return;
+    const float box = 44.0f;
+    V3 c = r_cam.pos;
+    V3 wind = v3(0.9f, -0.55f, 0.35f);
+    r_hdr(h_petal);
+    for(int i = 0; i < TK_PETALS; i++) {
+        uint32_t h = (uint32_t)i * 2654435761u + 913u;
+        float ox = (float)(h & 1023) / 1023.0f * box, oy = (float)((h >> 10) & 1023) / 1023.0f * box,
+              oz = (float)((h >> 20) & 1023) / 1023.0f * box;
+        float t = world_time * (0.8f + 0.3f * (float)(i & 3));
+        float x = ox + wind.x * t * 1.6f + 1.4f * sinf(t * 1.1f + i), y = oy + wind.y * t * 1.6f + 0.5f * sinf(t * 2.3f + i * 0.7f),
+              z = oz + wind.z * t * 1.6f + 1.2f * cosf(t * 0.9f + i * 1.3f);
+        /* Wrap into the box about the camera, two thirds above eye level. */
+        x = c.x - box * 0.5f + fmodf(fmodf(x - c.x + box * 0.5f, box) + box, box);
+        y = c.y - box * 0.3f + fmodf(fmodf(y - c.y + box * 0.3f, box) + box, box);
+        z = c.z - box * 0.5f + fmodf(fmodf(z - c.z + box * 0.5f, box) + box, box);
+        V3 p = v3(x, y, z);
+        if(p.y < world_ground_y(p.x, p.z) + 0.3f) continue;
+        V3 d = vsub(p, c);
+        if(vdot(d, d) < 2.0f || !r_sphere_visible(p, 0.5f)) continue;
+        r_billboard(p, 0.42f, 0.42f, t * 2.5f + (float)i, 0, 0, 1, 1, sunset_grade(argb(230, 255, 230, 240)));
+    }
+}
+
+/* The lanterns' fire boxes glow once the sun is low. */
+static void tk_draw_glows(void) {
+    if(TK_AFTERNOON) return;   /* unlit by day */
+    float range = world_split ? 120.0f : 220.0f;
+    r_hdr(h_glow_add);
+    for(int i = 0; i < tk_lantern_n; i++) {
+        V3 p = tk_lantern[i];
+        V3 d = vsub(p, r_cam.pos);
+        if(vdot(d, d) > range * range || !r_sphere_visible(p, 2.0f)) continue;
+        float a = 0.30f + 0.06f * sinf(world_time * 9.0f + i * 1.7f);
+        r_billboard(p, 2.6f, 2.6f, 0, 0, 0, 1, 1, color_alpha(argb(255, 255, 170, 70), a));
+    }
+}
+
+static void build_tsudoken(void) {
+    f8m_default();
+    f8m.road = h_tkroad;
+    f8m.curb = h_tkcurb;
+    f8m.shoulder = h_verge;
+    f8m.barrier = h_hoarding;
+    f8m.skirt = h_ishigaki;
+    f8m.cap = argb(255, 40, 34, 96);   /* the boards' top edge */
+    f8m.wall_h = 1.3f;                 /* Armco with a band of boards above it */
+    f8m.barrier_u = 8.0f;              /* two boards a repeat */
+    f8m.stripe_a = argb(255, 230, 230, 224);
+    f8m.stripe_b = argb(255, 214, 44, 36);
+    f8m.shoulder_uv = 6.0f;
+    f8m.extra = tk_verges;
+    tk_stream_init();
+#ifdef DK_CHUNK_STATS
+    ck_first[CK_GROUND] = chunk_n;   /* the kinds here: ground, road ("deck"), buildings ("rock"), trees+lanterns ("props") */
+#endif
+    tk_build_ground();
+#ifdef DK_CHUNK_STATS
+    ck_first[CK_DECK] = chunk_n;
+#endif
+    for(int c = 0; c < TRACK_SAMPLES / 8; c++) {
+        /* The ramp's chunks (any raised road, or the gap) keep the full
+           road at every distance: the coarse copy has no skirts. */
+        float sv[MAX_SVALS];
+        int n = f8_chunk_svals(c, sv);
+        bool ramp = false;
+        for(int k = 0; k < n; k++)
+            if(track_height(sv[k]) > 0.001f || track_in_gap(sv[k])) ramp = true;
+        f8m.split_lod = !ramp;
+        f8_build_track_chunk(c);
+        if(!ramp) tk_build_deck_coarse(c);
+    }
+    f8m.split_lod = false;
+    chunk_begin(HF_OP, 900.0f);
+    f8_jump_face(track_wrap(track.jump.cross + track.jump.lip), 1.0f);
+    f8_jump_face(track_wrap(track.jump.cross + track.jump.land), -1.0f);
+    chunk_end();
+#ifdef DK_CHUNK_STATS
+    ck_first[CK_ROCK] = chunk_n;
+#endif
+    tk_place_props();
+    tk_fuji_init();
+}
+
+/* ------------------------------------------------------------------ */
 
 void world_init(void) {
     world_sun_dir = vnorm(v3(0.30f, 0.55f, 0.78f));
@@ -3942,6 +4736,34 @@ void world_init(void) {
     h_waterfall = r_header(TEX_WATERFALL, HF_TR);
     h_retrosun = r_header(TEX_RETROSUN, HF_TR | HF_NOFOG);
     h_sky_nz = r_header(TEX_NONE, HF_OP | HF_NOFOG | HF_NOZWRITE);
+    h_tkroad = r_header(TEX_TKROAD, HF_OP);
+    h_tkcurb = r_header(TEX_TKCURB, HF_OP);
+    h_verge = r_header(TEX_VERGE, HF_OP);
+    h_paddy = r_header(TEX_PADDY, HF_OP);
+    h_hoarding = r_header(TEX_HOARDING, HF_OP);
+    h_ishigaki = r_header(TEX_ISHIGAKI, HF_OP);
+    h_kawara = r_header(TEX_KAWARA, HF_OP);
+    h_sakura = r_header(TEX_SAKURA, HF_PT);
+    h_sakurafar = r_header(TEX_SAKURAFAR, HF_PT);
+    h_sakurabark = r_header(TEX_SAKURABARK, HF_OP);
+    h_petal = r_header(TEX_PETAL, HF_TR);
+    h_tkcrowd = r_header(TEX_TKCROWD, HF_OP);
+    h_plaster = r_header(TEX_PLASTER, HF_OP);
+    h_tkbanner = r_header(TEX_TKBANNER, HF_OP | HF_CLAMP);
+    h_pitwall = r_header(TEX_PITWALL, HF_OP);
+    h_sundisc = r_header(TEX_SUNDISC, HF_TR | HF_NOFOG);
+    h_stream = r_header(TEX_STREAM, HF_OP);
+    h_far_sprite = h_palm_far;
+    /* The baked props' materials, in the header's TKM_* order. */
+    tk_mat_hdr[TKM_FLAT] = h_col;
+    tk_mat_hdr[TKM_KAWARA] = h_kawara;
+    tk_mat_hdr[TKM_CROWD] = h_tkcrowd;
+    tk_mat_hdr[TKM_ISHIGAKI] = h_ishigaki;
+    tk_mat_hdr[TKM_SAKURA] = h_sakura;
+    tk_mat_hdr[TKM_BARK] = h_sakurabark;
+    tk_mat_hdr[TKM_PLASTER] = h_plaster;
+    tk_mat_hdr[TKM_BANNER] = h_tkbanner;
+    tk_mat_hdr[TKM_PITWALL] = h_pitwall;
 
     static const float elev[] = {-0.25f, 0.0f, 0.10f, 0.28f, 0.62f, 1.05f, 1.5708f};
     for(int e = 0; e < 7; e++)
@@ -4016,12 +4838,14 @@ void world_build(void) {
     cur_chunk = NULL;
     built_ok = true;
     world_canyon = track.id == TRACK_CANYON;
+    world_tk = track.id == TRACK_TSUDOKEN;
     world_night = track.in_sky && !world_canyon;
 #ifdef DK_ROCK_TINT
     world_sunset = false;   /* the leak test reads colours */
 #else
-    world_sunset = world_canyon;
+    world_sunset = world_canyon || (world_tk && !TK_AFTERNOON);
 #endif
+    h_far_sprite = world_tk ? h_sakurafar : h_palm_far;
     th_flame_n = 0;
     /* The sun, or at night the moon (north-west, low over the waves). */
     world_sun_dir = world_night ? vnorm(v3(-0.50f, 0.33f, 0.80f)) : vnorm(v3(0.30f, 0.55f, 0.78f));
@@ -4030,13 +4854,19 @@ void world_build(void) {
     world_light[0] = world_night ? 176 : 256;
     world_light[1] = world_night ? 168 : 256;
     world_light[2] = world_night ? 240 : 256;
+    if(world_tk && TK_AFTERNOON) {
+        world_sun_dir = vnorm(v3(sinf(220.0f * DK_PI / 180.0f), 1.05f, cosf(220.0f * DK_PI / 180.0f)));
+        sun_disc_dir = world_sun_dir;
+    }
     if(world_sunset) {
-        /* Dead ahead along the start straight: the light from ~20 degrees
-           up, the disc low enough for the far hills to cut off its foot. */
+        /* Spiral Canyon: dead ahead along the start straight, the light
+           from ~20 degrees up, the disc low enough for the far hills to cut
+           off its foot. Tsudoken: in the south-west beside Fuji, lower. */
         V3 a = track_point(track_wrap(-30.0f), 0.0f), b = track_point(30.0f, 0.0f);
         V3 f = vnorm(v3(b.x - a.x, 0.0f, b.z - a.z));
-        world_sun_dir = vnorm(vadd(f, v3(0, 0.36f, 0)));
-        sun_disc_dir = vnorm(vadd(f, v3(0, 0.11f, 0)));
+        if(world_tk) f = v3(sinf(TK_SUN_DIR), 0.0f, cosf(TK_SUN_DIR));
+        world_sun_dir = vnorm(vadd(f, v3(0, world_tk ? 0.30f : 0.36f, 0)));
+        sun_disc_dir = vnorm(vadd(f, v3(0, world_tk ? 0.075f : 0.11f, 0)));
         world_light[0] = 256;   /* no higher: the kart paint doesn't clamp */
         world_light[1] = 209;
         world_light[2] = 172;
@@ -4045,6 +4875,7 @@ void world_build(void) {
     else if(track.id == TRACK_HARBOUR) build_harbour();
     else if(track.id == TRACK_TEMPLE) build_temple();
     else if(track.id == TRACK_CANYON) build_canyon();
+    else if(track.id == TRACK_TSUDOKEN) build_tsudoken();
     else if(track.in_sky) build_skyway();
     else build_beach();
     surface_table_build();
@@ -4076,7 +4907,7 @@ void world_build(void) {
 void world_update(float dt) {
     world_time += dt;
 #ifdef DK_CHUNK_STATS
-    if(world_canyon) ck_frame();
+    if(world_canyon || world_tk) ck_frame();
 #endif
     /* The road's lights run forward a repeat (about 8 m) every 0.55 s. */
     if(world_canyon) sk_road_hdr = *h_canyonroad;
@@ -4125,7 +4956,7 @@ static void draw_chunks(int list) {
         for(int s = 0; s < c->nstrips; s++) {
             const Strip *st = &strips[c->first_strip + s];
 #ifdef DK_CHUNK_STATS
-            if(world_canyon && r_sphere_visible(st->c, st->r)) {
+            if((world_canyon || world_tk) && r_sphere_visible(st->c, st->r)) {
                 int k = ck_kind(i);
                 ck_cam = r_cam.pos;
                 ck_strips[k]++;
@@ -4164,12 +4995,22 @@ static void draw_night_sky(void) {
 /* The golden-hour sky: orange under the sun, pink and purple round the
    rest of the horizon, up to indigo overhead. */
 static void draw_sunset_sky(void) {
-    static const uint32_t sun_side[7] = {
+    static const uint32_t dr_sun_side[7] = {
         0xffffb070, 0xffffb070, 0xffff9060, 0xffff6878, 0xffc04898, 0xff5a2c8c, 0xff261c5e
     };
-    static const uint32_t far_side[7] = {
+    static const uint32_t dr_far_side[7] = {
         0xfff08088, 0xfff08088, 0xffd86090, 0xffa04490, 0xff642e86, 0xff3a2272, 0xff261c5e
     };
+    /* Tsudoken: gold under the sun through peach to lavender and a dusky
+       blue overhead, the far side rose into violet. */
+    static const uint32_t tk_sun_side[7] = {
+        0xffffd690, 0xffffd690, 0xffffb478, 0xffec8c82, 0xffbe78a0, 0xff785aa0, 0xff2c2c60
+    };
+    static const uint32_t tk_far_side[7] = {
+        0xfff4b896, 0xfff4b896, 0xffdc9696, 0xffaa78a0, 0xff786096, 0xff504888, 0xff2c2c60
+    };
+    const uint32_t *sun_side = world_tk ? tk_sun_side : dr_sun_side;
+    const uint32_t *far_side = world_tk ? tk_far_side : dr_far_side;
     const int az = 12;
     const float R = 1500.0f;
     V3 c = r_cam.pos, sd = vnorm(v3(sun_disc_dir.x, 0, sun_disc_dir.z));
@@ -4321,7 +5162,7 @@ static void draw_sea(void) {
         draw_clouds_below();
         return;
     }
-    if(world_canyon) return;   /* the valley floor is static scenery */
+    if(world_canyon || world_tk) return;   /* the valley floor and the plain are static scenery */
     const float cell = world_split ? 60.0f : 45.0f;
     const int n = world_split ? 10 : 16;
     float cx = floorf(r_cam.pos.x / cell) * cell, cz = floorf(r_cam.pos.z / cell) * cell;
@@ -4406,13 +5247,23 @@ void world_set_fog(bool split) {
        once the previous frame's render has finished, before a new scene.
        At night it fades to the purple of the sky's horizon. */
     static int fog_mode = -1;
-    int mode = (int)split | (world_night ? 2 : 0) | (world_canyon ? 4 : 0) | (world_sunset ? 8 : 0);
+    int mode = (int)split | (world_night ? 2 : 0) | (world_canyon ? 4 : 0) | (world_sunset ? 8 : 0) | (world_tk ? 16 : 0);
     if(fog_mode == mode) return;
     fog_mode = mode;
     pvr_wait_ready();
     if(world_night) {
         pvr_fog_table_color(1.0f, 20 / 255.0f, 16 / 255.0f, 56 / 255.0f);
         pvr_set_bg_color(20 / 255.0f, 16 / 255.0f, 56 / 255.0f);
+    }
+    else if(world_tk && TK_AFTERNOON) {
+        /* The day sky's horizon: a light blue haze. */
+        pvr_fog_table_color(1.0f, 0.74f, 0.90f, 0.97f);
+        pvr_set_bg_color(0.74f, 0.90f, 0.97f);
+    }
+    else if(world_tk) {
+        /* A peach haze, the colour of the horizon away from the sun. */
+        pvr_fog_table_color(1.0f, 0.955f, 0.72f, 0.59f);
+        pvr_set_bg_color(0.955f, 0.72f, 0.59f);
     }
     else if(world_sunset) {
         /* A rose haze, between the horizon's orange and its pink. */
@@ -4563,6 +5414,7 @@ void world_draw_op(void) {
     r_load_vp();
     PROF_BEGIN(pm);
     if(!(dk_probe_off & PROBE_SKY)) draw_sky();
+    if(world_tk && !(dk_probe_off & PROBE_DISTANT)) tk_draw_fuji();
     PROF_LAP(PS_SKY, pm);
     if(!(dk_probe_off & PROBE_SEA)) draw_sea();
     PROF_LAP(PS_SEA, pm);
@@ -4592,6 +5444,7 @@ void world_draw_pt(void) {
         if(!r_sphere_visible(mid, palms[i].height)) continue;
         r_billboard_y(palms[i].base, palms[i].height * 0.62f, palms[i].height * 1.25f, 0, 0, 1, 1, sunset_grade(0xffffffff));
     }
+    r_hdr(h_far_sprite);
     for(int i = 0; i < far_sprite_n; i += world_split ? 2 : 1) {
         V3 mid = vadd(far_sprites[i], v3(0, far_sprite_h[i] * 0.6f, 0));
         if(!r_sphere_visible(mid, far_sprite_h[i])) continue;
@@ -4758,7 +5611,26 @@ static void draw_clouds_and_mountains(void) {
         return;
     }
     V3 c = r_cam.pos;
-    if(world_canyon) {
+    if(world_tk) {
+        /* The low sun first, then Fuji, then the hills in front of both. */
+        V3 sp = vmad(c, sun_disc_dir, 1460.0f);
+        if(TK_AFTERNOON) {
+            if(r_sphere_visible(sp, 200.0f)) {
+                r_hdr(h_glow_add);
+                r_billboard(sp, 240.0f, 240.0f, 0, 0, 0, 1, 1, argb(200, 255, 250, 210));
+                r_billboard(sp, 80.0f, 80.0f, 0, 0, 0, 1, 1, argb(255, 255, 255, 240));
+            }
+        }
+        else if(r_sphere_visible(sp, 500.0f)) {
+            r_hdr(h_glow_add);
+            r_billboard(sp, 1000.0f, 700.0f, 0, 0, 0, 1, 1, argb(130, 255, 150, 90));
+            r_hdr(h_sundisc);
+            r_billboard(sp, 170.0f, 170.0f, 0, 0, 0, 1, 1, 0xffffffff);
+        }
+        tk_draw_mist();    /* Fuji itself was drawn with the opaque scenery */
+        tk_draw_hills();
+    }
+    else if(world_canyon) {
         draw_canyon_hills();
     }
     else {
@@ -4790,18 +5662,27 @@ static void draw_clouds_and_mountains(void) {
         float w = 150.0f + (float)(i % 3) * 50.0f;
         float u0 = (i & 1) ? 0.5f : 0.0f;
         uint32_t col = color_alpha(0xffffffff, 0.92f);
-        if(world_sunset) {
+        if(world_sunset || world_tk) {
             /* None in front of the low sun: a cloud drifting within ~35
                degrees of it fades out (gone by ~30). */
-            float sd = (sinf(a) * sun_disc_dir.x + cosf(a) * sun_disc_dir.z) /
-                       fmaxf(0.01f, sqrtf(sun_disc_dir.x * sun_disc_dir.x + sun_disc_dir.z * sun_disc_dir.z));
-            float fade = clampf((0.87f - sd) / 0.05f, 0.0f, 1.0f);
+            float fade = 1.0f;
+            if(world_sunset) {
+                float sd = (sinf(a) * sun_disc_dir.x + cosf(a) * sun_disc_dir.z) /
+                           fmaxf(0.01f, sqrtf(sun_disc_dir.x * sun_disc_dir.x + sun_disc_dir.z * sun_disc_dir.z));
+                fade = clampf((0.87f - sd) / 0.05f, 0.0f, 1.0f);
+            }
+            /* Tsudoken: nor in front of Fuji. */
+            if(world_tk) {
+                float fd = sinf(a) * sinf(TK_FUJI_DIR) + cosf(a) * cosf(TK_FUJI_DIR);
+                fade = fminf(fade, clampf((0.90f - fd) / 0.05f, 0.0f, 1.0f));
+            }
             if(fade <= 0.0f) continue;
-            col = argb((int)(220.0f * fade), 255, 168, 156);
+            col = world_sunset ? argb((int)(220.0f * fade), 255, 168, 156) : color_alpha(0xffffffff, 0.92f * fade);
         }
         r_billboard(p, w, w * 0.8f, 0, u0, 0, u0 + 0.5f, 1, col);
     }
 
+    if(world_tk) return;
     if(world_sunset) {
         /* The retrowave sun, beyond the hills so they hide its foot, in a
            wide pink glow. */
@@ -4860,6 +5741,10 @@ void world_draw_tr(void) {
     draw_shore_foam();
     PROF_LAP(PS_FOAM, pm);
     th_draw_flames();
+    if(world_tk) {
+        tk_draw_glows();
+        tk_draw_petals();
+    }
     /* Dash panels pulse with a glow. */
     r_hdr(h_dash_glow);
     for(int i = 0; i < track.npads; i++) {

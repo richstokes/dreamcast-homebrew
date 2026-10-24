@@ -110,13 +110,22 @@ canyon-rock:
 	$(BLENDER) --background --python tools/build_canyon_rock.py -- --dump captures/canyon-rock-dump.log \
 		--header $(GEN)/canyon_rock.h --blend captures/canyon_rock.blend
 
+# Tsudoken Drift's props: Blender models every one (Mt Fuji, the cherry
+# trees, torii, lanterns, the pagoda, grandstand, tower, pits, teahouse and
+# bridge) and bakes them as strips; captures/tsudoken_props.blend to look
+# at, captures/tsudoken-props/*.png for a render of each.
+tsudoken-props:
+	mkdir -p captures
+	$(BLENDER) --background --python tools/build_tsudoken_props.py -- --header $(GEN)/tsudoken_props.h \
+		--blend captures/tsudoken_props.blend --preview captures/tsudoken-props
+
 audio:
 	uv run tools/build_audio.py --output-dir $(GEN)
 
 vmu:
 	uv run tools/build_vmu.py --output-dir $(GEN)
 
-assets: textures models audio vmu canyon-rock
+assets: textures models audio vmu canyon-rock tsudoken-props
 
 run: $(TARGET)
 	./run-flycast.sh --skip-build
@@ -153,6 +162,6 @@ hwbench:
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf
 
-.PHONY: canyon-rock all clean run textures models audio vmu assets autotest hwbench hw force
+.PHONY: canyon-rock tsudoken-props all clean run textures models audio vmu assets autotest hwbench hw force
 
 endif

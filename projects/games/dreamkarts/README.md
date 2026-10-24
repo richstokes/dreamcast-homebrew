@@ -10,7 +10,7 @@ counter-steer, watch the sparks turn blue, orange and purple, then let go
 for a mini-turbo. You drive a Chao against five CPU rivals, a friend in
 split screen, or up to five other Dreamcasts online.
 
-Seven courses:
+Eight courses:
 
 - Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels
 - Coral Crossing: a figure 8 whose ramp jumps one leg over the other
@@ -19,10 +19,11 @@ Seven courses:
 - Neon Skyway: 1,056 m of neon road above a cyberpunk city at night, with a banked loop, a gap jump and open edges to fall off
 - Cyberstone: Neon Skyway's city on a layout after Silverstone's National circuit, all hills and no jumps
 - Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches at golden hour, a retrowave sun setting behind the hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
+- Tsudoken Drift: a flat club circuit after Tsukuba under Mt Fuji on a spring afternoon, 1,031 m of hairpins and long lefts through cherry blossom, paddies and stone lanterns, a grandstand under a swept tiled roof along the start straight, torii over the road and a ramp jump over a stream halfway down the 200 m back straight
 
 Highlights:
 
-- Grand Prix: all seven courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
+- Grand Prix: all eight courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
 - Two-player split screen in every mode (Versus instead of Time Trial), each player picking their own kart
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
@@ -139,6 +140,7 @@ needs no Python.
 | `make textures` | Procedural textures, the HUD font, logo and countdown lettering (`assets/generated/textures.pak`) |
 | `make models` | The kart and Chao meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
 | `make canyon-rock` | Spiral Canyon's rock (`canyon_rock.h`): a `-DDK_DUMP_ROCK` build prints the rock's height field, tunnel bores and road clearance, and Blender (`tools/build_canyon_rock.py`, ~5 s) cuts one mesh from them; open `captures/canyon_rock.blend` to look at it. Rerun after changing the track's layout, heights or the rock's shape |
+| `make tsudoken-props` | Tsudoken Drift's props (`tsudoken_props.h`): Blender (`tools/build_tsudoken_props.py`, ~2 s) models Mt Fuji, the cherry trees, torii, stone lanterns, pagoda, grandstand, race control, pit garages, teahouse and bridge, and bakes each as strips per material; `captures/tsudoken_props.blend` holds the scene and `captures/tsudoken-props/` a render of each |
 | `make audio` | Songs and effects, encoded to AICA ADPCM (`sfx.pak`, `music.adpcm`) |
 | `make vmu` | The save file's icon and the VMU screen sprites and fonts |
 | `make assets` | All of the above |
@@ -159,10 +161,10 @@ needs no Python.
 
 | Flag | Effect |
 | --- | --- |
-| `-DDK_AT_TRACK=n` | Track 0-6 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon) |
+| `-DDK_AT_TRACK=n` | Track 0-7 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift) |
 | `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
-| `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all seven |
+| `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all eight |
 | `-DDK_AT_NEXT_TRACK` (capture) | Picks NEW TRACK from the results, the next course along, and races that too |
 | `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST`, `-DDK_AT_MINE_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill; hand the player a Mine every 12 s, or every `=<s>` (the capture looks behind at it; alone with `=30` the player laps round to its own) |
 | `-DDK_AT_WRONG_WAY` | Turns the player round 10 s in (player 2 at 12 s) and drives it back up the track for 5 s; `DK WRONG WAY` lines log the banner coming and going (capture shots `wrong-way`, `wrong-way-p2`) |
@@ -180,7 +182,7 @@ needs no Python.
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
 | `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
 | `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |
-| `-DDK_CHUNK_STATS` | Spiral Canyon: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
+| `-DDK_CHUNK_STATS` | Spiral Canyon and Tsudoken Drift: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches; for Tsudoken ground, road, buildings, trees and lanterns), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
 | `-DDK_PERF_HUD` | Starts with the performance overlay on (the pause menu's PERF switch): frame CPU time and its phases, PVR render time, vertex buffer, triangles and missed vblanks, half-second averages and maxima against the 16.68 ms frame. It costs ~0.3 ms of CPU a frame on the console. In Flycast the PVR row is a constant 7.50 ms and VTX reads `--`, so judge headroom on hardware. hwbench adds a `-perfhud` probe step |
 | `-DDK_AT_PVRSPIKE=15.0f` | Logs where any race frame's PVR render runs over that many ms (`DK PVRSPIKE`, the player's lap distance and heading), at most one line in 2.5 s |
 | `-DDK_AT_WALLRIDE`, `-DDK_AT_ZIGZAG` | The player rides the right rail all of lap 1 and the left all of lap 2, or slams the rails at an angle every 1.5 s; any kart ending up past a rail logs `DK ESCAPE` |
@@ -231,6 +233,19 @@ frame in split screen and took the 2P drops from 4 to 19. The scenery alone
 peaks at 10.8 ms of PVR render (the run down to the start line, both
 mountains in view; `-DDK_AT_VIEWS=2` on the console), so the rare render
 spikes over 16.7 ms in a race come from karts and their effects.
+
+Tsudoken Drift on the console (2026-10-23, `make hwbench`, 150cc, six
+karts). The first split-screen build stalled at 4 fps: the flat circuit
+keeps nearly the whole lap in view, and two views of it passed the Tile
+Accelerator's 1 MB vertex buffer. The buffer is 1.5 MB now, a split screen
+draws a coarse copy of the road beyond 25 m (five strips instead of
+thirteen), leaves out the pagoda, teahouses, bridge, the grandstand's
+paper lanterns and every third cherry tree, and sees a coarser Fuji.
+
+| | CPU avg | Worst frame | Dropped race frames |
+| --- | --- | --- | --- |
+| Tsudoken Drift 1P | 9.5 ms | 17.3 ms | 0 of ~7,300 (5 in the menus) |
+| Tsudoken Drift 2P split | 12.6 ms | 19.9 ms | 14 of ~7,300 |
 
 The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so
 the GPU is now as close to the limit as the CPU. Baseline, 2026-10-17: the
@@ -283,6 +298,7 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 - Flycast does not emulate the W5500, and probing for one there spins on SCI timeouts for ~0.9 s. It runs once, on the link thread while the player types a name, so nobody waits on it
 - Online, two level karts each see the other ~150 ms behind, so a power-up hit is only ever judged by the console driving the kart hit; a spear spawned from a packet is moved on by the draw delay, and a mine from a packet catches a kart that crossed its spot in that delay (`src/items.c`)
 - One emerald per band starves a tight pack if it takes any time to come back: six CPUs cross a band within a second, so it pops back at once
+- The Tile Accelerator's vertex buffer (`pvr_init`, `src/render.c`) is a hard ceiling: a frame that passes it stalls the console to a few fps with the CPU time all in the world draw. A split screen of a flat, open track is the case that hits it; `-DDK_CHUNK_STATS` shows what each kind of scenery sends
 - Anything translucent drawn round your own kart fills most of the chase view: the Barrier's first bubble (three 2.5-2.9 m billboards) pushed the PVR to 20 ms and dropped ~70 frames a race; it is a 1.3 m core and ten small orbiting sparks now (`src/items.c`)
 
 ## Known limitations

@@ -70,6 +70,23 @@ enum {
     TEX_BUSH,
     TEX_WATERFALL,
     TEX_RETROSUN,
+    TEX_TKROAD,
+    TEX_TKCURB,
+    TEX_VERGE,
+    TEX_PADDY,
+    TEX_HOARDING,
+    TEX_ISHIGAKI,
+    TEX_KAWARA,
+    TEX_SAKURA,
+    TEX_SAKURAFAR,
+    TEX_SAKURABARK,
+    TEX_PETAL,
+    TEX_TKCROWD,
+    TEX_PLASTER,
+    TEX_TKBANNER,
+    TEX_PITWALL,
+    TEX_SUNDISC,
+    TEX_STREAM,
     TEX_COUNT
 };
 
@@ -135,8 +152,25 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {2335744u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* bush */
     {2346688u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* waterfall */
     {2357632u, 43712u, 128, 128, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* retrosun */
+    {2401344u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* tkroad */
+    {2576128u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* tkcurb */
+    {2587072u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* verge */
+    {2630784u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* paddy */
+    {2674496u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* hoarding */
+    {2718208u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* ishigaki */
+    {2761920u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* kawara */
+    {2772864u, 43712u, 128, 128, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* sakura */
+    {2816576u, 43712u, 128, 128, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* sakurafar */
+    {2860288u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sakurabark */
+    {2871232u, 2048u, 32, 32, DK_TEXFMT_ARGB4444, 0, {0, 0}},  /* petal */
+    {2873280u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* tkcrowd */
+    {2884224u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* plaster */
+    {2895168u, 65536u, 256, 128, DK_TEXFMT_RGB565, 0, {0, 0}},  /* tkbanner */
+    {2960704u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* pitwall */
+    {3004416u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* sundisc */
+    {3015360u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* stream */
 };
 
-#define DK_TEXTURES_BYTES 2401344u
+#define DK_TEXTURES_BYTES 3059072u
 
 #endif

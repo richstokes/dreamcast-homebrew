@@ -333,7 +333,7 @@ static const char *mode_name(void) {
 }
 
 static const char *mode_blurb(void) {
-    if(game.mode == MODE_GP) return "ALL SEVEN COURSES, POINTS EVERY RACE";
+    if(game.mode == MODE_GP) return "ALL EIGHT COURSES, POINTS EVERY RACE";
     if(game.mode == MODE_RACE) return "ONE RACE ON A COURSE YOU PICK";
     return game.num_players > 1 ? "JUST THE TWO OF YOU" : "ALONE AGAINST THE CLOCK";
 }

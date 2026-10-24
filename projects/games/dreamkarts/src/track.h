@@ -8,7 +8,8 @@
 
 enum { SURF_ROAD, SURF_CURB, SURF_SAND };
 enum { SEC_ASPHALT, SEC_BOARDWALK };
-enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_SKYWAY, TRACK_CYBERSTONE, TRACK_CANYON, TRACK_COUNT };
+enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_SKYWAY, TRACK_CYBERSTONE, TRACK_CANYON, TRACK_TSUDOKEN,
+       TRACK_COUNT };
 /* TrackSample.open: a side with no barrier, where karts can fall off. */
 enum { OPEN_LEFT = 1, OPEN_RIGHT = 2 };
 
@@ -84,8 +85,16 @@ extern const char *const track_names[TRACK_COUNT];
 
 void track_init(int id);
 /* Lap distance where segment i of a straight-and-arc layout (Palm Harbour,
-   Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon) begins. */
+   Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift)
+   begins. */
 float track_seg_s(int i);
+/* The layout's segments: how many, and each one's arc radius (0 on a
+   straight) and signed degrees (+ = right). */
+int track_seg_count(void);
+float track_seg_radius(int i);
+float track_seg_deg(int i);
+/* Tsudoken Drift's back straight, the one with the jump. */
+#define TK_BACK_SEG 16
 /* Locate p on the track. hint is the previous segment index or -1. */
 void track_locate(V3 p, int hint, TrackPos *out);
 /* World point at lap distance s (wrapped) and lateral offset d. */

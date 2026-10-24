@@ -87,7 +87,7 @@ static void load_textures(void) {
 void render_init(void) {
     pvr_init_params_t params = {
         .opb_sizes = {PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16},
-        .vertex_buf_size = 1024 * 1024,
+        .vertex_buf_size = 1536 * 1024,   /* Tsudoken Drift's start straight in a split screen passed 1 MB and stalled the TA */
         /* Measured: the CPU waits on the TA only ~0.1 ms a frame, so DMA
            to it is not worth having. */
         .dma_enabled = 0,

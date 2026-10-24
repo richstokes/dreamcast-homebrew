@@ -1065,6 +1065,367 @@ def tex_bush(n=64):
     return to_image(rgb)
 
 
+# ---------------------------------------------------------------------------
+# Tsudoken Drift (a flat club circuit under Mt Fuji at golden hour: cherry
+# blossom, paddies, tyre walls, stone and tile). Painted in daylight
+# colours; the game grades them warm.
+
+def tex_tkroad(n=256):
+    """Dark fresh asphalt with a pinkish volcanic aggregate, two faint
+    rubbered lines and crisp white edge lines."""
+    rng = np.random.default_rng(7001)
+    noise = fbm(n, n, 10, 5, 7003)
+    fine = rng.random((n, n))
+    base = 84 + 22 * (noise - 0.5) + 14 * (fine - 0.5)
+    rgb = np.dstack([base * 1.06, base * 0.98, base * 1.0])
+    speck = rng.random((n, n)) > 0.982
+    rgb[speck] = rgb[speck] * 1.5 + np.array([24, 8, 4])
+    dark = rng.random((n, n)) > 0.99
+    rgb[dark] = rgb[dark] * 0.55
+    u = (np.arange(n) + 0.5) / n
+    groove = np.exp(-((u - 0.36) / 0.05) ** 2) + np.exp(-((u - 0.64) / 0.05) ** 2)
+    rgb *= (1 - 0.10 * groove)[None, :, None]
+    edge = ((u > 0.012) & (u < 0.04)) | ((u > 0.96) & (u < 0.988))
+    rgb[:, edge] = np.array([240, 238, 232]) * (0.92 + 0.08 * fine[:, edge, None])
+    return to_image(rgb)
+
+
+def tex_tkcurb(n=64):
+    """Red and white curb blocks, each block rounded off with a shaded
+    lip, so the curbs read as cast concrete rather than paint."""
+    v = (np.arange(n) + 0.5) / n
+    u = (np.arange(n) + 0.5) / n
+    red = (np.floor(v * 2) % 2 == 0)
+    rgb = np.repeat(np.where(red[:, None, None], np.array([214, 44, 36.0]), np.array([240, 236, 228.0])), n, axis=1)
+    lip = np.clip(1 - np.abs((v * 2 % 1.0) - 0.5) * 2.6, 0, 1)[:, None]
+    rgb = rgb * (0.72 + 0.28 * lip)[..., None]
+    slope = (0.9 + 0.2 * u)[None, :, None]
+    rgb = rgb * slope
+    rgb *= (0.94 + 0.1 * fbm(n, n, 6, 2, 7011))[..., None]
+    return to_image(rgb)
+
+
+def tex_verge(n=128):
+    """Mown grass verges: yellow-green with mower stripes."""
+    g = fbm(n, n, 8, 4, 7021)
+    stripe = 0.5 + 0.5 * np.sin((np.arange(n) + 0.5) / n * 2 * math.pi * 4)[None, :]
+    rgb = lerp_color((112, 160, 62), (170, 208, 92), g)
+    rgb *= (0.9 + 0.14 * stripe)[..., None]
+    return to_image(rgb)
+
+
+def tex_paddy(n=128):
+    """Rice paddies from above, one tile 24 m across: a 3 by 3 patchwork of
+    greens with earth bunds between and the odd glint of water."""
+    rng = np.random.default_rng(7031)
+    yy, xx = np.mgrid[0:n, 0:n]
+    u, v = (xx + 0.5) / n, (yy + 0.5) / n
+    cells = 3
+    ci, cj = np.floor(u * cells).astype(int), np.floor(v * cells).astype(int)
+    greens = np.array([[120, 176, 70], [96, 160, 80], [150, 190, 72], [108, 170, 60], [132, 184, 90],
+                       [88, 152, 64], [140, 180, 60], [116, 168, 76], [150, 196, 96]], dtype=float)
+    rgb = greens[(ci + cj * cells) % 9]
+    rows = 0.5 + 0.5 * np.sin(v * cells * 2 * math.pi * 7)
+    rgb *= (0.9 + 0.12 * rows)[..., None]
+    rgb *= (0.92 + 0.14 * fbm(n, n, 10, 3, 7033))[..., None]
+    fu, fv = u * cells % 1.0, v * cells % 1.0
+    bund = (np.minimum(fu, 1 - fu) < 0.035) | (np.minimum(fv, 1 - fv) < 0.035)
+    rgb[bund] = np.array([150, 120, 80.0]) * (0.9 + 0.2 * fbm(n, n, 8, 2, 7035))[bund][:, None]
+    glint = (rng.random((n, n)) > 0.994) & ~bund
+    rgb[glint] = np.array([190, 220, 240.0])
+    return to_image(rgb)
+
+
+def tex_hoarding(w=128, h=128):
+    """The trackside barrier over 8 m: a galvanised Armco beam along the
+    foot on dark posts every 4 m, and a band of advertising boards above
+    it, indigo with gold rules, one board TSUDOKEN, the next the sun and
+    blossom emblem. Horizontal lines only, so it stays clean at range."""
+    s = 4
+    img = Image.new("RGB", (w * s, h * s), (190, 196, 204))
+    d = ImageDraw.Draw(img)
+    board_h = int(h * 0.46) * s
+    # The boards.
+    d.rectangle([0, 0, w * s, board_h], fill=(34, 28, 86))
+    for x0, x1 in ((2 * s, 62 * s), (66 * s, 126 * s)):
+        d.rectangle([x0, 2 * s, x1, board_h - 2 * s], outline=(255, 212, 70), width=s)
+    font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), 18 * s)
+    bbox = d.textbbox((0, 0), "TSUDOKEN", font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    layer = Image.new("RGB", (tw + 2 * s, th + 2 * s), (34, 28, 86))
+    ImageDraw.Draw(layer).text((s - bbox[0], s - bbox[1]), "TSUDOKEN", font=font, fill=(255, 212, 70))
+    layer = layer.resize((56 * s, int(board_h * 0.62)), Image.Resampling.LANCZOS)
+    img.paste(layer, (4 * s, (board_h - layer.height) // 2))
+    # The emblem board: a red sun disc with five blossoms across it.
+    cx, cy, r = 96 * s, board_h // 2, int(board_h * 0.34)
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(214, 44, 48))
+    for k in range(5):
+        x = 72 * s + k * 12 * s
+        y = cy + (int(board_h * 0.18) if k % 2 else -int(board_h * 0.18))
+        for q in range(5):
+            a = q / 5 * 2 * math.pi
+            px, py = x + math.cos(a) * 2.2 * s, y + math.sin(a) * 2.2 * s
+            d.ellipse([px - 1.8 * s, py - 1.8 * s, px + 1.8 * s, py + 1.8 * s], fill=(255, 200, 220))
+        d.ellipse([x - 0.9 * s, y - 0.9 * s, x + 0.9 * s, y + 0.9 * s], fill=(255, 120, 150))
+    # The beam: two ridges of a W-section, highlights above, shadow below.
+    beam_top = board_h + 2 * s
+    for yy in range(beam_top, h * s):
+        t = (yy - beam_top) / max(1, h * s - beam_top)
+        ridge = 0.5 + 0.5 * math.cos(t * 2 * math.pi * 2 + math.pi)
+        tone = int(150 + 70 * ridge)
+        d.line([(0, yy), (w * s, yy)], fill=(tone, tone + 4, tone + 10))
+    d.line([(0, beam_top), (w * s, beam_top)], fill=(236, 240, 244), width=s)
+    d.line([(0, h * s - s), (w * s, h * s - s)], fill=(90, 92, 98), width=s)
+    # Posts every 4 m, at the boards' joins, behind the boards and the beam.
+    for k in range(2):
+        x = k * 64 * s
+        d.rectangle([x - 2 * s, 0, x + 2 * s, h * s], fill=(58, 60, 68))
+        d.rectangle([x - s, 0, x, h * s], fill=(96, 98, 106))
+    out = img.resize((w, h), Image.Resampling.LANCZOS)
+    arr = np.asarray(out, dtype=float) * (0.96 + 0.06 * fbm(w, h, 8, 2, 7043))[..., None]
+    return to_image(arr)
+
+
+def tex_ishigaki(n=128):
+    """A castle wall of fitted dark stone blocks, mortar-less, mossy at the
+    joints: the ramp skirts, plinths and the grandstand's base."""
+    rng = np.random.default_rng(7051)
+    yy, xx = np.mgrid[0:n, 0:n]
+    rows = 5
+    rh = n / rows
+    rgb = np.zeros((n, n, 3))
+    joint = np.zeros((n, n))
+    for r in range(rows):
+        off = rng.random() * n
+        widths = []
+        x = 0
+        while x < n * 1.5:
+            w = rng.uniform(0.9, 1.6) * rh * 1.6
+            widths.append((x, w))
+            x += w
+        for x0, w in widths:
+            xa = (x0 + off) % n
+            dx = (xx - xa) % n
+            inx = dx < w
+            iny = (yy >= r * rh) & (yy < (r + 1) * rh)
+            block = inx & iny
+            tone = rng.uniform(0.8, 1.15)
+            cx = (dx - w / 2) / (w / 2)
+            cy = (yy - (r + 0.5) * rh) / (rh / 2)
+            dome = np.clip(1 - 0.28 * (cx ** 2 + cy ** 2), 0, 1)
+            col = np.array([118, 120, 118.0]) * tone
+            rgb[block] = (col * dome[..., None])[block]
+            edge = np.maximum(np.abs(cx), np.abs(cy)) > 0.82
+            joint[block & edge] = 1
+    rgb *= (0.9 + 0.2 * fbm(n, n, 10, 3, 7053))[..., None]
+    moss = (joint > 0) & (fbm(n, n, 6, 2, 7055) > 0.55)
+    rgb[joint > 0] = rgb[joint > 0] * 0.55
+    rgb[moss] = np.array([80, 110, 60.0])
+    return to_image(rgb)
+
+
+def tex_kawara(n=64):
+    """Kawara roof tiles: rows of grey-blue pan tiles with a round cap
+    along each row's foot, lit from above."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    rows, per = 4, 4
+    v = (yy + 0.5) / n * rows % 1.0
+    u = (xx + 0.5) / n * per % 1.0
+    rgb = np.zeros((n, n, 3)) + np.array([92, 100, 118.0])
+    curve = 0.5 + 0.5 * np.cos(u * 2 * math.pi)
+    rgb *= (0.78 + 0.3 * curve)[..., None]
+    rgb *= (0.7 + 0.3 * np.clip(v * 3, 0, 1))[..., None]
+    cap = v > 0.82
+    rgb[cap] = (np.array([70, 76, 92.0]) * (0.7 + 0.5 * curve)[..., None])[cap]
+    rgb[(v > 0.78) & (v <= 0.82)] = np.array([160, 168, 190.0])
+    rgb *= (0.94 + 0.1 * fbm(n, n, 8, 2, 7061))[..., None]
+    return to_image(rgb)
+
+
+def tex_sakura(n=128):
+    """A cloud of cherry blossom for the canopy planes: clusters of small
+    five-petal flowers, pale pink to white, over open sky (alpha)."""
+    rng = np.random.default_rng(7071)
+    s = 2
+    img = Image.new("RGBA", (n * s, n * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    cx, cy, R = n * s / 2, n * s / 2, n * s * 0.46
+    for _ in range(360):
+        a, rr = rng.random() * 2 * math.pi, math.sqrt(rng.random()) * R
+        x, y = cx + math.cos(a) * rr, cy + math.sin(a) * rr * 0.9
+        if rng.random() > 0.3 + 0.7 * (1 - rr / R):
+            continue
+        tone = rng.random()
+        col = (int(255 - 20 * tone), int(200 - 60 * tone), int(215 - 40 * tone), 255)
+        pr = 2.6 * s + rng.random() * 1.8 * s
+        rot = rng.random() * 2 * math.pi
+        for k in range(5):
+            pa = rot + k / 5 * 2 * math.pi
+            px, py = x + math.cos(pa) * pr * 0.7, y + math.sin(pa) * pr * 0.7
+            d.ellipse([px - pr * 0.55, py - pr * 0.55, px + pr * 0.55, py + pr * 0.55], fill=col)
+        d.ellipse([x - pr * 0.3, y - pr * 0.3, x + pr * 0.3, y + pr * 0.3], fill=(255, 120, 150, 255))
+    for _ in range(40):   # a few dark twigs showing through
+        a, rr = rng.random() * 2 * math.pi, math.sqrt(rng.random()) * R * 0.8
+        x, y = cx + math.cos(a) * rr, cy + math.sin(a) * rr
+        d.line([(x, y), (x + rng.uniform(-8, 8) * s, y + rng.uniform(-8, 8) * s)], fill=(70, 50, 50, 255), width=s)
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_sakurafar(n=128):
+    """A whole cherry tree for the far sprites: a dark trunk under a round
+    pink crown, lighter on top."""
+    rng = np.random.default_rng(7081)
+    s = 2
+    img = Image.new("RGBA", (n * s, n * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    w = n * s
+    d.polygon([(w * 0.46, w), (w * 0.54, w), (w * 0.52, w * 0.55), (w * 0.48, w * 0.55)], fill=(60, 44, 44, 255))
+    for _ in range(70):
+        a, rr = rng.random() * 2 * math.pi, math.sqrt(rng.random()) * w * 0.36
+        x, y = w / 2 + math.cos(a) * rr, w * 0.4 + math.sin(a) * rr * 0.8
+        r = w * (0.05 + 0.06 * rng.random())
+        light = 0.5 + 0.5 * (1 - (y / w) / 0.8)
+        col = (int(230 + 25 * light), int(160 + 60 * light), int(185 + 40 * light), 255)
+        d.ellipse([x - r, y - r, x + r, y + r], fill=col)
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_sakurabark(n=64):
+    """Cherry bark: dark grey-brown with the horizontal lenticel bands."""
+    g = fbm(n, n, 6, 3, 7091)
+    rgb = lerp_color((58, 48, 46), (96, 80, 72), g)
+    v = (np.arange(n) + 0.5) / n
+    bands = np.clip(1 - np.abs(((v * 7) % 1.0) - 0.5) * 9, 0, 1)[:, None]
+    rgb = rgb * (1 - 0.35 * bands)[..., None] + bands[..., None] * np.array([150, 120, 96.0]) * 0.5
+    return to_image(rgb)
+
+
+def tex_petal(n=32):
+    """One cherry petal: a pink teardrop with a notched tip."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    u, v = (xx + 0.5) / n - 0.5, (yy + 0.5) / n - 0.5
+    body = (u ** 2 / 0.09 + v ** 2 / 0.18) < 1
+    notch = (v < -0.28) & (np.abs(u) < 0.07 * (-(v + 0.28) / 0.14 + 0.2))
+    a = np.where(body & ~notch, 255, 0)
+    rgb = lerp_color((255, 170, 200), (255, 235, 240), np.clip((v + 0.5), 0, 1))
+    return to_image(rgb, a)
+
+
+def tex_tkcrowd(n=64):
+    """A festival crowd: happi coats and yukata in indigo, red and white,
+    some holding paper fans up."""
+    rng = np.random.default_rng(7101)
+    rgb = np.zeros((n, n, 3)) + np.array([64, 60, 72])
+    img = Image.fromarray(rgb.astype(np.uint8))
+    d = ImageDraw.Draw(img)
+    palette = [(40, 50, 120), (210, 50, 50), (240, 240, 240), (40, 50, 120), (230, 120, 60), (90, 160, 200),
+               (250, 230, 90), (60, 120, 80)]
+    for row in range(8):
+        for col in range(8):
+            cx = col * 8 + 4 + rng.integers(-1, 2)
+            cy = row * 8 + 3
+            c = palette[rng.integers(0, len(palette))]
+            d.ellipse([cx - 3, cy + 1, cx + 3, cy + 6], fill=c)
+            skin = tuple(int(x) for x in rng.choice([[250, 215, 180], [220, 170, 130], [150, 105, 75]]))
+            d.ellipse([cx - 2, cy - 3, cx + 2, cy + 1], fill=skin)
+            if rng.random() < 0.3:
+                d.ellipse([cx + 2, cy - 5, cx + 5, cy - 2], fill=(250, 250, 240))
+                d.line([(cx + 3, cy - 2), (cx + 3, cy + 1)], fill=(80, 60, 50))
+    return img
+
+
+def tex_plaster(n=64):
+    """White lime plaster between dark timber uprights, machiya style."""
+    g = fbm(n, n, 6, 3, 7111)
+    rgb = lerp_color((226, 220, 206), (244, 240, 230), g)
+    u = (np.arange(n) + 0.5) / n
+    post = ((u * 2) % 1.0) < 0.1
+    rgb[:, post] = np.array([62, 42, 34.0]) * (0.9 + 0.2 * g[:, post, None])
+    return to_image(rgb)
+
+
+def tex_tkbanner():
+    """The course banner: TSUDOKEN DRIFT in gold over deep indigo, a red
+    sun disc behind the lettering, and cherry blossoms along a lower band
+    of waves."""
+    img = Image.new("RGB", (256, 128), (34, 28, 86))
+    d = ImageDraw.Draw(img)
+    for y in range(128):
+        t = (y % 64) / 63
+        d.line([(0, y), (256, y)], fill=(int(34 + 20 * t), int(28 + 14 * t), int(86 + 40 * t)))
+    d.ellipse([98, 2, 158, 62], fill=(214, 44, 48))
+    font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), 25)
+    stops = [(0.0, (255, 250, 220)), (0.5, (255, 212, 70)), (1.0, (230, 130, 30))]
+    top = gradient_text_layer((256, 64), "TSUDOKEN DRIFT", font, stops, (30, 20, 60), 4, shadow=False)
+    out = img.convert("RGBA")
+    out.alpha_composite(top, (0, 0))
+    d = ImageDraw.Draw(out)
+    # The lower band: waves and blossom.
+    for k in range(9):
+        x = k * 32 - 8
+        d.arc([x, 86, x + 40, 126], 200, 340, fill=(120, 150, 230, 255), width=3)
+        d.arc([x + 16, 92, x + 56, 132], 200, 340, fill=(90, 120, 210, 255), width=3)
+    rng = np.random.default_rng(7121)
+    for k in range(10):
+        x, y = 12 + k * 25 + int(rng.integers(-4, 5)), 72 + int(rng.integers(0, 10))
+        for p in range(5):
+            a = p / 5 * 2 * math.pi
+            px, py = x + math.cos(a) * 4, y + math.sin(a) * 4
+            d.ellipse([px - 3, py - 3, px + 3, py + 3], fill=(255, 200, 220, 255))
+        d.ellipse([x - 1.5, y - 1.5, x + 1.5, y + 1.5], fill=(255, 120, 150, 255))
+    d.rectangle([0, 0, 255, 3], fill=(255, 212, 70, 255))
+    d.rectangle([0, 61, 255, 66], fill=(255, 212, 70, 255))
+    d.rectangle([0, 124, 255, 127], fill=(255, 212, 70, 255))
+    return out.convert("RGB")
+
+
+def tex_pitwall(n=128):
+    """The pit garages' front over 24 m: four grey roller doors with red
+    stripes under a numbered sign band, white walls between."""
+    s = 2
+    img = Image.new("RGB", (n * s, n * s), (236, 232, 222))
+    d = ImageDraw.Draw(img)
+    font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), 18 * s)
+    d.rectangle([0, 0, n * s, 22 * s], fill=(40, 44, 70))
+    for k in range(4):
+        x0 = (k * 32 + 4) * s
+        x1 = x0 + 24 * s
+        d.rectangle([x0, 28 * s, x1, n * s], fill=(150, 152, 160))
+        for y in range(30 * s, n * s, 6 * s):
+            d.line([(x0, y), (x1, y)], fill=(118, 120, 128), width=s)
+        d.rectangle([x0, 60 * s, x1, 66 * s], fill=(200, 48, 40))
+        d.text((x0 + 8 * s, 2 * s), str(k + 1), font=font, fill=(250, 214, 70))
+        d.rectangle([x0 - 2 * s, 24 * s, x1 + 2 * s, 28 * s], fill=(70, 50, 40))
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_sundisc(n=64):
+    """A soft-edged sun for the golden hour: white heart, gold rim."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    r = np.hypot(xx + 0.5 - n / 2, yy + 0.5 - n / 2) / (n / 2)
+    a = np.clip((0.92 - r) / 0.12, 0, 1) * 255
+    rgb = lerp_color((255, 252, 230), (255, 190, 90), np.clip(r / 0.9, 0, 1) ** 2)
+    return to_image(rgb, a)
+
+
+def tex_stream(n=128):
+    """Clear stream water: blue-green with ripples and sun flecks, and a
+    koi swimming across one corner."""
+    rng = np.random.default_rng(7131)
+    g = fbm(n, n, 5, 4, 7133)
+    ripple = 0.5 + 0.5 * np.sin(((np.arange(n) + 0.5) / n * 2 * math.pi * 6)[None, :] + g * 6)
+    rgb = lerp_color((40, 110, 130), (90, 170, 170), g) + ripple[..., None] * np.array([30, 40, 40.0])
+    img = to_image(rgb)
+    d = ImageDraw.Draw(img)
+    for _ in range(60):
+        x, y = int(rng.integers(0, n)), int(rng.integers(0, n))
+        d.line([(x, y), (x + 3, y)], fill=(210, 240, 240))
+    d.ellipse([20, 86, 44, 98], fill=(240, 120, 40))
+    d.polygon([(44, 92), (52, 86), (52, 98)], fill=(240, 120, 40))
+    d.ellipse([30, 88, 36, 94], fill=(250, 250, 240))
+    return img
+
+
 def build(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     previews = out / "previews"
@@ -1118,6 +1479,23 @@ def build(out: Path) -> None:
         (Spec("bush", "RGB565", True, True), tex_bush()),
         (Spec("waterfall", "ARGB4444", True, True), tex_waterfall()),
         (Spec("retrosun", "ARGB4444", True, False), tex_retrosun()),
+        (Spec("tkroad", "RGB565", True, True), tex_tkroad()),
+        (Spec("tkcurb", "RGB565", True, True), tex_tkcurb()),
+        (Spec("verge", "RGB565", True, True), tex_verge()),
+        (Spec("paddy", "RGB565", True, True), tex_paddy()),
+        (Spec("hoarding", "RGB565", True, True), tex_hoarding()),
+        (Spec("ishigaki", "RGB565", True, True), tex_ishigaki()),
+        (Spec("kawara", "RGB565", True, True), tex_kawara()),
+        (Spec("sakura", "ARGB4444", True, False), tex_sakura()),
+        (Spec("sakurafar", "ARGB4444", True, False), tex_sakurafar()),
+        (Spec("sakurabark", "RGB565", True, True), tex_sakurabark()),
+        (Spec("petal", "ARGB4444", False, False), tex_petal()),
+        (Spec("tkcrowd", "RGB565", True, True), tex_tkcrowd()),
+        (Spec("plaster", "RGB565", True, True), tex_plaster()),
+        (Spec("tkbanner", "RGB565", False, False), tex_tkbanner()),
+        (Spec("pitwall", "RGB565", True, True), tex_pitwall()),
+        (Spec("sundisc", "ARGB4444", True, False), tex_sundisc()),
+        (Spec("stream", "RGB565", True, True), tex_stream()),
     ]
     pak = bytearray()
     table = []

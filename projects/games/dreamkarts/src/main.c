@@ -170,7 +170,7 @@ static void capture_script(void) {
 #endif
     static float t;
     static int step;
-    static bool shot[56];
+    static bool shot[63];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     /* Power-ups: an emerald coming up, the gem held, a spear in flight,
@@ -337,6 +337,20 @@ static void capture_script(void) {
             if(!shot[34 + (i < 6 ? i : i + 10)] && fabsf(track_delta(track_seg_s(dr_shots[i].seg) + dr_shots[i].at, p->tp.s)) < 3.0f) {
                 shot[34 + (i < 6 ? i : i + 10)] = true;
                 take_shot(dr_shots[i].name);
+            }
+    }
+    /* Tsudoken Drift: under the torii at the line past the grandstand, turn
+       1's hairpin, out of turn 4 under the second torii, the long lefts
+       with the pagoda behind, turn 8, the run at the jump with Fuji ahead,
+       and the sweeper home. */
+    if(game.state == ST_RACE && track.id == TRACK_TSUDOKEN) {
+        static const struct { int seg; float at; const char *name; } tk_shots[7] = {
+            {0, 25.0f, "tk-grandstand"}, {1, 20.0f, "tk-hairpin"}, {8, 10.0f, "tk-torii"}, {11, 20.0f, "tk-lefts"},
+            {15, 20.0f, "tk-turn8"}, {16, 60.0f, "tk-straight"}, {17, 60.0f, "tk-sweeper"}};
+        for(int i = 0; i < 7; i++)
+            if(!shot[56 + i] && fabsf(track_delta(track_seg_s(tk_shots[i].seg) + tk_shots[i].at, p->tp.s)) < 3.0f) {
+                shot[56 + i] = true;
+                take_shot(tk_shots[i].name);
             }
     }
     /* Cyberstone: the first chicane, the crest, down the drop, the
@@ -1635,7 +1649,11 @@ static void view_tour(void) {
 #ifdef DK_ROCK_TINT
     dk_probe_off |= PROBE_SKY | PROBE_SEA | PROBE_DISTANT | PROBE_FOAM;   /* the leak test: black beyond the rock */
 #endif
+#ifdef DK_AT_TRACK
+    game_load_track(DK_AT_TRACK);   /* the sweep works on any track */
+#else
     game_load_track(TRACK_CANYON);
+#endif
     game.state = ST_RESULTS;
 #if DK_AT_VIEWS == 2
     /* The sweep: the chase camera every 8 m round the lap, and every 16 m
@@ -1646,7 +1664,10 @@ static void view_tour(void) {
 #define DK_SWEEP_FROM 0
 #define DK_SWEEP_TO 100000
 #endif
-    for(float s = 0; s < track.length; s += 8.0f, idx++) {
+#ifndef DK_SWEEP_STEP
+#define DK_SWEEP_STEP 8.0f   /* -DDK_SWEEP_STEP=16 for a quicker look */
+#endif
+    for(float s = 0; s < track.length; s += DK_SWEEP_STEP, idx++) {
         if(s < DK_SWEEP_FROM || s > DK_SWEEP_TO) continue;
         V3 pos = track_point(track_wrap(s - 6.0f), 0);
         pos.y = track_road_y(track_wrap(s - 6.0f), 0) + 2.6f;

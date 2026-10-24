@@ -46,19 +46,28 @@
    quarter, onto the summit, where a hump throws karts through a hoop; a
    left-hand corkscrew winds back down round a second tower, a left leads
    onto the long way home west, through a right-left chicane, and two
-   lefts bring it back to the line. */
+   lefts bring it back to the line.
+
+   Tsudoken Drift: a flat club circuit after Tsukuba, run clockwise under
+   Mt Fuji at golden hour. The main straight runs north past the
+   grandstand into a right hairpin; the inner road jinks left and right
+   down to a tight left hairpin, a short straight north and a right onto
+   the long sweeping lefts out to the far right hairpin; the back straight
+   home is 200 m long with a ramp jump over a stream in the middle, and a
+   big right sweeper leads onto the main straight. */
 #include "track.h"
 #include <stddef.h>
 
 Track track;
 
 const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL",
-                                              "NEON SKYWAY", "CYBERSTONE", "SPIRAL CANYON"};
+                                              "NEON SKYWAY", "CYBERSTONE", "SPIRAL CANYON", "TSUDOKEN DRIFT"};
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
                                                       "A NIGHT RIDE ABOVE THE CITY",
                                                       "HILLS, CHICANES AND A HELIX",
-                                                      "OUTRUN THE SUN"};
+                                                      "OUTRUN THE SUN",
+                                                      "SAKURA DORI"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -70,7 +79,8 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
 
 static float f8_c, f8_l, f8_arc, f8_u0;   /* loop centre x, half leg, arc, start offset */
 
-/* Palm Harbour, Temple Hill, Neon Skyway, Cyberstone and Spiral Canyon are laid out from straights
+/* Palm Harbour, Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon and
+   Tsudoken Drift are laid out from straights
    (radius 0) and arcs (degrees, + = right) end to end from an origin. Two
    straights are solved at init so the lap closes. An arc may be banked:
    its outside rises bank metres per metre from the centreline. */
@@ -187,12 +197,34 @@ static Seg dr_seg[] = {
     {36.0f, -90, 0, 0.16f},   /* 15 left onto the start straight */
 };
 
+static Seg tk_seg[] = {
+    {0, 0, 135.0f, 0},        /*  0 main straight, north, past the grandstand (solved) */
+    {19.0f, 186, 0, 0},       /*  1 turn 1: right hairpin, now south */
+    {0, 0, 55.0f, 0},
+    {62.0f, -25, 0, 0},       /*  3 turn 2: left */
+    {0, 0, 19.0f, 0},
+    {47.0f, 33, 0, 0},        /*  5 turn 3: right */
+    {0, 0, 10.0f, 0},
+    {15.5f, -194, 0, 0},      /*  7 turn 4: left hairpin, now north */
+    {0, 0, 55.0f, 0},
+    {29.0f, 82, 0, 0},        /*  9 turn 5: right, now east-north-east */
+    {0, 0, 6.0f, 0},
+    {52.0f, -54, 0, 0},       /* 11 turn 6: long left */
+    {0, 0, 15.0f, 0},
+    {104.0f, -22, 0, 0},      /* 13 turn 7: gentle left, now north */
+    {0, 0, 15.0f, 0},
+    {17.5f, 198, 0, 0},       /* 15 turn 8: right hairpin, now south-south-west */
+    {0, 0, 200.0f, 0},        /* 16 the back straight, over the jump (solved) */
+    {58.0f, 156, 0, 0},       /* 17 turn 9: the long right sweeper onto the main straight */
+};
+
 #define NSEGS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static Layout hb = {hb_seg, NSEGS(hb_seg), DK_PI * 0.5f, {-69.4f, 0, -98.8f}, 38.0f, 0, 16, {0}, {0}, {{0}}};
 static Layout th = {th_seg, NSEGS(th_seg), -DK_PI * 0.5f, {79.0f, 0, 60.0f}, 40.0f, 0, 13, {0}, {0}, {{0}}};
 static Layout sk = {sk_seg, NSEGS(sk_seg), DK_PI * 0.5f, {-72.0f, 0, -100.0f}, 40.0f, 0, 2, {0}, {0}, {{0}}};
 static Layout cs = {cs_seg, NSEGS(cs_seg), DK_PI * 0.5f, {-106.0f, 0, 110.0f}, 40.0f, 0, 10, {0}, {0}, {{0}}};
 static Layout dr = {dr_seg, NSEGS(dr_seg), DK_PI * 0.5f, {-60.0f, 0, -90.0f}, 40.0f, 8, 14, {0}, {0}, {{0}}};
+static Layout tk = {tk_seg, NSEGS(tk_seg), 0.0f, {-98.0f, 0, -65.0f}, 40.0f, 0, TK_BACK_SEG, {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -331,9 +363,13 @@ float track_seg_s(int i) {
     return track_wrap(lay->s0[i] - lay->start);
 }
 
+int track_seg_count(void) { return lay->n; }
+float track_seg_radius(int i) { return lay->seg[i].r; }
+float track_seg_deg(int i) { return lay->seg[i].deg; }
+
 static V3 centreline(float s, V3 *tangent) {
     if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY ||
-       track.id == TRACK_CYBERSTONE || track.id == TRACK_CANYON)
+       track.id == TRACK_CYBERSTONE || track.id == TRACK_CANYON || track.id == TRACK_TSUDOKEN)
         return lay_centreline(lay, s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
@@ -771,6 +807,45 @@ static void init_canyon(float *turnk) {
     sky_rails_and_banking(&dr, NULL, 0);
 }
 
+/* Tsudoken Drift: flat, with Coral Crossing's ramp jump halfway down the
+   back straight, over a stream. The track's own height is zero, so the
+   generic jump profile in track_height is the whole of it. */
+static void init_tsudoken(float *turnk) {
+    init_layout(&tk, turnk);
+    float back = track_seg_s(TK_BACK_SEG), back_len = tk_seg[TK_BACK_SEG].len;
+    float cross = track_wrap(back + back_len * 0.5f);
+    track.has_jump = true;
+    track.jump = (Jump){cross, -46.0f, -16.0f, 16.0f, 54.0f, 4.0f, 3.0f};
+
+    /* The barriers pinch in through the hairpins and the ramp has its own
+       rails, as Coral Crossing's does. */
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        TrackSample *t = &track.smp[i];
+        float w = 12.5f;
+        float aa = track_delta(cross, t->s);
+        float ramp_w = fmaxf(smoothstep01((-58.0f - aa) / 10.0f), smoothstep01((aa - 54.0f) / 10.0f));
+        if(aa > -80.0f && aa < 80.0f) w = lerpf(10.2f, w, ramp_w);
+        t->wall_in = t->wall_out = w;
+    }
+
+    /* Dash panels: the full-width jump pad before the ramp (a long boost so
+       every class clears the gap), the exit of turn 4's hairpin and the
+       main straight past the pits. */
+    float hairpin_out = track_seg_s(8);
+    track.npads = 3;
+    track.pads[0] = (DashPad){track_wrap(cross - 58.0f), track_wrap(cross - 53.0f), -7.6f, 7.6f, 2.2f};
+    track.pads[1] = (DashPad){hairpin_out + 14.0f, hairpin_out + 19.0f, -1.8f, 1.8f, 1.1f};
+    track.pads[2] = (DashPad){70.0f, 75.0f, 2.2f, 5.8f, 1.1f};
+
+    /* Power-ups: into turn 1, down the inner road before turn 4, through
+       the long lefts, and on the back straight after the landing. */
+    track.nbands = 4;
+    track.bands[0] = (ItemBand){track_wrap(track_seg_s(1) - 30.0f)};
+    track.bands[1] = (ItemBand){track_seg_s(2) + 30.0f};
+    track.bands[2] = (ItemBand){track_seg_s(11) + 20.0f};
+    track.bands[3] = (ItemBand){track_wrap(cross + 70.0f)};
+}
+
 void track_init(int id) {
     memset(&track, 0, sizeof(track));
     track.id = id = (id % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
@@ -783,6 +858,7 @@ void track_init(int id) {
     else if(id == TRACK_SKYWAY) init_skyway(turnk);
     else if(id == TRACK_CYBERSTONE) init_cyberstone(turnk);
     else if(id == TRACK_CANYON) init_canyon(turnk);
+    else if(id == TRACK_TSUDOKEN) init_tsudoken(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and

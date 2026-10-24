@@ -32,7 +32,7 @@ type Event struct {
 // events_test.go checks the tracks.
 var (
 	TrackNames = []string{"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL", "NEON SKYWAY", "CYBERSTONE",
-		"SPIRAL CANYON"}
+		"SPIRAL CANYON", "TSUDOKEN DRIFT"}
 	CCNames = []string{"50cc", "100cc", "150cc"}
 )
 
