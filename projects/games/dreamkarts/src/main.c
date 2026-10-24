@@ -1159,9 +1159,12 @@ static void soft_reset(void) {
 /* Track select scrolled quickly through every course twice, as a player
    browsing them (or an online leader picking one) does, then three songs
    started 300 ms apart, as races do. Each load stalls the main loop; the
-   music must not starve through it, nor the stream ever wait on the ring. */
+   music must not starve through it, nor the stream ever wait on the ring.
+   The load times print at the end, which keeps dcload-ip quiet meanwhile
+   (on the console: make hw-flip). */
 static void track_flip_autotest(void) {
     static int loads, songs;
+    static uint32_t load_ms[2][TRACK_COUNT];
     static uint64_t next_us;
     float secs;
     audio_music_now(&secs, NULL);
@@ -1170,8 +1173,7 @@ static void track_flip_autotest(void) {
     if(now < next_us) return;
     if(loads < 2 * TRACK_COUNT) {
         game_load_track(game.track + 1);
-        uint32_t ms = (uint32_t)((timer_us_gettime64() - now) / 1000);
-        printf("DK FLIP: %s loaded in %lu ms\n", track_names[game.track], (unsigned long)ms);
+        load_ms[loads / TRACK_COUNT][game.track] = (uint32_t)((timer_us_gettime64() - now) / 1000);
         next_us = timer_us_gettime64() + 250000;
         loads++;
         return;
@@ -1183,10 +1185,16 @@ static void track_flip_autotest(void) {
     }
     int late, dry;
     uint32_t gap = audio_autotest_feed(&late, &dry);
+    for(int t = 0; t < TRACK_COUNT; t++)
+        printf("DK FLIP: %s loads in %lu/%lu ms\n", track_names[t], (unsigned long)load_ms[0][t],
+               (unsigned long)load_ms[1][t]);
     printf("DK FLIP: music refills at most %lu ms apart, %d over %d ms, %d short of music\n", (unsigned long)gap,
            late, AUDIO_FEED_LATE_MS, dry);
     printf("DK AUTOTEST: %s\n", late || dry ? "FAIL" : "PASS");
     next_us = UINT64_MAX;
+#ifdef DK_HW
+    game.quit = true;   /* hand the console back to dcload-ip */
+#endif
 }
 #endif
 

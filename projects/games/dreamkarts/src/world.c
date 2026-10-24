@@ -2584,7 +2584,7 @@ static void dr_ground_init(void) {
         }
     }
     dr_gy_ready = true;
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     /* The check: no grass anywhere over any deck. */
     int over = 0;
     float worst = -1e9f, ws = 0, wd = 0;
@@ -2936,7 +2936,7 @@ static void dr_classify(void) {
             k++;
         dr_mouth_dist[i] = (float)k * track.ds;
     }
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     /* The runs, for checking where the tunnels and cuttings fall. */
     for(int i = 0; i < TRACK_SAMPLES;) {
         int j = i;
@@ -3111,14 +3111,14 @@ static void dr_place_torches(void) {
             int other = dr_nearest_other_any(t->base.x, t->base.z, s, &od);
             if(other >= 0 && od < SK_RAIL + 1.5f && fabsf(dr_road_y[other] - t->base.y) < 4.0f) {
                 dr_torch_n--;
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
                 printf("DreamKarts torches: none at s %.0f, it would stand on the road at s %.0f\n", (double)s, (double)track.smp[other].s);
 #endif
             }
         }
         s += tunnel ? 12.0f : 22.0f;
     }
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     int walls = 0;
     for(int i = 0; i < dr_torch_n; i++) walls += dr_torch[i].wall;
     printf("DreamKarts torches: %d in the tunnels, %d outside\n", walls, dr_torch_n - walls);
@@ -3544,7 +3544,7 @@ static void dr_place_props(void) {
         }
         chunk_end();
     }
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     printf("DreamKarts canyon props: %d palms, %d totem poles, %d bushes\n", trees, rocks, bushes);
 #endif
 }
@@ -3620,18 +3620,18 @@ static void dr_build_rock(void) {
 #ifdef DK_ROCK_TINT
     rock_pass++;
 #endif
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     int pool0 = pool_n, strips0 = strip_n;
 #endif
     static const RockMesh full = {dk_rock_verts, dk_rock_index, dk_rock_strip_len, dk_rock_chunk, DK_ROCK_CHUNKS};
     static const RockMesh split = {dk_rock_split_verts, dk_rock_split_index, dk_rock_split_strip_len, dk_rock_split_chunk,
                                    DK_ROCK_SPLIT_CHUNKS};
     dr_build_rock_mesh(&full, 0);
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     int pool1 = pool_n, strips1 = strip_n;
 #endif
     dr_build_rock_mesh(&split, 1);
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     printf("DreamKarts rock: %d vertices, %d strips; split screen %d, %d (world before it: %d, %d)\n", pool1 - pool0,
            strips1 - strips0, pool_n - pool1, strip_n - strips1, pool0, strips0);
 #endif
@@ -4476,7 +4476,7 @@ static void tk_place_props(void) {
         far_sprite_h[far_sprite_n] = 9.0f + (float)((h >> 18) & 7);
         far_sprite_n++;
     }
-#ifdef DK_AUTOTEST
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     printf("DreamKarts tsudoken props: %d cherry trees, %d lanterns, %d torii\n", tk_trees, tk_lantern_n, world_gates);
 #endif
 }
@@ -4887,29 +4887,26 @@ void world_build(void) {
     else if(track.in_sky) build_skyway();
     else build_beach();
     surface_table_build();
-    /* Release builds log only the first build: under dcload-ip each printf
-       stalls the console with IRQs off. */
-#ifdef DK_AUTOTEST
+    /* Release and console builds log only the first build: under dcload-ip
+       each printf stalls the console with IRQs off. */
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     bool log = true;
 #else
     static bool logged;
     bool log = !logged;
     logged = true;
 #endif
-    if(log)
+    if(!log) return;
 #ifdef DK_AUTOTEST
-        {
-            /* Heap headroom: the break against the top of the 16 MB. */
-            extern void *sbrk(intptr_t);
-            struct mallinfo mi = mallinfo();
-            printf("DreamKarts memory: heap %lu KiB in use, %lu KiB free in it, %lu KiB above the break\n",
-                   (unsigned long)mi.uordblks / 1024, (unsigned long)mi.fordblks / 1024,
-                   (unsigned long)(0x8d000000u - (uintptr_t)sbrk(0)) / 1024);
-        }
+    /* Heap headroom: the break against the top of the 16 MB. */
+    extern void *sbrk(intptr_t);
+    struct mallinfo mi = mallinfo();
+    printf("DreamKarts memory: heap %lu KiB in use, %lu KiB free in it, %lu KiB above the break\n",
+           (unsigned long)mi.uordblks / 1024, (unsigned long)mi.fordblks / 1024,
+           (unsigned long)(0x8d000000u - (uintptr_t)sbrk(0)) / 1024);
 #endif
-        printf("DreamKarts world: %s, %d chunks, %d strips, %d vertices (%lu KiB), %d palms%s\n", track.name,
-           chunk_n, strip_n, pool_n, (unsigned long)(pool_n * sizeof(RV) / 1024), palm_n,
-           built_ok ? "" : " [POOL OVERFLOW]");
+    printf("DreamKarts world: %s, %d chunks, %d strips, %d vertices (%lu KiB), %d palms%s\n", track.name, chunk_n,
+           strip_n, pool_n, (unsigned long)(pool_n * sizeof(RV) / 1024), palm_n, built_ok ? "" : " [POOL OVERFLOW]");
 }
 
 void world_update(float dt) {

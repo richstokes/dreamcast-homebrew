@@ -886,9 +886,9 @@ void track_init(int id) {
         track.smp[i].line = clampf(line, -5.5f, 5.5f);
     }
 
-    /* Release builds log only the first build: under dcload-ip each printf
-       stalls the console with IRQs off. */
-#ifdef DK_AUTOTEST
+    /* Release and console builds log only the first build: under dcload-ip
+       each printf stalls the console with IRQs off. */
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
     bool log = true;
 #else
     static bool logged;

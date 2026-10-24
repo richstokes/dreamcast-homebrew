@@ -25,6 +25,7 @@ VARIANT_FLAGS_release =
 VARIANT_FLAGS_autotest = -DDK_AUTOTEST
 VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
 VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
+VARIANT_FLAGS_hwflip = -DDK_AUTOTEST -DDK_HW -DDK_AT_TRACK_FLIP -DDK_PC_MUSIC
 # film: trailer footage (src/film.c), with -DDK_FILM_SPECTATE or -DDK_FILM_SHOW.
 VARIANT_FLAGS_film = -DDK_FILM
 # Music read over dcload's /pc stalls the console, so it plays silent
@@ -179,6 +180,16 @@ hwbench: disc/music.adp
 	uv run --with pillow python -c "import glob,PIL.Image as I; [I.open(f).save(f[:-3]+'png') for f in glob.glob('captures/hw/*.ppm')]"
 	@/usr/bin/grep -a 'DK AUTOTEST' $(HW_LOG)
 
+# The track flip music test (-DDK_AT_TRACK_FLIP) on the console, the music
+# streamed from /pc so there is a stream to starve; powers it off after.
+HW_FLIP_LOG ?= captures/hw/hwflip.log
+hw-flip: disc/music.adp
+	$(MAKE) VARIANT=hwflip dreamkarts-hwflip.elf
+	mkdir -p captures/hw
+	$(DC_HW) run -c -o -T 300 -i 90 -u 'DK AUTOTEST: (PASS|FAIL)' -l $(HW_FLIP_LOG) \
+		dreamkarts-hwflip.elf -- -m $(CURDIR)
+	@/usr/bin/grep -a 'DK FLIP\|DK AUTOTEST' $(HW_FLIP_LOG)
+
 # The disc's files: the music beside the boot binary.
 disc/music.adp: $(GEN)/music.adpcm
 	@mkdir -p disc
@@ -193,6 +204,6 @@ disc: $(TARGET) disc/music.adp
 hw: $(TARGET) disc/music.adp
 	$(DC_HW) run -c -T 86400 dreamkarts.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props biplane all clean run textures models audio vmu assets autotest hwbench hw disc force
+.PHONY: canyon-rock tsudoken-props biplane all clean run textures models audio vmu assets autotest hwbench hw-flip hw disc force
 
 endif
