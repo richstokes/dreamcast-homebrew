@@ -56,6 +56,11 @@ static volatile uint32_t seek_gen;           /* bumped with a new seek_pos; the 
 static volatile size_t seek_pos;
 static volatile bool reader_quit;
 static bool music_pending;                   /* a song is set; the stream starts once the ring is primed */
+/* Music from /pc (dcload) is read over the network with interrupts off,
+   a frame or two lost about once a second, which spoils any timing on the
+   console. There the stream runs on silence with no reader, unless the
+   build asks for it (make hw MUSIC=1, -DDK_PC_MUSIC). */
+static bool music_silent;
 
 static sfxhnd_t sfx[DK_SFX_COUNT];
 static bool ready;
@@ -217,8 +222,14 @@ void audio_init(void) {
     if(music_file == FILEHND_INVALID) music_file = fs_open("/cd/MUSIC.ADP", O_RDONLY);
     /* Under dcload the project directory (make hw) or captures/hw (make
        hwbench, which copies the music there) is mapped at /pc. */
+    bool from_pc = music_file == FILEHND_INVALID;
     if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/disc/music.adp", O_RDONLY);
     if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/music.adp", O_RDONLY);
+#ifndef DK_PC_MUSIC
+    music_silent = from_pc && music_file != FILEHND_INVALID;
+#else
+    (void)from_pc;
+#endif
     if(music_file == FILEHND_INVALID) {
         printf("DreamKarts audio: no %s on the disc; no music\n", MUSIC_PATH);
         music_bytes = 0;
@@ -233,7 +244,8 @@ void audio_init(void) {
         if(!ring) music_bytes = 0;
         else {
             mutex_init(&ring_mx, MUTEX_TYPE_NORMAL);
-            thd_create(1, music_reader, NULL);
+            if(music_silent) printf("DreamKarts audio: music from /pc plays silent (make hw MUSIC=1 to hear it)\n");
+            else thd_create(1, music_reader, NULL);
         }
     }
     /* snd_stream_alloc() takes the two lowest free channels and keeps them
@@ -430,7 +442,7 @@ bool audio_music_enabled(void) {
 void audio_update(float dt) {
     if(!ready || music == SND_STREAM_INVALID || !music_playing) return;
     if(music_pending) {
-        if(ring_waiting() < RING_PREFILL) {
+        if(!music_silent && ring_waiting() < RING_PREFILL) {
             music_clock_us = timer_us_gettime64();   /* the song's clock starts with it */
             return;
         }

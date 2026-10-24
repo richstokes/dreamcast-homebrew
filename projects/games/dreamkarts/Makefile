@@ -27,6 +27,11 @@ VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
 VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
 # film: trailer footage (src/film.c), with -DDK_FILM_SPECTATE or -DDK_FILM_SHOW.
 VARIANT_FLAGS_film = -DDK_FILM
+# Music read over dcload's /pc stalls the console, so it plays silent
+# there; MUSIC=1 (make hw MUSIC=1) plays it anyway.
+ifeq ($(MUSIC),1)
+override EXTRA_CFLAGS += -DDK_PC_MUSIC
+endif
 # Extra -D flags get their own object directory so builds never mix.
 empty :=
 space := $(empty) $(empty)
@@ -70,11 +75,13 @@ endef
 
 # A build with other EXTRA_CFLAGS has its own objects, but the ELF it links
 # is named the same, so switching back would leave the newer ELF in place:
-# the stamp changes with the flags and forces the link.
+# the stamp changes with the flags and forces the link. macOS's make 3.81
+# compares whole seconds, so the stamp waits one out to be newer than an
+# ELF linked just before.
 LINK_STAMP = build/$(VARIANT).flags
 $(LINK_STAMP): force
 	@mkdir -p build
-	@echo '$(FLAGTAG)' | cmp -s - $@ || echo '$(FLAGTAG)' > $@
+	@echo '$(FLAGTAG)' | cmp -s - $@ || { sleep 1; echo '$(FLAGTAG)' > $@; }
 
 # The commit the game was built from, shown on the title screen so bug
 # reports can name it. Short SHA plus "-dirty" when this directory has
