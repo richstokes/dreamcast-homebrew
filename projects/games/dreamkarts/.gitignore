@@ -3,6 +3,9 @@
 /third_party/sh4zam/
 /assets/generated/previews/
 /captures/
+/disc/
+*.cdi
+*.iso
 *.elf
 *.elf.debug
 *.o

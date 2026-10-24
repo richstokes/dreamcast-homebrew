@@ -27,6 +27,9 @@ VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
 VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
 # film: trailer footage (src/film.c), with -DDK_FILM_SPECTATE or -DDK_FILM_SHOW.
 VARIANT_FLAGS_film = -DDK_FILM
+# disc: the self-booting image's build, streaming the music from the disc
+# (disc/music.adp) rather than linking its 9 MB into the 16 MB of RAM.
+VARIANT_FLAGS_disc = -DDK_MUSIC_DISC
 # Extra -D flags get their own object directory so builds never mix.
 empty :=
 space := $(empty) $(empty)
@@ -37,7 +40,10 @@ OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst %.S,$(OBJDIR)/%.o,$(A
 
 KOS_BUILD_SUBARCHS = pristine
 
-all: $(TARGET)
+# The release's CDI is built from the disc variant (tools in
+# .github/scripts/package-releases.sh add disc/ to the image); the ELF
+# keeps its music linked in, for Flycast's direct ELF boot.
+all: $(TARGET) disc-elf
 
 include $(KOS_BASE)/Makefile.rules
 
@@ -51,7 +57,7 @@ $(OBJDIR)/xform.o: src/xform.S
 
 $(OBJDIR)/blobs.o: src/blobs.S $(BLOBS)
 	@mkdir -p $(@D)
-	kos-cc -c $< -o $@
+	kos-cc $(VARIANT_FLAGS_$(VARIANT)) $(EXTRA_CFLAGS) -c $< -o $@
 
 # The music playlist alone is 9 MB, and with debug info the ELF passed 16 MB,
 # which Flycast will not boot. Keep the debug info beside it (for
@@ -90,7 +96,7 @@ dreamkarts-$(VARIANT).elf: $(OBJS) $(LINK_STAMP)
 	$(link_elf)
 
 clean:
-	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug
+	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug dreamkarts.cdi dreamkarts.iso disc
 
 # Asset generators (outputs are committed so a plain build needs no Python).
 textures:
@@ -158,10 +164,26 @@ hwbench:
 	uv run --with pillow python -c "import glob,PIL.Image as I; [I.open(f).save(f[:-3]+'png') for f in glob.glob('captures/hw/*.ppm')]"
 	@/usr/bin/grep -a 'DK AUTOTEST' $(HW_LOG)
 
-# Play the release build on the console (power-cycles it first).
-hw: $(TARGET)
-	$(DC_HW) run -c -T 86400 dreamkarts.elf
+# The disc build and its files: disc/music.adp beside the boot binary.
+disc-elf: disc/music.adp
+	$(MAKE) SH4ZAM_UPDATED=1 VARIANT=disc dreamkarts-disc.elf
 
-.PHONY: canyon-rock tsudoken-props all clean run textures models audio vmu assets autotest hwbench hw force
+disc/music.adp: $(GEN)/music.adpcm
+	@mkdir -p disc
+	cp $< $@
+
+# A self-booting CDI of the disc build, and its data track as an ISO for
+# dcload's cdfs redirection (make hw). Needs mkdcdisc (MKDCDISC=path).
+MKDCDISC ?= mkdcdisc
+disc: disc-elf
+	$(MKDCDISC) --quiet --allow-overwrite --disable-data-track-padding --main-elf dreamkarts-disc.elf \
+		--directory-contents disc --title DreamKarts --author richstokes --dump-iso --output dreamkarts.cdi
+
+# Play the disc build on the console (power-cycles it first), the music
+# served from the ISO through dcload.
+hw: disc
+	$(DC_HW) run -c -T 86400 dreamkarts-disc.elf -- -i $(CURDIR)/dreamkarts.iso
+
+.PHONY: canyon-rock tsudoken-props all clean run textures models audio vmu assets autotest hwbench hw disc disc-elf force
 
 endif

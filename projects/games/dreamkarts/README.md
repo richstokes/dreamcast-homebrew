@@ -92,6 +92,12 @@ projects/games/dreamkarts/run-flycast.sh      # builds first unless --skip-build
 
 Every build fast-forwards the ignored `third_party/sh4zam` checkout (see the
 repository README); asset generators and QA scripts run through `uv run`.
+`make` builds two executables: `dreamkarts.elf` with every asset linked in,
+for Flycast's direct ELF boot and the QA scripts, and `dreamkarts-disc.elf`,
+which streams the 9 MB of music from `disc/music.adp` on the disc. The
+release CDI is the disc build (`make disc` makes one locally, given
+[mkdcdisc](https://gitlab.com/simulant/mkdcdisc) as `MKDCDISC=`); the
+console has 16 MB of RAM and the all-in ELF is within a megabyte of it.
 Before a hardware build, apply
 [`patches/kos-dhcp-fast-retry.patch`](patches/kos-dhcp-fast-retry.patch) to
 KOS and rebuild it (`make -C $KOS_BASE/kernel`), as the release workflow
@@ -152,7 +158,7 @@ needs no Python.
 | `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, every emerald taken, spear thrown, mine dropped and hit as `DK ITEM` lines (and `misses band` for a kart that crossed a band off the slot), prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue, a missed jump, or tyres drawn 2 cm or more into the road in over 10% of kart-frames; the `tyres vs drawn road` line has the depths) |
 | `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` (an emerald ahead, the held gem, a spear, a barrier, a spin-out and a mine ahead included); `--log FILE` keeps the whole serial console |
 | `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh` (ask before touching it): 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
-| `make hw` | Plays the release build on the console and leaves it on (`tools/dc-hw.sh power off` afterwards) |
+| `make hw` | Plays the disc build on the console and leaves it on (`tools/dc-hw.sh power off` afterwards); dcload serves the music from `dreamkarts.iso`, so it needs `make disc` |
 | `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
 | `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
 | `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat, custom karts, practice, spectating, a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
@@ -289,7 +295,7 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 
 ## Gotchas
 
-- An ELF over 16 MB will not boot in Flycast; the link strips debug info into `dreamkarts.elf.debug` (`Makefile`)
+- An ELF over 16 MB will not boot in Flycast; the link strips debug info into `dreamkarts.elf.debug` (`Makefile`). RAM is the real limit: with the music linked in, the heap has about a megabyte, and a release once shipped with the sound effects failing to load and no online worker thread (`Out of memory` on the serial console); the disc build streams the music from the disc instead
 - Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `patches/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
 - Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/main.c`, `src/netlink.c`)
 - Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches

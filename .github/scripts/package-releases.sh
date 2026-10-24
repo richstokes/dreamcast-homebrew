@@ -16,6 +16,17 @@ while IFS='|' read -r directory slug title; do
     [ -n "$slug" ] || continue
 
     elf="$directory/$slug.elf"
+    # A project with a disc build streams assets from the disc instead of
+    # linking them in: its CDIs come from $slug-disc.elf with disc/ added,
+    # while the ELF asset stays the self-contained one.
+    disc_elf="$elf"
+    disc_args=""
+    if [ -f "$directory/$slug-disc.elf" ]; then
+        disc_elf="$directory/$slug-disc.elf"
+    fi
+    if [ -d "$directory/disc" ]; then
+        disc_args="--directory-contents $directory/disc"
+    fi
     cdi="$output_dir/$slug.cdi"
     cdr_cdi="$output_dir/$slug-cdr.cdi"
     cdr_zip="$output_dir/$slug-cdr.zip"
@@ -29,10 +40,12 @@ while IFS='|' read -r directory slug title; do
     rm -f "$cdi" "$cdr_cdi" "$cdr_zip" "$release_elf"
 
     # Unpadded: a small image for emulators and GDEMU.
+    # shellcheck disable=SC2086
     "$mkdcdisc" \
         --quiet \
         --disable-data-track-padding \
-        --main-elf "$elf" \
+        --main-elf "$disc_elf" \
+        $disc_args \
         --title "$title" \
         --author richstokes \
         --output "$cdi"
@@ -42,9 +55,11 @@ while IFS='|' read -r directory slug title; do
     # CAV drive reads slowest and least reliably; burnt discs of the unpadded
     # image were reported hanging at the Dreamcast logo. The padding is ~720 MB
     # of filler that zips back down to roughly the size of the small image.
+    # shellcheck disable=SC2086
     "$mkdcdisc" \
         --quiet \
-        --main-elf "$elf" \
+        --main-elf "$disc_elf" \
+        $disc_args \
         --title "$title" \
         --author richstokes \
         --output "$cdr_cdi"

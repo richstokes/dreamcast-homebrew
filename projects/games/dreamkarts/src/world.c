@@ -3970,8 +3970,10 @@ static int tk_path_n;
 static V3 tk_pond;
 static V3 tk_lantern[TK_LANTERNS];      /* the fire boxes, for the glows */
 static int tk_lantern_n;
-static RV tk_fuji[2400], tk_fuji_lo[600];   /* the mountain, lit, about the origin; a coarse one for a split screen */
-static int tk_fuji_strips[200], tk_fuji_n, tk_fuji_lo_strips[60], tk_fuji_lo_n;
+/* The mountain's vertex colours, lit and hazed, one per strip vertex of
+   the baked mesh (the positions come straight from the header each frame:
+   the console is within a megabyte of its 16 MB, so no RV copy). */
+static uint32_t tk_fuji_col[2000], tk_fuji_lo_col[640];
 static float tk_fuji_scale;
 
 /* The stream's channel and the pond, carved into the plain: depth 0 at
@@ -4472,37 +4474,31 @@ static void tk_place_props(void) {
    nearer, beyond the fog. It goes in the opaque list: nothing culls its
    back faces, and in the translucent list (drawn in submission order,
    autosort off) they painted dark wedges over the front. */
-static void tk_fuji_bake(const dk_prop_t *m, RV *out, int out_max, int *strips, int strips_max, int *nstrips) {
-    *nstrips = 0;
-    int at = 0, n_out = 0;
-    for(int s = 0; s < m->nstrips && *nstrips < strips_max; s++) {
+static void tk_fuji_bake(const dk_prop_t *m, uint32_t *out, int out_max) {
+    int at = 0;
+    for(int s = 0; s < m->nstrips; s++) {
         int n = m->strip_len[s];
-        if(n_out + n > out_max) break;
+        if(at + n > out_max) break;
         for(int q = 0; q < n; q++) {
             const dk_prop_vert_t *v = &m->verts[m->index[at + q]];
             V3 nn = vnorm(v3(v->nx, v->ny, v->nz));
             /* Lit softly from the sun's side, the haze keeping it flat. */
             float l = 0.80f + 0.26f * fmaxf(0.0f, vdot(nn, world_sun_dir));
-            /* The golden-hour grade over the whole mountain, then a fifth
-               of the way into the haze: the snow goes peach and the cap all
-               but dissolves into the sky, which reads as distance. */
             /* Atmospheric perspective: the foot all but dissolves into the
                horizon's haze, the summit stands clearer. */
             uint32_t haze = TK_AFTERNOON ? argb(255, 189, 230, 248) : argb(255, 243, 184, 150);
             float hz = clampf(v->y / 1000.0f, 0.0f, 1.0f);
             float mix = TK_AFTERNOON ? lerpf(0.78f, 0.38f, hz) : lerpf(0.62f, 0.22f, hz);
-            uint32_t col = color_lerp(sunset_grade(color_scale(argb(255, v->r, v->g, v->b), l)), haze, mix);
-            out[n_out++] = (RV){v->x * 0.001f * tk_fuji_scale, v->y * 0.001f * tk_fuji_scale, v->z * 0.001f * tk_fuji_scale, 0, 0, col};
+            out[at + q] = color_lerp(sunset_grade(color_scale(argb(255, v->r, v->g, v->b), l)), haze, mix);
         }
-        strips[(*nstrips)++] = n;
         at += n;
     }
 }
 
 static void tk_fuji_init(void) {
     tk_fuji_scale = 290.0f;
-    tk_fuji_bake(&dk_props[TKP_FUJI], tk_fuji, 2400, tk_fuji_strips, 200, &tk_fuji_n);
-    tk_fuji_bake(&dk_props[TKP_FUJI_LO], tk_fuji_lo, 600, tk_fuji_lo_strips, 60, &tk_fuji_lo_n);
+    tk_fuji_bake(&dk_props[TKP_FUJI], tk_fuji_col, 2000);
+    tk_fuji_bake(&dk_props[TKP_FUJI_LO], tk_fuji_lo_col, 640);
 }
 
 static void tk_draw_fuji(void) {
@@ -4510,18 +4506,18 @@ static void tk_draw_fuji(void) {
     V3 base = v3(c.x + sinf(TK_FUJI_DIR) * 1420.0f, -14.0f, c.z + cosf(TK_FUJI_DIR) * 1420.0f);
     if(!r_sphere_visible(vadd(base, v3(0, tk_fuji_scale * 0.5f, 0)), tk_fuji_scale * 2.4f)) return;
     r_hdr(h_sky);   /* opaque, no fog */
-    const RV *src = world_split ? tk_fuji_lo : tk_fuji;
-    const int *lens = world_split ? tk_fuji_lo_strips : tk_fuji_strips;
-    int count = world_split ? tk_fuji_lo_n : tk_fuji_n;
+    const dk_prop_t *m = &dk_props[world_split ? TKP_FUJI_LO : TKP_FUJI];
+    const uint32_t *col = world_split ? tk_fuji_lo_col : tk_fuji_col;
+    int col_max = world_split ? 640 : 2000;
+    float k = 0.001f * tk_fuji_scale;
     RV v[256];
     int at = 0;
-    for(int s = 0; s < count; s++) {
-        int n = lens[s];
+    for(int s = 0; s < m->nstrips; s++) {
+        int n = m->strip_len[s];
+        if(at + n > col_max) break;
         for(int q = 0; q < n; q++) {
-            v[q] = src[at + q];
-            v[q].x += base.x;
-            v[q].y += base.y;
-            v[q].z += base.z;
+            const dk_prop_vert_t *p = &m->verts[m->index[at + q]];
+            v[q] = (RV){base.x + p->x * k, base.y + p->y * k, base.z + p->z * k, 0, 0, col[at + q]};
         }
         r_strip(v, n);
         at += n;

@@ -10,6 +10,9 @@ _dk_textures_pak:
 _dk_sfx_pak:
     .incbin "assets/generated/sfx.pak"
 
+/* The disc build (-DDK_MUSIC_DISC) streams the music from the disc
+   instead: 9 MB of the console's 16 MB. */
+#ifndef DK_MUSIC_DISC
     .balign 32
     .global _dk_music_adpcm
     .global _dk_music_adpcm_end
@@ -17,3 +20,4 @@ _dk_music_adpcm:
     .incbin "assets/generated/music.adpcm"
 _dk_music_adpcm_end:
     .balign 32
+#endif
