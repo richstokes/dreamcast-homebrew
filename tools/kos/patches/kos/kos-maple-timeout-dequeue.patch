@@ -1,0 +1,112 @@
+diff --git a/kernel/arch/dreamcast/hardware/maple/dreameye.c b/kernel/arch/dreamcast/hardware/maple/dreameye.c
+index 88ed747..f8cae62 100644
+--- a/kernel/arch/dreamcast/hardware/maple/dreameye.c
++++ b/kernel/arch/dreamcast/hardware/maple/dreameye.c
+@@ -127,6 +127,7 @@ int dreameye_get_image_count(maple_device_t *dev, int block) {
+         if(genwait_wait(&dev->frame, "dreameye_get_image_count", 500) < 0) {
+             if(dev->frame.state != MAPLE_FRAME_VACANT) {
+                 /* Something went wrong... */
++                maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+                 dev->frame.state = MAPLE_FRAME_VACANT;
+                 dbglog(DBG_ERROR, "dreameye_get_image_count: timeout to unit "
+                        "%c%c\n", dev->port + 'A', dev->unit + '0');
+@@ -233,6 +234,7 @@ static int dreameye_get_transfer_count(maple_device_t *dev, uint8_t img) {
+     if(genwait_wait(&dev->frame, "dreameye_get_transfer_count", 500) < 0) {
+         if(dev->frame.state != MAPLE_FRAME_VACANT) {
+             /* Something went wrong... */
++            maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+             dev->frame.state = MAPLE_FRAME_VACANT;
+             dbglog(DBG_ERROR, "dreameye_get_transfer_count: timeout to unit "
+                    "%c%c\n", dev->port + 'A', dev->unit + '0');
+@@ -372,6 +374,7 @@ int dreameye_erase_image(maple_device_t *dev, uint8_t image, int block) {
+         if(genwait_wait(&dev->frame, "dreameye_erase_image", 500) < 0) {
+             if(dev->frame.state != MAPLE_FRAME_VACANT) {
+                 /* Something went wrong.... */
++                maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+                 dev->frame.state = MAPLE_FRAME_VACANT;
+                 dbglog(DBG_ERROR, "dreameye_erase_image: timeout to unit "
+                        "%c%c\n", dev->port + 'A', dev->unit + '0');
+diff --git a/kernel/arch/dreamcast/hardware/maple/maple_init_shutdown.c b/kernel/arch/dreamcast/hardware/maple/maple_init_shutdown.c
+index 7d0c55e..b363af0 100644
+--- a/kernel/arch/dreamcast/hardware/maple/maple_init_shutdown.c
++++ b/kernel/arch/dreamcast/hardware/maple/maple_init_shutdown.c
+@@ -70,6 +70,7 @@ static void maple_dev_reset(maple_device_t *dev) {
+     if(genwait_wait(&dev->frame, "dev_reset", 500) < 0) {
+         if(dev->frame.state != MAPLE_FRAME_VACANT) {
+             /* Something went wrong.... */
++            maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+             dev->frame.state = MAPLE_FRAME_VACANT;
+             dbglog(DBG_ERROR, "dev_reset: timeout to unit %c%c\n",
+                    dev->port + 'A', dev->unit + '0');
+diff --git a/kernel/arch/dreamcast/hardware/maple/sip.c b/kernel/arch/dreamcast/hardware/maple/sip.c
+index 76f6c0a..af69b4f 100644
+--- a/kernel/arch/dreamcast/hardware/maple/sip.c
++++ b/kernel/arch/dreamcast/hardware/maple/sip.c
+@@ -153,6 +153,7 @@ int sip_start_sampling(maple_device_t *dev, sip_sample_cb cb, bool block) {
+         if(genwait_wait(&dev->frame, "sip_start_sampling", 500) < 0) {
+             if(dev->frame.state != MAPLE_FRAME_VACANT) {
+                 /* Something went wrong.... */
++                maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+                 dev->frame.state = MAPLE_FRAME_VACANT;
+                 dbglog(DBG_ERROR, "sip_start_sampling: timeout to unit %c%c\n",
+                        dev->port + 'A', dev->unit + '0');
+@@ -194,6 +195,7 @@ int sip_stop_sampling(maple_device_t *dev, bool block) {
+         if(genwait_wait(&dev->frame, "sip_stop_sampling", 500) < 0) {
+             if(dev->frame.state != MAPLE_FRAME_VACANT) {
+                 /* Something went wrong.... */
++                maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+                 dev->frame.state = MAPLE_FRAME_VACANT;
+                 dbglog(DBG_ERROR, "sip_stop_sampling: timeout to unit %c%c\n",
+                        dev->port + 'A', dev->unit + '0');
+diff --git a/kernel/arch/dreamcast/hardware/maple/vmu.c b/kernel/arch/dreamcast/hardware/maple/vmu.c
+index 992c2a6..56f324b 100644
+--- a/kernel/arch/dreamcast/hardware/maple/vmu.c
++++ b/kernel/arch/dreamcast/hardware/maple/vmu.c
+@@ -479,6 +479,7 @@ int vmu_block_read(maple_device_t *dev, uint16_t blocknum, uint8_t *buffer) {
+     if(genwait_wait(&dev->frame, "vmu_block_read", 100) < 0) {
+         if(dev->frame.state != MAPLE_FRAME_RESPONDED) {
+             /* It's probably never coming back, so just unlock the frame */
++            maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+             dev->frame.state = MAPLE_FRAME_VACANT;
+             dbglog(DBG_ERROR, "vmu_block_read: timeout to unit %c%c, block %d\n",
+                    dev->port + 'A', dev->unit + '0', (int)blocknum);
+@@ -560,8 +561,11 @@ static int vmu_block_write_internal(maple_device_t *dev, uint16_t blocknum, cons
+ 
+         /* Wait for the VMU to accept it */
+         if(genwait_wait(&dev->frame, "vmu_block_write", 100) < 0) {
+-            if(dev->frame.state != MAPLE_FRAME_UNSENT) {
++            /* The callback leaves an answered frame UNSENT; one still queued
++               was never answered, sent or not. */
++            if(dev->frame.state != MAPLE_FRAME_UNSENT || dev->frame.queued) {
+                 /* It's probably never coming back, so just unlock the frame */
++                maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+                 dev->frame.state = MAPLE_FRAME_VACANT;
+                 dbglog(DBG_ERROR, "vmu_block_write: timeout to unit %c%c, block %d\n",
+                        dev->port + 'A', dev->unit + '0', (int)blocknum);
+@@ -603,8 +607,9 @@ static int vmu_block_write_internal(maple_device_t *dev, uint16_t blocknum, cons
+ 
+     /* Wait for the VMU to accept it */
+     if(genwait_wait(&dev->frame, "vmu_block_write", 100) < 0) {
+-        if(dev->frame.state != MAPLE_FRAME_UNSENT) {
++        if(dev->frame.state != MAPLE_FRAME_UNSENT || dev->frame.queued) {
+             /* It's probably never coming back, so just unlock the frame */
++            maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+             dev->frame.state = MAPLE_FRAME_VACANT;
+             dbglog(DBG_ERROR, "vmu_block_write: timeout to unit %c%c, block %d\n",
+                    dev->port + 'A', dev->unit + '0', (int)blocknum);
+@@ -677,6 +682,7 @@ int vmu_set_datetime(maple_device_t *dev, time_t unix) {
+     if(genwait_wait(&dev->frame, "vmu_set_datetime", 500) < 0) {
+         if(dev->frame.state != MAPLE_FRAME_VACANT)  {
+             /* Something went wrong.... */
++            maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+             dev->frame.state = MAPLE_FRAME_VACANT;
+             dbglog(DBG_ERROR, "vmu_set_datetime: timeout to unit %c%c\n",
+                    dev->port + 'A', dev->unit + '0');
+@@ -724,6 +730,7 @@ int vmu_get_datetime(maple_device_t *dev, time_t *unix) {
+     if(genwait_wait(&dev->frame, "vmu_get_datetime", 10000) < 0) {
+         if(dev->frame.state != MAPLE_FRAME_RESPONDED) {
+             /* It's probably never coming back, so just unlock the frame */
++            maple_queue_remove(&dev->frame);   /* or it stays queued for good */
+             dev->frame.state = MAPLE_FRAME_VACANT;
+             dbglog(DBG_ERROR, "vmu_get_datetime: timeout to unit %c%c\n",
+                    dev->port + 'A', dev->unit + '0');
