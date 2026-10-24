@@ -9,10 +9,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: dreamcast-continuous-release
-  cancel-in-progress: false
-
 env:
   KOS_COMMIT: cd340378043f00cd1d05284ee0d02548d33d6054
   KOS_PORTS_COMMIT: f4faacc42faaf552625777b7709e871a827e1055
@@ -20,9 +16,15 @@ env:
   TOOLCHAIN_IMAGE: pcercuei/dreamcast-toolchain@sha256:62ed5653ac1c71c7323942dda3f32033db56a4830625187681f5329f623e6c9f
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # A push to main stops any older build still running, so the newest
+    # commit gets the runner. Publishing is a separate job that is never
+    # cancelled.
+    concurrency:
+      group: dreamcast-release-build
+      cancel-in-progress: true
 
     steps:
       - name: Check out repository
@@ -156,6 +158,36 @@ jobs:
           meson compile -C .ci/mkdcdisc/build
           .github/scripts/package-releases.sh .ci/mkdcdisc/build/mkdcdisc dist
           sha256sum dist/*.cdi dist/*.zip dist/*.elf > dist/SHA256SUMS
+
+      # The discs are already compressed, so zipping them again only costs time.
+      - name: Upload release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Cancelling this between deleting and recreating the release would leave
+    # no release at all, so a newer build's publish waits for it instead.
+    concurrency:
+      group: dreamcast-release-publish
+      cancel-in-progress: false
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download release files
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
 
       - name: Publish rolling release
         env:
