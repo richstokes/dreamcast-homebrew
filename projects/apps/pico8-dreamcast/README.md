@@ -34,6 +34,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | Y in the picker | Open Download & Play |
 | Start | Pause/resume (games may add their own pause-menu items) |
 | Both triggers + Start | Return to the picker |
+| A+B+X+Y+Start | Return to the picker; in the picker, exit to the Dreamcast BIOS menu |
 
 Picolumia starts with A+B together. Pikoralli steers with left/right, up/down
 accelerates/reverses and A is the handbrake. WIZRND: up jumps, down while

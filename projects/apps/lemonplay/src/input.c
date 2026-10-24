@@ -9,7 +9,7 @@
 static uint32_t previous;
 static uint64_t repeat_at;
 
-void input_poll(input_t *in) {
+void input_poll(input_t *in, int home) {
     uint32_t held = 0;
     maple_device_t *dev = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
     cont_state_t *st = dev ? (cont_state_t *)maple_dev_status(dev) : NULL;
@@ -36,4 +36,6 @@ void input_poll(input_t *in) {
     previous = held;
     in->held = held;
     in->pressed = pressed;
+    in->reset = softreset_poll(home);
+    if(in->reset) in->pressed = 0;
 }

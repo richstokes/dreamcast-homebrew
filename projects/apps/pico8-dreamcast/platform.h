@@ -3,6 +3,8 @@
 #include <string>
 
 bool dc_menu_requested();
+// Nonzero when A+B+X+Y+Start was just made; on the picker that also quits.
+int dc_softreset_poll(bool picker);
 void dc_reset_input();
 void dc_poll_audio();
 void dc_audio_enable(bool enabled);

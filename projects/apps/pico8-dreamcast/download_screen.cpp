@@ -141,6 +141,8 @@ std::string dc_download_screen() {
         }
         previous = held;
         bool back = pressed & CONT_B, submit = pressed & CONT_START;
+        // The reset combo counts as made on the picker: leave for the BIOS menu.
+        if (dc_softreset_poll(true)) { back = true; submit = false; }
         auto erase = [&] { if (cursor) url.erase(--cursor, 1); };
         auto insert = [&](char c) {
             if (url.size() < DC_URL_LIMIT) { url.insert(cursor++, 1, c); notice.clear(); }

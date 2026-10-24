@@ -43,6 +43,7 @@ mode. If discovery finds nothing (some networks drop broadcasts), pick
 | L / R triggers | Page | Seek 5 min |
 | Y | Refresh | Show / hide the bar |
 | X | | Stats: decode time, buffers, network |
+| A+B+X+Y+Start | Back to the server list; on it, exit to the Dreamcast BIOS menu | Stop, back to the server list |
 
 At the end of a file the next one in the folder plays.
 

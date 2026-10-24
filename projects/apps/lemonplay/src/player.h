@@ -12,6 +12,7 @@ typedef enum {
     PLAY_NEXT,       /* the viewer skipped forward */
     PLAY_PREVIOUS,   /* the viewer skipped back */
     PLAY_STOPPED,    /* the viewer pressed B */
+    PLAY_RESET,      /* the viewer held A+B+X+Y+Start */
     PLAY_FAILED      /* see the error text */
 } play_result_t;
 

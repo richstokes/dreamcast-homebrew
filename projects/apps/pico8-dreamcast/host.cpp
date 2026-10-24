@@ -10,6 +10,7 @@
 #include "filehelpers.h"
 #include "platform.h"
 #include "video_convert.h"
+#include "../../common/softreset.h"
 
 namespace {
 pvr_ptr_t texture = nullptr;
@@ -31,6 +32,7 @@ bool initialized = false, sound_initialized = false, sound_enabled = false;
 bool menu_requested = false, chord_held = false;
 bool launcher = false, download_requested = false, download_held = false;
 bool release_input = false;
+bool quit_requested = false;
 uint8_t previous_buttons = 0, test_buttons = 0;
 bool test_input = false;
 bool test_pad = false;
@@ -83,6 +85,13 @@ bool dc_menu_requested() {
     menu_requested = false;
     return value;
 }
+// A+B+X+Y+Start: from a cart back to the picker; from the picker, or its
+// Download & Play screen, out to the BIOS menu.
+int dc_softreset_poll(bool picker) {
+    int reset = softreset_poll(picker);
+    if (reset == SOFTRESET_QUIT) quit_requested = true;
+    return reset;
+}
 void dc_reset_input() { previous_buttons = 0; deadline = 0; release_input = true; frame_valid = false; }
 // Polled from the player thread only, so synthesis runs there and never races a cart reset.
 void dc_poll_audio() { if (stream != SND_STREAM_INVALID) snd_stream_poll(stream); }
@@ -122,6 +131,10 @@ void Host::oneTimeSetup(Audio* audio) {
 
 InputState_t Host::scanInput() {
     uint8_t held = 0;
+    if (dc_softreset_poll(launcher) == SOFTRESET_TITLE) {
+        menu_requested = true;
+        release_input = true;
+    }
     if (launcher) {
         auto keyboard = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
         if (keyboard) {
@@ -178,7 +191,7 @@ void Host::waitForTargetFps() {
     deadline += frame_us;
 }
 double Host::deltaTMs() { return frame_delta_ms; }
-bool Host::shouldRunMainLoop() { return initialized; }
+bool Host::shouldRunMainLoop() { return initialized && !quit_requested; }
 bool Host::shouldQuit() { return false; }
 void Host::changeStretch() {}
 void Host::forceStretch(StretchOption option) { display_size = option == StretchToFit ? 480 : 384; }

@@ -936,7 +936,7 @@ play_result_t player_play(const entry_t *entry, double start_seconds, char *erro
 
     for(;;) {
         input_t in;
-        input_poll(&in);
+        input_poll(&in, 0);
         uint64_t ms = timer_ms_gettime64();
         stream_t *s = P.s;
 
@@ -954,6 +954,10 @@ play_result_t player_play(const entry_t *entry, double start_seconds, char *erro
         }
 
         /* Controls */
+        if(in.reset) {
+            result = PLAY_RESET;
+            break;
+        }
         if(in.pressed & CONT_B) {
             result = PLAY_STOPPED;
             break;

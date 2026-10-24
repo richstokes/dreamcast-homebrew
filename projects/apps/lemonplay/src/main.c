@@ -63,6 +63,7 @@ static int message_is_error;
 /* Worker job */
 static volatile int job = JOB_NONE;
 static volatile int job_done;
+static int job_dropped;         /* the soft reset left the screen that wanted it */
 static int job_result;
 static int remembered_lookup;   /* JOB_DESCRIBE is for the saved server, not a typed one */
 static char job_arg[256];
@@ -141,6 +142,10 @@ static void open_server(const server_t *s) {
 static void job_finish(void) {
     int which = job;
     job = JOB_NONE;
+    if(job_dropped) {
+        job_dropped = 0;
+        return;
+    }
     if(which == JOB_DISCOVER) {
         server_count = job_result;
         server_sel = 0;
@@ -213,6 +218,13 @@ static void job_finish(void) {
     }
 }
 
+/* A+B+X+Y+Start away from the server list: straight back to it. */
+static void go_home(void) {
+    if(screen == SCREEN_NETWORK) return;
+    if(job != JOB_NONE) job_dropped = 1;
+    screen = SCREEN_SERVERS;
+}
+
 /* ---- Playing ---- */
 
 static int playable(const entry_t *e) {
@@ -234,6 +246,10 @@ static void play_from(int index) {
             break;
         }
         if(r == PLAY_STOPPED) break;
+        if(r == PLAY_RESET) {
+            go_home();
+            break;
+        }
         int step = r == PLAY_PREVIOUS ? -1 : 1;
         int next = index + step;
         while(next >= 0 && next < entry_count && !(playable(&entries[next]) && entries[next].kind == e->kind)) next += step;
@@ -605,7 +621,9 @@ int main(int argc, char **argv) {
 
     for(;;) {
         input_t in;
-        input_poll(&in);
+        input_poll(&in, screen == SCREEN_NETWORK || screen == SCREEN_SERVERS);
+        if(in.reset == SOFTRESET_QUIT) break;
+        if(in.reset == SOFTRESET_TITLE) go_home();
         update(&in);
         settings_poll();
 #if defined(LP_QA) || defined(LP_BENCH) || defined(LP_DECODE_BENCH)
