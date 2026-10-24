@@ -107,6 +107,19 @@ static bool parse_record(const uint8_t *data, int len, SaveData *out) {
     return true;
 }
 
+/* vmufs_read, tried three times. A block read that times out (the maple
+   bus held up for 100 ms) fails the whole read, and taking that as no file
+   would let the next settings change write the defaults over the player's
+   save. A card without the file costs the worker a second or so. */
+static int read_file(maple_device_t *dev, void **file, int *size) {
+    int rv = -1;
+    for(int tries = 0; tries < 3 && rv < 0; tries++) {
+        if(tries) thd_sleep(50);
+        rv = vmufs_read(dev, SAVE_FILE, file, size);
+    }
+    return rv;
+}
+
 /* Reads the first valid file on any card; false (and the defaults) if
    there is none. */
 static bool read_card(SaveData *out) {
@@ -115,7 +128,7 @@ static bool read_card(SaveData *out) {
     for(int i = 0; (dev = maple_enum_type(i, MAPLE_FUNC_MEMCARD)); i++) {
         void *file;
         int size;
-        if(vmufs_read(dev, SAVE_FILE, &file, &size) < 0) continue;
+        if(read_file(dev, &file, &size) < 0) continue;
         vmu_pkg_t pkg;
         bool ok = vmu_pkg_parse(file, size, &pkg) == 0 && parse_record(pkg.data, pkg.data_len, out);
         free(file);

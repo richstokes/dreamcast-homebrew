@@ -5,6 +5,10 @@
 #include "kart.h"
 #include "sound_assets.h"
 
+/* Opens the music on the disc; audio_init does it if this hasn't. The
+   first /cd access resets the GD-ROM drive, and on the console all five
+   VMU read timeouts seen while it overlapped the save worker came during it. */
+void audio_open_disc(void);
 void audio_init(void);
 void audio_shutdown(void);
 void audio_update(float dt);

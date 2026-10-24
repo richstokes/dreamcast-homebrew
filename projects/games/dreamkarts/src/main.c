@@ -1872,6 +1872,7 @@ int main(int argc, char **argv) {
     hud_init();
     title_init();
     boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");
+    audio_open_disc();   /* before the save worker: see audio.h */
     save_init();   /* the card is read while the rest loads */
 #ifdef DK_AT_TRACK
     game.track = DK_AT_TRACK;

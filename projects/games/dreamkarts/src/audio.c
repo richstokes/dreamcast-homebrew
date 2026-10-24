@@ -244,6 +244,24 @@ static void *music_feeder(void *arg) {
     return NULL;
 }
 
+void audio_open_disc(void) {
+    static bool opened;
+    if(opened) return;
+    opened = true;
+    music_file = fs_open(MUSIC_PATH, O_RDONLY);
+    if(music_file == FILEHND_INVALID) music_file = fs_open("/cd/MUSIC.ADP", O_RDONLY);
+    /* Under dcload the project directory (make hw) or captures/hw (make
+       hwbench, which copies the music there) is mapped at /pc. */
+    bool from_pc = music_file == FILEHND_INVALID;
+    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/disc/music.adp", O_RDONLY);
+    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/music.adp", O_RDONLY);
+#ifndef DK_PC_MUSIC
+    music_silent = from_pc && music_file != FILEHND_INVALID;
+#else
+    (void)from_pc;
+#endif
+}
+
 void audio_init(void) {
     if(snd_stream_init_ex(2, MUSIC_BUFFER_BYTES) < 0) {
         printf("DreamKarts audio: stream init failed; running silently\n");
@@ -257,18 +275,7 @@ void audio_init(void) {
         if(sfx[i] == SFXHND_INVALID) printf("DreamKarts audio: effect %d failed to load\n", i);
         else loaded++;
     }
-    music_file = fs_open(MUSIC_PATH, O_RDONLY);
-    if(music_file == FILEHND_INVALID) music_file = fs_open("/cd/MUSIC.ADP", O_RDONLY);
-    /* Under dcload the project directory (make hw) or captures/hw (make
-       hwbench, which copies the music there) is mapped at /pc. */
-    bool from_pc = music_file == FILEHND_INVALID;
-    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/disc/music.adp", O_RDONLY);
-    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/music.adp", O_RDONLY);
-#ifndef DK_PC_MUSIC
-    music_silent = from_pc && music_file != FILEHND_INVALID;
-#else
-    (void)from_pc;
-#endif
+    audio_open_disc();
     if(music_file == FILEHND_INVALID) {
         printf("DreamKarts audio: no %s on the disc; no music\n", MUSIC_PATH);
         music_bytes = 0;
