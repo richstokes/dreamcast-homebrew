@@ -62,6 +62,40 @@ func TestEvents(t *testing.T) {
 	}
 }
 
+func TestIsTestName(t *testing.T) {
+	for name, want := range map[string]bool{"AT": true, "AT0042": true, "AT-SONIC": true, "AT-BOT": true,
+		"ATOM": false, "ATLAS": false, "AT AT": false, "CAT-1": false, "SONIC": false, "": false} {
+		if IsTestName(name) != want {
+			t.Errorf("IsTestName(%q) = %v", name, !want)
+		}
+	}
+}
+
+// Test clients make no news, and neither does a race they are in.
+func TestTestNamesMakeNoEvents(t *testing.T) {
+	h := newHarness(t)
+	evs := h.events()
+	a, b := h.client(1, 11), h.client(2, 22)
+	a.hello("AT0042")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{4})
+	a.wish(0, 6, 10, 0)
+	if len(*evs) != 0 {
+		t.Fatalf("test console's join made %+v", *evs)
+	}
+	b.send(TypeJoin, []byte{4})
+	a.nonce++
+	a.wish(0, 6, 10, 0)
+	h.advance(40 * time.Millisecond)
+	if v := a.lobby(); v.state != StateCountdown {
+		t.Fatalf("not counting down: %+v", v)
+	}
+	want := []Event{{Kind: EventJoin, Lobby: 5, Name: "BOB", Players: []string{"AT0042", "BOB"}}}
+	if !reflect.DeepEqual(*evs, want) {
+		t.Fatalf("got %+v, want only bob's join", *evs)
+	}
+}
+
 // The demo lobby's bots join and race all day without a word.
 func TestDemoLobbyMakesNoEvents(t *testing.T) {
 	h := newHarness(t)

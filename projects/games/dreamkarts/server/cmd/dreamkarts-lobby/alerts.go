@@ -12,7 +12,6 @@ import (
 const (
 	joinColour = 0x2ecc71
 	raceColour = 0xf39c12
-	footer     = "DreamKarts online · dcvmu.com"
 )
 
 // alert turns lobby news into a Discord message.
@@ -25,7 +24,6 @@ func alert(e lobby.Event, now time.Time) (discord.Event, discord.Embed) {
 			Fields: []discord.Field{
 				{Name: fmt.Sprintf("In the lobby (%d/%d)", len(e.Players), lobby.MaxPlayers), Value: strings.Join(e.Players, ", ")},
 			},
-			Footer:    &discord.Footer{Text: footer},
 			Timestamp: stamp,
 		}
 	}
@@ -43,7 +41,6 @@ func alert(e lobby.Event, now time.Time) (discord.Event, discord.Embed) {
 			{Name: "Items", Value: items, Inline: true},
 			{Name: fmt.Sprintf("Racers (%d)", len(e.Players)), Value: strings.Join(e.Players, ", ")},
 		},
-		Footer:    &discord.Footer{Text: footer},
 		Timestamp: stamp,
 	}
 }

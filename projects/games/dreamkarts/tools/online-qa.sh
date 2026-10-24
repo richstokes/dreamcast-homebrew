@@ -140,17 +140,17 @@ for scenario in "${scenarios[@]}"; do
     case "${scenario}" in
         race)
             cflags="-DDK_AT_ONLINE"
-            bot_args=(-name SONIC -lobby 8 -start -start-delay 28s -race 69 -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
+            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
                       -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD" -for 5m)
             bot_delay=0 ;;
         custom)
             cflags="-DDK_AT_ONLINE -DDK_AT_CUSTOM"
-            bot_args=(-name SONIC -lobby 8 -start -start-delay 28s -race 69 -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
+            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
                       -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD" -colour 8 -custom 2,3,4 -for 5m)
             bot_delay=0 ;;
         practice)
             cflags="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6"
-            bot_args=(-name SONIC -lobby 6 -retire 6s -for 150s)
+            bot_args=(-name AT-SONIC -lobby 6 -retire 6s -for 150s)
             bot_delay=25 ;;
         spectate)
             cflags="-DDK_AT_ONLINE -DDK_AT_SPECTATE"

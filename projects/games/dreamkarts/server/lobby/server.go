@@ -446,7 +446,7 @@ func (s *Server) join(p *Player, id int, now time.Time) {
 	l.dirty = true
 	s.Logf("%q joined lobby %d slot %d", p.Name, id, slot)
 	s.sendLobby(l, p, now)
-	if !p.Bot && !l.Demo {
+	if !p.Bot && !l.Demo && !IsTestName(p.Name) {
 		s.emit(Event{Kind: EventJoin, Lobby: id + 1, Name: p.Name, Players: names(l.Slots[:])}, now)
 	}
 }
@@ -594,7 +594,7 @@ func (s *Server) startRace(l *Lobby, now time.Time) {
 	l.dirty = true
 	s.Logf("lobby %d race %d: %d racers, track %d, %d laps, cc %d, items %v", l.ID, l.RaceID, len(racers), l.Track,
 		l.Laps, l.CC, l.Items)
-	if len(racers) >= 2 && !l.Demo {
+	if len(racers) >= 2 && !l.Demo && !anyTest(racers) {
 		s.emit(Event{Kind: EventRace, Lobby: l.ID + 1, Players: names(racers), Track: l.Track, Laps: l.Laps, CC: l.CC,
 			Items: l.Items}, now)
 	}

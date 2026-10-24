@@ -1,6 +1,9 @@
 package lobby
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // EventKind says what an Event is about.
 type EventKind int
@@ -11,9 +14,9 @@ const (
 )
 
 // Event is lobby news for the outside world (the server's Discord alerts).
-// Only people make them: bot and demo lobby activity is left out, and so
-// is a race started alone, which is practice and can come every couple of
-// minutes.
+// Only people make them: the demo lobby (lobby 10), its bots and anything
+// with a test name in it (IsTestName) are left out, and so is a race
+// started alone, which is practice and can come every couple of minutes.
 type Event struct {
 	Kind    EventKind
 	Lobby   int      // 1-10, as the console shows it
@@ -32,6 +35,27 @@ var (
 		"SPIRAL CANYON"}
 	CCNames = []string{"50cc", "100cc", "150cc"}
 )
+
+// IsTestName says whether a player name belongs to our automated testing:
+// "AT" alone or followed by a digit or a dash. Online autotest consoles
+// call themselves AT plus four digits and dk-bot defaults to AT-BOT; name
+// any other test client AT-SOMETHING. Real names like ATOM still count.
+func IsTestName(name string) bool {
+	if !strings.HasPrefix(name, "AT") {
+		return false
+	}
+	rest := name[2:]
+	return rest == "" || rest[0] == '-' || (rest[0] >= '0' && rest[0] <= '9')
+}
+
+func anyTest(ps []*Player) bool {
+	for _, p := range ps {
+		if p != nil && IsTestName(p.Name) {
+			return true
+		}
+	}
+	return false
+}
 
 func (s *Server) emit(e Event, now time.Time) {
 	if s.OnEvent != nil {

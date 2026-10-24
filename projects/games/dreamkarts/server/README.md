@@ -22,8 +22,10 @@ bots that anyone can watch.
 
 The server posts to Discord webhooks when someone joins a lobby (at most
 one every 5 minutes per webhook) and when a race with two or more racers
-starts (every time). Bots, the demo lobby and solo practice races never
-post. Webhook URLs are secret, so they live in the private
+starts (every time). The demo lobby (lobby 10), solo practice races and
+test clients never post: a name of `AT` followed by a digit or a dash is a
+test (autotest consoles are `AT0042`-style, `dk-bot` defaults to `AT-BOT`),
+so name any test client that way. Webhook URLs are secret, so they live in the private
 [infra repo](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip)
 (`config/dreamkarts/discord.json`), which installs them to
 `/etc/dreamkarts/discord.json`; change them there with `manage.py check` and
@@ -101,7 +103,7 @@ address (Flycast's proxy does not reach 127.0.0.1) and run the online
 autotest:
 
 ```bash
-go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD"
+go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD"
 make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=192.168.1.184"
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
@@ -120,7 +122,7 @@ race:
 
 ```bash
 make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6 -DDK_NET_TEST_HOST=192.168.1.184"
-(sleep 25; go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name SONIC -lobby 6 -retire 6s -for 150s) &
+(sleep 25; go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-SONIC -lobby 6 -retire 6s -for 150s) &
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
 
