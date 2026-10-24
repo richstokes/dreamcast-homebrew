@@ -10,8 +10,10 @@ LUA = $(CORE)/libs/z8lua
 CORE_SRC = $(filter-out $(CORE)/source/main.cpp $(CORE)/source/hostCommonFunctions.cpp $(CORE)/source/logger.cpp,$(wildcard $(CORE)/source/*.cpp))
 LUA_SRC = $(filter-out $(LUA)/ltests.c $(LUA)/liolib.c $(LUA)/loslib.c $(LUA)/loadlib.c $(LUA)/lbitlib.c,$(wildcard $(LUA)/*.c))
 CPP_SRC = main.cpp host.cpp logger.cpp lua_alloc.cpp download.cpp download_screen.cpp $(CORE_SRC) $(CORE)/libs/lodepng/lodepng.cpp
-# The shared dial-up code from projects/common, compiled as C.
-COMMON_OBJS = build/common/dialup.o
+# The shared dial-up and HTTPS code from projects/common, compiled as C,
+# and its CA bundle, copied in by common.mk.
+COMMON_OBJS = build/common/dialup.o build/common/https.o
+CACERT = romdisk/certs/ca-bundle.pem
 OBJS = $(patsubst %.cpp,build/%.o,$(CPP_SRC)) $(patsubst %.c,build/%.o,$(LUA_SRC)) $(COMMON_OBJS) romdisk.o
 # -O2 runs the Lua VM and rasterizers faster on hardware than -O3: the
 # SH-4 has an 8 KiB instruction cache. The audio mixer is a tight loop and
@@ -49,7 +51,7 @@ build/%.o: %.c
 	@mkdir -p $(dir $@)
 	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -x c++ -c $< -o $@
 
-build/romdisk-files: FORCE
+build/romdisk-files: FORCE $(CACERT)
 	@mkdir -p build
 	@find romdisk -type f | LC_ALL=C sort > build/romdisk-files.new
 	@cmp -s build/romdisk-files.new $@ || cp build/romdisk-files.new $@
@@ -163,7 +165,7 @@ clean:
 	$(RM) build/main-profile.o build/tests/profile.o pico8-profile.elf
 	$(RM) build/main-kernels.o build/tests/kernels.o pico8-kernels.elf
 	$(RM) build/main-hw.o pico8-hw.elf
-	$(RM) build/romdisk-padded $(OBJS) build/main-smoke.o build/main-net.o build/download-screen-net.o build/tests/network_smoke.o build/network-romdisk.o pico8-network-test.elf pico8-smoke.elf $(TARGET) romdisk.img romdisk_tmp.c romdisk_tmp.o
+	$(RM) build/romdisk-padded $(OBJS) build/main-smoke.o build/main-net.o build/download-screen-net.o build/tests/network_smoke.o build/network-romdisk.o pico8-network-test.elf pico8-smoke.elf $(TARGET) romdisk.img romdisk_tmp.c romdisk_tmp.o $(CACERT)
 
 -include $(OBJS:.o=.d)
 -include build/main-hw.d build/main-smoke.d build/main-net.d build/download-screen-net.d build/tests/network_smoke.d

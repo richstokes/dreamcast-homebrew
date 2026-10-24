@@ -74,7 +74,7 @@ with DuckDuckGo Lite; start with `?` to force a search. Build with
   site only. A file upload blocks its form. Cookies live in RAM. Login and
   logout on https://dcvmu.com work
 - Network: HTTP and HTTPS (TLS 1.2 or newer, bundled Mozilla CA store,
-  hostname verified). One connection and TLS session per site is reused, and
+  hostname and certificate dates verified, so the console clock must be set). One connection and TLS session per site is reused, and
   any load can be canceled. A Broadband Adapter or W5500 is preferred;
   otherwise the modem dials with the console's saved PlanetWeb or
   DreamPassport profile, falling back to DreamPi defaults (`555`, `dream` /
@@ -103,8 +103,8 @@ make -C "$KOS_PORTS/stb_image" install
 ```
 
 Relink the browser afterward (the Makefile tracks the SDK archive).
-`make update-cacert` refreshes the bundled CA store (needs host internet
-access).
+`make update-cacert` refreshes the CA store shared with the other HTTPS
+projects, `projects/common/cacert.pem` (needs host internet access).
 
 ## Build and run
 

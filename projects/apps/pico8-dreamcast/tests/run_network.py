@@ -173,7 +173,7 @@ if args.modem:
     cases = [case for case in cases if case[0] in ("TEXT", "PNG", "PUBLIC_GITHUB")]
 rom = ROOT / "build/network-romdisk"
 shutil.copytree(ROOT / "romdisk", rom, dirs_exist_ok=True)
-(rom / "certs/ca-bundle.pem").write_bytes((ROOT / "romdisk/certs/ca-bundle.pem").read_bytes()
+(rom / "certs/ca-bundle.pem").write_bytes((ROOT.parents[1] / "common/cacert.pem").read_bytes()
                                         + ca.public_bytes(serialization.Encoding.PEM))
 (rom / "tests/network-cases.txt").write_text("".join(f"{n} {e} {u}\n" for n, e, u in cases))
 (rom / "tests/screen-url.txt").write_text(base + ("/screen-slow\n" if args.screen_slow else "/cart.p8\n"))

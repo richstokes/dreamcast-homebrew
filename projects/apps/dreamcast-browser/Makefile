@@ -1,10 +1,12 @@
 TARGET = dreamcast-browser.elf
 OBJS = dreamcast-browser.o loader.o input.o forms.o selftest.o net.o html.o \
        images.o render.o osk.o address.o bookmarks.o storage.o cache.o \
-       modem.o dialup.o romdisk.o
+       modem.o dialup.o https.o romdisk.o
 
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
+# The shared CA bundle, copied in by common.mk.
+CACERT = romdisk/cacert.pem
 KOS_CSTD = -std=gnu17
 
 LDLIBS = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lstb_image -lm -lpthread -lppp
@@ -15,13 +17,14 @@ include $(KOS_BASE)/Makefile.rules
 include ../../common/common.mk
 
 clean:
-	-rm -f $(OBJS) $(TARGET) romdisk.img
+	-rm -f $(OBJS) $(TARGET) romdisk.img $(CACERT)
 
 dreamcast-browser.o loader.o input.o forms.o selftest.o net.o html.o images.o \
     render.o osk.o address.o bookmarks.o storage.o cache.o modem.o: browser.h
 dreamcast-browser.o loader.o input.o forms.o selftest.o: app.h storage.h
 storage.o: storage.h $(COMMON_DIR)/vmusave.h
 modem.o: $(COMMON_DIR)/dialup.h
+net.o: $(COMMON_DIR)/https.h
 selftest.o: tests/loading_self_test.inc tests/site_self_test.inc
 
 $(TARGET): $(OBJS) $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a
@@ -31,7 +34,7 @@ run: $(TARGET)
 	./run-flycast.sh --skip-build
 
 update-cacert:
-	./scripts/update-cacert.sh
+	$(COMMON_DIR)/update-cacert.sh
 
 # Parser, keyboard, address-bar, and bookmark tests on the host compiler.
 host-test:

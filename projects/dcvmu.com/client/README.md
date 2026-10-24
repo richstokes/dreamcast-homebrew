@@ -99,7 +99,7 @@ physical Dreamcast and VMU.
 - Uploads use a fresh connection and never retry automatically (`net.c`): the server may already have stored the save
 - On the BBA the client gates the PCI IRQ and polls for received frames instead (`net.c`); re-enabling the IRQ at shutdown brought back Flycast IRQ re-entry
 - Modem shutdown needs `tools/kos/patches/kos/kos-ppp-lifecycle.patch`; stock KOS 2.3 `ppp_shutdown` does not stop its worker
-- Every request is HTTPS with certificate and hostname checks and no fallback, so a wrong Dreamcast clock breaks login
+- Every request is HTTPS with certificate, hostname and date checks and no fallback, so an unset Dreamcast clock breaks login (`projects/common/https.h`)
 
 ## Known limitations
 

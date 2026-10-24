@@ -106,7 +106,7 @@ the rendering and network code you do not need. Do not modify Ping Cube
 merely to use it as a template.
 
 Code more than one project needs lives in `projects/common/`: the soft
-reset, modem dial-up and VMU saves so far (its README lists them). Use it
+reset, modem dial-up, VMU saves and HTTPS so far (its README lists them). Use it
 instead of copying code from another project, and move code there when a
 second project wants it. Its headers must stay valid C++.
 

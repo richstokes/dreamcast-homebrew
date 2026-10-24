@@ -178,8 +178,8 @@ Each is also commented where it lives in the code.
   yield (one per frame) was a C++ throw costing milliseconds (`Makefile`)
 - newlib's malloc takes a KOS mutex whose unlock scans the wait queues (about
   7% of a busy cart); Lua uses a lock-free small-block allocator (`lua_alloc.cpp`)
-- kos-ports builds Mbed TLS without certificate date checks; `download.cpp`
-  checks dates itself, hence the console clock
+- kos-ports builds Mbed TLS without certificate date checks;
+  `projects/common/https.c` checks them, hence the console clock
 - FAKE-08's `assert()` only prints and calls `stop()`, which the main loop
   clears; the test carts override it to fail the run (`romdisk/tests/api.p8`)
 - The release ELF is stripped (debug info in `build/*.elf.debug`) to stay

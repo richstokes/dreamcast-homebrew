@@ -8,3 +8,6 @@ tests/image-tests.dSYM/
 
 # Temporary emulator integration credentials (never commit).
 romdisk/test-credentials.txt
+
+# Copied from projects/common when building.
+romdisk/cacert.pem

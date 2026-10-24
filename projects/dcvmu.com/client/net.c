@@ -1,4 +1,5 @@
 #include "client.h"
+#include "../../common/https.h"
 #include <kos.h>
 #include <mbedtls/sha256.h>
 #include <curl/curl.h>
@@ -122,15 +123,16 @@ static CURL *request_new(const char *path) {
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
-    /* HTTPS only, verifying the certificate and hostname against the bundled
-       CA file. There is no insecure fallback, so the console clock must be right. */
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, "/rd/cacert.pem");
+    /* HTTPS only, verifying the certificate, hostname and dates against the
+       bundled CA file. There is no insecure fallback, so the console clock must
+       be right. */
+    if(https_setup(curl, "/rd/cacert.pem") != CURLE_OK) {
+        client_status("HTTPS needs curl built with Mbed TLS.");
+        return NULL;
+    }
 #ifdef DCVMU_DOWNLOAD_TEST
     if(local_test)curl_easy_setopt(curl,CURLOPT_CAINFO,"/rd/test-ca.pem");
 #endif
-    curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, using_modem?60000L:15000L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, using_modem?300000L:60000L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
@@ -152,6 +154,8 @@ static long perform(CURL *curl) {
     if(result != CURLE_OK) {
         client_status(result == CURLE_ABORTED_BY_CALLBACK ? "Canceled. Check account before retrying." :
                       result == CURLE_OPERATION_TIMEDOUT ? "Request timed out. Check account before retrying." :
+                      result == CURLE_PEER_FAILED_VERIFICATION && !https_clock_ok() ?
+                      "Set the console clock in the BIOS, then retry." :
                       "HTTPS failed. Check connection and console clock.");
         printf("dcvmu: HTTPS transport error: %s\n", error[0] ? error : curl_easy_strerror(result));
         return -1;

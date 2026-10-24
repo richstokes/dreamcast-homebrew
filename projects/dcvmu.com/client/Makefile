@@ -1,16 +1,19 @@
 TARGET = dcvmu-client.elf
-OBJS = dcvmu-client.o title.o menu-audio.o net.o modem.o dialup.o auth.o archive.o romdisk.o
+OBJS = dcvmu-client.o title.o menu-audio.o net.o modem.o dialup.o https.o auth.o archive.o romdisk.o
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
+# The shared CA bundle, copied in by common.mk.
+CACERT = romdisk/cacert.pem
 KOS_CSTD = -std=gnu17
 LDLIBS = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm -lpthread -lppp
 all: $(TARGET)
 include $(KOS_BASE)/Makefile.rules
 include ../../common/common.mk
 clean:
-	-rm -f $(OBJS) $(TARGET) romdisk.img
+	-rm -f $(OBJS) $(TARGET) romdisk.img $(CACERT)
 dcvmu-client.o title.o menu-audio.o net.o modem.o auth.o archive.o: client.h
 modem.o: $(COMMON_DIR)/dialup.h
+net.o: $(COMMON_DIR)/https.h
 auth.o: $(COMMON_DIR)/vmusave.h
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) $(LDLIBS)

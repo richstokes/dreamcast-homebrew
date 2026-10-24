@@ -4,3 +4,6 @@ romdisk/test-credentials.txt
 
 romdisk/test-service.txt
 romdisk/test-ca.pem
+
+# Copied from projects/common when building.
+romdisk/cacert.pem

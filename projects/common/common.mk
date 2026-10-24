@@ -10,8 +10,18 @@
 # Projects with their own object directories compile $(COMMON_DIR)/<name>.c
 # with their own rule. Sources include the headers by relative path, as with
 # softreset.h.
+#
+# HTTPS projects name where the CA bundle goes in their romdisk before the
+# include, CACERT = romdisk/cacert.pem, and it is copied there from here.
 COMMON_DIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
-COMMON_MODULES := dialup
+COMMON_MODULES := dialup https
 
 $(foreach module,$(COMMON_MODULES),$(eval vpath $(module).c $(COMMON_DIR)))
 $(COMMON_MODULES:%=%.o): %.o: $(COMMON_DIR)/%.h
+
+ifdef CACERT
+$(CACERT): $(COMMON_DIR)/cacert.pem
+	@mkdir -p $(dir $@)
+	cp $< $@
+romdisk.img: $(CACERT)
+endif

@@ -2,6 +2,7 @@
    the frame loop never waits on a transfer, plus the BBA receive worker. */
 
 #include "browser.h"
+#include "../../common/https.h"
 
 #include <curl/curl.h>
 #include <dc/asic.h>
@@ -222,10 +223,11 @@ static int perform(const char *url, const char *body, fetch_result_t *out,
     curl_easy_setopt(client, CURLOPT_TIMEOUT_MS, transfer_timeout);
     curl_easy_setopt(client, CURLOPT_LOW_SPEED_LIMIT, 64L);
     curl_easy_setopt(client, CURLOPT_LOW_SPEED_TIME, slow ? 30L : 15L);
-    curl_easy_setopt(client, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(client, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(client, CURLOPT_CAINFO, "/rd/cacert.pem");
-    curl_easy_setopt(client, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+    if(https_setup(client, "/rd/cacert.pem") != CURLE_OK) {
+        curl_slist_free_all(headers);
+        fail(out, "HTTPS needs curl built with Mbed TLS");
+        return -1;
+    }
 
     printf("browser: %s request (limit %lu bytes)\n", body ? "POST" : "GET",
            (unsigned long)job.limit);
@@ -258,6 +260,10 @@ static int perform(const char *url, const char *body, fetch_result_t *out,
             snprintf(out->error, sizeof(out->error),
                      "Response exceeds the %lu KiB safety limit",
                      (unsigned long)(job.limit / 1024));
+        else if(code == CURLE_PEER_FAILED_VERIFICATION && !https_clock_ok())
+            snprintf(out->error, sizeof(out->error),
+                     "The Dreamcast clock is not set, so the site's certificate "
+                     "cannot be checked. Set the date in the BIOS");
         else
             snprintf(out->error, sizeof(out->error), "%s",
                      error[0] ? error : curl_easy_strerror(code));

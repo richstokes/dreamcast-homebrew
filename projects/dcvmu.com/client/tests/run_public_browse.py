@@ -52,7 +52,7 @@ def main():
             (work / name).mkdir()
         blank_cards(work / 'vmus')
         for name in ('dcvmu-client.c', 'title.c', 'menu-audio.c', 'net.c', 'modem.c',
-                     'auth.c', 'archive.c', 'client.h', 'Makefile', 'romdisk/cacert.pem',
+                     'auth.c', 'archive.c', 'client.h', 'Makefile',
                      'tests/public_browse.c', 'tests/vmu_tools.c'):
             shutil.copyfile(CLIENT / name, work / name)
         database = work / 'fixture.sqlite3'

@@ -1,7 +1,6 @@
 // HTTPS cartridge acquisition. All networking runs off the VM/render thread.
 #include "download.h"
 #include <kos.h>
-#include <mbedtls/ssl.h>
 #include <curl/curl.h>
 #include <unistd.h>
 #include <atomic>
@@ -14,6 +13,7 @@
 #include "cart.h"
 #include "lodepng.h"
 #include "../../common/dialup.h"
+#include "../../common/https.h"
 
 namespace {
 mutex_t state_lock = MUTEX_INITIALIZER;
@@ -113,28 +113,6 @@ bool parse_url(const std::string& input, Url& out) {
     return true;
 }
 
-// kos-ports disables MBEDTLS_HAVE_TIME_DATE. Check EVERY certificate's dates
-// explicitly without changing the installed SDK or weakening chain/name checks.
-int verify_date(void*, mbedtls_x509_crt* cert, int, uint32_t* flags) {
-    time_t now = time(nullptr);
-    tm utc{};
-    if (!gmtime_r(&now, &utc) || utc.tm_year < 125 || utc.tm_year > 200) {
-        *flags |= MBEDTLS_X509_BADCERT_OTHER;
-        return 0;
-    }
-    auto stamp = [](int y, int m, int d, int h, int min, int s) -> uint64_t {
-        return (((((uint64_t(y) * 13 + m) * 32 + d) * 24 + h) * 60 + min) * 60 + s);
-    };
-    auto cvt = [&](const mbedtls_x509_time& t) {
-        return stamp(t.year, t.mon, t.day, t.hour, t.min, t.sec);
-    };
-    auto current = stamp(utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
-                         utc.tm_hour, utc.tm_min, utc.tm_sec);
-    if (current < cvt(cert->valid_from)) *flags |= MBEDTLS_X509_BADCERT_FUTURE;
-    if (current > cvt(cert->valid_to)) *flags |= MBEDTLS_X509_BADCERT_EXPIRED;
-    return 0;
-}
-
 std::string trim(const std::string& s) {
     auto a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
     return a == std::string::npos ? "" : s.substr(a, b - a + 1);
@@ -144,14 +122,6 @@ struct Transfer {
     size_t header_bytes = 0;
     std::string error;
 };
-CURLcode configure_tls(CURL*, void* context, void*) {
-    // The installed curl uses Mbed TLS; retain mandatory chain/name checks and
-    // supply the date checks omitted by this kos-port's TLS configuration.
-    auto* config = static_cast<mbedtls_ssl_config*>(context);
-    mbedtls_ssl_conf_authmode(config, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_verify(config, verify_date, nullptr);
-    return CURLE_OK;
-}
 size_t receive_bytes(char* data, size_t size, size_t count, void* context) {
     auto& transfer = *static_cast<Transfer*>(context);
     if (!checkpoint()) return 0;
@@ -199,12 +169,13 @@ bool fetch(const std::string& url, std::vector<unsigned char>& bytes) {
     // Use the same maintained HTTP/TLS stack as this workspace's DCVMU client.
     // Initialize and clean up on the sole network worker, before PPP teardown.
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) return fail("HTTPS initialization failed.");
-    const auto* version = curl_version_info(CURLVERSION_NOW);
-    if (!version->ssl_version || strncmp(version->ssl_version, "mbedTLS/", 8)) {
-        curl_global_cleanup(); return fail("Build curl with the Mbed TLS backend.");
-    }
     CURL* curl = curl_easy_init();
     if (!curl) { curl_global_cleanup(); return fail("Cannot allocate HTTPS client."); }
+    // Chain, host name and date checks (projects/common/https.h).
+    if (https_setup(curl, "/rd/certs/ca-bundle.pem") != CURLE_OK) {
+        curl_easy_cleanup(curl); curl_global_cleanup();
+        return fail("Build curl with the Mbed TLS backend.");
+    }
     Transfer transfer;
     message("Connecting and verifying HTTPS...");
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -215,11 +186,7 @@ bool fetch(const std::string& url, std::vector<unsigned char>& bytes) {
     curl_easy_setopt(curl, CURLOPT_DISALLOW_USERNAME_IN_URL, 1L);
     curl_easy_setopt(curl, CURLOPT_PROXY, "");
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_TLSv1_2);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, "/rd/certs/ca-bundle.pem");
-    curl_easy_setopt(curl, CURLOPT_SSL_CTX_FUNCTION, configure_tls);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 90L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 600L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
@@ -250,7 +217,8 @@ bool fetch(const std::string& url, std::vector<unsigned char>& bytes) {
         printf("PICO8_NET: curl=%d http=%ld\n", int(result), http);
         if (!transfer.error.empty()) return fail(transfer.error);
         if (result == CURLE_PEER_FAILED_VERIFICATION)
-            return fail("HTTPS failed. Check URL / console date.");
+            return fail(https_clock_ok() ? "HTTPS failed. Check URL / console date."
+                                         : "Set the console date in the BIOS first.");
         if (result == CURLE_FILESIZE_EXCEEDED) return fail("Cart exceeds the 1 MiB limit.");
         if (result == CURLE_OPERATION_TIMEDOUT) return fail("Network timeout. Please retry.");
         if (result == CURLE_TOO_MANY_REDIRECTS) return fail("Too many HTTPS redirects.");

@@ -98,7 +98,7 @@ def main():
         for name in ('net.c', 'modem.c', 'client.h'):
             shutil.copyfile(CLIENT / name, work / name)
         shutil.copyfile(CLIENT / 'tests/upload_stress.c', work / 'stress.c')
-        shutil.copyfile(CLIENT / 'romdisk/cacert.pem', work / 'romdisk/cacert.pem')
+        shutil.copyfile(CLIENT.parents[1] / 'common/cacert.pem', work / 'romdisk/cacert.pem')
         cert = work / 'romdisk/test-ca.pem'
         key = work / 'key.pem'
         with (args.log_dir / 'build.log').open('w') as build_log:
@@ -115,7 +115,7 @@ def main():
             origin = f'https://{args.host}:{server.server_port}'
             (work / 'romdisk/test-service.txt').write_text(origin + '\n')
             (work / 'Makefile').write_text('''TARGET = stress.elf
-OBJS = stress.o net.o modem.o dialup.o romdisk.o
+OBJS = stress.o net.o modem.o dialup.o https.o romdisk.o
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
 KOS_CSTD = -std=gnu17

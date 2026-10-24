@@ -1,0 +1,2 @@
+# Copied from projects/common when building.
+romdisk/certs/ca-bundle.pem
