@@ -18,28 +18,30 @@ and `DREAMKARTS_BAD_WORDS_EXTRA` adds words of your own, comma-separated;
 restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
 bots that anyone can watch.
 
-## Discord alerts
+## Alerts
 
-The server posts to Discord webhooks when someone joins a lobby (at most
-one every 5 minutes per webhook) and when a race with two or more racers
-starts (every time). The demo lobby (lobby 10), solo practice races and
-test clients never post: a name of `AT` followed by a digit or a dash is a
-test (autotest consoles are `AT0042`-style, `dk-bot` defaults to `AT-BOT`),
-so name any test client that way. Webhook URLs are secret, so they live in the private
+The server posts to Discord webhooks and Bark (iPhone push) keys when
+someone joins a lobby (at most one every 5 minutes per target) and when a
+race with two or more racers starts (every time). The demo lobby (lobby
+10), solo practice races and test clients never post: a name of `AT`
+followed by a digit or a dash is a test (autotest consoles are
+`AT0042`-style, `dk-bot` defaults to `AT-BOT`), so name any test client
+that way. Webhook URLs and Bark keys are secret, so they live in the private
 [infra repo](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip)
-(`config/dreamkarts/discord.json`), which installs them to
-`/etc/dreamkarts/discord.json`; change them there with `manage.py check` and
-`apply --restart-apps`. Missing file: no alerts. Each webhook picks its
-events and can override a throttle:
+(`config/dreamkarts/alerts.json`), which installs them to
+`/etc/dreamkarts/alerts.json`; change them there with `manage.py check` and
+`apply --restart-apps`. Missing file: no alerts. Each target picks its
+events and can override a throttle; `type` is `discord` (the default) or
+`bark`:
 
 ```json
 {"webhooks": [
   {"name": "dcnet", "url": "https://discord.com/api/webhooks/...", "events": ["lobby_join", "race_start"]},
-  {"name": "races", "url": "https://discord.com/api/webhooks/...", "events": ["race_start"], "throttle": {"race_start": "1m"}}
+  {"name": "phone", "type": "bark", "url": "https://api.day.app/<key>", "events": ["race_start"], "throttle": {"race_start": "1m"}}
 ]}
 ```
 
-`-discord file.json` (or `DREAMKARTS_DISCORD_CONFIG`) points a local server
+`-alerts file.json` (or `DREAMKARTS_ALERTS_CONFIG`) points a local server
 at a file; plain `http://127.0.0.1:...` URLs are allowed for testing.
 
 ## Online change checklist

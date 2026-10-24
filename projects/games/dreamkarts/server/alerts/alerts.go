@@ -1,17 +1,20 @@
-// Package discord posts lobby alerts to Discord webhooks. The webhooks live
-// in a JSON file outside this repository (a webhook URL is its own
-// password), installed on the host by richstokes/infra:
+// Package alerts posts lobby news to Discord webhooks and Bark (iPhone push)
+// keys. The targets live in a JSON file outside this repository (a webhook
+// URL or Bark key is its own password), installed on the host by
+// richstokes/infra:
 //
 //	{"webhooks": [{"name": "dcnet", "url": "https://discord.com/api/webhooks/...",
 //	               "events": ["lobby_join", "race_start"],
-//	               "throttle": {"lobby_join": "5m"}}]}
+//	               "throttle": {"lobby_join": "5m"}},
+//	              {"name": "phone", "type": "bark", "url": "https://api.day.app/<key>",
+//	               "events": ["race_start"]}]}
 //
 // Each webhook picks its events and gets its own throttle per event: an
 // alert inside the throttle window since that webhook's last alert of the
 // same event is dropped, not queued. Posting happens on one goroutine per
-// webhook so a slow Discord never holds up the game; a full queue drops.
+// webhook so a slow service never holds up the game; a full queue drops.
 // URLs are never logged, only names.
-package discord
+package alerts
 
 import (
 	"bytes"
@@ -44,25 +47,27 @@ var DefaultThrottle = map[Event]time.Duration{
 	RaceStart: 0,
 }
 
-// Embed is a Discord message embed.
-type Embed struct {
-	Title       string  `json:"title,omitempty"`
-	Description string  `json:"description,omitempty"`
-	Color       int     `json:"color,omitempty"`
-	Fields      []Field `json:"fields,omitempty"`
-	Footer      *Footer `json:"footer,omitempty"`
-	Timestamp   string  `json:"timestamp,omitempty"`
+// Message is one alert: a Discord embed, or a Bark title and body.
+type Message struct {
+	Title  string
+	Color  int // Discord's embed stripe
+	Fields []Field
+	Time   time.Time
 }
 
+// Field is a line of detail. Inline fields sit side by side in Discord and
+// share one line in Bark.
 type Field struct {
 	Name   string `json:"name"`
 	Value  string `json:"value"`
 	Inline bool   `json:"inline,omitempty"`
 }
 
-type Footer struct {
-	Text string `json:"text"`
-}
+// Webhook types.
+const (
+	Discord = "discord"
+	Bark    = "bark"
+)
 
 // Config is the webhook file.
 type Config struct {
@@ -71,10 +76,11 @@ type Config struct {
 
 type Webhook struct {
 	Name     string             `json:"name"`
+	Type     string             `json:"type,omitempty"` // Discord (default) or Bark
 	URL      string             `json:"url"`
 	Events   []Event            `json:"events"`
 	Throttle map[Event]Duration `json:"throttle,omitempty"`
-	Username string             `json:"username,omitempty"` // default "DreamKarts"
+	Username string             `json:"username,omitempty"` // Discord's poster name, default "DreamKarts"
 }
 
 // Duration reads "5m" style durations from JSON.
@@ -93,8 +99,9 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Parse checks a config: every webhook needs a unique name, an https URL
-// (plain http only to this machine, for testing) and only known events.
+// Parse checks a config: every webhook needs a unique name, a known type,
+// an https URL (plain http only to this machine, for testing) and only
+// known events.
 func Parse(b []byte) (*Config, error) {
 	var c Config
 	dec := json.NewDecoder(bytes.NewReader(b))
@@ -103,7 +110,8 @@ func Parse(b []byte) (*Config, error) {
 		return nil, err
 	}
 	names := map[string]bool{}
-	for i, w := range c.Webhooks {
+	for i := range c.Webhooks {
+		w := &c.Webhooks[i]
 		if w.Name == "" {
 			return nil, fmt.Errorf("webhook %d has no name", i+1)
 		}
@@ -111,10 +119,16 @@ func Parse(b []byte) (*Config, error) {
 			return nil, fmt.Errorf("two webhooks are called %q", w.Name)
 		}
 		names[w.Name] = true
+		if w.Type == "" {
+			w.Type = Discord
+		}
+		if w.Type != Discord && w.Type != Bark {
+			return nil, fmt.Errorf("webhook %q: unknown type %q (discord or bark)", w.Name, w.Type)
+		}
 		u, err := url.Parse(w.URL)
 		local := err == nil && u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost")
 		if err != nil || (u.Scheme != "https" && !local) || u.Host == "" {
-			return nil, fmt.Errorf("webhook %q: url must be an https webhook URL", w.Name)
+			return nil, fmt.Errorf("webhook %q: url must be an https URL", w.Name)
 		}
 		for _, ev := range w.Events {
 			if _, ok := DefaultThrottle[ev]; !ok {
@@ -147,7 +161,7 @@ type hook struct {
 	cancel   context.CancelFunc
 }
 
-// QueueLen is how many alerts one webhook holds while Discord is slow.
+// QueueLen is how many alerts one webhook holds while its service is slow.
 const QueueLen = 16
 
 // Client posts the alerts; tests swap it.
@@ -173,7 +187,7 @@ func Load(path string, logf func(string, ...any)) (*Notifier, error) {
 	return New(c, logf), nil
 }
 
-// New starts a sender for each webhook in c.
+// New starts a sender for each webhook in c (from Parse).
 func New(c *Config, logf func(string, ...any)) *Notifier {
 	n := &Notifier{logf: logf}
 	for _, w := range c.Webhooks {
@@ -197,7 +211,7 @@ func New(c *Config, logf func(string, ...any)) *Notifier {
 
 // Names lists the webhooks and their events, for the startup log.
 func (n *Notifier) Names() string {
-	if n == nil {
+	if n == nil || len(n.hooks) == 0 {
 		return "none"
 	}
 	var parts []string
@@ -206,14 +220,14 @@ func (n *Notifier) Names() string {
 		for _, ev := range h.cfg.Events {
 			evs = append(evs, string(ev))
 		}
-		parts = append(parts, fmt.Sprintf("%s (%s)", h.cfg.Name, strings.Join(evs, ", ")))
+		parts = append(parts, fmt.Sprintf("%s %s (%s)", h.cfg.Type, h.cfg.Name, strings.Join(evs, ", ")))
 	}
 	return strings.Join(parts, "; ")
 }
 
-// Notify queues e for every webhook that takes ev and is outside its
+// Notify queues m for every webhook that takes ev and is outside its
 // throttle window.
-func (n *Notifier) Notify(ev Event, e Embed, now time.Time) {
+func (n *Notifier) Notify(ev Event, m Message) {
 	if n == nil {
 		return
 	}
@@ -222,24 +236,47 @@ func (n *Notifier) Notify(ev Event, e Embed, now time.Time) {
 		if !ok {
 			continue
 		}
-		if last, sent := h.last[ev]; sent && now.Sub(last) < d {
+		if last, sent := h.last[ev]; sent && m.Time.Sub(last) < d {
 			continue
 		}
-		h.last[ev] = now
-		body, err := json.Marshal(map[string]any{
-			"username":         h.cfg.Username,
-			"embeds":           []Embed{e},
-			"allowed_mentions": map[string]any{"parse": []string{}}, // no player name may ping anyone
-		})
+		h.last[ev] = m.Time
+		body, err := json.Marshal(payload(h.cfg, m))
 		if err != nil {
-			n.logf("discord %s: %v", h.cfg.Name, err)
+			n.logf("alerts %s: %v", h.cfg.Name, err)
 			continue
 		}
 		select {
 		case h.queue <- body:
 		default:
-			n.logf("discord %s: queue full, dropped a %s alert", h.cfg.Name, ev)
+			n.logf("alerts %s: queue full, dropped a %s alert", h.cfg.Name, ev)
 		}
+	}
+}
+
+// payload is m as w's service wants it.
+func payload(w Webhook, m Message) any {
+	if w.Type == Bark {
+		var inline, lines []string
+		for _, f := range m.Fields {
+			if f.Inline {
+				inline = append(inline, f.Name+": "+f.Value)
+			} else {
+				lines = append(lines, f.Name+": "+f.Value)
+			}
+		}
+		if len(inline) > 0 {
+			lines = append([]string{strings.Join(inline, " · ")}, lines...)
+		}
+		return map[string]any{"title": m.Title, "body": strings.Join(lines, "\n"), "group": "DreamKarts"}
+	}
+	embed := map[string]any{"title": m.Title, "color": m.Color, "fields": m.Fields}
+	if !m.Time.IsZero() {
+		embed["timestamp"] = m.Time.UTC().Format(time.RFC3339)
+	}
+	return map[string]any{
+		"username":         w.Username,
+		"embeds":           []any{embed},
+		"allowed_mentions": map[string]any{"parse": []string{}}, // no player name may ping anyone
 	}
 }
 
@@ -271,22 +308,22 @@ func (n *Notifier) run(h *hook) {
 	}
 }
 
-// post sends one alert, waiting out Discord's rate limit a few times.
+// post sends one alert, waiting out a rate limit a few times.
 func (n *Notifier) post(h *hook, body []byte) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		req, err := http.NewRequestWithContext(h.stop, http.MethodPost, h.cfg.URL, bytes.NewReader(body))
 		if err != nil {
-			n.logf("discord %s: bad request", h.cfg.Name)
+			n.logf("alerts %s: bad request", h.cfg.Name)
 			return
 		}
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 		resp, err := Client.Do(req)
 		if err != nil {
 			var ue *url.Error
 			if errors.As(err, &ue) {
-				err = ue.Err // the url.Error text carries the URL, and with it the token
+				err = ue.Err // the url.Error text carries the URL, and with it the secret
 			}
-			n.logf("discord %s: %v", h.cfg.Name, err)
+			n.logf("alerts %s: %v", h.cfg.Name, err)
 			return
 		}
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -296,17 +333,32 @@ func (n *Notifier) post(h *hook, body []byte) {
 			return
 		case resp.StatusCode == http.StatusTooManyRequests && attempt < 3:
 			wait := retryAfter(resp.Header, msg)
-			n.logf("discord %s: rate limited, retrying in %v", h.cfg.Name, wait)
+			n.logf("alerts %s: rate limited, retrying in %v", h.cfg.Name, wait)
 			select {
 			case <-time.After(wait):
 			case <-h.stop.Done():
 				return
 			}
 		default:
-			n.logf("discord %s: HTTP %d: %s", h.cfg.Name, resp.StatusCode, strings.TrimSpace(string(msg)))
+			n.logf("alerts %s: HTTP %d: %s", h.cfg.Name, resp.StatusCode, redact(strings.TrimSpace(string(msg)), h.cfg.URL))
 			return
 		}
 	}
+}
+
+// redact hides the URL's path segments (a Discord token, a Bark key) in an
+// error message from the service: Bark repeats the key back.
+func redact(msg, rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "(unreadable)"
+	}
+	for _, seg := range strings.Split(u.Path, "/") {
+		if len(seg) >= 6 {
+			msg = strings.ReplaceAll(msg, seg, "[redacted]")
+		}
+	}
+	return msg
 }
 
 // retryAfter reads how long Discord wants us to wait: the JSON body's

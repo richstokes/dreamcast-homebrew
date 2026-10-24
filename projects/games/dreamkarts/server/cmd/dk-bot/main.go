@@ -9,7 +9,7 @@
 //	dk-bot -lobby 9 -spectate             watch lobby 9 and log its races
 //
 // Keep test names starting AT- (or AT and a digit): the server sends no
-// Discord alerts for them (lobby.IsTestName).
+// alerts for them (lobby.IsTestName).
 //
 // A bot's kart has no physics: it sits on the grid and reports progress at
 // a steady pace so it finishes a 3-lap race in about -race seconds. Paths
@@ -41,7 +41,7 @@ import (
 var (
 	addr     = flag.String("addr", "dcvmu.com:7535", "server address")
 	smoke    = flag.Bool("smoke", false, "check the server answers HELLO and LIST, then exit")
-	name     = flag.String("name", "AT-BOT", "player name (AT- marks a test client: no Discord alerts)")
+	name     = flag.String("name", "AT-BOT", "player name (AT- marks a test client: no alerts)")
 	lobbyID  = flag.Int("lobby", 0, "lobby to join")
 	start    = flag.Bool("start", false, "start a race whenever the bot leads and two are in")
 	colour   = flag.Int("colour", 7, "colour 0-7, or 8 for a custom kart (-custom)")

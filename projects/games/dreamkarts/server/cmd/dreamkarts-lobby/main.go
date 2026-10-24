@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/alerts"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/demo"
-	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/discord"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/lobby"
 )
 
@@ -34,7 +34,7 @@ func main() {
 	demoLobby := flag.Int("demo-lobby", envInt("DREAMKARTS_DEMO_LOBBY", 10), "lobby (1-10) where bots race forever, 0 for none")
 	wordsURL := flag.String("words-url", envOr("DREAMKARTS_BAD_WORDS_URL", lobby.DefaultWordsURL), "bad word list to download at start, one word per line")
 	wordsExtra := flag.String("words-extra", os.Getenv("DREAMKARTS_BAD_WORDS_EXTRA"), "comma-separated words to filter on top of the list")
-	discordConfig := flag.String("discord", os.Getenv("DREAMKARTS_DISCORD_CONFIG"), "JSON file of Discord webhooks for lobby alerts (empty or missing: none)")
+	alertsConfig := flag.String("alerts", os.Getenv("DREAMKARTS_ALERTS_CONFIG"), "JSON file of Discord webhooks and Bark keys for lobby alerts (empty or missing: none)")
 	wordsCache := flag.String("words-cache", defaultWordsCache(), "file keeping the last downloaded list, read when the download fails (empty: none)")
 	lag := flag.Duration("lag", 0, "testing: pretend every console is this far away (round trip)")
 	jitter := flag.Duration("jitter", 0, "testing: plus up to this much extra on every packet, each way")
@@ -125,16 +125,15 @@ func main() {
 		log.Printf("overriding versions: latest %d, min %d", *latest, *minBuild)
 	}
 
-	// No alerts beats no lobby: a bad webhook file is logged, not fatal.
-	alerts, err := discord.Load(*discordConfig, log.Printf)
+	// No alerts beats no lobby: a bad alerts file is logged, not fatal.
+	notifier, err := alerts.Load(*alertsConfig, log.Printf)
 	if err != nil {
-		log.Printf("discord alerts off: %v", err)
+		log.Printf("alerts off: %v", err)
 	}
-	log.Printf("discord alerts: %s", alerts.Names())
-	defer alerts.Close(5 * time.Second)
+	log.Printf("alerts: %s", notifier.Names())
+	defer notifier.Close(5 * time.Second)
 	srv.OnEvent = func(e lobby.Event, now time.Time) {
-		ev, embed := alert(e, now)
-		alerts.Notify(ev, embed, now)
+		notifier.Notify(alert(e, now))
 	}
 
 	if *demoLobby > 0 {

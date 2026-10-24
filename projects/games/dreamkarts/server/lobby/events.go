@@ -13,7 +13,7 @@ const (
 	EventRace                  // a race with two or more racers is counting down
 )
 
-// Event is lobby news for the outside world (the server's Discord alerts).
+// Event is lobby news for the outside world (the server's Discord and Bark alerts).
 // Only people make them: the demo lobby (lobby 10), its bots and anything
 // with a test name in it (IsTestName) are left out, and so is a race
 // started alone, which is practice and can come every couple of minutes.
