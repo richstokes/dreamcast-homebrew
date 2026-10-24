@@ -31,7 +31,7 @@ build and no game data in this repository.
 | Toggle postcard view | X | S |
 | Toggle sound while paused | B | C |
 
-Exit with Start + A + B + X + Y, or close Flycast. The game keeps running
+A+B+X+Y+Start exits to the Dreamcast BIOS menu. The game keeps running
 without a controller. Flycast's Tab opens its own menu and its Space is
 fast-forward, not jump. A Maple keyboard also works: WASD walk, E jog, Space
 jump, arrows look, P pause, Tab travel, C postcard, F3 diagnostics.

@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../common/softreset.h"
+
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
 #define SCREEN_W 640.0f
@@ -1786,6 +1788,24 @@ static void damage_player(enemy_t *enemy) {
     }
 }
 
+/* Soft reset: the title screen as it was at boot. */
+static void back_to_title(void) {
+    snd_sfx_stop_all();
+    memset(enemies, 0, sizeof(enemies));
+    memset(bolts, 0, sizeof(bolts));
+    memset(powerups, 0, sizeof(powerups));
+    memset(particles, 0, sizeof(particles));
+    memset(shockwaves, 0, sizeof(shockwaves));
+    memset(lightning_bolts, 0, sizeof(lightning_bolts));
+    wave_transition_time = 0.0f;
+    screen_shake = 0.0f;
+    flash_amount = 0.0f;
+    welcome_spoken = 0;
+    game_mode = MODE_TITLE;
+    mode_time = 0.0f;
+    start_music(sfx_music, 108, "title");
+}
+
 static cont_state_t *read_controller(void) {
     maple_device_t *controller = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
     if(!controller)
@@ -3324,13 +3344,14 @@ int main(int argc, char **argv) {
         mode_time += dt;
         voice_cooldown -= dt;
 
-        /* Flycast commonly maps Return/Enter to Dreamcast Start. Start used to
-           terminate here, leaving the emulator on a black screen. Reserve a
-           deliberate Start+Y chord for quitting instead. */
-        if(game_mode == MODE_PLAY && (pressed & CONT_START) && state &&
-           (state->buttons & CONT_Y)) {
-            running = 0;
-            continue;
+        switch(softreset_poll(game_mode == MODE_TITLE)) {
+            case SOFTRESET_TITLE:
+                back_to_title();
+                pressed = 0;
+                break;
+            case SOFTRESET_QUIT:
+                running = 0;
+                continue;
         }
 
         if(game_mode == MODE_PLAY) {

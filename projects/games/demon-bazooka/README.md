@@ -36,7 +36,7 @@ effect.
 - B: dash; briefly grants invulnerability
 - X: Bazooka Barrage when the Rocket meter is full
 - Start or A: begin or restart from the title and game-over screens
-- Start + Y during play: exit to KallistiOS
+- A+B+X+Y+Start: back to the title screen; on the title screen, exit to the Dreamcast BIOS menu
 
 Flycast normally maps the keyboard Enter/Return key to Dreamcast Start.
 

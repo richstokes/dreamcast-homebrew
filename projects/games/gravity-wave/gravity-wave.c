@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../common/softreset.h"
 #include "assets/generated/texture_assets.h"
 #include "model_data.h"
 
@@ -10688,6 +10689,15 @@ int main(int argc, char **argv) {
             input.buttons |= CONT_B;
 #endif
 #endif
+        switch(softreset_poll(game.mode == MODE_TITLE && !title_sound_test)) {
+            case SOFTRESET_TITLE:
+                enter_title();
+                input.pressed = 0;
+                break;
+            case SOFTRESET_QUIT:
+                running = false;
+                continue;
+        }
         running = update_game(&input, dt);
         render_frame(input.connected);
 #ifdef GRAVITY_WAVE_AUTOTEST_MUSIC_JUKEBOX

@@ -41,7 +41,7 @@ On the title screen the D-pad (arrow keys) picks Start Flight, Sound Test or
 Exit and Start or A (Return or X) confirms. In Sound Test, Left/Right changes
 song, A restarts it and B returns. While paused, B aborts the run. After a
 defeat, Start or A retries and B returns to the title. Controllers can be
-hot-plugged.
+hot-plugged. A+B+X+Y+Start returns to the title screen, and on the title screen exits to the Dreamcast BIOS menu.
 
 Fast Laser and Phase Wave replace each other; Speed Boost runs alongside
 either, and the permanent laser level returns when a temporary weapon expires.

@@ -17,23 +17,21 @@ static unsigned runtime_checks(void) {
     if(fabsf(hit-.5f)>.001f){printf("[test] FAIL camera obstruction: %.3f\n",(double)hit);failures++;}
     printf("[test] SH-4 floor / wall / camera checks: %s\n",failures?"FAIL":"PASS");
     unsigned previous_failures=failures;
-    handle_buttons(CONT_START,CONT_START);
+    handle_buttons(CONT_START);
     if(!game.paused||game.travel)failures++;
-    handle_buttons(CONT_B,CONT_B);
+    handle_buttons(CONT_B);
     if(!game.muted)failures++;
-    handle_buttons(CONT_X,CONT_X);
+    handle_buttons(CONT_X);
     if(!game.postcard)failures++;
-    handle_buttons(CONT_Y,CONT_Y);
+    handle_buttons(CONT_Y);
     if(!game.travel||game.paused)failures++;
-    handle_buttons(CONT_DPAD_UP,CONT_DPAD_UP);
+    handle_buttons(CONT_DPAD_UP);
     if(game.travel_selection!=(int)destination_count-1)failures++;
-    handle_buttons(CONT_DPAD_DOWN,CONT_DPAD_DOWN);
+    handle_buttons(CONT_DPAD_DOWN);
     if(game.travel_selection!=0)failures++;
-    handle_buttons(CONT_A,CONT_A);
+    handle_buttons(CONT_A);
     if(game.travel||game.paused||game.act!=0)failures++;
-    uint32_t quit=CONT_START|CONT_A|CONT_B|CONT_X|CONT_Y;
-    if(handle_buttons(quit,quit))failures++;
     game.muted=false;game.postcard=false;
-    printf("[test] pause / mute / postcard / travel / exit checks: %s\n",failures==previous_failures?"PASS":"FAIL");
+    printf("[test] pause / mute / postcard / travel checks: %s\n",failures==previous_failures?"PASS":"FAIL");
     return failures;
 }

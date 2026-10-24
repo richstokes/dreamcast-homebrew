@@ -25,6 +25,7 @@
 #include "prof.h"
 #include "version.h"
 #include "perfhud.h"
+#include "../../../common/softreset.h"
 #include <stddef.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -1140,6 +1141,20 @@ static void results_menu_update(void) {
     }
 }
 
+/* A+B+X+Y+Start away from the title: straight back to it, leaving any
+   online lobby on the way. */
+static void soft_reset(void) {
+    if(game.online) {
+        net_end();
+        spectate_set(false);
+        game.online = false;
+    }
+    game.paused = false;
+    race_setup();
+    game_set_state(ST_TITLE);
+    pad.pressed = pad2.pressed = 0;
+}
+
 static void update(float dt) {
     game.time += dt;
     game.title_t += dt;
@@ -1957,6 +1972,14 @@ int main(int argc, char **argv) {
         PROF_BEGIN(pu);
         PROF_BEGIN(pus);
         input_update();
+        switch(softreset_poll(game.state == ST_TITLE)) {
+            case SOFTRESET_TITLE:
+                soft_reset();
+                break;
+            case SOFTRESET_QUIT:
+                game.quit = true;
+                continue;
+        }
         if(save_tick()) audio_music_enable(save.music);
         if(game.online) online_tick();
 #if defined(DK_HW) && defined(DK_CAPTURE)
@@ -2216,6 +2239,7 @@ int main(int argc, char **argv) {
         }
 #endif
     }
+    save_finish();
     rumble_shutdown();
     audio_shutdown();
     render_shutdown();

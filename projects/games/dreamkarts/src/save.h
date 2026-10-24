@@ -31,5 +31,7 @@ bool save_tick(void);
 int save_gen(void);
 /* Write `save` to the card in the background, unless it already holds it. */
 void save_store(void);
+/* Leaving the game: wait up to 3 s for a card read or write to finish. */
+void save_finish(void);
 
 #endif

@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../common/softreset.h"
 #include "assets/generated/audio_assets.h"
 #include "assets/generated/music_asset.h"
 #include "assets/generated/texture_assets.h"
@@ -7726,6 +7727,17 @@ int main(int argc, char **argv) {
         input.pressed=input.buttons&~game.previous_buttons;
 #endif
 #endif
+        switch(softreset_poll(game.mode==MODE_TITLE)) {
+            case SOFTRESET_TITLE:
+                game.mode=MODE_TITLE;
+                reset_car();
+                game.hud_timer=0.0f;
+                input.pressed=0;
+                break;
+            case SOFTRESET_QUIT:
+                running=false;
+                continue;
+        }
         running=update_game(&input,dt);
 #ifdef DRIFT_LA_COLLISION_QA
         if(collision_qa_observe(dt)) running=false;

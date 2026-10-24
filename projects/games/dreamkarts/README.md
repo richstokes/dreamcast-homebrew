@@ -57,6 +57,8 @@ either slot vibrates for that player. To drift, hold A, press and hold R as
 you turn in, push the stick inward to tighten or outward to widen, and
 release when the sparks are orange or purple.
 
+A+B+X+Y+Start returns to the title screen from anywhere (leaving an online lobby), and on the title screen exits to the Dreamcast BIOS menu.
+
 ## Power-ups
 
 Chaos Emeralds hover over the road at two to four bands a lap, each in one

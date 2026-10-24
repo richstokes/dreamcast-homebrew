@@ -33,7 +33,7 @@ If you are burning a physical CD-R, you may want to try the padded
 Picking a camel in the market picks all of them. The hint bar always says
 what X will do ("Sell 3 Leather: 4+3+2 +bonus") or why the picks are not a
 legal move. Any connected controller drives the current human merchant.
-A+B+X+Y+Start returns to the title screen.
+A+B+X+Y+Start returns to the title screen, and on the title screen exits to the Dreamcast BIOS menu.
 
 ## Rules
 

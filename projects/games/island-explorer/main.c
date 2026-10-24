@@ -6,10 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
+#include "../../common/softreset.h"
 KOS_INIT_FLAGS(INIT_DEFAULT);
 Game game;
 static bool rendering;
-static bool handle_buttons(uint32_t buttons,uint32_t pressed);
+static void handle_buttons(uint32_t pressed);
 #ifdef IE_AUTOTEST
 #include "tests/runtime_checks.h"
 #endif
@@ -106,9 +107,7 @@ static void update_camera(float dt,float turn,float tilt,bool recenter){
     c->right=unit(cross(v3(0,1,0),c->forward));c->up=cross(c->forward,c->right);
 }
 static bool key(kbd_state_t *k,kbd_key_t code){return k&&k->key_states[code].is_down;}
-static bool handle_buttons(uint32_t buttons,uint32_t pressed){
-    uint32_t quit=CONT_START|CONT_A|CONT_B|CONT_X|CONT_Y;
-    if((buttons&quit)==quit)return false;
+static void handle_buttons(uint32_t pressed){
     if(pressed&CONT_START){game.paused=!game.paused;game.travel=false;}
     if(pressed&CONT_Y){game.travel=!game.travel;game.paused=false;}
     if(game.travel){
@@ -120,7 +119,6 @@ static bool handle_buttons(uint32_t buttons,uint32_t pressed){
         if(pressed&CONT_B)game.muted=!game.muted;
         if(pressed&CONT_X)game.postcard=!game.postcard;
     }else if(pressed&CONT_X)game.postcard=!game.postcard;
-    return true;
 }
 #ifdef IE_BENCHMARK
 #include "tests/render_benchmark.h"
@@ -189,7 +187,9 @@ int main(int argc,char **argv){
         }
         uint32_t pressed=buttons&~previous;previous=buttons;
         bool menu_was_open=game.travel||game.paused;
-        if(!handle_buttons(buttons,pressed))running=false;
+        /* No title screen: the soft reset leaves for the BIOS menu. */
+        if(softreset_poll(true)==SOFTRESET_QUIT){running=false;continue;}
+        handle_buttons(pressed);
         if(!menu_was_open&&!game.travel&&!game.paused){
             #ifdef IE_AUTOTEST
             phase_time+=dt;

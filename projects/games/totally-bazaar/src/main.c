@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../../common/softreset.h"
 #include "ai.h"
 #include "audio.h"
 #include "fastmath.h"
@@ -2746,12 +2747,18 @@ int main(int argc, char **argv) {
                 idle_time = 0.0f;
         }
 #endif
-        /* Classic Dreamcast soft reset: A+B+X+Y+START returns to the title. */
-        if((in_held & (BTN_A | BTN_B | BTN_X | BTN_Y | BTN_START)) ==
-           (BTN_A | BTN_B | BTN_X | BTN_Y | BTN_START)) {
-            paused = false;
-            demo_mode = false;
-            set_state(ST_TITLE);
+        {
+            int reset = softreset_poll(state == ST_TITLE && !demo_mode);
+            if(reset == SOFTRESET_QUIT)
+                break;
+            if(reset == SOFTRESET_TITLE) {
+                if(demo_mode)
+                    setup_players = saved_players;
+                paused = false;
+                demo_mode = false;
+                in_pressed = 0;
+                set_state(ST_TITLE);
+            }
         }
         loop_stage = STAGE_UPDATE;
         if(in_game_state(state) && state != ST_RULES)
@@ -2772,5 +2779,7 @@ int main(int argc, char **argv) {
         heartbeat(dt);
         draw_frame(dt);
     }
+    audio_shutdown();
+    gfx_shutdown();
     return 0;
 }

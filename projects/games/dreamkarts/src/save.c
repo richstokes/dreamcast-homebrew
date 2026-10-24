@@ -248,6 +248,16 @@ int save_gen(void) {
     return gen;
 }
 
+void save_finish(void) {
+    for(int i = 0; i < 300; i++) {
+        mutex_lock(&lock);
+        bool busy = worker_on;
+        mutex_unlock(&lock);
+        if(!busy) return;
+        thd_sleep(10);
+    }
+}
+
 void save_store(void) {
     mutex_lock(&lock);
     want = save;
