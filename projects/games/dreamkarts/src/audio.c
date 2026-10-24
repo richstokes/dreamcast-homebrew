@@ -65,6 +65,7 @@ static size_t ring_r, ring_w, ring_fill;     /* read index, write index, bytes w
 static volatile uint32_t seek_gen;           /* bumped with a new seek_pos; the reader restarts there */
 static volatile size_t seek_pos;
 static volatile bool reader_quit;
+static kthread_t *reader_thd;
 static bool music_pending;                   /* a song is set; the stream starts once the ring is primed */
 /* The feeder thread polls the stream while it plays; the stream's start,
    stop and poll all go under stream_mx. */
@@ -283,7 +284,7 @@ void audio_init(void) {
         else {
             mutex_init(&ring_mx, MUTEX_TYPE_NORMAL);
             if(music_silent) printf("DreamKarts audio: music from /pc plays silent (make hw MUSIC=1 to hear it)\n");
-            else thd_create(1, music_reader, NULL);
+            else reader_thd = thd_create(0, music_reader, NULL);
         }
     }
     /* snd_stream_alloc() takes the two lowest free channels and keeps them
@@ -334,9 +335,14 @@ void audio_shutdown(void) {
     snd_sfx_stop_all();
     snd_sfx_unload_all();
     snd_stream_shutdown();
+    /* Wait for the reader to stop: leaving the game with a GD read in flight
+       hangs the console when openMenu's loader reboots it to the menu. */
     reader_quit = true;
+    if(reader_thd) {
+        thd_join(reader_thd, NULL);
+        reader_thd = NULL;
+    }
     if(music_file != FILEHND_INVALID) {
-        thd_sleep(30);   /* let a read in flight finish before the file closes */
         fs_close(music_file);
         music_file = FILEHND_INVALID;
     }
