@@ -2776,19 +2776,24 @@ static uint8_t dr_class[TRACK_SAMPLES];
 static float dr_cover[TRACK_SAMPLES];   /* bare rock over the road at each sample */
 static float dr_crown(float s);
 
-/* The nearest road sample to (x, z) and, along the chord to whichever
-   neighbour the point projects onto, how far toward it (0..1) and the
-   distance out from that chord. */
-static int dr_nearest(float x, float z, float *t, float *dist) {
-    int best = 0;
+/* The nearest road sample to (x, z) whose deck is at height y's level
+   (y from 2 m under it to 8.5 m over: its tunnel's bore and a little),
+   or -1 if none is; and, along the chord to whichever neighbour the
+   point projects onto, how far toward it (0..1) and the distance out from
+   that chord. The road passes over both tunnels, nearer in plan to
+   their edges than their own centrelines are. */
+static int dr_nearest(float x, float y, float z, float *t, float *dist) {
+    int best = -1;
     float bd = 1e30f;
     for(int i = 0; i < TRACK_SAMPLES; i++) {
+        if(y > dr_road_y[i] + 8.5f || y < dr_road_y[i] - 2.0f) continue;
         float dx = x - track.smp[i].p.x, dz = z - track.smp[i].p.z, d2 = dx * dx + dz * dz;
         if(d2 < bd) {
             bd = d2;
             best = i;
         }
     }
+    if(best < 0) return -1;
     V3 a = track.smp[best].p, b = track.smp[(best + 1) % TRACK_SAMPLES].p;
     float ax = b.x - a.x, az = b.z - a.z;
     float u = ((x - a.x) * ax + (z - a.z) * az) / (ax * ax + az * az);
@@ -3122,8 +3127,8 @@ static void dr_place_torches(void) {
 
 static uint32_t dr_tint(V3 p, uint32_t c) {
     float t, dist;
-    int j = dr_nearest(p.x, p.z, &t, &dist);
-    bool inside = dr_class[j] == ROCK_BURIED && dist < SK_RAIL + 2.5f && p.y < dr_road_y[j] + 8.5f && p.y > dr_road_y[j] - 2.0f;
+    int j = dr_nearest(p.x, p.y, p.z, &t, &dist);
+    bool inside = j >= 0 && dr_class[j] == ROCK_BURIED && dist < SK_RAIL + 2.5f;
     float amb = 1.0f, k = 0.3f;
     if(inside) {
         float spill = clampf(1.0f - dr_mouth_dist[j] / 10.0f, 0.0f, 1.0f);
