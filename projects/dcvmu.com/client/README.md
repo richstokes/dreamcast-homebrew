@@ -82,7 +82,7 @@ real VMUs are never touched. `--host` is this Mac's LAN IPv4 address; add
 | Command | Checks |
 | --- | --- |
 | `python3 -m unittest discover -s projects/dcvmu.com/client/tests` | Host checks (CI runs these): the launcher uses Flycast's cards and backs them up; every script with a custom VMU folder fills it with blank cards first |
-| `python3 projects/dcvmu.com/client/tests/run_modem_checks.py --log-dir /tmp/dcvmu-modem-checks` | Modem profile selection and failure paths on SH-4, without dialing |
+| `python3 projects/common/tests/run_dialup_checks.py --log-dir /tmp/dialup-checks` | The shared dialer's profile selection, failure, cancel and drop paths on SH-4, without dialing |
 | `python3 projects/dcvmu.com/client/tests/run_upload_stress.py --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-upload-check` | 30 HTTPS uploads (`--transfers` to change) and a large download through Flycast's TCP proxy, every payload verified byte for byte |
 | `projects/dcvmu.com/service/.venv/bin/python projects/dcvmu.com/client/tests/run_public_browse.py --host <Mac-LAN-IP> --log-dir /tmp/dcvmu-public-test` | Public browsing: pagination and failed-page recovery, installing another user's save, replace/keep-both and cloud rename |
 | Same runner with `--tools --log-dir /tmp/dcvmu-tools-test` | Studio icons and card-imported saves: install, cancel, header offsets, icon replacement keeps game saves, upload list excludes icons and login files, whole-VMU archive and restore with the login save rewritten, no login data in stored archives |

@@ -1,16 +1,18 @@
 TARGET = dreamcast-irc.elf
-OBJS = dreamcast-irc.o modem.o
+OBJS = dreamcast-irc.o modem.o dialup.o
 
 KOS_BUILD_SUBARCHS = pristine
 
 all: $(TARGET)
 
 include $(KOS_BASE)/Makefile.rules
+include ../../common/common.mk
 
 clean:
 	-rm -f $(OBJS) $(TARGET)
 
 dreamcast-irc.o modem.o: modem.h
+modem.o: $(COMMON_DIR)/dialup.h
 
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) -lppp

@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--log-dir', required=True, type=Path)
     parser.add_argument('--modem', action='store_true')
     parser.add_argument('--cancel-dial', action='store_true')
+    parser.add_argument('--keep-cards', type=Path,
+                        help='copy the VMU images here afterwards, to check the saved profile')
     parser.add_argument('--flycast', type=Path, default=Path.home() /
                         '.local/share/dreamcast/flycast/Flycast.app/Contents/MacOS/Flycast')
     parser.add_argument('--kos-env', type=Path, default=Path.home() /
@@ -92,8 +94,11 @@ def main():
     thread = threading.Thread(target=serve, daemon=True)
     try:
         with tempfile.TemporaryDirectory(prefix='dcirc-network-') as directory:
-            work = Path(directory)
-            (work / 'tests').mkdir()
+            # Mirror projects/apps/dreamcast-irc beside projects/common, so the
+            # relative includes and common.mk resolve.
+            work = Path(directory) / 'apps' / 'dreamcast-irc'
+            (work / 'tests').mkdir(parents=True)
+            shutil.copytree(CLIENT.parents[1] / 'common', Path(directory) / 'common')
             (work / 'vmus').mkdir()
             # Flycast moves a real card into a custom VMU folder that lacks it and
             # deletes the original, so give every slot a blank card of its own.
@@ -139,6 +144,8 @@ def main():
                         process.kill()
                         process.wait()
             log = serial.read_text(errors='replace')
+            if args.keep_cards:
+                shutil.copytree(work / 'vmus', args.keep_cards, dirs_exist_ok=True)
     finally:
         stop.set()
         if thread.is_alive():
@@ -146,7 +153,7 @@ def main():
         listener.close()
     recorded = list(events.queue)
     if args.cancel_dial:
-        passed = 'Modem connection canceled' in log and not recorded
+        passed = 'dial-up failed: canceled' in log and not recorded
     else:
         # QUIT is best-effort: KOS can still have its bytes queued when the
         # client closes TCP and hangs up. Require delivered chat/PONG replies

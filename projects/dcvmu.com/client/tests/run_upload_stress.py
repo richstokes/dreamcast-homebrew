@@ -88,7 +88,11 @@ def main():
                 self.close_connection = True
 
     with tempfile.TemporaryDirectory(prefix='dcvmu-upload-stress-') as directory:
-        work = Path(directory)
+        # Mirror projects/dcvmu.com/client beside projects/common, so the
+        # relative includes and common.mk resolve.
+        work = Path(directory) / 'dcvmu.com' / 'client'
+        work.mkdir(parents=True)
+        shutil.copytree(CLIENT.parents[1] / 'common', Path(directory) / 'common')
         (work / 'romdisk').mkdir()
         blank_cards(work / 'vmus')
         for name in ('net.c', 'modem.c', 'client.h'):
@@ -111,7 +115,7 @@ def main():
             origin = f'https://{args.host}:{server.server_port}'
             (work / 'romdisk/test-service.txt').write_text(origin + '\n')
             (work / 'Makefile').write_text('''TARGET = stress.elf
-OBJS = stress.o net.o modem.o romdisk.o
+OBJS = stress.o net.o modem.o dialup.o romdisk.o
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
 KOS_CSTD = -std=gnu17
@@ -119,6 +123,7 @@ STRESS_COUNT = 30
 CPPFLAGS = -DDCVMU_DOWNLOAD_TEST -DDCVMU_STRESS_COUNT=$(STRESS_COUNT)
 all: $(TARGET)
 include $(KOS_BASE)/Makefile.rules
+include ../../common/common.mk
 $(TARGET): $(OBJS)
 \tkos-cc -o $@ $(OBJS) -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm -lpthread -lppp
 ''')

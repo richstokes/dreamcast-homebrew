@@ -5,13 +5,15 @@ else
 TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c
+# Shared with other projects, from projects/common.
+COMMON_SOURCES = dialup.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak
 GEN_HEADERS = $(wildcard $(GEN)/*.h)
 SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
 	third_party/sh4zam/include/sh4zam/inline/*.h \
 	third_party/sh4zam/include/sh4zam/inline/sh4/*.h)
-HEADERS = $(wildcard src/*.h) $(GEN_HEADERS) $(SH4ZAM_HEADERS)
+HEADERS = $(wildcard src/*.h ../../common/*.h) $(GEN_HEADERS) $(SH4ZAM_HEADERS)
 # -ffast-math lets GCC use the SH-4's FSCA for sinf/cosf (KOS passes -mfsca
 # but libm calls remain without it) and plain FSQRT for sqrtf.
 WARN = -std=gnu17 -O2 -ffast-math -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(EXTRA_CFLAGS)
@@ -39,7 +41,7 @@ space := $(empty) $(empty)
 FLAGTAG = $(subst =,-,$(subst $(space),,$(subst -D,+,$(EXTRA_CFLAGS))))
 OBJDIR = build/$(VARIANT)$(FLAGTAG)
 ASM_SOURCES = xform.S
-OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst %.S,$(OBJDIR)/%.o,$(ASM_SOURCES)) $(OBJDIR)/blobs.o
+OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES) $(COMMON_SOURCES)) $(patsubst %.S,$(OBJDIR)/%.o,$(ASM_SOURCES)) $(OBJDIR)/blobs.o
 
 KOS_BUILD_SUBARCHS = pristine
 
@@ -51,8 +53,13 @@ KOS_BUILD_SUBARCHS = pristine
 all: $(TARGET) disc/music.adp
 
 include $(KOS_BASE)/Makefile.rules
+include ../../common/common.mk
 
 $(OBJDIR)/%.o: src/%.c $(HEADERS)
+	@mkdir -p $(@D)
+	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
+
+$(OBJDIR)/%.o: $(COMMON_DIR)/%.c $(HEADERS)
 	@mkdir -p $(@D)
 	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
 

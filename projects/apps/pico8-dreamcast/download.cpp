@@ -1,12 +1,8 @@
 // HTTPS cartridge acquisition. All networking runs off the VM/render thread.
 #include "download.h"
 #include <kos.h>
-#include <dc/flashrom.h>
-#include <dc/modem/modem.h>
-#include <ppp/ppp.h>
 #include <mbedtls/ssl.h>
 #include <curl/curl.h>
-#include <mbedtls/platform_util.h>
 #include <unistd.h>
 #include <atomic>
 #include <cctype>
@@ -17,6 +13,7 @@
 #include <vector>
 #include "cart.h"
 #include "lodepng.h"
+#include "../../common/dialup.h"
 
 namespace {
 mutex_t state_lock = MUTEX_INITIALIZER;
@@ -35,9 +32,32 @@ bool fail(const std::string& text) { message(text); return false; }
 bool checkpoint() { return !canceled.load(); }
 bool has_address(const uint8_t* ip) { return ip[0] || ip[1] || ip[2] || ip[3]; }
 
+const char* dial_failure(dialup_error_t error) {
+    switch (error) {
+    case DIALUP_ERR_NO_MODEM: return "No BBA, W5500 or modem detected.";
+    case DIALUP_ERR_SETTINGS: return "Set a tone-dial ISP profile with a plain number.";
+    case DIALUP_ERR_PPP_SETUP: return "PPP initialization failed.";
+    case DIALUP_ERR_NO_DIAL_TONE: return "No dial tone. Check modem setup.";
+    case DIALUP_ERR_DIAL:
+    case DIALUP_ERR_NO_ANSWER: return "Dial failed. Check modem / ISP.";
+    case DIALUP_ERR_PPP: return "PPP failed. Check ISP login.";
+    case DIALUP_ERR_NO_ADDRESS: return "PPP did not assign an IP address.";
+    default: return "Modem startup failed.";
+    }
+}
+dialup_stage_t shown_stage;
+int dial_progress(dialup_stage_t stage) {
+    if (stage != shown_stage) {
+        shown_stage = stage;
+        if (stage == DIALUP_DIALING) message("Dialing the modem...");
+        else if (stage == DIALUP_NEGOTIATING) message("Negotiating PPP connection...");
+    }
+    return !checkpoint();
+}
+
 struct Modem {
     bool owned = false;
-    ~Modem() { if (owned) ppp_shutdown(); }
+    ~Modem() { if (owned) dialup_hang_up(); }
     bool connect_link() {
         // BBA and modem occupy the same expansion socket: never probe the modem
         // when Ethernet exists, even if DHCP is still pending.
@@ -49,74 +69,14 @@ struct Modem {
             return checkpoint() && (has_address(net_default_dev->ip_addr) ||
                 fail("No IP address. Check cable / DHCP."));
         }
-        flashrom_ispcfg_t cfg{};
-        bool saved = flashrom_get_pw_ispcfg(&cfg) == 0 &&
-            (cfg.valid_fields & FLASHROM_ISP_PHONE1) && cfg.phone1[0];
-        if (!saved) saved = flashrom_get_ispcfg(&cfg) == 0 &&
-            (cfg.valid_fields & FLASHROM_ISP_PHONE1) && cfg.phone1[0];
-        // No saved PlanetWeb/DreamPassport number: use the KOS DreamPi defaults
-        // (555, login dream / cast below).
-        if (!saved) { memset(&cfg, 0, sizeof(cfg)); strcpy(cfg.phone1, "555"); }
-        // Honor a saved profile as a whole; don't silently dial a changed number.
-        if (cfg.flags & FLASHROM_ISP_PULSE_DIAL) {
-            mbedtls_platform_zeroize(&cfg, sizeof(cfg));
-            return fail("Set a tone-dial ISP profile first.");
-        }
-        std::string number;
-        if (((cfg.valid_fields & FLASHROM_ISP_OUT_PREFIX) && cfg.out_prefix[0]) ||
-            ((cfg.valid_fields & FLASHROM_ISP_CW_PREFIX) && cfg.cw_prefix[0]) ||
-            ((cfg.valid_fields & FLASHROM_ISP_LD_PREFIX) && cfg.ld_prefix[0])) {
-            mbedtls_platform_zeroize(&cfg, sizeof(cfg));
-            return fail("Dial prefixes need browser setup.");
-        }
-        if (cfg.flags & FLASHROM_ISP_DIAL_AREACODE)
-            number.append(cfg.p1_areacode, strnlen(cfg.p1_areacode, sizeof(cfg.p1_areacode)));
-        number.append(cfg.phone1, strnlen(cfg.phone1, sizeof(cfg.phone1)));
-        std::string digits;
-        for (char c : number) {
-            if (strchr("0123456789*#ABCD", c)) digits += c;
-            else if (!strchr(" -().", c)) {
-                mbedtls_platform_zeroize(&cfg, sizeof(cfg));
-                return fail("Unsupported dial number in profile.");
-            }
-        }
-        if (digits.empty() || digits.size() > 63) {
-            mbedtls_platform_zeroize(&cfg, sizeof(cfg));
-            return fail("Invalid dial number in ISP profile.");
-        }
-        message(saved ? "Dialing saved ISP profile..." : "Dialing DreamPi (555)...");
-        if (ppp_init() < 0) {
-            mbedtls_platform_zeroize(&cfg, sizeof(cfg));
-            return fail("PPP initialization failed.");
-        }
+        // The shared dialer (projects/common/dialup.h) uses the saved
+        // PlanetWeb or DreamPassport profile, else the DreamPi defaults.
         owned = true;
-        char login[sizeof(cfg.ppp_login) + 1]{}, password[sizeof(cfg.ppp_passwd) + 1]{};
-        snprintf(login, sizeof(login), "%.*s", int(sizeof(cfg.ppp_login)),
-                 cfg.valid_fields & FLASHROM_ISP_PPP_USER ? cfg.ppp_login : "dream");
-        snprintf(password, sizeof(password), "%.*s", int(sizeof(cfg.ppp_passwd)),
-                 cfg.valid_fields & FLASHROM_ISP_PPP_PASS ? cfg.ppp_passwd : "cast");
-        int result = ppp_set_login(login, password);
-        int blind = !!(cfg.flags & FLASHROM_ISP_BLIND_DIAL);
-        uint8_t dns[4]{};
-        if (cfg.valid_fields & FLASHROM_ISP_DNS) {
-            memcpy(dns, has_address(cfg.dns[0]) ? cfg.dns[0] : cfg.dns[1], 4);
-        }
-        mbedtls_platform_zeroize(login, sizeof(login));
-        mbedtls_platform_zeroize(password, sizeof(password));
-        mbedtls_platform_zeroize(&cfg, sizeof(cfg));
-        if (result < 0) return fail("PPP login setup failed.");
-        if (!checkpoint()) return false;
-        result = ppp_modem_init(digits.c_str(), blind, nullptr);
-        if (result < 0) return fail(result == -1 ? "No BBA, W5500 or modem detected." :
-            result == -2 ? "No dial tone. Check modem setup." : "Dial failed. Check modem / ISP.");
-        if (!checkpoint()) return false;
-        message("Negotiating PPP connection...");
-        if (ppp_connect() < 0) return fail("PPP failed. Check ISP login.");
-        if (!checkpoint()) return false;
-        if (!net_default_dev || !has_address(net_default_dev->ip_addr))
-            return fail("PPP did not assign an IP address.");
-        if (!has_address(net_default_dev->dns)) memcpy(net_default_dev->dns, dns, 4);
-        return true;
+        shown_stage = DIALUP_IDLE;
+        message("Looking for the modem...");
+        dialup_error_t error = dialup_connect("PICO8_NET", 0, dial_progress);
+        if (error == DIALUP_ERR_CANCELED) return false;
+        return error == DIALUP_OK || fail(dial_failure(error));
     }
 };
 

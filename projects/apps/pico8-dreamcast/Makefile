@@ -10,7 +10,9 @@ LUA = $(CORE)/libs/z8lua
 CORE_SRC = $(filter-out $(CORE)/source/main.cpp $(CORE)/source/hostCommonFunctions.cpp $(CORE)/source/logger.cpp,$(wildcard $(CORE)/source/*.cpp))
 LUA_SRC = $(filter-out $(LUA)/ltests.c $(LUA)/liolib.c $(LUA)/loslib.c $(LUA)/loadlib.c $(LUA)/lbitlib.c,$(wildcard $(LUA)/*.c))
 CPP_SRC = main.cpp host.cpp logger.cpp lua_alloc.cpp download.cpp download_screen.cpp $(CORE_SRC) $(CORE)/libs/lodepng/lodepng.cpp
-OBJS = $(patsubst %.cpp,build/%.o,$(CPP_SRC)) $(patsubst %.c,build/%.o,$(LUA_SRC)) romdisk.o
+# The shared dial-up code from projects/common, compiled as C.
+COMMON_OBJS = build/common/dialup.o
+OBJS = $(patsubst %.cpp,build/%.o,$(CPP_SRC)) $(patsubst %.c,build/%.o,$(LUA_SRC)) $(COMMON_OBJS) romdisk.o
 # -O2 runs the Lua VM and rasterizers faster on hardware than -O3: the
 # SH-4 has an 8 KiB instruction cache. The audio mixer is a tight loop and
 # stays at -O3, which also keeps its regression hashes (see tests/kernels.cpp).
@@ -32,10 +34,15 @@ CPPFLAGS += -I. -Ithird_party/sh4zam/include
 # coroutine that yields once per frame, and SH-4 unwinding costs milliseconds.
 CPPFLAGS += -DLUA_USE_LONGJMP
 include $(KOS_BASE)/Makefile.rules
+include ../../common/common.mk
 
 build/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+
+build/common/%.o: $(COMMON_DIR)/%.c $(COMMON_DIR)/%.h
+	@mkdir -p $(dir $@)
+	kos-cc $(OPT) -ffunction-sections -fdata-sections -c $< -o $@
 
 # Z8lua uses C++ fixed-point types, including in its .c files.
 build/%.o: %.c

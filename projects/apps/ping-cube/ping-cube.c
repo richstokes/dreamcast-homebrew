@@ -4,9 +4,9 @@
  * The Broadband Adapter (or a WIZnet W5500 on the serial port) is acquired
  * through KOS's built-in DHCP client. When no Ethernet adapter is present the
  * demo dials a DreamPi-style PPP peer with the Dreamcast modem instead (see
- * modem.c). KOS's IPv4 stack handles ICMP echo requests, so the assigned
- * address is pingable whenever the emulator or link exposes the console at
- * layer 2/3.
+ * ../../common/dialup.h). KOS's IPv4 stack handles ICMP echo requests, so
+ * the assigned address is pingable whenever the emulator or link exposes the
+ * console at layer 2/3.
  *
  * Each of the six cube faces carries a different panel of link information,
  * drawn with the BIOS font into its own texture and mapped with the low-level
@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "ping-cube.h"
+#include "../../common/dialup.h"
 #include "../../common/softreset.h"
 
 #define TEXTURE_SIZE 256
@@ -219,7 +220,7 @@ static ping_result_t latest_result = PING_RESULT_WAITING;
 static int console_dirty = 1;
 
 static link_kind_t link_kind;
-static modem_stage_t modem_stage = MODEM_STAGE_IDLE;
+static dialup_stage_t modem_stage = DIALUP_IDLE;
 static uint64_t uptime_seconds;
 static float spin_speed = 1.0f;
 static unsigned spin_hundredths = 100;
@@ -338,7 +339,7 @@ static int has_address(const uint8_t address[4]) {
 static netif_t *active_netif(void) {
     netif_t *netif = net_default_dev;
 
-    if(link_kind == LINK_MODEM && modem_stage != MODEM_STAGE_READY)
+    if(link_kind == LINK_MODEM && modem_stage != DIALUP_READY)
         return NULL;
     if(netif && has_address(netif->ip_addr))
         return netif;
@@ -379,6 +380,24 @@ static const char *adapter_name(void) {
     return "NONE DETECTED";
 }
 
+/* Why the last dial failed, short enough for a cube face. */
+static const char *modem_failure_text(void) {
+    switch(dialup_error()) {
+        case DIALUP_ERR_NO_MODEM: return "NO ETHERNET OR MODEM";
+        case DIALUP_ERR_SETTINGS: return "BAD DIAL SETTINGS";
+        case DIALUP_ERR_PPP_SETUP: return "PPP SETUP FAILED";
+        case DIALUP_ERR_NO_DIAL_TONE: return "NO DIAL TONE";
+        case DIALUP_ERR_DIAL: return "DIAL FAILED";
+        case DIALUP_ERR_NO_ANSWER: return "NO CARRIER";
+        case DIALUP_ERR_PPP: return "PPP FAILED";
+        case DIALUP_ERR_NO_ADDRESS: return "NO PPP ADDRESS";
+        case DIALUP_ERR_NO_DNS: return "NO DNS SERVER";
+        case DIALUP_ERR_CANCELED: return "CANCELED";
+        case DIALUP_ERR_THREAD: return "NO WORKER THREAD";
+        default: return "";
+    }
+}
+
 /* Short status for the front face: at most FACE_TEXT_MAX characters. */
 static const char *link_status_text(void) {
     if(exiting)
@@ -386,14 +405,14 @@ static const char *link_status_text(void) {
 
     if(link_kind == LINK_MODEM) {
         switch(modem_stage) {
-            case MODEM_STAGE_IDLE:
-            case MODEM_STAGE_DETECTING:
+            case DIALUP_IDLE:
+            case DIALUP_DETECTING:
                 return "FINDING MODEM";
-            case MODEM_STAGE_DIALING:
+            case DIALUP_DIALING:
                 return "DIALING DREAMPI";
-            case MODEM_STAGE_NEGOTIATING:
+            case DIALUP_NEGOTIATING:
                 return "PPP NEGOTIATION";
-            case MODEM_STAGE_FAILED:
+            case DIALUP_FAILED:
                 if(redial_at_ms) {
                     static char countdown[FACE_TEXT_MAX + 1];
                     uint64_t now_ms = timer_ms_gettime64();
@@ -404,8 +423,8 @@ static const char *link_status_text(void) {
                              (unsigned long)((wait_ms + 999) / 1000));
                     return countdown;
                 }
-                return modem_link_failure();
-            case MODEM_STAGE_READY:
+                return modem_failure_text();
+            case DIALUP_READY:
                 break;
         }
     }
@@ -422,7 +441,7 @@ static void link_address_text(char *buffer, size_t size) {
 
     if(netif)
         format_address(buffer, size, netif->ip_addr);
-    else if(link_kind == LINK_MODEM && modem_stage != MODEM_STAGE_FAILED)
+    else if(link_kind == LINK_MODEM && modem_stage != DIALUP_FAILED)
         snprintf(buffer, size, "CONNECTING");
     else
         snprintf(buffer, size, "NO ADDRESS");
@@ -543,7 +562,7 @@ static void build_name_panel(face_panel_t *panel) {
 
 static void build_adapter_panel(face_panel_t *panel) {
     netif_t *netif = net_default_dev;
-    int rate = modem_link_rate();
+    int rate = dialup_rate();
 
     set_line(panel, 0, COLOR_TITLE, "ADAPTER");
     set_line(panel, 1, COLOR_LABEL, "HARDWARE");
@@ -749,7 +768,7 @@ static void fill_console_background(uint16_t *pixels) {
 }
 
 static void console_link_summary(char *buffer, size_t size) {
-    int rate = modem_link_rate();
+    int rate = dialup_rate();
 
     if(link_kind == LINK_MODEM && rate > 0)
         snprintf(buffer, size, "MODEM %d BPS", rate);
@@ -1341,17 +1360,17 @@ static void start_link(void) {
     add_ping_log("no ethernet adapter; trying modem");
     printf("Ping Cube: no Ethernet adapter, trying the modem\n");
 
-    if(modem_link_start() < 0)
+    if(dialup_start("Ping Cube", 0) < 0)
         add_ping_log("could not start the modem worker");
 }
 
 static void poll_modem_stage(void) {
-    modem_stage_t stage;
+    dialup_stage_t stage;
 
     if(link_kind != LINK_MODEM)
         return;
 
-    stage = modem_link_stage();
+    stage = dialup_stage();
     if(stage == modem_stage)
         return;
 
@@ -1360,24 +1379,24 @@ static void poll_modem_stage(void) {
     refresh_source_ip();
 
     switch(stage) {
-        case MODEM_STAGE_DETECTING:
+        case DIALUP_DETECTING:
             add_ping_log("looking for a dreamcast modem");
             break;
-        case MODEM_STAGE_DIALING:
+        case DIALUP_DIALING:
             add_ping_log("dialing dreampi (up to 65 s)");
             break;
-        case MODEM_STAGE_NEGOTIATING:
+        case DIALUP_NEGOTIATING:
             add_ping_log("carrier %d bps; ppp handshake",
-                         modem_link_rate());
+                         dialup_rate());
             break;
-        case MODEM_STAGE_READY:
+        case DIALUP_READY:
             redial_attempts = 0;
             report_interface();
             add_ping_log("ppp up as %s", console_source_ip);
             break;
-        case MODEM_STAGE_FAILED:
+        case DIALUP_FAILED:
             latest_result = PING_RESULT_ERROR;
-            add_ping_log("modem failed: %s", modem_link_failure());
+            add_ping_log("modem failed: %s", modem_failure_text());
             break;
         default:
             break;
@@ -1392,11 +1411,11 @@ static void start_redial(void) {
 
     /* Record the restart locally so that even a failure fast enough to
        finish before the next frame registers as a new stage change. */
-    modem_stage = MODEM_STAGE_DETECTING;
+    modem_stage = DIALUP_DETECTING;
     face_dirty = FACE_ALL_DIRTY;
     refresh_source_ip();
 
-    if(modem_link_start() < 0)
+    if(dialup_start("Ping Cube", 0) < 0)
         add_ping_log("could not start the modem worker");
 }
 
@@ -1406,17 +1425,17 @@ static void start_redial(void) {
 static void manage_redial(uint64_t now_ms) {
     uint64_t delay_ms;
 
-    if(link_kind != LINK_MODEM || exiting || modem_link_busy())
+    if(link_kind != LINK_MODEM || exiting || dialup_busy())
         return;
 
-    if(modem_stage == MODEM_STAGE_READY && modem_link_dropped()) {
+    if(modem_stage == DIALUP_READY && dialup_dropped()) {
         add_ping_log("link dropped; redialing");
         printf("Ping Cube: modem link dropped\n");
         start_redial();
         return;
     }
 
-    if(modem_stage != MODEM_STAGE_FAILED || !modem_link_retryable())
+    if(modem_stage != DIALUP_FAILED || !dialup_retryable(dialup_error()))
         return;
 
     if(!redial_at_ms) {
@@ -1469,9 +1488,9 @@ static void update_vmu(uint64_t now_ms) {
     else if(link_kind == LINK_MODEM) {
         title = "MODEM";
         snprintf(headline, sizeof(headline), "%s",
-                 modem_stage == MODEM_STAGE_DIALING ? "DIAL" :
-                 modem_stage == MODEM_STAGE_NEGOTIATING ? "PPP" :
-                 modem_stage == MODEM_STAGE_FAILED
+                 modem_stage == DIALUP_DIALING ? "DIAL" :
+                 modem_stage == DIALUP_NEGOTIATING ? "PPP" :
+                 modem_stage == DIALUP_FAILED
                      ? (redial_at_ms ? "WAIT" : "FAIL")
                      : "FIND");
     }
@@ -1537,8 +1556,8 @@ int main(int argc, char **argv) {
             exiting = 1;
             face_dirty = FACE_ALL_DIRTY;
             printf("Ping Cube: Start pressed; exiting\n");
-            if(modem_link_busy()) {
-                modem_link_cancel();
+            if(dialup_busy()) {
+                dialup_cancel();
                 add_ping_log("exiting after the current dial step");
                 printf("Ping Cube: exit requested; waiting for the modem\n");
             }
@@ -1546,7 +1565,7 @@ int main(int argc, char **argv) {
 
         /* KOS's dial and PPP calls cannot be interrupted, so keep drawing
            until the worker returns rather than tearing down underneath it. */
-        if(exiting && !modem_link_busy())
+        if(exiting && !dialup_busy())
             break;
 
         if(!exiting && (pressed & CONT_DPAD_RIGHT))
@@ -1610,7 +1629,7 @@ int main(int argc, char **argv) {
     vmu_display_clear();
 
     if(link_kind == LINK_MODEM)
-        modem_link_shutdown();
+        dialup_hang_up();
 
     free_face_textures();
     pvr_mem_free(console_texture);

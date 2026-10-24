@@ -13,16 +13,13 @@
    dream/cast (a DreamPi accepts these). Dialling and PPP block for up to a
    minute, so they never run on the render thread.
 
-   Adapted from Ping Cube's modem.c; needs the libppp lifecycle patch in
-   projects/dcvmu.com/client/patches (applied to the SDK and in CI). */
+   Dialing itself is projects/common/dialup.c, run on this file's worker. */
 #include "netlink.h"
+#include "../../../common/dialup.h"
 #include <kos.h>
-#include <dc/flashrom.h>
-#include <dc/modem/modem.h>
 #include <dc/net/broadband_adapter.h>
 #include <dc/net/lan_adapter.h>
 #include <dc/net/w5500_adapter.h>
-#include <ppp/ppp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <string.h>
@@ -33,133 +30,50 @@ static kthread_t *worker;
 static volatile int stage = LINK_OFF;
 static volatile int worker_running;
 static volatile int want_dial;   /* the player asked to connect, so the modem may dial */
-static volatile int link_lost, link_monitored;
 static volatile bool modem_link;
 static const char *volatile failure = "";
 static char status_buf[48];
-static bool stack_up, modem_owned, ppp_owned;
+static bool stack_up;
 static uint32_t server_ip;   /* network byte order */
-
-static int monitor_input(ppp_protocol_t *self, const uint8_t *buf, size_t length) {
-    (void)self;
-    (void)buf;
-    (void)length;
-    return 0;
-}
-
-static void monitor_enter_phase(ppp_protocol_t *self, int old_phase, int new_phase) {
-    (void)self;
-    (void)old_phase;
-    if(link_monitored && (new_phase == PPP_PHASE_TERMINATE || new_phase == PPP_PHASE_DEAD)) link_lost = 1;
-}
-
-static ppp_protocol_t link_monitor = {
-    .name = "dreamkarts-monitor", .code = 0, .input = monitor_input, .enter_phase = monitor_enter_phase
-};
 
 static bool has_address(const uint8_t a[4]) {
     return a[0] | a[1] | a[2] | a[3];
 }
 
-static bool has_phone(const flashrom_ispcfg_t *cfg) {
-    return (cfg->valid_fields & FLASHROM_ISP_PHONE1) && cfg->phone1[0];
-}
-
-static void load_settings(flashrom_ispcfg_t *cfg) {
-    if(flashrom_get_pw_ispcfg(cfg) == 0 && has_phone(cfg)) return;
-    if(flashrom_get_ispcfg(cfg) == 0 && has_phone(cfg)) return;
-    memset(cfg, 0, sizeof(*cfg));
-    strcpy(cfg->phone1, "555");
-}
-
-/* KOS dials DTMF digits only; refuse anything it would misdial. */
-static int dial_number(const flashrom_ispcfg_t *cfg, char number[64]) {
-    char raw[64];
-    size_t n = 0;
-    if(cfg->flags & FLASHROM_ISP_PULSE_DIAL) return -1;
-    snprintf(raw, sizeof(raw), "%.*s%.*s", (cfg->flags & FLASHROM_ISP_DIAL_AREACODE) ? 3 : 0, cfg->p1_areacode,
-             (int)sizeof(cfg->phone1), cfg->phone1);
-    for(size_t i = 0; raw[i]; i++) {
-        if(strchr("0123456789*#ABCD", raw[i])) number[n++] = raw[i];
-        else if(!strchr(" -().", raw[i])) return -1;
-    }
-    number[n] = '\0';
-    return n ? 0 : -1;
-}
-
-static void hang_up(void) {
-    link_monitored = 0;
-    if(ppp_owned) {
-        ppp_shutdown();
-        ppp_owned = false;
-    }
-    if(modem_owned) {
-        modem_shutdown();
-        modem_owned = false;
+static const char *dial_failure(dialup_error_t error) {
+    switch(error) {
+        case DIALUP_ERR_NO_MODEM: return "NO NETWORK ADAPTER OR MODEM";
+        case DIALUP_ERR_SETTINGS: return "UNSUPPORTED DIAL SETTINGS";
+        case DIALUP_ERR_PPP_SETUP: return "PPP SETUP FAILED";
+        case DIALUP_ERR_NO_DIAL_TONE: return "NO DIAL TONE";
+        case DIALUP_ERR_DIAL: return "DIAL FAILED";
+        case DIALUP_ERR_NO_ANSWER: return "NO ANSWER ON THE MODEM LINE";
+        case DIALUP_ERR_PPP: return "PPP CONNECTION FAILED";
+        case DIALUP_ERR_NO_ADDRESS: return "NO ADDRESS FROM THE DIAL-UP SERVER";
+        default: return "DIAL-UP FAILED";
     }
 }
 
-/* Dial out with the modem and bring PPP up. Returns false with failure set. */
+/* Dial out with the modem and bring PPP up. Returns false with failure set.
+   Silent: under dcload every printf stalls the console. */
 static bool dial(void) {
-    flashrom_ispcfg_t cfg;
-    char number[64], login[30], password[21];
-    uint8_t fallback_dns[4] = {0, 0, 0, 0};
-    int rate = 0;
-    if(!modem_init()) {
-        failure = "NO NETWORK ADAPTER OR MODEM";
+    dialup_error_t error = dialup_connect(NULL, 0, NULL);
+    if(error != DIALUP_OK) {
+        failure = dial_failure(error);
         return false;
     }
-    modem_owned = true;
-    load_settings(&cfg);
-    if(dial_number(&cfg, number) < 0) {
-        memset(&cfg, 0, sizeof(cfg));
-        failure = "UNSUPPORTED DIAL SETTINGS";
-        return false;
-    }
-    snprintf(login, sizeof(login), "%.*s", (int)sizeof(cfg.ppp_login),
-             (cfg.valid_fields & FLASHROM_ISP_PPP_USER) ? cfg.ppp_login : "dream");
-    snprintf(password, sizeof(password), "%.*s", (int)sizeof(cfg.ppp_passwd),
-             (cfg.valid_fields & FLASHROM_ISP_PPP_PASS) ? cfg.ppp_passwd : "cast");
-    int blind = !!(cfg.flags & FLASHROM_ISP_BLIND_DIAL);
-    if(cfg.valid_fields & FLASHROM_ISP_DNS) {
-        memcpy(fallback_dns, cfg.dns[0], 4);
-        if(!has_address(fallback_dns)) memcpy(fallback_dns, cfg.dns[1], 4);
-    }
-    memset(&cfg, 0, sizeof(cfg));
-
-    int r = ppp_init();
-    if(r == 0) {
-        ppp_owned = true;
-        r = ppp_set_login(login, password);
-    }
-    if(r == 0) r = ppp_add_protocol(&link_monitor);
-    memset(login, 0, sizeof(login));
-    memset(password, 0, sizeof(password));
-    if(r < 0) {
-        failure = "PPP SETUP FAILED";
-        return false;
-    }
-    stage = LINK_DIALING;
-    r = ppp_modem_init(number, blind, &rate);
-    if(r < 0) {
-        failure = r == -2 ? "NO DIAL TONE" : r == -3 ? "DIAL FAILED" : "NO ANSWER ON THE MODEM LINE";
-        return false;
-    }
-    stage = LINK_NEGOTIATING;
-    if(ppp_connect() < 0) {
-        failure = "PPP CONNECTION FAILED";
-        return false;
-    }
-    netif_t *n = net_default_dev;
-    if(!n || strcmp(n->name, "ppp") || !has_address(n->ip_addr)) {
-        failure = "NO ADDRESS FROM THE DIAL-UP SERVER";
-        return false;
-    }
-    if(!has_address(n->dns)) memcpy(n->dns, fallback_dns, 4);
-    link_lost = 0;
-    link_monitored = 1;
-    snprintf(status_buf, sizeof(status_buf), "DIAL-UP %d BPS", rate);
+    snprintf(status_buf, sizeof(status_buf), "DIAL-UP %d BPS", dialup_rate());
     return true;
+}
+
+/* While the worker dials, the shared dialer knows which step it is on. */
+static int shown_stage(void) {
+    if(stage == LINK_STARTING && modem_link) {
+        dialup_stage_t step = dialup_stage();
+        if(step == DIALUP_DIALING) return LINK_DIALING;
+        if(step == DIALUP_NEGOTIATING) return LINK_NEGOTIATING;
+    }
+    return stage;
 }
 
 #ifdef DK_NET_TRACE
@@ -193,7 +107,6 @@ static void trace_report(void) {
 
 static void *link_worker(void *unused) {
     (void)unused;
-    link_lost = 0;
     failure = "";
 #ifdef DK_NET_TRACE
     trace_t0 = timer_ms_gettime64();
@@ -236,7 +149,6 @@ static void *link_worker(void *unused) {
             return NULL;
         }
         modem_link = true;
-        hang_up();
         if(!dial()) goto failed;
     }
 
@@ -258,7 +170,6 @@ static void *link_worker(void *unused) {
     return NULL;
 
 failed:
-    if(modem_link) hang_up();
     stage = LINK_FAILED;
     worker_running = 0;
     return NULL;
@@ -296,7 +207,7 @@ void link_start(void) {
 int link_stage(void) {
     /* An early start found no Ethernet adapter after link_start was called. */
     if(want_dial && stage == LINK_OFF && !worker_running) start_worker();
-    if(stage == LINK_UP && modem_link && (link_lost || !modem_is_connected())) {
+    if(stage == LINK_UP && modem_link && dialup_dropped()) {
         failure = "DIAL-UP CONNECTION DROPPED";
         stage = LINK_FAILED;
     }
@@ -304,7 +215,7 @@ int link_stage(void) {
 }
 
 const char *link_status(void) {
-    switch(stage) {
+    switch(shown_stage()) {
         case LINK_STARTING: return "LOOKING FOR A NETWORK ADAPTER";
         case LINK_DIALING: return "DIALING MODEM";
         case LINK_NEGOTIATING: return "CONNECTING (PPP)";
@@ -328,7 +239,7 @@ void link_shutdown(void) {
         thd_join(worker, NULL);
         worker = NULL;
     }
-    if(modem_link) hang_up();
+    if(modem_link) dialup_hang_up();
     want_dial = 0;
     stage = LINK_OFF;
 }

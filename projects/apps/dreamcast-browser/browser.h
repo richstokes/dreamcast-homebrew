@@ -246,8 +246,9 @@ void page_cache_clear(void);
 size_t page_cache_bytes(void);
 int page_cache_count(void);
 
-/* Dial-up (modem.c): a Dreamcast modem, normally answered by a DreamPi. The
-   connection is made on its own thread and polled from the frame loop. */
+/* Dial-up (modem.c, over ../../common/dialup.h): a Dreamcast modem, normally
+   answered by a DreamPi. The connection is made on its own thread and polled
+   from the frame loop. */
 int modem_connect_start(void);
 /* 0 while connecting, 1 once connected, -1 on failure; status names the
    current step, or explains the failure. */

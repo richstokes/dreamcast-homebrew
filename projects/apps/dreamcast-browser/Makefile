@@ -1,7 +1,7 @@
 TARGET = dreamcast-browser.elf
 OBJS = dreamcast-browser.o loader.o input.o forms.o selftest.o net.o html.o \
        images.o render.o osk.o address.o bookmarks.o storage.o cache.o \
-       modem.o romdisk.o
+       modem.o dialup.o romdisk.o
 
 KOS_BUILD_SUBARCHS = pristine
 KOS_ROMDISK_DIR = romdisk
@@ -12,6 +12,7 @@ LDLIBS = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lstb_image -lm -lpthread 
 all: $(TARGET)
 
 include $(KOS_BASE)/Makefile.rules
+include ../../common/common.mk
 
 clean:
 	-rm -f $(OBJS) $(TARGET) romdisk.img
@@ -20,6 +21,7 @@ dreamcast-browser.o loader.o input.o forms.o selftest.o net.o html.o images.o \
     render.o osk.o address.o bookmarks.o storage.o cache.o modem.o: browser.h
 dreamcast-browser.o loader.o input.o forms.o selftest.o: app.h storage.h
 storage.o: storage.h
+modem.o: $(COMMON_DIR)/dialup.h
 selftest.o: tests/loading_self_test.inc tests/site_self_test.inc
 
 $(TARGET): $(OBJS) $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a

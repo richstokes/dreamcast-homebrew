@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run SH-4 modem settings/failure checks without dialing or touching real VMUs."""
+"""Run the shared dialer's SH-4 checks in Flycast without dialing or touching real VMUs."""
 import argparse
 from pathlib import Path
 import shutil
@@ -7,9 +7,7 @@ import subprocess
 import tempfile
 import time
 
-from isolated_cards import blank_cards
-
-CLIENT = Path(__file__).resolve().parents[1]
+COMMON = Path(__file__).resolve().parents[1]
 
 
 def main():
@@ -21,33 +19,38 @@ def main():
                         '.local/share/dreamcast/kos/environ.sh')
     args = parser.parse_args()
     args.log_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='dcvmu-modem-checks-') as directory:
+    with tempfile.TemporaryDirectory(prefix='dialup-checks-') as directory:
         work = Path(directory)
+        # Flycast moves a real card into a custom VMU folder that lacks it and
+        # deletes the original, so give every slot a blank card of its own.
+        (work / 'vmus').mkdir()
+        for slot in ('A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2'):
+            (work / 'vmus' / f'vmu_save_{slot}.bin').write_bytes(bytes(131072))
         (work / 'tests').mkdir()
-        blank_cards(work / 'vmus')
-        for name in ('modem.c', 'client.h', 'tests/modem_settings.c'):
-            shutil.copyfile(CLIENT / name, work / name)
-        (work / 'Makefile').write_text('''TARGET = checks.elf
-OBJS = tests/modem_settings.o
+        for name in ('dialup.c', 'dialup.h', 'tests/dialup_checks.c'):
+            shutil.copyfile(COMMON / name, work / name)
+        (work / 'tests' / 'Makefile').write_text('''TARGET = checks.elf
+OBJS = dialup_checks.o
 KOS_BUILD_SUBARCHS = pristine
 all: $(TARGET)
 include $(KOS_BASE)/Makefile.rules
 $(TARGET): $(OBJS)
 \tkos-cc -o $@ $(OBJS)
 ''')
+        build = work / 'tests'
         with (args.log_dir / 'build.log').open('w') as output:
             subprocess.run(['bash', '-c', 'source "$1" && make -C "$2" && '
                             'file "$2/checks.elf" && sh-elf-readelf -h "$2/checks.elf"',
-                            'modem-checks', str(args.kos_env.resolve()), str(work)],
+                            'dialup-checks', str(args.kos_env.resolve()), str(build)],
                            check=True, stdout=output, stderr=output)
         config = ('network:EmulateBBA=no,network:DCNet=no,audio:backend=null,'
                   'config:Debug.SerialConsoleEnabled=yes,config:UploadCrashLogs=no,'
                   f'config:Dreamcast.VMUPath={work / "vmus"},config:PerGameVmu=no')
         serial = args.log_dir / 'flycast.log'
-        marker = 'MODEM SETTINGS AND FAILURE CHECKS PASSED'
+        marker = 'DIALUP CHECKS PASSED'
         with serial.open('w') as output:
             process = subprocess.Popen([str(args.flycast.resolve()), '-config', config,
-                                        str(work / 'checks.elf')], cwd=work,
+                                        str(build / 'checks.elf')], cwd=work,
                                        stdout=output, stderr=subprocess.STDOUT)
             try:
                 deadline = time.monotonic() + 60
@@ -64,7 +67,7 @@ $(TARGET): $(OBJS)
                     process.kill()
                     process.wait()
         passed = marker in serial.read_text(errors='replace')
-        summary = f'{"PASS" if passed else "FAIL"}: modem settings and failure checks\n'
+        summary = f'{"PASS" if passed else "FAIL"}: dialer settings, failure, cancel and drop checks\n'
         (args.log_dir / 'result.txt').write_text(summary)
         print(summary, end='')
         return 0 if passed else 1

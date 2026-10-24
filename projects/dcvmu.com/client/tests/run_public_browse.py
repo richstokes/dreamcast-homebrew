@@ -43,7 +43,11 @@ def main():
     marker = 'VMU TOOLS SELF-TEST' if args.tools else 'PUBLIC BROWSE SELF-TEST'
     args.log_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='dcvmu-public-browse-') as directory:
-        work = Path(directory)
+        # Mirror projects/dcvmu.com/client beside projects/common, so the
+        # relative includes and common.mk resolve.
+        work = Path(directory) / 'dcvmu.com' / 'client'
+        work.mkdir(parents=True)
+        shutil.copytree(CLIENT.parents[1] / 'common', Path(directory) / 'common')
         for name in ('romdisk', 'tests'):
             (work / name).mkdir()
         blank_cards(work / 'vmus')
