@@ -28,7 +28,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | D-pad Up/Down, keyboard Up/Down/PgUp/PgDn | Scroll the current page |
 | X+Y | Jump back to the newest messages |
 | A+B | Reconnect to the current network |
-| Start | Quit cleanly |
+| Start | Quit cleanly to the Dreamcast BIOS menu |
 
 | Command | Notes |
 | --- | --- |

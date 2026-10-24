@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../../common/softreset.h"
+
 KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 
 browser_document_t document;
@@ -320,5 +322,6 @@ int main(int argc, char **argv) {
     document_free(&document);
     loader_shutdown();
     printf("browser: clean shutdown\n");
+    softreset_leave();
     return 0;
 }

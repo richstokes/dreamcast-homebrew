@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "ping-cube.h"
+#include "../../common/softreset.h"
 
 #define TEXTURE_SIZE 256
 #define TEXTURE_BYTES (TEXTURE_SIZE * TEXTURE_SIZE * sizeof(uint16_t))
@@ -1615,5 +1616,6 @@ int main(int argc, char **argv) {
     pvr_mem_free(console_texture);
     free(console_pixels);
     free(console_background);
+    softreset_leave();
     return 0;
 }

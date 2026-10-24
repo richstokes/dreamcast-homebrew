@@ -37,7 +37,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | Reader or full-page view | `F7` | hold `Y` + left trigger |
 | Load this page's images | `F4` | hold `Y` + right trigger |
 | Hide or show the toolbar | `Ctrl+B` | |
-| Bookmark this page / bookmarks page | `Ctrl+D` / `Ctrl+Shift+B` | `Start` (also the menu, which has Exit) |
+| Bookmark this page / bookmarks page | `Ctrl+D` / `Ctrl+Shift+B` | `Start` (also the menu, whose Exit goes to the Dreamcast BIOS menu) |
 | Submit the form being edited | `Ctrl+Enter` | |
 
 While editing a field or the address bar: Left/Right (`Ctrl` for words),

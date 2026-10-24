@@ -38,7 +38,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | A | Snap the nearest face square to the camera; press again to step through the other faces |
 | B | Resume tumbling |
 | R / L trigger | Spin faster (up to 8x) or slower, down to a stop; both are analog |
-| Start | Exit (on dial-up, after the current dial step returns) |
+| Start | Exit to the Dreamcast BIOS menu (on dial-up, after the current dial step returns) |
 
 ## Build and run
 

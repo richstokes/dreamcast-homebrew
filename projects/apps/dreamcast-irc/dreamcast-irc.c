@@ -9,6 +9,7 @@
 #include <kos.h>
 #include <kos/version.h>
 #include "modem.h"
+#include "../../common/softreset.h"
 
 #include <dc/biosfont.h>
 #include <dc/fs_vmu.h>
@@ -2643,5 +2644,6 @@ int main(int argc, char **argv) {
     }
 #endif
     printf("Dreamcast IRC: clean shutdown\n");
+    softreset_leave();
     return 0;
 }
