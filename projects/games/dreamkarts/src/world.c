@@ -997,7 +997,7 @@ static void f8_build_ground(void) {
 /* Lap distances for chunk c's road: the regular samples plus the jump's
    profile breakpoints (so the lip and deck edges are exact) or a viaduct's
    ends, with extra samples where the road's height bends sharply. */
-#define MAX_SVALS 40
+#define MAX_SVALS 72
 static int f8_chunk_svals(int c, float *out) {
     const int per = 8;
     float s0 = (float)(c * per) * track.ds, s1 = (float)((c + 1) * per) * track.ds;
@@ -1030,12 +1030,13 @@ static int f8_chunk_svals(int c, float *out) {
             out[k] = s;
         }
     }
-    /* Halve intervals whose midpoint height strays from a straight line. */
-    for(int pass = 0; pass < 2 && track.id != TRACK_FIGURE8; pass++) {
+    /* Halve intervals whose midpoint height strays from a straight line
+       (by 2 cm: the karts ride the curve, and a tyre's sidewall is less). */
+    for(int pass = 0; pass < 3 && track.id != TRACK_FIGURE8; pass++) {
         for(int k = 0; k + 1 < n && n < MAX_SVALS; k++) {
             float a = out[k], b = out[k + 1], m = (a + b) * 0.5f;
             if(b - a < 0.8f) continue;
-            if(fabsf(track_height(m) - 0.5f * (track_height(a) + track_height(b))) < 0.04f) continue;
+            if(fabsf(track_height(m) - 0.5f * (track_height(a) + track_height(b))) < 0.02f) continue;
             for(int q = n; q > k + 1; q--) out[q] = out[q - 1];
             out[k + 1] = m;
             n++;
@@ -1090,6 +1091,53 @@ static void f8_ribbon(const float *sv, int n, const pvr_poly_hdr_t *h, float d0,
         }
     }
     if(open) strip_end();
+}
+
+/* How many pieces the sky decks' road quad from sa to sb is drawn in. The
+   karts ride track_road_y, and the ribbon's flat triangles stray from it
+   by a quarter of the quad's twist (its bank change times the road's
+   width) where a bank eases in or out: 10 to 15 cm, enough to bury or
+   float the tyres. Drawn in m pieces that stray is a quarter of the twist
+   over m; held to a centimetre, well inside a tyre's sidewall. */
+#define SK_EDGE     9.6f       /* the sky decks' road edge (deck to 8 m, then the light strip) */
+static int road_pieces(float sa, float sb) {
+    if(!track.in_sky) return 1;
+    float half = world_canyon ? 8.0f : SK_EDGE;
+    float stray = fabsf(track_bank(sb) - track_bank(sa)) * half * 0.5f;
+    int m = (int)ceilf(stray / 0.01f);
+    return m < 1 ? 1 : m > 12 ? 12 : m;
+}
+
+/* A sky deck's road: f8_ribbon's quads from -half to half, each drawn in
+   road_pieces pieces whose vertices lie on the quad's own straight edges,
+   so the curbs and faces beside it, drawn from the same samples, still
+   meet it exactly; only the inside of each quad follows its twist. */
+static void f8_road_ribbon(const float *sv, int n, const pvr_poly_hdr_t *h, float half, float vscale) {
+    int last = -1;   /* the previous sample, when it is in this strip */
+    for(int k = 0; k < n; k++) {
+        float s = sv[k];
+        if(track_in_gap(s)) {
+            if(last >= 0) strip_end();
+            last = -1;
+            continue;
+        }
+        if(last < 0) strip_begin(h);
+        V3 a1 = f8_pt(s, -half, 0.0f), b1 = f8_pt(s, half, 0.0f);
+        if(last >= 0) {
+            float s0 = sv[last];
+            int m = road_pieces(s0, s);
+            V3 a0 = f8_pt(s0, -half, 0.0f), b0 = f8_pt(s0, half, 0.0f);
+            for(int j = 1; j < m; j++) {
+                float t = (float)j / (float)m, sj = lerpf(s0, s, t);
+                svp(vlerp(a0, a1, t), 0, sj / vscale, 0xffffffff);
+                svp(vlerp(b0, b1, t), 1, sj / vscale, 0xffffffff);
+            }
+        }
+        svp(a1, 0, s / vscale, 0xffffffff);
+        svp(b1, 1, s / vscale, 0xffffffff);
+        last = k;
+    }
+    if(last >= 0) strip_end();
 }
 
 static bool in_bridge(float s) {
@@ -1939,7 +1987,6 @@ static void build_beach(void) {
    frame the line, the waves, the plunge and the infield, and dark towers
    rise out of the clouds all round, lit windows, neon crowns and signs. */
 #define SK_RAIL     10.2f      /* glass rails on the closed sides */
-#define SK_EDGE     9.6f       /* road edge (deck to 8 m, then the light strip) */
 #define SK_DEPTH    0.7f       /* deck thickness */
 #define SK_RAIL_H   0.75f      /* neon tube height */
 #define SK_SPARKLES 40
@@ -2052,7 +2099,7 @@ static void sk_build_track_chunk(int c) {
     if(canyon) {
         /* Cobbles to 8 m, then the day tracks' red and white curbs out to
            the edge. */
-        f8_ribbon(sv, n, &sk_road_hdr, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, sk_vscale, false, 0xffffffff, 0xffffffff);
+        f8_road_ribbon(sv, n, &sk_road_hdr, 8.0f, sk_vscale);
         for(int side = -1; side <= 1; side += 2) {
             strip_begin(h_curb);
             for(int k = 0; k < n; k++) {
@@ -2070,7 +2117,7 @@ static void sk_build_track_chunk(int c) {
         }
     }
     else
-        f8_ribbon(sv, n, &sk_road_hdr, -SK_EDGE, SK_EDGE, 0.0f, 0.0f, 0, 1.0f, sk_vscale, false, 0xffffffff, 0xffffffff);
+        f8_road_ribbon(sv, n, &sk_road_hdr, SK_EDGE, sk_vscale);
     f8_ribbon(sv, n, h_col, -SK_EDGE, -SK_EDGE, -SK_DEPTH, 0.0f, 0, 1, 1, true, face_lo, face_l);
     f8_ribbon(sv, n, h_col, SK_EDGE, SK_EDGE, 0.0f, -SK_DEPTH, 0, 1, 1, true, face_r, face_ro);
     /* Glass rails on the closed sides: a dark panel, a ledge out to it from
@@ -2168,7 +2215,7 @@ static void dr_build_deck_coarse(int c) {
     if(sv[n - 1] != full[nf - 1]) sv[n++] = full[nf - 1];
     chunk_begin(HF_OP, 2000.0f);
     if(cur_chunk) cur_chunk->lod = 2;
-    f8_ribbon(sv, n, &sk_road_hdr, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, sk_vscale, false, 0xffffffff, 0xffffffff);
+    f8_road_ribbon(sv, n, &sk_road_hdr, 8.0f, sk_vscale);
     for(int side = -1; side <= 1; side += 2) {
         strip_begin(h_curb);
         for(int k = 0; k < n; k++) {
@@ -3908,6 +3955,60 @@ void world_init(void) {
     }
 }
 
+/* The road ribbon's geometry, kept for world_surface_y: each chunk's
+   sample distances (f8_chunk_svals, the list every road ribbon is built
+   from; Emerald Beach draws the plain samples, which is the same list on
+   its flat road), the ribbon's edge heights at each, and how many pieces
+   each quad is drawn in (road_pieces). */
+#define SURF_CHUNKS (TRACK_SAMPLES / 8)
+static float surf_s[SURF_CHUNKS][MAX_SVALS];
+static float surf_y[SURF_CHUNKS][MAX_SVALS][2];   /* left edge, right edge */
+static uint8_t surf_m[SURF_CHUNKS][MAX_SVALS];    /* pieces from sample k to k+1 */
+static uint8_t surf_n[SURF_CHUNKS];
+static float surf_half;
+static bool surf_built;
+
+static void surface_table_build(void) {
+    surf_half = track.in_sky && !world_canyon ? SK_EDGE : 8.0f;
+    for(int c = 0; c < SURF_CHUNKS; c++) {
+        int n = f8_chunk_svals(c, surf_s[c]);
+        surf_n[c] = (uint8_t)n;
+        for(int k = 0; k < n; k++) {
+            surf_y[c][k][0] = track_road_y(surf_s[c][k], -surf_half);
+            surf_y[c][k][1] = track_road_y(surf_s[c][k], surf_half);
+            surf_m[c][k] = (uint8_t)(k + 1 < n ? road_pieces(surf_s[c][k], surf_s[c][k + 1]) : 1);
+        }
+    }
+    surf_built = true;
+}
+
+float world_surface_y(float s, float d) {
+    if(!surf_built) return track_road_y(s, d);
+    s = track_wrap(s);
+    int c = (int)(s / track.ds) / 8;
+    if(c >= SURF_CHUNKS) c = SURF_CHUNKS - 1;
+    const float *sv = surf_s[c];
+    int n = surf_n[c], k = 0;
+    while(k + 2 < n && s >= sv[k + 1]) k++;
+    float u = clampf((s - sv[k]) / (sv[k + 1] - sv[k]), 0.0f, 1.0f);
+    /* The piece of the quad s is in, and where in it; its corners lie on
+       the quad's edges. */
+    int m = surf_m[c][k], j = (int)(u * (float)m);
+    if(j >= m) j = m - 1;
+    u = u * (float)m - (float)j;
+    float t0 = (float)j / (float)m, t1 = (float)(j + 1) / (float)m;
+    float y00 = lerpf(surf_y[c][k][0], surf_y[c][k + 1][0], t0), y10 = lerpf(surf_y[c][k][0], surf_y[c][k + 1][0], t1);
+    float y01 = lerpf(surf_y[c][k][1], surf_y[c][k + 1][1], t0), y11 = lerpf(surf_y[c][k][1], surf_y[c][k + 1][1], t1);
+    /* Beyond the ribbon (curbs, shoulders, against a wall) its triangles
+       are extended: the neighbouring strips share the samples and, near
+       enough, their banking. */
+    float v = clampf((d + surf_half) / (2.0f * surf_half), -0.5f, 1.5f);
+    /* The strip runs left, right at each sample, so its triangles are
+       (left k, right k, left k+1) and (right k, left k+1, right k+1). */
+    if(u + v <= 1.0f) return y00 + (y10 - y00) * u + (y01 - y00) * v;
+    return y11 + (y01 - y11) * (1.0f - u) + (y10 - y11) * (1.0f - v);
+}
+
 void world_build(void) {
     world_gates = 0;
     if(!pool) return;
@@ -3946,6 +4047,7 @@ void world_build(void) {
     else if(track.id == TRACK_CANYON) build_canyon();
     else if(track.in_sky) build_skyway();
     else build_beach();
+    surface_table_build();
     /* Release builds log only the first build: under dcload-ip each printf
        stalls the console with IRQs off. */
 #ifdef DK_AUTOTEST

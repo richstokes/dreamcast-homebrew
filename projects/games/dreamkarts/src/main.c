@@ -475,6 +475,11 @@ static struct {
     int win_multi, win_zero, multi, zero;   /* frames that ran 2+ or 0 physics steps */
     float win_cpu_max, rnd_max_ms;
     size_t vtx_max;
+    /* The drawn karts against the road as drawn: the deepest any tyre was
+       drawn under it, and kart-frames by depth (clear, under 1, 2, 5,
+       10 cm and over). */
+    float sink_max;
+    int sink_n, sink_hist[6];
 } at = {.min_fps = 999};
 #endif
 
@@ -2036,6 +2041,23 @@ int main(int argc, char **argv) {
                     if(game.cpu_ms > at.cpu_max) at.cpu_max = game.cpu_ms;
                     if(game.fps > 0 && game.fps < at.min_fps && game.race_time > 2.0f) at.min_fps = game.fps;
                 }
+                if(game.state == ST_RACE) {
+                    for(int i = 0; i < kart_count; i++) {
+                        const Kart *k = &karts[i];
+                        if(k->gone || !k->grounded) continue;
+                        float sink = models_kart_sink(k);
+                        if(sink < -1e8f) continue;
+                        if(sink > at.sink_max) at.sink_max = sink;
+                        at.sink_n++;
+                        at.sink_hist[sink <= 0.0f ? 0 : sink < 0.01f ? 1 : sink < 0.02f ? 2 : sink < 0.05f ? 3 : sink < 0.10f ? 4 : 5]++;
+                        if(sink > 0.10f && sink >= at.sink_max)
+                            printf("DK AT SINK kart %d s %.1f d %.1f sink %.3f pitch %.2f roll %.2f sq %.2f spd %.1f air %.2f "
+                                   "y %.2f road %.2f drawn %.2f bank %.3f\n", i, (double)k->tp.s, (double)k->tp.d, (double)sink,
+                                   (double)k->pitch, (double)k->roll, (double)k->squash, (double)k->speed, (double)k->air_t,
+                                   (double)k->pos.y, (double)track_road_y(k->tp.s, k->tp.d), (double)world_surface_y(k->tp.s, k->tp.d),
+                                   (double)track_bank(k->tp.s));
+                    }
+                }
             }
             at.log_t += dt_real;
             if(at.log_t >= AT_LOG_SECS) {
@@ -2118,6 +2140,13 @@ int main(int argc, char **argv) {
                 audio_autotest_report();
                 printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d, falls %d\n", track.name,
                        kart_jumps, at.jumps, kart_rescues, kart_falls);
+                {
+                    float n = (float)(at.sink_n ? at.sink_n : 1);
+                    printf("DK AUTOTEST: tyres vs drawn road: deepest %.3f m under; kart-frames clear %.1f%%, under 1 cm %.1f%%, "
+                           "1-2 %.1f%%, 2-5 %.1f%%, 5-10 %.1f%%, over %.1f%%\n", (double)at.sink_max, 100.0 * at.sink_hist[0] / n,
+                           100.0 * at.sink_hist[1] / n, 100.0 * at.sink_hist[2] / n, 100.0 * at.sink_hist[3] / n,
+                           100.0 * at.sink_hist[4] / n, 100.0 * at.sink_hist[5] / n);
+                }
                 printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, frames with 2+ steps %d, "
                        "0 steps %d, cpu avg %.2fms max %.2fms, vertex buffer peak %lu KiB\n", (double)at.min_fps,
                        at.missed, at.frames, at.multi, at.zero, (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)),
@@ -2128,7 +2157,11 @@ int main(int argc, char **argv) {
                 /* 50 s a lap at 150cc; the slower classes get proportionally longer. */
                 float limit = 50.0f * game.laps * cc_params[CC_150].top_speed / cc_params[game.cc].top_speed;
                 bool ok = p->finish_time > 0 && p->finish_time < limit && at.drifts > 3 && kart_rescues == 0 &&
-                          (!track.has_jump || at.jumps >= game.laps);
+                          (!track.has_jump || at.jumps >= game.laps) &&
+                          /* Tyres drawn 2 cm or more into the road (a sidewall) in over 10% of kart-frames:
+                             the road ribbon no longer follows the road closely enough (Neon Skyway's sharp
+                             bump and plunge keep it at about 5% through chassis lag alone). */
+                          (at.sink_hist[3] + at.sink_hist[4] + at.sink_hist[5]) * 10 < (at.sink_n ? at.sink_n : 1);
 #ifdef DK_AT_GP
                 /* A failed race fails the cup there and then. */
                 if(ok) printf("DK AUTOTEST: race %d/%d ok\n", gp.race, gp.count);

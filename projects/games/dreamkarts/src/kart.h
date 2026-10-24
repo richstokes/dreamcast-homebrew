@@ -73,7 +73,8 @@ typedef struct {
 
     /* Visual state */
     float vis_yaw;      /* body yaw offset relative to heading */
-    float roll, pitch;
+    float roll, pitch;       /* the chassis on the road: banking and slope (wheels follow) */
+    float lean, nose;        /* the body on its springs: cornering lean, nose up/down (wheels stay put) */
     float squash, squash_v;
     float wheel_spin;
     float steer_vis;

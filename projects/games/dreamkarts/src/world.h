@@ -31,6 +31,13 @@ uint32_t world_lane_color(float d);
 /* Terrain height under (x, z), ignoring the road and props (the sky
    track has none: a large negative value). */
 float world_ground_y(float x, float z);
+/* Height of the road surface as drawn at lap distance s, lateral d (its
+   triangles extended a little past the road ribbon). The ribbon is flat
+   triangles between its samples, split where the road twists or bends
+   until it stays within about 2 cm of track_road_y, the height the karts
+   ride; shadows rest on this, and the autotest checks the tyres against
+   it. */
+float world_surface_y(float s, float d);
 /* Spiral Canyon's leak test (main.c's view tour): a camera spot inside
    the rock, and which rock to draw (-DDK_ROCK_TINT builds only). */
 bool world_leak_point(float s, float d, V3 *out);

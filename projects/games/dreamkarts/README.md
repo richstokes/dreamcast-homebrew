@@ -147,7 +147,7 @@ needs no Python.
 
 | Command | What it checks |
 | --- | --- |
-| `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, every emerald taken, spear thrown, mine dropped and hit as `DK ITEM` lines (and `misses band` for a kart that crossed a band off the slot), prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue or a missed jump) |
+| `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, every emerald taken, spear thrown, mine dropped and hit as `DK ITEM` lines (and `misses band` for a kart that crossed a band off the slot), prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue, a missed jump, or tyres drawn 2 cm or more into the road in over 10% of kart-frames; the `tyres vs drawn road` line has the depths) |
 | `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` (an emerald ahead, the held gem, a spear, a barrier, a spin-out and a mine ahead included); `--log FILE` keeps the whole serial console |
 | `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh` (ask before touching it): 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
 | `make hw` | Plays the release build on the console and leaves it on (`tools/dc-hw.sh power off` afterwards) |

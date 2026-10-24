@@ -18,5 +18,9 @@ V3 models_exhaust_world(const Kart *k, int which);
 V3 models_wheel_world(const Kart *k, int wheel);
 /* A kart-space point (x right, y up, z forward, metres) in the world. */
 V3 models_kart_point_world(const Kart *k, V3 local);
+/* How far the kart's lowest tyre is drawn under the road as drawn
+   (negative: clear by that much; a large negative value off the road).
+   For the autotest. */
+float models_kart_sink(const Kart *k);
 
 #endif

@@ -442,11 +442,19 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float prev_d, float d
     }
 }
 
-/* Body roll that sits the kart flat on a banked road. */
-static float bank_roll(const Kart *k) {
-    float b = track_bank(k->tp.s);
-    if(b == 0.0f) return 0.0f;
-    return atanf(b) * vdot(heading_right(k->heading), k->tp.right);
+/* The chassis pitch and roll that sit the wheels on the road: its slope
+   along the lap and banking across it, taken along the kart's drawn
+   forward and right axes (a drifting kart is drawn yawed across the
+   road, so some of the banking becomes pitch and some slope becomes
+   roll). */
+static void road_tilt(const Kart *k, float yaw, float *pitch, float *roll) {
+    /* Along the lap at the kart's own offset: off the centreline a bank
+       easing in or out is a slope too. */
+    float slope = track_road_y(k->tp.s + 0.5f, k->tp.d) - track_road_y(k->tp.s - 0.5f, k->tp.d);
+    float bank = track_bank(k->tp.s);
+    V3 f = heading_fwd(yaw), r = heading_right(yaw);
+    *pitch = atanf(slope * vdot(f, k->tp.tangent) + bank * vdot(f, k->tp.right));
+    *roll = atanf(slope * vdot(r, k->tp.tangent) + bank * vdot(r, k->tp.right));
 }
 
 /* An online rival: its physics ran on another console. Take its state from
@@ -479,14 +487,14 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
         if(k->spin_t < 0) k->spin_t = 0;
     }
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -steer * 0.05f * clampf(spd / top, 0, 1);
-    if(grounded) lean += bank_roll(k);
-    k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
-    float pitch_t = k->boost_t > 0 ? -0.05f : 0;
-    if(grounded) {
-        float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
-        pitch_t += atanf(slope * vdot(heading_fwd(heading), k->tp.tangent));
-    }
-    k->pitch += (pitch_t - k->pitch) * smooth_k(6.0f, dt);
+    k->lean += (lean - k->lean) * smooth_k(8.0f, dt);
+    k->nose += ((k->boost_t > 0 ? -0.05f : 0.0f) - k->nose) * smooth_k(6.0f, dt);
+    float pitch_t = 0, roll_t = 0;
+    if(grounded) road_tilt(k, heading + k->vis_yaw, &pitch_t, &roll_t);
+    /* On the road the chassis follows it closely (a slow follow sinks the
+       tyres through every dip); in the air it settles gently. */
+    k->roll += (roll_t - k->roll) * smooth_k(grounded ? 25.0f : 8.0f, dt);
+    k->pitch += (pitch_t - k->pitch) * smooth_k(grounded ? 25.0f : 6.0f, dt);
     k->squash_v += (-k->squash * 160.0f - k->squash_v * 14.0f) * dt;
     k->squash += k->squash_v * dt;
     k->squash = clampf(k->squash, -0.35f, 0.35f);
@@ -734,25 +742,26 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         yaw_target = k->steer * 0.10f * clampf(spd / 8.0f, 0, 1);
     k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
     if(k->spin_t > 0) k->vis_yaw = spin_yaw(k);
+    /* The body leans on its springs in corners and pitches under power
+       and braking; the chassis (and the wheels) follow the road's banking
+       and slope, or the flight path in big air. */
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -k->steer * 0.05f * clampf(spd / top, 0, 1);
-    if(k->grounded) lean += bank_roll(k);
-    k->roll += (lean - k->roll) * smooth_k(8.0f, dt);
-    float pitch_t = (in->accel && k->speed < top * 0.7f && can_drive ? -0.035f : 0) +
-                    (in->brake && k->speed > 1 ? 0.05f : 0) + (k->boost_t > 0 ? -0.05f : 0);
-    /* Nose follows the road's slope, or the flight path in big air. */
-    if(k->grounded) {
-        float slope = track_height(k->tp.s + 0.5f) - track_height(k->tp.s - 0.5f);
-        pitch_t += atanf(slope * vdot(fwd, k->tp.tangent));
-    }
-    else if(k->big_air) {
-        pitch_t += atan2f(k->vy, fmaxf(spd, 1.0f)) * 0.6f;
-    }
-    if(k->rev_t > 0) pitch_t -= 0.05f;    /* the rear squats */
-    k->pitch += (pitch_t - k->pitch) * smooth_k(6.0f, dt);
+    k->lean += (lean - k->lean) * smooth_k(8.0f, dt);
+    float nose_t = (in->accel && k->speed < top * 0.7f && can_drive ? -0.035f : 0) +
+                   (in->brake && k->speed > 1 ? 0.05f : 0) + (k->boost_t > 0 ? -0.05f : 0);
+    if(k->rev_t > 0) nose_t -= 0.05f;    /* the rear squats */
+    k->nose += (nose_t - k->nose) * smooth_k(6.0f, dt);
+    float pitch_t = 0, roll_t = 0;
+    if(k->grounded) road_tilt(k, k->heading + k->vis_yaw, &pitch_t, &roll_t);
+    else if(k->big_air) pitch_t = atan2f(k->vy, fmaxf(spd, 1.0f)) * 0.6f;
+    /* On the road the chassis follows it closely (a slow follow sinks the
+       tyres through every dip); in the air it settles gently. */
+    k->roll += (roll_t - k->roll) * smooth_k(k->grounded ? 25.0f : 8.0f, dt);
+    k->pitch += (pitch_t - k->pitch) * smooth_k(k->grounded ? 25.0f : 6.0f, dt);
     if(k->rev_t > 0) {
         /* The body shakes on its springs as the tyres fight for grip. */
         float shake = clampf(k->rev_t * 2.0f, 0, 1);
-        k->roll += 0.03f * shake * sinf(k->rev_t * 53.0f);
+        k->lean += 0.03f * shake * sinf(k->rev_t * 53.0f);
         k->vis_yaw += 0.02f * shake * sinf(k->rev_t * 31.0f);
     }
     /* Suspension spring for hop/landing squash. */

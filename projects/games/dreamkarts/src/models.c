@@ -404,11 +404,52 @@ static void part_matrix(float *out, const float *kart, int part, const Kart *k) 
     m4_mul(out, kart, local);
 }
 
-static void kart_matrix(float *m, const Kart *k) {
+/* The pose from the physics. The chassis (wheels) sits on the road:
+   banking, slope and squash; the body on top of it also leans in corners
+   and pitches under power, on its springs, so a lean never buries the
+   inner wheels. */
+static void kart_pose(float *m, const Kart *k, bool body) {
     float sq = k->squash;
-    V3 p = k->pos;
-    m4_translate_rotate(m, p, k->heading + k->vis_yaw, k->pitch, k->roll);
+    m4_translate_rotate(m, k->pos, k->heading + k->vis_yaw, k->pitch + (body ? k->nose : 0.0f), k->roll + (body ? k->lean : 0.0f));
     m4_scale_apply(m, 1.0f - sq * 0.45f, 1.0f + sq, 1.0f - sq * 0.45f);
+}
+
+/* Height of the road as drawn under world point p, near kart k. */
+static float surface_under(const Kart *k, V3 p) {
+    float dx = p.x - k->pos.x, dz = p.z - k->pos.z;
+    return world_surface_y(k->tp.s + dx * k->tp.tangent.x + dz * k->tp.tangent.z,
+                           k->tp.d + dx * k->tp.right.x + dz * k->tp.right.z);
+}
+
+/* Is the kart over road that is drawn (not off an open edge or over a
+   jump's gap, where it is falling or flying anyway)? */
+static bool over_road(const Kart *k) {
+    return fabsf(k->tp.d) < 20.0f && !track_off_edge(&k->tp);
+}
+
+/* How far the lowest tyre's contact point in pose m sits under the drawn
+   road (negative: that much clear of it). The foot of each tyre is at its
+   pivot's x, z and y = 0 in kart space. */
+static float tyre_sink(const float *m, const Kart *k) {
+    float worst = -1e9f;
+    for(int w = 0; w < 4; w++) {
+        const float *p = dk_part_pivot[DK_PART_WHEEL_FL + w];
+        V3 foot = v3(m[0] * p[0] + m[8] * p[2] + m[12], m[1] * p[0] + m[9] * p[2] + m[13], m[2] * p[0] + m[10] * p[2] + m[14]);
+        worst = fmaxf(worst, surface_under(k, foot) - foot.y);
+    }
+    return worst;
+}
+
+/* The body's (or with chassis the wheels') world matrix. */
+static void kart_matrix(float *m, const Kart *k, bool chassis) {
+    kart_pose(m, k, !chassis);
+}
+
+float models_kart_sink(const Kart *k) {
+    if(!over_road(k)) return -1e9f;
+    float m[16];
+    kart_pose(m, k, false);
+    return tyre_sink(m, k);
 }
 
 static int emote_variant(const Kart *k) {
@@ -421,11 +462,13 @@ static void update_kart_mats(int index) {
     if(mats_frame[index] == frame_id) return;
     mats_frame[index] = frame_id;
     const Kart *k = &karts[index];
-    float km[16];
-    kart_matrix(km, k);
+    float km[16], kc[16];
+    kart_matrix(km, k, false);
+    kart_matrix(kc, k, true);
     for(int part = 0; part < DK_PART_COUNT; part++) {
         float *pm = part_mats[index][part];
-        part_matrix(pm, km, part, k);
+        bool wheel = part >= DK_PART_WHEEL_FL && part <= DK_PART_WHEEL_RR;
+        part_matrix(pm, wheel ? kc : km, part, k);
         /* Sun into part space (columns are the part axes). */
         V3 cx = v3(pm[0], pm[1], pm[2]), cy = v3(pm[4], pm[5], pm[6]), cz = v3(pm[8], pm[9], pm[10]);
         part_light[index][part] = v3(vdot(vnorm(cx), light_dir), vdot(vnorm(cy), light_dir), vdot(vnorm(cz), light_dir));
@@ -550,29 +593,19 @@ void models_draw_karts(int view_kart) {
     }
 }
 
-/* The sky tracks' decks are drawn as quads between track samples (every
-   other sample in a split screen's far copy), each split into two flat
-   triangles. Where the road twists, its bank or slope changing, the drawn
-   triangle can sit a few centimetres over track_road_y, enough to bury a
-   shadow (the back of Spiral Canyon's grid). How far to lift one to clear
-   either split of either quad at (s, d). */
-static float deck_lift(float s, float d) {
-    if(!track.in_sky) return 0.0f;
-    float half = world_canyon ? 8.0f : 9.6f;
-    float v = clampf((d + half) / (2.0f * half), 0.0f, 1.0f);
-    int i = (int)(track_wrap(s) / track.ds);
-    float base = track_road_y(s, d), lift = 0.0f;
-    for(int span = 1; span <= 2; span++) {
-        float sa = (float)(span == 2 ? i & ~1 : i) * track.ds, sb = track_wrap(sa + (float)span * track.ds);
-        float u = clampf(track_delta(sa, s) / ((float)span * track.ds), 0.0f, 1.0f);
-        float y00 = track_road_y(sa, -half), y01 = track_road_y(sa, half);
-        float y10 = track_road_y(sb, -half), y11 = track_road_y(sb, half);
-        float a = u + v <= 1.0f ? y00 + (y10 - y00) * u + (y01 - y00) * v
-                                : y11 + (y01 - y11) * (1.0f - u) + (y10 - y11) * (1.0f - v);
-        float b = u >= v ? y00 + (y10 - y00) * u + (y11 - y10) * v : y00 + (y01 - y00) * v + (y11 - y01) * u;
-        lift = fmaxf(lift, fmaxf(a, b) - base);
+/* A quad on the road under kart k, centred at c (x, z), spanning +-f and
+   +-r, each corner resting on the road as drawn there, up metres above
+   it, so it follows the deck's triangles rather than cutting through them
+   (or hanging in the air) where the road twists or banks. */
+static void road_quad(const Kart *k, V3 c, V3 f, V3 r, float up, uint32_t col) {
+    RV q[4];
+    for(int i = 0; i < 4; i++) {
+        float sf = i < 2 ? 1.0f : -1.0f, sr = (i & 1) ? 1.0f : -1.0f;
+        V3 p = v3(c.x + sf * f.x + sr * r.x, 0, c.z + sf * f.z + sr * r.z);
+        p.y = surface_under(k, p) + up;
+        q[i] = (RV){p.x, p.y, p.z, (float)(i & 1), i < 2 ? 0.0f : 1.0f, col};
     }
-    return lift;
+    r_strip(q, 4);
 }
 
 void models_draw_shadows(void) {
@@ -586,57 +619,33 @@ void models_draw_shadows(void) {
         if(k->gone || !r_sphere_visible(k->pos, 2.0f)) continue;
         /* Cast onto the road below: the floor under a jump's gap is y = 0
            (in the sky there is nothing there). */
-        if(track_off_edge(&k->tp)) continue;
-        float ground = track_road_y(k->tp.s, k->tp.d);
-        float h = fmaxf(k->pos.y - ground, 0.0f);
+        if(!over_road(k)) continue;
+        float h = fmaxf(k->pos.y - world_surface_y(k->tp.s, k->tp.d), 0.0f);
         if(h > 12.0f) continue;
         float a = clampf(0.80f - h * 0.40f, 0.15f, 0.80f);
         float s = 1.0f + h * 0.25f;
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 1.2f * s), r = vscale(heading_right(k->heading + k->vis_yaw), 0.88f * s);
         /* The kart-shaped shadow leans a touch away from the sun; any more
            and it swings visibly round the kart as it turns. */
-        V3 c = v3(k->pos.x - sun_off.x, ground + deck_lift(k->tp.s, k->tp.d) + 0.04f, k->pos.z - sun_off.z);
-        /* On a banked road the shadow tilts with it. */
-        float bank = track_bank(k->tp.s);
-        c.y -= bank * vdot(sun_off, k->tp.right);
-        float yf = bank * vdot(f, k->tp.right), yr = bank * vdot(r, k->tp.right);
-        uint32_t col = color_alpha(0xff000000, a);
-        RV q[4] = {
-            {c.x + f.x - r.x, c.y + yf - yr, c.z + f.z - r.z, 0, 0, col},
-            {c.x + f.x + r.x, c.y + yf + yr, c.z + f.z + r.z, 1, 0, col},
-            {c.x - f.x - r.x, c.y - yf - yr, c.z - f.z - r.z, 0, 1, col},
-            {c.x - f.x + r.x, c.y - yf + yr, c.z - f.z + r.z, 1, 1, col},
-        };
-        r_strip(q, 4);
+        road_quad(k, v3(k->pos.x - sun_off.x, 0, k->pos.z - sun_off.z), f, r, 0.04f, color_alpha(0xff000000, a));
     }
     if(!world_night) return;
     /* Neon underglow: the road under each kart lights its belly, cyan to magenta across. */
     r_hdr(h_underglow);
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
-        if(track_off_edge(&k->tp) || !r_sphere_visible(k->pos, 3.0f)) continue;
-        float ground = track_road_y(k->tp.s, k->tp.d);
-        float h = fmaxf(k->pos.y - ground, 0.0f);
+        if(k->gone || !over_road(k) || !r_sphere_visible(k->pos, 3.0f)) continue;
+        float h = fmaxf(k->pos.y - world_surface_y(k->tp.s, k->tp.d), 0.0f);
         if(h > 4.0f) continue;
         float a = 0.55f * (1.0f - h * 0.25f);
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 2.3f), r = vscale(heading_right(k->heading + k->vis_yaw), 1.8f);
-        float bank = track_bank(k->tp.s);
-        float yf = bank * vdot(f, k->tp.right), yr = bank * vdot(r, k->tp.right);
-        V3 c = v3(k->pos.x, ground + deck_lift(k->tp.s, k->tp.d) + 0.06f, k->pos.z);
-        uint32_t col = color_alpha(world_lane_color(k->tp.d), a);
-        RV q[4] = {
-            {c.x + f.x - r.x, c.y + yf - yr, c.z + f.z - r.z, 0, 0, col},
-            {c.x + f.x + r.x, c.y + yf + yr, c.z + f.z + r.z, 1, 0, col},
-            {c.x - f.x - r.x, c.y - yf - yr, c.z - f.z - r.z, 0, 1, col},
-            {c.x - f.x + r.x, c.y - yf + yr, c.z - f.z + r.z, 1, 1, col},
-        };
-        r_strip(q, 4);
+        road_quad(k, k->pos, f, r, 0.06f, color_alpha(world_lane_color(k->tp.d), a));
     }
 }
 
-static V3 kart_point(const Kart *k, V3 local) {
+static V3 kart_point(const Kart *k, V3 local, bool chassis) {
     float m[16];
-    kart_matrix(m, k);
+    kart_matrix(m, k, chassis);
     return v3(m[0] * local.x + m[4] * local.y + m[8] * local.z + m[12],
               m[1] * local.x + m[5] * local.y + m[9] * local.z + m[13],
               m[2] * local.x + m[6] * local.y + m[10] * local.z + m[14]);
@@ -644,14 +653,14 @@ static V3 kart_point(const Kart *k, V3 local) {
 
 V3 models_exhaust_world(const Kart *k, int which) {
     const float *e = dk_exhaust_pos[which & 1];
-    return kart_point(k, v3(e[0], e[1], e[2]));
+    return kart_point(k, v3(e[0], e[1], e[2]), false);
 }
 
 V3 models_kart_point_world(const Kart *k, V3 local) {
-    return kart_point(k, local);
+    return kart_point(k, local, false);
 }
 
 V3 models_wheel_world(const Kart *k, int wheel) {
     const float *p = dk_part_pivot[DK_PART_WHEEL_FL + wheel];
-    return kart_point(k, v3(p[0], 0.02f, p[2]));
+    return kart_point(k, v3(p[0], 0.02f, p[2]), true);
 }
