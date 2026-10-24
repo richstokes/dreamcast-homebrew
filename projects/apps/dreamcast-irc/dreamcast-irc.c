@@ -10,9 +10,9 @@
 #include <kos/version.h>
 #include "modem.h"
 #include "../../common/softreset.h"
+#include "../../common/vmusave.h"
 
 #include <dc/biosfont.h>
-#include <dc/fs_vmu.h>
 #include <dc/maple.h>
 #include <dc/maple/controller.h>
 #include <dc/maple/keyboard.h>
@@ -62,8 +62,8 @@
 #define SERVER_NAME_MAX 127
 #define SERVER_PORT_MAX 5
 #define SERVER_PORT_COUNT_MAX 2
-/* Keep this below the VMU's 12-character limit: KOS fs_vmu's internal
-   filename buffer only guarantees a terminator for shorter names. */
+/* Keep this below the VMU's 12-character limit: KOS's VMU filesystem only
+   guarantees a terminator for shorter names. */
 #define VMU_PROFILE_FILENAME "DCIRC_CFG"
 #define VMU_PROFILE_DATA_SIZE 1024
 #define VMU_PROFILE_VERSION 1
@@ -1758,12 +1758,6 @@ static bool profile_string_terminated(const char *text, size_t capacity) {
     return memchr(text, '\0', capacity) != NULL;
 }
 
-static void profile_path_for_device(const maple_device_t *device,
-                                    char *path, size_t path_size) {
-    snprintf(path, path_size, "/vmu/%c%d/%s", 'a' + device->port,
-             device->unit, VMU_PROFILE_FILENAME);
-}
-
 static bool profile_record_valid(vmu_profile_record_t *record) {
     uint32_t stored_checksum;
     uint32_t calculated_checksum;
@@ -1828,9 +1822,7 @@ static bool profile_load(void) {
     int index = 0;
 
     while((device = maple_enum_type(index++, MAPLE_FUNC_MEMCARD))) {
-        char path[40];
-        file_t file;
-        ssize_t received;
+        int received;
         unsigned i;
 
         if(profile_vmu_port < 0) {
@@ -1838,19 +1830,15 @@ static bool profile_load(void) {
             profile_vmu_unit = device->unit;
         }
 
-        profile_path_for_device(device, path, sizeof(path));
-        file = fs_open(path, O_RDONLY);
-        if(file == FILEHND_INVALID)
-            continue;
-
         memset(&profile_io_record, 0, sizeof(profile_io_record));
-        received = fs_read(file, &profile_io_record,
-                           sizeof(profile_io_record));
-        fs_close(file);
-        if(received != (ssize_t)sizeof(profile_io_record) ||
+        received = vmusave_read(device, VMU_PROFILE_FILENAME, &profile_io_record,
+                                sizeof(profile_io_record));
+        if(received == -1)
+            continue;
+        if(received != (int)sizeof(profile_io_record) ||
            !profile_record_valid(&profile_io_record)) {
-            printf("Dreamcast IRC: ignoring invalid VMU profile at %s\n",
-                   path);
+            printf("Dreamcast IRC: ignoring invalid VMU profile on %c%d\n",
+                   'A' + device->port, device->unit);
             profile_invalid_reported = true;
             continue;
         }
@@ -1886,24 +1874,6 @@ static bool profile_load(void) {
     return false;
 }
 
-static maple_device_t *profile_device_for_save(void) {
-    maple_device_t *device = NULL;
-
-    if(profile_vmu_port >= 0 && profile_vmu_unit >= 0) {
-        device = maple_enum_dev(profile_vmu_port, profile_vmu_unit);
-        if(device && !(device->info.functions & MAPLE_FUNC_MEMCARD))
-            device = NULL;
-    }
-    if(!device) {
-        device = maple_enum_type(0, MAPLE_FUNC_MEMCARD);
-        if(device) {
-            profile_vmu_port = device->port;
-            profile_vmu_unit = device->unit;
-        }
-    }
-    return device;
-}
-
 static void profile_build_record(void) {
     const unsigned port_count = server_port_count <= SERVER_PORT_COUNT_MAX ?
                                 server_port_count : SERVER_PORT_COUNT_MAX;
@@ -1934,7 +1904,7 @@ static void profile_build_record(void) {
 }
 
 /* 32x32 save icon: '.' background, 'o' outline, 'W' bubble, '#' channel mark. */
-static const char profile_icon_art[32][33] = {
+static const char *const profile_icon_art[32] = {
     "................................",
     "................................",
     "................................",
@@ -1976,39 +1946,10 @@ static const uint16_t profile_icon_palette[] = {
     0xf125, 0xf002, 0xffff, 0xff71
 };
 
-static void profile_icon_build(vmu_pkg_t *header, uint8_t *pixels) {
-    unsigned x;
-    unsigned y;
-
-    memcpy(header->icon_pal, profile_icon_palette,
-           sizeof(profile_icon_palette));
-    for(y = 0; y < 32; ++y) {
-        for(x = 0; x < 32; x += 2) {
-            const char *left = strchr(profile_icon_keys,
-                                      profile_icon_art[y][x]);
-            const char *right = strchr(profile_icon_keys,
-                                       profile_icon_art[y][x + 1]);
-
-            pixels[y * 16 + x / 2] =
-                (uint8_t)(((left - profile_icon_keys) << 4) |
-                          (right - profile_icon_keys));
-        }
-    }
-    header->icon_cnt = 1;
-    header->icon_data = pixels;
-    header->icon_anim_speed = 0;
-}
-
 static profile_save_result_t profile_save(bool announce) {
-    static uint8_t empty_asset;
     static uint8_t icon_pixels[512];
     maple_device_t *device;
     vmu_pkg_t header;
-    char path[40];
-    file_t file;
-    ssize_t written;
-    int header_result;
-    int close_result;
 
     profile_build_record();
     if(profile_last_checksum_valid &&
@@ -2016,36 +1957,17 @@ static profile_save_result_t profile_save(bool announce) {
         return PROFILE_SAVE_OK;
     }
 
-    device = profile_device_for_save();
+    device = vmusave_card(&profile_vmu_port, &profile_vmu_unit);
     if(!device)
         return PROFILE_SAVE_NO_VMU;
 
-    memset(&header, 0, sizeof(header));
-    snprintf(header.desc_short, sizeof(header.desc_short), "DCIRC Profile");
-    snprintf(header.desc_long, sizeof(header.desc_long),
-             "DCIRC connection profile");
-    snprintf(header.app_id, sizeof(header.app_id), "DCIRC");
-    profile_icon_build(&header, icon_pixels);
-    header.eyecatch_type = VMUPKG_EC_NONE;
-    header.eyecatch_data = &empty_asset;
-    header.data_len = sizeof(profile_io_record);
-    header.data = (const uint8_t *)&profile_io_record;
-
-    profile_path_for_device(device, path, sizeof(path));
-    file = fs_open(path, O_WRONLY | O_TRUNC);
-    if(file == FILEHND_INVALID) {
-        printf("Dreamcast IRC: cannot open %s for writing: %s\n",
-               path, strerror(errno));
-        return PROFILE_SAVE_ERROR;
-    }
-
-    written = fs_write(file, &profile_io_record, sizeof(profile_io_record));
-    header_result = fs_vmu_set_header(file, &header);
-    close_result = fs_close(file);
-    if(written != (ssize_t)sizeof(profile_io_record) ||
-       header_result < 0 || close_result < 0) {
-        printf("Dreamcast IRC: VMU profile write failed at %s: %s\n",
-               path, strerror(errno));
+    vmusave_header(&header, "DCIRC", "DCIRC Profile", "DCIRC connection profile");
+    vmusave_icon(&header, icon_pixels, profile_icon_art, profile_icon_keys,
+                 profile_icon_palette);
+    if(vmusave_write(device, VMU_PROFILE_FILENAME, &header, &profile_io_record,
+                     sizeof(profile_io_record)) < 0) {
+        printf("Dreamcast IRC: VMU profile write failed on %c%d\n",
+               'A' + device->port, device->unit);
         return PROFILE_SAVE_ERROR;
     }
 

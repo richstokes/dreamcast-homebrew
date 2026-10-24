@@ -11,6 +11,7 @@ clean:
 	-rm -f $(OBJS) $(TARGET) romdisk.img
 dcvmu-client.o title.o menu-audio.o net.o modem.o auth.o archive.o: client.h
 modem.o: $(COMMON_DIR)/dialup.h
+auth.o: $(COMMON_DIR)/vmusave.h
 $(TARGET): $(OBJS)
 	kos-cc -o $@ $(OBJS) $(LDLIBS)
 run: $(TARGET)

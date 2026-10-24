@@ -28,7 +28,7 @@ FLAGS_STAMP = $(BUILD)/flags
 $(FLAGS_STAMP): FORCE | $(BUILD)
 	@echo '$(CFLAGS_LP)' | cmp -s - $@ || echo '$(CFLAGS_LP)' > $@
 
-$(BUILD)/%.o: src/%.c $(wildcard src/*.h) $(FLAGS_STAMP) | $(BUILD)
+$(BUILD)/%.o: src/%.c $(wildcard src/*.h) ../../common/vmusave.h $(FLAGS_STAMP) | $(BUILD)
 	kos-cc $(KOS_CFLAGS) $(CFLAGS_LP) -c $< -o $@
 
 # pl_mpeg's own warnings are not ours to fix.

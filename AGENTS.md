@@ -72,6 +72,9 @@ play on it (`make hw`).
   `/Applications/Flycast.app`, and `FLYCAST_BIN` overrides both
 - Known working baseline: KOS 2.3.0, GCC 15.2.0, Flycast master `628bd3d`
   with the patches in `tools/flycast/`
+- KOS patches: `tools/kos/patches/`, applied to the installed SDK and by
+  CI. `tools/kos/apply-patches.sh --check` confirms the SDK has them; a new
+  SDK fix goes there, not in a project folder
 
 Stock Flycast 2.7 stalls uploads through its TCP proxy, drops short keyboard
 presses that land between guest polls, and crashes or panics the guest under
@@ -101,6 +104,11 @@ BIOS-font text on a PowerVR texture, controller input and clean shutdown.
 Copy its Makefile and launcher, rename the target and sources, and remove
 the rendering and network code you do not need. Do not modify Ping Cube
 merely to use it as a template.
+
+Code more than one project needs lives in `projects/common/`: the soft
+reset, modem dial-up and VMU saves so far (its README lists them). Use it
+instead of copying code from another project, and move code there when a
+second project wants it. Its headers must stay valid C++.
 
 Always build through KOS's `Makefile.rules` with `kos-cc` (or `kos-c++` for
 `.cpp` sources); never call the host compiler. Add libraries after the

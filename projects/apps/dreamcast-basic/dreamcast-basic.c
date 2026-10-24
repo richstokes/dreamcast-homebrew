@@ -20,6 +20,7 @@
 #include "app.h"
 #include "platform.h"
 #include "screen.h"
+#include "../../common/vmusave.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -591,8 +592,17 @@ const char *plat_storage_load(const char *name, char **text, size_t *size) {
     for(index = 0; (vmu = maple_enum_type(index, MAPLE_FUNC_MEMCARD)) != NULL;
         ++index) {
         vmu_directory(vmu, directory, sizeof(directory));
-        if(find_file(directory, name, path, sizeof(path)))
-            return read_whole_file(path, text, size);
+        if(find_file(directory, name, path, sizeof(path))) {
+            char *data = (char *)vmusave_load(vmu, strrchr(path, '/') + 1, size);
+
+            if(!data)
+                return "Cannot read the file";
+            /* Older saves are padded with zeros to whole blocks. */
+            while(*size > 0 && data[*size - 1] == '\0')
+                --*size;
+            *text = data;
+            return NULL;
+        }
     }
     return index ? "That program is not on a VMU" : "No VMU is connected";
 }
@@ -626,13 +636,11 @@ static void build_icon(vmu_pkg_t *header, uint8_t *icon) {
 const char *plat_storage_save(const char *name, const char *text,
                               size_t size) {
     static uint8_t icon[512];
-    static uint8_t no_eyecatch;
     maple_device_t *vmu, *target = NULL;
-    char directory[16], path[48];
+    char directory[16], path[48], filename[PLAT_NAME_MAX + sizeof(EXTENSION)];
+    char description[40];
     vmu_pkg_t header;
-    file_t file;
-    ssize_t written;
-    int index, header_result, close_result;
+    int index;
 
     /* Overwrite the program where it already lives; else use the first VMU. */
     for(index = 0; (vmu = maple_enum_type(index, MAPLE_FUNC_MEMCARD)) != NULL;
@@ -647,34 +655,17 @@ const char *plat_storage_save(const char *name, const char *text,
     }
     if(!target)
         return "No VMU is connected";
-    vmu_directory(target, directory, sizeof(directory));
-    snprintf(path, sizeof(path), "%s/%s" EXTENSION, directory, name);
-
-    memset(&header, 0, sizeof(header));
-    snprintf(header.desc_short, sizeof(header.desc_short), "BASIC program");
-    snprintf(header.desc_long, sizeof(header.desc_long), "Dreamcast BASIC: %s",
-             name);
-    snprintf(header.app_id, sizeof(header.app_id), "DCBASIC");
+    snprintf(filename, sizeof(filename), "%s" EXTENSION, name);
+    snprintf(description, sizeof(description), "Dreamcast BASIC: %s", name);
+    vmusave_header(&header, "DCBASIC", "BASIC program", description);
     build_icon(&header, icon);
-    header.eyecatch_type = VMUPKG_EC_NONE;
-    header.eyecatch_data = &no_eyecatch;
-    header.data_len = (int)size;
-    header.data = (const uint8_t *)text;
-
-    file = fs_open(path, O_WRONLY | O_TRUNC);
-    if(file == FILEHND_INVALID) {
-        printf("Dreamcast BASIC: cannot open %s: %s\n", path, strerror(errno));
-        return "Cannot create the VMU file";
-    }
-    written = fs_write(file, text, size);
-    header_result = fs_vmu_set_header(file, &header);
-    close_result = fs_close(file);
-    if(written != (ssize_t)size || header_result < 0 || close_result < 0) {
-        printf("Dreamcast BASIC: VMU write failed at %s: %s\n", path,
-               strerror(errno));
+    if(vmusave_write(target, filename, &header, text, size) < 0) {
+        printf("Dreamcast BASIC: VMU write failed for %s on %c%d\n", filename,
+               'A' + target->port, target->unit);
         return "VMU write failed - is the VMU full?";
     }
-    printf("Dreamcast BASIC: saved %s (%u bytes)\n", path, (unsigned)size);
+    printf("Dreamcast BASIC: saved %s to %c%d (%u bytes)\n", filename,
+           'A' + target->port, target->unit, (unsigned)size);
     return NULL;
 }
 

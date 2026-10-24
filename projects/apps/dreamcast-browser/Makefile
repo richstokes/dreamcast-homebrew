@@ -20,7 +20,7 @@ clean:
 dreamcast-browser.o loader.o input.o forms.o selftest.o net.o html.o images.o \
     render.o osk.o address.o bookmarks.o storage.o cache.o modem.o: browser.h
 dreamcast-browser.o loader.o input.o forms.o selftest.o: app.h storage.h
-storage.o: storage.h
+storage.o: storage.h $(COMMON_DIR)/vmusave.h
 modem.o: $(COMMON_DIR)/dialup.h
 selftest.o: tests/loading_self_test.inc tests/site_self_test.inc
 

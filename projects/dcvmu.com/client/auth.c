@@ -6,6 +6,7 @@
 #include <dc/vmu_pkg.h>
 #include <strings.h>
 #include "client.h"
+#include "../../common/vmusave.h"
 #define AUTH_FILE "DCVMU_AUTH"
 typedef struct { char magic[16], username[25], token[96]; } auth_record;
 static int auth_port=-1, auth_unit=-1;
@@ -42,8 +43,8 @@ int auth_save(const char *username,const char *token) {
     strcpy(record.magic,"DCVMU-AUTH-V1");snprintf(record.username,sizeof(record.username),"%s",username);
     snprintf(record.token,sizeof(record.token),"%s",token);
     strcpy(pkg.desc_short,"DCVMU Login");strcpy(pkg.desc_long,"Private login - do not share");strcpy(pkg.app_id,AUTH_FILE);
-    pkg.data=(uint8_t *)&record;pkg.data_len=sizeof(record);
-    if(vmu_pkg_build(&pkg,&raw,&size)<0)goto done;
+    /* Padded here: vmufs_write would fill the block from past the buffer. */
+    if((size=vmusave_build(&pkg,&record,sizeof(record),&raw))<0)goto done;
     for(int n=0;;++n) {
         maple_device_t *dev=maple_enum_type(n,MAPLE_FUNC_MEMCARD);
         if(!dev)break;
