@@ -2744,7 +2744,10 @@ static bool update_game(const input_t *input, float dt) {
     if(game.mode == MODE_TITLE) {
         if(input->pressed & (CONT_START | CONT_A)) start_run();
         else if(input->pressed & CONT_X) start_demo();
-        else if(input->pressed & CONT_B) return false;
+        else if(input->pressed & CONT_B) {
+            softreset_leave();
+            return false;
+        }
         car.longitudinal = 8.0f;
         car.z += dt * 3.0f;
         front_wheel_spin=fmodf(front_wheel_spin+dt*8.0f/.40f,PI*2.0f);

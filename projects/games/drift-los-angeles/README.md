@@ -61,7 +61,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | Start | Pause / resume |
 
 On the title screen, Start or A begins, X launches the automated four-district
-demo tour, and B exits. In the demo, Start or A takes control and B returns to
+demo tour, and B exits to the Dreamcast BIOS menu. In the demo, Start or A takes control and B returns to
 the title. From the pause screen, B returns to the title.
 A+B+X+Y+Start returns to the title screen, and on the title screen exits to the Dreamcast BIOS menu.
 

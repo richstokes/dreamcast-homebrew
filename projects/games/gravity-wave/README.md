@@ -38,7 +38,8 @@ If you are burning a physical CD-R, you may want to try the padded
 | Start | Return | Pause or resume |
 
 On the title screen the D-pad (arrow keys) picks Start Flight, Sound Test or
-Exit and Start or A (Return or X) confirms. In Sound Test, Left/Right changes
+Exit (to the Dreamcast BIOS menu, as does B) and Start or A (Return or X)
+confirms. In Sound Test, Left/Right changes
 song, A restarts it and B returns. While paused, B aborts the run. After a
 defeat, Start or A retries and B returns to the title. Controllers can be
 hot-plugged. A+B+X+Y+Start returns to the title screen, and on the title screen exits to the Dreamcast BIOS menu.

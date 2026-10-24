@@ -8276,11 +8276,15 @@ static bool update_game(const input_t *input, float dt) {
                     audition_music_track(sound_test_track);
                     play_sound(sfx_gate, 154, 128);
                 }
-                else
+                else {
+                    softreset_leave();
                     return false;
+                }
             }
-            else if(input->pressed & CONT_B)
+            else if(input->pressed & CONT_B) {
+                softreset_leave();
                 return false;
+            }
         }
     }
     else if(game.mode == MODE_PAUSED) {

@@ -11,6 +11,9 @@
      path is already set, so KOS goes to the BIOS menu (or hands the
      console back to dcload when that loaded us)
 
+   A game's own way out (an Exit item on the title screen) calls
+   softreset_leave() before returning from main(), for the same exit.
+
    The reset fires once when the fifth button goes down, so the hand still
    on the buttons when the title comes back does not quit straight away.
    Players press the buttons one after another, and A or Start alone often
@@ -30,6 +33,14 @@
 #define SOFTRESET_GRACE 45
 
 enum { SOFTRESET_NONE, SOFTRESET_TITLE, SOFTRESET_QUIT };
+
+/* Returning from main() goes back to whatever loaded us: dcload, or from a
+   disc nothing useful (a black screen). Leave for the BIOS menu instead. */
+static inline void softreset_leave(void) {
+    printf("Soft reset: leaving for the %s\n",
+           dcload_type == DCLOAD_TYPE_NONE ? "BIOS menu" : "dcload loader");
+    if(dcload_type == DCLOAD_TYPE_NONE) arch_set_exit_path(ARCH_EXIT_MENU);
+}
 
 static inline int softreset_poll(bool on_title) {
     static bool was_held[MAPLE_PORT_COUNT];
@@ -59,9 +70,7 @@ static inline int softreset_poll(bool on_title) {
 #endif
     if(!fired) return SOFTRESET_NONE;
     if(since_title < SOFTRESET_GRACE) {
-        printf("Soft reset: leaving for the %s\n",
-               dcload_type == DCLOAD_TYPE_NONE ? "BIOS menu" : "dcload loader");
-        if(dcload_type == DCLOAD_TYPE_NONE) arch_set_exit_path(ARCH_EXIT_MENU);
+        softreset_leave();
         return SOFTRESET_QUIT;
     }
     printf("Soft reset: back to the title screen\n");
