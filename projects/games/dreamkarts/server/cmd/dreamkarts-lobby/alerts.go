@@ -24,6 +24,7 @@ func alert(e lobby.Event, now time.Time) (alerts.Event, alerts.Message) {
 				{Name: fmt.Sprintf("In the lobby (%d/%d)", len(e.Players), lobby.MaxPlayers), Value: strings.Join(e.Players, ", ")},
 			},
 			Time: now,
+			Key:  e.Name,
 		}
 	}
 	items := "On"

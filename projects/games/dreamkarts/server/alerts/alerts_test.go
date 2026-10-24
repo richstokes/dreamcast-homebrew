@@ -161,6 +161,36 @@ func TestThrottleAndRouting(t *testing.T) {
 	}
 }
 
+// A lobby filling up posts every new player; the same player again inside
+// the window does not, and closed windows are forgotten.
+func TestJoinThrottlePerPlayer(t *testing.T) {
+	f := newFake(t)
+	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [{"name": "main", "url": "%s/a", "events": ["lobby_join", "race_start"]}]}`, f.URL)), t.Logf)
+	t0 := time.Unix(1000, 0)
+	join := func(name string, at time.Duration) {
+		n.Notify(LobbyJoin, Message{Title: name + " joined", Time: t0.Add(at), Key: name})
+	}
+	join("ANN", 0)
+	join("BOB", time.Second)
+	join("ANN", 30*time.Second) // reconnect: dropped
+	join("CAT", time.Minute)
+	join("BOB", 4*time.Minute) // hopped lobbies: dropped
+	join("ANN", 5*time.Minute+time.Second)
+	n.Notify(RaceStart, Message{Title: "race", Time: t0.Add(6 * time.Minute)})
+	if got := len(n.hooks[0].last); got != 2 {
+		t.Errorf("remembering %d windows at 6m, want 2 (ANN and the race)", got)
+	}
+	n.Close(5 * time.Second)
+	var titles []string
+	for _, p := range f.posts["/a"] {
+		titles = append(titles, p["embeds"].([]any)[0].(map[string]any)["title"].(string))
+	}
+	want := "ANN joined, BOB joined, CAT joined, ANN joined, race"
+	if got := strings.Join(titles, ", "); got != want {
+		t.Errorf("posted %q, want %q", got, want)
+	}
+}
+
 func TestRateLimitRetry(t *testing.T) {
 	f := newFake(t)
 	f.answers = []int{http.StatusTooManyRequests}

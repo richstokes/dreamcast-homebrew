@@ -21,8 +21,8 @@ bots that anyone can watch.
 ## Alerts
 
 The server posts to Discord webhooks and Bark (iPhone push) keys when
-someone joins a lobby (at most one every 5 minutes per target) and when a
-race with two or more racers starts (every time). The demo lobby (lobby
+someone joins a lobby (at most once per player every 5 minutes per target)
+and when a race with two or more racers starts (every time). The demo lobby (lobby
 10), solo practice races and test clients never post: a name of `AT`
 followed by a digit or a dash is a test (autotest consoles are
 `AT0042`-style, `dk-bot` defaults to `AT-BOT`), so name any test client

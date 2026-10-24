@@ -11,7 +11,7 @@
 //
 // Each webhook picks its events and gets its own throttle per event: an
 // alert inside the throttle window since that webhook's last alert of the
-// same event is dropped, not queued. Posting happens on one goroutine per
+// same event and key is dropped, not queued. Posting happens on one goroutine per
 // webhook so a slow service never holds up the game; a full queue drops.
 // URLs are never logged, only names.
 package alerts
@@ -40,8 +40,10 @@ const (
 )
 
 // DefaultThrottle is the least time between two alerts of an event on one
-// webhook, unless its config says otherwise. Joins are common, so at most
-// one every five minutes; a race starting is news every time.
+// webhook, unless its config says otherwise. Joins are keyed by player, so
+// a lobby filling up posts each new arrival but one player reconnecting or
+// hopping lobbies posts at most once every five minutes; a race starting
+// is news every time.
 var DefaultThrottle = map[Event]time.Duration{
 	LobbyJoin: 5 * time.Minute,
 	RaceStart: 0,
@@ -53,6 +55,7 @@ type Message struct {
 	Color  int // Discord's embed stripe
 	Fields []Field
 	Time   time.Time
+	Key    string // throttled apart from other keys of the same event
 }
 
 // Field is a line of detail. Inline fields sit side by side in Discord and
@@ -154,11 +157,17 @@ type Notifier struct {
 type hook struct {
 	cfg      Webhook
 	throttle map[Event]time.Duration
-	last     map[Event]time.Time
+	last     map[sent]time.Time
 	queue    chan []byte
 	done     chan struct{}
 	stop     context.Context
 	cancel   context.CancelFunc
+}
+
+// sent is what a throttle window belongs to.
+type sent struct {
+	ev  Event
+	key string
 }
 
 // QueueLen is how many alerts one webhook holds while its service is slow.
@@ -191,7 +200,7 @@ func Load(path string, logf func(string, ...any)) (*Notifier, error) {
 func New(c *Config, logf func(string, ...any)) *Notifier {
 	n := &Notifier{logf: logf}
 	for _, w := range c.Webhooks {
-		h := &hook{cfg: w, throttle: map[Event]time.Duration{}, last: map[Event]time.Time{},
+		h := &hook{cfg: w, throttle: map[Event]time.Duration{}, last: map[sent]time.Time{},
 			queue: make(chan []byte, QueueLen), done: make(chan struct{})}
 		h.stop, h.cancel = context.WithCancel(context.Background())
 		for _, ev := range w.Events {
@@ -226,7 +235,7 @@ func (n *Notifier) Names() string {
 }
 
 // Notify queues m for every webhook that takes ev and is outside its
-// throttle window.
+// throttle window for m.Key.
 func (n *Notifier) Notify(ev Event, m Message) {
 	if n == nil {
 		return
@@ -236,10 +245,16 @@ func (n *Notifier) Notify(ev Event, m Message) {
 		if !ok {
 			continue
 		}
-		if last, sent := h.last[ev]; sent && m.Time.Sub(last) < d {
+		k := sent{ev, m.Key}
+		if last, ok := h.last[k]; ok && m.Time.Sub(last) < d {
 			continue
 		}
-		h.last[ev] = m.Time
+		for old, t := range h.last { // forget windows that have closed, or every player stays forever
+			if m.Time.Sub(t) >= h.throttle[old.ev] {
+				delete(h.last, old)
+			}
+		}
+		h.last[k] = m.Time
 		body, err := json.Marshal(payload(h.cfg, m))
 		if err != nil {
 			n.logf("alerts %s: %v", h.cfg.Name, err)
