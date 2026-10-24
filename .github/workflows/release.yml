@@ -151,7 +151,7 @@ jobs:
 
           - **CDI** files are compact, self-booting Dreamcast disc images for Flycast, other Dreamcast emulators, or GDEMU.
           - **-cdr.zip** files hold the same disc padded to a full CD, for burning to CD-R. Unzip first; the CDI inside is ~740 MB.
-          - **ELF** files are included for direct loading and development workflows.
+          - **ELF** files are included for direct loading and development workflows, except where the game reads its assets from the disc (DreamKarts streams its music), which ships as a CDI only.
           - Verify downloads with \`SHA256SUMS\`.
           EOF
 

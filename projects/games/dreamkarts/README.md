@@ -36,8 +36,8 @@ Highlights:
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**
-for Flycast or GDEMU. A direct-load [ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.elf) is also available.
-If you are burning a physical CD-R, you may want to try the padded
+for Flycast or GDEMU (the game streams its music from the disc, so there
+is no stand-alone ELF). If you are burning a physical CD-R, you may want to try the padded
 [CD-R image](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts-cdr.zip) instead (unzip before burning).
 
 ## Controls
@@ -92,12 +92,12 @@ projects/games/dreamkarts/run-flycast.sh      # builds first unless --skip-build
 
 Every build fast-forwards the ignored `third_party/sh4zam` checkout (see the
 repository README); asset generators and QA scripts run through `uv run`.
-`make` builds two executables: `dreamkarts.elf` with every asset linked in,
-for Flycast's direct ELF boot and the QA scripts, and `dreamkarts-disc.elf`,
-which streams the 9 MB of music from `disc/music.adp` on the disc. The
-release CDI is the disc build (`make disc` makes one locally, given
-[mkdcdisc](https://gitlab.com/simulant/mkdcdisc) as `MKDCDISC=`); the
-console has 16 MB of RAM and the all-in ELF is within a megabyte of it.
+The game is a disc: `dreamkarts.elf` boots with `disc/music.adp` beside it
+and streams the music from there, since the console's 16 MB of RAM could not
+hold the music linked in. `run-flycast.sh` wraps the ELF and `disc/` in a
+throwaway CDI (`build/cdi/`) with [mkdcdisc](https://gitlab.com/simulant/mkdcdisc),
+built once by `tools/mkdcdisc/build-macos.sh`; `make disc` builds the CDI the
+releases ship; under dcload the project directory is mapped at `/pc`.
 Before a hardware build, apply
 [`patches/kos-dhcp-fast-retry.patch`](patches/kos-dhcp-fast-retry.patch) to
 KOS and rebuild it (`make -C $KOS_BASE/kernel`), as the release workflow
@@ -106,7 +106,7 @@ The title screen shows the commit the game was built from (bottom right,
 `-dirty` when built with uncommitted changes); please include it in bug
 reports. `DK_GIT_SHA=...` on the make line overrides it.
 
-Launcher environment: `DK_ELF` picks another ELF, `DK_EXIT_ON_LOG` and
+Launcher environment: `DK_ELF` picks another ELF (wrapped in its own CDI), `DK_EXIT_ON_LOG` and
 `DK_FAIL_ON_LOG` stop Flycast on a serial line, `DK_NET=modem` swaps the
 emulated broadband adapter for the emulated modem, `DK_SHOW_VMU=1` shows the
 VMU screens over the game, `DK_KEYBOARD=1` puts a Dreamcast keyboard in port
@@ -159,7 +159,7 @@ needs no Python.
 | `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, every emerald taken, spear thrown, mine dropped and hit as `DK ITEM` lines (and `misses band` for a kart that crossed a band off the slot), prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue, a missed jump, or tyres drawn 2 cm or more into the road in over 10% of kart-frames; the `tyres vs drawn road` line has the depths) |
 | `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` (an emerald ahead, the held gem, a spear, a barrier, a spin-out and a mine ahead included); `--log FILE` keeps the whole serial console |
 | `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh` (ask before touching it): 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
-| `make hw` | Plays the disc build on the console and leaves it on (`tools/dc-hw.sh power off` afterwards); dcload maps the project directory at `/pc`, where the game reads `disc/music.adp` |
+| `make hw` | Plays the game on the console and leaves it on (`tools/dc-hw.sh power off` afterwards); dcload maps the project directory at `/pc`, where the game reads `disc/music.adp` |
 | `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
 | `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
 | `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat, custom karts, practice, spectating, a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
@@ -296,7 +296,7 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 
 ## Gotchas
 
-- An ELF over 16 MB will not boot in Flycast; the link strips debug info into `dreamkarts.elf.debug` (`Makefile`). RAM is the real limit: with the music linked in, the heap has about a megabyte, and a release once shipped with the sound effects failing to load and no online worker thread (`Out of memory` on the serial console); the disc build streams the music from the disc instead
+- RAM is the limit, not the ELF's size: with the music linked in (14.6 MB of the 16 MB) the heap had about a megabyte, a release shipped with sound effects failing to load and no online worker thread (`Out of memory` on the serial console), and KOS copies each effect through a temporary heap block its own size. The music streams from the disc now and the world's vertex pool is static; the link still strips debug info into `dreamkarts.elf.debug`
 - Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `patches/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
 - Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/main.c`, `src/netlink.c`)
 - Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches

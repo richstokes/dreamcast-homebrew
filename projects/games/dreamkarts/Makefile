@@ -6,7 +6,7 @@ TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c
 GEN = assets/generated
-BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/music.adpcm
+BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak
 GEN_HEADERS = $(wildcard $(GEN)/*.h)
 SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
 	third_party/sh4zam/include/sh4zam/inline/*.h \
@@ -27,9 +27,6 @@ VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
 VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
 # film: trailer footage (src/film.c), with -DDK_FILM_SPECTATE or -DDK_FILM_SHOW.
 VARIANT_FLAGS_film = -DDK_FILM
-# disc: the self-booting image's build, streaming the music from the disc
-# (disc/music.adp) rather than linking its 9 MB into the 16 MB of RAM.
-VARIANT_FLAGS_disc = -DDK_MUSIC_DISC
 # Extra -D flags get their own object directory so builds never mix.
 empty :=
 space := $(empty) $(empty)
@@ -40,10 +37,12 @@ OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst %.S,$(OBJDIR)/%.o,$(A
 
 KOS_BUILD_SUBARCHS = pristine
 
-# The release's CDI is built from the disc variant (tools in
-# .github/scripts/package-releases.sh add disc/ to the image); the ELF
-# keeps its music linked in, for Flycast's direct ELF boot.
-all: $(TARGET) disc-elf
+# The game is a disc: the ELF boots with disc/ beside it (the music, 9 MB,
+# streams from there rather than living in the console's 16 MB of RAM).
+# run-flycast.sh wraps any ELF and disc/ into a throwaway CDI to boot it,
+# the release packaging does the same for the published image, and under
+# dcload the project directory is mapped at /pc.
+all: $(TARGET) disc/music.adp
 
 include $(KOS_BASE)/Makefile.rules
 
@@ -96,7 +95,7 @@ dreamkarts-$(VARIANT).elf: $(OBJS) $(LINK_STAMP)
 	$(link_elf)
 
 clean:
-	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug dreamkarts.cdi dreamkarts.iso disc
+	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug dreamkarts.cdi disc
 
 # Asset generators (outputs are committed so a plain build needs no Python).
 textures:
@@ -164,34 +163,29 @@ online-qa:
 DC_HW = ../../../tools/dc-hw.sh
 HW_LOG ?= captures/hw/hwbench.log
 
-hwbench:
+hwbench: disc/music.adp
 	$(MAKE) VARIANT=hwbench dreamkarts-hwbench.elf
 	mkdir -p captures/hw
+	cp disc/music.adp captures/hw/music.adp
 	$(DC_HW) run -c -o -T 420 -i 90 -u 'DK AUTOTEST: (PASS|FAIL)' -l $(HW_LOG) \
 		dreamkarts-hwbench.elf -- -m $(CURDIR)/captures/hw
 	uv run --with pillow python -c "import glob,PIL.Image as I; [I.open(f).save(f[:-3]+'png') for f in glob.glob('captures/hw/*.ppm')]"
 	@/usr/bin/grep -a 'DK AUTOTEST' $(HW_LOG)
 
-# The disc build and its files: disc/music.adp beside the boot binary.
-disc-elf: disc/music.adp
-	$(MAKE) SH4ZAM_UPDATED=1 VARIANT=disc dreamkarts-disc.elf
-
+# The disc's files: the music beside the boot binary.
 disc/music.adp: $(GEN)/music.adpcm
 	@mkdir -p disc
 	cp $< $@
 
-# A self-booting CDI of the disc build, and its data track as an ISO for
-# dcload's cdfs redirection (make hw). Needs mkdcdisc (MKDCDISC=path).
-MKDCDISC ?= mkdcdisc
-disc: disc-elf
-	$(MKDCDISC) --quiet --allow-overwrite --disable-data-track-padding --main-elf dreamkarts-disc.elf \
-		--directory-contents disc --title DreamKarts --author richstokes --dump-iso --output dreamkarts.cdi
+# A self-booting CDI, as the release publishes it (tools/mkdcdisc).
+disc: $(TARGET) disc/music.adp
+	../../../tools/flycast/elf-to-cdi.sh $(TARGET) disc dreamkarts.cdi
 
-# Play the disc build on the console (power-cycles it first); dcload maps
-# this directory at /pc, where the game finds disc/music.adp.
-hw: disc-elf
-	$(DC_HW) run -c -T 86400 dreamkarts-disc.elf -- -m $(CURDIR)
+# Play on the console (power-cycles it first); dcload maps this directory
+# at /pc, where the game finds disc/music.adp.
+hw: $(TARGET) disc/music.adp
+	$(DC_HW) run -c -T 86400 dreamkarts.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props biplane all clean run textures models audio vmu assets autotest hwbench hw disc disc-elf force
+.PHONY: canyon-rock tsudoken-props biplane all clean run textures models audio vmu assets autotest hwbench hw disc force
 
 endif

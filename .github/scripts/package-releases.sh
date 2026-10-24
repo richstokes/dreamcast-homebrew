@@ -16,16 +16,15 @@ while IFS='|' read -r directory slug title; do
     [ -n "$slug" ] || continue
 
     elf="$directory/$slug.elf"
-    # A project with a disc build streams assets from the disc instead of
-    # linking them in: its CDIs come from $slug-disc.elf with disc/ added,
-    # while the ELF asset stays the self-contained one.
+    # A project with a disc/ directory reads assets from the disc (DreamKarts
+    # streams its music): those files go in the image, and no ELF is
+    # published for it, since the ELF alone would not have them.
     disc_elf="$elf"
     disc_args=""
-    if [ -f "$directory/$slug-disc.elf" ]; then
-        disc_elf="$directory/$slug-disc.elf"
-    fi
+    publish_elf=1
     if [ -d "$directory/disc" ]; then
         disc_args="--directory-contents $directory/disc"
+        publish_elf=0
     fi
     cdi="$output_dir/$slug.cdi"
     cdr_cdi="$output_dir/$slug-cdr.cdi"
@@ -66,5 +65,7 @@ while IFS='|' read -r directory slug title; do
     (cd "$output_dir" && zip -q -9 "$slug-cdr.zip" "$slug-cdr.cdi")
     rm -f "$cdr_cdi"
 
-    cp "$elf" "$release_elf"
+    if [ "$publish_elf" = 1 ]; then
+        cp "$elf" "$release_elf"
+    fi
 done < .github/console-projects.txt

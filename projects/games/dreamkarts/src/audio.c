@@ -1,7 +1,7 @@
 /* DreamKarts audio.
 
    Music is a playlist of stereo ADPCM songs stored back to back as one
-   seamless loop and streamed from RAM, so the songs play in order and the
+   seamless loop and streamed from the disc, so the songs play in order and the
    last flows into the first. The title screen opens on the theme; each race
    jumps to the start of a random other song. Effects live in AICA RAM as
    16-bit mono PCM.
@@ -23,13 +23,11 @@
 #include <dc/sound/sound.h>
 #include <dc/sound/sfxmgr.h>
 #include <dc/sound/stream.h>
-#ifdef DK_MUSIC_DISC
 #include <kos/fs.h>
 #include <kos/thread.h>
 #include <kos/mutex.h>
 #include <malloc.h>
 #include <fcntl.h>
-#endif
 #include <dc/sound/aica_comm.h>
 #include <dc/spu.h>
 #include <dc/g2bus.h>
@@ -40,13 +38,12 @@
 #define AICA_MEM_CHANNELS 0x020000
 
 extern const uint8_t dk_sfx_pak[];
-#ifdef DK_MUSIC_DISC
-/* The music streams from the disc (a self-booting image, or dcload's
-   cdfs redirection of one): 9 MB that would otherwise sit in the
-   console's 16 MB of RAM for the whole run, and the game is otherwise a
-   megabyte from the top of it. A reader thread keeps a ring full ahead of
-   the AICA stream, so a GD-ROM seek never stalls a frame; the stream's
-   callback serves from the ring, silence if it ever runs dry. */
+/* The music streams from the disc (the CDI, or under dcload the project
+   directory mapped at /pc): 9 MB that linked into the executable left the
+   console's 16 MB within a megabyte of full. A reader thread keeps a ring
+   full ahead of the AICA stream, so a GD-ROM seek never stalls a frame;
+   the stream's callback serves from the ring, silence if it ever runs
+   dry. */
 #define MUSIC_PATH      "/cd/music.adp"
 #define RING_BYTES      (256 * 1024)
 #define RING_CHUNK      (32 * 1024)
@@ -59,10 +56,6 @@ static volatile uint32_t seek_gen;           /* bumped with a new seek_pos; the 
 static volatile size_t seek_pos;
 static volatile bool reader_quit;
 static bool music_pending;                   /* a song is set; the stream starts once the ring is primed */
-#else
-extern const uint8_t dk_music_adpcm[];
-extern const uint8_t dk_music_adpcm_end[];
-#endif
 
 static sfxhnd_t sfx[DK_SFX_COUNT];
 static bool ready;
@@ -118,7 +111,6 @@ void audio_kart_throttle(int slot, bool held) {
     grid_held[slot & 1] = held ? 3 : 0;
 }
 
-#ifdef DK_MUSIC_DISC
 static void *music_reader(void *arg) {
     (void)arg;
     uint32_t gen = 0;
@@ -207,33 +199,6 @@ static void *music_callback(snd_stream_hnd_t hnd, int req, int *got) {
     *got = (int)want;
     return out;
 }
-#else
-static void *music_callback(snd_stream_hnd_t hnd, int req, int *got) {
-    (void)hnd;
-    size_t want = (size_t)req;
-    if(music_bytes == 0 || req <= 0) {
-        *got = 0;
-        return NULL;
-    }
-    if(want > sizeof(wrap_buffer)) want = sizeof(wrap_buffer);
-#ifdef DK_AUTOTEST
-    at_fed += want;
-#endif
-    size_t left = music_bytes - music_cursor;
-    if(want <= left) {
-        const uint8_t *p = dk_music_adpcm + music_cursor;
-        music_cursor += want;
-        if(music_cursor >= music_bytes) music_cursor = 0;
-        *got = (int)want;
-        return (void *)p;
-    }
-    memcpy(wrap_buffer, dk_music_adpcm + music_cursor, left);
-    memcpy(wrap_buffer + left, dk_music_adpcm, want - left);
-    music_cursor = want - left;
-    *got = (int)want;
-    return wrap_buffer;
-}
-#endif
 
 void audio_init(void) {
     if(snd_stream_init_ex(2, MUSIC_BUFFER_BYTES) < 0) {
@@ -248,11 +213,12 @@ void audio_init(void) {
         if(sfx[i] == SFXHND_INVALID) printf("DreamKarts audio: effect %d failed to load\n", i);
         else loaded++;
     }
-#ifdef DK_MUSIC_DISC
     music_file = fs_open(MUSIC_PATH, O_RDONLY);
     if(music_file == FILEHND_INVALID) music_file = fs_open("/cd/MUSIC.ADP", O_RDONLY);
-    /* Under dcload (make hw) the project directory is mapped at /pc. */
+    /* Under dcload the project directory (make hw) or captures/hw (make
+       hwbench, which copies the music there) is mapped at /pc. */
     if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/disc/music.adp", O_RDONLY);
+    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/music.adp", O_RDONLY);
     if(music_file == FILEHND_INVALID) {
         printf("DreamKarts audio: no %s on the disc; no music\n", MUSIC_PATH);
         music_bytes = 0;
@@ -270,9 +236,6 @@ void audio_init(void) {
             thd_create(1, music_reader, NULL);
         }
     }
-#else
-    music_bytes = (size_t)(dk_music_adpcm_end - dk_music_adpcm);
-#endif
     /* snd_stream_alloc() takes the two lowest free channels and keeps them
        private; find out which ones by asking for them first. */
     music_chn[0] = snd_sfx_chn_alloc();
@@ -310,14 +273,12 @@ void audio_shutdown(void) {
     snd_sfx_stop_all();
     snd_sfx_unload_all();
     snd_stream_shutdown();
-#ifdef DK_MUSIC_DISC
     reader_quit = true;
     if(music_file != FILEHND_INVALID) {
         thd_sleep(30);   /* let a read in flight finish before the file closes */
         fs_close(music_file);
         music_file = FILEHND_INVALID;
     }
-#endif
     ready = false;
 }
 
@@ -350,7 +311,6 @@ static void start_song(int song, bool fade) {
     at_t0 = timer_us_gettime64();
     at_t_rate = 0;
 #endif
-#ifdef DK_MUSIC_DISC
     /* Point the reader at the song; the stream starts from audio_update
        once the ring holds a few blocks, so a GD-ROM seek never underruns
        the first ones. */
@@ -359,10 +319,6 @@ static void start_song(int song, bool fade) {
     seek_gen++;
     mutex_unlock(&ring_mx);
     music_pending = true;
-#else
-    snd_stream_start_adpcm(music, DK_MUSIC_RATE, 1);
-    snd_stream_volume(music, (int)music_volume);
-#endif
     music_clock_us = timer_us_gettime64();
     music_playing = true;
 }
@@ -473,7 +429,6 @@ bool audio_music_enabled(void) {
 
 void audio_update(float dt) {
     if(!ready || music == SND_STREAM_INVALID || !music_playing) return;
-#ifdef DK_MUSIC_DISC
     if(music_pending) {
         if(ring_waiting() < RING_PREFILL) {
             music_clock_us = timer_us_gettime64();   /* the song's clock starts with it */
@@ -483,7 +438,6 @@ void audio_update(float dt) {
         snd_stream_start_adpcm(music, DK_MUSIC_RATE, 1);
         snd_stream_volume(music, (int)music_volume);
     }
-#endif
     uint64_t now = timer_us_gettime64();
     float adv = (float)(now - music_clock_us) * (DK_MUSIC_RATE * 1e-6f) * music_rate + music_pos_frac;
     music_clock_us = now;
