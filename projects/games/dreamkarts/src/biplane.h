@@ -16,6 +16,8 @@ void biplane_update(float dt);
 void biplane_audio(bool on);
 /* Opaque list, current view. */
 void biplane_draw(void);
+/* Translucent list, current view: the plane as it fades out. */
+void biplane_draw_tr(void);
 /* Seconds into the newest show, or -1 when none is flying. */
 float biplane_show_time(void);
 

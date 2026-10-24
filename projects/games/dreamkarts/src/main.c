@@ -283,11 +283,18 @@ static void capture_script(void) {
     if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && !shot[5] && game.race_time > 12.0f) { shot[5] = true; take_shot("boardwalk"); }
     if(game.state == ST_RACE && dolphins_show_time() > 0.85f && !shot[11]) { shot[11] = true; take_shot("dolphins"); }
     if(game.state == ST_RACE && dolphins_show_time() > 3.65f && !shot[12]) { shot[12] = true; take_shot("dolphins2"); }
-    if(game.state == ST_RACE && biplane_show_time() > 1.2f && !shot[56]) { shot[56] = true; take_shot("biplane"); }
-    if(game.state == ST_RACE && biplane_show_time() > 2.6f && !shot[57]) { shot[57] = true; take_shot("biplane2"); }
-    if(game.state == ST_RACE && biplane_show_time() > 4.0f && !shot[58]) { shot[58] = true; take_shot("biplane3"); }
-    if(game.state == ST_RACE && biplane_show_time() > 5.4f && !shot[59]) { shot[59] = true; take_shot("biplane4"); }
-    if(game.state == ST_RACE && biplane_show_time() > 6.8f && !shot[60]) { shot[60] = true; take_shot("biplane5"); }
+    /* The biplane: every 0.8 s of its show, through the S and the fade. */
+    {
+        float bt = biplane_show_time();
+        int k = bt > 0.8f ? (int)(bt / 0.8f) - 1 : -1;
+        static bool bshot[16];
+        if(game.state == ST_RACE && k >= 0 && k < 15 && !bshot[k]) {
+            bshot[k] = true;
+            char name[16];
+            snprintf(name, sizeof(name), "biplane%02d", k);
+            take_shot(name);
+        }
+    }
     if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot(gp.active ? "gp-results" : "results"); }
 #ifdef DK_AT_GP
     /* Grand Prix: the standings after the first race, the next race's intro
@@ -1431,6 +1438,7 @@ static void render(void) {
     for(int v = 0; v < views; v++) {
         set_view(v);
         world_draw_tr();
+        biplane_draw_tr();
         if(!(dk_probe_off & PROBE_SHADOWS)) models_draw_shadows();
         if(!(dk_probe_off & PROBE_FX)) {
             items_draw();
