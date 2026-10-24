@@ -1155,6 +1155,41 @@ static void soft_reset(void) {
     pad.pressed = pad2.pressed = 0;
 }
 
+#ifdef DK_AT_TRACK_FLIP
+/* Track select scrolled quickly through every course twice, as a player
+   browsing them (or an online leader picking one) does, then three songs
+   started 300 ms apart, as races do. Each load stalls the main loop; the
+   music must not starve through it, nor the stream ever wait on the ring. */
+static void track_flip_autotest(void) {
+    static int loads, songs;
+    static uint64_t next_us;
+    float secs;
+    audio_music_now(&secs, NULL);
+    if(songs == 0 && secs < 2.0f) return;   /* the song not started yet */
+    uint64_t now = timer_us_gettime64();
+    if(now < next_us) return;
+    if(loads < 2 * TRACK_COUNT) {
+        game_load_track(game.track + 1);
+        uint32_t ms = (uint32_t)((timer_us_gettime64() - now) / 1000);
+        printf("DK FLIP: %s loaded in %lu ms\n", track_names[game.track], (unsigned long)ms);
+        next_us = timer_us_gettime64() + 250000;
+        loads++;
+        return;
+    }
+    if(songs < 3) {
+        audio_music_start();
+        next_us = now + (++songs < 3 ? 300000 : 4000000);   /* the last plays on for four seconds */
+        return;
+    }
+    int late, dry;
+    uint32_t gap = audio_autotest_feed(&late, &dry);
+    printf("DK FLIP: music refills at most %lu ms apart, %d over %d ms, %d short of music\n", (unsigned long)gap,
+           late, AUDIO_FEED_LATE_MS, dry);
+    printf("DK AUTOTEST: %s\n", late || dry ? "FAIL" : "PASS");
+    next_us = UINT64_MAX;
+}
+#endif
+
 static void update(float dt) {
     game.time += dt;
     game.title_t += dt;
@@ -1889,6 +1924,10 @@ int main(int argc, char **argv) {
 #endif
 #if defined(DK_AT_ONLINE) || defined(DK_FILM_SPECTATE)
     online_enter();
+#elif defined(DK_AT_TRACK_FLIP)
+    game_set_state(ST_TRACKS);
+    audio_music_start();
+    audio_music_target(210);
 #elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE) && !defined(DK_AT_NAME)
     game.cc = CC_150;
 #ifdef DK_AT_CC
@@ -1982,6 +2021,9 @@ int main(int argc, char **argv) {
         }
         if(save_tick()) audio_music_enable(save.music);
         if(game.online) online_tick();
+#ifdef DK_AT_TRACK_FLIP
+        track_flip_autotest();
+#endif
 #if defined(DK_HW) && defined(DK_CAPTURE)
         if(probe_step()) {
             steps = 0;

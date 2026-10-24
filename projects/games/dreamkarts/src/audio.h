@@ -27,6 +27,11 @@ void audio_music_rate(float mul);
 #ifdef DK_AUTOTEST
 /* Prints the rate change's cost and the music's byte rate either side of it. */
 void audio_autotest_report(void);
+/* The longest wait between two refills of the playing stream, how many
+   waits ran past LATE_MS (its AICA buffer then replays stale data) and how
+   many refills found the ring short of music (silence instead). */
+#define AUDIO_FEED_LATE_MS 400
+uint32_t audio_autotest_feed(int *late, int *dry);
 #endif
 void audio_sfx(int id, int vol, int pan);
 /* Chao voices: a mood picks one of its clips (never the same one twice

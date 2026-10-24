@@ -17,7 +17,16 @@
    The final-lap music speed-up retunes the stream's two channels the same
    way. Restarting the stream instead refilled its whole AICA buffer
    synchronously (16.5 ms on hardware, a dropped vblank) and skipped ahead
-   by the unplayed buffer. */
+   by the unplayed buffer.
+
+   The stream is refilled from its own thread, above the game's priority.
+   Its AICA buffer holds 1024 ms, refilled half at a time, and a track load
+   on the main thread (scrolling the track select, or an online leader
+   picking a course) can stall longer: Spiral Canyon's took 1056 ms in
+   Flycast. Starved, the AICA loops over stale ADPCM, and since the
+   decoder's state no longer matches the data its step size is left out of
+   ratio with the encoder's: the music comes back much too loud or quiet,
+   easing to normal only as the step size clamps. */
 #include "audio.h"
 #include "render.h"
 #include <dc/sound/sound.h>
@@ -42,12 +51,13 @@ extern const uint8_t dk_sfx_pak[];
    directory mapped at /pc): 9 MB that linked into the executable left the
    console's 16 MB within a megabyte of full. A reader thread keeps a ring
    full ahead of the AICA stream, so a GD-ROM seek never stalls a frame;
-   the stream's callback serves from the ring, silence if it ever runs
+   the stream's callback copies out of the ring, silence if it ever runs
    dry. */
 #define MUSIC_PATH      "/cd/music.adp"
 #define RING_BYTES      (256 * 1024)
 #define RING_CHUNK      (32 * 1024)
 #define RING_PREFILL    (96 * 1024)      /* before a song starts */
+#define FEED_MS         20               /* the feeder's refill check; the AICA buffer lasts 1024 ms */
 static uint8_t *ring;
 static file_t music_file = FILEHND_INVALID;
 static mutex_t ring_mx;
@@ -56,6 +66,12 @@ static volatile uint32_t seek_gen;           /* bumped with a new seek_pos; the 
 static volatile size_t seek_pos;
 static volatile bool reader_quit;
 static bool music_pending;                   /* a song is set; the stream starts once the ring is primed */
+/* The feeder thread polls the stream while it plays; the stream's start,
+   stop and poll all go under stream_mx. */
+static mutex_t stream_mx;
+static bool stream_live;
+static volatile bool feeder_quit;
+static kthread_t *feeder;
 /* Music from /pc (dcload) is read over the network with interrupts off,
    a frame or two lost about once a second, which spoils any timing on the
    console. There the stream runs on silence with no reader, unless the
@@ -84,8 +100,21 @@ static int music_chn[2] = { -1, -1 };
 static uint32_t at_rate_us;
 static size_t at_fed, at_fed_rate;      /* stream bytes fed: total, at the change */
 static uint64_t at_t0, at_t_rate;
+static uint64_t at_poll_us;             /* the stream's last refill check; 0 while stopped */
+static uint32_t at_poll_gap_max;
+static int at_poll_late, at_dry;
+
+static void at_poll_mark(void) {
+    uint64_t now = timer_us_gettime64();
+    if(at_poll_us) {
+        uint32_t gap = (uint32_t)((now - at_poll_us) / 1000);
+        if(gap > at_poll_gap_max) at_poll_gap_max = gap;
+        if(gap > AUDIO_FEED_LATE_MS) at_poll_late++;
+    }
+    at_poll_us = now;
+}
 #endif
-static uint8_t wrap_buffer[MUSIC_BUFFER_BYTES * 2] __attribute__((aligned(32)));
+static uint8_t feed_buffer[MUSIC_BUFFER_BYTES * 2] __attribute__((aligned(32)));
 
 typedef struct {
     int channel;
@@ -123,10 +152,9 @@ static void *music_reader(void *arg) {
     while(!reader_quit) {
         bool seek = false;
         mutex_lock(&ring_mx);
-        if(seek_gen != gen) {
+        if(seek_gen != gen) {   /* start_song() has emptied the ring */
             gen = seek_gen;
             pos = seek_pos;
-            ring_r = ring_w = ring_fill = 0;
             seek = true;
         }
         size_t fill = ring_fill, w = ring_w;
@@ -169,40 +197,50 @@ static size_t ring_waiting(void) {
     return fill;
 }
 
+/* Copied out under the lock: once ring_fill drops, the reader may refill
+   that space while KOS is still splitting the block, and a song change
+   may empty the ring between two looks at it. */
 static void *music_callback(snd_stream_hnd_t hnd, int req, int *got) {
     (void)hnd;
     size_t want = (size_t)req;
-    if(music_bytes == 0 || req <= 0) {
-        *got = 0;
-        return NULL;
-    }
-    if(want > sizeof(wrap_buffer)) want = sizeof(wrap_buffer);
+    *got = 0;
+    if(music_bytes == 0 || req <= 0) return NULL;
+    if(want > sizeof(feed_buffer)) want = sizeof(feed_buffer);
     mutex_lock(&ring_mx);
-    size_t fill = ring_fill, r = ring_r;
-    mutex_unlock(&ring_mx);
-    if(fill < want) {
-        *got = 0;              /* the stream plays silence for this block */
-        return NULL;
+    if(ring_fill < want) {
+        mutex_unlock(&ring_mx);
+#ifdef DK_AUTOTEST
+        at_dry++;
+#endif
+        return NULL;           /* the stream plays silence for this block */
     }
+    size_t first = RING_BYTES - ring_r < want ? RING_BYTES - ring_r : want;
+    memcpy(feed_buffer, ring + ring_r, first);
+    memcpy(feed_buffer + first, ring, want - first);
+    ring_r = (ring_r + want) % RING_BYTES;
+    ring_fill -= want;
+    mutex_unlock(&ring_mx);
 #ifdef DK_AUTOTEST
     at_fed += want;
 #endif
-    void *out;
-    if(r + want <= RING_BYTES) {
-        out = ring + r;
-    }
-    else {
-        size_t first = RING_BYTES - r;
-        memcpy(wrap_buffer, ring + r, first);
-        memcpy(wrap_buffer + first, ring, want - first);
-        out = wrap_buffer;
-    }
-    mutex_lock(&ring_mx);
-    ring_r = (r + want) % RING_BYTES;
-    ring_fill -= want;
-    mutex_unlock(&ring_mx);
     *got = (int)want;
-    return out;
+    return feed_buffer;
+}
+
+static void *music_feeder(void *arg) {
+    (void)arg;
+    while(!feeder_quit) {
+        mutex_lock(&stream_mx);
+        if(stream_live) {
+#ifdef DK_AUTOTEST
+            at_poll_mark();
+#endif
+            snd_stream_poll(music);
+        }
+        mutex_unlock(&stream_mx);
+        thd_sleep(FEED_MS);
+    }
+    return NULL;
 }
 
 void audio_init(void) {
@@ -255,6 +293,12 @@ void audio_init(void) {
     if(music_chn[0] >= 0) snd_sfx_chn_free(music_chn[0]);
     if(music_chn[1] >= 0) snd_sfx_chn_free(music_chn[1]);
     music = music_bytes ? snd_stream_alloc(music_callback, MUSIC_BUFFER_BYTES) : SND_STREAM_INVALID;
+    if(music != SND_STREAM_INVALID) {
+        mutex_init(&stream_mx, MUTEX_TYPE_NORMAL);
+        kthread_attr_t attr = {.prio = PRIO_DEFAULT - 1, .label = "dk-music-feed"};
+        feeder = thd_create_ex(&attr, music_feeder, NULL);
+        if(!feeder) printf("DreamKarts audio: no music feeder thread\n");
+    }
     for(int p = 0; p < MAX_PLAYERS; p++)
         for(int i = 0; i < V_COUNT; i++) voice_sets[p][i].channel = -1;
     printf("DreamKarts audio: %d/%d effects, music %lu bytes, %lu KiB AICA RAM free\n",
@@ -263,6 +307,11 @@ void audio_init(void) {
 
 void audio_shutdown(void) {
     if(!ready) return;
+    if(feeder) {
+        feeder_quit = true;
+        thd_join(feeder, NULL);
+        feeder = NULL;
+    }
     if(music != SND_STREAM_INVALID) {
         snd_stream_stop(music);
         snd_stream_destroy(music);
@@ -309,7 +358,13 @@ static int pick_song(void) {
 /* Restart the stream at the top of a song; fade in from silence or start
    straight at the current target volume. */
 static void start_song(int song, bool fade) {
-    if(music_playing) snd_stream_stop(music);
+    mutex_lock(&stream_mx);
+    if(stream_live) snd_stream_stop(music);
+    stream_live = false;
+#ifdef DK_AUTOTEST
+    at_poll_us = 0;
+#endif
+    mutex_unlock(&stream_mx);
     music_song = song;
     music_cursor = music_pos = dk_music_song_start[song];
     music_pos_frac = 0;
@@ -323,10 +378,13 @@ static void start_song(int song, bool fade) {
     at_t0 = timer_us_gettime64();
     at_t_rate = 0;
 #endif
-    /* Point the reader at the song; the stream starts from audio_update
-       once the ring holds a few blocks, so a GD-ROM seek never underruns
-       the first ones. */
+    /* Empty the ring and point the reader at the song; the stream starts
+       from audio_update once the ring holds a few blocks, so a GD-ROM seek
+       never underruns the first ones. Emptied here, not by the reader: a
+       reader still busy with a read left the old song's blocks to count as
+       primed, and the new start played them. */
     mutex_lock(&ring_mx);
+    ring_r = ring_w = ring_fill = 0;
     seek_pos = music_cursor;
     seek_gen++;
     mutex_unlock(&ring_mx);
@@ -401,9 +459,13 @@ void audio_music_rate(float mul) {
         snd_sh4_to_aica_start();
     }
     else {
-        snd_stream_stop(music);
-        snd_stream_start_adpcm(music, freq, 1);
-        snd_stream_volume(music, (int)music_volume);
+        mutex_lock(&stream_mx);
+        if(stream_live) {
+            snd_stream_stop(music);
+            snd_stream_start_adpcm(music, freq, 1);
+            snd_stream_volume(music, (int)music_volume);
+        }
+        mutex_unlock(&stream_mx);
     }
 #ifdef DK_AUTOTEST
     if(mul > 1.0f) at_rate_us = (uint32_t)(timer_us_gettime64() - t0);
@@ -424,6 +486,12 @@ void audio_autotest_report(void) {
         (double)(at_fed - at_fed_rate) * 1e6 / (double)(now - at_t_rate) : 0;
     printf("DK AUTOTEST: music speed-up took %luus, stream %.0f B/s before, %.0f B/s after (rate %d)\n",
            (unsigned long)at_rate_us, before, after, DK_MUSIC_RATE);
+}
+
+uint32_t audio_autotest_feed(int *late, int *dry) {
+    if(late) *late = at_poll_late;
+    if(dry) *dry = at_dry;
+    return at_poll_gap_max;
 }
 #endif
 
@@ -447,8 +515,11 @@ void audio_update(float dt) {
             return;
         }
         music_pending = false;
-        snd_stream_start_adpcm(music, DK_MUSIC_RATE, 1);
+        mutex_lock(&stream_mx);
+        snd_stream_start_adpcm(music, (uint32_t)(DK_MUSIC_RATE * music_rate), 1);
         snd_stream_volume(music, (int)music_volume);
+        stream_live = true;
+        mutex_unlock(&stream_mx);
     }
     uint64_t now = timer_us_gettime64();
     float adv = (float)(now - music_clock_us) * (DK_MUSIC_RATE * 1e-6f) * music_rate + music_pos_frac;
@@ -462,7 +533,7 @@ void audio_update(float dt) {
         music_volume = approach(music_volume, target, step);
         snd_stream_volume(music, (int)music_volume);
     }
-    snd_stream_poll(music);
+    if(!feeder) snd_stream_poll(music);   /* no thread: the frame loop is all there is */
 }
 
 void audio_sfx_pitch(int id, int vol, int pan, float rate) {
