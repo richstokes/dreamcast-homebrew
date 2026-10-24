@@ -21,9 +21,5 @@ set -u
 
 jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')
 
-while IFS='|' read -r directory slug title; do
-    [ -n "$directory" ] || continue
-    make -C "$workspace/$directory" clean
-    # CI already fetched current SH4ZAM on the host before entering Docker.
-    make -C "$workspace/$directory" -j"$jobs" SH4ZAM_UPDATED=1
-done < "$workspace/.github/console-projects.txt"
+make -f "$workspace/.github/scripts/build-projects.mk" \
+    -j"$jobs" --output-sync=recurse WORKSPACE="$workspace"
