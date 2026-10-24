@@ -28,7 +28,7 @@ static const char *const row_names[R_TIMES] = {"CPU", "upd", "world", "karts", "
 
 static struct {
     float sum[R_TIMES], max[R_TIMES];
-    float vtx_sum;
+    float vtx_sum, vtx_max;
     int tris_sum, tris_max, n;
     float t;
 } acc;
@@ -100,7 +100,6 @@ void perfhud_frame(float dt_real, float cpu_ms, const float phase_ms[5], int mis
     if(pvr_get_stats(&ps) == 0) {
         if(ps.rnd_last_time < 100000000ull) rnd = (float)ps.rnd_last_time * 1e-6f;
         vtx = (float)ps.vtx_buffer_used / 1024.0f;
-        shown.vtx_peak = (float)ps.vtx_buffer_used_max / 1024.0f;
     }
     float v[R_TIMES] = {cpu_ms - draw_ms, phase_ms[0], phase_ms[1], phase_ms[2], phase_ms[3] - draw_ms,
                         phase_ms[4], rnd, draw_ms + frame_ms};
@@ -112,6 +111,9 @@ void perfhud_frame(float dt_real, float cpu_ms, const float phase_ms[5], int mis
     acc.tris_sum += tris;
     if(tris > acc.tris_max) acc.tris_max = tris;
     acc.vtx_sum += vtx;
+    /* Our own peak per window, like the other rows: KOS's
+       vtx_buffer_used_max is the highest since boot and never comes down. */
+    if(vtx > acc.vtx_max) acc.vtx_max = vtx;
     acc.n++;
     acc.t += dt_real;
     if(acc.t >= WIN_SECS) {
@@ -123,6 +125,7 @@ void perfhud_frame(float dt_real, float cpu_ms, const float phase_ms[5], int mis
             put_ms(shown.max_s[i], shown.max[i]);
         }
         shown.vtx = acc.vtx_sum * inv;
+        shown.vtx_peak = acc.vtx_max;
         /* Flycast leaves the TA's vertex pointer register, which KOS reads
            for these, at zero; the console reports them. */
         if(shown.vtx_peak > 0) {
