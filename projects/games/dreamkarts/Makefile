@@ -179,10 +179,10 @@ disc: disc-elf
 	$(MKDCDISC) --quiet --allow-overwrite --disable-data-track-padding --main-elf dreamkarts-disc.elf \
 		--directory-contents disc --title DreamKarts --author richstokes --dump-iso --output dreamkarts.cdi
 
-# Play the disc build on the console (power-cycles it first), the music
-# served from the ISO through dcload.
-hw: disc
-	$(DC_HW) run -c -T 86400 dreamkarts-disc.elf -- -i $(CURDIR)/dreamkarts.iso
+# Play the disc build on the console (power-cycles it first); dcload maps
+# this directory at /pc, where the game finds disc/music.adp.
+hw: disc-elf
+	$(DC_HW) run -c -T 86400 dreamkarts-disc.elf -- -m $(CURDIR)
 
 .PHONY: canyon-rock tsudoken-props all clean run textures models audio vmu assets autotest hwbench hw disc disc-elf force
 

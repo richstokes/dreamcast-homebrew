@@ -247,6 +247,8 @@ void audio_init(void) {
 #ifdef DK_MUSIC_DISC
     music_file = fs_open(MUSIC_PATH, O_RDONLY);
     if(music_file == FILEHND_INVALID) music_file = fs_open("/cd/MUSIC.ADP", O_RDONLY);
+    /* Under dcload (make hw) the project directory is mapped at /pc. */
+    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/disc/music.adp", O_RDONLY);
     if(music_file == FILEHND_INVALID) {
         printf("DreamKarts audio: no %s on the disc; no music\n", MUSIC_PATH);
         music_bytes = 0;
