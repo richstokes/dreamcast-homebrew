@@ -382,7 +382,8 @@ static void capture_script(void) {
 #ifndef DK_HW
     /* Pause mid-race, switch the music off and the performance overlay on,
        grab the menu (the overlay behind it has had time to fill in), then
-       switch both back. A -DDK_PERF_HUD build leaves the overlay alone. */
+       step PERF on through FPS back to off and switch the music back. A
+       -DDK_PERF_HUD build leaves the overlay alone. */
     static float pause_t;
     if(game.state == ST_RACE && game.race_time > 6.0f && !shot[8] && !game.online) {
         if(!game.paused) { pad.pressed |= BTN_START; pause_t = 0; }
@@ -391,14 +392,14 @@ static void capture_script(void) {
             game.pause_sel = pause_t < 0.6f ? PAUSE_MUSIC : PAUSE_PERF;
             if(pause_t > 0.3f && audio_music_enabled() && pause_t < 0.6f) pad.pressed |= BTN_A;
 #ifndef DK_PERF_HUD
-            if(pause_t > 0.7f && !perfhud_on && pause_t < 1.0f) pad.pressed |= BTN_A;
+            if(pause_t > 0.7f && perfhud_mode != PERF_OVERLAY && pause_t < 1.0f) pad.pressed |= BTN_A;
 #endif
             if(pause_t > 1.8f) { shot[8] = true; take_shot("pause"); }
         }
     }
     if(shot[8] && game.paused && (pause_t += DK_DT) > 2.2f) {
 #ifndef DK_PERF_HUD
-        if(perfhud_on) { game.pause_sel = PAUSE_PERF; pad.pressed |= BTN_A; }
+        if(perfhud_mode != PERF_OFF) { game.pause_sel = PAUSE_PERF; pad.pressed |= BTN_A; }
         else
 #endif
         if(!audio_music_enabled()) { game.pause_sel = PAUSE_MUSIC; pad.pressed |= BTN_A; }
@@ -1094,9 +1095,9 @@ static void pause_update(void) {
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
         return;
     }
-    /* So does the performance overlay's. */
+    /* PERF steps off, overlay, FPS with A or right, back with left. */
     if(game.pause_sel == PAUSE_PERF && ((pd->pressed & BTN_A) || input_left(o) || input_right(o))) {
-        perfhud_enable(!perfhud_on);
+        perfhud_set_mode((perfhud_mode + (input_left(o) ? PERF_MODES - 1 : 1)) % PERF_MODES);
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
         return;
     }
@@ -1421,7 +1422,7 @@ static void render(void) {
         }
     PROF_MARK(2);
     PROF_LAP(PS_PHASE_KARTS, pp);
-    if(perfhud_on && !(dk_probe_off & (PROBE_HUD | PROBE_PERFHUD))) {
+    if(perfhud_mode == PERF_OVERLAY && !(dk_probe_off & (PROBE_HUD | PROBE_PERFHUD))) {
         r_set_viewport(0, 480.0f);
         perfhud_draw(views > 1);
     }
@@ -1507,6 +1508,7 @@ static void render(void) {
             else hud_draw_results();
             break;
     }
+    if(perfhud_mode == PERF_FPS && !(dk_probe_off & (PROBE_HUD | PROBE_PERFHUD))) perfhud_draw_fps(views > 1);
     r_frame_end();
     PROF_MARK(4);
     PROF_LAP(PS_PHASE_TR, pp);
@@ -2100,7 +2102,7 @@ int main(int argc, char **argv) {
                autotest's own timing does. */
             if(at_skip == 0)
 #endif
-                if(perfhud_on) perfhud_frame(dt_real, game.cpu_ms, phase_ms, missed);
+                if(perfhud_mode == PERF_OVERLAY) perfhud_frame(dt_real, game.cpu_ms, phase_ms, missed);
         }
         fps_frames++;
         if(end - fps_t0 >= 1000000) {

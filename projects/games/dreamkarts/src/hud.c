@@ -373,11 +373,13 @@ void hud_draw_results(void) {
 }
 
 void hud_draw_pause(void) {
+    static const char *const perf[PERF_MODES] = {"PERF: OFF", "PERF: OVERLAY", "PERF: FPS"};
     const char *items[PAUSE_ITEMS] = {"CONTINUE", "RESTART", audio_music_enabled() ? "MUSIC: ON" : "MUSIC: OFF",
-                                      perfhud_on ? "PERF: ON" : "PERF: OFF", "QUIT"};
+                                      perf[perfhud_mode], "QUIT"};
     r_hdr(h_flat);
     r_quad2d(0, 0, 640, 480, 0, 0, 1, 1, argb(120, 0, 10, 40), 14);
-    hud_panel(184, 140, 456, 402, argb(230, 30, 90, 200), argb(230, 10, 30, 100), 15);
+    /* Wide enough for "PERF: OVERLAY" at the selection's full pulse. */
+    hud_panel(150, 140, 490, 402, argb(230, 30, 90, 200), argb(230, 10, 30, 100), 15);
     hud_text(320, 152, 1.2f, ALIGN_CENTER, argb(255, 255, 220, 60), "PAUSE");
     for(int i = 0; i < PAUSE_ITEMS; i++) {
         bool sel = i == game.pause_sel;

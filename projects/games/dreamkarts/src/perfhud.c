@@ -52,19 +52,19 @@ static float draw_ms, frame_ms;  /* the overlay's own cost: drawing, bookkeeping
 static int draw_tris;
 
 #ifdef DK_PERF_HUD
-bool perfhud_on = true;
+int perfhud_mode = PERF_OVERLAY;
 #else
-bool perfhud_on;
+int perfhud_mode;
 #endif
 
-void perfhud_enable(bool on) {
-    if(on && !perfhud_on) {
+void perfhud_set_mode(int mode) {
+    if(mode == PERF_OVERLAY && perfhud_mode != PERF_OVERLAY) {
         memset(&acc, 0, sizeof(acc));
         memset(&acc_sec, 0, sizeof(acc_sec));
         draw_ms = frame_ms = 0;
         draw_tris = 0;
     }
-    perfhud_on = on;
+    perfhud_mode = mode;
 }
 
 static char *put_int(char *p, int v) {
@@ -372,4 +372,16 @@ void perfhud_draw(bool split) {
     r_quad2d(x, y, x + BOX_W, y + BOX_H, 0, 0, (float)BOX_W / TEX_W, (float)BOX_H / TEX_H, 0xffffffff, 19.0f);
     draw_tris += rstats.tris - tris0;
     draw_ms += (float)(timer_us_gettime64() - t0) * 0.001f;
+}
+
+/* Last second's frame rate (main loop's game.fps) in a small box where the
+   overlay would sit. A handful of glyphs costs the PVR next to nothing. */
+void perfhud_draw_fps(bool split) {
+    float k = split ? 0.72f : 1.0f, x = split ? 14.0f : 24.0f, y = split ? 48.0f : 78.0f;
+    int fps = (int)(game.fps + 0.5f);
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%d FPS", fps);
+    uint32_t col = fps >= 58 ? argb(255, 70, 220, 90) : fps >= 50 ? argb(255, 255, 190, 40) : argb(255, 255, 60, 50);
+    hud_panel(x, y, x + 100 * k, y + 30 * k, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
+    hud_text(x + 50 * k, y + 2 * k, 0.6f * k, ALIGN_CENTER, col, buf);
 }
