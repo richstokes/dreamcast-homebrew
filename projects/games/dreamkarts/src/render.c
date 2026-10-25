@@ -229,13 +229,14 @@ void m4_identity(float *m) {
     m[0] = m[5] = m[10] = m[15] = 1.0f;
 }
 
+/* Saves and restores XMTRX (see render.h). */
 void m4_mul(float *out, const float *a, const float *b) {
-    float r[16];
-    for(int c = 0; c < 4; c++)
-        for(int row = 0; row < 4; row++)
-            r[c * 4 + row] = a[0 * 4 + row] * b[c * 4 + 0] + a[1 * 4 + row] * b[c * 4 + 1] +
-                             a[2 * 4 + row] * b[c * 4 + 2] + a[3 * 4 + row] * b[c * 4 + 3];
-    memcpy(out, r, sizeof(r));
+    shz_mat4x4_t saved;
+    shz_xmtrx_store_4x4(&saved);
+    shz_xmtrx_load_unaligned_4x4(a);
+    shz_xmtrx_apply_unaligned_4x4(b);
+    shz_xmtrx_store_unaligned_4x4(out);
+    shz_xmtrx_load_4x4(&saved);
 }
 
 void m4_rot_y(float *m, float a) {
@@ -270,13 +271,15 @@ void m4_rot_axis(float *m, V3 n, float a) {
 }
 
 void m4_translate_rotate(float *m, V3 t, float yaw, float pitch, float roll) {
-    float ry[16], rx[16], rz[16];
-    m4_rot_y(ry, yaw);
-    m4_rot_x(rx, pitch);
-    m4_rot_z(rz, roll);
-    m4_mul(m, ry, rx);
-    m4_mul(m, m, rz);
-    m[12] = t.x; m[13] = t.y; m[14] = t.z;
+    /* m4_rot_x's positive pitch is SH4ZAM's negative X rotation. */
+    shz_mat4x4_t saved;
+    shz_xmtrx_store_4x4(&saved);
+    shz_xmtrx_init_translation(t.x, t.y, t.z);
+    shz_xmtrx_rotate_y(yaw);
+    shz_xmtrx_rotate_x(-pitch);
+    shz_xmtrx_rotate_z(roll);
+    shz_xmtrx_store_unaligned_4x4(m);
+    shz_xmtrx_load_4x4(&saved);
 }
 
 void m4_scale_apply(float *m, float sx, float sy, float sz) {

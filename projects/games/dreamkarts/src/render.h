@@ -99,7 +99,10 @@ bool r_sphere_visible(V3 c, float radius);
 bool r_project(V3 p, float *sx, float *sy, float *inv_w);
 float r_view_depth(V3 p);
 
-/* Column-major 4x4 helpers. */
+/* Column-major 4x4 helpers. m4_mul and m4_translate_rotate compute in
+   XMTRX (several times faster than C on the SH-4) and put it back before
+   returning: fx.c builds kart matrices between billboards that need the
+   view-projection still loaded. Any helper that touches XMTRX must too. */
 void m4_identity(float *m);
 void m4_mul(float *out, const float *a, const float *b);
 void m4_translate_rotate(float *m, V3 t, float yaw, float pitch, float roll);
