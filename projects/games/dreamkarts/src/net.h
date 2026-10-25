@@ -72,11 +72,13 @@ int net_say_state(void);
 int net_chat_count(void);
 const NetChat *net_chat(int i);
 
-/* Item byte (KART offset 33): the held item, a barrier up, spun out and
-   whether the spear flew backwards. The sequence byte (offset 40) numbers
+/* Item byte (KART offset 33): the held item, a barrier up, spun out,
+   whether the spear flew backwards and a barrel roll (build 25: older
+   consoles ignore the bits). The sequence byte (offset 40) numbers
    this kart's spear in its low nibble and its mine in the high one, 0 for
    none. */
-enum { NKI_ITEM_MASK = 7, NKI_SHIELD = 8, NKI_SPUN = 16, NKI_BACK = 32, NKI_SEQ_MASK = 15, NKI_MINE_SHIFT = 4 };
+enum { NKI_ITEM_MASK = 7, NKI_SHIELD = 8, NKI_SPUN = 16, NKI_BACK = 32, NKI_TRICK = 64, NKI_TRICK_LEFT = 128,
+       NKI_SEQ_MASK = 15, NKI_MINE_SHIFT = 4 };
 
 /* A kart as sent over the wire. */
 typedef struct {

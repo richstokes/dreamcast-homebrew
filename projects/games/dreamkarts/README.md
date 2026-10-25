@@ -28,7 +28,7 @@ Highlights:
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
-- Rocket starts, charge jumps, burnouts, emotes, final-lap dolphins and a biplane weaving ahead on Spiral Canyon's final lap
+- Rocket starts, charge jumps, barrel rolls off the ramps for a landing boost, burnouts, emotes, final-lap dolphins and a biplane weaving ahead on Spiral Canyon's final lap
 - Four original songs, 32 effects, Chao voices by colour and Jump Pack rumble
 - A Settings menu with the sound test, your online name, a music switch and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
 - VMU screens for the countdown, place, lap and results

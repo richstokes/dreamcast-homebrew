@@ -75,6 +75,7 @@ typedef struct {
     int spear_target;    /* lobby slot, or -1 */
     int mine_seq;        /* 1-15 while this kart's mine is on the road, 0 none */
     float mine_s, mine_d;
+    bool trick, trick_left;  /* barrel rolled this flight, and which way (shares the item byte; online.c) */
 } NetItems;
 void items_pack(const Kart *k, NetItems *out);
 /* A rival's item state from the network: held gem, barrier, spin-out, its

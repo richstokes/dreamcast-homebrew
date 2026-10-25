@@ -240,6 +240,26 @@ static void trick_cancel(Kart *k) {
     k->trick_a = 0;
 }
 
+/* The barrel roll: one full turn toward the steered side, a touch quicker
+   through the middle. */
+static void trick_animate(Kart *k, float dt) {
+    if(k->trick_t <= 0) return;
+    k->trick_t += dt;
+    float f = fminf(k->trick_t / TRICK_LEN, 1.0f);
+    f = 0.65f * f + 0.35f * f * f * (3.0f - 2.0f * f);
+    k->trick_a = -(float)k->trick_dir * DK_TAU * f;
+    if(k->trick_t >= TRICK_LEN) {
+        k->trick_t = 0;
+        k->trick_a = 0;
+    }
+}
+
+void kart_remote_trick(Kart *k, bool left) {
+    k->trick_t = 1e-3f;
+    k->trick_dir = left ? -1 : 1;
+    k->events |= EV_TRICK;
+}
+
 static void end_drift(Kart *k, bool award) {
     k->boost_stage = k->drift == DRIFT_ACTIVE && award ? k->stage : 0;
     if(k->drift == DRIFT_ACTIVE && award && k->stage > 0) {
@@ -527,6 +547,7 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
     k->nose += ((k->boost_t > 0 ? -0.05f : 0.0f) - k->nose) * smooth_k(6.0f, dt);
     float pitch_t = 0, roll_t = 0;
     if(grounded) road_tilt(k, heading + k->vis_yaw, &pitch_t, &roll_t);
+    trick_animate(k, dt);
     /* On the road the chassis follows it closely (a slow follow sinks the
        tyres through every dip); in the air it settles gently. */
     k->roll += (roll_t - k->roll) * smooth_k(grounded ? 25.0f : 8.0f, dt);
@@ -810,18 +831,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     float pitch_t = 0, roll_t = 0;
     if(k->grounded) road_tilt(k, k->heading + k->vis_yaw, &pitch_t, &roll_t);
     else if(k->big_air) pitch_t = atan2f(k->vy, fmaxf(spd, 1.0f)) * 0.6f;
-    if(k->trick_t > 0) {
-        /* The barrel roll: one full turn toward the steered side, a touch
-           quicker through the middle. */
-        k->trick_t += dt;
-        float f = fminf(k->trick_t / TRICK_LEN, 1.0f);
-        f = 0.65f * f + 0.35f * f * f * (3.0f - 2.0f * f);
-        k->trick_a = -(float)k->trick_dir * DK_TAU * f;
-        if(k->trick_t >= TRICK_LEN) {
-            k->trick_t = 0;
-            k->trick_a = 0;
-        }
-    }
+    trick_animate(k, dt);
     /* On the road the chassis follows it closely (a slow follow sinks the
        tyres through every dip); in the air it settles gently. */
     k->roll += (roll_t - k->roll) * smooth_k(k->grounded ? 25.0f : 8.0f, dt);

@@ -243,10 +243,13 @@ void online_pack_kart(const Kart *me, NetKart *nk) {
     nk->dist = me->tp.s;
     nk->race_time = me->finished ? me->finish_time : fmaxf(game.race_time, 0);
     items_pack(me, &nk->items);
+    nk->items.trick = me->tricked;
+    nk->items.trick_left = me->trick_dir < 0;
 }
 
 void online_remote_karts(float dt) {
     static bool waving[MAX_KARTS];   /* NKF_WAVE last time, to start waves on its rising edge */
+    static bool rolling[MAX_KARTS];  /* NKI_TRICK last time: a barrel roll starts on its rising edge */
     uint64_t at = net_draw_time(dt);
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
@@ -313,6 +316,15 @@ void online_remote_karts(float dt) {
         }
         if(wave) k->wave_left = (nk.flags & NKF_WAVE_LEFT) != 0;
         waving[i] = wave;
+        /* The roll flag holds until the sender lands, so a missed sample
+           can't start the roll twice. */
+        if(nk.items.trick && !rolling[i]) {
+            kart_remote_trick(k, nk.items.trick_left);
+#ifdef DK_AUTOTEST
+            printf("DK ONLINE: slot %d barrel rolls\n", k->net_slot);
+#endif
+        }
+        rolling[i] = nk.items.trick;
         k->lap = nk.lap;
         k->progress = (float)nk.lap * track.length + nk.dist;
         if((nk.flags & NKF_FINISHED) && !k->finished) {

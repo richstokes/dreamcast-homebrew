@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 4
-	Build    = 24
+	Build    = 25
 	MinBuild = 24
 )
 
@@ -93,7 +93,8 @@ const (
 
 // The item byte (KART offset 33), the sequence byte (40), the spear bytes
 // (41-44) and the mine bytes (45-47) are relayed as-is: the held power-up,
-// barrier, spin-out, the kart's spear in flight and its mine on the road.
+// barrier, spin-out, a barrel roll in the air (bits 6-7, build 25), the
+// kart's spear in flight and its mine on the road.
 // Consoles judge hits on their own karts.
 
 // WISH flags (body byte 5, build 11).

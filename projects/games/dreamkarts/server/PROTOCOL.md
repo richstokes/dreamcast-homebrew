@@ -118,7 +118,7 @@ straight back to waiting with no results.
 | 30 | i8 | steer * 127 |
 | 31 | u8 | spark stage 0-3 |
 | 32 | u8 | lap (0 = before the line) |
-| 33 | u8 | items: bits 0-2 held (0 none, 1 Power Sneakers, 2 Chaos Spear, 3 Barrier, 4 Mine), bit 3 barrier up, bit 4 spun out, bit 5 spear thrown backwards |
+| 33 | u8 | items: bits 0-2 held (0 none, 1 Power Sneakers, 2 Chaos Spear, 3 Barrier, 4 Mine), bit 3 barrier up, bit 4 spun out, bit 5 spear thrown backwards, bit 6 barrel rolled this flight (held until it lands; receivers animate the roll on the rising edge), bit 7 rolling left (build 25) |
 | 34 | u16 | lap distance * 16 (m) |
 | 36 | u32 | race time in ms (finish time once finished); receivers space samples by it |
 | 40 | u8 | bits 0-3 spear sequence (0 none, else 1-15, a new number per throw), bits 4-7 mine sequence (0 none, else 1-15, a new number per drop; 0 again once the mine has gone) |

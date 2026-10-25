@@ -327,7 +327,7 @@ void net_encode_kart(uint8_t *b, const NetKart *k) {
     b[13] = (uint8_t)clampf((float)k->lap, 0, 255);
     const NetItems *it = &k->items;
     b[14] = (uint8_t)((it->item & NKI_ITEM_MASK) | (it->shield ? NKI_SHIELD : 0) | (it->spun ? NKI_SPUN : 0) |
-                      (it->spear_back ? NKI_BACK : 0));
+                      (it->spear_back ? NKI_BACK : 0) | (it->trick ? NKI_TRICK : 0) | (it->trick_left ? NKI_TRICK_LEFT : 0));
     put16(b + 15, (uint16_t)clampf(k->dist * 16.0f, 0, 65535));
     put32(b + 17, (uint32_t)(fmaxf(k->race_time, 0) * 1000.0f));
     b[21] = (uint8_t)((it->spear_seq & NKI_SEQ_MASK) | ((it->mine_seq & NKI_SEQ_MASK) << NKI_MINE_SHIFT));
@@ -357,6 +357,8 @@ static void decode_kart(const uint8_t *b, NetKart *k) {
     it->shield = (b[14] & NKI_SHIELD) != 0;
     it->spun = (b[14] & NKI_SPUN) != 0;
     it->spear_back = (b[14] & NKI_BACK) != 0;
+    it->trick = (b[14] & NKI_TRICK) != 0;
+    it->trick_left = (b[14] & NKI_TRICK_LEFT) != 0;
     it->spear_seq = b[21] & NKI_SEQ_MASK;
     it->mine_seq = (b[21] >> NKI_MINE_SHIFT) & NKI_SEQ_MASK;
     it->spear_s = (float)get16(b + 22) / 16.0f;
