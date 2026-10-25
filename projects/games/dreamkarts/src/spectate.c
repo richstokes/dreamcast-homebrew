@@ -760,7 +760,7 @@ static void lower_third(void) {
     else
         snprintf(buf, sizeof(buf), "%s CAM", cam);
     char tail[32];
-    snprintf(tail, sizeof(tail), "%.0f KM/H", (double)(fabsf(k->speed) * 3.6f));
+    snprintf(tail, sizeof(tail), "%.0f MPH", (double)(fabsf(k->speed) * 2.237f));
     hud_text(x1 - 12, y0 + 6, 0.42f, ALIGN_RIGHT, argb(220, 200, 225, 255), buf);
     if(game.state != ST_COUNTDOWN) hud_text(x1 - 12, y0 + 28, 0.42f, ALIGN_RIGHT, argb(255, 255, 226, 120), tail);
     const NetLobby *l = net_lobby();
