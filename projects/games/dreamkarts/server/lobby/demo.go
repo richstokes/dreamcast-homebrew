@@ -1,6 +1,7 @@
 package lobby
 
 import (
+	"encoding/binary"
 	"math/rand"
 	"time"
 
@@ -138,6 +139,15 @@ func (s *Server) tickDemo(now time.Time) {
 			if k, ok := d.kartOf[p]; ok && p.Racing {
 				var kart [demo.KartLen]byte
 				copy(kart[:], d.race.Kart(f, k))
+				if now.Before(l.Green) {
+					// Frame 0 is the green light, where a rocket start is
+					// already doing 30 m/s. Consoles run a kart on from its
+					// newest sample at its speed, so on the grid, with that
+					// one sample repeated, it would creep up to 9 m ahead
+					// of its slot, over the line: hold it still until green.
+					binary.LittleEndian.PutUint16(kart[9:], 0)
+					kart[0] &^= KartBoosting
+				}
 				if t := kart[demo.KartTarget]; t != demo.NoTarget {
 					kart[demo.KartTarget] = demo.NoTarget
 					if int(t) < len(d.slotOf) {

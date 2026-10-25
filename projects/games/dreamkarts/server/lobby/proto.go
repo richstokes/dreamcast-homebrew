@@ -86,6 +86,7 @@ const (
 // Kart flags (KART offset 19).
 const (
 	KartFinished = 1 << 0
+	KartBoosting = 1 << 2 // relayed as-is: consoles draw the boost flames
 	KartWaving   = 1 << 5 // relayed as-is; consoles animate the wave
 	KartWaveLeft = 1 << 6 // relayed as-is: the wave is on the left arm (build 20)
 	KartSkid     = 1 << 7 // relayed as-is: braking hard, consoles lay skid marks (build 23)

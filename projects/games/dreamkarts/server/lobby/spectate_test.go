@@ -114,6 +114,8 @@ func fakeRace(t *testing.T, track byte, secs float64, raceID byte) *demo.Race {
 				ms = fin
 			}
 			binary.LittleEndian.PutUint16(e[15:], uint16(f*16))
+			binary.LittleEndian.PutUint16(e[9:], uint16(30*64)) // rocket starts: moving from the green light
+			e[0] |= KartBoosting
 			binary.LittleEndian.PutUint32(e[17:], ms)
 			e[demo.KartTarget] = demo.NoTarget
 			if k == 0 && f >= demo.Rate && f < 2*demo.Rate {
@@ -184,6 +186,16 @@ func TestDemoLobby(t *testing.T) {
 			t.Fatalf("race %d: started after %v in the lobby", race, waited)
 		}
 		tracks = append(tracks, l.Track)
+		// On the grid the bots hold still: no speed, no boost, or consoles
+		// would run them on over the line.
+		adv(time.Second)
+		for i, r := 0, c.last(TypeRace); r != nil && i < int(r[9]); i++ {
+			e := r[10+(3+demo.KartLen)*i+3:]
+			if binary.LittleEndian.Uint16(e[9:]) != 0 || e[0]&KartBoosting != 0 {
+				t.Fatalf("race %d: slot %d moving on the grid: speed %d flags %#x", race, r[10+(3+demo.KartLen)*i],
+					binary.LittleEndian.Uint16(e[9:]), e[0])
+			}
+		}
 		if l.RaceID != d.race.RaceID {
 			t.Fatalf("race %d: id %d, recording %s wants %d", race, l.RaceID, d.race.Name, d.race.RaceID)
 		}
