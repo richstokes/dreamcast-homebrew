@@ -1,6 +1,6 @@
 TARGET = lemonplay.elf
 SRCS = src/main.c src/gfx.c src/input.c src/netlink.c src/http.c src/upnp.c \
-       src/player.c src/mpeg.c src/bench.c src/settings.c
+       src/player.c src/mpeg.c src/bench.c src/settings.c src/icons.c src/ui.c
 
 KOS_BUILD_SUBARCHS = pristine
 KOS_CSTD = -std=gnu17
@@ -13,6 +13,7 @@ VARIANT_FLAGS_qa = -DLP_QA -DLP_START_SECONDS=300
 VARIANT_FLAGS_bench = -DLP_BENCH -DLP_START_SECONDS=300
 VARIANT_FLAGS_decodebench = -DLP_DECODE_BENCH -DLP_PROFILE
 VARIANT_FLAGS_qaend = -DLP_QA -DLP_QA_END
+VARIANT_FLAGS_tour = -DLP_UI_TOUR -DLP_START_SECONDS=300
 BUILD = build/$(if $(VARIANT),$(VARIANT),release)
 ELF = $(if $(VARIANT),lemonplay-$(VARIANT).elf,$(TARGET))
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)

@@ -4,7 +4,10 @@
 #define LEMONPLAY_GFX_H
 
 #include <dc/pvr.h>
+#include <stddef.h>
 #include <stdint.h>
+
+#include "icons.h"
 
 #define SCREEN_W 640
 #define SCREEN_H 480
@@ -20,6 +23,10 @@
 #define COL_MUTED     0xff9a9686u
 #define COL_ERROR     0xffff7a5cu
 #define COL_SELECT    0xff3b3418u
+
+/* Title-safe area: CRT TVs crop the edges of the picture. */
+#define SAFE_X 32
+#define SAFE_Y 24
 
 void gfx_init(void);
 
@@ -41,6 +48,19 @@ float gfx_text_width(const char *text, float scale);
 /* A textured opaque quad, for the video picture. */
 void gfx_textured(const pvr_poly_hdr_t *hdr, float x, float y, float w, float h,
                   float u0, float v0, float u1, float v1);
+
+/* Translucent rectangle shading from top to bottom colour. */
+void gfx_gradient(float x, float y, float w, float h, uint32_t top, uint32_t bottom);
+/* An icon from icons.h, size pixels square, tinted (white masks) or not. */
+void gfx_icon(int icon, float x, float y, float size, uint32_t argb);
+/* Translucent bar with round ends. */
+void gfx_pill(float x, float y, float w, float h, uint32_t argb);
+/* A controller button glyph 24 pixels tall: 'A', 'B', 'X', 'Y', 'S' (Start),
+   'L' or 'R'. Returns the x after it. */
+float gfx_button(float x, float y, char button);
+/* Button glyph and label; returns where the next hint starts. */
+float gfx_hint(float x, float y, char button, const char *label, uint32_t argb);
+float gfx_hint_width(char button, const char *label);
 
 /* UTF-8 to the BIOS font's ISO-8859-1, '?' for anything it can't show. */
 void utf8_to_latin1(char *dst, size_t size, const char *src);

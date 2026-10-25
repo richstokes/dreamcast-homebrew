@@ -3,6 +3,8 @@
    glyph, tinted by vertex colour. */
 #include "gfx.h"
 
+#include "icons.h"
+
 #include <dc/biosfont.h>
 #include <kos.h>
 #include <stdlib.h>
@@ -11,11 +13,13 @@
 #define ATLAS_W 256
 #define ATLAS_H 512
 #define ATLAS_COLS (ATLAS_W / FONT_W)
+#define ICONS_W 256
+#define ICONS_H 64
 
-enum { HDR_NONE, HDR_FLAT, HDR_FONT, HDR_OTHER };
+enum { HDR_NONE, HDR_FLAT, HDR_FONT, HDR_FONT_SMOOTH, HDR_ICONS, HDR_OTHER };
 
-static pvr_poly_hdr_t flat_op_hdr, flat_tr_hdr, font_hdr;
-static pvr_ptr_t atlas;
+static pvr_poly_hdr_t flat_op_hdr, flat_tr_hdr, font_hdr, font_smooth_hdr, icons_hdr;
+static pvr_ptr_t atlas, icons;
 static int list_open = -1;   /* PVR list being filled, or -1 */
 static int current_hdr = HDR_NONE;
 
@@ -31,6 +35,23 @@ static void build_atlas(void) {
     atlas = pvr_mem_malloc(ATLAS_W * ATLAS_H * 2);
     pvr_txr_load(pixels, atlas, ATLAS_W * ATLAS_H * 2);
     free(pixels);
+
+    pixels = calloc(ICONS_W * ICONS_H, sizeof(uint16_t));
+    icons_draw(pixels, ICONS_W);
+    icons = pvr_mem_malloc(ICONS_W * ICONS_H * 2);
+    pvr_txr_load(pixels, icons, ICONS_W * ICONS_H * 2);
+    free(pixels);
+}
+
+/* Translucent draws stack in submission order (autosort is off), so they
+   ignore depth: everything sits at the same z. */
+static void compile_tr_txr(pvr_poly_hdr_t *hdr, int w, int h, pvr_ptr_t txr, int filter, int shading) {
+    pvr_poly_cxt_t cxt;
+    pvr_poly_cxt_txr(&cxt, PVR_LIST_TR_POLY, PVR_TXRFMT_ARGB4444 | PVR_TXRFMT_NONTWIDDLED, w, h, txr, filter);
+    cxt.gen.shading = shading;
+    cxt.depth.comparison = PVR_DEPTHCMP_ALWAYS;
+    cxt.depth.write = PVR_DEPTHWRITE_DISABLE;
+    pvr_poly_compile(hdr, &cxt);
 }
 
 void gfx_init(void) {
@@ -44,20 +65,17 @@ void gfx_init(void) {
     pvr_poly_cxt_t cxt;
     pvr_poly_cxt_col(&cxt, PVR_LIST_OP_POLY);
     pvr_poly_compile(&flat_op_hdr, &cxt);
-    /* Translucent draws stack in submission order (autosort is off), so
-       they ignore depth: everything sits at the same z. */
     pvr_poly_cxt_col(&cxt, PVR_LIST_TR_POLY);
     cxt.depth.comparison = PVR_DEPTHCMP_ALWAYS;
     cxt.depth.write = PVR_DEPTHWRITE_DISABLE;
     pvr_poly_compile(&flat_tr_hdr, &cxt);
 
     build_atlas();
-    pvr_poly_cxt_txr(&cxt, PVR_LIST_TR_POLY, PVR_TXRFMT_ARGB4444 | PVR_TXRFMT_NONTWIDDLED,
-                     ATLAS_W, ATLAS_H, atlas, PVR_FILTER_NONE);
-    cxt.gen.shading = PVR_SHADE_FLAT;
-    cxt.depth.comparison = PVR_DEPTHCMP_ALWAYS;
-    cxt.depth.write = PVR_DEPTHWRITE_DISABLE;
-    pvr_poly_compile(&font_hdr, &cxt);
+    /* Text at whole-number sizes stays pixel-sharp; other sizes and the
+       icons are filtered. */
+    compile_tr_txr(&font_hdr, ATLAS_W, ATLAS_H, atlas, PVR_FILTER_NONE, PVR_SHADE_FLAT);
+    compile_tr_txr(&font_smooth_hdr, ATLAS_W, ATLAS_H, atlas, PVR_FILTER_BILINEAR, PVR_SHADE_FLAT);
+    compile_tr_txr(&icons_hdr, ICONS_W, ICONS_H, icons, PVR_FILTER_BILINEAR, PVR_SHADE_FLAT);
 }
 
 int gfx_ready(void) {
@@ -134,16 +152,18 @@ static void glyph(float x, float y, uint32_t argb, float scale, unsigned char c)
          u0, v0, u0 + (float)FONT_W / ATLAS_W, v0 + (float)FONT_H / ATLAS_H);
 }
 
-static void font_begin(void) {
+static void font_begin(float scale) {
+    int smooth = scale != (int)scale;
+    int want = smooth ? HDR_FONT_SMOOTH : HDR_FONT;
     use_list(PVR_LIST_TR_POLY);
-    if(current_hdr != HDR_FONT) {
-        pvr_prim(&font_hdr, sizeof(font_hdr));
-        current_hdr = HDR_FONT;
+    if(current_hdr != want) {
+        pvr_prim(smooth ? &font_smooth_hdr : &font_hdr, sizeof(font_hdr));
+        current_hdr = want;
     }
 }
 
 float gfx_text(float x, float y, uint32_t argb, float scale, const char *text) {
-    font_begin();
+    font_begin(scale);
     for(const unsigned char *p = (const unsigned char *)text; *p; p++) {
         glyph(x, y, argb, scale, *p);
         x += FONT_W * scale;
@@ -159,7 +179,7 @@ void gfx_text_clip(float x, float y, uint32_t argb, float scale, const char *tex
         return;
     }
     if(fit < 4) return;
-    font_begin();
+    font_begin(scale);
     for(int i = 0; i < fit - 3; i++) {
         glyph(x, y, argb, scale, (unsigned char)text[i]);
         x += FONT_W * scale;
@@ -169,6 +189,80 @@ void gfx_text_clip(float x, float y, uint32_t argb, float scale, const char *tex
 
 float gfx_text_width(const char *text, float scale) {
     return strlen(text) * FONT_W * scale;
+}
+
+void gfx_gradient(float x, float y, float w, float h, uint32_t top, uint32_t bottom) {
+    use_list(PVR_LIST_TR_POLY);
+    if(current_hdr != HDR_FLAT) {
+        pvr_prim(&flat_tr_hdr, sizeof(flat_tr_hdr));
+        current_hdr = HDR_FLAT;
+    }
+    pvr_vertex_t v = {0};
+    v.z = 1.0f;
+    v.flags = PVR_CMD_VERTEX;
+    v.argb = top;    v.x = x;     v.y = y;     pvr_prim(&v, sizeof(v));
+    v.argb = top;    v.x = x + w; v.y = y;     pvr_prim(&v, sizeof(v));
+    v.argb = bottom; v.x = x;     v.y = y + h; pvr_prim(&v, sizeof(v));
+    v.flags = PVR_CMD_VERTEX_EOL;
+    v.argb = bottom; v.x = x + w; v.y = y + h; pvr_prim(&v, sizeof(v));
+}
+
+/* Part of an icon's cell, by fractions of its width. */
+static void icon_part(int icon, float x, float y, float w, float h, uint32_t argb, float f0, float f1) {
+    int cx, cy, size;
+    icons_cell(icon, &cx, &cy, &size);
+    use_list(PVR_LIST_TR_POLY);
+    if(current_hdr != HDR_ICONS) {
+        pvr_prim(&icons_hdr, sizeof(icons_hdr));
+        current_hdr = HDR_ICONS;
+    }
+    float u0 = (cx + size * f0) / ICONS_W, u1 = (cx + size * f1) / ICONS_W;
+    quad(x, y, w, h, argb, u0, (float)cy / ICONS_H, u1, (float)(cy + size) / ICONS_H);
+}
+
+void gfx_icon(int icon, float x, float y, float size, uint32_t argb) {
+    icon_part(icon, x, y, size, size, argb, 0, 1);
+}
+
+void gfx_pill(float x, float y, float w, float h, uint32_t argb) {
+    float r = h / 2;
+    if(w < h) w = h;
+    icon_part(ICON_DISC, x, y, r, h, argb, 0, 0.5f);
+    gfx_rect_alpha(x + r, y, w - h, h, argb);
+    icon_part(ICON_DISC, x + w - r, y, r, h, argb, 0.5f, 1);
+}
+
+/* Dreamcast controller colours. */
+float gfx_button(float x, float y, char button) {
+    uint32_t colour, ink = 0xffffffff;
+    switch(button) {
+        case 'A': colour = 0xffd64534; break;
+        case 'B': colour = 0xff3f6fd6; break;
+        case 'X': colour = 0xffe8bd2a; ink = 0xff2a2410; break;
+        case 'Y': colour = 0xff39a659; break;
+        default:  colour = 0xff6b6658; break;
+    }
+    if(button == 'S' || button == 'L' || button == 'R') {
+        const char *label = button == 'S' ? "START" : button == 'L' ? "L" : "R";
+        float w = gfx_text_width(label, 0.75f) + 16;
+        gfx_pill(x, y + 2, w, 20, colour);
+        gfx_text(x + 8, y + 3, ink, 0.75f, label);
+        return x + w;
+    }
+    gfx_icon(ICON_DISC, x, y, 24, colour);
+    char letter[2] = {button, 0};
+    gfx_text(x + 7.5f, y + 3, ink, 0.75f, letter);
+    return x + 24;
+}
+
+float gfx_hint(float x, float y, char button, const char *label, uint32_t argb) {
+    x = gfx_button(x, y, button) + 8;
+    return gfx_text(x, y, argb, 1, label) + 24;
+}
+
+float gfx_hint_width(char button, const char *label) {
+    float b = button == 'S' ? gfx_text_width("START", 0.75f) + 16 : button == 'L' || button == 'R' ? 25 : 24;
+    return b + 8 + gfx_text_width(label, 1);
 }
 
 void utf8_to_latin1(char *dst, size_t size, const char *src) {

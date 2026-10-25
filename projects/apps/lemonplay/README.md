@@ -79,6 +79,7 @@ build it in with `EXTRA_CFLAGS='-DLP_SERVER=\"http://IP:8200/description.xml\"'`
 | `make VARIANT=qa EXTRA_CFLAGS=...LP_SERVER...` | Plays the first video from 5:00, seeks, prints `LP QA: PASS`. Run with `LP_ELF=lemonplay-qa.elf LP_EXIT_ON_LOG="LP QA: done" ./run-flycast.sh --skip-build`. Add `-DLP_QA_LINGER=4000` to pause on each screen for screenshots |
 | `make VARIANT=decodebench EXTRA_CFLAGS=...LP_SERVER...` | Downloads 20 s clips and times the decoder (`LP DECODEBENCH`), with cycles per stage from the SH-4 performance counter (`LP PROFILE`, console only) and a hash of every picture. `-DLP_REPEAT_BENCH` repeats clips; `-DLP_POISON` fills decoder memory with junk to catch reads of unwritten data. `MPEG_CFLAGS` sets flags for the decoder alone |
 | `make VARIANT=bench EXTRA_CFLAGS=...LP_SERVER...` | Plays 45 s at each of several server budgets and prints `LP PLAYBENCH` lines: decode load, dropped frames, hitches (gaps over 2.5 frames), I-frame skips, rebuffers |
+| `make VARIANT=tour EXTRA_CFLAGS=...LP_SERVER...` | Steps through every screen and player state, printing `LP TOUR: <name>` as each appears and holding it for a screenshot |
 | `make hw` | Real Dreamcast via `tools/dc-hw.sh` |
 
 ## Performance

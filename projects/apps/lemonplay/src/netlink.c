@@ -14,7 +14,7 @@
 extern void arch_init_net(void);
 
 static volatile int stage = LINK_STARTING;
-static char status[48] = "STARTING THE NETWORK";
+static char status[48] = "Starting the network";
 
 static int has_address(const uint8_t a[4]) {
     return a[0] | a[1] | a[2] | a[3];
@@ -27,16 +27,16 @@ static void *link_worker(void *unused) {
     arch_init_net();
     netif_t *n = net_default_dev;
     if(!n || !strcmp(n->name, "ppp")) {
-        snprintf(status, sizeof(status), "NO BROADBAND ADAPTER FOUND");
+        snprintf(status, sizeof(status), "No Broadband Adapter found");
         stage = LINK_FAILED;
         return NULL;
     }
     if(!has_address(n->ip_addr)) {
-        snprintf(status, sizeof(status), "NO IP ADDRESS (CHECK DHCP)");
+        snprintf(status, sizeof(status), "No IP address (check DHCP)");
         stage = LINK_FAILED;
         return NULL;
     }
-    snprintf(status, sizeof(status), "%s %d.%d.%d.%d", strcmp(n->name, "bba") ? "LAN ADAPTER" : "BROADBAND",
+    snprintf(status, sizeof(status), "%s %d.%d.%d.%d", strcmp(n->name, "bba") ? "LAN adapter" : "Broadband",
              n->ip_addr[0], n->ip_addr[1], n->ip_addr[2], n->ip_addr[3]);
     printf("LemonPlay: %s\n", status);
     stage = LINK_UP;

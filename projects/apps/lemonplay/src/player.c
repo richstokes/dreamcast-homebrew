@@ -21,6 +21,7 @@
 #include "input.h"
 #include "mpeg.h"
 #include "settings.h"
+#include "ui.h"
 
 #include <dc/pvr.h>
 #include <dc/sound/sound.h>
@@ -134,6 +135,7 @@ static struct {
     /* UI */
     int zoomed;             /* this session asked the server to crop to 4:3 */
     uint64_t picture_toast_until;
+    uint64_t volume_toast_until;
     uint64_t osd_until;
     int show_stats;
     double seek_target;
@@ -146,7 +148,7 @@ static struct {
     uint64_t stats_at;
     uint32_t stats_bytes;
     float net_kbps;
-#ifdef LP_QA
+#if defined(LP_QA) || defined(LP_UI_TOUR)
     int qa_stage, qa_ok;
     double qa_mark;
     uint32_t qa_pictures;
@@ -790,16 +792,44 @@ static int session_prepare(char *error, size_t error_size) {
 
 /* ---- Drawing ---- */
 
-static void format_time(char *out, size_t size, double secs) {
-    int t = secs < 0 ? 0 : (int)secs;
-    if(t >= 3600) snprintf(out, size, "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60);
-    else snprintf(out, size, "%d:%02d", t / 60, t % 60);
+/* Title, play state, time and progress along the bottom; y is the top of
+   the time row. */
+static void draw_bar(double shown, int video, float y) {
+    char text[48], a[16], b[16];
+    double duration = P.entry->duration;
+    if(video) {
+        gfx_gradient(0, y - 110, SCREEN_W, SCREEN_H - y + 110, 0x00000000, 0xe0000000);
+        gfx_text_clip(SAFE_X, y - 34, COL_TEXT, 1, P.entry->title, SCREEN_W - 2 * SAFE_X);
+    }
+    gfx_icon(P.paused ? ICON_PAUSE : ICON_PLAY, SAFE_X, y, 24, COL_LEMON);
+    ui_format_time(a, sizeof(a), shown);
+    if(duration > 0) {
+        ui_format_time(b, sizeof(b), duration);
+        snprintf(text, sizeof(text), "%s / %s", a, b);
+    }
+    else {
+        snprintf(text, sizeof(text), "%s", a);
+    }
+    float x = gfx_text(SAFE_X + 34, y, P.seek_commit_at ? COL_LEMON : COL_TEXT, 1, text) + 20;
+    if(duration > 0 && SCREEN_W - SAFE_X - x > 40) {
+        ui_progress(x, y + 9, SCREEN_W - SAFE_X - x, shown / duration, P.seek_commit_at != 0);
+    }
+}
+
+/* Audio only: a now-playing card under the header. */
+static void draw_now_playing(int ready) {
+    gfx_icon(ICON_DISC, (SCREEN_W - 150) / 2, 118, 150, COL_PANEL);
+    if(ready) gfx_icon(ICON_NOTE, (SCREEN_W - 72) / 2, 154, 72, 0xff8fd18a);
+    float w = gfx_text_width(P.entry->title, 1);
+    float max = SCREEN_W - 2 * SAFE_X;
+    gfx_text_clip(w < max ? (SCREEN_W - w) / 2 : SAFE_X, 292, COL_TEXT, 1, P.entry->title, max);
 }
 
 static void draw(double now) {
     stream_t *s = P.s;
     int video = s && s->header_ready && s->video_index >= 0;
-    char text[96], a[16], b[16];
+    char text[96];
+    uint64_t ms = timer_ms_gettime64();
 
     gfx_begin();
     if(video) upload_due_picture();
@@ -817,70 +847,73 @@ static void draw(double now) {
                      0.5f / P.tex_w, 0.5f / P.tex_h, (P.vid_w - 0.5f) / P.tex_w, (P.vid_h - 0.5f) / P.tex_h);
     }
     else if(!video) {
-        /* Audio only: a simple now-playing card. */
-        gfx_rect(80, 150, 480, 150, COL_PANEL);
-        gfx_rect(80, 150, 6, 150, COL_LEMON);
+        /* Opaque first: ui_header ends with translucent text. */
+        gfx_rect(0, HEADER_H + 2, SCREEN_W, SCREEN_H - HEADER_H - 2, COL_BG);
+        ui_header("Now playing");
+        draw_now_playing(s && s->header_ready);
+    }
+
+    double shown = P.seek_commit_at ? P.seek_target : now;
+    if(!video) draw_bar(shown, 0, 338);
+    else if(P.paused || P.buffering || ms < P.osd_until || P.seek_commit_at) draw_bar(shown, 1, FOOTER_Y + 6);
+
+    /* What the player is waiting for, in the middle of the screen. */
+    if(P.buffering && s) {
+        if(s->state == STREAM_CONNECTING || !s->header_ready) {
+            snprintf(text, sizeof(text), "Connecting");
+        }
+        else {
+            double v = video_ahead(P.clock_base), au = audio_ahead(P.clock_base);
+            double have = v < au ? v : au;
+            int pct = (int)(100 * have / START_SECS);
+            snprintf(text, sizeof(text), "Buffering %d%%", pct < 0 ? 0 : pct > 99 ? 99 : pct);
+        }
+        float cy = video ? SCREEN_H / 2 - 20 : 386;
+        if(video) gfx_icon(ICON_DISC, SCREEN_W / 2 - 34, cy - 34, 68, 0xa0000000);
+        ui_spinner(SCREEN_W / 2, cy);
+        float w = gfx_text_width(text, 1);
+        if(video) gfx_pill((SCREEN_W - w) / 2 - 14, cy + 40, w + 28, 30, 0xa0000000);
+        gfx_text((SCREEN_W - w) / 2, cy + 43, COL_TEXT, 1, text);
+    }
+    else if(P.paused && video) {
+        gfx_icon(ICON_DISC, SCREEN_W / 2 - 40, SCREEN_H / 2 - 60, 80, 0xa0000000);
+        gfx_icon(ICON_PAUSE, SCREEN_W / 2 - 20, SCREEN_H / 2 - 40, 40, 0xffffffff);
+    }
+
+    if(ms < P.picture_toast_until && video) {
+        snprintf(text, sizeof(text), "Picture %s: %s", picture_name(settings.picture), picture_help(settings.picture));
+        float w = gfx_text_width(text, 1);
+        gfx_pill(SAFE_X - 8, SAFE_Y, w + 56, 36, 0xd0000000);
+        gfx_icon(ICON_LEMON, SAFE_X, SAFE_Y + 4, 28, 0xffffffff);
+        gfx_text(SAFE_X + 36, SAFE_Y + 6, COL_LEMON, 1, text);
+    }
+    if(ms < P.volume_toast_until) {
+        /* Volume: a label and ten pips at the top right. */
+        float w = 12 * 10 + 9 * 4 + gfx_text_width("Volume", 1) + 16;
+        float x = SCREEN_W - SAFE_X - w;
+        float y = !video ? HEADER_H + 12 : ms < P.picture_toast_until ? SAFE_Y + 44 : SAFE_Y;
+        gfx_pill(x - 14, y, w + 28, 36, 0xd0000000);
+        x = gfx_text(x, y + 6, COL_TEXT, 1, "Volume") + 16;
+        int level = (P.volume * 10 + 127) / 255;
+        for(int i = 0; i < 10; i++) {
+            gfx_rect_alpha(x + i * 16, y + 12, 12, 12, i < level ? COL_LEMON : 0xff4a4535);
+        }
+    }
+    if(P.show_stats && s) {
+        float y = SAFE_Y + (ms < P.picture_toast_until ? 44 : 0) + (ms < P.volume_toast_until ? 44 : 0);
+        gfx_rect_alpha(SAFE_X - 8, y, SCREEN_W - 2 * SAFE_X + 16, 52, 0xc0000000);
+        snprintf(text, sizeof(text), "%dx%d %.2ffps  decode %.1f / %.1f ms  late %u  skip %u",
+                 P.vid_w, P.vid_h, s->fps, P.decode_ms, P.decode_max_ms, (unsigned)P.late_frames, (unsigned)P.skips);
+        gfx_text(SAFE_X, y + 4, COL_TEXT, 0.75f, text);
+        snprintf(text, sizeof(text), "buffer video %.1f s  audio %.1f s  net %.0f KB/s  volume %d",
+                 video_ahead(now), audio_ahead(now), P.net_kbps, P.volume * 100 / 255);
+        gfx_text(SAFE_X, y + 26, COL_TEXT, 0.75f, text);
     }
 
     if(!video) {
-        gfx_text(104, 166, COL_LEMON, 1, "NOW PLAYING");
-        gfx_text_clip(104, 200, COL_TEXT, 1, P.entry->title, 440);
-    }
-
-    uint64_t ms = timer_ms_gettime64();
-    int osd = !video || P.paused || P.buffering || ms < P.osd_until || P.seek_commit_at;
-    if(osd) {
-        double shown = P.seek_commit_at ? P.seek_target : now;
-        double duration = P.entry->duration;
-        gfx_rect_alpha(0, 392, SCREEN_W, 88, 0xc0000000);
-        gfx_text_clip(24, 400, COL_TEXT, 1, P.entry->title, 592);
-        format_time(a, sizeof(a), shown);
-        if(duration > 0) {
-            format_time(b, sizeof(b), duration);
-            snprintf(text, sizeof(text), "%s / %s", a, b);
-        }
-        else {
-            snprintf(text, sizeof(text), "%s", a);
-        }
-        gfx_text(24, 440, P.seek_commit_at ? COL_LEMON : COL_MUTED, 1, text);
-        float bar_x = 24 + gfx_text_width(text, 1) + 20, bar_w = SCREEN_W - 24 - bar_x;
-        if(duration > 0 && bar_w > 40) {
-            float f = shown / duration;
-            f = f < 0 ? 0 : f > 1 ? 1 : f;
-            gfx_rect_alpha(bar_x, 450, bar_w, 6, 0xff4a4535);
-            gfx_rect_alpha(bar_x, 450, bar_w * f, 6, COL_LEMON);
-        }
-        const char *state = P.paused ? "PAUSED" : NULL;
-        if(P.buffering && s) {
-            if(s->state == STREAM_CONNECTING) state = "CONNECTING";
-            else {
-                double v = video_ahead(P.clock_base), au = audio_ahead(P.clock_base);
-                double have = v < au ? v : au;
-                int pct = (int)(100 * have / START_SECS);
-                snprintf(text, sizeof(text), "BUFFERING %d%%", pct < 0 ? 0 : pct > 99 ? 99 : pct);
-                state = text;
-            }
-        }
-        if(state) {
-            float w = gfx_text_width(state, 1);
-            gfx_rect_alpha(SCREEN_W - w - 40, 24, w + 24, 36, 0xc0000000);
-            gfx_text(SCREEN_W - w - 28, 30, COL_LEMON, 1, state);
-        }
-    }
-    if(ms < P.picture_toast_until) {
-        snprintf(text, sizeof(text), "Picture %s: %s", picture_name(settings.picture), picture_help(settings.picture));
-        float w = gfx_text_width(text, 1);
-        gfx_rect_alpha(16, 24, w + 24, 36, 0xc0000000);
-        gfx_text(28, 30, COL_LEMON, 1, text);
-    }
-    if(P.show_stats && s) {
-        snprintf(text, sizeof(text), "%dx%d %.2ffps dec %.1f/%.1fms late %u skip %u",
-                 P.vid_w, P.vid_h, s->fps, P.decode_ms, P.decode_max_ms, (unsigned)P.late_frames, (unsigned)P.skips);
-        gfx_rect_alpha(0, 0, SCREEN_W, 56, 0xb0000000);
-        gfx_text(8, 4, COL_TEXT, 0.75f, text);
-        snprintf(text, sizeof(text), "buffer v %.1fs a %.1fs  net %.0f KB/s  vol %d",
-                 video_ahead(now), audio_ahead(now), P.net_kbps, P.volume);
-        gfx_text(8, 26, COL_TEXT, 0.75f, text);
+        ui_footer();
+        ui_hint('A', P.paused ? "Play" : "Pause");
+        ui_hint('B', "Stop");
     }
     gfx_end();
     P.redraw = 0;
@@ -990,13 +1023,13 @@ play_result_t player_play(const entry_t *entry, double start_seconds, char *erro
         if(in.pressed & CONT_DPAD_UP) {
             P.volume = P.volume + 16 > 255 ? 255 : P.volume + 16;
             if(P.running) snd_stream_volume(P.snd, P.volume);
-            P.osd_until = ms + OSD_MS;
+            P.volume_toast_until = ms + 1500;
             P.redraw = 1;
         }
         if(in.pressed & CONT_DPAD_DOWN) {
             P.volume = P.volume < 16 ? 0 : P.volume - 16;
             if(P.running) snd_stream_volume(P.snd, P.volume);
-            P.osd_until = ms + OSD_MS;
+            P.volume_toast_until = ms + 1500;
             P.redraw = 1;
         }
         if(in.pressed & CONT_Y) {
@@ -1079,6 +1112,33 @@ play_result_t player_play(const entry_t *entry, double start_seconds, char *erro
             }
         }
 
+#ifdef LP_UI_TOUR
+        /* Screenshot tour: the bar, pause, stats and a seek preview, each
+           announced on the serial console for the capture script. */
+        {
+            static const char *const shots[] = {"osd", "paused", "stats", "seek", "mode-toast"};
+            if(P.running || P.paused || P.seek_commit_at) {
+                if(!P.qa_mark) P.qa_mark = ms;
+                double since = (ms - P.qa_mark) / 1000.0;
+                if(P.qa_stage < 5 && since > 1.5 + P.qa_stage * 3.0) {
+                    switch(P.qa_stage) {
+                        case 0: P.osd_until = ms + 60000; break;
+                        case 1: P.paused = 1; clock_stop(); break;
+                        case 2: P.show_stats = 1; P.redraw = 1; break;
+                        case 3: P.show_stats = 0; P.paused = 0; P.seek_target = clock_now() + 90; P.seek_commit_at = ms + 60000; break;
+                        case 4: P.seek_commit_at = 0; P.picture_toast_until = ms + 60000; P.volume_toast_until = ms + 60000; P.osd_until = 0; break;
+                    }
+                    P.redraw = 1;
+                    printf("LP TOUR: %s\n", shots[P.qa_stage]);
+                    P.qa_stage++;
+                }
+                else if(P.qa_stage == 5 && since > 22) {
+                    result = PLAY_STOPPED;
+                    break;
+                }
+            }
+        }
+#endif
 #if defined(LP_QA) && !defined(LP_QA_END)
         /* Scripted check: play, pause two seconds, play, seek forward a
            minute, play, stop. */
@@ -1139,7 +1199,8 @@ play_result_t player_play(const entry_t *entry, double start_seconds, char *erro
             P.net_kbps = (bytes - P.stats_bytes) / 1024.0f * 1000.0f / (ms - P.stats_at);
             P.stats_bytes = bytes;
             P.stats_at = ms;
-            if(P.show_stats || P.buffering) P.redraw = 1;
+            if(P.show_stats || s->video_index < 0) P.redraw = 1;
+            if(ms < P.volume_toast_until + 1000) P.redraw = 1;
             if(ms < P.osd_until + 1000) P.redraw = 1;
         }
 #ifdef LP_BENCH
@@ -1175,7 +1236,7 @@ play_result_t player_play(const entry_t *entry, double start_seconds, char *erro
         }
 #endif
 
-        if((P.redraw || !P.have_picture) && gfx_ready()) draw(now);
+        if((P.redraw || !P.have_picture || P.buffering) && gfx_ready()) draw(now);
         else thd_sleep(1);   /* the decoder thread only runs while this one sleeps */
     }
 

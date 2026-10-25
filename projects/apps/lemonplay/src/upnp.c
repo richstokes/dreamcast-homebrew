@@ -220,6 +220,18 @@ int upnp_discover(server_t *out, int max, int timeout_ms) {
 
 /* ---- Browsing ---- */
 
+/* "Episode 1.mkv" -> "Episode 1": servers often use file names as titles. */
+static void strip_extension(char *title) {
+    char *dot = strrchr(title, '.');
+    if(!dot || dot == title || strlen(dot) > 5 || strlen(dot) < 2) return;
+    for(const char *c = dot + 1; *c; c++) {
+        if(!isalnum((unsigned char)*c)) return;
+    }
+    *dot = '\0';
+    /* and any spaces left before it */
+    while(dot > title && dot[-1] == ' ') *--dot = '\0';
+}
+
 static int parse_duration(const char *text) {
     int h = 0, m = 0, s = 0;
     if(sscanf(text, "%d:%d:%d", &h, &m, &s) == 3) return h * 3600 + m * 60 + s;
@@ -240,6 +252,7 @@ static void parse_entry(const char *start, const char *end, int folder, entry_t 
         e->kind = ENTRY_FOLDER;
         return;
     }
+    strip_extension(e->title);
     e->kind = ENTRY_OTHER;
     if(tag_text(start, end, "upnp:class", text, sizeof(text)) == 0) {
         if(strstr(text, "videoItem")) e->kind = ENTRY_VIDEO;
@@ -360,7 +373,9 @@ int upnp_browse(const server_t *server, const char *object_id, entry_t *out, int
                 const char *close = strstr(tag, folder ? "</container>" : "</item>");
                 if(!close) break;
                 parse_entry(tag, close, folder, &out[count]);
-                if(out[count].id[0]) count++;
+                /* Only folders, video and music: LemonPlay can't show the rest. */
+                int kind = out[count].kind;
+                if(out[count].id[0] && (kind == ENTRY_FOLDER || kind == ENTRY_VIDEO || kind == ENTRY_AUDIO)) count++;
                 p = close + 1;
             }
         }

@@ -10,6 +10,7 @@
 #include "netlink.h"
 #include "player.h"
 #include "settings.h"
+#include "ui.h"
 #include "upnp.h"
 
 #include <dc/sound/sound.h>
@@ -25,9 +26,9 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 #define LP_START_SECONDS 0
 #endif
 
-#define ROWS 12
-#define ROW_H 28
-#define LIST_Y 92
+#define ROWS 10
+#define ROW_H 30
+#define LIST_Y (HEADER_H + 14)
 #define MAX_DEPTH 16
 
 enum { SCREEN_NETWORK, SCREEN_SERVERS, SCREEN_ADDRESS, SCREEN_BROWSE };
@@ -185,7 +186,7 @@ static void job_finish(void) {
             int dup = 0;
             for(int i = 0; i < server_count; i++) dup |= !strcmp(servers[i].location, job_server.location);
             if(!dup && server_count < MAX_SERVERS) servers[server_count++] = job_server;
-#ifndef LP_QA
+#if !defined(LP_QA) && !defined(LP_UI_TOUR)
             open_server(&job_server);
 #else
             screen = SCREEN_SERVERS;
@@ -290,6 +291,10 @@ static void update(const input_t *in) {
 
     switch(screen) {
         case SCREEN_NETWORK:
+#ifdef LP_UI_TOUR
+            /* Hold the start screen long enough to photograph. */
+            if(timer_ms_gettime64() < 6000) break;
+#endif
             if(link_stage() == LINK_UP) {
                 screen = SCREEN_SERVERS;
                 job_start(JOB_DISCOVER);
@@ -374,41 +379,9 @@ static void update(const input_t *in) {
 
 /* ---- Drawing ---- */
 
-static void draw_header(const char *subtitle) {
-    gfx_rect(0, 0, SCREEN_W, 72, COL_PANEL);
-    gfx_rect(0, 72, SCREEN_W, 2, COL_LEMON_DIM);
-    /* opaque work ends here: everything below is translucent */
-    gfx_text(24, 12, COL_LEMON, 2, "LemonPlay");
-    if(subtitle) gfx_text_clip(248, 34, COL_MUTED, 1, subtitle, SCREEN_W - 248 - 20);
-}
-
-static void draw_footer(const char *hints) {
-    char line[96];
-    gfx_rect_alpha(0, 446, SCREEN_W, 34, 0xff1d1a11);
-    gfx_text(24, 451, COL_MUTED, 1, hints);
-    if(screen == SCREEN_SERVERS || screen == SCREEN_BROWSE) {
-        snprintf(line, sizeof(line), "Start %s", picture_name(settings.picture));
-        gfx_text(SCREEN_W - 24 - gfx_text_width(line, 1), 451, COL_LEMON_DIM, 1, line);
-    }
-    if(timer_ms_gettime64() < message_until) {
-        float w = gfx_text_width(message, 1);
-        if(w > SCREEN_W - 40) w = SCREEN_W - 40;
-        gfx_rect_alpha((SCREEN_W - w) / 2 - 12, 400, w + 24, 36, message_is_error ? 0xf0402818 : 0xf0302c1a);
-        gfx_text_clip((SCREEN_W - w) / 2, 406, message_is_error ? COL_ERROR : COL_LEMON, 1, message, SCREEN_W - 40);
-    }
-}
-
-static void spinner(float x, float y, const char *text) {
-    static const char frames[] = "|/-\\";
-    char line[96];
-    snprintf(line, sizeof(line), "%c %s", frames[(timer_ms_gettime64() / 120) % 4], text);
-    gfx_text(x, y, COL_TEXT, 1, line);
-}
-
 static void format_duration(char *out, size_t size, int secs) {
-    if(secs < 0) { out[0] = '\0'; return; }
-    if(secs >= 3600) snprintf(out, size, "%d:%02d:%02d", secs / 3600, secs / 60 % 60, secs % 60);
-    else snprintf(out, size, "%d:%02d", secs / 60, secs % 60);
+    if(secs < 0) out[0] = '\0';
+    else ui_format_time(out, (int)size, secs);
 }
 
 /* The selected row scrolls when its title is too long to fit. */
@@ -430,64 +403,170 @@ static void row_text(float x, float y, uint32_t col, const char *text, float max
     gfx_text(x, y, col, 1, part);
 }
 
+/* A list row: highlight, icon, title (scrolling if selected) and an
+   optional right-hand note. */
+static void draw_row(float y, int icon, uint32_t icon_col, const char *title, uint32_t col,
+                     const char *note, int selected) {
+    if(selected) {
+        gfx_pill(SAFE_X - 10, y - 3, SCREEN_W - 2 * SAFE_X + 20, ROW_H, COL_SELECT);
+        gfx_rect_alpha(SAFE_X - 10 + 6, y + 3, 3, ROW_H - 12, COL_LEMON);
+    }
+    gfx_icon(icon, SAFE_X + 4, y, 24, icon_col);
+    float note_w = note && note[0] ? gfx_text_width(note, 1) + 16 : 0;
+    row_text(SAFE_X + 38, y, selected ? COL_LEMON : col, title, SCREEN_W - SAFE_X - (SAFE_X + 38) - note_w, selected);
+    if(note_w) gfx_text(SCREEN_W - SAFE_X - note_w + 16, y, COL_MUTED, 1, note);
+}
+
+static void draw_messages(void) {
+    if(timer_ms_gettime64() < message_until) ui_toast(message, message_is_error);
+}
+
+static void picture_hint(void) {
+    char label[24];
+    snprintf(label, sizeof(label), "Picture %s", picture_name(settings.picture));
+    ui_hint_right('S', label);
+}
+
+static void draw_network(void) {
+    gfx_icon(ICON_LEMON, (SCREEN_W - 128) / 2, 96, 128, 0xffffffff);
+    gfx_text((SCREEN_W - gfx_text_width("LemonPlay", 2)) / 2, 236, COL_LEMON, 2, "LemonPlay");
+    const char *status = link_status();
+    float w = gfx_text_width(status, 1);
+    if(link_stage() == LINK_FAILED) {
+        gfx_icon(ICON_WARNING, (SCREEN_W - w) / 2 - 32, 320, 24, COL_ERROR);
+        gfx_text((SCREEN_W - w) / 2, 320, COL_ERROR, 1, status);
+        const char *help = "LemonPlay needs a Broadband Adapter";
+        gfx_text((SCREEN_W - gfx_text_width(help, 1)) / 2, 352, COL_MUTED, 1, help);
+    }
+    else {
+        ui_spinner(SCREEN_W / 2, 314);
+        gfx_text((SCREEN_W - w) / 2, 348, COL_MUTED, 1, status);
+    }
+}
+
+static void draw_servers(void) {
+    int count = server_count + 2;
+    if(job == JOB_DISCOVER || job == JOB_DESCRIBE) {
+        const char *what = job == JOB_DISCOVER ? "Looking for media servers" : "Connecting";
+        ui_spinner(SCREEN_W / 2, 200);
+        gfx_text((SCREEN_W - gfx_text_width(what, 1)) / 2, 234, COL_MUTED, 1, what);
+    }
+    else {
+        for(int i = 0; i < count; i++) {
+            float y = LIST_Y + i * (ROW_H + 6);
+            if(i < server_count) {
+                draw_row(y, ICON_SERVER, COL_LEMON, servers[i].name, COL_TEXT, NULL, i == server_sel);
+            }
+            else if(i == server_count) {
+                draw_row(y, ICON_SEARCH, COL_MUTED, "Search again", COL_MUTED, NULL, i == server_sel);
+            }
+            else {
+                draw_row(y, ICON_PLUS, COL_MUTED, "Enter an address", COL_MUTED, NULL, i == server_sel);
+            }
+        }
+        if(!server_count) {
+            const char *none = "No servers found. Is ZeroConfigDLNA running?";
+            gfx_text(SAFE_X + 38, LIST_Y + count * (ROW_H + 6) + 16, COL_MUTED, 1, none);
+        }
+    }
+    const char *status = link_status();
+    gfx_text(SCREEN_W - SAFE_X - gfx_text_width(status, 0.75f), FOOTER_Y - 40, COL_MUTED, 0.75f, status);
+    draw_messages();
+    ui_footer();
+    ui_hint('A', "Select");
+    picture_hint();
+}
+
+static void draw_address(void) {
+    const char *prompt = "Address and port of the DLNA server";
+    gfx_text((SCREEN_W - gfx_text_width(prompt, 1)) / 2, 140, COL_MUTED, 1, prompt);
+    /* Boxes for the four numbers and the port, centred as a group. */
+    char field[5][8];
+    float widths[5], total = 0;
+    for(int i = 0; i < 5; i++) {
+        if(i < 4) snprintf(field[i], sizeof(field[i]), "%d", address[i]);
+        else snprintf(field[i], sizeof(field[i]), "%u", port);
+        widths[i] = gfx_text_width(i < 4 ? "000" : "00000", 1.5f) + 20;
+        total += widths[i] + (i < 4 ? 18 : 0);
+    }
+    float x = (SCREEN_W - total) / 2, y = 196;
+    for(int i = 0; i < 5; i++) {
+        int sel = i == address_field;
+        if(sel) gfx_rect_alpha(x - 2, y - 2, widths[i] + 4, 56, COL_LEMON);
+        gfx_rect_alpha(x, y, widths[i], 52, sel ? COL_SELECT : COL_PANEL);
+        float tw = gfx_text_width(field[i], 1.5f);
+        gfx_text(x + (widths[i] - tw) / 2, y + 8, sel ? COL_LEMON : COL_TEXT, 1.5f, field[i]);
+        x += widths[i];
+        if(i < 4) {
+            gfx_text(x + 3, y + 8, COL_MUTED, 1.5f, i < 3 ? "." : ":");
+            x += 18;
+        }
+    }
+    const char *help = "Up/Down to change, L/R by ten";
+    gfx_text((SCREEN_W - gfx_text_width(help, 1)) / 2, 280, COL_MUTED, 1, help);
+    if(job == JOB_DESCRIBE) {
+        ui_spinner(SCREEN_W / 2, 336);
+    }
+    draw_messages();
+    ui_footer();
+    ui_hint('A', "Connect");
+    ui_hint('B', "Back");
+}
+
+static void draw_browse(void) {
+    int sel = stack[depth].sel, top = stack[depth].top;
+    if(job == JOB_BROWSE) {
+        ui_spinner(SCREEN_W / 2, 220);
+    }
+    else if(!entry_count) {
+        const char *empty = "Nothing to play in this folder";
+        gfx_icon(ICON_FOLDER, (SCREEN_W - 48) / 2, 170, 48, COL_LEMON_DIM);
+        gfx_text((SCREEN_W - gfx_text_width(empty, 1)) / 2, 236, COL_MUTED, 1, empty);
+    }
+    else {
+        for(int r = 0; r < ROWS && top + r < entry_count; r++) {
+            const entry_t *e = &entries[top + r];
+            int icon = e->kind == ENTRY_FOLDER ? ICON_FOLDER : e->kind == ENTRY_AUDIO ? ICON_NOTE : ICON_FILM;
+            uint32_t icon_col = e->kind == ENTRY_FOLDER ? COL_LEMON : e->kind == ENTRY_AUDIO ? 0xff8fd18au : 0xff7fbde8u;
+            uint32_t col = COL_TEXT;
+            if(e->kind != ENTRY_FOLDER && !playable(e)) {
+                icon_col = 0xff5a5547;
+                col = COL_MUTED;
+            }
+            char dur[16];
+            format_duration(dur, sizeof(dur), e->duration);
+            draw_row(LIST_Y + r * ROW_H, icon, icon_col, e->title, col, dur, top + r == sel);
+        }
+        if(entry_count > ROWS) {
+            float h = ROWS * ROW_H - 6;
+            float bar = h * ROWS / entry_count;
+            if(bar < 16) bar = 16;
+            gfx_rect_alpha(SCREEN_W - SAFE_X + 14, LIST_Y + (h - bar) * top / (entry_count - ROWS), 3, bar, COL_LEMON_DIM);
+        }
+    }
+    draw_messages();
+    ui_footer();
+    ui_hint('A', "Open");
+    ui_hint('B', "Back");
+    ui_hint('Y', "Refresh");
+    picture_hint();
+}
+
 static void draw(void) {
     gfx_begin();
     switch(screen) {
         case SCREEN_NETWORK:
-            draw_header("DLNA media player");
-            spinner(48, 200, link_status());
-            if(link_stage() == LINK_FAILED) {
-                gfx_text(48, 240, COL_MUTED, 1, "LemonPlay needs a Broadband Adapter.");
-            }
-            draw_footer("");
+            gfx_rect(0, 0, SCREEN_W, SCREEN_H, COL_BG);
+            draw_network();
             break;
-
-        case SCREEN_SERVERS: {
-            /* Selection bars are opaque, so they go before any text. */
-            int count = server_count + 2;
-            draw_header("Media servers");
-            if(job != JOB_DISCOVER) gfx_rect_alpha(16, LIST_Y + server_sel * 36 - 4, SCREEN_W - 32, 34, COL_SELECT);
-            if(job == JOB_DISCOVER) {
-                spinner(48, LIST_Y, "Looking for media servers...");
-            }
-            else if(job == JOB_DESCRIBE) {
-                spinner(48, LIST_Y, "Connecting...");
-            }
-            else {
-                for(int i = 0; i < count; i++) {
-                    const char *name = i < server_count ? servers[i].name : i == server_count ? "Search again" : "Enter an address";
-                    uint32_t col = i < server_count ? COL_TEXT : COL_MUTED;
-                    if(i == server_sel) col = COL_LEMON;
-                    gfx_text_clip(40, LIST_Y + i * 36, col, 1, name, SCREEN_W - 80);
-                }
-                if(!server_count) gfx_text(40, LIST_Y + count * 36 + 24, COL_MUTED, 1, "No servers found. Is ZeroConfigDLNA running?");
-            }
-            char ip[48];
-            snprintf(ip, sizeof(ip), "%s", link_status());
-            gfx_text(SCREEN_W - 24 - gfx_text_width(ip, 0.75f), 414, COL_MUTED, 0.75f, ip);
-            draw_footer("A Select");
+        case SCREEN_SERVERS:
+            ui_header("Media servers");
+            draw_servers();
             break;
-        }
-
-        case SCREEN_ADDRESS: {
-            draw_header("Enter the server's address");
-            char field[8];
-            float x = 64;
-            gfx_text(64, 140, COL_MUTED, 1, "Address and port of the DLNA server:");
-            for(int i = 0; i < 5; i++) {
-                if(i < 4) snprintf(field, sizeof(field), "%3d", address[i]);
-                else snprintf(field, sizeof(field), "%5u", port);
-                uint32_t col = i == address_field ? COL_LEMON : COL_TEXT;
-                if(i == address_field) gfx_rect_alpha(x - 4, 196, gfx_text_width(field, 1.5f) + 8, 44, COL_SELECT);
-                x = gfx_text(x, 204 - 6, col, 1.5f, field);
-                if(i < 3) x = gfx_text(x, 198, COL_MUTED, 1.5f, ".");
-                else if(i == 3) x = gfx_text(x, 198, COL_MUTED, 1.5f, ":");
-            }
-            if(job == JOB_DESCRIBE) spinner(64, 280, "Connecting...");
-            draw_footer("Up/Down Change  L/R x10  A Connect  B Back");
+        case SCREEN_ADDRESS:
+            ui_header("Server address");
+            draw_address();
             break;
-        }
-
         case SCREEN_BROWSE: {
             char path[200] = "";
             for(int i = 0; i <= depth; i++) {
@@ -495,44 +574,77 @@ static void draw(void) {
                 size_t n = strlen(path);
                 snprintf(path + n, sizeof(path) - n, "%s%s", n ? " / " : "", stack[i].title);
             }
-            draw_header(path);
-            int sel = stack[depth].sel, top = stack[depth].top;
-            if(job == JOB_BROWSE) {
-                spinner(48, LIST_Y + 8, "Loading...");
-            }
-            else if(!entry_count) {
-                gfx_text(48, LIST_Y + 8, COL_MUTED, 1, "This folder is empty.");
-            }
-            else {
-                gfx_rect_alpha(12, LIST_Y + (sel - top) * ROW_H - 2, SCREEN_W - 24, ROW_H, COL_SELECT);
-                for(int r = 0; r < ROWS && top + r < entry_count; r++) {
-                    const entry_t *e = &entries[top + r];
-                    float y = LIST_Y + r * ROW_H;
-                    uint32_t badge = e->kind == ENTRY_FOLDER ? COL_LEMON : e->kind == ENTRY_VIDEO ? 0xff6fb7e8u :
-                                     e->kind == ENTRY_AUDIO ? 0xff8fd18au : COL_MUTED;
-                    if(e->kind != ENTRY_FOLDER && !playable(e)) badge = 0xff4a4535;
-                    gfx_rect_alpha(24, y + 4, 6, 18, badge);
-                    char dur[16];
-                    format_duration(dur, sizeof(dur), e->duration);
-                    float dur_w = dur[0] ? gfx_text_width(dur, 1) + 16 : 0;
-                    uint32_t col = top + r == sel ? COL_LEMON : (e->kind == ENTRY_FOLDER || playable(e)) ? COL_TEXT : COL_MUTED;
-                    char title[124];
-                    snprintf(title, sizeof(title), "%s%s", e->title, e->kind == ENTRY_FOLDER ? "/" : "");
-                    row_text(44, y, col, title, SCREEN_W - 44 - 24 - dur_w, top + r == sel);
-                    if(dur[0]) gfx_text(SCREEN_W - 24 - gfx_text_width(dur, 1), y, COL_MUTED, 1, dur);
-                }
-                if(entry_count > ROWS) {
-                    float h = ROWS * ROW_H;
-                    float bar = h * ROWS / entry_count;
-                    gfx_rect_alpha(SCREEN_W - 8, LIST_Y + h * top / entry_count, 3, bar, COL_LEMON_DIM);
-                }
-            }
-            draw_footer("A Open  B Back  Y Refresh");
+            ui_header(path);
+            draw_browse();
             break;
         }
     }
     gfx_end();
 }
+
+#ifdef LP_UI_TOUR
+/* Screenshot tour of every screen. Each state is printed as "LP TOUR: name"
+   and held for a few seconds so a script can capture the Flycast window. */
+static void tour_step(void) {
+    static int step;
+    static uint64_t next;
+    uint64_t ms = timer_ms_gettime64();
+    if(job != JOB_NONE || ms < next) return;
+    switch(step) {
+        case 0:
+            if(screen != SCREEN_SERVERS || !server_count) return;
+            printf("LP TOUR: servers\n");
+            break;
+        case 1:
+            screen = SCREEN_ADDRESS;
+            address_field = 1;
+            printf("LP TOUR: address\n");
+            break;
+        case 2: {
+            int pick = 0;
+#ifdef LP_SERVER
+            for(int i = 0; i < server_count; i++) {
+                if(!strcmp(servers[i].location, LP_SERVER)) pick = i;
+            }
+#endif
+            open_server(&servers[pick]);
+            step++;
+            next = ms + 300;
+            return;
+        }
+        case 3:
+            if(screen != SCREEN_BROWSE || depth == 0) return;
+            stack[depth].sel = entry_count > 3 ? 3 : 0;
+            sel_since = ms;
+            printf("LP TOUR: browse\n");
+            break;
+        case 4:
+            say("Run the server with --dreamcast-mode to play this");
+            printf("LP TOUR: toast\n");
+            break;
+        case 5:
+            cycle_picture();
+            printf("LP TOUR: picture-toast\n");
+            break;
+        case 6:
+            settings.picture = PICTURE_FIT;
+            message_until = 0;
+            for(int i = 0; i < entry_count; i++) {
+                if(playable(&entries[i])) {
+                    printf("LP TOUR: playing\n");
+                    play_from(i);
+                    break;
+                }
+            }
+            printf("LP TOUR: done\n");
+            break;
+        default:
+            return;
+    }
+    step++;
+    next = ms + 3000;
+}
+#endif
 
 #if defined(LP_QA) || defined(LP_BENCH) || defined(LP_DECODE_BENCH)
 /* Scripted runs open the first folders and play the first video. With
@@ -628,6 +740,9 @@ int main(int argc, char **argv) {
         settings_poll();
 #if defined(LP_QA) || defined(LP_BENCH) || defined(LP_DECODE_BENCH)
         qa_step();
+#endif
+#ifdef LP_UI_TOUR
+        tour_step();
 #endif
         draw();
     }

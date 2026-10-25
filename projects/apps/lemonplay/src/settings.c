@@ -39,7 +39,7 @@ const char *picture_help(int mode) {
 
 void settings_load(void) {
     memset(&settings, 0, sizeof(settings));
-#if !defined(LP_QA) && !defined(LP_BENCH) && !defined(LP_DECODE_BENCH)
+#if !defined(LP_QA) && !defined(LP_BENCH) && !defined(LP_DECODE_BENCH) && !defined(LP_UI_TOUR)
     maple_device_t *dev = vmusave_card(&card_port, &card_unit);
     if(!dev) return;
     record_t r;
@@ -116,7 +116,7 @@ static void save(void) {
 void settings_poll(void) {
     if(!dirty || timer_ms_gettime64() < save_at) return;
     dirty = 0;
-#if !defined(LP_QA) && !defined(LP_BENCH) && !defined(LP_DECODE_BENCH)
+#if !defined(LP_QA) && !defined(LP_BENCH) && !defined(LP_DECODE_BENCH) && !defined(LP_UI_TOUR)
     save();
 #endif
 }
