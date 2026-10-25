@@ -69,7 +69,7 @@ A+B+X+Y+Start returns to the title screen, and on the title screen exits to the 
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-make                # fetches the latest SH4ZAM master, then builds drift-los-angeles.elf
+make                # checks out the pinned SH4ZAM, then builds drift-los-angeles.elf
 ./run-flycast.sh    # builds and launches; --skip-build launches the existing ELF
 make showcase       # hands-off tour that changes district every 15 s (X on the title screen does the same)
 ```
@@ -81,8 +81,8 @@ override the installed KOS environment and Flycast binary.
 `DRIFT_LA_EXIT_ON_LOG` and `DRIFT_LA_FAIL_ON_LOG` stop the launcher when a
 serial line appears; the QA targets use them.
 
-Beyond KOS and Flycast: every `make` clones or fast-forwards
-[SH4ZAM](https://sh4zam.com/) into the ignored `third_party/sh4zam` checkout
+Beyond KOS and Flycast: every `make` checks out the pinned
+[SH4ZAM](https://sh4zam.com/) commit in the ignored `third_party/sh4zam` clone
 (see [third_party/SH4ZAM.md](third_party/SH4ZAM.md); `DEBUG=1` keeps its
 asserts). The asset generators need `uv`, and the mesh targets need `blender`
 (`BLENDER=` overrides the binary). All generated assets are checked in, so a

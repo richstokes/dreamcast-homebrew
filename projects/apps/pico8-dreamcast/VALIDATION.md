@@ -323,7 +323,7 @@ frame-cache checks (`/tmp/pico8-optimized-kernels.log`). The release ELF exclude
 the sampler and scripted tests. At the time of these measurements, all 33
 SH4ZAM C headers matched upstream revision
 `0fd3a1e1fa0809d33198c062632b1494ec2f57df` byte for byte, and the MIT notice
-was embedded. Builds now fetch the latest upstream `master`.
+was embedded. Builds now use the repository's pinned SH4ZAM commit.
 The final full smoke rerun includes frame-cache checks and the short-span
 fallback threshold; it ends with `PASS ALL` and clean exit status 0.
 

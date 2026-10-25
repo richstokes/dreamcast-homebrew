@@ -7,7 +7,7 @@ name: KOS canary
 # (tools/kos/README.md), gated on the hardware benchmarks.
 on:
   schedule:
-    - cron: '23 7 * * 1'   # Mondays
+    - cron: '0 14 * * 6'   # Saturdays 6am PST (7am PDT)
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
           grep -E '^  (KOS_COMMIT|TOOLCHAIN_IMAGE):' .github/workflows/release.yml |
             sed -E 's/^  ([A-Z_]+): */\1=/' >> "$GITHUB_ENV"
 
-      - name: Fetch latest upstream SH4ZAM
+      - name: Check out pinned SH4ZAM
         run: |
           tools/update-sh4zam.sh \
             projects/apps/pico8-dreamcast/third_party/sh4zam \

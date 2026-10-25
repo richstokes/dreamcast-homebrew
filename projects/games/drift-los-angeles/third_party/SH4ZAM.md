@@ -2,14 +2,14 @@
 
 The `sh4zam/` directory is a Git-ignored clone of upstream
 [SH4ZAM](https://github.com/gyrovorbis/sh4zam) that contains the unmodified
-repository and tracks [`master`](https://github.com/gyrovorbis/sh4zam/tree/master).
-It is neither vendored nor pinned: this repository records no SH4ZAM revision.
+repository, checked out at the commit pinned in
+[`tools/update-sh4zam.sh`](../../../../tools/update-sh4zam.sh). It is not vendored.
 The [MIT license](sh4zam/LICENSE) covers these files. API documentation is at
 [sh4zam.com](https://sh4zam.com/).
 
 Every build runs `tools/update-sh4zam.sh`, which clones the directory if
-necessary and fast-forwards it to the latest upstream commit before reading
-header dependencies. CI does the same before building. A failed clone or fetch
+necessary and checks out the pinned commit before reading header dependencies;
+once it is there the build needs no network. CI does the same before building. A failed clone or fetch
 stops compilation. `make clean` does not fetch.
 
 The game uses the header-only SH4 implementations for reciprocal math,

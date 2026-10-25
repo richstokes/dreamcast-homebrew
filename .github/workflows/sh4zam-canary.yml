@@ -1,0 +1,122 @@
+name: SH4ZAM canary
+
+# Fails when upstream SH4ZAM master has moved past the commit pinned in
+# tools/update-sh4zam.sh, so new releases get noticed. The summary lists the
+# new commits, tags, header changes and deprecations, and every project is
+# built against master with the pinned SDK to catch breakage early. It never
+# publishes; moving the pin stays a deliberate, tested step (AGENTS.md).
+on:
+  schedule:
+    - cron: '0 14 * * 6'   # Saturdays 6am PST (7am PDT)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Compare upstream master with the pin
+        id: upstream
+        run: |
+          pin=$(sed -n 's/^SH4ZAM_COMMIT=.*\([0-9a-f]\{40\}\).*/\1/p' tools/update-sh4zam.sh)
+          git clone --quiet https://github.com/gyrovorbis/sh4zam.git .ci/sh4zam
+          head=$(git -C .ci/sh4zam rev-parse HEAD)
+          {
+            echo "## SH4ZAM master \`${head:0:7}\`, pinned \`${pin:0:7}\` ($(git -C .ci/sh4zam describe --tags "$pin"))"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$head" = "$pin" ]; then
+            echo "No change since the pin." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          {
+            echo "$(git -C .ci/sh4zam rev-list --count "$pin..$head") commits since the pin."
+            echo "New tags: $(git -C .ci/sh4zam tag --merged "$head" --no-merged "$pin" | tr '\n' ' ')"
+            echo
+            echo '```'
+            git -C .ci/sh4zam log --oneline --no-merges "$pin..$head"
+            echo '```'
+            echo
+            echo "Headers changed:"
+            echo
+            echo '```'
+            git -C .ci/sh4zam diff --stat "$pin" "$head" -- include
+            echo '```'
+            echo
+            echo "Deprecations added:"
+            echo
+            echo '```'
+            git -C .ci/sh4zam diff "$pin" "$head" -- include | grep '^+.*SHZ_DEPRECATED' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out SH4ZAM master
+        if: steps.upstream.outputs.moved == 'true'
+        env:
+          SH4ZAM_COMMIT: ${{ steps.upstream.outputs.head }}
+        run: |
+          tools/update-sh4zam.sh \
+            projects/apps/pico8-dreamcast/third_party/sh4zam \
+            projects/games/drift-los-angeles/third_party/sh4zam \
+            projects/games/dreamkarts/third_party/sh4zam \
+            projects/games/totally-bazaar/third_party/sh4zam
+
+      - name: Read the release pins
+        if: steps.upstream.outputs.moved == 'true'
+        run: |
+          grep -E '^  (KOS_COMMIT|KOS_PORTS_COMMIT|TOOLCHAIN_IMAGE):' .github/workflows/release.yml |
+            sed -E 's/^  ([A-Z_]+): */\1=/' >> "$GITHUB_ENV"
+
+      - name: Check out pinned KallistiOS and kos-ports
+        if: steps.upstream.outputs.moved == 'true'
+        run: .github/scripts/fetch-sdk.sh
+
+      - name: Install pinned SH-4 compiler toolchain
+        if: steps.upstream.outputs.moved == 'true'
+        run: docker pull "$TOOLCHAIN_IMAGE"
+
+      - name: Build KallistiOS and kos-ports
+        if: steps.upstream.outputs.moved == 'true'
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            "$TOOLCHAIN_IMAGE" \
+            sh .github/scripts/build-sdk-in-container.sh
+
+      - name: Build every project against SH4ZAM master
+        id: build
+        if: steps.upstream.outputs.moved == 'true'
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            --env SH4ZAM_COMMIT="${{ steps.upstream.outputs.head }}" \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            "$TOOLCHAIN_IMAGE" \
+            sh .github/scripts/build-in-container.sh 2>&1 | tee build.log
+
+      - name: Report the build and flag the change
+        if: steps.upstream.outputs.moved == 'true'
+        run: |
+          {
+            echo
+            echo "### Projects built against master: ${{ steps.build.outcome }}"
+            echo
+            echo "SH4ZAM warnings:"
+            echo
+            echo '```'
+            grep 'warning:' build.log | grep -iE 'sh4zam|shz_|deprecated' | sort -u | head -100 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::SH4ZAM master has moved past the pin (build against master: ${{ steps.build.outcome }}); see the run summary"
+          exit 1

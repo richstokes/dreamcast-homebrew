@@ -1,14 +1,14 @@
 # SH4ZAM
 
 `sh4zam/` is an ignored clone of [upstream SH4ZAM](https://github.com/gyrovorbis/sh4zam),
-tracking its latest `master`. No library source, archive, submodule or version
-pin is committed. [API documentation](https://sh4zam.com/).
+checked out at the commit pinned in [`tools/update-sh4zam.sh`](../../../../tools/update-sh4zam.sh).
+No library source, archive or submodule is committed. [API documentation](https://sh4zam.com/).
 
 The Makefile uses the repository's `tools/sh4zam.mk` wrapper, as do Drift Los
 Angeles and PICO-8 Player. Before an inner make reads dependencies, the wrapper
-runs `tools/update-sh4zam.sh`: a missing checkout is cloned; an existing one is
-fetched and fast-forwarded. A failed fetch or non-fast-forward update stops the
-build. `make clean` works without fetching. `run-flycast.sh --skip-build` runs
+runs `tools/update-sh4zam.sh`: a missing checkout is cloned and an existing one
+moved to the pin, which needs no network once it is there. A failed fetch stops
+the build. `make clean` works without fetching. `run-flycast.sh --skip-build` runs
 the already-built executable without fetching or rebuilding.
 
 The wrapper also adds `-DNDEBUG` to every build, as upstream asks for release
@@ -40,7 +40,7 @@ of approximately 21 KB of main RAM and no extra VRAM.
 The fetched upstream MIT notice is embedded in every game ELF by `assets.S`.
 The complete checkout and its license remain available locally in `sh4zam/`.
 Use `git -C third_party/sh4zam rev-parse HEAD` to inspect the current build's
-revision. Recording a revision in local benchmark evidence does not pin builds.
+revision.
 
 Run `make check-math` for independent scalar comparisons on the SH-4 and
 `make benchmark` for a fixed-pose before/after comparison. The reference variant

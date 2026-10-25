@@ -32,7 +32,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fetch latest upstream SH4ZAM
+      - name: Check out pinned SH4ZAM
         run: |
           tools/update-sh4zam.sh \
             projects/apps/pico8-dreamcast/third_party/sh4zam \

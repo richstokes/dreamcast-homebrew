@@ -92,8 +92,8 @@ make -C projects/games/dreamkarts
 projects/games/dreamkarts/run-flycast.sh      # builds first unless --skip-build
 ```
 
-Every build fast-forwards the ignored `third_party/sh4zam` checkout (see the
-repository README); asset generators and QA scripts run through `uv run`.
+Every build checks out the pinned SH4ZAM in the ignored `third_party/sh4zam`
+(see the repository README); asset generators and QA scripts run through `uv run`.
 The game is a disc: `dreamkarts.elf` boots with `disc/music.adp` beside it
 and streams the music from there, since the console's 16 MB of RAM could not
 hold the music linked in. `run-flycast.sh` wraps the ELF and `disc/` in a

@@ -66,5 +66,5 @@ __pycache__/
 .venv/
 venv/
 
-# SH4ZAM is fetched from upstream master at build time (tools/update-sh4zam.sh)
+# SH4ZAM is checked out at its pinned commit at build time (tools/update-sh4zam.sh)
 **/third_party/sh4zam/

@@ -1,16 +1,16 @@
 # SH4ZAM
 
 The `sh4zam/` directory is a Git-ignored clone of upstream
-[SH4ZAM](https://sh4zam.com/) that tracks
-[`master`](https://github.com/gyrovorbis/sh4zam/tree/master). It is neither
-vendored nor pinned: this repository records no SH4ZAM revision.
+[SH4ZAM](https://sh4zam.com/), checked out at the commit pinned in
+[`tools/update-sh4zam.sh`](../../../../tools/update-sh4zam.sh). It is not
+vendored.
 It contains the unmodified upstream repository. This project uses only its C
-API headers; the C++23 wrappers and library implementation are not built.
+API headers; the C++ wrappers and library implementation are not built.
 License: [MIT](sh4zam/LICENSE); a copy is embedded at `/rd/SH4ZAM-LICENSE.txt`.
 
 Every build runs `tools/update-sh4zam.sh`, which clones the directory if
-necessary and fast-forwards it to the latest upstream commit before reading
-header dependencies. CI does the same before building. A failed clone or fetch
+necessary and checks out the pinned commit before reading header dependencies;
+once it is there the build needs no network. CI does the same before building. A failed clone or fetch
 stops compilation. `make clean` does not fetch.
 
 The C++17 Dreamcast host uses the header-only `shz_truncf` through

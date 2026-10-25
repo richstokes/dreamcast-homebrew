@@ -65,8 +65,8 @@ make              # totally-bazaar.elf
 ```
 
 Generated texture, sound and music data in `assets/generated/` is checked
-in, so a normal build needs no host tools. Each build first fetches the
-latest [SH4ZAM](https://sh4zam.com/) master into the ignored
+in, so a normal build needs no host tools. Each build first checks out the
+pinned [SH4ZAM](https://sh4zam.com/) commit in the ignored
 `third_party/sh4zam` (`tools/update-sh4zam.sh`).
 
 The launcher gives each connected macOS gamepad (up to four) its own

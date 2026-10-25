@@ -120,10 +120,16 @@ when networking is required: KOS then initializes the available network
 device, runs DHCP, and handles ARP and ICMP echo replies. Check
 `net_default_dev` before using its address or other interface fields.
 
-Projects that use SH4ZAM clone or fast-forward an ignored
-`third_party/sh4zam` checkout to upstream `master` on every build
-(`tools/sh4zam.mk`, `tools/update-sh4zam.sh`). It is never vendored or
-pinned.
+Projects that use SH4ZAM build against an ignored `third_party/sh4zam`
+clone held at the commit pinned in `tools/update-sh4zam.sh` (`tools/sh4zam.mk`
+checks it out before each build). It is never vendored. The weekly SH4ZAM
+canary (`.github/workflows/sh4zam-canary.yml`) fails once upstream `master`
+moves past the pin, listing what changed and building every project against
+it. Move the pin only when the user asks, and test first: build each SH4ZAM
+project against both commits (`SH4ZAM_COMMIT=<commit> make` picks another
+one) and diff the disassembly function by function, look for SH4ZAM
+deprecation warnings, run the Flycast suites, and A/B on the console whatever
+code actually changed.
 
 ## Building
 

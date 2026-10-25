@@ -61,10 +61,10 @@ Each project's `run-flycast.sh` builds by default, then opens the ELF in
 Flycast. `KOS_ENV` and `FLYCAST_BIN` override the installed dependencies.
 
 - Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally
-  Bazaar depend on [SH4ZAM](https://sh4zam.com/), which is neither vendored nor
-  pinned, to ensure we always get the latest gainz (granted - at the potential
-  cost of instability). Each build fast-forwards an ignored `third_party/sh4zam`
-  checkout to upstream `master`; `tools/update-sh4zam.sh` refreshes them by hand
+  Bazaar depend on [SH4ZAM](https://sh4zam.com/), pinned to a tested commit
+  (v0.10.0) in `tools/update-sh4zam.sh`. Each build checks out an ignored
+  `third_party/sh4zam` clone at the pin; a weekly canary flags new upstream
+  gainz so they get benchmarked on the console before we bump
 - Chroma Circuit is pure assembly and needs no KOS:
   `make -C projects/apps/chroma-circuit verify`
 - DCVMU and Dreamcast Browser need the kos-ports curl, mbedTLS, zlib and
@@ -77,7 +77,7 @@ Flycast. `KOS_ENV` and `FLYCAST_BIN` override the installed dependencies.
 - `projects/apps/`: apps and demos
 - `projects/dcvmu.com/`: DCVMU client and web service
 - `projects/common/`: code shared between projects
-- `tools/`: Flycast build, KOS patches, real-hardware runner, SH4ZAM updater
+- `tools/`: Flycast build, KOS patches, real-hardware runner, SH4ZAM pin
 
 Every push to `main` runs the tests, builds each project in
 [the release manifest](.github/console-projects.txt) against pinned SDK

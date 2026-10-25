@@ -59,9 +59,9 @@ converter changes, so pass `GDI=` there too unless the disc is at the default
 dependencies come from `uv` script metadata; the font generator wants Avenir
 Next and falls back to Arial.
 
-Every build fetches the latest upstream [SH4ZAM](https://sh4zam.com/) `master`
-into the ignored `third_party/sh4zam/` before compiling. A failed fetch stops
-the build; `make clean` needs no network. See
+Every build checks out the repository's pinned [SH4ZAM](https://sh4zam.com/)
+commit in the ignored `third_party/sh4zam/` before compiling; once it is there
+no network is needed. See
 [third_party/SH4ZAM.md](third_party/SH4ZAM.md).
 
 Everything generated (`assets/extracted/`, `assets/generated/`,

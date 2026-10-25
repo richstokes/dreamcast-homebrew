@@ -96,8 +96,8 @@ stock KOS it needs:
   applies: `tools/kos/apply-patches.sh`, then `make -C "$KOS_BASE"`. This
   project needs the maple receive-buffer, PPP lifecycle, BBA receive and
   TCP window fixes
-- [SH4ZAM](third_party/SH4ZAM.md), header-only and never pinned: every build
-  fast-forwards the ignored `third_party/sh4zam` checkout to upstream `master`
+- [SH4ZAM](third_party/SH4ZAM.md), header-only: every build checks out the
+  repository's pinned commit in the ignored `third_party/sh4zam`
 
 On a real Dreamcast ([`tools/dc-hw.sh`](../../../tools/dc-hw.sh): dcload-ip
 over the network, Shelly plug power), from this directory:

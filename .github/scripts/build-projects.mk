@@ -12,8 +12,9 @@ first := $(filter projects/apps/pico8-dreamcast,$(projects))
 
 all: $(first) $(filter-out $(first),$(projects))
 
-# CI already fetched current SH4ZAM on the host before entering Docker.
+# CI checked out SH4ZAM on the host before entering Docker, so the projects'
+# own SH4ZAM step finds it at the pin and only adds -DNDEBUG, as locally.
 $(projects):
-	+$(MAKE) -C $(WORKSPACE)/$@ clean && $(MAKE) -C $(WORKSPACE)/$@ SH4ZAM_UPDATED=1
+	+$(MAKE) -C $(WORKSPACE)/$@ clean && $(MAKE) -C $(WORKSPACE)/$@
 
 .PHONY: all $(projects)
