@@ -888,6 +888,19 @@ static struct { float look, sway, sways, lead, grip; } ai_style[MAX_KARTS] = {
 };
 static float ai_react[MAX_KARTS];     /* drift reaction delay still to run */
 
+/* How often a CPU barrel rolls off a ramp: nearly always while a human
+   leads the race, rarely while the best-placed human is last, so the
+   boosts help a struggling player catch up and punish one out in
+   front (a mild rubber band, like kart_top_speed's). Half the time in
+   an all-CPU demo race. */
+static float ai_trick_odds(void) {
+    if(karts[game.pl[0].kart].cpu) return 0.5f;
+    int place = karts[game.pl[0].kart].place;
+    if(game.num_players > 1 && karts[game.pl[1].kart].place < place) place = karts[game.pl[1].kart].place;
+    float behind = kart_count > 1 ? (float)(place - 1) / (float)(kart_count - 1) : 0.0f;
+    return lerpf(0.9f, 0.15f, behind);
+}
+
 /* CPU driver: pure pursuit toward a point on the racing line. The
    required path curvature is mapped onto the stick, through the slide
    radii while drifting, so CPUs drift and counter-steer like a player. */
@@ -975,14 +988,15 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         }
     }
     in->drift = k->ai_drift_btn;
-    /* Off a ramp a CPU lets go of the button and, four times in five,
-       flicks it again on the way up for a barrel roll. */
+    /* Off a ramp a CPU lets go of the button and, with odds set by how
+       the human is doing, flicks it again on the way up for a barrel
+       roll. */
     if(k->grounded) {
         k->ai_trick_t = -1.0f;
     }
     else if(k->big_air) {
         if(k->ai_trick_t < 0) {
-            bool skip = styled && (dk_rand() & 255) < 51;
+            bool skip = styled && frand() > ai_trick_odds();
             k->ai_trick_t = skip ? 1e9f : (styled ? 0.08f + frand() * 0.45f : 0.15f);
         }
         k->ai_drift_btn = false;

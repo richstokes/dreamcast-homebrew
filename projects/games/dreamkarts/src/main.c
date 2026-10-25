@@ -876,7 +876,6 @@ static void player_events(int pi, float dt) {
     }
     if(ev & (EV_WALL)) pl->cam.shake = fmaxf(pl->cam.shake, 0.12f);
     if(ev & (EV_BOOST | EV_DASH | EV_ROCKET)) pl->cam.shake = fmaxf(pl->cam.shake, 0.04f);
-    if(ev & EV_TRICK_BOOST) hud_message(pi, "BARREL ROLL!", argb(255, 130, 230, 255), 1.1f);
 }
 
 static void race_step(float dt, bool drive) {
