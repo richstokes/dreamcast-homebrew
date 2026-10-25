@@ -9,6 +9,8 @@
      releasing fires a boost whose length depends on the stage reached.
    - Holding the button without steering charges a jump (Mario Kart World's
      charge jump); release to spring into the air.
+   - Pressing the button again in the air, while still climbing with time
+     to finish it, barrel rolls the kart: a boost on landing.
 
    Physics step once per displayed frame, at the measured vblank period
    (see main.c). Velocity follows the heading through a
@@ -170,6 +172,13 @@ const CCParams cc_params[CC_COUNT] = {
    touches down ~50 m past the gap centre, on the 54 m landing deck. */
 #define JUMP_PAD_MIN     0.92f
 #define JUMP_PAD_MAX     1.10f
+/* A barrel roll flicked in the air takes TRICK_LEN, so the flick only
+   counts while the kart is still climbing with at least that long left
+   before the road comes back: the first half of a ramp jump's arc (a hop
+   or a charge jump is over too soon, and nothing counts over an open edge
+   in the sky). Touching down after one pays TRICK_BOOST seconds of boost. */
+#define TRICK_LEN        0.6f
+#define TRICK_BOOST      2.0f
 
 float kart_top_speed(const Kart *k) {
     float top = cc_params[game.cc].top_speed;
@@ -225,6 +234,12 @@ void kart_start_boost(Kart *k, float seconds, float kick) {
     k->boost_mul = BOOST_TOP_MUL;
 }
 
+static void trick_cancel(Kart *k) {
+    k->tricked = false;
+    k->trick_t = 0;
+    k->trick_a = 0;
+}
+
 static void end_drift(Kart *k, bool award) {
     k->boost_stage = k->drift == DRIFT_ACTIVE && award ? k->stage : 0;
     if(k->drift == DRIFT_ACTIVE && award && k->stage > 0) {
@@ -249,6 +264,7 @@ void kart_spin_out(Kart *k, int dir) {
     k->spin_dir = dir < 0 ? -1 : 1;
     k->speed *= SPIN_SPEED_MUL;
     k->boost_t = 0;
+    trick_cancel(k);
     k->charge_jump_t = 0;
     k->events |= EV_SPIN;
 }
@@ -313,6 +329,7 @@ static void rescue_from_gap(Kart *k) {
     k->vy = 0;
     k->grounded = true;
     k->big_air = false;
+    trick_cancel(k);
     track_locate(k->pos, (int)(s / track.ds), &k->tp);
     k->progress = (float)k->lap * track.length + k->tp.s;
     kart_rescues++;
@@ -337,6 +354,7 @@ static void rescue_from_fall(Kart *k) {
     k->air_t = 0;
     k->boost_t = 0;
     k->over_edge = false;
+    trick_cancel(k);
     track_locate(k->pos, k->tp.idx, &k->tp);
     kart_falls++;
 }
@@ -436,6 +454,16 @@ static void kart_vertical(Kart *k, bool btn, float prev_s, float prev_d, float d
     k->grounded = true;
     k->big_air = false;
     k->squash_v -= impact * 0.9f;
+    if(k->tricked) {
+        /* Landed a barrel roll (cut short if the road came early). */
+        trick_cancel(k);
+        k->boost_stage = 3;
+        kart_start_boost(k, TRICK_BOOST, 1.12f);
+        k->events |= EV_BOOST | EV_TRICK_BOOST;
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+        printf("DK TRICK LAND kart %d s %.0f air %.2f s\n", (int)(k - karts), (double)k->tp.s, (double)k->air_t);
+#endif
+    }
     if(impact > 2.5f) {
         k->events |= EV_LAND;
         k->land_v = impact;
@@ -564,6 +592,26 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         k->pending_t = 0.16f;
         k->events |= EV_HOP;
         k->squash_v -= 3.0f;
+    }
+    else if(pressed && !k->grounded && !k->tricked && !k->over_edge && k->vy > 0 && !track_off_edge(&k->tp)) {
+        /* Flicked in the air: a barrel roll, if the kart is still climbing
+           with time to finish it before touchdown. The button stays live
+           for a slide on landing, as after a hop. */
+        float g = k->big_air ? JUMP_GRAVITY : GRAVITY;
+        float h = fmaxf(k->pos.y - track_road_y(k->tp.s, k->tp.d), 0.0f);
+        float left = (k->vy + sqrtf(k->vy * k->vy + 2.0f * g * h)) / g;
+        if(left >= TRICK_LEN + 0.05f) {
+            k->tricked = true;
+            k->trick_t = 1e-3f;
+            k->trick_dir = k->steer < -0.2f ? -1 : 1;
+            k->drift = DRIFT_PENDING;
+            k->pending_t = 0.16f;
+            k->events |= EV_TRICK;
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+            printf("DK TRICK kart %d s %.0f air %.2f vy %.1f left %.2f\n", (int)(k - karts), (double)k->tp.s,
+                   (double)k->air_t, (double)k->vy, (double)left);
+#endif
+        }
     }
     if(released) {
         if(k->drift == DRIFT_CHARGE && k->charge_jump_t > 0.45f && k->grounded) {
@@ -762,6 +810,18 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     float pitch_t = 0, roll_t = 0;
     if(k->grounded) road_tilt(k, k->heading + k->vis_yaw, &pitch_t, &roll_t);
     else if(k->big_air) pitch_t = atan2f(k->vy, fmaxf(spd, 1.0f)) * 0.6f;
+    if(k->trick_t > 0) {
+        /* The barrel roll: one full turn toward the steered side, a touch
+           quicker through the middle. */
+        k->trick_t += dt;
+        float f = fminf(k->trick_t / TRICK_LEN, 1.0f);
+        f = 0.65f * f + 0.35f * f * f * (3.0f - 2.0f * f);
+        k->trick_a = -(float)k->trick_dir * DK_TAU * f;
+        if(k->trick_t >= TRICK_LEN) {
+            k->trick_t = 0;
+            k->trick_a = 0;
+        }
+    }
     /* On the road the chassis follows it closely (a slow follow sinks the
        tyres through every dip); in the air it settles gently. */
     k->roll += (roll_t - k->roll) * smooth_k(k->grounded ? 25.0f : 8.0f, dt);
@@ -915,6 +975,19 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         }
     }
     in->drift = k->ai_drift_btn;
+    /* Off a ramp a CPU lets go of the button and, four times in five,
+       flicks it again on the way up for a barrel roll. */
+    if(k->grounded) {
+        k->ai_trick_t = -1.0f;
+    }
+    else if(k->big_air) {
+        if(k->ai_trick_t < 0) {
+            bool skip = styled && (dk_rand() & 255) < 51;
+            k->ai_trick_t = skip ? 1e9f : (styled ? 0.08f + frand() * 0.45f : 0.15f);
+        }
+        k->ai_drift_btn = false;
+        in->drift = !k->tricked && k->air_t >= k->ai_trick_t;
+    }
     items_ai(k, in, dt);
 }
 

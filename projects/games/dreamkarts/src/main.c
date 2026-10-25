@@ -492,7 +492,7 @@ static bool probe_step(void) {
 
 #ifdef DK_AUTOTEST
 static struct {
-    int drifts, boosts[4], walls, dash, laps, jumps;
+    int drifts, boosts[4], walls, dash, laps, jumps, tricks;
     int items, uses, spears, mines, spun;
     float min_fps, cpu_sum, cpu_max;
     int cpu_n;
@@ -876,6 +876,7 @@ static void player_events(int pi, float dt) {
     }
     if(ev & (EV_WALL)) pl->cam.shake = fmaxf(pl->cam.shake, 0.12f);
     if(ev & (EV_BOOST | EV_DASH | EV_ROCKET)) pl->cam.shake = fmaxf(pl->cam.shake, 0.04f);
+    if(ev & EV_TRICK_BOOST) hud_message(pi, "BARREL ROLL!", argb(255, 130, 230, 255), 1.1f);
 }
 
 static void race_step(float dt, bool drive) {
@@ -1006,6 +1007,7 @@ static void race_step(float dt, bool drive) {
         if(ev & EV_DASH) at.dash++;
         if(ev & EV_LAP) at.laps++;
         if(ev & EV_JUMP) at.jumps++;
+        if(ev & EV_TRICK_BOOST) at.tricks++;
         if(ev & EV_ITEM_GET) at.items++;
         if(ev & EV_ITEM_USE) at.uses++;
         if(ev & EV_SPEAR) at.spears++;
@@ -2213,7 +2215,7 @@ int main(int argc, char **argv) {
             /* A Grand Prix: a summary per race, the verdict with the final standings. */
             if(game.state == ST_INTRO && at.done) {
                 at.done = false;
-                at.drifts = at.walls = at.dash = at.laps = at.jumps = at.items = at.uses = at.spears = at.spun = 0;
+                at.drifts = at.walls = at.dash = at.laps = at.jumps = at.tricks = at.items = at.uses = at.spears = at.spun = 0;
                 memset(at.boosts, 0, sizeof(at.boosts));
             }
             if(game.state == ST_RESULTS && gp.active && gp_over() && gp.page == 1 && game.time > 2.5f && !at.gp_done) {
@@ -2259,8 +2261,8 @@ int main(int argc, char **argv) {
                        items_fired, items_dropped, items_hits, items_spins);
                 printf("DK AUTOTEST: rumble effects sent %d\n", rumble_sends);
                 audio_autotest_report();
-                printf("DK AUTOTEST: track %s, ramp jumps %d (player %d), gap rescues %d, falls %d\n", track.name,
-                       kart_jumps, at.jumps, kart_rescues, kart_falls);
+                printf("DK AUTOTEST: track %s, ramp jumps %d (player %d, %d barrel rolled), gap rescues %d, falls %d\n",
+                       track.name, kart_jumps, at.jumps, at.tricks, kart_rescues, kart_falls);
                 {
                     float n = (float)(at.sink_n ? at.sink_n : 1);
                     printf("DK AUTOTEST: tyres vs drawn road: deepest %.3f m under; kart-frames clear %.1f%%, under 1 cm %.1f%%, "

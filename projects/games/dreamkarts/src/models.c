@@ -408,9 +408,19 @@ static void part_matrix(float *out, const float *kart, int part, const Kart *k) 
    banking, slope and squash; the body on top of it also leans in corners
    and pitches under power, on its springs, so a lean never buries the
    inner wheels. */
+#define TRICK_PIVOT 0.5f   /* height in the body the barrel roll turns about */
 static void kart_pose(float *m, const Kart *k, bool body) {
     float sq = k->squash;
     m4_translate_rotate(m, k->pos, k->heading + k->vis_yaw, k->pitch + (body ? k->nose : 0.0f), k->roll + (body ? k->lean : 0.0f));
+    if(k->trick_a != 0) {
+        /* The barrel roll turns the whole kart about its nose axis through
+           a point up in the body, so the wheels sweep round it. */
+        float rz[16];
+        m4_rot_z(rz, k->trick_a);
+        rz[12] = -rz[4] * TRICK_PIVOT;
+        rz[13] = TRICK_PIVOT - rz[5] * TRICK_PIVOT;
+        m4_mul(m, m, rz);
+    }
     m4_scale_apply(m, 1.0f - sq * 0.45f, 1.0f + sq, 1.0f - sq * 0.45f);
 }
 

@@ -47,7 +47,7 @@ is no stand-alone ELF). If you are burning a physical CD-R, you may want to try 
 | Analog stick or D-pad | I/J/K/L or arrow keys | Steer (menus: move) |
 | A | X | Accelerate (menus: OK) |
 | B | C | Brake, even while holding A; reverse with A released (menus: back) |
-| R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump |
+| R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump; press again on the way up off a ramp for a barrel roll and a 2 s boost on landing |
 | Y | D | Use the held power-up (with down held, throw a Chaos Spear backwards; a Mine always drops behind); wave when holding nothing, arms taking turns |
 | Both triggers together | F and V together | Look behind while held |
 | Start | Return | Pause (continue / restart / music on-off / performance overlay on-off / quit) |

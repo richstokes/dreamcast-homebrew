@@ -16,7 +16,8 @@ enum {
     EV_CHARGE_JUMP = 1 << 12, EV_ROCKET = 1 << 13, EV_BURNOUT = 1 << 14,
     EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17, EV_FALL = 1 << 18,
     EV_ITEM_GET = 1 << 19, EV_ITEM_USE = 1 << 20, EV_SPEAR = 1 << 21, EV_SPIN = 1 << 22,
-    EV_SHIELD_UP = 1 << 23, EV_SHIELD_POP = 1 << 24, EV_MINE = 1 << 25, EV_MINE_HIT = 1 << 26
+    EV_SHIELD_UP = 1 << 23, EV_SHIELD_POP = 1 << 24, EV_MINE = 1 << 25, EV_MINE_HIT = 1 << 26,
+    EV_TRICK = 1 << 27, EV_TRICK_BOOST = 1 << 28
 };
 
 typedef struct {
@@ -35,6 +36,13 @@ typedef struct {
     float air_t;
     bool over_edge;     /* went off an open edge in the sky: falling */
     float gnd;          /* road height where the kart last touched down */
+    /* Trick: a barrel roll flicked in the air (kart.c), paid as a boost on
+       landing. */
+    float trick_t;      /* seconds into the roll (0 = not rolling) */
+    int trick_dir;      /* +1 rolls right, -1 left */
+    bool tricked;       /* rolled this flight: boost on touchdown */
+    float trick_a;      /* visual roll angle about the nose axis */
+    float ai_trick_t;   /* CPU: seconds into a flight before it flicks (< 0 not chosen) */
     float steer;        /* smoothed steering -1..1 */
     bool prev_drift_btn;
 

@@ -809,6 +809,7 @@ void audio_kart_events(const Kart *k, bool is_player) {
         audio_sfx(DK_SFX_CHAO_HAPPY, vol * 170 / 255, pan);
     }
     if(ev & EV_CHARGE_JUMP) audio_sfx_pitch(DK_SFX_HOP, vol * 200 / 255, pan, 0.75f);
+    if(ev & EV_TRICK) audio_sfx_pitch(DK_SFX_WHOOSH, vol * 190 / 255, pan, 1.45f);
     if(ev & EV_CHARGE1) audio_sfx(DK_SFX_CHARGE1, vol * 150 / 255, pan);
     if(ev & EV_CHARGE2) audio_sfx(DK_SFX_CHARGE2, vol * 150 / 255, pan);
     if(ev & EV_CHARGE3) audio_sfx(DK_SFX_CHARGE3, vol * 165 / 255, pan);

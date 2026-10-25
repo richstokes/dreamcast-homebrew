@@ -364,6 +364,7 @@ void fx_kart(const Kart *k, float dt) {
     }
     if(bump_burst) burst_stars(vadd(k->pos, v3(0, 0.8f, 0)), 4, 0xffffffff, 4.0f);
     if(ev & EV_CHARGE_JUMP) burst_stars(vadd(k->pos, v3(0, 0.3f, 0)), 8, 0xffffffff, 3.5f);
+    if(ev & EV_TRICK) burst_stars(vadd(k->pos, v3(0, 0.6f, 0)), 10, argb(255, 255, 255, 190), 4.5f);
 }
 
 /* Height the road gains over the horizontal offset o from a located
