@@ -10,6 +10,7 @@
 #include "world.h"
 #include "models_data.h"
 #include "texture_assets.h"
+#include <sh4zam/shz_sh4zam.h>
 
 static uint32_t paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
 /* Model vertices, shared by every kart: position and lighting group. */
@@ -278,12 +279,21 @@ static float cheer_lift(const Kart *k) {
 }
 
 /* Chao body sway and bob about its seat; the arms hang off it. */
-static void chao_body_local(float *m, const Kart *k, float lift) {
+static V3 chao_seat(const Kart *k, float lift) {
     const float *bp = dk_part_pivot[DK_PART_CHAO_BODY];
-    m4_rot_z(m, -k->head_tilt * 0.35f);
-    m[12] = bp[0];
-    m[13] = bp[1] + 0.02f * sinf(k->emote_bob * 2.0f) + lift;
-    m[14] = bp[2];
+    return v3(bp[0], bp[1] + 0.02f * sinf(k->emote_bob * 2.0f) + lift, bp[2]);
+}
+
+static float chao_sway(const Kart *k) {
+    return -k->head_tilt * 0.35f;
+}
+
+static void chao_body_local(float *m, const Kart *k, float lift) {
+    V3 seat = chao_seat(k, lift);
+    m4_rot_z(m, chao_sway(k));
+    m[12] = seat.x;
+    m[13] = seat.y;
+    m[14] = seat.z;
 }
 
 /* An arm (side 0 left, 1 right) raised by arm_up: the resting arm, shoulder
@@ -330,78 +340,80 @@ static void arm_local(float *out, const Kart *k, int side, bool hand, float lift
     m4_mul(out, body, m);
 }
 
+/* A part's world matrix: the kart's, moved to the part's pivot and turned.
+   Built in XMTRX (about half the cost of chaining m4 helpers), which this
+   clobbers: update_kart_mats puts it back. SH4ZAM's positive X rotation
+   pitches the nose (+Z) down. A raised arm stretches, so it and its hand
+   keep the m4 path. */
 static void part_matrix(float *out, const float *kart, int part, const Kart *k) {
-    float local[16], rot[16];
-    m4_identity(local);
-    const float *pv = dk_part_pivot[part];
+    const float *pv = dk_part_pivot[part], *ax = dk_steer_axis;
     float lift = cheer_lift(k);
-    switch(part) {
-        case DK_PART_WHEEL_FL:
-        case DK_PART_WHEEL_FR: {
-            float steer[16];
-            m4_rot_y(steer, k->steer_vis * 0.55f);
-            m4_rot_x(rot, -k->wheel_spin);
-            m4_mul(local, steer, rot);
-            break;
-        }
-        case DK_PART_WHEEL_RL:
-        case DK_PART_WHEEL_RR:
-            m4_rot_x(local, -k->wheel_spin);
-            break;
-        case DK_PART_STEER:
-            m4_rot_axis(local, v3(dk_steer_axis[0], dk_steer_axis[1], dk_steer_axis[2]), -k->steer_vis * 1.4f);
-            break;
-        case DK_PART_CHAO_BODY:
-            chao_body_local(out, k, lift);
+    if(part >= DK_PART_ARM_L) {
+        int side = (part - DK_PART_ARM_L) & 1;
+        if(k->arm_up[side] > 0.0f) {
+            arm_local(out, k, side, part >= DK_PART_HAND_L, lift);
             m4_mul(out, kart, out);
             return;
+        }
+    }
+    shz_xmtrx_load_unaligned_4x4(kart);
+    switch(part) {
+        case DK_PART_WHEEL_FL:
+        case DK_PART_WHEEL_FR:
+            shz_xmtrx_translate(pv[0], pv[1], pv[2]);
+            shz_xmtrx_rotate_y(k->steer_vis * 0.55f);
+            shz_xmtrx_rotate_x(k->wheel_spin);
+            break;
+        case DK_PART_WHEEL_RL:
+        case DK_PART_WHEEL_RR:
+            shz_xmtrx_translate(pv[0], pv[1], pv[2]);
+            shz_xmtrx_rotate_x(k->wheel_spin);
+            break;
+        case DK_PART_STEER:
+            shz_xmtrx_translate(pv[0], pv[1], pv[2]);
+            shz_xmtrx_rotate_dir(-k->steer_vis * 1.4f, ax[0], ax[1], ax[2]);
+            break;
+        case DK_PART_CHAO_BODY:
+        case DK_PART_ARM_L:
+        case DK_PART_ARM_R: {
+            /* A resting arm hangs off the body unturned. */
+            V3 seat = chao_seat(k, lift);
+            shz_xmtrx_translate(seat.x, seat.y, seat.z);
+            shz_xmtrx_rotate_z(chao_sway(k));
+            if(part != DK_PART_CHAO_BODY) {
+                const float *bp = dk_part_pivot[DK_PART_CHAO_BODY];
+                shz_xmtrx_translate(pv[0] - bp[0], pv[1] - bp[1], pv[2] - bp[2]);
+            }
+            break;
+        }
         case DK_PART_CHAO_HEAD: {
             /* A cheering Chao throws its head back; a waving one leans
                away from its raised arm. */
-            float nod[16];
             float lean = 0.22f * (smooth01(k->arm_up[1]) - smooth01(k->arm_up[0]));
-            m4_rot_z(local, -k->head_tilt + (k->cheer_t > 0 ? 0.0f : lean));
-            m4_rot_x(nod, 0.06f * sinf(k->emote_bob * 1.3f) - k->pitch * 1.5f + 0.2f * smooth01(k->cheer_t * 3.0f));
-            m4_mul(local, local, nod);
-            local[13] += lift;
+            float nod = 0.06f * sinf(k->emote_bob * 1.3f) - k->pitch * 1.5f + 0.2f * smooth01(k->cheer_t * 3.0f);
+            shz_xmtrx_translate(pv[0], pv[1] + lift, pv[2]);
+            shz_xmtrx_rotate_z(-k->head_tilt + (k->cheer_t > 0 ? 0.0f : lean));
+            shz_xmtrx_rotate_x(-nod);
             break;
         }
         case DK_PART_EMOTE:
-            m4_rot_y(local, k->emote_bob * 0.8f);
-            local[13] += 0.05f * sinf(k->emote_bob * 2.2f) + lift;
+            shz_xmtrx_translate(pv[0], pv[1] + 0.05f * sinf(k->emote_bob * 2.2f) + lift, pv[2]);
+            shz_xmtrx_rotate_y(k->emote_bob * 0.8f);
             break;
-        case DK_PART_ARM_L:
-        case DK_PART_ARM_R:
-            arm_local(out, k, part - DK_PART_ARM_L, false, lift);
-            m4_mul(out, kart, out);
-            return;
         case DK_PART_HAND_L:
         case DK_PART_HAND_R: {
-            int side = part - DK_PART_HAND_L;
-            if(k->arm_up[side] > 0.0f) {
-                arm_local(out, k, side, true, lift);
-                m4_mul(out, kart, out);
-                return;
-            }
             /* On the wheel: turn with it about the steering column. */
             const float *st = dk_part_pivot[DK_PART_STEER];
-            m4_rot_axis(local, v3(dk_steer_axis[0], dk_steer_axis[1], dk_steer_axis[2]), -k->steer_vis * 1.4f);
-            float off[16];
-            m4_identity(off);
-            off[12] = pv[0] - st[0];
-            off[13] = pv[1] - st[1];
-            off[14] = pv[2] - st[2];
-            m4_mul(local, local, off);
-            pv = st;
+            shz_xmtrx_translate(st[0], st[1], st[2]);
+            shz_xmtrx_rotate_dir(-k->steer_vis * 1.4f, ax[0], ax[1], ax[2]);
+            shz_xmtrx_translate(pv[0] - st[0], pv[1] - st[1], pv[2] - st[2]);
             break;
         }
         default:
+            shz_xmtrx_translate(pv[0], pv[1], pv[2]);
             break;
     }
-    local[12] += pv[0];
-    local[13] += pv[1];
-    local[14] += pv[2];
-    m4_mul(out, kart, local);
+    shz_xmtrx_store_unaligned_4x4(out);
 }
 
 /* The pose from the physics. The chassis (wheels) sits on the road:
@@ -475,6 +487,8 @@ static void update_kart_mats(int index) {
     float km[16], kc[16];
     kart_matrix(km, k, false);
     kart_matrix(kc, k, true);
+    shz_mat4x4_t saved;
+    shz_xmtrx_store_4x4(&saved);
     for(int part = 0; part < DK_PART_COUNT; part++) {
         float *pm = part_mats[index][part];
         bool wheel = part >= DK_PART_WHEEL_FL && part <= DK_PART_WHEEL_RR;
@@ -483,6 +497,7 @@ static void update_kart_mats(int index) {
         V3 cx = v3(pm[0], pm[1], pm[2]), cy = v3(pm[4], pm[5], pm[6]), cz = v3(pm[8], pm[9], pm[10]);
         part_light[index][part] = v3(vdot(vnorm(cx), light_dir), vdot(vnorm(cy), light_dir), vdot(vnorm(cz), light_dir));
     }
+    shz_xmtrx_load_4x4(&saved);
 }
 
 /* lod 2 = split-screen "own kart": full-detail body and Chao, the simple

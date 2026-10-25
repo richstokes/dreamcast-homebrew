@@ -106,8 +106,6 @@ float r_view_depth(V3 p);
 void m4_identity(float *m);
 void m4_mul(float *out, const float *a, const float *b);
 void m4_translate_rotate(float *m, V3 t, float yaw, float pitch, float roll);
-void m4_rot_x(float *m, float a);
-void m4_rot_y(float *m, float a);
 void m4_rot_z(float *m, float a);
 void m4_rot_axis(float *m, V3 axis, float a);
 void m4_scale_apply(float *m, float sx, float sy, float sz);

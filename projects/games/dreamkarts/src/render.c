@@ -239,21 +239,6 @@ void m4_mul(float *out, const float *a, const float *b) {
     shz_xmtrx_load_4x4(&saved);
 }
 
-void m4_rot_y(float *m, float a) {
-    float s = sinf(a), c = cosf(a);
-    m4_identity(m);
-    m[0] = c; m[2] = -s;      /* image of +X */
-    m[8] = s; m[10] = c;      /* image of +Z */
-}
-
-void m4_rot_x(float *m, float a) {
-    /* Positive pitches the nose (+Z) up. */
-    float s = sinf(a), c = cosf(a);
-    m4_identity(m);
-    m[5] = c; m[6] = -s;
-    m[9] = s; m[10] = c;
-}
-
 void m4_rot_z(float *m, float a) {
     /* Positive rolls the right side (+X) up. */
     float s = sinf(a), c = cosf(a);
@@ -271,7 +256,7 @@ void m4_rot_axis(float *m, V3 n, float a) {
 }
 
 void m4_translate_rotate(float *m, V3 t, float yaw, float pitch, float roll) {
-    /* m4_rot_x's positive pitch is SH4ZAM's negative X rotation. */
+    /* Positive pitch raises the nose (+Z); SH4ZAM's positive X rotation lowers it. */
     shz_mat4x4_t saved;
     shz_xmtrx_store_4x4(&saved);
     shz_xmtrx_init_translation(t.x, t.y, t.z);
