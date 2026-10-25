@@ -250,8 +250,31 @@ func TestBarkPayload(t *testing.T) {
 	n.Close(5 * time.Second)
 	got := f.posts["/key"]
 	want := map[string]any{"title": "Race starting in lobby 3", "body": "Track: EMERALD BEACH · Laps: 3\nRacers (2): ANN, BOB",
-		"group": "DreamKarts"}
+		"group": "DreamKarts", "icon": DefaultIcon}
 	if len(got) != 1 || fmt.Sprint(got[0]) != fmt.Sprint(want) {
 		t.Errorf("bark got %v, want %v", got, want)
+	}
+}
+
+// A muted player's join or race skips only the webhooks that mute them.
+func TestMutePlayers(t *testing.T) {
+	f := newFake(t)
+	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [
+		{"name": "chat", "url": "%s/chat", "events": ["lobby_join", "race_start"]},
+		{"name": "phone", "type": "bark", "url": "%s/phone", "events": ["lobby_join", "race_start"], "mute_players": ["dbr"]}]}`,
+		f.URL, f.URL)), t.Logf)
+	now := time.Now()
+	n.Notify(LobbyJoin, Message{Title: "DBR joined", Time: now, Key: "DBR", Players: []string{"DBR"}})
+	n.Notify(LobbyJoin, Message{Title: "ANN joined", Time: now, Key: "ANN", Players: []string{"ANN"}})
+	n.Notify(RaceStart, Message{Title: "race", Time: now, Players: []string{"ANN", "DBR"}})
+	n.Notify(RaceStart, Message{Title: "race", Time: now, Players: []string{"ANN", "BOB"}})
+	n.Close(5 * time.Second)
+	if f.count("/chat") != 4 || f.count("/phone") != 2 {
+		t.Errorf("got %d chat and %d phone posts, want 4 and 2", f.count("/chat"), f.count("/phone"))
+	}
+	for _, m := range f.posts["/phone"] {
+		if strings.Contains(fmt.Sprint(m), "DBR") {
+			t.Errorf("phone got a DBR alert: %v", m)
+		}
 	}
 }

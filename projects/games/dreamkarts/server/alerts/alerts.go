@@ -7,11 +7,13 @@
 //	               "events": ["lobby_join", "race_start"],
 //	               "throttle": {"lobby_join": "5m"}},
 //	              {"name": "phone", "type": "bark", "url": "https://api.day.app/<key>",
-//	               "events": ["race_start"]}]}
+//	               "events": ["race_start"], "mute_players": ["DBR"]}]}
 //
 // Each webhook picks its events and gets its own throttle per event: an
 // alert inside the throttle window since that webhook's last alert of the
-// same event and key is dropped, not queued. Posting happens on one goroutine per
+// same event and key is dropped, not queued. A webhook can also mute
+// players: an alert about any of them (their join, a race they are in)
+// skips that webhook. Posting happens on one goroutine per
 // webhook so a slow service never holds up the game; a full queue drops.
 // URLs are never logged, only names.
 package alerts
@@ -51,11 +53,12 @@ var DefaultThrottle = map[Event]time.Duration{
 
 // Message is one alert: a Discord embed, or a Bark title and body.
 type Message struct {
-	Title  string
-	Color  int // Discord's embed stripe
-	Fields []Field
-	Time   time.Time
-	Key    string // throttled apart from other keys of the same event
+	Title   string
+	Color   int // Discord's embed stripe
+	Fields  []Field
+	Time    time.Time
+	Key     string   // throttled apart from other keys of the same event
+	Players []string // who it is about, for mute_players
 }
 
 // Field is a line of detail. Inline fields sit side by side in Discord and
@@ -84,7 +87,12 @@ type Webhook struct {
 	Events   []Event            `json:"events"`
 	Throttle map[Event]Duration `json:"throttle,omitempty"`
 	Username string             `json:"username,omitempty"` // Discord's poster name, default "DreamKarts"
+	Icon     string             `json:"icon,omitempty"`     // Bark's notification icon, default DefaultIcon
+	Mute     []string           `json:"mute_players,omitempty"`
 }
+
+// DefaultIcon is the game icon Bark shows beside an alert.
+const DefaultIcon = "https://raw.githubusercontent.com/richstokes/dreamcast-homebrew/main/projects/games/dreamkarts/assets/icon.png"
 
 // Duration reads "5m" style durations from JSON.
 type Duration time.Duration
@@ -212,6 +220,9 @@ func New(c *Config, logf func(string, ...any)) *Notifier {
 		if h.cfg.Username == "" {
 			h.cfg.Username = "DreamKarts"
 		}
+		if h.cfg.Icon == "" {
+			h.cfg.Icon = DefaultIcon
+		}
 		n.hooks = append(n.hooks, h)
 		go n.run(h)
 	}
@@ -242,7 +253,7 @@ func (n *Notifier) Notify(ev Event, m Message) {
 	}
 	for _, h := range n.hooks {
 		d, ok := h.throttle[ev]
-		if !ok {
+		if !ok || h.muted(m.Players) {
 			continue
 		}
 		k := sent{ev, m.Key}
@@ -268,6 +279,19 @@ func (n *Notifier) Notify(ev Event, m Message) {
 	}
 }
 
+// muted says whether any of players is on the webhook's mute list. Console
+// names are upper case, but the config might not be.
+func (h *hook) muted(players []string) bool {
+	for _, p := range players {
+		for _, m := range h.cfg.Mute {
+			if strings.EqualFold(p, m) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // payload is m as w's service wants it.
 func payload(w Webhook, m Message) any {
 	if w.Type == Bark {
@@ -282,7 +306,7 @@ func payload(w Webhook, m Message) any {
 		if len(inline) > 0 {
 			lines = append([]string{strings.Join(inline, " · ")}, lines...)
 		}
-		return map[string]any{"title": m.Title, "body": strings.Join(lines, "\n"), "group": "DreamKarts"}
+		return map[string]any{"title": m.Title, "body": strings.Join(lines, "\n"), "group": "DreamKarts", "icon": w.Icon}
 	}
 	embed := map[string]any{"title": m.Title, "color": m.Color, "fields": m.Fields}
 	if !m.Time.IsZero() {

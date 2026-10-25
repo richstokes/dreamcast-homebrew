@@ -23,8 +23,9 @@ func alert(e lobby.Event, now time.Time) (alerts.Event, alerts.Message) {
 			Fields: []alerts.Field{
 				{Name: fmt.Sprintf("In the lobby (%d/%d)", len(e.Players), lobby.MaxPlayers), Value: strings.Join(e.Players, ", ")},
 			},
-			Time: now,
-			Key:  e.Name,
+			Time:    now,
+			Key:     e.Name,
+			Players: []string{e.Name},
 		}
 	}
 	items := "On"
@@ -41,7 +42,8 @@ func alert(e lobby.Event, now time.Time) (alerts.Event, alerts.Message) {
 			{Name: "Items", Value: items, Inline: true},
 			{Name: fmt.Sprintf("Racers (%d)", len(e.Players)), Value: strings.Join(e.Players, ", ")},
 		},
-		Time: now,
+		Time:    now,
+		Players: e.Players,
 	}
 }
 

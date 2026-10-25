@@ -32,12 +32,14 @@ that way. Webhook URLs and Bark keys are secret, so they live in the private
 `/etc/dreamkarts/alerts.json`; change them there with `manage.py check` and
 `apply --restart-apps`. Missing file: no alerts. Each target picks its
 events and can override a throttle; `type` is `discord` (the default) or
-`bark`:
+`bark`. `mute_players` skips alerts about those players (their join, or a
+race they are in) for that target only, and Bark alerts show the game icon
+(`assets/icon.png` on `main`, or the target's own `icon` URL):
 
 ```json
 {"webhooks": [
   {"name": "dcnet", "url": "https://discord.com/api/webhooks/...", "events": ["lobby_join", "race_start"]},
-  {"name": "phone", "type": "bark", "url": "https://api.day.app/<key>", "events": ["race_start"], "throttle": {"race_start": "1m"}}
+  {"name": "phone", "type": "bark", "url": "https://api.day.app/<key>", "events": ["race_start"], "throttle": {"race_start": "1m"}, "mute_players": ["DBR"]}
 ]}
 ```
 
