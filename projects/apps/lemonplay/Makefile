@@ -11,7 +11,7 @@ VARIANT ?=
 EXTRA_CFLAGS ?=
 VARIANT_FLAGS_qa = -DLP_QA -DLP_START_SECONDS=300
 VARIANT_FLAGS_bench = -DLP_BENCH -DLP_START_SECONDS=300
-VARIANT_FLAGS_decodebench = -DLP_DECODE_BENCH
+VARIANT_FLAGS_decodebench = -DLP_DECODE_BENCH -DLP_PROFILE
 VARIANT_FLAGS_qaend = -DLP_QA -DLP_QA_END
 BUILD = build/$(if $(VARIANT),$(VARIANT),release)
 ELF = $(if $(VARIANT),lemonplay-$(VARIANT).elf,$(TARGET))
@@ -26,14 +26,16 @@ include $(KOS_BASE)/Makefile.rules
 # Rebuild when the flags change, not only the sources.
 FLAGS_STAMP = $(BUILD)/flags
 $(FLAGS_STAMP): FORCE | $(BUILD)
-	@echo '$(CFLAGS_LP)' | cmp -s - $@ || echo '$(CFLAGS_LP)' > $@
+	@echo '$(CFLAGS_LP) $(MPEG_CFLAGS)' | cmp -s - $@ || echo '$(CFLAGS_LP) $(MPEG_CFLAGS)' > $@
 
 $(BUILD)/%.o: src/%.c $(wildcard src/*.h) ../../common/vmusave.h $(FLAGS_STAMP) | $(BUILD)
 	kos-cc $(KOS_CFLAGS) $(CFLAGS_LP) -c $< -o $@
 
 # pl_mpeg's own warnings are not ours to fix.
+# MPEG_CFLAGS tunes the decoder alone (e.g. -O3) for benchmarks.
+MPEG_CFLAGS ?=
 $(BUILD)/mpeg.o: src/mpeg.c src/mpeg.h third_party/pl_mpeg/pl_mpeg.h $(FLAGS_STAMP) | $(BUILD)
-	kos-cc $(KOS_CFLAGS) $(CFLAGS_LP) -w -c $< -o $@
+	kos-cc $(KOS_CFLAGS) $(CFLAGS_LP) $(MPEG_CFLAGS) -w -c $< -o $@
 
 $(BUILD):
 	mkdir -p $@

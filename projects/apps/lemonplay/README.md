@@ -77,7 +77,7 @@ build it in with `EXTRA_CFLAGS='-DLP_SERVER=\"http://IP:8200/description.xml\"'`
 | --- | --- |
 | `make` | `lemonplay.elf` |
 | `make VARIANT=qa EXTRA_CFLAGS=...LP_SERVER...` | Plays the first video from 5:00, seeks, prints `LP QA: PASS`. Run with `LP_ELF=lemonplay-qa.elf LP_EXIT_ON_LOG="LP QA: done" ./run-flycast.sh --skip-build`. Add `-DLP_QA_LINGER=4000` to pause on each screen for screenshots |
-| `make VARIANT=decodebench EXTRA_CFLAGS=...LP_SERVER...` | Downloads 10 s clips at several sizes and bitrates and times the decoder (`LP DECODEBENCH` lines) |
+| `make VARIANT=decodebench EXTRA_CFLAGS=...LP_SERVER...` | Downloads 20 s clips and times the decoder (`LP DECODEBENCH`), with cycles per stage from the SH-4 performance counter (`LP PROFILE`, console only) and a hash of every picture. `-DLP_REPEAT_BENCH` repeats clips; `-DLP_POISON` fills decoder memory with junk to catch reads of unwritten data. `MPEG_CFLAGS` sets flags for the decoder alone |
 | `make VARIANT=bench EXTRA_CFLAGS=...LP_SERVER...` | Plays 45 s at each of several server budgets and prints `LP PLAYBENCH` lines: decode load, dropped frames, hitches (gaps over 2.5 frames), I-frame skips, rebuffers |
 | `make hw` | Real Dreamcast via `tools/dc-hw.sh` |
 
@@ -85,25 +85,38 @@ build it in with `EXTRA_CFLAGS='-DLP_SERVER=\"http://IP:8200/description.xml\"'`
 
 Measured on a real Dreamcast with a Broadband Adapter, 23.976 fps Friends.
 MPEG-1 decode costs a roughly fixed time per 16x16 macroblock that rises
-with bitrate: about **26 + 78 x bits-per-pixel us per macroblock** in
-isolation (`decodebench`), plus ~25% during playback for networking and
-drawing. I-frames take 2.5-3x the average.
+with bitrate, plus ~25% during playback for networking and drawing.
+I-frames take 2.5-3x the average.
 
-| Size | bpp | Isolated decode avg / max | Playback decode avg | Decoder busy | Result |
-| --- | --- | --- | --- | --- | --- |
-| 368x208 | 0.5 | 19.7 / 55 ms | 19.8 ms | 48% | Smooth |
-| **448x256** | **0.35** | | **27.6-29.5 ms** | **66-71%** | **Server default: smooth over 3 x 60 s** |
-| 448x256 | 0.5 | 27.4 / 76 (448x240) | 36.5 ms | 85% | 1 skip, 2 hitches in 45 s |
-| 448x336 | 0.35 | | 35.1 ms | 84% | Smooth, borderline |
-| 512x288 | 0.5 | 40.0 / 97 | 41.9 ms | 90% | 3 hitches in 10 s |
-| 640x352 | 0.5 | 57.9 / 134 | | | Not real time |
+Playback (`make VARIANT=bench`), 60 s runs from 5, 10 and 15 minutes in:
+
+| Size | bpp | Decoder busy | Result |
+| --- | --- | --- | --- |
+| **480x272** | **0.4** | **66-70%** | **Server default: smooth** |
+| 480x272 | 0.35 | 61-65% | Smooth |
+| 448x256 | 0.45 | 66-70% | Smooth |
+| 448x256 | 0.5 | 85% | 1 skip, 2 hitches in 45 s (before the decoder work) |
+| 512x288 | 0.5 | 90% | 3 hitches in 10 s (before the decoder work) |
 
 Playback stays smooth while the decoder thread is under ~80% busy and starts
-skipping (dropping to the next I-frame) around 85%. ZeroConfigDLNA's default
-budget, 11,000 macroblocks/s at 0.35 bpp, sits at ~70%: 448x256 for 24 fps
-widescreen, 384x288 in ZOOM or for 4:3. TCP from a Mac reached ~4.5 MB/s;
-a stream needs ~0.3 MB/s, so the network is never the limit. Uploading a
-picture through the YUV converter costs ~1 ms (3.7 ms at 640 wide).
+skipping (dropping to the next I-frame) around 85%. ZeroConfigDLNA's
+default, 12,500 macroblocks/s at 0.4 bpp, keeps it at ~70%: 480x272 for 24
+fps widescreen, 416x304 in ZOOM or for 4:3. TCP from a Mac reached ~4.5
+MB/s; a stream needs ~0.3 MB/s, so the network is never the limit.
+
+Decoder (`decodebench`, 20 s at 448x256, unprofiled):
+
+| Decoder | 0.25 bpp | 0.35 bpp | 0.5 bpp | Worst I-frame |
+| --- | --- | --- | --- | --- |
+| Dreamcast pl_mpeg port | 21.8 ms | 25.5 ms | 30.2 ms | 88.5 ms |
+| + 9-bit VLC lookup | 21.2 | 24.7 | 28.4 | 82 |
+| + sign in the table, `movca.l` output | **19.7** | **22.6** | **25.8** | **68** |
+
+Cycles per macroblock at 0.35 bpp, before and after: VLC 3440 / 1950,
+prediction 2830 / 2620, IDCT 2220 / 2160, block writes 1400 / 1240, scatter
+to reference planes 1310 / 1320. Tried without effect: -O3, unrolling, a
+pruned 4x4 IDCT, a longer GOP, denoising (it only moved bits elsewhere).
+Uploading a picture through the YUV converter costs ~1 ms.
 
 ## Gotchas
 

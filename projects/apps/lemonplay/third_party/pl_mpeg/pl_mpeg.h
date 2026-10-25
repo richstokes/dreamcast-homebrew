@@ -175,6 +175,23 @@ extern "C" {
 
 #define PLM_UNUSED(expr) (void)(expr)
 
+// LemonPlay: per-stage CPU cycle totals for the decode benchmark (SH-4
+// performance counter 0, which KOS runs in elapsed-cycle mode).
+#ifdef LP_PROFILE
+enum { LP_PROF_PICTURE, LP_PROF_VLC, LP_PROF_IDCT, LP_PROF_PUT, LP_PROF_PREDICT, LP_PROF_SCATTER, LP_PROF_COUNT };
+extern uint64_t lp_prof[LP_PROF_COUNT];
+// Luma predictions by kind: full-pel aligned, full-pel unaligned, half-pel
+// across, half-pel down, half-pel both.
+extern uint32_t lp_motion[5];
+#define LP_COUNT_MOTION(kind) (lp_motion[kind]++)
+#include <dc/perfctr.h>
+#define LP_PROF_NOW() perf_cntr_count(PRFC0)
+#define LP_PROF(stage, call) do { uint64_t lp_t0_ = LP_PROF_NOW(); call; lp_prof[stage] += LP_PROF_NOW() - lp_t0_; } while(0)
+#else
+#define LP_COUNT_MOTION(kind) ((void)0)
+#define LP_PROF(stage, call) call
+#endif
+
 #define PLM_MIN(a,b) ((a) < (b) ? (a) : (b))
 
 #ifndef likely
@@ -2167,6 +2184,47 @@ inline uint16_t plm_buffer_read_vlc_uint(plm_buffer_t *self, const plm_vlc_uint_
 	return (uint16_t)plm_buffer_read_vlc(self, (const plm_vlc_t *)table);
 }
 
+// LemonPlay: the tree walk above reads one bit per step. For hot tables, a
+// lookup on the next PLM_VLC_FAST_BITS bits gives the length and value of
+// any code that short in one load; longer codes fall back to the walk. The
+// table is generated from the tree, so results are identical.
+#define PLM_VLC_FAST_BITS 9
+
+typedef struct {
+	uint16_t value;
+	uint8_t length;   // 0: longer than PLM_VLC_FAST_BITS, walk the tree
+	uint8_t unused;
+} plm_vlc_fast_t;
+
+static void plm_vlc_build_fast(const plm_vlc_t *table, plm_vlc_fast_t *fast) {
+	for (int i = 0; i < (1 << PLM_VLC_FAST_BITS); i++) {
+		plm_vlc_t state = {0, 0};
+		int length = 0;
+		while (length < PLM_VLC_FAST_BITS) {
+			int bit = (i >> (PLM_VLC_FAST_BITS - 1 - length)) & 1;
+			state = table[state.index + bit];
+			length++;
+			if (state.index <= 0) {
+				break;
+			}
+		}
+		fast[i].value = (uint16_t)state.value;
+		fast[i].length = state.index <= 0 ? length : 0;
+	}
+}
+
+inline uint16_t plm_buffer_read_vlc_fast(plm_buffer_t *self, const plm_vlc_t *table, const plm_vlc_fast_t *fast) {
+	uint32_t bit_index = (uint32_t)self->bit_index;
+	const uint8_t *s = plm_buffer_ptr_from_read(self, bit_index >> 3);
+	uint32_t bits = plm_buffer_load_u32be(s) << (bit_index & 7);
+	plm_vlc_fast_t e = fast[bits >> (32 - PLM_VLC_FAST_BITS)];
+	if (likely(e.length)) {
+		self->bit_index = bit_index + e.length;
+		return e.value;
+	}
+	return (uint16_t)plm_buffer_read_vlc(self, table);
+}
+
 
 
 // ----------------------------------------------------------------------------
@@ -3241,6 +3299,16 @@ void plm_video_decode_slice(plm_video_t *self, int slice);
 void plm_video_decode_macroblock(plm_video_t *self);
 void plm_video_decode_motion_vectors(plm_video_t *self);
 void plm_video_predict_macroblock(plm_video_t *self);
+
+// LemonPlay: every macroblock's 384 display bytes are rewritten in full
+// (prediction, or six intra blocks), so claim its 12 cache lines with
+// movca.l instead of letting the first store read each line from RAM.
+static inline void plm_claim_macroblock(uint32_t *d) {
+	for (int i = 0; i < 96; i += 8) {
+		__asm__ volatile("movca.l r0, @%0" : : "r"(d + i) : "memory");
+	}
+}
+
 void plm_video_copy_macroblock(uint32_t *dest, plm_frame_t *reference, int motion_h, int motion_v);
 void plm_video_interpolate_macroblock(uint32_t *dest, plm_frame_t *reference, int motion_h, int motion_v);
 void plm_video_scatter_macroblock(plm_video_t *self);
@@ -3256,7 +3324,51 @@ static inline void plm_video_advance_macroblock(plm_video_t *self) {
 	}
 }
 
+__attribute__((aligned(32))) static plm_vlc_fast_t plm_dct_coeff_fast[1 << PLM_VLC_FAST_BITS];
+
+// DCT coefficients with the sign bit folded in: one lookup gives run, signed
+// level and the bits used. kind 1: complete; kind 2: the 1-bit code "1",
+// which is (0, +-1) or, after the first coefficient, end of block when the
+// next bit is 0; kind 0: escape or too long, take the general path.
+typedef struct {
+	int8_t level;
+	uint8_t run;
+	uint8_t length;
+	uint8_t kind;
+} plm_coeff_fast_t;
+
+__attribute__((aligned(32))) static plm_coeff_fast_t plm_coeff_fast[1 << PLM_VLC_FAST_BITS];
+static int plm_fast_tables_built;
+
+static void plm_coeff_build_fast(void) {
+	for (int i = 0; i < (1 << PLM_VLC_FAST_BITS); i++) {
+		plm_vlc_fast_t e = plm_dct_coeff_fast[i];
+		plm_coeff_fast_t *c = &plm_coeff_fast[i];
+		c->kind = 0;
+		if (!e.length || e.value == 0xffff) {
+			continue;
+		}
+		if (e.value == 0x0001 && e.length == 1) {
+			c->kind = 2;
+			continue;
+		}
+		if (e.length + 1 > PLM_VLC_FAST_BITS) {
+			continue;
+		}
+		int negative = (i >> (PLM_VLC_FAST_BITS - 1 - e.length)) & 1;
+		c->run = e.value >> 8;
+		c->level = negative ? -(e.value & 0xff) : (e.value & 0xff);
+		c->length = e.length + 1;
+		c->kind = 1;
+	}
+}
+
 plm_video_t * plm_video_create_with_buffer(plm_buffer_t *buffer, int destroy_when_done) {
+	if (!plm_fast_tables_built) {
+		plm_vlc_build_fast((const plm_vlc_t *)PLM_VIDEO_DCT_COEFF, plm_dct_coeff_fast);
+		plm_coeff_build_fast();
+		plm_fast_tables_built = 1;
+	}
 	plm_video_t *self = (plm_video_t *)PLM_MALLOC(sizeof(plm_video_t));
 	if(!self) {
 		fprintf(stderr, "Out of memory for self. [plm_video_create_with_buffer]\n");
@@ -3383,7 +3495,7 @@ plm_frame_t *plm_video_decode(plm_video_t *self) {
 		}
 		plm_buffer_discard_read_bytes(self->buffer);
 
-		plm_video_decode_picture(self);
+		LP_PROF(LP_PROF_PICTURE, plm_video_decode_picture(self));
 
 		if (self->assume_no_b_frames) {
 			frame = &self->frame_backward;
@@ -3677,9 +3789,9 @@ void plm_video_decode_macroblock(plm_video_t *self) {
 		// Predict skipped macroblocks
 		while (increment > 1) {
 			plm_video_advance_macroblock(self);
-			plm_video_predict_macroblock(self);
+			LP_PROF(LP_PROF_PREDICT, plm_video_predict_macroblock(self));
 			if (self->picture_type != PLM_VIDEO_PICTURE_TYPE_B) {
-				plm_video_scatter_macroblock(self);
+				LP_PROF(LP_PROF_SCATTER, plm_video_scatter_macroblock(self));
 			}
 			increment--;
 		}
@@ -3720,7 +3832,7 @@ void plm_video_decode_macroblock(plm_video_t *self) {
 		self->dc_predictor[2] = 128;
 
 		plm_video_decode_motion_vectors(self);
-		plm_video_predict_macroblock(self);
+		LP_PROF(LP_PROF_PREDICT, plm_video_predict_macroblock(self));
 	}
 
 	// Decode blocks
@@ -3730,6 +3842,9 @@ void plm_video_decode_macroblock(plm_video_t *self) {
 
 	if (cbp != 0) {
 		uint32_t *mb_display = self->frame_current.display + self->macroblock_address * 96;
+		if (self->macroblock_intra) {
+			plm_claim_macroblock(mb_display);
+		}
 		for (int block = 0, mask = 0x20; block < 6; block++) {
 			if ((cbp & mask) != 0) {
 				plm_video_decode_block(self, block, mb_display);
@@ -3740,7 +3855,7 @@ void plm_video_decode_macroblock(plm_video_t *self) {
 
 	// Scatter display buffer to Y/Cb/Cr planes while data is cache-hot
 	if (self->picture_type != PLM_VIDEO_PICTURE_TYPE_B) {
-		plm_video_scatter_macroblock(self);
+		LP_PROF(LP_PROF_SCATTER, plm_video_scatter_macroblock(self));
 	}
 }
 
@@ -3797,6 +3912,7 @@ void plm_video_decode_motion_vectors(plm_video_t *self) {
 // DCL DIFF
 void plm_video_predict_macroblock(plm_video_t *self) {
 	uint32_t *d = self->frame_current.display + self->macroblock_address * 96;
+	plm_claim_macroblock(d);
 	int fw_h = self->motion_forward.h;
 	int fw_v = self->motion_forward.v;
 
@@ -3851,6 +3967,7 @@ void plm_video_copy_macroblock(
 	// Y block
 	dest += 32;
 	__asm__("pref @%0" : : "r"(dest));
+	LP_COUNT_MOTION(odd_h && odd_v ? 4 : odd_v ? 3 : odd_h ? 2 : (hp & 1) ? 1 : 0);
 
 	if (odd_h && odd_v)
 	{
@@ -4251,7 +4368,9 @@ void plm_video_scatter_macroblock(plm_video_t *self) {
 }
 
 void plm_video_decode_block(plm_video_t *self, int block, uint32_t *mb_display) {
-
+#ifdef LP_PROFILE
+	uint64_t lp_vlc0 = LP_PROF_NOW();
+#endif
 	int n = 0;
 	uint8_t *quant_matrix;
 
@@ -4300,7 +4419,32 @@ void plm_video_decode_block(plm_video_t *self, int block, uint32_t *mb_display) 
 	int level = 0;
 	while (TRUE) {
 		int run = 0;
-		uint16_t coeff = plm_buffer_read_vlc_uint(self->buffer, PLM_VIDEO_DCT_COEFF);
+		plm_buffer_t *buffer = self->buffer;
+		uint32_t bit_index = (uint32_t)buffer->bit_index;
+		uint32_t bits = plm_buffer_load_u32be(plm_buffer_ptr_from_read(buffer, bit_index >> 3)) << (bit_index & 7);
+		plm_coeff_fast_t fast = plm_coeff_fast[bits >> (32 - PLM_VLC_FAST_BITS)];
+		if (likely(fast.kind == 1)) {
+			buffer->bit_index = bit_index + fast.length;
+			run = fast.run;
+			level = fast.level;
+		}
+		else if (fast.kind == 2) {
+			// "1": first coefficient (0, +-1) as "1s"; later ones "11s", or "10" = end of block
+			if (n > 0) {
+				if (!(bits & 0x40000000)) {
+					buffer->bit_index = bit_index + 2;
+					break;
+				}
+				level = (bits & 0x20000000) ? -1 : 1;
+				buffer->bit_index = bit_index + 3;
+			}
+			else {
+				level = (bits & 0x40000000) ? -1 : 1;
+				buffer->bit_index = bit_index + 2;
+			}
+		}
+		else {
+		uint16_t coeff = plm_buffer_read_vlc_fast(self->buffer, (const plm_vlc_t *)PLM_VIDEO_DCT_COEFF, plm_dct_coeff_fast);
 
 		if ((coeff == 0x0001) && (n > 0) && (plm_buffer_read(self->buffer, 1) == 0)) {
 			// end_of_block
@@ -4326,6 +4470,7 @@ void plm_video_decode_block(plm_video_t *self, int block, uint32_t *mb_display) 
 			if (plm_buffer_read(self->buffer, 1)) {
 				level = -level;
 			}
+		}
 		}
 
 		n += run;
@@ -4356,6 +4501,11 @@ void plm_video_decode_block(plm_video_t *self, int block, uint32_t *mb_display) 
 		self->block_data[de_zig_zagged] = level * premultiplier[de_zig_zagged];
 	}
 
+#ifdef LP_PROFILE
+	uint64_t lp_put0 = LP_PROF_NOW();
+	lp_prof[LP_PROF_VLC] += lp_put0 - lp_vlc0;
+	uint64_t lp_idct0 = lp_prof[LP_PROF_IDCT];
+#endif
 	// Move block to its place
 	int block_offset = (block < 4) ? (32 + (block << 4)) : (block == 4 ? 0 : 16);
 	uint32_t *display = mb_display + block_offset;
@@ -4376,7 +4526,7 @@ void plm_video_decode_block(plm_video_t *self, int block, uint32_t *mb_display) 
 			s[0] = 0;
 		}
 		else {
-			plm_video_idct(s);
+			LP_PROF(LP_PROF_IDCT, plm_video_idct(s));
 			uint8_t *d = (uint8_t *)display;
 
 			for (int y = 8; y; y--) {
@@ -4423,7 +4573,7 @@ void plm_video_decode_block(plm_video_t *self, int block, uint32_t *mb_display) 
 			s[0] = 0;
 		}
 		else {
-			plm_video_idct(s);
+			LP_PROF(LP_PROF_IDCT, plm_video_idct(s));
 
 			for (int y = 8; y; y--) {
 				d[0] = clamp[d[0] + s[0]];
@@ -4449,6 +4599,9 @@ void plm_video_decode_block(plm_video_t *self, int block, uint32_t *mb_display) 
 			}
 		}
 	}
+#ifdef LP_PROFILE
+	lp_prof[LP_PROF_PUT] += LP_PROF_NOW() - lp_put0 - (lp_prof[LP_PROF_IDCT] - lp_idct0);
+#endif
 }
 
 void plm_video_idct(int *block) {
