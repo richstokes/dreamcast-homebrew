@@ -3955,7 +3955,7 @@ static void build_skyway(void) {
    meshes baked by tools/build_tsudoken_props.py (Blender), instanced
    here. */
 #define TK_LANTERNS   24
-#define TK_PETALS     40
+#define TK_PETALS     60
 #define TK_STREAM_PTS 8
 #define TK_WATER_Y    (-1.3f)
 #define TK_CHANNEL_D  2.2f       /* stream depth */
@@ -4601,10 +4601,21 @@ static void tk_draw_hills(void) {
 }
 
 /* Cherry petals drifting past the camera on the breeze: a fixed set of
-   positions in a box that follows the camera, each falling and swaying. */
+   positions in a box that follows the camera, each falling and swaying.
+   A petal is never culled while it can be seen: it wraps round the box
+   only once it has faded out over TK_PETAL_BAND metres of each face
+   (about five seconds at the wind's speed), and fades the same way into
+   the ground and into the camera. */
+#define TK_PETAL_BOX  52.0f
+#define TK_PETAL_BAND 10.0f
+static inline float tk_petal_fade(float d, float band) {
+    float t = clampf(d / band, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 static void tk_draw_petals(void) {
     if(world_split) return;
-    const float box = 44.0f;
+    const float box = TK_PETAL_BOX;
     V3 c = r_cam.pos;
     V3 wind = v3(0.9f, -0.55f, 0.35f);
     r_hdr(h_petal);
@@ -4616,14 +4627,25 @@ static void tk_draw_petals(void) {
         float x = ox + wind.x * t * 1.6f + 1.4f * sinf(t * 1.1f + i), y = oy + wind.y * t * 1.6f + 0.5f * sinf(t * 2.3f + i * 0.7f),
               z = oz + wind.z * t * 1.6f + 1.2f * cosf(t * 0.9f + i * 1.3f);
         /* Wrap into the box about the camera, two thirds above eye level. */
-        x = c.x - box * 0.5f + fmodf(fmodf(x - c.x + box * 0.5f, box) + box, box);
-        y = c.y - box * 0.3f + fmodf(fmodf(y - c.y + box * 0.3f, box) + box, box);
-        z = c.z - box * 0.5f + fmodf(fmodf(z - c.z + box * 0.5f, box) + box, box);
-        V3 p = v3(x, y, z);
-        if(p.y < world_ground_y(p.x, p.z) + 0.3f) continue;
+        float rx = fmodf(fmodf(x - c.x + box * 0.5f, box) + box, box);
+        float ry = fmodf(fmodf(y - c.y + box * 0.3f, box) + box, box);
+        float rz = fmodf(fmodf(z - c.z + box * 0.5f, box) + box, box);
+        /* Fade out towards every face of the box, so the wrap to the
+           opposite face happens at zero alpha. */
+        float a = tk_petal_fade(fminf(rx, box - rx), TK_PETAL_BAND)
+                * tk_petal_fade(fminf(ry, box - ry), TK_PETAL_BAND)
+                * tk_petal_fade(fminf(rz, box - rz), TK_PETAL_BAND);
+        if(a < 0.02f) continue;
+        V3 p = v3(c.x - box * 0.5f + rx, c.y - box * 0.3f + ry, c.z - box * 0.5f + rz);
+        float above = p.y - world_ground_y(p.x, p.z) - 0.3f;
+        if(above <= 0.0f) continue;
+        a *= tk_petal_fade(above, 2.5f);       /* settles into the ground */
         V3 d = vsub(p, c);
-        if(vdot(d, d) < 2.0f || !r_sphere_visible(p, 0.5f)) continue;
-        r_billboard(p, 0.42f, 0.42f, t * 2.5f + (float)i, 0, 0, 1, 1, sunset_grade(argb(230, 255, 230, 240)));
+        float dd = vdot(d, d);
+        if(dd < 2.0f || !r_sphere_visible(p, 0.5f)) continue;
+        a *= tk_petal_fade(sqrtf(dd) - 1.4f, 2.0f);   /* passes through the camera */
+        if(a < 0.02f) continue;
+        r_billboard(p, 0.42f, 0.42f, t * 2.5f + (float)i, 0, 0, 1, 1, color_alpha(sunset_grade(argb(230, 255, 230, 240)), 0.9f * a));
     }
 }
 
