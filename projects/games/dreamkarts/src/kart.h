@@ -152,7 +152,7 @@ void kart_wave(Kart *k);
 bool kart_cheering(const Kart *k);
 /* Online: set a rival from the network and animate it locally. */
 void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
-                        bool boosting, bool grounded, float dt);
+                        bool boosting, bool grounded, bool skid, float dt);
 
 extern Kart karts[MAX_KARTS];
 extern int kart_count;

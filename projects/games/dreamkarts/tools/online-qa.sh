@@ -6,11 +6,13 @@
 #
 # Scenarios (default: all that fit the mode):
 #   race      join a lobby, chat with the bot (the filter stars its second
-#             line), race it and get a place
+#             line), race it, get a place and see its skid marks
 #   custom    the same with a custom kart on both sides
 #   practice  start alone, drop out, leave and rejoin, race alone until the
 #             bot joins, drop out, race it, see it drop out, drop out
 #   spectate  watch the demo lobby through a race
+#   watch     watch two bots race in a lobby of our own, braking every few
+#             seconds: their skid marks must show on the spectator cameras
 #   reject    a server that moved on to another protocol: the console must
 #             show THIS VERSION IS TOO OLD, not a lost connection
 #   restart   the server restarts mid-race and repeats its race ids: the
@@ -43,7 +45,7 @@ else
     [[ -n "${LAN_IP}" ]] || { echo "DK_LAN_IP: no en0 address; set it to this Mac's LAN address" >&2; exit 2; }
     ADDR="127.0.0.1:${PORT}"
     HOST_FLAGS="-DDK_NET_TEST_HOST=${LAN_IP} -DDK_NET_PORT=${PORT}"
-    scenarios=(race custom practice spectate reject restart)
+    scenarios=(race custom practice spectate watch reject restart)
 fi
 [[ $# -gt 0 ]] && scenarios=("$@")
 
@@ -137,16 +139,20 @@ for scenario in "${scenarios[@]}"; do
     echo "== ${scenario}"
     server_flags=()
     cue=""
+    want=""   # a line the console log must also have to pass
+    bot2_args=()
     case "${scenario}" in
         race)
             cflags="-DDK_AT_ONLINE"
-            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
+            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
                       -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD" -for 5m)
+            want="[1-9][0-9]* remote skid marks"
             bot_delay=0 ;;
         custom)
             cflags="-DDK_AT_ONLINE -DDK_AT_CUSTOM"
-            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
+            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
                       -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD" -colour 8 -custom 2,3,4 -for 5m)
+            want="[1-9][0-9]* remote skid marks"
             bot_delay=0 ;;
         practice)
             cflags="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6"
@@ -155,6 +161,13 @@ for scenario in "${scenarios[@]}"; do
         spectate)
             cflags="-DDK_AT_ONLINE -DDK_AT_SPECTATE"
             bot_args=()
+            bot_delay=0 ;;
+        watch)
+            [[ "${LIVE}" == 1 ]] && { echo "   needs a local server, skipped"; continue; }
+            cflags="-DDK_AT_ONLINE -DDK_AT_SPECTATE -DDK_AT_LOBBY=7"
+            bot_args=(-name AT-SONIC -lobby 7 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path" -for 5m)
+            bot2_args=(-name AT-TAILS -lobby 7 -start -start-delay 28s -race 72 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path" -for 5m)
+            want="[1-9][0-9]* remote skid marks"
             bot_delay=0 ;;
         reject)
             [[ "${LIVE}" == 1 ]] && { echo "   needs a local server, skipped"; continue; }
@@ -178,7 +191,12 @@ for scenario in "${scenarios[@]}"; do
     if build_client "${cflags}"; then
         start_server "${OUT}/${scenario}-server.log" ${server_flags[@]+"${server_flags[@]}"}
         [[ ${#bot_args[@]} -gt 0 ]] && bot "${bot_delay}" ${bot_args[@]+"${bot_args[@]}"}
+        [[ ${#bot2_args[@]} -gt 0 ]] && bot "${bot_delay}" "${bot2_args[@]}"
         run_client "${cue}" && status=0 || status=$?
+        if [[ "${status}" == 0 && -n "${want}" ]] && ! /usr/bin/grep -aq -- "${want}" "${OUT}/${scenario}.log"; then
+            echo "   log has no \"${want}\""
+            status=1
+        fi
         stop_server
         stop_bots
     fi

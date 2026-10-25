@@ -109,7 +109,7 @@ straight back to waiting with no results.
 | Offset | Type | Field |
 | --- | --- | --- |
 | 18 | u8 | race id (ignored unless it matches the current race) |
-| 19 | u8 | flags: bit0 finished, bit1 grounded, bit2 boosting, bit3 drifting, bit4 drift right, bit5 waving, bit6 waving the left arm (build 20) |
+| 19 | u8 | flags: bit0 finished, bit1 grounded, bit2 boosting, bit3 drifting, bit4 drift right, bit5 waving, bit6 waving the left arm (build 20), bit7 braking hard (build 23) |
 | 20 | i16 | x * 16 (m) |
 | 22 | i16 | y * 64 |
 | 24 | i16 | z * 16 |

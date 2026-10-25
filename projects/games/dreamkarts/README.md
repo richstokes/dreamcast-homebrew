@@ -164,7 +164,7 @@ needs no Python.
 | `make hw` | Plays the game on the console and leaves it on (`tools/dc-hw.sh power off` afterwards). The music is silent over dcload; `make hw MUSIC=1` streams `disc/music.adp` from `/pc`, at the cost of a hitch about once a second |
 | `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
 | `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
-| `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat, custom karts, practice, spectating, a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
+| `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat (the bot's skid marks must show), custom karts, practice, spectating (the demo lobby, and two braking bots whose skid marks must show), a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
 
 `EXTRA_CFLAGS` for the autotest, capture and hwbench builds:
 

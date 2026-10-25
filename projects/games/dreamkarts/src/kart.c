@@ -460,7 +460,7 @@ static void road_tilt(const Kart *k, float yaw, float *pitch, float *roll) {
 /* An online rival: its physics ran on another console. Take its state from
    the network and animate the wheels, slide, lean and suspension here. */
 void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
-                        bool boosting, bool grounded, float dt) {
+                        bool boosting, bool grounded, bool skid, float dt) {
     k->events = 0;
     k->pos = pos;
     k->heading = heading;
@@ -468,6 +468,7 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
     k->vel = vscale(heading_fwd(heading), speed);
     k->steer = steer;
     k->grounded = grounded;
+    k->skid = skid;   /* braking hard: fx lays its skid marks */
     if(grounded) k->gnd = pos.y;
     k->drift = drift_dir ? DRIFT_ACTIVE : DRIFT_NONE;
     if(drift_dir) k->drift_dir = drift_dir;

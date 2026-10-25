@@ -64,6 +64,10 @@ static Mark marks[MAX_MARKS];
 static int mark_head, mark_n;
 static V3 mark_last[MAX_KARTS][2];
 static bool mark_on[MAX_KARTS][2];
+#ifdef DK_AUTOTEST
+static int marks_laid[MAX_KARTS];
+int fx_marks_laid(int kart) { return marks_laid[kart]; }
+#endif
 
 /* Two karts leaning on each other raise EV_KART_BUMP every frame, so a
    contact shows only its first BUMP_BURSTS star bursts. The count starts
@@ -222,11 +226,13 @@ void fx_kart(const Kart *k, float dt) {
     } else if(bump_quiet[idx] < BUMP_QUIET) {
         bump_quiet[idx] += dt;
     }
-    /* Only karts near a human's camera are worth effects. */
+    /* Only karts near a human's kart or camera are worth effects (a
+       spectator's TV, heli and blimp cameras sit far from the kart they
+       watch). */
     float near2 = 1e30f;
     for(int p = 0; p < game.num_players; p++) {
-        V3 d = vsub(k->pos, karts[game.pl[p].kart].pos);
-        near2 = fminf(near2, vdot(d, d));
+        V3 d = vsub(k->pos, karts[game.pl[p].kart].pos), c = vsub(k->pos, game.pl[p].cam.pos);
+        near2 = fminf(near2, fminf(vdot(d, d), vdot(c, c)));
     }
     if(near2 > 85.0f * 85.0f) return;
     /* Two views double the fill: halve particle rates in a split screen. */
@@ -274,6 +280,9 @@ void fx_kart(const Kart *k, float dt) {
         mark_head = (mark_head + 1) % MAX_MARKS;
         if(mark_n < MAX_MARKS) mark_n++;
         mark_last[idx][w] = p;
+#ifdef DK_AUTOTEST
+        marks_laid[idx]++;
+#endif
     }
     /* Tyre smoke while sliding or braking hard on tarmac, sand spray
        off-road. */

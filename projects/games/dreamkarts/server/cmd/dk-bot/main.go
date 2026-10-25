@@ -50,6 +50,7 @@ var (
 	duration = flag.Duration("for", 0, "quit after this long (0 = forever)")
 	path     = flag.String("path", "", "replay kart states from this file (lines: ms x y z heading speed lap dist)")
 	wave     = flag.Bool("wave", false, "wave for 1.7 s every 5 s in the countdown and race")
+	skid     = flag.Bool("skid", false, "brake hard (skid marks) for 1.2 s every 6 s in the race")
 	spectate = flag.Bool("spectate", false, "watch the lobby instead of racing")
 	chat     = flag.String("chat", "", "lines to say in the lobby, ';' separated, one every 4 s once two are in")
 	startIn  = flag.Duration("start-delay", 3*time.Second, "with -start: how long to wait in a ready lobby first")
@@ -319,6 +320,9 @@ func kartBody(raceID, laps byte, t time.Duration, pts []pathPoint) []byte {
 	b[1] |= 2 // grounded
 	if *wave && (t+10*time.Second)%(5*time.Second) < 1700*time.Millisecond {
 		b[1] |= lobby.KartWaving
+	}
+	if *skid && t > 0 && frac < 1 && t%(6*time.Second) < 1200*time.Millisecond {
+		b[1] |= lobby.KartSkid
 	}
 	if len(pts) > 0 {
 		p := pathAt(pts, int(t/time.Millisecond))

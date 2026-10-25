@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 4
-	Build    = 22
+	Build    = 23
 	MinBuild = 22
 )
 
@@ -88,6 +88,7 @@ const (
 	KartFinished = 1 << 0
 	KartWaving   = 1 << 5 // relayed as-is; consoles animate the wave
 	KartWaveLeft = 1 << 6 // relayed as-is: the wave is on the left arm (build 20)
+	KartSkid     = 1 << 7 // relayed as-is: braking hard, consoles lay skid marks (build 23)
 )
 
 // The item byte (KART offset 33), the sequence byte (40), the spear bytes

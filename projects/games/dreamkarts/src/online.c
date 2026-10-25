@@ -231,7 +231,7 @@ void online_pack_kart(const Kart *me, NetKart *nk) {
     nk->flags = (me->finished ? NKF_FINISHED : 0) | (me->grounded ? NKF_GROUNDED : 0) |
                 (me->boost_t > 0 ? NKF_BOOST : 0) | (me->drift == DRIFT_ACTIVE ? NKF_DRIFT : 0) |
                 (me->drift == DRIFT_ACTIVE && me->drift_dir > 0 ? NKF_DRIFT_RIGHT : 0) |
-                (me->wave_t > 0 ? NKF_WAVE : 0) | (me->wave_t > 0 && me->wave_left ? NKF_WAVE_LEFT : 0);
+                (me->wave_t > 0 ? NKF_WAVE : 0) | (me->wave_t > 0 && me->wave_left ? NKF_WAVE_LEFT : 0) | (me->skid ? NKF_SKID : 0);
     nk->x = me->pos.x;
     nk->y = me->pos.y;
     nk->z = me->pos.z;
@@ -259,6 +259,7 @@ void online_remote_karts(float dt) {
             k->gone = true;
             k->finished = true;   /* nothing waits for it; it places last */
             k->speed = k->boost_t = k->wave_t = 0;
+            k->skid = false;
             NetItems none;
             memset(&none, 0, sizeof(none));
             items_remote(k, &none, 0, dt);
@@ -271,7 +272,7 @@ void online_remote_karts(float dt) {
         if(!net_remote_kart(k->net_slot, at, &nk)) continue;
         int dir = (nk.flags & NKF_DRIFT) ? ((nk.flags & NKF_DRIFT_RIGHT) ? 1 : -1) : 0;
         kart_remote_update(k, v3(nk.x, nk.y, nk.z), nk.heading, nk.speed, nk.steer, dir, nk.stage,
-                           (nk.flags & NKF_BOOST) != 0, (nk.flags & NKF_GROUNDED) != 0, dt);
+                           (nk.flags & NKF_BOOST) != 0, (nk.flags & NKF_GROUNDED) != 0, (nk.flags & NKF_SKID) != 0, dt);
         items_remote(k, &nk.items, (float)net_interp_ms() * 0.001f, dt);
 #ifdef DK_AUTOTEST
         if(game.state == ST_RACE && !(nk.flags & NKF_FINISHED)) {
@@ -1574,6 +1575,13 @@ const char *online_name(void) {
 #else
 #define AT_SHOT(flag, label) do { (void)(flag); } while(0)
 #endif
+/* Skid mark strips the rivals have laid here. */
+static int remote_marks(void) {
+    int n = 0;
+    for(int i = 0; i < kart_count; i++)
+        if(karts[i].remote) n += fx_marks_laid(i);
+    return n;
+}
 void online_autotest(float dt) {
     static float t;
     static bool reported, s_name, s_browser, s_lobby, s_after, chat_ok;
@@ -1605,8 +1613,8 @@ void online_autotest(float dt) {
         static bool s_watch;
         if(screen_t > 2.0f) AT_SHOT(s_watch, results_seen ? "watch-lobby-after" : "watch-lobby");
         if(results_seen > 0 && spectate_saw_grid() && !reported && screen_t > 2.5f) {
-            printf("DK ONLINE: watched %d race(s), back in lobby %d with %d watching\n", results_seen, net_lobby()->id + 1,
-                   net_lobby()->watchers);
+            printf("DK ONLINE: watched %d race(s), back in lobby %d with %d watching, %d remote skid marks\n", results_seen,
+                   net_lobby()->id + 1, net_lobby()->watchers, remote_marks());
             printf("DK AUTOTEST: PASS\n");
             reported = true;
         }
@@ -1724,9 +1732,10 @@ void online_autotest(float dt) {
         if(results_seen > 0 && !reported && screen_t > 2.5f) {
             const NetPlayer *me = net_me();
             printf("DK ONLINE: remote motion: %d steps, %d pops over 25cm, worst %.2f m, mean %.3f m, %d stalls, "
-                   "%d heading jumps, delay %.0f ms (up to %d)\n", rmotion.steps, rmotion.pops, (double)rmotion.worst,
-                   (double)(rmotion.steps ? rmotion.sum / (float)rmotion.steps : 0), rmotion.stalls, rmotion.turns,
-                   (double)(rmotion.steps ? rmotion.delay_sum / (float)(rmotion.steps + 1) : 0), rmotion.delay_max);
+                   "%d heading jumps, delay %.0f ms (up to %d), %d remote skid marks\n", rmotion.steps, rmotion.pops,
+                   (double)rmotion.worst, (double)(rmotion.steps ? rmotion.sum / (float)rmotion.steps : 0), rmotion.stalls,
+                   rmotion.turns, (double)(rmotion.steps ? rmotion.delay_sum / (float)(rmotion.steps + 1) : 0),
+                   rmotion.delay_max, remote_marks());
             printf("DK ONLINE: race over, place %d, points %d, ping %d ms\n", me ? me->place : 0, me ? me->points : 0,
                    me ? me->ping : 0);
             printf("DK AUTOTEST: %s\n", me && me->place > 0 && chat_ok ? "PASS" : "FAIL");

@@ -19,6 +19,10 @@ void fx_trail(V3 p, float ground, V3 v, uint32_t col, float dt);
 /* White water thrown up where something breaks the sea surface. */
 void fx_splash(V3 p, float strength);
 void fx_draw(void);
+#ifdef DK_AUTOTEST
+/* Skid mark strips kart has laid since boot. */
+int fx_marks_laid(int kart);
+#endif
 
 /* Spark colour for a mini-turbo stage (0..3). */
 uint32_t fx_stage_color(int stage);
