@@ -614,10 +614,13 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         k->events |= EV_HOP;
         k->squash_v -= 3.0f;
     }
-    else if(pressed && !k->grounded && !k->tricked && !k->over_edge && k->vy > 0 && !track_off_edge(&k->tp)) {
+    else if(pressed && !k->grounded && !k->tricked && !k->over_edge && k->vy > 0 &&
+            (k->big_air || !track_off_edge(&k->tp))) {
         /* Flicked in the air: a barrel roll, if the kart is still climbing
-           with time to finish it before touchdown. The button stays live
-           for a slide on landing, as after a hop. */
+           with time to finish it before touchdown (a ramp flight always
+           has the road ahead, even over Neon Skyway's open gap; off a
+           side edge in the sky there is nothing to land on). The button
+           stays live for a slide on landing, as after a hop. */
         float g = k->big_air ? JUMP_GRAVITY : GRAVITY;
         float h = fmaxf(k->pos.y - track_road_y(k->tp.s, k->tp.d), 0.0f);
         float left = (k->vy + sqrtf(k->vy * k->vy + 2.0f * g * h)) / g;
