@@ -12,7 +12,8 @@ Every prop is built procedurally with bmesh (Mt Fuji, the cherry trees, torii
 gates, stone lanterns, a pagoda, the grandstand modules, the race control
 tower, the pit garages, a teahouse and an arched bridge), given a material
 from the fixed list below (the game maps each to a texture) and vertex
-colours, then cut into PowerVR strips per material and written as a header.
+colours, then cut into PowerVR strips per material and written as a header,
+with a few solid boxes per prop for the spectator's cameras to keep clear of.
 The game instances each prop where it likes, yawed and scaled, and lights the
 vertices by their normals as it builds the world.
 
@@ -71,6 +72,9 @@ def scale_col(c, s):
     return (min(1.0, c[0] * s), min(1.0, c[1] * s), min(1.0, c[2] * s), c[3])
 
 
+SOLIDS = {}   # each prop's Builder.solids, by name
+
+
 class Builder:
     """A bmesh with a UV layer, a colour layer and the fixed material slots."""
 
@@ -79,6 +83,17 @@ class Builder:
         self.bm = bmesh.new()
         self.uv = self.bm.loops.layers.uv.new("UV")
         self.col = self.bm.loops.layers.color.new("Col")
+        # Solid boxes the spectator's cameras keep clear of, (lo, hi) in
+        # game metres; None means one box round the whole prop.
+        self.solids = None
+
+    def solid(self, lo, hi):
+        self.solids = (self.solids or []) + [(lo, hi)]
+
+    def bounds(self):
+        """The prop's extents so far, (lo, hi) in game coordinates."""
+        pts = [(v.co.x, v.co.z, -v.co.y) for v in self.bm.verts]
+        return tuple(min(p[a] for p in pts) for a in range(3)), tuple(max(p[a] for p in pts) for a in range(3))
 
     # -- primitives (game coordinates) --------------------------------------
 
@@ -168,6 +183,7 @@ class Builder:
         self.bm.to_mesh(me)
         me.color_attributes.active_color = me.color_attributes["Col"]
         ob = bpy.data.objects.new(self.name, me)
+        SOLIDS[self.name] = self.solids
         bpy.context.scene.collection.objects.link(ob)
         return ob
 
@@ -323,6 +339,13 @@ def build_sakura(name, seed):
         plane(canopy_c + Vector((0, 0.3 * k, 0)), side, side.cross(tilt), r * 0.95, r * 0.8, lo, hi)
     plane(canopy_c + Vector((0, 0.5, 0)), (1, 0, 0), (0, 0, 1), r * 1.05, r * 1.05, hi, hi)
     plane(canopy_c - Vector((0, 0.9, 0)), (1, 0, 0), (0, 0, 1), r * 0.8, r * 0.8, lo, lo)
+    # Solid: the crown's dense middle, over the bare trunk.
+    s0, s1 = (list(v) for v in bd.bounds())
+    for a in (0, 2):
+        c, h = (s0[a] + s1[a]) * 0.5, (s1[a] - s0[a]) * 0.3
+        s0[a], s1[a] = c - h, c + h
+    s0[1] += (s1[1] - s0[1]) * 0.35
+    bd.solid(s0, s1)
     return bd.finish()
 
 
@@ -364,6 +387,11 @@ def build_torii():
     for x in (stations[0], stations[-1]):
         y0, y1 = 6.15 + lift(x) * 0.6, 6.15 + th + lift(x)
         bd.poly([(x, y0, -dp), (x, y0, dp), (x, y1, dp), (x, y1, -dp)], "flat", None, BLACK_LACQUER)
+    # Solid: each pillar on its footing up to the tie beam, and the beams
+    # across; a camera can look through between them.
+    for sx in (-1, 1):
+        bd.solid((sx * S / 2 - 0.44, -0.3, -0.44), (sx * S / 2 + 0.44, 4.35 - 0.22, 0.44))
+    bd.solid((-xe, 4.35 - 0.3, -dp), (xe, 6.15 + th + lift(xe), dp))
     return bd.finish()
 
 
@@ -505,6 +533,15 @@ def build_stand():
     zf = zs[-1]
     yf = roof_y(zf)
     bd.quad((-ox, yf - 0.3, zf), (ox, yf - 0.3, zf), (ox, yf, zf), (-ox, yf, zf), "flat", col=BLACK_LACQUER)
+    # Solid: the tiers stepping up back from the road, to the top of the
+    # crowd on each, and the roof, so a camera can stand over the front rows.
+    front, back, top = -1.0, back_z + 1.2, roof_back_y + 0.5
+    def crowd_top(z):
+        return y0 + int(z // tread) * rise + 1.3
+    steps = (front, 6.0, 12.0, back)
+    for a, c in zip(steps, steps[1:]):
+        bd.solid((-ox, 0, a), (ox, crowd_top(c) if c < back else top, c))
+    bd.solid((-ox, min(roof_y(z) for z in zs) - 0.3, front), (ox, top, back))
     return bd.finish()
 
 
@@ -525,6 +562,7 @@ def build_chochin():
         bd.tube((x, ly + 0.6, lz), (x, ly + 0.3, lz), 0.001, 0.32, 5, "flat", BLACK_LACQUER, LANTERN_RED)
         bd.tube((x, ly + 0.3, lz), (x, ly - 0.3, lz), 0.32, 0.32, 5, "flat", LANTERN_RED, LANTERN_RED)
         bd.tube((x, ly - 0.3, lz), (x, ly - 0.6, lz), 0.32, 0.001, 5, "flat", LANTERN_RED, BLACK_LACQUER)
+    bd.solids = []   # inside the stand's roof box
     return bd.finish()
 
 
@@ -675,6 +713,15 @@ def export(ob, f, prefix, cm, verts_budget):
                 strip_mat.append(mat)
                 index.extend(piece)
                 at += 238
+    # Solid boxes in the vertices' units: the prop's own, or one round it.
+    per_m = 100 if cm else 1000
+    solids = SOLIDS[ob.name]
+    if solids is None:
+        solids = [tuple(tuple(fn(v[0][a] for v in verts) / per_m for a in range(3)) for fn in (min, max))]
+    boxes = [tuple(round(lo[a] * per_m) for a in range(3)) + tuple(round(hi[a] * per_m) for a in range(3)) for lo, hi in solids]
+    for bx in boxes:
+        if max(abs(v) for v in bx) > 32767 or any(bx[a] > bx[a + 3] for a in range(3)):
+            sys.exit(f"{prefix}: a solid box out of int16 range or inside out")
     tris = sum(len(v) for v in per_mat.values())
     print(f"tsudoken prop {prefix}: {len(verts)} verts, {tris} tris, {len(strip_len)} strips "
           f"({len(index) / max(1, len(strip_len)):.1f} verts each), {len(index)} strip verts")
@@ -692,8 +739,16 @@ def export(ob, f, prefix, cm, verts_budget):
     f.write(f"}};\nstatic const uint8_t {P}_strip_mat[{len(strip_mat)}] = {{\n")
     for k in range(0, len(strip_mat), 32):
         f.write(",".join(str(v) for v in strip_mat[k:k + 32]) + ",\n")
-    f.write("};\n\n")
-    return len(index), (f"{{{P}_verts, {P}_index, {P}_strip_len, {P}_strip_mat, {len(verts)}, {len(strip_len)}, {int(cm)}}}")
+    f.write("};\n")
+    if boxes:
+        f.write(f"static const dk_prop_box_t {P}_solids[{len(boxes)}] = {{\n")
+        for bx in boxes:
+            f.write("{" + ",".join(str(v) for v in bx) + "},\n")
+        f.write("};\n")
+    f.write("\n")
+    solids_ref = f"{P}_solids" if boxes else "0"
+    return len(index), (f"{{{P}_verts, {P}_index, {P}_strip_len, {P}_strip_mat, {solids_ref}, {len(verts)}, {len(strip_len)}, "
+                        f"{len(boxes)}, {int(cm)}}}")
 
 
 def preview(objects, out_dir: Path):
@@ -777,8 +832,11 @@ def main():
         f.write("/* Position in centimetres (Mt Fuji: millimetres of a unit mountain),\n"
                 "   normal * 127, material (TKM_*), texture u v in 1/256, colour. */\n")
         f.write("typedef struct { int16_t x, y, z; int8_t nx, ny, nz; uint8_t mat; int16_t u, v; uint8_t r, g, b, a; } dk_prop_vert_t;\n")
+        f.write("/* A solid box in the vertices' units, before the prop is turned: the\n"
+                "   spectator's cameras keep clear of them and their sight lines. */\n")
+        f.write("typedef struct { int16_t x0, y0, z0, x1, y1, z1; } dk_prop_box_t;\n")
         f.write("typedef struct { const dk_prop_vert_t *verts; const uint16_t *index; const uint8_t *strip_len, *strip_mat;\n"
-                "                 uint16_t nverts, nstrips; uint8_t cm; } dk_prop_t;\n")
+                "                 const dk_prop_box_t *solids; uint16_t nverts, nstrips; uint8_t nsolids, cm; } dk_prop_t;\n")
         f.write("enum { " + ", ".join(f"TKM_{m.upper()}" for m in MATERIALS) + ", TKM_COUNT };\n")
         f.write("/* The materials a punch-through (alpha tested) list draws: " + ", ".join(sorted(PT_MATERIALS)) + ". */\n")
         f.write("#define TKM_PT_MASK " + " | ".join(f"(1u << TKM_{m.upper()})" for m in sorted(PT_MATERIALS)) + "\n\n")

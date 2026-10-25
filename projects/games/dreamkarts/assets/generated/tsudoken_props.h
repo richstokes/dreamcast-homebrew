@@ -5,8 +5,11 @@
 /* Position in centimetres (Mt Fuji: millimetres of a unit mountain),
    normal * 127, material (TKM_*), texture u v in 1/256, colour. */
 typedef struct { int16_t x, y, z; int8_t nx, ny, nz; uint8_t mat; int16_t u, v; uint8_t r, g, b, a; } dk_prop_vert_t;
+/* A solid box in the vertices' units, before the prop is turned: the
+   spectator's cameras keep clear of them and their sight lines. */
+typedef struct { int16_t x0, y0, z0, x1, y1, z1; } dk_prop_box_t;
 typedef struct { const dk_prop_vert_t *verts; const uint16_t *index; const uint8_t *strip_len, *strip_mat;
-                 uint16_t nverts, nstrips; uint8_t cm; } dk_prop_t;
+                 const dk_prop_box_t *solids; uint16_t nverts, nstrips; uint8_t nsolids, cm; } dk_prop_t;
 enum { TKM_FLAT, TKM_KAWARA, TKM_CROWD, TKM_ISHIGAKI, TKM_SAKURA, TKM_BARK, TKM_PLASTER, TKM_BANNER, TKM_PITWALL, TKM_COUNT };
 /* The materials a punch-through (alpha tested) list draws: sakura. */
 #define TKM_PT_MASK (1u << TKM_SAKURA)
@@ -952,6 +955,9 @@ static const uint8_t tkp_fuji_strip_mat[147] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 };
+static const dk_prop_box_t tkp_fuji_solids[1] = {
+{-2100,0,-2100,2100,1000,2100},
+};
 
 /* tkp_fuji_lo: 252 vertices, 418 triangles */
 static const dk_prop_vert_t tkp_fuji_lo_verts[252] = {
@@ -1243,6 +1249,9 @@ static const uint8_t tkp_fuji_lo_strip_mat[62] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 };
+static const dk_prop_box_t tkp_fuji_lo_solids[1] = {
+{-2100,0,-2100,2100,1000,2100},
+};
 
 /* tkp_sakura_a: 52 vertices, 34 triangles */
 static const dk_prop_vert_t tkp_sakura_a_verts[52] = {
@@ -1311,6 +1320,9 @@ static const uint8_t tkp_sakura_a_strip_len[9] = {
 static const uint8_t tkp_sakura_a_strip_mat[9] = {
 4,4,4,4,4,4,5,5,5,
 };
+static const dk_prop_box_t tkp_sakura_a_solids[1] = {
+{-224,216,-198,217,656,207},
+};
 
 /* tkp_sakura_b: 52 vertices, 34 triangles */
 static const dk_prop_vert_t tkp_sakura_b_verts[52] = {
@@ -1378,6 +1390,9 @@ static const uint8_t tkp_sakura_b_strip_len[9] = {
 };
 static const uint8_t tkp_sakura_b_strip_mat[9] = {
 4,4,4,4,4,4,5,5,5,
+};
+static const dk_prop_box_t tkp_sakura_b_solids[1] = {
+{-157,209,-155,221,641,222},
 };
 
 /* tkp_torii: 280 vertices, 180 triangles */
@@ -1690,6 +1705,11 @@ static const uint8_t tkp_torii_strip_mat[54] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 };
+static const dk_prop_box_t tkp_torii_solids[3] = {
+{-394,-30,-44,-306,413,44},
+{306,-30,-44,394,413,44},
+{-525,405,-44,525,712,44},
+};
 
 /* tkp_lantern: 109 vertices, 84 triangles */
 static const dk_prop_vert_t tkp_lantern_verts[109] = {
@@ -1817,6 +1837,9 @@ static const uint8_t tkp_lantern_strip_len[16] = {
 };
 static const uint8_t tkp_lantern_strip_mat[16] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+};
+static const dk_prop_box_t tkp_lantern_solids[1] = {
+{-70,-30,-61,70,294,61},
 };
 
 /* tkp_pagoda: 842 vertices, 430 triangles */
@@ -2729,6 +2752,9 @@ static const uint8_t tkp_pagoda_strip_mat[209] = {
 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,
 3,3,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
 };
+static const dk_prop_box_t tkp_pagoda_solids[1] = {
+{-490,-90,-490,490,1700,490},
+};
 
 /* tkp_stand: 280 vertices, 140 triangles */
 static const dk_prop_vert_t tkp_stand_verts[280] = {
@@ -3039,6 +3065,12 @@ static const uint8_t tkp_stand_strip_mat[70] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,
 3,3,6,6,6,7,
+};
+static const dk_prop_box_t tkp_stand_solids[4] = {
+{-1290,0,-100,1290,430,600},
+{-1290,0,600,1290,730,1200},
+{-1290,0,1200,1290,1290,1880},
+{-1290,1142,-100,1290,1290,1880},
 };
 
 /* tkp_chochin: 180 vertices, 150 triangles */
@@ -3710,6 +3742,9 @@ static const uint8_t tkp_tower_strip_mat[106] = {
 0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,3,3,6,6,6,6,6,
 6,6,6,6,6,6,6,6,6,6,
 };
+static const dk_prop_box_t tkp_tower_solids[1] = {
+{-400,-80,-440,400,1232,400},
+};
 
 /* tkp_pits: 140 vertices, 70 triangles */
 static const dk_prop_vert_t tkp_pits_verts[140] = {
@@ -3871,6 +3906,9 @@ static const uint8_t tkp_pits_strip_len[35] = {
 static const uint8_t tkp_pits_strip_mat[35] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,6,6,
 6,6,8,
+};
+static const dk_prop_box_t tkp_pits_solids[1] = {
+{-1230,0,-260,1230,500,340},
 };
 
 /* tkp_teahouse: 304 vertices, 152 triangles */
@@ -4207,6 +4245,9 @@ static const uint8_t tkp_teahouse_strip_mat[76] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,
 1,1,1,3,3,3,3,3,6,6,6,6,
+};
+static const dk_prop_box_t tkp_teahouse_solids[1] = {
+{-620,-60,-590,620,502,490},
 };
 
 /* tkp_bridge: 532 vertices, 296 triangles */
@@ -4788,21 +4829,24 @@ static const uint8_t tkp_bridge_strip_mat[118] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,3,3,3,3,
 };
+static const dk_prop_box_t tkp_bridge_solids[1] = {
+{-860,-30,-180,860,395,180},
+};
 
 enum { TKP_FUJI, TKP_FUJI_LO, TKP_SAKURA_A, TKP_SAKURA_B, TKP_TORII, TKP_LANTERN, TKP_PAGODA, TKP_STAND, TKP_CHOCHIN, TKP_TOWER, TKP_PITS, TKP_TEAHOUSE, TKP_BRIDGE, TKP_COUNT };
 static const dk_prop_t dk_props[TKP_COUNT] = {
-    {tkp_fuji_verts, tkp_fuji_index, tkp_fuji_strip_len, tkp_fuji_strip_mat, 840, 147, 0},   /* tkp_fuji */
-    {tkp_fuji_lo_verts, tkp_fuji_lo_index, tkp_fuji_lo_strip_len, tkp_fuji_lo_strip_mat, 252, 62, 0},   /* tkp_fuji_lo */
-    {tkp_sakura_a_verts, tkp_sakura_a_index, tkp_sakura_a_strip_len, tkp_sakura_a_strip_mat, 52, 9, 1},   /* tkp_sakura_a */
-    {tkp_sakura_b_verts, tkp_sakura_b_index, tkp_sakura_b_strip_len, tkp_sakura_b_strip_mat, 52, 9, 1},   /* tkp_sakura_b */
-    {tkp_torii_verts, tkp_torii_index, tkp_torii_strip_len, tkp_torii_strip_mat, 280, 54, 1},   /* tkp_torii */
-    {tkp_lantern_verts, tkp_lantern_index, tkp_lantern_strip_len, tkp_lantern_strip_mat, 109, 16, 1},   /* tkp_lantern */
-    {tkp_pagoda_verts, tkp_pagoda_index, tkp_pagoda_strip_len, tkp_pagoda_strip_mat, 842, 209, 1},   /* tkp_pagoda */
-    {tkp_stand_verts, tkp_stand_index, tkp_stand_strip_len, tkp_stand_strip_mat, 280, 70, 1},   /* tkp_stand */
-    {tkp_chochin_verts, tkp_chochin_index, tkp_chochin_strip_len, tkp_chochin_strip_mat, 180, 15, 1},   /* tkp_chochin */
-    {tkp_tower_verts, tkp_tower_index, tkp_tower_strip_len, tkp_tower_strip_mat, 424, 106, 1},   /* tkp_tower */
-    {tkp_pits_verts, tkp_pits_index, tkp_pits_strip_len, tkp_pits_strip_mat, 140, 35, 1},   /* tkp_pits */
-    {tkp_teahouse_verts, tkp_teahouse_index, tkp_teahouse_strip_len, tkp_teahouse_strip_mat, 304, 76, 1},   /* tkp_teahouse */
-    {tkp_bridge_verts, tkp_bridge_index, tkp_bridge_strip_len, tkp_bridge_strip_mat, 532, 118, 1},   /* tkp_bridge */
+    {tkp_fuji_verts, tkp_fuji_index, tkp_fuji_strip_len, tkp_fuji_strip_mat, tkp_fuji_solids, 840, 147, 1, 0},   /* tkp_fuji */
+    {tkp_fuji_lo_verts, tkp_fuji_lo_index, tkp_fuji_lo_strip_len, tkp_fuji_lo_strip_mat, tkp_fuji_lo_solids, 252, 62, 1, 0},   /* tkp_fuji_lo */
+    {tkp_sakura_a_verts, tkp_sakura_a_index, tkp_sakura_a_strip_len, tkp_sakura_a_strip_mat, tkp_sakura_a_solids, 52, 9, 1, 1},   /* tkp_sakura_a */
+    {tkp_sakura_b_verts, tkp_sakura_b_index, tkp_sakura_b_strip_len, tkp_sakura_b_strip_mat, tkp_sakura_b_solids, 52, 9, 1, 1},   /* tkp_sakura_b */
+    {tkp_torii_verts, tkp_torii_index, tkp_torii_strip_len, tkp_torii_strip_mat, tkp_torii_solids, 280, 54, 3, 1},   /* tkp_torii */
+    {tkp_lantern_verts, tkp_lantern_index, tkp_lantern_strip_len, tkp_lantern_strip_mat, tkp_lantern_solids, 109, 16, 1, 1},   /* tkp_lantern */
+    {tkp_pagoda_verts, tkp_pagoda_index, tkp_pagoda_strip_len, tkp_pagoda_strip_mat, tkp_pagoda_solids, 842, 209, 1, 1},   /* tkp_pagoda */
+    {tkp_stand_verts, tkp_stand_index, tkp_stand_strip_len, tkp_stand_strip_mat, tkp_stand_solids, 280, 70, 4, 1},   /* tkp_stand */
+    {tkp_chochin_verts, tkp_chochin_index, tkp_chochin_strip_len, tkp_chochin_strip_mat, 0, 180, 15, 0, 1},   /* tkp_chochin */
+    {tkp_tower_verts, tkp_tower_index, tkp_tower_strip_len, tkp_tower_strip_mat, tkp_tower_solids, 424, 106, 1, 1},   /* tkp_tower */
+    {tkp_pits_verts, tkp_pits_index, tkp_pits_strip_len, tkp_pits_strip_mat, tkp_pits_solids, 140, 35, 1, 1},   /* tkp_pits */
+    {tkp_teahouse_verts, tkp_teahouse_index, tkp_teahouse_strip_len, tkp_teahouse_strip_mat, tkp_teahouse_solids, 304, 76, 1, 1},   /* tkp_teahouse */
+    {tkp_bridge_verts, tkp_bridge_index, tkp_bridge_strip_len, tkp_bridge_strip_mat, tkp_bridge_solids, 532, 118, 1, 1},   /* tkp_bridge */
 };
 #endif

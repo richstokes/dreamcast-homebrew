@@ -4243,8 +4243,8 @@ static void tk_build_deck_coarse(int c) {
 }
 
 /* Tsudoken's solid scenery, for the spectator's cameras and sight lines
-   (world_solid): an upright box round each building and lantern, each
-   torii post and its beams, and each tree's crown. */
+   (world_solid): the upright boxes each prop is baked with (round a
+   building or lantern, a torii's posts and beams, a tree's crown). */
 #define TK_SOLIDS 192
 typedef struct {
     float x, z, cs, sn;     /* centre, and the yaw its prop was turned by */
@@ -4262,43 +4262,13 @@ static void tk_solid_add(V3 p, float cs, float sn, float unit, float x0, float x
                                        (z1 - z0) * 0.5f * unit, p.y + y0 * unit, p.y + y1 * unit};
 }
 
+/* The prop's baked solid boxes (tools/build_tsudoken_props.py). */
 static void tk_prop_solids(int which, V3 p, float cs, float sn, float unit) {
     const dk_prop_t *m = &dk_props[which];
-    if(which == TKP_CHOCHIN) return;   /* hung under the stand's roof */
-    if(which == TKP_TORII) {
-        /* tkp_torii's posts and the beams across them, in cm. */
-        tk_solid_add(p, cs, sn, unit, -394, -306, -30, 413, -44, 44);
-        tk_solid_add(p, cs, sn, unit, 306, 394, -30, 413, -44, 44);
-        tk_solid_add(p, cs, sn, unit, -525, 525, 405, 712, -44, 44);
-        return;
+    for(int i = 0; i < m->nsolids; i++) {
+        const dk_prop_box_t *b = &m->solids[i];
+        tk_solid_add(p, cs, sn, unit, b->x0, b->x1, b->y0, b->y1, b->z0, b->z1);
     }
-    if(which == TKP_STAND) {
-        /* tkp_stand's tiers rising back from the road under the roof (cm):
-           a camera can stand over the front rows. */
-        tk_solid_add(p, cs, sn, unit, -1290, 1290, 0, 430, -100, 600);
-        tk_solid_add(p, cs, sn, unit, -1290, 1290, 0, 730, 600, 1200);
-        tk_solid_add(p, cs, sn, unit, -1290, 1290, 0, 1290, 1200, 1880);
-        tk_solid_add(p, cs, sn, unit, -1290, 1290, 1150, 1290, -100, 1880);
-        return;
-    }
-    float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
-    for(int i = 0; i < m->nverts; i++) {
-        float v[3] = {m->verts[i].x, m->verts[i].y, m->verts[i].z};
-        for(int a = 0; a < 3; a++) {
-            lo[a] = fminf(lo[a], v[a]);
-            hi[a] = fmaxf(hi[a], v[a]);
-        }
-    }
-    if(which == TKP_SAKURA_A || which == TKP_SAKURA_B) {
-        /* The crown's solid middle, over the bare trunk. */
-        for(int a = 0; a < 3; a += 2) {
-            float c = (lo[a] + hi[a]) * 0.5f, h = (hi[a] - lo[a]) * 0.3f;
-            lo[a] = c - h;
-            hi[a] = c + h;
-        }
-        lo[1] += (hi[1] - lo[1]) * 0.35f;
-    }
-    tk_solid_add(p, cs, sn, unit, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
 }
 
 /* One baked prop at p, turned by yaw (its +z to heading yaw) and scaled,
