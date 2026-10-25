@@ -4242,6 +4242,65 @@ static void tk_build_deck_coarse(int c) {
     chunk_end();
 }
 
+/* Tsudoken's solid scenery, for the spectator's cameras and sight lines
+   (world_solid): an upright box round each building and lantern, each
+   torii post and its beams, and each tree's crown. */
+#define TK_SOLIDS 192
+typedef struct {
+    float x, z, cs, sn;     /* centre, and the yaw its prop was turned by */
+    float hx, hz, y0, y1;   /* half extents across and along, and height */
+} TkSolid;
+static TkSolid tk_solid[TK_SOLIDS];
+static int tk_solid_n;
+
+/* A box over the model-unit extents x0..x1, y0..y1, z0..z1 of a prop at
+   p turned as tk_prop turns it. */
+static void tk_solid_add(V3 p, float cs, float sn, float unit, float x0, float x1, float y0, float y1, float z0, float z1) {
+    if(tk_solid_n >= TK_SOLIDS) return;
+    float cx = (x0 + x1) * 0.5f * unit, cz = (z0 + z1) * 0.5f * unit;
+    tk_solid[tk_solid_n++] = (TkSolid){p.x + cx * cs + cz * sn, p.z - cx * sn + cz * cs, cs, sn, (x1 - x0) * 0.5f * unit,
+                                       (z1 - z0) * 0.5f * unit, p.y + y0 * unit, p.y + y1 * unit};
+}
+
+static void tk_prop_solids(int which, V3 p, float cs, float sn, float unit) {
+    const dk_prop_t *m = &dk_props[which];
+    if(which == TKP_CHOCHIN) return;   /* hung under the stand's roof */
+    if(which == TKP_TORII) {
+        /* tkp_torii's posts and the beams across them, in cm. */
+        tk_solid_add(p, cs, sn, unit, -394, -306, -30, 413, -44, 44);
+        tk_solid_add(p, cs, sn, unit, 306, 394, -30, 413, -44, 44);
+        tk_solid_add(p, cs, sn, unit, -525, 525, 405, 712, -44, 44);
+        return;
+    }
+    if(which == TKP_STAND) {
+        /* tkp_stand's tiers rising back from the road under the roof (cm):
+           a camera can stand over the front rows. */
+        tk_solid_add(p, cs, sn, unit, -1290, 1290, 0, 430, -100, 600);
+        tk_solid_add(p, cs, sn, unit, -1290, 1290, 0, 730, 600, 1200);
+        tk_solid_add(p, cs, sn, unit, -1290, 1290, 0, 1290, 1200, 1880);
+        tk_solid_add(p, cs, sn, unit, -1290, 1290, 1150, 1290, -100, 1880);
+        return;
+    }
+    float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+    for(int i = 0; i < m->nverts; i++) {
+        float v[3] = {m->verts[i].x, m->verts[i].y, m->verts[i].z};
+        for(int a = 0; a < 3; a++) {
+            lo[a] = fminf(lo[a], v[a]);
+            hi[a] = fmaxf(hi[a], v[a]);
+        }
+    }
+    if(which == TKP_SAKURA_A || which == TKP_SAKURA_B) {
+        /* The crown's solid middle, over the bare trunk. */
+        for(int a = 0; a < 3; a += 2) {
+            float c = (lo[a] + hi[a]) * 0.5f, h = (hi[a] - lo[a]) * 0.3f;
+            lo[a] = c - h;
+            hi[a] = c + h;
+        }
+        lo[1] += (hi[1] - lo[1]) * 0.35f;
+    }
+    tk_solid_add(p, cs, sn, unit, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
+}
+
 /* One baked prop at p, turned by yaw (its +z to heading yaw) and scaled,
    each vertex lit by its normal. The strips of one material run on as
    one strip (small pieces cost a submit each on the console), in a chunk
@@ -4250,6 +4309,7 @@ static void tk_prop(int which, V3 p, float yaw, float scale, float lod_far, bool
     const dk_prop_t *m = &dk_props[which];
     float cs = cosf(yaw), sn = sinf(yaw);
     float unit = (m->cm ? 0.01f : 0.001f) * scale;
+    tk_prop_solids(which, p, cs, sn, unit);
     for(int list = 0; list < 2; list++) {
         bool any = false;
         for(int s = 0; s < m->nstrips; s++)
@@ -4336,6 +4396,7 @@ static void tk_sakura(float x, float z, uint32_t seed) {
 }
 
 static void tk_place_props(void) {
+    tk_solid_n = 0;
     tk_lantern_n = 0;
     tk_trees = 0;
     world_gates = 0;
@@ -5388,12 +5449,88 @@ bool world_leak_point(float s, float d, V3 *out) {
     return true;
 }
 
-/* True where p is in Spiral Canyon's rock, or less than margin metres
-   above it, and not in a tunnel's bore: for keeping the spectator's
-   cameras and their sight lines clear of it. Off the canyon there is no
-   rock. */
+static bool dr_in_rock(V3 p, float margin);
+
+/* Tsudoken: p within margin metres of one of the solid boxes. */
+static bool tk_in_box(V3 p, float margin) {
+    for(int i = 0; i < tk_solid_n; i++) {
+        const TkSolid *b = &tk_solid[i];
+        if(p.y < b->y0 - margin || p.y > b->y1 + margin) continue;
+        float dx = p.x - b->x, dz = p.z - b->z;
+        if(fabsf(dx * b->cs - dz * b->sn) < b->hx + margin && fabsf(dx * b->sn + dz * b->cs) < b->hz + margin) return true;
+    }
+    return false;
+}
+
+/* Tsudoken: p in the ground, under the raised road (the ramp up to the
+   jump and its stone walls) or in a barrier, or less than margin metres
+   above them. hint carries the nearest road sample along a sight line. */
+static bool tk_in_ground(V3 p, float margin, int *hint) {
+    if(p.y < tk_terrain(p.x, p.z) + margin) return true;
+    TrackPos tp;
+    track_locate(p, *hint, &tp);
+    *hint = tp.idx;
+    if(track_in_gap(tp.s)) return false;
+    float wall = tp.d > 0 ? track_wall_out_at(&tp) : track_wall_in_at(&tp), ad = fabsf(tp.d);
+    if(ad > wall + 0.3f + margin) return false;
+    float half = track.smp[tp.idx].half, road = track_road_y(tp.s, clampf(tp.d, -half, half));
+    return p.y < road + margin || (ad > wall - 0.3f - margin && p.y < road + f8m.wall_h + margin);
+}
+
+/* True where p is in solid scenery, or less than margin metres from it:
+   Spiral Canyon's rock (not a tunnel's bore), Tsudoken's ground, raised
+   road, barriers and props. For keeping the spectator's cameras and their
+   sight lines clear of it; other tracks have none. */
+bool world_solid(V3 p, float margin) {
+    if(world_tk) {
+        int hint = -1;
+        return tk_in_box(p, margin) || tk_in_ground(p, margin, &hint);
+    }
+    return world_canyon && dr_in_rock(p, margin);
+}
+
+/* True when nothing solid stands between a and b (world_solid). */
+bool world_sight_clear(V3 a, V3 b) {
+    if(world_tk) {
+        /* Each box against the segment in its own frame (slabs). */
+        for(int i = 0; i < tk_solid_n; i++) {
+            const TkSolid *o = &tk_solid[i];
+            float ax = a.x - o->x, az = a.z - o->z, bx = b.x - o->x, bz = b.z - o->z;
+            float p0[3] = {ax * o->cs - az * o->sn, a.y, ax * o->sn + az * o->cs};
+            float p1[3] = {bx * o->cs - bz * o->sn, b.y, bx * o->sn + bz * o->cs};
+            float lo[3] = {-o->hx, o->y0, -o->hz}, hi[3] = {o->hx, o->y1, o->hz};
+            float t0 = 0.0f, t1 = 1.0f;
+            for(int k = 0; k < 3 && t0 <= t1; k++) {
+                float d = p1[k] - p0[k];
+                if(fabsf(d) < 1e-6f) {
+                    if(p0[k] < lo[k] || p0[k] > hi[k]) t1 = -1.0f;
+                    continue;
+                }
+                float u = (lo[k] - p0[k]) / d, v = (hi[k] - p0[k]) / d;
+                t0 = fmaxf(t0, fminf(u, v));
+                t1 = fminf(t1, fmaxf(u, v));
+            }
+            if(t0 <= t1) return false;
+        }
+        int steps = (int)vlen(vsub(b, a)), hint = -1;
+        for(int i = 1; i < steps; i++)
+            if(tk_in_ground(vlerp(a, b, (float)i / steps), 0.3f, &hint)) return false;
+        return true;
+    }
+    if(!world_canyon) return true;
+    int steps = (int)(vlen(vsub(b, a)) / 2.0f);
+    for(int i = 1; i < steps; i++)
+        if(dr_in_rock(vlerp(a, b, (float)i / steps), 0.3f)) return false;
+    return true;
+}
+
 bool world_in_rock(V3 p, float margin) {
-    if(!world_canyon) return false;
+    return world_canyon && dr_in_rock(p, margin);
+}
+
+/* Spiral Canyon: p in the rock, or less than margin metres above it,
+   and not in a tunnel's bore. */
+static bool dr_in_rock(V3 p, float margin) {
     /* The rock never stands above the bare rock: most points stop here. */
     if(p.y > dr_bare_rock_y(p.x, p.z) + margin) return false;
     float dist, rock = dr_rock_at(p.x, p.z, &dist);

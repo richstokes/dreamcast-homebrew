@@ -33,7 +33,7 @@
 typedef struct {
     V3 pos;
     float s, hand;          /* lap distance it stands at, and hands over at */
-    uint32_t hidden;        /* pieces of its stretch behind rock (rock_view) */
+    uint32_t hidden;        /* pieces of its stretch behind scenery (sight_view) */
 } TvCam;
 
 static bool on;
@@ -110,33 +110,32 @@ static void add_cam(float s, float side, float extra, float h, float hand) {
     tv[ntv++] = (TvCam){p, s, track_wrap(hand), 0};
 }
 
-/* Spiral Canyon: how much of the road a camera covers (len metres up to
-   from + len) it can see past the rock, nothing if it stands in it, and
-   which ROCK_SEG metre pieces of it are hidden (a bit each). */
-static float rock_view(V3 p, float from, float len, uint32_t *hidden) {
+/* How much of the road a camera covers (len metres up to from + len) it
+   can see past solid scenery (world_solid: Spiral Canyon's rock,
+   Tsudoken's ramp and props), nothing if it stands in it, and which
+   ROCK_SEG metre pieces of it are hidden (a bit each). */
+static float sight_view(V3 p, float from, float len, uint32_t *hidden) {
     *hidden = 0xffffffffu;
-    if(world_in_rock(p, 1.5f)) return 0;
+    if(world_solid(p, 1.5f)) return 0;
     *hidden = 0;
     int n = 0, seen = 0;
     for(float u = ROCK_SEG * 0.5f; u < len && n < 32; u += ROCK_SEG, n++) {
         float s = track_wrap(from + u);
         V3 q = track_point(s, 0);
         q.y = track_road_y(s, 0) + 1.0f;
-        int steps = (int)(vlen(vsub(q, p)) / 2.0f), i = 1;
-        while(i < steps && !world_in_rock(vlerp(p, q, (float)i / steps), 0.3f)) i++;
-        if(i >= steps) seen++;
+        if(world_sight_clear(p, q)) seen++;
         else *hidden |= 1u << n;
     }
     return n ? (float)seen / n : 1.0f;
 }
 
-/* A camera the rock hides the road from moves to wherever nearby sees the
-   most of it: up, in to the road's edge (or a tunnel's ceiling), across
-   to the other side, or along the road. What none can see (a tunnel's
-   depths) the director films from the chase camera instead. */
-static void clear_rock(TvCam *c, float from, float len) {
-    if(!world_canyon) return;
-    float best = rock_view(c->pos, from, len, &c->hidden);
+/* A camera the scenery hides the road from moves to wherever nearby sees
+   the most of it: up, in to the road's edge (or a tunnel's ceiling),
+   across to the other side, or along the road. What none can see (a
+   tunnel's depths) the director films from the chase camera instead. */
+static void clear_view(TvCam *c, float from, float len) {
+    if(track.id != TRACK_CANYON && track.id != TRACK_TSUDOKEN) return;
+    float best = sight_view(c->pos, from, len, &c->hidden);
     if(best > 0.999f) return;
     V3 o = track_point(c->s, 0), r = vsub(track_point(c->s, 1), o);
     float d0 = (c->pos.x - o.x) * r.x + (c->pos.z - o.z) * r.z;
@@ -153,7 +152,7 @@ static void clear_rock(TvCam *c, float from, float len) {
                     V3 p = track_point(s, d);
                     p.y = track_road_y(s, clampf(d, -t->half, t->half)) + (w == 2 ? 3.5f : rise0) + rise[h];
                     uint32_t hid;
-                    float v = rock_view(p, from, len, &hid);
+                    float v = sight_view(p, from, len, &hid);
                     if(v > best + 0.01f) {
                         best = v;
                         c->pos = p;
@@ -163,12 +162,12 @@ static void clear_rock(TvCam *c, float from, float len) {
                 }
     }
 #ifdef DK_AUTOTEST
-    printf("DK SPECTATE: camera moved clear of the rock to s %.0f (%.0f, %.0f, %.0f), sees %.0f%%\n", (double)c->s,
+    printf("DK SPECTATE: camera moved clear of the scenery to s %.0f (%.0f, %.0f, %.0f), sees %.0f%%\n", (double)c->s,
            (double)c->pos.x, (double)c->pos.y, (double)c->pos.z, (double)(best * 100));
 #endif
 }
 
-/* True where the rock hides lap distance s from camera i. */
+/* True where scenery hides lap distance s from camera i. */
 static bool tv_hidden(int i, float s) {
     int j = (int)(ahead(tv[(i + ntv - 1) % ntv].hand, s) / ROCK_SEG);
     return j < 32 && (tv[i].hidden >> j & 1);
@@ -180,7 +179,7 @@ static int by_hand(const void *a, const void *b) {
 }
 
 static void place_cameras(void) {
-    /* Once per track: the canyon's rock checks take ~0.4 s. */
+    /* Once per track: the scenery checks take ~0.4 s. */
     static int placed_for = -1;
     if(ntv > 0 && placed_for == track.id) return;
     placed_for = track.id;
@@ -246,7 +245,7 @@ static void place_cameras(void) {
         float from = tv[(i + ntv - 1) % ntv].hand, len = ahead(from, tv[i].hand), top = -1e9f;
         for(float u = 0; u <= len; u += 4.0f) top = fmaxf(top, track_road_y(track_wrap(from + u), 0));
         tv[i].pos.y = fmaxf(tv[i].pos.y, top + 3.0f);
-        clear_rock(&tv[i], from, len);
+        clear_view(&tv[i], from, len);
     }
 #ifdef DK_AUTOTEST
     printf("DK SPECTATE: %s: %d trackside cameras\n", track.name, ntv);

@@ -42,8 +42,12 @@ float world_surface_y(float s, float d);
    the rock, and which rock to draw (-DDK_ROCK_TINT builds only). */
 bool world_leak_point(float s, float d, V3 *out);
 void world_diag_mode(int mode);
-/* Spiral Canyon: p is in the rock or less than margin metres above it,
-   outside the tunnels' bores (false on every other track). */
+/* Solid scenery the spectator's cameras keep clear of (Spiral Canyon's
+   rock, Tsudoken's raised road and props; none elsewhere): p is in it or
+   less than margin metres from it, or it stands between a and b. */
+bool world_solid(V3 p, float margin);
+bool world_sight_clear(V3 a, V3 b);
+/* Spiral Canyon's rock alone (false on every other track). */
 bool world_in_rock(V3 p, float margin);
 /* Neon gates over the road (Neon Skyway): their lap distances. */
 #define WORLD_MAX_GATES 12
