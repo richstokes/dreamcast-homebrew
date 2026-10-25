@@ -147,13 +147,13 @@ const CCParams cc_params[CC_COUNT] = {
    counter-steer still curves in, so a slide always runs out of road: it
    can't be held down a straight to charge a purple boost. A bigger wide
    radius means more opposite lock: at 150cc full lock still turns in at
-   21 deg/s with 75 m, 13 with 120, 11 with 140. 75 m couldn't open the
-   line enough on the long sweepers; 140 felt right in testing, but the
-   change is staggered for players used to the old handling, so this may
-   still go up. */
+   21 deg/s with 75 m, 15 with 110, 13 with 120, 11 with 140. 75 m couldn't
+   open the line enough on the long sweepers; 140 felt right in a first
+   test and 120 a touch strong after a longer play, so the change is
+   staggered for players used to the old handling and may still go up. */
 #define DRIFT_R_TIGHT    13.0f
 #define DRIFT_R_NEUTRAL  24.0f
-#define DRIFT_R_WIDE     120.0f
+#define DRIFT_R_WIDE     110.0f
 #define DRIFT_EASE       0.35f  /* seconds for a new slide to reach full lock */
 #define STAGE1           0.85f
 #define STAGE2           1.90f
