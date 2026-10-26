@@ -187,9 +187,11 @@ void hud_draw_race(int pi, float y0, float y1) {
         hud_text(lx + 166 * k, ly + 8 * k, 0.75f * k, ALIGN_LEFT, p->ui_color | 0xff000000, pi ? "P2" : "P1");
     }
     else {
-        /* Race time. */
+        /* Race time, or in a time trial on your own the current lap, so it
+           can be read against the BEST below it. */
+        bool lap_clock = game.mode == MODE_TT && game.num_players == 1;
         hud_panel(436, 22, 616, 70, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
-        hud_format_time(buf, p->finished ? p->finish_time : game.race_time);
+        hud_format_time(buf, p->finished ? p->finish_time : lap_clock ? game.race_time - p->lap_start : game.race_time);
         hud_text(606, 25, 1.0f, ALIGN_RIGHT, 0xffffffff, buf);
     }
     /* The held power-up, as a small gem beside the lap counter. */

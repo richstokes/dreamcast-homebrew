@@ -172,7 +172,7 @@ static void capture_script(void) {
 #endif
     static float t;
     static int step;
-    static bool shot[63];
+    static bool shot[64];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     /* Power-ups: an emerald coming up, the gem held, a spear in flight,
@@ -294,6 +294,11 @@ static void capture_script(void) {
             snprintf(name, sizeof(name), "biplane%02d", k);
             take_shot(name);
         }
+    }
+    /* Into lap 2, where a time trial's clock reads the lap against BEST. */
+    if(game.state == ST_RACE && p->lap == 2 && game.race_time - p->lap_start > 5.0f && !shot[63]) {
+        shot[63] = true;
+        take_shot("lap2");
     }
     if(game.state == ST_RESULTS && game.time > 1.5f && !shot[6]) { shot[6] = true; take_shot(gp.active ? "gp-results" : "results"); }
 #ifdef DK_AT_GP

@@ -213,7 +213,7 @@ static void draw_time_trial(const Kart *k) {
     int lap = k->lap < 1 ? 1 : (k->lap > game.laps ? game.laps : k->lap);
     snprintf(buf, sizeof(buf), "LAP %d/%d", lap, game.laps);
     text(1, 2, buf);
-    format_time(t, sizeof(t), game.race_time);
+    format_time(t, sizeof(t), game.race_time - k->lap_start);   /* this lap, like the HUD */
     text(1, 10, t);
     if(k->best_lap > 0) {
         format_time(t, sizeof(t), k->best_lap);
