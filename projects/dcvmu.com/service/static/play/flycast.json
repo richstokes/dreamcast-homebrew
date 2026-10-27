@@ -1,5 +1,5 @@
 {
-  "buildStart": "flycast-wasm-v1.0-homebrew.1-2026-09-01",
+  "buildStart": "flycast-wasm-f105cad97bbcacbe",
   "options": {
     "defaultWebGL2": true
   }

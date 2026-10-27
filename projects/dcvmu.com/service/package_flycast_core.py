@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Rebuild static/play/flycast-wasm.data, the Flycast core the web player loads.
+"""Package the Flycast core the web player loads into static/play.
 
-It packages the GPLv2 Flycast WASM v1.0 release for EmulatorJS 4.2.3; the
-source and build steps are at https://github.com/nasomers/flycast-wasm/tree/v1.0.
-EmulatorJS detects the ZIP by its signature despite the .data extension.
-Changes from upstream:
+tools/flycast-wasm/build.sh builds the GPLv2 core (Flycast with the
+WebAssembly JIT from https://github.com/nasomers/flycast-wasm v1.0 and the
+patches in tools/flycast-wasm/patches). This turns its output into
+flycast-wasm.data for EmulatorJS 4.2.3, a ZIP that EmulatorJS detects by its
+signature despite the .data extension, and writes flycast.json to match.
+Changes on top of the build:
 
 - core.js: real ZIP and ELF functions replace abort stubs, so homebrew ELFs
   direct-boot with the HLE BIOS, and evicted JIT blocks free their function
@@ -12,25 +14,18 @@ Changes from upstream:
 - core.wasm: the heap starts at 64 MiB instead of 256 MiB and still grows,
   so iOS is less likely to kill the tab
 
-Run it with no arguments; it downloads the pinned upstream files.
+Usage: package_flycast_core.py [BUILD_OUT], default
+$FLYCAST_WASM_WORK/out (~/.local/share/dreamcast/flycast-wasm/out).
 """
 import hashlib
 import json
+import os
 import sys
-import urllib.request
 import zipfile
 from pathlib import Path
 
-RELEASE = 'https://github.com/nasomers/flycast-wasm/releases/download/v1.0'
-UPSTREAM = {
-    'flycast_libretro.js': (f'{RELEASE}/flycast_libretro.js',
-                            '1f2ae9afafa85c8ff577ca3961be0343c2ac394ddc79285981f0d55ad75dbd7b'),
-    'flycast_libretro.wasm': (f'{RELEASE}/flycast_libretro.wasm',
-                              'db2b87d8d2742087a56c4eeed317da14e3549ee037e36de3d77c1e6e5291bead'),
-    'LICENSE': ('https://raw.githubusercontent.com/nasomers/flycast-wasm/v1.0/LICENSE',
-                'edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6'),
-}
-OUTPUT = Path(__file__).resolve().parent / 'static' / 'play' / 'flycast-wasm.data'
+WORK = Path(os.environ.get('FLYCAST_WASM_WORK', Path.home() / '.local/share/dreamcast/flycast-wasm'))
+PLAYER = Path(__file__).resolve().parent / 'static' / 'play'
 HEAP_PAGES = 1024  # 64 KiB WebAssembly pages: 64 MiB.
 
 # Flycast's embedded-resource ZIP reader (via fflate) and its 32-bit ELF parser.
@@ -75,18 +70,9 @@ JIT_RELEASE = {
 RELEASE_SLOT = 'if(idx){try{wasmTable.set(idx,null);Module._jitReleased=(Module._jitReleased|0)+1}catch(e){}}'
 
 
-def download(name):
-    url, sha256 = UPSTREAM[name]
-    with urllib.request.urlopen(url, timeout=60) as response:
-        data = response.read()
-    if hashlib.sha256(data).hexdigest() != sha256:
-        sys.exit(f'{name} does not match its pinned SHA-256')
-    return data
-
-
 def replace_once(source, old, new):
     if source.count(old) != 1:
-        sys.exit(f'Expected one upstream match for: {old[:80]}')
+        sys.exit(f'Expected one match in the built core.js for: {old[:80]}')
     return source.replace(old, new)
 
 
@@ -129,10 +115,10 @@ def patch_heap(wasm):
 
 
 def main():
-    core_js = patch_js(download('flycast_libretro.js').decode())
+    build = Path(sys.argv[1]) if len(sys.argv) > 1 else WORK / 'out'
     members = {
-        'core.js': core_js.encode(),
-        'core.wasm': patch_heap(download('flycast_libretro.wasm')),
+        'core.js': patch_js((build / 'flycast_libretro.js').read_text()).encode(),
+        'core.wasm': patch_heap((build / 'flycast_libretro.wasm').read_bytes()),
         'core.json': json.dumps({
             'name': 'flycast',
             'extensions': ['cdi', 'gdi', 'chd', 'cue', 'iso', 'elf', 'bin', 'lst', 'zip', '7z', 'dat'],
@@ -140,17 +126,23 @@ def main():
             'repo': 'https://github.com/flyinghead/flycast',
         }, separators=(',', ':')).encode(),
         'build.json': json.dumps({
-            'buildDate': '2026-08-01', 'version': '1.0.0-homebrew.3-ios', 'minimumEJSVersion': '4.2.3',
+            'buildDate': '2026-10-26', 'version': '1.0.0-homebrew.4-bba', 'minimumEJSVersion': '4.2.3',
         }, separators=(',', ':')).encode(),
-        'license.txt': download('LICENSE'),
+        'license.txt': (WORK / 'flycast-wasm' / 'LICENSE').read_bytes(),
     }
     # Fixed timestamps keep rebuilds byte-identical.
-    with zipfile.ZipFile(OUTPUT, 'w') as archive:
+    core = PLAYER / 'flycast-wasm.data'
+    with zipfile.ZipFile(core, 'w') as archive:
         for name, data in members.items():
             info = zipfile.ZipInfo(name, date_time=(2026, 8, 1, 0, 0, 0))
             info.external_attr = 0o644 << 16
             archive.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-    print(f'Wrote {OUTPUT}')
+    # EmulatorJS keeps the core in IndexedDB until this report's buildStart
+    # changes, so tie it to the core's contents.
+    version = hashlib.sha256(core.read_bytes()).hexdigest()[:16]
+    report = {'buildStart': f'flycast-wasm-{version}', 'options': {'defaultWebGL2': True}}
+    (PLAYER / 'flycast.json').write_text(json.dumps(report, indent=2) + '\n')
+    print(f'Wrote {core} and flycast.json')
 
 
 if __name__ == '__main__':

@@ -1,0 +1,217 @@
+Broadband adapter for the web player: the page carries Ethernet frames
+through globalThis.flycastNet (see core/network/jsnet.h).
+
+diff --git a/core/network/jsnet.h b/core/network/jsnet.h
+new file mode 100644
+index 0000000..f451d51
+--- /dev/null
++++ b/core/network/jsnet.h
+@@ -0,0 +1,110 @@
++/*
++	This file is part of Flycast.
++
++    Flycast is free software: you can redistribute it and/or modify
++    it under the terms of the GNU General Public License as published by
++    the Free Software Foundation, either version 2 of the License, or
++    (at your option) any later version.
++
++    Flycast is distributed in the hope that it will be useful,
++    but WITHOUT ANY WARRANTY; without even the implied warranty of
++    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++    GNU General Public License for more details.
++
++    You should have received a copy of the GNU General Public License
++    along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
++ */
++// Broadband adapter for the WebAssembly build: browsers can't open sockets
++// and this build has no threads, so the page carries the BBA's Ethernet
++// frames. It defines globalThis.flycastNet with
++//   start(), stop(): when the guest starts and stops using the BBA
++//   send(frame): a Uint8Array the guest transmitted
++//   recv(): the next Uint8Array for the guest, or undefined
++// The modem is not supported.
++#pragma once
++#include "netservice.h"
++#include "hw/bba/bba.h"
++#include <emscripten.h>
++#include <vector>
++
++EM_JS(int, flycast_net_start, (), {
++	if (!globalThis.flycastNet)
++		return 0;
++	globalThis.flycastNet.start();
++	return 1;
++});
++
++EM_JS(void, flycast_net_stop, (), {
++	if (globalThis.flycastNet)
++		globalThis.flycastNet.stop();
++});
++
++EM_JS(void, flycast_net_send, (const u8 *frame, u32 size), {
++	if (globalThis.flycastNet)
++		globalThis.flycastNet.send(HEAPU8.slice(frame, frame + size));
++});
++
++// Copies the next frame for the guest into buf. Returns its size, or 0 when
++// none is waiting; a frame larger than max is dropped.
++EM_JS(u32, flycast_net_recv, (u8 *buf, u32 max), {
++	var frame = globalThis.flycastNet && globalThis.flycastNet.recv();
++	if (!frame || frame.length > max)
++		return 0;
++	HEAPU8.set(frame, buf);
++	return frame.length;
++});
++
++namespace net::modbba
++{
++
++class JsNetService : public Service
++{
++public:
++	bool start() override {
++		if (!started)
++			started = flycast_net_start();
++		return started;
++	}
++
++	void stop() override {
++		if (started)
++			flycast_net_stop();
++		started = false;
++		pending.clear();
++	}
++
++	void writeModem(u8 b) override {}
++	int readModem() override { return -1; }
++	int modemAvailable() override { return 0; }
++
++	void receiveEthFrame(const u8 *frame, u32 size) override {
++		flycast_net_send(frame, size);
++	}
++
++	void poll() override {
++		if (!started)
++			return;
++		for (;;)
++		{
++			if (pending.empty())
++			{
++				pending.resize(2048);
++				u32 size = flycast_net_recv(pending.data(), pending.size());
++				pending.resize(size);
++				if (size == 0)
++					return;
++			}
++			// The NIC refuses frames while its receive ring is full; keep
++			// this one for the next poll.
++			if (!bba_recv_frame(pending.data(), pending.size()))
++				return;
++			pending.clear();
++		}
++	}
++
++private:
++	bool started = false;
++	std::vector<u8> pending;
++};
++
++}
+diff --git a/core/network/netservice.cpp b/core/network/netservice.cpp
+index 889688b..aa72ce2 100644
+--- a/core/network/netservice.cpp
++++ b/core/network/netservice.cpp
+@@ -19,6 +19,9 @@
+ #include "netservice.h"
+ #include "picoppp.h"
+ #include "dcnet.h"
++#ifdef __EMSCRIPTEN__
++#include "jsnet.h"
++#endif
+ #include "emulator.h"
+ #include "cfg/option.h"
+ 
+@@ -33,10 +36,15 @@ bool start()
+ 	if (service == nullptr || usingDCNet != config::UseDCNet)
+ 	{
+ 		delete service;
++#ifdef __EMSCRIPTEN__
++		// Browsers can't open sockets, so the page carries the frames.
++		service = new JsNetService();
++#else
+ 		if (config::UseDCNet)
+ 			service = new DCNetService();
+ 		else
+ 			service = new PicoTcpService();
++#endif
+ 		usingDCNet = config::UseDCNet;
+ 	}
+ 	return service->start();
+@@ -65,4 +73,9 @@ void receiveEthFrame(const u8 *frame, u32 size) {
+ 	service->receiveEthFrame(frame, size);
+ }
+ 
++void poll() {
++	if (service != nullptr)
++		service->poll();
++}
++
+ }
+diff --git a/core/network/netservice.h b/core/network/netservice.h
+index a9adb91..66c9045 100644
+--- a/core/network/netservice.h
++++ b/core/network/netservice.h
+@@ -30,6 +30,8 @@ int readModem();
+ int modemAvailable();
+ 
+ void receiveEthFrame(const u8 *frame, u32 size);
++// Hands the emulator frames that arrived since the last call.
++void poll();
+ 
+ class Service
+ {
+@@ -43,6 +45,7 @@ public:
+ 	virtual int modemAvailable() = 0;
+ 
+ 	virtual void receiveEthFrame(const u8 *frame, u32 size) = 0;
++	virtual void poll() {}
+ };
+ 
+ }
+diff --git a/shell/libretro/libretro.cpp b/shell/libretro/libretro.cpp
+index ed858f6..eab9174 100644
+--- a/shell/libretro/libretro.cpp
++++ b/shell/libretro/libretro.cpp
+@@ -74,6 +74,7 @@
+ #include "cheats.h"
+ #include "rend/osd.h"
+ #include "cfg/option.h"
++#include "network/netservice.h"
+ #include "version.h"
+ #include "oslib/oslib.h"
+ #include "rend/CustomTexture.h"
+@@ -839,6 +840,13 @@ static void update_variables(bool first_startup)
+ 	config::Settings::instance().setRetroEnvironment(environ_cb);
+ 	config::Settings::instance().setOptionDefinitions(option_defs_us);
+ 	config::Settings::instance().load(false);
++#ifdef __EMSCRIPTEN__
++	// The web player turns the BBA on by providing globalThis.flycastNet
++	// (core/network/jsnet.h). EmulatorJS applies its option defaults only once
++	// the game runs, too late for this option.
++	if (first_startup && EM_ASM_INT({ return globalThis.flycastNet ? 1 : 0; }))
++		config::EmulateBBA.override(true);
++#endif
+ 
+ 	retro_variable var;
+ 
+@@ -1791,6 +1799,10 @@ void retro_run()
+ 
+ 	poll_cb();
+ 	os_UpdateInputState();
++#ifdef __EMSCRIPTEN__
++	// The web player's network frames arrive between host frames.
++	net::modbba::poll();
++#endif
+ 	bool fastforward = false;
+ 	if (environ_cb(RETRO_ENVIRONMENT_GET_FASTFORWARDING, &fastforward))
+ 		settings.input.fastForwardMode = fastforward;

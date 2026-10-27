@@ -113,7 +113,7 @@ Restore:
 - Profiles show public saves only, even to the signed-in owner
 - Import previews are per account and expire after 30 minutes; only validated payloads are staged, never the source card or login data
 - The web player depends on infra's Caddy rule for `X-Dcvmu-File`; without it ROM downloads come back empty. `deploy.sh` fails if the core does not come through Caddy
-- `static/play/flycast-wasm.data` is generated: `./package_flycast_core.py` rebuilds it byte for byte from the pinned upstream release and lists what it patches
+- `static/play/flycast-wasm.data` and `flycast.json` are generated: build the core with [tools/flycast-wasm](../../../tools/flycast-wasm/), then run `./package_flycast_core.py`
 
 ## Known limitations
 
