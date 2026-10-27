@@ -172,7 +172,7 @@ static void capture_script(void) {
 #endif
     static float t;
     static int step;
-    static bool shot[64];
+    static bool shot[72];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     /* Power-ups: an emerald coming up, the gem held, a spear in flight,
@@ -370,6 +370,19 @@ static void capture_script(void) {
             if(!shot[56 + i] && fabsf(track_delta(track_seg_s(tk_shots[i].seg) + tk_shots[i].at, p->tp.s)) < 3.0f) {
                 shot[56 + i] = true;
                 take_shot(tk_shots[i].name);
+            }
+    }
+    /* Apple Valley: race control at the line, the turn 2 hairpin, turn 4,
+       up the west side, turn 9's hairpin, the long left at 12, turn 13 onto
+       the top straight and turn 14 at its end. */
+    if(game.state == ST_RACE && track.id == TRACK_APPLE) {
+        static const struct { int seg; float at; const char *name; } av_shots[8] = {
+            {0, 95.0f, "av-line"}, {3, 6.0f, "av-hairpin2"}, {7, 4.0f, "av-turn4"}, {10, 6.0f, "av-west"},
+            {17, 10.0f, "av-hairpin9"}, {21, 20.0f, "av-turn12"}, {24, 10.0f, "av-top"}, {25, 8.0f, "av-hairpin14"}};
+        for(int i = 0; i < 8; i++)
+            if(!shot[64 + i] && fabsf(track_delta(track_seg_s(av_shots[i].seg) + av_shots[i].at, p->tp.s)) < 3.0f) {
+                shot[64 + i] = true;
+                take_shot(av_shots[i].name);
             }
     }
     /* Cyberstone: the first chicane, the crest, down the drop, the
@@ -662,7 +675,11 @@ static void chase_camera(Player *pl, float dt, bool behind) {
     V3 dir = heading_fwd(pl->cam_yaw);
     if(behind) dir = vscale(dir, -1.0f);
     V3 pos = vmad(k->pos, dir, -pl->cam_dist);
-    pos.y = fmaxf(pl->cam_height, 0.8f);
+    /* A floor under the camera, 0.8 m up, lowered with a road below zero
+       (Apple Valley's turn 1, Neon Skyway's dip, Cyberstone's valley):
+       a fixed one held the camera up there and tipped it to look down
+       steeply until the road climbed back. */
+    pos.y = fmaxf(pl->cam_height, fminf(0.8f, k->gnd + 0.8f));
     V3 look = vmad(k->pos, dir, behind ? 7.0f : 3.0f);
     look.y = k->gnd + 0.95f + air * 0.6f;
     if(behind) pos.y += 0.5f;
@@ -1877,6 +1894,7 @@ int main(int argc, char **argv) {
     uint64_t boot_t0 = timer_us_gettime64();
     input_init();
     render_init();
+    perfhud_reserve();
     hud_init();
     title_init();
     boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");

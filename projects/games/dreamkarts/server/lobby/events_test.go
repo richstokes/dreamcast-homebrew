@@ -129,3 +129,30 @@ func TestTrackNamesMatchConsole(t *testing.T) {
 		t.Errorf("src/track.c has %q, lobby.TrackNames %q", names, TrackNames)
 	}
 }
+
+func TestDisabledTracksMatchConsole(t *testing.T) {
+	src, err := os.ReadFile("../../src/track.h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enum := regexp.MustCompile(`(?s)enum \{ (TRACK_BEACH.*?), TRACK_COUNT \};`).FindSubmatch(src)
+	mask := regexp.MustCompile(`#define TRACK_DISABLED (.*)`).FindSubmatch(src)
+	if enum == nil || mask == nil {
+		t.Fatal("track enum or TRACK_DISABLED not found in src/track.h")
+	}
+	ids := map[string]byte{}
+	for i, name := range regexp.MustCompile(`TRACK_[A-Z0-9]+`).FindAllString(string(enum[1]), -1) {
+		ids[name] = byte(i)
+	}
+	want := map[byte]bool{}
+	for _, name := range regexp.MustCompile(`TRACK_[A-Z0-9]+`).FindAllString(string(mask[1]), -1) {
+		id, ok := ids[name]
+		if !ok {
+			t.Fatalf("TRACK_DISABLED names %s, not in the track enum", name)
+		}
+		want[id] = true
+	}
+	if !reflect.DeepEqual(want, DisabledTracks) {
+		t.Errorf("src/track.h disables %v, lobby.DisabledTracks %v", want, DisabledTracks)
+	}
+}

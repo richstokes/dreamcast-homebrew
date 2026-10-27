@@ -139,6 +139,16 @@ tsudoken-props:
 	$(BLENDER) --background --python tools/build_tsudoken_props.py -- --header $(GEN)/tsudoken_props.h \
 		--blend captures/tsudoken_props.blend --preview captures/tsudoken-props
 
+# Apple Valley's props: Blender models every one (race control, the
+# bleachers, pit canopies, containers, clubhouse, trailer, starter's stand,
+# tyre stacks, light pole, fence, boulders, Joshua trees, creosote and the
+# brown mountain) and bakes them as strips; captures/apple_valley_props.blend
+# to look at, captures/apple-valley-props/*.png for a render of each.
+apple-valley-props:
+	mkdir -p captures
+	$(BLENDER) --background --python tools/build_apple_valley_props.py -- --header $(GEN)/apple_valley_props.h \
+		--blend captures/apple_valley_props.blend --preview captures/apple-valley-props
+
 # Spiral Canyon's final-lap biplane: Blender models it and bakes the body
 # and propeller meshes; captures/biplane.blend and captures/biplane/*.png
 # to look at.
@@ -153,7 +163,7 @@ audio:
 vmu:
 	uv run tools/build_vmu.py --output-dir $(GEN)
 
-assets: textures models audio vmu canyon-rock tsudoken-props biplane
+assets: textures models audio vmu canyon-rock tsudoken-props apple-valley-props biplane
 
 run: $(TARGET)
 	./run-flycast.sh --skip-build
@@ -211,6 +221,6 @@ disc: $(TARGET) disc/music.adp
 hw: $(TARGET) disc/music.adp
 	$(DC_HW) run -c -T 86400 dreamkarts.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props biplane all clean run textures models audio vmu assets autotest hwbench hw-flip hw disc force
+.PHONY: canyon-rock tsudoken-props apple-valley-props biplane all clean run textures models audio vmu assets autotest hwbench hw-flip hw disc force
 
 endif

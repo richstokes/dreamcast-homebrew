@@ -120,6 +120,7 @@ CAPTIONS = {
     'cyberstone': ('CYBERSTONE', 'Neon hills and a banked helix, after Silverstone'),
     'spiralcanyon': ('SPIRAL CANYON', 'Corkscrews up two rock towers, through checkered loops'),
     'tsudoken': ('TSUDOKEN DRIFT', 'A club circuit under Mt Fuji at golden hour, with a jump'),
+    'applevalley': ('APPLE VALLEY', 'Fifteen turns on a kart circuit in the Mojave'),
     'drift': ('DRIFT AND MINI-TURBO', 'Blue, orange, then purple sparks'),
     'split': ('TWO-PLAYER SPLIT SCREEN', 'Grand Prix or head-to-head Versus'),
     'setup': ('RACE SETUP', 'Eight Chao colours, 50 / 100 / 150cc'),

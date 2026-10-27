@@ -38,12 +38,13 @@ static void rank_field(void) {
 void gp_start(void) {
     memset(&gp, 0, sizeof(gp));
     gp.active = true;
-    gp.count = TRACK_COUNT;
+    /* Every track on offer, in order. */
+    for(int i = 0; i < TRACK_COUNT; i++)
+        if(track_enabled(i)) gp.order[gp.count++] = i;
 #ifdef DK_AT_GP_RACES
     /* Test builds: a shorter cup. */
     if(gp.count > DK_AT_GP_RACES) gp.count = DK_AT_GP_RACES;
 #endif
-    for(int i = 0; i < TRACK_COUNT; i++) gp.order[i] = i;
     for(int i = 0; i < MAX_KARTS; i++) {
         gp.place[i] = MAX_KARTS;
         gp.rank[i] = i;

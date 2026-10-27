@@ -519,7 +519,7 @@ void title_update(float dt) {
         uint32_t trig = (pad.pressed | pad2.pressed) & (BTN_L | BTN_R);
         if(trig && trig != (BTN_L | BTN_R)) {
             int dir = trig == BTN_L ? -1 : 1;
-            game_load_track(game.track + dir);
+            game_load_track(track_step(game.track, dir));
             audio_sfx(DK_SFX_WHOOSH, 140, dir < 0 ? 90 : 166);
         }
         if(game.time > 0.6f &&((pad.pressed | pad2.pressed) & (BTN_START | BTN_A))) {
@@ -674,7 +674,7 @@ static void tracks_update(float dt) {
     fly_t += dt;
     int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
     if(dir) {
-        game_load_track(game.track + dir);
+        game_load_track(track_step(game.track, dir));
         track_swap = (float)dir;
         fly_t = 0;
         audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
@@ -1195,10 +1195,12 @@ static void draw_tracks(void) {
     char buf[48];
     snprintf(buf, sizeof(buf), "LAP %d m  -  %d LAPS", (int)(track.length + 0.5f), game.laps);
     hud_text(tx, y0 + 74, 0.5f, ALIGN_CENTER, 0xffffffff, buf);
-    /* Page dots. */
+    /* Page dots, one per track on offer. */
     r_hdr(h_flat);
+    int ndots = track_enabled_count(), dot = 0;
     for(int i = 0; i < TRACK_COUNT; i++) {
-        float dx = tx + ((float)i - (TRACK_COUNT - 1) * 0.5f) * 18.0f;
+        if(!track_enabled(i)) continue;
+        float dx = tx + ((float)dot++ - (ndots - 1) * 0.5f) * 18.0f;
         uint32_t c = i == game.track ? argb(255, 255, 220, 60) : argb(140, 255, 255, 255);
         float r = i == game.track ? 5.0f : 3.5f;
         r_quad2d(dx - r, y1 - 20 - r, dx + r, y1 - 20 + r, 0, 0, 1, 1, c, 16.5f);

@@ -29,11 +29,14 @@ type Event struct {
 }
 
 // TrackNames and CCNames match the console's (src/track.c, src/online.c);
-// events_test.go checks the tracks.
+// DisabledTracks are the tracks the console no longer offers (src/track.h
+// TRACK_DISABLED), which the demo lobby leaves out of its rotation.
+// events_test.go checks both against the console's source.
 var (
 	TrackNames = []string{"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL", "NEON SKYWAY", "CYBERSTONE",
-		"SPIRAL CANYON", "TSUDOKEN DRIFT"}
-	CCNames = []string{"50cc", "100cc", "150cc"}
+		"SPIRAL CANYON", "TSUDOKEN DRIFT", "APPLE VALLEY"}
+	DisabledTracks = map[byte]bool{5: true} // CYBERSTONE, retired for now
+	CCNames        = []string{"50cc", "100cc", "150cc"}
 )
 
 // IsTestName says whether a player name belongs to our automated testing:

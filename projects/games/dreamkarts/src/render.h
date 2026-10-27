@@ -26,6 +26,10 @@ enum {
 
 #define TEX_NONE -1
 
+/* The Tile Accelerator's vertex buffer (pvr_init): a hard ceiling, past
+   which the console stalls (Tsudoken Drift's split screen passed 1 MB). */
+#define DK_VTX_BUF_KIB 1536
+
 void render_init(void);
 void render_shutdown(void);
 /* Mipmap D-adjust for the opaque (RGB565) mipmapped textures:

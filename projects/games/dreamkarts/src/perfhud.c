@@ -20,7 +20,6 @@
 extern const uint8_t dk_textures_pak[];
 
 #define FRAME_MS 16.68f          /* one NTSC vblank */
-#define VTX_BUF_KIB 1024.0f      /* render_init's vertex_buf_size */
 #define WIN_SECS 0.5f
 
 enum { R_CPU, R_UPD, R_WORLD, R_KARTS, R_PT, R_TR, R_PVR, R_HUD, R_TIMES };
@@ -320,7 +319,7 @@ static void compose(int y0, int y1) {
     put_text(LABEL_X, y, ALIGN_LEFT, white, "VTX");
     put_text(AVG_X, y, ALIGN_RIGHT, white, shown.vtx_s);
     put_text(MAX_X, y, ALIGN_RIGHT, dim, shown.vtx_peak_s);
-    put_bar(y, shown.vtx / VTX_BUF_KIB, shown.vtx_peak / VTX_BUF_KIB);
+    put_bar(y, shown.vtx / (float)DK_VTX_BUF_KIB, shown.vtx_peak / (float)DK_VTX_BUF_KIB);
     y += ROW_H;
     put_text(LABEL_X, y, ALIGN_LEFT, white, "TRIS");
     put_text(AVG_X, y, ALIGN_RIGHT, white, shown.tris_s);
@@ -339,18 +338,19 @@ static void refresh_band(void) {
     band_next++;
 }
 
+void perfhud_reserve(void) {
+    box_tex = pvr_mem_malloc(TEX_W * TEX_H * 2);
+    if(!box_tex) printf("DreamKarts perfhud: no VRAM for the overlay\n");
+    printf("DreamKarts perfhud: VRAM after the overlay, %lu KiB free\n", (unsigned long)(pvr_mem_available() / 1024));
+}
+
 void perfhud_draw(bool split) {
     uint64_t t0 = timer_us_gettime64();
     int tris0 = rstats.tris;
-    if(!box_tex) {
-        static bool failed;
-        if(failed) return;
-        box_tex = pvr_mem_malloc(TEX_W * TEX_H * 2);
-        if(!box_tex) {
-            failed = true;
-            printf("DreamKarts perfhud: no VRAM for the overlay\n");
-            return;
-        }
+    static bool ready;
+    if(!ready) {
+        if(!box_tex) return;
+        ready = true;
         pvr_poly_cxt_t c;
         pvr_poly_cxt_txr(&c, PVR_LIST_OP_POLY, PVR_TXRFMT_RGB565 | PVR_TXRFMT_NONTWIDDLED, TEX_W, TEX_H, box_tex,
                          PVR_FILTER_NEAREST);

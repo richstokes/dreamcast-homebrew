@@ -69,7 +69,8 @@ static int header_count;
 static int tex_mip_bias(int tex) {
     if(dk_tex_assets[tex].fmt == DK_TEXFMT_ARGB4444) return PVR_MIPBIAS_NORMAL;
     switch(tex) {
-        case TEX_ROAD: case TEX_TKROAD: case TEX_CANYONROAD: case TEX_BOARDWALK: case TEX_DASH: case TEX_CHECKER:
+        case TEX_ROAD: case TEX_TKROAD: case TEX_CANYONROAD: case TEX_AVROAD: case TEX_BOARDWALK: case TEX_DASH:
+        case TEX_CHECKER:
             return DK_MIP_ROAD_BIAS;
         default:
             return tex >= TEX_SKYROAD_0 && tex <= TEX_SKYROAD_15 ? DK_MIP_ROAD_BIAS : DK_MIP_BIAS;
@@ -99,7 +100,7 @@ static void load_textures(void) {
 void render_init(void) {
     pvr_init_params_t params = {
         .opb_sizes = {PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16},
-        .vertex_buf_size = 1536 * 1024,   /* Tsudoken Drift's start straight in a split screen passed 1 MB and stalled the TA */
+        .vertex_buf_size = DK_VTX_BUF_KIB * 1024,
         /* Measured: the CPU waits on the TA only ~0.1 ms a frame, so DMA
            to it is not worth having. */
         .dma_enabled = 0,

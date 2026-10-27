@@ -723,7 +723,7 @@ static void lobby_update(float dt) {
         int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
         int row = rows[lobby_row];
         if(dir) {
-            if(row == LR_TRACK) sel_track = (sel_track + dir + TRACK_COUNT) % TRACK_COUNT;
+            if(row == LR_TRACK) sel_track = track_step(sel_track, dir);
             if(row == LR_LAPS) {
                 int i = sel_laps == 10 ? 2 : sel_laps == 5 ? 1 : 0;
                 sel_laps = laps_options[(i + dir + 3) % 3];

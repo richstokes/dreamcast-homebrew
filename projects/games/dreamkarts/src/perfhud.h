@@ -15,6 +15,11 @@ void perfhud_set_mode(int mode);
    its CPU time, the five profiled phases (update, world OP, karts, PT, TR)
    in ms, and how many vblanks it missed. */
 void perfhud_frame(float dt_real, float cpu_ms, const float phase_ms[5], int missed);
+/* At boot, straight after the game's textures: takes the overlay's
+   128 KiB texture from VRAM up front, so textures that leave too little
+   room fail where everyone sees it, not the first time someone switches
+   the overlay on. */
+void perfhud_reserve(void);
 /* One opaque quad at the end of the OP list, after the karts profile mark. */
 void perfhud_draw(bool split);
 /* The FPS setting's counter, in the TR list after the HUD. */

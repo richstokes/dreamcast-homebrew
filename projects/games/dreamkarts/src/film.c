@@ -115,7 +115,7 @@ static void film_log(void) {
 /* The set of races: players, track, each player's colour, and how many
    colours to step through first so the menu kart changes on camera. */
 static const struct { int players, track, colour[2], browse; } plan[] = {
-    {1, TRACK_CYBERSTONE, {6, 0}, 3},
+    {1, TRACK_APPLE, {6, 0}, 3},
     {2, TRACK_FIGURE8, {2, 5}, 2},
     {1, TRACK_TEMPLE, {5, 0}, 2},
     {2, TRACK_BEACH, {0, 7}, 1},
@@ -241,7 +241,7 @@ static void show_script(void) {
             /* The first time round, fly over every course; later, go
                straight to the planned one. */
             if(step == 0 && due(2.6f)) {
-                if(!tracks_toured && taps < TRACK_COUNT) {
+                if(!tracks_toured && taps < track_enabled_count()) {
                     input_film_tap(0, BTN_RIGHT);
                     taps++;
                 }

@@ -4,12 +4,15 @@
 #include <stdint.h>
 /* Position in centimetres (Mt Fuji: millimetres of a unit mountain),
    normal * 127, material (TKM_*), texture u v in 1/256, colour. */
+#ifndef DK_PROP_TYPES
+#define DK_PROP_TYPES
 typedef struct { int16_t x, y, z; int8_t nx, ny, nz; uint8_t mat; int16_t u, v; uint8_t r, g, b, a; } dk_prop_vert_t;
 /* A solid box in the vertices' units, before the prop is turned: the
    spectator's cameras keep clear of them and their sight lines. */
 typedef struct { int16_t x0, y0, z0, x1, y1, z1; } dk_prop_box_t;
 typedef struct { const dk_prop_vert_t *verts; const uint16_t *index; const uint8_t *strip_len, *strip_mat;
                  const dk_prop_box_t *solids; uint16_t nverts, nstrips; uint8_t nsolids, cm; } dk_prop_t;
+#endif
 enum { TKM_FLAT, TKM_KAWARA, TKM_CROWD, TKM_ISHIGAKI, TKM_SAKURA, TKM_BARK, TKM_PLASTER, TKM_BANNER, TKM_PITWALL, TKM_COUNT };
 /* The materials a punch-through (alpha tested) list draws: sakura. */
 #define TKM_PT_MASK (1u << TKM_SAKURA)

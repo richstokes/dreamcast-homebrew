@@ -87,6 +87,24 @@ enum {
     TEX_PITWALL,
     TEX_SUNDISC,
     TEX_STREAM,
+    TEX_AVROAD,
+    TEX_AVCURB,
+    TEX_AVDIRT,
+    TEX_AVDESERT,
+    TEX_AVTYRES,
+    TEX_AVMETAL,
+    TEX_AVCROWD,
+    TEX_AVJOSHUA,
+    TEX_AVJBARK,
+    TEX_AVSCRUB,
+    TEX_AVBANNER,
+    TEX_AVSTUCCO,
+    TEX_AVROCK,
+    TEX_AVFAR,
+    TEX_AVTUMBLE,
+    TEX_AVDUST,
+    TEX_AVMTN,
+    TEX_AVRANGE,
     TEX_COUNT
 };
 
@@ -169,8 +187,26 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {2960704u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* pitwall */
     {3004416u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* sundisc */
     {3015360u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* stream */
+    {3059072u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avroad */
+    {3102784u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avcurb */
+    {3113728u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avdirt */
+    {3124672u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avdesert */
+    {3168384u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avtyres */
+    {3212096u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avmetal */
+    {3223040u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avcrowd */
+    {3233984u, 43712u, 128, 128, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* avjoshua */
+    {3277696u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avjbark */
+    {3288640u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* avscrub */
+    {3299584u, 32768u, 256, 64, DK_TEXFMT_RGB565, 0, {0, 0}},  /* avbanner */
+    {3332352u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avstucco */
+    {3343296u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avrock */
+    {3354240u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* avfar */
+    {3365184u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* avtumble */
+    {3376128u, 2752u, 32, 32, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* avdust */
+    {3378880u, 2752u, 32, 32, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avmtn */
+    {3381632u, 2752u, 32, 32, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avrange */
 };
 
-#define DK_TEXTURES_BYTES 3059072u
+#define DK_TEXTURES_BYTES 3384384u
 
 #endif

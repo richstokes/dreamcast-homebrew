@@ -17,9 +17,9 @@ Eight courses:
 - Palm Harbour: a twisty harbour circuit with a chicane and two hairpins
 - Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct
 - Neon Skyway: 1,056 m of neon road above a cyberpunk city at night, with a banked loop, a gap jump and open edges to fall off
-- Cyberstone: Neon Skyway's city on a layout after Silverstone's National circuit, all hills and no jumps
 - Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches at golden hour, a retrowave sun setting behind the hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
 - Tsudoken Drift: a flat club circuit after Tsukuba under Mt Fuji on a spring afternoon, 1,031 m of hairpins and long lefts through cherry blossom, paddies and stone lanterns, a grandstand under a swept tiled roof along the start straight, torii over the road and a ramp jump over a stream halfway down the 200 m back straight
+- Apple Valley: a kart club circuit in the Mojave after Apple Valley Speedway, 1,304 m and fifteen turns on a narrower road between tyre walls, on a desert slope that drops 10 m from turn 14 down to turn 1, tumbleweeds and dust devils on the wind, past Joshua trees and creosote, with a brown mountain and the snowy San Bernardinos on the horizon
 
 Highlights:
 
@@ -147,6 +147,7 @@ needs no Python.
 | `make textures` | Procedural textures, the HUD font, logo and countdown lettering (`assets/generated/textures.pak`) |
 | `make models` | The kart and Chao meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
 | `make canyon-rock` | Spiral Canyon's rock (`canyon_rock.h`): a `-DDK_DUMP_ROCK` build prints the rock's height field, tunnel bores and road clearance, and Blender (`tools/build_canyon_rock.py`, ~5 s) cuts one mesh from them; open `captures/canyon_rock.blend` to look at it. Rerun after changing the track's layout, heights or the rock's shape |
+| `make apple-valley-props` | Apple Valley's props (`apple_valley_props.h`): Blender (`tools/build_apple_valley_props.py`, ~2 s) models race control, the bleachers, pit canopies, containers, clubhouse, trailer, starter's stand, tyre stacks, light pole, fence, boulders, Joshua trees, creosote and the brown mountain; `captures/apple-valley-props/` has a render of each |
 | `make tsudoken-props` | Tsudoken Drift's props (`tsudoken_props.h`): Blender (`tools/build_tsudoken_props.py`, ~2 s) models Mt Fuji, the cherry trees, torii, stone lanterns, pagoda, grandstand, race control, pit garages, teahouse and bridge, and bakes each as strips per material; `captures/tsudoken_props.blend` holds the scene and `captures/tsudoken-props/` a render of each |
 | `make biplane` | Spiral Canyon's final-lap biplane (`biplane_mesh.h`): Blender (`tools/build_biplane.py`, ~2 s) models the plane and its propeller; `captures/biplane.blend` holds the scene and `captures/biplane/` renders from five angles |
 | `make audio` | Songs and effects, encoded to AICA ADPCM (`sfx.pak`, `music.adpcm`) |
@@ -173,7 +174,7 @@ The `hw` targets run on a real console and need my
 
 | Flag | Effect |
 | --- | --- |
-| `-DDK_AT_TRACK=n` | Track 0-7 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift) |
+| `-DDK_AT_TRACK=n` | Track 0-8 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift, Apple Valley); Cyberstone (5) still loads here though no menu offers it |
 | `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
 | `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all eight |
@@ -195,7 +196,7 @@ The `hw` targets run on a real console and need my
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
 | `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
 | `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |
-| `-DDK_CHUNK_STATS` | Spiral Canyon and Tsudoken Drift: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches; for Tsudoken ground, road, buildings, trees and lanterns), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
+| `-DDK_CHUNK_STATS` | Spiral Canyon, Tsudoken Drift and Apple Valley: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches; for Tsudoken and Apple Valley ground, road, buildings, trees and scrub), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
 | `-DDK_PERF_HUD` | Starts with the performance overlay on (the pause menu's PERF: OVERLAY): frame CPU time and its phases, PVR render time, vertex buffer, triangles and missed vblanks, half-second averages and maxima against the 16.68 ms frame. It costs ~0.3 ms of CPU a frame on the console. In Flycast the PVR row is a constant 7.50 ms and VTX reads `--`, so judge headroom on hardware. hwbench adds a `-perfhud` probe step |
 | `-DDK_AT_PVRSPIKE=15.0f` | Logs where any race frame's PVR render runs over that many ms (`DK PVRSPIKE`, the player's lap distance and heading), at most one line in 2.5 s |
 | `-DDK_AT_WALLRIDE`, `-DDK_AT_ZIGZAG` | The player rides the right rail all of lap 1 and the left all of lap 2, or slams the rails at an angle every 1.5 s; any kart ending up past a rail logs `DK ESCAPE` |
@@ -260,6 +261,18 @@ paper lanterns and every third cherry tree, and sees a coarser Fuji.
 | Tsudoken Drift 1P | 9.5 ms | 17.3 ms | 0 of ~7,300 (5 in the menus) |
 | Tsudoken Drift 2P split | 12.6 ms | 19.9 ms | 14 of ~7,300 |
 
+Apple Valley on the console (2026-10-26, `make hwbench`, 150cc, six karts):
+the PowerVR is the limit, 15-19 ms in the widest views (turn 14 down the
+main straight, turns 9-10 across the infield); a split screen draws a
+coarse copy of the ground as well as the road, and leaves out the creosote
+and two Joshua trees in three. A whole Grand Prix (`-DDK_HW -DDK_AT_GP`,
+all eight courses) missed 61 of 54,733 frames, the track loads included.
+
+| | CPU avg | Worst frame | Dropped race frames | Vertex buffer peak |
+| --- | --- | --- | --- | --- |
+| Apple Valley 1P | 9.3 ms | 18.0 ms | 4 of ~8,700 | 1,241 KiB |
+| Apple Valley 2P split | 11.6 ms | 18.1 ms | 1 of ~8,700 | 1,172 KiB |
+
 The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so
 the GPU is now as close to the limit as the CPU. Baseline, 2026-10-17: the
 first hardware build dropped 208 vblanks in a 1P race and 1,142 in 2P,
@@ -321,6 +334,7 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 - Online races have no CPU karts
 - A server restart, including every deploy, empties the lobbies and sends everyone back to the lobby browser
 - Dial-up needs a PPP server that accepts the saved ISP settings or `555` with `dream` / `cast`; dialling can take up to a minute
+- Cyberstone is retired for now: its code, art and demo races are still here, but no menu, Grand Prix or lobby offers it (`TRACK_DISABLED` in `src/track.h`, `DisabledTracks` in the server)
 
 ## Credits
 

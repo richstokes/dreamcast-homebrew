@@ -54,20 +54,32 @@
    down to a tight left hairpin, a short straight north and a right onto
    the long sweeping lefts out to the far right hairpin; the back straight
    home is 200 m long with a ramp jump over a stream in the middle, and a
-   big right sweeper leads onto the main straight. */
+   big right sweeper leads onto the main straight.
+
+   Apple Valley: a kart club circuit on a desert slope in the Mojave, laid
+   out from Apple Valley Speedway's map and run clockwise, on a road
+   narrower than the others'. The main straight runs south-west past race
+   control into a long right that tightens into the turn 2 hairpin; a left
+   at 3 and the left hairpin at 4 send it back west, and the sweeping right
+   at 5 runs it north up the west side. Rights at 6, 7 and 8 box in the
+   left hairpin at 9; then 10 left, 11 right and the long left at 12 loop
+   round to the right hairpin at 13, the 150 m top straight east, the right
+   hairpin at 14 and the kink at 15 onto the main straight. */
 #include "track.h"
 #include <stddef.h>
 
 Track track;
 
 const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL",
-                                              "NEON SKYWAY", "CYBERSTONE", "SPIRAL CANYON", "TSUDOKEN DRIFT"};
+                                              "NEON SKYWAY", "CYBERSTONE", "SPIRAL CANYON", "TSUDOKEN DRIFT",
+                                              "APPLE VALLEY"};
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
                                                       "A NIGHT RIDE ABOVE THE CITY",
                                                       "HILLS, CHICANES AND A HELIX",
                                                       "OUTRUN THE SUN",
-                                                      "SAKURA DORI"};
+                                                      "SAKURA DORI",
+                                                      "FIFTEEN TURNS IN THE MOJAVE"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -79,8 +91,8 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
 
 static float f8_c, f8_l, f8_arc, f8_u0;   /* loop centre x, half leg, arc, start offset */
 
-/* Palm Harbour, Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon and
-   Tsudoken Drift are laid out from straights
+/* Palm Harbour, Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon,
+   Tsudoken Drift and Apple Valley are laid out from straights
    (radius 0) and arcs (degrees, + = right) end to end from an origin. Two
    straights are solved at init so the lap closes. An arc may be banked:
    its outside rises bank metres per metre from the centreline. */
@@ -88,7 +100,7 @@ typedef struct {
     float r, deg, len, bank;
 } Seg;
 
-#define MAX_SEGS 20
+#define MAX_SEGS 28
 typedef struct {
     Seg *seg;
     int n;
@@ -218,6 +230,39 @@ static Seg tk_seg[] = {
     {58.0f, 156, 0, 0},       /* 17 turn 9: the long right sweeper onto the main straight */
 };
 
+/* Fitted to the track map at 0.17 m a pixel, every pair of stretches
+   side by side kept 21 m apart so their barriers never meet. */
+static Seg av_seg[] = {
+    {0, 0, 223.9f, 0},        /*  0 main straight, south-west, past race control (solved) */
+    {49.5f, 62.9f, 0, 0},     /*  1 turn 1: the long right */
+    {31.8f, 62.5f, 0, 0},     /*  2 tightening */
+    {14.0f, 140.2f, 0, 0},    /*  3 turn 2: right hairpin, now south-east */
+    {0, 0, 19.2f, 0},
+    {13.0f, -84.9f, 0, 0},    /*  5 turn 3: left, now north-east */
+    {0, 0, 27.6f, 0},
+    {14.0f, -145.0f, 0, 0},   /*  7 turn 4: left hairpin, now west */
+    {0, 0, 32.3f, 0},
+    {36.7f, 91.7f, 0, 0},     /*  9 turn 5: right, now north */
+    {0, 0, 38.5f, 0},         /* 10 up the west side */
+    {36.1f, 90.8f, 0, 0},     /* 11 turn 6: right, now east */
+    {0, 0, 18.6f, 0},
+    {17.5f, 92.4f, 0, 0},     /* 13 turn 7: right, now south */
+    {0, 0, 16.3f, 0},
+    {23.1f, 76.8f, 0, 0},     /* 15 turn 8: right, now west */
+    {0, 0, 17.9f, 0},
+    {15.3f, -171.6f, 0, 0},   /* 17 turn 9: left hairpin, now east */
+    {0, 0, 49.5f, 0},
+    {22.6f, -71.8f, 0, 0},    /* 19 turn 10: left, now north-north-east */
+    {30.7f, 106.7f, 0, 0},    /* 20 turn 11: right, now east-south-east */
+    {18.5f, -222.1f, 0, 0},   /* 21 turn 12: the long left, now west */
+    {0, 0, 30.7f, 0},
+    {14.0f, 188.3f, 0, 0},    /* 23 turn 13: right hairpin, now east */
+    {0, 0, 150.8f, 0},        /* 24 the top straight (solved) */
+    {14.0f, 174.2f, 0, 0},    /* 25 turn 14: right hairpin, now west */
+    {0, 0, 21.7f, 0},
+    {22.0f, -31.1f, 0, 0},    /* 27 turn 15: the kink onto the main straight */
+};
+
 #define NSEGS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static Layout hb = {hb_seg, NSEGS(hb_seg), DK_PI * 0.5f, {-69.4f, 0, -98.8f}, 38.0f, 0, 16, {0}, {0}, {{0}}};
 static Layout th = {th_seg, NSEGS(th_seg), -DK_PI * 0.5f, {79.0f, 0, 60.0f}, 40.0f, 0, 13, {0}, {0}, {{0}}};
@@ -225,6 +270,8 @@ static Layout sk = {sk_seg, NSEGS(sk_seg), DK_PI * 0.5f, {-72.0f, 0, -100.0f}, 4
 static Layout cs = {cs_seg, NSEGS(cs_seg), DK_PI * 0.5f, {-106.0f, 0, 110.0f}, 40.0f, 0, 10, {0}, {0}, {{0}}};
 static Layout dr = {dr_seg, NSEGS(dr_seg), DK_PI * 0.5f, {-60.0f, 0, -90.0f}, 40.0f, 8, 14, {0}, {0}, {{0}}};
 static Layout tk = {tk_seg, NSEGS(tk_seg), 0.0f, {-98.0f, 0, -65.0f}, 40.0f, 0, TK_BACK_SEG, {0}, {0}, {{0}}};
+static Layout av = {av_seg, NSEGS(av_seg), 234.59f * DK_PI / 180.0f, {105.35f, 0, 51.12f}, 113.5f, 0, AV_TOP_SEG,
+                    {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -369,7 +416,8 @@ float track_seg_deg(int i) { return lay->seg[i].deg; }
 
 static V3 centreline(float s, V3 *tangent) {
     if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY ||
-       track.id == TRACK_CYBERSTONE || track.id == TRACK_CANYON || track.id == TRACK_TSUDOKEN)
+       track.id == TRACK_CYBERSTONE || track.id == TRACK_CANYON || track.id == TRACK_TSUDOKEN ||
+       track.id == TRACK_APPLE)
         return lay_centreline(lay, s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
@@ -846,6 +894,69 @@ static void init_tsudoken(float *turnk) {
     track.bands[3] = (ItemBand){track_wrap(cross + 70.0f)};
 }
 
+/* Apple Valley's road height, after the real circuit's lidar survey: it
+   sits on a desert slope falling toward the south-west, so the main
+   straight runs downhill into a dip at turn 1, the road climbs steadily
+   right through the infield, and the top straight climbs on to the high
+   point at turn 14. The survey's small rises and dips in the infield are
+   left out: one every few seconds kept the chase camera pitching. Knots
+   are lap distance from the line and height, the real heights stretched
+   by half again so they read from a kart; a cubic through them keeps the
+   slope smooth from knot to knot. */
+static const float av_knots[][2] = {
+    {0.0f, 0.0f}, {140.0f, -4.0f}, {215.0f, -3.9f}, {480.0f, -2.0f}, {700.0f, -0.6f}, {850.0f, 1.0f},
+    {940.0f, 1.1f}, {1060.0f, 2.8f}, {1135.0f, 5.7f}, {1220.0f, 2.8f},
+};
+#define AV_KNOTS NSEGS(av_knots)
+
+static float av_height(float s) {
+    s = track_wrap(s);
+    int i = AV_KNOTS - 1;
+    while(i > 0 && s < av_knots[i][0]) i--;
+    /* Knot k of the loop, a lap on where the list wraps. */
+    float ks[4], kh[4];
+    for(int q = 0; q < 4; q++) {
+        int k = i - 1 + q, lap = 0;
+        while(k < 0) { k += AV_KNOTS; lap--; }
+        while(k >= AV_KNOTS) { k -= AV_KNOTS; lap++; }
+        ks[q] = av_knots[k][0] + (float)lap * track.length;
+        kh[q] = av_knots[k][1];
+    }
+    float d = ks[2] - ks[1], t = (s - ks[1]) / d;
+    float m1 = (kh[2] - kh[0]) / (ks[2] - ks[0]) * d, m2 = (kh[3] - kh[1]) / (ks[3] - ks[1]) * d;
+    float t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * kh[1] + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * kh[2] + (t3 - t2) * m2;
+}
+
+/* Apple Valley: on a road 13 m wide where the others are 16, its curbs
+   and barriers closer in to match. */
+static void init_apple(float *turnk) {
+    init_layout(&av, turnk);
+    track.fine_bends = true;
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        TrackSample *t = &track.smp[i];
+        t->half = AV_HALF;
+        t->curb = 1.3f;
+        t->wall_in = t->wall_out = 10.0f;
+    }
+
+    /* Dash panels: the main straight past the line, the run from turn 9's
+       hairpin to turn 10, and the middle of the top straight. */
+    float run9 = track_seg_s(18), top = track_seg_s(AV_TOP_SEG);
+    track.npads = 3;
+    track.pads[0] = (DashPad){40.0f, 45.0f, 1.6f, 5.0f, 1.1f};
+    track.pads[1] = (DashPad){run9 + 18.0f, run9 + 23.0f, -5.0f, -1.6f, 1.1f};
+    track.pads[2] = (DashPad){top + 70.0f, top + 75.0f, -1.6f, 1.6f, 1.1f};
+
+    /* Power-ups: down the main straight, up the west side after turn 5,
+       out of turn 9's hairpin and along the top straight. */
+    track.nbands = 4;
+    track.bands[0] = (ItemBand){70.0f};
+    track.bands[1] = (ItemBand){track_seg_s(10) + 20.0f};
+    track.bands[2] = (ItemBand){run9 + 38.0f};
+    track.bands[3] = (ItemBand){top + 100.0f};
+}
+
 void track_init(int id) {
     memset(&track, 0, sizeof(track));
     track.id = id = (id % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
@@ -859,6 +970,7 @@ void track_init(int id) {
     else if(id == TRACK_CYBERSTONE) init_cyberstone(turnk);
     else if(id == TRACK_CANYON) init_canyon(turnk);
     else if(id == TRACK_TSUDOKEN) init_tsudoken(turnk);
+    else if(id == TRACK_APPLE) init_apple(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and
@@ -883,7 +995,9 @@ void track_init(int id) {
         /* Straight down the middle over the jump. */
         float a = track_jump_pos(track.smp[i].s);
         line *= smoothstep01((fabsf(a) - 45.0f) / 15.0f);
-        track.smp[i].line = clampf(line, -5.5f, 5.5f);
+        /* A narrower road (Apple Valley's) takes the same line scaled to it. */
+        float k = fminf(1.0f, track.smp[i].half / 8.0f);
+        track.smp[i].line = clampf(line * k, -5.5f * k, 5.5f * k);
     }
 
     /* Release and console builds log only the first build: under dcload-ip
@@ -897,6 +1011,20 @@ void track_init(int id) {
 #endif
     if(log)
         printf("DreamKarts track: %s, lap %.1f m, %d samples\n", track.name, (double)track.length, TRACK_SAMPLES);
+}
+
+int track_step(int id, int dir) {
+    for(int k = 0; k < TRACK_COUNT; k++) {
+        id = ((id + dir) % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
+        if(track_enabled(id)) return id;
+    }
+    return id;
+}
+
+int track_enabled_count(void) {
+    int n = 0;
+    for(int i = 0; i < TRACK_COUNT; i++) n += track_enabled(i);
+    return n;
 }
 
 static float sample_lerp_param(float s, int *i0);
@@ -915,6 +1043,7 @@ float track_height(float s) {
     if(track.id == TRACK_TEMPLE) return th_height(s);
     if(track.id == TRACK_CYBERSTONE) return cs_height(s);
     if(track.id == TRACK_CANYON) return dr_height(s);
+    if(track.id == TRACK_APPLE) return av_height(s);
     float base = track.id == TRACK_SKYWAY ? sk_height(s) : 0.0f;
     if(!track.has_jump) return base;
     const Jump *j = &track.jump;

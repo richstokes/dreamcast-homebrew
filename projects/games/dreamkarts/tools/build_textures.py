@@ -1426,6 +1426,412 @@ def tex_stream(n=128):
     return img
 
 
+# ---------------------------------------------------------------------------
+# Apple Valley: a kart club circuit in the Mojave high desert
+
+def tex_avroad(n=128):
+    """Sun-bleached desert asphalt: grey with a warm cast, pale aggregate,
+    black tar snakes where the cracks were sealed, rubber streaked along the
+    lines karts take and a drift of tan dust toward both edges."""
+    rng = np.random.default_rng(8001)
+    noise = fbm(n, n, 8, 5, 8003)
+    fine = rng.random((n, n))
+    base = 116 + 24 * (noise - 0.5) + 16 * (fine - 0.5)
+    rgb = np.dstack([base * 1.03, base * 1.0, base * 0.97])
+    speck = rng.random((n, n)) > 0.978
+    rgb[speck] = rgb[speck] * 1.32 + np.array([10, 8, 4])
+    pit = rng.random((n, n)) > 0.988
+    rgb[pit] = rgb[pit] * 0.62
+    # Tar snakes: the contours of tileable noise fields, broken up by a
+    # second field so they read as separate sealed cracks, not loops.
+    for seed, period, w in ((8005, 4, 0.006), (8007, 6, 0.005)):
+        f = periodic_noise(n, n, period, seed) + 0.12 * periodic_noise(n, n, period * 4, seed + 1)
+        keep = periodic_noise(n, n, 3, seed + 2) > 0.48
+        snake = (np.abs(f - 0.55) < w) & keep
+        rgb[snake] = np.array([40, 40, 44.0]) * (0.9 + 0.2 * fine[snake, None])
+    u = (np.arange(n) + 0.5) / n
+    # Rubber: streaks along the road on the usual lines, broken up.
+    streak = np.zeros(n)
+    for c, wd in ((0.30, 0.05), (0.44, 0.03), (0.62, 0.05), (0.76, 0.03)):
+        streak += np.exp(-((u - c) / wd) ** 2)
+    along = 0.55 + 0.45 * periodic_noise(n, n, 4, 8009)
+    rgb *= (1 - 0.16 * streak[None, :] * along)[..., None]
+    # Wind-blown dust gathers at the edges.
+    dust = np.clip(1 - np.minimum(u, 1 - u) / 0.12, 0, 1) ** 2
+    dust2 = dust[None, :] * (0.6 + 0.4 * fbm(n, n, 6, 2, 8011))
+    rgb = rgb * (1 - 0.45 * dust2[..., None]) + np.array([196, 170, 130.0]) * 0.45 * dust2[..., None]
+    return to_image(rgb)
+
+
+def tex_avcurb(n=64):
+    """The track's concrete edge: pale cast blocks 1.2 m long with dark
+    joints, scuffed with rubber, a rounded lip on the outside."""
+    rng = np.random.default_rng(8021)
+    v = (np.arange(n) + 0.5) / n
+    u = (np.arange(n) + 0.5) / n
+    g = fbm(n, n, 6, 3, 8023)
+    rgb = lerp_color((176, 172, 162), (214, 210, 198), g)
+    blocks = 2
+    jv = (v * blocks) % 1.0
+    joint = (jv < 0.035) | (jv > 0.965)
+    rgb[joint, :] = np.array([92, 90, 88.0])
+    # Alternate blocks a shade apart, poured on different days.
+    alt = (np.floor(v * blocks) % 2 == 1)
+    rgb[alt & ~joint] *= 0.93
+    lip = np.clip((u - 0.78) / 0.22, 0, 1)
+    rgb *= (1 - 0.28 * lip ** 2)[None, :, None]
+    scuff = (rng.random((n, n)) > 0.93) & (g > 0.55)
+    rgb[scuff] *= 0.75
+    return to_image(rgb)
+
+
+def tex_avdirt(n=64):
+    """Run-off: packed decomposed granite, tan with pale grit, darker
+    pebbles and the odd kart track pressed into it."""
+    rng = np.random.default_rng(8031)
+    g = fbm(n, n, 8, 4, 8033)
+    rgb = lerp_color((176, 150, 112), (214, 190, 148), g)
+    grit = rng.random((n, n))
+    rgb *= (0.9 + 0.18 * grit)[..., None]
+    peb = rng.random((n, n)) > 0.985
+    rgb[peb] = rgb[peb] * 0.62
+    pale = rng.random((n, n)) > 0.99
+    rgb[pale] = np.array([236, 226, 204.0])
+    track = 0.5 + 0.5 * np.sin(((np.arange(n) + 0.5) / n * 2 * math.pi * 3)[None, :] + 3 * fbm(n, n, 3, 2, 8035))
+    rgb *= (1 - 0.06 * (track > 0.94))[..., None]
+    return to_image(rgb)
+
+
+def tex_avdesert(n=128):
+    """The Mojave floor from above, one tile 24 m across: pale sand, gravel
+    patches, wash streaks and dark olive creosote bushes dotted about with
+    their shadows."""
+    rng = np.random.default_rng(8041)
+    g = fbm(n, n, 6, 5, 8043)
+    rgb = lerp_color((190, 164, 124), (226, 204, 164), g)
+    gravel = fbm(n, n, 4, 3, 8045) > 0.6
+    rgb[gravel] = rgb[gravel] * 0.86 + np.array([6, 6, 10.0])
+    wash = np.abs(periodic_noise(n, n, 2, 8047) - 0.5) < 0.05
+    rgb[wash] = rgb[wash] * 1.06
+    rgb *= (0.93 + 0.12 * rng.random((n, n)))[..., None]
+    img = to_image(rgb)
+    d = ImageDraw.Draw(img)
+    for _ in range(26):
+        x, y = rng.uniform(0, n), rng.uniform(0, n)
+        r = rng.uniform(1.4, 3.2)
+        for ox in (-n, 0, n):
+            for oy in (-n, 0, n):
+                cx, cy = x + ox, y + oy
+                d.ellipse([cx - r + 1.2, cy - r * 0.7 + 1.6, cx + r + 1.2, cy + r * 0.7 + 1.6], fill=(150, 128, 98))
+                d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(92, 104, 58))
+                d.ellipse([cx - r * 0.5, cy - r * 0.6, cx + r * 0.2, cy], fill=(124, 136, 76))
+    return img
+
+
+def tex_avtyres(w=128, h=128):
+    """The tyre wall over 8 m, 1.1 m high: stacks of tyres laid flat and
+    bolted together, so each tyre shows as a band with rounded ends, worn
+    black; every fourth stack is painted white so the line of the wall
+    reads at speed."""
+    s = 4
+    W, H = w * s, h * s
+    img = Image.new("RGB", (W, H), (18, 18, 20))
+    d = ImageDraw.Draw(img)
+    cols, rows = 12, 5
+    cw, rh = W / cols, H / rows
+    for c in range(cols):
+        painted = c % 4 == 1
+        base = (222, 222, 216) if painted else (46, 46, 50)
+        for r in range(rows):
+            x0, y0 = c * cw + s, r * rh + s
+            x1, y1 = (c + 1) * cw - s, (r + 1) * rh - s
+            # The tread face: rounded at both ends, lit across the middle.
+            for k in range(int(y1 - y0)):
+                t = k / max(1, y1 - y0 - 1)
+                bulge = math.sin(t * math.pi)
+                tone = tuple(int(min(255, v * (0.45 + 0.7 * bulge))) for v in base)
+                inset = (1 - bulge) * cw * 0.12
+                d.line([(x0 + inset, y0 + k), (x1 - inset, y0 + k)], fill=tone)
+            # A worn highlight along the tread.
+            hl = tuple(int(min(255, v * 1.25 + 14)) for v in base)
+            d.line([(x0 + cw * 0.2, y0 + rh * 0.38), (x1 - cw * 0.2, y0 + rh * 0.38)], fill=hl, width=s)
+    out = img.resize((w, h), Image.Resampling.LANCZOS)
+    arr = np.asarray(out, dtype=float) * (0.94 + 0.1 * fbm(w, h, 8, 2, 8051))[..., None]
+    # Desert dust settled on the lower tyres.
+    vv = (np.arange(h) + 0.5) / h
+    dust = np.clip((vv - 0.6) / 0.4, 0, 1)[:, None, None]
+    arr = arr * (1 - 0.35 * dust) + np.array([186, 160, 120.0]) * 0.35 * dust
+    return to_image(arr)
+
+
+def tex_avmetal(n=64):
+    """Corrugated galvanised sheet, vertical ridges, a little streaked; the
+    props tint it (container red, pale roofs)."""
+    u = (np.arange(n) + 0.5) / n
+    ridge = 0.5 + 0.5 * np.cos(u * 2 * math.pi * 8)
+    g = fbm(n, n, 4, 3, 8061)
+    base = 196 + 40 * (ridge[None, :] - 0.5) + 16 * (g - 0.5)
+    streak = periodic_noise(n, n, 16, 8063)[:, :] * 0.5 + 0.5
+    base *= 0.94 + 0.08 * streak
+    rgb = np.dstack([base, base * 1.0, base * 1.02])
+    return to_image(rgb)
+
+
+def tex_avcrowd(n=64):
+    """Race-day bleachers: families in t-shirts, ball caps and sun hats."""
+    rng = np.random.default_rng(8071)
+    img = Image.new("RGB", (n, n), (150, 152, 156))
+    d = ImageDraw.Draw(img)
+    palette = [(230, 60, 50), (250, 210, 70), (70, 140, 220), (245, 245, 240), (40, 44, 52), (100, 190, 110),
+               (240, 140, 60), (150, 90, 200)]
+    for row in range(8):
+        d.line([(0, row * 8 + 7), (n, row * 8 + 7)], fill=(196, 198, 204))
+        for col in range(8):
+            if rng.random() < 0.12:
+                continue
+            cx = col * 8 + 4 + int(rng.integers(-1, 2))
+            cy = row * 8 + 3
+            c = palette[int(rng.integers(0, len(palette)))]
+            d.ellipse([cx - 3, cy + 1, cx + 3, cy + 7], fill=c)
+            skin = tuple(int(x) for x in rng.choice([[246, 206, 170], [210, 160, 120], [150, 104, 72], [96, 66, 46]]))
+            d.ellipse([cx - 2, cy - 3, cx + 2, cy + 1], fill=skin)
+            hat = rng.random()
+            if hat < 0.35:
+                hc = palette[int(rng.integers(0, len(palette)))]
+                d.rectangle([cx - 2, cy - 4, cx + 2, cy - 2], fill=hc)
+                d.line([(cx, cy - 2), (cx + 3, cy - 2)], fill=hc)
+            elif hat < 0.5:
+                d.ellipse([cx - 4, cy - 4, cx + 4, cy - 1], fill=(226, 206, 160))
+    return img
+
+
+def tex_avjoshua(n=128):
+    """A Joshua tree's leaf cluster for the cut-out planes: a burst of stiff
+    dagger leaves from a dark core, olive to yellow-green at the tips, the
+    old leaves hanging grey below (alpha)."""
+    rng = np.random.default_rng(8081)
+    s = 2
+    img = Image.new("RGBA", (n * s, n * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    cx, cy = n * s / 2, n * s * 0.55
+    # The dead skirt.
+    for _ in range(60):
+        a = rng.uniform(0.25 * math.pi, 0.75 * math.pi)
+        L = rng.uniform(0.18, 0.34) * n * s
+        x1, y1 = cx + math.cos(a) * L * 0.6, cy + math.sin(a) * L
+        d.line([(cx + rng.uniform(-6, 6) * s, cy), (x1, y1)], fill=(126, 112, 92, 255), width=2 * s)
+    # Live leaves, longest sideways and up.
+    for _ in range(150):
+        a = rng.uniform(-math.pi, 0.15 * math.pi) if rng.random() < 0.85 else rng.uniform(0, math.pi)
+        L = rng.uniform(0.24, 0.46) * n * s * (0.7 if math.sin(a) > 0 else 1.0)
+        x1, y1 = cx + math.cos(a) * L, cy + math.sin(a) * L * 0.85
+        t = rng.random()
+        col = (int(92 + 60 * t), int(118 + 50 * t), int(54 + 16 * t), 255)
+        w = max(1, int(rng.uniform(1.6, 3.0) * s))
+        d.line([(cx, cy), (x1, y1)], fill=col, width=w)
+        d.line([((cx + x1 * 3) / 4, (cy + y1 * 3) / 4), (x1, y1)], fill=(186, 196, 96, 255), width=max(1, w - s))
+    d.ellipse([cx - 6 * s, cy - 6 * s, cx + 6 * s, cy + 6 * s], fill=(70, 80, 44, 255))
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_avjbark(n=64):
+    """A Joshua tree's trunk: shaggy with dead leaves pointing down, grey
+    brown, the bare older wood showing through in places."""
+    rng = np.random.default_rng(8091)
+    s = 2
+    img = Image.new("RGB", (n * s, n * s), (104, 90, 72))
+    d = ImageDraw.Draw(img)
+    for _ in range(700):
+        x, y = rng.uniform(0, n * s), rng.uniform(0, n * s)
+        L = rng.uniform(4, 10) * s
+        t = rng.random()
+        col = (int(90 + 70 * t), int(80 + 56 * t), int(64 + 40 * t))
+        for ox in (-n * s, 0, n * s):
+            for oy in (-n * s, 0, n * s):
+                d.line([(x + ox, y + oy), (x + ox + rng.uniform(-1.5, 1.5) * s, y + oy + L)], fill=col, width=s)
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_avscrub(n=64):
+    """A creosote bush seen from the side: a loose dome of small olive
+    leaves on grey stems (alpha)."""
+    rng = np.random.default_rng(8101)
+    s = 2
+    img = Image.new("RGBA", (n * s, n * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    w = n * s
+    for _ in range(18):
+        x0 = w / 2 + rng.uniform(-0.12, 0.12) * w
+        a = rng.uniform(-2.4, -0.7)
+        L = rng.uniform(0.3, 0.55) * w
+        d.line([(x0, w), (x0 + math.cos(a) * L, w + math.sin(a) * L)], fill=(110, 100, 86, 255), width=s)
+    for _ in range(260):
+        a = rng.uniform(math.pi, 2 * math.pi)
+        r = math.sqrt(rng.random()) * 0.46 * w
+        x, y = w / 2 + math.cos(a) * r, w * 0.98 + math.sin(a) * r * 1.6
+        if y < w * 0.08:
+            continue
+        t = rng.random()
+        col = (int(78 + 50 * t), int(96 + 46 * t), int(46 + 20 * t), 255)
+        rr = rng.uniform(1.2, 2.4) * s
+        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=col)
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_avbanner():
+    """The circuit's sign, after its logo: APPLE VALLEY in heavy slanted red
+    over SPEEDWAY in wide black capitals, on white between red rules.
+    Drawn at four times the size and filtered down, so the strokes stay
+    solid at 256 x 64."""
+    s = 4
+    W, H = 256 * s, 64 * s
+    bg, red, ink = (250, 250, 246), (210, 30, 24), (18, 18, 20)
+    img = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(img)
+
+    def fit(text, size, box_w, box_h, fill, stroke):
+        font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), size)
+        bb = d.textbbox((0, 0), text, font=font, stroke_width=stroke)
+        layer = Image.new("RGB", (bb[2] - bb[0], bb[3] - bb[1]), bg)
+        ImageDraw.Draw(layer).text((-bb[0], -bb[1]), text, font=font, fill=fill, stroke_width=stroke, stroke_fill=fill)
+        return layer.resize((box_w, box_h), Image.Resampling.LANCZOS)
+
+    top = fit("APPLE VALLEY", 120, 236 * s, 34 * s, red, 1)
+    # A forward slant, like the logo.
+    top = top.transform(top.size, Image.Transform.AFFINE, (1, 0.2, -7 * s, 0, 1, 0), Image.Resampling.BICUBIC,
+                        fillcolor=bg)
+    img.paste(top, (10 * s, 5 * s))
+    low = fit("S P E E D W A Y", 60, 150 * s, 13 * s, ink, s)
+    img.paste(low, ((W - low.width) // 2, 43 * s))
+    d.rectangle([0, 0, W, 2 * s], fill=red)
+    d.rectangle([0, H - 3 * s, W, H], fill=red)
+    return img.resize((256, 64), Image.Resampling.LANCZOS)
+
+
+def tex_avstucco(n=64):
+    """White stucco, a little sun-yellowed, with a faint trowel swirl."""
+    g = fbm(n, n, 8, 4, 8111)
+    swirl = periodic_noise(n, n, 6, 8113)
+    rgb = lerp_color((222, 216, 202), (246, 242, 232), 0.6 * g + 0.4 * swirl)
+    v = (np.arange(n) + 0.5) / n
+    rgb *= (1 - 0.06 * np.clip((v - 0.8) / 0.2, 0, 1))[:, None, None]
+    return to_image(rgb)
+
+
+def tex_avrock(n=64):
+    """Weathered desert granite: tan and grey grains, dark cracks, the
+    rust of desert varnish."""
+    rng = np.random.default_rng(8121)
+    g = fbm(n, n, 4, 5, 8123, 0.55)
+    rgb = lerp_color((122, 104, 88), (196, 176, 150), g)
+    grain = rng.random((n, n))
+    rgb *= (0.88 + 0.22 * grain)[..., None]
+    f = periodic_noise(n, n, 6, 8125) + 0.15 * periodic_noise(n, n, 24, 8126)
+    crack = (np.abs(f - 0.55) < 0.012) & (periodic_noise(n, n, 3, 8128) > 0.45)
+    rgb[crack] *= 0.68
+    varnish = fbm(n, n, 3, 2, 8127) > 0.62
+    rgb[varnish] = rgb[varnish] * 0.8 + np.array([30, 12, 0.0])
+    return to_image(rgb)
+
+
+def tex_avfar(n=64):
+    """A whole Joshua tree for the far sprites: a shaggy trunk forking
+    into crooked arms, each ending in a leaf burst."""
+    rng = np.random.default_rng(8131)
+    s = 2
+    img = Image.new("RGBA", (n * s, n * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    w = n * s
+    trunk = (110, 96, 78, 255)
+    d.line([(w * 0.5, w), (w * 0.49, w * 0.55)], fill=trunk, width=int(w * 0.06))
+    tips = []
+    for a, L in ((-2.3, 0.28), (-1.6, 0.34), (-0.9, 0.3), (-2.0, 0.2), (-1.1, 0.22)):
+        x0, y0 = w * 0.49, w * 0.55
+        mx, my = x0 + math.cos(a) * w * L * 0.5, y0 + math.sin(a) * w * L * 0.5 + w * 0.03
+        x1, y1 = x0 + math.cos(a) * w * L, y0 + math.sin(a) * w * L
+        d.line([(x0, y0), (mx, my), (x1, y1)], fill=trunk, width=int(w * 0.035), joint="curve")
+        tips.append((x1, y1))
+    for x, y in tips:
+        for _ in range(30):
+            a = rng.uniform(-math.pi, 0.3)
+            L = rng.uniform(0.04, 0.08) * w
+            d.line([(x, y), (x + math.cos(a) * L, y + math.sin(a) * L)], fill=(118, 140, 66, 255), width=s * 2)
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_avtumble(n=64):
+    """A tumbleweed: a ball of thin, tangled, sun-bleached twigs, denser
+    round the rim, see-through between (alpha)."""
+    rng = np.random.default_rng(8141)
+    s = 4
+    W = n * s
+    img = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    c, R = W / 2, W * 0.46
+    for _ in range(150):
+        # A twig: a short random walk that stays inside the ball.
+        a, r = rng.uniform(0, 2 * math.pi), R * math.sqrt(rng.random())
+        x, y = c + math.cos(a) * r, c + math.sin(a) * r
+        h = rng.uniform(0, 2 * math.pi)
+        pts = [(x, y)]
+        for k in range(5):
+            h += rng.uniform(-0.9, 0.9)
+            x, y = x + math.cos(h) * W * 0.07, y + math.sin(h) * W * 0.07
+            if math.hypot(x - c, y - c) > R:
+                break
+            pts.append((x, y))
+        if len(pts) < 2:
+            continue
+        t = rng.random()
+        col = (int(150 + 60 * t), int(122 + 50 * t), int(84 + 40 * t), 255)
+        d.line(pts, fill=col, width=s, joint="curve")
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_avdust(n=32):
+    """A puff of desert dust for the dust devils: a soft round cloud with a
+    swirl of streaks through it (alpha)."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    u, v = (xx + 0.5) / n - 0.5, (yy + 0.5) / n - 0.5
+    r = np.hypot(u, v) * 2
+    ang = np.arctan2(v, u)
+    swirl = 0.5 + 0.5 * np.sin(ang * 3 + r * 9)
+    a = np.clip(1 - r, 0, 1) ** 1.1 * (0.6 + 0.4 * swirl) * (0.8 + 0.2 * fbm(n, n, 6, 2, 8151))
+    rgb = lerp_color((176, 150, 116), (226, 206, 170), np.clip(1 - r, 0, 1))
+    return to_image(rgb, a * 255)
+
+
+def tex_avmtn(n=32):
+    """The brown mountain's rock, as detail over its vertex colours: pale
+    and dark gullies running down the slope, faint strata across them, and
+    scree speckle. Mostly light grey, so the colours underneath lead."""
+    rng = np.random.default_rng(8161)
+    u = (np.arange(n) + 0.5) / n
+    g = fbm(n, n, 6, 4, 8163)
+    gully = periodic_noise(n, n, 6, 8165)
+    gully = np.abs(np.sin((u[None, :] * 7 + 0.6 * gully) * math.pi))      # vertical streaks, wandering
+    strata = 0.5 + 0.5 * np.sin((np.arange(n)[:, None] / n) * 2 * math.pi * 5 + 3 * g)
+    lum = 196 + 70 * (gully - 0.5) + 16 * (strata - 0.5) + 30 * (g - 0.5)
+    lum = lum * (0.92 + 0.16 * rng.random((n, n)))
+    rgb = np.dstack([lum * 1.04, lum, lum * 0.96])
+    return to_image(rgb)
+
+
+def tex_avrange(n=32):
+    """The snowy range far off, as detail over its vertex colours: near
+    the ridge (v = 0) bright snow with faint couloirs, lower down darker
+    rock ribs of uneven width running down into the haze."""
+    u = (np.arange(n) + 0.5) / n
+    v = (np.arange(n) + 0.5) / n
+    wob = periodic_noise(n, n, 3, 8173)
+    ribs = np.abs(np.sin((u[None, :] * 5 + 0.8 * wob) * math.pi)) ** 0.5
+    fine = periodic_noise(n, n, 8, 8175)
+    depth = np.clip((v[:, None] - 0.12) / 0.5, 0, 1)          # how far below the ridge
+    lum = 255 - depth * (95 - 75 * ribs) - 25 * (fine - 0.5) * depth
+    rgb = np.dstack([lum, lum, lum])
+    return to_image(rgb)
+
+
 def build(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     previews = out / "previews"
@@ -1496,6 +1902,24 @@ def build(out: Path) -> None:
         (Spec("pitwall", "RGB565", True, True), tex_pitwall()),
         (Spec("sundisc", "ARGB4444", True, False), tex_sundisc()),
         (Spec("stream", "RGB565", True, True), tex_stream()),
+        (Spec("avroad", "RGB565", True, True), tex_avroad()),
+        (Spec("avcurb", "RGB565", True, True), tex_avcurb()),
+        (Spec("avdirt", "RGB565", True, True), tex_avdirt()),
+        (Spec("avdesert", "RGB565", True, True), tex_avdesert()),
+        (Spec("avtyres", "RGB565", True, True), tex_avtyres()),
+        (Spec("avmetal", "RGB565", True, True), tex_avmetal()),
+        (Spec("avcrowd", "RGB565", True, True), tex_avcrowd()),
+        (Spec("avjoshua", "ARGB4444", True, False), tex_avjoshua()),
+        (Spec("avjbark", "RGB565", True, True), tex_avjbark()),
+        (Spec("avscrub", "ARGB4444", True, False), tex_avscrub()),
+        (Spec("avbanner", "RGB565", False, False), tex_avbanner()),
+        (Spec("avstucco", "RGB565", True, True), tex_avstucco()),
+        (Spec("avrock", "RGB565", True, True), tex_avrock()),
+        (Spec("avfar", "ARGB4444", True, False), tex_avfar()),
+        (Spec("avtumble", "ARGB4444", True, False), tex_avtumble()),
+        (Spec("avdust", "ARGB4444", True, False), tex_avdust()),
+        (Spec("avmtn", "RGB565", True, True), tex_avmtn()),
+        (Spec("avrange", "RGB565", True, True), tex_avrange()),
     ]
     pak = bytearray()
     table = []

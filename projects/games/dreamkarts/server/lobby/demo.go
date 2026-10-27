@@ -52,7 +52,7 @@ func (s *Server) EnableDemo(id int, races []*demo.Race, seed int64, now time.Tim
 	d := &demoLobby{l: s.Lobbies[id], byTrack: map[byte][]*demo.Race{}, kartOf: map[*Player]int{},
 		rng: rand.New(rand.NewSource(seed)), state: 255}
 	for _, r := range races {
-		if r.Karts < MaxPlayers {
+		if r.Karts < MaxPlayers || DisabledTracks[r.Track] {
 			continue
 		}
 		if d.byTrack[r.Track] == nil {

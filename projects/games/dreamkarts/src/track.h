@@ -9,7 +9,16 @@
 enum { SURF_ROAD, SURF_CURB, SURF_SAND };
 enum { SEC_ASPHALT, SEC_BOARDWALK };
 enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_SKYWAY, TRACK_CYBERSTONE, TRACK_CANYON, TRACK_TSUDOKEN,
-       TRACK_COUNT };
+       TRACK_APPLE, TRACK_COUNT };
+/* Tracks no list offers (the track select, the Grand Prix, the online
+   lobby's picker), kept in the code and in the online protocol's
+   numbering: Cyberstone is retired for now. */
+#define TRACK_DISABLED (1u << TRACK_CYBERSTONE)
+static inline bool track_enabled(int id) { return !((TRACK_DISABLED >> id) & 1u); }
+/* The next enabled track from id, dir (+1 or -1) along the list, wrapping;
+   and how many there are. */
+int track_step(int id, int dir);
+int track_enabled_count(void);
 /* TrackSample.open: a side with no barrier, where karts can fall off. */
 enum { OPEN_LEFT = 1, OPEN_RIGHT = 2 };
 
@@ -70,6 +79,7 @@ typedef struct {
     bool has_bridge;     /* a viaduct: lap distance of its centre, half span */
     float bridge_s, bridge_half;
     bool in_sky;         /* nothing below the road: off an open edge, karts fall */
+    bool fine_bends;     /* the road mesh adds stations through tight bends (Apple Valley's hairpins) */
 } Track;
 
 typedef struct {
@@ -85,8 +95,8 @@ extern const char *const track_names[TRACK_COUNT];
 
 void track_init(int id);
 /* Lap distance where segment i of a straight-and-arc layout (Palm Harbour,
-   Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift)
-   begins. */
+   Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift,
+   Apple Valley) begins. */
 float track_seg_s(int i);
 /* The layout's segments: how many, and each one's arc radius (0 on a
    straight) and signed degrees (+ = right). */
@@ -95,6 +105,10 @@ float track_seg_radius(int i);
 float track_seg_deg(int i);
 /* Tsudoken Drift's back straight, the one with the jump. */
 #define TK_BACK_SEG 16
+/* Apple Valley: the road's half width (narrower than the other tracks'
+   8 m), and the long top straight. */
+#define AV_HALF     6.5f
+#define AV_TOP_SEG  24
 /* Locate p on the track. hint is the previous segment index or -1. */
 void track_locate(V3 p, int hint, TrackPos *out);
 /* World point at lap distance s (wrapped) and lateral offset d. */
