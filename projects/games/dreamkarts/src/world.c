@@ -286,6 +286,31 @@ static Strip strip_bound(Strip st) {
     return st;
 }
 
+/* Take a whole number of texture repeats off a strip's UVs so they start
+   in [0, 1). The textures repeat, so the picture is the same, but the PVR
+   interpolates texture coordinates with less precision than a float: the
+   road's v runs to the lap length / 16 m (80 on Apple Valley, 540 on its
+   curbs at 2.4 m a repeat), and at those values a texel's fraction is
+   lost, so the texture swims by whole pixels on the polygons nearest the
+   camera as it moves, worst on the grid just before the start line
+   (s wraps there, so v is at its largest). Flycast samples in full float
+   and never shows it. A strip within [0, 1] on both axes is left alone:
+   the clamped textures (banners, the moon) rely on their edges. */
+static void strip_wrap_uv(RV *v, int n) {
+    float umin = v[0].u, umax = v[0].u, vmin = v[0].v, vmax = v[0].v;
+    for(int i = 1; i < n; i++) {
+        umin = fminf(umin, v[i].u); umax = fmaxf(umax, v[i].u);
+        vmin = fminf(vmin, v[i].v); vmax = fmaxf(vmax, v[i].v);
+    }
+    float du = umin >= 0.0f && umax <= 1.0f ? 0.0f : floorf(umin);
+    float dv = vmin >= 0.0f && vmax <= 1.0f ? 0.0f : floorf(vmin);
+    if(du == 0.0f && dv == 0.0f) return;
+    for(int i = 0; i < n; i++) {
+        v[i].u -= du;
+        v[i].v -= dv;
+    }
+}
+
 static void strip_end(void) {
     int n = pool_n - cur_strip_first;
     if(!cur_chunk || n < 3 || strip_n >= MAX_STRIPS) {
@@ -293,6 +318,7 @@ static void strip_end(void) {
         pool_n = cur_strip_first;
         return;
     }
+    strip_wrap_uv(pool + cur_strip_first, n);
     /* Long strips are split so r_strip's buffer always fits. */
     int first = cur_strip_first;
     while(n >= 3) {
