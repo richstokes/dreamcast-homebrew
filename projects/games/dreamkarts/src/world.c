@@ -1585,6 +1585,7 @@ static void hb_place_props(void) {
 }
 
 static void build_harbour(void) {
+    f8m_default();
     gnd_xw = 160.0f;
     gnd_zn = 84.0f;
     gnd_zs = 135.0f;
