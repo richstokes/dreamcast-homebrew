@@ -38,6 +38,8 @@ jump, arrows look, P pause, Tab travel, C postcard, F3 diagnostics.
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 Tested disc: Sonic Adventure v1.003 PAL (M5). The extractor checks the stage
 table counts and data pointers and stops on any other layout; other revisions
 need their offsets checked in `tools/extract_stage.py`.
@@ -54,10 +56,9 @@ make
 `run-flycast.sh` without `--skip-build` builds first; run it from a terminal
 to see the serial diagnostics. `make assets GDI=/path/to/disc.gdi` runs both
 extraction steps, and a normal `make` re-runs the extractor whenever the
-converter changes, so pass `GDI=` there too unless the disc is at the default
-`~/Dropbox/Games/ROMs/DREAMCAST/Sonic Adventure (EU) # SDC/`. Python
-dependencies come from `uv` script metadata; the font generator wants Avenir
-Next and falls back to Arial.
+converter changes, so pass `GDI=` there too (the Makefile's default is my own
+disc folder). Python dependencies come from `uv` script metadata; the font
+generator wants Avenir Next and falls back to Arial.
 
 Every build checks out the repository's pinned [SH4ZAM](https://sh4zam.com/)
 commit in the ignored `third_party/sh4zam/` before compiling; once it is there

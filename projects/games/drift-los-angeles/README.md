@@ -67,6 +67,8 @@ A+B+X+Y+Start returns to the title screen, and on the title screen exits to the 
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make                # checks out the pinned SH4ZAM, then builds drift-los-angeles.elf

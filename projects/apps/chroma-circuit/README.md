@@ -40,8 +40,10 @@ the bottom-right plaque.
 
 ## Build and run
 
-No KOS environment is needed. The Makefile calls `sh-elf-as` and `sh-elf-ld`
-directly; override their location with `TOOLCHAIN=/path/to/sh-elf/bin`.
+No KOS environment is needed, only the SH-4 compiler from the
+[root README setup](../../../README.md#one-time-setup) (step 2). The Makefile
+calls `sh-elf-as` and `sh-elf-ld` directly; override their location with
+`TOOLCHAIN=/path/to/sh-elf/bin`.
 
 ```sh
 cd projects/apps/chroma-circuit
@@ -61,7 +63,7 @@ Boot diagnostics are printed to the serial console in the launching terminal.
 | --- | --- |
 | `make verify` | Renesas SH ELF, `_start` at `0x8c010000`, no undefined symbols |
 | `./run-flycast.sh` serial log | A `PERF missed-vblank frames / 600 = 0x...` line every 10 s; `0` is a clean 60 Hz |
-| `make hwdebug && ./hwdebug-run.sh [elf] [seconds]` | Boot on the real console: power-cycles the Shelly plug (`DC_PLUG_IP`), waits for dcload-ip (`DC_IP`), uploads the ELF and captures its console to `dcload-console.log` |
+| `make hwdebug && ./hwdebug-run.sh [elf] [seconds]` | Boot on the real console: power-cycles the Shelly plug (`DC_PLUG_IP`), waits for dcload-ip (`DC_IP`), uploads the ELF and captures its console to `dcload-console.log`; needs my [hardware setup](../../../README.md#real-hardware) |
 
 The hwdebug build paints the PVR border a colour per boot stage and blinks a
 code on a fatal PVR error; the colours are listed beside the `DBG` calls at

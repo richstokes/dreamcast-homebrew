@@ -108,7 +108,7 @@ autotest:
 
 ```bash
 go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD"
-make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=192.168.1.184"
+make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=$(ipconfig getifaddr en0)"
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
 
@@ -125,7 +125,7 @@ empty lobby, with a bot that joins ~25 s in and drops out 6 s into each
 race:
 
 ```bash
-make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6 -DDK_NET_TEST_HOST=192.168.1.184"
+make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6 -DDK_NET_TEST_HOST=$(ipconfig getifaddr en0)"
 (sleep 25; go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-SONIC -lobby 6 -retire 6s -for 150s) &
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
@@ -146,8 +146,9 @@ timed sends and smoothing.
 
 ### Real hardware
 
-With a broadband adapter (loaded through dcload-ip, which hands the adapter
-to the game), start a bot leading lobby 9 on the live server, then:
+Needs the [hardware setup](../../../../README.md#real-hardware). With a
+broadband adapter (loaded through dcload-ip, which hands the adapter to the
+game), start a bot leading lobby 9 on the live server, then:
 
 ```bash
 make -C .. hwbench EXTRA_CFLAGS="-DDK_AT_ONLINE" HW_LOG=captures/hw/online.log

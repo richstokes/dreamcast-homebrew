@@ -44,33 +44,126 @@ Cloud saves for the Dreamcast. The console client backs up VMU saves to
 
 ## Building and running
 
-Known-working baseline: KallistiOS 2.3.0 master `e7ab1a2`, GCC 15.2.0 SH-4 toolchain, Flycast 2.7.
-For a native macOS Flycast with the fixes these projects rely on, see
-[tools/flycast](tools/flycast/README.md). The SDK needs the repository's
-[KOS patches](tools/kos/README.md) applied once, then a KOS rebuild.
+Every project builds with [KallistiOS](https://kos-docs.dreamcast.wiki/)
+(KOS), the open-source Dreamcast SDK, and runs in the
+[Flycast](https://github.com/flyinghead/flycast) emulator. I build on macOS;
+CI builds the same projects on Linux. Known-working baseline: KOS 2.3.0 master
+`e7ab1a2`, kos-ports `f4faacc`, GCC 15.2.0, and Flycast master `628bd3d` with
+[these patches](tools/flycast/README.md).
+
+### One-time setup
+
+The launchers look for everything under `~/.local/share/dreamcast`, so
+installing there needs no extra config. If you already have KOS somewhere
+else (its own default is `/opt/toolchains/dc`), export
+`KOS_ENV=/path/to/kos/environ.sh` and the launchers use that instead.
+
+1. Clone this repo, then KOS and kos-ports side by side at the tested
+   commits:
+
+   ```sh
+   git clone https://github.com/richstokes/dreamcast-homebrew.git
+   DC="$HOME/.local/share/dreamcast"
+   git clone https://github.com/KallistiOS/KallistiOS.git "$DC/kos"
+   git -C "$DC/kos" checkout e7ab1a2
+   git clone https://github.com/KallistiOS/kos-ports.git "$DC/kos-ports"
+   git -C "$DC/kos-ports" checkout f4faacc
+   ```
+
+2. Build the SH-4 cross compiler with kos-chain, KOS's toolchain builder.
+   Install the host packages from its
+   [platform notes](https://github.com/KallistiOS/KallistiOS/tree/master/utils/kos-chain#getting-started)
+   first (on macOS that's the Xcode command-line tools and one `brew
+   install`). This is the slow step:
+
+   ```sh
+   cd "$DC/kos/utils/kos-chain"
+   cp Makefile.dreamcast.cfg Makefile.cfg
+   sed -i.bak "s|/opt/toolchains/dc|$DC|" Makefile.cfg
+   make
+   ```
+
+3. Create `environ.sh`. This is KOS's environment script: it sets `KOS_BASE`,
+   the compiler paths and flags, and puts `kos-cc` on your `PATH`. Every build
+   starts by sourcing it. KOS ships a sample to copy:
+
+   ```sh
+   cd "$DC/kos"
+   cp doc/environ.sh.sample environ.sh
+   sed -i.bak "s|/opt/toolchains/dc|$DC|" environ.sh
+   source environ.sh
+   ```
+
+4. Back in your clone of this repo, apply its
+   [KOS patches](tools/kos/README.md) and build KOS. Every project expects
+   them (network, dial-up, VMU and controller fixes):
+
+   ```sh
+   tools/kos/apply-patches.sh
+   make -C "$KOS_BASE"
+   ```
+
+5. Dreamcast Browser, DCVMU and PICO-8 Player also link some kos-ports
+   libraries, which need `cmake` to build:
+
+   ```sh
+   for port in zlib mbedtls curl stb_image; do make -C "$KOS_PORTS/$port" install; done
+   ```
+
+6. Flycast. On macOS, `tools/flycast/build-macos.sh` builds the patched
+   Flycast the launchers try first. Stock Flycast 2.7 in `/Applications` runs
+   most projects, but networking and keyboard input need the patches
+   ([details](tools/flycast/README.md)). Anywhere else, export
+   `FLYCAST_BIN=/path/to/flycast`. DreamKarts also needs mkdcdisc
+   (`tools/mkdcdisc/build-macos.sh`, or one on your `PATH`).
+
+CI runs steps 1 and 3-5 from [.github/scripts](.github/scripts/), with the
+compiler from the `pcercuei/dreamcast-toolchain` Docker image in place of
+step 2.
+
+### Build and run a project
+
+Source the environment in each new shell (or add the line to your shell
+profile), then build and launch from the repo root:
 
 ```sh
-git clone https://github.com/richstokes/dreamcast-homebrew.git
-cd dreamcast-homebrew
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-tools/kos/apply-patches.sh && make -C "$KOS_BASE"
 make -C projects/games/drift-los-angeles
-./projects/games/drift-los-angeles/run-flycast.sh --skip-build
+projects/games/drift-los-angeles/run-flycast.sh   # builds first; --skip-build reuses the ELF
 ```
 
-Each project's `run-flycast.sh` builds by default, then opens the ELF in
-Flycast. `KOS_ENV` and `FLYCAST_BIN` override the installed dependencies.
+Each project README has its own make targets and launcher options.
 
 - Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally
   Bazaar depend on [SH4ZAM](https://sh4zam.com/), pinned to a tested commit
   (v0.10.0) in `tools/update-sh4zam.sh`. Each build checks out an ignored
   `third_party/sh4zam` clone at the pin; a weekly canary flags new upstream
   gainz so they get benchmarked on the console before we bump
-- Chroma Circuit is pure assembly and needs no KOS:
-  `make -C projects/apps/chroma-circuit verify`
-- DCVMU and Dreamcast Browser need the kos-ports curl, mbedTLS, zlib and
-  stb_image. The [Dreamcast Browser README](projects/apps/dreamcast-browser/README.md)
-  has the install commands and the compatibility patch
+- Chroma Circuit is pure assembly: it needs the step 2 compiler but not KOS
+  (`make -C projects/apps/chroma-circuit verify`)
+- Asset generators and QA scripts run through [uv](https://docs.astral.sh/uv/).
+  Generated assets are checked in, so a plain build doesn't need it
+
+### Real hardware
+
+The `make hw`, `hwbench`, `hwsoak` and `auto` targets are wired to my own
+console setup, so they probably won't work as-is for you.
+[`tools/dc-hw.sh`](tools/dc-hw.sh) expects:
+
+- A Broadband Adapter, with the console booting into
+  [dcload-ip](https://github.com/sizious/dcload-ip) (mine goes GDEMU,
+  openMenu, dcload-ip)
+- `dc-tool-ip` on the host (`DC_TOOL=/path/to/dc-tool-ip`)
+- The console plugged into a Shelly smart plug on the LAN (`DC_PLUG_IP`), so
+  the script can power-cycle a hung console and switch it off after a test
+
+**If your setup differs, build with `make` and load the ELF however you
+normally do.** For example `dc-tool-ip -t <console-ip> -x game.elf` with
+dcload-ip, dcload-serial with a coder's cable, or a CDI on GDEMU or a CD-R
+(`tools/flycast/elf-to-cdi.sh game.elf game.cdi`, or grab one from the
+releases). The Makefiles call the script through `DC_HW`, so `make hw
+DC_HW=/path/to/your-script` swaps in your own; it gets `run`, dc-hw.sh's
+options and the ELF.
 
 ## Layout and releases
 

@@ -42,6 +42,8 @@ Flycast normally maps the keyboard Enter/Return key to Dreamcast Start.
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make              # demon-bazooka.elf

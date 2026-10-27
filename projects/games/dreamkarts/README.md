@@ -86,6 +86,8 @@ the console driving the kart it hits (see
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/games/dreamkarts
@@ -100,9 +102,7 @@ hold the music linked in. `run-flycast.sh` wraps the ELF and `disc/` in a
 throwaway CDI (`build/cdi/`) with [mkdcdisc](https://gitlab.com/simulant/mkdcdisc),
 built once by `tools/mkdcdisc/build-macos.sh`; `make disc` builds the CDI the
 releases ship; under dcload the project directory is mapped at `/pc`.
-Before a hardware build, apply the repository's
-[KOS patches](../../../tools/kos/README.md) (`tools/kos/apply-patches.sh`, then
-`make -C $KOS_BASE`), as the release workflow does. Debug info is split into `dreamkarts.elf.debug` for `sh-elf-addr2line`.
+Debug info is split into `dreamkarts.elf.debug` for `sh-elf-addr2line`.
 The title screen shows the commit the game was built from (bottom right,
 `-dirty` when built with uncommitted changes); please include it in bug
 reports. `DK_GIT_SHA=...` on the make line overrides it.
@@ -155,11 +155,14 @@ needs no Python.
 
 ## Tests and captures
 
+The `hw` targets run on a real console and need my
+[hardware setup](../../../README.md#real-hardware).
+
 | Command | What it checks |
 | --- | --- |
 | `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, every emerald taken, spear thrown, mine dropped and hit as `DK ITEM` lines (and `misses band` for a kart that crossed a band off the slot), prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue, a missed jump, or tyres drawn 2 cm or more into the road in over 10% of kart-frames; the `tyres vs drawn road` line has the depths) |
 | `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` (an emerald ahead, the held gem, a spear, a barrier, a spin-out and a mine ahead included); `--log FILE` keeps the whole serial console |
-| `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh` (ask before touching it): 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
+| `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh`: 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
 | `make hw-flip` | The `-DDK_AT_TRACK_FLIP` music test on the console, the music streamed from `/pc`; log in `captures/hw/hwflip.log`, powers the console off after |
 | `make hw` | Plays the game on the console and leaves it on (`tools/dc-hw.sh power off` afterwards). The music is silent over dcload; `make hw MUSIC=1` streams `disc/music.adp` from `/pc`, at the cost of a hitch about once a second |
 | `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |

@@ -44,16 +44,11 @@ the server, so check your account before retrying.
 
 ## Build
 
-Needs KOS 2.3 with the kos-ports `curl`, `mbedtls` and `zlib`; the install
-commands and the ports compatibility patch are in the
-[Dreamcast Browser README](../../apps/dreamcast-browser/README.md#dependencies).
-Apply the repository's [KOS patches](../../../tools/kos/README.md) once and
-rebuild KOS (CI does the same), then build the ELF:
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup),
+including the kos-ports libraries. Then:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-../../../tools/kos/apply-patches.sh
-make -C "$KOS_BASE" -j4
 make
 ```
 

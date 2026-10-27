@@ -236,6 +236,13 @@ result was reached. Keep benchmark numbers and lessons learned; for any other
 line, ask whether it will aid future development or stop us repeating past
 effort, and cut it if not.
 
+READMEs are written for someone who is not on this machine. The root README's
+"One-time setup" covers KOS, `environ.sh`, the KOS patches, kos-ports and
+Flycast; project READMEs link to it rather than repeating those steps. Any
+target that touches the real console (`make hw`, `hwbench` and the like) links
+to its "Real hardware" section, since `tools/dc-hw.sh` assumes this setup's
+Shelly plug and dcload-ip.
+
 ## Definition of done
 
 For each new Dreamcast application:

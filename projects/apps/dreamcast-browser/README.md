@@ -89,20 +89,8 @@ with DuckDuckGo Lite; start with `?` to force a search. Build with
 
 ## Dependencies
 
-The browser links the official KOS ports for `curl`, `mbedtls`, `zlib` and
-`stb_image`, and needs the repository's [KOS patches](../../../tools/kos/README.md)
-(PPP lifecycle, BBA receive, TCP window and the kos-ports
-compatibility patch). From the repository root, in a sourced KOS environment:
-
-```sh
-tools/kos/apply-patches.sh
-make -C "$KOS_BASE"
-make -C "$KOS_PORTS/mbedtls" force-install
-make -C "$KOS_PORTS/curl" install
-make -C "$KOS_PORTS/stb_image" install
-```
-
-Relink the browser afterward (the Makefile tracks the SDK archive).
+The browser links the kos-ports `curl`, `mbedtls`, `zlib` and `stb_image`,
+installed in step 5 of the [root README setup](../../../README.md#one-time-setup).
 `make update-cacert` refreshes the CA store shared with the other HTTPS
 projects, `projects/common/cacert.pem` (needs host internet access).
 

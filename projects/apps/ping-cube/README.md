@@ -42,6 +42,8 @@ If you are burning a physical CD-R, you may want to try the padded
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make
@@ -52,15 +54,6 @@ make
 
 `KOS_ENV` and `FLYCAST_BIN` override the installed dependencies; the launcher
 does not change saved Flycast settings.
-
-Dial-up support needs the repository's [KOS patches](../../../tools/kos/README.md)
-(PPP lifecycle in particular) applied to your KOS tree, then a rebuild (run
-from this directory):
-
-```sh
-../../../tools/kos/apply-patches.sh
-make -C "$KOS_BASE" -j4
-```
 
 ## Dial-up (modem / DreamPi)
 

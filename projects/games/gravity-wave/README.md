@@ -51,6 +51,8 @@ Laser Core collected at max level becomes score.
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make                               # gravity-wave.elf

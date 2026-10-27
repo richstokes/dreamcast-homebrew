@@ -96,6 +96,8 @@ Press F2.
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/apps/dreamcast-basic

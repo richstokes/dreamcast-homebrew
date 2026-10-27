@@ -80,6 +80,9 @@ logins, cookies, proxies or IPv6.
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup),
+including the kos-ports libraries (tested with mbedtls 3.6.6 and curl 8.18.0).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make -C projects/apps/pico8-dreamcast -j8
@@ -87,20 +90,12 @@ make -C projects/apps/pico8-dreamcast -j8
 ```
 
 `run-flycast.sh` builds unless `--skip-build` is given and honors `KOS_ENV`
-and `FLYCAST_BIN`. Baseline: KOS 2.3.0, SH-4 GCC 15.2.0, Flycast 2.7. Beyond
-stock KOS it needs:
+and `FLYCAST_BIN`. Every build checks out the pinned
+[SH4ZAM](third_party/SH4ZAM.md) (header-only) in the ignored
+`third_party/sh4zam`.
 
-- kos-ports `mbedtls` (tested 3.6.6) and `curl` (tested 8.18.0, Mbed TLS backend):
-  `make -C "$KOS_PORTS/mbedtls" install`, then `make -C "$KOS_PORTS/curl" install`
-- The repository's [KOS patches](../../../tools/kos/README.md), which CI also
-  applies: `tools/kos/apply-patches.sh`, then `make -C "$KOS_BASE"`. This
-  project needs the maple receive-buffer, PPP lifecycle, BBA receive and
-  TCP window fixes
-- [SH4ZAM](third_party/SH4ZAM.md), header-only: every build checks out the
-  repository's pinned commit in the ignored `third_party/sh4zam`
-
-On a real Dreamcast ([`tools/dc-hw.sh`](../../../tools/dc-hw.sh): dcload-ip
-over the network, Shelly plug power), from this directory:
+On a real Dreamcast with my [hardware setup](../../../README.md#real-hardware),
+from this directory:
 
 ```sh
 make hw        # play: builds pico8-hw.elf and keeps dc-tool-ip attached

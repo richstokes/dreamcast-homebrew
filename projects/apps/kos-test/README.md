@@ -133,6 +133,8 @@ memcpy from 67-73 MB/s (wherever the heap put them) to a steady 63.
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make
@@ -142,7 +144,7 @@ make
 KT_KEYBOARD=1 ./run-flycast.sh    # Mac keyboard as a Dreamcast keyboard on port B
 ```
 
-On the console:
+On a real console, with my [hardware setup](../../../README.md#real-hardware):
 
 ```sh
 make hw        # upload and leave it running

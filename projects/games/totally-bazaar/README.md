@@ -58,6 +58,8 @@ turns pass clockwise.
 
 ## Build and run
 
+Needs the toolchain from the [root README setup](../../../README.md#one-time-setup).
+
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
 make              # totally-bazaar.elf
@@ -77,7 +79,8 @@ uses neither the network nor VMU saves.
 
 ### Real Dreamcast
 
-Through `tools/dc-hw.sh` at the repository root (Shelly plug power cycle,
+Through `tools/dc-hw.sh` at the repository root, which needs my
+[hardware setup](../../../README.md#real-hardware) (Shelly plug power cycle,
 dcload-ip upload, console log); `DC_IP` and `DC_PLUG_IP` override addresses.
 
 ```sh
