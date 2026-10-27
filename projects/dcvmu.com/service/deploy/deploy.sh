@@ -17,7 +17,7 @@ if [ ! -x .venv/bin/python ]; then uv venv --python python3 .venv; fi
 uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python -m unittest -v
 # Explicit source manifest prevents uploading credentials, database or local caches.
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$stage/service.tar.gz" app.py vmu_validation.py vmu_tools.py wsgi.py requirements.txt templates static deploy/dcvmu.service
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$stage/service.tar.gz" app.py play.py vmu_validation.py vmu_tools.py wsgi.py requirements.txt templates static deploy/dcvmu.service
 scp "$stage/service.tar.gz" "$remote:/tmp/dcvmu-service.tar.gz"
 ssh "$remote" bash -s <<'REMOTE'
 set -euo pipefail
@@ -31,6 +31,7 @@ if [ -f /opt/dcvmu/app.py ]; then
   backup_files=(app.py wsgi.py requirements.txt templates static)
   if [ -f /opt/dcvmu/vmu_validation.py ]; then backup_files+=(vmu_validation.py); fi
   if [ -f /opt/dcvmu/vmu_tools.py ]; then backup_files+=(vmu_tools.py); fi
+  if [ -f /opt/dcvmu/play.py ]; then backup_files+=(play.py); fi
   tar -czf /opt/dcvmu-previous.tar.gz -C /opt/dcvmu "${backup_files[@]}"
 fi
 tar --no-same-owner -xzf /tmp/dcvmu-service.tar.gz -C /opt/dcvmu
@@ -48,6 +49,10 @@ rm /tmp/dcvmu-service.tar.gz
 for attempt in {1..15}; do
   if curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:8090/healthz; then
     curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:8090/static/dcvmu-client.png -o /dev/null
+    # Caddy sends web player files from the cache (infra's dcvmu.caddy).
+    curl -fsS --resolve dcvmu.com:443:127.0.0.1 https://dcvmu.com/play/flycast-wasm.data \
+      | cmp - /opt/dcvmu/static/play/flycast-wasm.data \
+      || { echo 'Caddy did not send the player core; apply infra servers/netsplit.vip.' >&2; exit 1; }
     exit 0
   fi
   sleep 1

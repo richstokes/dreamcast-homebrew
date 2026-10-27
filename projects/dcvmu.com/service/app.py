@@ -16,6 +16,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, abort, g, redirect, render_template, request, send_file, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
+import play
 from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png, game_label
 from vmu_tools import (ICON_NAME, MAX_IMAGE, UNLOCK, build_icondata, validate_icondata,
                        icon_header, icon_png, extract_image, is_login, scrub_card,
@@ -27,6 +28,12 @@ WEB_SESSION_SECONDS = 365 * 86400
 CLIENT_RELEASE_BASE = 'https://github.com/richstokes/dreamcast-homebrew/releases/latest/download'
 DUMMY_HASH = PASSWORDS.hash(secrets.token_urlsafe(32))
 MAX_ARCHIVES = 20  # Whole-card snapshots per account, 128 KiB each.
+# The web player loads EmulatorJS from its CDN. EmulatorJS evaluates the core's
+# JavaScript from a string, and Flycast compiles its SH4 JIT to WebAssembly.
+PLAY_CSP = ("default-src 'self'; script-src 'self' https://cdn.emulatorjs.org blob: 'unsafe-eval'; "
+            "style-src 'self' https://cdn.emulatorjs.org 'unsafe-inline'; img-src 'self' https://cdn.emulatorjs.org data: blob:; "
+            "connect-src 'self' https://cdn.emulatorjs.org blob: data:; worker-src 'self' blob:; "
+            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -60,7 +67,8 @@ def create_app(config=None):
     app = Flask(__name__)
     app.config.update(DATABASE=os.environ.get('DCVMU_DATABASE', 'instance/dcvmu.sqlite3'),
                       MAX_CONTENT_LENGTH=192 * 1024, MAX_FORM_MEMORY_SIZE=192 * 1024,
-                      MAX_FORM_PARTS=20, PUBLIC_ORIGIN='https://dcvmu.com')
+                      MAX_FORM_PARTS=20, PUBLIC_ORIGIN='https://dcvmu.com',
+                      CACHE=os.environ.get('DCVMU_CACHE', 'instance/cache'))
     if config:
         app.config.update(config)
     # Only the loopback Caddy upstream may reach gunicorn.
@@ -191,7 +199,12 @@ def create_app(config=None):
         response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
         if request.path == '/support':
             response.headers['Content-Security-Policy'] += "; img-src 'self' https://cdn.buymeacoffee.com"
-        response.headers['Cache-Control'] = 'no-store'
+        if request.path == '/play':
+            response.headers['Content-Security-Policy'] = PLAY_CSP
+            response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+            response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+        if 'X-Dcvmu-File' not in response.headers:
+            response.headers['Cache-Control'] = 'no-store'
         # Renew active website logins at most daily, including old 24-hour sessions.
         # Never overwrite a login rotation or logout cookie, or renew API tokens.
         if (g.get('user') and g.get('session') and g.session['kind'] == 'web'
@@ -493,6 +506,62 @@ def create_app(config=None):
     @app.get('/downloads/dcvmu-client.cdi')
     def client_disc_download():
         return redirect(CLIENT_RELEASE_BASE + '/dcvmu-client.cdi', 302)
+
+    player_files = Path(app.static_folder) / 'play'
+    core_version = hashlib.sha256((player_files / 'flycast-wasm.data').read_bytes()).hexdigest()[:16]
+
+    def cache_file(path, cache_control):
+        # Caddy sends this file from DCVMU_CACHE in place of the empty body
+        # (infra: servers/netsplit.vip/caddy/apps/dcvmu.caddy).
+        return '', 200, {'X-Dcvmu-File': '/' + path, 'Content-Type': 'application/octet-stream',
+                         'Cache-Control': cache_control}
+
+    def play_error(message, status):
+        return message + '\n', status, {'Content-Type': 'text/plain; charset=utf-8'}
+
+    @app.get('/play')
+    def play_page():
+        # Unlisted like /stats: shareable per-game links, kept out of navigation.
+        rom = request.args.get('rom', '')
+        context = {'rom': rom, 'asset': None, 'error': ''}
+        if rom:
+            try:
+                tag, asset = play.parse_release_asset(rom)
+            except ValueError as e:
+                context['error'] = str(e)
+            else:
+                name = ''.join(c for c in request.args.get('name', '') if c.isprintable()).strip()[:64]
+                context.update(tag=tag, asset=asset, name=name or play.title(asset),
+                               download=play.download_url(tag, asset), core_version=core_version)
+        response = page('play.html', **context)
+        if context['error']:
+            response.status_code = 400
+        response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+        return response
+
+    @app.get('/play/rom/<tag>/<asset>')
+    def play_rom(tag, asset):
+        try:
+            play.check_asset(tag, asset)
+        except ValueError:
+            return play_error('Release asset not allowed', 400)
+        path = Path(app.config['CACHE']) / 'roms' / tag / asset
+        if play.stale(path):
+            limit('play:' + (request.remote_addr or ''), 60, 600)
+            try:
+                play.refresh(path, play.download_url(tag, asset))
+            except LookupError:
+                return play_error('Release asset not found', 404)
+            except (OSError, ValueError):
+                if not path.exists():
+                    return play_error('GitHub release could not be loaded', 502)
+        return cache_file(f'roms/{tag}/{asset}', 'public, max-age=300')
+
+    @app.get('/play/flycast-wasm.data')
+    def play_core():
+        play.bundle(player_files / 'flycast-wasm.data', Path(app.config['CACHE']) / 'player' / 'flycast-wasm.data')
+        versioned = request.args.get('v') == core_version
+        return cache_file('player/flycast-wasm.data', 'public, max-age=31536000, immutable' if versioned else 'no-cache')
 
     @app.get('/account')
     def account():

@@ -121,3 +121,8 @@ button:focus-visible{outline:3px solid var(--focus);outline-offset:3px}button:di
 .import-thumbnail{float:right;margin:0 0 12px 14px;image-rendering:pixelated}
 @media(max-width:850px){.studio-layout{grid-template-columns:minmax(0,1fr)}.studio-settings{display:flex;flex-direction:column}.studio-previews{order:0}.import-list{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:400px){.studio-previews{gap:12px}.console-icon-preview{width:110px;height:120px}.vmu-shell{padding:18px 10px 8px}.vmu-lcd{padding:4px 10px}.studio-layout .form-panel{padding:16px}}
+
+/* Web player: EmulatorJS draws its own controls inside .player. */
+.player-frame{max-width:calc(70vh*4/3);margin:24px 0 18px}
+.player{aspect-ratio:4/3;background:#03050a;border-radius:10px;overflow:hidden}
+.player-status{margin:8px 0 0;font:13px/1.5 monospace;color:var(--muted)}

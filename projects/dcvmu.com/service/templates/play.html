@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Play ' ~ name if asset else 'Web player' }}{% endblock %}
+{% block content %}
+{% if asset %}
+<p class="eyebrow">PLAY IN YOUR BROWSER</p>
+<h1>{{ name }}</h1>
+<div class="player-frame">
+<div id="dreamcast-game" class="player" data-rom="{{ url_for('play_rom', tag=tag, asset=asset) }}" data-game="{{ tag }}/{{ asset }}" data-name="{{ name }}" data-core="{{ url_for('play_core', v=core_version) }}" data-report="/static/play/flycast.json"></div>
+<p id="player-status" class="player-status" role="status">Loading emulator</p>
+</div>
+<noscript><p class="notice">The web player needs JavaScript.</p></noscript>
+<p class="hint">A gamepad is recommended. To play on a real Dreamcast, download <a href="{{ download }}">{{ asset }}</a>.</p>
+<p class="hint">Runs on the GPLv2 <a href="https://github.com/nasomers/flycast-wasm">Flycast WASM</a> core and <a href="https://emulatorjs.org">EmulatorJS</a>.</p>
+<script src="/static/play/fflate.min.js"></script>
+<script src="/static/play.js"></script>
+{% else %}
+<p class="eyebrow">DREAMCAST HOMEBREW IN YOUR BROWSER</p>
+<h1>Web player</h1>
+<p>Launch a homebrew ELF or disc image from the <a href="https://github.com/richstokes/dreamcast-homebrew/releases">Dreamcast Homebrew releases</a>.</p>
+<form class="form-panel" action="/play" method="get">
+<p><label>Release asset<br><input name="rom" value="{{ rom }}" placeholder="continuous/gravity-wave.elf" autocapitalize="none" autocorrect="off" spellcheck="false" required></label></p>
+<p class="hint">An asset name, a tag/asset path or its full GitHub release URL. ELF files start fastest.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+<input type="submit" value="Load game">
+</form>
+{% endif %}
+{% endblock %}

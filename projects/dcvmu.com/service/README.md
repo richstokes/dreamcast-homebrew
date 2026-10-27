@@ -14,6 +14,7 @@ needs a modern browser. End-user instructions live in the
 - VMU studio (`/studio`) draws 32x32 Dreamcast-menu and VMU-screen icon sets, optionally with the hidden 3D BIOS animation
 - Card importer (`/import`) previews `.bin`, `.vmu`, `.dcm` and `.dci` images, then imports the selected saves or icons without replacing existing backups
 - Whole-VMU archives (`/archives`) snapshot one 128 KiB card with DCVMU login saves scrubbed out, for one-step restore from the client
+- Web player (`/play?rom=continuous/dreamkarts.cdi&name=DreamKarts`) runs this repository's release ELFs and disc images in the browser with Flycast WASM and EmulatorJS. Unlisted like `/stats`; the root README's Play links point here
 
 Limits per account: 200 saves, 20 archives, 60 uploads an hour. Saves are at
 most 120.5 KiB (241 blocks) and archives exactly 128 KiB. `DCVMU_AUTH` login
@@ -33,7 +34,11 @@ DCVMU_DATABASE=/tmp/dcvmu-dev.sqlite3 .venv/bin/gunicorn --bind 127.0.0.1:8090 w
 ```
 
 The app refuses plain HTTP, locally too, so put a local HTTPS reverse proxy
-in front for interactive work. Never expose Gunicorn directly.
+in front for interactive work. Never expose Gunicorn directly. The web
+player's ROM and core routes answer with an empty body and an `X-Dcvmu-File`
+header naming a file under `DCVMU_CACHE` (default `instance/cache`); try them
+behind a Caddy carrying the `handle_response` block from infra's
+`caddy/apps/dcvmu.caddy`.
 
 ## Tests
 
@@ -46,6 +51,7 @@ to `main`, followed by the client's host tests.
 | `test_vmu_tools.py` | Studio icon data, card and Nexus import extraction, preview expiry, atomic imports |
 | `test_archives.py` | Whole-card login scrubbing, archive pages and the console archive API |
 | `test_stats.py` | Unlisted stats page, sortable user table, public-only profiles |
+| `test_play.py` | Web player page and headers, release asset parsing, the ROM cache and its GitHub revalidation |
 
 ## Security
 
@@ -75,6 +81,7 @@ backup/restore.
 | Prerequisite | `uv` in `PATH` locally and in the remote root SSH session; host tooling is infra's runbook |
 | Source | `/opt/dcvmu`; the previous release is kept in `/opt/dcvmu-previous.tar.gz` |
 | Database | `/var/lib/dcvmu/archive.sqlite3`, preserved across deploys |
+| Player cache | `/var/cache/dcvmu`: release assets fetched from GitHub (rechecked every 5 minutes) and the Flycast core. Caddy sends these files itself; safe to delete |
 | Gunicorn | `127.0.0.1:8090` behind the infra-managed Caddy. The host is shared with Valley Rangers and others: restart only `dcvmu` |
 
 Deploy the service before releasing a client that depends on new API
@@ -105,6 +112,8 @@ Restore:
 - `/stats` and `/users/<username>` are unlisted (`noindex, nofollow`), not access-controlled. Keep them out of site navigation and never show private saves or archives there
 - Profiles show public saves only, even to the signed-in owner
 - Import previews are per account and expire after 30 minutes; only validated payloads are staged, never the source card or login data
+- The web player depends on infra's Caddy rule for `X-Dcvmu-File`; without it ROM downloads come back empty. `deploy.sh` fails if the core does not come through Caddy
+- `static/play/flycast-wasm.data` is generated: `./package_flycast_core.py` rebuilds it byte for byte from the pinned upstream release and lists what it patches
 
 ## Known limitations
 
@@ -112,3 +121,4 @@ Restore:
 - Replacing a save discards the previous bytes
 - Imports keep bytes and header offsets, not directory timestamps or copy-protection flags
 - The studio needs a modern browser
+- The web player needs WebGL 2, loads EmulatorJS from its CDN and only plays assets from this repository's releases
