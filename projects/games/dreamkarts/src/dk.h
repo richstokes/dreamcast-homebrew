@@ -126,6 +126,7 @@ enum { KEY_ENTER = 1, KEY_BACKSPACE, KEY_ESCAPE, KEY_UP, KEY_DOWN, KEY_LEFT, KEY
 #define MAX_KEYS 16
 bool input_keyboard(void);
 int input_keys(const uint8_t **keys);
+void input_keys_taken(void);
 #ifdef DK_AUTOTEST
 void input_fake_keys(const uint8_t *keys, int n);
 #endif

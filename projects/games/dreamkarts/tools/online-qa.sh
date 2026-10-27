@@ -107,8 +107,13 @@ build_client() {   # build_client <cflags>
     make -C "${PROJECT_DIR}" -j8 VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="$1 ${HOST_FLAGS}" > "${OUT}/${scenario}-build.log" 2>&1 ||
         { echo "build failed, see ${OUT}/${scenario}-build.log" >&2; return 1; }
 }
+start_bots() {
+    [[ ${#bot_args[@]} -gt 0 ]] && bot "${bot_delay}" ${bot_args[@]+"${bot_args[@]}"}
+    [[ ${#bot2_args[@]} -gt 0 ]] && bot "${bot_delay}" "${bot2_args[@]}"
+    return 0
+}
 run_client() {   # run_client [cue]: Flycast until PASS/FAIL; on the cue line, restart the server
-    local cue="${1:-}" log="${OUT}/${scenario}.log" start cued=0 limit="${TIMEOUT}"
+    local cue="${1:-}" log="${OUT}/${scenario}.log" start cued=0 bots_cued=0 limit="${TIMEOUT}"
     [[ "${scenario}" == spectate && "${limit}" -lt 600 ]] && limit=600
     : > "${log}"
     DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' \
@@ -121,6 +126,10 @@ run_client() {   # run_client [cue]: Flycast until PASS/FAIL; on the cue line, r
             echo "   cue seen: restarting the server"
             stop_server
             start_server "${OUT}/${scenario}-server.log" ${server_flags[@]+"${server_flags[@]}"}
+        fi
+        if [[ -n "${bot_cue}" && "${bots_cued}" == 0 ]] && /usr/bin/grep -aFq -- "${bot_cue}" "${log}"; then
+            bots_cued=1
+            start_bots
         fi
         if (( $(date +%s) - start > limit )); then
             echo "   timed out after ${limit} s"
@@ -139,6 +148,7 @@ for scenario in "${scenarios[@]}"; do
     echo "== ${scenario}"
     server_flags=()
     cue=""
+    bot_cue=""   # a console line to start the bots on, instead of at launch
     want=""   # a line the console log must also have to pass
     bot2_args=()
     case "${scenario}" in
@@ -156,8 +166,11 @@ for scenario in "${scenarios[@]}"; do
             bot_delay=0 ;;
         practice)
             cflags="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6"
+            # The bot must arrive during the race after the rejoin: earlier,
+            # it takes the lead when the console leaves.
             bot_args=(-name AT-SONIC -lobby 6 -retire 6s -for 150s)
-            bot_delay=25 ;;
+            bot_cue="(the first was race"
+            bot_delay=2 ;;
         spectate)
             cflags="-DDK_AT_ONLINE -DDK_AT_SPECTATE"
             bot_args=()
@@ -190,8 +203,7 @@ for scenario in "${scenarios[@]}"; do
     fi
     if build_client "${cflags}"; then
         start_server "${OUT}/${scenario}-server.log" ${server_flags[@]+"${server_flags[@]}"}
-        [[ ${#bot_args[@]} -gt 0 ]] && bot "${bot_delay}" ${bot_args[@]+"${bot_args[@]}"}
-        [[ ${#bot2_args[@]} -gt 0 ]] && bot "${bot_delay}" "${bot2_args[@]}"
+        [[ -n "${bot_cue}" ]] || start_bots
         run_client "${cue}" && status=0 || status=$?
         if [[ "${status}" == 0 && -n "${want}" ]] && ! /usr/bin/grep -aq -- "${want}" "${OUT}/${scenario}.log"; then
             echo "   log has no \"${want}\""

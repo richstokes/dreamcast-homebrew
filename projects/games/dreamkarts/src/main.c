@@ -2085,6 +2085,7 @@ int main(int argc, char **argv) {
             update(dt);
             pad.pressed = pad2.pressed = 0;
             pad.released = pad2.released = 0;
+            input_keys_taken();
         }
         PROF_LAP(PS_U_STEP, pus);
         update_camera(dt_real);

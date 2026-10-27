@@ -166,6 +166,10 @@ int input_keys(const uint8_t **keys) {
     return key_n;
 }
 
+/* After an update step, like the pads' pressed bits: a frame that runs two
+   steps must not type each key twice. */
+void input_keys_taken(void) { key_n = 0; }
+
 void input_update(void) {
     read_pad(&pad, 0, 0);
     read_pad(&pad2, 1, 1);

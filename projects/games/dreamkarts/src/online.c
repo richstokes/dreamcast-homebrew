@@ -761,9 +761,9 @@ static void lobby_update(float dt) {
 
 #ifdef DK_AT_PRACTICE
 /* Practice autotest (-DDK_AT_ONLINE -DDK_AT_PRACTICE, an empty lobby, a
-   bot joining ~20 s in with -retire 6s): start a race alone, drop out,
-   leave the lobby and rejoin it, start alone again and get into that
-   race (an emptied lobby counts races from 1 again, which once left the
+   bot with -retire 6s joining once the console is racing after the
+   rejoin): start a race alone, drop out, leave the lobby and rejoin it,
+   start alone again and get into that race (an emptied lobby counts races from 1 again, which once left the
    console in the room showing RACE IN PROGRESS); then hear the bell as
    the bot joins mid-race, drop out back to the room and find the lobby
    waiting again, start again with the bot, see the bot drop out (its kart
