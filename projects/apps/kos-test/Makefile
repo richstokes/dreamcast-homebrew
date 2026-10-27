@@ -15,21 +15,38 @@ KOS_CSTD = -std=gnu17
 #             results as one KT RESULTS block and back to dcload (make auto)
 VARIANT ?=
 EXTRA_CFLAGS ?=
-# SDK names another KOS tree the objects and ELF are kept apart for
-# (SDK=stock: see auto-stock below). AUTO_VMU=1 adds the VMU test to auto.
-SDK ?=
+# KOS=<ref> builds and runs against KallistiOS at that commit, branch, tag or
+# pr/<number> instead of the installed SDK: ../../../tools/kos/kos-at.sh
+# fetches and builds it on first use, unpatched unless KOS_PATCHED=1 adds
+# this repo's KOS patches. Its objects and ELFs carry the tree's name
+# (SDK, e.g. kos-test-auto-kos-368a2eb.elf). AUTO_VMU=1 adds the VMU test
+# to auto.
+KOS ?=
+KOS_PATCHED ?=
+SDK ?= $(if $(KOS_AT_NAME),kos-$(KOS_AT_NAME))
+SFX = $(if $(SDK),-$(SDK))
 AUTO_VMU ?=
 VARIANT_FLAGS_autotest = -DKT_AUTOTEST
 VARIANT_FLAGS_tour = -DKT_AUTOTEST -DKT_TOUR
 VARIANT_FLAGS_nettest = -DKT_AUTOTEST -DKT_TOUR -DKT_TOUR_NET
 VARIANT_FLAGS_auto = -DKT_AUTOTEST -DKT_AUTO $(if $(AUTO_VMU),-DKT_AUTO_VMU)
-BUILD = build/$(if $(VARIANT),$(VARIANT),release)$(if $(SDK),-$(SDK))
-ELF = $(if $(VARIANT),kos-test-$(VARIANT),kos-test)$(if $(SDK),-$(SDK)).elf
+BUILD = build/$(if $(VARIANT),$(VARIANT),release)$(SFX)
+ELF = $(if $(VARIANT),kos-test-$(VARIANT),kos-test)$(SFX).elf
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/cpuasm.o $(COMMON_SRCS:../../common/%.c=$(BUILD)/%.o) \
        $(BUILD)/romdisk.o
 
 CFLAGS_KT = -Isrc -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
             $(VARIANT_FLAGS_$(VARIANT)) $(EXTRA_CFLAGS)
+
+ifneq ($(KOS),)
+# Rerun the goals with that SDK's environment.
+GOALS = $(or $(MAKECMDGOALS),all)
+$(GOALS): kos-at
+	@:
+kos-at:
+	../../../tools/kos/kos-at.sh $(if $(KOS_PATCHED),--patched) $(KOS) -- $(MAKE) $(GOALS) KOS=
+.PHONY: $(GOALS) kos-at
+else
 
 all: $(ELF)
 
@@ -96,18 +113,18 @@ clean:
 	-rm -rf build kos-test*.elf
 
 run: $(ELF)
-	./run-flycast.sh --skip-build
+	KT_ELF=$(ELF) ./run-flycast.sh --skip-build
 
 # Scripted run in Flycast on blank VMUs: every screen, every suite.
 autotest:
 	$(MAKE) VARIANT=autotest
-	KT_ELF=kos-test-autotest.elf KT_EXIT_ON_LOG='KT AUTOTEST DONE' \
+	KT_ELF=kos-test-autotest$(SFX).elf KT_EXIT_ON_LOG='KT AUTOTEST DONE' \
 	    KT_FAIL_ON_LOG='KOS panic' KT_BLANK_VMUS=1 ./run-flycast.sh --skip-build
 
 # Real Dreamcast through tools/dc-hw.sh (dcload-ip hands the adapter over).
 DC_HW = ../../../tools/dc-hw.sh
-hw: $(TARGET)
-	$(DC_HW) run -c $(TARGET)
+hw: $(ELF)
+	$(DC_HW) run -c $(ELF)
 
 # Auto mode on the console over dcload-ip: every suite and benchmark, the
 # results recorded in benchmark_results/ against the KOS commit, console off.
@@ -116,36 +133,25 @@ RECORD = python3 tools/record_results.py
 auto:
 	$(MAKE) VARIANT=auto AUTO_VMU=$(AUTO_VMU)
 	@mkdir -p $(AUTO_DIR)
-	$(DC_HW) run -c -o -T 600 -i 300 -u 'KT AUTOTEST DONE' -l $(AUTO_DIR)/console.log kos-test-auto.elf
-	$(RECORD) $(AUTO_DIR)/console.log
-
-# The same against an unpatched KOS tree from ../../../tools/kos/stock-sdk.sh,
-# to show what this repo's KOS patches fix on the console. Recorded with
-# kos_patches "none".
-STOCK_KOS ?= $(HOME)/.local/share/dreamcast/kos-stock
-STOCK_MAKE = bash -c 'set +u; source "$(STOCK_KOS)/environ.sh"; set -u; \
-                      $(MAKE) VARIANT=auto SDK=stock AUTO_VMU=$(AUTO_VMU)'
-auto-stock:
-	@test -f "$(STOCK_KOS)/environ.sh" || { echo "No stock KOS at $(STOCK_KOS): run ../../../tools/kos/stock-sdk.sh" >&2; exit 1; }
-	$(STOCK_MAKE)
-	@mkdir -p $(AUTO_DIR)
-	$(DC_HW) run -c -o -T 600 -i 300 -u 'KT AUTOTEST DONE' -l $(AUTO_DIR)/console-stock.log kos-test-auto-stock.elf
-	$(RECORD) $(AUTO_DIR)/console-stock.log
+	$(DC_HW) run -c -o -T 600 -i 300 -u 'KT AUTOTEST DONE' -l $(AUTO_DIR)/console$(SFX).log \
+	    kos-test-auto$(SFX).elf
+	$(RECORD) $(AUTO_DIR)/console$(SFX).log
 
 # The same in Flycast, recorded under build/ (emulator timings aren't kept).
 auto-flycast:
 	$(MAKE) VARIANT=auto AUTO_VMU=$(AUTO_VMU)
 	@mkdir -p $(AUTO_DIR)
-	KT_ELF=kos-test-auto.elf KT_EXIT_ON_LOG='KT AUTOTEST DONE' KT_FAIL_ON_LOG='KOS panic' \
-	    KT_BLANK_VMUS=1 ./run-flycast.sh --skip-build | tee $(AUTO_DIR)/flycast.log
-	$(RECORD) --out $(AUTO_DIR)/results $(AUTO_DIR)/flycast.log
+	KT_ELF=kos-test-auto$(SFX).elf KT_EXIT_ON_LOG='KT AUTOTEST DONE' KT_FAIL_ON_LOG='KOS panic' \
+	    KT_BLANK_VMUS=1 ./run-flycast.sh --skip-build | tee $(AUTO_DIR)/flycast$(SFX).log
+	$(RECORD) --out $(AUTO_DIR)/results $(AUTO_DIR)/flycast$(SFX).log
+
+# Unpatched upstream master, to show what this repo's KOS patches fix.
+auto-stock:
+	$(MAKE) auto KOS=master
 
 auto-stock-flycast:
-	@test -f "$(STOCK_KOS)/environ.sh" || { echo "No stock KOS at $(STOCK_KOS): run ../../../tools/kos/stock-sdk.sh" >&2; exit 1; }
-	$(STOCK_MAKE)
-	@mkdir -p $(AUTO_DIR)
-	KT_ELF=kos-test-auto-stock.elf KT_EXIT_ON_LOG='KT AUTOTEST DONE' KT_FAIL_ON_LOG='KOS panic' \
-	    KT_BLANK_VMUS=1 ./run-flycast.sh --skip-build | tee $(AUTO_DIR)/flycast-stock.log
-	$(RECORD) --out $(AUTO_DIR)/results $(AUTO_DIR)/flycast-stock.log
+	$(MAKE) auto-flycast KOS=master
 
-.PHONY: all clean run autotest hw auto auto-stock auto-flycast auto-stock-flycast FORCE
+.PHONY: all clean run autotest hw auto auto-flycast auto-stock auto-stock-flycast FORCE
+
+endif

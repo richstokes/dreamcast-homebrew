@@ -76,6 +76,9 @@ play on it (`make hw`).
 - KOS patches: `tools/kos/patches/`, applied to the installed SDK and by
   CI. `tools/kos/apply-patches.sh --check` confirms the SDK has them; a new
   SDK fix goes there, not in a project folder
+- Other KOS versions: `tools/kos/kos-at.sh [--patched] REF [-- COMMAND]`
+  builds any upstream commit, branch or `pr/<n>` beside the installed SDK
+  and runs a command against it (KOS_Test: `make auto KOS=<ref>`)
 
 Stock Flycast 2.7 stalls uploads through its TCP proxy, drops short keyboard
 presses that land between guest polls, and crashes or panics the guest under

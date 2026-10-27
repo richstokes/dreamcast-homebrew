@@ -10,7 +10,7 @@ between builds of identical source code. Run this on both ELFs before
 calling such a change a regression.
 
     tools/icache_clash.py -f romdisk_readdir,readdir,strncpy,strnlen,strcpy,strcmp \\
-        kos-test-auto.elf kos-test-auto-stock.elf
+        kos-test-auto.elf kos-test-auto-kos-368a2eb.elf
 
 Assumes the cache's default index mode (CCR.IIX clear), as KOS leaves it.
 """

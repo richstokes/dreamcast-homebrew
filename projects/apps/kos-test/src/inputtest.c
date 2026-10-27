@@ -12,6 +12,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* KOS before KallistiOS#1533 had no name for it (and masked it out) */
+#ifndef MOUSE_MIDDLEBUTTON
+#define MOUSE_MIDDLEBUTTON (1 << 0)
+#endif
+
 #define TEXT_MAX 34
 
 typedef struct {

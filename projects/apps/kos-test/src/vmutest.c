@@ -220,7 +220,7 @@ static void step_dir(kt_report_t *r) {
         if(!dir[i].filetype)
             continue;
         files++;
-        if(!strncmp(dir[i].filename, KT_SAVE_NAME, VMU_FILENAME_SIZE)) {
+        if(!strncmp(dir[i].filename, KT_SAVE_NAME, sizeof(dir[i].filename))) {
             old_found = true;
             report_check(r, dir[i].filesize == 2, "Save entry",
                          "%s, %u blocks, first block %u", KT_SAVE_NAME,

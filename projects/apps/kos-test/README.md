@@ -49,16 +49,27 @@ The block goes out as a single write: under dcload-ip each `printf` is a
 round trip with interrupts off, and a lost packet freezes the console.
 
 `AUTO_VMU=1` adds the VMU test on the first card found (it writes the
-`KOSTEST` save and the temporary padding file). `make auto-stock` does the
-same run against an unpatched KOS from `tools/kos/stock-sdk.sh`, upstream
-master by default, so the two runs show what this repo's KOS patches fix on
-the console:
+`KOSTEST` save and the temporary padding file).
+
+## Other KOS versions
+
+`KOS=<ref>` builds and runs any target against KallistiOS at that commit,
+branch, tag or `pr/<number>` instead of the installed SDK. The first use
+fetches and builds it with [`tools/kos/kos-at.sh`](../../../tools/kos/README.md)
+(about 10 s once the history is cloned) and later runs reuse it. It's
+unpatched unless `KOS_PATCHED=1` adds this repo's KOS patches. Each SDK gets
+its own objects and ELFs (`kos-test-auto-kos-368a2eb.elf`), and its runs
+record that commit, so running two back to back compares them.
 
 ```sh
-../../../tools/kos/stock-sdk.sh          # once, and to move to newer master
-make auto AUTO_VMU=1                     # patched SDK
-make auto-stock AUTO_VMU=1               # stock master
+make auto KOS=master AUTO_VMU=1             # unpatched upstream master on the console
+make auto KOS=master KOS_PATCHED=1          # master with this repo's patches
+make auto-flycast KOS=pr/1576               # a KallistiOS pull request, in Flycast
+make run KOS=b470ef09                       # any commit, interactively in Flycast
 ```
+
+`make auto-stock` is short for `make auto KOS=master`. KOS_Test builds against
+KOS as far back as `b470ef09` (2026-09-12); older trees may lack APIs it uses.
 
 ## Controls
 
@@ -146,7 +157,7 @@ make auto      # auto mode: all suites and benchmarks, recorded in benchmark_res
 | `make VARIANT=tour` then `KT_ELF=kos-test-tour.elf KT_EXIT_ON_LOG='KT AUTOTEST DONE' ./run-flycast.sh --skip-build` | The visual pages only (GPU, monitor, sound, network) |
 | `make VARIANT=nettest` (same run line) | The network test alone |
 | `make auto-flycast` | Auto mode in Flycast, recorded under `build/auto/results` |
-| `make auto-stock-flycast` | The same against the stock SDK |
+| `make auto-flycast KOS=<ref>` | The same against KallistiOS at another commit (`KOS_PATCHED=1` adds this repo's patches) |
 
 `KT_BLANK_VMUS=1` runs Flycast on a temporary set of blank cards, so scripted
 runs never touch your real VMUs.

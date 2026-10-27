@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# apply-patches.sh [--check] [--fresh] [KOS_BASE [KOS_PORTS]]
+# apply-patches.sh [--check] [--fresh] [--kos-only] [KOS_BASE [KOS_PORTS]]
 #
 # Applies the KOS fixes in patches/kos/ to KallistiOS and those in
 # patches/kos-ports/ to kos-ports, in name order. A patch that is already in
@@ -7,7 +7,8 @@
 # stops the script before anything else changes. --check only reports.
 # --fresh is for an untouched upstream checkout (the weekly canary): there a
 # patch already in the tree means upstream took the fix, and it is an error
-# so the patch gets dropped.
+# so the patch gets dropped. --kos-only leaves kos-ports alone (kos-at.sh's
+# trees share the installed kos-ports).
 #
 # The trees default to $KOS_BASE and $KOS_PORTS, sourcing $KOS_ENV (the
 # installed environ.sh) when those are unset. CI passes its own checkouts.
@@ -16,16 +17,18 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECK=no
 FRESH=no
+DIRS=(kos kos-ports)
 while [[ "${1:-}" == -* ]]; do
     case "$1" in
         --check) CHECK=yes ;;
         --fresh) FRESH=yes ;;
+        --kos-only) DIRS=(kos) ;;
         *) set -- -bad ; break ;;
     esac
     shift
 done
 if [[ $# -gt 2 || "${1:-}" == -* ]]; then
-    echo "Usage: ${0##*/} [--check] [--fresh] [KOS_BASE [KOS_PORTS]]" >&2
+    echo "Usage: ${0##*/} [--check] [--fresh] [--kos-only] [KOS_BASE [KOS_PORTS]]" >&2
     exit 2
 fi
 
@@ -42,12 +45,12 @@ if [[ $# -eq 0 && ( -z "${KOS_BASE:-}" || -z "${KOS_PORTS:-}" ) ]]; then
     set -u
 fi
 kos_base="${1:-${KOS_BASE}}"
-kos_ports="${2:-${KOS_PORTS}}"
+kos_ports="${2:-${KOS_PORTS:-}}"
 
 # Report every patch's state before changing anything.
 pending=()
 conflicts=0
-for dir in kos kos-ports; do
+for dir in "${DIRS[@]}"; do
     tree="${kos_base}"
     [[ "${dir}" == kos-ports ]] && tree="${kos_ports}"
     for patch in "${HERE}/patches/${dir}"/*.patch; do

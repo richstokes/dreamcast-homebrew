@@ -40,21 +40,29 @@ keyboard attach, TCP orphan reset and TCP poll-lock fixes went upstream
 (KallistiOS#1537, #1551, #1550) and were dropped with the move to master
 `e7ab1a2`.
 
-## A stock SDK for A/B runs
+## KOS at another commit
 
-`tools/kos/stock-sdk.sh` keeps an unpatched KallistiOS beside the installed
-one, at `~/.local/share/dreamcast/kos-stock`, to show on the console what a
-patch here fixes. It's a shared clone of the installed repo, so the
-installed tree is never touched.
+`tools/kos/kos-at.sh` builds KallistiOS at any upstream commit, branch, tag
+or pull request beside the installed SDK, unpatched unless `--patched` adds
+the patches here. The installed tree is never touched.
 
 ```sh
-tools/kos/stock-sdk.sh            # upstream master, fetched now
-tools/kos/stock-sdk.sh e7ab1a2    # or any commit
+tools/kos/kos-at.sh 368a2eb                    # build it, print its path
+tools/kos/kos-at.sh --patched master           # upstream master (fetched now) plus our patches
+tools/kos/kos-at.sh pr/1576 -- make -C projects/apps/kos-test auto-flycast
+                                               # run a command with that SDK's environment
 ```
 
-KOS_Test's `make auto-stock` builds and runs against it. Only the kernel,
-addons, `bin2c` and `genromfs` are built: the other host utils want libpng
-and libjpeg on the Mac.
+Trees live in `~/.local/share/dreamcast/kos-at/<sha7>` (or `<sha7>-patched`),
+as worktrees of one partial clone of upstream, and are reused: a first build
+takes about 10 s, a rerun well under a second. Each gets an `environ.sh` from
+that commit's own sample with the installed toolchain and kos-ports. Only the
+kernel, addons, `bin2c` and `genromfs` are built: the other host utils want
+libpng and libjpeg on the Mac. To drop one, `rm -rf` it, then
+`git -C ~/.local/share/dreamcast/kos-at/kos.git worktree prune`.
+
+KOS_Test takes it as `make <target> KOS=<ref>` (`KOS_PATCHED=1` for
+`--patched`); see its README.
 
 ## Moving the pin
 

@@ -34,7 +34,7 @@ the benchmark's hot path and check both ELFs:
 
 ```sh
 tools/icache_clash.py -f readdir,fs_readdir,romdisk_readdir,strncpy,strnlen \
-    kos-test-auto.elf kos-test-auto-stock.elf
+    kos-test-auto.elf kos-test-auto-kos-368a2eb.elf
 ```
 
 A `CLASH` in only one of them is the likely cause. That is what made romdisk
@@ -46,6 +46,6 @@ so check before rebuilding.
 
 - `kos_patches` hashes `git diff HEAD` in the KOS tree, so it changes with `tools/kos/patches`: two rows on one commit with different hashes ran different code
 - Changes to the benchmarks themselves move the numbers too; check `kos_test_commit` before blaming KOS
-- Runs on the stock SDK (`make auto-stock`) belong here too: they record `kos_patches none` and the upstream commit. Recording one straight after a patched run compares the two
+- Runs against other KOS commits (`make auto KOS=<ref>`) belong here too: they record that commit, and `kos_patches none` unless built with `KOS_PATCHED=1`. Recording one straight after another compares the two. The patch hash depends on the commit the patches sit on, so it only matches between runs on the same commit
 - Only console runs belong here. `make auto-flycast` records under `build/auto/results` because Flycast's timings say nothing about the console's
 - A single hung run is usually dcload-ip, not KOS: rerun it
