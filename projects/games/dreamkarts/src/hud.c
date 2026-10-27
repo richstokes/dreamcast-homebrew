@@ -10,6 +10,7 @@
 #include "perfhud.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
+#include "ui.h"
 
 static const pvr_poly_hdr_t *h_font, *h_big, *h_flat, *h_glow;
 static struct {
@@ -51,10 +52,7 @@ float hud_text_width(const char *s, float scale) {
     return w;
 }
 
-void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s) {
-    float w = hud_text_width(s, scale);
-    if(align == ALIGN_CENTER) x -= w * 0.5f;
-    else if(align == ALIGN_RIGHT) x -= w;
+static void text_run(float x, float y, float scale, uint32_t col, const char *s) {
     r_hdr(h_font);
     const float du = 1.0f / FONT_TEX_W, dv = (float)FONT_ROW_H / FONT_TEX_H;
     for(; *s; s++) {
@@ -69,11 +67,28 @@ void hud_text(float x, float y, float scale, int align, uint32_t col, const char
     }
 }
 
+void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s) {
+    float w = hud_text_width(s, scale);
+    if(align == ALIGN_CENTER) x -= w * 0.5f;
+    else if(align == ALIGN_RIGHT) x -= w;
+    text_run(x, y, scale, col, s);
+}
+
+void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s) {
+    hud_text(x, cy - 19.0f * scale, scale, align, col, s);
+}
+
 void hud_panel(float x0, float y0, float x1, float y1, uint32_t top, uint32_t bottom, float z) {
-    r_hdr(h_flat);
-    r_quad2d_grad(x0, y0, x1, y1, top, bottom, z);
-    /* Bright rim along the top edge. */
-    r_quad2d_grad(x0, y0, x1, y0 + 3, color_alpha(0xffffffff, 0.55f), color_alpha(0xffffffff, 0.0f), z + 0.1f);
+    (void)z;   /* the translucent list draws in submission order */
+    /* Rounded, outlined and glossed like the menu panels, as faint as the
+       panel itself: the race HUD's boxes, the spectator overlays and the
+       intro band then match the menus. */
+    float a = (float)(top >> 24) / 255.0f;
+    uint32_t navy = color_alpha(argb(255, 14, 24, 64), a * 0.9f);
+    ui_rrect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 9, navy, navy);
+    ui_rrect(x0, y0, x1, y1, 7, top, bottom);
+    ui_rrect(x0 + 2, y0 + 2, x1 - 2, y0 + (y1 - y0) * 0.45f, 6, color_alpha(0xffffffff, a * 0.22f),
+             color_alpha(0xffffffff, a * 0.03f));
 }
 
 void hud_bigtext(int which, float cx, float cy, float scale, uint32_t col) {
@@ -175,32 +190,40 @@ void hud_draw_race(int pi, float y0, float y1) {
     bool split = y1 - y0 < 400.0f;
     float k = split ? 0.72f : 1.0f;       /* HUD scale */
     char buf[48];
-    /* Lap counter. */
+    /* Lap counter, in a box sized to the race's widest reading (so it never
+       changes size mid-race), the number centred in its slot and the LAP
+       sharing its baseline. The font's digits are tabular, so only a
+       ten-lap race's single-digit laps leave slack, split either side. */
     int lap = p->lap < 1 ? 1 : (p->lap > game.laps ? game.laps : p->lap);
-    float lx = split ? 14 : 24, ly = y0 + (split ? 8 : 22);
-    hud_panel(lx, ly, lx + 158 * k, ly + 48 * k, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
-    hud_text(lx + 10 * k, ly + 3 * k, 0.75f * k, ALIGN_LEFT, argb(255, 255, 220, 80), "LAP");
+    const float box_h = 40 * k, pad = 12 * k;
+    float lx = split ? 14 : 24, ly = y0 + (split ? 8 : 22), cy = ly + box_h * 0.5f;
+    snprintf(buf, sizeof(buf), "%d/%d", game.laps, game.laps);
+    float label_w = hud_text_width("LAP", 0.75f * k), count_w = hud_text_width(buf, 1.05f * k);
+    float lw = pad + label_w + 8 * k + count_w + pad;
+    hud_panel(lx, ly, lx + lw, ly + box_h, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
+    hud_text_c(lx + pad, cy + 3.3f * k, 0.75f * k, ALIGN_LEFT, argb(255, 255, 220, 80), "LAP");
     snprintf(buf, sizeof(buf), "%d/%d", lap, game.laps);
-    hud_text(lx + 66 * k, ly, 1.05f * k, ALIGN_LEFT, 0xffffffff, buf);
+    hud_text_c(lx + pad + label_w + 8 * k + count_w * 0.5f, cy, 1.05f * k, ALIGN_CENTER, 0xffffffff, buf);
     if(split) {
         /* Player tag in their colour. */
-        hud_text(lx + 166 * k, ly + 8 * k, 0.75f * k, ALIGN_LEFT, p->ui_color | 0xff000000, pi ? "P2" : "P1");
+        hud_text_c(lx + lw + 10 * k, cy, 0.75f * k, ALIGN_LEFT, p->ui_color | 0xff000000, pi ? "P2" : "P1");
     }
     else {
         /* Race time, or in a time trial on your own the current lap, so it
            can be read against the BEST below it. */
         bool lap_clock = game.mode == MODE_TT && game.num_players == 1;
-        hud_panel(436, 22, 616, 70, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
+        float tw = hud_text_width("0:00.00", 1.0f) + 2 * pad;
+        hud_panel(616 - tw, 22, 616, 22 + box_h, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
         hud_format_time(buf, p->finished ? p->finish_time : lap_clock ? game.race_time - p->lap_start : game.race_time);
-        hud_text(606, 25, 1.0f, ALIGN_RIGHT, 0xffffffff, buf);
+        hud_text_c(616 - pad, 22 + box_h * 0.5f, 1.0f, ALIGN_RIGHT, 0xffffffff, buf);
     }
     /* The held power-up, as a small gem beside the lap counter. */
-    items_draw_hud(pi, split ? lx + 236 * k : lx + 158 * k + 30, ly + 23 * k, k);
+    items_draw_hud(pi, lx + lw + (split ? 60 * k : 26), cy, k);
     if(game.mode == MODE_TT && p->best_lap > 0 && game.num_players == 1) {
         char t[20];
         hud_format_time(t, p->best_lap);
         snprintf(buf, sizeof(buf), "BEST %s", t);
-        hud_text(606, 72, 0.6f, ALIGN_RIGHT, argb(255, 255, 230, 120), buf);
+        hud_text(604, 22 + box_h + 2, 0.6f, ALIGN_RIGHT, argb(255, 255, 230, 120), buf);
     }
 
     /* Position (also between the two players in versus). */
@@ -305,36 +328,30 @@ void hud_trophy(float x, float y, float s, uint32_t col) {
 }
 
 void hud_swatch(float x, float y, uint32_t paint1, uint32_t ui) {
-    r_hdr(h_flat);
-    r_quad2d(x - 1, y - 1, x + 25, y + 15, 0, 0, 1, 1, 0xff0c1430, 16.4f);
-    r_quad2d(x, y, x + 12, y + 14, 0, 0, 1, 1, (paint1 ? paint1 : 0xffe02828) | 0xff000000, 16.5f);
-    r_quad2d(x + 12, y, x + 24, y + 14, 0, 0, 1, 1, ui | 0xff000000, 16.5f);
+    ui_swatch(x, y, 24, 14, paint1 ? paint1 : 0xffe02828, ui);
 }
 
 void hud_draw_results(void) {
     float a = clampf(game.time / 0.5f, 0, 1);
     float x0 = 100 + (1 - a) * 440, x1 = x0 + 440, cx = (x0 + x1) * 0.5f;
-    hud_panel(x0, 60, x1, 420, argb(220, 30, 90, 200), argb(220, 10, 30, 100), 15);
-    hud_text(cx, 70, 1.1f, ALIGN_CENTER, argb(255, 255, 220, 60),
-             game.mode != MODE_TT ? "RESULTS" : game.num_players > 1 ? "VERSUS" : "TIME TRIAL");
+    float y0 = 54, y1 = 424;
+    ui_panel(x0, y0, x1, y1);
+    float yc = ui_title(x0, y0, x1, game.mode != MODE_TT ? "RESULTS" : game.num_players > 1 ? "VERSUS" : "TIME TRIAL");
     char buf[48], t[20];
     if(game.mode != MODE_TT || game.num_players > 1) {
+        const float pitch = 38;
         for(int pos = 0; pos < kart_count; pos++) {
             int i = game.finish_order[pos];
             const Kart *k = &karts[i];
-            float y = 122 + pos * 40;
+            float y = yc + 4 + pos * pitch, cy = y + 17;
             bool me = kart_is_human(i);
-            if(me) {
-                r_hdr(h_flat);
-                float glow = 0.25f + 0.15f * sinf(hud_time * 5);
-                r_quad2d(x0 + 12, y - 2, x1 - 12, y + 36, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
-            }
+            ui_row(x0 + 14, y, x1 - 14, y + 34, me);
             snprintf(buf, sizeof(buf), "%d%s", pos + 1, hud_ordinal(pos + 1));
-            hud_text(x0 + 24, y, 0.8f, ALIGN_LEFT, hud_place_color(pos + 1), buf);
-            hud_swatch(x0 + 92, y + 10, k->paint1, k->ui_color);
-            hud_text(x0 + 128, y + 3, 0.68f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, k->name);
+            hud_text_c(x0 + 30, cy, 0.75f, ALIGN_LEFT, me ? ui_col(UI_ITEM_SEL) : hud_place_color(pos + 1), buf);
+            hud_swatch(x0 + 100, cy - 7, k->paint1, k->ui_color);
+            hud_text_c(x0 + 138, cy, 0.66f, ALIGN_LEFT, ui_col(me ? UI_ITEM_SEL : UI_TEXT), k->name);
             hud_format_time(t, k->finish_time);
-            hud_text(x1 - 24, y + 3, 0.68f, ALIGN_RIGHT, 0xffffffff, k->finished ? t : "--'--\"--");
+            hud_text_c(x1 - 30, cy, 0.66f, ALIGN_RIGHT, ui_col(me ? UI_ITEM_SEL : UI_TEXT), k->finished ? t : "--'--\"--");
         }
     }
     else {
@@ -348,44 +365,36 @@ void hud_draw_results(void) {
             hud_format_time(t, k->lap_times[l]);
             snprintf(buf, sizeof(buf), cols > 1 ? "%d" : "LAP %d", l + 1);
             bool best = k->lap_times[l] == k->best_lap;
-            float lx = x0 + 50 + (l / rows) * (col_w + 20), ly = 130 + (l % rows) * pitch;
-            hud_text(lx, ly, scale, ALIGN_LEFT, cols > 1 ? argb(255, 150, 200, 255) : 0xffffffff, buf);
-            hud_text(lx + col_w - (cols > 1 ? 20 : 0), ly, scale, ALIGN_RIGHT, best ? argb(255, 255, 220, 60) : 0xffffffff, t);
+            float lx = x0 + 50 + (l / rows) * (col_w + 20), ly = yc + 14 + (l % rows) * pitch;
+            hud_text_c(lx, ly, scale, ALIGN_LEFT, ui_col(cols > 1 ? UI_LABEL : UI_TEXT), buf);
+            hud_text_c(lx + col_w - (cols > 1 ? 20 : 0), ly, scale, ALIGN_RIGHT, best ? ui_col(UI_ACCENT) : ui_col(UI_TEXT), t);
         }
-        float total_y = rows > 3 ? 130 + rows * pitch + 14 : 280;
+        float total_y = rows > 3 ? yc + 14 + rows * pitch + 14 : yc + 170;
         hud_format_time(t, k->finish_time);
-        hud_text(x0 + 50, total_y, 1.0f, ALIGN_LEFT, argb(255, 120, 230, 255), "TOTAL");
-        hud_text(x1 - 50, total_y, 1.0f, ALIGN_RIGHT, argb(255, 120, 230, 255), t);
+        hud_text_c(x0 + 50, total_y, 1.0f, ALIGN_LEFT, ui_col(UI_ACCENT), "TOTAL");
+        hud_text_c(x1 - 50, total_y, 1.0f, ALIGN_RIGHT, ui_col(UI_ACCENT), t);
     }
     /* What next: left/right picks, A goes. */
     static const char *const next[RESULTS_ITEMS] = {"RACE AGAIN", "NEW TRACK", "TITLE"};
     float in = clampf(game.time - 0.6f, 0, 1);
-    for(int i = 0; i < RESULTS_ITEMS; i++) {
-        bool sel = i == game.results_sel;
-        float x = x0 + 80 + i * 140, y = 376;
-        if(sel) {
-            r_hdr(h_flat);
-            float glow = (0.16f + 0.08f * sinf(hud_time * 7)) * in;
-            r_quad2d(x - 66, y - 4, x + 66, y + 30, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
-        }
-        float s = sel ? 0.56f + 0.03f * sinf(hud_time * 8) : 0.5f;
-        uint32_t col = sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255);
-        hud_text(x, y + (sel ? 0 : 2), s, ALIGN_CENTER, color_alpha(col, in), next[i]);
-    }
+    if(in > 0)
+        for(int i = 0; i < RESULTS_ITEMS; i++) ui_button(cx + (i - 1) * 142, y1 - 34, 130, next[i], i == game.results_sel);
 }
 
 void hud_draw_pause(void) {
     static const char *const perf[PERF_MODES] = {"PERF: OFF", "PERF: OVERLAY", "PERF: FPS"};
     const char *items[PAUSE_ITEMS] = {"CONTINUE", "RESTART", audio_music_enabled() ? "MUSIC: ON" : "MUSIC: OFF",
                                       perf[perfhud_mode], "QUIT"};
-    r_hdr(h_flat);
-    r_quad2d(0, 0, 640, 480, 0, 0, 1, 1, argb(120, 0, 10, 40), 14);
-    /* Wide enough for "PERF: OVERLAY" at the selection's full pulse. */
-    hud_panel(150, 140, 490, 402, argb(230, 30, 90, 200), argb(230, 10, 30, 100), 15);
-    hud_text(320, 152, 1.2f, ALIGN_CENTER, argb(255, 255, 220, 60), "PAUSE");
+    ui_dim();
+    float x0 = 160, x1 = 480, y0 = 134;
+    const float pitch = 42;
+    ui_panel(x0, y0, x1, y0 + 54 + PAUSE_ITEMS * pitch + 14);
+    float yc = ui_title(x0, y0, x1, "PAUSE") + 10;
     for(int i = 0; i < PAUSE_ITEMS; i++) {
         bool sel = i == game.pause_sel;
-        float s = sel ? 0.95f + 0.05f * sinf(hud_time * 8) : 0.85f;
-        hud_text(320, 210 + i * 36, s, ALIGN_CENTER, sel ? argb(255, 255, 255, 120) : argb(255, 170, 200, 240), items[i]);
+        float y = yc + i * pitch;
+        ui_row(x0 + 14, y, x1 - 14, y + pitch - 4, sel);
+        float s = sel ? 0.8f + 0.02f * sinf(hud_time * 8) : 0.76f;
+        hud_text_c(320, y + (pitch - 4) * 0.5f, s, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM), items[i]);
     }
 }

@@ -20,6 +20,7 @@
 #include "font_metrics.h"
 #include "version.h"
 #include "sound_assets.h"
+#include "ui.h"
 #include <ctype.h>
 
 static const pvr_poly_hdr_t *h_logo, *h_flat, *h_star, *h_glow;
@@ -383,7 +384,7 @@ typedef struct {
 enum {
     C_MAIN = 1, C_ROW_SETTINGS, C_SETTINGS, C_ROW_MUSIC, C_MUSIC_OFF, C_ROW_CUSTOM, C_CUSTOM, C_BODY, C_ROW_TRIM,
     C_TRIM, C_ROW_CHAO, C_CHAO, C_ROW_SAVE, C_SAVED, C_ROW_SINGLE, C_MENU, C_ROW_COLOUR, C_LIME, C_IS_CUSTOM,
-    C_ROW_NAME, C_NAME_SCREEN, C_BACK_ON_NAME, C_SAVED_LOOK
+    C_ROW_NAME, C_NAME_SCREEN, C_BACK_ON_NAME, C_SAVED_LOOK, C_SOUND, C_NOT_SOUND
 };
 
 static bool at_cond(int c) {
@@ -392,6 +393,8 @@ static bool at_cond(int c) {
         case C_MAIN: return game.state == ST_MAIN && !settings_open && !custom_open && !sound_open;
         case C_ROW_SETTINGS: return main_row == MAIN_SETTINGS;
         case C_SETTINGS: return settings_open;
+        case C_SOUND: return sound_open;
+        case C_NOT_SOUND: return settings_open && !sound_open;
         case C_ROW_MUSIC: return settings_row == SET_MUSIC;
         case C_MUSIC_OFF: return !save.music && !audio_music_enabled();
         case C_ROW_CUSTOM: return settings_row == SET_CUSTOM;
@@ -423,6 +426,7 @@ static bool at_cond(int c) {
 static const AtStep at_steps[] = {
     {BTN_START, NULL, C_MAIN, 0}, {BTN_DOWN, NULL, C_ROW_SETTINGS, 0}, {0, "settings-main", 0, 0}, PAUSE,
     {BTN_A, NULL, C_SETTINGS, 0}, {0, "settings", 0, 0}, PAUSE,
+    {BTN_A, NULL, C_SOUND, 0}, PAUSE, {0, "sound-test", 0, 0}, PAUSE, {BTN_B, NULL, C_NOT_SOUND, 0}, PAUSE,
     {BTN_DOWN, NULL, C_ROW_MUSIC, 0}, {BTN_RIGHT, NULL, C_MUSIC_OFF, 0}, {0, "settings-music-off", 0, C_MUSIC_OFF}, PAUSE,
     {BTN_DOWN, NULL, C_ROW_CUSTOM, 0}, {BTN_A, NULL, C_CUSTOM, 0}, {0, "customize", 0, 0}, PAUSE,
     {BTN_RIGHT, NULL, C_BODY, 0}, {BTN_DOWN, NULL, C_ROW_TRIM, 0}, {BTN_RIGHT, NULL, C_TRIM, 0},
@@ -857,72 +861,67 @@ void title_draw_loading(float progress, const char *what, float t) {
 
 static void colour_swatch(float x, float y, int colour) {
     KartColour c = kart_colour_look(colour, NULL);
-    r_hdr(h_flat);
-    uint32_t kart = c.paint1 ? c.paint1 : 0xffe02828;
-    r_quad2d(x - 1, y - 1, x + 33, y + 17, 0, 0, 1, 1, 0xff0c1430, 16.4f);
-    r_quad2d(x, y, x + 16, y + 16, 0, 0, 1, 1, kart | 0xff000000, 16.5f);
-    r_quad2d(x + 16, y, x + 32, y + 16, 0, 0, 1, 1, c.ui | 0xff000000, 16.5f);
+    ui_swatch(x, y, 32, 16, c.paint1 ? c.paint1 : 0xffe02828, c.ui);
+}
+
+/* A menu row's label on the left and value on the right, the value flanked
+   by arrows when the row is selected and steps left/right. */
+#define VALUE_SCALE 0.58f
+static void value_row(float x0, float x1, float cy, bool sel, bool steps, const char *label, const char *value,
+                      float extra_w) {
+    uint32_t lc = sel ? ui_col(UI_ITEM_SEL) : ui_col(UI_LABEL), vc = sel ? ui_col(UI_VALUE_SEL) : ui_col(UI_VALUE);
+    if(!steps && !sel) vc = ui_col(UI_DIM);   /* a value that cannot be changed */
+    hud_text_c(x0 + 30, cy, 0.46f, ALIGN_LEFT, lc, label);
+    if(!value) return;
+    float vx = x1 - 30 - (sel && steps ? 14 : 0);
+    hud_text_c(vx, cy, VALUE_SCALE, ALIGN_RIGHT, vc, value);
+    if(sel && steps) ui_arrows(vx - hud_text_width(value, VALUE_SCALE) - extra_w - 14, x1 - 20, cy, VALUE_SCALE, vc);
 }
 
 static void draw_main(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
-    float y0 = 196 + (1 - slide) * 300;
-    hud_panel(150, y0, 490, y0 + 214, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    float x0 = 150, x1 = 490, y0 = 186 + (1 - slide) * 300;
+    const float pitch = 42;
+    float yc = y0 + 54;
+    float y1 = yc + MAIN_ITEMS * pitch + 36;
+    ui_panel(x0, y0, x1, y1);
+    ui_title(x0, y0, x1, "MAIN MENU");
     for(int i = 0; i < MAIN_ITEMS; i++) {
         bool sel = i == main_row;
-        float y = y0 + 18 + i * 46;
-        if(sel) {
-            r_hdr(h_flat);
-            float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
-            r_quad2d(166, y - 6, 474, y + 42, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
-        }
-        float s = sel ? 0.86f + 0.04f * sinf(game.title_t * 8) : 0.8f;
-        hud_text(320, y + 2, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255), main_items[i]);
+        float y = yc + i * pitch;
+        ui_row(x0 + 14, y, x1 - 14, y + pitch - 4, sel);
+        float s = sel ? 0.8f + 0.02f * sinf(game.title_t * 8) : 0.76f;
+        hud_text_c(320, y + (pitch - 4) * 0.5f, s, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM), main_items[i]);
     }
     static const char *const blurbs[MAIN_ITEMS] = {"GRAND PRIX, SINGLE RACE OR TIME TRIAL", "SPLIT SCREEN WITH A FRIEND",
-                                                   "UP TO SIX PLAYERS (BROADBAND ADAPTER OR MODEM)",
-                                                   "SOUND TEST, ONLINE NAME, MUSIC AND YOUR OWN KART"};
-    hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(220, 230, 240, 255), blurbs[main_row]);
+                                                   "UP TO SIX PLAYERS, BROADBAND OR MODEM",
+                                                   "SOUND TEST, ONLINE NAME, MUSIC, YOUR OWN KART"};
+    hud_text_c(320, y1 - 18, 0.4f, ALIGN_CENTER, ui_col(UI_DIM), blurbs[main_row]);
 }
 
 static void draw_settings(void) {
     float slide = settings_slide * settings_slide * (3 - 2 * settings_slide);
-    float y0 = 196 + (1 - slide) * 300;
-    hud_panel(150, y0, 490, y0 + 214, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
-    hud_text(320, y0 + 4, 0.7f, ALIGN_CENTER, argb(255, 255, 220, 60), "SETTINGS");
+    float x0 = 150, x1 = 490, y0 = 186 + (1 - slide) * 300;
+    const float pitch = 42;
+    float y1 = y0 + 54 + SET_ROWS * pitch + 36;
+    ui_panel(x0, y0, x1, y1);
+    float yc = ui_title(x0, y0, x1, "SETTINGS") + 10;
     static const char *const labels[SET_ROWS] = {"SOUND TEST", "ONLINE NAME", "MUSIC", "CUSTOMIZE KART"};
-    char buf[48];
     for(int i = 0; i < SET_ROWS; i++) {
         bool sel = i == settings_row;
-        float y = y0 + 42 + i * 42;
-        if(sel) {
-            r_hdr(h_flat);
-            float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
-            r_quad2d(166, y - 5, 474, y + 35, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
-        }
-        uint32_t col = sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255);
-        float s = sel ? 0.72f + 0.03f * sinf(game.title_t * 8) : 0.68f;
-        const char *text = labels[i];
-        if(i == SET_MUSIC) {
-            snprintf(buf, sizeof(buf), "MUSIC: %s", save.music ? "ON" : "OFF");
-            text = buf;
-        }
-        hud_text(320, y + 2, s, ALIGN_CENTER, col, text);
-        if(sel && i == SET_MUSIC) {
-            float half = hud_text_width(text, s) * 0.5f, bob = 3.0f * sinf(game.title_t * 9);
-            hud_text(320 - half - 18 - bob, y + 2, s, ALIGN_CENTER, col, "<");
-            hud_text(320 + half + 18 + bob, y + 2, s, ALIGN_CENTER, col, ">");
-        }
+        float y = yc + i * pitch, cy = y + (pitch - 4) * 0.5f;
+        ui_row(x0 + 14, y, x1 - 14, y + pitch - 4, sel);
+        const char *value = NULL;
+        if(i == SET_MUSIC) value = save.music ? "ON" : "OFF";
+        else if(i == SET_NAME) value = save.name[0] ? save.name : "-";
+        else if(i == SET_CUSTOM && save.custom_on) value = "SAVED";
+        value_row(x0 + 14, x1 - 14, cy, sel, i == SET_MUSIC, labels[i], value, 0);
     }
     const char *blurb = "LISTEN TO THE MUSIC AND SOUND EFFECTS";
-    if(settings_row == SET_NAME) {
-        if(save.name[0]) snprintf(buf, sizeof(buf), "THE NAME OTHER PLAYERS SEE ONLINE: %s", save.name);
-        else snprintf(buf, sizeof(buf), "THE NAME OTHER PLAYERS SEE ONLINE");
-        blurb = buf;
-    }
+    if(settings_row == SET_NAME) blurb = "THE NAME OTHER PLAYERS SEE ONLINE";
     else if(settings_row == SET_MUSIC) blurb = "MUSIC IN THE MENUS AND RACES, SAVED TO THE VMU";
     else if(settings_row == SET_CUSTOM) blurb = save.custom_on ? "REPAINT YOUR OWN KART" : "PAINT A KART OF YOUR OWN";
-    hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(220, 230, 240, 255), blurb);
+    hud_text_c(320, y1 - 18, 0.4f, ALIGN_CENTER, ui_col(UI_DIM), blurb);
 }
 
 /* The Customize panel sits right of the kart like the race setup, each
@@ -930,48 +929,34 @@ static void draw_settings(void) {
 static void draw_custom(void) {
     float slide = custom_slide * custom_slide * (3 - 2 * custom_slide);
     float x0 = 640 - 300 * slide, x1 = x0 + 280, cx = (x0 + x1) * 0.5f;
-    const float top = 84, y_first = top + 54, pitch = 74;
-    float y_save = y_first + 3 * pitch + 2;
-    hud_panel(x0, top, x1, y_save + 52, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
-    hud_text(cx, top + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "CUSTOMIZE");
+    const float top = 84, pitch = 70;
+    float y_first = top + 54;
+    float y_save = y_first + 3 * pitch + 8;
+    ui_panel(x0, top, x1, y_save + 44);
+    ui_title(x0, top, x1, "CUSTOMIZE");
     static const char *const labels[3] = {"KART BODY", "KART TRIM", "AVATAR"};
-    float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
-    float bob = 3.0f * sinf(game.title_t * 9);
     for(int i = 0; i < 3; i++) {
         bool sel = i == custom_row;
         float y = y_first + i * pitch;
-        if(sel) {
-            r_hdr(h_flat);
-            r_quad2d(x0 + 10, y - 6, x1 - 10, y + pitch - 10, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
-        }
-        uint32_t col = sel ? argb(255, 255, 255, 150) : argb(255, 200, 220, 255);
+        ui_row(x0 + 12, y, x1 - 12, y + pitch - 6, sel);
         int pick = *custom_pick(i);
-        hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, argb(255, 150, 200, 255), labels[i]);
-        hud_text(x1 - 20, y - 6, 0.5f, ALIGN_RIGHT, col, kart_palette[pick].name);
+        hud_text_c(x0 + 26, y + 15, 0.46f, ALIGN_LEFT, ui_col(sel ? UI_ITEM_SEL : UI_LABEL), labels[i]);
+        hud_text_c(x1 - 26, y + 15, 0.5f, ALIGN_RIGHT, ui_col(sel ? UI_VALUE_SEL : UI_VALUE), kart_palette[pick].name);
         /* The palette strip: 16 cells, the pick framed in white. */
-        float sx = x0 + 30, sy = y + 22, cell = 12, gap = 2;
+        float cell = 12, gap = 2, sw = PALETTE_COUNT * (cell + gap) - gap;
+        float sx = cx - sw * 0.5f, sy = y + 34;
+        ui_well(sx - 5, sy - 5, sx + sw + 5, sy + cell + 5);
         r_hdr(h_flat);
-        r_quad2d(sx - 3, sy - 3, sx + PALETTE_COUNT * (cell + gap) + 1, sy + cell + 3, 0, 0, 1, 1, 0xff0c1430, 16.3f);
         for(int c = 0; c < PALETTE_COUNT; c++) {
             float x = sx + c * (cell + gap);
             if(c == pick) r_quad2d(x - 2, sy - 2, x + cell + 2, sy + cell + 2, 0, 0, 1, 1, 0xfffffff0, 16.4f);
             r_quad2d(x, sy, x + cell, sy + cell, 0, 0, 1, 1, kart_palette[c].rgb, 16.5f);
         }
-        if(sel) {
-            hud_text(x0 + 16 - bob, sy - 10, 0.6f, ALIGN_CENTER, col, "<");
-            hud_text(x1 - 16 + bob, sy - 10, 0.6f, ALIGN_CENTER, col, ">");
-        }
+        if(sel) ui_arrows(sx - 14, sx + sw + 14, sy + cell * 0.5f, 0.55f, ui_col(UI_ITEM_SEL));
     }
-    bool sel = custom_row == CUS_SAVE;
-    if(sel) {
-        r_hdr(h_flat);
-        r_quad2d(x0 + 10, y_save - 6, x1 - 10, y_save + 40, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
-    }
-    float s = sel ? 1.1f + 0.06f * sinf(game.title_t * 8) : 0.95f;
-    hud_text(cx, y_save, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : argb(255, 200, 220, 255), "SAVE");
-    hud_text(24, 428, 0.5f, ALIGN_LEFT, argb(230, 255, 255, 255),
-             sel ? "A: SAVE   B: CANCEL" : "LEFT/RIGHT: COLOUR   A: NEXT   B: CANCEL");
-    hud_text(176, 100, 0.4f, ALIGN_CENTER, argb(220, 230, 240, 255), "CUSTOMIZE YOUR LOOK!");
+    ui_button(cx, y_save + 14, 150, "SAVE", custom_row == CUS_SAVE);
+    ui_hint(custom_row == CUS_SAVE ? "A: SAVE   B: CANCEL" : "LEFT/RIGHT: COLOUR   A: NEXT   B: CANCEL");
+    hud_text_c(176, 108, 0.4f, ALIGN_CENTER, ui_col(UI_TEXT), "CUSTOMIZE YOUR LOOK!");
 }
 
 static void upper_copy(char *dst, size_t n, const char *src) {
@@ -983,36 +968,37 @@ static void upper_copy(char *dst, size_t n, const char *src) {
 static void draw_sound(void) {
     float slide = sound_slide * sound_slide * (3 - 2 * sound_slide);
     float off = (1 - slide) * 320;
-    float x0 = 70, x1 = 570, y0 = 112 + off, y1 = 420 + off;
-    hud_panel(x0, y0, x1, y1, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
-    hud_text(320, y0 + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "SOUND TEST");
+    float x0 = 70, x1 = 570, y0 = 100 + off, y1 = 416 + off;
+    ui_panel(x0, y0, x1, y1);
+    float yc = ui_title(x0, y0, x1, "SOUND TEST");
 
     /* Now playing: song, position and an equaliser that pulses on the beat. */
     float secs, len;
     int song = audio_music_now(&secs, &len);
     bool live = audio_music_playing() && audio_music_enabled();
-    float cy0 = y0 + 50, cy1 = y0 + 150;
-    hud_panel(x0 + 14, cy0, x1 - 14, cy1, argb(200, 8, 24, 70), argb(200, 8, 24, 70), 15.5f);
+    float cy0 = yc + 2, cy1 = cy0 + 96;
+    ui_well(x0 + 16, cy0, x1 - 16, cy1);
     char buf[64], name[40];
     upper_copy(name, sizeof(name), dk_music_song_title[song]);
-    hud_text(x0 + 30, cy0 + 4, 0.42f, ALIGN_LEFT, argb(255, 150, 200, 255), live ? "NOW PLAYING" : "MUSIC OFF");
-    hud_text(x0 + 30, cy0 + 22, 0.75f, ALIGN_LEFT, argb(255, 255, 235, 120), name);
+    uint32_t well_dim = ui_col(UI_LABEL), well_text = 0xffffffff;
+    hud_text_c(x0 + 32, cy0 + 16, 0.4f, ALIGN_LEFT, well_dim, live ? "NOW PLAYING" : "MUSIC OFF");
+    hud_text_c(x0 + 32, cy0 + 42, 0.72f, ALIGN_LEFT, ui_col(UI_ACCENT), name);
     int rate_pct = (int)(audio_music_rate_now() * 100.0f + 0.5f);
     snprintf(buf, sizeof(buf), "TRACK %d/%d   %d BPM%s", song + 1, DK_MUSIC_SONG_COUNT,
              (int)(dk_music_song_bpm[song] * audio_music_rate_now() + 0.5f), rate_pct > 100 ? "  (FINAL LAP)" : "");
-    hud_text(x0 + 30, cy0 + 54, 0.42f, ALIGN_LEFT, argb(255, 200, 225, 255), buf);
+    hud_text_c(x0 + 32, cy0 + 68, 0.4f, ALIGN_LEFT, well_dim, buf);
     int s = (int)secs, l = (int)(len + 0.5f);
     snprintf(buf, sizeof(buf), "%d:%02d / %d:%02d", s / 60, s % 60, l / 60, l % 60);
-    hud_text(x0 + 30, cy0 + 72, 0.42f, ALIGN_LEFT, 0xffffffff, buf);
-    float px0 = x0 + 150, px1 = x0 + 300, py = cy0 + 82;
-    r_hdr(h_flat);
-    r_quad2d(px0, py, px1, py + 6, 0, 0, 1, 1, argb(255, 40, 50, 80), 16.0f);
-    r_quad2d(px0, py, px0 + (px1 - px0) * clampf(secs / len, 0, 1), py + 6, 0, 0, 1, 1,
-             argb(255, 255, 200, 50), 16.1f);
+    hud_text_c(x0 + 32, cy0 + 84, 0.4f, ALIGN_LEFT, well_text, buf);
+    float px0 = x0 + 150, px1 = x0 + 300, py = cy0 + 81;
+    ui_pill(px0, py, px1, py + 6, argb(255, 40, 50, 80), argb(255, 40, 50, 80));
+    float fill = px0 + (px1 - px0) * clampf(secs / len, 0, 1);
+    if(fill > px0 + 6) ui_pill(px0, py, fill, py + 6, ui_col(UI_ACCENT), ui_col(UI_ACCENT));
     float beat = secs * dk_music_song_bpm[song] / 60.0f;
     float kick = live ? expf(-(beat - floorf(beat)) * 5.0f) : 0;
     const int bars = 12;
     float bx0 = x0 + 318, bw = 12, base = cy1 - 12;
+    r_hdr(h_flat);
     for(int i = 0; i < bars; i++) {
         float wob = 0.5f + 0.5f * sinf(game.title_t * (5.0f + i * 0.7f) + i * 1.9f);
         float shape = 1.0f - fabsf((float)i - (bars - 1) * 0.5f) / bars;
@@ -1024,107 +1010,89 @@ static void draw_sound(void) {
 
     /* Rows. */
     static const char *const labels[SND_ROWS] = {"MUSIC", "SOUND EFFECT", "SPEED"};
+    const float pitch = 44;
     for(int i = 0; i < SND_ROWS; i++) {
         bool sel = i == sound_row;
-        float y = y0 + 164 + i * 46;
-        if(sel) {
-            float glow = 0.18f + 0.1f * sinf(game.title_t * 7) + (i == SND_SFX ? sfx_flash : 0);
+        float y = cy1 + 12 + i * pitch, cy = y + (pitch - 4) * 0.5f;
+        ui_row(x0 + 16, y, x1 - 16, y + pitch - 4, sel);
+        if(sel && i == SND_SFX && sfx_flash > 0) {
             r_hdr(h_flat);
-            r_quad2d(x0 + 14, y - 4, x1 - 14, y + 40, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+            r_quad2d(x0 + 16, y, x1 - 16, y + pitch - 4, 0, 0, 1, 1, color_alpha(0xffffffff, sfx_flash * 1.5f), 16);
         }
-        uint32_t col = sel ? argb(255, 255, 255, 150) : argb(255, 200, 220, 255);
-        hud_text(x0 + 30, y + 8, 0.48f, ALIGN_LEFT, argb(255, 150, 200, 255), labels[i]);
-        if(i == SND_MUSIC) {
-            upper_copy(name, sizeof(name), dk_music_song_title[sound_song]);
-            snprintf(buf, sizeof(buf), "%s", name);
-        }
-        else if(i == SND_SFX) {
-            snprintf(buf, sizeof(buf), "%02d %s", sound_sfx + 1, dk_sfx_label[sound_sfx]);
-        }
-        else {
-            snprintf(buf, sizeof(buf), "%s", audio_music_rate_now() > 1.0f ? "FINAL LAP +6%" : "NORMAL");
-        }
-        float vx = x0 + 352;
-        hud_text(vx, y + 5, 0.56f, ALIGN_CENTER, col, buf);
-        if(sel) {
-            float bob = 3.0f * sinf(game.title_t * 9);
-            hud_text(vx - 134 - bob, y + 5, 0.56f, ALIGN_CENTER, col, "<");
-            hud_text(vx + 134 + bob, y + 5, 0.56f, ALIGN_CENTER, col, ">");
-        }
+        if(i == SND_MUSIC) upper_copy(buf, sizeof(buf), dk_music_song_title[sound_song]);
+        else if(i == SND_SFX) snprintf(buf, sizeof(buf), "%02d %s", sound_sfx + 1, dk_sfx_label[sound_sfx]);
+        else snprintf(buf, sizeof(buf), "%s", audio_music_rate_now() > 1.0f ? "FINAL LAP +6%" : "NORMAL");
+        value_row(x0 + 16, x1 - 16, cy, sel, true, labels[i], buf, 0);
     }
-    hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(230, 255, 255, 255),
-             sound_row == SND_SPEED ? "LEFT/RIGHT: SPEED   B: BACK" : "LEFT/RIGHT: CHOOSE   A: PLAY   B: BACK");
+    ui_hint(sound_row == SND_SPEED ? "LEFT/RIGHT: SPEED   B: BACK" : "LEFT/RIGHT: CHOOSE   A: PLAY   B: BACK");
 }
 
 static void draw_menu(void) {
     float slide = menu_slide * menu_slide * (3 - 2 * menu_slide);
-    float x0 = 640 - 300 * slide, x1 = x0 + 280;
+    float x0 = 640 - 336 * slide, x1 = x0 + 318;
     int rows[8], n = menu_rows(rows);
     /* Six rows (one player's colour too) close up to stay inside the screen. */
-    const float pitch = n > 5 ? 46.0f : 50.0f;
-    float top = n > 5 ? 96 : 112, y_first = top + 54;
+    const float pitch = n > 5 ? 42.0f : 46.0f;
+    float top = 84, y_first = top + 54;
     char laps_buf[8];
-    float bottom = y_first + n * pitch + 6;
-    hud_panel(x0, top, x1, bottom, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
-    hud_text((x0 + x1) * 0.5f, top + 6, 0.9f, ALIGN_CENTER, argb(255, 255, 220, 60), "RACE SETUP");
+    float bottom = y_first + n * pitch + 10;
+    ui_panel(x0, top, x1, bottom);
+    ui_title(x0, top, x1, "RACE SETUP");
     for(int i = 0; i < n; i++) {
         int row = rows[i];
         bool sel = i == menu_row;
-        float y = y_first + i * pitch;
-        if(sel) {
-            r_hdr(h_flat);
-            float glow = 0.18f + 0.1f * sinf(game.title_t * 7);
-            r_quad2d(x0 + 10, y - 6, x1 - 10, y + pitch - 8, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 16);
+        float y = y_first + i * pitch, cy = y + (pitch - 6) * 0.5f;
+        if(row == ROW_START) {
+            ui_button((x0 + x1) * 0.5f, cy + 4, 150, "NEXT", sel);
+            continue;
         }
-        uint32_t col = sel ? argb(255, 255, 255, 150) : argb(255, 200, 220, 255);
-        uint32_t label = argb(255, 150, 200, 255);
-        const char *value = NULL;
+        ui_row(x0 + 12, y, x1 - 12, y + pitch - 6, sel);
+        const char *value = NULL, *label = "";
+        float extra = 0;
         switch(row) {
             case ROW_MODE:
-                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "MODE");
+                label = "MODE";
                 value = mode_name();
                 break;
-            case ROW_CC:
-                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "ENGINE CLASS");
+            case ROW_CC: {
+                label = "ENGINE";
                 value = cc_names[game.cc];
+                /* Three bars, lit up to the class. */
+                float bx = x1 - 30 - (sel ? 14 : 0) - hud_text_width(value, VALUE_SCALE) - 12;
+                r_hdr(h_flat);
                 for(int p = 0; p < 3; p++) {
-                    r_hdr(h_flat);
-                    uint32_t pc = p <= game.cc ? argb(255, 255, 200, 40) : argb(120, 255, 255, 255);
-                    r_quad2d(x1 - 60 + p * 14, y + 30 - p * 4, x1 - 51 + p * 14, y + 36, 0, 0, 1, 1, pc, 16.5f);
+                    uint32_t pc = p <= game.cc ? ui_col(UI_ACCENT) : (sel ? argb(90, 0, 0, 0) : argb(110, 255, 255, 255));
+                    if(sel && p <= game.cc) pc = ui_col(UI_ITEM_SEL);
+                    r_quad2d(bx - 42 + p * 14, cy + 7 - p * 4 - 3, bx - 33 + p * 14, cy + 7, 0, 0, 1, 1, pc, 16.5f);
                 }
+                extra = 44;
                 break;
+            }
             case ROW_LAPS:
-                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "LAPS");
+                label = "LAPS";
                 snprintf(laps_buf, sizeof(laps_buf), "%d", game.setup_laps);
                 value = laps_buf;
                 break;
             case ROW_ITEMS:
-                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "ITEMS");
-                value = items_locked() ? "OFF IN TIME TRIAL" : game.setup_items ? "ON" : "OFF";
-                if(items_locked()) col = argb(255, 160, 180, 220);
+                label = "ITEMS";
+                value = items_locked() ? "OFF" : game.setup_items ? "ON" : "OFF";
                 break;
-            case ROW_COLOUR:
-                hud_text(x0 + 20, y - 6, 0.5f, ALIGN_LEFT, label, "COLOUR");
+            case ROW_COLOUR: {
+                label = "COLOUR";
                 value = kart_colour_look(game.pl[0].colour, NULL).name;
-                colour_swatch(x1 - 58, y - 4, game.pl[0].colour);
-                break;
-            default: {
-                float s = sel ? 1.1f + 0.06f * sinf(game.title_t * 8) : 0.95f;
-                hud_text((x0 + x1) * 0.5f, y, s, ALIGN_CENTER, sel ? argb(255, 255, 230, 60) : col, "NEXT");
+                float sx = x1 - 30 - (sel ? 14 : 0) - hud_text_width(value, VALUE_SCALE) - 12 - 32;
+                colour_swatch(sx, cy - 8, game.pl[0].colour);
+                extra = 44;
                 break;
             }
         }
-        if(value) hud_text((x0 + x1) * 0.5f, y + 10, 0.75f, ALIGN_CENTER, col, value);
-        if(sel && row != ROW_START) {
-            float bob = 3.0f * sinf(game.title_t * 9);
-            hud_text(x0 + 22 - bob, y + 10, 0.75f, ALIGN_LEFT, col, "<");
-            hud_text(x1 - 22 + bob, y + 10, 0.75f, ALIGN_RIGHT, col, ">");
-        }
+        bool steps = !(row == ROW_ITEMS && items_locked());
+        value_row(x0 + 12, x1 - 12, cy, sel, steps, label, value, extra);
     }
-    hud_text(24, 428, 0.5f, ALIGN_LEFT, argb(230, 255, 255, 255), "A: OK   B: BACK");
-    hud_text(176, 100, 0.4f, ALIGN_CENTER, argb(220, 230, 240, 255), mode_blurb());
+    ui_hint("A: OK   B: BACK");
+    hud_text_c(176, 108, 0.4f, ALIGN_CENTER, ui_col(UI_TEXT), mode_blurb());
     if(warn_t > 0 && ((int)(game.title_t * 6) & 1))
-        hud_text(320, 72, 0.7f, ALIGN_CENTER, 0xffff8080, "CONNECT CONTROLLER 2");
+        hud_text_c(176, 300, 0.7f, ALIGN_CENTER, ui_col(UI_WARN), "CONNECT CONTROLLER 2");
 }
 
 static void draw_karts(void) {
@@ -1134,81 +1102,68 @@ static void draw_karts(void) {
     r_quad2d_grad(0, 224, 640, 256, 0xff1c3a8a, 0xff0c1a48, 17.0f);
     r_quad2d(0, 224, 640, 226, 0, 0, 1, 1, 0xfff0f0ff, 17.05f);
     r_quad2d(0, 254, 640, 256, 0, 0, 1, 1, 0xfff0f0ff, 17.05f);
-    hud_text(320, 223, 0.8f, ALIGN_CENTER, argb(255, 255, 220, 60), "SELECT KART");
-    hud_text(20, 230, 0.42f, ALIGN_LEFT, argb(230, 255, 255, 255), "B: BACK");
+    ui_heading(320, 240, "SELECT KART");
     for(int p = 0; p < 2; p++) {
         float y0 = p ? 256.0f : 0.0f;
-        float x0 = 640 - 268 * slide, x1 = x0 + 248, top = y0 + 22, bottom = y0 + 202;
+        float x0 = 640 - 268 * slide, x1 = x0 + 248, top = y0 + 26, bottom = y0 + 206;
         int c = game.pl[p].colour;
         bool ready = kart_ready[p];
-        hud_panel(x0, top, x1, bottom, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+        ui_panel(x0, top, x1, bottom);
         float cx = (x0 + x1) * 0.5f;
-        hud_text(cx, top + 6, 0.75f, ALIGN_CENTER, argb(255, 255, 220, 60), p ? "PLAYER 2" : "PLAYER 1");
-        uint32_t col = ready ? argb(255, 200, 220, 255) : argb(255, 255, 255, 150);
-        hud_text(cx, top + 50, 0.75f, ALIGN_CENTER, col, kart_colour_look(c, NULL).name);
-        if(!ready) {
-            float bob = 3.0f * sinf(game.title_t * 9);
-            hud_text(x0 + 18 - bob, top + 50, 0.75f, ALIGN_LEFT, col, "<");
-            hud_text(x1 - 18 + bob, top + 50, 0.75f, ALIGN_RIGHT, col, ">");
-        }
-        colour_swatch(cx - 16, top + 94, c);
+        float yc = ui_title(x0, top, x1, p ? "PLAYER 2" : "PLAYER 1");
+        float ny = yc + 18;
+        uint32_t col = ready ? ui_col(UI_DIM) : ui_col(UI_VALUE);
+        hud_text_c(cx, ny, 0.75f, ALIGN_CENTER, col, kart_colour_look(c, NULL).name);
+        if(!ready) ui_arrows(x0 + 24, x1 - 24, ny, 0.75f, col);
+        colour_swatch(cx - 16, ny + 24, c);
         if(ready) {
             float s = 1.0f + 0.5f * ready_pop[p] * ready_pop[p];
-            hud_text(cx, top + 124, s, ALIGN_CENTER, argb(255, 120, 255, 120), "READY!");
+            hud_text_c(cx, bottom - 34, s, ALIGN_CENTER, ui_col(UI_GOOD), "READY!");
         }
         else if(p == 1 && !pad2.connected) {
 #if !defined(DK_AUTOTEST) && !defined(DK_FILM)
             if((int)(game.title_t * 4) & 1)
-                hud_text(cx, top + 130, 0.5f, ALIGN_CENTER, 0xffff8080, "CONNECT CONTROLLER 2");
+                hud_text_c(cx, bottom - 34, 0.5f, ALIGN_CENTER, ui_col(UI_WARN), "CONNECT CONTROLLER 2");
 #endif
         }
         else {
-            float pulse = 0.5f + 0.5f * sinf(game.title_t * 5.0f);
-            hud_text(cx, top + 130, 0.5f, ALIGN_CENTER,
-                     color_lerp(argb(255, 255, 255, 255), argb(255, 255, 210, 60), pulse), "A: READY");
+            ui_hint_at(cx, bottom - 34, "A: READY");
         }
         if(ready && !kart_ready[p ^ 1])
-            hud_text(20, y0 + 180, 0.45f, ALIGN_LEFT, argb(230, 255, 255, 255),
-                     p ? "WAITING FOR PLAYER 1" : "WAITING FOR PLAYER 2");
+            hud_text_c(24, y0 + 196, 0.45f, ALIGN_LEFT, ui_col(UI_TEXT), p ? "WAITING FOR PLAYER 1" : "WAITING FOR PLAYER 2");
     }
+    ui_hint_at(74, 240, "B: BACK");
 }
 
 static void draw_tracks(void) {
     float slide = tracks_slide * tracks_slide * (3 - 2 * tracks_slide);
     float off = (1.0f - slide) * 220.0f;
-    /* Header. */
-    hud_panel(190, 18 - off * 0.4f, 450, 66 - off * 0.4f, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
-    hud_text(320, 22 - off * 0.4f, 0.95f, ALIGN_CENTER, argb(255, 255, 220, 60), "SELECT TRACK");
+    ui_heading(320, 44 - off * 0.4f, "SELECT TRACK");
 
     /* Info card: map on the left, name and details on the right. */
     float swap = track_swap * track_swap * track_swap * 260.0f;
-    float y0 = 296 + off, y1 = 428 + off;
-    hud_panel(52, y0, 588, y1, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    float y0 = 292 + off, y1 = 426 + off;
+    ui_panel(52, y0, 588, y1);
     float mx = 160 + swap, my = (y0 + y1) * 0.5f;
-    hud_panel(mx - 98, y0 + 10, mx + 98, y1 - 10, argb(200, 8, 24, 70), argb(200, 8, 24, 70), 15.5f);
+    ui_well(mx - 98, y0 + 10, mx + 98, y1 - 10);
     hud_draw_track_map(mx, my, 0.56f, 16.0f, false);
 
     float tx = 412 + swap;
     float pulse = 1.0f + 0.03f * sinf(game.title_t * 5.0f);
-    hud_text(tx, y0 + 6, 0.95f * pulse, ALIGN_CENTER, argb(255, 255, 226, 70), track.name);
-    hud_text(tx, y0 + 46, 0.55f, ALIGN_CENTER, argb(255, 200, 225, 255), track.blurb);
+    hud_text_c(tx, y0 + 30, 0.95f * pulse, ALIGN_CENTER, ui_col(UI_ACCENT), track.name);
+    hud_text_c(tx, y0 + 62, 0.52f, ALIGN_CENTER, ui_col(UI_DIM), track.blurb);
     char buf[48];
     snprintf(buf, sizeof(buf), "LAP %d m  -  %d LAPS", (int)(track.length + 0.5f), game.laps);
-    hud_text(tx, y0 + 74, 0.5f, ALIGN_CENTER, 0xffffffff, buf);
+    hud_text_c(tx, y0 + 88, 0.48f, ALIGN_CENTER, ui_col(UI_VALUE), buf);
     /* Page dots, one per track on offer. */
-    r_hdr(h_flat);
     int ndots = track_enabled_count(), dot = 0;
-    for(int i = 0; i < TRACK_COUNT; i++) {
-        if(!track_enabled(i)) continue;
-        float dx = tx + ((float)dot++ - (ndots - 1) * 0.5f) * 18.0f;
-        uint32_t c = i == game.track ? argb(255, 255, 220, 60) : argb(140, 255, 255, 255);
-        float r = i == game.track ? 5.0f : 3.5f;
-        r_quad2d(dx - r, y1 - 20 - r, dx + r, y1 - 20 + r, 0, 0, 1, 1, c, 16.5f);
-    }
+    for(int i = 0; i < TRACK_COUNT; i++)
+        if(track_enabled(i) && i < game.track) dot++;
+    ui_dots(tx, y1 - 20, ndots, dot);
     float bob = 4.0f * sinf(game.title_t * 7);
-    hud_text(36 - bob, my - 22, 1.3f, ALIGN_CENTER, argb(255, 255, 255, 150), "<");
-    hud_text(604 + bob, my - 22, 1.3f, ALIGN_CENTER, argb(255, 255, 255, 150), ">");
-    hud_text(320, 440, 0.5f, ALIGN_CENTER, argb(230, 255, 255, 255), "LEFT/RIGHT: TRACK   A: RACE!   B: BACK");
+    hud_text_c(34 - bob, my, 1.3f, ALIGN_CENTER, ui_col(UI_ACCENT), "<");
+    hud_text_c(606 + bob, my, 1.3f, ALIGN_CENTER, ui_col(UI_ACCENT), ">");
+    ui_hint("LEFT/RIGHT: TRACK   A: RACE!   B: BACK");
 }
 
 void title_draw(void) {

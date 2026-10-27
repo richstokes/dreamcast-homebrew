@@ -13,6 +13,7 @@
 #include "chat.h"
 #include "fx.h"
 #include "hud.h"
+#include "ui.h"
 #include "items.h"
 #include "kart.h"
 #include "models.h"
@@ -1132,22 +1133,21 @@ void online_camera(Camera *cam, float dt) {
 /* ------------------------------------------------------------------ */
 /* Drawing                                                             */
 
-#define PANEL_TOP argb(225, 30, 100, 220)
-#define PANEL_BOT argb(225, 12, 36, 120)
+#define PALE ui_col(UI_DIM)
+#define TEXT ui_col(UI_TEXT)
+#define GOLD ui_col(UI_ACCENT)
 
 static void panel(float x0, float y0, float x1, float y1) {
-    hud_panel(x0, y0, x1, y1, PANEL_TOP, PANEL_BOT, 15);
+    ui_panel(x0, y0, x1, y1);
 }
 
 static void title_bar(const char *text) {
-    hud_panel(150, 16, 490, 64, PANEL_TOP, PANEL_BOT, 15);
-    hud_text(320, 20, 0.95f, ALIGN_CENTER, argb(255, 255, 220, 60), text);
+    ui_heading(320, 42, text);
 }
 
 static void hint(const char *text) {
     if(chat_hint()) text = chat_hint();
-    if(((int)(screen_t * 2.5f) & 1) == 0 || screen_t < 1.0f)
-        hud_text(320, 446, 0.5f, ALIGN_CENTER, argb(230, 255, 255, 255), text);
+    ui_hint(text);
 }
 
 /* Player names can be up to ten wide letters, so shrink one that would run
@@ -1210,31 +1210,29 @@ static void draw_toast(void) {
     int64_t left = (int64_t)toast_until - (int64_t)net_now();
     if(left <= 0 || left > TOAST_MS) return;
     float a = fminf((float)(TOAST_MS - left) / 200.0f, fminf((float)left / 400.0f, 1.0f));
-    float w = hud_text_width(toast, 0.42f) + 32;
-    hud_panel(320 - w * 0.5f, 4, 320 + w * 0.5f, 32, color_alpha(PANEL_TOP, a), color_alpha(PANEL_BOT, a), 15);
-    hud_text(320, 8, 0.42f, ALIGN_CENTER, color_alpha(argb(255, 255, 226, 70), a), toast);
+    float w = hud_text_width(toast, 0.42f) + 36;
+    ui_pill(320 - w * 0.5f, 6, 320 + w * 0.5f, 34, color_alpha(argb(255, 18, 40, 108), a), color_alpha(argb(255, 8, 16, 52), a));
+    hud_text_c(320, 20, 0.42f, ALIGN_CENTER, color_alpha(GOLD, a), toast);
 }
 
 static void draw_name(void) {
     title_bar(name_only ? "ONLINE NAME" : "ONLINE");
     panel(100, 84, 540, 420);
-    hud_text(320, 94, 0.7f, ALIGN_CENTER, argb(255, 200, 225, 255), "ENTER YOUR NAME");
-    r_hdr(h_flat);
-    r_quad2d(180, 128, 460, 168, 0, 0, 1, 1, argb(230, 8, 20, 60), 16.0f);
+    hud_text_c(320, 108, 0.62f, ALIGN_CENTER, PALE, "ENTER YOUR NAME");
+    ui_well(180, 128, 460, 168);
     char shown[NET_NAME_LEN + 2];
     snprintf(shown, sizeof(shown), "%s%s", name, ((int)(screen_t * 3) & 1) && strlen(name) < NET_NAME_LEN - 1 ? "_" : "");
-    hud_text(320, 132, 0.95f, ALIGN_CENTER, 0xffffffff, shown);
+    hud_text_c(320, 148, 0.95f, ALIGN_CENTER, 0xffffffff, shown);
     for(int r = 0; r < 5; r++) {
         int n = key_count(r);
         for(int c = 0; c < n; c++) {
             bool sel = r == key_row && c == key_col;
             float w = r < 4 ? 36 : 110, x = r < 4 ? 140 + c * 36 : 205 + c * 120, y = 186 + r * 40;
-            r_hdr(h_flat);
-            r_quad2d(x, y, x + w - 4, y + 34, 0, 0, 1, 1, sel ? argb(255, 255, 210, 60) : argb(200, 20, 50, 130), 16.1f);
+            ui_key(x, y, x + w - 4, y + 34, sel);
             char label[8];
             if(r < 4) snprintf(label, sizeof(label), "%c", key_rows[r][c] == ' ' ? '_' : key_rows[r][c]);
             else snprintf(label, sizeof(label), "%s", c ? "DONE" : "DEL");
-            hud_text(x + (w - 4) * 0.5f, y + 4, 0.62f, ALIGN_CENTER, sel ? argb(255, 20, 30, 80) : 0xffffffff, label);
+            hud_text_c(x + (w - 4) * 0.5f, y + 17, 0.62f, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM), label);
         }
     }
     hint("A: TYPE   B: DELETE   START: DONE");
@@ -1246,11 +1244,11 @@ static void draw_connect(void) {
     static const char *dots[] = {"", ".", "..", "..."};
     char buf[64];
     snprintf(buf, sizeof(buf), "CONNECTING%s", dots[(int)(screen_t * 3) & 3]);
-    hud_text(320, 190, 0.95f, ALIGN_CENTER, argb(255, 255, 226, 70), buf);
+    hud_text(320, 190, 0.95f, ALIGN_CENTER, GOLD, buf);
     const char *what = net_state() == NET_HELLO ? "SAYING HELLO TO THE SERVER" : net_message();
-    hud_text(320, 248, 0.55f, ALIGN_CENTER, 0xffffffff, what);
+    hud_text(320, 248, 0.55f, ALIGN_CENTER, TEXT, what);
     if(link_is_modem())
-        hud_text(320, 280, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "DIALING CAN TAKE UP TO A MINUTE");
+        hud_text(320, 280, 0.45f, ALIGN_CENTER, PALE, "DIALING CAN TAKE UP TO A MINUTE");
     hint("B: CANCEL");
 }
 
@@ -1258,52 +1256,49 @@ static void draw_browser(void) {
     title_bar("ONLINE LOBBIES");
     panel(40, 76, 600, 428);
     const NetLobbyInfo *ls = net_lobbies();
-    hud_text(56, 82, 0.45f, ALIGN_LEFT, argb(220, 200, 225, 255), link_status());
+    hud_text(56, 82, 0.45f, ALIGN_LEFT, PALE, link_status());
     if(net_update_available())
-        hud_text(584, 82, 0.45f, ALIGN_RIGHT, argb(255, 255, 220, 60), "NEW VERSION OUT!");
+        hud_text(584, 82, 0.45f, ALIGN_RIGHT, GOLD, "NEW VERSION OUT!");
     for(int i = 0; i < NET_LOBBIES; i++) {
         const NetLobbyInfo *e = &ls[i];
-        float y = 108 + i * 30;
+        float y = 108 + i * 30, cy = y + 12;
         bool sel = i == browse_sel;
-        if(sel) {
-            r_hdr(h_flat);
-            r_quad2d(52, y - 2, 588, y + 27, 0, 0, 1, 1, argb(150, 255, 255, 255), 15.5f);
-        }
-        uint32_t col = sel ? argb(255, 255, 255, 140) : 0xffffffff;
+        ui_row(50, y - 3, 590, y + 27, sel);
+        uint32_t col = sel ? ui_col(UI_ITEM_SEL) : TEXT;
         char buf[48];
         snprintf(buf, sizeof(buf), "LOBBY %d", i + 1);
-        hud_text(62, y, 0.58f, ALIGN_LEFT, col, buf);
+        hud_text_c(76, cy, 0.58f, ALIGN_LEFT, col, buf);
         snprintf(buf, sizeof(buf), "%d/%d", e->players, NET_MAX_PLAYERS);
-        hud_text(222, y, 0.58f, ALIGN_RIGHT, col, buf);
+        hud_text_c(222, cy, 0.58f, ALIGN_RIGHT, col, buf);
         const char *st = (e->flags & NLF_DEMO) ? "DEMO" : e->players == 0 ? "EMPTY" : e->players >= NET_MAX_PLAYERS ? "FULL"
                        : e->state == NLS_WAITING ? "OPEN" : "RACING";
-        uint32_t stc = e->players == 0 ? argb(200, 170, 190, 220) : e->state == NLS_WAITING ? argb(255, 120, 255, 140)
-                                                                                           : argb(255, 255, 190, 80);
-        hud_text(240, y, 0.5f, ALIGN_LEFT, stc, st);
+        uint32_t stc = sel ? col : e->players == 0 ? PALE : e->state == NLS_WAITING ? ui_col(UI_GOOD) : GOLD;
+        hud_text_c(240, cy, 0.5f, ALIGN_LEFT, stc, st);
         if(e->players) {
             const char *tn = track_names[e->track % TRACK_COUNT];
-            hud_text(340, y, 0.5f, ALIGN_LEFT, col, tn);
-            fit_text(580, y, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), e->leader,
-                     580 - (340 + hud_text_width(tn, 0.5f) + 10));
+            hud_text_c(340, cy, 0.5f, ALIGN_LEFT, col, tn);
+            fit_text(576, cy - 10.5f, 0.5f, ALIGN_RIGHT, sel ? col : PALE, e->leader,
+                     576 - (340 + hud_text_width(tn, 0.5f) + 10));
         }
     }
     if(net_state() == NET_JOINING) hint(net_spectating() ? "TUNING IN..." : "JOINING...");
-    else if(net_message()[0] && !watch_prompt) hud_text(320, 446, 0.5f, ALIGN_CENTER, argb(255, 255, 160, 120), net_message());
+    else if(net_message()[0] && !watch_prompt) hud_text(320, 446, 0.5f, ALIGN_CENTER, ui_col(UI_WARN), net_message());
     else hint("A: JOIN   Y: WATCH   B: BACK");
     const NetLobbyInfo *e = &ls[browse_sel];
     if(e->watchers && !watch_prompt) {
         char buf[32];
         snprintf(buf, sizeof(buf), "%d WATCHING", e->watchers);
-        hud_text(584, 410, 0.42f, ALIGN_RIGHT, argb(220, 200, 225, 255), buf);
+        hud_text(584, 410, 0.42f, ALIGN_RIGHT, PALE, buf);
     }
     if(watch_prompt) {
-        panel(130, 170, 510, 330);
+        ui_dim();
+        panel(130, 160, 510, 330);
         char buf[40];
         snprintf(buf, sizeof(buf), "WATCH LOBBY %d?", browse_sel + 1);
-        hud_text(320, 186, 0.85f, ALIGN_CENTER, argb(255, 255, 220, 60), buf);
-        hud_text(320, 232, 0.5f, ALIGN_CENTER, 0xffffffff, "SPECTATE WITHOUT RACING");
-        hud_text(320, 258, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "AND FOLLOW EVERY RACE IN THIS LOBBY");
-        hud_text(320, 292, 0.55f, ALIGN_CENTER, argb(255, 255, 255, 140), "Y: WATCH   B: CANCEL");
+        ui_title(130, 160, 510, buf);
+        hud_text(320, 228, 0.5f, ALIGN_CENTER, TEXT, "SPECTATE WITHOUT RACING");
+        hud_text(320, 254, 0.45f, ALIGN_CENTER, PALE, "AND FOLLOW EVERY RACE IN THIS LOBBY");
+        ui_hint_at(320, 302, "Y: WATCH   B: CANCEL");
     }
 }
 
@@ -1329,35 +1324,32 @@ static int ranked(const NetLobby *l, int *order) {
 static void draw_standings(const NetLobby *l, float x0, float y0, float x1) {
     int order[NET_MAX_PLAYERS], n = ranked(l, order);
     average_pings(l);
-    hud_text(x0 + 16, y0, 0.5f, ALIGN_LEFT, argb(220, 200, 225, 255), "PLAYER");
-    hud_text(x1 - 64, y0, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), "PING");
-    hud_text(x1 - 16, y0, 0.5f, ALIGN_RIGHT, argb(220, 200, 225, 255), "PTS");
+    hud_text(x0 + 16, y0, 0.5f, ALIGN_LEFT, PALE, "PLAYER");
+    hud_text(x1 - 64, y0, 0.5f, ALIGN_RIGHT, PALE, "PING");
+    hud_text(x1 - 16, y0, 0.5f, ALIGN_RIGHT, PALE, "PTS");
     for(int r = 0; r < n; r++) {
         const NetPlayer *p = &l->players[order[r]];
         float y = y0 + 30 + r * 40;
         bool me = p->slot == l->you;
-        if(me) {
-            r_hdr(h_flat);
-            r_quad2d(x0 + 8, y - 4, x1 - 8, y + 30, 0, 0, 1, 1, argb(90, 255, 255, 255), 15.5f);
-        }
-        if(p->points > 0 && r < 3) hud_trophy(x0 + 26, y + 4, 1.1f, r == 0 ? HUD_GOLD : r == 1 ? HUD_SILVER : HUD_BRONZE);
+        ui_row(x0 + 8, y - 4, x1 - 8, y + 30, me);
+        uint32_t tc = me ? ui_col(UI_ITEM_SEL) : TEXT;
+        if(p->points > 0 && r < 3) hud_trophy(x0 + 34, y + 4, 1.1f, r == 0 ? HUD_GOLD : r == 1 ? HUD_SILVER : HUD_BRONZE);
         else {
             char rank[8];
             snprintf(rank, sizeof(rank), "%d", r + 1);
-            hud_text(x0 + 26, y, 0.6f, ALIGN_CENTER, 0xffffffff, rank);
+            hud_text(x0 + 34, y, 0.6f, ALIGN_CENTER, tc, rank);
         }
-        player_swatch(x0 + 46, y + 4, p);
+        player_swatch(x0 + 52, y + 4, p);
         bool lead = (p->flags & NPF_LEADER) != 0;
         char buf[16];
         int ping = shown_ping(p);
         snprintf(buf, sizeof(buf), "%dms", ping);
         float ping_x = x1 - 64 - hud_text_width(buf, 0.42f);
-        hud_text(ping_x, y + 5, 0.42f, ALIGN_LEFT, ping_colour(ping), buf);
-        fit_text(x0 + 80, lead ? y - 5 : y, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, p->name,
-                 ping_x - 8 - (x0 + 80));
-        if(lead) hud_text(x0 + 82, y + 20, 0.36f, ALIGN_LEFT, argb(255, 255, 220, 60), "LOBBY LEADER");
+        hud_text(ping_x, y + 5, 0.42f, ALIGN_LEFT, me ? tc : ping_colour(ping), buf);
+        fit_text(x0 + 86, lead ? y - 5 : y, 0.62f, ALIGN_LEFT, tc, p->name, ping_x - 8 - (x0 + 86));
+        if(lead) hud_text(x0 + 88, y + 20, 0.36f, ALIGN_LEFT, me ? tc : GOLD, "LOBBY LEADER");
         snprintf(buf, sizeof(buf), "%d", p->points);
-        hud_text(x1 - 16, y, 0.62f, ALIGN_RIGHT, argb(255, 255, 226, 70), buf);
+        hud_text(x1 - 16, y, 0.62f, ALIGN_RIGHT, me ? tc : GOLD, buf);
     }
 }
 
@@ -1371,15 +1363,15 @@ static void draw_lobby(void) {
     panel(372, 76, 616, 398);
     if(net_spectating()) {
         float y = 92;
-        hud_text(494, y, 0.6f, ALIGN_CENTER, argb(255, 255, 220, 60), "SPECTATING");
+        hud_text(494, y, 0.6f, ALIGN_CENTER, GOLD, "SPECTATING");
         y += 40;
         static const char *const labels[] = {"TRACK", "LAPS", "SPEED", "ITEMS"};
         char vb[24];
         for(int i = 0; i < 4; i++, y += 36) {
-            hud_text(386, y, 0.5f, ALIGN_LEFT, argb(255, 190, 205, 235), labels[i]);
+            hud_text(386, y, 0.5f, ALIGN_LEFT, ui_col(UI_LABEL), labels[i]);
             if(i == 0) {
                 /* Track names are too long to share the label's line. */
-                hud_text(398, y + 26, 0.5f, ALIGN_LEFT, 0xffffffff, track_names[l->track % TRACK_COUNT]);
+                hud_text(398, y + 26, 0.5f, ALIGN_LEFT, TEXT, track_names[l->track % TRACK_COUNT]);
                 y += 26;
                 continue;
             }
@@ -1387,12 +1379,12 @@ static void draw_lobby(void) {
             if(i == 1) snprintf(vb, sizeof(vb), "%d", l->laps);
             if(i == 2) v = cc_names[l->cc % CC_COUNT];
             if(i == 3) v = l->items ? "ON" : "OFF";
-            hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, 0xffffffff, v);
+            hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, TEXT, v);
         }
         snprintf(buf, sizeof(buf), "%d WATCHING", l->watchers);
-        hud_text(494, y + 6, 0.5f, ALIGN_CENTER, argb(220, 200, 225, 255), buf);
+        hud_text(494, y + 6, 0.5f, ALIGN_CENTER, PALE, buf);
         y = 330;
-        hud_text(494, y + 24, 0.45f, ALIGN_CENTER, l->state == NLS_WAITING ? 0xffffffff : argb(255, 255, 190, 80),
+        hud_text(494, y + 24, 0.45f, ALIGN_CENTER, l->state == NLS_WAITING ? TEXT : GOLD,
                  l->state == NLS_WAITING ? "NEXT RACE SOON" : l->state == NLS_RESULTS ? "RESULTS ARE IN" : "RACE IN PROGRESS");
         chat_draw(screen_t);
         hint("X: CHAT   B: STOP WATCHING");
@@ -1404,7 +1396,7 @@ static void draw_lobby(void) {
     int show_cc = leader ? sel_cc : l->cc, show_items = leader ? sel_items : l->items;
     const NetPlayer *me = net_me();
     float y = 90;
-    hud_text(494, y, 0.55f, ALIGN_CENTER, argb(220, 200, 225, 255), leader ? "YOU ARE THE LEADER" : "RACE SETTINGS");
+    hud_text(494, y, 0.55f, ALIGN_CENTER, PALE, leader ? "YOU ARE THE LEADER" : "RACE SETTINGS");
     y += 34;
     static const char *labels[] = {"TRACK", "LAPS", "SPEED", "ITEMS", "COLOUR", "START RACE"};
     int shown_rows[6] = {LR_TRACK, LR_LAPS, LR_CC, LR_ITEMS, LR_COLOUR, LR_START};
@@ -1416,7 +1408,7 @@ static void draw_lobby(void) {
             if(rows[k] == row) sel_index = k;
         bool sel = sel_index == lobby_row && sel_index >= 0 && l->state == NLS_WAITING;
         bool editable = sel_index >= 0;
-        uint32_t col = sel ? argb(255, 255, 255, 140) : editable ? 0xffffffff : argb(255, 190, 205, 235);
+        uint32_t col = sel ? GOLD : editable ? TEXT : ui_col(UI_LABEL);
         if(row == LR_START) {
             y += 8;
             float s = sel ? 0.8f + 0.05f * sinf(screen_t * 8) : 0.75f;
@@ -1455,14 +1447,14 @@ static void draw_lobby(void) {
     }
     y = 354;
     if(l->state != NLS_WAITING) {
-        hud_text(494, y, 0.5f, ALIGN_CENTER, argb(255, 255, 190, 80), "RACE IN PROGRESS");
-        hud_text(494, y + 22, 0.42f, ALIGN_CENTER, 0xffffffff, "YOU WILL JOIN THE NEXT ONE");
+        hud_text(494, y, 0.5f, ALIGN_CENTER, GOLD, "RACE IN PROGRESS");
+        hud_text(494, y + 22, 0.42f, ALIGN_CENTER, TEXT, "YOU WILL JOIN THE NEXT ONE");
     }
     else if(!leader) {
         const NetPlayer *ld = net_player(l->leader);
         snprintf(buf, sizeof(buf), "WAITING FOR %s", ld ? ld->name : "THE LEADER");
-        fit_text(494, y, 0.48f, ALIGN_CENTER, 0xffffffff, buf, 228);
-        hud_text(494, y + 22, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "TO START THE RACE");
+        fit_text(494, y, 0.48f, ALIGN_CENTER, TEXT, buf, 228);
+        hud_text(494, y + 22, 0.45f, ALIGN_CENTER, PALE, "TO START THE RACE");
     }
     chat_draw(screen_t);
     hint(leader ? "A: SELECT   LEFT/RIGHT: CHANGE   X: CHAT   B: LEAVE" : "LEFT/RIGHT: COLOUR   X: CHAT   B: LEAVE");
@@ -1471,9 +1463,9 @@ static void draw_lobby(void) {
 static void draw_error(void) {
     title_bar("ONLINE");
     panel(30, 160, 610, 340);
-    hud_text(320, 182, 0.56f, ALIGN_CENTER, argb(255, 255, 160, 120), error_line1);
-    if(error_line2[0]) hud_text(320, 222, 0.55f, ALIGN_CENTER, 0xffffffff, error_line2);
-    if(net_reject_reason() == NREJ_TOO_OLD) hud_text(320, 260, 0.5f, ALIGN_CENTER, argb(255, 255, 220, 60), DOWNLOAD_URL);
+    hud_text(320, 182, 0.56f, ALIGN_CENTER, ui_col(UI_WARN), error_line1);
+    if(error_line2[0]) hud_text(320, 222, 0.55f, ALIGN_CENTER, TEXT, error_line2);
+    if(net_reject_reason() == NREJ_TOO_OLD) hud_text(320, 260, 0.5f, ALIGN_CENTER, GOLD, DOWNLOAD_URL);
     hint("A: BACK");
 }
 
@@ -1513,11 +1505,10 @@ void online_draw_race(void) {
         }
     }
     if(leave_prompt) {
-        panel(170, 180, 470, 300);
-        hud_text(320, 196, 0.8f, ALIGN_CENTER, argb(255, 255, 220, 60), "LEAVE THE RACE?");
-        hud_text(320, 232, 0.45f, ALIGN_CENTER, argb(220, 200, 225, 255), "BACK TO THE LOBBY ROOM");
-        hud_text(320, 262, 0.6f, ALIGN_CENTER, 0xffffffff,
-                 net_spectating() ? "A: LEAVE   B: KEEP WATCHING" : "A: LEAVE   B: KEEP RACING");
+        panel(170, 170, 470, 300);
+        ui_title(170, 170, 470, "LEAVE THE RACE?");
+        hud_text(320, 228, 0.45f, ALIGN_CENTER, PALE, "BACK TO THE LOBBY ROOM");
+        ui_hint_at(320, 272, net_spectating() ? "A: LEAVE   B: KEEP WATCHING" : "A: LEAVE   B: KEEP RACING");
     }
 }
 
@@ -1526,10 +1517,10 @@ void online_draw_results(void) {
     const NetLobby *l = net_lobby();
     float a = clampf(game.time / 0.5f, 0, 1);
     float x0 = 100 + (1 - a) * 440;
-    hud_panel(x0, 60, x0 + 440, 420, PANEL_TOP, PANEL_BOT, 15);
-    hud_text(x0 + 220, 70, 1.1f, ALIGN_CENTER, argb(255, 255, 220, 60), "RESULTS");
-    hud_text(x0 + 300, 112, 0.45f, ALIGN_RIGHT, argb(220, 200, 225, 255), "RACE");
-    hud_text(x0 + 420, 112, 0.45f, ALIGN_RIGHT, argb(220, 200, 225, 255), "TOTAL");
+    ui_panel(x0, 54, x0 + 440, 424);
+    ui_title(x0, 54, x0 + 440, "RESULTS");
+    hud_text(x0 + 300, 112, 0.45f, ALIGN_RIGHT, PALE, "RACE");
+    hud_text(x0 + 420, 112, 0.45f, ALIGN_RIGHT, PALE, "TOTAL");
     static const int gained[NET_MAX_PLAYERS] = {10, 8, 6, 4, 2, 1};
     for(int place = 1; place <= NET_MAX_PLAYERS; place++) {
         for(int i = 0; i < l->count; i++) {
@@ -1537,19 +1528,17 @@ void online_draw_results(void) {
             if(p->place != place || !(p->flags & NPF_RACING)) continue;
             float y = 136 + (place - 1) * 42;
             bool me = p->slot == l->you;
-            if(me) {
-                r_hdr(h_flat);
-                r_quad2d(x0 + 12, y - 4, x0 + 428, y + 32, 0, 0, 1, 1, argb(80, 255, 255, 255), 15.5f);
-            }
+            ui_row(x0 + 14, y - 4, x0 + 426, y + 32, me);
+            uint32_t tc = me ? ui_col(UI_ITEM_SEL) : TEXT;
             char buf[16];
             snprintf(buf, sizeof(buf), "%d%s", place, hud_ordinal(place));
-            hud_text(x0 + 24, y, 0.75f, ALIGN_LEFT, hud_place_color(place), buf);
+            hud_text(x0 + 24, y, 0.75f, ALIGN_LEFT, me ? tc : hud_place_color(place), buf);
             player_swatch(x0 + 90, y + 6, p);
-            hud_text(x0 + 122, y + 2, 0.65f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, p->name);
+            hud_text(x0 + 122, y + 2, 0.65f, ALIGN_LEFT, tc, p->name);
             snprintf(buf, sizeof(buf), "+%d", gained[place - 1]);
-            hud_text(x0 + 300, y + 2, 0.65f, ALIGN_RIGHT, argb(255, 120, 255, 140), buf);
+            hud_text(x0 + 300, y + 2, 0.65f, ALIGN_RIGHT, me ? tc : ui_col(UI_GOOD), buf);
             snprintf(buf, sizeof(buf), "%d", p->points);
-            hud_text(x0 + 420, y + 2, 0.65f, ALIGN_RIGHT, argb(255, 255, 226, 70), buf);
+            hud_text(x0 + 420, y + 2, 0.65f, ALIGN_RIGHT, me ? tc : GOLD, buf);
         }
     }
     char buf[32] = "BACK TO THE LOBBY SOON";

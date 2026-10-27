@@ -6,6 +6,7 @@
 #include "audio.h"
 #include "fx.h"
 #include "hud.h"
+#include "ui.h"
 #include "kart.h"
 #include "models.h"
 #include "render.h"
@@ -407,6 +408,9 @@ static void capture_script(void) {
         if(!game.paused) { pad.pressed |= BTN_START; pause_t = 0; }
         else {
             pause_t += DK_DT;
+            /* The menu as it opens, before the overlay (which Flycast's
+               window stops presenting under) goes on. */
+            if(pause_t > 0.25f && !shot[64]) { shot[64] = true; take_shot("pause-menu"); }
             game.pause_sel = pause_t < 0.6f ? PAUSE_MUSIC : PAUSE_PERF;
             if(pause_t > 0.3f && audio_music_enabled() && pause_t < 0.6f) pad.pressed |= BTN_A;
 #ifndef DK_PERF_HUD
@@ -1896,6 +1900,7 @@ int main(int argc, char **argv) {
     render_init();
     perfhud_reserve();
     hud_init();
+    ui_init();
     title_init();
     boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");
     audio_open_disc();   /* before the save worker: see audio.h */

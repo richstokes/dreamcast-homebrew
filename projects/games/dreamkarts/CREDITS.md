@@ -13,8 +13,11 @@ original, built from the scripts in `tools/`.
   changes its DHCP retry timing. Built with its GCC and newlib toolchain
 - [SH4ZAM](https://sh4zam.com/) by Falco Girgis and contributors (MIT): the
   renderer's matrix, transform and reciprocal maths
+- [Lilita One](https://github.com/google/fonts/tree/main/ofl/lilitaone) by
+  Juan Montoreano (SIL Open Font License 1.1, `tools/fonts/`): the menus'
+  lettering, logo and countdown
 - The DejaVu Sans Bold Oblique font, bundled with matplotlib (Bitstream Vera
-  licence): HUD, logo and VMU lettering
+  licence): trackside signs and VMU lettering
 
 ## Thanks
 
@@ -74,6 +77,12 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 SUCH DAMAGE.
 ```
+
+### Lilita One
+
+Copyright (c) 2011 Juan Montoreano (juan@remolacha.biz), with Reserved Font
+Name Lilita. Licensed under the SIL Open Font License, Version 1.1; the
+licence text is beside the font in `tools/fonts/OFL-LilitaOne.txt`.
 
 ### SH4ZAM
 

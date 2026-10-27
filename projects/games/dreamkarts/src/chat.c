@@ -13,6 +13,7 @@
 #include "chat.h"
 #include "audio.h"
 #include "hud.h"
+#include "ui.h"
 #include "kart.h"
 #include "net.h"
 #include "render.h"
@@ -245,16 +246,16 @@ static void draw_line(const NetChat *c, float x, float y, float scale, float max
         y += (scale - fit) * 21.0f;
         scale = fit;
     }
-    uint32_t col = me ? argb(255, 255, 255, 140) : c->slot == NET_SPECTATOR ? argb(255, 200, 225, 255)
-                                                                             : (kart_colour_look(c->colour, chat_custom(c)).ui | 0xff000000);
+    uint32_t col = me ? ui_col(UI_ACCENT) : c->slot == NET_SPECTATOR ? ui_col(UI_DIM)
+                                                                       : (kart_colour_look(c->colour, chat_custom(c)).ui | 0xff000000);
     hud_text(x, y, scale, ALIGN_LEFT, col, name);
-    hud_text(x + hud_text_width(name, scale) + hud_text_width(" ", scale), y, scale, ALIGN_LEFT, 0xffffffff, c->text);
+    hud_text(x + hud_text_width(name, scale) + hud_text_width(" ", scale), y, scale, ALIGN_LEFT, ui_col(UI_TEXT), c->text);
 }
 
 static void draw_strip(float t) {
-    hud_panel(BOX_X0, STRIP_Y0, BOX_X1, STRIP_Y1, argb(225, 30, 100, 220), argb(225, 12, 36, 120), 15);
+    ui_panel(BOX_X0, STRIP_Y0, BOX_X1, STRIP_Y1);
     int count = net_chat_count();
-    hud_text(BOX_X0 + 12, STRIP_Y0 + 5, 0.4f, ALIGN_LEFT, argb(255, 255, 220, 60), "CHAT");
+    hud_text(BOX_X0 + 12, STRIP_Y0 + 5, 0.4f, ALIGN_LEFT, ui_col(UI_ACCENT), "CHAT");
     float x = BOX_X0 + 12 + hud_text_width("CHAT", 0.4f) + 14;
     int unread = count - seen;
     float right = BOX_X1 - 12;
@@ -265,8 +266,8 @@ static void draw_strip(float t) {
            pill that breathes. */
         float bw = hud_text_width(badge, 0.46f) + 18;
         float pulse = 0.85f + 0.15f * sinf(t * 5.0f);
-        r_hdr(h_flat);
-        r_quad2d(right - bw, STRIP_Y0 + 3, right, STRIP_Y1 - 3, 0, 0, 1, 1, color_alpha(argb(255, 232, 64, 40), pulse), 16.0f);
+        ui_pill(right - bw, STRIP_Y0 + 3, right, STRIP_Y1 - 3, color_alpha(argb(255, 232, 64, 40), pulse),
+                color_alpha(argb(255, 232, 64, 40), pulse));
         hud_text(right - bw * 0.5f, STRIP_Y0 + 4, 0.46f, ALIGN_CENTER, 0xffffffff, badge);
         right -= bw + 12;
     }
@@ -275,16 +276,15 @@ static void draw_strip(float t) {
 }
 
 static void draw_key(const Key *k, float y, bool sel) {
-    r_hdr(h_flat);
-    r_quad2d(k->x, y, k->x + k->w, y + 22, 0, 0, 1, 1, sel ? argb(255, 255, 210, 60) : argb(200, 20, 50, 130), 16.1f);
+    ui_key(k->x, y, k->x + k->w, y + 22, sel);
     const char *label = k->label[0] == ' ' ? "_" : k->label;
-    hud_text(k->x + k->w * 0.5f, y + 2, 0.42f, ALIGN_CENTER, sel ? argb(255, 20, 30, 80) : 0xffffffff, label);
+    hud_text_c(k->x + k->w * 0.5f, y + 11, 0.42f, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM), label);
 }
 
 static void draw_box(float t, bool can_say) {
-    hud_panel(BOX_X0, BOX_Y0, BOX_X1, BOX_Y1, argb(255, 24, 70, 170), argb(255, 8, 22, 76), 15.2f);
-    hud_text(BOX_X0 + 12, BOX_Y0 + 4, 0.45f, ALIGN_LEFT, argb(255, 255, 220, 60), "LOBBY CHAT");
-    hud_text(BOX_X1 - 12, BOX_Y0 + 6, 0.4f, ALIGN_RIGHT, argb(220, 200, 225, 255), "X: CLOSE");
+    ui_panel(BOX_X0, BOX_Y0, BOX_X1, BOX_Y1);
+    hud_text(BOX_X0 + 12, BOX_Y0 + 4, 0.45f, ALIGN_LEFT, ui_col(UI_ACCENT), "LOBBY CHAT");
+    hud_text(BOX_X1 - 12, BOX_Y0 + 6, 0.4f, ALIGN_RIGHT, ui_col(UI_DIM), "X: CLOSE");
     int lines = can_say ? 5 : 11;
     float y0 = BOX_Y0 + 28;
     int count = net_chat_count(), me = net_lobby()->you;
@@ -299,8 +299,7 @@ static void draw_box(float t, bool can_say) {
     }
     if(!can_say) return;
     float iy = y0 + lines * LINE_H + 4;
-    r_hdr(h_flat);
-    r_quad2d(BOX_X0 + 8, iy, BOX_X1 - 8, iy + 26, 0, 0, 1, 1, argb(230, 8, 20, 60), 16.0f);
+    ui_well(BOX_X0 + 8, iy, BOX_X1 - 8, iy + 26);
     char shown[NET_CHAT_LEN + 3];
     bool cursor = ((int)(t * 3) & 1) && strlen(line) < NET_CHAT_LEN - 1;
     snprintf(shown, sizeof(shown), "> %s%s", line, cursor ? "_" : "");

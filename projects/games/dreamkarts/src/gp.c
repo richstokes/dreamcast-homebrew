@@ -8,13 +8,13 @@
 #include "audio.h"
 #include "fx.h"
 #include "hud.h"
+#include "ui.h"
 #include "kart.h"
 #include "render.h"
 
 GrandPrix gp;
 
 static const int gp_points[MAX_KARTS] = {10, 8, 6, 4, 2, 1};
-static const pvr_poly_hdr_t *h_flat;
 static float confetti_t;
 
 /* Insertion sort by points, then the better place in the latest race. */
@@ -156,24 +156,25 @@ void gp_results_update(void) {
 /* ------------------------------------------------------------------ */
 /* Drawing                                                             */
 
-#define PANEL_TOP argb(225, 30, 100, 220)
-#define PANEL_BOT argb(225, 12, 36, 120)
-#define GOLD      argb(255, 255, 220, 60)
-#define PALE      argb(220, 200, 225, 255)
-#define POINTS    argb(255, 255, 226, 70)
-#define GAIN      argb(255, 120, 255, 140)
+#define GOLD      ui_col(UI_ACCENT)
+#define PALE      ui_col(UI_DIM)
+#define POINTS    ui_col(UI_ACCENT)
+#define GAIN      ui_col(UI_GOOD)
+#define TEXT      ui_col(UI_TEXT)
 
 static void row_highlight(float x0, float x1, float y) {
-    if(!h_flat) h_flat = r_header(TEX_NONE, HF_TR | HF_NOFOG | HF_NOZTEST);
-    r_hdr(h_flat);
-    float glow = 0.2f + 0.1f * sinf(game.title_t * 5);
-    r_quad2d(x0 + 12, y - 4, x1 - 12, y + 32, 0, 0, 1, 1, color_alpha(0xffffffff, glow), 15.5f);
+    ui_row(x0 + 14, y - 4, x1 - 14, y + 32, true);
+}
+
+/* Lettering on the human's highlighted row. */
+static uint32_t on_row(bool me, uint32_t col) {
+    return me ? ui_col(UI_ITEM_SEL) : col;
 }
 
 static void draw_race_page(float x0, float x1) {
     char buf[48], t[20];
     float cx = (x0 + x1) * 0.5f;
-    hud_text(cx, 64, 1.1f, ALIGN_CENTER, GOLD, "RESULTS");
+    ui_title(x0, 52, x1, "RESULTS");
     snprintf(buf, sizeof(buf), "RACE %d OF %d  -  %s", gp.race, gp.count, track.name);
     hud_text(cx, 108, 0.5f, ALIGN_CENTER, PALE, buf);
     hud_text(x1 - 88, 134, 0.42f, ALIGN_RIGHT, PALE, "RACE");
@@ -185,15 +186,15 @@ static void draw_race_page(float x0, float x1) {
         bool me = kart_is_human(i);
         if(me) row_highlight(x0, x1, y);
         snprintf(buf, sizeof(buf), "%d%s", pos + 1, hud_ordinal(pos + 1));
-        hud_text(x0 + 22, y - 2, 0.75f, ALIGN_LEFT, hud_place_color(pos + 1), buf);
+        hud_text(x0 + 22, y - 2, 0.75f, ALIGN_LEFT, on_row(me, hud_place_color(pos + 1)), buf);
         hud_swatch(x0 + 88, y + 6, k->paint1, k->ui_color);
-        hud_text(x0 + 122, y + 2, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, k->name);
+        hud_text(x0 + 122, y + 2, 0.62f, ALIGN_LEFT, on_row(me, TEXT), k->name);
         hud_format_time(t, k->finish_time);
-        hud_text(x1 - 150, y + 4, 0.55f, ALIGN_RIGHT, 0xffffffff, t);
+        hud_text(x1 - 150, y + 4, 0.55f, ALIGN_RIGHT, on_row(me, TEXT), t);
         snprintf(buf, sizeof(buf), "+%d", gp.gained[i]);
-        hud_text(x1 - 88, y + 2, 0.62f, ALIGN_RIGHT, GAIN, buf);
+        hud_text(x1 - 88, y + 2, 0.62f, ALIGN_RIGHT, on_row(me, GAIN), buf);
         snprintf(buf, sizeof(buf), "%d", gp.points[i]);
-        hud_text(x1 - 16, y + 2, 0.62f, ALIGN_RIGHT, POINTS, buf);
+        hud_text(x1 - 16, y + 2, 0.62f, ALIGN_RIGHT, on_row(me, POINTS), buf);
     }
 }
 
@@ -201,7 +202,7 @@ static void draw_standings_page(float x0, float x1) {
     char buf[48];
     float cx = (x0 + x1) * 0.5f;
     bool over = gp_over();
-    hud_text(cx, 64, 1.1f, ALIGN_CENTER, GOLD, over ? "GRAND PRIX RESULTS" : "STANDINGS");
+    ui_title(x0, 52, x1, over ? "GRAND PRIX RESULTS" : "STANDINGS");
     if(over) snprintf(buf, sizeof(buf), "FINAL STANDINGS AFTER %d RACE%s", gp.count, gp.count == 1 ? "" : "S");
     else snprintf(buf, sizeof(buf), "AFTER RACE %d OF %d", gp.race, gp.count);
     hud_text(cx, 108, 0.5f, ALIGN_CENTER, PALE, buf);
@@ -223,21 +224,21 @@ static void draw_standings_page(float x0, float x1) {
         }
         else {
             snprintf(buf, sizeof(buf), "%d%s", pos + 1, hud_ordinal(pos + 1));
-            hud_text(x0 + 22, y - 2, 0.75f, ALIGN_LEFT, hud_place_color(pos + 1), buf);
+            hud_text(x0 + 22, y - 2, 0.75f, ALIGN_LEFT, on_row(me, hud_place_color(pos + 1)), buf);
         }
         hud_swatch(x0 + 88, y + 6, k->paint1, k->ui_color);
-        hud_text(x0 + 122, y + 2, 0.62f, ALIGN_LEFT, me ? argb(255, 255, 255, 140) : 0xffffffff, k->name);
+        hud_text(x0 + 122, y + 2, 0.62f, ALIGN_LEFT, on_row(me, TEXT), k->name);
         for(int r = 0; r < gp.race; r++) {
             int place = gp.history[r][i];
             snprintf(buf, sizeof(buf), "%d", place);
-            hud_text(hx + r * hw + hw * 0.5f, y + 6, 0.46f, ALIGN_CENTER, hud_place_color(place), buf);
+            hud_text(hx + r * hw + hw * 0.5f, y + 6, 0.46f, ALIGN_CENTER, on_row(me, hud_place_color(place)), buf);
         }
         if(!over) {
             snprintf(buf, sizeof(buf), "+%d", gp.gained[i]);
-            hud_text(x1 - 72, y + 4, 0.5f, ALIGN_RIGHT, GAIN, buf);
+            hud_text(x1 - 72, y + 4, 0.5f, ALIGN_RIGHT, on_row(me, GAIN), buf);
         }
         snprintf(buf, sizeof(buf), "%d", gp.points[i]);
-        hud_text(x1 - 16, y + 2, 0.62f, ALIGN_RIGHT, POINTS, buf);
+        hud_text(x1 - 16, y + 2, 0.62f, ALIGN_RIGHT, on_row(me, POINTS), buf);
     }
     /* The humans' standings, or what comes next. */
     float fy = 372;
@@ -255,23 +256,23 @@ static void draw_standings_page(float x0, float x1) {
     }
     else {
         snprintf(buf, sizeof(buf), "NEXT: %s", track_names[gp.order[gp.race]]);
-        hud_text(cx, fy, 0.55f, ALIGN_CENTER, 0xffffffff, buf);
+        hud_text(cx, fy, 0.55f, ALIGN_CENTER, TEXT, buf);
     }
 }
 
 void gp_draw_results(void) {
     float a = clampf(game.time / 0.5f, 0, 1);
     float x0 = 70 + (1 - a) * 500, x1 = x0 + 500;
-    hud_panel(x0, 52, x1, 424, PANEL_TOP, PANEL_BOT, 15);
+    ui_panel(x0, 52, x1, 424);
     if(gp.page == 0) draw_race_page(x0, x1);
     else draw_standings_page(x0, x1);
     bool over = gp_over();
     const char *hint = gp.page == 0 ? "A: STANDINGS" : over ? "A: TITLE" : "A: NEXT RACE   B: QUIT";
-    if(game.time > 1.0f && ((int)(game.title_t * 2.5f) & 1) == 0)
-        hud_text((x0 + x1) * 0.5f, 396, 0.55f, ALIGN_CENTER, 0xffffffff, hint);
+    if(game.time > 1.0f) ui_hint(hint);
     if(gp.quit_prompt) {
-        hud_panel(150, 180, 490, 300, PANEL_TOP, PANEL_BOT, 18);
-        hud_text(320, 196, 0.8f, ALIGN_CENTER, GOLD, "QUIT THE GRAND PRIX?");
-        hud_text(320, 250, 0.6f, ALIGN_CENTER, 0xffffffff, "A: QUIT   B: KEEP RACING");
+        ui_dim();
+        ui_panel(150, 170, 490, 300);
+        ui_title(150, 170, 490, "QUIT THE GRAND PRIX?");
+        ui_hint_at(320, 266, "A: QUIT   B: KEEP RACING");
     }
 }

@@ -28,7 +28,10 @@ DK_SHOW_VMU=1 shows the VMU screens over the game. DK_KEYBOARD=1 plugs a
 Dreamcast keyboard into port B, fed by this Mac's keyboard (lobby chat).
 DK_VMU_DIR=<folder> uses that folder's memory cards instead of the real
 ones; it must already hold vmu_save_A1.bin to D2.bin (blank 131072-byte
-files do), or Flycast moves the real cards there.
+files do), or Flycast moves the real cards there. DK_FLYCAST_CONFIG adds
+more -config settings (e.g. window:left=700,window:top=40 to place the
+window clear of another instance's, which would otherwise stop it
+presenting frames to capture).
 USAGE
 }
 
@@ -71,6 +74,9 @@ if [[ -n "${DK_VMU_DIR:-}" ]]; then
         [[ -f "${DK_VMU_DIR}/vmu_save_${slot}.bin" ]] || { echo "DK_VMU_DIR lacks vmu_save_${slot}.bin (Flycast would move the real card)" >&2; exit 2; }
     done
     FLYCAST_CONFIG+=",config:Dreamcast.VMUPath=${DK_VMU_DIR}"
+fi
+if [[ -n "${DK_FLYCAST_CONFIG:-}" ]]; then
+    FLYCAST_CONFIG+=",${DK_FLYCAST_CONFIG}"
 fi
 ELF_PATH="${PROJECT_DIR}/${ELF_NAME}"
 # The disc: the ELF with disc/ (the music) beside it. Rebuilt when either

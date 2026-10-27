@@ -5,9 +5,10 @@
 # ///
 """Procedurally paint every DreamKarts texture and pack it for the PowerVR.
 
-Everything is drawn from code (seeded noise, shapes and the DejaVu fonts that
-ship with matplotlib, Bitstream Vera licence), so the art is original and the
-output is reproducible. Writes to --output-dir:
+Everything is drawn from code (seeded noise, shapes, Lilita One from
+tools/fonts/ for the menus' lettering and the DejaVu fonts that ship with
+matplotlib for trackside signs), so the art is original and the output is
+reproducible. Writes to --output-dir:
 
     textures.pak        twiddled RGB565/ARGB4444 textures (+mips), 32-byte aligned
     texture_assets.h    TEX_* ids and the size/format/offset table
@@ -517,18 +518,64 @@ def tex_crowd(n=64):
 FONT_CHARS = [chr(c) for c in range(32, 128)]
 FONT_ROW_H = 42
 FONT_SIZE = 30
+FONT_CAP_H = 22      # cap height every UI font is sized to, so hud_text scales stay put
+FONT_BASELINE = 30   # baseline row within the 42 px glyph row
+
+
+# The menus' lettering: Lilita One (OFL, tools/fonts/) for the HUD font,
+# logo and countdown. The outline is 2 px: 3 px pushed Q's tail out of the
+# 42 px glyph row.
+UI_FONT = str(Path(__file__).resolve().parent / "fonts" / "LilitaOne-Regular.ttf")
+UI_OUTLINE = 2
+LOGO_SIZES = (110, 94)   # capitals, lowercase
+LOGO_OUTLINE = 7
+
+
+def ui_font() -> ImageFont.FreeTypeFont:
+    """The HUD font at the size whose capitals stand FONT_CAP_H tall (the
+    DejaVu Bold Oblique the game shipped with, at 30 px), so every hud_text
+    scale in the game keeps its size whatever the font."""
+    best = None
+    for size in range(20, 48):
+        f = ImageFont.truetype(UI_FONT, size)
+        bb = f.getbbox("H")
+        cap = bb[3] - bb[1]
+        if best is None or abs(cap - FONT_CAP_H) < abs(best[0] - FONT_CAP_H):
+            best = (cap, f)
+    return best[1]
 
 
 def tex_font():
     """White glyphs with a dark outline; tint with vertex colour at runtime.
 
-    The bold oblique glyphs and their outline overhang any fixed cell (W is
+    The glyphs and their outline overhang any fixed cell (DejaVu's W is
     38 px wide, J starts 5 px left of the pen), so each glyph is packed into
     its own rect: its ink plus one transparent texel each side, which keeps
     bilinear filtering from sampling a neighbour. Returns the atlas and, per
     glyph, (x, row, width, left offset from the pen, advance)."""
     img = Image.new("RGBA", (512, 256), (255, 255, 255, 0))
-    font = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), FONT_SIZE)
+    font = ui_font()
+    stroke = UI_OUTLINE
+    pad = 16
+    # The baseline sits FONT_BASELINE rows down, as the original font's did,
+    # unless a tall ascender or deep descender (plus the outline) would leave
+    # the row: then the whole alphabet shifts to fit.
+    ascent = font.getmetrics()[0]
+    ty = FONT_BASELINE - ascent
+    lo, hi = FONT_ROW_H, 0
+    for ch in FONT_CHARS:
+        if ch == " ":
+            continue
+        cell = Image.new("L", (64 + 2 * pad, FONT_ROW_H * 3), 0)
+        ImageDraw.Draw(cell).text((pad + 3, FONT_ROW_H + ty), ch, font=font, fill=255,
+                                  stroke_width=stroke, stroke_fill=255)
+        ys = np.nonzero(np.array(cell))[0]
+        if len(ys):
+            lo, hi = min(lo, ys.min() - FONT_ROW_H), max(hi, ys.max() - FONT_ROW_H)
+    if lo < 1:
+        ty += 1 - lo
+    elif hi > FONT_ROW_H - 2:
+        ty -= hi - (FONT_ROW_H - 2)
     glyphs = []
     x = row = 0
     for ch in FONT_CHARS:
@@ -536,13 +583,15 @@ def tex_font():
         if ch == " ":
             glyphs.append((0, 0, 0, 0, adv))
             continue
-        pad = 16
         cell = Image.new("RGBA", (64 + 2 * pad, FONT_ROW_H), (255, 255, 255, 0))
-        ImageDraw.Draw(cell).text((pad + 3, 2), ch, font=font, fill=(255, 255, 255, 255),
-                                  stroke_width=3, stroke_fill=(16, 22, 48, 255))
+        ImageDraw.Draw(cell).text((pad + 3, ty), ch, font=font, fill=(255, 255, 255, 255),
+                                  stroke_width=stroke, stroke_fill=(16, 22, 48, 255))
         alpha = np.array(cell)[..., 3]
         ys, xs = np.nonzero(alpha)
-        assert ys.min() >= 1 and ys.max() <= FONT_ROW_H - 2, ch
+        if not len(ys):   # a glyph the font lacks (DEL) draws as a blank
+            glyphs.append((0, 0, 0, 0, adv))
+            continue
+        assert ys.min() >= 1 and ys.max() <= FONT_ROW_H - 2, (ch, ys.min(), ys.max())
         x0, x1 = xs.min() - 1, xs.max() + 2      # rect with a clear texel each side
         w = x1 - x0
         if x + w > img.width:
@@ -551,6 +600,14 @@ def tex_font():
         img.alpha_composite(cell.crop((x0, 0, x1, FONT_ROW_H)), (x, row * FONT_ROW_H))
         glyphs.append((x, row, w, x0 - pad, adv))
         x += w
+    # Tabular digits: the font's are proportional (its 1 is narrower than
+    # its 0), which made a ticking race clock change width every frame. Each
+    # digit takes the widest one's advance, its ink centred in it, so any
+    # reading keeps its width whatever its digits.
+    tab = max(glyphs[ord(c) - 32][4] for c in "0123456789")
+    for c in "0123456789":
+        gx, grow, gw, gox, gadv = glyphs[ord(c) - 32]
+        glyphs[ord(c) - 32] = (gx, grow, gw, gox + (tab - gadv) // 2, tab)
     return img, glyphs
 
 
@@ -602,13 +659,14 @@ LOGO_CELL = 128
 
 def tex_logo():
     img = Image.new("RGBA", (512, 256), (0, 0, 0, 0))
-    font = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 96)
-    cap = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 112)
+    cap_px, low_px = LOGO_SIZES
+    font = ImageFont.truetype(UI_FONT, low_px)
+    cap = ImageFont.truetype(UI_FONT, cap_px)
     stops = [(0.0, (255, 252, 190)), (0.38, (255, 214, 40)), (0.62, (255, 150, 20)), (1.0, (230, 70, 20))]
     widths = []
     for i, ch in enumerate(LOGO_LETTERS):
         f = cap if ch.isupper() else font
-        layer = gradient_text_layer((LOGO_CELL, LOGO_CELL), ch, f, stops, (20, 60, 190), 7)
+        layer = gradient_text_layer((LOGO_CELL, LOGO_CELL), ch, f, stops, (20, 60, 190), LOGO_OUTLINE)
         img.alpha_composite(layer, ((i % 4) * LOGO_CELL, (i // 4) * LOGO_CELL))
         widths.append(int(f.getlength(ch)) + 10)
     return img, widths
@@ -622,24 +680,25 @@ def tex_bigtext():
     """Countdown and finish lettering: 3, 2, 1, GO! and FINISH!.
 
     Each cell is wide enough for its lettering's outline and drop shadow, so
-    nothing is cut off at a cell edge."""
+    nothing is cut off at a cell edge; a font whose lettering would clip is
+    stepped down in size until it fits."""
     img = Image.new("RGBA", (512, 256), (0, 0, 0, 0))
-    big = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 100)
-    mid = ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 78)
     warm = [(0.0, (255, 255, 210)), (0.45, (255, 220, 50)), (1.0, (240, 90, 20))]
     cool = [(0.0, (230, 255, 255)), (0.5, (90, 220, 255)), (1.0, (30, 110, 230))]
-    layers = [gradient_text_layer((w, 128), txt, big, warm, (150, 20, 20), 7)
-              for txt, (_, w) in zip("321", BIGTEXT_CELLS)]
-    layers.append(gradient_text_layer((BIGTEXT_CELLS[3][1], 128), "GO!",
-                                      ImageFont.truetype(font_path("DejaVuSans-BoldOblique.ttf"), 62),
-                                      cool, (10, 40, 140), 6))
+
+    def fitted(size, txt, w, stops, outline, outline_w):
+        while True:
+            layer = gradient_text_layer((w, 128), txt, ImageFont.truetype(UI_FONT, size), stops, outline, outline_w)
+            a = np.array(layer)[..., 3]
+            if not (a[0].any() or a[-1].any() or a[:, 0].any() or a[:, -1].any()):
+                return layer
+            size -= 2
+
+    layers = [fitted(100, txt, w, warm, (150, 20, 20), 7) for txt, (_, w) in zip("321", BIGTEXT_CELLS)]
+    layers.append(fitted(62, "GO!", BIGTEXT_CELLS[3][1], cool, (10, 40, 140), 6))
     for layer, (x, _) in zip(layers, BIGTEXT_CELLS):
         img.alpha_composite(layer, (x, 0))
-    layers.append(gradient_text_layer((512, 128), "FINISH!", mid, warm, (150, 20, 20), 7))
-    img.alpha_composite(layers[-1], (0, 128))
-    for layer in layers:
-        a = np.array(layer)[..., 3]
-        assert not (a[0].any() or a[-1].any() or a[:, 0].any() or a[:, -1].any()), "bigtext cell clips"
+    img.alpha_composite(fitted(78, "FINISH!", 512, warm, (150, 20, 20), 7), (0, 128))
     return img
 
 

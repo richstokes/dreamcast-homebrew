@@ -3,7 +3,7 @@ include ../../../tools/sh4zam.mk
 else
 
 TARGET = dreamkarts.elf
-SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c title.c audio.c rumble.c dolphins.c biplane.c \
+SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c ui.c title.c audio.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c
 # Shared with other projects, from projects/common.
 COMMON_SOURCES = dialup.c
