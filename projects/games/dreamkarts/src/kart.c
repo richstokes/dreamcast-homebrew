@@ -928,23 +928,35 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
     float top = kart_top_speed(k);
     float look = (6.0f + spd * 0.45f) * look_k;
     float c_ahead = track_curvature(s + 4.0f + spd * 0.3f);
-    float lane = k->lane;
+    /* A road narrower than the usual 8 m half (Apple Valley's) squeezes the
+       lanes and weaves, and its tight bends get the extra care below. */
+    float half = track_half_at(&k->tp), narrow = fminf(1.0f, half / 8.0f);
+    bool tight = narrow < 1.0f;
+    float lane = k->lane * narrow;
     if(styled) {
         /* A slow weave about the lane, straightened out through bends and
            on the run up to (and over) a jump. */
-        float sway = ai_style[idx].sway * (1.0f - clampf(fabsf(c_ahead) * 120.0f, 0, 1));
+        float sway = ai_style[idx].sway * narrow * (1.0f - clampf(fabsf(c_ahead) * 120.0f, 0, 1));
         if(track.has_jump) {
             float a = track_jump_pos(s);
             if(a > -90.0f && a < track.jump.land + 10.0f) sway = 0;
         }
         lane += sway * sinf(s * (DK_TAU / track.length) * ai_style[idx].sways + (float)idx * 1.7f);
     }
-    float td = clampf(track_line(s + look) + lane, -6.0f, 6.0f);
+    float edge = fminf(6.0f, half - 0.8f);
+    float td = clampf(track_line(s + look) + lane, -edge, edge);
     td = items_ai_lane(k, s + look, td);
     V3 tp = track_point(s + look, td);
     float dx = tp.x - k->pos.x, dz = tp.z - k->pos.z;
     float dist = fmaxf(sqrtf(dx * dx + dz * dz), 1.0f);
-    float alpha = wrap_angle(atan2f(dx, dz) - k->heading);
+    /* Aim from the way the kart is going. In a slide that runs 20-50 deg
+       off the way it points, and aiming from the nose let the slides on
+       Apple Valley's hairpins carry the CPUs (and the boost out of them)
+       off the road. Elsewhere it also made them quicker, by 1-7 s a race,
+       so it stays on the tight track until the difficulty is retuned. */
+    float course = k->heading;
+    if(tight && k->speed > 5.0f) course = atan2f(k->vel.x, k->vel.z);
+    float alpha = wrap_angle(atan2f(dx, dz) - course);
     float c_des = 2.0f * sinf(alpha) / dist;          /* + = curve right */
     in->accel = true;
     if(k->drift == DRIFT_ACTIVE) {
@@ -998,6 +1010,10 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
 #endif
             k->ai_drift_btn = false;
             k->ai_drift_hold = too_tight ? 0.35f : 0.6f;
+            /* A tight track's next hairpin can be 20 m on: be ready for it. */
+            if(tight)
+                for(float x = 10.0f; x <= 30.0f; x += 5.0f)
+                    if(fabsf(track_curvature(s + x)) > 1.0f / 30.0f) k->ai_drift_hold = 0.2f;
         }
     }
     in->drift = k->ai_drift_btn;
