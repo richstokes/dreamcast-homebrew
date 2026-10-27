@@ -40,6 +40,22 @@ keyboard attach, TCP orphan reset and TCP poll-lock fixes went upstream
 (KallistiOS#1537, #1551, #1550) and were dropped with the move to master
 `e7ab1a2`.
 
+## A stock SDK for A/B runs
+
+`tools/kos/stock-sdk.sh` keeps an unpatched KallistiOS beside the installed
+one, at `~/.local/share/dreamcast/kos-stock`, to show on the console what a
+patch here fixes. It's a shared clone of the installed repo, so the
+installed tree is never touched.
+
+```sh
+tools/kos/stock-sdk.sh            # upstream master, fetched now
+tools/kos/stock-sdk.sh e7ab1a2    # or any commit
+```
+
+KOS_Test's `make auto-stock` builds and runs against it. Only the kernel,
+addons, `bin2c` and `genromfs` are built: the other host utils want libpng
+and libjpeg on the Mac.
+
 ## Moving the pin
 
 CI builds against the KallistiOS commit in `.github/workflows/release.yml`
