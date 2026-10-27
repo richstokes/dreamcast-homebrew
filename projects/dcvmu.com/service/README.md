@@ -14,7 +14,7 @@ needs a modern browser. End-user instructions live in the
 - VMU studio (`/studio`) draws 32x32 Dreamcast-menu and VMU-screen icon sets, optionally with the hidden 3D BIOS animation
 - Card importer (`/import`) previews `.bin`, `.vmu`, `.dcm` and `.dci` images, then imports the selected saves or icons without replacing existing backups
 - Whole-VMU archives (`/archives`) snapshot one 128 KiB card with DCVMU login saves scrubbed out, for one-step restore from the client
-- Web player (`/play?rom=continuous/dreamkarts.cdi&name=DreamKarts`) runs this repository's release ELFs and disc images in the browser with Flycast WASM and EmulatorJS. Unlisted like `/stats`; the root README's Play links point here
+- Web player (`/play?rom=continuous/dreamkarts.cdi&name=DreamKarts`) runs this repository's release ELFs and disc images in the browser with Flycast WASM and EmulatorJS. Network apps get online through an emulated broadband adapter: `netrelay.py` carries its Ethernet frames over a WebSocket to [DCNet](https://dcnet.flyca.st). Unlisted like `/stats`; the root README's Play links point here
 
 Limits per account: 200 saves, 20 archives, 60 uploads an hour. Saves are at
 most 120.5 KiB (241 blocks) and archives exactly 128 KiB. `DCVMU_AUTH` login
@@ -52,6 +52,7 @@ to `main`, followed by the client's host tests.
 | `test_archives.py` | Whole-card login scrubbing, archive pages and the console archive API |
 | `test_stats.py` | Unlisted stats page, sortable user table, public-only profiles |
 | `test_play.py` | Web player page and headers, release asset parsing, the ROM cache and its GitHub revalidation |
+| `test_netrelay.py` | DCNet relay framing, origin and path checks, session limits, DCNet outages |
 
 ## Security
 
@@ -83,6 +84,7 @@ backup/restore.
 | Database | `/var/lib/dcvmu/archive.sqlite3`, preserved across deploys |
 | Player cache | `/var/cache/dcvmu`: release assets fetched from GitHub (rechecked every 5 minutes) and the Flycast core. Caddy sends these files itself; safe to delete |
 | Gunicorn | `127.0.0.1:8090` behind the infra-managed Caddy. The host is shared with Valley Rangers and others: restart only `dcvmu` |
+| Network relay | `dcvmu-net.service`, `127.0.0.1:8092`, Caddy routes `/play/net` to it. One DCNet TCP session per online player; 32 at once, 4 per IP, closed after 10 idle minutes or 256 MiB. A restart drops online players |
 
 Deploy the service before releasing a client that depends on new API
 behavior. Client binaries are not hosted here: GitHub Actions publishes
@@ -122,3 +124,4 @@ Restore:
 - Imports keep bytes and header offsets, not directory timestamps or copy-protection flags
 - The studio needs a modern browser
 - The web player needs WebGL 2, loads EmulatorJS from its CDN and only plays assets from this repository's releases
+- Web player networking depends on DCNet (flyinghead's service), and every browser player reaches it from this host's IP. No modem, BBA only

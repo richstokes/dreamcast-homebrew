@@ -26,10 +26,69 @@
     reicast_frame_skipping: '1'
   });
   var params = new URLSearchParams(window.location.search);
+  var state = '';
+  var online = false;
 
   function setStatus(text) {
-    status.textContent = text;
+    state = text;
+    status.textContent = online ? text + ' \u00b7 online through DCNet' : text;
   }
+
+  function setOnline(value) {
+    online = value;
+    setStatus(state);
+  }
+
+  // The core's emulated broadband adapter sends and receives Ethernet frames
+  // through this object (tools/flycast-wasm/patches), one per WebSocket
+  // message to dcvmu.com's relay to DCNet (netrelay.py). Its presence turns
+  // the adapter on; the socket opens when a game first uses the network.
+  var net = { started: false, socket: null, retry: null, inbox: [], outbox: [] };
+
+  function connectNet() {
+    var scheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    var socket = net.socket = new WebSocket(scheme + window.location.host + '/play/net');
+    socket.binaryType = 'arraybuffer';
+    socket.onopen = function () {
+      // Sending what queued while connecting saves KOS a slow DHCP retry.
+      net.outbox.forEach(function (frame) { socket.send(frame); });
+      net.outbox = [];
+      setOnline(true);
+    };
+    socket.onmessage = function (event) {
+      if (net.inbox.length < 256) net.inbox.push(new Uint8Array(event.data));
+    };
+    socket.onclose = function () {
+      if (net.socket !== socket) return;
+      net.socket = null;
+      setOnline(false);
+      if (net.started) net.retry = setTimeout(connectNet, 5000);
+    };
+  }
+
+  window.flycastNet = {
+    start: function () {
+      net.started = true;
+      if (!net.socket) connectNet();
+    },
+    stop: function () {
+      net.started = false;
+      clearTimeout(net.retry);
+      var socket = net.socket;
+      net.socket = null;
+      if (socket) socket.close();
+      net.inbox = [];
+      net.outbox = [];
+      setOnline(false);
+    },
+    send: function (frame) {
+      if (net.socket && net.socket.readyState === WebSocket.OPEN) net.socket.send(frame);
+      else if (net.outbox.length < 64) net.outbox.push(frame);
+    },
+    recv: function () {
+      return net.inbox.shift();
+    }
+  };
 
   function supportsWebGL2() {
     try {
