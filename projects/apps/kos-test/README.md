@@ -144,7 +144,7 @@ make
 KT_KEYBOARD=1 ./run-flycast.sh    # Mac keyboard as a Dreamcast keyboard on port B
 ```
 
-On a real console, with my [hardware setup](../../../README.md#real-hardware):
+On a real console, with the [hardware setup](../../../README.md#real-hardware):
 
 ```sh
 make hw        # upload and leave it running

@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 #
-# dc-hw.sh - run programs on the real Dreamcast from this Mac.
+# dc-hw.sh - run programs on a real Dreamcast over dcload-ip.
 #
-# The console boots from GDEMU into openMenu, which auto-launches dcload-ip.
-# Its power goes through a Shelly smart plug, so a hung or crashed console can
-# be recovered without touching it.
+# The console needs a Broadband Adapter and dcload-ip (mine boots from GDEMU
+# into openMenu, which auto-launches dcload-ip). If its power goes through a
+# Shelly smart plug, a hung or crashed console can be recovered without
+# touching it, but the plug is only used once you name it:
+#
+#   dc-hw.sh --use-shelly [IP] ...  use the Shelly plug at IP (or the only one
+#                                   on the network) and remember it
+#   dc-hw.sh --no-shelly ...        forget it; switch the console yourself
+#
+# The plug's MAC address is remembered with its address, so a plug that DHCP
+# moved is found again and never mixed up with another one on the network.
 #
 #   dc-hw.sh status                 plug state, power draw, is dcload answering
 #   dc-hw.sh power on|off|cycle     switch the plug (cycle = off, pause, on)
@@ -22,7 +30,9 @@
 # "run" brings the console up if it is off or not answering, uploads the
 # program and prints what it prints. If the program prints nothing and
 # dcload-ip is back waiting, the upload is retried, the last time after a
-# power cycle. It exits with 0 if
+# power cycle. Without a plug, switch the console on into dcload-ip first:
+# --cycle then runs on the dcload-ip that is up, and --off only reminds you to
+# switch it off. It exits with 0 if
 # --until matched, 124 on timeout or --idle, 125 if the program never started,
 # otherwise with dc-tool-ip's own exit status.
 #
@@ -41,10 +51,10 @@
 # MAC address is no help: the adapter sits behind a bridge that rewrites it.)
 #
 # Settings, overridable from the environment:
-#   DC_IP         Dreamcast address            (last one found, else 192.168.1.74)
-#   DC_PLUG_IP    Shelly plug address          (last one found, else 192.168.1.173;
-#                 if it stops answering, the /24 is scanned for a Shelly plug)
-#   DC_TOOL       path to dc-tool-ip
+#   DC_IP         Dreamcast address            (last one found, else this
+#                 host's address, whose /24 is searched)
+#   DC_PLUG_IP    Shelly plug address, the same as --use-shelly IP
+#   DC_TOOL       path to dc-tool-ip           (the one on PATH)
 #   DC_BOOT_WAIT  seconds to allow for booting (120)
 #   DC_OFF_SECS   seconds to stay off in cycle (2)
 #   DC_START_SECS seconds of silence after the execute command before
@@ -53,10 +63,20 @@
 
 set -u
 
+# This host's IPv4 address, to guess which /24 the console is on.
+host_ip() {
+    local ifc
+    if command -v ipconfig >/dev/null 2>&1; then
+        ifc="$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')"
+        ipconfig getifaddr "${ifc:-en0}" 2>/dev/null
+    else
+        ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p'
+    fi
+}
+
 DC_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/dc-hw"
-DC_IP="${DC_IP:-$(cat "$DC_CACHE/ip" 2>/dev/null || echo 192.168.1.74)}"
-DC_PLUG_IP="${DC_PLUG_IP:-$(cat "$DC_CACHE/plug_ip" 2>/dev/null || echo 192.168.1.173)}"
-DC_TOOL="${DC_TOOL:-$HOME/Dropbox/Games/ROMs/DREAMCAST/dcload-ip/dc-tool-ip}"
+DC_IP="${DC_IP:-$(cat "$DC_CACHE/ip" 2>/dev/null || host_ip)}"
+DC_TOOL="${DC_TOOL:-$(command -v dc-tool-ip || echo "$HOME/Dropbox/Games/ROMs/DREAMCAST/dcload-ip/dc-tool-ip")}"
 DC_BOOT_WAIT="${DC_BOOT_WAIT:-120}"
 DC_OFF_SECS="${DC_OFF_SECS:-2}"
 DC_START_SECS="${DC_START_SECS:-15}"
@@ -65,44 +85,118 @@ DC_UPLOAD_SECS="${DC_UPLOAD_SECS:-120}"
 say() { printf '[dc-hw %s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { say "error: $*"; exit 1; }
 
-# Shelly devices describe themselves at /shelly; find a plug on the /24 if
-# DHCP moved it, and remember where it answered.
-find_plug() {
-    local net="${DC_PLUG_IP%.*}" i dir found
+# The console's Shelly plug, if there is one (see --use-shelly).
+PLUG_IP="$(cat "$DC_CACHE/plug_ip" 2>/dev/null)"
+PLUG_MAC="$(cat "$DC_CACHE/plug_mac" 2>/dev/null)"
+
+remember_plug() {
+    mkdir -p "$DC_CACHE"
+    echo "$PLUG_IP" >"$DC_CACHE/plug_ip"
+    echo "$PLUG_MAC" >"$DC_CACHE/plug_mac"
+}
+
+# Shelly devices describe themselves at /shelly. Prints the MAC address of
+# the one at $1.
+shelly_mac() {
+    curl -fs -m 3 "http://$1/shelly" 2>/dev/null |
+        sed -n 's/.*"mac":[[:space:]]*"\([0-9A-Fa-f]*\)".*/\1/p'
+}
+
+# Every Shelly device on the /24 of $1, one "address mac app" line each.
+shelly_scan() {
+    local net="${1%.*}" i dir f mac
     dir="$(mktemp -d -t dc-hw-plug)"
     for i in $(seq 1 254); do
-        { curl -fsS -m 2 "http://$net.$i/shelly" 2>/dev/null |
-              grep -q '"app":"Plug' && touch "$dir/$net.$i"; } &
+        curl -fs -m 2 -o "$dir/$net.$i" "http://$net.$i/shelly" 2>/dev/null &
     done
     wait
-    found="$(ls "$dir" | head -n 1)"
+    for f in "$dir"/*; do
+        [[ -s "$f" ]] || continue
+        mac="$(sed -n 's/.*"mac":[[:space:]]*"\([0-9A-Fa-f]*\)".*/\1/p' "$f")"
+        [[ -n "$mac" ]] || continue
+        echo "$(basename "$f") $mac $(sed -n 's/.*"app":[[:space:]]*"\([^"]*\)".*/\1/p' "$f")"
+    done
     rm -rf "$dir"
-    [[ -n "$found" ]] || return 1
-    say "Shelly plug found at $found (was $DC_PLUG_IP)"
-    DC_PLUG_IP="$found"
-    mkdir -p "$DC_CACHE" && echo "$DC_PLUG_IP" >"$DC_CACHE/plug_ip"
 }
 
+# Use the Shelly plug at $1 from now on.
+use_plug() {
+    local mac
+    mac="$(shelly_mac "$1")"
+    [[ -n "$mac" ]] || die "no Shelly device answered at $1"
+    curl -fs -m 5 "http://$1/rpc/Switch.GetStatus?id=0" >/dev/null ||
+        die "the Shelly device at $1 has no switch to power the console with"
+    if [[ "$1" != "$PLUG_IP" || "$mac" != "$PLUG_MAC" ]]; then
+        say "using the Shelly plug at $1 ($mac) from now on; --no-shelly forgets it"
+    fi
+    PLUG_IP="$1" PLUG_MAC="$mac"
+    remember_plug
+}
+
+# A bare --use-shelly takes the only plug on the console's network. With
+# several there is no telling which one the console is on, so ask.
+pick_plug() {
+    local plugs
+    [[ -n "$DC_IP" ]] || die "can't tell which network to search: give the plug's address, --use-shelly IP"
+    plugs="$(shelly_scan "$DC_IP" | awk '$3 ~ /Plug/ {print $1}')"
+    case "$(printf '%s' "$plugs" | grep -c .)" in
+        0) die "no Shelly plug answered on ${DC_IP%.*}.0/24; give its address: --use-shelly IP" ;;
+        1) use_plug "$plugs" ;;
+        *) die "several Shelly plugs answered on ${DC_IP%.*}.0/24 (${plugs//$'\n'/ }); pick the console's: --use-shelly IP" ;;
+    esac
+}
+
+# DHCP can move the plug. Look for it by MAC address, so that another plug on
+# the network is never switched in its place.
+find_plug() {
+    local ip mac app
+    [[ -n "$PLUG_MAC" ]] || return 1
+    while read -r ip mac app; do
+        [[ "$mac" == "$PLUG_MAC" ]] || continue
+        say "Shelly plug $PLUG_MAC found at $ip (was $PLUG_IP)"
+        PLUG_IP="$ip"
+        remember_plug
+        return 0
+    done < <(shelly_scan "$PLUG_IP")
+    return 1
+}
+
+# Calls the plug's RPC method $1 and leaves the reply in PLUG_OUT, in this
+# shell rather than a subshell, so a plug found at a new address stays found.
 plug_rpc() {
-    curl -fs -m 5 "http://$DC_PLUG_IP/rpc/$1" && return
-    say "the plug at $DC_PLUG_IP did not answer; searching the network"
-    find_plug || die "no Shelly plug answered on ${DC_PLUG_IP%.*}.0/24"
-    curl -fsS -m 5 "http://$DC_PLUG_IP/rpc/$1" ||
-        die "the plug at $DC_PLUG_IP did not answer"
+    if PLUG_OUT="$(curl -fs -m 5 "http://$PLUG_IP/rpc/$1")"; then
+        # A plug remembered by an older dc-hw.sh has no MAC address yet.
+        if [[ -z "$PLUG_MAC" ]]; then
+            PLUG_MAC="$(shelly_mac "$PLUG_IP")"
+            remember_plug
+        fi
+        return 0
+    fi
+    say "the plug at $PLUG_IP did not answer; looking for it on the network"
+    find_plug || die "Shelly plug ${PLUG_MAC:-at $PLUG_IP} is not on ${PLUG_IP%.*}.0/24 (is it plugged in? --use-shelly IP points at it again)"
+    PLUG_OUT="$(curl -fsS -m 5 "http://$PLUG_IP/rpc/$1")" ||
+        die "the plug at $PLUG_IP did not answer"
 }
 
-plug_set() { plug_rpc "Switch.Set?id=0&on=$1" >/dev/null; }
+plug_set() { plug_rpc "Switch.Set?id=0&on=$1"; }
 
-# Prints "on" or "off".
-plug_state() {
-    plug_rpc "Switch.GetStatus?id=0" |
-        sed -En 's/.*"output":[[:space:]]*(true|false).*/\1/p' |
-        sed 's/true/on/; s/false/off/'
+# Reads the switch into PLUG_ON ("on" or "off") and the draw into PLUG_WATTS.
+plug_query() {
+    plug_rpc "Switch.GetStatus?id=0"
+    PLUG_ON="$(sed -En 's/.*"output":[[:space:]]*(true|false).*/\1/p' <<<"$PLUG_OUT" |
+        sed 's/true/on/; s/false/off/')"
+    PLUG_WATTS="$(sed -n 's/.*"apower":[[:space:]]*\([0-9.]*\).*/\1/p' <<<"$PLUG_OUT")"
 }
 
-plug_watts() {
-    plug_rpc "Switch.GetStatus?id=0" |
-        sed -n 's/.*"apower":[[:space:]]*\([0-9.]*\).*/\1/p'
+no_plug_help() {
+    cat >&2 <<'EOF'
+[dc-hw] There is no Shelly plug set up, so the console can't be switched from here.
+  - Switch the console on into dcload-ip yourself, then run this again
+  - Or, if the console is on a Shelly plug: dc-hw.sh --use-shelly [IP] (remembered)
+  - Or skip dc-hw.sh: build with make, then load the ELF your usual way, e.g.
+      dc-tool-ip -t <console-ip> -x prog.elf
+    or make a CDI for GDEMU or a CD-R: tools/flycast/elf-to-cdi.sh prog.elf prog.cdi
+EOF
 }
 
 remember_ip() {
@@ -135,6 +229,7 @@ sweep() {
 # the last known address.
 dc_up() {
     local ip
+    [[ -n "$DC_IP" ]] || die "can't tell which network the console is on: set DC_IP"
     dcload_at "$DC_IP" && return 0
     [[ "${1:-}" == find ]] || return 1
     ip="$(sweep)"
@@ -174,9 +269,12 @@ power_cycle() {
 }
 
 cmd_status() {
-    local state
-    state="$(plug_state)"
-    echo "plug:      $state, $(plug_watts) W"
+    if [[ -n "$PLUG_IP" ]]; then
+        plug_query
+        echo "plug:      $PLUG_ON, $PLUG_WATTS W (Shelly at $PLUG_IP)"
+    else
+        echo "plug:      none (dc-hw.sh --use-shelly [IP] to use one)"
+    fi
     if dc_up find; then
         echo "dcload-ip: answering at $DC_IP"
     else
@@ -185,6 +283,7 @@ cmd_status() {
 }
 
 cmd_power() {
+    [[ -n "$PLUG_IP" ]] || { no_plug_help; exit 1; }
     case "${1:-}" in
         on)    plug_set true;  say "power on" ;;
         off)   plug_set false; say "power off" ;;
@@ -213,12 +312,19 @@ cmd_run() {
 
     [[ -n "$elf" ]] || die "usage: dc-hw.sh run [-c] [-o] [-T secs] [-i secs] [-u regex] [-l log] prog.elf"
     [[ -f "$elf" ]] || die "$elf does not exist"
-    [[ -x "$DC_TOOL" ]] || die "dc-tool-ip not found at $DC_TOOL"
+    [[ -x "$DC_TOOL" ]] || die "dc-tool-ip not found (put it on your PATH or set DC_TOOL)"
 
-    if (( cycle )); then
+    if [[ -z "$PLUG_IP" ]]; then
+        if ! dc_up find; then
+            say "dcload-ip is not answering; switch the console on into dcload-ip"
+            dc_wait || { no_plug_help; return 1; }
+        elif (( cycle )); then
+            say "no Shelly plug to power-cycle with: using the dcload-ip that is up"
+        fi
+    elif (( cycle )); then
         power_cycle
         dc_wait || return 1
-    elif [[ "$(plug_state)" != on ]]; then
+    elif plug_query; [[ "$PLUG_ON" != on ]]; then
         say "console is off"
         plug_set true
         say "power on"
@@ -252,6 +358,10 @@ cmd_run() {
     # the silence and upload again.
     for attempt in 1 2 3; do
         if (( attempt == 3 )); then
+            if [[ -z "$PLUG_IP" ]]; then
+                say "reboot the console into dcload-ip and run this again"
+                break
+            fi
             say "rebooting the console for a last try"
             power_cycle
             dc_wait || return 1
@@ -321,7 +431,9 @@ cmd_run() {
     (( keep )) || rm -f "$out"
 
     say "finished in $(( SECONDS - start ))s, status $status"
-    if (( off )); then
+    if [[ -z "$PLUG_IP" ]]; then
+        (( off )) && say "no Shelly plug: switch the console off yourself"
+    elif (( off )); then
         plug_set false
         say "power off"
     else
@@ -329,6 +441,33 @@ cmd_run() {
     fi
     return "$status"
 }
+
+shelly=""
+while (( $# )); do
+    case "$1" in
+        --use-shelly)
+            shelly=auto
+            if [[ "${2:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                shelly="$2"
+                shift
+            fi ;;
+        --use-shelly=*) shelly="${1#*=}" ;;
+        --no-shelly)    shelly=none ;;
+        *)              break ;;
+    esac
+    shift
+done
+[[ -z "$shelly" ]] && shelly="${DC_PLUG_IP:-}"
+
+case "$shelly" in
+    "")   ;;
+    none) [[ -n "$PLUG_IP" ]] && say "forgot the Shelly plug at $PLUG_IP"
+          rm -f "$DC_CACHE/plug_ip" "$DC_CACHE/plug_mac"
+          PLUG_IP="" PLUG_MAC="" ;;
+    auto) [[ -n "$PLUG_IP" ]] || pick_plug ;;
+    *)    use_plug "$shelly" ;;
+esac
+[[ -z "${1:-}" && -n "$shelly" ]] && exit 0
 
 case "${1:-}" in
     status) cmd_status ;;

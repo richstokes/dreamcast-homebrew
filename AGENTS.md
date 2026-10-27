@@ -44,7 +44,9 @@ show up there too; leave that to its session rather than merging it.
 Shelly smart plug, dcload-ip over the network). Ask the user in that turn
 whether the console is free before anything that powers, power-cycles,
 resets or uploads to it, and check `ps aux | grep dc-hw` for another session
-holding it.
+holding it. The plug is opt-in and remembered in `~/.cache/dc-hw`; if
+`dc-hw.sh status` reports no plug, ask the user rather than running
+`--use-shelly` yourself.
 
 Under dcload-ip every `printf` is a network round trip made with interrupts
 off, and a lost packet freezes the console. Hardware builds log a line every
@@ -240,8 +242,8 @@ READMEs are written for someone who is not on this machine. The root README's
 "One-time setup" covers KOS, `environ.sh`, the KOS patches, kos-ports and
 Flycast; project READMEs link to it rather than repeating those steps. Any
 target that touches the real console (`make hw`, `hwbench` and the like) links
-to its "Real hardware" section, since `tools/dc-hw.sh` assumes this setup's
-Shelly plug and dcload-ip.
+to its "Real hardware" section, since `tools/dc-hw.sh` needs dcload-ip and
+only switches power through a Shelly plug once `--use-shelly` names one.
 
 ## Definition of done
 

@@ -79,9 +79,9 @@ uses neither the network nor VMU saves.
 
 ### Real Dreamcast
 
-Through `tools/dc-hw.sh` at the repository root, which needs my
-[hardware setup](../../../README.md#real-hardware) (Shelly plug power cycle,
-dcload-ip upload, console log); `DC_IP` and `DC_PLUG_IP` override addresses.
+Through `tools/dc-hw.sh` at the repository root: dcload-ip upload, console
+log, and power control if it has a Shelly plug (see
+[Real hardware](../../../README.md#real-hardware)).
 
 ```sh
 make hw        # play the release build on the console

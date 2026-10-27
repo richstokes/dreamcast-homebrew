@@ -146,19 +146,21 @@ Each project README has its own make targets and launcher options.
 
 ### Real hardware
 
-The `make hw`, `hwbench`, `hwsoak` and `auto` targets are wired to my own
-console setup, so they probably won't work as-is for you.
-[`tools/dc-hw.sh`](tools/dc-hw.sh) expects:
+The `make hw`, `hwbench`, `hwsoak` and `auto` targets run on a real console
+through [`tools/dc-hw.sh`](tools/dc-hw.sh), which expects:
 
 - A Broadband Adapter, with the console booting into
   [dcload-ip](https://github.com/sizious/dcload-ip) (mine goes GDEMU,
   openMenu, dcload-ip)
-- `dc-tool-ip` on the host (`DC_TOOL=/path/to/dc-tool-ip`)
-- The console plugged into a Shelly smart plug on the LAN (`DC_PLUG_IP`), so
-  the script can power-cycle a hung console and switch it off after a test
+- `dc-tool-ip` on your `PATH` (or `DC_TOOL=/path/to/dc-tool-ip`)
+- Optionally, the console's power on a Shelly smart plug, so the script can
+  power-cycle a hung console and switch it off after a test. It never touches
+  a plug until you name it: run `tools/dc-hw.sh --use-shelly IP` once and it
+  is remembered (a bare `--use-shelly` takes the only plug on the network).
+  Without one, switch the console on into dcload-ip before each run
 
-**If your setup differs, build with `make` and load the ELF however you
-normally do.** For example `dc-tool-ip -t <console-ip> -x game.elf` with
+**Without a Broadband Adapter and dcload-ip, build with `make` and load the
+ELF however you normally do.** For example `dc-tool-ip -t <console-ip> -x game.elf` with
 dcload-ip, dcload-serial with a coder's cable, or a CDI on GDEMU or a CD-R
 (`tools/flycast/elf-to-cdi.sh game.elf game.cdi`, or grab one from the
 releases). The Makefiles call the script through `DC_HW`, so `make hw

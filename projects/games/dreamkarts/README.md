@@ -156,7 +156,7 @@ needs no Python.
 
 ## Tests and captures
 
-The `hw` targets run on a real console and need my
+The `hw` targets run on a real console and need the
 [hardware setup](../../../README.md#real-hardware).
 
 | Command | What it checks |

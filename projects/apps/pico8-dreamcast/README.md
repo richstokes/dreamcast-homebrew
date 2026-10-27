@@ -94,7 +94,7 @@ and `FLYCAST_BIN`. Every build checks out the pinned
 [SH4ZAM](third_party/SH4ZAM.md) (header-only) in the ignored
 `third_party/sh4zam`.
 
-On a real Dreamcast with my [hardware setup](../../../README.md#real-hardware),
+On a real Dreamcast with the [hardware setup](../../../README.md#real-hardware),
 from this directory:
 
 ```sh
