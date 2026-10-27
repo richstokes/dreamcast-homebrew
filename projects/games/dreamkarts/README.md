@@ -310,6 +310,7 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 - Online, two level karts each see the other ~150 ms behind, so a power-up hit is only ever judged by the console driving the kart hit; a spear spawned from a packet is moved on by the draw delay, and a mine from a packet catches a kart that crossed its spot in that delay (`src/items.c`)
 - One emerald per band starves a tight pack if it takes any time to come back: six CPUs cross a band within a second, so it pops back at once
 - The Tile Accelerator's vertex buffer (`pvr_init`, `src/render.c`) is a hard ceiling: a frame that passes it stalls the console to a few fps with the CPU time all in the world draw. A split screen of a flat, open track is the case that hits it; `-DDK_CHUNK_STATS` shows what each kind of scenery sends
+- Flycast with anisotropic filtering on (`rend.AnisotropicFiltering` above 1) keeps the road sharp to the horizon; the console has none, and at its own mip pick the road went soft 10-20 m out. The road surfaces use D-adjust 0.5 for that (everything else stays at 1.0), the asphalt is mapped with square texels and opaque mips are Lanczos filtered (`src/render.h`); judge texture blur and shimmer on the console, or in Flycast with anisotropic filtering at 1
 - Anything translucent drawn round your own kart fills most of the chase view: the Barrier's first bubble (three 2.5-2.9 m billboards) pushed the PVR to 20 ms and dropped ~70 frames a race; it is a 1.3 m core and ten small orbiting sparks now (`src/items.c`)
 
 ## Known limitations

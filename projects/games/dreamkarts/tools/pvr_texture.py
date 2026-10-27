@@ -18,6 +18,9 @@ independently agree with this layout. Padding is never inserted between levels.
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
 from PIL import Image
 
 
@@ -129,11 +132,30 @@ def _linear_to_srgb(value: float) -> int:
     return max(0, min(255, int(encoded * 255.0 + 0.5)))
 
 
-def _mip_images(image: Image.Image, wrap: bool) -> list[Image.Image]:
+MIP_FILTERS = {"box": Image.Resampling.BOX, "lanczos": Image.Resampling.LANCZOS}
+
+
+def _covered_range(plane: Image.Image, size: int, offset: float, block: float):
+    """Per texel of a size x size level, the min and max of the source
+    texels its box covers (min and max are separable, so columns first)."""
+    a = np.asarray(plane, dtype=np.float32)
+    spans = [(math.floor(offset + i * block), math.ceil(offset + (i + 1) * block)) for i in range(size)]
+    col_lo = np.stack([a[:, x0:x1].min(axis=1) for x0, x1 in spans], axis=1)
+    col_hi = np.stack([a[:, x0:x1].max(axis=1) for x0, x1 in spans], axis=1)
+    return (np.stack([col_lo[y0:y1].min(axis=0) for y0, y1 in spans]),
+            np.stack([col_hi[y0:y1].max(axis=0) for y0, y1 in spans]))
+
+
+def _mip_images(image: Image.Image, wrap: bool, mip_filter: str = "box") -> list[Image.Image]:
     """Generate ascending levels with linear-light, premultiplied filtering.
 
-    Area filtering suppresses distant facade/road noise without sharpening
-    halos. Every level is derived from the full-resolution source. KOS's PVR
+    Area ("box") filtering suppresses distant facade/road noise without
+    sharpening halos, but it also flattens mid-sized detail, so the small
+    levels go featureless. "lanczos" keeps more of it (the road's 16x16
+    level has ~1.4x the box level's gradient), each texel clamped to the
+    range of the source texels it covers: unclamped, its ringing put extra
+    bands beside every curb stripe. Every level is
+    derived from the full-resolution source. KOS's PVR
     phase correction is shift=-0.5 + level/base/2 output pixels, equivalent to
     a source-box offset of 0.5 - base/level/2. This keeps mip texel centers
     aligned with the hardware instead of making details crawl between levels.
@@ -153,8 +175,14 @@ def _mip_images(image: Image.Image, wrap: bool) -> list[Image.Image]:
     while size < base.width:
         offset = base.width + 0.5 - base.width / size / 2.0
         box = (offset, offset, offset + base.width, offset + base.height)
-        channels = [list(_pixels(plane.resize((size, size), Image.Resampling.BOX, box=box)))
-                    for plane in planes]
+        channels = []
+        for plane in planes:
+            out = plane.resize((size, size), MIP_FILTERS[mip_filter], box=box)
+            if mip_filter == "box":
+                channels.append(list(_pixels(out)))
+            else:
+                lo, hi = _covered_range(plane, size, offset, base.width / size)
+                channels.append(np.clip(np.asarray(out), lo, hi).ravel().tolist())
         mip = Image.new("RGBA", (size, size))
         mip.putdata([
             (*(_linear_to_srgb(c / a) if a > 1.0e-8 else 0 for c in (r, g, b)),
@@ -169,7 +197,7 @@ def _mip_images(image: Image.Image, wrap: bool) -> list[Image.Image]:
 
 def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
                  mipmap: bool = False, dither: bool = True,
-                 wrap: bool = False) -> list[int]:
+                 wrap: bool = False, mip_filter: str = "box") -> list[int]:
     """Return twiddled uint16 words including complete mips and DMA padding.
 
     Dimensions must be powers of two from 8 through 1024; mipmaps require a
@@ -184,7 +212,7 @@ def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
     _check_size(image.width, image.height, mipmap)
     # Opaque RGB565 must not let source alpha alter the filtering result.
     source = image.convert("RGB") if pixel_format == "RGB565" else image.convert("RGBA")
-    levels = _mip_images(source, wrap) if mipmap else [source]
+    levels = _mip_images(source, wrap, mip_filter) if mipmap else [source]
     words = []
     for level in levels:
         packed = _pack_level(level, pixel_format, dither)

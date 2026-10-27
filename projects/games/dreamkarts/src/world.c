@@ -394,6 +394,11 @@ static float terrain_height(V3 p, float db, float shore) {
 }
 
 #define WATER_Y (-0.35f)
+/* Metres of lap per repeat of the asphalt textures, which are 16 m across.
+   Square texels in metres: the chase camera squashes the road along the
+   lap, and the PVR picks a mip level from that squashed side, so texels
+   twice as dense along (8 m) cost the edge lines and grooves a level. */
+#define ROAD_V_M 16.0f
 
 static uint32_t ground_color(float h, float db, bool grassy) {
     if(h < WATER_Y) return argb(255, 200, 196, 170);           /* wet sand under water */
@@ -415,8 +420,9 @@ static void build_track_chunk(int c) {
         const TrackSample *t = &track.smp[(c * per + j) % TRACK_SAMPLES];
         float s = (float)(c * per + j) * ds, half = board ? 9.6f : 8.0f;
         uint32_t col = board ? argb(255, 255, 255, 255) : argb(255, 250, 250, 250);
-        svp(vmad(t->p, t->r, -half), 0, s / 8.0f, col);
-        svp(vmad(t->p, t->r, half), 1, s / 8.0f, col);
+        float v = s / (board ? 8.0f : ROAD_V_M);
+        svp(vmad(t->p, t->r, -half), 0, v, col);
+        svp(vmad(t->p, t->r, half), 1, v, col);
     }
     strip_end();
 
@@ -1198,7 +1204,7 @@ static void f8_build_track_chunk(int c) {
     chunk_begin(HF_OP, 2000.0f);
     if(cur_chunk && f8m.split_lod) cur_chunk->lod = 1;
     /* Asphalt and curbs. */
-    f8_ribbon(sv, n, f8m.road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, 8.0f, false, argb(255, 250, 250, 250),
+    f8_ribbon(sv, n, f8m.road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, ROAD_V_M, false, argb(255, 250, 250, 250),
               argb(255, 250, 250, 250));
     f8_ribbon(sv, n, f8m.curb, -9.6f, -8.0f, 0.01f, 0.01f, 0, 0.0f, 2.4f, false, 0xffffffff, 0xffffffff);
     f8_ribbon(sv, n, f8m.curb, 8.0f, 9.6f, 0.01f, 0.01f, 0, 1.0f, 2.4f, false, 0xffffffff, 0xffffffff);
@@ -4203,7 +4209,7 @@ static void tk_build_deck_coarse(int c) {
         if((k & 1) == 0 || k == n - 1) sv[m++] = full[k];
     chunk_begin(HF_OP, 2000.0f);
     if(cur_chunk) cur_chunk->lod = 2;
-    f8_ribbon(sv, m, f8m.road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, 8.0f, false, argb(255, 250, 250, 250),
+    f8_ribbon(sv, m, f8m.road, -8.0f, 8.0f, 0.0f, 0.0f, 0, 1.0f, ROAD_V_M, false, argb(255, 250, 250, 250),
               argb(255, 250, 250, 250));
     for(int side = -1; side <= 1; side += 2) {
         strip_begin(h_verge);

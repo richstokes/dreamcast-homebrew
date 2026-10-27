@@ -64,6 +64,18 @@ typedef struct { int key; pvr_poly_hdr_t hdr __attribute__((aligned(32))); } Hea
 static HeaderSlot *headers;
 static int header_count;
 
+/* A texture's mip D-adjust (render.h DK_MIP_BIAS): the surfaces driven on
+   apart from everything beside them, the alpha textures at the hardware's own. */
+static int tex_mip_bias(int tex) {
+    if(dk_tex_assets[tex].fmt == DK_TEXFMT_ARGB4444) return PVR_MIPBIAS_NORMAL;
+    switch(tex) {
+        case TEX_ROAD: case TEX_TKROAD: case TEX_CANYONROAD: case TEX_BOARDWALK: case TEX_DASH: case TEX_CHECKER:
+            return DK_MIP_ROAD_BIAS;
+        default:
+            return tex >= TEX_SKYROAD_0 && tex <= TEX_SKYROAD_15 ? DK_MIP_ROAD_BIAS : DK_MIP_BIAS;
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Setup                                                               */
 
@@ -140,6 +152,7 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
         pvr_poly_cxt_txr(&c, list, fmt, t->w, t->h, r_textures[tex],
                          (flags & HF_POINT) ? PVR_FILTER_NEAREST : PVR_FILTER_BILINEAR);
         c.txr.mipmap = t->mip ? true : false;
+        c.txr.mipmap_bias = tex_mip_bias(tex);
         c.txr.env = PVR_TXRENV_MODULATEALPHA;
         c.txr.uv_clamp = (flags & HF_CLAMP) ? PVR_UVCLAMP_UV : PVR_UVCLAMP_NONE;
     }

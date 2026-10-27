@@ -28,6 +28,31 @@ enum {
 
 void render_init(void);
 void render_shutdown(void);
+/* Mipmap D-adjust for the opaque (RGB565) mipmapped textures:
+   DK_MIP_ROAD_BIAS for the surfaces driven on (render.c tex_mip_bias),
+   DK_MIP_BIAS for everything beside them. The PVR picks a pixel's mip level
+   from the long side of its texel footprint, and the chase camera sees the
+   road at about 9 degrees, so at the hardware's own pick (1.0) the road's
+   grain, edge lines and curbs go soft 10-20 m out. Flycast hides this when
+   its anisotropic filtering is on (rend.AnisotropicFiltering).
+
+   Measured on the console from fixed chase views (2026-10-26): 0.5 on
+   every opaque texture picks one level sharper (on the road each level
+   then reaches ~1.4x as far) for 2-7% more PVR time; the same on the
+   ARGB4444 textures (foliage, sprites, effects) sharpens nothing that
+   shows and more than doubles the extra time, so they stay at 1.0. 0.25
+   aliases the boardwalk's planks and the supersample bit doubles the PVR
+   time. The field only steps in quarters. Sharper means more shimmer, and
+   road 0.5 with the sides at 1.0 was the best balance by eye in play on
+   the console. The asphalt's square texels (world.c ROAD_V_M) and the
+   Lanczos mips (tools/pvr_texture.py) help at no PVR cost. A compromise we
+   may revisit, e.g. sides at 0.75 or a fractional bias baked into the mips. */
+#ifndef DK_MIP_BIAS
+#define DK_MIP_BIAS PVR_MIPBIAS_1_00
+#endif
+#ifndef DK_MIP_ROAD_BIAS
+#define DK_MIP_ROAD_BIAS PVR_MIPBIAS_0_50
+#endif
 const pvr_poly_hdr_t *r_header(int tex, int flags);
 
 void r_frame_begin(void);

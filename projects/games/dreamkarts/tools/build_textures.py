@@ -1501,7 +1501,11 @@ def build(out: Path) -> None:
     table = []
     for spec, img in items:
         img.save(previews / f"tex-{spec.name}.png")
-        words = pack_texture(img, spec.fmt, mipmap=spec.mip, wrap=spec.wrap)
+        # The opaque textures' mips keep their mid-sized detail (lanczos):
+        # with no anisotropic filtering, the console shows the road, curbs
+        # and walls at small mip levels, and area filtering turned those flat.
+        words = pack_texture(img, spec.fmt, mipmap=spec.mip, wrap=spec.wrap,
+                             mip_filter="lanczos" if spec.fmt == "RGB565" else "box")
         data = np.array(words, dtype="<u2").tobytes()
         while len(pak) % 32:
             pak.append(0)
