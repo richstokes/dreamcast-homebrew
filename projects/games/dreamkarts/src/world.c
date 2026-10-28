@@ -12,6 +12,7 @@
 #include "world_int.h"
 #include "prof.h"
 #include <malloc.h>
+#include <sh4zam/shz_sh4zam.h>
 
 V3 world_sun_dir;
 float world_time;
@@ -97,20 +98,23 @@ const pvr_poly_hdr_t *h_road, *h_board, *h_curb, *h_sand, *h_grass, *h_barrier, 
     *h_hills, *h_islandrock, *h_far_sprite;
 static const pvr_poly_hdr_t *h_dash, *h_palm_far, *h_cloud, *h_mount, *h_foam, *h_flare, *h_nightsky, *h_cloudsea,
     *h_retrosun, *h_sky_nz, *h_sundisc;
+static const pvr_poly_hdr_t *h_sparkle;
 const pvr_poly_hdr_t *h_skyroad[SKYROAD_PHASES], *h_canyonroad;
 pvr_poly_hdr_t sk_road_hdr __attribute__((aligned(32)));
 
 int world_gates;
 float world_gate_s[WORLD_MAX_GATES];
 
+static float beach_ground_y(float x, float z, int hint) {
+    TrackPos tp;
+    track_locate(v3(x, 0, z), hint, &tp);
+    float db = tp.d > 0 ? tp.d - track_wall_out_at(&tp) : -tp.d - track_wall_in_at(&tp);
+    return db > 0 ? terrain_height(v3(x, 0, z), db, track.smp[tp.idx].shore) : 0.0f;
+}
+
 float world_ground_y(float x, float z) {
     switch(track.id) {
-        case TRACK_BEACH: {
-            TrackPos tp;
-            track_locate(v3(x, 0, z), -1, &tp);
-            float db = tp.d > 0 ? tp.d - track_wall_out_at(&tp) : -tp.d - track_wall_in_at(&tp);
-            return db > 0 ? terrain_height(v3(x, 0, z), db, track.smp[tp.idx].shore) : 0.0f;
-        }
+        case TRACK_BEACH: return beach_ground_y(x, z, -1);
         case TRACK_FIGURE8:
         case TRACK_HARBOUR: return f8_ground_y(x, z);
         case TRACK_TEMPLE: return th_terrain(x, z) + F8_GRASS_Y;
@@ -143,7 +147,8 @@ void world_init(void) {
     h_crowd = r_header(TEX_CROWD, HF_OP);
     h_banner = r_header(TEX_BANNER, HF_OP);
     h_col = r_header(TEX_NONE, HF_OP);
-    h_water = r_header(TEX_WATER, HF_OP);
+    h_water = r_header(TEX_WATER, HF_OP | HF_SPEC);
+    h_sparkle = r_header(TEX_STAR, HF_TR | HF_ADD | HF_NOFOG);
     h_dash = r_header(TEX_DASH, HF_OP);
     h_frond = r_header(TEX_FROND, HF_PT);
     h_palm_far = r_header(TEX_PALM_FAR, HF_PT);
@@ -577,6 +582,127 @@ static void draw_clouds_below(void) {
     }
 }
 
+/* Sun glints, after Shenmue II's sea (s2/world_render.cpp
+   UpdateWaveNormals, which writes pow(N.L, 42.5) into each wave vertex's
+   offset colour): the grid's vertices take their normal from a few
+   swells' slopes, and a Blinn highlight toward the camera goes in the
+   offset colour, which the PVR adds after the texture. The swells alias
+   on the 45 m grid, so in effect each vertex twinkles on its own clock;
+   the half vector keeps the glints on the path toward the sun. */
+#define GLINT_SQUARINGS 4     /* exponent 2^n */
+#define GLINT_GAIN 0.5f      /* the sheen; the sparkles carry the glints */
+#define GLINT_CUT 0.8f        /* N.H below this adds nothing worth sending */
+static uint32_t glint[GRID_MAX + 1][GRID_MAX + 1];
+static bool glint_done[GRID_MAX + 1];
+
+/* Sparkles: the per-vertex sheen is 45 m across, too broad to twinkle, so
+   small stars flash on and off around the vertices glinting brightest.
+   The sea pass gathers those (a reservoir sample, so far rows count as
+   much as near ones); the translucent pass spawns stars among them. */
+#define SPARKLE_N 40         /* spawned on screen only */
+#define SPARKLE_MIN 40        /* vertex glint (0-255) worth a star */
+#define SPARKLE_SIZE 0.011f   /* metres a metre away: ~5 px on screen */
+#define SPARKLE_CANDS 96
+static struct { float x, z; float l; } sp_cand[SPARKLE_CANDS];
+static int sp_cand_n, sp_seen;
+static float sp_cell;
+typedef struct { float x, z, t, life, l; } Sparkle;
+static Sparkle sparkle[SPARKLE_N];
+static float sparkle_t;
+static uint32_t sp_seed = 0x5eaf00du;   /* its own: dk_rand drives the race */
+
+static float sp_rand(void) {
+    sp_seed = sp_seed * 1664525u + 1013904223u;
+    return (float)(sp_seed >> 8) * (1.0f / 16777216.0f);
+}
+
+/* Direction (x, z), wavenumber (radians a metre, 2 pi / wavelength) and
+   peak slope; each runs at the deep-water sqrt(9.8 k). */
+static const struct { float dx, dz, k, slope; } swell[] = {
+    {0.96f, 0.28f, 0.170f, 0.13f}, {-0.42f, 0.91f, 0.273f, 0.10f},
+    {0.62f, -0.78f, 0.103f, 0.09f}, {-0.81f, -0.59f, 0.898f, 0.06f},
+};
+#define SWELLS 4
+/* The half vector's least height that the steepest swell (slopes summed,
+   ~21 degrees) can still tip past GLINT_CUT (0.8: ~37 degrees). */
+#define GLINT_MIN_HY 0.53f
+static float swell_t[SWELLS];
+/* Each swell's phase k (dx x + dz z) - t splits into a column part and a
+   row part, so cos(A + B) = cos A cos B - sin A sin B from tables: per
+   column (times the slope) once a view, per row in glint_row. */
+static float swell_ca[SWELLS][GRID_MAX + 1], swell_sa[SWELLS][GRID_MAX + 1];
+
+static void swell_columns(float x0, float cell, int n) {
+    for(int k = 0; k < SWELLS; k++) {
+        float t = sqrtf(9.8f * swell[k].k) * world_time;
+        swell_t[k] = t - DK_TAU * (float)(int)(t * (1.0f / DK_TAU));
+        /* Column to column the angle steps by k dx cell: rotate. */
+        shz_sincos_t a = shz_sincosf(swell[k].k * swell[k].dx * x0), st = shz_sincosf(swell[k].k * swell[k].dx * cell);
+        float c = a.cos, s = a.sin;
+        for(int i = 0; i <= n; i++) {
+            swell_ca[k][i] = swell[k].slope * c;
+            swell_sa[k][i] = swell[k].slope * s;
+            float nc = c * st.cos - s * st.sin;
+            s = s * st.cos + c * st.sin;
+            c = nc;
+        }
+    }
+}
+
+/* Row j's offset colours, at z0 + j * cell. */
+static void glint_row(int j, float x0, float z0, float cell, int n) {
+    glint_done[j] = true;
+    V3 L = world_sun_dir, c = r_cam.pos;
+    float z = z0 + j * cell, vy = c.y - WATER_Y, vz = c.z - z;
+    float cb[SWELLS], sb[SWELLS];
+    for(int k = 0; k < SWELLS; k++) {
+        shz_sincos_t b = shz_sincosf(swell[k].k * swell[k].dz * z - swell_t[k]);
+        cb[k] = b.cos;
+        sb[k] = b.sin;
+    }
+    /* r_sphere_visible's test, stepped along the row: each column moves
+       the vertex cell * the camera's axes' x in view space. Only vertices
+       of triangles that can be on screen get a glint, and every vertex of
+       one lies within a cell's diagonal of any point of it. */
+    float tx, ty;
+    r_frustum_slopes(&tx, &ty);
+    V3 d0 = v3(x0 - c.x, WATER_Y - c.y, z - c.z);
+    float qz = vdot(d0, r_cam.fwd), qx = vdot(d0, r_cam.right), qy = vdot(d0, r_cam.up);
+    float sz = cell * r_cam.fwd.x, sx = cell * r_cam.right.x, sy = cell * r_cam.up.x;
+    const float rad = cell * 1.5f, srad = cell * 0.75f;
+    for(int i = 0; i <= n; i++, qz += sz, qx += sx, qy += sy) {
+        float x = x0 + i * cell, vx = c.x - x;
+        glint[j][i] = 0;
+        if(qz + rad < R_NEAR_W || fabsf(qx) > qz * tx + rad * 1.6f || fabsf(qy) > qz * ty + rad * 1.4f) continue;
+        float iv = shz_inv_sqrtf(vx * vx + vy * vy + vz * vz);
+        float hx = L.x + vx * iv, hy = L.y + vy * iv, hz = L.z + vz * iv;
+        float ih = shz_inv_sqrtf(hx * hx + hy * hy + hz * hz);
+        if(hy * ih < GLINT_MIN_HY) continue;
+        float gx = 0, gz = 0;
+        for(int k = 0; k < SWELLS; k++) {
+            float cs = swell_ca[k][i] * cb[k] - swell_sa[k][i] * sb[k];
+            gx += swell[k].dx * cs;
+            gz += swell[k].dz * cs;
+        }
+        /* N = (-gx, 1, -gz) / |..| */
+        float d = (hy - gx * hx - gz * hz) * ih * shz_inv_sqrtf(1.0f + gx * gx + gz * gz);
+        if(d <= GLINT_CUT) continue;
+        for(int s = 0; s < GLINT_SQUARINGS; s++) d *= d;
+        int l = (int)(fminf(d * GLINT_GAIN, 1.0f) * 255.0f), raw = (int)(fminf(d, 1.0f) * 255.0f);
+        if(l > 2) glint[j][i] = (uint32_t)l << 16 | (uint32_t)(l * 244 >> 8) << 8 | (uint32_t)(l * 214 >> 8);
+        if(raw >= SPARKLE_MIN && qz + srad >= R_NEAR_W && fabsf(qx) <= qz * tx + srad * 1.6f &&
+           fabsf(qy) <= qz * ty + srad * 1.4f) {
+            int slot = sp_cand_n < SPARKLE_CANDS ? sp_cand_n++ : (int)(sp_rand() * (float)(sp_seen + 1));
+            if(slot < SPARKLE_CANDS) {
+                sp_cand[slot].x = x;
+                sp_cand[slot].z = z;
+                sp_cand[slot].l = (float)raw * (1.0f / 255.0f);
+            }
+            sp_seen++;
+        }
+    }
+}
+
 /* Animated sea: a camera-centred grid out to ~360 m, then wide bands to
    the horizon. Only the northern half-plane is ever visible. */
 static void draw_sea(void) {
@@ -593,14 +719,23 @@ static void draw_sea(void) {
     r_hdr(h_water);
     const GridColors *gc = grid_colors(cx, cz, cell, n, x0, z0, sea_color);
     RV row[2 * (16 + 1)];
+    uint32_t spec[2 * (16 + 1)];
+    memset(glint_done, 0, sizeof(glint_done));
+    sp_cand_n = sp_seen = 0;
+    sp_cell = cell;
+    swell_columns(x0, cell, n);
     for(int j = 0; j < n; j++) {
         float za = z0 + j * cell, zb = za + cell;
         if(zb < -60.0f) continue;
         V3 mid = v3(cx, WATER_Y, (za + zb) * 0.5f);
         if(!r_sphere_visible(mid, n * cell * 0.75f)) continue;
         int k = 0;
+        if(!glint_done[j]) glint_row(j, x0, z0, cell, n);
+        if(!glint_done[j + 1]) glint_row(j + 1, x0, z0, cell, n);
         for(int i = 0; i <= n; i++) {
             float x = x0 + i * cell;
+            spec[k] = glint[j + 1][i];
+            spec[k + 1] = glint[j][i];
             row[k++] = (RV){x, WATER_Y, zb, x / 26.0f + su, zb / 26.0f + sv2, gc->zb[j][i]};
             row[k++] = (RV){x, WATER_Y, za, x / 26.0f + su, za / 26.0f + sv2, gc->za[j][i]};
 #ifdef DK_XF_CHECK
@@ -609,7 +744,7 @@ static void draw_sea(void) {
             xf_mismatch += (sea_color(x, zb) != gc->zb[j][i]) + (sea_color(x, za) != gc->za[j][i]);
 #endif
         }
-        r_strip(row, k);
+        r_strip_spec(row, spec, k);
     }
     /* Horizon bands around the grid. */
     float gx0 = x0, gx1 = x0 + n * cell, gz0 = fmaxf(z0, -60.0f), gz1 = z0 + n * cell;
@@ -949,6 +1084,70 @@ static void draw_lens_flare(void) {
     }
 }
 
+/* Open water there, deep enough that a sparkle can't poke up through the
+   shore or the grass the sea runs under. A whole-lap track_locate is ~30 us
+   on the console, so Emerald Beach finds the nearest of every 8th sample
+   and lets the hinted search finish. */
+static bool sea_open(float x, float z) {
+    float g;
+    if(track.id == TRACK_BEACH) {
+        float best = 1e30f;
+        int hint = 0;
+        for(int i = 0; i < TRACK_SAMPLES; i += 8) {
+            float dx = x - track.smp[i].p.x, dz = z - track.smp[i].p.z, d2 = dx * dx + dz * dz;
+            if(d2 < best) {
+                best = d2;
+                hint = i;
+            }
+        }
+        g = beach_ground_y(x, z, hint);
+    } else {
+        g = world_ground_y(x, z);
+    }
+    return g < WATER_Y - 0.3f;
+}
+
+static void draw_sea_sparkles(void) {
+    /* One view's candidates at a time: split screen keeps the sheen only. */
+    if(world_split) return;
+    float dt = clampf(world_time - sparkle_t, 0, 0.1f);
+    sparkle_t = world_time;
+    V3 c = r_cam.pos;
+    r_hdr(h_sparkle);
+    for(int i = 0; i < SPARKLE_N; i++) {
+        Sparkle *s = &sparkle[i];
+        if((s->t += dt) >= s->life) {
+            s->t = 0;
+            s->l = 0;
+            s->life = 0.05f + sp_rand() * 0.25f;   /* dark a moment, then try again */
+            if(sp_cand_n > 0) {
+                int k = (int)(sp_rand() * (float)sp_cand_n);
+                if(sp_rand() < sp_cand[k].l * 1.5f) {
+                    s->x = sp_cand[k].x + (sp_rand() - 0.5f) * sp_cell;
+                    s->z = sp_cand[k].z + (sp_rand() - 0.5f) * sp_cell * 1.5f;
+                    if(sea_open(s->x, s->z)) {
+                        s->l = sp_cand[k].l * (0.6f + 0.4f * sp_rand());
+                        s->life = 0.2f + sp_rand() * 0.3f;
+                    }
+                }
+            }
+        }
+        if(s->l <= 0) continue;
+        float e = sinf(DK_PI * s->t / s->life);
+        float dx = s->x - c.x, dz = s->z - c.z, dy = WATER_Y - c.y;
+        float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        float a = e * e * fminf(s->l * 1.6f, 1.0f) * clampf((600.0f - d) / 350.0f, 0, 1);
+        if(a < 0.02f) continue;
+        /* Smaller on screen further out, and flattened as water seen
+           edge-on flattens them, so the far row stays below the horizon. */
+        float size = d * SPARKLE_SIZE * (0.7f + 0.6f * e) * clampf(1.3f - d * (1.0f / 400.0f), 0.45f, 1.0f);
+        float h = size * 0.45f;
+        V3 p = v3(s->x, WATER_Y + h * 0.5f * fabsf(r_cam.up.y) + 0.05f, s->z);
+        if(!r_sphere_visible(p, size)) continue;
+        r_billboard(p, size, h, 0, 0, 0, 1, 1, argb((int)(a * 255.0f), 255, 246, 222));
+    }
+}
+
 void world_draw_tr(void) {
     r_load_vp();
     if(!(dk_probe_off & PROBE_DISTANT)) draw_clouds_and_mountains();
@@ -967,6 +1166,7 @@ void world_draw_tr(void) {
     }
     PROF_BEGIN(pm);
     draw_shore_foam();
+    draw_sea_sparkles();
     PROF_LAP(PS_FOAM, pm);
     th_draw_flames();
     if(world_tk) {

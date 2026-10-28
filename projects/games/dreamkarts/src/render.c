@@ -18,7 +18,7 @@
 #include <malloc.h>
 #include <sh4zam/shz_sh4zam.h>
 
-#define NEAR_W   0.25f
+#define NEAR_W   R_NEAR_W
 #define MAX_STRIP 512
 #define MAX_MESH_VERTS 1024
 
@@ -28,7 +28,7 @@ RenderStats rstats;
 Camera r_cam;
 pvr_ptr_t r_textures[TEX_COUNT];
 
-typedef struct { float x, y, w, u, v; uint32_t c; } CV;
+typedef struct { float x, y, w, u, v; uint32_t c, o; } CV;
 
 static shz_mat4x4_t vp __attribute__((aligned(32)));
 static float cam_f, cam_tx, cam_ty;
@@ -164,6 +164,8 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
     else {
         pvr_poly_cxt_col(&c, list);
     }
+    /* The vertices' offset colour, added after the texture. */
+    if(flags & HF_SPEC) c.gen.specular = PVR_SPECULAR_ENABLE;
     /* Small, not none: strips are joined with zero-area triangles, which
        Flycast drops but the console rasterizes as dark streaks out to the
        tile edge (Tsudoken's lanterns and roof edges against the sky). It
@@ -373,6 +375,11 @@ bool r_sphere_visible(V3 c, float radius) {
     return true;
 }
 
+void r_frustum_slopes(float *tx, float *ty) {
+    *tx = cam_tx;
+    *ty = cam_ty;
+}
+
 float r_view_depth(V3 p) {
     return vdot(vsub(p, r_cam.pos), r_cam.fwd);
 }
@@ -494,6 +501,7 @@ static inline void xform(const RV *in, CV *o) {
     o->u = in->u;
     o->v = in->v;
     o->c = in->c;
+    o->o = 0;
 }
 
 static inline unsigned outcode(const CV *o) {
@@ -515,7 +523,7 @@ static inline void emit(const CV *c, uint32_t flags) {
     d->u = c->u;
     d->v = c->v;
     d->argb = c->c;
-    d->oargb = 0;
+    d->oargb = c->o;
     pvr_dr_commit(d);
 }
 
@@ -527,6 +535,7 @@ static inline CV cv_lerp(const CV *a, const CV *b, float t) {
     r.u = a->u + (b->u - a->u) * t;
     r.v = a->v + (b->v - a->v) * t;
     r.c = color_lerp(a->c, b->c, t);
+    r.o = a->o == b->o ? a->o : color_lerp(a->o, b->o, t);
     return r;
 }
 
@@ -614,12 +623,15 @@ static void check_stage(const RV *v, int n, uint32_t codes) {
 }
 #endif
 
-void r_strip(const RV *v, int n) {
+/* spec: each vertex's offset (specular) colour, or NULL for none. */
+static inline void strip(const RV *v, const uint32_t *spec, int n) {
     if(n < 3 || n > MAX_STRIP) return;
     uint32_t codes = dk_xf_stage(v, n, stage_pv, &xf);
 #ifdef DK_XF_CHECK
     check_stage(v, n, codes);
 #endif
+    if(spec)
+        for(int i = 0; i < n; i++) stage_pv[i].oargb = spec[i];
     unsigned and_code = codes & 0xff, or_code = codes >> 8;
     PROF_COUNT(PN_SVERTS, n);
     if(and_code & 16) { PROF_COUNT(PN_SCULL, 1); return; }
@@ -636,6 +648,11 @@ void r_strip(const RV *v, int n) {
                 xform(&v[i], &ta);
                 xform(&v[i + 1], &tb);
                 xform(&v[i + 2], &tc);
+                if(spec) {
+                    ta.o = spec[i];
+                    tb.o = spec[i + 1];
+                    tc.o = spec[i + 2];
+                }
                 clip_tri(&ta, &tb, &tc);
             }
             else {
@@ -651,6 +668,14 @@ void r_strip(const RV *v, int n) {
     rstats.tris += n - 2;
     rstats.verts += n;
     PROF_COUNT(PN_SEMIT, n);
+}
+
+void r_strip(const RV *v, int n) {
+    strip(v, NULL, n);
+}
+
+void r_strip_spec(const RV *v, const uint32_t *spec, int n) {
+    strip(v, spec, n);
 }
 
 /* Where a sphere lies against the clip planes r_strip tests each vertex

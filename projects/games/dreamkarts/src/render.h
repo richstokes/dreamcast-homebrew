@@ -21,7 +21,8 @@ enum {
     HF_NOZWRITE = 1 << 5,
     HF_NOZTEST = 1 << 6,
     HF_POINT = 1 << 7,
-    HF_ZWRITE = 1 << 8    /* translucent polygons that still write depth */
+    HF_ZWRITE = 1 << 8,   /* translucent polygons that still write depth */
+    HF_SPEC = 1 << 9      /* add the vertices' offset colour (r_strip_spec) */
 };
 
 #define TEX_NONE -1
@@ -74,6 +75,8 @@ void r_hdr(const pvr_poly_hdr_t *h);
 
 /* Transform with XMTRX, clip against the near plane and submit. */
 void r_strip(const RV *v, int n);
+/* r_strip with an offset colour per vertex (headers made with HF_SPEC). */
+void r_strip_spec(const RV *v, const uint32_t *spec, int n);
 /* r_strip for a strip whose vertices all lie within the sphere (c, radius):
    the sphere decides whole strips, and only those it cannot are tested
    vertex by vertex. */
@@ -136,6 +139,10 @@ void r_quad2d_pts(const float *xy, const float *uv, const uint32_t *col, float z
 bool r_modvol(const V3 *pts, int np, const uint8_t (*tri)[3], int nt);
 
 bool r_sphere_visible(V3 c, float radius);
+/* r_sphere_visible's frustum: the near plane, and the screen's half-width
+   and half-height a unit of depth away. */
+#define R_NEAR_W 0.25f
+void r_frustum_slopes(float *tx, float *ty);
 bool r_project(V3 p, float *sx, float *sy, float *inv_w);
 float r_view_depth(V3 p);
 
