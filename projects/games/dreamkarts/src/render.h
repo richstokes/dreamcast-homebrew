@@ -48,7 +48,7 @@ void render_shutdown(void);
    aliases the boardwalk's planks and the supersample bit doubles the PVR
    time. The field only steps in quarters. Sharper means more shimmer, and
    road 0.5 with the sides at 1.0 was the best balance by eye in play on
-   the console. The asphalt's square texels (world.c ROAD_V_M) and the
+   the console. The asphalt's square texels (world_int.h ROAD_V_M) and the
    Lanczos mips (tools/pvr_texture.py) help at no PVR cost. A compromise we
    may revisit, e.g. sides at 0.75 or a fractional bias baked into the mips. */
 #ifndef DK_MIP_BIAS

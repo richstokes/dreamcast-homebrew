@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import blender_props  # noqa: E402
 from blender_props import WHITE, mix, rgba, scale_col  # noqa: E402
 
-# Material order is the game's AVM_* enum (world.c maps them to headers).
+# Material order is the game's AVM_* enum (src/world_apple.c maps them to headers).
 MATERIALS = ["flat", "metal", "crowd", "joshua", "jbark", "scrub", "banner", "stucco", "rock"]
 # Punch-through (alpha tested) materials go in their own list in the game.
 PT_MATERIALS = {"joshua", "scrub"}
