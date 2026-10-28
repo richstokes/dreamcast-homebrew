@@ -167,8 +167,13 @@ int input_keys(const uint8_t **keys) {
 }
 
 /* After an update step, like the pads' pressed bits: a frame that runs two
-   steps must not type each key twice. */
-void input_keys_taken(void) { key_n = 0; }
+   steps must not type each key twice, nor step a menu cursor twice (it did,
+   on the online name screen when its keyboard ran the console past a
+   vblank: every press skipped a key). */
+void input_step_taken(void) {
+    key_n = 0;
+    memset(repeat_fire, 0, sizeof(repeat_fire));
+}
 
 void input_update(void) {
     read_pad(&pad, 0, 0);

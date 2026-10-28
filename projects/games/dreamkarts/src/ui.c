@@ -27,8 +27,17 @@ uint32_t ui_col(int role) {
     return roles[role];
 }
 
+/* A quarter arc in ARC_N segments, as unit vectors; small corners take
+   every other one. */
+#define ARC_N 6
+static float arc_c[ARC_N + 1], arc_s[ARC_N + 1];
+
 void ui_init(void) {
     h_flat = r_header(TEX_NONE, HF_TR | HF_NOFOG | HF_NOZTEST);
+    for(int i = 0; i <= ARC_N; i++) {
+        arc_c[i] = cosf((float)i / ARC_N * (DK_PI * 0.5f));
+        arc_s[i] = sinf((float)i / ARC_N * (DK_PI * 0.5f));
+    }
 }
 
 /* ---- shapes --------------------------------------------------------- */
@@ -38,15 +47,25 @@ static uint32_t grad(uint32_t top, uint32_t bottom, float y, float y0, float y1)
     return color_lerp(top, bottom, clampf((y - y0) / (y1 - y0), 0, 1));
 }
 
-/* A quarter-circle fan from angle a0 over a quarter turn, coloured by y. */
-static void corner(float cx, float cy, float r, float a0, uint32_t top, uint32_t bottom, float y0, float y1) {
-    const int n = 6;
-    uint32_t cc = grad(top, bottom, cy, y0, y1);
-    for(int i = 0; i < n; i++) {
-        float t0 = a0 + (float)i / n * (DK_PI * 0.5f), t1 = a0 + (float)(i + 1) / n * (DK_PI * 0.5f);
-        float x1 = cx + cosf(t0) * r, y1_ = cy + sinf(t0) * r, x2 = cx + cosf(t1) * r, y2 = cy + sinf(t1) * r;
-        r_tri2d(cx, cy, x1, y1_, x2, y2, cc, grad(top, bottom, y1_, y0, y1), grad(top, bottom, y2, y0, y1), 16.0f);
+/* A corner's fan: q is 0 top-left, 1 top-right, 2 bottom-right, 3
+   bottom-left, the arc running clockwise. Each ring vertex is coloured
+   once; the panel's gradient runs top to bottom. */
+static void corner(float cx, float cy, float r, int q, int step, uint32_t top, uint32_t bottom, float y0, float y1) {
+    float px[ARC_N + 1], py[ARC_N + 1];
+    uint32_t pc[ARC_N + 1];
+    int n = 0;
+    for(int i = 0; i <= ARC_N; i += step, n++) {
+        float c = arc_c[i] * r, sn = arc_s[i] * r;
+        switch(q) {
+            case 0: px[n] = cx - c; py[n] = cy - sn; break;
+            case 1: px[n] = cx + sn; py[n] = cy - c; break;
+            case 2: px[n] = cx + c; py[n] = cy + sn; break;
+            default: px[n] = cx - sn; py[n] = cy + c; break;
+        }
+        pc[n] = grad(top, bottom, py[n], y0, y1);
     }
+    uint32_t cc = grad(top, bottom, cy, y0, y1);
+    for(int i = 0; i + 1 < n; i++) r_tri2d(cx, cy, px[i], py[i], px[i + 1], py[i + 1], cc, pc[i], pc[i + 1], 16.0f);
 }
 
 void ui_rrect(float x0, float y0, float x1, float y1, float r, uint32_t top, uint32_t bottom) {
@@ -63,10 +82,11 @@ void ui_rrect(float x0, float y0, float x1, float y1, float r, uint32_t top, uin
     r_quad2d_grad(x0, y0 + r, x1, y1 - r, cr, cr1, 16.0f);
     r_quad2d_grad(x0 + r, y0, x1 - r, y0 + r, top, cr, 16.0f);
     r_quad2d_grad(x0 + r, y1 - r, x1 - r, y1, cr1, bottom, 16.0f);
-    corner(x0 + r, y0 + r, r, DK_PI, top, bottom, y0, y1);
-    corner(x1 - r, y0 + r, r, DK_PI * 1.5f, top, bottom, y0, y1);
-    corner(x1 - r, y1 - r, r, 0, top, bottom, y0, y1);
-    corner(x0 + r, y1 - r, r, DK_PI * 0.5f, top, bottom, y0, y1);
+    int step = r < 10.0f ? 2 : 1;   /* a key's corner needs no six segments */
+    corner(x0 + r, y0 + r, r, 0, step, top, bottom, y0, y1);
+    corner(x1 - r, y0 + r, r, 1, step, top, bottom, y0, y1);
+    corner(x1 - r, y1 - r, r, 2, step, top, bottom, y0, y1);
+    corner(x0 + r, y1 - r, r, 3, step, top, bottom, y0, y1);
 }
 
 void ui_pill(float x0, float y0, float x1, float y1, uint32_t top, uint32_t bottom) {
