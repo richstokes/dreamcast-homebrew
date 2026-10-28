@@ -633,21 +633,103 @@ static void road_quad(const Kart *k, V3 c, V3 f, V3 r, float up, uint32_t col) {
     r_strip(q, 4);
 }
 
-void models_draw_shadows(void) {
+/* Kart shadows are modifier volumes: a prism from the kart's footprint,
+   just above the road in chassis space, drawn out away from the sun past
+   the road. Opaque surfaces inside it are darkened (render.c r_modvol), so
+   the shadow falls on kerbs, ramps, walls and other karts as well as the
+   road. The footprint sits under the body, so a kart only shadows the
+   bottom of its own tyres. */
+#define FOOT_N 8
+static const float foot_xz[FOOT_N][2] = {
+    {-0.28f, 1.00f}, {0.28f, 1.00f}, {0.68f, 0.80f}, {0.72f, -0.82f},
+    {0.55f, -1.00f}, {-0.55f, -1.00f}, {-0.72f, -0.82f}, {-0.68f, 0.80f},
+};
+#define FOOT_Y 0.03f
+/* A volume's edge is hard and its shade one level (render.h
+   DK_SHADOW_SCALE), so on the road the soft flat shadow is drawn over it
+   at DK_SHADOW_BLOB of its own strength, and the footprint is scaled by
+   DK_SHADOW_FOOT to keep that edge inside the soft shadow's dark core. */
+#ifndef DK_SHADOW_FOOT
+#define DK_SHADOW_FOOT 0.85f
+#endif
+#ifndef DK_SHADOW_BLOB
+#define DK_SHADOW_BLOB 0.7f
+#endif
+/* Points 0..7 the footprint, 8..15 the same pushed down the sun. Caps are
+   fans, each side two triangles. */
+static uint8_t vol_tri[2 * (FOOT_N - 2) + 2 * FOOT_N][3];
+static int vol_tris;
+/* Which karts' volumes each view drew; the rest get the flat shadow. */
+static bool vol_drawn[MAX_PLAYERS][MAX_KARTS];
+
+static void build_vol_tris(void) {
+    int n = 0;
+    for(int i = 1; i < FOOT_N - 1; i++) {
+        vol_tri[n][0] = 0; vol_tri[n][1] = i; vol_tri[n][2] = i + 1; n++;
+        vol_tri[n][0] = FOOT_N; vol_tri[n][1] = FOOT_N + i; vol_tri[n][2] = FOOT_N + i + 1; n++;
+    }
+    for(int i = 0; i < FOOT_N; i++) {
+        int j = (i + 1) % FOOT_N;
+        vol_tri[n][0] = i; vol_tri[n][1] = j; vol_tri[n][2] = FOOT_N + j; n++;
+        vol_tri[n][0] = i; vol_tri[n][1] = FOOT_N + j; vol_tri[n][2] = FOOT_N + i; n++;
+    }
+    vol_tris = n;
+}
+
+/* The kart's height over the road, or -1 with no road under it to shadow
+   (off an open edge or over a jump's gap) or too high to cast one. */
+static float shadow_height(const Kart *k) {
+    if(!over_road(k)) return -1.0f;
+    float h = fmaxf(k->pos.y - world_surface_y(k->tp.s, k->tp.d), 0.0f);
+    return h > 12.0f ? -1.0f : h;
+}
+
+void models_draw_shadow_volumes(int view) {
+    if(!vol_tris) build_vol_tris();
+    /* Long enough to reach 0.6 m under the road below the kart (past kerbs
+       and a slope's rise under the shadow), and no longer: every screen tile
+       a volume covers costs PVR time, seen or not. */
+    V3 sun = world_sun_dir;
+    float sy = fmaxf(sun.y, 0.2f);
+    for(int i = 0; i < kart_count; i++) {
+        const Kart *k = &karts[i];
+        vol_drawn[view][i] = false;
+        if(k->gone) continue;
+        float h = shadow_height(k);
+        if(h < 0) continue;
+        float len = (h + 0.6f) / sy;
+        V3 ext = vscale(sun, -len);
+        if(!r_sphere_visible(vmad(k->pos, ext, 0.5f), 1.3f + 0.5f * len)) continue;
+        /* Chassis yaw, pitch and roll, without a barrel roll's spin. */
+        float m[16];
+        m4_translate_rotate(m, k->pos, k->heading + k->vis_yaw, k->pitch, k->roll);
+        V3 pts[2 * FOOT_N];
+        for(int j = 0; j < FOOT_N; j++) {
+            float x = foot_xz[j][0] * DK_SHADOW_FOOT, z = foot_xz[j][1] * DK_SHADOW_FOOT;
+            pts[j] = v3(m[0] * x + m[4] * FOOT_Y + m[8] * z + m[12],
+                        m[1] * x + m[5] * FOOT_Y + m[9] * z + m[13],
+                        m[2] * x + m[6] * FOOT_Y + m[10] * z + m[14]);
+            pts[FOOT_N + j] = vadd(pts[j], ext);
+        }
+        vol_drawn[view][i] = r_modvol(pts, 2 * FOOT_N, (const uint8_t (*)[3])vol_tri, vol_tris);
+    }
+}
+
+void models_draw_shadows(int view) {
     r_load_vp();
     r_hdr(h_shadow);
     V3 sun_off = v3(world_sun_dir.x, 0, world_sun_dir.z);
     float sl = sqrtf(vdot(sun_off, sun_off));
     sun_off = sl > 0.01f ? vscale(sun_off, 0.12f / sl) : v3(0, 0, 0);
+    /* The soft shadow on the road: a dark core under the kart that softens
+       the volume's hard edge, or the whole shadow where r_modvol refused. */
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
-        if(k->gone || !r_sphere_visible(k->pos, 2.0f)) continue;
-        /* Cast onto the road below: the floor under a jump's gap is y = 0
-           (in the sky there is nothing there). */
-        if(!over_road(k)) continue;
-        float h = fmaxf(k->pos.y - world_surface_y(k->tp.s, k->tp.d), 0.0f);
-        if(h > 12.0f) continue;
-        float a = clampf(0.80f - h * 0.40f, 0.15f, 0.80f);
+        float blob = vol_drawn[view][i] ? DK_SHADOW_BLOB : 1.0f;
+        if(blob <= 0 || k->gone || !r_sphere_visible(k->pos, 2.0f)) continue;
+        float h = shadow_height(k);
+        if(h < 0) continue;
+        float a = blob * clampf(0.80f - h * 0.40f, 0.15f, 0.80f);
         float s = 1.0f + h * 0.25f;
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 1.2f * s), r = vscale(heading_right(k->heading + k->vis_yaw), 0.88f * s);
         /* The kart-shaped shadow leans a touch away from the sun; any more

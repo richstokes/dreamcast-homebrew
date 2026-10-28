@@ -1473,12 +1473,19 @@ static void render(void) {
     PROF_MARK(3);
     PROF_LAP(PS_PHASE_PT, pp);
 
+    r_list(PVR_LIST_OP_MOD);
+    if(!(dk_probe_off & PROBE_SHADOWS))
+        for(int v = 0; v < views; v++) {
+            set_view(v);
+            models_draw_shadow_volumes(v);
+        }
+
     r_list(PVR_LIST_TR_POLY);
     for(int v = 0; v < views; v++) {
         set_view(v);
         world_draw_tr();
         biplane_draw_tr();
-        if(!(dk_probe_off & PROBE_SHADOWS)) models_draw_shadows();
+        if(!(dk_probe_off & PROBE_SHADOWS)) models_draw_shadows(v);
         if(!(dk_probe_off & PROBE_FX)) {
             items_draw();
             fx_draw();

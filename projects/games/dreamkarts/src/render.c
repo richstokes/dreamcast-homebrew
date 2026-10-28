@@ -99,7 +99,8 @@ static void load_textures(void) {
 
 void render_init(void) {
     pvr_init_params_t params = {
-        .opb_sizes = {PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16},
+        /* The opaque modifier list holds the kart shadow volumes (r_modvol). */
+        .opb_sizes = {PVR_BINSIZE_16, PVR_BINSIZE_8, PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16},
         .vertex_buf_size = DK_VTX_BUF_KIB * 1024,
         /* Measured: the CPU waits on the TA only ~0.1 ms a frame, so DMA
            to it is not worth having. */
@@ -122,6 +123,9 @@ void render_init(void) {
        the zero-area joins between strips, not real slivers. */
     union { float f; uint32_t u; } cull_val = {0.01f};
     PVR_SET(PVR_OBJECT_CLIP, cull_val.u);
+    /* Inside a shadow volume, opaque and punch-through surfaces keep this
+       much of their colour. */
+    pvr_set_shadow_scale(true, DK_SHADOW_SCALE);
     pvr_fog_table_color(1.0f, 0.74f, 0.89f, 0.98f);
     pvr_fog_table_linear(160.0f, 820.0f);
     headers = memalign(32, sizeof(HeaderSlot) * MAX_HEADERS);
@@ -174,6 +178,12 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
         c.depth.write = PVR_DEPTHWRITE_DISABLE;
     }
     if(list == PVR_LIST_PT_POLY) c.gen.alpha = true;
+    /* Opaque and punch-through surfaces take the kart shadow volumes, as
+       the cheap shadow: no second colour, the vertices stay as they are. */
+    if(list != PVR_LIST_TR_POLY) {
+        c.fmt.modifier = true;
+        c.gen.modifier_mode = false;
+    }
     /* depth.write is the hardware's Z-write-disable bit despite its name
        (PVR_DEPTHWRITE_ENABLE is 0), so "false" here used to turn writes on:
        a translucent quad then hid anything translucent drawn after it and
@@ -220,7 +230,10 @@ static inline void ta_sink_begin(void) {}
 static inline void ta_sink_end(void) {}
 #endif
 
+static pvr_list_t cur_list;
+
 void r_list(pvr_list_t list) {
+    cur_list = list;
     pvr_list_begin(list);
     ta_sink_begin();
     sent_hdr = NULL;
@@ -296,8 +309,10 @@ void r_set_viewport(float y0, float y1) {
     xf.y0 = y0;
     xf.y1 = y1;
     clip_mask = 16u;
-    /* Tell the TA (only valid inside an open list). */
-    if(list_open) {
+    /* Tell the TA (only valid inside an open list). Never in the modifier
+       list: a user clip after a volume there hangs the console (Flycast
+       doesn't mind). r_modvol cuts each view's volumes to it instead. */
+    if(list_open && cur_list != PVR_LIST_OP_MOD) {
         uint32_t *d = pvr_dr_target();
         d[0] = PVR_CMD_USERCLIP;
         d[1] = d[2] = d[3] = 0;
@@ -375,6 +390,89 @@ bool r_project(V3 p, float *sx, float *sy, float *inv_w) {
 
 /* ------------------------------------------------------------------ */
 /* Submission                                                          */
+
+#define MODVOL_MAX_PTS 32
+#define MODVOL_MAX_TRIS 96
+
+/* A modifier-volume vertex on screen: x, y and 1/w. */
+typedef struct { float x, y, z; } MV;
+
+/* Clip a convex polygon on screen to the rows where s * (y - lim) <= 0.
+   1/w is linear across the screen, so it interpolates exactly. */
+static int clip_rows(const MV *in, int n, MV *out, float lim, float s) {
+    int m = 0;
+    for(int i = 0; i < n; i++) {
+        const MV *p = &in[i], *q = &in[(i + 1) % n];
+        float dp = s * (p->y - lim), dq = s * (q->y - lim);
+        if(dp <= 0) out[m++] = *p;
+        if((dp < 0 && dq > 0) || (dp > 0 && dq < 0)) {
+            float t = dp / (dp - dq);
+            out[m++] = (MV){p->x + (q->x - p->x) * t, lim, p->z + (q->z - p->z) * t};
+        }
+    }
+    return m;
+}
+
+static void send_mod_tri(const MV *a, const MV *b, const MV *c) {
+    /* One triangle is 64 bytes: two store-queue bursts. */
+    uint32_t *d = pvr_dr_target();
+    float *f = (float *)d;
+    d[0] = PVR_CMD_VERTEX_EOL;
+    f[1] = a->x; f[2] = a->y; f[3] = a->z;
+    f[4] = b->x; f[5] = b->y; f[6] = b->z;
+    f[7] = c->x;
+    pvr_dr_commit(d);
+    d = pvr_dr_target();
+    f = (float *)d;
+    f[0] = c->y; f[1] = c->z;
+    d[2] = d[3] = d[4] = d[5] = d[6] = d[7] = 0;
+    pvr_dr_commit(d);
+}
+
+bool r_modvol(const V3 *pts, int np, const uint8_t (*tri)[3], int nt) {
+    static pvr_mod_hdr_t open_hdr, close_hdr;
+    static bool compiled;
+    MV sp[MODVOL_MAX_PTS], out[MODVOL_MAX_TRIS][3];
+    if(np > MODVOL_MAX_PTS || nt < 1 || nt > MODVOL_MAX_TRIS / 3) return false;
+    for(int i = 0; i < np; i++)
+        if(!r_project(pts[i], &sp[i].x, &sp[i].y, &sp[i].z)) return false;
+    /* No user clip here (r_set_viewport), so in a split screen each
+       triangle is cut at its view's top and bottom rows instead. The cut
+       is a plane through the eye: what it removes lies on rays the view
+       never casts, and the cap it would need is edge-on, so the volume
+       still counts right for every pixel of the view. */
+    bool split = view_y0 > 0 || view_y1 < 480.0f;
+    int n = 0;
+    for(int t = 0; t < nt; t++) {
+        const MV *a = &sp[tri[t][0]], *b = &sp[tri[t][1]], *c = &sp[tri[t][2]];
+        if(!split) {
+            out[n][0] = *a; out[n][1] = *b; out[n][2] = *c;
+            n++;
+            continue;
+        }
+        MV p0[5] = {*a, *b, *c}, p1[5];
+        int m = clip_rows(p0, 3, p1, view_y0, -1.0f);
+        m = clip_rows(p1, m, p0, view_y1, 1.0f);
+        for(int k = 1; k + 1 < m; k++) {
+            out[n][0] = p0[0]; out[n][1] = p0[k]; out[n][2] = p0[k + 1];
+            n++;
+        }
+    }
+    if(!n) return true;
+    if(!compiled) {
+        compiled = true;
+        pvr_mod_compile(&open_hdr, PVR_LIST_OP_MOD, PVR_MODIFIER_OTHER_POLY, PVR_CULLING_NONE);
+        pvr_mod_compile(&close_hdr, PVR_LIST_OP_MOD, PVR_MODIFIER_INCLUDE_LAST_POLY, PVR_CULLING_NONE);
+    }
+    pvr_prim(&open_hdr, sizeof(open_hdr));
+    for(int t = 0; t < n; t++) {
+        if(t == n - 1) pvr_prim(&close_hdr, sizeof(close_hdr));
+        send_mod_tri(&out[t][0], &out[t][1], &out[t][2]);
+    }
+    sent_hdr = NULL;
+    rstats.tris += n;
+    return true;
+}
 
 void r_hdr(const pvr_poly_hdr_t *h) {
     cur_hdr = h;

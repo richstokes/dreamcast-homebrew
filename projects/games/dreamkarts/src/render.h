@@ -27,8 +27,9 @@ enum {
 #define TEX_NONE -1
 
 /* The Tile Accelerator's vertex buffer (pvr_init): a hard ceiling, past
-   which the console stalls (Tsudoken Drift's split screen passed 1 MB). */
-#define DK_VTX_BUF_KIB 1536
+   which the console stalls (Tsudoken Drift's split screen passed 1 MB).
+   1536 until the shadow volumes' bins needed the VRAM. */
+#define DK_VTX_BUF_KIB 1472
 
 void render_init(void);
 void render_shutdown(void);
@@ -123,6 +124,16 @@ void r_quad2d_grad(float x0, float y0, float x1, float y1, uint32_t top, uint32_
 void r_tri2d(float x0, float y0, float x1, float y1, float x2, float y2,
              uint32_t c0, uint32_t c1, uint32_t c2, float z);
 void r_quad2d_pts(const float *xy, const float *uv, const uint32_t *col, float z);
+
+/* A closed modifier volume in the opaque modifier list: triangles tri over
+   the world points pts. Opaque and punch-through surfaces inside it keep
+   DK_SHADOW_SCALE of their colour. Draws nothing and returns false when a
+   point is behind the near plane: cut open there, the volume would turn
+   inside out on screen. */
+#ifndef DK_SHADOW_SCALE
+#define DK_SHADOW_SCALE 0.75f
+#endif
+bool r_modvol(const V3 *pts, int np, const uint8_t (*tri)[3], int nt);
 
 bool r_sphere_visible(V3 c, float radius);
 bool r_project(V3 p, float *sx, float *sy, float *inv_w);

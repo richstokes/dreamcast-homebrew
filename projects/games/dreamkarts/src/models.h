@@ -12,7 +12,8 @@ void models_draw_karts(int view_kart);
 /* Call once per rendered frame (lighting is cached across views). */
 void models_begin_frame(void);
 void models_draw_kart(int index);      /* single kart, opaque list */
-void models_draw_shadows(void);        /* translucent list */
+void models_draw_shadow_volumes(int view);  /* opaque modifier list */
+void models_draw_shadows(int view);   /* translucent list */
 /* Kart-space exhaust tips, for flames and smoke. */
 V3 models_exhaust_world(const Kart *k, int which);
 V3 models_wheel_world(const Kart *k, int wheel);
