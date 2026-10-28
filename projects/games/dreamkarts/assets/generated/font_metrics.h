@@ -6,6 +6,9 @@
 #define FONT_ROW_H 42
 #define FONT_TEX_W 512
 #define FONT_TEX_H 256
+/* The capitals' rows within a glyph row (top edge, bottom edge). */
+#define FONT_CAP_TOP 10
+#define FONT_CAP_BOTTOM 32
 /* ASCII 32..127 at native size: atlas x, row, rect width, rect left
    relative to the pen, and pen advance. */
 typedef struct { uint16_t x; uint8_t row, w; int8_t ox; uint8_t adv; } dk_glyph_t;

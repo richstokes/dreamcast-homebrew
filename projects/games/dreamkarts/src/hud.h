@@ -11,8 +11,8 @@ void hud_reset(void);
 void hud_update(float dt);
 float hud_text_width(const char *s, float scale);
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s);
-/* The same with the capitals centred on cy rather than the glyph row's top
-   at y (the row is 42 px at scale 1, the capitals 22 px from row 8). */
+/* The same with the capitals (and digits) centred on cy rather than the
+   glyph row's top at y. */
 void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s);
 void hud_panel(float x0, float y0, float x1, float y1, uint32_t top, uint32_t bottom, float z);
 /* Big lettering from the countdown atlas: 0..2 = "3".."1", 3 = GO!, 4 = FINISH!. */

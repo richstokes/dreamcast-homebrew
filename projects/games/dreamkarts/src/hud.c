@@ -75,7 +75,7 @@ void hud_text(float x, float y, float scale, int align, uint32_t col, const char
 }
 
 void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s) {
-    hud_text(x, cy - 19.0f * scale, scale, align, col, s);
+    hud_text(x, cy - (FONT_CAP_TOP + FONT_CAP_BOTTOM) * 0.5f * scale, scale, align, col, s);
 }
 
 void hud_panel(float x0, float y0, float x1, float y1, uint32_t top, uint32_t bottom, float z) {
