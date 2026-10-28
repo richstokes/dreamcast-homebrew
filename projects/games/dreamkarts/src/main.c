@@ -617,6 +617,7 @@ void race_reset(void) {
     fx_clear();
     dolphins_reset();
     biplane_reset();
+    world_race_progress(0);
     hud_reset();
     update_places();
     items_reset(game.online ? online_items_seed() : dk_rand());
@@ -842,6 +843,15 @@ static void update_places(void) {
     }
 }
 
+/* The leader's share of the race: karts cross the line onto lap 1 at the
+   start and onto laps + 1 at the flag. */
+static float race_frac(void) {
+    float lead = 0;
+    for(int i = 0; i < kart_count; i++)
+        if(!karts[i].gone) lead = fmaxf(lead, karts[i].progress);
+    return (lead - track.length) / ((float)game.laps * track.length);
+}
+
 static void finalize_results(void) {
     /* Unfinished rivals get a projected time from their remaining distance. */
     for(int i = 0; i < kart_count; i++) {
@@ -966,6 +976,7 @@ static void race_step(float dt, bool drive) {
     items_update(dt);
     karts_collide();
     update_places();
+    world_race_progress(race_frac());
     dolphins_update(dt);
     biplane_update(dt);
     for(int i = 0; i < kart_count; i++) {

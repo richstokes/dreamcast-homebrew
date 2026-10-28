@@ -8,6 +8,9 @@ void world_init(void);
 /* (Re)build the static scenery for the current track. */
 void world_build(void);
 void world_update(float dt);
+/* How far through the race the leader is, 0 at the start to 1 at the
+   flag: Spiral Canyon's sun sets as it goes. */
+void world_race_progress(float frac);
 /* Fog for one full view or a split screen; call before a scene begins. */
 void world_set_fog(bool split);
 void world_draw_op(void);

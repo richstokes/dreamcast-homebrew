@@ -27,6 +27,11 @@ static bool world_av;
    straight, Tsudoken's sets beside Fuji in the south-west. */
 bool world_sunset;
 static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
+/* Spiral Canyon's sun, along the start straight (sun_ahead) at
+   DR_SUN_EL up, sinks by up to a quarter of that over a race. */
+#define DR_SUN_EL   0.11f
+#define DR_SUN_SINK 0.25f
+static V3 sun_ahead;
 uint16_t world_light[3] = {256, 256, 256};
 
 #ifdef DK_CHUNK_STATS
@@ -274,7 +279,8 @@ void world_build(void) {
         V3 f = vnorm(v3(b.x - a.x, 0.0f, b.z - a.z));
         if(world_tk) f = v3(sinf(TK_SUN_DIR), 0.0f, cosf(TK_SUN_DIR));
         world_sun_dir = vnorm(vadd(f, v3(0, world_tk ? 0.30f : 0.36f, 0)));
-        sun_disc_dir = vnorm(vadd(f, v3(0, world_tk ? 0.075f : 0.11f, 0)));
+        sun_disc_dir = vnorm(vadd(f, v3(0, world_tk ? 0.075f : DR_SUN_EL, 0)));
+        sun_ahead = f;
         world_light[0] = 256;   /* no higher: the kart paint doesn't clamp */
         world_light[1] = 209;
         world_light[2] = 172;
@@ -321,6 +327,14 @@ void world_update(float dt) {
         int phase = (int)(world_time * (SKYROAD_PHASES / 0.55f)) % SKYROAD_PHASES;
         sk_road_hdr = *h_skyroad[phase];
     }
+}
+
+void world_race_progress(float frac) {
+    if(!world_canyon || !world_sunset) return;
+    /* Only the disc: the light stays put, as the scenery's shading is
+       baked from it. */
+    float el = DR_SUN_EL * (1.0f - DR_SUN_SINK * clampf(frac, 0.0f, 1.0f));
+    sun_disc_dir = vnorm(vadd(sun_ahead, v3(0, el, 0)));
 }
 
 #define SPLIT_NEAR 25.0f   /* split screen: the road in full detail this near */
