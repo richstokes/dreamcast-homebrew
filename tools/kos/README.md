@@ -25,7 +25,6 @@ make -C "$KOS_PORTS/stb_image" install
 | --- | --- | --- |
 | `kos/kos-bba-rx-consumer.patch` | BBA receive polling and the RX worker could both claim a packet, delivering it twice | Not filed: this fix can leave packets waiting for the next interrupt, so it needs rework first |
 | `kos/kos-dhcp-fast-retry.patch` | A lost first DHCP DISCOVER was resent after 4 s, so bringing up the network took 7-12 s on the console; backs off from 1 s. Also keeps the REQUEST when a second OFFER arrives | Second OFFER: issue [#1573](https://github.com/KallistiOS/KallistiOS/issues/1573). The 1 s retry stays local (RFC 2131 says about 4 s). PR [#1564](https://github.com/KallistiOS/KallistiOS/pull/1564) fixes other DHCP bugs |
-| `kos/kos-maple-rx-cache.patch` | A stale cache line over a DMA-filled maple receive buffer broke boot (`cont_cond_t` assertion) on some link layouts | Issue [#1572](https://github.com/KallistiOS/KallistiOS/issues/1572), PR [#1576](https://github.com/KallistiOS/KallistiOS/pull/1576); maintainers point at the earlier [#1526](https://github.com/KallistiOS/KallistiOS/pull/1526) and want a lighter fix |
 | `kos/kos-maple-timeout-dequeue.patch` | A VMU (or SIP, Dreameye, reset) command that timed out left its frame on the maple queue, so the next use of that device asserted `!frame->queued` and the console aborted; a write timing out before its frame was sent counted as done | Not filed yet |
 | `kos/kos-ppp-lifecycle.patch` | `ppp_shutdown` left its receive thread running into the freed modem buffers, and `net_init` set up no sockets without an Ethernet adapter; a modem send could also spin forever. Every dial-up project needs it | Issues [#1570](https://github.com/KallistiOS/KallistiOS/issues/1570) (shutdown) and [#1571](https://github.com/KallistiOS/KallistiOS/issues/1571) (`net_init`); no PR yet |
 | `kos/kos-tcp-upload-window.patch` | Send-window bugs: a shrinking peer window wrapped unsigned maths, retransmits moved SND.NXT backwards, and pure window updates were dropped | Not filed: needs a standalone repro first |
@@ -38,7 +37,8 @@ works around them: `vmufs_write` padding from past the buffer (issue
 Patches apply in name order. Drop one once the pinned SDK has its fix; the
 keyboard attach, TCP orphan reset and TCP poll-lock fixes went upstream
 (KallistiOS#1537, #1551, #1550) and were dropped with the move to master
-`e7ab1a2`.
+`e7ab1a2`, and the maple receive-buffer cache fix (#1576) with the move to
+`d81aa3f`.
 
 ## KOS at another commit
 
@@ -67,7 +67,7 @@ KOS_Test takes it as `make <target> KOS=<ref>` (`KOS_PATCHED=1` for
 ## Moving the pin
 
 CI builds against the KallistiOS commit in `.github/workflows/release.yml`
-(`KOS_COMMIT`), currently master `e7ab1a2`. The weekly
+(`KOS_COMMIT`), currently master `d81aa3f`. The weekly
 [KOS canary](../../.github/workflows/kos-canary.yml) builds every project
 against the newest master with these patches and fails when one has gone
 upstream (drop it), no longer applies, or a build breaks; its summary says

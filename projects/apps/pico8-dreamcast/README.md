@@ -161,8 +161,8 @@ Each is also commented where it lives in the code.
   interrupts off until dc-tool-ip reads it, so hardware builds skip networking
   and `make hw` keeps dc-tool-ip attached (`main.cpp`, `Makefile`)
 - A stale cache line evicted over a DMA-filled maple receive buffer broke boot
-  (`cont_cond_t` assertion) on some link layouts; CI applies
-  [kos-maple-rx-cache.patch](../../../tools/kos/patches/kos/kos-maple-rx-cache.patch)
+  (`cont_cond_t` assertion) on some link layouts; fixed upstream in
+  [KallistiOS#1576](https://github.com/KallistiOS/KallistiOS/pull/1576), in KOS from `d81aa3f`
 - Data placement moves audio mixer speed by up to 60%; the ROM disk is padded
   to 16 KiB multiples (the operand cache size) so cart changes do not shift
   everything linked after it (`Makefile`)

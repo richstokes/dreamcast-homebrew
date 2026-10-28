@@ -48,7 +48,7 @@ Every project builds with [KallistiOS](https://kos-docs.dreamcast.wiki/)
 (KOS), the open-source Dreamcast SDK, and runs in the
 [Flycast](https://github.com/flyinghead/flycast) emulator. I build on macOS;
 CI builds the same projects on Linux. Known-working baseline: KOS 2.3.0 master
-`e7ab1a2`, kos-ports `f4faacc`, GCC 15.2.0, and Flycast master `628bd3d` with
+`d81aa3f`, kos-ports `f4faacc`, GCC 15.2.0, and Flycast master `628bd3d` with
 [these patches](tools/flycast/README.md).
 
 ### One-time setup
@@ -65,7 +65,7 @@ else (its own default is `/opt/toolchains/dc`), export
    git clone https://github.com/richstokes/dreamcast-homebrew.git
    DC="$HOME/.local/share/dreamcast"
    git clone https://github.com/KallistiOS/KallistiOS.git "$DC/kos"
-   git -C "$DC/kos" checkout e7ab1a2
+   git -C "$DC/kos" checkout d81aa3f
    git clone https://github.com/KallistiOS/kos-ports.git "$DC/kos-ports"
    git -C "$DC/kos-ports" checkout f4faacc
    ```

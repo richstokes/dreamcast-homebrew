@@ -72,7 +72,7 @@ play on it (`make hw`).
 - Flycast: `~/.local/share/dreamcast/flycast/Flycast.app`, built by
   `tools/flycast/build-macos.sh`. The launchers fall back to
   `/Applications/Flycast.app`, and `FLYCAST_BIN` overrides both
-- Known working baseline: KOS 2.3.0 master `e7ab1a2` (see `tools/kos/README.md`
+- Known working baseline: KOS 2.3.0 master `d81aa3f` (see `tools/kos/README.md`
   for moving it), GCC 15.2.0, Flycast master `628bd3d`
   with the patches in `tools/flycast/`
 - KOS patches: `tools/kos/patches/`, applied to the installed SDK and by

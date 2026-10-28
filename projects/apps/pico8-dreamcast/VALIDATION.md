@@ -86,9 +86,9 @@ Problems found on hardware:
   == ..." failed at controller.c:170`, every time. The buffer lives in
   `calloc()`ed memory zeroed through the cache, is filled by DMA and read
   uncached; evicting a stale line overwrote the controller's reply.
-  [kos-maple-rx-cache.patch](../../../tools/kos/patches/kos/kos-maple-rx-cache.patch) writes
-  back and invalidates those lines when a frame is initialized. With it, the
-  failing build passed every run. CI applies it.
+  Writing back and invalidating those lines when a frame is initialized
+  fixed it: the failing build passed every run. The fix went upstream as
+  [KallistiOS#1576](https://github.com/KallistiOS/KallistiOS/pull/1576) and is in KOS from `d81aa3f`.
 - **Networking under dcload-ip.** The normal ELF (INIT_NET) hung while KOS
   took the adapter over from dcload-ip. Hardware test builds and
   `pico8-hw.elf` start without networking. Download & Play was not tested on
