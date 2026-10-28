@@ -28,9 +28,9 @@ static bool world_av;
 bool world_sunset;
 static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
 /* Spiral Canyon's sun, along the start straight (sun_ahead) at
-   DR_SUN_EL up, sinks by up to a quarter of that over a race. */
+   DR_SUN_EL up, sinks by up to 35% of that over a race. */
 #define DR_SUN_EL   0.11f
-#define DR_SUN_SINK 0.25f
+#define DR_SUN_SINK 0.35f
 static V3 sun_ahead;
 uint16_t world_light[3] = {256, 256, 256};
 
