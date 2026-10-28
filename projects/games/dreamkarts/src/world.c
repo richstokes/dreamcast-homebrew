@@ -663,6 +663,19 @@ static void draw_dash_pads(void) {
     }
 }
 
+/* Shenmue's fog table (s1/task/wexe.cpp): the PVR's 128 entries run from
+   far (entry 0) toward the eye, sixteen to each halving of the distance,
+   and fog falls by an even step per entry. So the haze starts at near,
+   thickens quickly at first then ever more gently, and reaches cap at far
+   rather than full, leaving distant shapes as tinted outlines. */
+static void fog_table_octaves(float near, float far, float cap) {
+    float t[129];
+    int n = (int)(16.0f * log2f(far / near));
+    for(int k = 0; k <= 128; k++) t[k] = k < n ? cap * (float)(n - k) / (float)n : 0.0f;
+    pvr_fog_far_depth(far);
+    pvr_fog_table_custom(t);
+}
+
 void world_set_fog(bool split) {
     /* The fog table is global: pull it in for the shorter split-screen view.
        The PVR reads the table while it renders, so the table only changes
@@ -705,6 +718,15 @@ void world_set_fog(bool split) {
         else
 #endif
         pvr_set_bg_color(0.55f, 0.82f, 0.98f);
+    }
+    /* The two open plains: a haze from close in. Tsudoken's is light, so
+       the cherry trees keep their pink, and the desert has only a thin
+       heat haze over the sand. */
+    if(world_tk || world_av) {
+        float k = split ? 0.5f : 1.0f;
+        if(world_tk) fog_table_octaves(50.0f * k, 1100.0f * k, 0.85f);
+        else fog_table_octaves(30.0f * k, 900.0f * k, 0.45f);
+        return;
     }
     /* The sky tracks see further (Spiral Canyon by day too). */
     bool sky = track.in_sky;
