@@ -33,7 +33,6 @@ static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
 #define DR_SUN_EL   0.11f
 #define DR_SUN_SINK 0.35f
 static V3 sun_ahead;
-static V3 cloud_pivot;     /* the middle of the track, for the clouds' parallax */
 uint16_t world_light[3] = {256, 256, 256};
 
 #ifdef DK_CHUNK_STATS
@@ -259,8 +258,6 @@ void world_build(void) {
 #else
     world_sunset = world_canyon || (world_tk && !TK_AFTERNOON);
 #endif
-    cloud_pivot = v3(0, 0, 0);
-    for(int i = 0; i < 16; i++) cloud_pivot = vmad(cloud_pivot, track_point(track.length * (float)i / 16.0f, 0), 1.0f / 16.0f);
     h_far_sprite = h_palm_far;   /* Tsudoken's and Apple Valley's builds set their own */
     th_flame_n = 0;
     /* The sun, or at night the moon (north-west, low over the waves). */
@@ -1017,10 +1014,9 @@ static void draw_clouds_and_mountains(void) {
     /* Clouds drift round the sky at depths from 950 to 1500 m, drawn far
        to near since the translucent list isn't sorted. All sit at about the
        same altitude and move with the same wind, so a nearer cloud is
-       bigger, higher and crosses the sky faster. Their ring is centred
-       part way between the camera and the middle of the track, the near
-       ones furthest from the camera, so driving round shifts the near
-       clouds against the far ones. t runs 0 (near) to 1 (far). */
+       bigger, higher and crosses the sky faster. They stay centred on the
+       camera: shifting them as the kart moves made them seem to swing
+       round. t runs 0 (near) to 1 (far). */
     static const uint8_t far_first[11] = {3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 0};
     r_hdr(h_cloud);
     for(int k = 0; k < 11; k++) {
@@ -1030,10 +1026,8 @@ static void draw_clouds_and_mountains(void) {
         float d = 950.0f + 550.0f * t;
         float a = (float)i * 0.63f * DK_PI * 0.9f + world_time * 0.006f * 950.0f / d;
         float el = 0.07f + 0.05f * (float)(i % 4) / 3.0f + (i & 1) * 0.04f;
-        float lag = 0.4f - 0.35f * t;
-        float r = cosf(el) * d;
-        V3 p = v3(c.x + (cloud_pivot.x - c.x) * lag + sinf(a) * r, sinf(el) * 1250.0f + 20.0f,
-                  c.z + (cloud_pivot.z - c.z) * lag + cosf(a) * r);
+        float sa = sinf(a), ca = cosf(a), r = cosf(el) * d;
+        V3 p = v3(c.x + sa * r, sinf(el) * 1250.0f + 20.0f, c.z + ca * r);
         if(!r_sphere_visible(p, 260.0f)) continue;
         float w = 150.0f + (float)(i % 3) * 50.0f;
         /* Four cumulus in the texture's quarters. */
@@ -1043,8 +1037,7 @@ static void draw_clouds_and_mountains(void) {
         if(world_sunset || world_tk) {
             /* None in front of the low sun: a cloud drifting within ~35
                degrees of it fades out (gone by ~30). */
-            float dx = p.x - c.x, dz = p.z - c.z, inv = 1.0f / fmaxf(1.0f, sqrtf(dx * dx + dz * dz));
-            float sa = dx * inv, ca = dz * inv, fade = 1.0f;
+            float fade = 1.0f;
             if(world_sunset) {
                 float sd = (sa * sun_disc_dir.x + ca * sun_disc_dir.z) /
                            fmaxf(0.01f, sqrtf(sun_disc_dir.x * sun_disc_dir.x + sun_disc_dir.z * sun_disc_dir.z));
