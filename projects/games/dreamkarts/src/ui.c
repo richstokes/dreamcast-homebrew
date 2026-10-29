@@ -182,7 +182,7 @@ static void glyph_disc(float cx, float cy, float r, uint32_t col, const char *le
     ui_circle(cx, cy, r + 2, NAVY);
     ui_circle(cx, cy, r, col);
     ui_circle(cx - r * 0.2f, cy - r * 0.3f, r * 0.55f, color_lerp(col, 0xffffffff, 0.25f));
-    hud_text_c(cx, cy + 1, 0.4f, ALIGN_CENTER, 0xffffffff, letter);
+    hud_letter_c(cx, cy, 0.4f, 0xffffffff, letter[0]);
 }
 
 float ui_glyph(float x, float cy, const char *key, bool draw) {
@@ -229,7 +229,7 @@ float ui_glyph(float x, float cy, const char *key, bool draw) {
                 float gx = x + i * 26;
                 ui_rrect(gx - 2, cy - 11, gx + 24, cy + 11, 7, NAVY, NAVY);
                 ui_rrect(gx, cy - 9, gx + 22, cy + 9, 5, body, argb(255, 200, 206, 222));
-                hud_text_c(gx + 11, cy + 1, 0.34f, ALIGN_CENTER, ink, i ? "R" : "L");
+                hud_letter_c(gx + 11, cy, 0.34f, ink, i ? 'R' : 'L');
             }
         }
         return w;

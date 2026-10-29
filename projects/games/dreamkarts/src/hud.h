@@ -14,6 +14,8 @@ void hud_text(float x, float y, float scale, int align, uint32_t col, const char
 /* The same with the capitals (and digits) centred on cy rather than the
    glyph row's top at y. */
 void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s);
+/* One capital centred on (cx, cy) by its drawn rect, for button glyphs. */
+void hud_letter_c(float cx, float cy, float scale, uint32_t col, char c);
 void hud_panel(float x0, float y0, float x1, float y1, uint32_t top, uint32_t bottom, float z);
 /* Big lettering from the countdown atlas: 0..2 = "3".."1", 3 = GO!, 4 = FINISH!. */
 void hud_bigtext(int which, float cx, float cy, float scale, uint32_t col);
