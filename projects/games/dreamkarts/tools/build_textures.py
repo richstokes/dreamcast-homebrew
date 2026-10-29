@@ -335,29 +335,69 @@ def tex_palm_far(n=128):
 
 
 def tex_cloud(w=256, h=128):
-    img = np.zeros((h, w, 4))
-    yy, xx = np.mgrid[0:h, 0:w]
-    rng = np.random.default_rng(111)
-    for cell in range(2):
-        ox = cell * 128
-        dens = np.zeros((h, w))
-        for _ in range(16):
-            cx = ox + rng.uniform(26, 102)
-            cy = rng.uniform(52, 80)
-            r = rng.uniform(14, 30)
-            dens += np.exp(-(((xx - cx) ** 2) / (r * r * 1.4) + ((yy - cy) ** 2) / (r * r)))
-        mask = (xx >= ox + 2) & (xx < ox + 126)
-        window = np.clip(np.sin(np.clip((xx - ox - 2) / 124.0, 0, 1) * math.pi), 0, 1) ** 0.6
-        vwin = np.clip(np.sin(np.clip(yy / (h - 1.0), 0, 1) * math.pi), 0, 1) ** 0.5
-        dens = np.where(mask, dens * window * vwin, 0)
-        img[..., 3] += np.clip(dens * 1.3 - 0.15, 0, 1)
-        shade = np.clip(1.0 - (yy - 40) / 70.0, 0.72, 1.0)
-        img[..., 0] += np.where(mask, 255 * shade, 0)
-        img[..., 1] += np.where(mask, 255 * shade, 0)
-        img[..., 2] += np.where(mask, 255 * np.clip(shade + 0.06, 0, 1), 0)
-    noise = fbm(w, h, 8, 3, 113)
-    img[..., 3] *= 0.8 + 0.4 * noise
-    return to_image(img[..., :3], np.clip(img[..., 3], 0, 1) * 255)
+    """Four fair-weather cumulus, one to each 128x64 quarter: a row of puffs
+    on a flat base with bigger ones heaped on top, each lit like a ball from
+    high up so the tops are white and the creases and the base a soft sky
+    blue. The base row is squashed wide so it reads as one flat bottom.
+    Puffs are opaque with feathered, noisy edges, so on the console the
+    4-bit alpha only dithers along the outline."""
+    cw, ch = 128, 64
+    yy, xx = np.mgrid[0:ch, 0:cw].astype(float)
+    light = np.array([-0.35, -0.75, 0.56])
+    light /= np.linalg.norm(light)
+    lit, shadow = np.array([255, 255, 255.0]), np.array([168, 186, 216.0])
+    rgb = np.zeros((h, w, 3))
+    alpha = np.zeros((h, w))
+    for cell in range(4):
+        rng = np.random.default_rng(111 + cell)
+        edge = fbm(cw, ch, 16, 3, 113 + cell)
+        base = rng.uniform(50, 55)
+        left, right = rng.uniform(16, 24), rng.uniform(104, 112)
+        puffs = []
+        # Heaped tops first (behind), then the row along the base in front.
+        for _ in range(rng.integers(2, 5)):
+            r = rng.uniform(12, 19)
+            cx = rng.uniform(left + 18, right - 18)
+            puffs.append((cx, base - r * rng.uniform(0.9, 1.3), r))
+        # Small bumps round the top of each heap, behind it, so only their
+        # caps break the outline.
+        bumps = []
+        for cx, cy, r in puffs:
+            for _ in range(5):
+                a = rng.uniform(-2.8, -0.35)
+                bumps.append((cx + math.cos(a) * r * 0.8, cy + math.sin(a) * r * 0.8, r * rng.uniform(0.28, 0.42), 1.0))
+        puffs = bumps + [(cx, cy, r, 1.0) for cx, cy, r in puffs]
+        n = rng.integers(4, 6)
+        for k in range(n):
+            r = rng.uniform(9, 13)
+            cx = left + 6 + (right - left - 12) * (k + rng.uniform(0.3, 0.7)) / n
+            puffs.append((cx, base - r * rng.uniform(0.3, 0.55), r, 1.6))
+        acc = np.zeros((ch, cw, 3))
+        cov_all = np.zeros((ch, cw))
+        for cx, cy, r, stretch in puffs:
+            dx, dy = (xx - cx) / (r * stretch), (yy - cy) / r
+            d = np.hypot(dx, dy) + (edge - 0.5) * 0.3
+            cov = np.clip((1.0 - d) / 0.18, 0, 1)
+            cov = cov * cov * (3 - 2 * cov)
+            nz = np.sqrt(np.clip(1 - dx * dx - dy * dy, 0, 1))
+            lam = np.clip(dx * light[0] + dy * light[1] + nz * light[2], 0, 1)
+            low = np.clip((yy - (base - 14)) / 14, 0, 1)        # shade toward the base
+            t = np.clip(0.4 + 0.7 * lam - 0.35 * low, 0, 1)[..., None]
+            col = shadow + (lit - shadow) * t
+            acc = col * cov[..., None] + acc * (1 - cov[..., None])
+            cov_all = cov + cov_all * (1 - cov)
+        # A flat underside that thins out over a few texels, a little uneven.
+        line = base + (edge[0] - 0.5) * 3.0
+        cut = np.clip((line[None, :] + 1.0 - yy) / 5.0, 0, 1)
+        cov_all *= cut * cut * (3 - 2 * cut)
+        col = np.where(cov_all[..., None] > 0.002, acc / np.maximum(cov_all, 1e-3)[..., None], shadow)
+        col = np.clip(col, 0, 255)
+        # Clear texels round the quarter, so filtering never reaches a neighbour.
+        cov_all[:2], cov_all[-2:], cov_all[:, :2], cov_all[:, -2:] = 0, 0, 0, 0
+        oy, ox = (cell >> 1) * ch, (cell & 1) * cw
+        rgb[oy:oy + ch, ox:ox + cw] = col
+        alpha[oy:oy + ch, ox:ox + cw] = np.clip(cov_all, 0, 1)
+    return to_image(rgb, alpha * 255)
 
 
 def tex_mountains(w=256, h=64):

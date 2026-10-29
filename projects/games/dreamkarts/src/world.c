@@ -1020,7 +1020,8 @@ static void draw_clouds_and_mountains(void) {
         V3 p = v3(c.x + sinf(a) * cosf(el) * d, sinf(el) * d + 20.0f, c.z + cosf(a) * cosf(el) * d);
         if(!r_sphere_visible(p, 260.0f)) continue;
         float w = 150.0f + (float)(i % 3) * 50.0f;
-        float u0 = (i & 1) ? 0.5f : 0.0f;
+        /* Four cumulus in the texture's quarters. */
+        float u0 = (i & 1) ? 0.5f : 0.0f, v0 = (i & 2) ? 0.5f : 0.0f;
         uint32_t col = color_alpha(0xffffffff, 0.92f);
         if(world_sunset || world_tk) {
             /* None in front of the low sun: a cloud drifting within ~35
@@ -1039,7 +1040,7 @@ static void draw_clouds_and_mountains(void) {
             if(fade <= 0.0f) continue;
             col = world_sunset ? argb((int)(220.0f * fade), 255, 168, 156) : color_alpha(0xffffffff, 0.92f * fade);
         }
-        r_billboard(p, w, w * 0.8f, 0, u0, 0, u0 + 0.5f, 1, col);
+        r_billboard(p, w, w * 0.5f, 0, u0, v0, u0 + 0.5f, v0 + 0.5f, col);
     }
 
     if(world_tk) return;
