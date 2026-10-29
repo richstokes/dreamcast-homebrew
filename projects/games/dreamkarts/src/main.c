@@ -447,6 +447,7 @@ static const struct { const char *name; uint32_t off; } probe_cfg[] = {
     {"-karts", PROBE_KARTS}, {"-pt", PROBE_PT}, {"-distant", PROBE_DISTANT}, {"-foam", PROBE_FOAM},
     {"-shadows", PROBE_SHADOWS}, {"-fx", PROBE_FX}, {"-hud", PROBE_HUD}, {"autosort", PROBE_AUTOSORT},
     {"-alltr", PROBE_DISTANT | PROBE_FOAM | PROBE_SHADOWS | PROBE_FX | PROBE_HUD}, {"-ta", PROBE_NOTA},
+    {"-sheen", PROBE_SHEEN},
 #ifdef DK_PERF_HUD
     {"-perfhud", PROBE_PERFHUD},
 #endif

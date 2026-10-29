@@ -286,7 +286,10 @@ frames (one in the race, at a 16 ms render) at 7.7 ms average CPU and a
 16.0 ms worst frame, within the table above. With `-DDK_AT_SHIELD_TEST`
 handing the player a Barrier every 12 s (36 of the race's 69 s under one),
 the PVR stayed at 11 to 13.5 ms and no race frame dropped. The GPU probe
-puts the items together with the particles at 0.1 to 0.7 ms.
+puts the items together with the particles at 0.1 to 0.7 ms. The sun's
+sheen on the asphalt (a per-vertex offset colour, probe step `-sheen`)
+costs the CPU 0.23 ms a frame on the start straight, 0.04 ms in a bend
+and nothing on the GPU.
 
 What each change saved on the console (ms a frame unless stated):
 

@@ -749,6 +749,20 @@ void r_strip_bounded(const RV *v, int n, V3 c, float radius) {
     PROF_COUNT(PN_SEMIT, n);
 }
 
+/* The sphere culls, then the strip goes the staged way whether or not it
+   is wholly on screen: dk_xf_emit's fast path writes no offset colour. */
+void r_strip_bounded_spec(const RV *v, int n, V3 c, float radius, void (*fill)(const RV *, int, uint32_t *)) {
+    static uint32_t spec[MAX_STRIP];
+    if(n < 3 || n > MAX_STRIP) return;
+    PROF_COUNT(PN_STRIPS, 1);
+    if(sphere_class(c, radius) == SPHERE_OUT) {
+        PROF_COUNT(PN_SOUT, 1);
+        return;
+    }
+    fill(v, n, spec);
+    strip(v, spec, n);
+}
+
 void r_quad(const RV *a, const RV *b, const RV *c, const RV *d) {
     RV q[4] = {*a, *b, *c, *d};
     r_strip(q, 4);

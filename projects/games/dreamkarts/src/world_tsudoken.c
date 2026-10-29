@@ -38,7 +38,7 @@ static const pvr_poly_hdr_t *h_tkroad, *h_tkcurb, *h_verge, *h_paddy, *h_hoardin
 
 /* The headers only Tsudoken draws with, and its baked props' materials. */
 void tk_init(void) {
-    h_tkroad = r_header(TEX_TKROAD, HF_OP);
+    h_tkroad = r_header(TEX_TKROAD, HF_OP | HF_SPEC);
     h_tkcurb = r_header(TEX_TKCURB, HF_OP);
     h_verge = r_header(TEX_VERGE, HF_OP);
     h_paddy = r_header(TEX_PADDY, HF_OP);
@@ -659,6 +659,7 @@ void tk_draw_glows(void) {
 void build_tsudoken(void) {
     f8m_default();
     f8m.road = h_tkroad;
+    h_sheen = h_tkroad;
     f8m.curb = h_tkcurb;
     f8m.shoulder = h_verge;
     f8m.barrier = h_hoarding;

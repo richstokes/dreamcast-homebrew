@@ -81,6 +81,10 @@ void r_strip_spec(const RV *v, const uint32_t *spec, int n);
    the sphere decides whole strips, and only those it cannot are tested
    vertex by vertex. */
 void r_strip_bounded(const RV *v, int n, V3 c, float radius);
+/* r_strip_bounded with an offset colour per vertex (headers made with
+   HF_SPEC): fill writes spec[0..n) for the strip, and is only called once
+   the sphere says the strip may be on screen. */
+void r_strip_bounded_spec(const RV *v, int n, V3 c, float radius, void (*fill)(const RV *v, int n, uint32_t *spec));
 void r_quad(const RV *a, const RV *b, const RV *c, const RV *d);  /* strip order */
 /* Lit/coloured indexed triangles (already filled RV array). */
 void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull);

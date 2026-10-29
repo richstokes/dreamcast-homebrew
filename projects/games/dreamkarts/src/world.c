@@ -133,7 +133,8 @@ void world_init(void) {
         built_ok = false;
         return;
     }
-    h_road = r_header(TEX_ROAD, HF_OP);
+    h_road = r_header(TEX_ROAD, HF_OP | HF_SPEC);
+    h_sheen = h_road;
     h_board = r_header(TEX_BOARDWALK, HF_OP);
     h_curb = r_header(TEX_CURB, HF_OP);
     h_sand = r_header(TEX_SAND, HF_OP);
@@ -344,7 +345,73 @@ void world_race_progress(float frac) {
 
 #define SPLIT_NEAR 25.0f   /* split screen: the road in full detail this near */
 
+/* The sun on the asphalt: a Blinn highlight (N.H to the power of 2^n, as
+   the sea's glints) in each road vertex's offset colour, which the PVR
+   adds after the texture, so the road ahead glows where it mirrors the
+   sun: broadly down the road toward it, and around the mirror point near
+   the camera. The strips are the ribbons' pairs (left, right) per lap
+   sample, so each pair's normal comes from the quad to the next pair;
+   scaled by the vertex's own brightness, so a tunnel's dim road stays dim.
+   Weighted by Schlick's Fresnel, F0 + (1 - F0) (1 - N.V)^5: asphalt
+   mirrors the sun at grazing angles, not under the camera, and unweighted
+   the lobe round the mirror point a few metres ahead was interpolated
+   across rows of vertices passing under the camera every few metres, so
+   the road flickered. Near the kart it is now a gentle ramp. */
+const pvr_poly_hdr_t *h_sheen;
+#define SHEEN_SQUARINGS 4   /* exponent 2^n */
+#define SHEEN_GAIN 0.60f
+#define SHEEN_F0 0.10f      /* reflectance looking straight down */
+#define SHEEN_CUT 0.80f     /* N.H below this adds nothing worth sending */
+
+static void road_sheen(const RV *v, int n, uint32_t *spec) {
+    V3 L = world_sun_dir, c = r_cam.pos;
+    /* Tint: warm, and warmer still at golden hour (the kart light's grade). */
+    unsigned tr = 255u * world_light[0] >> 8, tg = 240u * world_light[1] >> 8, tb = 205u * world_light[2] >> 8;
+    V3 N = v3(0, 1, 0);
+    for(int k = 0; k < n; k += 2) {
+        const RV *a = &v[k], *b = &v[k + 1 < n ? k + 1 : k];
+        if(k + 2 < n) {
+            const RV *a2 = &v[k + 2];
+            V3 fwd = v3(a2->x - a->x, a2->y - a->y, a2->z - a->z), right = v3(b->x - a->x, b->y - a->y, b->z - a->z);
+            V3 m = vcross(fwd, right);
+            float len2 = vdot(m, m);
+            if(len2 > 1e-6f) N = vscale(m, (m.y < 0 ? -1.0f : 1.0f) * shz_inv_sqrtf(len2));
+        }
+        for(int i = k; i < n && i < k + 2; i++) {
+            const RV *p = &v[i];
+            spec[i] = 0;
+            float vx = c.x - p->x, vy = c.y - p->y, vz = c.z - p->z;
+            float iv = shz_inv_sqrtf(vx * vx + vy * vy + vz * vz);
+            float hx = L.x + vx * iv, hy = L.y + vy * iv, hz = L.z + vz * iv;
+            float d = (N.x * hx + N.y * hy + N.z * hz) * shz_inv_sqrtf(hx * hx + hy * hy + hz * hz);
+            if(d <= SHEEN_CUT) continue;
+            for(int s = 0; s < SHEEN_SQUARINGS; s++) d *= d;
+            float g = 1.0f - (N.x * vx + N.y * vy + N.z * vz) * iv, g2 = g * g;
+            d *= SHEEN_F0 + (1.0f - SHEEN_F0) * g2 * g2 * g;
+            unsigned l = (unsigned)(fminf(d * SHEEN_GAIN, 1.0f) * 255.0f);
+            l = l * ((p->c >> 8) & 255) >> 8;
+            if(l > 2) spec[i] = (l * tr >> 8) << 16 | (l * tg >> 8) << 8 | (l * tb >> 8);
+        }
+    }
+}
+
+/* Whether any vertex of a road strip can glint: N.H at its sphere's
+   centre for a flat road, with margin for how far the half vector swings
+   across the sphere (half its angular radius, so a strip the camera is
+   inside or beside always may) and for the road's bank. Most strips lie
+   off the sun's azimuth, and skip the sheen maths and the staged path. */
+#define SHEEN_BANK 0.30f
+static bool sheen_possible(V3 c, float r) {
+    V3 L = world_sun_dir, cam = r_cam.pos;
+    float vx = cam.x - c.x, vy = cam.y - c.y, vz = cam.z - c.z, d2 = vx * vx + vy * vy + vz * vz;
+    if(d2 < 4.0f * r * r) return true;
+    float iv = shz_inv_sqrtf(d2);
+    float hx = L.x + vx * iv, hy = L.y + vy * iv, hz = L.z + vz * iv;
+    return hy * shz_inv_sqrtf(hx * hx + hy * hy + hz * hz) + 0.6f * r * iv + SHEEN_BANK > SHEEN_CUT;
+}
+
 static void draw_chunks(int list) {
+    bool sheen = !world_night && !(dk_probe_off & PROBE_SHEEN);
     V3 cam = r_cam.pos;
     for(int i = 0; i < chunk_n; i++) {
         const Chunk *c = &chunks[i];
@@ -388,7 +455,9 @@ static void draw_chunks(int list) {
             }
 #endif
             r_hdr(st->hdr);
-            r_strip_bounded(pool + st->first, st->count, st->c, st->r);
+            if(sheen && st->hdr == h_sheen && sheen_possible(st->c, st->r))
+                r_strip_bounded_spec(pool + st->first, st->count, st->c, st->r, road_sheen);
+            else r_strip_bounded(pool + st->first, st->count, st->c, st->r);
         }
     }
 }

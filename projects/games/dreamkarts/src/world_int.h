@@ -70,6 +70,9 @@ extern bool foam_on[MAX_FOAM];
 extern int foam_count;
 extern V3 ring_dir[25];
 extern bool world_sunset;   /* golden hour (Spiral Canyon, Tsudoken Drift) */
+/* The asphalt's header (made with HF_SPEC): its strips get the sun's sheen
+   when drawn. A track with its own road texture sets it with f8m.road. */
+extern const pvr_poly_hdr_t *h_sheen;
 
 /* The golden-hour grade, applied to vertex colours as they are built and
    to the few sprites coloured at run time. */

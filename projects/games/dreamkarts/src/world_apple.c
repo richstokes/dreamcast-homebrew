@@ -24,7 +24,7 @@ static const pvr_poly_hdr_t *h_avroad, *h_avcurb, *h_avdirt, *h_avdesert, *h_avt
 /* The headers only Apple Valley draws with, and its baked props'
    materials. */
 void av_init(void) {
-    h_avroad = r_header(TEX_AVROAD, HF_OP);
+    h_avroad = r_header(TEX_AVROAD, HF_OP | HF_SPEC);
     h_avcurb = r_header(TEX_AVCURB, HF_OP);
     h_avdirt = r_header(TEX_AVDIRT, HF_OP);
     h_avdesert = r_header(TEX_AVDESERT, HF_OP);
@@ -599,6 +599,7 @@ void av_draw_ranges(void) {
 void build_apple(void) {
     f8m_default();
     f8m.road = h_avroad;
+    h_sheen = h_avroad;
     f8m.curb = h_avcurb;
     f8m.shoulder = h_avdirt;
     f8m.barrier = h_avtyres;

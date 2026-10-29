@@ -209,7 +209,8 @@ enum {
     PROBE_PT = 1 << 4, PROBE_DISTANT = 1 << 5, PROBE_FOAM = 1 << 6, PROBE_SHADOWS = 1 << 7,
     PROBE_FX = 1 << 8, PROBE_HUD = 1 << 9, PROBE_AUTOSORT = 1 << 10,
     PROBE_NOTA = 1 << 11,  /* vertices to a cached scratch line, not the TA */
-    PROBE_PERFHUD = 1 << 12
+    PROBE_PERFHUD = 1 << 12,
+    PROBE_SHEEN = 1 << 13   /* the sun's sheen on the asphalt */
 };
 extern uint32_t dk_probe_off;
 
