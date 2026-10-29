@@ -144,7 +144,9 @@ bool r_sphere_visible(V3 c, float radius);
 #define R_NEAR_W 0.25f
 void r_frustum_slopes(float *tx, float *ty);
 bool r_project(V3 p, float *sx, float *sy, float *inv_w);
+/* Depth along the view, and the near plane geometry is clipped at. */
 float r_view_depth(V3 p);
+#define R_NEAR_W 0.25f
 
 /* Column-major 4x4 helpers. m4_mul and m4_translate_rotate compute in
    XMTRX (several times faster than C on the SH-4) and put it back before

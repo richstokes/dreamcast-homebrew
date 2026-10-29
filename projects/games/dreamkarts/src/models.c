@@ -709,7 +709,17 @@ void models_draw_shadow_volumes(int view) {
             pts[j] = v3(m[0] * x + m[4] * FOOT_Y + m[8] * z + m[12],
                         m[1] * x + m[5] * FOOT_Y + m[9] * z + m[13],
                         m[2] * x + m[6] * FOOT_Y + m[10] * z + m[14]);
+            /* Never under the drawn road: where the chassis lags a change of
+               gradient that corner of the shadow would go missing. */
+            pts[j].y = fmaxf(pts[j].y, surface_under(k, pts[j]) + FOOT_Y);
             pts[FOOT_N + j] = vadd(pts[j], ext);
+            /* A low sun ahead of the camera draws the volume back towards
+               it, and a close chase camera (drifting, say) puts its far end
+               behind the near plane. Stop that edge short
+               of the plane instead: it is well under the road by then. */
+            float zt = r_view_depth(pts[j]), zb = r_view_depth(pts[FOOT_N + j]);
+            if(zb < R_NEAR_W + 0.1f && zt > R_NEAR_W + 0.2f)
+                pts[FOOT_N + j] = vmad(pts[j], ext, (zt - R_NEAR_W - 0.1f) / (zt - zb));
         }
         vol_drawn[view][i] = r_modvol(pts, 2 * FOOT_N, (const uint8_t (*)[3])vol_tri, vol_tris);
     }
