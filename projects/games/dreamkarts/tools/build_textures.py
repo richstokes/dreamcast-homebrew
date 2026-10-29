@@ -359,6 +359,13 @@ def tex_cloud(w=256, h=128):
             r = rng.uniform(12, 19)
             cx = rng.uniform(left + 18, right - 18)
             puffs.append((cx, base - r * rng.uniform(0.9, 1.3), r))
+        # Fill any notch between neighbouring heaps, which reads as two
+        # clouds glued together: a lower puff in the valley.
+        heaps = sorted(puffs)
+        for (x0, y0, r0), (x1, y1, r1) in zip(heaps, heaps[1:]):
+            if x1 - x0 > (r0 + r1) * 0.7:
+                rb = max(r0, r1) * 0.8
+                puffs.append(((x0 + r0 + x1 - r1) * 0.5, max(y0, y1) + rb * 0.25, rb))
         # Small bumps round the top of each heap, behind it, so only their
         # caps break the outline.
         bumps = []
