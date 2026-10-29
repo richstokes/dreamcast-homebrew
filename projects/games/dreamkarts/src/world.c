@@ -33,6 +33,7 @@ static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
 #define DR_SUN_EL   0.11f
 #define DR_SUN_SINK 0.35f
 static V3 sun_ahead;
+static V3 cloud_pivot;     /* the middle of the track, for the clouds' parallax */
 uint16_t world_light[3] = {256, 256, 256};
 
 #ifdef DK_CHUNK_STATS
@@ -258,6 +259,8 @@ void world_build(void) {
 #else
     world_sunset = world_canyon || (world_tk && !TK_AFTERNOON);
 #endif
+    cloud_pivot = v3(0, 0, 0);
+    for(int i = 0; i < 16; i++) cloud_pivot = vmad(cloud_pivot, track_point(track.length * (float)i / 16.0f, 0), 1.0f / 16.0f);
     h_far_sprite = h_palm_far;   /* Tsudoken's and Apple Valley's builds set their own */
     th_flame_n = 0;
     /* The sun, or at night the moon (north-west, low over the waves). */
@@ -1011,34 +1014,49 @@ static void draw_clouds_and_mountains(void) {
         r_strip(v, n);
     }
 
-    /* Clouds drift slowly around the dome. */
+    /* Clouds drift round the sky at depths from 950 to 1500 m, drawn far
+       to near since the translucent list isn't sorted. All sit at about the
+       same altitude and move with the same wind, so a nearer cloud is
+       bigger, higher and crosses the sky faster. Their ring is centred
+       part way between the camera and the middle of the track, the near
+       ones furthest from the camera, so driving round shifts the near
+       clouds against the far ones. t runs 0 (near) to 1 (far). */
+    static const uint8_t far_first[11] = {3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 0};
     r_hdr(h_cloud);
-    for(int i = 0; i < 11; i += world_split ? 2 : 1) {
-        float a = (float)i * 0.63f * DK_PI * 0.9f + world_time * 0.004f;
+    for(int k = 0; k < 11; k++) {
+        int i = far_first[k];
+        if(world_split && (i & 1)) continue;
+        float t = (float)((i * 7) % 11) / 10.0f;
+        float d = 950.0f + 550.0f * t;
+        float a = (float)i * 0.63f * DK_PI * 0.9f + world_time * 0.006f * 950.0f / d;
         float el = 0.07f + 0.05f * (float)(i % 4) / 3.0f + (i & 1) * 0.04f;
-        float d = 1250.0f;
-        V3 p = v3(c.x + sinf(a) * cosf(el) * d, sinf(el) * d + 20.0f, c.z + cosf(a) * cosf(el) * d);
+        float lag = 0.4f - 0.35f * t;
+        float r = cosf(el) * d;
+        V3 p = v3(c.x + (cloud_pivot.x - c.x) * lag + sinf(a) * r, sinf(el) * 1250.0f + 20.0f,
+                  c.z + (cloud_pivot.z - c.z) * lag + cosf(a) * r);
         if(!r_sphere_visible(p, 260.0f)) continue;
         float w = 150.0f + (float)(i % 3) * 50.0f;
         /* Four cumulus in the texture's quarters. */
         float u0 = (i & 1) ? 0.5f : 0.0f, v0 = (i & 2) ? 0.5f : 0.0f;
-        uint32_t col = color_alpha(0xffffffff, 0.92f);
+        float alpha = 0.92f - 0.15f * t;   /* the far ones a little hazier */
+        uint32_t col = color_alpha(0xffffffff, alpha);
         if(world_sunset || world_tk) {
             /* None in front of the low sun: a cloud drifting within ~35
                degrees of it fades out (gone by ~30). */
-            float fade = 1.0f;
+            float dx = p.x - c.x, dz = p.z - c.z, inv = 1.0f / fmaxf(1.0f, sqrtf(dx * dx + dz * dz));
+            float sa = dx * inv, ca = dz * inv, fade = 1.0f;
             if(world_sunset) {
-                float sd = (sinf(a) * sun_disc_dir.x + cosf(a) * sun_disc_dir.z) /
+                float sd = (sa * sun_disc_dir.x + ca * sun_disc_dir.z) /
                            fmaxf(0.01f, sqrtf(sun_disc_dir.x * sun_disc_dir.x + sun_disc_dir.z * sun_disc_dir.z));
                 fade = clampf((0.87f - sd) / 0.05f, 0.0f, 1.0f);
             }
             /* Tsudoken: nor in front of Fuji. */
             if(world_tk) {
-                float fd = sinf(a) * sinf(TK_FUJI_DIR) + cosf(a) * cosf(TK_FUJI_DIR);
+                float fd = sa * sinf(TK_FUJI_DIR) + ca * cosf(TK_FUJI_DIR);
                 fade = fminf(fade, clampf((0.90f - fd) / 0.05f, 0.0f, 1.0f));
             }
             if(fade <= 0.0f) continue;
-            col = world_sunset ? argb((int)(220.0f * fade), 255, 168, 156) : color_alpha(0xffffffff, 0.92f * fade);
+            col = world_sunset ? argb((int)(240.0f * alpha * fade), 255, 168, 156) : color_alpha(0xffffffff, alpha * fade);
         }
         r_billboard(p, w, w * 0.5f, 0, u0, v0, u0 + 0.5f, v0 + 0.5f, col);
     }
