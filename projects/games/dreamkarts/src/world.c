@@ -1011,29 +1011,25 @@ static void draw_clouds_and_mountains(void) {
         r_strip(v, n);
     }
 
-    /* Clouds drift round the sky at depths from 950 to 1500 m, drawn far
-       to near since the translucent list isn't sorted. All sit at about the
-       same altitude and move with the same wind, so a nearer cloud is
-       bigger, higher and crosses the sky faster. They stay centred on the
-       camera: shifting them as the kart moves made them seem to swing
-       round. t runs 0 (near) to 1 (far). */
-    static const uint8_t far_first[11] = {3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 0};
+    /* Clouds drift slowly around the dome, each at its own pace (0.8 to
+       1.4 times the base speed). The slow ones are drawn first, so a faster
+       cloud passes in front of a slower one, as if nearer. */
+    static const uint8_t slow_first[11] = {3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 0};
     r_hdr(h_cloud);
     for(int k = 0; k < 11; k++) {
-        int i = far_first[k];
+        int i = slow_first[k];
         if(world_split && (i & 1)) continue;
         float t = (float)((i * 7) % 11) / 10.0f;
-        float d = 950.0f + 550.0f * t;
-        float a = (float)i * 0.63f * DK_PI * 0.9f + world_time * 0.006f * 950.0f / d;
+        float a = (float)i * 0.63f * DK_PI * 0.9f + world_time * 0.004f * (1.4f - 0.6f * t);
         float el = 0.07f + 0.05f * (float)(i % 4) / 3.0f + (i & 1) * 0.04f;
-        float sa = sinf(a), ca = cosf(a), r = cosf(el) * d;
-        V3 p = v3(c.x + sa * r, sinf(el) * 1250.0f + 20.0f, c.z + ca * r);
+        float d = 1250.0f;
+        float sa = sinf(a), ca = cosf(a);
+        V3 p = v3(c.x + sa * cosf(el) * d, sinf(el) * d + 20.0f, c.z + ca * cosf(el) * d);
         if(!r_sphere_visible(p, 260.0f)) continue;
         float w = 150.0f + (float)(i % 3) * 50.0f;
         /* Four cumulus in the texture's quarters. */
         float u0 = (i & 1) ? 0.5f : 0.0f, v0 = (i & 2) ? 0.5f : 0.0f;
-        float alpha = 0.92f - 0.15f * t;   /* the far ones a little hazier */
-        uint32_t col = color_alpha(0xffffffff, alpha);
+        uint32_t col = color_alpha(0xffffffff, 0.92f);
         if(world_sunset || world_tk) {
             /* None in front of the low sun: a cloud drifting within ~35
                degrees of it fades out (gone by ~30). */
@@ -1049,9 +1045,22 @@ static void draw_clouds_and_mountains(void) {
                 fade = fminf(fade, clampf((0.90f - fd) / 0.05f, 0.0f, 1.0f));
             }
             if(fade <= 0.0f) continue;
-            col = world_sunset ? argb((int)(240.0f * alpha * fade), 255, 168, 156) : color_alpha(0xffffffff, alpha * fade);
+            col = world_sunset ? argb((int)(220.0f * fade), 255, 168, 156) : color_alpha(0xffffffff, 0.92f * fade);
         }
-        r_billboard(p, w, w * 0.5f, 0, u0, v0, u0 + 0.5f, v0 + 0.5f, col);
+        /* A panel square on to the line from the camera, with world up as
+           its vertical: a camera-facing billboard swung and swelled with
+           every turn and pitch of the chase camera. */
+        V3 dir = vnorm(vsub(p, c));
+        V3 rx = vscale(v3(ca, 0, -sa), w);
+        V3 ry = vscale(vcross(dir, v3(ca, 0, -sa)), w * 0.5f);
+        V3 top = vadd(p, ry), bot = vsub(p, ry);
+        RV q[4] = {
+            {top.x - rx.x, top.y - rx.y, top.z - rx.z, u0, v0, col},
+            {top.x + rx.x, top.y + rx.y, top.z + rx.z, u0 + 0.5f, v0, col},
+            {bot.x - rx.x, bot.y - rx.y, bot.z - rx.z, u0, v0 + 0.5f, col},
+            {bot.x + rx.x, bot.y + rx.y, bot.z + rx.z, u0 + 0.5f, v0 + 0.5f, col},
+        };
+        r_strip(q, 4);
     }
 
     if(world_tk) return;
