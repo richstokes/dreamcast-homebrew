@@ -41,7 +41,7 @@ float world_ground_y(float x, float z);
    ride; shadows rest on this, and the autotest checks the tyres against
    it. */
 float world_surface_y(float s, float d);
-/* Spiral Canyon's leak test (main.c's view tour): a camera spot inside
+/* Spiral Canyon's leak test (autotest.c's view tour): a camera spot inside
    the rock, and which rock to draw (-DDK_ROCK_TINT builds only). */
 bool world_leak_point(float s, float d, V3 *out);
 void world_diag_mode(int mode);

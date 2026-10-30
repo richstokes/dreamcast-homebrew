@@ -52,10 +52,19 @@ enum {
     PN_COUNT
 };
 
+/* Every build: accumulated microseconds per phase (update, world OP,
+   karts, PT, TR), timed by main.c for the performance overlay; the
+   autotest's log line reads and zeroes them. */
+extern uint64_t prof_us[6];
+extern int prof_frames;
+
 #ifdef DK_AUTOTEST
 #define DK_PROF 1
 typedef struct { uint32_t c, e; } ProfMark;
 extern uint32_t prof_cyc[PS_COUNT], prof_ev[PS_COUNT], prof_n[PN_COUNT];
+void prof_start(void);       /* counter 1 on its first event */
+void prof_frame_end(void);   /* bank the frame, counter 1 on to the next event */
+void prof_print(void);       /* the window's DK PC line */
 static inline ProfMark prof_mark(void) {
     ProfMark m = {*(volatile uint32_t *)0xff100008, *(volatile uint32_t *)0xff100010};
     return m;

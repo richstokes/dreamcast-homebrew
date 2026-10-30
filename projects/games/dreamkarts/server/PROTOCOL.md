@@ -239,7 +239,7 @@ anyone can watch it.
 A recording keeps the full 29-byte kart, so the bots hold emeralds, throw
 spears, drop mines, raise barriers and spin out as the CPUs did. Each was made with its
 emeralds seeded as a watcher of the demo lobby will seed them (lobby 10, a
-race id of its own, its track; `DK_RECORD_LOBBY` in `src/main.c`), and the
+race id of its own, its track; `DK_RECORD_LOBBY` in `src/autotest.c`), and the
 server starts it under that race id, so the gems watchers see are the ones
 the bots take. A recorded spear's target is a kart index; the server sends
 the slot of the bot driving that kart.
