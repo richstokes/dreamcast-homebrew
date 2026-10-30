@@ -462,9 +462,27 @@ static float tyre_sink(const float *m, const Kart *k) {
     return worst;
 }
 
+/* How far kart k is drawn above its physics position this frame: the
+   physics road is analytic and the drawn one a mesh, so on a crest or a
+   dip the tyres would otherwise sink several centimetres into the deck,
+   and the shadow on the deck would lie across them. */
+static float lift_val[MAX_KARTS];
+static uint32_t lift_frame[MAX_KARTS];
+static float kart_lift(const Kart *k) {
+    int i = (int)(k - karts);
+    if(lift_frame[i] != frame_id) {
+        lift_frame[i] = frame_id;
+        float m[16];
+        kart_pose(m, k, false);
+        lift_val[i] = over_road(k) ? fmaxf(tyre_sink(m, k), 0.0f) : 0.0f;
+    }
+    return lift_val[i];
+}
+
 /* The body's (or with chassis the wheels') world matrix. */
 static void kart_matrix(float *m, const Kart *k, bool chassis) {
     kart_pose(m, k, !chassis);
+    m[13] += kart_lift(k);
 }
 
 float models_kart_sink(const Kart *k) {
@@ -618,19 +636,25 @@ void models_draw_karts(int view_kart) {
     }
 }
 
-/* A quad on the road under kart k, centred at c (x, z), spanning +-f and
-   +-r, each corner resting on the road as drawn there, up metres above
-   it, so it follows the deck's triangles rather than cutting through them
-   (or hanging in the air) where the road twists or banks. */
+/* A patch on the road under kart k, centred at c (x, z), spanning +-f and
+   +-r, as ROAD_QUAD_N strips of ROAD_QUAD_N quads each resting on the road
+   as drawn there, up metres above it. One flat quad cut into the deck over
+   a crest (a 10 m crest bows 7 cm under its 2.4 m) and hung in the air in
+   a dip; in 2x2 the bow is under 2 cm and the road lookups stay cheap. */
+#define ROAD_QUAD_N 2
 static void road_quad(const Kart *k, V3 c, V3 f, V3 r, float up, uint32_t col) {
-    RV q[4];
-    for(int i = 0; i < 4; i++) {
-        float sf = i < 2 ? 1.0f : -1.0f, sr = (i & 1) ? 1.0f : -1.0f;
-        V3 p = v3(c.x + sf * f.x + sr * r.x, 0, c.z + sf * f.z + sr * r.z);
-        p.y = surface_under(k, p) + up;
-        q[i] = (RV){p.x, p.y, p.z, (float)(i & 1), i < 2 ? 0.0f : 1.0f, col};
+    RV q[2 * (ROAD_QUAD_N + 1)];
+    for(int row = 0; row < ROAD_QUAD_N; row++) {
+        for(int i = 0; i <= ROAD_QUAD_N; i++) {
+            for(int e = 0; e < 2; e++) {
+                float sf = 1.0f - 2.0f * (float)(row + e) / ROAD_QUAD_N, sr = 2.0f * (float)i / ROAD_QUAD_N - 1.0f;
+                V3 p = v3(c.x + sf * f.x + sr * r.x, 0, c.z + sf * f.z + sr * r.z);
+                p.y = surface_under(k, p) + up;
+                q[2 * i + e] = (RV){p.x, p.y, p.z, (float)i / ROAD_QUAD_N, (float)(row + e) / ROAD_QUAD_N, col};
+            }
+        }
+        r_strip(q, 2 * (ROAD_QUAD_N + 1));
     }
-    r_strip(q, 4);
 }
 
 /* Kart shadows are modifier volumes: a prism from the kart's footprint,
@@ -655,6 +679,11 @@ static const float foot_xz[FOOT_N][2] = {
 #ifndef DK_SHADOW_BLOB
 #define DK_SHADOW_BLOB 0.7f
 #endif
+/* No volume beyond this depth: the hard core is a few pixels there, and
+   each volume costs ~0.07 ms of CPU on the console. The soft shadow fades
+   back to full strength over the last VOL_FADE metres. */
+#define VOL_FAR 35.0f
+#define VOL_FADE 10.0f
 /* Points 0..7 the footprint, 8..15 the same pushed down the sun. Caps are
    fans, each side two triangles. */
 static uint8_t vol_tri[2 * (FOOT_N - 2) + 2 * FOOT_N][3];
@@ -686,23 +715,35 @@ static float shadow_height(const Kart *k) {
 
 void models_draw_shadow_volumes(int view) {
     if(!vol_tris) build_vol_tris();
-    /* Long enough to reach 0.6 m under the road below the kart (past kerbs
-       and a slope's rise under the shadow), and no longer: every screen tile
-       a volume covers costs PVR time, seen or not. */
     V3 sun = world_sun_dir;
-    float sy = fmaxf(sun.y, 0.2f);
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
         vol_drawn[view][i] = false;
         if(k->gone) continue;
         float h = shadow_height(k);
-        if(h < 0) continue;
-        float len = (h + 0.6f) / sy;
-        V3 ext = vscale(sun, -len);
-        if(!r_sphere_visible(vmad(k->pos, ext, 0.5f), 1.3f + 0.5f * len)) continue;
+        if(h < 0 || r_view_depth(k->pos) > VOL_FAR) continue;
         /* Chassis yaw, pitch and roll, without a barrel roll's spin. */
         float m[16];
-        m4_translate_rotate(m, k->pos, k->heading + k->vis_yaw, k->pitch, k->roll);
+        m4_translate_rotate(m, vadd(k->pos, v3(0, kart_lift(k), 0)), k->heading + k->vis_yaw, k->pitch, k->roll);
+        /* The light leans at most 60 degrees off the road under the kart.
+           Lower, as round Spiral Canyon's banked climbs under its low sun,
+           a centimetre of footprint height slides the shadow tens of
+           centimetres along the road, and every wobble of the chassis
+           swings it about. */
+        V3 up = v3(m[4], m[5], m[6]), dir = sun;
+        float c = vdot(sun, up);
+        if(c < 0.5f) {
+            V3 t = vmad(sun, up, -c);
+            float tl = sqrtf(vdot(t, t));
+            dir = tl > 1e-4f ? vmad(vscale(up, 0.5f), t, 0.866f / tl) : up;
+            c = 0.5f;
+        }
+        /* Long enough to reach 0.6 m under the road (past kerbs and a
+           slope's rise under the shadow), and no longer: every screen tile a
+           volume covers costs PVR time, seen or not. */
+        float len = (h + FOOT_Y + 0.6f) / c;
+        V3 ext = vscale(dir, -len);
+        if(!r_sphere_visible(vmad(k->pos, ext, 0.5f), 1.3f + 0.5f * len)) continue;
         V3 pts[2 * FOOT_N];
         for(int j = 0; j < FOOT_N; j++) {
             float x = foot_xz[j][0] * DK_SHADOW_FOOT, z = foot_xz[j][1] * DK_SHADOW_FOOT;
@@ -735,7 +776,8 @@ void models_draw_shadows(int view) {
        the volume's hard edge, or the whole shadow where r_modvol refused. */
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
-        float blob = vol_drawn[view][i] ? DK_SHADOW_BLOB : 1.0f;
+        float blob = 1.0f;
+        if(vol_drawn[view][i]) blob = DK_SHADOW_BLOB + (1.0f - DK_SHADOW_BLOB) * clampf((r_view_depth(k->pos) - (VOL_FAR - VOL_FADE)) / VOL_FADE, 0.0f, 1.0f);
         if(blob <= 0 || k->gone || !r_sphere_visible(k->pos, 2.0f)) continue;
         float h = shadow_height(k);
         if(h < 0) continue;

@@ -25,6 +25,7 @@ enum {
     PS_PHASE_WORLD,
     PS_PHASE_KARTS,
     PS_PHASE_PT,
+    PS_SHADOWS,     /* models_draw_shadow_volumes, all views */
     PS_PHASE_TR,
     PS_U_INPUT,     /* inside upd: controllers (and online, the probe) */
     PS_U_STEP,      /* the simulation steps */

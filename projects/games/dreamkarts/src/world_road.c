@@ -52,12 +52,16 @@ int f8_chunk_svals(int c, float *out) {
         }
     }
     /* Halve intervals whose midpoint height strays from a straight line
-       (by 2 cm: the karts ride the curve, and a tyre's sidewall is less). */
+       (by 2 cm: the karts ride the curve, and a tyre's sidewall is less),
+       and banked bends whose straight quads would sag under the banked
+       surface by more than 4 mm at their middle (the chord of an arc lies
+       inside it by L^2/8R; the bank turns that into height). */
     for(int pass = 0; pass < 3 && track.id != TRACK_FIGURE8; pass++) {
         for(int k = 0; k + 1 < n && n < MAX_SVALS; k++) {
             float a = out[k], b = out[k + 1], m = (a + b) * 0.5f;
             if(b - a < 0.8f) continue;
-            if(fabsf(track_height(m) - 0.5f * (track_height(a) + track_height(b))) < 0.02f) continue;
+            float sag = fabsf(track_bank(m) * track_curvature(m)) * (b - a) * (b - a) * 0.125f;
+            if(fabsf(track_height(m) - 0.5f * (track_height(a) + track_height(b))) < 0.02f && sag < 0.004f) continue;
             for(int q = n; q > k + 1; q--) out[q] = out[q - 1];
             out[k + 1] = m;
             n++;

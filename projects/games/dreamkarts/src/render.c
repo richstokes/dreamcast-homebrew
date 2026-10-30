@@ -399,22 +399,26 @@ bool r_project(V3 p, float *sx, float *sy, float *inv_w) {
 /* Submission                                                          */
 
 #define MODVOL_MAX_PTS 32
-#define MODVOL_MAX_TRIS 96
+#define MODVOL_MAX_TRIS 160   /* each input triangle fans to at most 5 */
 
 /* A modifier-volume vertex on screen: x, y and 1/w. */
 typedef struct { float x, y, z; } MV;
 
-/* Clip a convex polygon on screen to the rows where s * (y - lim) <= 0.
-   1/w is linear across the screen, so it interpolates exactly. */
-static int clip_rows(const MV *in, int n, MV *out, float lim, float s) {
+/* Clip a convex polygon on screen to s * (c - lim) <= 0, c its x (axis 0)
+   or y (axis 1). 1/w is linear across the screen, so it interpolates
+   exactly. */
+static int clip_edge(const MV *in, int n, MV *out, int axis, float lim, float s) {
     int m = 0;
     for(int i = 0; i < n; i++) {
         const MV *p = &in[i], *q = &in[(i + 1) % n];
-        float dp = s * (p->y - lim), dq = s * (q->y - lim);
+        float cp = axis ? p->y : p->x, cq = axis ? q->y : q->x;
+        float dp = s * (cp - lim), dq = s * (cq - lim);
         if(dp <= 0) out[m++] = *p;
         if((dp < 0 && dq > 0) || (dp > 0 && dq < 0)) {
             float t = dp / (dp - dq);
-            out[m++] = (MV){p->x + (q->x - p->x) * t, lim, p->z + (q->z - p->z) * t};
+            MV v = {p->x + (q->x - p->x) * t, p->y + (q->y - p->y) * t, p->z + (q->z - p->z) * t};
+            if(axis) v.y = lim; else v.x = lim;
+            out[m++] = v;
         }
     }
     return m;
@@ -440,28 +444,31 @@ bool r_modvol(const V3 *pts, int np, const uint8_t (*tri)[3], int nt) {
     static pvr_mod_hdr_t open_hdr, close_hdr;
     static bool compiled;
     MV sp[MODVOL_MAX_PTS], out[MODVOL_MAX_TRIS][3];
-    if(np > MODVOL_MAX_PTS || nt < 1 || nt > MODVOL_MAX_TRIS / 3) return false;
+    if(np > MODVOL_MAX_PTS || nt < 1 || nt > MODVOL_MAX_TRIS / 5) return false;
     for(int i = 0; i < np; i++)
         if(!r_project(pts[i], &sp[i].x, &sp[i].y, &sp[i].z)) return false;
-    /* No user clip here (r_set_viewport), so in a split screen each
-       triangle is cut at its view's top and bottom rows instead. The cut
-       is a plane through the eye: what it removes lies on rays the view
-       never casts, and the cap it would need is edge-on, so the volume
-       still counts right for every pixel of the view. */
-    bool split = view_y0 > 0 || view_y1 < 480.0f;
+    /* Each triangle is cut to the view's rectangle on screen: no user clip
+       here (r_set_viewport) keeps a split screen's views apart, and a
+       volume's far end close to the camera would otherwise project
+       thousands of pixels off screen. Each cut is a plane through the eye:
+       what it removes lies on rays the view never casts, and the cap it
+       would need is edge-on, so the volume still counts right for every
+       pixel of the view. */
     int n = 0;
     for(int t = 0; t < nt; t++) {
         const MV *a = &sp[tri[t][0]], *b = &sp[tri[t][1]], *c = &sp[tri[t][2]];
-        if(!split) {
-            out[n][0] = *a; out[n][1] = *b; out[n][2] = *c;
-            n++;
-            continue;
-        }
-        MV p0[5] = {*a, *b, *c}, p1[5];
-        int m = clip_rows(p0, 3, p1, view_y0, -1.0f);
-        m = clip_rows(p1, m, p0, view_y1, 1.0f);
+        /* Up to four cuts, each adding at most one vertex. */
+        MV buf[2][7] = {{*a, *b, *c}};
+        MV *p = buf[0], *q = buf[1];
+        int m = 3;
+        float lo = fminf(a->x, fminf(b->x, c->x)), hi = fmaxf(a->x, fmaxf(b->x, c->x));
+        float top = fminf(a->y, fminf(b->y, c->y)), bot = fmaxf(a->y, fmaxf(b->y, c->y));
+        if(lo < 0) { m = clip_edge(p, m, q, 0, 0.0f, -1.0f); MV *t = p; p = q; q = t; }
+        if(hi > 640.0f) { m = clip_edge(p, m, q, 0, 640.0f, 1.0f); MV *t = p; p = q; q = t; }
+        if(top < view_y0) { m = clip_edge(p, m, q, 1, view_y0, -1.0f); MV *t = p; p = q; q = t; }
+        if(bot > view_y1) { m = clip_edge(p, m, q, 1, view_y1, 1.0f); MV *t = p; p = q; q = t; }
         for(int k = 1; k + 1 < m; k++) {
-            out[n][0] = p0[0]; out[n][1] = p0[k]; out[n][2] = p0[k + 1];
+            out[n][0] = p[0]; out[n][1] = p[k]; out[n][2] = p[k + 1];
             n++;
         }
     }

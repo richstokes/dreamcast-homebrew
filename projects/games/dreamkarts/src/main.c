@@ -85,7 +85,7 @@ static void prof_frame_end(void) {
    operand-cache misses a frame (M). */
 static void prof_print(void) {
     static const char *const names[PS_COUNT] = {"mats", "light", "mxform", "msubmit", "dolphins", "chunks", "sky",
-                                                "sea", "foam", "upd", "world", "karts", "pt", "tr", "u-input",
+                                                "sea", "foam", "upd", "world", "karts", "pt", "shadows", "tr", "u-input",
                                                 "u-step", "u-camera", "u-audio", "u-other"};
     char line[PS_COUNT * 40 + PN_COUNT * 20 + 16], *o = line;
     o += sprintf(o, "DK PC");
@@ -1515,6 +1515,7 @@ static void render(void) {
             set_view(v);
             models_draw_shadow_volumes(v);
         }
+    PROF_LAP(PS_SHADOWS, pp);
 
     r_list(PVR_LIST_TR_POLY);
     for(int v = 0; v < views; v++) {

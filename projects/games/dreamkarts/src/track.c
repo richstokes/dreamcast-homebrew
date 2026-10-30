@@ -1207,8 +1207,11 @@ void track_locate(V3 p, int hint, TrackPos *out) {
     }
     out->idx = best_i;
     out->s = track_wrap(a->s + best_t * track.ds);
-    out->center = vlerp(a->p, b->p, best_t);
-    out->tangent = vnorm(vlerp(a->t, b->t, best_t));
+    /* The frame at s on the centreline itself, not on the chord between
+       the samples: a chord cuts up to 9 cm inside a corkscrew's arc, so
+       measured from it d, and with it the banked road's height, rippled
+       once a sample (1.4 cm, a visible 8 Hz bob at speed). */
+    out->center = centreline(out->s, &out->tangent);
     out->right = v3(out->tangent.z, 0, -out->tangent.x);
     V3 rel = vsub(p, out->center);
     out->d = rel.x * out->right.x + rel.z * out->right.z;
