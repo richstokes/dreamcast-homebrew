@@ -187,6 +187,18 @@ It is fine to run up to ten Flycast instances at once when that helps, for
 example to test several builds, tracks or online clients in parallel. Close
 only the instances you started, never the user's own.
 
+Flycast titles its window after the loaded ELF or disc image, and capture
+scripts (for example `projects/games/dreamkarts/tools/capture.py`) pick the
+window to screenshot by that title. Several sessions running the same build
+(`dreamkarts-capture.elf`, say) get identical titles, and a capture then
+grabs another session's window, usually a stale one. Before capturing, check
+`ps aux | grep Flycast` for other instances; if any runs the same ELF name,
+give yours a unique one (copy the ELF to `<name>-<tag>.elf` and point the
+launcher at it, `DK_ELF=` for DreamKarts) or match the window by its owner
+PID. A window covered by another, including the Claude app, stops presenting
+and its screenshots go stale too; place yours clear or read the framebuffer
+from the guest instead.
+
 For non-networked programs, BBA configuration may be omitted. For networked
 programs:
 
