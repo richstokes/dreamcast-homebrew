@@ -516,8 +516,9 @@ func TestUnfinishedPlacesAndTimeout(t *testing.T) {
 	b.kart(id, 0, 3, 500, 90000)
 	c.kart(id, 0, 3, 100, 90000)
 	h.advance(5 * time.Second)
-	if left := raceLeft(b.last(TypeLobby)); left < 24500 || left > 25500 {
-		t.Fatalf("race ends in %d ms, want about 25 s", left)
+	want := int32((FinishGrace - 5*time.Second) / time.Millisecond)
+	if left := raceLeft(b.last(TypeLobby)); left < want-500 || left > want+500 {
+		t.Fatalf("race ends in %d ms, want about %d ms", left, want)
 	}
 	// Keep b and c alive through the grace period.
 	for i := 0; i < 32; i++ {

@@ -14,7 +14,7 @@ import (
 const (
 	PlayerTimeout    = 10 * time.Second
 	CountdownLen     = 4 * time.Second
-	FinishGrace      = 30 * time.Second // after the first finisher
+	FinishGrace      = 20 * time.Second // after the first finisher
 	MaxRaceLen       = 15 * time.Minute // safety net
 	ResultsLen       = 8 * time.Second
 	LobbyInterval    = 250 * time.Millisecond

@@ -212,7 +212,7 @@ nowhere: a console sees only what arrives while it is in the lobby.
 2. **Countdown:** on a valid start the server fixes the racers (everyone in
    the lobby), their grid order (points, then join order) and a race id,
    and counts 4 seconds to green.
-3. **Racing:** ends when every racer has finished, 30 seconds after the
+3. **Racing:** ends when every racer has finished, 20 seconds after the
    first finisher, or (with no results) when no racer is left: everyone
    retired or disconnected.
 4. **Results:** places by finish time, then unfinished racers by distance
