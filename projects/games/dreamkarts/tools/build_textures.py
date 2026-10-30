@@ -114,7 +114,7 @@ def tex_road(n=256):
 
 
 def tex_boardwalk(n=256):
-    planks = 16
+    planks = 6
     v = (np.arange(n) + 0.5) / n
     u = (np.arange(n) + 0.5) / n
     plank_id = np.floor(v * planks).astype(int)
