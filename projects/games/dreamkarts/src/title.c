@@ -7,6 +7,7 @@
    online name, the music switch and the Customize screen, where the player
    paints a kart of their own and watches it change. */
 #include "title.h"
+#include "flappy.h"
 #include "audio.h"
 #include "hud.h"
 #include "kart.h"
@@ -25,6 +26,7 @@
 
 static const pvr_poly_hdr_t *h_logo, *h_flat, *h_star, *h_glow;
 static float logo_in;        /* 0..1 drop-in animation */
+static int code_n;           /* level select code: directions matched, 5 = A held after them */
 static float menu_slide;
 static int menu_row;
 static float sparkle_t[8];
@@ -504,6 +506,7 @@ void title_init(void) {
 }
 
 void title_enter(void) {
+    code_n = 0;
     logo_in = 0;
     menu_slide = 0;
     menu_row = 0;
@@ -526,7 +529,37 @@ void title_update(float dt) {
             game_load_track(track_step(game.track, dir));
             audio_sfx(DK_SFX_WHOOSH, 140, dir < 0 ? 90 : 166);
         }
-        if(game.time > 0.6f &&((pad.pressed | pad2.pressed) & (BTN_START | BTN_A))) {
+        /* Hidden: Sonic 1's level select code opens FlappyKarts (flappy.c):
+           up, down, left, right, then Start with A held. After the four
+           directions an A press waits for the Start rather than opening
+           the menu; letting go of A opens the menu as it would have. */
+        static const uint32_t sonic[] = {BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT};
+        uint32_t pressed = pad.pressed | pad2.pressed, held = pad.held | pad2.held;
+        uint32_t dir = 0;
+        if(input_menu_up()) dir |= BTN_UP;
+        if(input_menu_down()) dir |= BTN_DOWN;
+        if(input_menu_left()) dir |= BTN_LEFT;
+        if(input_menu_right()) dir |= BTN_RIGHT;
+        if(dir) code_n = code_n < 4 && dir == sonic[code_n] ? code_n + 1 : dir == sonic[0] ? 1 : 0;
+        if(code_n >= 4) {
+            if((pressed & BTN_START) && (held & BTN_A)) {
+                code_n = 0;
+                flappy_enter();
+                return;
+            }
+            if(pressed & BTN_A) {
+                code_n = 5;
+                pressed &= ~BTN_A;
+            }
+            else if(code_n == 5 && !(held & BTN_A)) {
+                code_n = 0;
+                pressed |= BTN_A;
+            }
+            else if(code_n == 5) {
+                pressed &= ~(BTN_A | BTN_START);
+            }
+        }
+        if(game.time > 0.6f && (pressed & (BTN_START | BTN_A))) {
             audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
             audio_sfx(DK_SFX_WHOOSH, 160, 128);
             game_set_state(ST_MAIN);

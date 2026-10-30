@@ -150,7 +150,8 @@ enum {
     ST_TITLE, ST_MENU, ST_TRACKS, ST_INTRO, ST_COUNTDOWN, ST_RACE, ST_RESULTS,
     ST_MAIN,     /* single player / two player / online */
     ST_ONLINE,   /* online menus: name, connecting, lobbies, lobby room */
-    ST_KARTS     /* two-player kart select, split screen */
+    ST_KARTS,    /* two-player kart select, split screen */
+    ST_FLAPPY    /* FlappyKarts, the hidden mini game (flappy.c) */
 };
 
 typedef struct {

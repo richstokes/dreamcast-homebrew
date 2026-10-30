@@ -4,7 +4,7 @@ else
 
 TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c ui.c title.c audio.c rumble.c dolphins.c biplane.c \
-	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c \
+	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c flappy.c \
 	world_mesh.c world_road.c world_props.c world_beach.c world_coral.c world_harbour.c world_temple.c world_skyway.c \
 	world_canyon.c world_tsudoken.c world_apple.c
 # Shared with other projects, from projects/common.

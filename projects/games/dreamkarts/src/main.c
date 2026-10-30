@@ -13,6 +13,7 @@
 #include "rumble.h"
 #include "vmuscreen.h"
 #include "title.h"
+#include "flappy.h"
 #include "track.h"
 #include "world.h"
 #include "biplane.h"
@@ -169,6 +170,10 @@ static void take_shot(const char *name) {
 static void capture_script(void) {
 #ifdef DK_AT_SETTINGS
     title_settings_autotest(DK_DT);   /* title.c walks the menus instead */
+    return;
+#endif
+#ifdef DK_AT_FLAPPY
+    flappy_autotest();   /* flappy.c plays the mini game instead */
     return;
 #endif
     static float t;
@@ -1288,6 +1293,9 @@ static void update(float dt) {
                 kart_update(&karts[i], &in, dt, false);
             }
             break;
+        case ST_FLAPPY:
+            flappy_update(dt);
+            break;
         case ST_INTRO:
             idle_karts_step(dt);
             if(game.time >= 3.2f || (game.time > 0.5f && ((pad.pressed | pad2.pressed) & BTN_A))) {
@@ -1393,6 +1401,9 @@ static void update_camera(float dt) {
         case ST_KARTS:
             title_kart_cameras();
             break;
+        case ST_FLAPPY:
+            flappy_camera(&game.cam);
+            break;
         case ST_ONLINE:
             online_camera(&game.cam, dt);
             break;
@@ -1449,6 +1460,12 @@ static void render(void) {
     uint64_t prof_t = timer_us_gettime64();
     PROF_BEGIN(pp);
     int views = view_count();
+    /* FlappyKarts keeps the course's sky, clouds and mountains and draws
+       its own ground, columns and kart; the scenery, sea and effects stay
+       off for the frame. */
+    bool flappy = game.state == ST_FLAPPY;
+    uint32_t probe_saved = dk_probe_off;
+    if(flappy) dk_probe_off |= PROBE_WORLD | PROBE_SEA | PROBE_FOAM | PROBE_PT | PROBE_SHADOWS | PROBE_FX;
     world_split = views > 1;
     world_set_fog(world_split);
     models_begin_frame();
@@ -1464,6 +1481,10 @@ static void render(void) {
     if(!(dk_probe_off & PROBE_KARTS))
         for(int v = 0; v < views; v++) {
             set_view(v);
+            if(flappy) {
+                flappy_draw_op();
+                continue;
+            }
             models_draw_karts(view_kart(v));
             PROF_BEGIN(pd);
             dolphins_draw();
@@ -1505,6 +1526,7 @@ static void render(void) {
             items_draw();
             fx_draw();
         }
+        if(flappy) flappy_draw_tr();
     }
     r_set_viewport(0, 480.0f);
     if(!hud_off) switch(game.state) {
@@ -1517,6 +1539,9 @@ static void render(void) {
             break;
         case ST_ONLINE:
             online_draw();
+            break;
+        case ST_FLAPPY:
+            flappy_draw_hud();
             break;
         case ST_INTRO: {
             float a = clampf(game.time * 2.0f, 0, 1) * clampf((3.2f - game.time) * 2.0f, 0, 1);
@@ -1569,6 +1594,7 @@ static void render(void) {
     }
     if(perfhud_mode == PERF_FPS && !hud_off && !(dk_probe_off & PROBE_PERFHUD)) perfhud_draw_fps(views > 1);
     r_frame_end();
+    dk_probe_off = probe_saved;
     PROF_MARK(4);
     PROF_LAP(PS_PHASE_TR, pp);
     prof_frames++;
@@ -1935,6 +1961,7 @@ int main(int argc, char **argv) {
     hud_init();
     ui_init();
     title_init();
+    flappy_init();
     boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");
     audio_open_disc();   /* before the save worker: see audio.h */
     save_init();   /* the card is read while the rest loads */
@@ -2182,7 +2209,7 @@ int main(int argc, char **argv) {
 #ifdef DK_AUTOTEST
         {
             static const char *const state_names[] = {"title", "menu", "tracks", "intro", "countdown", "race", "results",
-                                                     "main", "online", "karts"};
+                                                     "main", "online", "karts", "flappy"};
             const Kart *p = &karts[game.player];
             /* A displayed frame that took more than 1.5 vblanks dropped one. */
             if(at_skip > 0) {

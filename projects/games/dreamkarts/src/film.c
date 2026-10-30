@@ -23,7 +23,7 @@
 #ifdef DK_FILM
 
 static const char *const state_names[] = {"title", "menu", "tracks", "intro", "countdown", "race", "results",
-                                          "main", "online", "karts"};
+                                          "main", "online", "karts", "flappy"};
 
 /* What happened since the last step, for the highlight log. */
 static void film_log(void) {
