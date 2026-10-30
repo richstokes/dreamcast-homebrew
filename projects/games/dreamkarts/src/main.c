@@ -1111,6 +1111,15 @@ static int start_pressed(void) {
 static void pause_update(void) {
     int o = game.pause_owner;
     const Pad *pd = input_pad(o);
+    /* Y hides the pause panel and every HUD element so the frame can be
+       screenshotted clean; Y again brings them back. While hidden only
+       Start or B (resume) act, so a blind A cannot restart or quit. */
+    if(pd->pressed & BTN_Y) {
+        game.hud_hidden = !game.hud_hidden;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+        return;
+    }
+    if(game.hud_hidden && !(pd->pressed & (BTN_START | BTN_B))) return;
     if(input_up(o)) {
         game.pause_sel = (game.pause_sel + PAUSE_ITEMS - 1) % PAUSE_ITEMS;
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
@@ -1121,6 +1130,7 @@ static void pause_update(void) {
     }
     if(pd->pressed & (BTN_START | BTN_B)) {
         game.paused = false;
+        game.hud_hidden = false;
         audio_sfx(DK_SFX_MENU_BACK, 180, 128);
         audio_music_target(150);
         return;
@@ -1302,6 +1312,7 @@ static void update(float dt) {
             }
             if(start_pressed() >= 0) {
                 game.paused = true;
+                game.hud_hidden = false;
                 game.pause_owner = start_pressed();
                 game.pause_sel = 0;
                 audio_music_target(60);
@@ -1321,6 +1332,7 @@ static void update(float dt) {
             }
             if(!game.paused && start_pressed() >= 0) {
                 game.paused = true;
+                game.hud_hidden = false;
                 game.pause_owner = start_pressed();
                 game.pause_sel = 0;
                 audio_sfx(DK_SFX_MENU_SELECT, 180, 128);
@@ -1460,7 +1472,9 @@ static void render(void) {
         }
     PROF_MARK(2);
     PROF_LAP(PS_PHASE_KARTS, pp);
-    if(perfhud_mode == PERF_OVERLAY && !(dk_probe_off & (PROBE_HUD | PROBE_PERFHUD))) {
+    /* The pause menu's Y toggle hides the overlays like the -hud probe. */
+    bool hud_off = (dk_probe_off & PROBE_HUD) || (game.paused && game.hud_hidden);
+    if(perfhud_mode == PERF_OVERLAY && !hud_off && !(dk_probe_off & PROBE_PERFHUD)) {
         r_set_viewport(0, 480.0f);
         perfhud_draw(views > 1);
     }
@@ -1493,7 +1507,7 @@ static void render(void) {
         }
     }
     r_set_viewport(0, 480.0f);
-    if(!(dk_probe_off & PROBE_HUD)) switch(game.state) {
+    if(!hud_off) switch(game.state) {
         case ST_TITLE:
         case ST_MAIN:
         case ST_MENU:
@@ -1553,7 +1567,7 @@ static void render(void) {
             else hud_draw_results();
             break;
     }
-    if(perfhud_mode == PERF_FPS && !(dk_probe_off & (PROBE_HUD | PROBE_PERFHUD))) perfhud_draw_fps(views > 1);
+    if(perfhud_mode == PERF_FPS && !hud_off && !(dk_probe_off & PROBE_PERFHUD)) perfhud_draw_fps(views > 1);
     r_frame_end();
     PROF_MARK(4);
     PROF_LAP(PS_PHASE_TR, pp);

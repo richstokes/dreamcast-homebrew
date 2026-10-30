@@ -179,6 +179,7 @@ typedef struct {
     float countdown;     /* seconds since countdown began */
     bool paused;
     int pause_sel;
+    bool hud_hidden;     /* Y on the pause menu: no pause panel or HUD, for clean screenshots */
     int menu_sel;
     int results_sel;     /* RESULTS_* choice after a single race */
     float fps, cpu_ms;

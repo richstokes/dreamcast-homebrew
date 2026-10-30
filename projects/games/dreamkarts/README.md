@@ -50,7 +50,7 @@ is no stand-alone ELF). If you are burning a physical CD-R, you may want to try 
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump; press again on the way up off a ramp for a barrel roll and a 2 s boost on landing |
 | Y | D | Use the held power-up (with down held, throw a Chaos Spear backwards; a Mine always drops behind); wave when holding nothing, arms taking turns |
 | Both triggers together | F and V together | Look behind while held |
-| Start | Return | Pause (continue / restart / music on-off / perf: off, overlay or FPS counter / quit) |
+| Start | Return | Pause (continue / restart / music on-off / perf: off, overlay or FPS counter / quit); Y on the pause menu hides the menu and HUD for a clean screenshot, Y again brings them back |
 
 Player 2 uses the second controller with the same layout; a Jump Pack in
 either slot vibrates for that player. To drift, hold A, press and hold R as
