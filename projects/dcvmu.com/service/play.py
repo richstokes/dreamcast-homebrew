@@ -19,7 +19,8 @@ EXTENSIONS = {'7z', 'bin', 'cdi', 'chd', 'cue', 'dat', 'elf', 'gdi', 'iso', 'lst
 NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')
 # Continuous assets are replaced in place, so recheck GitHub after five minutes.
 FRESH_SECONDS = 300
-MAX_ASSET = 128 * 1024 * 1024
+# DreamKarts' disc carries ~210 MB of CD audio.
+MAX_ASSET = 256 * 1024 * 1024
 FETCH_SECONDS = 60
 
 

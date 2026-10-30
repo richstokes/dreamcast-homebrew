@@ -1,9 +1,18 @@
 /* DreamKarts audio.
 
-   Music is a playlist of stereo ADPCM songs stored back to back as one
-   seamless loop and streamed from the disc, so the songs play in order and the
-   last flows into the first. The title screen opens on the theme; each race
-   jumps to the start of a random other song. Effects live in AICA RAM as
+   Music is CD-DA: the songs are audio tracks on the disc, which the GD-ROM
+   plays by itself into the AICA's CD input, so they cost the SH-4 nothing
+   (no stream, no buffer, no decoder). The title screen plays the theme;
+   races and the pause menu's NEXT SONG step through the rest in a shuffled
+   order, reshuffled each time it runs out, and a song that ends on its own
+   hands over to the next. A change of song fades the old one out before
+   the drive is sent to the new one (which then fades in), so no song is
+   cut off mid-note, and the seek happens in silence. The drive takes its orders from a jukebox thread
+   (a GD-ROM command blocks for the seek, ~0.5 s on hardware), which also
+   polls the drive to notice a song finishing; the main thread only fades
+   the AICA's CD volume register. Under dcload there is normally no disc, so
+   the drive is left alone and the music is silent (-DDK_DCLOAD_MUSIC plays
+   whatever DreamKarts disc is in the tray). Effects live in AICA RAM as
    16-bit mono PCM.
 
    The player's engine (two crossfaded loops), tyre squeal, spark crackle,
@@ -12,110 +21,64 @@
    and skips only reserved ones, so an unreserved loop is soon replaced by a
    one-shot, after which its pitch updates retune the wrong sound. Pitch and
    volume then change in place with AICA channel UPDATE commands (the
-   hardware pitch register), smoothed per frame and sent only on change.
-
-   The final-lap music speed-up retunes the stream's two channels the same
-   way. Restarting the stream instead refilled its whole AICA buffer
-   synchronously (16.5 ms on hardware, a dropped vblank) and skipped ahead
-   by the unplayed buffer.
-
-   The stream is refilled from its own thread, above the game's priority.
-   Its AICA buffer holds 1024 ms, refilled half at a time, and a track load
-   on the main thread (scrolling the track select, or an online leader
-   picking a course) can stall longer: Spiral Canyon's took 1056 ms in
-   Flycast. Starved, the AICA loops over stale ADPCM, and since the
-   decoder's state no longer matches the data its step size is left out of
-   ratio with the encoder's: the music comes back much too loud or quiet,
-   easing to normal only as the step size clamps. */
+   hardware pitch register), smoothed per frame and sent only on change. */
 #include "audio.h"
 #include "render.h"
+#include "save.h"
 #include <dc/sound/sound.h>
 #include <dc/sound/sfxmgr.h>
-#include <dc/sound/stream.h>
-#include <kos/fs.h>
+#include <dc/cdrom.h>
+#include <dc/fs_dcload.h>
 #include <kos/thread.h>
 #include <kos/mutex.h>
-#include <malloc.h>
-#include <fcntl.h>
 #include <dc/sound/aica_comm.h>
 #include <dc/spu.h>
-#include <dc/g2bus.h>
+#include <arch/timer.h>
+#include <math.h>
 #include <stddef.h>
-
-#define MUSIC_BUFFER_BYTES 16384
-/* The KOS AICA driver's aica_channel_t[64] in sound RAM (arm/aica_cmd_iface.h). */
-#define AICA_MEM_CHANNELS 0x020000
+#include <string.h>
 
 extern const uint8_t dk_sfx_pak[];
-/* The music streams from the disc (the CDI, or under dcload the project
-   directory mapped at /pc): 9 MB that linked into the executable left the
-   console's 16 MB within a megabyte of full. A reader thread keeps a ring
-   full ahead of the AICA stream, so a GD-ROM seek never stalls a frame;
-   the stream's callback copies out of the ring, silence if it ever runs
-   dry. */
-#define MUSIC_PATH      "/cd/music.adp"
-#define RING_BYTES      (256 * 1024)
-#define RING_CHUNK      (32 * 1024)
-#define RING_PREFILL    (96 * 1024)      /* before a song starts */
-#define FEED_MS         20               /* the feeder's refill check; the AICA buffer lasts 1024 ms */
-static uint8_t *ring;
-static file_t music_file = FILEHND_INVALID;
-static mutex_t ring_mx;
-static size_t ring_r, ring_w, ring_fill;     /* read index, write index, bytes waiting */
-static volatile uint32_t seek_gen;           /* bumped with a new seek_pos; the reader restarts there */
-static volatile size_t seek_pos;
-static volatile bool reader_quit;
-static kthread_t *reader_thd;
-static bool music_pending;                   /* a song is set; the stream starts once the ring is primed */
-/* The feeder thread polls the stream while it plays; the stream's start,
-   stop and poll all go under stream_mx. */
-static mutex_t stream_mx;
-static bool stream_live;
-static volatile bool feeder_quit;
-static kthread_t *feeder;
-/* Music from /pc (dcload) is read over the network with interrupts off,
-   a frame or two lost about once a second, which spoils any timing on the
-   console. There the stream runs on silence with no reader, unless the
-   build asks for it (make hw MUSIC=1, -DDK_PC_MUSIC). */
-static bool music_silent;
 
 static sfxhnd_t sfx[DK_SFX_COUNT];
 static bool ready;
-static snd_stream_hnd_t music = SND_STREAM_INVALID;
-static size_t music_cursor, music_bytes;
+
+/* The disc's audio tracks, matched to the songs in music_tracks.h by
+   order: music_tracks is how many the TOC had (0: no music). */
+static int music_tracks;
+static uint8_t music_track_no[DK_MUSIC_TRACKS];
+static bool music_silent;                /* dcload: the drive is not touched */
+/* What plays: the song (-1 none), its clock in seconds, and the shuffled
+   order the next songs come in. */
+static int music_song = -1;
+static int music_next = -1;              /* the song waiting for the fade-out */
+static float music_pos;
+static uint8_t music_order[DK_MUSIC_TRACKS];
+static int music_order_n, music_order_i;
+static int music_starts, music_ends;     /* songs started and finished (autotest) */
+/* Volume: 0..255 as the rest of the game sets it, faded per frame and
+   written to the AICA's 4-bit CD level only when that changes. */
 static float music_volume;
 static int music_target;
-static bool music_playing;
-static bool music_off;
-static float music_rate = 1.0f;
-static int music_song;          /* song the last start opened with */
-static int music_starts;
-/* Playback clock for the sound test: frames into music.adpcm, advanced by
-   real time at the current rate (integer frames plus a carried fraction,
-   since float alone loses frames this far into the playlist). */
-static uint32_t music_pos;
-static float music_pos_frac;
-static uint64_t music_clock_us;
-static int music_chn[2] = { -1, -1 };
-#ifdef DK_AUTOTEST
-static uint32_t at_rate_us;
-static size_t at_fed, at_fed_rate;      /* stream bytes fed: total, at the change */
-static uint64_t at_t0, at_t_rate;
-static uint64_t at_poll_us;             /* the stream's last refill check; 0 while stopped */
-static uint32_t at_poll_gap_max;
-static int at_poll_late, at_dry;
-
-static void at_poll_mark(void) {
-    uint64_t now = timer_us_gettime64();
-    if(at_poll_us) {
-        uint32_t gap = (uint32_t)((now - at_poll_us) / 1000);
-        if(gap > at_poll_gap_max) at_poll_gap_max = gap;
-        if(gap > AUDIO_FEED_LATE_MS) at_poll_late++;
-    }
-    at_poll_us = now;
-}
-#endif
-static uint8_t feed_buffer[MUSIC_BUFFER_BYTES * 2] __attribute__((aligned(32)));
+static int music_user_vol = SAVE_VOLUME_DEFAULT;   /* the Settings slider */
+static int cd_level = -1;
+#define FADE_OUT_PER_S 600.0f    /* ~0.35 s from full before a change of song */
+#define FADE_IN_PER_S 300.0f     /* ~0.7 s up to the scene's level */
+static bool music_off;                   /* the music switch */
+static bool music_paused;                /* ...and the drive paused for it */
+/* Orders for the jukebox thread, a short queue under jb_mx (a NEXT SONG
+   with the music off is a play then a pause); the drive's state as the
+   thread last saw it. */
+enum { JB_NONE, JB_PLAY, JB_PAUSE, JB_RESUME };
+#define JB_QUEUE 4
+static mutex_t jb_mx;
+static struct { uint8_t cmd, track; } jb_queue[JB_QUEUE];
+static int jb_head, jb_count;
+static volatile bool jb_playing;         /* a song is going (or paused) in the drive */
+static volatile bool jb_ended;           /* the drive stopped on its own: next song */
+static volatile int jb_fails;
+static volatile bool jb_quit;
+static kthread_t *jukebox;
 
 typedef struct {
     int channel;
@@ -146,125 +109,101 @@ void audio_kart_throttle(int slot, bool held) {
     grid_held[slot & 1] = held ? 3 : 0;
 }
 
-static void *music_reader(void *arg) {
+static void jb_post(int cmd, int track) {
+    mutex_lock(&jb_mx);
+    if(jb_count < JB_QUEUE) {
+        jb_queue[(jb_head + jb_count) % JB_QUEUE].cmd = (uint8_t)cmd;
+        jb_queue[(jb_head + jb_count) % JB_QUEUE].track = (uint8_t)track;
+        jb_count++;
+    }
+    mutex_unlock(&jb_mx);
+}
+
+/* The jukebox: runs the drive. cdrom_cdda_play() returns once the drive
+   has taken the order, after its seek; cdrom_get_status() is a quick
+   syscall. Two seconds after a play the drive is given to have started,
+   and from then a status of paused or standby means the track ran out
+   (repeat 0); the main thread then queues the next one. */
+static void *jukebox_thread(void *arg) {
     (void)arg;
-    uint32_t gen = 0;
-    size_t pos = 0;
-    while(!reader_quit) {
-        bool seek = false;
-        mutex_lock(&ring_mx);
-        if(seek_gen != gen) {   /* start_song() has emptied the ring */
-            gen = seek_gen;
-            pos = seek_pos;
-            seek = true;
+    uint64_t started_us = 0, polled_us = 0;
+    bool watching = false;
+    while(!jb_quit) {
+        mutex_lock(&jb_mx);
+        int cmd = JB_NONE, track = 0;
+        if(jb_count) {
+            cmd = jb_queue[jb_head].cmd;
+            track = jb_queue[jb_head].track;
+            jb_head = (jb_head + 1) % JB_QUEUE;
+            jb_count--;
         }
-        size_t fill = ring_fill, w = ring_w;
-        mutex_unlock(&ring_mx);
-        if(fill + RING_CHUNK > RING_BYTES) {
-            thd_sleep(8);
-            continue;
+        mutex_unlock(&jb_mx);
+        int err = 0;
+        if(cmd == JB_PLAY) {
+            err = cdrom_cdda_play((uint32_t)track, (uint32_t)track, 0, CDDA_TRACKS);
+            started_us = timer_us_gettime64();
+            jb_playing = err == 0;
+            watching = err == 0;
+            if(err) jb_fails++;
         }
-        if(seek) fs_seek(music_file, (off_t)pos, SEEK_SET);
-        size_t n = RING_CHUNK;
-        if(pos + n > music_bytes) n = music_bytes - pos;
-        if(w + n > RING_BYTES) n = RING_BYTES - w;      /* a chunk never wraps the ring */
-        ssize_t got = fs_read(music_file, ring + w, n);
-        if(got <= 0) {
-            /* A read error: back to the top of the playlist and try again. */
-            pos = 0;
-            fs_seek(music_file, 0, SEEK_SET);
-            thd_sleep(20);
-            continue;
+        else if(cmd == JB_PAUSE) {
+            err = cdrom_cdda_pause();
+            watching = false;
         }
-        pos += (size_t)got;
-        if(pos >= music_bytes) {
-            pos = 0;
-            fs_seek(music_file, 0, SEEK_SET);   /* the last song flows into the first */
+        else if(cmd == JB_RESUME) {
+            err = cdrom_cdda_resume();
+            started_us = timer_us_gettime64();
+            watching = err == 0;
+            if(err) jb_post(JB_PLAY, track);   /* the drive forgot the song (stopped while paused) */
         }
-        mutex_lock(&ring_mx);
-        if(seek_gen == gen) {                   /* a seek while reading: the data is stale */
-            ring_w = (w + (size_t)got) % RING_BYTES;
-            ring_fill += (size_t)got;
+        uint64_t now = timer_us_gettime64();
+        if(watching && now - started_us > 2000000 && now - polled_us > 500000) {
+            polled_us = now;
+            int status = -1;
+            if(cdrom_get_status(&status, NULL) == 0 &&
+               (status == CD_STATUS_PAUSED || status == CD_STATUS_STANDBY || status == CD_STATUS_OPEN ||
+                status == CD_STATUS_NO_DISC)) {
+                watching = false;
+                jb_playing = false;
+                jb_ended = true;
+            }
         }
-        mutex_unlock(&ring_mx);
+        thd_sleep(cmd == JB_NONE ? 50 : 1);
     }
     return NULL;
 }
 
-static size_t ring_waiting(void) {
-    mutex_lock(&ring_mx);
-    size_t fill = ring_fill;
-    mutex_unlock(&ring_mx);
-    return fill;
-}
-
-/* Copied out under the lock: once ring_fill drops, the reader may refill
-   that space while KOS is still splitting the block, and a song change
-   may empty the ring between two looks at it. */
-static void *music_callback(snd_stream_hnd_t hnd, int req, int *got) {
-    (void)hnd;
-    size_t want = (size_t)req;
-    *got = 0;
-    if(music_bytes == 0 || req <= 0) return NULL;
-    if(want > sizeof(feed_buffer)) want = sizeof(feed_buffer);
-    mutex_lock(&ring_mx);
-    if(ring_fill < want) {
-        mutex_unlock(&ring_mx);
-#ifdef DK_AUTOTEST
-        at_dry++;
-#endif
-        return NULL;           /* the stream plays silence for this block */
+void audio_disc_init(void) {
+    static bool done;
+    if(done) return;
+    done = true;
+#ifndef DK_DCLOAD_MUSIC
+    if(dcload_type != DCLOAD_TYPE_NONE) {
+        music_silent = true;
+        return;
     }
-    size_t first = RING_BYTES - ring_r < want ? RING_BYTES - ring_r : want;
-    memcpy(feed_buffer, ring + ring_r, first);
-    memcpy(feed_buffer + first, ring, want - first);
-    ring_r = (ring_r + want) % RING_BYTES;
-    ring_fill -= want;
-    mutex_unlock(&ring_mx);
-#ifdef DK_AUTOTEST
-    at_fed += want;
 #endif
-    *got = (int)want;
-    return feed_buffer;
-}
-
-static void *music_feeder(void *arg) {
-    (void)arg;
-    while(!feeder_quit) {
-        mutex_lock(&stream_mx);
-        if(stream_live) {
-#ifdef DK_AUTOTEST
-            at_poll_mark();
-#endif
-            snd_stream_poll(music);
-        }
-        mutex_unlock(&stream_mx);
-        thd_sleep(FEED_MS);
+    int status = -1, type = -1;
+    if(cdrom_get_status(&status, &type) < 0 || status == CD_STATUS_OPEN || status == CD_STATUS_NO_DISC) {
+        printf("DreamKarts audio: no disc (status %d); no music\n", status);
+        return;
     }
-    return NULL;
-}
-
-void audio_open_disc(void) {
-    static bool opened;
-    if(opened) return;
-    opened = true;
-    music_file = fs_open(MUSIC_PATH, O_RDONLY);
-    if(music_file == FILEHND_INVALID) music_file = fs_open("/cd/MUSIC.ADP", O_RDONLY);
-    /* Under dcload the project directory (make hw) or captures/hw (make
-       hwbench, which copies the music there) is mapped at /pc. */
-    bool from_pc = music_file == FILEHND_INVALID;
-    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/disc/music.adp", O_RDONLY);
-    if(music_file == FILEHND_INVALID) music_file = fs_open("/pc/music.adp", O_RDONLY);
-#ifndef DK_PC_MUSIC
-    music_silent = from_pc && music_file != FILEHND_INVALID;
-#else
-    (void)from_pc;
-#endif
+    cdrom_reinit();
+    cd_toc_t toc;
+    if(cdrom_read_toc(&toc, false) != ERR_OK) {
+        printf("DreamKarts audio: no TOC; no music\n");
+        return;
+    }
+    int first = (int)TOC_TRACK(toc.first), last = (int)TOC_TRACK(toc.last);
+    for(int t = first; t <= last && t >= 1 && t <= 99 && music_tracks < DK_MUSIC_TRACKS; t++)
+        if(!(TOC_CTRL(toc.entry[t - 1]) & 4)) music_track_no[music_tracks++] = (uint8_t)t;
+    if(music_tracks != DK_MUSIC_TRACKS)
+        printf("DreamKarts audio: %d CD-DA tracks on the disc, the build has %d songs\n", music_tracks, DK_MUSIC_TRACKS);
 }
 
 void audio_init(void) {
-    if(snd_stream_init_ex(2, MUSIC_BUFFER_BYTES) < 0) {
-        printf("DreamKarts audio: stream init failed; running silently\n");
+    if(snd_init() < 0) {
+        printf("DreamKarts audio: sound init failed; running silently\n");
         return;
     }
     ready = true;
@@ -275,54 +214,31 @@ void audio_init(void) {
         if(sfx[i] == SFXHND_INVALID) printf("DreamKarts audio: effect %d failed to load\n", i);
         else loaded++;
     }
-    audio_open_disc();
-    if(music_file == FILEHND_INVALID) {
-        printf("DreamKarts audio: no %s on the disc; no music\n", MUSIC_PATH);
-        music_bytes = 0;
-    }
-    else {
-        ssize_t total = fs_total(music_file);
-        music_bytes = total > 0 ? (size_t)total : 0;
-        if(music_bytes != DK_MUSIC_BYTES)
-            printf("DreamKarts audio: %s is %lu bytes, the build expects %lu\n", MUSIC_PATH, (unsigned long)music_bytes,
-                   (unsigned long)DK_MUSIC_BYTES);
-        ring = memalign(32, RING_BYTES);
-        if(!ring) music_bytes = 0;
-        else {
-            mutex_init(&ring_mx, MUTEX_TYPE_NORMAL);
-            if(music_silent) printf("DreamKarts audio: music from /pc plays silent (make hw MUSIC=1 to hear it)\n");
-            else reader_thd = thd_create(0, music_reader, NULL);
+    audio_disc_init();
+    spu_cdda_volume(0, 0);   /* songs fade in from silence */
+    cd_level = 0;
+    if(music_tracks) {
+        mutex_init(&jb_mx, MUTEX_TYPE_NORMAL);
+        kthread_attr_t attr = {.prio = PRIO_DEFAULT, .label = "dk-jukebox"};
+        jukebox = thd_create_ex(&attr, jukebox_thread, NULL);
+        if(!jukebox) {
+            printf("DreamKarts audio: no jukebox thread; no music\n");
+            music_tracks = 0;
         }
-    }
-    /* snd_stream_alloc() takes the two lowest free channels and keeps them
-       private; find out which ones by asking for them first. */
-    music_chn[0] = snd_sfx_chn_alloc();
-    music_chn[1] = snd_sfx_chn_alloc();
-    if(music_chn[0] >= 0) snd_sfx_chn_free(music_chn[0]);
-    if(music_chn[1] >= 0) snd_sfx_chn_free(music_chn[1]);
-    music = music_bytes ? snd_stream_alloc(music_callback, MUSIC_BUFFER_BYTES) : SND_STREAM_INVALID;
-    if(music != SND_STREAM_INVALID) {
-        mutex_init(&stream_mx, MUTEX_TYPE_NORMAL);
-        kthread_attr_t attr = {.prio = PRIO_DEFAULT - 1, .label = "dk-music-feed"};
-        feeder = thd_create_ex(&attr, music_feeder, NULL);
-        if(!feeder) printf("DreamKarts audio: no music feeder thread\n");
     }
     for(int p = 0; p < MAX_PLAYERS; p++)
         for(int i = 0; i < V_COUNT; i++) voice_sets[p][i].channel = -1;
-    printf("DreamKarts audio: %d/%d effects, music %lu bytes, %lu KiB AICA RAM free\n",
-           loaded, DK_SFX_COUNT, (unsigned long)music_bytes, (unsigned long)(snd_mem_available() / 1024));
+    printf("DreamKarts audio: %d/%d effects, %d CD-DA tracks%s, %lu KiB AICA RAM free\n", loaded, DK_SFX_COUNT,
+           music_tracks, music_silent ? " (silent under dcload)" : "", (unsigned long)(snd_mem_available() / 1024));
 }
 
 void audio_shutdown(void) {
     if(!ready) return;
-    if(feeder) {
-        feeder_quit = true;
-        thd_join(feeder, NULL);
-        feeder = NULL;
-    }
-    if(music != SND_STREAM_INVALID) {
-        snd_stream_stop(music);
-        snd_stream_destroy(music);
+    if(jukebox) {
+        jb_quit = true;
+        thd_join(jukebox, NULL);
+        jukebox = NULL;
+        if(jb_playing) cdrom_cdda_pause();   /* not on through the reboot to the menu */
     }
     /* snd_sfx_stop_all() skips reserved channels; stop the loops here. */
     for(int p = 0; p < MAX_PLAYERS; p++)
@@ -341,172 +257,97 @@ void audio_shutdown(void) {
     }
     snd_sfx_stop_all();
     snd_sfx_unload_all();
-    snd_stream_shutdown();
-    /* Wait for the reader to stop: leaving the game with a GD read in flight
-       hangs the console when openMenu's loader reboots it to the menu. */
-    reader_quit = true;
-    if(reader_thd) {
-        thd_join(reader_thd, NULL);
-        reader_thd = NULL;
-    }
-    if(music_file != FILEHND_INVALID) {
-        fs_close(music_file);
-        music_file = FILEHND_INVALID;
-    }
+    snd_shutdown();
     ready = false;
 }
 
-/* The first start (the title screen) plays the theme, song 0; each later
-   one (a race) picks a random song other than the last one opened with. */
-static int pick_song(void) {
-    if(music_starts++ == 0 || DK_MUSIC_SONG_COUNT < 2) return 0;
-    uint32_t r = (uint32_t)timer_us_gettime64();
-    r ^= r >> 13;
-    r *= 0x5bd1e995u;
-    r ^= r >> 15;
-    int s = (int)(r % (DK_MUSIC_SONG_COUNT - 1));
-    return s >= music_song ? s + 1 : s;
+/* A fresh shuffle of every song, not opening with the one just played. */
+static void music_reshuffle(void) {
+    uint32_t r = (uint32_t)timer_us_gettime64() ^ 0x9e3779b9u;
+    music_order_n = music_tracks;
+    for(int i = 0; i < music_order_n; i++) music_order[i] = (uint8_t)i;
+    for(int i = music_order_n - 1; i > 0; i--) {
+        r ^= r << 13;
+        r ^= r >> 17;
+        r ^= r << 5;
+        int j = (int)(r % (uint32_t)(i + 1));
+        uint8_t t = music_order[i];
+        music_order[i] = music_order[j];
+        music_order[j] = t;
+    }
+    if(music_order_n > 1 && music_order[0] == music_song) {
+        uint8_t t = music_order[0];
+        music_order[0] = music_order[music_order_n - 1];
+        music_order[music_order_n - 1] = t;
+    }
+    music_order_i = 0;
 }
 
-/* Restart the stream at the top of a song; fade in from silence or start
-   straight at the current target volume. */
-static void start_song(int song, bool fade) {
-    mutex_lock(&stream_mx);
-    if(stream_live) snd_stream_stop(music);
-    stream_live = false;
-#ifdef DK_AUTOTEST
-    at_poll_us = 0;
-#endif
-    mutex_unlock(&stream_mx);
+static int music_next_song(void) {
+    if(music_order_i >= music_order_n) music_reshuffle();
+    return music_order[music_order_i++];
+}
+
+/* Start a song now: the drive is told to play its track, the song's clock
+   restarts and it fades in from silence. */
+static void music_start_now(int song) {
     music_song = song;
-    music_cursor = music_pos = dk_music_song_start[song];
-    music_pos_frac = 0;
+    music_next = -1;
+    music_pos = 0;
+    music_starts++;
+    jb_ended = false;
+    jb_playing = true;
+    music_paused = false;
+    music_volume = 0;
+    spu_cdda_volume(0, 0);
+    cd_level = 0;
 #ifndef DK_HW
-    printf("DreamKarts audio: music opens on \"%s\"\n", dk_music_song_title[song]);
+    printf("DreamKarts audio: music opens on \"%s\" (track %d)\n", dk_music_title[song], music_track_no[song]);
 #endif
-    music_rate = 1.0f;
-    music_volume = fade || music_off ? 0 : (float)music_target;
-#ifdef DK_AUTOTEST
-    at_fed = at_fed_rate = 0;
-    at_t0 = timer_us_gettime64();
-    at_t_rate = 0;
-#endif
-    /* Empty the ring and point the reader at the song; the stream starts
-       from audio_update once the ring holds a few blocks, so a GD-ROM seek
-       never underruns the first ones. Emptied here, not by the reader: a
-       reader still busy with a read left the old song's blocks to count as
-       primed, and the new start played them. */
-    mutex_lock(&ring_mx);
-    ring_r = ring_w = ring_fill = 0;
-    seek_pos = music_cursor;
-    seek_gen++;
-    mutex_unlock(&ring_mx);
-    music_pending = true;
-    music_clock_us = timer_us_gettime64();
-    music_playing = true;
+    jb_post(JB_PLAY, music_track_no[song]);
+}
+
+/* Change song: straight away if nothing is audible, else once the one
+   playing has faded out (audio_update). */
+static void music_play_song(int song) {
+    if(!ready || !music_tracks || song < 0 || song >= music_tracks) return;
+    if(jb_playing && !music_paused && cd_level > 0) music_next = song;
+    else music_start_now(song);
+}
+
+void audio_music_title(void) {
+    int now = music_next >= 0 ? music_next : music_song;
+    if(now == DK_MUSIC_TITLE_TRACK && jb_playing) return;
+    music_play_song(DK_MUSIC_TITLE_TRACK);
 }
 
 void audio_music_start(void) {
-    if(!ready || music == SND_STREAM_INVALID) return;
-    start_song(pick_song(), true);
+    music_play_song(music_next_song());
+}
+
+void audio_music_next(void) {
+    music_play_song(music_next_song());
 }
 
 void audio_music_play(int song) {
-    if(!ready || music == SND_STREAM_INVALID || song < 0 || song >= DK_MUSIC_SONG_COUNT) return;
-    music_starts++;
-    start_song(song, false);
+    music_play_song(song);
+}
+
+void audio_music_volume(int volume) {
+    music_user_vol = volume < 0 ? 0 : volume > SAVE_VOLUME_MAX ? SAVE_VOLUME_MAX : volume;
 }
 
 int audio_music_now(float *secs, float *len) {
-    int song = 0;
-    for(int i = 1; i < DK_MUSIC_SONG_COUNT; i++)
-        if(music_pos >= dk_music_song_start[i]) song = i;
-    uint32_t start = dk_music_song_start[song];
-    uint32_t end = song + 1 < DK_MUSIC_SONG_COUNT ? dk_music_song_start[song + 1] : DK_MUSIC_BYTES;
-    if(secs) *secs = music_playing ? (float)(music_pos - start) / DK_MUSIC_RATE : 0;
-    if(len) *len = (float)(end - start) / DK_MUSIC_RATE;
+    int song = music_next >= 0 ? music_next : music_song < 0 ? 0 : music_song;
+    float total = dk_music_secs[song];
+    if(secs) *secs = music_song < 0 ? 0 : fminf(music_pos, total);
+    if(len) *len = total;
     return song;
 }
 
 bool audio_music_playing(void) {
-    return music_playing;
+    return music_tracks > 0 && music_song >= 0;
 }
-
-float audio_music_rate_now(void) {
-    return music_rate;
-}
-
-/* The AICA driver's copy of the channel says whether it is still the
-   music: a stereo ADPCM stream is the only ADPCM sound here. */
-static bool music_chn_ok(int chn) {
-    if(chn < 0) return false;
-    uint32_t type = g2_read_32(SPU_RAM_UNCACHED_BASE + AICA_MEM_CHANNELS +
-                               (uint32_t)chn * sizeof(aica_channel_t) + offsetof(aica_channel_t, type));
-    return type == AICA_SM_ADPCM_LS;
-}
-
-void audio_music_rate(float mul) {
-    if(!ready || !music_playing || mul == music_rate) return;
-#ifdef DK_AUTOTEST
-    uint64_t t0 = timer_us_gettime64();
-    if(mul > 1.0f) {
-        at_fed_rate = at_fed;
-        at_t_rate = t0;
-    }
-#endif
-    music_rate = mul;
-    uint32_t freq = (uint32_t)(DK_MUSIC_RATE * mul);
-    bool in_place = music_chn_ok(music_chn[0]) && music_chn_ok(music_chn[1]);
-    if(in_place) {
-        AICA_CMDSTR_CHANNEL(packet, cmd, chan);
-        cmd->cmd = AICA_CMD_CHAN;
-        cmd->timestamp = 0;
-        cmd->size = AICA_CMDSTR_CHANNEL_SIZE;
-        chan->cmd = AICA_CH_CMD_UPDATE | AICA_CH_UPDATE_SET_FREQ;
-        chan->freq = freq;
-        snd_sh4_to_aica_stop();
-        for(int i = 0; i < 2; i++) {
-            cmd->cmd_id = (uint32_t)music_chn[i];
-            snd_sh4_to_aica(packet, cmd->size);
-        }
-        snd_sh4_to_aica_start();
-    }
-    else {
-        mutex_lock(&stream_mx);
-        if(stream_live) {
-            snd_stream_stop(music);
-            snd_stream_start_adpcm(music, freq, 1);
-            snd_stream_volume(music, (int)music_volume);
-        }
-        mutex_unlock(&stream_mx);
-    }
-#ifdef DK_AUTOTEST
-    if(mul > 1.0f) at_rate_us = (uint32_t)(timer_us_gettime64() - t0);
-#endif
-    if(!in_place)
-        printf("DreamKarts audio: music channels %d/%d not found; restarted stream\n", music_chn[0], music_chn[1]);
-}
-
-#ifdef DK_AUTOTEST
-void audio_autotest_report(void) {
-    uint64_t now = timer_us_gettime64();
-    /* Stereo 4-bit ADPCM: bytes per second equal samples per second. The
-       first fill is a whole buffer ahead, so skip it in the "before" rate. */
-    size_t prefill = MUSIC_BUFFER_BYTES * 2;
-    double before = at_t_rate > at_t0 && at_fed_rate > prefill ?
-        (double)(at_fed_rate - prefill) * 1e6 / (double)(at_t_rate - at_t0) : 0;
-    double after = at_t_rate && now > at_t_rate ?
-        (double)(at_fed - at_fed_rate) * 1e6 / (double)(now - at_t_rate) : 0;
-    printf("DK AUTOTEST: music speed-up took %luus, stream %.0f B/s before, %.0f B/s after (rate %d)\n",
-           (unsigned long)at_rate_us, before, after, DK_MUSIC_RATE);
-}
-
-uint32_t audio_autotest_feed(int *late, int *dry) {
-    if(late) *late = at_poll_late;
-    if(dry) *dry = at_dry;
-    return at_poll_gap_max;
-}
-#endif
 
 void audio_music_target(int volume) {
     music_target = volume;
@@ -520,33 +361,59 @@ bool audio_music_enabled(void) {
     return !music_off;
 }
 
+/* The AICA's CD level is 4 bits of 3 dB steps (15 = full, 0 = off); the
+   game's 0..255 is roughly linear amplitude, and the Settings slider takes
+   a step off per notch under full. */
+static int cd_level_for(float volume) {
+    if(volume < 1.0f || music_user_vol <= 0) return 0;
+    int steps = volume >= 255.0f ? 0 : (int)(20.0f * log10f(255.0f / volume) / 3.0f + 0.5f);
+    steps += SAVE_VOLUME_MAX - music_user_vol;
+    return steps >= 15 ? 1 : 15 - steps;
+}
+
+#ifdef DK_AUTOTEST
+void audio_autotest_report(void) {
+    printf("DK AUTOTEST: music: %d CD-DA tracks, %d songs started, %d ended, %d play failures\n", music_tracks,
+           music_starts, music_ends, jb_fails);
+}
+#endif
+
 void audio_update(float dt) {
-    if(!ready || music == SND_STREAM_INVALID || !music_playing) return;
-    if(music_pending) {
-        if(!music_silent && ring_waiting() < RING_PREFILL) {
-            music_clock_us = timer_us_gettime64();   /* the song's clock starts with it */
+    if(!ready || !music_tracks || music_song < 0) return;
+    if(jb_ended) {
+        jb_ended = false;
+        music_ends++;
+        if(jb_fails >= 3) {
+            printf("DreamKarts audio: the drive will not play; giving up on the music\n");
+            music_tracks = 0;
             return;
         }
-        music_pending = false;
-        mutex_lock(&stream_mx);
-        snd_stream_start_adpcm(music, (uint32_t)(DK_MUSIC_RATE * music_rate), 1);
-        snd_stream_volume(music, (int)music_volume);
-        stream_live = true;
-        mutex_unlock(&stream_mx);
+        music_start_now(music_next >= 0 ? music_next : music_next_song());
     }
-    uint64_t now = timer_us_gettime64();
-    float adv = (float)(now - music_clock_us) * (DK_MUSIC_RATE * 1e-6f) * music_rate + music_pos_frac;
-    music_clock_us = now;
-    uint32_t whole = (uint32_t)adv;
-    music_pos_frac = adv - (float)whole;
-    music_pos = (music_pos + whole) % DK_MUSIC_BYTES;
-    float target = music_off ? 0.0f : (float)music_target;
-    if(music_volume != target) {
-        float step = 200.0f * dt;
-        music_volume = approach(music_volume, target, step);
-        snd_stream_volume(music, (int)music_volume);
+    if(jb_playing && !music_paused) music_pos += dt;
+    /* Fading out ahead of a change of song, or toward the scene's level. */
+    float target = music_off || music_next >= 0 ? 0.0f : (float)music_target;
+    if(music_volume != target)
+        music_volume = approach(music_volume, target, (target < music_volume ? FADE_OUT_PER_S : FADE_IN_PER_S) * dt);
+    int level = cd_level_for(music_volume);
+    if(level != cd_level) {
+        cd_level = level;
+        spu_cdda_volume(level, level);
     }
-    if(!feeder) snd_stream_poll(music);   /* no thread: the frame loop is all there is */
+    if(music_next >= 0 && level == 0) {
+        music_start_now(music_next);
+        return;
+    }
+    /* The switch: paused once faded out (the drive stops spinning), resumed
+       as soon as it is back on. */
+    if(music_off && !music_paused && level == 0 && jb_playing) {
+        music_paused = true;
+        jb_post(JB_PAUSE, 0);
+    }
+    else if(!music_off && music_paused) {
+        music_paused = false;
+        jb_post(JB_RESUME, music_track_no[music_song]);
+    }
 }
 
 void audio_sfx_pitch(int id, int vol, int pan, float rate) {

@@ -29,14 +29,14 @@ Highlights:
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
 - Rocket starts, charge jumps, barrel rolls off the ramps for a landing boost, burnouts, emotes, final-lap dolphins and a biplane weaving ahead on Spiral Canyon's final lap
-- Four original songs, 32 effects, Chao voices by colour and Jump Pack rumble
-- A Settings menu with the sound test, your online name, a music switch and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
+- Seven songs by Alex Morgan as CD audio, shuffled through the races with NEXT SONG on the pause menu, 42 effects, Chao voices by colour and Jump Pack rumble
+- A Settings menu with the sound test, your online name, a music switch and volume, and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
 - VMU screens for the countdown, place, lap and results
 
 ## Download
 
 Download the latest **[self-booting CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**
-for Flycast or GDEMU (the game streams its music from the disc, so there
+for Flycast or GDEMU (the music is CD audio tracks on the disc, so there
 is no stand-alone ELF). If you are burning a physical CD-R, you may want to try the padded
 [CD-R image](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts-cdr.zip) instead (unzip before burning).
 
@@ -50,7 +50,7 @@ is no stand-alone ELF). If you are burning a physical CD-R, you may want to try 
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump; press again on the way up off a ramp for a barrel roll and a 2 s boost on landing |
 | Y | D | Use the held power-up (with down held, throw a Chaos Spear backwards; a Mine always drops behind); wave when holding nothing, arms taking turns |
 | Both triggers together | F and V together | Look behind while held |
-| Start | Return | Pause (continue / restart / music on-off / perf: off, overlay or FPS counter / quit); Y on the pause menu hides the menu and HUD for a clean screenshot, Y again brings them back |
+| Start | Return | Pause (continue / restart / music on-off / next song / perf: off, overlay or FPS counter / quit); Y on the pause menu hides the menu and HUD for a clean screenshot, Y again brings them back |
 
 Player 2 uses the second controller with the same layout; a Jump Pack in
 either slot vibrates for that player. To drift, hold A, press and hold R as
@@ -96,12 +96,15 @@ projects/games/dreamkarts/run-flycast.sh      # builds first unless --skip-build
 
 Every build checks out the pinned SH4ZAM in the ignored `third_party/sh4zam`
 (see the repository README); asset generators and QA scripts run through `uv run`.
-The game is a disc: `dreamkarts.elf` boots with `disc/music.adp` beside it
-and streams the music from there, since the console's 16 MB of RAM could not
-hold the music linked in. `run-flycast.sh` wraps the ELF and `disc/` in a
-throwaway CDI (`build/cdi/`) with [mkdcdisc](https://gitlab.com/simulant/mkdcdisc),
+The game is a disc: the music is seven CD audio tracks ahead of the data
+track, which the GD-ROM plays by itself. `make music` downloads the songs
+(Alex Morgan's, listed with their checksums in `assets/music/tracks.txt`)
+from dcvmu.com and cuts them to `cdda/*.wav` with ffmpeg (`brew install
+ffmpeg`); `run-flycast.sh` wraps the ELF and those tracks in a throwaway CDI
+(`build/cdi/`, ~225 MB) with [mkdcdisc](https://gitlab.com/simulant/mkdcdisc),
 built once by `tools/mkdcdisc/build-macos.sh`; `make disc` builds the CDI the
-releases ship; under dcload the project directory is mapped at `/pc`.
+releases ship; under dcload the project directory is mapped at `/pc` and
+the music is silent (`make hw MUSIC=1` plays a DreamKarts disc in the tray).
 Debug info is split into `dreamkarts.elf.debug` for `sh-elf-addr2line`.
 The title screen shows the commit the game was built from (bottom right,
 `-dirty` when built with uncommitted changes); please include it in bug
@@ -122,7 +125,7 @@ is plugged in (DHCP);
 otherwise the modem dials with the saved PlanetWeb or DreamPassport settings,
 falling back to `555` with login `dream` / `cast`, which a
 [DreamPi](https://github.com/Kazade/dreampi) accepts. The name is saved to
-the first VMU found, alongside the music switch and the custom kart (the
+the first VMU found, alongside the music switch, its volume and the custom kart (the
 Settings menu edits all three).
 
 - Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps, class and whether power-ups are on, and starts the race, alone if nobody else has turned up yet (a bell rings when someone joins; they race from the next one)
@@ -150,7 +153,8 @@ needs no Python.
 | `make apple-valley-props` | Apple Valley's props (`apple_valley_props.h`): Blender (`tools/build_apple_valley_props.py`, ~2 s) models race control, the bleachers, pit canopies, containers, clubhouse, trailer, starter's stand, tyre stacks, light pole, fence, boulders, Joshua trees, creosote and the brown mountain; `captures/apple-valley-props/` has a render of each |
 | `make tsudoken-props` | Tsudoken Drift's props (`tsudoken_props.h`): Blender (`tools/build_tsudoken_props.py`, ~2 s) models Mt Fuji, the cherry trees, torii, stone lanterns, pagoda, grandstand, race control, pit garages, teahouse and bridge, and bakes each as strips per material; `captures/tsudoken_props.blend` holds the scene and `captures/tsudoken-props/` a render of each |
 | `make biplane` | Spiral Canyon's final-lap biplane (`biplane_mesh.h`): Blender (`tools/build_biplane.py`, ~2 s) models the plane and its propeller; `captures/biplane.blend` holds the scene and `captures/biplane/` renders from five angles |
-| `make audio` | Songs and effects, encoded to AICA ADPCM (`sfx.pak`, `music.adpcm`) |
+| `make audio` | Sound effects (`sfx.pak`, `sound_assets.h`) |
+| `make music` | The songs, downloaded once to `assets/music/cache/` and cut to CD audio WAVs in `cdda/`, plus `music_tracks.h` (titles, lengths, tempos) |
 | `make vmu` | The save file's icon and the VMU screen sprites and fonts |
 | `make assets` | All of the above |
 
@@ -164,8 +168,7 @@ The `hw` targets run on a real console and need the
 | `make autotest` | A CPU drives a full 150cc Grand Prix in Flycast; logs frame rate, CPU time and physics stepping every 2 s, every emerald taken, spear thrown, mine dropped and hit as `DK ITEM` lines (and `misses band` for a kart that crossed a band off the slot), prints a summary and exits on `DK AUTOTEST: PASS` (fails on time, a gap rescue, a missed jump, or tyres drawn 2 cm or more into the road in over 10% of kart-frames; the `tyres vs drawn road` line has the depths) |
 | `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` (an emerald ahead, the held gem, a spear, a barrier, a spin-out and a mine ahead included); `--log FILE` keeps the whole serial console |
 | `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh`: 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
-| `make hw-flip` | The `-DDK_AT_TRACK_FLIP` music test on the console, the music streamed from `/pc`; log in `captures/hw/hwflip.log`, powers the console off after |
-| `make hw` | Plays the game on the console and leaves it on (`tools/dc-hw.sh power off` afterwards). The music is silent over dcload; `make hw MUSIC=1` streams `disc/music.adp` from `/pc`, at the cost of a hitch about once a second |
+| `make hw` | Plays the game on the console and leaves it on (`tools/dc-hw.sh power off` afterwards). The music is silent over dcload; `make hw MUSIC=1` plays the CD audio of a DreamKarts disc left in the tray |
 | `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
 | `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
 | `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat (the bot's skid marks must show), custom karts, practice, spectating (the demo lobby, and two braking bots whose skid marks must show), a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
@@ -179,7 +182,6 @@ The `hw` targets run on a real console and need the
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
 | `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all eight |
 | `-DDK_AT_NEXT_TRACK` (capture) | Picks NEW TRACK from the results, the next course along, and races that too |
-| `-DDK_AT_TRACK_FLIP` | Scrolls the track select through every course twice with the music playing, then starts three songs 300 ms apart: `DK FLIP` lines give each load's time, and it fails if the music stream ever waits over 400 ms for a refill or finds no music to refill with (Spiral Canyon's 1056 ms load used to starve it, the music then coming back far too loud) |
 | `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST`, `-DDK_AT_MINE_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill; hand the player a Mine every 12 s, or every `=<s>` (the capture looks behind at it; alone with `=30` the player laps round to its own) |
 | `-DDK_AT_WRONG_WAY` | Turns the player round 10 s in (player 2 at 12 s) and drives it back up the track for 5 s; `DK WRONG WAY` lines log the banner coming and going (capture shots `wrong-way`, `wrong-way-p2`) |
 | `-DDK_AT_FIXED` | One 1/60 s step a frame and held screenshot frames: two runs give pixel-identical captures and `DK STATE` fingerprints, for before/after diffs |
@@ -191,7 +193,7 @@ The `hw` targets run on a real console and need the
 | `-DDK_AT_ONLINE -DDK_AT_RESTART -DDK_AT_LOBBY=<n>` | Starts a race alone, prints `restart the server now`, and once the harness has restarted the server with the same `-race-seed` must come back through the browser, rejoin and get into the next race, whose id repeats (builds up to 18 sat in the room showing RACE IN PROGRESS) |
 | `-DDK_AT_LIVE` | With the online autotests against dcvmu.com: the chat check no longer expects the bot's second line starred (the live word list has no BLORP) |
 | `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU: the name screen must open on the saved name (and recover from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
-| `-DDK_AT_SETTINGS` (capture), then `-DDK_AT_SETTINGS_WANT` | Walks the Settings menu: music off, a custom kart painted and saved, CUSTOM on the race setup's colour row, the online name saved; the second build checks a reboot loads them all. Run both with `DK_VMU_DIR=<folder of blank cards>` so the real VMU is left alone |
+| `-DDK_AT_SETTINGS` (capture), then `-DDK_AT_SETTINGS_WANT` | Walks the Settings menu: music off, volume 6, a custom kart painted and saved, CUSTOM on the race setup's colour row, the online name saved; the second build checks a reboot loads them all. Run both with `DK_VMU_DIR=<folder of blank cards>` so the real VMU is left alone |
 | `-DDK_AT_ONLINE -DDK_AT_CUSTOM` | Goes online with a custom kart; `DK ONLINE: kart` lines show every racer's colour and picks as the lobby sent them (pair with `dk-bot -colour 8 -custom 2,3,4`, the rest as in server/README.md) |
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
 | `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
@@ -302,7 +304,7 @@ What each change saved on the console (ms a frame unless stated):
 | Sea and cloud-sea colours cached per camera cell (`src/world.c`) | 0.3-0.55 | |
 | Kart triangles skip outcodes when the mesh is wholly on screen | 0.2-0.45 | |
 | Kart meshes as strips over each mesh's distinct positions (`src/models.c`, `src/xform.S`) | 0.1-0.4 CPU, 0.05-0.25 render | 959 of 1,614 kart vertices differ only in normal or paint, so only those positions are transformed; strips alone saved render time, not CPU |
-| Final-lap music speed-up retuned in place (`src/audio.c`) | 16.5 ms spike → 0.06 ms | Restarting the stream refilled its whole 32 KiB AICA buffer in one frame and dropped a vblank |
+| Music as CD audio tracks (`src/audio.c`) | the stream's thread, 290 KiB and every refill stall gone | The GD-ROM plays them into the AICA by itself; the final-lap speed-up that retuned the old ADPCM stream went with it |
 | Physics step = measured vblank period (`src/main.c`) | one-frame hitch every 4-16 s gone | A fixed 1/60 s step owed the 16.68 ms display a double step; 18 double and 2 zero-step frames of 5,269 → 0 |
 | Split views on whole 32-pixel tile rows with the PVR user tile clip | | Software clipping at a 240-pixel split broke most ground strips into triangles |
 | Kart LODs with hysteresis (`src/models.c`); far model for split-screen rivals | ~140 → 10 dropped frames a split race | |
@@ -318,9 +320,9 @@ back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 
 ## Gotchas
 
-- RAM is the limit, not the ELF's size: with the music linked in (14.6 MB of the 16 MB) the heap had about a megabyte, a release shipped with sound effects failing to load and no online worker thread (`Out of memory` on the serial console), and KOS copies each effect through a temporary heap block its own size. The music streams from the disc now and the world's vertex pool is static; the link still strips debug info into `dreamkarts.elf.debug`
+- RAM is the limit, not the ELF's size: with the music linked in (14.6 MB of the 16 MB) the heap had about a megabyte, a release shipped with sound effects failing to load and no online worker thread (`Out of memory` on the serial console), and KOS copies each effect through a temporary heap block its own size. The music is CD audio now and the world's vertex pool is static; the link still strips debug info into `dreamkarts.elf.debug`
 - Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `tools/kos/patches/kos/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
-- Music read over dcload's `/pc` drops a frame or two about once a second, so it plays silent there unless built with `MUSIC=1`; console timings taken with it on are not comparable
+- Under dcload the drive is left alone (no music) unless built with `MUSIC=1`: a GD-ROM command blocks its caller for the seek, which is why the game's jukebox thread, not the frame loop, talks to the drive
 - Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/main.c`, `src/netlink.c`)
 - Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches
 - Looping voices (engine, squeal, crackle) need channels reserved with `snd_sfx_chn_alloc()`, or one-shots steal them and pitch updates retune the wrong sound (`src/audio.c`)

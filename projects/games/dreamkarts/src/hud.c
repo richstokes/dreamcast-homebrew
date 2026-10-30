@@ -395,7 +395,7 @@ void hud_draw_results(void) {
 void hud_draw_pause(void) {
     static const char *const perf[PERF_MODES] = {"PERF: OFF", "PERF: OVERLAY", "PERF: FPS"};
     const char *items[PAUSE_ITEMS] = {"CONTINUE", "RESTART", audio_music_enabled() ? "MUSIC: ON" : "MUSIC: OFF",
-                                      perf[perfhud_mode], "QUIT"};
+                                      "NEXT SONG", perf[perfhud_mode], "QUIT"};
     ui_dim();
     float x0 = 160, x1 = 480, y0 = 134;
     const float pitch = 42;

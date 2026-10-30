@@ -48,16 +48,15 @@ static const char *const main_items[MAIN_ITEMS] = {"SINGLE PLAYER", "TWO PLAYER"
                                                    "SETTINGS"};
 
 /* Settings: a page of the main menu (the backdrop stays put) opening the
-   sound test, the online name entry, the music switch and the Customize
-   screen. */
-enum { SET_SOUND, SET_NAME, SET_MUSIC, SET_CUSTOM, SET_ROWS };
+   sound test, the online name entry, the music switch and volume, and the
+   Customize screen. */
+enum { SET_SOUND, SET_NAME, SET_MUSIC, SET_VOLUME, SET_CUSTOM, SET_ROWS };
 static bool settings_open;
 static float settings_slide;
 static int settings_row;
 
-/* Sound test: pick and play any song or effect, and hear the final-lap
-   speed-up. */
-enum { SND_MUSIC, SND_SFX, SND_SPEED, SND_ROWS };
+/* Sound test: pick and play any song or effect. */
+enum { SND_MUSIC, SND_SFX, SND_ROWS };
 static bool sound_open;
 static float sound_slide;
 static int sound_row, sound_song, sound_sfx;
@@ -99,22 +98,12 @@ static void sound_update(void) {
     }
     int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
     if(dir) {
-        if(sound_row == SND_MUSIC) {
-            sound_song = (sound_song + dir + DK_MUSIC_SONG_COUNT) % DK_MUSIC_SONG_COUNT;
-            audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
-        }
-        else if(sound_row == SND_SFX) {
-            sound_sfx = (sound_sfx + dir + DK_SFX_COUNT) % DK_SFX_COUNT;
-            audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
-        }
-        else {
-            audio_music_rate(audio_music_rate_now() > 1.0f ? 1.0f : 1.06f);
-            audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
-        }
+        if(sound_row == SND_MUSIC) sound_song = (sound_song + dir + DK_MUSIC_TRACKS) % DK_MUSIC_TRACKS;
+        else sound_sfx = (sound_sfx + dir + DK_SFX_COUNT) % DK_SFX_COUNT;
+        audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
-        audio_music_rate(1.0f);
         audio_music_enable(save.music);   /* a song played here with the music off stops */
         sound_open = false;
         settings_slide = 0;
@@ -125,13 +114,9 @@ static void sound_update(void) {
             audio_music_enable(true);
             audio_music_play(sound_song);
         }
-        else if(sound_row == SND_SFX) {
+        else {
             audio_sfx(sound_sfx, 255, 128);
             sfx_flash = 0.35f;
-        }
-        else {
-            audio_music_rate(audio_music_rate_now() > 1.0f ? 1.0f : 1.06f);
-            audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
         }
     }
 }
@@ -230,6 +215,16 @@ static void settings_update(void) {
         music_toggle();
         return;
     }
+    if(settings_row == SET_VOLUME && (input_menu_left() || input_menu_right())) {
+        int v = save.volume + (input_menu_left() ? -1 : 1);
+        if(v >= 0 && v <= SAVE_VOLUME_MAX) {
+            save.volume = v;
+            audio_music_volume(v);
+            save_store();
+            audio_sfx(DK_SFX_MENU_MOVE, 200, input_menu_left() ? 90 : 166);
+        }
+        return;
+    }
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
         settings_open = false;
@@ -241,6 +236,7 @@ static void settings_update(void) {
         music_toggle();
         return;
     }
+    if(settings_row == SET_VOLUME) return;
     audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
     if(settings_row == SET_SOUND) sound_enter();
     else if(settings_row == SET_NAME) online_name_enter();
@@ -386,7 +382,7 @@ typedef struct {
 enum {
     C_MAIN = 1, C_ROW_SETTINGS, C_SETTINGS, C_ROW_MUSIC, C_MUSIC_OFF, C_ROW_CUSTOM, C_CUSTOM, C_BODY, C_ROW_TRIM,
     C_TRIM, C_ROW_CHAO, C_CHAO, C_ROW_SAVE, C_SAVED, C_ROW_SINGLE, C_MENU, C_ROW_COLOUR, C_LIME, C_IS_CUSTOM,
-    C_ROW_NAME, C_NAME_SCREEN, C_BACK_ON_NAME, C_SAVED_LOOK, C_SOUND, C_NOT_SOUND
+    C_ROW_NAME, C_NAME_SCREEN, C_BACK_ON_NAME, C_SAVED_LOOK, C_SOUND, C_NOT_SOUND, C_ROW_VOLUME, C_VOL_6
 };
 
 static bool at_cond(int c) {
@@ -399,6 +395,8 @@ static bool at_cond(int c) {
         case C_NOT_SOUND: return settings_open && !sound_open;
         case C_ROW_MUSIC: return settings_row == SET_MUSIC;
         case C_MUSIC_OFF: return !save.music && !audio_music_enabled();
+        case C_ROW_VOLUME: return settings_row == SET_VOLUME;
+        case C_VOL_6: return save.volume == 6;
         case C_ROW_CUSTOM: return settings_row == SET_CUSTOM;
         case C_CUSTOM: return custom_open;
         case C_BODY: return edit.body == 3;
@@ -430,6 +428,7 @@ static const AtStep at_steps[] = {
     {BTN_A, NULL, C_SETTINGS, 0}, {0, "settings", 0, 0}, PAUSE,
     {BTN_A, NULL, C_SOUND, 0}, PAUSE, {0, "sound-test", 0, 0}, PAUSE, {BTN_B, NULL, C_NOT_SOUND, 0}, PAUSE,
     {BTN_DOWN, NULL, C_ROW_MUSIC, 0}, {BTN_RIGHT, NULL, C_MUSIC_OFF, 0}, {0, "settings-music-off", 0, C_MUSIC_OFF}, PAUSE,
+    {BTN_DOWN, NULL, C_ROW_VOLUME, 0}, {BTN_LEFT, NULL, C_VOL_6, 0}, {0, "settings-volume", 0, C_VOL_6}, PAUSE,
     {BTN_DOWN, NULL, C_ROW_CUSTOM, 0}, {BTN_A, NULL, C_CUSTOM, 0}, {0, "customize", 0, 0}, PAUSE,
     {BTN_RIGHT, NULL, C_BODY, 0}, {BTN_DOWN, NULL, C_ROW_TRIM, 0}, {BTN_RIGHT, NULL, C_TRIM, 0},
     {BTN_DOWN, NULL, C_ROW_CHAO, 0}, {BTN_RIGHT, NULL, C_CHAO, 0}, {0, "customize-picked", 0, 0}, PAUSE,
@@ -450,18 +449,20 @@ static void settings_autotest(float dt) {
     t += dt;
 #ifdef DK_AT_SETTINGS_WANT
     if(t > 3.0f) {
-        ok = !save.music && !audio_music_enabled() && save.custom_on && save.custom.body == 3 && save.custom.trim == 0 &&
-             save.custom.chao == 15 && strcmp(save.name, "CHAO") == 0;
-        printf("DK SETTINGS: loaded music %d custom %d (%d %d %d) name %s\nDK AUTOTEST: %s\n", save.music,
-               save.custom_on, save.custom.body, save.custom.trim, save.custom.chao, save.name, ok ? "PASS" : "FAIL");
+        ok = !save.music && !audio_music_enabled() && save.volume == 6 && save.custom_on && save.custom.body == 3 &&
+             save.custom.trim == 0 && save.custom.chao == 15 && strcmp(save.name, "CHAO") == 0;
+        printf("DK SETTINGS: loaded music %d volume %d custom %d (%d %d %d) name %s\nDK AUTOTEST: %s\n", save.music,
+               save.volume, save.custom_on, save.custom.body, save.custom.trim, save.custom.chao, save.name,
+               ok ? "PASS" : "FAIL");
         done = true;
     }
     return;
 #endif
     if(step >= (int)(sizeof(at_steps) / sizeof(at_steps[0]))) {
         if(t > 3.0f) {   /* the card's write */
-            printf("DK SETTINGS: saved music %d custom %d (%d %d %d) name %s\nDK AUTOTEST: %s\n", save.music,
-                   save.custom_on, save.custom.body, save.custom.trim, save.custom.chao, save.name, ok ? "PASS" : "FAIL");
+            printf("DK SETTINGS: saved music %d volume %d custom %d (%d %d %d) name %s\nDK AUTOTEST: %s\n", save.music,
+                   save.volume, save.custom_on, save.custom.body, save.custom.trim, save.custom.chao, save.name,
+                   ok ? "PASS" : "FAIL");
             done = true;
         }
         return;
@@ -939,20 +940,24 @@ static void draw_settings(void) {
     float y1 = y0 + 54 + SET_ROWS * pitch + 36;
     ui_panel(x0, y0, x1, y1);
     float yc = ui_title(x0, y0, x1, "SETTINGS") + 10;
-    static const char *const labels[SET_ROWS] = {"SOUND TEST", "ONLINE NAME", "MUSIC", "CUSTOMIZE KART"};
+    static const char *const labels[SET_ROWS] = {"SOUND TEST", "ONLINE NAME", "MUSIC", "MUSIC VOLUME", "CUSTOMIZE KART"};
+    char vol[8];
+    snprintf(vol, sizeof(vol), "%d/%d", save.volume, SAVE_VOLUME_MAX);
     for(int i = 0; i < SET_ROWS; i++) {
         bool sel = i == settings_row;
         float y = yc + i * pitch, cy = y + (pitch - 4) * 0.5f;
         ui_row(x0 + 14, y, x1 - 14, y + pitch - 4, sel);
         const char *value = NULL;
         if(i == SET_MUSIC) value = save.music ? "ON" : "OFF";
+        else if(i == SET_VOLUME) value = vol;
         else if(i == SET_NAME) value = save.name[0] ? save.name : "-";
         else if(i == SET_CUSTOM && save.custom_on) value = "SAVED";
-        value_row(x0 + 14, x1 - 14, cy, sel, i == SET_MUSIC, labels[i], value, 0);
+        value_row(x0 + 14, x1 - 14, cy, sel, i == SET_MUSIC || i == SET_VOLUME, labels[i], value, 0);
     }
     const char *blurb = "LISTEN TO THE MUSIC AND SOUND EFFECTS";
     if(settings_row == SET_NAME) blurb = "THE NAME OTHER PLAYERS SEE ONLINE";
     else if(settings_row == SET_MUSIC) blurb = "MUSIC IN THE MENUS AND RACES, SAVED TO THE VMU";
+    else if(settings_row == SET_VOLUME) blurb = "HOW LOUD THE MUSIC PLAYS, SAVED TO THE VMU";
     else if(settings_row == SET_CUSTOM) blurb = save.custom_on ? "REPAINT YOUR OWN KART" : "PAINT A KART OF YOUR OWN";
     hud_text_c(320, y1 - 18, 0.4f, ALIGN_CENTER, ui_col(UI_DIM), blurb);
 }
@@ -1012,13 +1017,11 @@ static void draw_sound(void) {
     float cy0 = yc + 2, cy1 = cy0 + 96;
     ui_well(x0 + 16, cy0, x1 - 16, cy1);
     char buf[64], name[40];
-    upper_copy(name, sizeof(name), dk_music_song_title[song]);
+    upper_copy(name, sizeof(name), dk_music_title[song]);
     uint32_t well_dim = ui_col(UI_LABEL), well_text = 0xffffffff;
     hud_text_c(x0 + 32, cy0 + 16, 0.4f, ALIGN_LEFT, well_dim, live ? "NOW PLAYING" : "MUSIC OFF");
     hud_text_c(x0 + 32, cy0 + 42, 0.72f, ALIGN_LEFT, ui_col(UI_ACCENT), name);
-    int rate_pct = (int)(audio_music_rate_now() * 100.0f + 0.5f);
-    snprintf(buf, sizeof(buf), "TRACK %d/%d   %d BPM%s", song + 1, DK_MUSIC_SONG_COUNT,
-             (int)(dk_music_song_bpm[song] * audio_music_rate_now() + 0.5f), rate_pct > 100 ? "  (FINAL LAP)" : "");
+    snprintf(buf, sizeof(buf), "TRACK %d/%d   %d BPM   ALEX MORGAN", song + 1, DK_MUSIC_TRACKS, (int)(dk_music_bpm[song] + 0.5f));
     hud_text_c(x0 + 32, cy0 + 68, 0.4f, ALIGN_LEFT, well_dim, buf);
     int s = (int)secs, l = (int)(len + 0.5f);
     snprintf(buf, sizeof(buf), "%d:%02d / %d:%02d", s / 60, s % 60, l / 60, l % 60);
@@ -1027,7 +1030,7 @@ static void draw_sound(void) {
     ui_pill(px0, py, px1, py + 6, argb(255, 40, 50, 80), argb(255, 40, 50, 80));
     float fill = px0 + (px1 - px0) * clampf(secs / len, 0, 1);
     if(fill > px0 + 6) ui_pill(px0, py, fill, py + 6, ui_col(UI_ACCENT), ui_col(UI_ACCENT));
-    float beat = secs * dk_music_song_bpm[song] / 60.0f;
+    float beat = secs * dk_music_bpm[song] / 60.0f;
     float kick = live ? expf(-(beat - floorf(beat)) * 5.0f) : 0;
     const int bars = 12;
     float bx0 = x0 + 318, bw = 12, base = cy1 - 12;
@@ -1042,7 +1045,7 @@ static void draw_sound(void) {
     }
 
     /* Rows. */
-    static const char *const labels[SND_ROWS] = {"MUSIC", "SOUND EFFECT", "SPEED"};
+    static const char *const labels[SND_ROWS] = {"MUSIC", "SOUND EFFECT"};
     const float pitch = 44;
     for(int i = 0; i < SND_ROWS; i++) {
         bool sel = i == sound_row;
@@ -1052,12 +1055,11 @@ static void draw_sound(void) {
             r_hdr(h_flat);
             r_quad2d(x0 + 16, y, x1 - 16, y + pitch - 4, 0, 0, 1, 1, color_alpha(0xffffffff, sfx_flash * 1.5f), 16);
         }
-        if(i == SND_MUSIC) upper_copy(buf, sizeof(buf), dk_music_song_title[sound_song]);
-        else if(i == SND_SFX) snprintf(buf, sizeof(buf), "%02d %s", sound_sfx + 1, dk_sfx_label[sound_sfx]);
-        else snprintf(buf, sizeof(buf), "%s", audio_music_rate_now() > 1.0f ? "FINAL LAP +6%" : "NORMAL");
+        if(i == SND_MUSIC) upper_copy(buf, sizeof(buf), dk_music_title[sound_song]);
+        else snprintf(buf, sizeof(buf), "%02d %s", sound_sfx + 1, dk_sfx_label[sound_sfx]);
         value_row(x0 + 16, x1 - 16, cy, sel, true, labels[i], buf, 0);
     }
-    ui_hint(sound_row == SND_SPEED ? "LEFT/RIGHT: SPEED   B: BACK" : "LEFT/RIGHT: CHOOSE   A: PLAY   B: BACK");
+    ui_hint("LEFT/RIGHT: CHOOSE   A: PLAY   B: BACK");
 }
 
 static void draw_menu(void) {

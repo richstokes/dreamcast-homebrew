@@ -646,7 +646,7 @@ void game_set_state(int state) {
         if(state == ST_TITLE) title_enter();
         audio_kart_loops(0, NULL, DK_DT);
         audio_kart_loops(1, NULL, DK_DT);
-        audio_music_rate(1.0f);
+        if(state == ST_TITLE) audio_music_title();
         audio_music_target(210);
     }
     if(state == ST_INTRO) {
@@ -903,7 +903,6 @@ static void player_events(int pi, float dt) {
             if(!game.final_lap_announced) {
                 game.final_lap_announced = true;
                 audio_sfx(DK_SFX_FINAL_LAP, 230, 128);
-                audio_music_rate(1.06f);
             }
         }
         else {
@@ -1148,6 +1147,12 @@ static void pause_update(void) {
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
         return;
     }
+    /* NEXT SONG skips to the next of the shuffle and keeps the game paused. */
+    if(game.pause_sel == PAUSE_NEXT_SONG && ((pd->pressed & BTN_A) || input_right(o))) {
+        audio_music_next();
+        audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
+        return;
+    }
     /* PERF steps off, overlay, FPS with A or right, back with left. */
     if(game.pause_sel == PAUSE_PERF && ((pd->pressed & BTN_A) || input_left(o) || input_right(o))) {
         perfhud_set_mode((perfhud_mode + (input_left(o) ? PERF_MODES - 1 : 1)) % PERF_MODES);
@@ -1216,49 +1221,6 @@ static void soft_reset(void) {
     game_set_state(ST_TITLE);
     pad.pressed = pad2.pressed = 0;
 }
-
-#ifdef DK_AT_TRACK_FLIP
-/* Track select scrolled quickly through every course twice, as a player
-   browsing them (or an online leader picking one) does, then three songs
-   started 300 ms apart, as races do. Each load stalls the main loop; the
-   music must not starve through it, nor the stream ever wait on the ring.
-   The load times print at the end, which keeps dcload-ip quiet meanwhile
-   (on the console: make hw-flip). */
-static void track_flip_autotest(void) {
-    static int loads, songs;
-    static uint32_t load_ms[2][TRACK_COUNT];
-    static uint64_t next_us;
-    float secs;
-    audio_music_now(&secs, NULL);
-    if(songs == 0 && secs < 2.0f) return;   /* the song not started yet */
-    uint64_t now = timer_us_gettime64();
-    if(now < next_us) return;
-    if(loads < 2 * TRACK_COUNT) {
-        game_load_track(game.track + 1);
-        load_ms[loads / TRACK_COUNT][game.track] = (uint32_t)((timer_us_gettime64() - now) / 1000);
-        next_us = timer_us_gettime64() + 250000;
-        loads++;
-        return;
-    }
-    if(songs < 3) {
-        audio_music_start();
-        next_us = now + (++songs < 3 ? 300000 : 4000000);   /* the last plays on for four seconds */
-        return;
-    }
-    int late, dry;
-    uint32_t gap = audio_autotest_feed(&late, &dry);
-    for(int t = 0; t < TRACK_COUNT; t++)
-        printf("DK FLIP: %s loads in %lu/%lu ms\n", track_names[t], (unsigned long)load_ms[0][t],
-               (unsigned long)load_ms[1][t]);
-    printf("DK FLIP: music refills at most %lu ms apart, %d over %d ms, %d short of music\n", (unsigned long)gap,
-           late, AUDIO_FEED_LATE_MS, dry);
-    printf("DK AUTOTEST: %s\n", late || dry ? "FAIL" : "PASS");
-    next_us = UINT64_MAX;
-#ifdef DK_HW
-    game.quit = true;   /* hand the console back to dcload-ip */
-#endif
-}
-#endif
 
 static void update(float dt) {
     game.time += dt;
@@ -1964,8 +1926,9 @@ int main(int argc, char **argv) {
     title_init();
     flappy_init();
     boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");
-    audio_open_disc();   /* before the save worker: see audio.h */
+    audio_disc_init();   /* before the save worker: see audio.h */
     save_init();   /* the card is read while the rest loads */
+    audio_music_volume(save.volume);
 #ifdef DK_AT_TRACK
     game.track = DK_AT_TRACK;
 #endif
@@ -2033,10 +1996,6 @@ int main(int argc, char **argv) {
 #endif
 #if defined(DK_AT_ONLINE) || defined(DK_FILM_SPECTATE)
     online_enter();
-#elif defined(DK_AT_TRACK_FLIP)
-    game_set_state(ST_TRACKS);
-    audio_music_start();
-    audio_music_target(210);
 #elif defined(DK_AUTOTEST) && !defined(DK_CAPTURE) && !defined(DK_AT_NAME)
     game.cc = CC_150;
 #ifdef DK_AT_CC
@@ -2055,8 +2014,7 @@ int main(int argc, char **argv) {
     game_set_state(ST_INTRO);
 #endif
 #else
-    game_set_state(ST_TITLE);
-    audio_music_start();
+    game_set_state(ST_TITLE);   /* opens on the theme */
     audio_music_target(210);
 #endif
 
@@ -2128,11 +2086,11 @@ int main(int argc, char **argv) {
                 game.quit = true;
                 continue;
         }
-        if(save_tick()) audio_music_enable(save.music);
+        if(save_tick()) {
+            audio_music_enable(save.music);
+            audio_music_volume(save.volume);
+        }
         if(game.online) online_tick();
-#ifdef DK_AT_TRACK_FLIP
-        track_flip_autotest();
-#endif
 #if defined(DK_HW) && defined(DK_CAPTURE)
         if(probe_step()) {
             steps = 0;

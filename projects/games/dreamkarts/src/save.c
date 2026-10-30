@@ -1,4 +1,4 @@
-/* DreamKarts save file: the online name, the music switch and the custom
+/* DreamKarts save file: the online name, the music switch and volume, and the custom
    kart, so players set them once.
 
    It lives in a file called DREAMKARTS on the first VMU found, with an
@@ -39,7 +39,8 @@ typedef struct {
     uint8_t music_off;
     uint8_t custom_on;
     uint8_t custom[3];   /* body, trim, chao palette indices */
-    uint8_t pad2[3];
+    uint8_t volume1;     /* music volume + 1; 0 (files from before it) means the default */
+    uint8_t pad2[2];
     uint32_t check;
 } SaveRecord;
 
@@ -63,6 +64,7 @@ static uint32_t fnv(const void *data, size_t n) {
 static void defaults(SaveData *d) {
     memset(d, 0, sizeof(*d));
     d->music = true;
+    d->volume = SAVE_VOLUME_DEFAULT;
     d->custom = kart_custom_default;
 }
 
@@ -100,6 +102,7 @@ static bool parse_record(const uint8_t *data, int len, SaveData *out) {
     if(r.check != fnv(&r, offsetof(SaveRecord, check)) || !name_valid(r.name, sizeof(r.name))) return false;
     strcpy(out->name, r.name);
     out->music = !r.music_off;
+    if(r.volume1 >= 1 && r.volume1 <= SAVE_VOLUME_MAX + 1) out->volume = r.volume1 - 1;
     out->custom_on = r.custom_on != 0;
     out->custom.body = r.custom[0] % PALETTE_COUNT;
     out->custom.trim = r.custom[1] % PALETTE_COUNT;
@@ -160,6 +163,7 @@ static bool write_card(const SaveData *d) {
     r.version = SAVE_VERSION;
     strncpy(r.name, d->name, sizeof(r.name) - 1);
     r.music_off = !d->music;
+    r.volume1 = (uint8_t)(d->volume + 1);
     r.custom_on = d->custom_on;
     r.custom[0] = d->custom.body;
     r.custom[1] = d->custom.trim;

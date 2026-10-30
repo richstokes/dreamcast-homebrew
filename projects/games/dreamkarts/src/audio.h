@@ -1,41 +1,40 @@
-/* DreamKarts audio: streamed ADPCM music, PCM effects and kart loops. */
+/* DreamKarts audio: CD-DA music, PCM effects and kart loops. */
 #ifndef DK_AUDIO_H
 #define DK_AUDIO_H
 
 #include "kart.h"
 #include "sound_assets.h"
+#include "music_tracks.h"
 
-/* Opens the music on the disc; audio_init does it if this hasn't. The
-   first /cd access resets the GD-ROM drive, and on the console all five
-   VMU read timeouts seen while it overlapped the save worker came during it. */
-void audio_open_disc(void);
+/* Finds the music's audio tracks on the disc; audio_init does it if this
+   hasn't. It resets the GD-ROM drive, and on the console all five VMU read
+   timeouts seen while that overlapped the save worker came during it. */
+void audio_disc_init(void);
 void audio_init(void);
 void audio_shutdown(void);
 void audio_update(float dt);
-/* Starts the music: the theme on the first call (title screen), a random
-   other song on each later one (a race); the playlist then plays on in order. */
+/* The title screen's song (the theme), unless it is already playing. */
+void audio_music_title(void);
+/* A race start: the next song of the shuffle. Every change of song fades
+   the one playing out first (~0.4 s), then fades the new one in. */
 void audio_music_start(void);
-/* Sound test: play a song from its start straight away (the playlist then
-   carries on in order). */
+/* The pause menu's NEXT SONG: the next song of the shuffle. */
+void audio_music_next(void);
+/* Sound test: play a song from its start. */
 void audio_music_play(int song);
 /* The song playing now; its elapsed and total seconds (either may be NULL). */
 int audio_music_now(float *secs, float *len);
 bool audio_music_playing(void);
-float audio_music_rate_now(void);
 void audio_music_target(int volume);     /* fades toward 0..255 */
-/* The pause menu's music switch: off fades the music out whatever the target. */
+/* The music switch: off fades the music out and pauses the disc. */
 void audio_music_enable(bool on);
 bool audio_music_enabled(void);
-/* Retune the stream to a new playback rate (final lap speed-up). */
-void audio_music_rate(float mul);
+/* The volume setting, 0 (off) to SAVE_VOLUME_MAX: 3 dB a step under the
+   scene's level. */
+void audio_music_volume(int volume);
 #ifdef DK_AUTOTEST
-/* Prints the rate change's cost and the music's byte rate either side of it. */
+/* Prints how the disc's music went: tracks found, songs started and ended. */
 void audio_autotest_report(void);
-/* The longest wait between two refills of the playing stream, how many
-   waits ran past LATE_MS (its AICA buffer then replays stale data) and how
-   many refills found the ring short of music (silence instead). */
-#define AUDIO_FEED_LATE_MS 400
-uint32_t audio_autotest_feed(int *late, int *dry);
 #endif
 void audio_sfx(int id, int vol, int pan);
 /* Chao voices: a mood picks one of its clips (never the same one twice

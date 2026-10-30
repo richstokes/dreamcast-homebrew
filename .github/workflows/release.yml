@@ -74,6 +74,14 @@ jobs:
       - name: Install pinned SH-4 compiler toolchain
         run: docker pull "$TOOLCHAIN_IMAGE"
 
+      # DreamKarts' music comes from dcvmu.com as mp3s and goes onto its disc
+      # as CD-DA tracks; the script needs only python3 and ffmpeg, so it runs
+      # here on the runner and the packaging step finds the WAVs in cdda/.
+      - name: Fetch and press DreamKarts' music
+        run: |
+          command -v ffmpeg >/dev/null || { sudo apt-get update && sudo apt-get install --yes ffmpeg; }
+          python3 projects/games/dreamkarts/tools/build_music.py
+
       # KallistiOS and kos-ports take ~2.5 minutes to build and only change
       # with their pins, their patches, the compiler image or the scripts that
       # fetch, patch and build them, so the built SDK is cached on exactly those.
@@ -203,7 +211,7 @@ jobs:
 
           - **CDI** files are compact, self-booting Dreamcast disc images for Flycast, other Dreamcast emulators, or GDEMU.
           - **-cdr.zip** files hold the same disc padded to a full CD, for burning to CD-R. Unzip first; the CDI inside is ~740 MB.
-          - **ELF** files are included for direct loading and development workflows, except where the game reads its assets from the disc (DreamKarts streams its music), which ships as a CDI only.
+          - **ELF** files are included for direct loading and development workflows, except where the game needs its disc (DreamKarts plays its music as CD audio tracks), which ships as a CDI only.
           - Verify downloads with \`SHA256SUMS\`.
           EOF
 

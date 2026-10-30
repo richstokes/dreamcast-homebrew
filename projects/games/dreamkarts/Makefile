@@ -29,13 +29,13 @@ VARIANT_FLAGS_release =
 VARIANT_FLAGS_autotest = -DDK_AUTOTEST
 VARIANT_FLAGS_capture = -DDK_AUTOTEST -DDK_CAPTURE
 VARIANT_FLAGS_hwbench = -DDK_AUTOTEST -DDK_CAPTURE -DDK_HW
-VARIANT_FLAGS_hwflip = -DDK_AUTOTEST -DDK_HW -DDK_AT_TRACK_FLIP -DDK_PC_MUSIC
 # film: trailer footage (src/film.c), with -DDK_FILM_SPECTATE or -DDK_FILM_SHOW.
 VARIANT_FLAGS_film = -DDK_FILM
-# Music read over dcload's /pc stalls the console, so it plays silent
-# there; MUSIC=1 (make hw MUSIC=1) plays it anyway.
+# Under dcload there is normally no disc in the drive, so the game leaves
+# the GD-ROM alone and plays no music; MUSIC=1 (make hw MUSIC=1) plays the
+# CD-DA tracks of whatever DreamKarts disc is in the tray.
 ifeq ($(MUSIC),1)
-override EXTRA_CFLAGS += -DDK_PC_MUSIC
+override EXTRA_CFLAGS += -DDK_DCLOAD_MUSIC
 endif
 # Extra -D flags get their own object directory so builds never mix.
 empty :=
@@ -47,12 +47,11 @@ OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES) $(COMMON_SOURCES)) $(patsubst %.S
 
 KOS_BUILD_SUBARCHS = pristine
 
-# The game is a disc: the ELF boots with disc/ beside it (the music, 9 MB,
-# streams from there rather than living in the console's 16 MB of RAM).
-# run-flycast.sh wraps any ELF and disc/ into a throwaway CDI to boot it,
-# the release packaging does the same for the published image, and under
-# dcload the project directory is mapped at /pc.
-all: $(TARGET) disc/music.adp
+# The game is a disc: its music is CD-DA tracks (cdda/*.wav, fetched and cut
+# by make music), which run-flycast.sh and the release packaging press onto
+# the image with the ELF. A plain make builds just the ELF, so a toolchain
+# container without ffmpeg or the network can still compile it.
+all: $(TARGET)
 
 include $(KOS_BASE)/Makefile.rules
 include ../../common/common.mk
@@ -73,9 +72,9 @@ $(OBJDIR)/blobs.o: src/blobs.S $(BLOBS)
 	@mkdir -p $(@D)
 	kos-cc $(VARIANT_FLAGS_$(VARIANT)) $(EXTRA_CFLAGS) -c $< -o $@
 
-# The music playlist alone is 9 MB, and with debug info the ELF passed 16 MB,
-# which Flycast will not boot. Keep the debug info beside it (for
-# sh-elf-addr2line on panic addresses) and strip it from the ELF.
+# With debug info the ELF passed 16 MB, which Flycast will not boot. Keep
+# the debug info beside it (for sh-elf-addr2line on panic addresses) and
+# strip it from the ELF.
 define link_elf
 	kos-cc -o $@ $(OBJS) -lppp -lm
 	$(KOS_OBJCOPY) --only-keep-debug $@ $@.debug
@@ -112,7 +111,7 @@ dreamkarts-$(VARIANT).elf: $(OBJS) $(LINK_STAMP)
 	$(link_elf)
 
 clean:
-	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug dreamkarts.cdi disc
+	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug dreamkarts.cdi
 
 # Asset generators (outputs are committed so a plain build needs no Python).
 textures:
@@ -162,12 +161,17 @@ biplane:
 audio:
 	uv run tools/build_audio.py --output-dir $(GEN)
 
+# The music: the mp3s in assets/music/tracks.txt downloaded (once) from
+# dcvmu.com and cut to CD-DA WAVs in cdda/, plus music_tracks.h.
+music:
+	uv run tools/build_music.py
+
 vmu:
 	uv run tools/build_vmu.py --output-dir $(GEN)
 
-assets: textures models audio vmu canyon-rock tsudoken-props apple-valley-props biplane
+assets: textures models audio music vmu canyon-rock tsudoken-props apple-valley-props biplane
 
-run: $(TARGET)
+run: $(TARGET) music
 	./run-flycast.sh --skip-build
 
 # Full scripted race with the CPU driving the player; fails on a panic and
@@ -190,39 +194,23 @@ online-qa:
 DC_HW = ../../../tools/dc-hw.sh
 HW_LOG ?= captures/hw/hwbench.log
 
-hwbench: disc/music.adp
+hwbench:
 	$(MAKE) VARIANT=hwbench dreamkarts-hwbench.elf
 	mkdir -p captures/hw
-	cp disc/music.adp captures/hw/music.adp
 	$(DC_HW) run -c -o -T 420 -i 90 -u 'DK AUTOTEST: (PASS|FAIL)' -l $(HW_LOG) \
 		dreamkarts-hwbench.elf -- -m $(CURDIR)/captures/hw
 	uv run --with pillow python -c "import glob,PIL.Image as I; [I.open(f).save(f[:-3]+'png') for f in glob.glob('captures/hw/*.ppm')]"
 	@/usr/bin/grep -a 'DK AUTOTEST' $(HW_LOG)
 
-# The track flip music test (-DDK_AT_TRACK_FLIP) on the console, the music
-# streamed from /pc so there is a stream to starve; powers it off after.
-HW_FLIP_LOG ?= captures/hw/hwflip.log
-hw-flip: disc/music.adp
-	$(MAKE) VARIANT=hwflip dreamkarts-hwflip.elf
-	mkdir -p captures/hw
-	$(DC_HW) run -c -o -T 300 -i 90 -u 'DK AUTOTEST: (PASS|FAIL)' -l $(HW_FLIP_LOG) \
-		dreamkarts-hwflip.elf -- -m $(CURDIR)
-	@/usr/bin/grep -a 'DK FLIP\|DK AUTOTEST' $(HW_FLIP_LOG)
-
-# The disc's files: the music beside the boot binary.
-disc/music.adp: $(GEN)/music.adpcm
-	@mkdir -p disc
-	cp $< $@
-
 # A self-booting CDI, as the release publishes it (tools/mkdcdisc).
-disc: $(TARGET) disc/music.adp
-	../../../tools/flycast/elf-to-cdi.sh $(TARGET) disc dreamkarts.cdi
+disc: $(TARGET) music
+	../../../tools/flycast/elf-to-cdi.sh --cdda cdda $(TARGET) dreamkarts.cdi
 
 # Play on the console (power-cycles it first); dcload maps this directory
-# at /pc, where the game finds disc/music.adp.
-hw: $(TARGET) disc/music.adp
+# at /pc. No music unless MUSIC=1 and a DreamKarts disc is in the drive.
+hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props apple-valley-props biplane all clean run textures models audio vmu assets autotest hwbench hw-flip hw disc force
+.PHONY: canyon-rock tsudoken-props apple-valley-props biplane all clean run textures models audio music vmu assets autotest hwbench hw disc force
 
 endif

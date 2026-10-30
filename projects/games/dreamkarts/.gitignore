@@ -13,3 +13,6 @@
 *.log
 *.blend
 *.blend[0-9]*
+# Music downloaded by tools/build_music.py and the CD-DA tracks cut from it
+/assets/music/cache/
+/cdda/

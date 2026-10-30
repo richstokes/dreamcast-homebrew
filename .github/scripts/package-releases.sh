@@ -18,14 +18,21 @@ package() {
     title=$3
 
     elf="$directory/$slug.elf"
-    # A project with a disc/ directory reads assets from the disc (DreamKarts
-    # streams its music): those files go in the image, and no ELF is
-    # published for it, since the ELF alone would not have them.
+    # A project with a disc/ directory reads assets from the disc: those
+    # files go in the image. One with a cdda/ directory plays its music as
+    # CD-DA (DreamKarts): each WAV there becomes an audio track, in name
+    # order. Neither publishes an ELF, since the ELF alone would lack them.
     disc_elf="$elf"
     disc_args=""
     publish_elf=1
     if [ -d "$directory/disc" ]; then
         disc_args="--directory-contents $directory/disc"
+        publish_elf=0
+    fi
+    if [ -d "$directory/cdda" ]; then
+        for track in "$directory"/cdda/*.wav; do
+            disc_args="$disc_args --cdda-track $track"
+        done
         publish_elf=0
     fi
     cdi="$output_dir/$slug.cdi"

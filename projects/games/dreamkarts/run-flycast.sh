@@ -13,11 +13,12 @@ usage() {
     cat <<'USAGE'
 Usage: ./run-flycast.sh [--skip-build]
 
-Builds DreamKarts (unless --skip-build), wraps the ELF and disc/ in a
-throwaway CDI (build/cdi/, with mkdcdisc: tools/mkdcdisc/build-macos.sh) and
-boots it in Flycast with the serial console on this terminal. The game reads
-its music from the disc, so a bare ELF would run silent. Only transient
--config flags are used.
+Builds DreamKarts (unless --skip-build), wraps the ELF and the music's
+CD-DA tracks (cdda/, fetched by make music) in a throwaway CDI (build/cdi/,
+with mkdcdisc: tools/mkdcdisc/build-macos.sh) and boots it in Flycast with
+the serial console on this terminal. The music is on the disc as audio
+tracks, so a bare ELF would run silent. Only transient -config flags are
+used.
 
 QA hooks: DK_ELF picks another ELF in this folder; DK_EXIT_ON_LOG and
 DK_FAIL_ON_LOG stop Flycast when that text appears on the serial console.
@@ -56,6 +57,7 @@ set -u
 if [[ "${SKIP_BUILD}" != true ]]; then
     make -C "${PROJECT_DIR}" "${ELF_NAME}"
 fi
+make -C "${PROJECT_DIR}" music
 
 FLYCAST_CONFIG="config:Debug.SerialConsoleEnabled=yes"
 case "${DK_NET:-bba}" in
@@ -79,11 +81,16 @@ if [[ -n "${DK_FLYCAST_CONFIG:-}" ]]; then
     FLYCAST_CONFIG+=",${DK_FLYCAST_CONFIG}"
 fi
 ELF_PATH="${PROJECT_DIR}/${ELF_NAME}"
-# The disc: the ELF with disc/ (the music) beside it. Rebuilt when either
-# is newer than the last image.
+# The disc: the music's audio tracks, then the ELF. Rebuilt when the ELF or
+# any track is newer than the last image (~210 MB of audio, a few seconds).
 CDI_PATH="${PROJECT_DIR}/build/cdi/${ELF_NAME%.elf}.cdi"
-if [[ ! -f "${CDI_PATH}" || "${ELF_PATH}" -nt "${CDI_PATH}" || "${PROJECT_DIR}/disc/music.adp" -nt "${CDI_PATH}" ]]; then
-    "${PROJECT_DIR}/../../../tools/flycast/elf-to-cdi.sh" "${ELF_PATH}" "${PROJECT_DIR}/disc" "${CDI_PATH}"
+stale=false
+if [[ ! -f "${CDI_PATH}" || "${ELF_PATH}" -nt "${CDI_PATH}" ]]; then stale=true; fi
+for track in "${PROJECT_DIR}"/cdda/*.wav; do
+    [[ "${track}" -nt "${CDI_PATH}" ]] && stale=true
+done
+if [[ "${stale}" == true ]]; then
+    "${PROJECT_DIR}/../../../tools/flycast/elf-to-cdi.sh" --cdda "${PROJECT_DIR}/cdda" "${ELF_PATH}" "${CDI_PATH}"
 fi
 
 flycast_log=""
