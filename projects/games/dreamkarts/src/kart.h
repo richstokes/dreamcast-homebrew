@@ -55,6 +55,8 @@ typedef struct {
     int boost_stage;    /* stage of the last released slide */
     float pending_t;
     float charge_jump_t;
+    float brake_slide;  /* rear-bias braking with the stick over: a handbrake slide, 0..1 */
+    float slide_yaw_v;  /* the slide's extra swing still carrying the nose round, rad/s */
 
     /* Boosts */
     float boost_t, boost_len;

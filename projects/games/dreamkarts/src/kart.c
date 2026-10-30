@@ -155,6 +155,17 @@ const CCParams cc_params[CC_COUNT] = {
 #define DRIFT_R_NEUTRAL  24.0f
 #define DRIFT_R_WIDE     110.0f
 #define DRIFT_EASE       0.35f  /* seconds for a new slide to reach full lock */
+/* Rear-bias braking: the brakes bite hardest at the back, so braking with
+   the stick over is a handbrake turn. The nose swings into the turn faster
+   than the kart can change direction (less grip on the velocity), so it
+   slides on toward where it was going until the brake comes off and the
+   tyres catch. Straight-line braking is unchanged. */
+#define BRAKE_SLIDE_SPEED 5.0f  /* m/s: slower than this the brakes just stop the kart */
+#define BRAKE_SLIDE_FULL  0.65f /* fraction of top speed from which the slide is at full strength */
+#define BRAKE_SLIDE_GRIP  3.2f  /* velocity follows the heading this slowly mid-slide (normal 11) */
+#define BRAKE_SLIDE_TURN  2.5f  /* rad/s cap on the swing, so a slide stays a turn and not a spin */
+#define BRAKE_SLIDE_GAIN  1.1f  /* extra turn rate at full slide, on top of the normal rate */
+#define BRAKE_SLIDE_TAIL  0.2f  /* seconds the extra swing takes to die away once no longer driven */
 #define STAGE1           0.85f
 #define STAGE2           1.90f
 #define STAGE3           3.10f
@@ -534,8 +545,10 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
     k->surface = track_surface(&k->tp);
 
     float spd = fabsf(speed), top = cc_params[game.cc].top_speed;
+    /* A skidding rival with the stick over is in a brake slide (kart_update):
+       its position and heading come over the wire, this is just the body. */
     float yaw_target = k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * (0.40f + 0.12f * steer * (float)k->drift_dir)
-                                                : steer * 0.10f * clampf(spd / 8.0f, 0, 1);
+                                                : steer * (skid ? 0.38f : 0.10f) * clampf(spd / 8.0f, 0, 1);
     k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
     if(k->spin_t > 0) {
         k->spin_t -= dt;
@@ -648,7 +661,9 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
             k->charge_jump_t = 0;
         }
         else {
-            end_drift(k, true);
+            /* Braking forfeits the charge: letting go on the brake (even the
+               same frame B goes down) just brakes, no mini-turbo. */
+            end_drift(k, !in->brake);
         }
     }
     if(k->drift == DRIFT_ACTIVE && (k->speed < DRIFT_MIN_SPEED || in->brake))
@@ -677,6 +692,18 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     float surf_mul = sand ? 0.52f : (k->surface == SURF_CURB ? 0.97f : 1.0f);
     if(k->boost_t > 0) surf_mul = 1.0f;   /* boosts cut through sand */
 
+    /* ---- Rear-bias brake slide ----
+       Builds over ~0.2 s with the stick over under the brakes, so a dab of
+       brake in a bend only tightens the line, and eases out over ~0.25 s
+       once the brake lifts (or the kart hops, slows right down or spins). */
+    bool braking = k->grounded && can_drive && k->burnout_t <= 0 && in->brake && k->speed > BRAKE_SLIDE_SPEED;
+    /* Tied to speed: the tail only really steps out with some pace on, so
+       a slow kart braking into a bend just turns in, and a slide tidies
+       itself up as the speed bleeds off. */
+    float pace = clampf((k->speed - BRAKE_SLIDE_SPEED) / (top * BRAKE_SLIDE_FULL - BRAKE_SLIDE_SPEED), 0, 1);
+    float slide_target = braking ? clampf(fabsf(k->steer) * 1.25f, 0, 1) * pace * pace : 0;
+    k->brake_slide = approach(k->brake_slide, slide_target, (braking ? 5.0f : 4.0f) * dt);
+
     /* ---- Speed ---- */
     float target = top * surf_mul * (k->boost_t > 0 ? k->boost_mul : 1.0f);
     if(k->drift == DRIFT_ACTIVE) target *= 0.985f;
@@ -687,8 +714,10 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         /* B brakes even with A held (and through a boost); reversing
            needs A released, so holding both at a standstill just stops. */
         if(in->brake) {
-            k->skid = k->speed > 9.0f;
-            if(k->speed > 0.3f) k->speed = approach(k->speed, 0, 22.0f * dt);
+            /* A sliding tail smokes and marks down to a lower speed, and
+               scrubs a little more speed than straight-line braking. */
+            k->skid = k->speed > (k->brake_slide > 0.2f ? BRAKE_SLIDE_SPEED : 9.0f);
+            if(k->speed > 0.3f) k->speed = approach(k->speed, 0, (22.0f + 6.0f * k->brake_slide) * dt);
             else if(!in->accel) k->speed = approach(k->speed, -6.0f, 9.0f * dt);
             else k->speed = approach(k->speed, 0, 22.0f * dt);
         }
@@ -736,13 +765,25 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
             k->stage = stage;
             k->events |= stage == 1 ? EV_CHARGE1 : stage == 2 ? EV_CHARGE2 : EV_CHARGE3;
         }
+        k->slide_yaw_v = 0;
     }
     else {
         float scale = clampf(spd / 6.0f, 0, 1) * (1.0f - 0.15f * clampf(spd / top, 0, 1));
         float rate = k->steer * TURN_MAX * scale;
         if(!k->grounded) rate *= k->big_air ? 0.45f : 1.05f;   /* hop turns, steadier in big air */
         if(k->speed < 0) rate = -rate;
-        k->heading += rate * dt;
+        /* The tail stepping out under the brakes swings the nose round
+           faster than the stick alone would. That extra swing has momentum:
+           it carries on after the stick centres or the brake lifts, dying
+           away over BRAKE_SLIDE_TAIL seconds, so a slide is caught (by
+           counter-steering, or by waiting it out) rather than stopping
+           dead the moment the stick does. */
+        float extra = 0;
+        if(k->brake_slide > 0)
+            extra = clampf(rate * (1.0f + BRAKE_SLIDE_GAIN * k->brake_slide), -BRAKE_SLIDE_TURN, BRAKE_SLIDE_TURN) - rate;
+        if(extra * k->slide_yaw_v >= 0 && fabsf(extra) >= fabsf(k->slide_yaw_v)) k->slide_yaw_v = extra;
+        else k->slide_yaw_v += (extra - k->slide_yaw_v) * smooth_k(1.0f / BRAKE_SLIDE_TAIL, dt);
+        k->heading += (rate + k->slide_yaw_v) * dt;
     }
     k->heading = wrap_angle(k->heading);
 
@@ -750,6 +791,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     V3 fwd = heading_fwd(k->heading);
     V3 want = vscale(fwd, k->speed);
     float grip = !k->grounded ? 0.8f : k->drift == DRIFT_ACTIVE ? 4.2f : sand ? 6.5f : 11.0f;
+    if(k->grounded && k->brake_slide > 0) grip = lerpf(grip, fminf(grip, BRAKE_SLIDE_GRIP), k->brake_slide);
     float g = smooth_k(grip, dt);
     k->vel.x += (want.x - k->vel.x) * g;
     k->vel.z += (want.z - k->vel.z) * g;
@@ -819,13 +861,14 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     if(k->drift == DRIFT_ACTIVE)
         yaw_target = (float)k->drift_dir * (0.40f + 0.12f * k->steer * (float)k->drift_dir);
     else
-        yaw_target = k->steer * 0.10f * clampf(spd / 8.0f, 0, 1);
+        yaw_target = k->steer * (0.10f + 0.28f * k->brake_slide) * clampf(spd / 8.0f, 0, 1);
     k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
     if(k->spin_t > 0) k->vis_yaw = spin_yaw(k);
     /* The body leans on its springs in corners and pitches under power
        and braking; the chassis (and the wheels) follow the road's banking
        and slope, or the flight path in big air. */
-    float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -k->steer * 0.05f * clampf(spd / top, 0, 1);
+    float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f
+                                          : -k->steer * (0.05f + 0.05f * k->brake_slide) * clampf(spd / top, 0, 1);
     k->lean += (lean - k->lean) * smooth_k(8.0f, dt);
     float nose_t = (in->accel && k->speed < top * 0.7f && can_drive ? -0.035f : 0) +
                    (in->brake && k->speed > 1 ? 0.05f : 0) + (k->boost_t > 0 ? -0.05f : 0);
@@ -853,7 +896,9 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     if(k->burnout_t > 0) k->wheel_spin += 40.0f * dt;
     if(k->wheel_spin > DK_TAU) k->wheel_spin -= DK_TAU * floorf(k->wheel_spin / DK_TAU);
     if(k->wheel_spin < 0) k->wheel_spin += DK_TAU * ceilf(-k->wheel_spin / DK_TAU);
-    float wheel_target = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.25f + k->steer * 0.3f : k->steer * 0.45f;
+    /* Mid-slide the front wheels wind off toward opposite lock, catching it. */
+    float wheel_target = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.25f + k->steer * 0.3f
+                                                  : k->steer * (0.45f - 0.6f * k->brake_slide);
     k->steer_vis += (wheel_target - k->steer_vis) * smooth_k(12.0f, dt);
     k->head_tilt += ((k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * 0.22f : k->steer * 0.15f) - k->head_tilt) * smooth_k(6.0f, dt);
     k->emote_bob += dt * 3.2f;
