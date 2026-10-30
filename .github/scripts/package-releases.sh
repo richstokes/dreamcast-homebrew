@@ -9,6 +9,9 @@ fi
 
 mkdcdisc=$1
 output_dir=$2
+# The MR logo on the BIOS license screen, the same one elf-to-cdi.sh puts on
+# local discs.
+logo="$(dirname "$0")/../../tools/mkdcdisc/logos/gotta-go-fast.png"
 
 mkdir -p "$output_dir"
 
@@ -56,6 +59,7 @@ package() {
         $disc_args \
         --title "$title" \
         --author richstokes \
+        --bootstrap-mr-image "$logo" \
         --output "$cdi"
 
     # Padded to a full 74-minute disc for burning. Unpadded, the whole boot
@@ -70,6 +74,7 @@ package() {
         $disc_args \
         --title "$title" \
         --author richstokes \
+        --bootstrap-mr-image "$logo" \
         --output "$cdr_cdi"
     (cd "$output_dir" && zip -q -9 "$slug-cdr.zip" "$slug-cdr.cdi")
     rm -f "$cdr_cdi"
