@@ -6,9 +6,11 @@ in disc order. Each mp3 is downloaded from DK_MUSIC_URL (default
 https://dcvmu.com/dreamkarts/music/) into assets/music/cache/ unless a copy
 with the right sha256 is already there, or DK_MUSIC_SOURCE names a folder
 holding the files (no download then). ffmpeg converts each to the 16-bit
-44.1 kHz stereo WAV mkdcdisc takes, cdda/NN-<name>.wav, and the song
-table the game shows in its sound test is written to
-assets/generated/music_tracks.h (title, length and tempo per track).
+44.1 kHz stereo WAV mkdcdisc takes, cdda/NN-<name>.wav, levelled to one
+loudness (TARGET_LUFS, measured with its EBU R128 meter, peaks held under
+PEAK_DB) so no song plays quieter than the rest, and the song table the
+game shows in its sound test is written to assets/generated/music_tracks.h
+(title, length and tempo per track).
 
 Standard library only, so CI runs it with plain python3; locally `make
 music` (or any target that needs the disc) runs it through uv.
@@ -29,6 +31,10 @@ from pathlib import Path
 
 DEFAULT_URL = "https://dcvmu.com/dreamkarts/music/"
 RATE = 44100
+# The loudest of the songs sit at -9 LUFS with peaks at full scale; the
+# quiet ones come up to meet them, a limiter catching what would clip.
+TARGET_LUFS = -9.5
+PEAK_DB = -1.0
 
 
 class Track:
@@ -87,13 +93,37 @@ def fetch(track, cache, base_url, source):
     return dest
 
 
+def measure(mp3, ffmpeg):
+    """Integrated loudness (LUFS) and true peak (dBTP) from ffmpeg's EBU R128 meter."""
+    out = subprocess.run([ffmpeg, "-nostats", "-i", str(mp3), "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"],
+                         capture_output=True, text=True, check=True).stderr
+    lufs = peak = None
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("I:") and line.endswith("LUFS"):
+            lufs = float(line.split()[1])
+        elif line.startswith("Peak:") and line.endswith("dBFS"):
+            peak = float(line.split()[1])
+    if lufs is None or peak is None:
+        raise SystemExit(f"music: could not read the loudness of {mp3.name}")
+    return lufs, peak
+
+
 def convert(mp3, wav, ffmpeg):
-    """CD-DA audio as mkdcdisc wants it: stereo, 44.1 kHz, 16-bit, no metadata chunks."""
+    """CD-DA audio as mkdcdisc wants it: stereo, 44.1 kHz, 16-bit, no
+    metadata chunks, brought to TARGET_LUFS with peaks held under PEAK_DB."""
+    lufs, peak = measure(mp3, ffmpeg)
+    gain = TARGET_LUFS - lufs
+    filters = [f"volume={gain:.2f}dB"]
+    limited = peak + gain > PEAK_DB
+    if limited:
+        filters.append(f"alimiter=limit={10 ** (PEAK_DB / 20):.4f}:attack=5:release=50:level=false")
+    print(f"music:   {lufs:6.1f} LUFS, peak {peak:5.1f} dBTP: gain {gain:+.1f} dB{' + limiter' if limited else ''}")
     wav.parent.mkdir(parents=True, exist_ok=True)
     tmp = wav.with_suffix(".part.wav")
-    subprocess.run([ffmpeg, "-v", "error", "-y", "-i", str(mp3), "-vn", "-ac", "2", "-ar", str(RATE),
-                    "-sample_fmt", "s16", "-map_metadata", "-1", "-fflags", "+bitexact", "-f", "wav", str(tmp)],
-                   check=True)
+    subprocess.run([ffmpeg, "-v", "error", "-y", "-i", str(mp3), "-vn", "-af", ",".join(filters), "-ac", "2",
+                    "-ar", str(RATE), "-sample_fmt", "s16", "-map_metadata", "-1", "-fflags", "+bitexact", "-f", "wav",
+                    str(tmp)], check=True)
     os.replace(tmp, wav)
 
 

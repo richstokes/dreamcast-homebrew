@@ -154,7 +154,7 @@ needs no Python.
 | `make tsudoken-props` | Tsudoken Drift's props (`tsudoken_props.h`): Blender (`tools/build_tsudoken_props.py`, ~2 s) models Mt Fuji, the cherry trees, torii, stone lanterns, pagoda, grandstand, race control, pit garages, teahouse and bridge, and bakes each as strips per material; `captures/tsudoken_props.blend` holds the scene and `captures/tsudoken-props/` a render of each |
 | `make biplane` | Spiral Canyon's final-lap biplane (`biplane_mesh.h`): Blender (`tools/build_biplane.py`, ~2 s) models the plane and its propeller; `captures/biplane.blend` holds the scene and `captures/biplane/` renders from five angles |
 | `make audio` | Sound effects (`sfx.pak`, `sound_assets.h`) |
-| `make music` | The songs, downloaded once to `assets/music/cache/` and cut to CD audio WAVs in `cdda/`, plus `music_tracks.h` (titles, lengths, tempos) |
+| `make music` | The songs, downloaded once to `assets/music/cache/`, levelled to -9.5 LUFS (peaks under -1 dBTP) and cut to CD audio WAVs in `cdda/`, plus `music_tracks.h` (titles, lengths, tempos) |
 | `make vmu` | The save file's icon and the VMU screen sprites and fonts |
 | `make assets` | All of the above |
 
