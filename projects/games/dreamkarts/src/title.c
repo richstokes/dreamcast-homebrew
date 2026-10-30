@@ -56,7 +56,7 @@ static float settings_slide;
 static int settings_row;
 
 /* Sound test: pick and play any song or effect. */
-enum { SND_MUSIC, SND_SFX, SND_ROWS };
+enum { SND_MUSIC, SND_SFX, SND_VOLUME, SND_ROWS };
 static bool sound_open;
 static float sound_slide;
 static int sound_row, sound_song, sound_sfx;
@@ -99,8 +99,14 @@ static void sound_update(void) {
     int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
     if(dir) {
         if(sound_row == SND_MUSIC) sound_song = (sound_song + dir + DK_MUSIC_TRACKS) % DK_MUSIC_TRACKS;
-        else sound_sfx = (sound_sfx + dir + DK_SFX_COUNT) % DK_SFX_COUNT;
-        audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
+        else if(sound_row == SND_SFX) sound_sfx = (sound_sfx + dir + DK_SFX_COUNT) % DK_SFX_COUNT;
+        else if(save.volume + dir < 0 || save.volume + dir > SAVE_VOLUME_MAX) dir = 0;
+        else {
+            save.volume += dir;
+            audio_music_volume(save.volume);
+            save_store();
+        }
+        if(dir) audio_sfx(DK_SFX_MENU_MOVE, 200, dir < 0 ? 90 : 166);
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
@@ -114,7 +120,7 @@ static void sound_update(void) {
             audio_music_enable(true);
             audio_music_play(sound_song);
         }
-        else {
+        else if(sound_row == SND_SFX) {
             audio_sfx(sound_sfx, 255, 128);
             sfx_flash = 0.35f;
         }
@@ -935,7 +941,7 @@ static void draw_main(void) {
 
 static void draw_settings(void) {
     float slide = settings_slide * settings_slide * (3 - 2 * settings_slide);
-    float x0 = 150, x1 = 490, y0 = 186 + (1 - slide) * 300;
+    float x0 = 150, x1 = 490, y0 = 160 + (1 - slide) * 300;   /* five rows: ends at 460, under the logo */
     const float pitch = 42;
     float y1 = y0 + 54 + SET_ROWS * pitch + 36;
     ui_panel(x0, y0, x1, y1);
@@ -1006,7 +1012,7 @@ static void upper_copy(char *dst, size_t n, const char *src) {
 static void draw_sound(void) {
     float slide = sound_slide * sound_slide * (3 - 2 * sound_slide);
     float off = (1 - slide) * 320;
-    float x0 = 70, x1 = 570, y0 = 100 + off, y1 = 416 + off;
+    float x0 = 70, x1 = 570, y0 = 100 + off, y1 = 400 + off;
     ui_panel(x0, y0, x1, y1);
     float yc = ui_title(x0, y0, x1, "SOUND TEST");
 
@@ -1045,7 +1051,7 @@ static void draw_sound(void) {
     }
 
     /* Rows. */
-    static const char *const labels[SND_ROWS] = {"MUSIC", "SOUND EFFECT"};
+    static const char *const labels[SND_ROWS] = {"MUSIC", "SOUND EFFECT", "MUSIC VOLUME"};
     const float pitch = 44;
     for(int i = 0; i < SND_ROWS; i++) {
         bool sel = i == sound_row;
@@ -1056,10 +1062,11 @@ static void draw_sound(void) {
             r_quad2d(x0 + 16, y, x1 - 16, y + pitch - 4, 0, 0, 1, 1, color_alpha(0xffffffff, sfx_flash * 1.5f), 16);
         }
         if(i == SND_MUSIC) upper_copy(buf, sizeof(buf), dk_music_title[sound_song]);
-        else snprintf(buf, sizeof(buf), "%02d %s", sound_sfx + 1, dk_sfx_label[sound_sfx]);
+        else if(i == SND_SFX) snprintf(buf, sizeof(buf), "%02d %s", sound_sfx + 1, dk_sfx_label[sound_sfx]);
+        else snprintf(buf, sizeof(buf), "%d/%d", save.volume, SAVE_VOLUME_MAX);
         value_row(x0 + 16, x1 - 16, cy, sel, true, labels[i], buf, 0);
     }
-    ui_hint("LEFT/RIGHT: CHOOSE   A: PLAY   B: BACK");
+    ui_hint(sound_row == SND_VOLUME ? "LEFT/RIGHT: VOLUME   B: BACK" : "LEFT/RIGHT: CHOOSE   A: PLAY   B: BACK");
 }
 
 static void draw_menu(void) {

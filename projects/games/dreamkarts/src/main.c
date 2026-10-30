@@ -416,11 +416,14 @@ static void capture_script(void) {
             /* The menu as it opens, before the overlay (which Flycast's
                window stops presenting under) goes on. */
             if(pause_t > 0.25f && !shot[64]) { shot[64] = true; take_shot("pause-menu"); }
-            game.pause_sel = pause_t < 0.6f ? PAUSE_MUSIC : PAUSE_PERF;
+            game.pause_sel = pause_t < 0.6f ? PAUSE_MUSIC : pause_t < 1.3f ? PAUSE_PERF : PAUSE_NEXT_SONG;
             if(pause_t > 0.3f && audio_music_enabled() && pause_t < 0.6f) pad.pressed |= BTN_A;
 #ifndef DK_PERF_HUD
             if(pause_t > 0.7f && perfhud_mode != PERF_OVERLAY && pause_t < 1.0f) pad.pressed |= BTN_A;
 #endif
+            /* NEXT SONG once, with the music off: the song changes, paused. */
+            static bool skipped;
+            if(pause_t > 1.4f && !skipped) { skipped = true; pad.pressed |= BTN_A; }
             if(pause_t > 1.8f) { shot[8] = true; take_shot("pause"); }
         }
     }

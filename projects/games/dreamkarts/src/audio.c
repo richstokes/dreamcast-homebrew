@@ -139,6 +139,8 @@ static void *jukebox_thread(void *arg) {
         }
         mutex_unlock(&jb_mx);
         int err = 0;
+        uint64_t now_before = timer_us_gettime64();
+        (void)now_before;
         if(cmd == JB_PLAY) {
             err = cdrom_cdda_play((uint32_t)track, (uint32_t)track, 0, CDDA_TRACKS);
             started_us = timer_us_gettime64();
@@ -156,6 +158,13 @@ static void *jukebox_thread(void *arg) {
             watching = err == 0;
             if(err) jb_post(JB_PLAY, track);   /* the drive forgot the song (stopped while paused) */
         }
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+        if(cmd != JB_NONE) {
+            static const char *const names[] = {"", "play", "pause", "resume"};
+            printf("DK JUKEBOX: %s %d -> %d (%lu ms)\n", names[cmd], track, err,
+                   (unsigned long)((timer_us_gettime64() - now_before) / 1000));
+        }
+#endif
         uint64_t now = timer_us_gettime64();
         if(watching && now - started_us > 2000000 && now - polled_us > 500000) {
             polled_us = now;
@@ -166,6 +175,9 @@ static void *jukebox_thread(void *arg) {
                 watching = false;
                 jb_playing = false;
                 jb_ended = true;
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+                printf("DK JUKEBOX: track ended (status %d)\n", status);
+#endif
             }
         }
         thd_sleep(cmd == JB_NONE ? 50 : 1);
@@ -401,6 +413,9 @@ void audio_update(float dt) {
         spu_cdda_volume(level, level);
     }
     if(music_next >= 0 && level == 0) {
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+        printf("DK JUKEBOX: faded out at %.1f s for the next song\n", (double)music_pos);
+#endif
         music_start_now(music_next);
         return;
     }
