@@ -23,10 +23,19 @@ V3 models_kart_point_world(const Kart *k, V3 local);
    (negative: clear by that much; a large negative value off the road).
    For the autotest. */
 float models_kart_sink(const Kart *k);
+/* Where baked model geometry goes: a triangle strip at a time, into the
+   caller's own mesh builder. lit vertices want the world's shading by
+   their normal; the rest take their colour as given. */
+typedef struct {
+    void *ctx;
+    void (*strip_begin)(void *ctx);
+    void (*vertex)(void *ctx, V3 p, V3 n, uint32_t c, bool lit);
+    void (*strip_end)(void *ctx);
+} ModelSink;
 /* A Chao standing at p, facing yaw, its head turned head_yaw further,
-   baked into the world's vertex pool as static scenery (Night Meet's
-   bystanders): the driver's body and head at model lod 0, 1 or 3, in
-   the Chao colour and tip given, lit by the world's shading. */
-void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t tip, int lod);
+   as static scenery (Night Meet's bystanders): the driver's body and
+   head at model lod 0, 1 or 3, in the Chao colour and tip given, sent
+   to sink strip by strip. */
+void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t tip, int lod, const ModelSink *sink);
 
 #endif

@@ -942,6 +942,23 @@ static void neon_sign(float x, float y, float z, float w, float h, int row, floa
     svp_tint = lot_tint;
 }
 
+/* The world's mesh builder as the sink for baked models (models.h): the
+   plain-colour material, a vertex each as the pool takes it, the lit
+   ones shaded by their normal as the rest of the scenery is. */
+static void lot_sink_begin(void *ctx) {
+    (void)ctx;
+    strip_begin(h_col);
+}
+static void lot_sink_vertex(void *ctx, V3 p, V3 n, uint32_t c, bool lit) {
+    (void)ctx;
+    svp(p, 0, 0, lit ? shade(c, n) : c);
+}
+static void lot_sink_end(void *ctx) {
+    (void)ctx;
+    strip_end();
+}
+static const ModelSink lot_sink = {NULL, lot_sink_begin, lot_sink_vertex, lot_sink_end};
+
 /* A Chao standing at p facing yaw, in kart_palette colour pal, head
    turned a little: the drivers' model (lod 1) baked as scenery, with
    its far copy (lod 3) for a split screen beyond SPLIT_NEAR. It bobs on
@@ -958,12 +975,12 @@ static void person(V3 p, float yaw, int pal) {
     chunk_begin(HF_OP, 260.0f);
     if(cur_chunk) cur_chunk->lod = 1;
     b->first = pool_n;
-    models_bake_chao(p, yaw, head, c->rgb, c->tip, 1);
+    models_bake_chao(p, yaw, head, c->rgb, c->tip, 1, &lot_sink);
     b->count = pool_n - b->first;
     chunk_end();
     chunk_begin(HF_OP, 260.0f);
     if(cur_chunk) cur_chunk->lod = 2;
-    models_bake_chao(p, yaw, head, c->rgb, c->tip, 3);
+    models_bake_chao(p, yaw, head, c->rgb, c->tip, 3, &lot_sink);
     chunk_end();
     roam_solid_disc(p, 0.35f, 1.0f);
 }

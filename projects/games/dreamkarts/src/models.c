@@ -9,17 +9,6 @@
 #include "prof.h"
 #include "world.h"
 #include "models_data.h"
-/* The world's static mesh builder, for baking Chao into its pool
-   (world_int.h as a whole clashes with this file's helpers). */
-void strip_end(void);
-void svp(V3 p, float u, float v, uint32_t c);
-uint32_t shade(uint32_t c, V3 n);
-extern const pvr_poly_hdr_t *h_col, *strip_hdr;
-extern int cur_strip_first, pool_n;
-static inline void bake_strip_begin(const pvr_poly_hdr_t *h) {   /* world_int.h's strip_begin */
-    strip_hdr = h;
-    cur_strip_first = pool_n;
-}
 #include "texture_assets.h"
 #include <sh4zam/shz_sh4zam.h>
 
@@ -256,12 +245,13 @@ void models_init(void) {
 }
 
 /* One baked Chao vertex: model position q and representative vertex v
-   (normal, paint), offset o in Chao space, turned by (cs, sn) about p.
-   Kept out of line: inlined into the loop below it trips GCC 15's SH-4
-   back end ("in gen_reg_rtx"). */
+   (normal, paint), offset o in Chao space, turned by (cs, sn) about p,
+   handed to the sink. Kept out of line: inlined into the loop below it
+   trips GCC 15's SH-4 back end ("in gen_reg_rtx"). */
 typedef struct {
     float px, py, pz, cs, sn, hc, hs, ox, oy, oz;
     uint32_t chao, tip;
+    const ModelSink *sink;
 } ChaoBake;
 static void __attribute__((noinline)) bake_chao_vert(const ChaoBake *b, const float *q, const dk_mvert_t *v, int head,
                                                       int unlit) {
@@ -291,11 +281,10 @@ static void __attribute__((noinline)) bake_chao_vert(const ChaoBake *b, const fl
         c = 0xff000000u | (r << 16) | (g << 8) | bl;
     }
     V3 w = {wx, b->py + y, wz}, n = {wnx, ny, wnz};
-    if(!unlit) c = shade(c, n);
-    svp(w, 0, 0, c);
+    b->sink->vertex(b->sink->ctx, w, n, c, !unlit);
 }
 
-void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t tip, int lod) {
+void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t tip, int lod, const ModelSink *sink) {
     models_init();   /* the strips: the lot is built before main reaches it */
     const float *body = dk_part_pivot[DK_PART_CHAO_BODY];
     /* Stood on the ground: the body's lowest vertex at p. */
@@ -312,6 +301,7 @@ void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t t
     b.cs = cosf(yaw); b.sn = sinf(yaw);
     b.hc = cosf(head_yaw); b.hs = sinf(head_yaw);
     b.chao = chao; b.tip = tip;
+    b.sink = sink;
     for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
         const dk_mesh_t *m = &dk_model_meshes[mi];
         if(m->lod != lod || (m->part != DK_PART_CHAO_BODY && m->part != DK_PART_CHAO_HEAD) || (m->flags & 2)) continue;
@@ -323,13 +313,13 @@ void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t t
         const uint16_t *sd = &strip_data[mesh_strips[mi]];
         while(*sd) {
             int n = *sd++;
-            bake_strip_begin(h_col);
+            sink->strip_begin(sink->ctx);
             for(int k = 0; k < n; k++) {
                 bake_chao_vert(&b, model_pos[mesh_p0[mi] + sd[0] / 16], &dk_model_verts[group_vert[mesh_g0[mi] + sd[1] / 4]],
                                head, unlit);
                 sd += 2;
             }
-            strip_end();
+            sink->strip_end(sink->ctx);
         }
     }
 }
