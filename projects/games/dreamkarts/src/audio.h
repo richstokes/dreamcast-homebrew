@@ -15,10 +15,11 @@ void audio_shutdown(void);
 void audio_update(float dt);
 /* The title screen's song (the theme), unless it is already playing. */
 void audio_music_title(void);
-/* A race start: the next song of the shuffle. Every change of song fades
-   the one playing out first (~0.4 s), then fades the new one in. */
+/* A race start: the next of the race songs' shuffle (the theme stays on
+   the title screen). Every change of song fades the one playing out first
+   (~0.4 s), then fades the new one in. */
 void audio_music_start(void);
-/* The pause menu's NEXT SONG: the next song of the shuffle. */
+/* The pause menu's NEXT SONG: the next of that shuffle. */
 void audio_music_next(void);
 /* Sound test: play a song from its start. */
 void audio_music_play(int song);

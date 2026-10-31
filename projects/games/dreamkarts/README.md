@@ -129,7 +129,7 @@ the first VMU found, alongside the music switch, its volume and the custom kart 
 Settings menu edits all three).
 
 - Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps, class and whether power-ups are on, and starts the race, alone if nobody else has turned up yet (a bell rings when someone joins; they race from the next one)
-- Start mid-race offers to drop out: that goes back to the lobby room, not the browser, so a practice lap ends the moment company arrives
+- Start mid-race opens a small menu over the race (it cannot pause): the music switch, NEXT SONG and LEAVE, which goes back to the lobby room, not the browser, so a practice lap ends the moment company arrives
 - Each console drives its own kart; the server starts the countdown and decides places. Points (10/8/6/4/2/1) add up while you stay in the lobby
 - X in the lobby room opens the chat: type on the on-screen keys (quick phrases included) or a Dreamcast keyboard in any port, Start or Enter sends. Closed, a strip shows the newest line and a badge counts what you have not read. Chat is per lobby, watchers can read it, and the server stars out bad words
 - Lobby 10 is a demo lobby of bots, watch only

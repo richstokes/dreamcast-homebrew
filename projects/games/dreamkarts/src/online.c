@@ -45,6 +45,10 @@ static int sel_track, sel_laps = 3, sel_cc = 1, sel_items = 1;
 static bool was_leader;
 static int raced_id = -1;      /* race id this console has set up */
 static bool leave_prompt;
+/* The mid-race menu's rows: an online race cannot pause, so it is music
+   and leaving, the race running on behind it. */
+enum { OR_BACK, OR_MUSIC, OR_NEXT, OR_LEAVE, OR_ITEMS };
+static int leave_sel;
 static bool watch_prompt;       /* lobby browser: "watch this lobby?" */
 static char kart_names[MAX_KARTS][NET_NAME_LEN];
 static const char *error_line1 = "", *error_line2 = "";
@@ -436,10 +440,11 @@ void online_tick(void) {
     }
 }
 
-/* Mid-race Start: offer to drop out (the race carries on behind the
-   prompt). A yes goes back to the lobby room, still in the lobby: the
-   race runs on without us (raced_id keeps it from being set up again) and
-   the room shows it in progress until the server is waiting again. */
+/* Mid-race Start: a small menu over the race, which carries on behind
+   it: the music switch and NEXT SONG as the pause menu has them, and
+   LEAVE, which goes back to the lobby room, still in the lobby: the race
+   runs on without us (raced_id keeps it from being set up again) and the
+   room shows it in progress until the server is waiting again. */
 bool online_race_input(void) {
 #ifdef DK_AT_PRACTICE
     pad.pressed |= practice_press;
@@ -448,11 +453,32 @@ bool online_race_input(void) {
     if(!leave_prompt) {
         if(pad.pressed & BTN_START) {
             leave_prompt = true;
+            leave_sel = OR_BACK;
             audio_sfx(DK_SFX_MENU_SELECT, 180, 128);
         }
         return false;
     }
-    if(pad.pressed & BTN_A) {
+    if(input_menu_up()) {
+        leave_sel = (leave_sel + OR_ITEMS - 1) % OR_ITEMS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(input_menu_down()) {
+        leave_sel = (leave_sel + 1) % OR_ITEMS;
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    }
+    if(leave_sel == OR_MUSIC && ((pad.pressed & BTN_A) || input_menu_left() || input_menu_right())) {
+        save.music = !audio_music_enabled();
+        audio_music_enable(save.music);
+        save_store();
+        audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+        return false;
+    }
+    if(leave_sel == OR_NEXT && ((pad.pressed & BTN_A) || input_menu_right())) {
+        audio_music_next();
+        audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
+        return false;
+    }
+    if((pad.pressed & BTN_A) && leave_sel == OR_LEAVE) {
         leave_prompt = false;
         if(!net_spectating()) net_retire(net_lobby()->race_id);
         game_set_state(ST_ONLINE);
@@ -462,7 +488,7 @@ bool online_race_input(void) {
         audio_sfx(DK_SFX_MENU_BACK, 200, 128);
         return true;
     }
-    if(pad.pressed & (BTN_B | BTN_START)) {
+    if((pad.pressed & BTN_A) || (pad.pressed & (BTN_B | BTN_START))) {
         leave_prompt = false;
         audio_sfx(DK_SFX_MENU_BACK, 180, 128);
     }
@@ -809,6 +835,7 @@ static void practice_autotest(void) {
         case 11:
             if(now - pr.t > 700) {
                 practice_press = BTN_A;
+                leave_sel = OR_LEAVE;
                 pr.step = 12;
                 pr.t = now;
             }
@@ -872,6 +899,7 @@ static void practice_autotest(void) {
             if(now - pr.t > 150) PR_SHOT("practice-prompt");
             if(now - pr.t > 700) {
                 practice_press = BTN_A;
+                leave_sel = OR_LEAVE;
                 pr.step = 3;
                 pr.t = now;
             }
@@ -923,6 +951,7 @@ static void practice_autotest(void) {
         case 6:
             if(now - pr.t > 300) {
                 practice_press = BTN_A;
+                leave_sel = OR_LEAVE;
                 pr.step = 7;
                 pr.t = now;
             }
@@ -1505,10 +1534,20 @@ void online_draw_race(void) {
         }
     }
     if(leave_prompt) {
-        panel(170, 170, 470, 300);
-        ui_title(170, 170, 470, "LEAVE THE RACE?");
-        hud_text(320, 228, 0.45f, ALIGN_CENTER, PALE, "BACK TO THE LOBBY ROOM");
-        ui_hint_at(320, 272, net_spectating() ? "A: LEAVE   B: KEEP WATCHING" : "A: LEAVE   B: KEEP RACING");
+        bool watching = net_spectating();
+        const char *items[OR_ITEMS] = {watching ? "KEEP WATCHING" : "KEEP RACING",
+                                       audio_music_enabled() ? "MUSIC: ON" : "MUSIC: OFF", "NEXT SONG",
+                                       watching ? "STOP WATCHING" : "LEAVE THE RACE"};
+        const float x0 = 160, x1 = 480, y0 = 134, pitch = 42;
+        ui_panel(x0, y0, x1, y0 + 54 + OR_ITEMS * pitch + 14);
+        float yc = ui_title(x0, y0, x1, watching ? "WATCHING" : "RACING") + 10;
+        for(int i = 0; i < OR_ITEMS; i++) {
+            bool sel = i == leave_sel;
+            float y = yc + i * pitch;
+            ui_row(x0 + 14, y, x1 - 14, y + pitch - 4, sel);
+            hud_text_c(320, y + (pitch - 4) * 0.5f, sel ? 0.8f : 0.76f, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM),
+                       items[i]);
+        }
     }
 }
 

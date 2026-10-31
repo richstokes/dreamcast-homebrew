@@ -2,10 +2,13 @@
 
    Music is CD-DA: the songs are audio tracks on the disc, which the GD-ROM
    plays by itself into the AICA's CD input, so they cost the SH-4 nothing
-   (no stream, no buffer, no decoder). The title screen plays the theme;
-   races and the pause menu's NEXT SONG step through the rest in a shuffled
-   order, reshuffled each time it runs out, and a song that ends on its own
-   hands over to the next. A change of song fades the old one out before
+   (no stream, no buffer, no decoder). The title screen plays the theme,
+   which is its alone; each race start (and the pause menu's NEXT SONG)
+   draws the next of the other songs from a shuffled bag, refilled when
+   empty, so every race song is heard before any comes round again. A song
+   that runs out on its own is followed by a random other one, chosen
+   outside the bag so a long spell in the menus does not use up the races'
+   order. A change of song fades the old one out before
    the drive is sent to the new one (which then fades in), so no song is
    cut off mid-note, and the seek happens in silence. The drive takes its orders from a jukebox thread
    (a GD-ROM command blocks for the seek, ~0.5 s on hardware), which also
@@ -51,10 +54,12 @@ static bool music_silent;                /* dcload: the drive is not touched */
 /* What plays: the song (-1 none), its clock in seconds, and the shuffled
    order the next songs come in. */
 static int music_song = -1;
+static int music_prev = -1;              /* the song before it */
 static int music_next = -1;              /* the song waiting for the fade-out */
 static float music_pos;
-static uint8_t music_order[DK_MUSIC_TRACKS];
-static int music_order_n, music_order_i;
+static uint8_t music_bag[DK_MUSIC_TRACKS];   /* the races' shuffled order */
+static int music_bag_n, music_bag_i;
+static uint32_t music_rng;
 static int music_starts, music_ends;     /* songs started and finished (autotest) */
 /* Volume: 0..255 as the rest of the game sets it, faded per frame and
    written to the AICA's 4-bit CD level only when that changes. */
@@ -273,36 +278,59 @@ void audio_shutdown(void) {
     ready = false;
 }
 
-/* A fresh shuffle of every song, not opening with the one just played. */
-static void music_reshuffle(void) {
-    uint32_t r = (uint32_t)timer_us_gettime64() ^ 0x9e3779b9u;
-    music_order_n = music_tracks;
-    for(int i = 0; i < music_order_n; i++) music_order[i] = (uint8_t)i;
-    for(int i = music_order_n - 1; i > 0; i--) {
-        r ^= r << 13;
-        r ^= r >> 17;
-        r ^= r << 5;
-        int j = (int)(r % (uint32_t)(i + 1));
-        uint8_t t = music_order[i];
-        music_order[i] = music_order[j];
-        music_order[j] = t;
+static uint32_t music_rand(void) {
+    if(!music_rng) music_rng = (uint32_t)timer_us_gettime64() | 1;
+    music_rng ^= music_rng << 13;
+    music_rng ^= music_rng >> 17;
+    music_rng ^= music_rng << 5;
+    return music_rng;
+}
+
+/* The race songs: all but the theme, unless there are too few for that. */
+static bool music_for_races(int song) {
+    return song != DK_MUSIC_TITLE_TRACK || music_tracks < 3;
+}
+
+/* A fresh shuffle of the race songs, not opening with the one playing. */
+static void music_refill_bag(void) {
+    music_bag_n = 0;
+    for(int i = 0; i < music_tracks; i++)
+        if(music_for_races(i)) music_bag[music_bag_n++] = (uint8_t)i;
+    for(int i = music_bag_n - 1; i > 0; i--) {
+        int j = (int)(music_rand() % (uint32_t)(i + 1));
+        uint8_t t = music_bag[i];
+        music_bag[i] = music_bag[j];
+        music_bag[j] = t;
     }
-    if(music_order_n > 1 && music_order[0] == music_song) {
-        uint8_t t = music_order[0];
-        music_order[0] = music_order[music_order_n - 1];
-        music_order[music_order_n - 1] = t;
+    if(music_bag_n > 1 && music_bag[0] == music_song) {
+        uint8_t t = music_bag[0];
+        music_bag[0] = music_bag[music_bag_n - 1];
+        music_bag[music_bag_n - 1] = t;
     }
-    music_order_i = 0;
+    music_bag_i = 0;
 }
 
 static int music_next_song(void) {
-    if(music_order_i >= music_order_n) music_reshuffle();
-    return music_order[music_order_i++];
+    if(music_bag_i >= music_bag_n) music_refill_bag();
+    return music_bag[music_bag_i++];
+}
+
+/* After a song runs out: a random race song other than it and the one
+   before, leaving the bag alone. */
+static int music_follow_song(void) {
+    int pick[DK_MUSIC_TRACKS], n = 0;
+    for(int i = 0; i < music_tracks; i++)
+        if(music_for_races(i) && i != music_song && i != music_prev) pick[n++] = i;
+    if(!n)
+        for(int i = 0; i < music_tracks; i++)
+            if(i != music_song) pick[n++] = i;
+    return n ? pick[music_rand() % (uint32_t)n] : music_song;
 }
 
 /* Start a song now: the drive is told to play its track, the song's clock
    restarts and it fades in from silence. */
 static void music_start_now(int song) {
+    if(song != music_song) music_prev = music_song;
     music_song = song;
     music_next = -1;
     music_pos = 0;
@@ -400,7 +428,7 @@ void audio_update(float dt) {
             music_tracks = 0;
             return;
         }
-        music_start_now(music_next >= 0 ? music_next : music_next_song());
+        music_start_now(music_next >= 0 ? music_next : music_follow_song());
     }
     if(jb_playing && !music_paused) music_pos += dt;
     /* Fading out ahead of a change of song, or toward the scene's level. */
