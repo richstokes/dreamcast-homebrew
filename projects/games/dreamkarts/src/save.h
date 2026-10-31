@@ -8,7 +8,7 @@
 
 #define SAVE_NAME_LEN 11   /* NET_NAME_LEN: 10 characters and a NUL */
 #define SAVE_VOLUME_MAX 10
-#define SAVE_VOLUME_DEFAULT 8
+#define SAVE_VOLUME_DEFAULT 10
 
 typedef struct {
     char name[SAVE_NAME_LEN];   /* online name; empty until one is typed */
