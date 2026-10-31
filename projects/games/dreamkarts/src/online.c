@@ -34,7 +34,7 @@ enum { OS_NAME, OS_CONNECT, OS_BROWSER, OS_LOBBY, OS_ERROR };
 
 static int screen = OS_NAME;
 static float screen_t;
-static char name[NET_NAME_LEN] = "CHAO";
+static char name[NET_NAME_LEN] = "PLAYER1";
 static int key_row, key_col;
 static bool name_typed;        /* edited since entering; a saved name arriving late stays out */
 static bool name_only;         /* the Settings menu's ONLINE NAME: type it, save it, back */
@@ -1155,7 +1155,7 @@ static void name_autotest(float dt) {
         static uint8_t junk[1024];
         memset(junk, 0x5a, sizeof(junk));
         vmufs_write(maple_enum_type(0, MAPLE_FUNC_MEMCARD), "DREAMKARTS", junk, sizeof(junk), VMUFS_OVERWRITE);
-        strcpy(name, "CHAO");
+        strcpy(name, "PLAYER1");
         save_load();
 #endif
         step = 1;
@@ -1163,7 +1163,7 @@ static void name_autotest(float dt) {
     if(step == 1 && t > 6.0f) {
 #ifdef DK_AT_NAME_CORRUPT
         printf("DK NAME: after junk %s\n", name);
-        ok = ok && strcmp(name, "CHAO") == 0;
+        ok = ok && strcmp(name, "PLAYER1") == 0;
 #endif
         snprintf(save.name, sizeof(save.name), "%s", AT_STR(DK_AT_NAME));
         save_store();

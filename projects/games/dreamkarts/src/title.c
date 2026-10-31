@@ -464,7 +464,7 @@ static void settings_autotest(float dt) {
 #ifdef DK_AT_SETTINGS_WANT
     if(t > 3.0f) {
         ok = !save.music && !audio_music_enabled() && save.volume == 6 && save.custom_on && save.custom.body == 3 &&
-             save.custom.trim == 0 && save.custom.chao == 15 && strcmp(save.name, "CHAO") == 0;
+             save.custom.trim == 0 && save.custom.chao == 15 && strcmp(save.name, "PLAYER1") == 0;
         printf("DK SETTINGS: loaded music %d volume %d custom %d (%d %d %d) name %s\nDK AUTOTEST: %s\n", save.music,
                save.volume, save.custom_on, save.custom.body, save.custom.trim, save.custom.chao, save.name,
                ok ? "PASS" : "FAIL");
