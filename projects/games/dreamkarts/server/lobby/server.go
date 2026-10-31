@@ -57,6 +57,7 @@ type Player struct {
 	Points     uint16
 	LastPlace  byte
 	StartNonce byte // newest seen from this console
+	nonceSeen  bool // StartNonce holds a wish from this console (its first wish is not a press)
 
 	// Race state.
 	Racing   bool
@@ -94,6 +95,7 @@ type Lobby struct {
 	Items     bool // power-ups (the leader's choice; on by default)
 	State     byte
 	RaceID    byte
+	Host      *Player   // the leader who started the current race; a Free Roam session ends when they go
 	Green     time.Time // countdown target / race start
 	FirstFin  time.Time
 	ResultsTo time.Time
@@ -378,6 +380,48 @@ func (l *Lobby) flags() byte {
 	return 0
 }
 
+// roam says whether the lobby's pick is the Night Meet lot: a Free Roam
+// session rather than a race. Nobody finishes (the finished flag is
+// ignored), there are no results or points and no time limit, and it goes
+// straight back to waiting when the leader who opened it retires or leaves
+// the lobby (or when nobody is left on it).
+func (l *Lobby) roam() bool { return l.Track == RoamTrack }
+
+// hostGone says whether the player who started the current race has
+// retired from it or left the lobby.
+func (l *Lobby) hostGone() bool {
+	return l.Host == nil || l.Host.Lobby != l.ID || !l.Host.Racing
+}
+
+// live says whether a race or session is on: counting down or racing.
+func (l *Lobby) live() bool { return l.State == StateCountdown || l.State == StateRacing }
+
+// freeGrid is the lowest grid slot no racer holds: on the lot, a free bay.
+func (l *Lobby) freeGrid() byte {
+	var used [MaxPlayers]bool
+	for _, q := range l.Slots {
+		if q != nil && q.Racing && int(q.Grid) < MaxPlayers {
+			used[q.Grid] = true
+		}
+	}
+	for i, u := range used {
+		if !u {
+			return byte(i)
+		}
+	}
+	return 0
+}
+
+// enterRoam puts p onto the lot of a Free Roam session in progress: a
+// latecomer to the lobby, or a player who backed out and wants back on.
+// Its kart joins the RACE relay as soon as it sends one.
+func (s *Server) enterRoam(l *Lobby, p *Player, how string) {
+	p.Racing, p.Grid = true, l.freeGrid()
+	p.Finished, p.FinishMs, p.HasKart, p.Progress, p.LastPlace = false, 0, false, 0, 0
+	l.dirty = true
+	s.Logf("lobby %d: %q %s the lot (free roam %d, bay %d)", l.ID, p.Name, how, l.RaceID, p.Grid)
+}
+
 func (l *Lobby) count() int {
 	n := 0
 	for _, p := range l.Slots {
@@ -445,6 +489,9 @@ func (s *Server) join(p *Player, id int, now time.Time) {
 	}
 	l.dirty = true
 	s.Logf("%q joined lobby %d slot %d", p.Name, id, slot)
+	if l.roam() && l.live() {
+		s.enterRoam(l, p, "dropped onto")
+	}
 	s.sendLobby(l, p, now)
 	if !p.Bot && !l.Demo && !IsTestName(p.Name) {
 		s.emit(Event{Kind: EventJoin, Lobby: id + 1, Name: p.Name, Players: names(l.Slots[:])}, now)
@@ -493,6 +540,9 @@ func (s *Server) leave(p *Player, now time.Time) {
 	}
 	l.Slots[p.Slot] = nil
 	s.Logf("%q left lobby %d", p.Name, l.ID)
+	if l.Host == p {
+		l.Host = nil // the session they opened ends, even if they are back before the next tick
+	}
 	if l.Leader == p.Slot {
 		l.Leader = -1
 		var best *Player
@@ -538,7 +588,11 @@ func (s *Server) wish(p *Player, b []byte, now time.Time) {
 		l.dirty = true
 	}
 	if l.Leader != p.Slot {
-		p.StartNonce = nonce
+		// Start from the room during a Free Roam session: back onto the lot.
+		if p.nonceSeen && nonce != p.StartNonce && !p.Racing && l.roam() && l.live() {
+			s.enterRoam(l, p, "is back on")
+		}
+		p.StartNonce, p.nonceSeen = nonce, true
 		return
 	}
 	if !l.synced {
@@ -563,7 +617,7 @@ func (s *Server) wish(p *Player, b []byte, now time.Time) {
 		}
 	}
 	l.Nonce = nonce
-	p.StartNonce = nonce
+	p.StartNonce, p.nonceSeen = nonce, true
 }
 
 func (s *Server) startRace(l *Lobby, now time.Time) {
@@ -591,9 +645,17 @@ func (s *Server) startRace(l *Lobby, now time.Time) {
 	l.State = StateCountdown
 	l.Green = now.Add(CountdownLen)
 	l.FirstFin = time.Time{}
+	l.Host = nil
+	if l.Leader >= 0 {
+		l.Host = l.Slots[l.Leader]
+	}
 	l.dirty = true
-	s.Logf("lobby %d race %d: %d racers, track %d, %d laps, cc %d, items %v", l.ID, l.RaceID, len(racers), l.Track,
-		l.Laps, l.CC, l.Items)
+	if l.roam() {
+		s.Logf("lobby %d free roam %d: %d on the lot, cc %d, items %v", l.ID, l.RaceID, len(racers), l.CC, l.Items)
+	} else {
+		s.Logf("lobby %d race %d: %d racers, track %d, %d laps, cc %d, items %v", l.ID, l.RaceID, len(racers), l.Track,
+			l.Laps, l.CC, l.Items)
+	}
 	if len(racers) >= 2 && !l.Demo && !anyTest(racers) {
 		s.emit(Event{Kind: EventRace, Lobby: l.ID + 1, Players: names(racers), Track: l.Track, Laps: l.Laps, CC: l.CC,
 			Items: l.Items}, now)
@@ -698,7 +760,7 @@ func (s *Server) takeKart(l *Lobby, p *Player, k []byte, at, now time.Time) {
 	if !p.Finished {
 		p.Progress = float64(lap)*100000 + float64(dist)
 	}
-	if k[0]&KartFinished != 0 && !p.Finished && l.State == StateRacing {
+	if k[0]&KartFinished != 0 && !p.Finished && l.State == StateRacing && !l.roam() {
 		p.Finished, p.FinishMs = true, raceMs
 		if l.FirstFin.IsZero() {
 			l.FirstFin = now
@@ -763,13 +825,22 @@ func (s *Server) racers(l *Lobby) []*Player {
 func (s *Server) advance(l *Lobby, now time.Time) {
 	switch l.State {
 	case StateCountdown:
-		if len(s.racers(l)) == 0 {
+		if len(s.racers(l)) == 0 || (l.roam() && l.hostGone()) {
 			s.toWaiting(l)
 		} else if !now.Before(l.Green) {
 			l.State, l.dirty = StateRacing, true
 		}
 	case StateRacing:
 		r := s.racers(l)
+		if l.roam() {
+			// A Free Roam session: no finish, no results, no clock; over
+			// when the leader who opened it has gone, or everyone has.
+			if len(r) == 0 || l.hostGone() {
+				s.Logf("lobby %d free roam %d over", l.ID, l.RaceID)
+				s.toWaiting(l)
+			}
+			return
+		}
 		done := len(r) > 0
 		for _, p := range r {
 			if !p.Finished {
@@ -812,7 +883,7 @@ func (s *Server) finishRace(l *Lobby, now time.Time) {
 }
 
 func (s *Server) toWaiting(l *Lobby) {
-	l.State, l.dirty = StateWaiting, true
+	l.State, l.Host, l.dirty = StateWaiting, nil, true
 	for _, p := range l.Slots {
 		if p != nil {
 			p.Racing, p.Finished, p.HasKart = false, false, false

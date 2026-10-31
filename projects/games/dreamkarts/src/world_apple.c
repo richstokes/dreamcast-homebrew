@@ -220,6 +220,18 @@ static void av_prop(int which, V3 p, float yaw, float scale, float lod_far, bool
     prop_place(&av_props[which], av_mat_hdr, AVM_PT_MASK, p, yaw, scale, lod_far, far);
 }
 
+/* Apple Valley's props for another track's scenery (the Night Meet lot
+   borrows its light poles, bleachers, trailers and containers), and the
+   mesh itself for its solid boxes. Through here so the baked arrays are
+   emitted once, in this file. */
+void av_place_prop(int which, V3 p, float yaw, float scale, float lod_far, bool far) {
+    av_prop(which, p, yaw, scale, lod_far, far);
+}
+
+const dk_prop_t *av_prop_mesh(int which) {
+    return &av_props[which];
+}
+
 /* A prop on the ground beside the road at lap distance s, lateral d,
    turned to face the road (its front, -z, toward the centreline). */
 static void av_prop_facing(int which, float s, float d, float lod_far, bool far) {

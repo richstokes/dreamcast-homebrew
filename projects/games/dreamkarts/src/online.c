@@ -20,6 +20,7 @@
 #include "net.h"
 #include "netlink.h"
 #include "render.h"
+#include "roam.h"
 #include "save.h"
 #include "spectate.h"
 #include "title.h"
@@ -49,6 +50,7 @@ static bool leave_prompt;
    and leaving, the race running on behind it. */
 enum { OR_BACK, OR_MUSIC, OR_NEXT, OR_LEAVE, OR_ITEMS };
 static int leave_sel;
+static bool rejoin_wanted;      /* A in the room during a Free Roam session: back onto the lot once the server says so */
 static bool watch_prompt;       /* lobby browser: "watch this lobby?" */
 static char kart_names[MAX_KARTS][NET_NAME_LEN];
 static const char *error_line1 = "", *error_line2 = "";
@@ -78,6 +80,20 @@ static struct {
     bool reported;
 } rs;
 static void restart_autotest(void);
+#endif
+#ifdef DK_AT_ROAM_ONLINE
+static uint32_t roam_press;   /* buttons the Free Roam autotest presses mid-session */
+static uint32_t room_press;   /* ...and in the lobby room */
+static struct {
+    bool opened, closing, closed, reported;
+    float t;             /* seconds on the lot */
+    uint64_t closed_ms;  /* when the leader confirmed backing out */
+    int remotes;         /* most remote karts seen on the lot at once */
+    float late_t;        /* when the first remote kart showed (-1 none yet) */
+    bool leaving, left, asked, rejoined;   /* a guest's trip to the room and back (DK_AT_ROAM_LATE) */
+    uint64_t left_ms, asked_ms;
+} ro = {.late_t = -1.0f};
+static void roam_autotest(float dt);
 #endif
 #ifdef DK_AUTOTEST
 /* Remote kart motion while racing: how far each step's move departs from
@@ -179,8 +195,10 @@ static void setup_race(const NetLobby *l) {
     game.laps = l->laps;
     game.items = l->items != 0;
     /* One race at a time, the lobby keeping the points: a time trial's HUD
-       would hide the places, so only that is overridden. */
-    if(game.mode == MODE_TT) game.mode = MODE_RACE;
+       would hide the places, so only that is overridden. The lot is a
+       Free Roam session instead: no laps, places or points (roam.h). */
+    if(game.mode == MODE_TT || game.mode == MODE_ROAM) game.mode = MODE_RACE;
+    if(l->track == TRACK_LOT) game.mode = MODE_ROAM;
     game.num_players = 1;
     int order[NET_MAX_PLAYERS], n = 0;
     for(int g = 0; g < NET_MAX_PLAYERS; g++)
@@ -204,6 +222,8 @@ static void setup_race(const NetLobby *l) {
         models_paint_kart(g);
         if(!k->remote) game.pl[0].kart = game.player = g;
     }
+    /* Free Roam: everyone starts parked in a bay by the clubhouse. */
+    if(track_is_roam()) roam_place_karts();
     spectate_set(net_spectating());
     if(net_spectating()) game.pl[0].kart = game.player = 0;   /* the director picks */
     race_reset();
@@ -211,6 +231,44 @@ static void setup_race(const NetLobby *l) {
     raced_id = l->race_id;
     audio_music_start();
     audio_music_target(150);
+}
+
+/* Free Roam: the server drops a latecomer to the lobby straight onto the
+   lot and puts a player who backed out back on when they ask, so a
+   racing player can appear mid-session. Give them a kart (or revive the
+   one that dropped out), parked in their bay until their samples come. */
+static void roam_kart_for(const NetPlayer *p) {
+    Kart *k = NULL;
+    for(int i = 0; i < kart_count; i++)
+        if(karts[i].remote && karts[i].net_slot == p->slot) k = &karts[i];
+    if(k && !k->gone) return;
+    if(!k) {
+        if(kart_count >= MAX_KARTS) return;
+        int g = kart_count++;
+        k = &karts[g];
+        memset(k, 0, sizeof(*k));
+        k->remote = true;
+        k->net_slot = p->slot;
+        kart_apply_look(k, p->colour, &p->custom);
+        memcpy(kart_names[g], p->name, NET_NAME_LEN);
+        k->name = kart_names[g];
+        models_paint_kart(g);
+    }
+    k->gone = k->finished = false;
+    float h;
+    k->pos = roam_bay(p->grid, &h);
+    k->pos.y = k->gnd = 0;
+    k->heading = h;
+    k->vel = v3(0, 0, 0);
+    k->speed = 0;
+    k->lap = 0;
+    k->grounded = true;
+    track_locate(k->pos, -1, &k->tp);
+    k->progress = k->tp.s;
+    net_forget_slot(p->slot);
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+    printf("DK ONLINE: slot %d %s on the lot (bay %d)\n", p->slot, k == &karts[kart_count - 1] ? "arrives" : "is back", p->grid);
+#endif
 }
 
 static float synced_countdown(const NetLobby *l) {
@@ -355,13 +413,26 @@ static void follow_lobby(void) {
     const NetPlayer *me = net_me();
     bool racing = me && (me->flags & NPF_RACING);
     bool watching = net_spectating();
-    if((racing || watching) && (l->state == NLS_COUNTDOWN || l->state == NLS_RACING) && raced_id != l->race_id) {
+    bool live = l->state == NLS_COUNTDOWN || l->state == NLS_RACING;
+    /* Back onto the lot after backing out: the room's A asked, and the
+       server now shows us on it. Set up again from the lobby state, as a
+       fresh entrant would. */
+    bool back_on = racing && rejoin_wanted && raced_id == l->race_id && game.state == ST_ONLINE;
+    if(!live) rejoin_wanted = false;
+    if((racing || watching) && live && (raced_id != l->race_id || back_on)) {
         setup_race(l);
-        /* A watcher arriving mid-race goes straight to it. */
-        game_set_state(watching && l->state == NLS_RACING ? ST_RACE : ST_COUNTDOWN);
-        game.countdown = synced_countdown(l);
+        rejoin_wanted = false;
+        /* A watcher arriving mid-race goes straight to it, and so does
+           anyone the server drops onto the lot: no lights there. */
+        bool straight_in = (watching || track_is_roam()) && l->state == NLS_RACING;
+        game_set_state(straight_in ? ST_RACE : ST_COUNTDOWN);
+        game.countdown = straight_in ? 10.0f : synced_countdown(l);
         return;
     }
+    /* On the lot: karts for whoever the server has put on it since. */
+    if(racing && live && raced_id == l->race_id && track_is_roam() && (game.state == ST_RACE || game.state == ST_COUNTDOWN))
+        for(int i = 0; i < l->count; i++)
+            if(l->players[i].slot != l->you && (l->players[i].flags & NPF_RACING)) roam_kart_for(&l->players[i]);
     if(raced_id == l->race_id && l->state == NLS_RESULTS && game.state != ST_RESULTS &&
        (game.state == ST_RACE || game.state == ST_COUNTDOWN)) {
         game_set_state(ST_RESULTS);
@@ -427,6 +498,9 @@ void online_tick(void) {
 #ifdef DK_AT_RESTART
     restart_autotest();
 #endif
+#ifdef DK_AT_ROAM_ONLINE
+    roam_autotest(DK_DT);
+#endif
     if(ns == NET_LOBBY) lobby_bell();
     else bell_lobby = -1;
     if(ns == NET_LOST || ns == NET_REJECTED) {
@@ -453,6 +527,10 @@ bool online_race_input(void) {
 #ifdef DK_AT_PRACTICE
     pad.pressed |= practice_press;
     practice_press = 0;
+#endif
+#ifdef DK_AT_ROAM_ONLINE
+    pad.pressed |= roam_press;
+    roam_press = 0;
 #endif
     if(!leave_prompt) {
         if(pad.pressed & BTN_START) {
@@ -673,11 +751,11 @@ static bool colour_taken(const NetLobby *l, int c) {
 
 enum { LR_TRACK, LR_LAPS, LR_CC, LR_ITEMS, LR_COLOUR, LR_START };
 
-static int lobby_rows(bool leader, int *rows) {
+static int lobby_rows(bool leader, bool roam, int *rows) {
     int n = 0;
     if(leader) {
         rows[n++] = LR_TRACK;
-        rows[n++] = LR_LAPS;
+        if(!roam) rows[n++] = LR_LAPS;   /* no laps on the lot */
         rows[n++] = LR_CC;
         rows[n++] = LR_ITEMS;
     }
@@ -733,7 +811,7 @@ static void lobby_update(float dt) {
         game_load_track(l->track);
         fly_t = 0;
     }
-    int rows[6], n = lobby_rows(leader, rows);
+    int rows[6], n = lobby_rows(leader, sel_track == TRACK_LOT, rows);
     if(lobby_row >= n) lobby_row = n - 1;
     /* The chat box takes every button while it is open; our wishes still
        go out. */
@@ -754,7 +832,7 @@ static void lobby_update(float dt) {
         int dir = input_menu_left() ? -1 : input_menu_right() ? 1 : 0;
         int row = rows[lobby_row];
         if(dir) {
-            if(row == LR_TRACK) sel_track = track_step(sel_track, dir);
+            if(row == LR_TRACK) sel_track = track_step_online(sel_track, dir);
             if(row == LR_LAPS) {
                 int i = sel_laps == 10 ? 2 : sel_laps == 5 ? 1 : 0;
                 sel_laps = laps_options[(i + dir + 3) % 3];
@@ -780,6 +858,14 @@ static void lobby_update(float dt) {
             lobby_row = (lobby_row + 1) % n;
             audio_sfx(DK_SFX_MENU_MOVE, 200, 128);
         }
+    }
+    else if(l->track == TRACK_LOT && !(me->flags & NPF_RACING) && !rejoin_wanted && (pad.pressed & BTN_A)) {
+        /* A Free Roam session is on without us (we backed out): ask to
+           go back onto the lot. The server reads a new start nonce from
+           a player in the room as that. */
+        rejoin_wanted = true;
+        net_press_start();
+        audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
     }
     net_wish(my_colour, &save.custom, leader ? sel_track : l->track, leader ? sel_laps : l->laps,
              leader ? sel_cc : l->cc, leader ? sel_items : l->items);
@@ -1124,6 +1210,10 @@ void online_update(float dt) {
     pad.pressed |= at_press;
     at_press = 0;
 #endif
+#ifdef DK_AT_ROAM_ONLINE
+    pad.pressed |= room_press;
+    room_press = 0;
+#endif
 #ifdef DK_FILM_SPECTATE
     film_spectate();
 #endif
@@ -1304,7 +1394,7 @@ static void draw_browser(void) {
         snprintf(buf, sizeof(buf), "%d/%d", e->players, NET_MAX_PLAYERS);
         hud_text_c(222, cy, 0.58f, ALIGN_RIGHT, col, buf);
         const char *st = (e->flags & NLF_DEMO) ? "DEMO" : e->players == 0 ? "EMPTY" : e->players >= NET_MAX_PLAYERS ? "FULL"
-                       : e->state == NLS_WAITING ? "OPEN" : "RACING";
+                       : e->state == NLS_WAITING ? "OPEN" : e->track % TRACK_COUNT == TRACK_LOT ? "ROAMING" : "RACING";
         uint32_t stc = sel ? col : e->players == 0 ? PALE : e->state == NLS_WAITING ? ui_col(UI_GOOD) : GOLD;
         hud_text_c(240, cy, 0.5f, ALIGN_LEFT, stc, st);
         if(e->players) {
@@ -1410,6 +1500,7 @@ static void draw_lobby(void) {
             }
             const char *v = vb;
             if(i == 1) snprintf(vb, sizeof(vb), "%d", l->laps);
+            if(i == 1 && l->track == TRACK_LOT) v = "FREE ROAM";
             if(i == 2) v = cc_names[l->cc % CC_COUNT];
             if(i == 3) v = l->items ? "ON" : "OFF";
             hud_text(602, y + 2, 0.5f, ALIGN_RIGHT, TEXT, v);
@@ -1418,14 +1509,16 @@ static void draw_lobby(void) {
         hud_text(494, y + 6, 0.5f, ALIGN_CENTER, PALE, buf);
         y = 330;
         hud_text(494, y + 24, 0.45f, ALIGN_CENTER, l->state == NLS_WAITING ? TEXT : GOLD,
-                 l->state == NLS_WAITING ? "NEXT RACE SOON" : l->state == NLS_RESULTS ? "RESULTS ARE IN" : "RACE IN PROGRESS");
+                 l->state == NLS_WAITING ? "NEXT RACE SOON" : l->state == NLS_RESULTS ? "RESULTS ARE IN"
+                 : l->track == TRACK_LOT ? "FREE ROAM IN PROGRESS" : "RACE IN PROGRESS");
         chat_draw(screen_t);
         hint("X: CHAT   B: STOP WATCHING");
         return;
     }
     bool leader = l->leader == l->you;
-    int rows[6], n = lobby_rows(leader, rows);
     int show_track = leader ? sel_track : l->track, show_laps = leader ? sel_laps : l->laps;
+    bool roam = show_track % TRACK_COUNT == TRACK_LOT, roam_live = l->track % TRACK_COUNT == TRACK_LOT;
+    int rows[6], n = lobby_rows(leader, roam, rows);
     int show_cc = leader ? sel_cc : l->cc, show_items = leader ? sel_items : l->items;
     const NetPlayer *me = net_me();
     float y = 90;
@@ -1445,14 +1538,15 @@ static void draw_lobby(void) {
         if(row == LR_START) {
             y += 8;
             float s = sel ? 0.8f + 0.05f * sinf(screen_t * 8) : 0.75f;
-            hud_text(494, y, s, ALIGN_CENTER, col, l->count >= 2 ? "START RACE" : "PRACTICE ALONE");
+            hud_text(494, y, s, ALIGN_CENTER, col,
+                     l->count >= 2 ? (roam ? "OPEN THE LOT" : "START RACE") : (roam ? "ROAM ALONE" : "PRACTICE ALONE"));
             break;
         }
         hud_text(386, y, 0.55f, ALIGN_LEFT, col, labels[i]);
         const char *v = "";
         char vb[24];
         if(row == LR_TRACK) v = track_names[show_track % TRACK_COUNT];
-        if(row == LR_LAPS) { snprintf(vb, sizeof(vb), "%d", show_laps); v = vb; }
+        if(row == LR_LAPS) { snprintf(vb, sizeof(vb), "%d", show_laps); v = roam ? "FREE ROAM" : vb; }
         if(row == LR_CC) v = cc_names[show_cc % CC_COUNT];
         if(row == LR_ITEMS) v = show_items ? "ON" : "OFF";
         if(row == LR_COLOUR) {
@@ -1480,17 +1574,19 @@ static void draw_lobby(void) {
     }
     y = 354;
     if(l->state != NLS_WAITING) {
-        hud_text(494, y, 0.5f, ALIGN_CENTER, GOLD, "RACE IN PROGRESS");
-        hud_text(494, y + 22, 0.42f, ALIGN_CENTER, TEXT, "YOU WILL JOIN THE NEXT ONE");
+        hud_text(494, y, 0.5f, ALIGN_CENTER, GOLD, roam_live ? "FREE ROAM IN PROGRESS" : "RACE IN PROGRESS");
+        hud_text(494, y + 22, 0.42f, ALIGN_CENTER, TEXT,
+                 !roam_live ? "YOU WILL JOIN THE NEXT ONE" : rejoin_wanted ? "HEADING BACK OUT..." : "A: BACK ONTO THE LOT");
     }
     else if(!leader) {
         const NetPlayer *ld = net_player(l->leader);
         snprintf(buf, sizeof(buf), "WAITING FOR %s", ld ? ld->name : "THE LEADER");
         fit_text(494, y, 0.48f, ALIGN_CENTER, TEXT, buf, 228);
-        hud_text(494, y + 22, 0.45f, ALIGN_CENTER, PALE, "TO START THE RACE");
+        hud_text(494, y + 22, 0.45f, ALIGN_CENTER, PALE, roam_live ? "TO OPEN THE LOT" : "TO START THE RACE");
     }
     chat_draw(screen_t);
-    hint(leader ? "A: SELECT   LEFT/RIGHT: CHANGE   X: CHAT   B: LEAVE" : "LEFT/RIGHT: COLOUR   X: CHAT   B: LEAVE");
+    hint(l->state != NLS_WAITING && roam_live ? "A: BACK ONTO THE LOT   X: CHAT   B: LEAVE"
+         : leader ? "A: SELECT   LEFT/RIGHT: CHANGE   X: CHAT   B: LEAVE" : "LEFT/RIGHT: COLOUR   X: CHAT   B: LEAVE");
 }
 
 static void draw_error(void) {
@@ -1538,13 +1634,15 @@ void online_draw_race(void) {
         }
     }
     if(leave_prompt) {
-        bool watching = net_spectating();
-        const char *items[OR_ITEMS] = {watching ? "KEEP WATCHING" : "KEEP RACING",
+        bool watching = net_spectating(), lot = track_is_roam();
+        bool host = lot && !watching && net_lobby()->leader == net_lobby()->you;
+        const char *items[OR_ITEMS] = {watching ? "KEEP WATCHING" : lot ? "KEEP ROAMING" : "KEEP RACING",
                                        audio_music_enabled() ? "MUSIC: ON" : "MUSIC: OFF", "NEXT SONG",
-                                       watching ? "STOP WATCHING" : "LEAVE THE RACE"};
+                                       watching ? "STOP WATCHING" : lot ? "LEAVE THE LOT" : "LEAVE THE RACE"};
         const float x0 = 160, x1 = 480, y0 = 134, pitch = 42;
-        ui_panel(x0, y0, x1, y0 + 54 + OR_ITEMS * pitch + 14);
-        float yc = ui_title(x0, y0, x1, watching ? "WATCHING" : "RACING") + 10;
+        float y1 = y0 + 54 + OR_ITEMS * pitch + 14 + (host ? 26 : 0);
+        ui_panel(x0, y0, x1, y1);
+        float yc = ui_title(x0, y0, x1, watching ? "WATCHING" : lot ? "ROAMING" : "RACING") + 10;
         for(int i = 0; i < OR_ITEMS; i++) {
             bool sel = i == leave_sel;
             float y = yc + i * pitch;
@@ -1552,6 +1650,8 @@ void online_draw_race(void) {
             hud_text_c(320, y + (pitch - 4) * 0.5f, sel ? 0.8f : 0.76f, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM),
                        items[i]);
         }
+        /* On the lot the leader's leaving ends the session for everyone. */
+        if(host) hud_text(320, yc + OR_ITEMS * pitch + 2, 0.4f, ALIGN_CENTER, PALE, "YOU OPENED THE LOT: LEAVING ENDS IT FOR ALL");
     }
 }
 
@@ -1626,6 +1726,103 @@ static int remote_marks(void) {
         if(karts[i].remote) n += fx_marks_laid(i);
     return n;
 }
+#ifdef DK_AT_ROAM_ONLINE
+/* Free Roam online autotest (-DDK_AT_ONLINE -DDK_AT_ROAM_ONLINE, with a bot
+   or a second console in the lobby): the leader picks the lot and opens
+   it, everyone drives round for a while, then the leader backs out (Start,
+   A) and the whole lobby must be back in the room within a few seconds
+   with no results, no places and no points; a console that is not the
+   leader just waits to be brought back.
+
+   With -DDK_AT_ROAM_LATE the leader opens the lot alone and the company
+   (a bot, or a second console started once the session is on) must drop
+   straight onto it; the leader backs out 20 s after the first remote
+   kart shows. A guest console backs out itself 8 s in, asks back onto the
+   lot from the room (A) and must be driving again before the leader ends
+   it. Runs every frame while online. */
+static void roam_autotest(float dt) {
+    if(net_state() != NET_LOBBY) return;
+    const NetLobby *l = net_lobby();
+    const NetPlayer *me = net_me();
+    bool leader = me && l->leader == l->you;
+    uint64_t now = net_now();
+    if(game.state == ST_RACE && raced_id == l->race_id && track_is_roam()) {
+        if(!ro.opened) printf("DK ROAM: on the lot as %s with %d kart(s)\n", leader ? "the leader" : "a guest", kart_count);
+        ro.opened = true;
+        ro.t += dt;
+        int n = 0;
+        for(int i = 0; i < kart_count; i++)
+            if(karts[i].remote && !karts[i].gone) n++;
+        if(n > ro.remotes) ro.remotes = n;
+        if(n > 0 && ro.late_t < 0) {
+            ro.late_t = ro.t;
+            printf("DK ROAM: first remote kart %.1f s in\n", (double)ro.t);
+        }
+        if(ro.asked && !ro.rejoined) {
+            ro.rejoined = true;
+            printf("DK ROAM: back on the lot %.1f s after asking\n", (double)((int64_t)now - (int64_t)ro.asked_ms) * 0.001);
+        }
+#ifdef DK_AT_ROAM_LATE
+        bool close = ro.late_t >= 0 && ro.t > ro.late_t + 20.0f;
+        if(!leader && !ro.leaving && ro.t > 8.0f) {
+            printf("DK ROAM: guest backing out after %.0f s\n", (double)ro.t);
+            roam_press = BTN_START;
+            ro.leaving = true;
+        }
+        else if(!leader && ro.leaving && !ro.left && leave_prompt) {
+            leave_sel = OR_LEAVE;
+            roam_press = BTN_A;
+            ro.left = true;
+            ro.left_ms = now;
+        }
+#else
+        bool close = ro.t > 25.0f;
+#endif
+        if(leader && !ro.closing && close) {
+            printf("DK ROAM: backing out after %.0f s on the lot\n", (double)ro.t);
+            roam_press = BTN_START;
+            ro.closing = true;
+        }
+        else if(leader && ro.closing && !ro.closed && leave_prompt) {
+            leave_sel = OR_LEAVE;
+            roam_press = BTN_A;
+            ro.closed = true;
+            ro.closed_ms = now;
+        }
+    }
+    /* The guest in the room with the session still on: ask back on. */
+    if(ro.left && !ro.asked && screen == OS_LOBBY && game.state == ST_ONLINE && l->state == NLS_RACING &&
+       now - ro.left_ms > 3000) {
+        printf("DK ROAM: asking back onto the lot\n");
+        room_press = BTN_A;
+        ro.asked = true;
+        ro.asked_ms = now;
+    }
+    if(ro.opened && !ro.reported && screen == OS_LOBBY && game.state == ST_ONLINE && l->state == NLS_WAITING) {
+        bool clean = results_seen == 0;
+        for(int i = 0; i < l->count; i++)
+            if(l->players[i].points || l->players[i].place) clean = false;
+        float back = ro.closed ? (float)((int64_t)now - (int64_t)ro.closed_ms) * 0.001f : -1.0f;
+        printf("DK ROAM: back in the room after %.0f s on the lot, %d results, points and places %s, %d remote kart(s), "
+               "first %.1f s in, %d remote steps, %d pops%s%.1f s after backing out, guest trip %s\n", (double)ro.t,
+               results_seen, clean ? "clear" : "SET", ro.remotes, (double)ro.late_t, rmotion.steps, rmotion.pops,
+               ro.closed ? ", " : ", not the leader, ", (double)back,
+               ro.rejoined ? "rejoined" : ro.asked ? "ASKED BUT NEVER BACK" : ro.left ? "LEFT AND NEVER ASKED" : "none");
+        bool ok = clean && ro.remotes >= 1 && rmotion.steps > 0 && (!ro.closed || back < 5.0f);
+#ifdef DK_AT_ROAM_LATE
+        if(ro.closed) ok = ok && ro.late_t > 3.0f;   /* the leader: the company came late, not from the grid */
+        else ok = ok && ro.rejoined;                 /* the guest: out and back on */
+#endif
+        printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
+        ro.reported = true;
+    }
+    if(ro.opened && !ro.reported && ro.t > 120.0f) {
+        printf("DK ROAM: still on the lot after %.0f s\nDK AUTOTEST: FAIL\n", (double)ro.t);
+        ro.reported = true;
+    }
+}
+#endif
+
 void online_autotest(float dt) {
     static float t;
     static bool reported, s_name, s_browser, s_lobby, s_after, chat_ok;
@@ -1681,7 +1878,12 @@ void online_autotest(float dt) {
 #endif
         const NetLobby *l = net_lobby();
         static float ready_t;
+#ifdef DK_AT_ROAM_LATE
+        /* Open the lot alone: the company arrives mid-session. */
+        ready_t = l->leader == l->you && l->state == NLS_WAITING ? ready_t + dt : 0;
+#else
         ready_t = l->count >= 2 && l->leader == l->you && l->state == NLS_WAITING ? ready_t + dt : 0;
+#endif
         if(l->count >= 2 && screen_t > 1.5f) AT_SHOT(s_lobby, "online-lobby");
         /* The chat, once two are in and nothing has been raced yet: open
            the box with X, say GG from a (faked) keyboard, then HI! from
@@ -1692,6 +1894,10 @@ void online_autotest(float dt) {
         static int chat_step;
         static float chat_t;
         static bool s_chat, s_chat_strip;
+#ifdef DK_AT_ROAM_ONLINE
+        if(l->leader == l->you) sel_track = TRACK_LOT;   /* the lot: a Free Roam session */
+        chat_step = 9;   /* no chat check: the session is the test (roam_autotest) */
+#endif
         if(l->count >= 2 && results_seen == 0 && l->state == NLS_WAITING && chat_step < 9) {
             chat_t += dt;
             int count = net_chat_count();
@@ -1768,6 +1974,9 @@ void online_autotest(float dt) {
         }
 #endif
         if(results_seen > 0 && screen_t > 2.0f) AT_SHOT(s_after, "online-lobby-after");
+#ifdef DK_AT_ROAM_ONLINE
+        if(ro.opened) ready_t = -100;   /* one session is the test */
+#endif
         if(ready_t > 3.0f && results_seen == 0 && chat_step >= 9) {
             printf("DK ONLINE: starting a race with %d players\n", l->count);
             net_press_start();

@@ -12,8 +12,8 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 4
-	Build    = 29
-	MinBuild = 28
+	Build    = 30
+	MinBuild = 30
 )
 
 const (
@@ -25,6 +25,11 @@ const (
 	PlayerLen  = 23 // a LOBBY packet's player entry (proto 4)
 	CustomLen  = 3  // a custom kart's palette picks: body, trim, Chao
 )
+
+// RoamTrack is the Night Meet lot (TRACK_LOT): a race on it is a Free Roam
+// session (build 30). Nobody finishes, there are no results or points, and
+// it lasts until the leader who opened it retires or leaves the lobby.
+const RoamTrack = 9
 
 // Colours: eight presets, or ColourCustom with the player's own palette
 // picks beside it (any number of players may race their own colours).

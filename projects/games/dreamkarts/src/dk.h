@@ -144,8 +144,9 @@ typedef struct {
 /* ---- Game state ---- */
 enum { CC_50, CC_100, CC_150, CC_COUNT };
 /* Grand Prix: every course back to back on points; Single Race: one course
-   against the rivals; Time Trial (Versus with two players). */
-enum { MODE_GP, MODE_RACE, MODE_TT, MODE_COUNT };
+   against the rivals; Time Trial (Versus with two players); Free Roam: no
+   laps or places, just the Night Meet lot to drive around (roam.h). */
+enum { MODE_GP, MODE_RACE, MODE_TT, MODE_ROAM, MODE_COUNT };
 enum {
     ST_TITLE, ST_MENU, ST_TRACKS, ST_INTRO, ST_COUNTDOWN, ST_RACE, ST_RESULTS,
     ST_MAIN,     /* single player / two player / online */

@@ -17,7 +17,7 @@ enum {
     EV_DRIFT_CANCEL = 1 << 15, EV_JUMP = 1 << 16, EV_WAVE = 1 << 17, EV_FALL = 1 << 18,
     EV_ITEM_GET = 1 << 19, EV_ITEM_USE = 1 << 20, EV_SPEAR = 1 << 21, EV_SPIN = 1 << 22,
     EV_SHIELD_UP = 1 << 23, EV_SHIELD_POP = 1 << 24, EV_MINE = 1 << 25, EV_MINE_HIT = 1 << 26,
-    EV_TRICK = 1 << 27, EV_TRICK_BOOST = 1 << 28
+    EV_TRICK = 1 << 27, EV_TRICK_BOOST = 1 << 28, EV_DRIFT_BEST = 1 << 29
 };
 
 typedef struct {
@@ -57,6 +57,14 @@ typedef struct {
     float charge_jump_t;
     float brake_slide;  /* rear-bias braking with the stick over: a handbrake slide, 0..1 */
     float slide_yaw_v;  /* the slide's extra swing still carrying the nose round, rad/s */
+    /* Free Roam's drift score: slide angle in degrees times seconds at
+       speed, counted up while a slide lasts and kept when it is released
+       cleanly (a wall, a spin or the brake throws it away). */
+    float drift_score;  /* the slide in progress */
+    float last_drift;   /* the last one kept, shown for drift_pop_t */
+    float drift_pop_t;
+    bool drift_best_new; /* the last one was a new best */
+    float best_drift;   /* since the start */
 
     /* Boosts */
     float boost_t, boost_len;
@@ -166,6 +174,7 @@ void kart_remote_trick(Kart *k, bool left);
 void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
                         bool boosting, bool grounded, bool skid, float dt);
 
+#define KART_RADIUS 0.95f   /* for collisions with each other, the barriers and the lot's solids */
 extern Kart karts[MAX_KARTS];
 extern int kart_count;
 extern int kart_jumps, kart_rescues;   /* ramp launches and gap rescues, all karts */

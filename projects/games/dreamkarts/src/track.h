@@ -9,15 +9,94 @@
 enum { SURF_ROAD, SURF_CURB, SURF_SAND };
 enum { SEC_ASPHALT, SEC_BOARDWALK };
 enum { TRACK_BEACH, TRACK_FIGURE8, TRACK_HARBOUR, TRACK_TEMPLE, TRACK_SKYWAY, TRACK_CYBERSTONE, TRACK_CANYON, TRACK_TSUDOKEN,
-       TRACK_APPLE, TRACK_COUNT };
-/* Tracks no list offers (the track select, the Grand Prix, the online
-   lobby's picker), kept in the code and in the online protocol's
-   numbering: Cyberstone is retired for now. */
-#define TRACK_DISABLED (1u << TRACK_CYBERSTONE)
+       TRACK_APPLE, TRACK_LOT, TRACK_COUNT };
+/* Tracks the race menus do not offer (the track select, the Grand Prix),
+   kept in the code and in the online protocol's numbering: Cyberstone is
+   retired for now, and the Night Meet lot is Free Roam's (the mode loads
+   it itself offline; online the lobby's picker offers it as a Free Roam
+   session, track_step_online). */
+#define TRACK_DISABLED ((1u << TRACK_CYBERSTONE) | (1u << TRACK_LOT))
+/* Free Roam's lot (roam.h): the whole flat island inside its ring road is
+   drivable, and nothing counts laps there. Keyed on the track so an online
+   lobby could one day pick it too. */
+/* The lot: the ring road's centreline is a rounded rectangle of these half
+   extents (metres, about the origin), corners of LOT_CORNER_R, run
+   anticlockwise so the lot is on its left (negative d). */
+#define LOT_HX       150.0f
+#define LOT_HZ       95.0f
+#define LOT_CORNER_R 36.0f
+#define LOT_WALL     12.5f   /* the ring's outer barrier, beside the road */
+#define LOT_WALL_OUT 38.0f   /* where it runs along the deck, outside it, so the ramps and the ground under the deck are inside */
+/* The island's edges: quays along the north and the sides, the mainland
+   south of LOT_SHORE_Z either side, and a line short of the fog. */
+#define LOT_ISLAND_X 230.0f
+#define LOT_QUAY_Z   118.0f
+#define LOT_SHORE_Z  (-60.0f)
+#define LOT_SOUTH_Z  (-180.0f)
+/* The expressway deck down the west side and along the south, outside the
+   barrier between these lateral offsets, LOT_DECK_Y up, coming down to
+   the ground over LOT_DECK_RAMP at each end; along it the ring's barrier
+   moves out beyond it (lot_wall_d), so the ramps' feet, the strip beside
+   the road and the ground under the deck are all inside the fence. The
+   overpass crosses the
+   lot's north end at z = LOT_OVER_Z, LOT_OVER_HW either side, flat at
+   LOT_OVER_Y between +-LOT_OVER_FLAT and ramping to the ground at
+   +-LOT_OVER_FOOT, on an earth embankment (banked both sides like the
+   ramps') for LOT_OVER_EMB from each foot and on pillars between. Both
+   are road: track_road_y gives their height. */
+#define LOT_DECK_D0   18.0f
+#define LOT_DECK_D1   34.0f
+#define LOT_DECK_Y    11.5f
+#define LOT_DECK_RAMP 90.0f
+/* The ramps: a single lane leaving the road's outer edge at each foot
+   (between LOT_RAMP_D0 and LOT_RAMP_D1), moving out and widening into
+   the deck as it climbs; the lane stands on an earth embankment (its
+   banks LOT_RAMP_BATTER out per metre of height) for LOT_RAMP_EMB
+   metres, then on pillars. */
+#define LOT_RAMP_D0   9.6f
+#define LOT_RAMP_D1   17.6f
+#define LOT_RAMP_EMB  45.0f
+#define LOT_RAMP_BATTER 0.8f
+#define LOT_OVER_Z    62.0f
+#define LOT_OVER_Y    11.0f
+#define LOT_OVER_HW   7.0f
+#define LOT_OVER_FLAT 60.0f
+#define LOT_OVER_FOOT 135.0f
+#define LOT_OVER_EMB  45.0f
+/* The deck's height at lap distance s, its lane's edges there (the ramp
+   lane at a foot, the full deck once up) and whether s is along it at
+   all; whether the deck there stands on its ramp's embankment (no
+   driving under it); the overpass's height at x and whether it stands
+   on its embankment there. */
+float lot_deck_y(float s);
+float lot_deck_d0(float s);
+float lot_deck_d1(float s);
+bool lot_in_deck(float s);
+bool lot_deck_banked(float s);
+/* On a ramp's embankment: metres in from its end wall under the deck
+   (where the span begins), with span_dir the way along the track the
+   span lies (+1 ahead, -1 behind); negative off the embankment. */
+float lot_deck_emb_depth(float s, float *span_dir);
+float lot_over_y(float x);
+bool lot_over_banked(float x);
+/* The ring's barrier: LOT_WALL from the road round the lap, moving out
+   with each ramp to the fence at LOT_WALL_OUT beyond the deck and back. */
+float lot_wall_d(float s);
+/* Two stretches of the deck with no parapet on the lot side: drive off
+   and drop to the ground, just for fun. */
+bool lot_deck_gap(float s);
+/* Which level the next height queries are for, on Night Meet: a kart's
+   own height, so the overpass counts only for a kart up on it and the
+   ground stays the ground for one driving under. Each kart sets it
+   before its physics, shadow and effects. */
+void track_probe_height(float y);
 static inline bool track_enabled(int id) { return !((TRACK_DISABLED >> id) & 1u); }
+/* What the online lobby's leader may pick: the courses, and the lot. */
+static inline bool track_online_enabled(int id) { return track_enabled(id) || id == TRACK_LOT; }
 /* The next enabled track from id, dir (+1 or -1) along the list, wrapping;
    and how many there are. */
 int track_step(int id, int dir);
+int track_step_online(int id, int dir);   /* the lobby leader's picker: the lot too */
 int track_enabled_count(void);
 /* TrackSample.open: a side with no barrier, where karts can fall off. */
 enum { OPEN_LEFT = 1, OPEN_RIGHT = 2 };
@@ -51,6 +130,7 @@ typedef struct {
    one of ITEM_SLOTS slots across its width (items.c). */
 typedef struct {
     float s;         /* lap distance */
+    float d;         /* the slots' centre across the road: 0 on the road; Night Meet puts bands out in the lot and up on the deck */
 } ItemBand;
 
 #define MAX_ITEM_BANDS 4
@@ -91,6 +171,8 @@ typedef struct {
 
 extern Track track;
 
+static inline bool track_is_roam(void) { return track.id == TRACK_LOT; }
+
 extern const char *const track_names[TRACK_COUNT];
 
 void track_init(int id);
@@ -129,8 +211,8 @@ float track_height(float s);
 /* Banking (height per metre to the right) at lap distance s. */
 float track_bank(float s);
 /* Road surface height at lap distance s and lateral offset d, banking
-   included. */
-static inline float track_road_y(float s, float d) { return track_height(s) + track_bank(s) * d; }
+   included (on the Night Meet lot: the deck and the overpass too). */
+float track_road_y(float s, float d);
 /* True when a kart at tp has gone over an open edge (no road below). */
 bool track_off_edge(const TrackPos *tp);
 /* Signed distance from the jump's gap centre, or a large value off it. */

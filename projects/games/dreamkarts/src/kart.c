@@ -17,6 +17,7 @@
    grip blend, so slides drift outward naturally while the body is drawn
    yawed into the turn. */
 #include "kart.h"
+#include "roam.h"
 #include "items.h"
 #include "save.h"
 
@@ -140,7 +141,6 @@ const CCParams cc_params[CC_COUNT] = {
 #define GRAVITY          30.0f
 #define HOP_VY           4.5f   /* ~0.34 m peak, 0.30 s in the air */
 #define CHARGE_JUMP_VY   7.6f
-#define KART_RADIUS      0.95f
 #define DRIFT_MIN_SPEED  7.0f
 #define TURN_MAX         1.75f
 /* Slide radii for full inward stick, neutral and full counter-steer. Full
@@ -193,6 +193,7 @@ const CCParams cc_params[CC_COUNT] = {
 
 float kart_top_speed(const Kart *k) {
     float top = cc_params[game.cc].top_speed;
+    if(track_is_roam()) return top * (k->cpu ? k->skill : 1.0f);   /* nobody to catch: the CPUs just cruise */
     if(k->cpu && !karts[game.pl[0].kart].cpu) {
         /* Rubber-band against the leading human (none in a recorded
            all-CPU demo race). */
@@ -273,6 +274,16 @@ void kart_remote_trick(Kart *k, bool left) {
 
 static void end_drift(Kart *k, bool award) {
     k->boost_stage = k->drift == DRIFT_ACTIVE && award ? k->stage : 0;
+    if(k->drift == DRIFT_ACTIVE && award && k->drift_score >= 1.0f) {
+        k->last_drift = k->drift_score;
+        k->drift_pop_t = 2.2f;
+        k->drift_best_new = k->drift_score > k->best_drift;
+        if(k->drift_best_new) {
+            k->best_drift = k->drift_score;
+            k->events |= EV_DRIFT_BEST;
+        }
+    }
+    k->drift_score = 0;
     if(k->drift == DRIFT_ACTIVE && award && k->stage > 0) {
         static const float lengths[4] = {0, 0.45f, 0.95f, 1.55f};
         kart_start_boost(k, lengths[k->stage], 1.08f + 0.04f * k->stage);
@@ -314,6 +325,8 @@ static void start_drift(Kart *k, int dir) {
     k->drift_t = 0;
     k->charge = 0;
     k->stage = 0;
+    k->drift_score = 0;
+    k->drift_pop_t = 0;
     k->events |= EV_DRIFT_START;
 }
 
@@ -528,6 +541,7 @@ static void road_tilt(const Kart *k, float yaw, float *pitch, float *roll) {
 void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
                         bool boosting, bool grounded, bool skid, float dt) {
     k->events = 0;
+    track_probe_height(pos.y);
     k->pos = pos;
     k->heading = heading;
     k->speed = speed;
@@ -581,6 +595,7 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
 
 void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->events = 0;
+    track_probe_height(k->pos.y);
     float top = kart_top_speed(k);
     /* Spun out: no steering, throttle or drift until it stops. */
     static const KartInput dead = {0};
@@ -756,6 +771,10 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         float rate = clampf(spd * curv, 0, 2.1f);
         k->heading += (float)k->drift_dir * rate * dt;
         k->drift_t += dt;
+        /* The score: the body's slide angle (the same 16 to 30 degrees the
+           kart is drawn at, tight scoring more than wide) times time at
+           speed, ten points a degree-second. */
+        k->drift_score += (0.40f + 0.12f * kk) * (180.0f / DK_PI) * clampf(spd / top, 0, 1.2f) * 10.0f * dt;
         if(!sand && k->grounded) {
             float charge_rate = kk >= 0 ? lerpf(1.0f, 1.6f, kk) : lerpf(1.0f, 0.78f, -kk);
             k->charge += charge_rate * dt;
@@ -801,9 +820,20 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     /* ---- Track position, walls ---- */
     float prev_s = k->tp.s, prev_d = k->tp.d;
     track_locate(k->pos, k->tp.idx, &k->tp);
+    /* Out in the lot a kart can be nearer another side of the ring road
+       than the one it last drove on, and the search round its last
+       sample would never find it: search the whole lap until it is back
+       near the road (so the far side's barrier still holds it). */
+    if(track_is_roam() && fabsf(k->tp.d) > 20.0f) track_locate(k->pos, -1, &k->tp);
     float lim_out = track_wall_out_at(&k->tp) - KART_RADIUS, lim_in = -(track_wall_in_at(&k->tp) - KART_RADIUS);
     bool below = track.in_sky && k->pos.y < track_road_y(k->tp.s, k->tp.d) - 1.0f;
-    if(!below && (k->tp.d > lim_out || k->tp.d < lim_in)) {
+    if(track_is_roam()) {
+        /* The lot's own walls, decks and solids; a square hit ends a slide
+           as the barriers' does. */
+        roam_kart_walls(k);
+        if((k->events & EV_WALL) && k->drift == DRIFT_ACTIVE && k->wall_v > 0.35f * fmaxf(spd, 0.1f)) end_drift(k, false);
+    }
+    else if(!below && (k->tp.d > lim_out || k->tp.d < lim_in)) {
         float over = k->tp.d > lim_out ? k->tp.d - lim_out : k->tp.d - lim_in;
         V3 n = k->tp.d > 0 ? k->tp.right : vscale(k->tp.right, -1);  /* points into the wall */
         k->pos.x -= k->tp.right.x * over;
@@ -835,7 +865,8 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
                (double)k->pos.y, (double)track_road_y(k->tp.s, k->tp.d), (int)below);
 #endif
     if(k->bump_t > 0) k->bump_t -= dt;
-    update_lap(k, prev_s);
+    if(track_is_roam()) k->progress = k->tp.s;   /* no laps to count */
+    else update_lap(k, prev_s);
     kart_vertical(k, btn, prev_s, prev_d, dt);
 
     /* ---- Dash panels ---- */

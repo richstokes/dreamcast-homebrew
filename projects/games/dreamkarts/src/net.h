@@ -129,6 +129,9 @@ void net_retire(int race_id);
 void net_set_kart(const NetKart *k, int race_id);
 uint64_t net_draw_time(float dt);
 bool net_remote_kart(int slot, uint64_t at_ms, NetKart *out);
+/* Drop a slot's samples: a kart back on the lot after backing out starts
+   from its bay, not from where it was. */
+void net_forget_slot(int slot);
 int net_interp_ms(void);
 #ifdef DK_AUTOTEST
 /* Test builds: a line about a slot's sample history for the serial log. */

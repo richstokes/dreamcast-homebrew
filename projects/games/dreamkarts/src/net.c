@@ -386,6 +386,14 @@ static void forget_karts(void) {
     memset(draw_err, 0, sizeof(draw_err));
 }
 
+void net_forget_slot(int slot) {
+    if(slot < 0 || slot >= NET_MAX_PLAYERS) return;
+    hist_n[slot] = 0;
+    have_raw[slot] = rt_known[slot] = false;
+    last_at[slot] = 0;
+    memset(draw_err[slot], 0, sizeof(draw_err[slot]));
+}
+
 static float lerp_angle(float a, float b, float t) {
     return a + wrap_angle(b - a) * t;
 }

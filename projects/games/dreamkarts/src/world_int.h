@@ -46,7 +46,7 @@ typedef struct {
    Tracks so far: ~31800 at most (Apple Valley, Tsudoken Drift). */
 #define MAX_POOL   60000
 #define MAX_STRIPS 4600
-#define MAX_CHUNKS 512   /* Apple Valley ~420 */
+#define MAX_CHUNKS 640   /* Apple Valley ~420, Night Meet ~500 with its split-screen copies */
 #define MAX_PALMS  48
 #define MAX_SPRITES 64
 /* Shore foam: waterline points with a seaward normal; off = break. */
@@ -130,6 +130,7 @@ extern pvr_poly_hdr_t sk_road_hdr;
 /* Which kind of scenery each chunk is (by build order). */
 enum { CK_GROUND, CK_DECK, CK_ROCK, CK_PROPS, CK_TORCH, CK_N };
 extern int ck_first[CK_N + 1];
+extern const char *const *ck_names;   /* a world's own names for the kinds */
 #endif
 
 /* ---- The builder (world_mesh.c) ---- */
@@ -257,7 +258,9 @@ void build_temple(void);
 void th_draw_flames(void);
 
 /* Neon Skyway and Cyberstone (world_skyway.c), whose sky deck Spiral
-   Canyon's road is built on */
+   Canyon's road is built on, and whose towers Night Meet's city
+   borrows */
+void sk_tower(V3 base, float hx, float hz, float top, float yaw, uint32_t neon, int sign, V3 face_to);
 extern float sk_vscale;
 extern uint8_t sk_sparkle_kind[SK_SPARKLES];
 extern int sk_beam_n;
@@ -295,6 +298,12 @@ void tk_draw_glows(void);
 
 /* Apple Valley (world_apple.c) */
 void av_init(void);
+#ifdef DK_PROP_TYPES
+void av_place_prop(int which, V3 p, float yaw, float scale, float lod_far, bool far);
+const dk_prop_t *av_prop_mesh(int which);
+void tk_place_prop(int which, V3 p, float yaw, float scale, float lod_far, bool far);
+const dk_prop_t *tk_prop_mesh(int which);
+#endif
 float av_terrain(float x, float z);
 void build_apple(void);
 void av_draw_peak(void);
@@ -302,5 +311,14 @@ void av_draw_windsock(void);
 void av_draw_tumbleweeds(void);
 void av_draw_dust_devils(void);
 void av_draw_ranges(void);
+
+/* Night Meet (world_lot.c): Free Roam's night-time parking area */
+void lot_init(void);
+void build_lot(void);
+void lot_update(float dt);
+void lot_draw_tr(void);
+void lot_neon_buzz(float seconds);
+/* The sea by night, for draw_sea. */
+uint32_t lot_sea_color(float x, float z);
 
 #endif

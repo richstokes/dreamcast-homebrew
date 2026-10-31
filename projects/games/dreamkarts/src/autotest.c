@@ -51,6 +51,11 @@ static struct {
     int sink_n, sink_hist[6];
 } at = {.min_fps = 999};
 #endif
+#ifdef DK_AT_ROAM
+static bool at_deck_top, at_deck_down, at_deck_fell;   /* the scripted ramp drive reached the deck, came down, by falling through the gap */
+static bool at_abut_hit, at_over_hit;   /* ...then hit the ramp's end wall under the deck, and the overpass's */
+static int at_in_bank;                  /* frames spent inside either embankment at the ground (must be 0) */
+#endif
 #ifdef DK_AT_FIXED
 static int at_hold;   /* frames to hold still for a screenshot */
 #endif
@@ -403,10 +408,23 @@ bool probe_step(const uint32_t *last_us) {
         if(game.online) return false;   /* freezing an online race would desync it */
         const char *scene = NULL;
         if(game.state == ST_RACE && game.race_time > 0.6f && !probe.done[0]) { probe.done[0] = true; scene = "grid"; }
+#ifdef DK_AT_ROAM
+        /* Free Roam: from the deck with the whole lot below, and the lot
+           floor near the overpass after the drop. */
+        else if(game.state == ST_RACE && at_deck_top && p->pos.y > 10.0f && game.race_time > 25.0f && !probe.done[1]) {
+            probe.done[1] = true;
+            scene = "deck";
+        }
+        else if(game.state == ST_RACE && at_deck_down && game.race_time > 60.0f && !probe.done[2]) {
+            probe.done[2] = true;
+            scene = "lot";
+        }
+#else
         else if(game.state == ST_RACE && p->drift == DRIFT_ACTIVE && p->stage >= 2 && game.race_time > 20.0f &&
                 !probe.done[1]) { probe.done[1] = true; scene = "drift"; }
         else if(game.state == ST_RACE && track_section(p->tp.s) == SEC_BOARDWALK && game.race_time > 35.0f &&
                 !probe.done[2]) { probe.done[2] = true; scene = "boardwalk"; }
+#endif
         if(!scene) return false;
         memset(&probe, 0, offsetof(__typeof__(probe), done));
         probe.scene = scene;
@@ -481,6 +499,169 @@ void at_kart_input(Kart *k, int hp, KartInput *in, float dt) {
 #ifdef DK_AT_ZIGZAG
     /* Slam the rails at an angle every couple of seconds. */
     if(hp == 0) in->steer = fmodf(game.time, 3.0f) < 1.5f ? 1.0f : -1.0f;
+#endif
+#ifdef DK_AT_ROAM
+    /* 18 s in, the player is put on the ring road in the north-west
+       corner, short of the west ramp, and steered at the ramp's
+       centreline: through the gap in the barrier, up the deck, round the
+       south side and off its inner edge through the west gap. Then from
+       under the deck's span back at the ramp's embankment, whose end wall
+       must stop it, and (outside the capture build) the same at the
+       overpass from under its span; a kart inside either bank is counted
+       against the walls. */
+    if(hp == 0) {
+        static int phase;
+        if(phase == 0 && game.race_time >= 18.0f) {
+            phase = 1;
+            float s0 = track_wrap(track_seg_s(6) - 45.0f);
+            V3 t = track_tangent(s0);
+            k->pos = track_point(s0, 3.0f);
+            k->pos.y = k->gnd = 0;
+            k->heading = atan2f(t.x, t.z);
+            k->speed = 20.0f;
+            k->vel = vscale(t, 20.0f);
+            k->drift = DRIFT_NONE;
+            track_locate(k->pos, -1, &k->tp);
+        }
+        if(phase == 1 && game.race_time < 48.0f) {
+            /* Up the ramp along its lane's middle (short of the barrier on
+               the way in), then off the deck's inner edge through the gap,
+               and back onto the ring road once down. */
+            float gap_c = track_seg_s(6) + 100.0f, to_gap = track_delta(k->tp.s, gap_c);
+            float ahead = k->tp.s + 14.0f;
+            float aim_d = at_deck_fell ? 0.0f : to_gap > -40.0f && to_gap < 14.0f ? 13.0f
+                        : fminf((lot_deck_d0(ahead) + lot_deck_d1(ahead)) * 0.5f, lot_wall_d(ahead) - 3.0f);
+            V3 aim = track_point(ahead, aim_d);
+            float alpha = wrap_angle(atan2f(aim.x - k->pos.x, aim.z - k->pos.z) - k->heading);
+            memset(in, 0, sizeof(*in));
+            in->accel = true;
+            in->steer = clampf(alpha * 2.0f, -1.0f, 1.0f);
+            if(k->pos.y > 10.0f) at_deck_top = true;
+            if(at_deck_top && k->grounded && k->pos.y < 0.3f) at_deck_down = true;
+            if(at_deck_top && !k->grounded && k->pos.y < 8.0f && !at_deck_fell) {
+                at_deck_fell = true;
+#ifndef DK_HW
+                printf("DK ROAM fell off the deck at s %.0f d %.1f y %.1f\n", (double)k->tp.s, (double)k->tp.d, (double)k->pos.y);
+#endif
+            }
+        }
+        else if(phase == 1) {
+            phase = 2;
+            float s0 = track_seg_s(6) + 70.0f;
+            V3 t = track_tangent(s0);
+            k->pos = track_point(s0, (lot_deck_d0(s0) + lot_deck_d1(s0)) * 0.5f);
+            k->pos.y = k->gnd = 0;
+            k->heading = atan2f(-t.x, -t.z);
+            k->speed = 15.0f;
+            k->vel = vscale(t, -15.0f);
+            k->drift = DRIFT_NONE;
+            track_locate(k->pos, -1, &k->tp);
+        }
+        if(phase == 2 && game.race_time < 55.0f) {
+            float back = k->tp.s - 14.0f;
+            V3 aim = track_point(back, (lot_deck_d0(back) + lot_deck_d1(back)) * 0.5f);
+            float alpha = wrap_angle(atan2f(aim.x - k->pos.x, aim.z - k->pos.z) - k->heading);
+            memset(in, 0, sizeof(*in));
+            in->accel = true;
+            in->steer = clampf(alpha * 2.0f, -1.0f, 1.0f);
+            float sd;
+            if((k->events & EV_WALL) && lot_deck_emb_depth(k->tp.s, &sd) > -3.0f && !at_abut_hit) {
+                at_abut_hit = true;
+#ifndef DK_HW
+                printf("DK ROAM hit the ramp's end wall at s %.0f d %.1f\n", (double)k->tp.s, (double)k->tp.d);
+#endif
+            }
+        }
+#ifndef DK_CAPTURE
+        else if(phase == 2) {
+            /* Beside the pillars' line, so the pillar at -80 is not what stops it. */
+            phase = 5;
+            k->pos = v3(-60.0f, 0, LOT_OVER_Z + 4.0f);
+            k->pos.y = k->gnd = 0;
+            k->heading = -DK_PI * 0.5f;   /* west, under the span toward the foot */
+            k->speed = 15.0f;
+            k->vel = vscale(heading_fwd(k->heading), 15.0f);
+            k->drift = DRIFT_NONE;
+            track_locate(k->pos, -1, &k->tp);
+        }
+        if(phase == 5 && game.race_time < 62.0f) {
+            float alpha = wrap_angle(-DK_PI * 0.5f - k->heading);
+            memset(in, 0, sizeof(*in));
+            in->accel = true;
+            in->steer = clampf(alpha * 2.0f, -1.0f, 1.0f);
+            if((k->events & EV_WALL) && fabsf(k->pos.x) > LOT_OVER_FOOT - LOT_OVER_EMB - 3.0f && !at_over_hit) {
+                at_over_hit = true;
+#ifndef DK_HW
+                printf("DK ROAM hit the overpass's end wall at x %.1f z %.1f\n", (double)k->pos.x, (double)k->pos.z);
+#endif
+            }
+        }
+        else if(phase == 5) phase = 6;
+#endif
+#ifndef DK_HW   /* a line a second stalls the console for ~15 ms (dcload-ip), which would show up as spikes */
+        {
+            static float next_log;
+            if(phase >= 1 && game.race_time >= next_log) {
+                next_log = game.race_time + 1.0f;
+                printf("DK ROAM t=%.1f ph %d pos (%.1f, %.2f, %.1f) s %.0f d %.1f road %.2f gnd %d spd %.1f steer %.2f head %.2f ev %lx\n",
+                       (double)game.race_time, phase, (double)k->pos.x, (double)k->pos.y, (double)k->pos.z, (double)k->tp.s,
+                       (double)k->tp.d, (double)track_road_y(k->tp.s, k->tp.d), k->grounded, (double)k->speed,
+                       (double)in->steer, (double)k->heading, (unsigned long)k->events);
+            }
+        }
+#endif
+        if(game.state == ST_RACE) {
+            float dy = lot_deck_y(k->tp.s), sd;
+            bool in_ramp = lot_deck_banked(k->tp.s) && k->pos.y < dy - 2.5f && lot_deck_emb_depth(k->tp.s, &sd) > 1.0f &&
+                           k->tp.d > lot_deck_d0(k->tp.s) + 0.5f && k->tp.d < lot_deck_d1(k->tp.s) + LOT_RAMP_BATTER * dy - 0.5f;
+            float oy = lot_over_y(k->pos.x);
+            bool in_over = lot_over_banked(k->pos.x) && fabsf(k->pos.x) > LOT_OVER_FOOT - LOT_OVER_EMB + 1.0f &&
+                           k->pos.y < oy - 2.5f && fabsf(k->pos.z - LOT_OVER_Z) < LOT_OVER_HW + LOT_RAMP_BATTER * oy - 0.5f;
+            if(in_ramp || in_over) at_in_bank++;
+        }
+#ifdef DK_CAPTURE
+        /* A look at the bay bridge from the east side of the ring. */
+        if(phase == 2 && game.race_time >= 56.0f) {
+            phase = 3;
+            float s0 = track_seg_s(2) + 60.0f;
+            k->pos = track_point(s0, 0.0f);
+            k->pos.y = k->gnd = 0;
+            k->heading = atan2f(300.0f - k->pos.x, -90.0f - k->pos.z);
+            k->speed = 0;
+            k->vel = v3(0, 0, 0);
+            track_locate(k->pos, -1, &k->tp);
+            game.pl[0].cam_yaw = k->heading;
+        }
+        if(phase == 3) {
+            memset(in, 0, sizeof(*in));
+            if(game.race_time >= 58.0f) {
+                phase = 4;
+                take_shot("bridge");
+            }
+        }
+        /* And the west ramp's foot, from the end of the north-west
+           corner on the strip beside the road. */
+        if(phase == 4 && game.race_time >= 60.0f) {
+            phase = 5;
+            float s0 = track_wrap(track_seg_s(6) - 36.0f);
+            V3 t = track_tangent(s0);
+            k->pos = track_point(s0, 10.5f);
+            k->pos.y = k->gnd = 0;
+            k->heading = atan2f(t.x, t.z);
+            k->speed = 0;
+            k->vel = v3(0, 0, 0);
+            track_locate(k->pos, -1, &k->tp);
+            game.pl[0].cam_yaw = k->heading;
+        }
+        if(phase == 5) {
+            memset(in, 0, sizeof(*in));
+            if(game.race_time >= 62.0f) {
+                phase = 6;
+                take_shot("ramp-foot");
+            }
+        }
+#endif
+    }
 #endif
 #ifdef DK_AT_BRAKE
     /* Stand on the brakes for a second every 6 s, for the screech. */
@@ -697,6 +878,59 @@ void at_frame(float dt_real, float vbl_dt, int steps) {
 #endif
     }
 #endif
+#ifdef DK_AT_ROAM
+    /* Free Roam never ends: a minute and a half of the CPU driving the
+       player out of its bay, round the ring, up the deck and at the
+       embankments' end walls, then the verdict: everyone still on the
+       island, the rivals still on the ring, the walls held, the frame
+       rate held. */
+#ifdef DK_CAPTURE
+    /* A look round every few seconds as the CPU drives. */
+    {
+        static float next_shot = 2.0f;
+        static int shot_n;
+        if(game.state == ST_RACE && game.race_time >= next_shot) {
+            char name[24];
+            next_shot += 6.0f;
+            snprintf(name, sizeof(name), "roam-%02d", shot_n++);
+            take_shot(name);
+        }
+    }
+#endif
+    if(game.state == ST_RACE && game.race_time > 90.0f && !at.done) {
+        at.done = true;
+        int on_island = 0, on_ring = 0;
+        for(int i = 0; i < kart_count; i++) {
+            const Kart *k = &karts[i];
+            if(fabsf(k->pos.x) < LOT_ISLAND_X && k->pos.z < LOT_QUAY_Z && k->pos.z > LOT_SOUTH_Z) on_island++;
+            if(k->cpu && fabsf(k->tp.d) < 10.0f) on_ring++;
+            printf("DK AUTOTEST: kart %d %s at (%.0f, %.0f) s %.0f d %.1f spd %.1f\n", i, k->name, (double)k->pos.x,
+                   (double)k->pos.z, (double)k->tp.s, (double)k->tp.d, (double)k->speed);
+        }
+        printf("DK AUTOTEST: free roam %.0f s on %s: %d of %d karts on the island, %d of %d rivals on the ring, "
+               "player walls %d drifts %d best drift %d, deck reached %d, came down %d (fell %d), end walls hit %d/%d, "
+               "frames inside a bank %d\n",
+               (double)game.race_time, track.name, on_island, kart_count, on_ring, kart_count - game.num_players,
+               at.walls, at.drifts, (int)p->best_drift, at_deck_top, at_deck_down, at_deck_fell, at_abut_hit, at_over_hit,
+               at_in_bank);
+        printf("DK AUTOTEST: fps min %.1f, missed vblanks %d of %d frames, frames with 2+ steps %d, "
+               "0 steps %d, cpu avg %.2fms max %.2fms, vertex buffer peak %lu KiB\n", (double)at.min_fps,
+               at.missed, at.frames, at.multi, at.zero, (double)(at.cpu_sum / (at.cpu_n ? at.cpu_n : 1)),
+               (double)at.cpu_max, (unsigned long)(at.vtx_max / 1024));
+        bool ok = on_island == kart_count && on_ring == kart_count - game.num_players &&
+                  at_deck_top && at_deck_down && at_deck_fell && at_abut_hit && at_in_bank == 0;
+#ifndef DK_CAPTURE
+        ok = ok && at_over_hit;
+#endif
+#ifndef DK_HW
+        ok = ok && at.min_fps > 30.0f;   /* on the console the screenshots' stalls pull the fps down */
+#endif
+        printf("DK AUTOTEST: %s\n", ok ? "PASS" : "FAIL");
+#ifdef DK_HW
+        game.quit = true;
+#endif
+    }
+#endif
     if(game.state == ST_RESULTS && game.time > 3.0f && !at.done && !game.online && (!gp.active || gp.page == 0)) {
         at.done = true;
         printf("DK AUTOTEST: player finish %.2fs place %d laps", (double)p->finish_time, p->place);
@@ -847,13 +1081,57 @@ void view_tour(void) {
 #ifdef DK_ROCK_TINT
     dk_probe_off |= PROBE_SKY | PROBE_SEA | PROBE_DISTANT | PROBE_FOAM;   /* the leak test: black beyond the rock */
 #endif
-#ifdef DK_AT_TRACK
+#if DK_AT_VIEWS == 4
+    game_load_track(TRACK_LOT);
+#elif defined(DK_AT_TRACK)
     game_load_track(DK_AT_TRACK);   /* the sweep works on any track */
 #else
     game_load_track(TRACK_CANYON);
 #endif
     game.state = ST_RESULTS;
-#if DK_AT_VIEWS == 2
+#if DK_AT_VIEWS == 4
+    /* Night Meet's life: the food truck and its queue, the bleachers and
+       the watchers at the curb, the vending machines, the south side from
+       above, then the buzzing sign over the bays lit and put out. */
+    static const struct { const char *name; float x, y, z, lx, ly, lz; } lot_views[] = {
+        {"truck", 69.0f, 2.2f, -49.0f, 76.0f, 1.3f, -58.0f},
+        {"queue", 80.0f, 1.9f, -53.5f, 72.0f, 1.2f, -58.5f},
+        {"stands", 117.0f, 3.2f, 13.0f, 135.0f, 1.6f, 16.0f},
+        {"curb", 134.0f, 1.9f, 10.0f, 139.0f, 1.3f, 3.0f},
+        {"vending", -24.0f, 1.9f, -53.0f, -24.0f, 1.2f, -63.5f},
+        {"south", 40.0f, 26.0f, -14.0f, 40.0f, 0.0f, -60.0f},
+        {"tower-foot", -4.9f, 1.45f, -61.3f, 0.0f, 0.6f, -70.0f},
+        /* The overpass's west approach from the north straight, its east
+           foot and bank from the parking beside it, and the foot head-on. */
+        {"over-w", -50.0f, 2.2f, 95.0f, -110.0f, 3.0f, 62.0f},
+        {"over-e-bank", 92.0f, 1.8f, 35.0f, 108.0f, 4.0f, 56.0f},
+        {"over-e-foot", 150.0f, 2.0f, 30.0f, 130.0f, 2.0f, 60.0f},
+    };
+    for(int i = 0; i < (int)(sizeof(lot_views) / sizeof(lot_views[0])); i++)
+        tour_shot(lot_views[i].name, v3(lot_views[i].x, lot_views[i].y, lot_views[i].z),
+                  v3(lot_views[i].lx, lot_views[i].ly, lot_views[i].lz));
+    extern void lot_neon_buzz(float seconds);
+    tour_shot("sign-lit", v3(-36.0f, 3.0f, -46.0f), v3(-36.0f, 7.0f, -66.0f));
+    lot_neon_buzz(2.0f);
+    tour_shot("sign-out", v3(-36.0f, 3.0f, -46.0f), v3(-36.0f, 7.0f, -66.0f));
+    /* The on-ramps: the west foot from the road behind it and from the
+       lot beside it, the south foot from the road beyond and from up on
+       the ramp coming down to it (track coordinates: segment, metres
+       along, lateral, height). */
+    static const struct { const char *name; int seg; float at, d, h; int lseg; float lat, ld, lh; } ramp_views[] = {
+        {"ramp-w", 6, -70.0f, 0.0f, 3.0f, 6, 15.0f, 22.0f, 2.0f},
+        {"ramp-w-side", 6, 40.0f, -16.0f, 6.0f, 6, 12.0f, 22.0f, 1.5f},
+        {"ramp-w-gore", 6, -35.0f, 4.0f, 2.2f, 6, 8.0f, 20.0f, 0.5f},
+        {"ramp-s", 2, 60.0f, 0.0f, 3.0f, 2, -15.0f, 22.0f, 2.0f},
+        {"ramp-s-top", 2, -55.0f, 26.0f, 9.5f, 2, 5.0f, 26.0f, 1.0f},
+        {"under", 0, 60.0f, 26.0f, 1.8f, 0, 110.0f, 26.0f, 1.5f},        /* the parking under the south side's span */
+        {"ramp-w-beside", 6, 60.0f, 24.0f, 1.8f, 6, 25.0f, 16.0f, 2.0f}, /* the west ramp's bank and abutment from the parking */
+        {"ramp-w-road", 6, -45.0f, -2.0f, 2.0f, 6, 20.0f, 12.0f, 1.5f},  /* the approach as a driver sees it */
+    };
+    for(int i = 0; i < (int)(sizeof(ramp_views) / sizeof(ramp_views[0])); i++)
+        tour_shot(ramp_views[i].name, view_pt(ramp_views[i].seg, ramp_views[i].at, ramp_views[i].d, ramp_views[i].h),
+                  view_pt(ramp_views[i].lseg, ramp_views[i].lat, ramp_views[i].ld, ramp_views[i].lh));
+#elif DK_AT_VIEWS == 2
     /* The sweep: the chase camera every 8 m round the lap, and every 16 m
        a look left and right, so the whole lap is seen as a player does. */
     char name[32];
@@ -1034,11 +1312,13 @@ void record_races(uint64_t t0) {
     /* Record a single track (-DDK_RECORD_ONLY=<id>), e.g. a new one. */
     int total = DK_RECORD_RACES, done = 0;
 #else
-    int total = TRACK_COUNT * DK_RECORD_RACES, done = 0;
+    int total = track_enabled_count() * DK_RECORD_RACES, done = 0;
 #endif
     for(int tr = 0; tr < TRACK_COUNT; tr++) {
 #ifdef DK_RECORD_ONLY
         if(tr != DK_RECORD_ONLY) continue;
+#else
+        if(!track_enabled(tr)) continue;   /* the demo lobby never plays them; the lot would never finish */
 #endif
         game_load_track(tr);
         for(int r = 0; r < DK_RECORD_RACES; r++, done++) {

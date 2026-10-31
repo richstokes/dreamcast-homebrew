@@ -244,3 +244,21 @@ func TestDemoLobby(t *testing.T) {
 		}
 	}
 }
+
+// The demo lobby never rotates onto the lot, recording or not.
+func TestDemoSkipsRoam(t *testing.T) {
+	h := newHarness(t)
+	h.s.EnableDemo(9, []*demo.Race{fakeRace(t, 0, 5, 7), fakeRace(t, RoamTrack, 5, 8)}, 1, h.now)
+	d := h.s.demo
+	if d == nil {
+		t.Fatal("no demo lobby")
+	}
+	if d.byTrack[RoamTrack] != nil {
+		t.Error("the demo lobby took a recording on the lot")
+	}
+	for _, tr := range d.tracks {
+		if tr == RoamTrack {
+			t.Error("the lot is in the demo rotation")
+		}
+	}
+}

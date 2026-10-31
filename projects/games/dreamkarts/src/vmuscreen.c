@@ -251,6 +251,16 @@ static void draw_finished(const Kart *k) {
     if((int)(lcd_t * 2.0f) & 1 || game.state == ST_RESULTS) text_c(26, "FINISH!");
 }
 
+/* Free Roam: where you are on the lot, and how fast. */
+static void draw_roam(const Kart *k) {
+    char buf[24];
+    text_c(2, "FREE ROAM");
+    snprintf(buf, sizeof(buf), "%d MPH", (int)(fabsf(k->speed) * 2.23694f + 0.5f));
+    text_c(11, buf);
+    text_c(19, "NIGHT MEET");
+    checks(26, lcd_t);
+}
+
 static void draw_pause(void) {
     sprite(LCD_PAUSE, (48 - sprite_w(LCD_PAUSE)) / 2, 4);
     text_c(24, "PAUSED");
@@ -265,7 +275,8 @@ static void compose(int player) {
     else if(game.state == ST_COUNTDOWN || (game.state == ST_RACE && game.race_time < 0.8f)) draw_countdown();
     else if(racing && k && (k->finished || game.state == ST_RESULTS)) draw_finished(k);
     else if(game.state == ST_RACE && k) {
-        if(game.mode != MODE_TT || game.num_players > 1) draw_race(k);
+        if(track_is_roam()) draw_roam(k);
+        else if(game.mode != MODE_TT || game.num_players > 1) draw_race(k);
         else draw_time_trial(k);
     }
     else if(racing || game.state == ST_INTRO) draw_drive(lcd_t);

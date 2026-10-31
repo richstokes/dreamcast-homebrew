@@ -29,13 +29,15 @@ type Event struct {
 }
 
 // TrackNames and CCNames match the console's (src/track.c, src/online.c);
-// DisabledTracks are the tracks the console no longer offers (src/track.h
-// TRACK_DISABLED), which the demo lobby leaves out of its rotation.
+// DisabledTracks are the tracks the console's race menus no longer offer
+// (src/track.h TRACK_DISABLED), which the demo lobby leaves out of its
+// rotation: Cyberstone, and the Night Meet lot, which the online lobby does
+// offer (as a Free Roam session, RoamTrack) but no recording could race.
 // events_test.go checks both against the console's source.
 var (
 	TrackNames = []string{"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL", "NEON SKYWAY", "CYBERSTONE",
-		"SPIRAL CANYON", "TSUDOKEN DRIFT", "APPLE VALLEY"}
-	DisabledTracks = map[byte]bool{5: true} // CYBERSTONE, retired for now
+		"SPIRAL CANYON", "TSUDOKEN DRIFT", "APPLE VALLEY", "NIGHT MEET"}
+	DisabledTracks = map[byte]bool{5: true, RoamTrack: true} // CYBERSTONE, retired for now; Night Meet, Free Roam's
 	CCNames        = []string{"50cc", "100cc", "150cc"}
 )
 

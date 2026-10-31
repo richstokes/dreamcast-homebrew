@@ -32,12 +32,16 @@ func alert(e lobby.Event, now time.Time) (alerts.Event, alerts.Message) {
 	if !e.Items {
 		items = "Off"
 	}
+	title, laps := fmt.Sprintf("Race starting in lobby %d", e.Lobby), fmt.Sprint(e.Laps)
+	if e.Track == lobby.RoamTrack {
+		title, laps = fmt.Sprintf("Free Roam opening in lobby %d", e.Lobby), "Free Roam"
+	}
 	return alerts.RaceStart, alerts.Message{
-		Title: fmt.Sprintf("Race starting in lobby %d", e.Lobby),
+		Title: title,
 		Color: raceColour,
 		Fields: []alerts.Field{
 			{Name: "Track", Value: pick(lobby.TrackNames, e.Track), Inline: true},
-			{Name: "Laps", Value: fmt.Sprint(e.Laps), Inline: true},
+			{Name: "Laps", Value: laps, Inline: true},
 			{Name: "Class", Value: pick(lobby.CCNames, e.CC), Inline: true},
 			{Name: "Items", Value: items, Inline: true},
 			{Name: fmt.Sprintf("Racers (%d)", len(e.Players)), Value: strings.Join(e.Players, ", ")},

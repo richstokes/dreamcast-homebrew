@@ -577,3 +577,268 @@ func TestCustomColours(t *testing.T) {
 		t.Fatalf("preset after custom: %+v", v)
 	}
 }
+
+// keepAlive moves time on in 5 s steps with every client pinging, so the
+// session timeout never fires during a long wait.
+func (h *harness) keepAlive(d time.Duration, cs ...*client) {
+	for end := h.now.Add(d); h.now.Before(end); {
+		h.advance(5 * time.Second)
+		for _, c := range cs {
+			c.send(TypePing, nil)
+		}
+	}
+}
+
+// openRoam has leader a (with b in the lobby) pick the Night Meet lot and
+// start, and runs the countdown out.
+func openRoam(t *testing.T, h *harness, a, b *client) byte {
+	a.hello("ann")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{0})
+	b.send(TypeJoin, []byte{0})
+	a.wish(0, RoamTrack, 3, 1)
+	h.advance(300 * time.Millisecond)
+	if v := a.lobby(); v.track != RoamTrack || v.leader != 0 {
+		t.Fatalf("lobby before the start: %+v", v)
+	}
+	a.nonce++
+	a.wish(0, RoamTrack, 3, 1)
+	h.advance(CountdownLen + 100*time.Millisecond)
+	v := a.lobby()
+	if v.state != StateRacing {
+		t.Fatalf("state %d after the countdown, want racing", v.state)
+	}
+	return v.raceID
+}
+
+func TestRoamSession(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	id := openRoam(t, h, a, b)
+	// A kart that says it finished ends nothing, and no clock starts.
+	a.kart(id, 2, 1, 100, 1000)
+	b.kart(id, KartFinished|2, 4, 0, 60000)
+	h.keepAlive(FinishGrace+2*time.Second, a, b)
+	if v := a.lobby(); v.state != StateRacing {
+		t.Fatalf("state %d after a finished flag and the grace, want racing", v.state)
+	}
+	if left := raceLeft(a.last(TypeLobby)); left != 0 {
+		t.Errorf("race end clock %d ms, want none", left)
+	}
+	// Nor does the race length safety net.
+	h.keepAlive(MaxRaceLen+time.Minute, a, b)
+	if v := a.lobby(); v.state != StateRacing {
+		t.Fatalf("state %d after %v, want racing", v.state, MaxRaceLen)
+	}
+	// Bob backing out leaves it open for Ann.
+	b.send(TypeRetire, []byte{id})
+	h.advance(300 * time.Millisecond)
+	v := a.lobby()
+	if v.state != StateRacing || v.players[1].flags&2 != 0 {
+		t.Fatalf("after bob retired: %+v", v)
+	}
+	// Ann, who opened it, backing out closes it: straight to waiting, no
+	// results, no places, no points.
+	a.send(TypeRetire, []byte{id})
+	h.advance(300 * time.Millisecond)
+	v = a.lobby()
+	if v.state != StateWaiting {
+		t.Fatalf("state %d after the leader retired, want waiting", v.state)
+	}
+	for _, p := range v.players {
+		if p.points != 0 || p.place != 0 || p.flags&2 != 0 {
+			t.Errorf("%s after the session: points %d place %d flags %d", p.name, p.points, p.place, p.flags)
+		}
+	}
+	if h.s.Lobbies[0].Host != nil {
+		t.Error("host still set after the session")
+	}
+}
+
+func TestRoamEndsWhenLeaderLeaves(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	id := openRoam(t, h, a, b)
+	b.kart(id, 2, 1, 100, 1000)
+	// Bob leaving changes nothing for Ann.
+	c := h.client(3, 33)
+	c.hello("cat")
+	c.send(TypeJoin, []byte{0})
+	h.advance(300 * time.Millisecond)
+	c.send(TypeLeave, nil)
+	h.advance(300 * time.Millisecond)
+	if v := a.lobby(); v.state != StateRacing {
+		t.Fatalf("state %d after a latecomer left, want racing", v.state)
+	}
+	// Ann leaving the lobby ends it; Bob leads the waiting lobby with no points.
+	a.send(TypeLeave, nil)
+	h.advance(300 * time.Millisecond)
+	v := b.lobby()
+	if v.state != StateWaiting || v.leader != 1 || len(v.players) != 1 || v.players[0].points != 0 {
+		t.Fatalf("after the leader left: %+v", v)
+	}
+}
+
+func TestRoamLeaderLeavingInCountdown(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	a.hello("ann")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{0})
+	b.send(TypeJoin, []byte{0})
+	a.wish(0, RoamTrack, 3, 1)
+	h.advance(300 * time.Millisecond)
+	a.nonce++
+	a.wish(0, RoamTrack, 3, 1)
+	h.advance(time.Second)
+	if v := b.lobby(); v.state != StateCountdown {
+		t.Fatalf("state %d, want countdown", v.state)
+	}
+	a.send(TypeRetire, []byte{b.lobby().raceID})
+	h.advance(300 * time.Millisecond)
+	if v := b.lobby(); v.state != StateWaiting {
+		t.Fatalf("state %d after the leader retired in the countdown, want waiting", v.state)
+	}
+}
+
+// A race on any other track still finishes and scores as before, so the
+// session rules are the lot's alone.
+func TestRoamRulesOnlyOnTheLot(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	a.hello("ann")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{0})
+	b.send(TypeJoin, []byte{0})
+	a.wish(0, RoamTrack, 3, 1)
+	h.advance(300 * time.Millisecond)
+	a.wish(0, 2, 3, 1) // changed their mind: Palm Harbour
+	h.advance(300 * time.Millisecond)
+	a.nonce++
+	a.wish(0, 2, 3, 1)
+	h.advance(CountdownLen + 100*time.Millisecond)
+	id := a.lobby().raceID
+	a.kart(id, KartFinished|2, 4, 0, 50000)
+	b.kart(id, KartFinished|2, 4, 0, 51000)
+	h.advance(300 * time.Millisecond)
+	v := a.lobby()
+	if v.state != StateResults || v.players[0].points != 10 || v.players[1].points != 8 {
+		t.Fatalf("a race after a roam pick: %+v", v)
+	}
+}
+
+// raceCount reads how many karts the newest RACE packet to c carries.
+func (c *client) raceCount() int {
+	b := c.last(TypeRace)
+	if b == nil {
+		return -1
+	}
+	return int(b[9])
+}
+
+func TestRoamLatecomerAndRejoin(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	id := openRoam(t, h, a, b)
+	a.kart(id, 2, 0, 100, 1000)
+	b.kart(id, 2, 0, 200, 1000)
+	h.advance(300 * time.Millisecond)
+	// Cat joins mid-session and is on the lot at once, in the next free bay.
+	c := h.client(3, 33)
+	c.hello("cat")
+	c.send(TypeJoin, []byte{0})
+	h.advance(300 * time.Millisecond)
+	v := c.lobby()
+	if v.state != StateRacing || len(v.players) != 3 || v.players[2].flags&2 == 0 {
+		t.Fatalf("latecomer's lobby: %+v", v)
+	}
+	if g := h.s.Lobbies[0].Slots[2].Grid; g != 2 {
+		t.Errorf("latecomer's bay %d, want 2", g)
+	}
+	c.kart(id, 2, 0, 300, 1000)
+	h.advance(300 * time.Millisecond)
+	if n := a.raceCount(); n != 3 {
+		t.Errorf("RACE carries %d karts after the latecomer sent one, want 3", n)
+	}
+	// Cat's first wish is not a press, whatever nonce it carries.
+	c.nonce = 7
+	c.wish(3, RoamTrack, 3, 1)
+	h.advance(300 * time.Millisecond)
+	// Bob backs out and waits in the room; the relay drops his kart.
+	b.send(TypeRetire, []byte{id})
+	h.advance(300 * time.Millisecond)
+	b.wish(1, RoamTrack, 3, 1) // the room's wishes, the same nonce
+	h.advance(300 * time.Millisecond)
+	if v := b.lobby(); v.state != StateRacing || v.players[1].flags&2 != 0 {
+		t.Fatalf("after bob retired: %+v", v)
+	}
+	if n := a.raceCount(); n != 2 {
+		t.Errorf("RACE carries %d karts with bob out, want 2", n)
+	}
+	// Start in the room puts him back on, in his old bay (the free one).
+	b.nonce++
+	b.wish(1, RoamTrack, 3, 1)
+	h.advance(300 * time.Millisecond)
+	if v := b.lobby(); v.players[1].flags&2 == 0 {
+		t.Fatalf("bob not back on the lot: %+v", v)
+	}
+	if g := h.s.Lobbies[0].Slots[1].Grid; g != 1 {
+		t.Errorf("bob's bay %d, want 1", g)
+	}
+	b.kart(id, 2, 0, 250, 2000)
+	h.advance(300 * time.Millisecond)
+	if n := a.raceCount(); n != 3 {
+		t.Errorf("RACE carries %d karts with bob back, want 3", n)
+	}
+	// Ann, who opened it, backing out still ends it for all three.
+	a.send(TypeRetire, []byte{id})
+	h.advance(300 * time.Millisecond)
+	if v := c.lobby(); v.state != StateWaiting {
+		t.Fatalf("state %d after the leader retired, want waiting", v.state)
+	}
+}
+
+// A race is still joined from the next one: no dropping onto a course.
+func TestRaceLatecomerWaits(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	a.hello("ann")
+	b.hello("bob")
+	a.send(TypeJoin, []byte{0})
+	b.send(TypeJoin, []byte{0})
+	a.wish(0, 2, 3, 1)
+	h.advance(300 * time.Millisecond)
+	a.nonce++
+	a.wish(0, 2, 3, 1)
+	h.advance(CountdownLen + 100*time.Millisecond)
+	c := h.client(3, 33)
+	c.hello("cat")
+	c.send(TypeJoin, []byte{0})
+	h.advance(300 * time.Millisecond)
+	if v := c.lobby(); v.state != StateRacing || v.players[2].flags&2 != 0 {
+		t.Fatalf("latecomer to a race: %+v", v)
+	}
+	c.nonce = 3
+	c.wish(3, 2, 3, 1)
+	c.nonce++
+	c.wish(3, 2, 3, 1)
+	h.advance(300 * time.Millisecond)
+	if v := c.lobby(); v.players[2].flags&2 != 0 {
+		t.Fatalf("a press from the room joined a race: %+v", v)
+	}
+}
+
+// The host leaving and rejoining within one tick still ends the session:
+// otherwise they would be back on the lot as a guest of their own session.
+func TestRoamHostRejoinWithinTick(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.client(1, 11), h.client(2, 22)
+	id := openRoam(t, h, a, b)
+	b.kart(id, 2, 0, 100, 1000)
+	a.send(TypeLeave, nil)
+	a.send(TypeJoin, []byte{0})
+	h.advance(300 * time.Millisecond)
+	if v := b.lobby(); v.state != StateWaiting {
+		t.Fatalf("state %d after the host left and came straight back, want waiting", v.state)
+	}
+}

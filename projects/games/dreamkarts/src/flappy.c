@@ -76,6 +76,7 @@ static const Theme themes[TRACK_COUNT] = {
     [TRACK_CANYON] = {TEX_ISLANDROCK, TEX_EHCHECKER, TEX_MEADOW, 2.6f, 2.6f, 3.2f, 4.0f},
     [TRACK_TSUDOKEN] = {TEX_ISHIGAKI, TEX_KAWARA, TEX_VERGE, 2.6f, 2.6f, 1.6f, 4.0f},
     [TRACK_APPLE] = {TEX_AVTYRES, TEX_AVMETAL, TEX_AVDESERT, 8.0f, 1.1f, 1.6f, 4.0f},   /* a tyre stack */
+    [TRACK_LOT] = {TEX_AVSTUCCO, TEX_AVMETAL, TEX_AVROAD, 2.6f, 2.6f, 1.6f, 4.0f},     /* never warped to (disabled), but never a blank theme either */
 };
 
 static int phase;

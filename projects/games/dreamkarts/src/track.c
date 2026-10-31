@@ -64,7 +64,14 @@
    at 5 runs it north up the west side. Rights at 6, 7 and 8 box in the
    left hairpin at 9; then 10 left, 11 right and the long left at 12 loop
    round to the right hairpin at 13, the 150 m top straight east, the right
-   hairpin at 14 and the kink at 15 onto the main straight. */
+   hairpin at 14 and the kink at 15 onto the main straight.
+
+   Night Meet (Free Roam): the service road round a parking area on a
+   man-made island in the bay at night, after Daikoku PA. An
+   anticlockwise rounded rectangle, LOT_HX by LOT_HZ about the origin, the
+   lot itself inside it: the road is only there so the CPU karts have
+   somewhere to cruise and the karts a frame to sit in; the whole flat
+   island inside the barrier is drivable (roam.c). */
 #include "track.h"
 #include <stddef.h>
 
@@ -72,14 +79,15 @@ Track track;
 
 const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL",
                                               "NEON SKYWAY", "CYBERSTONE", "SPIRAL CANYON", "TSUDOKEN DRIFT",
-                                              "APPLE VALLEY"};
+                                              "APPLE VALLEY", "NIGHT MEET"};
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
                                                       "A NIGHT RIDE ABOVE THE CITY",
                                                       "HILLS, CHICANES AND A HELIX",
                                                       "OUTRUN THE SUN",
                                                       "SAKURA DORI",
-                                                      "FIFTEEN TURNS IN THE MOJAVE"};
+                                                      "FIFTEEN TURNS IN THE MOJAVE",
+                                                      "A PARKING LOT ON THE BAY"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -263,6 +271,19 @@ static Seg av_seg[] = {
     {22.0f, -31.1f, 0, 0},    /* 27 turn 15: the kink onto the main straight */
 };
 
+/* Night Meet's ring road: four straights and four left-hand corners,
+   run anticlockwise from the middle of the south side heading east. */
+static Seg lot_seg[] = {
+    {0, 0, 2.0f * (LOT_HX - LOT_CORNER_R), 0},   /* 0 south side, east (solved) */
+    {LOT_CORNER_R, -90, 0, 0},                   /* 1 now north */
+    {0, 0, 2.0f * (LOT_HZ - LOT_CORNER_R), 0},   /* 2 east side (solved) */
+    {LOT_CORNER_R, -90, 0, 0},                   /* 3 now west */
+    {0, 0, 2.0f * (LOT_HX - LOT_CORNER_R), 0},   /* 4 north side, along the quay */
+    {LOT_CORNER_R, -90, 0, 0},                   /* 5 now south */
+    {0, 0, 2.0f * (LOT_HZ - LOT_CORNER_R), 0},   /* 6 west side */
+    {LOT_CORNER_R, -90, 0, 0},                   /* 7 back onto the south side */
+};
+
 #define NSEGS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static Layout hb = {hb_seg, NSEGS(hb_seg), DK_PI * 0.5f, {-69.4f, 0, -98.8f}, 38.0f, 0, 16, {0}, {0}, {{0}}};
 static Layout th = {th_seg, NSEGS(th_seg), -DK_PI * 0.5f, {79.0f, 0, 60.0f}, 40.0f, 0, 13, {0}, {0}, {{0}}};
@@ -272,6 +293,8 @@ static Layout dr = {dr_seg, NSEGS(dr_seg), DK_PI * 0.5f, {-60.0f, 0, -90.0f}, 40
 static Layout tk = {tk_seg, NSEGS(tk_seg), 0.0f, {-98.0f, 0, -65.0f}, 40.0f, 0, TK_BACK_SEG, {0}, {0}, {{0}}};
 static Layout av = {av_seg, NSEGS(av_seg), 234.59f * DK_PI / 180.0f, {105.35f, 0, 51.12f}, 113.5f, 0, AV_TOP_SEG,
                     {0}, {0}, {{0}}};
+static Layout lot = {lot_seg, NSEGS(lot_seg), DK_PI * 0.5f, {-(LOT_HX - LOT_CORNER_R), 0, -LOT_HZ},
+                     LOT_HX - LOT_CORNER_R, 0, 2, {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -417,7 +440,7 @@ float track_seg_deg(int i) { return lay->seg[i].deg; }
 static V3 centreline(float s, V3 *tangent) {
     if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY ||
        track.id == TRACK_CYBERSTONE || track.id == TRACK_CANYON || track.id == TRACK_TSUDOKEN ||
-       track.id == TRACK_APPLE)
+       track.id == TRACK_APPLE || track.id == TRACK_LOT)
         return lay_centreline(lay, s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
@@ -957,6 +980,153 @@ static void init_apple(float *turnk) {
     track.bands[3] = (ItemBand){top + 100.0f};
 }
 
+/* Night Meet: the ring road has a barrier on the outside only; inside,
+   the lot. The walls here are only for show (the map, the cameras):
+   roam.c keeps the karts in, off the obstacles and on the decks. */
+static float lot_deck_s0, lot_deck_s1;   /* the deck's lap range, wrapping through 0 */
+
+static void init_lot(float *turnk) {
+    init_layout(&lot, turnk);
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        TrackSample *t = &track.smp[i];
+        t->wall_out = LOT_WALL;
+        t->wall_in = 2.0f * LOT_HX;
+    }
+    /* Down the west side and along the south to the end of the
+       south-east corner (not round the north-west corner: its outside
+       would swing out past the quay, over the water). */
+    lot_deck_s0 = track_seg_s(6);
+    lot_deck_s1 = track_seg_s(2);
+
+    /* Power-ups, when switched on: down the south straight past the
+       line, up on the deck along the south side, out in the aisle across
+       the middle of the lot and at the west end by the trees. */
+    track.nbands = 4;
+    track.bands[0] = (ItemBand){60.0f, 0.0f};
+    track.bands[1] = (ItemBand){track_wrap(-45.0f), (LOT_DECK_D0 + LOT_DECK_D1) * 0.5f};
+    track.bands[2] = (ItemBand){track_seg_s(4) + (LOT_HX - LOT_CORNER_R), -70.0f};
+    track.bands[3] = (ItemBand){lot_deck_s0 + (LOT_HZ - LOT_CORNER_R), -30.0f};
+}
+
+/* Metres along the deck from its first foot (0 to the lap length: the
+   deck is longer than half a lap, so track_delta cannot say). */
+static float lot_deck_len(void) {
+    return track.length - lot_deck_s0 + lot_deck_s1;
+}
+
+bool lot_in_deck(float s) {
+    return track_wrap(s - lot_deck_s0) < lot_deck_len();
+}
+
+/* The ramps' ease, 0 at a foot to 1 once the deck is up, which the
+   height and the lane's edges share. */
+static float lot_ramp_t(float s) {
+    float into = track_wrap(s - lot_deck_s0), len = lot_deck_len();
+    if(into >= len) return 0.0f;
+    return fminf(smoothstep01(into / LOT_DECK_RAMP), smoothstep01((len - into) / LOT_DECK_RAMP));
+}
+
+/* Full height between the ramps, each easing up from its foot. */
+float lot_deck_y(float s) {
+    return LOT_DECK_Y * lot_ramp_t(s);
+}
+
+/* The lane: at a foot one lane wide beside the road's edge, out to the
+   deck's full width as it climbs (outside the deck: where the lane would
+   begin, for the approach). */
+float lot_deck_d0(float s) {
+    return lerpf(LOT_RAMP_D0, LOT_DECK_D0, lot_ramp_t(s));
+}
+float lot_deck_d1(float s) {
+    return lerpf(LOT_RAMP_D1, LOT_DECK_D1, lot_ramp_t(s));
+}
+
+/* Along the deck's first LOT_RAMP_EMB metres from either foot it stands
+   on its embankment. */
+bool lot_deck_banked(float s) {
+    float into = track_wrap(s - lot_deck_s0), len = lot_deck_len();
+    if(into >= len) return false;
+    return fminf(into, len - into) < LOT_RAMP_EMB;
+}
+
+float lot_deck_emb_depth(float s, float *span_dir) {
+    float into = track_wrap(s - lot_deck_s0), len = lot_deck_len();
+    *span_dir = 1.0f;
+    if(into >= len) return -1e9f;
+    if(into < len * 0.5f) return LOT_RAMP_EMB - into;   /* the first foot: the span is on ahead */
+    *span_dir = -1.0f;
+    return LOT_RAMP_EMB - (len - into);                   /* the far foot: the span is behind */
+}
+
+float lot_over_y(float x) {
+    float a = fabsf(x);
+    if(a >= LOT_OVER_FOOT) return 0.0f;
+    return LOT_OVER_Y * smoothstep01((LOT_OVER_FOOT - a) / (LOT_OVER_FOOT - LOT_OVER_FLAT));
+}
+
+bool lot_over_banked(float x) {
+    float a = fabsf(x);
+    return a <= LOT_OVER_FOOT && a >= LOT_OVER_FOOT - LOT_OVER_EMB;
+}
+
+/* The gaps: midway along the west side's flat, and on the south side
+   past the line, 24 m each. */
+bool lot_deck_gap(float s) {
+    return fabsf(track_delta(lot_deck_s0 + 100.0f, s)) < 12.0f || fabsf(track_delta(40.0f, s)) < 12.0f;
+}
+
+static float lot_probe_y = 1e9f;
+void track_probe_height(float y) {
+    lot_probe_y = y;
+}
+
+/* The barrier runs LOT_WALL from the road round the lap. At each ramp
+   it moves out with the lane: from 30 m before the foot to just beyond
+   the lane's outer edge, along the embankment's toe as the lane climbs
+   and moves out, then on to the fence at LOT_WALL_OUT beyond the deck
+   once the ramp is on pillars, and holds there along the deck, so the
+   ground under it (parking, between the pillars) is inside the fence;
+   the mirror at the far foot. Nothing swings: every move is the ramp's
+   own ease. */
+float lot_wall_d(float s) {
+    float into = track_wrap(s - lot_deck_s0), len = lot_deck_len();
+    if(into < len) {
+        float along = fminf(into, len - into);
+        float toe = lot_deck_d1(s) + LOT_RAMP_BATTER * lot_deck_y(s) + 1.6f;
+        if(along < LOT_RAMP_EMB) return fminf(toe, LOT_WALL_OUT);
+        float t = smoothstep01((along - LOT_RAMP_EMB) / 20.0f);
+        return lerpf(fminf(toe, LOT_WALL_OUT), LOT_WALL_OUT, t);
+    }
+    float before = fminf(track_wrap(lot_deck_s0 - s), track_wrap(s - lot_deck_s1));
+    if(before < 30.0f) return lerpf(LOT_WALL, LOT_RAMP_D1 + 1.6f, smoothstep01(1.0f - before / 30.0f));
+    return LOT_WALL;
+}
+
+/* The lot is flat except for the deck and the overpass, each only where
+   its footprint is, and there only for a query from near its height
+   (track_probe_height): a kart at the ground rides up only where a
+   ramp's foot is low, and under the rest it drives through between the
+   pillars. */
+static float lot_road_y(float s, float d) {
+    if(lot_in_deck(s) && d >= lot_deck_d0(s) && d <= lot_deck_d1(s)) {
+        float dy = lot_deck_y(s);
+        if(lot_probe_y > dy - 2.5f) return dy;
+    }
+    if(d < 0) {
+        V3 p = track_point(s, d);
+        if(fabsf(p.z - LOT_OVER_Z) <= LOT_OVER_HW && fabsf(p.x) < LOT_OVER_FOOT) {
+            float oy = lot_over_y(p.x);
+            if(lot_probe_y > oy - 2.5f) return oy;
+        }
+    }
+    return 0.0f;
+}
+
+float track_road_y(float s, float d) {
+    if(track.id == TRACK_LOT) return lot_road_y(s, d);
+    return track_height(s) + track_bank(s) * d;
+}
+
 void track_init(int id) {
     memset(&track, 0, sizeof(track));
     track.id = id = (id % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
@@ -971,6 +1141,7 @@ void track_init(int id) {
     else if(id == TRACK_CANYON) init_canyon(turnk);
     else if(id == TRACK_TSUDOKEN) init_tsudoken(turnk);
     else if(id == TRACK_APPLE) init_apple(turnk);
+    else if(id == TRACK_LOT) init_lot(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and
@@ -1017,6 +1188,14 @@ int track_step(int id, int dir) {
     for(int k = 0; k < TRACK_COUNT; k++) {
         id = ((id + dir) % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
         if(track_enabled(id)) return id;
+    }
+    return id;
+}
+
+int track_step_online(int id, int dir) {
+    for(int k = 0; k < TRACK_COUNT; k++) {
+        id = ((id + dir) % TRACK_COUNT + TRACK_COUNT) % TRACK_COUNT;
+        if(track_online_enabled(id)) return id;
     }
     return id;
 }
@@ -1131,6 +1310,7 @@ int track_surface(const TrackPos *tp) {
     float half = track_half_at(tp);
     if(a <= half) return SURF_ROAD;
     if(a <= half + track.smp[tp->idx].curb) return SURF_CURB;
+    if(track_is_roam()) return SURF_ROAD;   /* the lot and the shoulder are asphalt too */
     return SURF_SAND;
 }
 

@@ -319,12 +319,13 @@ static bool items_locked(void) {
     return game.mode == MODE_TT && game.num_players == 1;
 }
 
-/* Menu rows: two players pick their colours on the kart select instead. */
+/* Menu rows: two players pick their colours on the kart select instead,
+   and Free Roam has no laps to set. */
 static int menu_rows(int *rows) {
     int n = 0;
     rows[n++] = ROW_MODE;
     rows[n++] = ROW_CC;
-    rows[n++] = ROW_LAPS;
+    if(game.mode != MODE_ROAM) rows[n++] = ROW_LAPS;
     rows[n++] = ROW_ITEMS;
     if(game.num_players == 1) rows[n++] = ROW_COLOUR;
     rows[n++] = ROW_START;
@@ -334,19 +335,26 @@ static int menu_rows(int *rows) {
 static const char *mode_name(void) {
     if(game.mode == MODE_GP) return "GRAND PRIX";
     if(game.mode == MODE_RACE) return "SINGLE RACE";
+    if(game.mode == MODE_ROAM) return "FREE ROAM";
     return game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
 }
 
 static const char *mode_blurb(void) {
-    if(game.mode == MODE_GP) return "ALL EIGHT COURSES, POINTS EVERY RACE";
+    if(game.mode == MODE_GP) return "ALL EIGHT COURSES FOR POINTS";
     if(game.mode == MODE_RACE) return "ONE RACE ON A COURSE YOU PICK";
+    if(game.mode == MODE_ROAM) return "NO LAPS, NO RACE, JUST CRUISE";
     return game.num_players > 1 ? "JUST THE TWO OF YOU" : "ALONE AGAINST THE CLOCK";
 }
 
 /* After the setup (and the kart select with two players): a Grand Prix
-   starts on its first course, anything else picks a course. */
+   starts on its first course, Free Roam heads straight for the lot,
+   anything else picks a course. */
 static void setup_done(void) {
     if(game.mode == MODE_GP) gp_start();
+    else if(game.mode == MODE_ROAM) {
+        game_load_track(TRACK_LOT);
+        game_set_state(ST_INTRO);
+    }
     else tracks_enter();
 }
 
@@ -933,7 +941,7 @@ static void draw_main(void) {
         float s = sel ? 0.8f + 0.02f * sinf(game.title_t * 8) : 0.76f;
         hud_text_c(320, y + (pitch - 4) * 0.5f, s, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM), main_items[i]);
     }
-    static const char *const blurbs[MAIN_ITEMS] = {"GRAND PRIX, SINGLE RACE OR TIME TRIAL", "SPLIT SCREEN WITH A FRIEND",
+    static const char *const blurbs[MAIN_ITEMS] = {"GRAND PRIX, RACE, TIME TRIAL, FREE ROAM", "SPLIT SCREEN WITH A FRIEND",
                                                    "UP TO SIX PLAYERS, BROADBAND OR MODEM",
                                                    "SOUND TEST, ONLINE NAME, MUSIC, YOUR OWN KART"};
     hud_text_c(320, y1 - 18, 0.4f, ALIGN_CENTER, ui_col(UI_DIM), blurbs[main_row]);

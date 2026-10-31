@@ -9,6 +9,17 @@
 #include "prof.h"
 #include "world.h"
 #include "models_data.h"
+/* The world's static mesh builder, for baking Chao into its pool
+   (world_int.h as a whole clashes with this file's helpers). */
+void strip_end(void);
+void svp(V3 p, float u, float v, uint32_t c);
+uint32_t shade(uint32_t c, V3 n);
+extern const pvr_poly_hdr_t *h_col, *strip_hdr;
+extern int cur_strip_first, pool_n;
+static inline void bake_strip_begin(const pvr_poly_hdr_t *h) {   /* world_int.h's strip_begin */
+    strip_hdr = h;
+    cur_strip_first = pool_n;
+}
 #include "texture_assets.h"
 #include <sh4zam/shz_sh4zam.h>
 
@@ -180,6 +191,11 @@ static void find_positions(void) {
 }
 
 void models_init(void) {
+    /* Once: the first track's scenery bakes Chao (models_bake_chao)
+       before main gets here. */
+    static bool done;
+    if(done) return;
+    done = true;
     h_model = r_header(TEX_NONE, HF_OP);
     h_shadow = r_header(TEX_SHADOW, HF_TR);
     h_underglow = r_header(TEX_GLOW, HF_TR | HF_ADD);
@@ -237,6 +253,85 @@ void models_init(void) {
         if(dk_model_meshes[i].vert_count > meshes_max) meshes_max = dk_model_meshes[i].vert_count;
     printf("DreamKarts models: %d verts (%d lit alike groups), %d tris, %d meshes (largest %d verts)\n",
            DK_MODEL_VERT_COUNT, group_count, DK_MODEL_INDEX_COUNT / 3, DK_MODEL_MESH_COUNT, meshes_max);
+}
+
+/* One baked Chao vertex: model position q and representative vertex v
+   (normal, paint), offset o in Chao space, turned by (cs, sn) about p.
+   Kept out of line: inlined into the loop below it trips GCC 15's SH-4
+   back end ("in gen_reg_rtx"). */
+typedef struct {
+    float px, py, pz, cs, sn, hc, hs, ox, oy, oz;
+    uint32_t chao, tip;
+} ChaoBake;
+static void __attribute__((noinline)) bake_chao_vert(const ChaoBake *b, const float *q, const dk_mvert_t *v, int head,
+                                                      int unlit) {
+    float x = q[0], y = q[1], z = q[2], nx = (float)v->nx, ny = (float)v->ny, nz = (float)v->nz;
+    if(head) {   /* turned about its own pivot */
+        float tx = x * b->hc + z * b->hs, tz = -x * b->hs + z * b->hc;
+        x = tx;
+        z = tz;
+        tx = nx * b->hc + nz * b->hs;
+        tz = -nx * b->hs + nz * b->hc;
+        nx = tx;
+        nz = tz;
+    }
+    x += b->ox;
+    y += b->oy;
+    z += b->oz;
+    float wx = b->px + x * b->cs + z * b->sn, wz = b->pz - x * b->sn + z * b->cs;
+    float wnx = nx * b->cs + nz * b->sn, wnz = -nx * b->sn + nz * b->cs;
+    uint32_t c = v->argb;
+    if(v->paint == 3 || v->paint == 4) {
+        /* The Chao colour toward its tip, by hand (color_lerp inlined here
+           was another trip for the compiler). */
+        unsigned t = v->tip, it = 255u - t;
+        unsigned r = (((b->chao >> 16) & 255u) * it + ((b->tip >> 16) & 255u) * t) / 255u;
+        unsigned g = (((b->chao >> 8) & 255u) * it + ((b->tip >> 8) & 255u) * t) / 255u;
+        unsigned bl = ((b->chao & 255u) * it + (b->tip & 255u) * t) / 255u;
+        c = 0xff000000u | (r << 16) | (g << 8) | bl;
+    }
+    V3 w = {wx, b->py + y, wz}, n = {wnx, ny, wnz};
+    if(!unlit) c = shade(c, n);
+    svp(w, 0, 0, c);
+}
+
+void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t tip, int lod) {
+    models_init();   /* the strips: the lot is built before main reaches it */
+    const float *body = dk_part_pivot[DK_PART_CHAO_BODY];
+    /* Stood on the ground: the body's lowest vertex at p. */
+    float low = 1e9f;
+    for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
+        const dk_mesh_t *m = &dk_model_meshes[mi];
+        if(m->lod != lod || m->part != DK_PART_CHAO_BODY) continue;
+        for(int i = m->first_vert; i < m->first_vert + m->vert_count; i++)
+            low = fminf(low, dk_model_verts[i].y + body[1]);
+    }
+    if(low > 1e8f) return;
+    ChaoBake b;
+    b.px = p.x; b.py = p.y; b.pz = p.z;
+    b.cs = cosf(yaw); b.sn = sinf(yaw);
+    b.hc = cosf(head_yaw); b.hs = sinf(head_yaw);
+    b.chao = chao; b.tip = tip;
+    for(int mi = 0; mi < DK_MODEL_MESH_COUNT; mi++) {
+        const dk_mesh_t *m = &dk_model_meshes[mi];
+        if(m->lod != lod || (m->part != DK_PART_CHAO_BODY && m->part != DK_PART_CHAO_HEAD) || (m->flags & 2)) continue;
+        const float *pv = dk_part_pivot[m->part];
+        b.ox = pv[0] - body[0];
+        b.oy = pv[1] - low;
+        b.oz = pv[2] - body[2];
+        int head = m->part == DK_PART_CHAO_HEAD, unlit = m->flags & 1;
+        const uint16_t *sd = &strip_data[mesh_strips[mi]];
+        while(*sd) {
+            int n = *sd++;
+            bake_strip_begin(h_col);
+            for(int k = 0; k < n; k++) {
+                bake_chao_vert(&b, model_pos[mesh_p0[mi] + sd[0] / 16], &dk_model_verts[group_vert[mesh_g0[mi] + sd[1] / 4]],
+                               head, unlit);
+                sd += 2;
+            }
+            strip_end();
+        }
+    }
 }
 
 void models_paint_kart(int index) {
@@ -446,6 +541,7 @@ static float surface_under(const Kart *k, V3 p) {
 /* Is the kart over road that is drawn (not off an open edge or over a
    jump's gap, where it is falling or flying anyway)? */
 static bool over_road(const Kart *k) {
+    if(track_is_roam()) return true;   /* the whole lot is road, decks included */
     return fabsf(k->tp.d) < 20.0f && !track_off_edge(&k->tp);
 }
 
@@ -486,6 +582,7 @@ static void kart_matrix(float *m, const Kart *k, bool chassis) {
 }
 
 float models_kart_sink(const Kart *k) {
+    track_probe_height(k->pos.y);
     if(!over_road(k)) return -1e9f;
     float m[16];
     kart_pose(m, k, false);
@@ -708,6 +805,7 @@ static void build_vol_tris(void) {
 /* The kart's height over the road, or -1 with no road under it to shadow
    (off an open edge or over a jump's gap) or too high to cast one. */
 static float shadow_height(const Kart *k) {
+    track_probe_height(k->pos.y);   /* Night Meet: the deck under a kart up on it */
     if(!over_road(k)) return -1.0f;
     float h = fmaxf(k->pos.y - world_surface_y(k->tp.s, k->tp.d), 0.0f);
     return h > 12.0f ? -1.0f : h;
@@ -789,16 +887,23 @@ void models_draw_shadows(int view) {
         road_quad(k, v3(k->pos.x - sun_off.x, 0, k->pos.z - sun_off.z), f, r, 0.04f, color_alpha(0xff000000, a));
     }
     if(!world_night) return;
-    /* Neon underglow: the road under each kart lights its belly, cyan to magenta across. */
+    /* Neon underglow: the road under each kart lights its belly, cyan to
+       magenta across; at the Night Meet each kart brings its own, in its
+       paint's colour, wherever it is on the lot. */
     r_hdr(h_underglow);
     for(int i = 0; i < kart_count; i++) {
         const Kart *k = &karts[i];
         if(k->gone || !over_road(k) || !r_sphere_visible(k->pos, 3.0f)) continue;
+        track_probe_height(k->pos.y);
         float h = fmaxf(k->pos.y - world_surface_y(k->tp.s, k->tp.d), 0.0f);
         if(h > 4.0f) continue;
         float a = 0.55f * (1.0f - h * 0.25f);
         V3 f = vscale(heading_fwd(k->heading + k->vis_yaw), 2.3f), r = vscale(heading_right(k->heading + k->vis_yaw), 1.8f);
-        road_quad(k, k->pos, f, r, 0.06f, color_alpha(world_lane_color(k->tp.d), a));
+        /* Saturated neon, not the paint itself: additive over the dark
+           asphalt a pale colour just reads as white. */
+        static const uint32_t neon_pal[6] = {0xff3cdcff, 0xffff32c8, 0xff40ff90, 0xff9646ff, 0xffff9030, 0xffff78e6};
+        uint32_t neon = track_is_roam() ? neon_pal[(k->colour < 0 ? 0 : k->colour) % 6] : world_lane_color(k->tp.d);
+        road_quad(k, k->pos, f, r, 0.06f, color_alpha(neon, a));
     }
 }
 

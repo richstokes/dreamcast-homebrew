@@ -277,6 +277,18 @@ static void tk_prop(int which, V3 p, float yaw, float scale, float lod_far, bool
     prop_place(&dk_props[which], tk_mat_hdr, TKM_PT_MASK, p, yaw, scale, lod_far, far);
 }
 
+/* Tsudoken's props for another track's scenery (the Night Meet lot borrows
+   its pit garages, tower and cherry trees), without the spectator solids
+   this track keeps, and the mesh for its solid boxes. Through here so the
+   baked arrays are emitted once, in this file. */
+void tk_place_prop(int which, V3 p, float yaw, float scale, float lod_far, bool far) {
+    prop_place(&dk_props[which], tk_mat_hdr, TKM_PT_MASK, p, yaw, scale, lod_far, far);
+}
+
+const dk_prop_t *tk_prop_mesh(int which) {
+    return &dk_props[which];
+}
+
 /* A torii over the road at lap distance s: the gate itself, and at the
    line the course banner hung between its pillars. */
 static void tk_torii(float s, float scale, bool banner) {

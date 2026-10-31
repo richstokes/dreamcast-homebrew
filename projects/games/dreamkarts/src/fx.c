@@ -212,6 +212,7 @@ void fx_splash(V3 p, float strength) {
 }
 
 void fx_kart(const Kart *k, float dt) {
+    track_probe_height(k->pos.y);
     int idx = (int)(k - karts);
     V3 fwd = heading_fwd(k->heading + k->vis_yaw), right = heading_right(k->heading + k->vis_yaw);
     V3 wl = models_wheel_world(k, 2), wr = models_wheel_world(k, 3);

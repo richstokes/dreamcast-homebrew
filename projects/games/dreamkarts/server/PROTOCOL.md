@@ -87,7 +87,8 @@ can watch a lobby, full or not (the demo lobby included); a watcher sends
 `PING` once a second and `LEAVE` when it is done. A one-byte `JOIN` (build 3)
 always means play.
 
-`WISH`: everyone's colour applies (if free); track, laps (3, 5 or 10), cc
+`WISH`: everyone's colour applies (if free); track (9 opens a Free Roam
+session, see below), laps (3, 5 or 10), cc
 and the power-ups switch apply only from the leader (a five-byte wish
 leaves the switch alone). Colours 0-7 are the presets, one player each;
 colour 8 is the player's own kart, which any number may pick, painted from
@@ -223,6 +224,24 @@ nowhere: a console sees only what arrives while it is in the lobby.
 Players who join mid-race wait in the lobby until the next race; watchers
 who arrive mid-race go straight to it. A player or watcher silent for 10
 seconds is dropped.
+
+### Free Roam (build 30)
+
+Track 9, the Night Meet lot, is not raced: a start on it opens a Free Roam
+session. The countdown and the kart relay are as for a race, the laps
+setting is ignored, the finished flag in a `KART` is ignored (nobody
+finishes), no end clock is sent and the 15-minute safety net does not
+apply. The session goes straight back to waiting, with no results, places
+or points, when the leader who started it retires or leaves the lobby, or
+when nobody is left on the lot. Other players back out with `RETIRE` as
+usual and wait in the room. A player who joins the lobby during a session
+is put on the lot at once (racing, in the lowest free grid slot: the lot's
+bays), and a player in the room goes back on by pressing Start, which the
+server reads as a new start nonce in a `WISH` from someone who is not the
+leader (a console's first `WISH` after joining is never taken as a press).
+Consoles give such a kart its own on arrival. A race on a course still
+keeps latecomers in the room until the next one. The demo lobby never
+picks the lot.
 
 ## Demo lobby
 

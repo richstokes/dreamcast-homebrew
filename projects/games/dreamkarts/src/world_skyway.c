@@ -266,7 +266,7 @@ static void sk_jump_face(float s, float dir) {
 /* A city tower rising out of the clouds: dark glass with lit windows, a
    neon crown round the roof, a neon strip down one corner and a sign on
    the face toward the road. */
-static void sk_tower(V3 base, float hx, float hz, float top, float yaw, uint32_t neon, int sign, V3 face_to) {
+void sk_tower(V3 base, float hx, float hz, float top, float yaw, uint32_t neon, int sign, V3 face_to) {
     chunk_begin(HF_OP, 2000.0f);
     float bottom = CLOUD_Y - 8.0f, hh = (top - bottom) * 0.5f;
     box(h_tower, v3(base.x, bottom + hh, base.z), v3(hx, hh, hz), yaw, 0xffffffff, 1.0f / 24.0f);
@@ -465,10 +465,13 @@ void draw_night_distant(void) {
     const float R = 1350.0f;
     RV v[2 * 25];
     int n = 0;
+    /* The sky road sees it rising out of the clouds; the lot, on the
+       ground, across the bay. */
+    float foot = track_is_roam() ? -4.0f : CLOUD_Y - 40.0f;
     for(int i = 0; i <= segs; i++) {
         float x = c.x + ring_dir[i].x * R, z = c.z + ring_dir[i].z * R;
         v[n++] = (RV){x, 70.0f, z, (float)i / segs * 6.0f, 0.0f, 0xffffffff};
-        v[n++] = (RV){x, CLOUD_Y - 40.0f, z, (float)i / segs * 6.0f, 1.0f, 0xffffffff};
+        v[n++] = (RV){x, foot, z, (float)i / segs * 6.0f, 1.0f, 0xffffffff};
     }
     r_strip(v, n);
 

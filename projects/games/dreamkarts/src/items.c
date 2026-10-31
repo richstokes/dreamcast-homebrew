@@ -233,7 +233,7 @@ static int roll_item(void) {
 float items_slot_d(int band, int slot) {
     float s = track.bands[band].s;
     int i = (int)(s / track.ds) % TRACK_SAMPLES;
-    return slot_frac[slot & 3] * track.smp[i].half;
+    return track.bands[band].d + slot_frac[slot & 3] * track.smp[i].half;
 }
 
 bool items_emerald(int band, V3 *pos, int *item) {
@@ -811,6 +811,7 @@ float items_ai_lane(const Kart *k, float s, float d) {
     for(int b = 0; b < track.nbands; b++) {
         float ahead = track_delta(k->tp.s, track.bands[b].s);
         if(ahead < 4.0f || ahead > 75.0f) continue;
+        if(fabsf(track.bands[b].d) > track_half_at(&k->tp)) continue;   /* off the road (Night Meet's lot and deck) */
         float t_left = ahead / fmaxf(fabsf(k->speed), 5.0f);
         float sd = items_slot_d(b, emeralds[b].lit);
         /* Only if the kart can still get across to it in time. */

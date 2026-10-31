@@ -10,6 +10,7 @@
    This file builds and draws it; each track's own scenery is built in
    world_<track>.c (world_int.h lists who does what). */
 #include "world_int.h"
+#include "roam.h"
 #include "prof.h"
 #include <malloc.h>
 #include <sh4zam/shz_sh4zam.h>
@@ -23,6 +24,8 @@ bool world_canyon;
 static bool world_tk;
 /* Apple Valley: a kart club circuit in the Mojave desert. */
 static bool world_av;
+/* Night Meet: Free Roam's parking area on the bay at night. */
+static bool world_lot;
 /* Golden hour (Spiral Canyon, Tsudoken Drift): a low sun, everything
    graded warm; the canyon's is a retrowave sun ahead down the start
    straight, Tsudoken's sets beside Fuji in the south-west. */
@@ -54,9 +57,11 @@ void world_chunk_stats(bool print) {
         memset(ck_verts, 0, sizeof ck_verts);
     }
 }
+static const char *const ck_default_names[CK_N] = {"ground", "deck", "rock", "props", "torch"};
+const char *const *ck_names = ck_default_names;
 static void ck_frame(void) {
     if(++ck_frames < 120) return;
-    static const char *const names[CK_N] = {"ground", "deck", "rock", "props", "torch"};
+    const char *const *names = ck_names;
     char line[256], *o = line;
     o += sprintf(o, "DK CHUNKS t=%.0f cam (%.0f, %.0f) per frame:", (double)world_time, (double)ck_cam.x, (double)ck_cam.z);
     for(int k = 0; k < CK_N; k++) o += sprintf(o, " %s %lu/%lu", names[k], (unsigned long)(ck_strips[k] / ck_frames), (unsigned long)(ck_verts[k] / ck_frames));
@@ -121,6 +126,7 @@ float world_ground_y(float x, float z) {
         case TRACK_CANYON: return dr_terrain(x, z);
         case TRACK_TSUDOKEN: return tk_terrain(x, z);
         case TRACK_APPLE: return av_terrain(x, z);
+        case TRACK_LOT: return 0.0f;
         default: return -100.0f;   /* clouds */
     }
 }
@@ -177,6 +183,7 @@ void world_init(void) {
     h_sundisc = r_header(TEX_SUNDISC, HF_TR | HF_NOFOG);
     h_far_sprite = h_palm_far;
     av_init();
+    lot_init();
 
     static const float elev[] = {-0.25f, 0.0f, 0.10f, 0.28f, 0.62f, 1.05f, 1.5708f};
     for(int e = 0; e < 7; e++)
@@ -218,7 +225,7 @@ static void surface_table_build(void) {
 }
 
 float world_surface_y(float s, float d) {
-    if(!surf_built) return track_road_y(s, d);
+    if(!surf_built || track_is_roam()) return track_road_y(s, d);   /* the lot's decks are not in the table */
     s = track_wrap(s);
     int c = (int)(s / track.ds) / 8;
     if(c >= SURF_CHUNKS) c = SURF_CHUNKS - 1;
@@ -253,7 +260,8 @@ void world_build(void) {
     world_canyon = track.id == TRACK_CANYON;
     world_tk = track.id == TRACK_TSUDOKEN;
     world_av = track.id == TRACK_APPLE;
-    world_night = track.in_sky && !world_canyon;
+    world_lot = track.id == TRACK_LOT;
+    world_night = (track.in_sky && !world_canyon) || world_lot;
 #ifdef DK_ROCK_TINT
     world_sunset = false;   /* the leak test reads colours */
 #else
@@ -297,6 +305,7 @@ void world_build(void) {
     else if(track.id == TRACK_CANYON) build_canyon();
     else if(track.id == TRACK_TSUDOKEN) build_tsudoken();
     else if(track.id == TRACK_APPLE) build_apple();
+    else if(world_lot) build_lot();
     else if(track.in_sky) build_skyway();
     else build_beach();
     surface_table_build();
@@ -325,8 +334,9 @@ void world_build(void) {
 void world_update(float dt) {
     world_time += dt;
 #ifdef DK_CHUNK_STATS
-    if(world_canyon || world_tk || world_av) ck_frame();
+    if(world_canyon || world_tk || world_av || world_lot) ck_frame();
 #endif
+    if(world_lot) lot_update(dt);
     /* The road's lights run forward a repeat (about 8 m) every 0.55 s. */
     if(world_canyon) sk_road_hdr = *h_canyonroad;
     else if(world_night) {
@@ -447,7 +457,7 @@ static void draw_chunks(int list) {
         for(int s = 0; s < c->nstrips; s++) {
             const Strip *st = &strips[c->first_strip + s];
 #ifdef DK_CHUNK_STATS
-            if((world_canyon || world_tk || world_av) && r_sphere_visible(st->c, st->r)) {
+            if((world_canyon || world_tk || world_av || world_lot) && r_sphere_visible(st->c, st->r)) {
                 int k = ck_kind(i);
                 ck_cam = r_cam.pos;
                 ck_strips[k]++;
@@ -775,7 +785,7 @@ static void glint_row(int j, float x0, float z0, float cell, int n) {
 /* Animated sea: a camera-centred grid out to ~360 m, then wide bands to
    the horizon. Only the northern half-plane is ever visible. */
 static void draw_sea(void) {
-    if(world_night) {
+    if(world_night && !world_lot) {
         draw_clouds_below();
         return;
     }
@@ -786,7 +796,8 @@ static void draw_sea(void) {
     float x0 = cx - n * cell * 0.5f, z0 = cz - n * cell * 0.5f;
     float su = fmodf(world_time * 0.018f, 1.0f), sv2 = fmodf(world_time * 0.011f, 1.0f);
     r_hdr(h_water);
-    const GridColors *gc = grid_colors(cx, cz, cell, n, x0, z0, sea_color);
+    GridColorFn fn = world_lot ? lot_sea_color : sea_color;
+    const GridColors *gc = grid_colors(cx, cz, cell, n, x0, z0, fn);
     RV row[2 * (16 + 1)];
     uint32_t spec[2 * (16 + 1)];
     memset(glint_done, 0, sizeof(glint_done));
@@ -810,7 +821,7 @@ static void draw_sea(void) {
 #ifdef DK_XF_CHECK
             extern uint32_t xf_checked, xf_mismatch;
             xf_checked += 2;
-            xf_mismatch += (sea_color(x, zb) != gc->zb[j][i]) + (sea_color(x, za) != gc->za[j][i]);
+            xf_mismatch += (fn(x, zb) != gc->zb[j][i]) + (fn(x, za) != gc->za[j][i]);
 #endif
         }
         r_strip_spec(row, spec, k);
@@ -818,7 +829,7 @@ static void draw_sea(void) {
     /* Horizon bands around the grid. */
     float gx0 = x0, gx1 = x0 + n * cell, gz0 = fmaxf(z0, -60.0f), gz1 = z0 + n * cell;
     const float E = 4000.0f;
-    uint32_t deep = argb(255, 96, 150, 222);
+    uint32_t deep = world_lot ? lot_sea_color(0, 4000.0f) : argb(255, 96, 150, 222);
     float uvs = 1.0f / 26.0f;
     RV q[4];
     /* north */
@@ -830,13 +841,13 @@ static void draw_sea(void) {
     /* west and east of the grid */
     if(gz1 > gz0) {
         q[0] = (RV){-E, WATER_Y, gz1, -E * uvs, gz1 * uvs, deep};
-        q[1] = (RV){gx0, WATER_Y, gz1, gx0 * uvs, gz1 * uvs, sea_color(gx0, gz1)};
+        q[1] = (RV){gx0, WATER_Y, gz1, gx0 * uvs, gz1 * uvs, fn(gx0, gz1)};
         q[2] = (RV){-E, WATER_Y, -60.0f, -E * uvs, -60.0f * uvs, deep};
-        q[3] = (RV){gx0, WATER_Y, gz0, gx0 * uvs, gz0 * uvs, sea_color(gx0, gz0)};
+        q[3] = (RV){gx0, WATER_Y, gz0, gx0 * uvs, gz0 * uvs, fn(gx0, gz0)};
         r_strip(q, 4);
-        q[0] = (RV){gx1, WATER_Y, gz1, gx1 * uvs, gz1 * uvs, sea_color(gx1, gz1)};
+        q[0] = (RV){gx1, WATER_Y, gz1, gx1 * uvs, gz1 * uvs, fn(gx1, gz1)};
         q[1] = (RV){E, WATER_Y, gz1, E * uvs, gz1 * uvs, deep};
-        q[2] = (RV){gx1, WATER_Y, gz0, gx1 * uvs, gz0 * uvs, sea_color(gx1, gz0)};
+        q[2] = (RV){gx1, WATER_Y, gz0, gx1 * uvs, gz0 * uvs, fn(gx1, gz0)};
         q[3] = (RV){E, WATER_Y, -60.0f, E * uvs, -60.0f * uvs, deep};
         r_strip(q, 4);
     }
@@ -943,6 +954,7 @@ void world_set_fog(bool split) {
    road, barriers and props. For keeping the spectator's cameras and their
    sight lines clear of it; other tracks have none. */
 bool world_solid(V3 p, float margin) {
+    if(world_lot) return roam_solid(p, margin);
     if(world_tk) return tk_in_solid(p, margin);
     return world_canyon && dr_in_rock(p, margin);
 }
@@ -950,10 +962,12 @@ bool world_solid(V3 p, float margin) {
 /* True when nothing solid stands between a and b (world_solid). */
 bool world_sight_clear(V3 a, V3 b) {
     if(world_tk) return tk_sight_clear(a, b);
-    if(!world_canyon) return true;
+    if(!world_canyon && !world_lot) return true;
     int steps = (int)(vlen(vsub(b, a)) / 2.0f);
-    for(int i = 1; i < steps; i++)
-        if(dr_in_rock(vlerp(a, b, (float)i / steps), 0.3f)) return false;
+    for(int i = 1; i < steps; i++) {
+        V3 p = vlerp(a, b, (float)i / steps);
+        if(world_lot ? roam_solid(p, 0.3f) : dr_in_rock(p, 0.3f)) return false;
+    }
     return true;
 }
 
@@ -1241,6 +1255,7 @@ static void draw_sea_sparkles(void) {
 void world_draw_tr(void) {
     r_load_vp();
     if(!(dk_probe_off & PROBE_DISTANT)) draw_clouds_and_mountains();
+    if(world_lot) lot_draw_tr();
     /* Far out in the desert, so straight after the sky (the list draws in
        the order sent). */
     if(world_av && !(dk_probe_off & PROBE_DISTANT)) av_draw_dust_devils();

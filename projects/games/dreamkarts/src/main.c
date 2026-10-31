@@ -20,6 +20,7 @@
 #include "biplane.h"
 #include "dolphins.h"
 #include "items.h"
+#include "roam.h"
 #include "online.h"
 #include "save.h"
 #include "spectate.h"
@@ -106,6 +107,8 @@ void race_setup(void) {
         kart_place_on_grid(k, gp.active && gp.race > 0 ? gp_grid_slot(i) : i);
         models_paint_kart(i);
     }
+    /* Free Roam: the humans park in bays and the CPUs cruise the ring. */
+    if(track_is_roam()) roam_place_karts();
     if(!game.online) {
         game.laps = game.setup_laps;
         /* No power-ups in a solo time trial, so lap times stay honest. */
@@ -155,6 +158,10 @@ void game_load_track(int id) {
 void game_set_state(int state) {
     game.state = state;
     game.time = 0;
+    /* Back from Free Roam (or an online session on the lot) the title and
+       the main menu show a course again, not the lot: the race menus and
+       the track select never offer it, so nothing starts from it. */
+    if((state == ST_TITLE || state == ST_MAIN) && track_is_roam() && !game.online) game_load_track(TRACK_BEACH);
     if(state == ST_RESULTS) game.results_sel = RESULTS_AGAIN;
     if(state == ST_TITLE || state == ST_MAIN || state == ST_ONLINE) gp.active = false;
     if(state == ST_TITLE || state == ST_MENU || state == ST_TRACKS || state == ST_MAIN || state == ST_ONLINE ||
@@ -394,7 +401,8 @@ static void player_events(int pi, float dt) {
     /* Wrong way: moving back along the track for a second or so. A spin,
        a fall or a quick reverse off a wall doesn't count, and it clears a
        little after the kart is pointing the right way again. */
-    bool wrong = !p->finished && p->spin_t <= 0 && !p->over_edge && vdot(p->vel, p->tp.tangent) < -5.0f;
+    bool wrong = !track_is_roam() && !p->finished && p->spin_t <= 0 && !p->over_edge &&
+                 vdot(p->vel, p->tp.tangent) < -5.0f;
     pl->wrong_way_t = wrong ? fminf(pl->wrong_way_t + dt, 2.0f) : fmaxf(pl->wrong_way_t - 2.0f * dt, 0.0f);
 #ifdef DK_AUTOTEST
     at_player_events(pi);
@@ -684,6 +692,11 @@ static void update(float dt) {
                 game.state = ST_COUNTDOWN;
                 game.time = 0;
                 game.countdown = 0;
+                /* Free Roam: no lights, just drive. */
+                if(track_is_roam()) {
+                    game.state = ST_RACE;
+                    game.countdown = 10.0f;
+                }
             }
             break;
         case ST_COUNTDOWN:
@@ -933,7 +946,7 @@ static void render(void) {
             hud_text(320 + (1 - a) * 200, 334, 1.2f, ALIGN_CENTER, color_alpha(argb(255, 255, 220, 60), a), track.name);
             char buf[64];
             const char *mode = game.mode == MODE_GP ? "GRAND PRIX" : game.mode == MODE_RACE ? "SINGLE RACE"
-                               : game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
+                               : game.mode == MODE_ROAM ? "FREE ROAM" : game.num_players > 1 ? "VERSUS" : "TIME TRIAL";
             float s = 0.65f;
             if(gp.active) {
                 snprintf(buf, sizeof(buf), "%sGRAND PRIX  -  RACE %d OF %d  -  %s", game.num_players > 1 ? "2P " : "",
@@ -1052,6 +1065,9 @@ int main(int argc, char **argv) {
 #ifdef DK_AT_TRACK
     game.track = DK_AT_TRACK;
 #endif
+#ifdef DK_AT_ROAM
+    game.track = TRACK_LOT;   /* Free Roam on the lot, the CPU driving the player */
+#endif
     track_init(game.track);
     world_init();
     boot_screen(boot_t0, 0.25f, "PLANTING PALM TREES");
@@ -1083,6 +1099,9 @@ int main(int argc, char **argv) {
 #endif
 #ifdef DK_AT_GP
     game.mode = MODE_GP;     /* ...or a whole Grand Prix */
+#endif
+#ifdef DK_AT_ROAM
+    game.mode = MODE_ROAM;
 #endif
     game.num_players = 1;
     game.pl[0].colour = 0;

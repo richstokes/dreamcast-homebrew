@@ -5,7 +5,10 @@ six Dreamcasts over UDP port 7535 at `dcvmu.com`, reachable by broadband
 adapter or 56k modem. The wire format is in [PROTOCOL.md](PROTOCOL.md). It
 keeps lobby state, runs each race's countdown, results and points (a race
 can be started alone, as practice while waiting, and Start mid-race drops a
-player out of it back to the lobby room), relays everyone's kart 12 times
+player out of it back to the lobby room; a start on the Night Meet lot is
+a Free Roam session instead, with no finish, results or points, that runs
+until the leader backs out, latecomers dropping straight onto the lot),
+relays everyone's kart 12 times
 a second and passes lobby chat round with bad words starred out (a name
 that trips the filter is refused). The word list is not in this
 repository: the server downloads the English list from

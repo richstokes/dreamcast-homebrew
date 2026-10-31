@@ -21,8 +21,13 @@ Eight courses:
 - Tsudoken Drift: a flat club circuit after Tsukuba under Mt Fuji on a spring afternoon, 1,031 m of hairpins and long lefts through cherry blossom, paddies and stone lanterns, a grandstand under a swept tiled roof along the start straight, torii over the road and a ramp jump over a stream halfway down the 200 m back straight
 - Apple Valley: a kart club circuit in the Mojave after Apple Valley Speedway, 1,304 m and fifteen turns on a narrower road between tyre walls, on a desert slope that drops 10 m from turn 14 down to turn 1, tumbleweeds and dust devils on the wind, past Joshua trees and creosote, with a brown mountain and the snowy San Bernardinos on the horizon
 
+And one place that is not a course:
+
+- Night Meet: Free Roam's parking lot, after Daikoku PA in Yokohama. A flat island in the bay at night, a service road round a big lot of painted bays under sodium lamps, the expressway looping round it on pillars with parking underneath, its on-ramps single lanes that leave the ring road's edge, climb an earth embankment and widen into the deck, an overpass humping over the north end, service bays, a tower and a clubhouse with neon over them (one sign buzzing, another now and then), trucks, bleachers with a swaying crowd, a food truck with a queue of Chao and more standing about, cherry trees, the city behind and a lit suspension bridge across the water. Built from the other courses' props and textures
+
 Highlights:
 
+- Free Roam: no laps or places, power-ups if you want them (emeralds on the south straight, up on the deck, across the middle aisle and by the west trees), just the Night Meet lot to drive round, alone or in split screen, with five CPU karts cruising the ring road for company; the ring road's barrier follows each ramp out, so take the ramp lane off the road's edge and the deck down the west side and along the south (two stretches of its inner parapet are missing, so you can drop off into the parking under the deck and drive back out to the road), or the overpass across the lot, which you can also drive under; a speedo in mph instead of the lap counter and no clock, everyone on the map, and a drift score: a slide counts up at ten points a degree-second (the kart's slide angle, tight worth more than wide, at speed), shown centre screen as it climbs, and is banked when you release it cleanly, with your best drift under the speedo; a wall, a spin or the brake throws the slide away
 - Grand Prix: all eight courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
 - Two-player split screen in every mode (Versus instead of Time Trial), each player picking their own kart
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
@@ -130,6 +135,7 @@ Settings menu edits all three).
 
 - Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps, class and whether power-ups are on, and starts the race, alone if nobody else has turned up yet (a bell rings when someone joins; they race from the next one)
 - Start mid-race opens a small menu over the race (it cannot pause): the music switch, NEXT SONG and LEAVE, which goes back to the lobby room, not the browser, so a practice lap ends the moment company arrives
+- The leader can pick Night Meet too: that opens a Free Roam session on the lot instead of a race, no laps, places or points, everyone driving round until the leader backs out (Start, A), which sends the whole lobby back to the room. Anyone joining the lobby meanwhile drops straight onto the lot, anyone else who backs out waits in the room and presses A to go back on, and the demo lobby never plays it
 - Each console drives its own kart; the server starts the countdown and decides places. Points (10/8/6/4/2/1) add up while you stay in the lobby
 - X in the lobby room opens the chat: type on the on-screen keys (quick phrases included) or a Dreamcast keyboard in any port, Start or Enter sends. Closed, a strip shows the newest line and a badge counts what you have not read. Chat is per lobby, watchers can read it, and the server stars out bad words
 - Lobby 10 is a demo lobby of bots, watch only
@@ -177,7 +183,8 @@ The `hw` targets run on a real console and need the
 
 | Flag | Effect |
 | --- | --- |
-| `-DDK_AT_TRACK=n` | Track 0-8 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift, Apple Valley); Cyberstone (5) still loads here though no menu offers it |
+| `-DDK_AT_TRACK=n` | Track 0-9 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift, Apple Valley, Night Meet); Cyberstone (5) still loads here though no menu offers it, and the lot (9) is Free Roam's alone |
+| `-DDK_AT_ROAM` | Free Roam on the Night Meet lot: the CPU drives the player out of its bay and round the ring with the rivals, 18 s in puts it short of the west ramp and steers it up the deck and down the far ramp, and at 90 s passes if it reached the deck and came down through the west gap, every kart is still on the island, every rival still on the ring and the frame rate held; the capture build screenshots the lot every 6 s (`roam-NN`) |
 | `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
 | `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all eight |
@@ -189,6 +196,8 @@ The `hw` targets run on a real console and need the
 | `-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<ip>` | Goes online: joins lobby 9, chats with the bot (a line from a faked keyboard, one from the on-screen keys, the bot's second line starred by the word filter), races, passes when the results arrive (recipe in server/README.md) |
 | `-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=<n>` | Online practice: starts a race alone in an empty lobby, drops out, leaves and rejoins the lobby and gets into its next race, hears the bell as a bot joins mid-race, drops out back to the lobby room, races the bot, sees the bot's kart leave when it drops out (`dk-bot -retire`), drops out again (recipe in server/README.md) |
 | `-DDK_AT_ONLINE -DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
+| `-DDK_AT_ONLINE -DDK_AT_ROAM_ONLINE` | Free Roam online: the leader picks Night Meet and opens it once two are in (a bot or a second console), drives round for 25 s, backs out, and passes if the lobby is back in the room within 5 s with no results, places or points and a remote kart was seen; a guest console passes when the leader brings it back |
+| `-DDK_AT_ONLINE -DDK_AT_ROAM_ONLINE -DDK_AT_ROAM_LATE` | The same with the company arriving late: the leader opens the lot alone and backs out 20 s after the first remote kart drops onto it (a bot or a second console started once the session is on); a guest console backs out 8 s in, asks back on from the room and must be driving again before the leader ends it |
 | `-DDK_AT_ONLINE -DDK_AT_REJECT` | Against a server started with `-reject-proto 9`: passes on THIS VERSION IS TOO OLD with the download prompt, fails on anything else (builds up to 17 showed LOST CONNECTION after a protocol bump) |
 | `-DDK_AT_ONLINE -DDK_AT_RESTART -DDK_AT_LOBBY=<n>` | Starts a race alone, prints `restart the server now`, and once the harness has restarted the server with the same `-race-seed` must come back through the browser, rejoin and get into the next race, whose id repeats (builds up to 18 sat in the room showing RACE IN PROGRESS) |
 | `-DDK_AT_LIVE` | With the online autotests against dcvmu.com: the chat check no longer expects the bot's second line starred (the live word list has no BLORP) |
@@ -196,9 +205,9 @@ The `hw` targets run on a real console and need the
 | `-DDK_AT_SETTINGS` (capture), then `-DDK_AT_SETTINGS_WANT` | Walks the Settings menu: music off, volume 6, a custom kart painted and saved, CUSTOM on the race setup's colour row, the online name saved; the second build checks a reboot loads them all. Run both with `DK_VMU_DIR=<folder of blank cards>` so the real VMU is left alone |
 | `-DDK_AT_ONLINE -DDK_AT_CUSTOM` | Goes online with a custom kart; `DK ONLINE: kart` lines show every racer's colour and picks as the lobby sent them (pair with `dk-bot -colour 8 -custom 2,3,4`, the rest as in server/README.md) |
 | `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
-| `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own. Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
+| `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own; `=4` Night Meet instead (the food truck and its queue, the bleachers, the vending machines, the south side from above, the buzzing sign lit and put out, both on-ramps from the road and from the side). Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
 | `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |
-| `-DDK_CHUNK_STATS` | Spiral Canyon, Tsudoken Drift and Apple Valley: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches; for Tsudoken and Apple Valley ground, road, buildings, trees and scrub), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
+| `-DDK_CHUNK_STATS` | Spiral Canyon, Tsudoken Drift, Apple Valley and Night Meet: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches; for Tsudoken and Apple Valley ground, road, buildings, trees and scrub; for Night Meet props, ground, ring, decks, skyline), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
 | `-DDK_PERF_HUD` | Starts with the performance overlay on (the pause menu's PERF: OVERLAY): frame CPU time and its phases, PVR render time, vertex buffer, triangles and missed vblanks, half-second averages and maxima against the 16.68 ms frame. It costs ~0.3 ms of CPU a frame on the console. In Flycast the PVR row is a constant 7.50 ms and VTX reads `--`, so judge headroom on hardware. hwbench adds a `-perfhud` probe step |
 | `-DDK_AT_PVRSPIKE=15.0f` | Logs where any race frame's PVR render runs over that many ms (`DK PVRSPIKE`, the player's lap distance and heading), at most one line in 2.5 s |
 | `-DDK_AT_WALLRIDE`, `-DDK_AT_ZIGZAG` | The player rides the right rail all of lap 1 and the left all of lap 2, or slams the rails at an angle every 1.5 s; any kart ending up past a rail logs `DK ESCAPE` |
@@ -274,6 +283,30 @@ all eight courses) missed 61 of 54,733 frames, the track loads included.
 | --- | --- | --- | --- | --- |
 | Apple Valley 1P | 9.3 ms | 18.0 ms | 4 of ~8,700 | 1,241 KiB |
 | Apple Valley 2P split | 11.6 ms | 18.1 ms | 1 of ~8,700 | 1,172 KiB |
+
+Night Meet on the console (2026-10-29, `make hwbench EXTRA_CFLAGS=-DDK_AT_ROAM`,
+Free Roam, six karts cruising, 90 s): the lightest course for one player
+and middling in a split screen, where the world draw is the cost. Coarse
+split-screen copies of the floor, ring, decks and poles beyond 25 m (the
+other tracks' lod 1/2 pairs) took the split-screen world draw from 6.1 to
+4.4 ms a frame on average and from 10.1 to 6.6 ms from the bays with the
+whole lot in view; the props left (bleachers, trailers, service bays) are
+now the biggest sender. The lot's life (the Chao bystanders, the swaying
+crowd, the buzzing signs, the food truck) costs about 0.4 ms a frame in
+a split screen, half of it the Chao, and the Best Drift panel 0.1 ms; the
+lane ramps, the barrier's profile and the parking under the deck about
+0.4 ms of world draw. The rest of the rise from the first profile (6.2 and
+8.9 ms) is the sea glints, asphalt sheen and shadow volumes every track
+gained meanwhile: in a split screen they are 0.9 ms of the translucent
+and sea passes here.
+The PowerVR sits at 6 to 9 ms in the feature probes (grid, deck, lot
+floor) and peaks at 13 to 15 ms.
+
+| | CPU avg | Worst frame | Dropped race frames | Vertex buffer peak |
+| --- | --- | --- | --- | --- |
+| Night Meet 1P | 7.6 ms | 9.9 ms | 5 of ~6,160 | 878 KiB |
+| Night Meet 2P split, no coarse copies | 10.7 ms | 19.0 ms | 4 of ~6,300 | 948 KiB |
+| Night Meet 2P split | 10.9 ms | 18.2 ms | 7 of ~6,300 | 720 KiB |
 
 The PowerVR's render time peaks at 14 to 16 ms in the heaviest scenes, so
 the GPU is now as close to the limit as the CPU. Baseline, 2026-10-17: the

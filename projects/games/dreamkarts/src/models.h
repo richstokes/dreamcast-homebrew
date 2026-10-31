@@ -23,5 +23,10 @@ V3 models_kart_point_world(const Kart *k, V3 local);
    (negative: clear by that much; a large negative value off the road).
    For the autotest. */
 float models_kart_sink(const Kart *k);
+/* A Chao standing at p, facing yaw, its head turned head_yaw further,
+   baked into the world's vertex pool as static scenery (Night Meet's
+   bystanders): the driver's body and head at model lod 0, 1 or 3, in
+   the Chao colour and tip given, lit by the world's shading. */
+void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t tip, int lod);
 
 #endif
