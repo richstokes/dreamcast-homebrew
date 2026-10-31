@@ -29,7 +29,7 @@ Highlights:
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
 - Rocket starts, charge jumps, barrel rolls off the ramps for a landing boost, burnouts, emotes, final-lap dolphins and a biplane weaving ahead on Spiral Canyon's final lap
-- Seven songs by Alex Morgan as CD audio, shuffled through the races with NEXT SONG on the pause menu, 42 effects, Chao voices by colour and Jump Pack rumble
+- Nine songs by Alex Morgan as CD audio: a theme, six shuffled through the races with NEXT SONG on the pause menu, two lo-fi ones for the online lobby; 42 effects, Chao voices by colour and Jump Pack rumble
 - A Settings menu with the sound test, your online name, a music switch and volume, and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
 - VMU screens for the countdown, place, lap and results
 
@@ -96,12 +96,12 @@ projects/games/dreamkarts/run-flycast.sh      # builds first unless --skip-build
 
 Every build checks out the pinned SH4ZAM in the ignored `third_party/sh4zam`
 (see the repository README); asset generators and QA scripts run through `uv run`.
-The game is a disc: the music is seven CD audio tracks ahead of the data
+The game is a disc: the music is nine CD audio tracks ahead of the data
 track, which the GD-ROM plays by itself. `make music` downloads the songs
 (Alex Morgan's, listed with their checksums in `assets/music/tracks.txt`)
 from dcvmu.com and cuts them to `cdda/*.wav` with ffmpeg (`brew install
 ffmpeg`); `run-flycast.sh` wraps the ELF and those tracks in a throwaway CDI
-(`build/cdi/`, ~225 MB) with [mkdcdisc](https://gitlab.com/simulant/mkdcdisc),
+(`build/cdi/`, ~260 MB) with [mkdcdisc](https://gitlab.com/simulant/mkdcdisc),
 built once by `tools/mkdcdisc/build-macos.sh`; `make disc` builds the CDI the
 releases ship; under dcload the project directory is mapped at `/pc` and
 the music is silent (`make hw MUSIC=1` plays a DreamKarts disc in the tray).

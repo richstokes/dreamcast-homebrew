@@ -128,6 +128,10 @@ static void set_screen(int s) {
     leave_prompt = false;
     watch_prompt = false;
     if(s != OS_LOBBY) spectate_set(false);
+    /* The lobby songs from the connect screen on; the name entry (also the
+       Settings menu's) keeps the menu music. An error leaves it be. */
+    if(s == OS_CONNECT || s == OS_BROWSER || s == OS_LOBBY) audio_music_lobby(true);
+    else if(s == OS_NAME) audio_music_lobby(false);
 }
 
 void online_enter(void) {

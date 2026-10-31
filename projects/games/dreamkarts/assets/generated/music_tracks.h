@@ -2,9 +2,12 @@
 #ifndef DK_MUSIC_TRACKS_H
 #define DK_MUSIC_TRACKS_H
 
-/* The disc's CD-DA tracks in order; track 1 is the title theme. */
-#define DK_MUSIC_TRACKS 7
+/* The disc's CD-DA tracks in order. */
+#define DK_MUSIC_TRACKS 9
 #define DK_MUSIC_TITLE_TRACK 0
+/* Where each song plays: the title screen, the races' shuffle or the online lobby's. */
+typedef enum { DK_MUSIC_THEME, DK_MUSIC_RACE, DK_MUSIC_LOBBY } dk_music_role_t;
+static const uint8_t dk_music_role[DK_MUSIC_TRACKS] __attribute__((unused)) = {DK_MUSIC_THEME, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_LOBBY, DK_MUSIC_LOBBY};
 static const char *const dk_music_title[DK_MUSIC_TRACKS] __attribute__((unused)) = {
     "Gaming Rock",
     "Chill Sunset Groove",
@@ -13,10 +16,12 @@ static const char *const dk_music_title[DK_MUSIC_TRACKS] __attribute__((unused))
     "Arcade Retro Nights",
     "Neon Drive Horizon",
     "Techno Warehouse",
+    "Lofi",
+    "Lofi Coffee Shop",
 };
 /* Length in seconds. */
-static const float dk_music_secs[DK_MUSIC_TRACKS] __attribute__((unused)) = {109.9f, 178.8f, 179.8f, 167.5f, 137.4f, 213.2f, 237.5f};
+static const float dk_music_secs[DK_MUSIC_TRACKS] __attribute__((unused)) = {109.9f, 178.8f, 179.8f, 167.5f, 137.4f, 213.2f, 237.5f, 99.6f, 113.9f};
 /* Rough tempo, for the sound test's beat. */
-static const float dk_music_bpm[DK_MUSIC_TRACKS] __attribute__((unused)) = {136.0f, 86.0f, 126.0f, 112.0f, 126.0f, 101.0f, 136.0f};
+static const float dk_music_bpm[DK_MUSIC_TRACKS] __attribute__((unused)) = {136.0f, 86.0f, 126.0f, 112.0f, 126.0f, 101.0f, 136.0f, 70.0f, 70.0f};
 
 #endif /* DK_MUSIC_TRACKS_H */

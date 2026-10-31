@@ -2,13 +2,16 @@
 
    Music is CD-DA: the songs are audio tracks on the disc, which the GD-ROM
    plays by itself into the AICA's CD input, so they cost the SH-4 nothing
-   (no stream, no buffer, no decoder). The title screen plays the theme,
-   which is its alone; each race start (and the pause menu's NEXT SONG)
-   draws the next of the other songs from a shuffled bag, refilled when
-   empty, so every race song is heard before any comes round again. A song
-   that runs out on its own is followed by a random other one, chosen
-   outside the bag so a long spell in the menus does not use up the races'
-   order. A change of song fades the old one out before
+   (no stream, no buffer, no decoder). music_tracks.h gives each song a
+   role: the theme is the title screen's alone; each race start (and the
+   pause menu's NEXT SONG) draws the next race song from a shuffled bag,
+   refilled when empty, so every one is heard before any comes round again;
+   the online browser and lobby room play the lobby songs from a bag of
+   their own, and hand back to the race songs when a race starts or the
+   player leaves for the menu. A song that runs out on its own is followed
+   by a random other of its kind, chosen outside the bags so a long spell
+   in the menus does not use up the races' order. A change of song fades
+   the old one out before
    the drive is sent to the new one (which then fades in), so no song is
    cut off mid-note, and the seek happens in silence. The drive takes its orders from a jukebox thread
    (a GD-ROM command blocks for the seek, ~0.5 s on hardware), which also
@@ -57,8 +60,13 @@ static int music_song = -1;
 static int music_prev = -1;              /* the song before it */
 static int music_next = -1;              /* the song waiting for the fade-out */
 static float music_pos;
-static uint8_t music_bag[DK_MUSIC_TRACKS];   /* the races' shuffled order */
-static int music_bag_n, music_bag_i;
+/* A shuffled order of the songs of one role, refilled when it runs out. */
+typedef struct {
+    uint8_t order[DK_MUSIC_TRACKS];
+    int n, i;
+} MusicBag;
+static MusicBag race_bag, lobby_bag;
+static bool music_lobby;                 /* the online lobby screens are up */
 static uint32_t music_rng;
 static int music_starts, music_ends;     /* songs started and finished (autotest) */
 /* Volume: 0..255 as the rest of the game sets it, faded per frame and
@@ -286,45 +294,55 @@ static uint32_t music_rand(void) {
     return music_rng;
 }
 
-/* The race songs: all but the theme, unless there are too few for that. */
-static bool music_for_races(int song) {
-    return song != DK_MUSIC_TITLE_TRACK || music_tracks < 3;
+/* The songs of a role; the theme stands in for a role with no songs of
+   its own (a disc cut from a shorter manifest). */
+static bool music_has_role(int song, int role) {
+    return song < music_tracks && dk_music_role[song] == role;
 }
 
-/* A fresh shuffle of the race songs, not opening with the one playing. */
-static void music_refill_bag(void) {
-    music_bag_n = 0;
+static int music_role_now(void) {
+    return music_lobby ? DK_MUSIC_LOBBY : DK_MUSIC_RACE;
+}
+
+/* A fresh shuffle of a role's songs, not opening with the one playing. */
+static void music_refill_bag(MusicBag *bag, int role) {
+    bag->n = 0;
     for(int i = 0; i < music_tracks; i++)
-        if(music_for_races(i)) music_bag[music_bag_n++] = (uint8_t)i;
-    for(int i = music_bag_n - 1; i > 0; i--) {
+        if(music_has_role(i, role)) bag->order[bag->n++] = (uint8_t)i;
+    if(!bag->n) bag->order[bag->n++] = DK_MUSIC_TITLE_TRACK;
+    for(int i = bag->n - 1; i > 0; i--) {
         int j = (int)(music_rand() % (uint32_t)(i + 1));
-        uint8_t t = music_bag[i];
-        music_bag[i] = music_bag[j];
-        music_bag[j] = t;
+        uint8_t t = bag->order[i];
+        bag->order[i] = bag->order[j];
+        bag->order[j] = t;
     }
-    if(music_bag_n > 1 && music_bag[0] == music_song) {
-        uint8_t t = music_bag[0];
-        music_bag[0] = music_bag[music_bag_n - 1];
-        music_bag[music_bag_n - 1] = t;
+    if(bag->n > 1 && bag->order[0] == music_song) {
+        uint8_t t = bag->order[0];
+        bag->order[0] = bag->order[bag->n - 1];
+        bag->order[bag->n - 1] = t;
     }
-    music_bag_i = 0;
+    bag->i = 0;
 }
 
 static int music_next_song(void) {
-    if(music_bag_i >= music_bag_n) music_refill_bag();
-    return music_bag[music_bag_i++];
+    MusicBag *bag = music_lobby ? &lobby_bag : &race_bag;
+    if(bag->i >= bag->n) music_refill_bag(bag, music_role_now());
+    return bag->order[bag->i++];
 }
 
-/* After a song runs out: a random race song other than it and the one
-   before, leaving the bag alone. */
+/* After a song runs out (or the lobby screens close): a random song of
+   the current kind other than the one playing and the one before, leaving
+   the bags alone. */
 static int music_follow_song(void) {
+    int role = music_role_now();
     int pick[DK_MUSIC_TRACKS], n = 0;
     for(int i = 0; i < music_tracks; i++)
-        if(music_for_races(i) && i != music_song && i != music_prev) pick[n++] = i;
+        if(music_has_role(i, role) && i != music_song && i != music_prev) pick[n++] = i;
     if(!n)
         for(int i = 0; i < music_tracks; i++)
-            if(i != music_song) pick[n++] = i;
-    return n ? pick[music_rand() % (uint32_t)n] : music_song;
+            if(music_has_role(i, role) && i != music_song) pick[n++] = i;
+    if(!n) return music_next_song();
+    return pick[music_rand() % (uint32_t)n];
 }
 
 /* Start a song now: the drive is told to play its track, the song's clock
@@ -356,13 +374,25 @@ static void music_play_song(int song) {
 }
 
 void audio_music_title(void) {
+    music_lobby = false;
     int now = music_next >= 0 ? music_next : music_song;
     if(now == DK_MUSIC_TITLE_TRACK && jb_playing) return;
     music_play_song(DK_MUSIC_TITLE_TRACK);
 }
 
 void audio_music_start(void) {
+    music_lobby = false;
     music_play_song(music_next_song());
+}
+
+void audio_music_lobby(bool on) {
+    if(on == music_lobby || !music_tracks) return;
+    music_lobby = on;
+    int now = music_next >= 0 ? music_next : music_song;
+    if(on) {
+        if(now < 0 || !music_has_role(now, DK_MUSIC_LOBBY)) music_play_song(music_next_song());
+    }
+    else if(now >= 0 && music_has_role(now, DK_MUSIC_LOBBY)) music_play_song(music_follow_song());
 }
 
 void audio_music_next(void) {

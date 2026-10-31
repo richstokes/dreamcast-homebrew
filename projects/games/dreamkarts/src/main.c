@@ -163,6 +163,7 @@ void game_set_state(int state) {
         audio_kart_loops(0, NULL, DK_DT);
         audio_kart_loops(1, NULL, DK_DT);
         if(state == ST_TITLE) audio_music_title();
+        else if(state != ST_ONLINE) audio_music_lobby(false);
         audio_music_target(210);
     }
     if(state == ST_INTRO) {

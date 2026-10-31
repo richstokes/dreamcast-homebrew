@@ -21,6 +21,9 @@ void audio_music_title(void);
 void audio_music_start(void);
 /* The pause menu's NEXT SONG: the next of that shuffle. */
 void audio_music_next(void);
+/* The online browser and lobby room are showing (on) or have closed
+   (off): their own songs while they are, the race songs again after. */
+void audio_music_lobby(bool on);
 /* Sound test: play a song from its start. */
 void audio_music_play(int song);
 /* The song playing now; its elapsed and total seconds (either may be NULL). */
