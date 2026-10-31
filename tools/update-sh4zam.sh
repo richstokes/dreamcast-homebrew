@@ -13,7 +13,7 @@
 set -eu
 
 SH4ZAM_URL="${SH4ZAM_URL:-https://github.com/gyrovorbis/sh4zam.git}"
-SH4ZAM_COMMIT="${SH4ZAM_COMMIT:-70dbb177b20c1734fbe4f97df0f8c6ec87a8e8d3}"   # v0.10.0
+SH4ZAM_COMMIT="${SH4ZAM_COMMIT:-ad2f8909e8dc8f30489e6b74cd07536321f13d89}"   # v0.10.0 + AGENTS.md update
 
 if [ "$#" -eq 0 ]; then
     echo "usage: $0 <checkout-dir>..." >&2
