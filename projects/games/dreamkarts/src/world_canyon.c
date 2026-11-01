@@ -87,6 +87,7 @@ static float dr_terrain_raw(float x, float z) {
 #define DR_G0X (-340.0f)
 #define DR_G0Z (-300.0f)
 #define DR_GSTEP 17.0f
+#define DR_MEADOW_Y (-1.0f)   /* the flat land past the grid, and where the far hills' feet go */
 static float dr_gy[DR_GZ][DR_GX];
 static bool dr_gy_ready;
 
@@ -183,14 +184,15 @@ static void dr_build_ground(void) {
             chunk_end();
         }
     }
-    /* Flat meadow out to the horizon beyond the grid. */
+    /* Flat meadow out to the horizon beyond the grid, just under the
+       grid's lowest edge so no gap opens between them. */
     chunk_begin(HF_OP, 4000.0f);
-    const float G = 340.0f, E = 3000.0f, y = dr_terrain_raw(G, G);
+    const float GX = xs[nx - 1], Z0 = zs[0], Z1 = zs[nz - 1], E = 3000.0f, y = DR_MEADOW_Y;
     uint32_t col = dr_grass_color(y);
-    quad(h_meadow, v3(-E, y, E), v3(E, y, E), v3(-E, y, G), v3(E, y, G), -E / 9, E / 9, E / 9, G / 9, col);
-    quad(h_meadow, v3(-E, y, -G), v3(E, y, -G), v3(-E, y, -E), v3(E, y, -E), -E / 9, -G / 9, E / 9, -E / 9, col);
-    quad(h_meadow, v3(-E, y, G), v3(-G, y, G), v3(-E, y, -G), v3(-G, y, -G), -E / 9, G / 9, -G / 9, -G / 9, col);
-    quad(h_meadow, v3(G, y, G), v3(E, y, G), v3(G, y, -G), v3(E, y, -G), G / 9, G / 9, E / 9, -G / 9, col);
+    quad(h_meadow, v3(-E, y, E), v3(E, y, E), v3(-E, y, Z1), v3(E, y, Z1), -E / 9, E / 9, E / 9, Z1 / 9, col);
+    quad(h_meadow, v3(-E, y, Z0), v3(E, y, Z0), v3(-E, y, -E), v3(E, y, -E), -E / 9, Z0 / 9, E / 9, -E / 9, col);
+    quad(h_meadow, v3(-E, y, Z1), v3(-GX, y, Z1), v3(-E, y, Z0), v3(-GX, y, Z0), -E / 9, Z1 / 9, -GX / 9, Z0 / 9, col);
+    quad(h_meadow, v3(GX, y, Z1), v3(E, y, Z1), v3(GX, y, Z0), v3(E, y, Z0), GX / 9, Z1 / 9, E / 9, Z0 / 9, col);
     chunk_end();
     /* The lake: a still disc of water. */
     chunk_begin(HF_OP, 1500.0f);
@@ -1623,7 +1625,7 @@ void draw_canyon_hills(void) {
                      3.0f * sinf(a * 13.0f + (float)layer * 2.3f);
                 float x = c.x + sinf(a) * R, z = c.z + cosf(a) * R;
                 v[n++] = (RV){x, h, z, 0, 0, ridge};
-                v[n++] = (RV){x, 4.0f, z, 0, 0, foot};
+                v[n++] = (RV){x, DR_MEADOW_Y - 1.0f, z, 0, 0, foot};
             }
             r_strip(v, n);
         }
