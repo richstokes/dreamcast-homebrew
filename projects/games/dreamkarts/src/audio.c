@@ -53,6 +53,12 @@ static bool ready;
    order: music_tracks is how many the TOC had (0: no music). */
 static int music_tracks;
 static uint8_t music_track_no[DK_MUSIC_TRACKS];
+/* Each track's first sector (FAD, from the TOC): a song is played as a
+   sector range ending where its audio does, not where the next track
+   starts, since the 2 s pregap between tracks is silence on a disc and
+   missing sectors in a CDI, which Flycast fills with silence and a warning
+   per sector. */
+static uint32_t music_track_fad[DK_MUSIC_TRACKS];
 static bool music_silent;                /* dcload: the drive is not touched */
 /* What plays: the song (-1 none), its clock in seconds, and the shuffled
    order the next songs come in. */
@@ -155,7 +161,17 @@ static void *jukebox_thread(void *arg) {
         uint64_t now_before = timer_us_gettime64();
         (void)now_before;
         if(cmd == JB_PLAY) {
-            err = cdrom_cdda_play((uint32_t)track, (uint32_t)track, 0, CDDA_TRACKS);
+            int song = 0;
+            while(song < music_tracks - 1 && music_track_no[song] != track) song++;
+            uint32_t first = music_track_fad[song], sectors = (uint32_t)(dk_music_secs[song] * 75.0f);
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+            printf("DK JUKEBOX: song %d track %d FAD %lu + %lu sectors\n", song, track, (unsigned long)first,
+                   (unsigned long)sectors);
+#endif
+            if(first && sectors > 2)
+                err = cdrom_cdda_play(first, first + sectors - 2, 0, CDDA_SECTORS);
+            else
+                err = cdrom_cdda_play((uint32_t)track, (uint32_t)track, 0, CDDA_TRACKS);
             started_us = timer_us_gettime64();
             jb_playing = err == 0;
             watching = err == 0;
@@ -174,8 +190,9 @@ static void *jukebox_thread(void *arg) {
 #if defined(DK_AUTOTEST) && !defined(DK_HW)
         if(cmd != JB_NONE) {
             static const char *const names[] = {"", "play", "pause", "resume"};
-            printf("DK JUKEBOX: %s %d -> %d (%lu ms)\n", names[cmd], track, err,
-                   (unsigned long)((timer_us_gettime64() - now_before) / 1000));
+            printf("DK JUKEBOX: %s %d -> %d (%lu ms) at %lu ms\n", names[cmd], track, err,
+                   (unsigned long)((timer_us_gettime64() - now_before) / 1000),
+                   (unsigned long)(timer_us_gettime64() / 1000));
         }
 #endif
         uint64_t now = timer_us_gettime64();
@@ -189,7 +206,8 @@ static void *jukebox_thread(void *arg) {
                 jb_playing = false;
                 jb_ended = true;
 #if defined(DK_AUTOTEST) && !defined(DK_HW)
-                printf("DK JUKEBOX: track ended (status %d)\n", status);
+                printf("DK JUKEBOX: track ended (status %d) at %lu ms\n", status,
+                       (unsigned long)(now / 1000));
 #endif
             }
         }
@@ -221,7 +239,10 @@ void audio_disc_init(void) {
     }
     int first = (int)TOC_TRACK(toc.first), last = (int)TOC_TRACK(toc.last);
     for(int t = first; t <= last && t >= 1 && t <= 99 && music_tracks < DK_MUSIC_TRACKS; t++)
-        if(!(TOC_CTRL(toc.entry[t - 1]) & 4)) music_track_no[music_tracks++] = (uint8_t)t;
+        if(!(TOC_CTRL(toc.entry[t - 1]) & 4)) {
+            music_track_fad[music_tracks] = TOC_LBA(toc.entry[t - 1]);
+            music_track_no[music_tracks++] = (uint8_t)t;
+        }
     if(music_tracks != DK_MUSIC_TRACKS)
         printf("DreamKarts audio: %d CD-DA tracks on the disc, the build has %d songs\n", music_tracks, DK_MUSIC_TRACKS);
 }
