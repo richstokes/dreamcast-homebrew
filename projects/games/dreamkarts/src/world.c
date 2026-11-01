@@ -32,9 +32,9 @@ static bool world_lot;
 bool world_sunset;
 static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
 /* Spiral Canyon's sun, along the start straight (sun_ahead) at
-   DR_SUN_EL up, sinks by up to 44% of that over a race. */
+   DR_SUN_EL up, sinks by up to 74% of that over a race. */
 #define DR_SUN_EL   0.11f
-#define DR_SUN_SINK 0.4375f
+#define DR_SUN_SINK 0.74f
 static V3 sun_ahead;
 uint16_t world_light[3] = {256, 256, 256};
 
@@ -1071,6 +1071,17 @@ static void draw_clouds_and_mountains(void) {
         tk_draw_hills();
     }
     else if(world_canyon) {
+        if(world_sunset) {
+            /* The retrowave sun in a wide pink glow, sent before the hills
+               so they hide its foot (the list draws in the order sent). */
+            V3 sp = vmad(c, sun_disc_dir, 1450.0f);
+            if(r_sphere_visible(sp, 420.0f)) {
+                r_hdr(h_glow_add);
+                r_billboard(sp, 900.0f, 620.0f, 0, 0, 0, 1, 1, argb(150, 255, 110, 120));
+                r_hdr(h_retrosun);
+                r_billboard(sp, 340.0f, 340.0f, 0, 0, 0, 1, 1, 0xffffffff);
+            }
+        }
         draw_canyon_hills();
     }
     else if(world_av) {
@@ -1146,19 +1157,7 @@ static void draw_clouds_and_mountains(void) {
         r_strip(q, 4);
     }
 
-    if(world_tk) return;
-    if(world_sunset) {
-        /* The retrowave sun, beyond the hills so they hide its foot, in a
-           wide pink glow. */
-        V3 sp = vmad(c, sun_disc_dir, 1450.0f);
-        if(r_sphere_visible(sp, 420.0f)) {
-            r_hdr(h_glow_add);
-            r_billboard(sp, 900.0f, 620.0f, 0, 0, 0, 1, 1, argb(150, 255, 110, 120));
-            r_hdr(h_retrosun);
-            r_billboard(sp, 340.0f, 340.0f, 0, 0, 0, 1, 1, 0xffffffff);
-        }
-        return;
-    }
+    if(world_tk || world_sunset) return;
 
     /* The sun. */
     V3 sp = vmad(c, world_sun_dir, 1300.0f);
