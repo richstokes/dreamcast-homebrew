@@ -395,8 +395,11 @@ void audio_music_lobby(bool on) {
     else if(now >= 0 && music_has_role(now, DK_MUSIC_LOBBY)) music_play_song(music_follow_song());
 }
 
-void audio_music_next(void) {
-    music_play_song(music_next_song());
+int audio_music_next(void) {
+    if(!ready || !music_tracks) return -1;
+    int song = music_next_song();
+    music_play_song(song);
+    return song;
 }
 
 void audio_music_play(int song) {

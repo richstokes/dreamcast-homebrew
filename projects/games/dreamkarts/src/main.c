@@ -3,6 +3,7 @@
    Main loop, race flow, cameras and the player's controls. Physics run at a
    fixed 60 Hz; rendering is vsynced through the PVR. The scripted builds'
    tooling (autotest, captures, tours, demo recording) is in autotest.c. */
+#include <ctype.h>
 #include "dk.h"
 #include "audio.h"
 #include "fx.h"
@@ -577,7 +578,15 @@ static void pause_update(void) {
     }
     /* NEXT SONG skips to the next of the shuffle and keeps the game paused. */
     if(game.pause_sel == PAUSE_NEXT_SONG && ((pd->pressed & BTN_A) || input_right(o))) {
-        audio_music_next();
+        int song = audio_music_next();
+        if(song >= 0) {
+            /* The song's name in the HUD font's capitals; with the music
+               switched off it is queued, not heard, so say so. */
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%s: %s", audio_music_enabled() ? "NOW PLAYING" : "MUSIC OFF - NEXT SONG", dk_music_title[song]);
+            for(char *c = buf; *c; c++) *c = (char)toupper((unsigned char)*c);
+            hud_toast(buf);
+        }
         audio_sfx(DK_SFX_MENU_SELECT, 200, 128);
         return;
     }
@@ -980,6 +989,7 @@ static void render(void) {
                 hud_draw_split_overlay();
             }
             if(game.paused) hud_draw_pause();
+            hud_draw_toast();
             if(game.online) online_draw_race();
             break;
         case ST_RESULTS:

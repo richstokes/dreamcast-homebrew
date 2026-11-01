@@ -19,8 +19,9 @@ void audio_music_title(void);
    the title screen). Every change of song fades the one playing out first
    (~0.4 s), then fades the new one in. */
 void audio_music_start(void);
-/* The pause menu's NEXT SONG: the next of that shuffle. */
-void audio_music_next(void);
+/* The pause menu's NEXT SONG: the next of that shuffle. Returns the song
+   it goes to, or -1 when there is no music to change (no disc, say). */
+int audio_music_next(void);
 /* The online browser and lobby room are showing (on) or have closed
    (off): their own songs while they are, the race songs again after. */
 void audio_music_lobby(bool on);

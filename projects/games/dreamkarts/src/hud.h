@@ -45,6 +45,10 @@ void hud_trophy(float x, float y, float s, uint32_t col);
 void hud_swatch(float x, float y, uint32_t paint1, uint32_t ui);
 enum { PAUSE_CONTINUE, PAUSE_RESTART, PAUSE_MUSIC, PAUSE_NEXT_SONG, PAUSE_PERF, PAUSE_QUIT, PAUSE_ITEMS };
 void hud_draw_pause(void);
+/* A short notice in a band at the top of the screen ("NOW PLAYING: ..."),
+   drawn over the race by hud_draw_toast until it fades. */
+void hud_toast(const char *text);
+void hud_draw_toast(void);
 /* Pop-up messages ("FINAL LAP!", lap times). */
 void hud_message(int player, const char *text, uint32_t col, float seconds);
 void hud_lap_popup(int player, int lap, float time, bool best);

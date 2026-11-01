@@ -22,6 +22,9 @@ static struct {
     bool lap_best;
 } pm[MAX_PLAYERS];
 static float hud_time;
+static char toast[64];           /* hud_toast's notice, shown while toast_t > 0 */
+static float toast_t;
+#define TOAST_SECS 2.4f
 
 void hud_init(void) {
     h_font = r_header(TEX_FONT, HF_TR | HF_NOFOG | HF_NOZTEST | HF_CLAMP);
@@ -36,6 +39,7 @@ void hud_reset(void) {
 
 void hud_update(float dt) {
     hud_time += dt;
+    if(toast_t > 0) toast_t -= dt;
     for(int p = 0; p < MAX_PLAYERS; p++) {
         if(pm[p].msg_t > 0) pm[p].msg_t -= dt;
         if(pm[p].lap_t > 0) pm[p].lap_t -= dt;
@@ -446,6 +450,23 @@ void hud_draw_results(void) {
     float in = clampf(game.time - 0.6f, 0, 1);
     if(in > 0)
         for(int i = 0; i < RESULTS_ITEMS; i++) ui_button(cx + (i - 1) * 142, y1 - 34, 130, next[i], i == game.results_sel);
+}
+
+void hud_toast(const char *text) {
+    snprintf(toast, sizeof(toast), "%s", text);
+    toast_t = TOAST_SECS;
+}
+
+/* The same slim band as the online join toast: top centre, clear of the
+   lap and timer boxes and above the pause panel, fading in over 0.2 s and
+   out over the last 0.4 s. Drawn after the pause menu's dim so it stays
+   bright while the game is paused. */
+void hud_draw_toast(void) {
+    if(toast_t <= 0) return;
+    float a = fminf((TOAST_SECS - toast_t) / 0.2f, fminf(toast_t / 0.4f, 1.0f));
+    float w = hud_text_width(toast, 0.42f) + 36;
+    ui_pill(320 - w * 0.5f, 6, 320 + w * 0.5f, 34, color_alpha(argb(255, 18, 40, 108), a), color_alpha(argb(255, 8, 16, 52), a));
+    hud_text_c(320, 20, 0.42f, ALIGN_CENTER, color_alpha(ui_col(UI_ACCENT), a), toast);
 }
 
 void hud_draw_pause(void) {
