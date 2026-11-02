@@ -187,7 +187,19 @@ void add_arch(V3 c, float yaw);
 void add_lighthouse(V3 c);
 void add_boat(V3 c, float yaw, uint32_t hull);
 void add_gantry(void);
-void add_grandstand(float x0, float x1, float zf);
+/* wave: the crowd stands in turn, a Mexican wave along the stand
+   (grandstand_update each frame); one such stand a track. */
+void add_grandstand(float x0, float x1, float zf, bool wave);
+void grandstand_update(void);
+/* A Chao standing about: baked scenery that bobs on the spot while a
+   player is near. */
+typedef struct {
+    V3 p;
+    int first, count;   /* its vertices in the pool (the detailed copy) */
+    float phase, bob;   /* bob: the offset applied so far, undone before the next */
+} Bystander;
+void add_chao(Bystander *b, V3 p, float yaw, float head, int pal, float phase);
+void bystanders_update(Bystander *b, int n, float amp);
 void add_sign(V3 c, float yaw);
 void add_pier(float x, float z0);
 void add_pond(V3 c, float rx, float rz);
@@ -248,6 +260,9 @@ void build_figure8(void);
 /* Palm Harbour (world_harbour.c) */
 bool hb_clear(V3 p, float margin);
 void build_harbour(void);
+void hb_init(void);
+void hb_update(void);
+void hb_draw_op(void);
 
 /* Temple Hill (world_temple.c); its flames are Spiral Canyon's torches too */
 extern V3 th_flame_p[TH_FLAMES];

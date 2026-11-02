@@ -77,7 +77,7 @@ static void f8_place_props(void) {
     f8_jump_face(track_wrap(track.jump.cross + track.jump.land), -1.0f);
     chunk_end();
     add_gantry();
-    add_grandstand(-15.0f, 45.0f, -62.0f);
+    add_grandstand(-15.0f, 45.0f, -62.0f, false);
 
     /* Lagoons in both loops. */
     for(int side = -1; side <= 1; side += 2) {

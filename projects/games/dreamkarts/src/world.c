@@ -179,6 +179,7 @@ void world_init(void) {
     dr_init();
     h_retrosun = r_header(TEX_RETROSUN, HF_TR | HF_NOFOG);
     h_sky_nz = r_header(TEX_NONE, HF_OP | HF_NOFOG | HF_NOZWRITE);
+    hb_init();
     tk_init();
     h_sundisc = r_header(TEX_SUNDISC, HF_TR | HF_NOFOG);
     h_far_sprite = h_palm_far;
@@ -337,6 +338,7 @@ void world_update(float dt) {
     if(world_canyon || world_tk || world_av || world_lot) ck_frame();
 #endif
     if(world_lot) lot_update(dt);
+    if(track.id == TRACK_HARBOUR) hb_update();
     /* The road's lights run forward a repeat (about 8 m) every 0.55 s. */
     if(world_canyon) sk_road_hdr = *h_canyonroad;
     else if(world_night) {
@@ -985,6 +987,7 @@ void world_draw_op(void) {
         PROF_LAP(PS_CHUNKS, pm);
         draw_dash_pads();
         if(world_av) av_draw_windsock();
+        if(track.id == TRACK_HARBOUR) hb_draw_op();
     }
 }
 

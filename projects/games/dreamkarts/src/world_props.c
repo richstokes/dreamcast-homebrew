@@ -3,6 +3,7 @@
    the props baked in Blender. */
 #include "tsudoken_props.h"   /* for dk_prop_t (its meshes are Tsudoken's) */
 #include "world_int.h"
+#include "models.h"
 
 void add_palm(V3 base, float height, float lean_yaw, float lean, uint32_t seed) {
     if(palm_n >= MAX_PALMS) return;
@@ -194,6 +195,18 @@ void add_boat(V3 c, float yaw, uint32_t hull) {
     chunk_end();
 }
 
+/* The top, underside and ends that close a banner's two faces into a box:
+   l and r its ends on the centre plane, off half its thickness. */
+static void banner_edges(V3 l, V3 r, V3 off, float y0, float y1, uint32_t col) {
+    V3 up0 = v3(0, y0, 0), up1 = v3(0, y1, 0), back = vscale(off, -1);
+    V3 t0 = vadd(l, up1), t1 = vadd(r, up1), b0 = vadd(l, up0), b1 = vadd(r, up0);
+    uint32_t under = color_scale(col, 0.7f);
+    quad(h_col, vadd(t0, back), vadd(t1, back), vadd(t0, off), vadd(t1, off), 0, 0, 1, 1, col);
+    quad(h_col, vadd(b0, back), vadd(b1, back), vadd(b0, off), vadd(b1, off), 0, 0, 1, 1, under);
+    quad(h_col, vadd(t0, back), vadd(t0, off), vadd(b0, back), vadd(b0, off), 0, 0, 1, 1, col);
+    quad(h_col, vadd(t1, back), vadd(t1, off), vadd(b1, back), vadd(b1, off), 0, 0, 1, 1, col);
+}
+
 void add_gantry(void) {
     const TrackSample *t = &track.smp[0];
     chunk_begin(HF_OP, 900.0f);
@@ -216,9 +229,7 @@ void add_gantry(void) {
         svp(c, 0, 0.5f, 0xffffffff); svp(d, 1, 0.5f, 0xffffffff);
         strip_end();
     }
-    V3 top0 = vadd(l, v3(0, y1, 0)), top1 = vadd(r, v3(0, y1, 0));
-    quad(h_col, vadd(top0, vscale(off, -1)), vadd(top1, vscale(off, -1)), vadd(top0, off), vadd(top1, off),
-         0, 0, 1, 1, argb(255, 30, 70, 190));
+    banner_edges(l, r, off, y0, y1, argb(255, 30, 70, 190));
     chunk_end();
 
     /* Chequered start line, slightly above the asphalt. */
@@ -235,15 +246,54 @@ void add_gantry(void) {
     chunk_end();
 }
 
+#define STAND_TIERS 5
+#define STAND_SEGS  14
+#define STAND_RISE  0.95f      /* the crest of the wave, sway included */
+#define STAND_GAP   16.0f      /* seconds from one wave to the next */
+#define STAND_SWEEP 6.0f       /* seconds along the stand */
+static int stand_first[STAND_TIERS];
+static float stand_y[STAND_TIERS], stand_x0, stand_x1;
+static bool stand_wave;
+
+/* Each frame: the top edge of each tier, written straight into the pool
+   the chunks are drawn from. The tiers were built at full rise, so the
+   bounding spheres hold the crest. */
+void grandstand_update(void) {
+    if(!stand_wave) return;
+    float wave[8];
+    for(int i = 0; i < 8; i++) wave[i] = 0.05f * sinf(world_time * 3.6f + (float)i * (DK_TAU / 8.0f));
+    float crest = lerpf(stand_x0 - 12.0f, stand_x1 + 12.0f, fmodf(world_time, STAND_GAP) / STAND_SWEEP);
+    for(int tier = 0; tier < STAND_TIERS; tier++) {
+        RV *v = pool + stand_first[tier];
+        for(int k = 0; k <= STAND_SEGS; k++) {
+            float x = lerpf(stand_x0, stand_x1, (float)k / STAND_SEGS);
+            float d = (x - crest - (float)tier * 1.5f) / 10.0f, up = 1.0f - d * d;
+            float rise = up > 0 ? (STAND_RISE - 0.05f) * up * up : 0;
+            v[2 * k].y = stand_y[tier] + rise + wave[(k * 3 + tier * 5) & 7];
+        }
+    }
+}
+
 /* Tiered seating along z = zf, spectators facing north. */
-void add_grandstand(float x0, float x1, float zf) {
+void add_grandstand(float x0, float x1, float zf, bool wave) {
     chunk_begin(HF_OP, 900.0f);
     float dz = zf + 82.0f;
     for(int tier = 0; tier < 5; tier++) {
         float z = -82.0f + dz - tier * 2.6f, y = 0.9f + tier * 1.2f;
         /* Seats with spectators facing the track (north). */
         V3 a = v3(x0, y, z), b = v3(x1, y, z), c = v3(x0, y - 1.2f, z + 0.1f), d = v3(x1, y - 1.2f, z + 0.1f);
-        quad(h_crowd, a, b, c, d, 0, 0, (x1 - x0) / 3.0f, 0.6f, argb(255, 255, 255, 255));
+        if(wave) {
+            strip_begin(h_crowd);
+            for(int k = 0; k <= STAND_SEGS; k++) {
+                float t = (float)k / STAND_SEGS, u = t * (x1 - x0) / 3.0f;
+                svp(v3(lerpf(x0, x1, t), y + STAND_RISE, z), u, 0, 0xffffffff);
+                svp(v3(lerpf(x0, x1, t), y - 1.2f, z + 0.1f), u, 0.6f, 0xffffffff);
+            }
+            strip_end();
+            stand_first[tier] = strips[strip_n - 1].first;
+            stand_y[tier] = y;
+        }
+        else quad(h_crowd, a, b, c, d, 0, 0, (x1 - x0) / 3.0f, 0.6f, argb(255, 255, 255, 255));
         V3 e = v3(x0, y, z - 2.6f), f = v3(x1, y, z - 2.6f);
         quad(h_col, e, f, a, b, 0, 0, 1, 1, argb(255, 190, 196, 210));
     }
@@ -260,6 +310,64 @@ void add_grandstand(float x0, float x1, float zf) {
              v3(xb, 9.0f, -81.5f + dz), 0, 0, 1, 1, col);
     }
     chunk_end();
+    stand_wave = wave;
+    stand_x0 = x0;
+    stand_x1 = x1;
+}
+
+/* The world's mesh builder as the sink for baked models (models.h): the
+   plain-colour material, a vertex each as the pool takes it, the lit
+   ones shaded by their normal as the rest of the scenery is. */
+static void sink_begin(void *ctx) {
+    (void)ctx;
+    strip_begin(h_col);
+}
+static void sink_vertex(void *ctx, V3 p, V3 n, uint32_t c, bool lit) {
+    (void)ctx;
+    svp(p, 0, 0, lit ? shade(c, n) : c);
+}
+static void sink_end(void *ctx) {
+    (void)ctx;
+    strip_end();
+}
+static const ModelSink world_sink = {NULL, sink_begin, sink_vertex, sink_end};
+
+/* The drivers' model (lod 1) baked as scenery, with its far copy (lod 3)
+   for a split screen beyond SPLIT_NEAR. */
+void add_chao(Bystander *b, V3 p, float yaw, float head, int pal, float phase) {
+    const PaletteColour *c = &kart_palette[pal % PALETTE_COUNT];
+    b->p = p;
+    b->phase = phase;
+    b->bob = 0;
+    chunk_begin(HF_OP, 260.0f);
+    if(cur_chunk) cur_chunk->lod = 1;
+    b->first = pool_n;
+    models_bake_chao(p, yaw, head, c->rgb, c->tip, 1, &world_sink);
+    b->count = pool_n - b->first;
+    chunk_end();
+    chunk_begin(HF_OP, 260.0f);
+    if(cur_chunk) cur_chunk->lod = 2;
+    models_bake_chao(p, yaw, head, c->rgb, c->tip, 3, &world_sink);
+    chunk_end();
+}
+
+/* The last offset undone with the new one, only within sight of a player:
+   every vertex touched is a cache miss on the console, and all fifteen a
+   frame cost 0.3 ms. */
+void bystanders_update(Bystander *people, int n, float amp) {
+    for(int i = 0; i < n; i++) {
+        Bystander *b = &people[i];
+        bool near = false;
+        for(int pl = 0; pl < game.num_players; pl++) {
+            V3 d = vsub(karts[game.pl[pl].kart].pos, b->p);
+            if(d.x * d.x + d.z * d.z < 30.0f * 30.0f) near = true;
+        }
+        if(!near) continue;
+        float bob = amp * sinf(world_time * 2.2f + b->phase);
+        float d = bob - b->bob;
+        b->bob = bob;
+        for(int v = 0; v < b->count; v++) pool[b->first + v].y += d;
+    }
 }
 
 void add_sign(V3 c, float yaw) {
@@ -277,6 +385,7 @@ void add_sign(V3 c, float yaw) {
         svp(vadd(r, v3(0, 5.0f, 0)), 1, 0.5f, 0xffffffff);
         strip_end();
     }
+    banner_edges(vmad(c, ax, 8.0f), vmad(c, ax, -8.0f), vscale(fw, 0.25f), 5.0f, 9.0f, argb(255, 30, 70, 190));
     chunk_end();
 }
 

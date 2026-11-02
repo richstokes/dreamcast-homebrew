@@ -41,11 +41,6 @@ static const pvr_poly_hdr_t *h_floor, *h_apron, *h_concrete, *h_lotsigns, *h_lot
    the drivers' model and bobbing on the spot, the crowd on the bleachers
    swaying, and a neon sign or two buzzing. */
 #define LOT_PEOPLE 32
-typedef struct {
-    V3 p;
-    int first, count;   /* its vertices in the pool (the detailed copy) */
-    float phase, bob;   /* bob: the offset applied so far, undone before the next */
-} Bystander;
 static Bystander people[LOT_PEOPLE];
 static int people_n;
 #define LOT_SWAY 2
@@ -942,46 +937,14 @@ static void neon_sign(float x, float y, float z, float w, float h, int row, floa
     svp_tint = lot_tint;
 }
 
-/* The world's mesh builder as the sink for baked models (models.h): the
-   plain-colour material, a vertex each as the pool takes it, the lit
-   ones shaded by their normal as the rest of the scenery is. */
-static void lot_sink_begin(void *ctx) {
-    (void)ctx;
-    strip_begin(h_col);
-}
-static void lot_sink_vertex(void *ctx, V3 p, V3 n, uint32_t c, bool lit) {
-    (void)ctx;
-    svp(p, 0, 0, lit ? shade(c, n) : c);
-}
-static void lot_sink_end(void *ctx) {
-    (void)ctx;
-    strip_end();
-}
-static const ModelSink lot_sink = {NULL, lot_sink_begin, lot_sink_vertex, lot_sink_end};
-
 /* A Chao standing at p facing yaw, in kart_palette colour pal, head
-   turned a little: the drivers' model (lod 1) baked as scenery, with
-   its far copy (lod 3) for a split screen beyond SPLIT_NEAR. It bobs on
-   the spot (lot_update). */
+   turned a little. It bobs on the spot (lot_update). */
 static void person(V3 p, float yaw, int pal) {
     if(people_n >= LOT_PEOPLE) return;
-    const PaletteColour *c = &kart_palette[pal % PALETTE_COUNT];
     float head = (lot_frand() - 0.5f) * 0.9f;
     yaw += (lot_frand() - 0.5f) * 0.4f;
-    Bystander *b = &people[people_n++];
-    b->p = p;
-    b->phase = lot_frand() * DK_TAU;
-    b->bob = 0;
-    chunk_begin(HF_OP, 260.0f);
-    if(cur_chunk) cur_chunk->lod = 1;
-    b->first = pool_n;
-    models_bake_chao(p, yaw, head, c->rgb, c->tip, 1, &lot_sink);
-    b->count = pool_n - b->first;
-    chunk_end();
-    chunk_begin(HF_OP, 260.0f);
-    if(cur_chunk) cur_chunk->lod = 2;
-    models_bake_chao(p, yaw, head, c->rgb, c->tip, 3, &lot_sink);
-    chunk_end();
+    float phase = lot_frand() * DK_TAU;
+    add_chao(&people[people_n++], p, yaw, head, pal, phase);
     roam_solid_disc(p, 0.35f, 1.0f);
 }
 
@@ -1393,22 +1356,7 @@ void lot_update(float dt) {
         }
         for(int v = 0; v < 4; v++) pool[n->first + v].c = col;
     }
-    /* The bystanders bob on the spot (the last offset undone with the
-       new one), only within sight of a player: every vertex touched is
-       a cache miss on the console, and all fifteen a frame cost 0.3 ms. */
-    for(int i = 0; i < people_n; i++) {
-        Bystander *b = &people[i];
-        bool near = false;
-        for(int pl = 0; pl < game.num_players; pl++) {
-            V3 d = vsub(karts[game.pl[pl].kart].pos, b->p);
-            if(d.x * d.x + d.z * d.z < 30.0f * 30.0f) near = true;
-        }
-        if(!near) continue;
-        float bob = 0.02f * sinf(world_time * 2.2f + b->phase);
-        float d = bob - b->bob;
-        b->bob = bob;
-        for(int v = 0; v < b->count; v++) pool[b->first + v].y += d;
-    }
+    bystanders_update(people, people_n, 0.02f);
     if(sway_n) {
         float wave[SWAY_PHASES];
         for(int i = 0; i < SWAY_PHASES; i++) wave[i] = 0.07f * sinf(world_time * 3.6f + (float)i * (DK_TAU / SWAY_PHASES));
