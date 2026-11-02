@@ -15,7 +15,8 @@
    KOS dials tone digits only: no pulse dialing, pauses or AT commands, and
    the profile's outside-line and call-waiting prefixes are not dialed
    (DreamPi needs none). A profile KOS cannot dial fails rather than dialing
-   a different number.
+   a different number. Without the profile's blind-dial flag it waits up to
+   5 s for a dial tone, then dials blind anyway.
 
    Needs tools/kos/patches/kos/kos-ppp-lifecycle.patch (stock KOS 2.3's
    ppp_shutdown leaves its receive thread reading freed modem buffers) and

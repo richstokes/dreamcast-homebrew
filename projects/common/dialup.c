@@ -205,6 +205,17 @@ static dialup_error_t connect_link(void) {
     stage = DIALUP_DIALING;
     say("dialing (%s)", blind ? "blind" : "waiting for a dial tone");
     sdk_result = ppp_modem_init(number, blind, &rate);
+    if(sdk_result == -2) {
+        if(cancel_requested)
+            return DIALUP_ERR_CANCELED;
+        /* KOS only hears a dial tone when all three of the modem's tone
+           detectors fire, and a DreamPi's played-back tone (or a setup run
+           with --disable-dial-tone) can miss that on a real console, though
+           Flycast always reports one. Dial blind rather than give up, as
+           ClassiCube always does. */
+        say("no dial tone heard; dialing blind");
+        sdk_result = ppp_modem_init(number, 1, &rate);
+    }
     if(sdk_result < 0) {
         /* ppp_modem_init has already shut the modem down; modem_shutdown
            is safe to repeat. */

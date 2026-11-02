@@ -27,6 +27,7 @@ module's name so it can't clash with a game's own helpers.
 ## Gotchas
 
 - `dialup.c` needs `tools/kos/patches/kos/kos-ppp-lifecycle.patch`
+- Flycast's modem always reports a dial tone, but players' consoles got NO DIAL TONE on lines every commercial game dials fine, so the dialer dials blind when KOS hears none. KOS reads the blind-dial flag from PlanetWeb profiles only, never DreamPassport ones
 - The Dreamcast clock holds local time and KOS reads it as UTC (Flycast's clock is the Mac's local time too), so certificate dates get 14 hours' leeway. Exact checks would refuse a freshly renewed certificate for hours on US consoles
 - curl's mbedTLS backend has its own verify callback (the error text, VERIFYPEER/VERIFYHOST); `https.c` runs the date check first and then calls it, rather than replacing it
 - KOS 2.3's `vmufs_write` rounds a file up to whole blocks by reading past the end of its buffer, so a package handed straight to it picks up stray heap. Build packages with `vmusave_build`. Saves through fs_vmu (`fs_open` on `/vmu/a1/...`) always carried 384 such bytes, and fs_vmu reads also run past the end of the file

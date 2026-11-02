@@ -19,7 +19,7 @@ KOS_INIT_FLAGS(INIT_DEFAULT | INIT_NET);
 static flashrom_ispcfg_t pw,dp;
 static int detect_result=1,dial_result,connect_result,carrier=1;
 static int dial_calls,connect_calls,ppp_calls,shutdown_calls,hangup_calls,protocol_calls,progress_calls;
-static int ppp_init_result,login_result,dial_delay_ms,cancel_now,cancel_after_dial;
+static int ppp_init_result,login_result,dial_delay_ms,cancel_now,cancel_after_dial,no_tone,heard_no_tone;
 static char used_number[64],used_login[64],used_password[64];
 static netif_t fake={.name="ppp"};
 static ppp_protocol_t *monitor;
@@ -36,8 +36,12 @@ int test_login(const char *u,const char *p) {
     strcpy(used_login,u);strcpy(used_password,p);return login_result;
 }
 int test_dial(const char *n,int blind,int *rate) {
-    ++dial_calls;strcpy(used_number,n);assert(blind==!!(pw.flags&FLASHROM_ISP_BLIND_DIAL));
+    ++dial_calls;strcpy(used_number,n);
+    /* Only a retry after no dial tone overrides the profile's setting. */
+    assert(blind==(heard_no_tone || !!(pw.flags&FLASHROM_ISP_BLIND_DIAL)));
     if(dial_delay_ms)thd_sleep(dial_delay_ms);
+    heard_no_tone=no_tone && !blind;
+    if(heard_no_tone)return -2;
     *rate=33600;return dial_result;
 }
 int test_connect(void) {++connect_calls;net_default_dev=&fake;return connect_result;}
@@ -54,7 +58,7 @@ static void reset(void) {
     memset(fake.ip_addr,0,4);memset(fake.dns,0,4);
     fake.ip_addr[0]=192;fake.ip_addr[3]=2;fake.dns[0]=192;fake.dns[3]=1;
     net_default_dev=NULL;detect_result=carrier=1;dial_result=connect_result=0;
-    cancel_now=cancel_after_dial=ppp_init_result=login_result=dial_delay_ms=0;
+    cancel_now=cancel_after_dial=ppp_init_result=login_result=dial_delay_ms=no_tone=heard_no_tone=0;
     dial_calls=connect_calls=ppp_calls=shutdown_calls=hangup_calls=protocol_calls=progress_calls=0;
 }
 
@@ -101,9 +105,14 @@ int main(void) {
     assert(run()==DIALUP_ERR_PPP_SETUP && !dial_calls && !shutdown_calls && hangup_calls==1);
     reset();login_result=-1;
     assert(run()==DIALUP_ERR_PPP_SETUP && !dial_calls && shutdown_calls==1 && hangup_calls==1);
-    reset();dial_result=-2;
-    assert(run()==DIALUP_ERR_NO_DIAL_TONE && shutdown_calls==1 && hangup_calls==1);
-    assert(dialup_retryable(dialup_error()));
+    /* No dial tone heard: dial again blind, which a DreamPi still answers. */
+    reset();no_tone=1;
+    assert(run()==DIALUP_OK && dial_calls==2 && dialup_online());
+    reset();no_tone=1;dial_result=-4;
+    assert(run()==DIALUP_ERR_NO_ANSWER && dial_calls==2 && shutdown_calls==1 && hangup_calls==1);
+    /* A cancel during the tone wait does not dial again. */
+    reset();no_tone=1;cancel_after_dial=1;dial_delay_ms=250;
+    assert(run()==DIALUP_ERR_CANCELED && dial_calls==1 && hangup_calls==1);
     reset();dial_result=-3;
     assert(run()==DIALUP_ERR_DIAL);
     reset();dial_result=-4;
