@@ -117,7 +117,6 @@ void hb_init(void) {
 }
 
 void hb_update(void) {
-    grandstand_update();
     bystanders_update(hb_people, HB_CHAO, 0.04f);
 }
 
@@ -298,5 +297,4 @@ void build_harbour(void) {
         f8_build_track_chunk(c);
     hb_place_props();
     hb_t0 = world_time;
-    grandstand_update();
 }

@@ -256,6 +256,7 @@ void world_build(void) {
     world_gates = 0;
     if(!pool) return;
     pool_n = strip_n = chunk_n = palm_n = far_sprite_n = foam_count = 0;
+    stand_wave = false;
     cur_chunk = NULL;
     built_ok = true;
     world_canyon = track.id == TRACK_CANYON;
@@ -339,6 +340,7 @@ void world_update(float dt) {
 #endif
     if(world_lot) lot_update(dt);
     if(track.id == TRACK_HARBOUR) hb_update();
+    grandstand_update();
     /* The road's lights run forward a repeat (about 8 m) every 0.55 s. */
     if(world_canyon) sk_road_hdr = *h_canyonroad;
     else if(world_night) {

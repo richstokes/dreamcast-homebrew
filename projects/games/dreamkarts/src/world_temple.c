@@ -290,7 +290,7 @@ static V3 th_ground(float x, float z) {
 
 static void th_place_props(void) {
     add_gantry();
-    add_grandstand(-30.0f, 40.0f, 46.5f, false);
+    add_grandstand(-30.0f, 40.0f, 46.5f, true);
     th_viaduct();
     th_temple(th_ground(-4.0f, -152.0f));
 

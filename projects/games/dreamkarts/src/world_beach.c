@@ -182,7 +182,7 @@ static void place_props(void) {
     add_umbrella(v3(70, 0, 18), argb(255, 255, 150, 30), 0xffffffff);
 
     /* South side: grandstand, huts, palms. */
-    add_grandstand(-52.0f, 26.0f, -82.0f, false);
+    add_grandstand(-52.0f, 26.0f, -82.0f, true);
     add_gantry();
     add_hut(v3(-120, 0, -98), 0.3f);
     add_hut(v3(-100, 0, -104), -0.2f);

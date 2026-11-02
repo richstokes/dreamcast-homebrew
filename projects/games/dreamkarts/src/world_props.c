@@ -253,7 +253,7 @@ void add_gantry(void) {
 #define STAND_SWEEP 6.0f       /* seconds along the stand */
 static int stand_first[STAND_TIERS];
 static float stand_y[STAND_TIERS], stand_x0, stand_x1;
-static bool stand_wave;
+bool stand_wave;
 
 /* Each frame: the top edge of each tier, written straight into the pool
    the chunks are drawn from. The tiers were built at full rise, so the

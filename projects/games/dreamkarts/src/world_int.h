@@ -188,8 +188,9 @@ void add_lighthouse(V3 c);
 void add_boat(V3 c, float yaw, uint32_t hull);
 void add_gantry(void);
 /* wave: the crowd stands in turn, a Mexican wave along the stand
-   (grandstand_update each frame); one such stand a track. */
+   (grandstand_update each frame); one stand a track. */
 void add_grandstand(float x0, float x1, float zf, bool wave);
+extern bool stand_wave;
 void grandstand_update(void);
 /* A Chao standing about: baked scenery that bobs on the spot while a
    player is near. */

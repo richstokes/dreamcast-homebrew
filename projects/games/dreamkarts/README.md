@@ -14,7 +14,7 @@ Eight courses:
 
 - Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels
 - Coral Crossing: a figure 8 whose ramp jumps one leg over the other
-- Palm Harbour: a twisty harbour circuit with a chicane and two hairpins, a crowd doing the wave at the start, a crane working the quay and a ferry crossing the bay
+- Palm Harbour: a twisty harbour circuit with a chicane and two hairpins, a crane working the quay and a ferry crossing the bay
 - Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct
 - Neon Skyway: 1,056 m of neon road above a cyberpunk city at night, with a banked loop, a gap jump and open edges to fall off
 - Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches at golden hour, a retrowave sun setting behind the hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
@@ -351,7 +351,7 @@ Measured and not worth the code: TA DMA (the CPU waits on the TA only
 the 4x4 matrix product in assembly (~0.1 ms), letting the PVR cull kart
 back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 
-Palm Harbour's life (the crowd wave, deck of Chao, crane and ferry) on the
+Palm Harbour's life (the crowd's wave, which Beach, Coral and Temple share, a deck of Chao, crane and ferry) on the
 console (2026-11-01, `make hwbench`, 150cc, six karts) is lost in the noise:
 world draw 2.77 to 2.88 ms in 1P and 4.53 to 4.58 ms in a split screen,
 vertex buffer peak 406 to 432 and 476 to 481 KiB.
