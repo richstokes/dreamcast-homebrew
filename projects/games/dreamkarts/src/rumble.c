@@ -77,7 +77,7 @@ void rumble_kart(int player, const Kart *k) {
     if(ev & EV_CHARGE3) rumble_pulse(player, 4, 46, 0.1f);
     if(ev & EV_BOOST) rumble_pulse(player, 3 + k->boost_stage, 34, 0.2f + 0.12f * (float)k->boost_stage);
     if(ev & EV_DASH) rumble_pulse(player, 5, 34, 0.3f);
-    if(ev & EV_KART_BUMP) rumble_pulse(player, 4, 22, 0.15f);
+    if(ev & EV_KART_BUMP) rumble_pulse(player, (int)clampf(2.0f + k->bump_v * 0.45f, 3, 7), 21, 0.165f);
     if(ev & EV_WALL) rumble_pulse(player, (int)clampf(3.0f + k->wall_v * 0.3f, 4, 7), 18, 0.22f);
     if(ev & EV_ITEM_GET) rumble_pulse(player, 2, 46, 0.08f);
     if(ev & EV_SPEAR) rumble_pulse(player, 4, 30, 0.15f);

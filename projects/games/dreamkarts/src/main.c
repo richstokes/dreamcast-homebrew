@@ -429,6 +429,7 @@ static void player_events(int pi, float dt) {
         fx_confetti(vadd(p->pos, v3(0, 1.5f, 0)), p->pos.y, game.num_players > 1 ? 50 : 90);
     }
     if(ev & (EV_WALL)) pl->cam.shake = fmaxf(pl->cam.shake, 0.12f);
+    if(ev & EV_KART_BUMP) pl->cam.shake = fmaxf(pl->cam.shake, clampf(p->bump_v * 0.014f, 0.025f, 0.11f));
     if(ev & (EV_BOOST | EV_DASH | EV_ROCKET)) pl->cam.shake = fmaxf(pl->cam.shake, 0.04f);
 }
 

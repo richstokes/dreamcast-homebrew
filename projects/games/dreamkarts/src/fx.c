@@ -363,7 +363,13 @@ void fx_kart(const Kart *k, float dt) {
         V3 hit = vadd(vmad(k->pos, side, 0.9f), v3(0, 0.6f, 0));
         burst_stars(hit, 7, argb(255, 255, 230, 90), 5.0f);
     }
-    if(bump_burst) burst_stars(vadd(k->pos, v3(0, 0.8f, 0)), 4, 0xffffffff, 4.0f);
+    if(bump_burst) {
+        /* One burst where the two touched: the lower index draws it when
+           both had the event this step. */
+        const Kart *o = &karts[k->bump_with];
+        if(idx < k->bump_with || !(o->events & EV_KART_BUMP) || o->bump_with != idx)
+            burst_stars(k->bump_p, 4 + (int)clampf(k->bump_v * 0.6f, 0, 7), argb(255, 255, 230, 90), 4.5f);
+    }
     if(ev & EV_CHARGE_JUMP) burst_stars(vadd(k->pos, v3(0, 0.3f, 0)), 8, 0xffffffff, 3.5f);
     if(ev & EV_TRICK) burst_stars(vadd(k->pos, v3(0, 0.6f, 0)), 10, argb(255, 255, 255, 190), 4.5f);
 }

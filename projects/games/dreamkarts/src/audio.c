@@ -780,5 +780,9 @@ void audio_kart_events(const Kart *k, bool is_player) {
     if(ev & (EV_BOOST | EV_ROCKET)) audio_sfx(DK_SFX_BOOST, vol * 220 / 255, pan);
     if(ev & EV_DASH) audio_sfx(DK_SFX_DASH, vol * 210 / 255, pan);
     if(ev & EV_WALL) audio_sfx(DK_SFX_BUMP, vol * 210 / 255, pan);
-    if(ev & EV_KART_BUMP) audio_sfx(DK_SFX_KART_BUMP, vol * 190 / 255, pan);
+    if(ev & EV_KART_BUMP) {
+        /* Louder the harder the hit: a nudge in the pack to a full ram. */
+        int bv = 130 + (int)(k->bump_v * 12.0f);
+        audio_sfx(DK_SFX_KART_BUMP, vol * (bv > 235 ? 235 : bv) / 255, pan);
+    }
 }

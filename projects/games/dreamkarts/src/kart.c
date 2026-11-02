@@ -165,6 +165,29 @@ const CCParams cc_params[CC_COUNT] = {
 #define BRAKE_SLIDE_GRIP  3.2f  /* velocity follows the heading this slowly mid-slide (normal 11) */
 #define BRAKE_SLIDE_TURN  2.5f  /* rad/s cap on the swing, so a slide stays a turn and not a spin */
 #define BRAKE_SLIDE_GAIN  1.1f  /* extra turn rate at full slide, on top of the normal rate */
+#define BUMP_E_SLOW       0.275f /* kart-to-kart restitution in a gentle touch: a little bounce */
+#define BUMP_E_FAST       0.05f  /* ...and at BUMP_E_SPEED closing: hard hits crunch, they don't ping */
+#define BUMP_E_SPEED      15.0f  /* m/s */
+#define BUMP_MIN_CLOSING  1.5f   /* m/s; a slower touch is a scrape: no kicks, no event */
+#define BUMP_PAIR_STEPS   9      /* steps before the same two karts can kick again */
+#define BUMP_SPEED_SHARE  0.5f   /* how much of the hit's forward part reaches speed */
+#define BUMP_GAIN_MAX     3.0f   /* m/s of speed one hit can give */
+#define BUMP_LAT_MAX      1.0f   /* m/s of a hit's sideways part put straight into velocity; the shove has the rest */
+#define BUMP_YAW_GAIN     0.1f   /* rad/s of swing per m/s of sideways kick, per metre of lever */
+#define BUMP_YAW_MAX      0.5f
+#define BUMP_YAW_TAIL     0.2f   /* seconds the swing takes to die away */
+#define BUMP_WOBBLE       0.1f   /* the body's own twist, rad per the same */
+#define BUMP_WOBBLE_MAX   0.22f
+#define BUMP_LEAN         0.03f  /* the body's roll away from the hit, rad per m/s of kick */
+#define BUMP_LEAN_MAX     0.16f
+#define BUMP_BODY_TAIL    0.15f  /* seconds the twist and lean take to die away */
+#define BUMP_SHOVE_MIN    0.5f   /* m/s of sideways kick below which there is no shove */
+#define BUMP_SHOVE_BASE   1.0f   /* m/s of shove at that, so a glancing hit still moves them */
+#define BUMP_SHOVE_GAIN   0.8f   /* m/s of shove per m/s of sideways kick */
+#define BUMP_SHOVE_MAX    3.5f   /* m/s; shove x BUMP_SHOVE_TAIL = metres moved, so about 0.6 m at most */
+#define BUMP_SHOVE_RISE   0.05f  /* seconds to build up: eased in, never a step */
+#define BUMP_SHOVE_TAIL   0.18f  /* seconds to die away */
+#define BUMP_SHOVE_STEERED 0.4f  /* share left for a kart steering into the hit: it does the pushing */
 #define BRAKE_SLIDE_TAIL  0.2f  /* seconds the extra swing takes to die away once no longer driven */
 #define STAGE1           0.85f
 #define STAGE2           1.90f
@@ -370,6 +393,8 @@ static void rescue_from_gap(Kart *k) {
     k->heading = atan2f(t.x, t.z);
     k->speed = fmaxf(k->speed * 0.5f, 8.0f);
     k->vel = vscale(heading_fwd(k->heading), k->speed);
+    k->bump_yaw_v = 0;
+    k->bump_push = k->bump_push_to = v3(0, 0, 0);
     k->vy = 0;
     k->grounded = true;
     k->big_air = false;
@@ -392,6 +417,8 @@ static void rescue_from_fall(Kart *k) {
     k->heading = atan2f(t.x, t.z);
     k->speed = 0;
     k->vel = v3(0, 0, 0);
+    k->bump_yaw_v = 0;
+    k->bump_push = k->bump_push_to = v3(0, 0, 0);
     k->vy = 0;
     k->grounded = false;
     k->big_air = false;
@@ -536,6 +563,14 @@ static void road_tilt(const Kart *k, float yaw, float *pitch, float *roll) {
     *roll = atanf(slope * vdot(r, k->tp.tangent) + bank * vdot(r, k->tp.right));
 }
 
+/* The twist and lean a kart-to-kart hit left in the body, dying away. They
+   go in as targets, so the body's own springs ease them in and out. */
+static void bump_body_settle(Kart *k, float dt) {
+    float keep = 1.0f - smooth_k(1.0f / BUMP_BODY_TAIL, dt);
+    k->bump_twist *= keep;
+    k->bump_lean *= keep;
+}
+
 /* An online rival: its physics ran on another console. Take its state from
    the network and animate the wheels, slide, lean and suspension here. */
 void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer, int drift_dir, int stage,
@@ -554,6 +589,7 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
     if(drift_dir) k->drift_dir = drift_dir;
     k->stage = stage;
     k->boost_t = boosting ? fmaxf(k->boost_t, 0.15f) : fmaxf(k->boost_t - dt, 0.0f);
+    if(k->kbump_t > 0) k->kbump_t -= dt;
     track_locate(k->pos, k->tp.idx, &k->tp);
     if(fabsf(k->tp.d) > 30.0f) track_locate(k->pos, -1, &k->tp);   /* jumped: search the whole lap */
     k->surface = track_surface(&k->tp);
@@ -563,14 +599,15 @@ void kart_remote_update(Kart *k, V3 pos, float heading, float speed, float steer
        its position and heading come over the wire, this is just the body. */
     float yaw_target = k->drift == DRIFT_ACTIVE ? (float)k->drift_dir * (0.40f + 0.12f * steer * (float)k->drift_dir)
                                                 : steer * (skid ? 0.38f : 0.10f) * clampf(spd / 8.0f, 0, 1);
-    k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
+    k->vis_yaw += (yaw_target + k->bump_twist - k->vis_yaw) * smooth_k(9.0f, dt);
     if(k->spin_t > 0) {
         k->spin_t -= dt;
         k->vis_yaw = k->spin_t > 0 ? spin_yaw(k) : 0;
         if(k->spin_t < 0) k->spin_t = 0;
     }
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f : -steer * 0.05f * clampf(spd / top, 0, 1);
-    k->lean += (lean - k->lean) * smooth_k(8.0f, dt);
+    k->lean += (lean + k->bump_lean - k->lean) * smooth_k(8.0f, dt);
+    bump_body_settle(k, dt);
     k->nose += ((k->boost_t > 0 ? -0.05f : 0.0f) - k->nose) * smooth_k(6.0f, dt);
     float pitch_t = 0, roll_t = 0;
     if(grounded) road_tilt(k, heading + k->vis_yaw, &pitch_t, &roll_t);
@@ -804,6 +841,13 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         else k->slide_yaw_v += (extra - k->slide_yaw_v) * smooth_k(1.0f / BRAKE_SLIDE_TAIL, dt);
         k->heading += (rate + k->slide_yaw_v) * dt;
     }
+    /* The swing a kart-to-kart hit put into the nose (karts_collide),
+       dying away over BUMP_YAW_TAIL seconds. */
+    if(k->bump_yaw_v != 0) {
+        k->heading += k->bump_yaw_v * dt;
+        k->bump_yaw_v -= k->bump_yaw_v * smooth_k(1.0f / BUMP_YAW_TAIL, dt);
+        if(fabsf(k->bump_yaw_v) < 0.01f) k->bump_yaw_v = 0;
+    }
     k->heading = wrap_angle(k->heading);
 
     /* ---- Velocity follows heading through grip ---- */
@@ -816,6 +860,20 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->vel.z += (want.z - k->vel.z) * g;
     k->pos.x += k->vel.x * dt;
     k->pos.z += k->vel.z * dt;
+    /* The shove of a kart-to-kart hit (kart_take_hit) moves the kart straight,
+       so grip can't eat it, and the walls below still hold it. It builds up
+       over a few frames and dies away: two low-passes, so a smooth bell. */
+    if(k->bump_push_to.x != 0 || k->bump_push_to.z != 0 || k->bump_push.x != 0 || k->bump_push.z != 0) {
+        float rise = smooth_k(1.0f / BUMP_SHOVE_RISE, dt);
+        k->bump_push.x += (k->bump_push_to.x - k->bump_push.x) * rise;
+        k->bump_push.z += (k->bump_push_to.z - k->bump_push.z) * rise;
+        k->pos.x += k->bump_push.x * dt;
+        k->pos.z += k->bump_push.z * dt;
+        k->bump_push_to = vscale(k->bump_push_to, 1.0f - smooth_k(1.0f / BUMP_SHOVE_TAIL, dt));
+        if(k->bump_push.x * k->bump_push.x + k->bump_push.z * k->bump_push.z < 0.01f &&
+           k->bump_push_to.x * k->bump_push_to.x + k->bump_push_to.z * k->bump_push_to.z < 0.01f)
+            k->bump_push = k->bump_push_to = v3(0, 0, 0);
+    }
 
     /* ---- Track position, walls ---- */
     float prev_s = k->tp.s, prev_d = k->tp.d;
@@ -865,6 +923,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
                (double)k->pos.y, (double)track_road_y(k->tp.s, k->tp.d), (int)below);
 #endif
     if(k->bump_t > 0) k->bump_t -= dt;
+    if(k->kbump_t > 0) k->kbump_t -= dt;
     if(track_is_roam()) k->progress = k->tp.s;   /* no laps to count */
     else update_lap(k, prev_s);
     kart_vertical(k, btn, prev_s, prev_d, dt);
@@ -893,14 +952,15 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         yaw_target = (float)k->drift_dir * (0.40f + 0.12f * k->steer * (float)k->drift_dir);
     else
         yaw_target = k->steer * (0.10f + 0.28f * k->brake_slide) * clampf(spd / 8.0f, 0, 1);
-    k->vis_yaw += (yaw_target - k->vis_yaw) * smooth_k(9.0f, dt);
+    k->vis_yaw += (yaw_target + k->bump_twist - k->vis_yaw) * smooth_k(9.0f, dt);
     if(k->spin_t > 0) k->vis_yaw = spin_yaw(k);
     /* The body leans on its springs in corners and pitches under power
        and braking; the chassis (and the wheels) follow the road's banking
        and slope, or the flight path in big air. */
     float lean = k->drift == DRIFT_ACTIVE ? -(float)k->drift_dir * 0.10f
                                           : -k->steer * (0.05f + 0.05f * k->brake_slide) * clampf(spd / top, 0, 1);
-    k->lean += (lean - k->lean) * smooth_k(8.0f, dt);
+    k->lean += (lean + k->bump_lean - k->lean) * smooth_k(8.0f, dt);
+    bump_body_settle(k, dt);
     float nose_t = (in->accel && k->speed < top * 0.7f && can_drive ? -0.035f : 0) +
                    (in->brake && k->speed > 1 ? 0.05f : 0) + (k->boost_t > 0 ? -0.05f : 0);
     if(k->rev_t > 0) nose_t -= 0.05f;    /* the rear squats */
@@ -936,7 +996,85 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     emote_update(k, in, dt);
 }
 
+/* ---- Kart against kart ----
+   Who hits whom matters, and a hit mostly shoves sideways. Each kart has
+   a weight: a boosting kart or one under a Barrier is heavy, pace adds a
+   little, a spinning kart is a loose ball. The pair's separation and the
+   impulse between them are shared out in inverse proportion to the
+   weights, so a boosted kart barges a cruising one aside and a shielded
+   one stands its ground, and bounce fades as the closing speed rises.
+   A hit's forward part goes to velocity and, up to a limit, to speed. Its
+   sideways part would wash out in grip or jolt the kart if it all went to
+   velocity, so past BUMP_LAT_MAX it becomes a shove: a push eased in and
+   out over about a third of a second, with its size squeezed into a
+   narrow band so the hardest hit moves a kart only a little further than
+   a firm one. The hit in the flank from a rival's nose lands all of it
+   on the struck kart, as the sideways part of the rammer's own hit is
+   small; steering into the rival keeps a kart on its line while the
+   other gives way. A shove in progress is only replaced by a bigger one,
+   so a pile-up can't stack them. The lever of where on the kart the
+   contact was turns the body a lot and the real heading a little, so the
+   kart looks knocked but the driver keeps their line.
+   A barrier makes a kart immune: nothing above touches it and the other
+   kart takes the whole separation. Against an online rival that leaves
+   them overlapping here until the rival's console, which sees the
+   barrier too, moves it.
+   A slow touch, or the same two again within BUMP_PAIR_STEPS, only stops
+   them closing, so karts leaning on each other don't chatter.
+   An online rival's position is its own console's call: the local kart
+   takes the whole separation and the rival only wobbles. Two rivals, as
+   a spectator sees, are still parted for the picture until the next
+   packet overwrites it. */
+static float kart_weight(const Kart *k) {
+    float w = 1.0f + 0.6f * clampf(fabsf(k->speed) / cc_params[game.cc].top_speed, 0, 1.3f);
+    if(k->boost_t > 0) w += 1.25f;
+    if(k->shield_t > 0) w += 1.75f;
+    if(k->spin_t > 0) w *= 0.5f;
+    return w;
+}
+
+/* One kart's share of a hit: dv its velocity change, c the contact point
+   relative to its centre (the lever), closing the pair's closing speed,
+   kick false for a scrape. */
+static void kart_take_hit(Kart *k, float dvx, float dvz, float cx, float cz, float closing, bool kick) {
+    if(k->shield_t > 0) return;
+    V3 f = heading_fwd(k->heading), r = heading_right(k->heading);
+    float fwd = dvx * f.x + dvz * f.z, lat = dvx * r.x + dvz * r.z;
+    if(!k->remote) {
+        float keep = clampf(lat, -BUMP_LAT_MAX, BUMP_LAT_MAX);
+        k->vel.x += f.x * fwd + r.x * keep;
+        k->vel.z += f.z * fwd + r.z * keep;
+    }
+    if(!kick) return;
+    float twist = (cx * f.x + cz * f.z) * lat;   /* contact ahead of the centre (+) or behind it (-) */
+    k->squash_v -= closing * 0.3f;
+    if(k->spin_t <= 0) {
+        k->bump_twist = clampf(k->bump_twist + twist * BUMP_WOBBLE, -BUMP_WOBBLE_MAX, BUMP_WOBBLE_MAX);
+        k->bump_lean = clampf(-lat * BUMP_LEAN, -BUMP_LEAN_MAX, BUMP_LEAN_MAX);
+    }
+    if(k->remote) return;
+    k->speed += fwd > 0 ? fminf(fwd * BUMP_SPEED_SHARE, BUMP_GAIN_MAX) : fwd * BUMP_SPEED_SHARE;
+    if(k->spin_t <= 0) k->bump_yaw_v = clampf(k->bump_yaw_v + BUMP_YAW_GAIN * twist, -BUMP_YAW_MAX, BUMP_YAW_MAX);
+    float size = fabsf(lat);
+    if(size < BUMP_SHOVE_MIN) return;
+    float shove = fminf(BUMP_SHOVE_BASE + BUMP_SHOVE_GAIN * size, BUMP_SHOVE_MAX);
+    if((cx * r.x + cz * r.z) * k->steer > 0) shove *= lerpf(1.0f, BUMP_SHOVE_STEERED, fabsf(k->steer));
+    if(shove * shove > k->bump_push_to.x * k->bump_push_to.x + k->bump_push_to.z * k->bump_push_to.z)
+        k->bump_push_to = vscale(r, lat > 0 ? shove : -shove);
+}
+
+static void kart_bump_event(Kart *k, int other, float closing, V3 at) {
+    if(k->kbump_t > 0 || k->shield_t > 0) return;
+    k->events |= EV_KART_BUMP;
+    k->bump_with = other;
+    k->bump_v = closing;
+    k->bump_p = at;
+    k->kbump_t = 0.35f;
+}
+
 void karts_collide(void) {
+    static uint32_t step, pair_step[MAX_KARTS][MAX_KARTS];
+    step++;
     for(int i = 0; i < kart_count; i++) {
         for(int j = i + 1; j < kart_count; j++) {
             Kart *a = &karts[i], *b = &karts[j];
@@ -946,22 +1084,33 @@ void karts_collide(void) {
             const float min = KART_RADIUS * 2.0f;
             if(d2 >= min * min || d2 < 1e-6f) continue;
             if(fabsf(a->pos.y - b->pos.y) > 1.0f) continue;
-            float d = sqrtf(d2), push = (min - d) * 0.5f;
-            float nx = dx / d, nz = dz / d;
-            a->pos.x -= nx * push; a->pos.z -= nz * push;
-            b->pos.x += nx * push; b->pos.z += nz * push;
-            float rv = (b->vel.x - a->vel.x) * nx + (b->vel.z - a->vel.z) * nz;
-            if(rv < 0) {
-                float imp = -rv * 0.6f;
-                a->vel.x -= nx * imp; a->vel.z -= nz * imp;
-                b->vel.x += nx * imp; b->vel.z += nz * imp;
-                if(-rv > 1.5f) {
-                    a->events |= EV_KART_BUMP;
-                    b->events |= EV_KART_BUMP;
-                    a->bump_with = j;
-                    b->bump_with = i;
-                }
+            float d = sqrtf(d2), over = min - d;
+            float nx = dx / d, nz = dz / d;   /* from a to b */
+            float wa = kart_weight(a), wb = kart_weight(b), wsum = wa + wb;
+            float sa = wb / wsum, sb = wa / wsum;
+            if(a->remote != b->remote) {
+                sa = a->remote ? 0.0f : 1.0f;
+                sb = 1.0f - sa;
             }
+            if((a->shield_t > 0) != (b->shield_t > 0)) {
+                sa = a->shield_t > 0 || a->remote ? 0.0f : 1.0f;
+                sb = b->shield_t > 0 || b->remote ? 0.0f : 1.0f;
+            }
+            a->pos.x -= nx * over * sa; a->pos.z -= nz * over * sa;
+            b->pos.x += nx * over * sb; b->pos.z += nz * over * sb;
+            float rv = (b->vel.x - a->vel.x) * nx + (b->vel.z - a->vel.z) * nz;
+            if(rv >= 0) continue;   /* already parting */
+            float closing = -rv;
+            float e = lerpf(BUMP_E_SLOW, BUMP_E_FAST, clampf(closing / BUMP_E_SPEED, 0, 1));
+            float imp = (1.0f + e) * closing * wa * wb / wsum;
+            bool kick = closing >= BUMP_MIN_CLOSING && step - pair_step[i][j] >= BUMP_PAIR_STEPS;
+            kart_take_hit(a, -nx * imp / wa, -nz * imp / wa, nx * KART_RADIUS, nz * KART_RADIUS, closing, kick);
+            kart_take_hit(b, nx * imp / wb, nz * imp / wb, -nx * KART_RADIUS, -nz * KART_RADIUS, closing, kick);
+            if(!kick) continue;
+            pair_step[i][j] = step;
+            V3 at = v3(a->pos.x + nx * KART_RADIUS, fmaxf(a->pos.y, b->pos.y) + 0.5f, a->pos.z + nz * KART_RADIUS);
+            kart_bump_event(a, j, closing, at);
+            kart_bump_event(b, i, closing, at);
         }
     }
 }

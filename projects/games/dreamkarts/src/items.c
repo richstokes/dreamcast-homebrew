@@ -606,6 +606,8 @@ static void use_item(Kart *k, bool back) {
         }
         case ITEM_SHIELD:
             k->shield_t = SHIELD_LEN;
+            k->bump_push = k->bump_push_to = v3(0, 0, 0);   /* protected from now: no shove still running */
+            k->bump_yaw_v = 0;
             k->events |= EV_SHIELD_UP;
             break;
         case ITEM_MINE:

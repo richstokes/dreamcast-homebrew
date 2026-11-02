@@ -74,6 +74,14 @@ typedef struct {
     float rev_t;        /* seconds into a held accelerate+brake burnout */
     float bump_t;
     int bump_with;      /* the kart behind the last EV_KART_BUMP */
+    float bump_v;       /* closing speed behind it */
+    V3 bump_p;          /* where the two touched */
+    float kbump_t;      /* seconds until the next EV_KART_BUMP (walls have bump_t) */
+    float bump_yaw_v;   /* the swing a kart-to-kart hit put into the nose, rad/s, dying away */
+    V3 bump_push;       /* the sideways shove of a kart-to-kart hit moving it now, m/s */
+    V3 bump_push_to;    /* what bump_push is rising to, dying away */
+    float bump_twist;   /* the body's yaw and roll from that hit, rad, dying away */
+    float bump_lean;
     float land_v, wall_v;  /* impact speeds behind EV_LAND / EV_WALL */
 
     /* Track & race */
