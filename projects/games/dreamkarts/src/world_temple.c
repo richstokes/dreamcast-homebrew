@@ -558,7 +558,8 @@ static void th_draw_monkey(const Monkey *m, int detail, float scale) {
     float tail = 0.5f * sinf(t * 1.6f);
     int n = 0;
     V3 o = v3(0, hop, 0);
-    n = mk_box(v, n, o, 0, 0, v3(0, 0.38f, 0), v3(0.17f, 0.2f, 0.13f), fur);
+    /* Without legs the body reaches down to the seat. */
+    n = mk_box(v, n, o, 0, 0, v3(0, lite ? 0.3f : 0.38f, 0), v3(0.17f, lite ? 0.28f : 0.2f, 0.13f), fur);
     if(!lite) n = mk_box(v, n, o, 0, 0, v3(0, 0.35f, 0.11f), v3(0.11f, 0.14f, 0.03f), skin);
     for(int s = -1; s <= 1; s += 2) {
         if(!lite) n = mk_box(v, n, o, 0, 0, v3(s * 0.11f, 0.08f, 0.1f), v3(0.07f, 0.07f, 0.14f), fur);
