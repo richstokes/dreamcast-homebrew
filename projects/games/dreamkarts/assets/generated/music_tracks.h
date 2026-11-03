@@ -7,7 +7,7 @@
 #define DK_MUSIC_TITLE_TRACK 0
 /* Where each song plays: the title screen, the races' shuffle or the online lobby's. */
 typedef enum { DK_MUSIC_THEME, DK_MUSIC_RACE, DK_MUSIC_LOBBY } dk_music_role_t;
-static const uint8_t dk_music_role[DK_MUSIC_TRACKS] __attribute__((unused)) = {DK_MUSIC_THEME, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_LOBBY, DK_MUSIC_LOBBY};
+static const uint8_t dk_music_role[DK_MUSIC_TRACKS] __attribute__((unused)) = {DK_MUSIC_THEME, DK_MUSIC_LOBBY, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_RACE, DK_MUSIC_LOBBY, DK_MUSIC_LOBBY};
 static const char *const dk_music_title[DK_MUSIC_TRACKS] __attribute__((unused)) = {
     "Gaming Rock",
     "Chill Sunset Groove",

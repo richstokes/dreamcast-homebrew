@@ -8,10 +8,10 @@ original, built from the scripts in `tools/`.
 The nine songs on the disc are by Alex Morgan, from
 [Pixabay](https://pixabay.com/music/) under the
 [Pixabay Content License](https://pixabay.com/service/license-summary/):
-"Gaming Rock" (the theme), "Chill Sunset Groove", "Classic Rock Highway",
-"Neon Synthwave Drive", "Arcade Retro Nights", "Neon Drive Horizon" and
-"Techno Warehouse", and "Lofi" and "Lofi Coffee Shop" for the online
-lobby. They are pressed onto the disc as CD audio tracks.
+"Gaming Rock" (the theme), "Classic Rock Highway", "Neon Synthwave Drive",
+"Arcade Retro Nights", "Neon Drive Horizon" and "Techno Warehouse", and
+"Chill Sunset Groove", "Lofi" and "Lofi Coffee Shop" for the online lobby.
+They are pressed onto the disc as CD audio tracks.
 
 ## Built on
 

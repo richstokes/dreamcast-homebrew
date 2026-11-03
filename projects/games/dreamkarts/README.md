@@ -34,7 +34,7 @@ Highlights:
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
 - Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
 - Rocket starts, charge jumps, barrel rolls off the ramps for a landing boost, burnouts, emotes, final-lap dolphins and a biplane weaving ahead on Spiral Canyon's final lap
-- Nine songs by Alex Morgan as CD audio: a theme, six shuffled through the races with NEXT SONG on the pause menu, two lo-fi ones for the online lobby; 42 effects, Chao voices by colour and Jump Pack rumble
+- Nine songs by Alex Morgan as CD audio: a theme, five shuffled through the races with NEXT SONG on the pause menu, three chill ones for the online lobby; 42 effects, Chao voices by colour and Jump Pack rumble
 - A Settings menu with the sound test, your online name, a music switch and volume, and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
 - VMU screens for the countdown, place, lap and results
 
