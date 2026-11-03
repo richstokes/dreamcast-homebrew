@@ -530,10 +530,12 @@ static int mk_box(RV *v, int n, V3 pivot, float rx, float ry, V3 off, V3 half, u
     return n;
 }
 
-/* Near, the whole monkey; further off (lite), just its body, head, face,
-   arms and tail, about a third of the vertices: they cost the console
-   ~0.5 ms a frame on Temple Hill drawn whole out to 140 m. */
-static void th_draw_monkey(const Monkey *m, bool lite) {
+/* Detail 0, the whole monkey; 1, just its body, head, face, arms and
+   tail, about a third of the vertices; 2, far off, body, head and face.
+   Drawn whole out to 140 m they cost the console ~0.5 ms a frame on
+   Temple Hill. */
+static void th_draw_monkey(const Monkey *m, int detail, float scale) {
+    bool lite = detail > 0, far = detail > 1;
     static RV v[MONKEY_BOXES * 24] __attribute__((aligned(32)));
     static uint16_t idx[MONKEY_BOXES * 36];
     static bool idx_built;
@@ -562,7 +564,7 @@ static void th_draw_monkey(const Monkey *m, bool lite) {
         if(!lite) n = mk_box(v, n, o, 0, 0, v3(s * 0.11f, 0.08f, 0.1f), v3(0.07f, 0.07f, 0.14f), fur);
         V3 sh = vadd(o, v3(s * 0.21f, 0.52f, 0));
         float a = s < 0 ? arm_l : arm_r;
-        n = mk_box(v, n, sh, -a, 0, v3(0, -0.2f, 0), v3(0.05f, 0.2f, 0.05f), fur);
+        if(!far) n = mk_box(v, n, sh, -a, 0, v3(0, -0.2f, 0), v3(0.05f, 0.2f, 0.05f), fur);
         if(!lite) n = mk_box(v, n, sh, -a, 0, v3(0, -0.37f, 0), v3(0.05f, 0.05f, 0.05f), skin);
     }
     V3 neck = vadd(o, v3(0, 0.6f, 0.02f));
@@ -575,24 +577,28 @@ static void th_draw_monkey(const Monkey *m, bool lite) {
         n = mk_box(v, n, neck, 0, hy, v3(s * 0.17f, 0.17f, 0), v3(0.035f, 0.05f, 0.02f), skin);
     }
     V3 root = vadd(o, v3(0, 0.22f, -0.12f));
-    n = mk_box(v, n, root, 0, tail, v3(0, 0, -0.15f), v3(0.03f, 0.03f, 0.15f), fur);
+    if(!far) n = mk_box(v, n, root, 0, tail, v3(0, 0, -0.15f), v3(0.03f, 0.03f, 0.15f), fur);
     if(!lite) n = mk_box(v, n, root, 0, tail, v3(0, 0.15f, -0.3f), v3(0.03f, 0.15f, 0.03f), fur);
     float mt[16];
     m4_translate_rotate(mt, m->seat, m->yaw, 0, 0);
-    m4_scale_apply(mt, MONKEY_SCALE, MONKEY_SCALE, MONKEY_SCALE);
+    m4_scale_apply(mt, scale, scale, scale);
     r_load_model(mt);
     r_mesh(v, n, idx, n / 4 * 6, false);
 }
 
 void th_draw_op(void) {
     if(!th_monkey_n) return;
-    float range = world_split ? 60.0f : 80.0f, near = world_split ? 25.0f : 35.0f;
+    /* Out to about where the heads and columns they sit on are drawn,
+       growing in over the last 30 m so they never pop into view. */
+    float range = world_split ? 120.0f : 200.0f, near = world_split ? 25.0f : 35.0f, lite = world_split ? 60.0f : 80.0f;
     r_hdr(h_monkey);
     for(int i = 0; i < th_monkey_n; i++) {
         const Monkey *m = &th_monkeys[i];
         V3 d = vsub(m->seat, r_cam.pos);
-        if(vdot(d, d) > range * range || !r_sphere_visible(vadd(m->seat, v3(0, 0.8f, 0)), 1.5f)) continue;
-        th_draw_monkey(m, vdot(d, d) > near * near);
+        float q = vdot(d, d);
+        if(q > range * range || !r_sphere_visible(vadd(m->seat, v3(0, 0.8f, 0)), 1.5f)) continue;
+        float dist = sqrtf(q), grow = clampf((range - dist) / 30.0f, 0, 1);
+        th_draw_monkey(m, dist < near ? 0 : dist < lite ? 1 : 2, MONKEY_SCALE * grow);
     }
     r_load_vp();
 }
