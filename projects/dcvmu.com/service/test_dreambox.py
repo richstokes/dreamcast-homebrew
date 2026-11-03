@@ -136,6 +136,9 @@ class DreamboxTest(unittest.TestCase):
         self.assertIn('My_Picture,aff', r.headers['Content-Disposition'])
         r = self.web.get('/account/archicast/download', query_string={'path': 'notes/txt'})
         self.assertIn('notes.txt', r.headers['Content-Disposition'])
+        r = self.web.post('/account/archicast/mkdir', data={'csrf': token, 'path': '', 'name': 'Elevenchars'})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('maxlength="10"', self.web.get('/account/archicast').text)
         self.web.post('/account/archicast/mkdir', data={'csrf': token, 'path': '', 'name': 'Docs'})
         page = self.web.get('/account/archicast').text
         self.assertIn('DrawFile', page)

@@ -52,6 +52,9 @@ CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 # Characters FileSwitch and the command line treat specially are left out, and so
 # are spaces. Top-bit Latin-1 would be legal on RISC OS but not worth the trouble.
 LEAF = re.compile(r"[A-Za-z0-9!'()+,\-/;=\[\]_{}~]{1,32}")
+# RISC OS 3.11's discs (FileCore) take names of up to 10 characters, so a
+# directory made on the website can always be copied onto one.
+DIR_NAME_MAX = 10
 FILE_ATTR = 0x03      # owner read and write
 TYPE_FILE, TYPE_DIR = 1, 2
 TEXT = {'Content-Type': 'text/plain; charset=utf-8'}
@@ -494,7 +497,8 @@ def register(app, database, limit, page, require_user):
                            (uid(),)).fetchall()
         crumbs = [('$', folder_url([]))] + [(leaf, folder_url(leaves[:n + 1])) for n, leaf in enumerate(leaves)]
         return page('archicast.html', entries=entries, path='.'.join(leaves), crumbs=crumbs, used=used,
-                    quota=QUOTA, objects=objects, links=links, linked=request.args.get('linked'))
+                    quota=QUOTA, objects=objects, links=links, linked=request.args.get('linked'),
+                    dir_name_max=DIR_NAME_MAX)
 
     def back_to(leaves, **extra):
         return redirect(folder_url(leaves, **extra), 303)
@@ -540,8 +544,8 @@ def register(app, database, limit, page, require_user):
         require_user()
         leaves = split_path(request.form.get('path', ''))
         name = request.form.get('name', '').strip()
-        if not LEAF.fullmatch(name):
-            abort(400, "Directory names are 1-32 letters, numbers or !'()+,-/;=[]_{}~")
+        if not LEAF.fullmatch(name) or len(name) > DIR_NAME_MAX:
+            abort(400, f"Directory names are 1-{DIR_NAME_MAX} letters, numbers or !'()+,-/;=[]_{{}}~")
         with database() as db:
             db.execute('BEGIN IMMEDIATE')
             make_dir(db, leaves + [name])
