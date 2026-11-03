@@ -60,6 +60,11 @@ int prof_frames;
 
 static void update_places(void);
 
+bool dk_on_ios(void) {
+    uint64_t id = syscall_sysinfo_id();
+    return memcmp((uint8_t *)&id + 2, "DKiOS\1", 6) == 0;
+}
+
 /* ------------------------------------------------------------------ */
 
 void race_setup(void) {
@@ -1097,6 +1102,8 @@ int main(int argc, char **argv) {
 #endif
     printf("DreamKarts boot: %lu ms\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000));
 
+    game.ios = dk_on_ios();
+    if(game.ios) printf("DreamKarts: running in the iOS app\n");
     online_init();
     game.cc = CC_100;
     game.setup_laps = game.laps = DEFAULT_LAPS;

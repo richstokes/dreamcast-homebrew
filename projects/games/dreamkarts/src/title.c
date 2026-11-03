@@ -41,11 +41,20 @@ static void karts_update(float dt);
 static void tracks_enter(void);
 
 /* Main menu: single player, two-player split screen, online or the
-   settings. */
-enum { MAIN_ITEMS = 4, MAIN_ONLINE = 2, MAIN_SETTINGS = 3 };
+   settings. The iOS app has one pad (the touch screen), so no split screen. */
+enum { MAIN_ITEMS = 4, MAIN_TWO = 1, MAIN_ONLINE = 2, MAIN_SETTINGS = 3 };
 static int main_row;
 static const char *const main_items[MAIN_ITEMS] = {"SINGLE PLAYER", "TWO PLAYER", "ONLINE MULTIPLAYER",
                                                    "SETTINGS"};
+
+static bool main_shown(int i) { return i != MAIN_TWO || !game.ios; }
+
+/* The next shown row up (-1) or down (+1), wrapping. */
+static int main_step(int row, int dir) {
+    do row = (row + dir + MAIN_ITEMS) % MAIN_ITEMS;
+    while(!main_shown(row));
+    return row;
+}
 
 /* Settings: a page of the main menu (the backdrop stays put) opening the
    sound test, the online name entry, the music switch and volume, and the
@@ -273,11 +282,11 @@ static void main_update(void) {
     }
     menu_slide = fminf(1.0f, menu_slide + DK_DT * 4.0f);
     if(input_menu_up()) {
-        main_row = (main_row + MAIN_ITEMS - 1) % MAIN_ITEMS;
+        main_row = main_step(main_row, -1);
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
     if(input_menu_down()) {
-        main_row = (main_row + 1) % MAIN_ITEMS;
+        main_row = main_step(main_row, 1);
         audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
     }
     if(pad.pressed & BTN_B) {
@@ -931,12 +940,15 @@ static void draw_main(void) {
     float x0 = 150, x1 = 490, y0 = 186 + (1 - slide) * 300;
     const float pitch = 42;
     float yc = y0 + 54;
-    float y1 = yc + MAIN_ITEMS * pitch + 36;
+    int shown = 0;
+    for(int i = 0; i < MAIN_ITEMS; i++) shown += main_shown(i);
+    float y1 = yc + shown * pitch + 36;
     ui_panel(x0, y0, x1, y1);
     ui_title(x0, y0, x1, "MAIN MENU");
-    for(int i = 0; i < MAIN_ITEMS; i++) {
+    for(int i = 0, n = 0; i < MAIN_ITEMS; i++) {
+        if(!main_shown(i)) continue;
         bool sel = i == main_row;
-        float y = yc + i * pitch;
+        float y = yc + n++ * pitch;
         ui_row(x0 + 14, y, x1 - 14, y + pitch - 4, sel);
         float s = sel ? 0.8f + 0.02f * sinf(game.title_t * 8) : 0.76f;
         hud_text_c(320, y + (pitch - 4) * 0.5f, s, ALIGN_CENTER, ui_col(sel ? UI_ITEM_SEL : UI_ITEM), main_items[i]);

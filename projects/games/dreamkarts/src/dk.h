@@ -202,6 +202,7 @@ typedef struct {
     int pause_owner;
     float title_t;
     bool quit;
+    bool ios;            /* running in the DreamKarts iOS app (dk_on_ios) */
 } Game;
 
 extern Game game;
@@ -216,6 +217,10 @@ enum {
     PROBE_SHEEN = 1 << 13   /* the sun's sheen on the asphalt */
 };
 extern uint32_t dk_probe_off;
+
+/* The iOS app stamps DKiOS\1 into the last 6 bytes of the console ID (the first
+   2 are a checksum). False on a real Dreamcast and in stock Flycast. */
+bool dk_on_ios(void);
 
 void game_set_state(int state);
 void race_setup(void);
