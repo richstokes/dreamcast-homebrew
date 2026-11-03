@@ -1,6 +1,22 @@
 /* Temple Hill: switchbacks up a jungle hill to a stepped temple, a stone
    viaduct over a sea inlet, columns, stone heads and braziers. */
 #include "world_int.h"
+#include "kart.h"
+
+#define TH_MONKEYS 8
+#define MONKEY_SCALE 1.8f
+#define MONKEY_BOXES 17
+
+typedef struct {
+    V3 seat;
+    float yaw, head, excite, seed;
+} Monkey;
+
+static Monkey th_monkeys[TH_MONKEYS];
+static int th_monkey_n;
+static const pvr_poly_hdr_t *h_monkey;
+
+static void th_monkey(V3 seat, int i);
 
 /* The ground: the headland with a jungle hill rising to the south and a
    sea inlet cut into it, then carved around the road so the road always
@@ -318,7 +334,9 @@ static void th_place_props(void) {
         V3 p = track_point(s, 17.5f);
         p.y = ridge_y;
         bool broken = (i % 3) == 1;
-        th_column(p, broken ? 2.0f + (float)(i % 2) * 1.5f : 6.5f, broken);
+        float h = broken ? 2.0f + (float)(i % 2) * 1.5f : 6.5f;
+        th_column(p, h, broken);
+        if(broken) th_monkey(vadd(p, v3(0, 0.7f + h, 0)), 3 + i);
     }
     /* Stone heads watch the hairpins and the summit. */
     for(int hp = 0; hp < 2; hp++) {
@@ -327,6 +345,7 @@ static void th_place_props(void) {
         V3 p = track_point(s, d);
         V3 toward = vsub(track_point(s, 0), p);
         th_head(th_ground(p.x, p.z), atan2f(toward.x, toward.z), 1.6f);
+        th_monkey(vadd(th_ground(p.x, p.z), v3(0, 4.8f * 1.6f, 0)), hp);
         th_brazier(th_ground(track_point(s + 9.0f, d).x, track_point(s + 9.0f, d).z));
     }
     {
@@ -336,12 +355,16 @@ static void th_place_props(void) {
         V3 g = th_ground(p.x, p.z);
         g.y = fmaxf(g.y, track_height(s) - 0.5f);
         th_head(g, atan2f(toward.x, toward.z), 2.0f);
+        th_monkey(vadd(g, v3(0, 4.8f * 2.0f, 0)), 2);
     }
     /* Tumbled walls on the terraces and in the infield. */
     const float ruins[][3] = {{-40, -2, 0.3f}, {20, 12, -0.5f}, {-100, -40, 1.2f}, {70, -60, 0.2f}, {-60, -120, 0.9f}};
     for(int i = 0; i < 5; i++) {
         V3 p = th_ground(ruins[i][0], ruins[i][1]);
-        if(hb_clear(p, 2.0f)) th_ruin(p, ruins[i][2], (uint32_t)(i * 17 + 3));
+        if(!hb_clear(p, 2.0f)) continue;
+        th_ruin(p, ruins[i][2], (uint32_t)(i * 17 + 3));
+        /* On the end block of the bottom course, clear of the one above. */
+        if(i < 2) th_monkey(vadd(vmad(p, heading_right(ruins[i][2]), -3.6f), v3(0, 1.0f, 0)), 12 + i);
     }
     for(int i = 0; i < 6; i++) {
         float a = (float)i / 6.0f * DK_TAU;
@@ -399,6 +422,7 @@ void build_temple(void) {
     gnd_zn = 84.0f;
     gnd_zs = 125.0f;
     th_flame_n = 0;
+    th_monkey_n = 0;
     for(int i = 0; i < TRACK_SAMPLES; i++) th_road_y[i] = track_height(track.smp[i].s);
     /* The inlet runs east under the viaduct, then north out to the sea. */
     V3 b = track_point(track.bridge_s, 0);
@@ -438,4 +462,137 @@ void th_draw_flames(void) {
         float a = 0.28f + 0.06f * sinf(world_time * 11.0f + i * 1.7f);
         r_billboard(p, 4.5f, 4.5f, 0, 0, 0, 1, 1, color_alpha(argb(255, 255, 150, 60), a));
     }
+}
+
+/* Monkeys on the ruins: one on each stone head, on the broken columns of
+   the summit colonnade and on two of the tumbled walls. Each sits facing
+   the road, tail swaying, now and then scratching its head; it watches the
+   nearest kart go by and bounces with its arms up when one comes close. */
+
+static void th_monkey(V3 seat, int i) {
+    if(th_monkey_n >= TH_MONKEYS) return;
+    float best = 1e9f;
+    V3 to = v3(0, 0, 1);
+    for(int k = 0; k < TRACK_SAMPLES; k++) {
+        V3 d = vsub(track.smp[k].p, seat);
+        float q = d.x * d.x + d.z * d.z;
+        if(q < best) {
+            best = q;
+            to = d;
+        }
+    }
+    th_monkeys[th_monkey_n++] = (Monkey){seat, atan2f(to.x, to.z), 0, 0, (float)i * 1.37f};
+}
+
+void th_init(void) {
+    h_monkey = r_header(TEX_NONE, HF_OP);
+}
+
+void th_update(float dt) {
+    for(int i = 0; i < th_monkey_n; i++) {
+        Monkey *m = &th_monkeys[i];
+        float best = 60.0f * 60.0f, look = m->yaw + 0.6f * sinf(world_time * 0.5f + m->seed);
+        for(int k = 0; k < MAX_KARTS; k++) {
+            V3 d = vsub(karts[k].pos, m->seat);
+            float q = d.x * d.x + d.z * d.z;
+            if(q < best) {
+                best = q;
+                look = atan2f(d.x, d.z);
+            }
+        }
+        /* Turn the head (not past the shoulders) towards it. */
+        float rel = clampf(wrap_angle(look - m->yaw), -1.3f, 1.3f);
+        m->head += (rel - m->head) * fminf(dt * 6.0f, 1.0f);
+        float want = best < 24.0f * 24.0f ? 1.0f : 0.0f;
+        m->excite += (want - m->excite) * fminf(dt * (want > m->excite ? 6.0f : 1.5f), 1.0f);
+    }
+}
+
+/* A box of the monkey: pivot and its rotations (rx about x, then ry about
+   y), offset and half size in the pivot's frame. Faces shaded by facing. */
+static int mk_box(RV *v, int n, V3 pivot, float rx, float ry, V3 off, V3 half, uint32_t col) {
+    static const int8_t fc[6][4][3] = {
+        {{-1, 1, -1}, {1, 1, -1}, {-1, 1, 1}, {1, 1, 1}},     {{-1, -1, 1}, {1, -1, 1}, {-1, -1, -1}, {1, -1, -1}},
+        {{-1, 1, 1}, {1, 1, 1}, {-1, -1, 1}, {1, -1, 1}},     {{1, 1, -1}, {-1, 1, -1}, {1, -1, -1}, {-1, -1, -1}},
+        {{-1, 1, -1}, {-1, 1, 1}, {-1, -1, -1}, {-1, -1, 1}}, {{1, 1, 1}, {1, 1, -1}, {1, -1, 1}, {1, -1, -1}},
+    };
+    static const float shade[6] = {1.0f, 0.6f, 0.9f, 0.75f, 0.8f, 0.8f};
+    float cx = cosf(rx), sx = sinf(rx), cy = cosf(ry), sy = sinf(ry);
+    for(int f = 0; f < 6; f++) {
+        uint32_t c = color_scale(col, shade[f]);
+        for(int k = 0; k < 4; k++) {
+            float x = off.x + fc[f][k][0] * half.x, y = off.y + fc[f][k][1] * half.y, z = off.z + fc[f][k][2] * half.z;
+            float y1 = y * cx - z * sx, z1 = y * sx + z * cx;
+            float x2 = x * cy + z1 * sy, z2 = -x * sy + z1 * cy;
+            v[n++] = (RV){pivot.x + x2, pivot.y + y1, pivot.z + z2, 0, 0, c};
+        }
+    }
+    return n;
+}
+
+/* Near, the whole monkey; further off (lite), just its body, head, face,
+   arms and tail, about a third of the vertices: they cost the console
+   ~0.5 ms a frame on Temple Hill drawn whole out to 140 m. */
+static void th_draw_monkey(const Monkey *m, bool lite) {
+    static RV v[MONKEY_BOXES * 24] __attribute__((aligned(32)));
+    static uint16_t idx[MONKEY_BOXES * 36];
+    static bool idx_built;
+    if(!idx_built) {
+        for(int q = 0; q < MONKEY_BOXES * 6; q++) {
+            uint16_t a = (uint16_t)(q * 4);
+            uint16_t t[6] = {a, (uint16_t)(a + 1), (uint16_t)(a + 2), (uint16_t)(a + 1), (uint16_t)(a + 3), (uint16_t)(a + 2)};
+            for(int k = 0; k < 6; k++) idx[q * 6 + k] = t[k];
+        }
+        idx_built = true;
+    }
+    const uint32_t fur = argb(255, 112, 70, 38), skin = argb(255, 222, 184, 140), eye = argb(255, 30, 22, 18);
+    float t = world_time + m->seed, ex = m->excite;
+    /* Idle: a scratch of the head with the right arm every few seconds.
+       Excited: both arms up, waving out of step. */
+    float scratch = fmaxf(0.0f, sinf(t * 0.7f) - 0.8f) * 5.0f;
+    float arm_l = lerpf(0.35f, 2.7f + 0.3f * sinf(t * 12.0f), ex);
+    float arm_r = lerpf(0.35f + 2.0f * scratch, 2.7f + 0.3f * sinf(t * 12.0f + 2.0f), ex);
+    float hop = 0.12f * ex * fabsf(sinf(t * 9.0f));
+    float tail = 0.5f * sinf(t * 1.6f);
+    int n = 0;
+    V3 o = v3(0, hop, 0);
+    n = mk_box(v, n, o, 0, 0, v3(0, 0.38f, 0), v3(0.17f, 0.2f, 0.13f), fur);
+    if(!lite) n = mk_box(v, n, o, 0, 0, v3(0, 0.35f, 0.11f), v3(0.11f, 0.14f, 0.03f), skin);
+    for(int s = -1; s <= 1; s += 2) {
+        if(!lite) n = mk_box(v, n, o, 0, 0, v3(s * 0.11f, 0.08f, 0.1f), v3(0.07f, 0.07f, 0.14f), fur);
+        V3 sh = vadd(o, v3(s * 0.21f, 0.52f, 0));
+        float a = s < 0 ? arm_l : arm_r;
+        n = mk_box(v, n, sh, -a, 0, v3(0, -0.2f, 0), v3(0.05f, 0.2f, 0.05f), fur);
+        if(!lite) n = mk_box(v, n, sh, -a, 0, v3(0, -0.37f, 0), v3(0.05f, 0.05f, 0.05f), skin);
+    }
+    V3 neck = vadd(o, v3(0, 0.6f, 0.02f));
+    float hy = m->head;
+    n = mk_box(v, n, neck, 0, hy, v3(0, 0.15f, 0), v3(0.15f, 0.14f, 0.13f), fur);
+    n = mk_box(v, n, neck, 0, hy, v3(0, 0.12f, 0.12f), v3(0.1f, 0.09f, 0.03f), skin);
+    if(!lite) n = mk_box(v, n, neck, 0, hy, v3(0, 0.07f, 0.155f), v3(0.06f, 0.04f, 0.03f), color_scale(skin, 1.08f));
+    for(int s = -1; s <= 1 && !lite; s += 2) {
+        n = mk_box(v, n, neck, 0, hy, v3(s * 0.045f, 0.17f, 0.152f), v3(0.02f, 0.02f, 0.01f), eye);
+        n = mk_box(v, n, neck, 0, hy, v3(s * 0.17f, 0.17f, 0), v3(0.035f, 0.05f, 0.02f), skin);
+    }
+    V3 root = vadd(o, v3(0, 0.22f, -0.12f));
+    n = mk_box(v, n, root, 0, tail, v3(0, 0, -0.15f), v3(0.03f, 0.03f, 0.15f), fur);
+    if(!lite) n = mk_box(v, n, root, 0, tail, v3(0, 0.15f, -0.3f), v3(0.03f, 0.15f, 0.03f), fur);
+    float mt[16];
+    m4_translate_rotate(mt, m->seat, m->yaw, 0, 0);
+    m4_scale_apply(mt, MONKEY_SCALE, MONKEY_SCALE, MONKEY_SCALE);
+    r_load_model(mt);
+    r_mesh(v, n, idx, n / 4 * 6, false);
+}
+
+void th_draw_op(void) {
+    if(!th_monkey_n) return;
+    float range = world_split ? 60.0f : 80.0f, near = world_split ? 25.0f : 35.0f;
+    r_hdr(h_monkey);
+    for(int i = 0; i < th_monkey_n; i++) {
+        const Monkey *m = &th_monkeys[i];
+        V3 d = vsub(m->seat, r_cam.pos);
+        if(vdot(d, d) > range * range || !r_sphere_visible(vadd(m->seat, v3(0, 0.8f, 0)), 1.5f)) continue;
+        th_draw_monkey(m, vdot(d, d) > near * near);
+    }
+    r_load_vp();
 }

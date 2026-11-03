@@ -16,6 +16,7 @@
    (see main.c). Velocity follows the heading through a
    grip blend, so slides drift outward naturally while the body is drawn
    yawed into the turn. */
+#include "tide.h"
 #include "kart.h"
 #include "roam.h"
 #include "items.h"
@@ -742,7 +743,8 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
     k->surface = track_surface(&k->tp);
     bool sand = k->surface == SURF_SAND;
     float surf_mul = sand ? 0.52f : (k->surface == SURF_CURB ? 0.97f : 1.0f);
-    if(k->boost_t > 0) surf_mul = 1.0f;   /* boosts cut through sand */
+    if(tide_wet(k)) surf_mul = fminf(surf_mul, 0.7f);
+    if(k->boost_t > 0) surf_mul = 1.0f;   /* boosts cut through sand and water */
 
     /* ---- Rear-bias brake slide ----
        Builds over ~0.2 s with the stick over under the brakes, so a dab of
@@ -1170,6 +1172,7 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
     }
     float edge = fminf(6.0f, half - 0.8f);
     float td = clampf(track_line(s + look) + lane, -edge, edge);
+    if(tide_on()) td = fminf(td, tide_edge(s + look) - 1.0f);
     td = items_ai_lane(k, s + look, td);
     V3 tp = track_point(s + look, td);
     float dx = tp.x - k->pos.x, dz = tp.z - k->pos.z;

@@ -272,6 +272,10 @@ float th_terrain(float x, float z);
 void th_banks(const float *sv, int n);
 void build_temple(void);
 void th_draw_flames(void);
+/* Temple Hill's monkeys. */
+void th_init(void);
+void th_update(float dt);
+void th_draw_op(void);
 
 /* Neon Skyway and Cyberstone (world_skyway.c), whose sky deck Spiral
    Canyon's road is built on, and whose towers Night Meet's city

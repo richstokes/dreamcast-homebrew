@@ -12,10 +12,10 @@ split screen, or up to five other Dreamcasts online.
 
 Eight courses:
 
-- Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels
-- Coral Crossing: a figure 8 whose ramp jumps one leg over the other
+- Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels; in offline races the tide washes over the outside of turn 1, and gulls lift off as you pass
+- Coral Crossing: a figure 8 whose ramp jumps one leg over the other, with gulls on the beach rail on the first and final laps
 - Palm Harbour: a twisty harbour circuit with a chicane and two hairpins, a crane working the quay and a ferry crossing the bay
-- Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct
+- Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct, monkeys on the ruins and parrots bursting from the palms at the first hairpin on lap 1
 - Neon Skyway: 1,056 m of neon road above a cyberpunk city at night, with a banked loop, a gap jump and open edges to fall off
 - Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches at golden hour, a retrowave sun setting behind the hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
 - Tsudoken Drift: a flat club circuit after Tsukuba under Mt Fuji on a spring afternoon, 1,031 m of hairpins and long lefts through cherry blossom, paddies and stone lanterns, a grandstand under a swept tiled roof along the start straight, torii over the road and a ramp jump over a stream halfway down the 200 m back straight
@@ -355,6 +355,11 @@ Palm Harbour's life (the crowd's wave, which Beach, Coral and Temple share, a de
 console (2026-11-01, `make hwbench`, 150cc, six karts) is lost in the noise:
 world draw 2.77 to 2.88 ms in 1P and 4.53 to 4.58 ms in a split screen,
 vertex buffer peak 406 to 432 and 476 to 481 KiB.
+
+Temple Hill's monkeys and parrots (2026-11-02, same bench): world draw 3.20
+to 3.39 ms in 1P and 5.09 to 5.22 ms in a split screen. Monkeys drawn whole
+out to 140 m cost ~0.5 ms, so they stop at 80 m and drop to six boxes past
+35 m. Birds on the sand behind a barrier are hidden by it; perch them on it.
 
 ## Gotchas
 

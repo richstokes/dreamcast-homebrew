@@ -26,6 +26,8 @@
 #include "save.h"
 #include "spectate.h"
 #include "film.h"
+#include "tide.h"
+#include "birds.h"
 #include "gp.h"
 #include "prof.h"
 #include "version.h"
@@ -466,6 +468,7 @@ static void race_step(float dt, bool drive) {
     world_race_progress(race_frac());
     dolphins_update(dt);
     biplane_update(dt);
+    tide_update(dt);
     for(int i = 0; i < kart_count; i++) {
         Kart *k = &karts[i];
         if(k->events & EV_FINISH) game.finished_count++;
@@ -1094,6 +1097,8 @@ int main(int argc, char **argv) {
     items_init();
     dolphins_init();
     biplane_init();
+    tide_init();
+    birds_init();
     boot_screen(boot_t0, 0.7f, "TUNING STEEL DRUMS");
     audio_init();
     boot_screen(boot_t0, 1.0f, "READY!");

@@ -9,6 +9,8 @@
 
    This file builds and draws it; each track's own scenery is built in
    world_<track>.c (world_int.h lists who does what). */
+#include "tide.h"
+#include "birds.h"
 #include "world_int.h"
 #include "roam.h"
 #include "prof.h"
@@ -180,6 +182,7 @@ void world_init(void) {
     h_retrosun = r_header(TEX_RETROSUN, HF_TR | HF_NOFOG);
     h_sky_nz = r_header(TEX_NONE, HF_OP | HF_NOFOG | HF_NOZWRITE);
     hb_init();
+    th_init();
     tk_init();
     h_sundisc = r_header(TEX_SUNDISC, HF_TR | HF_NOFOG);
     h_far_sprite = h_palm_far;
@@ -311,6 +314,7 @@ void world_build(void) {
     else if(track.in_sky) build_skyway();
     else build_beach();
     surface_table_build();
+    birds_build();
     /* Release and console builds log only the first build: under dcload-ip
        each printf stalls the console with IRQs off. */
 #if defined(DK_AUTOTEST) && !defined(DK_HW)
@@ -340,6 +344,8 @@ void world_update(float dt) {
 #endif
     if(world_lot) lot_update(dt);
     if(track.id == TRACK_HARBOUR) hb_update();
+    if(track.id == TRACK_TEMPLE) th_update(dt);
+    birds_update(dt);
     grandstand_update();
     /* The road's lights run forward a repeat (about 8 m) every 0.55 s. */
     if(world_canyon) sk_road_hdr = *h_canyonroad;
@@ -990,6 +996,8 @@ void world_draw_op(void) {
         draw_dash_pads();
         if(world_av) av_draw_windsock();
         if(track.id == TRACK_HARBOUR) hb_draw_op();
+        if(track.id == TRACK_TEMPLE) th_draw_op();
+        birds_draw();
     }
 }
 
@@ -1275,6 +1283,7 @@ void world_draw_tr(void) {
     }
     PROF_BEGIN(pm);
     draw_shore_foam();
+    tide_draw();
     draw_sea_sparkles();
     PROF_LAP(PS_FOAM, pm);
     th_draw_flames();
