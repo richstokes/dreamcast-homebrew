@@ -14,9 +14,11 @@ needs a modern browser. End-user instructions live in the
 - VMU studio (`/studio`) draws 32x32 Dreamcast-menu and VMU-screen icon sets, optionally with the hidden 3D BIOS animation
 - Card importer (`/import`) previews `.bin`, `.vmu`, `.dcm` and `.dci` images, then imports the selected saves or icons without replacing existing backups
 - Whole-VMU archives (`/archives`) snapshot one 128 KiB card with DCVMU login saves scrubbed out, for one-step restore from the client
+- Dreambox (`/account/archicast`): a network drive for [Archicast](https://github.com/richstokes/Archicast), RISC OS on the Dreamcast, with uploads, downloads and folders on the website. Consoles link with a code typed there, then use a plain-text drive API (`dreambox.py`). Linked from the account page only, not the site navigation
 - Web player (`/play?rom=continuous/dreamkarts.cdi&name=DreamKarts`) runs this repository's release ELFs and disc images in the browser with Flycast WASM and EmulatorJS. Network apps get online through an emulated broadband adapter: `netrelay.py` carries its Ethernet frames over a WebSocket to [DCNet](https://dcnet.flyca.st). Unlisted like `/stats`; the root README's Play links point here
 
-Limits per account: 200 saves, 20 archives, 60 uploads an hour. Saves are at
+Limits per account: 200 saves, 20 archives, 60 uploads an hour. Dreambox
+holds 16 MiB and 2000 objects, files up to 4 MiB. Saves are at
 most 120.5 KiB (241 blocks) and archives exactly 128 KiB. `DCVMU_AUTH` login
 saves are never stored, and `ICONDATA_VMS` only arrives through the studio or
 importer.
@@ -49,6 +51,7 @@ to `main`, followed by the client's host tests.
 | --- | --- |
 | `test_service.py` | Web pages, API v1, sessions and CSRF, rate limits, icons, duplicate handling, catalog labels |
 | `test_vmu_tools.py` | Studio icon data, card and Nexus import extraction, preview expiry, atomic imports |
+| `test_dreambox.py` | Console linking, drive API block staging and commits, quotas, the Archicast page |
 | `test_archives.py` | Whole-card login scrubbing, archive pages and the console archive API |
 | `test_stats.py` | Unlisted stats page, sortable user table, public-only profiles |
 | `test_play.py` | Web player page and headers, release asset parsing, the ROM cache and its GitHub revalidation |
@@ -59,6 +62,7 @@ to `main`, followed by the client's host tests.
 - Passwords are hashed with Argon2id; session tokens are random 256-bit values stored only as SHA-256 hashes
 - Web logins last a year and renew on activity at most once a day. API tokens last 24 hours, or 90 days for a remembered VMU login
 - Cookies are Secure, HttpOnly and SameSite=Lax; every web mutation checks the Origin and a per-session CSRF value, while API calls use a bearer token
+- Dreambox tokens only reach `/api/v1/drive/`, never the save API or the website, and last until unlinked on the Archicast page or a year unused. Link codes last 15 minutes and work once
 - Login, registration, uploads and imports are rate limited; request sizes and per-account storage are bounded
 - Saves are served only as attachment downloads, and request bodies are not logged
 

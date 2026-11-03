@@ -16,6 +16,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, abort, g, redirect, render_template, request, send_file, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
+import dreambox
 import play
 from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png, game_label
 from vmu_tools import (ICON_NAME, MAX_IMAGE, UNLOCK, build_icondata, validate_icondata,
@@ -76,6 +77,7 @@ def create_app(config=None):
     Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(app.config['DATABASE']) as db:
         db.executescript(SCHEMA)
+        db.executescript(dreambox.SCHEMA)
         db.execute('BEGIN IMMEDIATE')
         if 'kind' not in {r[1] for r in db.execute('PRAGMA table_info(saves)')}:
             db.execute("ALTER TABLE saves ADD COLUMN kind TEXT NOT NULL DEFAULT 'data' CHECK(kind IN ('data','icon'))")
@@ -173,11 +175,20 @@ def create_app(config=None):
         # request plus the session's CSRF value; API requests send a bearer token instead.
         if not request.is_secure and not app.testing:
             abort(400, 'HTTPS is required.')
+        if request.path == '/account/archicast/upload':
+            # Before the CSRF check reads the form: Dreambox files are bigger than saves
+            request.max_content_length = dreambox.MAX_FILE + 64 * 1024
         token = request.cookies.get('dcvmu_session', '')
         kind = 'web'
         if request.path.startswith('/api/'):
             kind = 'api'
             token = request.headers.get('Authorization', '').removeprefix('Bearer ')
+        if request.path.startswith('/api/v1/drive/'):
+            # Archicast's Dreambox: a linked console's own token, never a login session.
+            # It sends no cookies or forms, and is rate limited per user instead.
+            g.session = None
+            g.user = drive_token_user(token)
+            return
         g.session = database().execute(
             'SELECT * FROM sessions WHERE hash=? AND kind=? AND expires>?',
             (digest(token), kind, int(time.time()))).fetchone() if token else None
@@ -366,6 +377,8 @@ def create_app(config=None):
         with database() as db:
             db.execute('DELETE FROM sessions WHERE hash=?', (g.session['hash'],))
         return 'OK\n', 200, {'Content-Type': 'text/plain'}
+
+    drive_token_user = dreambox.register(app, database, limit, page, require_user)
 
     @app.get('/')
     def browse():

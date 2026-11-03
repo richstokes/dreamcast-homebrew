@@ -126,3 +126,13 @@ button:focus-visible{outline:3px solid var(--focus);outline-offset:3px}button:di
 .player-frame{max-width:calc(70vh*4/3);margin:24px 0 18px}
 .player{aspect-ratio:4/3;background:#03050a;border-radius:10px;overflow:hidden}
 .player-status{margin:8px 0 0;font:13px/1.5 monospace;color:var(--muted)}
+.drive-path{font-family:Menlo,Consolas,monospace;overflow-wrap:anywhere}
+.drive-table th:last-child,.drive-table td:last-child{width:30%;text-align:right;font-variant-numeric:tabular-nums}
+.drive-table{width:100%;border-collapse:collapse}
+.drive-table th{padding:10px;text-align:left;background:var(--panel);font-size:13px}
+.drive-table td{padding:10px;border-top:1px solid var(--line);vertical-align:middle;overflow-wrap:anywhere}
+.drive-delete{display:inline;margin-left:12px}
+.form-panel .drive-links input[type=submit],.drive-delete input[type=submit]{width:auto;padding:4px 10px;font-size:13px}
+.drive-links li{margin:6px 0}
+.drive-links form{display:inline;margin-left:10px}
+.tool-row .form-panel{flex:1 1 280px}

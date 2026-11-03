@@ -1,0 +1,25 @@
+{% extends 'base.html' %}{% block title %}Archicast{% endblock %}{% block content %}
+<p class="eyebrow">{{ user.username }}'S DREAMBOX</p><h1>Archicast</h1>
+<p>Dreambox is a network drive for <a href="https://github.com/richstokes/Archicast">Archicast</a>, RISC OS on the Dreamcast. Anything you save to it from !Draw, Pen Down or the Filer turns up here, and anything you upload here turns up on the console.</p>
+{% if linked %}<p class="notice" role="status">Console linked. Open Dreambox on the Dreamcast again and your files will be there.</p>{% endif %}
+<section class="form-panel"><h2>Link a Dreamcast</h2>
+<p>Open <strong>!Dreambox</strong> in the Apps folder. The first time, it shows a code. Type it here.</p>
+<form method="post" action="/account/archicast/link"><input type="hidden" name="csrf" value="{{ csrf }}">
+<p><label>Link code<br><input name="code" maxlength="9" placeholder="ABCD-1234" autocomplete="off" autocapitalize="characters" required></label></p>
+<input type="submit" value="Link this console"></form>
+{% if links %}<h3>Linked consoles</h3><ul class="drive-links">{% for link in links %}<li>Linked <time data-local-time datetime="{{ link.created|utc_iso }}">{{ link.created|utc_display }}</time>, last used <time data-local-time datetime="{{ link.last_used|utc_iso }}">{{ link.last_used|utc_display }}</time>
+<form method="post" action="/account/archicast/unlink"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="link" value="{{ link.hash }}"><input type="submit" class="danger" value="Unlink"></form></li>{% endfor %}</ul>{% endif %}
+</section>
+<h2>Files</h2>
+<p class="drive-path">{% for name, href in crumbs %}{% if not loop.first %} . {% endif %}{% if loop.last %}<strong>{{ name }}</strong>{% else %}<a href="{{ href }}">{{ name }}</a>{% endif %}{% endfor %}</p>
+<div class="table-scroll"><table class="drive-table"><thead><tr><th>Name</th><th>Type</th><th>Modified</th><th>Size</th></tr></thead><tbody>
+{% for entry in entries %}<tr><td>{% if entry.is_dir %}<a href="{{ url_for('archicast', path=entry.path) }}">{{ entry.name }}</a>{% else %}<a href="{{ url_for('archicast_download', path=entry.path) }}">{{ entry.name }}</a>{% endif %}</td><td>{{ entry.kind }}</td><td><time data-local-time datetime="{{ entry.when|int|utc_iso }}">{{ entry.when|int|utc_display }}</time></td><td>{{ '' if entry.is_dir else '{:,}'.format(entry.size) }}
+<form class="drive-delete" method="post" action="/account/archicast/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="path" value="{{ entry.path }}"><input type="submit" class="danger" value="Delete" aria-label="Delete {{ entry.name }}"></form></td></tr>
+{% else %}<tr><td colspan="4">Nothing here yet.</td></tr>{% endfor %}</tbody></table></div>
+<p class="hint">Using {{ '%.1f'|format(used / 1048576) }}MB of {{ quota // 1048576 }}MB, {{ objects }} {{ 'object' if objects == 1 else 'objects' }}. Files are up to 4MB. A directory has to be empty before it can be deleted.</p>
+<div class="tool-row"><section class="form-panel"><h3>Upload a file</h3><form method="post" action="/account/archicast/upload" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="path" value="{{ path }}">
+<p><input type="file" name="file" required></p><p class="hint">A name ending in ,xxx keeps that RISC OS file type (Picture,aff). Otherwise the extension sets it, and anything else is Data.</p><input type="submit" value="Upload"></form></section>
+<section class="form-panel"><h3>New directory</h3><form method="post" action="/account/archicast/mkdir"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="path" value="{{ path }}">
+<p><input name="name" maxlength="32" required></p><input type="submit" value="Create"></form></section></div>
+<p><a href="/account">Back to your account</a></p>
+{% endblock %}
