@@ -1,5 +1,6 @@
 /* DreamKarts settings, kept in a save file on a VMU (see save.c): the
-   online name, the music switch and volume, and the custom kart. */
+   online name, the music switch and volume, the drift counter switch and
+   the custom kart. */
 #ifndef DK_SAVE_H
 #define DK_SAVE_H
 
@@ -10,12 +11,16 @@
 #define SAVE_VOLUME_MAX 10
 #define SAVE_VOLUME_DEFAULT 10
 
+/* Where the drift counter shows. */
+enum { DRIFT_SHOW_OFF, DRIFT_SHOW_ROAM, DRIFT_SHOW_ALWAYS, DRIFT_SHOW_COUNT };
+
 typedef struct {
     char name[SAVE_NAME_LEN];   /* online name; empty until one is typed */
     bool music;                 /* the music switch */
     int volume;                 /* music volume, 0 (off) to SAVE_VOLUME_MAX */
     bool custom_on;             /* a custom kart has been saved */
     KartCustom custom;          /* its colours */
+    int drift_show;             /* DRIFT_SHOW_*: off, Free Roam only, every mode */
 } SaveData;
 
 /* The settings in force: the card's, or the defaults, until the player

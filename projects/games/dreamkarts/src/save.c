@@ -40,7 +40,8 @@ typedef struct {
     uint8_t custom_on;
     uint8_t custom[3];   /* body, trim, chao palette indices */
     uint8_t volume1;     /* music volume + 1; 0 (files from before it) means the default */
-    uint8_t pad2[2];
+    uint8_t drift_show1; /* drift counter mode + 1; 0 (files from before it) means Free Roam */
+    uint8_t pad2;
     uint32_t check;
 } SaveRecord;
 
@@ -65,6 +66,7 @@ static void defaults(SaveData *d) {
     memset(d, 0, sizeof(*d));
     d->music = true;
     d->volume = SAVE_VOLUME_DEFAULT;
+    d->drift_show = DRIFT_SHOW_ROAM;
     d->custom = kart_custom_default;
 }
 
@@ -104,6 +106,7 @@ static bool parse_record(const uint8_t *data, int len, SaveData *out) {
     out->music = !r.music_off;
     if(r.volume1 >= 1 && r.volume1 <= SAVE_VOLUME_MAX + 1) out->volume = r.volume1 - 1;
     out->custom_on = r.custom_on != 0;
+    if(r.drift_show1 >= 1 && r.drift_show1 <= DRIFT_SHOW_COUNT) out->drift_show = r.drift_show1 - 1;
     out->custom.body = r.custom[0] % PALETTE_COUNT;
     out->custom.trim = r.custom[1] % PALETTE_COUNT;
     out->custom.chao = r.custom[2] % PALETTE_COUNT;
@@ -165,6 +168,7 @@ static bool write_card(const SaveData *d) {
     r.music_off = !d->music;
     r.volume1 = (uint8_t)(d->volume + 1);
     r.custom_on = d->custom_on;
+    r.drift_show1 = (uint8_t)(d->drift_show + 1);
     r.custom[0] = d->custom.body;
     r.custom[1] = d->custom.trim;
     r.custom[2] = d->custom.chao;

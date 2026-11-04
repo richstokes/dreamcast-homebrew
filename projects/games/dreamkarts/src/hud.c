@@ -11,6 +11,7 @@
 #include "texture_assets.h"
 #include "font_metrics.h"
 #include "ui.h"
+#include "save.h"
 
 static const pvr_poly_hdr_t *h_font, *h_big, *h_flat, *h_glow;
 static struct {
@@ -205,36 +206,13 @@ void hud_draw_track_map(float cx, float cy, float sc, float z, bool show_karts) 
     }
 }
 
-/* Free Roam's corner: no laps or places, a FREE ROAM tag with the speed,
-   the time on the lot on the right. */
-static void draw_roam_corner(int pi, float y0, float y1) {
-    const Kart *p = &karts[game.pl[pi].kart];
-    bool split = y1 - y0 < 400.0f;
-    float k = split ? 0.72f : 1.0f;
+/* The slide's score counting up in its stage colour, centred at sy, then
+   the score just banked for a couple of seconds (gold when it is a new
+   best). Callers put it over the charge gauge, where the eye is while
+   drifting; a split screen's kart sits there, so top centre of the view
+   instead. */
+static void draw_drift_score(const Kart *p, float sy, float k) {
     char buf[32];
-    /* Two panels of one size: the mode and speed, the best drift under
-       it, labels and readings at matching scales. No clock: nothing is
-       being timed. */
-    const float box_h = 40 * k, pad = 12 * k, gap = 6 * k, ls = 0.62f * k, vs = 0.8f * k;
-    float lx = split ? 14 : 24, ly = y0 + (split ? 8 : 22);
-    float label_w = fmaxf(hud_text_width("FREE ROAM", ls), hud_text_width("BEST DRIFT", ls));
-    float val_w = fmaxf(hud_text_width("999 MPH", vs), hud_text_width("99999", vs));
-    float lw = pad + label_w + 10 * k + val_w + pad;
-    const char *labels[2] = {"FREE ROAM", "BEST DRIFT"};
-    for(int row = 0; row < 2; row++) {
-        float ry = ly + row * (box_h + gap), cy = ry + box_h * 0.5f;
-        hud_panel(lx, ry, lx + lw, ry + box_h, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
-        hud_text_c(lx + pad, cy + 1.0f * k, ls, ALIGN_LEFT, argb(255, 255, 220, 80), labels[row]);
-        if(row == 0) snprintf(buf, sizeof(buf), "%d MPH", (int)(fabsf(p->speed) * 2.23694f + 0.5f));
-        else snprintf(buf, sizeof(buf), "%d", (int)p->best_drift);
-        hud_text_c(lx + lw - pad, cy, vs, ALIGN_RIGHT, 0xffffffff, buf);
-    }
-    if(split) hud_text_c(lx + lw + 10 * k, ly + box_h * 0.5f, 0.75f * k, ALIGN_LEFT, p->ui_color | 0xff000000, pi ? "P2" : "P1");
-    /* The slide's score counting up in its stage colour, centred over
-       the charge gauge where the eye is while drifting (a split screen's
-       kart sits there, so top centre of the view instead), then the score
-       just banked for a couple of seconds (gold when it is a new best). */
-    float sy = split ? ly + box_h * 0.5f : 440 - 22 * k;
     if(p->drift == DRIFT_ACTIVE && p->drift_score >= 1.0f) {
         uint32_t c = p->stage ? fx_stage_color(p->stage) : argb(255, 240, 240, 240);
         snprintf(buf, sizeof(buf), "DRIFT %d", (int)p->drift_score);
@@ -246,6 +224,35 @@ static void draw_roam_corner(int pi, float y0, float y1) {
         snprintf(buf, sizeof(buf), p->drift_best_new ? "NEW BEST %d" : "DRIFT %d", (int)p->last_drift);
         hud_text_c(320, sy, 0.9f * k, ALIGN_CENTER, color_alpha(c, a), buf);
     }
+}
+
+/* Free Roam's corner: no laps or places, a FREE ROAM tag with the speed,
+   the time on the lot on the right. */
+static void draw_roam_corner(int pi, float y0, float y1) {
+    const Kart *p = &karts[game.pl[pi].kart];
+    bool split = y1 - y0 < 400.0f;
+    float k = split ? 0.72f : 1.0f;
+    char buf[32];
+    /* Two panels of one size: the mode and speed, the best drift under
+       it (unless Settings has the drift counter off), labels and readings
+       at matching scales. No clock: nothing is being timed. */
+    bool drifts = save.drift_show != DRIFT_SHOW_OFF;
+    const float box_h = 40 * k, pad = 12 * k, gap = 6 * k, ls = 0.62f * k, vs = 0.8f * k;
+    float lx = split ? 14 : 24, ly = y0 + (split ? 8 : 22);
+    float label_w = fmaxf(hud_text_width("FREE ROAM", ls), hud_text_width("BEST DRIFT", ls));
+    float val_w = fmaxf(hud_text_width("999 MPH", vs), hud_text_width("99999", vs));
+    float lw = pad + label_w + 10 * k + val_w + pad;
+    const char *labels[2] = {"FREE ROAM", "BEST DRIFT"};
+    for(int row = 0; row < (drifts ? 2 : 1); row++) {
+        float ry = ly + row * (box_h + gap), cy = ry + box_h * 0.5f;
+        hud_panel(lx, ry, lx + lw, ry + box_h, argb(150, 20, 60, 160), argb(150, 10, 30, 90), 15);
+        hud_text_c(lx + pad, cy + 1.0f * k, ls, ALIGN_LEFT, argb(255, 255, 220, 80), labels[row]);
+        if(row == 0) snprintf(buf, sizeof(buf), "%d MPH", (int)(fabsf(p->speed) * 2.23694f + 0.5f));
+        else snprintf(buf, sizeof(buf), "%d", (int)p->best_drift);
+        hud_text_c(lx + lw - pad, cy, vs, ALIGN_RIGHT, 0xffffffff, buf);
+    }
+    if(split) hud_text_c(lx + lw + 10 * k, ly + box_h * 0.5f, 0.75f * k, ALIGN_LEFT, p->ui_color | 0xff000000, pi ? "P2" : "P1");
+    if(drifts) draw_drift_score(p, split ? ly + box_h * 0.5f : 440 - 22 * k, k);
 }
 
 void hud_draw_race(int pi, float y0, float y1) {
@@ -305,6 +312,9 @@ void hud_draw_race(int pi, float y0, float y1) {
         hud_text(px, py, 2.4f * k * pulse, ALIGN_RIGHT, c, buf);
         hud_text(px + 2, py + 24 * k, 1.0f * k, ALIGN_LEFT, c, hud_ordinal(p->place));
     }
+
+    /* The drift score outside Free Roam, when Settings asks for it. */
+    if(save.drift_show == DRIFT_SHOW_ALWAYS && !p->finished) draw_drift_score(p, split ? y0 + 30 * k : 440 - 22 * k, k);
 
 common:
     if(!split) hud_draw_track_map(98, 402, track_is_roam() ? 0.34f : 0.40f, 18.0f, true);

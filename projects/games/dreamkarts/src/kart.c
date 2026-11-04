@@ -926,6 +926,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
 #endif
     if(k->bump_t > 0) k->bump_t -= dt;
     if(k->kbump_t > 0) k->kbump_t -= dt;
+    if(k->drift_pop_t > 0) k->drift_pop_t -= dt;
     if(track_is_roam()) k->progress = k->tp.s;   /* no laps to count */
     else update_lap(k, prev_s);
     kart_vertical(k, btn, prev_s, prev_d, dt);
