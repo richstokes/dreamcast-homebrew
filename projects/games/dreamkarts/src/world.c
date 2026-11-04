@@ -292,13 +292,12 @@ void world_build(void) {
         world_sun_dir = vnorm(v3(sinf(AV_SUN_DIR), 0.95f, cosf(AV_SUN_DIR)));
         sun_disc_dir = world_sun_dir;
     }
-    if(!world_night) {
+    if(!world_night && !world_canyon && !world_tk && !world_av) {
         /* The sky's sun sits lower than the light comes from: the chase
            camera tilts down ~9 degrees and sees only ~21 degrees above the
-           horizon, so a disc where the light is (33-46 degrees up) stayed
-           off screen and its lens flare only showed up Coral's ramp. */
+           horizon, so a disc where the light is (33 degrees up) stayed off
+           screen and its lens flare only showed up Coral's ramp. */
         V3 h = vnorm(v3(world_sun_dir.x, 0.0f, world_sun_dir.z));
-        if(world_tk) h = v3(sinf(TK_SUN_DIR), 0.0f, cosf(TK_SUN_DIR));   /* that low, Fuji would hide it */
         sun_disc_dir = vnorm(vadd(h, v3(0, SKY_SUN_EL, 0)));
     }
     if(world_sunset) {
@@ -1079,7 +1078,6 @@ static void draw_clouds_and_mountains(void) {
         /* The low sun first, then Fuji, then the hills in front of both. */
         V3 sp = vmad(c, sun_disc_dir, 1460.0f);
         if(TK_AFTERNOON) {
-            sp = vmad(c, sun_disc_dir, 1300.0f);   /* in front of the haze, as low as it now sits */
             if(r_sphere_visible(sp, 200.0f)) {
                 r_hdr(h_glow_add);
                 r_billboard(sp, 240.0f, 240.0f, 0, 0, 0, 1, 1, argb(200, 255, 250, 210));
