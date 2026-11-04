@@ -7,8 +7,8 @@
    it only ever costs a kart that has run wide. Water slows a kart as a
    curb slows it, only more; a boost cuts through it as through sand.
 
-   It runs on the race clock, not world_time, and changes how karts drive,
-   so it stays offline until the consoles' build carries it (net_version.h). */
+   It runs on the race clock, not world_time: online that is the server's
+   green-light clock, so every console sees the same water. */
 #include "tide.h"
 #include "fx.h"
 #include "texture_assets.h"
@@ -31,7 +31,7 @@ void tide_init(void) {
 }
 
 bool tide_on(void) {
-    return track.id == TRACK_BEACH && !game.online && game.mode != MODE_TT;
+    return track.id == TRACK_BEACH;
 }
 
 static float tide_level(void) {

@@ -12,7 +12,7 @@ split screen, or up to five other Dreamcasts online.
 
 Eight courses:
 
-- Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels; in offline races the tide washes over the outside of turn 1, and gulls lift off as you pass
+- Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels; the tide washes over the outside of turn 1, and gulls lift off as you pass
 - Coral Crossing: a figure 8 whose ramp jumps one leg over the other, with gulls on the beach rail on the first and final laps
 - Palm Harbour: a twisty harbour circuit with a chicane and two hairpins, a crane working the quay and a ferry crossing the bay
 - Temple Hill: a jungle hill climb (18 m) with switchbacks, a summit hump and a stone viaduct, monkeys on the ruins and parrots bursting from the palms at the first hairpin on lap 1
