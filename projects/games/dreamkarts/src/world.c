@@ -38,6 +38,8 @@ static V3 sun_disc_dir;   /* where the sun's disc and lens flare sit */
 #define DR_SUN_EL   0.11f
 #define DR_SUN_SINK 1.0f
 static V3 sun_ahead;
+/* tan of the daytime sky sun's elevation (~14 degrees), see world_build. */
+#define SKY_SUN_EL  0.25f
 uint16_t world_light[3] = {256, 256, 256};
 
 #ifdef DK_CHUNK_STATS
@@ -289,6 +291,15 @@ void world_build(void) {
         /* A bright desert afternoon, the sun in the south-west. */
         world_sun_dir = vnorm(v3(sinf(AV_SUN_DIR), 0.95f, cosf(AV_SUN_DIR)));
         sun_disc_dir = world_sun_dir;
+    }
+    if(!world_night) {
+        /* The sky's sun sits lower than the light comes from: the chase
+           camera tilts down ~9 degrees and sees only ~21 degrees above the
+           horizon, so a disc where the light is (33-46 degrees up) stayed
+           off screen and its lens flare only showed up Coral's ramp. */
+        V3 h = vnorm(v3(world_sun_dir.x, 0.0f, world_sun_dir.z));
+        if(world_tk) h = v3(sinf(TK_SUN_DIR), 0.0f, cosf(TK_SUN_DIR));   /* that low, Fuji would hide it */
+        sun_disc_dir = vnorm(vadd(h, v3(0, SKY_SUN_EL, 0)));
     }
     if(world_sunset) {
         /* Spiral Canyon: dead ahead along the start straight, the light
@@ -1068,6 +1079,7 @@ static void draw_clouds_and_mountains(void) {
         /* The low sun first, then Fuji, then the hills in front of both. */
         V3 sp = vmad(c, sun_disc_dir, 1460.0f);
         if(TK_AFTERNOON) {
+            sp = vmad(c, sun_disc_dir, 1300.0f);   /* in front of the haze, as low as it now sits */
             if(r_sphere_visible(sp, 200.0f)) {
                 r_hdr(h_glow_add);
                 r_billboard(sp, 240.0f, 240.0f, 0, 0, 0, 1, 1, argb(200, 255, 250, 210));
@@ -1173,7 +1185,7 @@ static void draw_clouds_and_mountains(void) {
     if(world_tk || world_sunset) return;
 
     /* The sun. */
-    V3 sp = vmad(c, world_sun_dir, 1300.0f);
+    V3 sp = vmad(c, sun_disc_dir, 1300.0f);
     if(r_sphere_visible(sp, 200.0f)) {
         r_hdr(h_glow_add);
         r_billboard(sp, 210.0f, 210.0f, 0, 0, 0, 1, 1, argb(200, 255, 250, 210));
