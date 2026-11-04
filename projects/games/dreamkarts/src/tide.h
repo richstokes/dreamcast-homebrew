@@ -5,8 +5,12 @@
 #include "kart.h"
 
 void tide_init(void);
-/* In this race at all: offline, and not in Time Trial, where laps are compared. */
+/* With Emerald Beach's world, after its terrain. */
+void tide_build(void);
+/* In this race at all (Emerald Beach). */
 bool tide_on(void);
+/* Where the tide runs, open to the sea: no outer barrier is drawn there. */
+bool tide_open(float s);
 /* The lateral offset the water reaches at lap distance s (off the road's
    outside when it is out). */
 float tide_edge(float s);

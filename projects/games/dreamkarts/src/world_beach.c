@@ -1,6 +1,7 @@
 /* Emerald Beach: the oval by the sea, its boardwalk and infield pond, the
    arch, lighthouse and boats out in the bay. */
 #include "world_int.h"
+#include "tide.h"
 
 static float shore_db[TRACK_SAMPLES];
 
@@ -73,34 +74,42 @@ static void build_track_chunk(int c) {
         if(any) strip_end();
     }
 
-    /* Barriers: padded walls, or wooden rails along the boardwalk. */
+    /* Barriers: padded walls, or wooden rails along the boardwalk. The
+       outside stops where the tide comes in, so the beach runs open to the
+       sea there (its wall still holds karts, out on the sand). */
     for(int side = -1; side <= 1; side += 2) {
         bool rail = board;
-        strip_begin(rail ? h_wood : h_barrier);
-        for(int j = 0; j <= per; j++) {
-            const TrackSample *t = &track.smp[(c * per + j) % TRACK_SAMPLES];
-            float s = (float)(c * per + j) * ds;
-            float w = side < 0 ? t->wall_in : t->wall_out;
-            V3 b = vmad(t->p, t->r, side * w);
-            float hgt = rail ? 0.85f : 1.0f;
-            uint32_t col = shade(argb(255, 255, 255, 255), vscale(t->r, (float)-side));
-            svp(vadd(b, v3(0, hgt, 0)), s / 4.0f, rail ? 0.0f : 0.0f, col);
-            svp(b, s / 4.0f, rail ? 0.25f : 1.0f, color_scale(col, 0.8f));
+        float hgt = rail ? 0.85f : 1.0f;
+        for(int pass = 0; pass < 2; pass++) {
+            bool live = false;
+            for(int j = 0; j <= per; j++) {
+                const TrackSample *t = &track.smp[(c * per + j) % TRACK_SAMPLES];
+                float s = (float)(c * per + j) * ds;
+                if(side > 0 && tide_open(t->s)) {
+                    if(live) strip_end();
+                    live = false;
+                    continue;
+                }
+                if(!live) strip_begin(pass ? h_col : rail ? h_wood : h_barrier);
+                live = true;
+                float w = side < 0 ? t->wall_in : t->wall_out;
+                if(!pass) {
+                    V3 b = vmad(t->p, t->r, side * w);
+                    uint32_t col = shade(argb(255, 255, 255, 255), vscale(t->r, (float)-side));
+                    svp(vadd(b, v3(0, hgt, 0)), s / 4.0f, 0.0f, col);
+                    svp(b, s / 4.0f, rail ? 0.25f : 1.0f, color_scale(col, 0.8f));
+                }
+                else {
+                    /* Top cap so the walls read as solid from above. */
+                    V3 a = vmad(t->p, t->r, side * (w - 0.25f)), b = vmad(t->p, t->r, side * (w + 0.25f));
+                    a.y = b.y = hgt;
+                    uint32_t cap = rail ? argb(255, 190, 140, 90) : argb(255, 255, 212, 50);
+                    svp(a, 0, 0, cap);
+                    svp(b, 0, 0, cap);
+                }
+            }
+            if(live) strip_end();
         }
-        strip_end();
-        /* Barrier top cap so the walls read as solid from above. */
-        strip_begin(h_col);
-        for(int j = 0; j <= per; j++) {
-            const TrackSample *t = &track.smp[(c * per + j) % TRACK_SAMPLES];
-            float w = side < 0 ? t->wall_in : t->wall_out;
-            float hgt = rail ? 0.85f : 1.0f;
-            V3 a = vmad(t->p, t->r, side * (w - 0.25f)), b = vmad(t->p, t->r, side * (w + 0.25f));
-            a.y = b.y = hgt;
-            uint32_t cap = rail ? argb(255, 190, 140, 90) : argb(255, 255, 212, 50);
-            svp(a, 0, 0, cap);
-            svp(b, 0, 0, cap);
-        }
-        strip_end();
     }
     chunk_end();
 
@@ -267,5 +276,6 @@ void build_beach(void) {
         foam_on[foam_count] = t->p.z > 8.0f;
         foam_count++;
     }
+    tide_build();
     place_props();
 }
