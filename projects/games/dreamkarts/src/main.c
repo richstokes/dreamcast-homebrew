@@ -28,6 +28,7 @@
 #include "film.h"
 #include "tide.h"
 #include "birds.h"
+#include "skylife.h"
 #include "gp.h"
 #include "prof.h"
 #include "version.h"
@@ -150,6 +151,7 @@ void race_reset(void) {
     fx_clear();
     dolphins_reset();
     biplane_reset();
+    skylife_reset();
     world_race_progress(0);
     hud_reset();
     update_places();

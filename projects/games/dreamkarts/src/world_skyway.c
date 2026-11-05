@@ -1,6 +1,7 @@
 /* Neon Skyway (and Cyberstone, which shares it). Spiral Canyon's road is
    built on the same sky deck (sk_build_track_chunk). */
 #include "world_int.h"
+#include "skylife.h"
 
 /* A neon road through a cyberpunk city at night, high above a sea of
    cloud: a dark deck under a glowing grid with running lights down its
@@ -523,10 +524,14 @@ void draw_sparkles(void) {
     /* Searchlights (not in a split screen): long soft beams turning slowly over the city, each
        facing the camera about its own axis. */
     r_hdr(h_glow_add);
+    V3 ufo;
+    float follow = skylife_ufo(&ufo);
     for(int i = 0; i < (world_split ? 0 : sk_beam_n); i++) {
         float a = world_time * (0.25f + 0.04f * (float)i) + (float)i * 2.1f;
         V3 base = sk_beam[i];
         V3 dir = vnorm(v3(sinf(a) * 0.45f, 1.0f, cosf(a) * 0.45f));
+        /* On the final lap they swing round onto the UFO. */
+        if(follow > 0) dir = vnorm(vlerp(dir, vnorm(vsub(ufo, base)), follow));
         V3 tip = vmad(base, dir, 420.0f);
         V3 side0 = vnorm(vcross(dir, vsub(r_cam.pos, base))), side1 = vnorm(vcross(dir, vsub(r_cam.pos, tip)));
         uint32_t c0 = (i & 1) ? argb(70, 120, 200, 255) : argb(70, 210, 120, 255), c1 = color_alpha(c0, 0.0f);

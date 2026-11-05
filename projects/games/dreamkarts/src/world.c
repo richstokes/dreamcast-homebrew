@@ -11,6 +11,7 @@
    world_<track>.c (world_int.h lists who does what). */
 #include "tide.h"
 #include "birds.h"
+#include "skylife.h"
 #include "world_int.h"
 #include "roam.h"
 #include "prof.h"
@@ -325,6 +326,7 @@ void world_build(void) {
     else build_beach();
     surface_table_build();
     birds_build();
+    skylife_build();
     /* Release and console builds log only the first build: under dcload-ip
        each printf stalls the console with IRQs off. */
 #if defined(DK_AUTOTEST) && !defined(DK_HW)
@@ -356,6 +358,7 @@ void world_update(float dt) {
     if(track.id == TRACK_HARBOUR) hb_update();
     if(track.id == TRACK_TEMPLE) th_update(dt);
     birds_update(dt);
+    skylife_update(dt);
     grandstand_update();
     /* The road's lights run forward a repeat (about 8 m) every 0.55 s. */
     if(world_canyon) sk_road_hdr = *h_canyonroad;
@@ -1008,6 +1011,7 @@ void world_draw_op(void) {
         if(track.id == TRACK_HARBOUR) hb_draw_op();
         if(track.id == TRACK_TEMPLE) th_draw_op();
         birds_draw();
+        skylife_draw_op();
     }
 }
 
@@ -1289,6 +1293,7 @@ void world_draw_tr(void) {
         /* Neon glows are additive, so they need no sorting. */
         if(!(dk_probe_off & PROBE_WORLD)) draw_chunks(HF_TR);
         draw_sparkles();
+        skylife_draw_tr();
         dr_draw_waterfalls();
     }
     PROF_BEGIN(pm);
