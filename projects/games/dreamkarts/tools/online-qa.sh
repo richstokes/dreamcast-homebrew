@@ -154,13 +154,13 @@ for scenario in "${scenarios[@]}"; do
     case "${scenario}" in
         race)
             cflags="-DDK_AT_ONLINE"
-            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
+            bot_args=(-name AT-JOBEN -lobby 8 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
                       -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD" -for 5m)
             want="[1-9][0-9]* remote skid marks"
             bot_delay=0 ;;
         custom)
             cflags="-DDK_AT_ONLINE -DDK_AT_CUSTOM"
-            bot_args=(-name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
+            bot_args=(-name AT-JOBEN -lobby 8 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path"
                       -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD" -colour 8 -custom 2,3,4 -for 5m)
             want="[1-9][0-9]* remote skid marks"
             bot_delay=0 ;;
@@ -168,7 +168,7 @@ for scenario in "${scenarios[@]}"; do
             cflags="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6"
             # The bot must arrive during the race after the rejoin: earlier,
             # it takes the lead when the console leaves.
-            bot_args=(-name AT-SONIC -lobby 6 -retire 6s -for 150s)
+            bot_args=(-name AT-JOBEN -lobby 6 -retire 6s -for 150s)
             bot_cue="(the first was race"
             bot_delay=2 ;;
         spectate)
@@ -178,8 +178,8 @@ for scenario in "${scenarios[@]}"; do
         watch)
             [[ "${LIVE}" == 1 ]] && { echo "   needs a local server, skipped"; continue; }
             cflags="-DDK_AT_ONLINE -DDK_AT_SPECTATE -DDK_AT_LOBBY=7"
-            bot_args=(-name AT-SONIC -lobby 7 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path" -for 5m)
-            bot2_args=(-name AT-TAILS -lobby 7 -start -start-delay 28s -race 72 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path" -for 5m)
+            bot_args=(-name AT-JOBEN -lobby 7 -start -start-delay 28s -race 69 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path" -for 5m)
+            bot2_args=(-name AT-RICKY -lobby 7 -start -start-delay 28s -race 72 -skid -path "${SERVER_DIR}/cmd/dk-bot/emerald-beach.path" -for 5m)
             want="[1-9][0-9]* remote skid marks"
             bot_delay=0 ;;
         reject)

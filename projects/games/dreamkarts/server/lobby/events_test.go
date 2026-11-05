@@ -63,8 +63,8 @@ func TestEvents(t *testing.T) {
 }
 
 func TestIsTestName(t *testing.T) {
-	for name, want := range map[string]bool{"AT": true, "AT0042": true, "AT-SONIC": true, "AT-BOT": true,
-		"ATOM": false, "ATLAS": false, "AT AT": false, "CAT-1": false, "SONIC": false, "": false} {
+	for name, want := range map[string]bool{"AT": true, "AT0042": true, "AT-JOBEN": true, "AT-BOT": true,
+		"ATOM": false, "ATLAS": false, "AT AT": false, "CAT-1": false, "JOBEN": false, "": false} {
 		if IsTestName(name) != want {
 			t.Errorf("IsTestName(%q) = %v", name, !want)
 		}

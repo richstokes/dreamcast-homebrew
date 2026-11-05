@@ -110,7 +110,7 @@ address (Flycast's proxy does not reach 127.0.0.1) and run the online
 autotest:
 
 ```bash
-go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-SONIC -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD"
+go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-JOBEN -lobby 8 -start -start-delay 28s -race 69 -path cmd/dk-bot/emerald-beach.path -chat "HELLO FROM BOT;YOU ARE A BLORPHEAD"
 make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_NET_TEST_HOST=$(ipconfig getifaddr en0)"
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
@@ -129,7 +129,7 @@ race:
 
 ```bash
 make -C .. VARIANT=autotest dreamkarts-autotest.elf EXTRA_CFLAGS="-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=6 -DDK_NET_TEST_HOST=$(ipconfig getifaddr en0)"
-(sleep 25; go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-SONIC -lobby 6 -retire 6s -for 150s) &
+(sleep 25; go run ./cmd/dk-bot -addr 127.0.0.1:7535 -name AT-JOBEN -lobby 6 -retire 6s -for 150s) &
 cd .. && DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
 

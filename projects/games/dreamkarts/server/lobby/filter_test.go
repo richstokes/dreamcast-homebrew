@@ -98,7 +98,7 @@ func TestLiveWords(t *testing.T) {
 	}
 	for _, in := range []string{
 		"GG EVERYONE", "HELLO FROM BOT", "ASSISTANT", "CLASS ACT", "COCKTAIL HOUR", "TITLE SCREEN",
-		"GRAPE JUICE", "SCUNTHORPE UNITED", "MISSISSIPPI", "SONIC", "TAILS", "KNUCKLES", "NICE RACE",
+		"GRAPE JUICE", "SCUNTHORPE UNITED", "MISSISSIPPI", "JOBEN", "RICKY", "BLORPINGTON", "NICE RACE",
 	} {
 		if got := f.Censor(in); got != in {
 			t.Errorf("Censor(%q) = %q", in, got)
