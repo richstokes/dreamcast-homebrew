@@ -22,7 +22,7 @@
 #include "world_int.h"
 
 #define FREEWAY_N  4
-#define FW_CARS    20         /* per direction, per freeway */
+#define FW_CARS    16         /* per direction, per freeway */
 #define FW_LEN     760.0f     /* across the whole city */
 #define FW_SPACING (FW_LEN / FW_CARS)
 #define FW_FADE    80.0f      /* lights fade over each end, so none blinks out */
@@ -309,8 +309,11 @@ static void draw_ufo_lights(void) {
     r_hdr(h_glow_add);
     /* A wide halo over the cloud sea, a hot core round the hull. */
     float pulse = 0.85f + 0.15f * sinf(t * 2.3f);
-    r_billboard(c, 110.0f * pulse, 60.0f * pulse, 0, 0, 0, 1, 1, argb((int)(70 * on_k), 120, 110, 255));
-    r_billboard(vadd(c, v3(0, 0.5f, 0)), 52.0f, 16.0f, 0, 0, 0, 1, 1, argb((int)(120 * on_k), 200, 230, 255));
+    /* Kept modest: big additive quads over the whole screen are fill
+       rate the console pays for (the first cut doubled its render time). */
+    bool lean = world_split;   /* two views: half the glows each */
+    if(!lean) r_billboard(c, 56.0f * pulse, 32.0f * pulse, 0, 0, 0, 1, 1, argb((int)(70 * on_k), 120, 110, 255));
+    r_billboard(vadd(c, v3(0, 0.5f, 0)), 36.0f, 12.0f, 0, 0, 0, 1, 1, argb((int)(120 * on_k), 200, 230, 255));
     r_billboard(vadd(c, v3(0, 6.8f, 0)), 18.0f * pulse, 14.0f * pulse, 0, 0, 0, 1, 1, argb((int)(170 * on_k), 120, 255, 255));
     /* Underneath: a magenta ring of light. */
     float under = 0.6f + 0.4f * sinf(t * 5.0f);
@@ -332,7 +335,7 @@ static void draw_ufo_lights(void) {
         float f = ufo.dep_t - (DEPART_T - 0.5f);
         if(f > 0) {
             float a = sinf(clampf(f / 0.5f, 0, 1) * DK_PI);
-            r_billboard(c, 260.0f * a, 260.0f * a, 0, 0, 0, 1, 1, argb((int)(230 * a), 230, 240, 255));
+            r_billboard(c, (lean ? 70.0f : 110.0f) * a, (lean ? 70.0f : 110.0f) * a, 0, 0, 0, 1, 1, argb((int)(230 * a), 230, 240, 255));
         }
         return;
     }
@@ -353,9 +356,9 @@ static void draw_ufo_lights(void) {
     }
     V3 top = vadd(c, v3(0, -2.6f, 0));
     beam(top, spot, 5.5f, 11.0f, argb((int)(110 * b), 140, 255, 225), argb((int)(45 * b), 120, 200, 255));
-    beam(top, spot, 2.0f, 4.0f, argb((int)(120 * b), 230, 255, 255), argb((int)(40 * b), 200, 255, 255));
+    if(!lean) beam(top, spot, 2.0f, 4.0f, argb((int)(120 * b), 230, 255, 255), argb((int)(40 * b), 200, 255, 255));
     /* Rings sliding down it, and a pool of light on the deck. */
-    for(int k = 0; k < 3; k++) {
+    for(int k = 0; k < (lean ? 0 : 3); k++) {
         float f = fmodf(w * 0.7f + k / 3.0f, 1.0f);
         V3 p = vlerp(top, spot, f);
         float r = lerpf(5.5f, 11.0f, f);
@@ -368,11 +371,13 @@ static void draw_ufo_lights(void) {
 
 /* The freeways: each direction a row of lights FW_SPACING apart sliding
    along, a bright dot with a streak behind it, white coming and red
-   going, split screens drawing every other car. No fog, so they are
-   seen right across the city. */
+   going. No fog, so they are seen right across the city. Not in a split
+   screen: on the console they cost its two views ~2-3 ms of render time
+   (sk-*-2p benches, 2026-11-04) for lights the deck mostly hides. */
 static void draw_freeways(void) {
+    if(world_split) return;
     r_hdr(h_glow_add);
-    int step = world_split ? 2 : 1;
+    int step = 1;
     for(int i = 0; i < FREEWAY_N; i++) {
         const Freeway *f = &freeways[i];
         if(!r_sphere_visible(f->o, FW_LEN * 0.5f)) continue;
