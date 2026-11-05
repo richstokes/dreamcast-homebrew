@@ -57,6 +57,7 @@ typedef struct {
 } Ufo;
 
 static Ufo ufo;
+static void ufo_mesh_build(void);
 
 static float hash01(int i, int k) {
     uint32_t h = (uint32_t)i * 2654435761u ^ (uint32_t)k * 40503u;
@@ -78,6 +79,7 @@ static int humans(void) {
 void skylife_build(void) {
     on = track.id == TRACK_SKYWAY;
     if(!on) return;
+    ufo_mesh_build();
     /* A grid round the course: two freeways running east-west past its
        north and south edges, two north-south past east and west, all out
        beyond the road so from the deck they are in the distance. */
@@ -195,27 +197,32 @@ static const float prof[U_RINGS][2] = {
     {UFO_R, 0.0f}, {16.0f, -1.3f}, {10.0f, -2.2f}, {6.5f, -2.5f}, {0.0f, -2.9f},
 };
 
-static void draw_ufo_mesh(void) {
-    static RV v[U_RINGS * (U_SEG + 1)] __attribute__((aligned(32)));
-    static uint16_t idx[(U_RINGS - 1) * U_SEG * 6];
-    static bool built;
-    if(!built) {
-        int n = 0;
-        for(int r = 0; r < U_RINGS - 1; r++)
-            for(int i = 0; i < U_SEG; i++) {
-                uint16_t a = (uint16_t)(r * (U_SEG + 1) + i), b = (uint16_t)(a + U_SEG + 1);
-                uint16_t t[6] = {a, b, (uint16_t)(a + 1), (uint16_t)(a + 1), b, (uint16_t)(b + 1)};
-                for(int k = 0; k < 6; k++) idx[n++] = t[k];
-            }
-        built = true;
+/* Unit circle, once: the rings, the glow rings and the rim lights all
+   step round it (24, 16 and 20 to a turn all divide 240). */
+#define CIRC_N 240
+static float circ_s[CIRC_N + 1], circ_c[CIRC_N + 1];
+
+/* The saucer's vertices, built once: positions never change (it spins by
+   its model matrix), so per frame only the colours are written, and only
+   the metal rings need a dot product each, against normals kept here. */
+static RV ufo_v[U_RINGS * (U_SEG + 1)] __attribute__((aligned(32)));
+static uint16_t ufo_idx[(U_RINGS - 1) * U_SEG * 6];
+static float ufo_norm[U_RINGS][U_SEG + 1][3];
+static float ufo_band[U_RINGS][U_SEG + 1];   /* (sky + rim) * band, the part of the metal shade without the moon */
+
+static void ufo_mesh_build(void) {
+    for(int i = 0; i <= CIRC_N; i++) {
+        circ_s[i] = sinf((float)i / CIRC_N * DK_TAU);
+        circ_c[i] = cosf((float)i / CIRC_N * DK_TAU);
     }
-    float t = world_time;
-    /* The moon from the model's frame (it spins about y). */
-    float cy = cosf(-ufo.spin), sy = sinf(-ufo.spin);
-    V3 L = v3(world_sun_dir.x * cy + world_sun_dir.z * sy, world_sun_dir.y, -world_sun_dir.x * sy + world_sun_dir.z * cy);
-    float dome = 0.75f + 0.25f * sinf(t * 3.0f);
-    float under = 0.6f + 0.4f * sinf(t * 5.0f);
     int n = 0;
+    for(int r = 0; r < U_RINGS - 1; r++)
+        for(int i = 0; i < U_SEG; i++) {
+            uint16_t a = (uint16_t)(r * (U_SEG + 1) + i), b = (uint16_t)(a + U_SEG + 1);
+            uint16_t t[6] = {a, b, (uint16_t)(a + 1), (uint16_t)(a + 1), b, (uint16_t)(b + 1)};
+            for(int k = 0; k < 6; k++) ufo_idx[n++] = t[k];
+        }
+    n = 0;
     for(int r = 0; r < U_RINGS; r++) {
         /* The profile's normal from its neighbours. */
         int r0 = r > 0 ? r - 1 : r, r1 = r < U_RINGS - 1 ? r + 1 : r;
@@ -232,39 +239,54 @@ static void draw_ufo_mesh(void) {
             ny = -1;
         }
         for(int i = 0; i <= U_SEG; i++) {
-            float a = (float)i / U_SEG * DK_TAU, ca = cosf(a), sa = sinf(a);
-            V3 nn = v3(nr * sa, ny, nr * ca);
+            float sa = circ_s[i * (CIRC_N / U_SEG)], ca = circ_c[i * (CIRC_N / U_SEG)];
+            ufo_norm[r][i][0] = nr * sa;
+            ufo_norm[r][i][1] = ny;
+            ufo_norm[r][i][2] = nr * ca;
+            /* Brushed metal: a white highlight along the rim, panels banded. */
+            float sky = 0.2f + 0.2f * ny, band = (i & 1) ? 1.0f : 0.82f, rim = r == 6 ? 0.55f : 0.0f;
+            ufo_band[r][i] = sky * band + rim;
+            ufo_v[n++] = (RV){prof[r][0] * sa, prof[r][1], prof[r][0] * ca, 0, 0, 0};
+        }
+    }
+}
+
+static void draw_ufo_mesh(void) {
+    float t = world_time;
+    /* The moon from the model's frame (it spins about y). */
+    float cy = cosf(-ufo.spin), sy = sinf(-ufo.spin);
+    V3 L = v3(world_sun_dir.x * cy + world_sun_dir.z * sy, world_sun_dir.y, -world_sun_dir.x * sy + world_sun_dir.z * cy);
+    float dome = 0.75f + 0.25f * sinf(t * 3.0f);
+    float under = 0.6f + 0.4f * sinf(t * 5.0f);
+    int n = 0;
+    for(int r = 0; r < U_RINGS; r++) {
+        if(r <= 3 || r >= 8) {
+            /* The glass dome, lit from inside, and the glowing ring under
+               the hull, magenta into the core: one colour a ring. */
             uint32_t c;
-            if(r <= 3) {
-                /* The glass dome, lit from inside. */
-                float k = (r == 0 ? 1.0f : 0.85f - 0.12f * r) * dome;
-                c = color_lerp(argb(255, 30, 120, 170), argb(255, 190, 255, 255), clampf(k, 0, 1));
-            }
-            else if(r >= 8) {
-                /* The glowing ring under the hull, magenta into the core. */
-                c = r == 8 ? argb(255, 60, 20, 70) : color_lerp(argb(255, 120, 20, 110), argb(255, 255, 120, 240), under);
-            }
-            else {
-                /* Brushed metal: the moon on top, the city's neon from
-                   below, a white highlight along the rim, panels banded. */
-                float lam = fmaxf(0.0f, vdot(nn, L));
-                float sky = 0.2f + 0.2f * ny;
-                float bounce = fmaxf(0.0f, -ny) * 0.7f;
-                float band = (i & 1) ? 1.0f : 0.82f;
-                float rim = r == 6 ? 0.55f : 0.0f;
-                float m = (sky + 0.8f * lam) * band + rim;
-                int cr = (int)clampf(170.0f * m + 200.0f * bounce, 0, 255);
-                int cg = (int)clampf(178.0f * m + 40.0f * bounce, 0, 255);
-                int cb = (int)clampf(200.0f * m + 190.0f * bounce, 0, 255);
-                c = argb(255, cr, cg, cb);
-            }
-            v[n++] = (RV){prof[r][0] * sa, prof[r][1], prof[r][0] * ca, 0, 0, c};
+            if(r <= 3) c = color_lerp(argb(255, 30, 120, 170), argb(255, 190, 255, 255), clampf((r == 0 ? 1.0f : 0.85f - 0.12f * r) * dome, 0, 1));
+            else c = r == 8 ? argb(255, 60, 20, 70) : color_lerp(argb(255, 120, 20, 110), argb(255, 255, 120, 240), under);
+            for(int i = 0; i <= U_SEG; i++) ufo_v[n++].c = c;
+            continue;
+        }
+        /* Metal: the moon on top, the city's neon bounced from below. */
+        float ny = ufo_norm[r][0][1];
+        float bounce = fmaxf(0.0f, -ny) * 0.7f;
+        float br = 200.0f * bounce, bg = 40.0f * bounce, bb = 190.0f * bounce;
+        for(int i = 0; i <= U_SEG; i++) {
+            const float *nn = ufo_norm[r][i];
+            float lam = fmaxf(0.0f, nn[0] * L.x + nn[1] * L.y + nn[2] * L.z);
+            float m = ufo_band[r][i] + 0.8f * lam * ((i & 1) ? 1.0f : 0.82f);
+            int cr = (int)clampf(170.0f * m + br, 0, 255);
+            int cg = (int)clampf(178.0f * m + bg, 0, 255);
+            int cb = (int)clampf(200.0f * m + bb, 0, 255);
+            ufo_v[n++].c = argb(255, cr, cg, cb);
         }
     }
     float mt[16];
     m4_translate_rotate(mt, ufo.pos, ufo.spin, 0, 0);
     r_load_model(mt);
-    r_mesh(v, n, idx, (U_RINGS - 1) * U_SEG * 6, false);
+    r_mesh(ufo_v, n, ufo_idx, (U_RINGS - 1) * U_SEG * 6, false);
 }
 
 void skylife_draw_op(void) {
@@ -281,7 +303,7 @@ static void glow_ring(V3 c, float r0, float r1, uint32_t c0, uint32_t c1) {
     RV v[2 * 17];
     int n = 0;
     for(int i = 0; i <= 16; i++) {
-        float a = (float)i / 16 * DK_TAU, ca = cosf(a), sa = sinf(a);
+        float ca = circ_c[i * (CIRC_N / 16)], sa = circ_s[i * (CIRC_N / 16)];
         v[n++] = (RV){c.x + sa * r1, c.y, c.z + ca * r1, 0.5f, 0.0f, c1};
         v[n++] = (RV){c.x + sa * r0, c.y, c.z + ca * r0, 0.5f, 0.5f, c0};
     }
@@ -320,9 +342,11 @@ static void draw_ufo_lights(void) {
     glow_ring(vadd(c, v3(0, -3.1f, 0)), 2.0f, 12.0f, argb((int)(200 * on_k * under), 255, 90, 230), argb(0, 255, 60, 200));
     /* Rim lights chasing round: cyan, magenta and white. */
     static const uint32_t chase[3] = {0xff3cdcff, 0xffff32c8, 0xffffffff};
+    float ss = sinf(ufo.spin), cs = cosf(ufo.spin);   /* the lights turn with the hull */
     for(int i = 0; i < 20; i++) {
-        float a = (float)i / 20 * DK_TAU + ufo.spin;
-        V3 p = vadd(c, v3(sinf(a) * (UFO_R + 0.4f), 0.1f, cosf(a) * (UFO_R + 0.4f)));
+        float sa = circ_s[i * (CIRC_N / 20)], ca = circ_c[i * (CIRC_N / 20)];
+        float sr = sa * cs + ca * ss, cr = ca * cs - sa * ss;
+        V3 p = vadd(c, v3(sr * (UFO_R + 0.4f), 0.1f, cr * (UFO_R + 0.4f)));
         int ph = (i + (int)(t * 10.0f)) % 3;
         float lit = ((i + (int)(t * 10.0f)) % 5 == 0) ? 1.0f : 0.55f;
         uint32_t col = chase[ph];
