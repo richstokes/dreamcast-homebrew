@@ -1077,7 +1077,7 @@ int main(int argc, char **argv) {
     ui_init();
     title_init();
     flappy_init();
-    boot_screen(boot_t0, 0.1f, "WAKING UP THE CHAO");
+    boot_screen(boot_t0, 0.1f, "WAKING UP THE DRIVERS");
     audio_disc_init();   /* before the save worker: see audio.h */
     save_init();   /* the card is read while the rest loads */
     audio_music_volume(save.volume);
