@@ -736,14 +736,19 @@ static void init_skyway(float *turnk) {
     track.pads[1] = (DashPad){dip + 30.0f, dip + 35.0f, -1.8f, 1.8f, 1.1f};
     track.pads[2] = (DashPad){50.0f, 55.0f, 2.2f, 5.8f, 1.1f};
 
-    /* Power-ups: past the main straight's dash panel, the end of the
-       waves before the loop, after the crossing before the hump, and
-       out of the infield dip. */
-    track.nbands = 4;
+    /* Power-ups, twice the other tracks' count for the longest lap: past
+       the main straight's dash panel, into and out of the waves, up the
+       loop, after the crossing before the hump, off the landing deck,
+       out of the infield dip and on the run home. */
+    track.nbands = 8;
     track.bands[0] = (ItemBand){62.0f};
-    track.bands[1] = (ItemBand){track_seg_s(2) + 95.0f};
-    track.bands[2] = (ItemBand){track_seg_s(4) + 15.0f};
-    track.bands[3] = (ItemBand){dip + 60.0f};
+    track.bands[1] = (ItemBand){track_seg_s(2) + 8.0f};
+    track.bands[2] = (ItemBand){track_seg_s(2) + 95.0f};
+    track.bands[3] = (ItemBand){track_seg_s(3) + 50.0f};
+    track.bands[4] = (ItemBand){track_seg_s(4) + 28.0f, -1.5f};   /* on the deck, where the pack runs after the loop */
+    track.bands[5] = (ItemBand){track_seg_s(5) + 10.0f};
+    track.bands[6] = (ItemBand){dip + 60.0f};
+    track.bands[7] = (ItemBand){track_seg_s(9) + 30.0f};
 
     /* Barriers sit close in (glass rails on the turns, the loop and the
        jump); the straights are open, with nothing between you and the sky. */

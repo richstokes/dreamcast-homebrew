@@ -16,7 +16,7 @@
 #define DK_NET_VERSION_H
 
 #define DK_NET_PROTO      4
-#define DK_NET_BUILD      33
-#define DK_NET_MIN_BUILD  33
+#define DK_NET_BUILD      34
+#define DK_NET_MIN_BUILD  34
 
 #endif

@@ -133,7 +133,7 @@ typedef struct {
     float d;         /* the slots' centre across the road: 0 on the road; Night Meet puts bands out in the lot and up on the deck */
 } ItemBand;
 
-#define MAX_ITEM_BANDS 4
+#define MAX_ITEM_BANDS 8
 
 /* A ramp jump: the road climbs to a lip, opens over a gap (another stretch
    of track passes beneath) and comes down a landing deck. */
