@@ -1,13 +1,13 @@
 # DreamKarts
 
 <p align="center">
-  <img src="../../../docs/screenshots/dreamkarts.png" alt="DreamKarts Chao drifting with purple mini-turbo sparks on the beach oval" width="640">
+  <img src="../../../docs/screenshots/dreamkarts.png" alt="A DreamKarts kart drifting with purple mini-turbo sparks on the beach oval" width="640">
 </p>
 
 A kart racer for the Sega Dreamcast: early-2000s looks, modern Mario
 Kart-style handling. Hop into a drift, hold the powerslide with
 counter-steer, watch the sparks turn blue, orange and purple, then let go
-for a mini-turbo. You drive a Chao against five CPU rivals, a friend in
+for a mini-turbo. You drive a cute little character against five CPU rivals, a friend in
 split screen, or up to five other Dreamcasts online.
 
 Eight courses:
@@ -23,7 +23,7 @@ Eight courses:
 
 And one place that is not a course:
 
-- Night Meet: Free Roam's parking lot, after Daikoku PA in Yokohama. A flat island in the bay at night, a service road round a big lot of painted bays under sodium lamps, the expressway looping round it on pillars with parking underneath, its on-ramps single lanes that leave the ring road's edge, climb an earth embankment and widen into the deck, an overpass humping over the north end, service bays, a tower and a clubhouse with neon over them (one sign buzzing, another now and then), trucks, bleachers with a swaying crowd, a food truck with a queue of Chao and more standing about, cherry trees, the city behind and a lit suspension bridge across the water. Built from the other courses' props and textures
+- Night Meet: Free Roam's parking lot, after Daikoku PA in Yokohama. A flat island in the bay at night, a service road round a big lot of painted bays under sodium lamps, the expressway looping round it on pillars with parking underneath, its on-ramps single lanes that leave the ring road's edge, climb an earth embankment and widen into the deck, an overpass humping over the north end, service bays, a tower and a clubhouse with neon over them (one sign buzzing, another now and then), trucks, bleachers with a swaying crowd, a food truck with a queue of little drivers and more standing about, cherry trees, the city behind and a lit suspension bridge across the water. Built from the other courses' props and textures
 
 Highlights:
 
@@ -32,10 +32,10 @@ Highlights:
 - Two-player split screen in every mode (Versus instead of Time Trial), each player picking their own kart
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
-- Chaos Emerald power-ups: Power Sneakers, a homing Chaos Spear, a Mine dropped behind you and a Barrier, offline and online
+- Chaos Emerald power-ups: Power Sneakers, a homing Star Spear, a Mine dropped behind you and a Barrier, offline and online
 - Rocket starts, charge jumps, barrel rolls off the ramps for a landing boost, burnouts, emotes, final-lap dolphins and a biplane weaving ahead on Spiral Canyon's final lap
-- Nine songs by Alex Morgan as CD audio: a theme, five shuffled through the races with NEXT SONG on the pause menu, three chill ones for the online lobby; 42 effects, Chao voices by colour and Jump Pack rumble
-- A Settings menu with the sound test, your online name, a music switch and volume, where the drift score shows (off, Free Roam only or every mode), and a Customize screen: paint your own kart (body, trim and Chao from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
+- Nine songs by Alex Morgan as CD audio: a theme, five shuffled through the races with NEXT SONG on the pause menu, three chill ones for the online lobby; 42 effects, character voices by colour and Jump Pack rumble
+- A Settings menu with the sound test, your online name, a music switch and volume, where the drift score shows (off, Free Roam only or every mode), and a Customize screen: paint your own kart (body, trim and driver from a 16-colour palette), saved to the VMU and raced offline or online as CUSTOM
 - VMU screens for the countdown, place, lap and results
 
 ## Download
@@ -53,7 +53,7 @@ is no stand-alone ELF). If you are burning a physical CD-R, you may want to try 
 | A | X | Accelerate (menus: OK) |
 | B | C | Brake, even while holding A; reverse with A released (menus: back) |
 | R trigger (or L trigger, or X) | V (or F, or S) | Hop and drift; hold without steering to charge a jump; press again on the way up off a ramp for a barrel roll and a 2 s boost on landing |
-| Y | D | Use the held power-up (with down held, throw a Chaos Spear backwards; a Mine always drops behind); wave when holding nothing, arms taking turns |
+| Y | D | Use the held power-up (with down held, throw a Star Spear backwards; a Mine always drops behind); wave when holding nothing, arms taking turns |
 | Both triggers together | F and V together | Look behind while held |
 | Start | Return | Pause (continue / restart / music on-off / next song / perf: off, overlay or FPS counter / quit); Y on the pause menu hides the menu and HUD for a clean screenshot, Y again brings them back |
 
@@ -69,7 +69,7 @@ A+B+X+Y+Start returns to the title screen from anywhere (leaving an online lobby
 Chaos Emeralds hover over the road at two to four bands a lap, each in one
 of four slots across the road, picked per race from a seed every console
 shares, so the inside or outside slot costs you a tenth or two. Drive
-through one and your Chao keeps it: a gem trails your kart and a small one
+through one and your kart keeps it: a gem trails your kart and a small one
 sits beside the lap counter with a Y. A taken emerald bursts and pops
 straight back in a new colour, so a whole pack through the band each gets
 one; a kart already holding something drives past.
@@ -77,7 +77,7 @@ one; a kart already holding something drives past.
 | Emerald | Item | On Y |
 | --- | --- | --- |
 | Blue | Power Sneakers | A boost like a purple mini-turbo, 2.1 s in first place to 3.1 s in sixth, and half as long again when you are last; cuts through sand like any boost |
-| Red | Chaos Spear | A homing shot that flies along the track at the next kart ahead within 60 m (behind you with down held), spinning out whoever it hits for a second; it follows bends and jumps, and a late swerve can dodge it |
+| Red | Star Spear | A homing shot that flies along the track at the next kart ahead within 60 m (behind you with down held), spinning out whoever it hits for a second; it follows bends and jumps, and a late swerve can dodge it |
 | Yellow | Mine | Dropped on the road behind you, where it waits 25 s for anyone (you included, after a moment) to drive over it and spin out; a charge jump clears it |
 | Green | Barrier | A bubble for six seconds that soaks up one Spear or Mine |
 
@@ -154,7 +154,7 @@ needs no Python.
 | Target | Regenerates |
 | --- | --- |
 | `make textures` | Procedural textures, the HUD font, logo and countdown lettering (`assets/generated/textures.pak`) |
-| `make models` | The kart and Chao meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
+| `make models` | The kart and driver meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
 | `make canyon-rock` | Spiral Canyon's rock (`canyon_rock.h`): a `-DDK_DUMP_ROCK` build prints the rock's height field, tunnel bores and road clearance, and Blender (`tools/build_canyon_rock.py`, ~5 s) cuts one mesh from them; open `captures/canyon_rock.blend` to look at it. Rerun after changing the track's layout, heights or the rock's shape |
 | `make apple-valley-props` | Apple Valley's props (`apple_valley_props.h`): Blender (`tools/build_apple_valley_props.py`, ~2 s) models race control, the bleachers, pit canopies, containers, clubhouse, trailer, starter's stand, tyre stacks, light pole, fence, boulders, Joshua trees, creosote and the brown mountain; `captures/apple-valley-props/` has a render of each |
 | `make tsudoken-props` | Tsudoken Drift's props (`tsudoken_props.h`): Blender (`tools/build_tsudoken_props.py`, ~2 s) models Mt Fuji, the cherry trees, torii, stone lanterns, pagoda, grandstand, race control, pit garages, teahouse and bridge, and bakes each as strips per material; `captures/tsudoken_props.blend` holds the scene and `captures/tsudoken-props/` a render of each |
@@ -291,9 +291,9 @@ split-screen copies of the floor, ring, decks and poles beyond 25 m (the
 other tracks' lod 1/2 pairs) took the split-screen world draw from 6.1 to
 4.4 ms a frame on average and from 10.1 to 6.6 ms from the bays with the
 whole lot in view; the props left (bleachers, trailers, service bays) are
-now the biggest sender. The lot's life (the Chao bystanders, the swaying
+now the biggest sender. The lot's life (the bystanders, the swaying
 crowd, the buzzing signs, the food truck) costs about 0.4 ms a frame in
-a split screen, half of it the Chao, and the Best Drift panel 0.1 ms; the
+a split screen, half of it the bystanders, and the Best Drift panel 0.1 ms; the
 lane ramps, the barrier's profile and the parking under the deck about
 0.4 ms of world draw. The rest of the rise from the first profile (6.2 and
 8.9 ms) is the sea glints, asphalt sheen and shadow volumes every track
@@ -351,7 +351,7 @@ Measured and not worth the code: TA DMA (the CPU waits on the TA only
 the 4x4 matrix product in assembly (~0.1 ms), letting the PVR cull kart
 back faces (0.3-0.4 ms less CPU, 0.1-0.5 ms more render time).
 
-Palm Harbour's life (the crowd's wave, which Beach, Coral and Temple share, a deck of Chao, crane and ferry) on the
+Palm Harbour's life (the crowd's wave, which Beach, Coral and Temple share, a deck of onlookers, crane and ferry) on the
 console (2026-11-01, `make hwbench`, 150cc, six karts) is lost in the noise:
 world draw 2.77 to 2.88 ms in 1P and 4.53 to 4.58 ms in a split screen,
 vertex buffer peak 406 to 432 and 476 to 481 KiB.

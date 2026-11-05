@@ -119,7 +119,7 @@ func fakeRace(t *testing.T, track byte, secs float64, raceID byte) *demo.Race {
 			binary.LittleEndian.PutUint32(e[17:], ms)
 			e[demo.KartTarget] = demo.NoTarget
 			if k == 0 && f >= demo.Rate && f < 2*demo.Rate {
-				e[demo.KartItems] = 2 // holding a Chaos Spear
+				e[demo.KartItems] = 2 // holding a Star Spear
 			}
 			if k == 0 && f >= 2*demo.Rate && f < frames-demo.Rate {
 				e[demo.KartSeqs] = 1 // spear 1 in flight

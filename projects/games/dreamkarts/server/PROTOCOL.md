@@ -75,7 +75,7 @@ redials keeps its seat if it comes back within the timeout.
 | 2 | `LIST` | nothing | 2 Hz on the lobby browser |
 | 3 | `JOIN` | u8 lobby (0-9), u8 flags (bit0 spectate; build 4) | until the lobby state names this player (or shows it watching) |
 | 4 | `LEAVE` | nothing | 3 times |
-| 5 | `WISH` | u8 colour, u8 track, u8 laps, u8 cc, u8 start nonce, u8 flags (bit0 power-ups on; build 11), u8[3] custom kart picks (body, trim, Chao palette indices; build 17) | 4 Hz in a lobby |
+| 5 | `WISH` | u8 colour, u8 track, u8 laps, u8 cc, u8 start nonce, u8 flags (bit0 power-ups on; build 11), u8[3] custom kart picks (body, trim, driver palette indices; build 17) | 4 Hz in a lobby |
 | 6 | `KART` | see below | once per `RACE` relay in a race (12 Hz) |
 | 7 | `PING` | nothing | 1 Hz otherwise idle (keeps NAT open) |
 | 8 | `CHAT` | u8 message id, text `char[33]` (build 14) | every 500 ms until the `CHAT` echo names this id, for up to 3 s |
@@ -119,7 +119,7 @@ straight back to waiting with no results.
 | 30 | i8 | steer * 127 |
 | 31 | u8 | spark stage 0-3 |
 | 32 | u8 | lap (0 = before the line) |
-| 33 | u8 | items: bits 0-2 held (0 none, 1 Power Sneakers, 2 Chaos Spear, 3 Barrier, 4 Mine), bit 3 barrier up, bit 4 spun out, bit 5 spear thrown backwards, bit 6 barrel rolled this flight (held until it lands; receivers animate the roll on the rising edge), bit 7 rolling left (build 25) |
+| 33 | u8 | items: bits 0-2 held (0 none, 1 Power Sneakers, 2 Star Spear, 3 Barrier, 4 Mine), bit 3 barrier up, bit 4 spun out, bit 5 spear thrown backwards, bit 6 barrel rolled this flight (held until it lands; receivers animate the roll on the rising edge), bit 7 rolling left (build 25) |
 | 34 | u16 | lap distance * 16 (m) |
 | 36 | u32 | race time in ms (finish time once finished); receivers space samples by it |
 | 40 | u8 | bits 0-3 spear sequence (0 none, else 1-15, a new number per throw), bits 4-7 mine sequence (0 none, else 1-15, a new number per drop; 0 again once the mine has gone) |
@@ -181,7 +181,7 @@ player entry from 20 to 23 bytes for the custom kart.
 Player entry (23 bytes): u8 slot, char[11] name, u8 colour (0-7 a preset,
 8 the player's own kart), u8 flags (bit0 leader, bit1 racing, bit2
 finished), u16 ping ms, u16 points, u8 last place (0 none), u8 grid
-position, u8[3] custom kart picks (body, trim, Chao; meaningful with
+position, u8[3] custom kart picks (body, trim, driver; meaningful with
 colour 8). A `CHAT` from a custom-coloured player carries colour 8; the
 console colours the name from that player's lobby entry.
 

@@ -47,11 +47,6 @@ They are pressed onto the disc as CD audio tracks.
   optional model preview
 - Go (standard library only) for the lobby server
 
-## Trademarks
-
-Chao, Chaos Emeralds and the Dreamcast belong to SEGA. DreamKarts is an
-unofficial fan game and is not affiliated with or endorsed by SEGA.
-
 ## Licence notices
 
 ### KallistiOS

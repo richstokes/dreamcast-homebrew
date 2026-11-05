@@ -1499,7 +1499,7 @@ def sfx_emerald():
 
 
 def sfx_spear():
-    """A Chaos Spear leaving: a rising zap and a burst of air."""
+    """A Star Spear leaving: a rising zap and a burst of air."""
     rng = rng_for("spear")
     n = int(0.55 * SR)
     t = np.arange(n) / SR
@@ -1772,7 +1772,7 @@ SFX_LABELS = {
     "MENU_BACK": "MENU BACK", "CHAO": "CHAO", "CHAO_HAPPY": "HAPPY CHAO", "CHAO_HEY": "CHAO?",
     "CHAO_CHU": "CHU-CHU", "CHAO_YAY": "YA-YA", "CHAO_WAH": "WAH!", "CHAO_BUU": "BUU!", "CHAO_HYA": "HYA!",
     "WHOOSH": "WHOOSH", "STAR": "STAR",
-    "EMERALD": "EMERALD", "SPEAR": "CHAOS SPEAR", "SPEAR_HIT": "SPEAR HIT", "BARRIER": "BARRIER",
+    "EMERALD": "EMERALD", "SPEAR": "STAR SPEAR", "SPEAR_HIT": "SPEAR HIT", "BARRIER": "BARRIER",
     "BARRIER_POP": "BARRIER POP", "MINE": "MINE", "MINE_HIT": "MINE BLAST", "BELL": "LOBBY BELL",
     "PLANE": "BIPLANE",
 }

@@ -137,7 +137,7 @@ static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {
     "WHOOSH",
     "STAR",
     "EMERALD",
-    "CHAOS SPEAR",
+    "STAR SPEAR",
     "SPEAR HIT",
     "BARRIER",
     "BARRIER POP",

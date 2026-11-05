@@ -958,7 +958,7 @@ def tex_tower(n=64):
     return to_image(rgb)
 
 
-SIGN_WORDS = [("DREAMKARTS", CYAN), ("CHAO CHAO", MAGENTA), ("NEON 24H", np.array([150, 90, 255.0])),
+SIGN_WORDS = [("DREAMKARTS", CYAN), ("ARCADE", MAGENTA), ("NEON 24H", np.array([150, 90, 255.0])),
               ("SKYWAY", np.array([255, 120, 230.0]))]
 
 

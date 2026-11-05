@@ -8,7 +8,7 @@
 
      blue   Power Sneakers  a boost, longer the further back you are and
                             half as long again in last place
-     red    Chaos Spear     a homing shot along the track at the kart ahead
+     red    Star Spear      a homing shot along the track at the kart ahead
                             (or, with down held, the kart behind)
      green  Barrier         a bubble that soaks up one Spear or Mine
      yellow Mine            dropped on the road behind the kart; spins out

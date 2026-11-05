@@ -1076,7 +1076,7 @@ static void build_props(void) {
     av_solid_prop(AVP_CLUBHOUSE, v3(28.0f, LOT_FLOOR_Y, bz + 2.0f), DK_PI, 1.0f, 1400.0f, false);
     neon_sign(-36.0f, 5.4f, bz + 3.7f, 16.0f, 4.0f, 2, 3.5f);    /* NEON 24H over the bays, buzzing */
     neon_sign(0.0f, 9.5f, bz - 2.0f + 4.5f, 10.0f, 2.5f, 0, 0.0f); /* DREAMKARTS on the tower */
-    neon_sign(28.0f, 3.3f, bz + 2.0f + 6.4f, 11.0f, 2.6f, 1, 16.0f); /* CHAO CHAO on the clubhouse, over its old banner */
+    neon_sign(28.0f, 3.3f, bz + 2.0f + 6.4f, 11.0f, 2.6f, 1, 16.0f); /* ARCADE on the clubhouse, over its old banner */
     /* Vending machines in a row under the bays' lights. */
     static const uint32_t bodies[5] = {0xfff0f0f4, 0xff3060d0, 0xffd03030, 0xfff0f0f4, 0xff30a060};
     static const uint32_t faces[5] = {0xffffffe0, 0xffa0d0ff, 0xffffc0b0, 0xffe0ffe0, 0xffd0ffd0};
