@@ -292,7 +292,7 @@ static void av_scrub(float x, float z, uint32_t seed) {
    tumbleweeds roll with it, the dust devils drift on it and the windsock
    streams along it. */
 #define AV_WIND_DIR (45.0f * DK_PI / 180.0f)   /* the bearing it blows toward */
-#define AV_TUMBLES  6
+#define AV_TUMBLES  8
 #define AV_DEVILS   2
 static V3 av_sock_top;
 
@@ -307,11 +307,20 @@ void av_draw_tumbleweeds(void) {
     V3 w = av_wind(), q = v3(w.z, 0, -w.x);
     const float run = 300.0f, range = world_split ? 100.0f : 180.0f;
     r_hdr(h_avtumble);
+    /* The last two cross the busiest part of the circuit, between the
+       first lanes, and set off at their own times: lane, speed, phase. */
+    static const float extra[AV_TUMBLES - 6][3] = {{-40.0f, 4.6f, 300.0f}, {4.0f, 5.8f, 150.0f}};
     for(int i = 0; i < AV_TUMBLES; i += world_split ? 2 : 1) {
         uint32_t h = (uint32_t)i * 2654435761u + 7u;
         float speed = 4.0f + (float)(h & 7) * 0.4f;
         float lane = -120.0f + 48.0f * (float)i + (float)((h >> 4) & 15);
-        float t = fmodf(world_time * speed + (float)((h >> 8) & 255), run + 60.0f);
+        float phase = (float)((h >> 8) & 255);
+        if(i >= 6) {
+            lane = extra[i - 6][0];
+            speed = extra[i - 6][1];
+            phase = extra[i - 6][2];
+        }
+        float t = fmodf(world_time * speed + phase, run + 60.0f);
         if(t > run) continue;   /* the gap before it comes round */
         float r = 0.5f * smooth01(0.0f, 15.0f, t) * smooth01(run, run - 15.0f, t);
         if(r < 0.05f) continue;
