@@ -670,7 +670,7 @@ static void name_update(void) {
 static void connect_update(void) {
     if(net_state() == NET_BROWSE) {
         set_screen(OS_BROWSER);
-        audio_sfx(DK_SFX_CHAO_HAPPY, 200, 128);
+        audio_sfx(DK_SFX_VOICE_HAPPY, 200, 128);
         return;
     }
     if(pad.pressed & BTN_B) back_to_menu();
@@ -694,7 +694,7 @@ static void browser_update(void) {
         lobby_row = 0;
         fly_t = 0;
         chat_enter_lobby();
-        audio_sfx(DK_SFX_CHAO, 200, 128);
+        audio_sfx(DK_SFX_VOICE_HELLO, 200, 128);
         return;
     }
     /* Y: watch the lobby instead (full or not), once confirmed with Y. */

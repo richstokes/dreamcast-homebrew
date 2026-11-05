@@ -702,8 +702,8 @@ static uint32_t voice_rand(void) {
 }
 
 void audio_chao(int mood, int colour, int vol, int pan) {
-    static const int hi[] = {DK_SFX_CHAO, DK_SFX_CHAO_HEY, DK_SFX_CHAO_CHU, DK_SFX_CHAO_YAY};
-    static const int ouch[] = {DK_SFX_CHAO_WAH, DK_SFX_CHAO_BUU, DK_SFX_CHAO_HYA};
+    static const int hi[] = {DK_SFX_VOICE_HELLO, DK_SFX_VOICE_HUH, DK_SFX_VOICE_CHU, DK_SFX_VOICE_YAY};
+    static const int ouch[] = {DK_SFX_VOICE_WAH, DK_SFX_VOICE_BUU, DK_SFX_VOICE_HYA};
     static int last[2] = {-1, -1};
     const int *set = mood == CHAO_OUCH ? ouch : hi;
     int n = mood == CHAO_OUCH ? 3 : 4, m = mood == CHAO_OUCH;
@@ -770,7 +770,7 @@ void audio_kart_events(const Kart *k, bool is_player) {
     if(ev & EV_LAND) audio_sfx(DK_SFX_LAND, vol * 170 / 255, pan);
     if(ev & EV_JUMP) {
         audio_sfx(DK_SFX_WHOOSH, vol * 220 / 255, pan);
-        audio_sfx(DK_SFX_CHAO_HAPPY, vol * 170 / 255, pan);
+        audio_sfx(DK_SFX_VOICE_HAPPY, vol * 170 / 255, pan);
     }
     if(ev & EV_CHARGE_JUMP) audio_sfx_pitch(DK_SFX_HOP, vol * 200 / 255, pan, 0.75f);
     if(ev & EV_TRICK) audio_sfx_pitch(DK_SFX_WHOOSH, vol * 190 / 255, pan, 1.45f);

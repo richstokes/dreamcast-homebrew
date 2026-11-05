@@ -775,7 +775,7 @@ static void tracks_update(float dt) {
     }
     if(pad.pressed & (BTN_A | BTN_START)) {
         audio_sfx(DK_SFX_MENU_SELECT, 230, 128);
-        audio_sfx(DK_SFX_CHAO_HAPPY, 200, 128);
+        audio_sfx(DK_SFX_VOICE_HAPPY, 200, 128);
         race_setup();
         game_set_state(ST_INTRO);
     }
