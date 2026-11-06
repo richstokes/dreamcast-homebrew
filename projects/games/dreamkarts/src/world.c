@@ -806,6 +806,13 @@ static void glint_row(int j, float x0, float z0, float cell, int n) {
     }
 }
 
+/* Whether draw_sea draws water: the valley floor, the plain and the desert
+   are static scenery, and the night tracks have clouds below (the lot's
+   sea is night water). */
+static bool sea_drawn(void) {
+    return !(world_night && !world_lot) && !(world_canyon || world_tk || world_av);
+}
+
 /* Animated sea: a camera-centred grid out to ~360 m, then wide bands to
    the horizon. Only the northern half-plane is ever visible. */
 static void draw_sea(void) {
@@ -813,7 +820,7 @@ static void draw_sea(void) {
         draw_clouds_below();
         return;
     }
-    if(world_canyon || world_tk || world_av) return;   /* the valley floor, the plain and the desert are static scenery */
+    if(!sea_drawn()) return;
     const float cell = world_split ? 60.0f : 45.0f;
     const int n = world_split ? 10 : 16;
     float cx = floorf(r_cam.pos.x / cell) * cell, cz = floorf(r_cam.pos.z / cell) * cell;
@@ -1239,8 +1246,11 @@ static bool sea_open(float x, float z) {
 }
 
 static void draw_sea_sparkles(void) {
-    /* One view's candidates at a time: split screen keeps the sheen only. */
-    if(world_split) return;
+    /* One view's candidates at a time: split screen keeps the sheen only.
+       Only where there is a sea: the candidates are the last sea pass's,
+       and a track without one would keep spawning stars from a previous
+       track's, hovering over Spiral Canyon's floor and the desert. */
+    if(world_split || !sea_drawn()) return;
     float dt = clampf(world_time - sparkle_t, 0, 0.1f);
     sparkle_t = world_time;
     V3 c = r_cam.pos;
