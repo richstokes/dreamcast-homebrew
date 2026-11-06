@@ -334,9 +334,15 @@ static void draw_ufo_lights(void) {
     /* Kept modest: big additive quads over the whole screen are fill
        rate the console pays for (the first cut doubled its render time). */
     bool lean = world_split;   /* two views: half the glows each */
-    if(!lean) r_billboard(c, 56.0f * pulse, 32.0f * pulse, 0, 0, 0, 1, 1, argb((int)(70 * on_k), 120, 110, 255));
-    r_billboard(vadd(c, v3(0, 0.5f, 0)), 36.0f, 12.0f, 0, 0, 0, 1, 1, argb((int)(120 * on_k), 200, 230, 255));
-    r_billboard(vadd(c, v3(0, 6.8f, 0)), 18.0f * pulse, 14.0f * pulse, 0, 0, 0, 1, 1, argb((int)(170 * on_k), 120, 255, 255));
+    /* The big glows shrink as the camera comes near, so what they cover
+       on screen stays bounded: each is a fill pass over its area, and
+       close up they overlapped over most of the screen (console bench:
+       PVR 17-21 ms, up to 21 dropped frames in 2 s). */
+    V3 dc = vsub(c, r_cam.pos);
+    float near_k = clampf(sqrtf(vdot(dc, dc)) / 110.0f, 0.3f, 1.0f);
+    if(!lean) r_billboard(c, 56.0f * pulse * near_k, 32.0f * pulse * near_k, 0, 0, 0, 1, 1, argb((int)(70 * on_k), 120, 110, 255));
+    r_billboard(vadd(c, v3(0, 0.5f, 0)), 36.0f * near_k, 12.0f * near_k, 0, 0, 0, 1, 1, argb((int)(120 * on_k), 200, 230, 255));
+    r_billboard(vadd(c, v3(0, 6.8f, 0)), 18.0f * pulse * near_k, 14.0f * pulse * near_k, 0, 0, 0, 1, 1, argb((int)(170 * on_k), 120, 255, 255));
     /* Underneath: a magenta ring of light. */
     float under = 0.6f + 0.4f * sinf(t * 5.0f);
     glow_ring(vadd(c, v3(0, -3.1f, 0)), 2.0f, 12.0f, argb((int)(200 * on_k * under), 255, 90, 230), argb(0, 255, 60, 200));
@@ -350,16 +356,17 @@ static void draw_ufo_lights(void) {
         int ph = (i + (int)(t * 10.0f)) % 3;
         float lit = ((i + (int)(t * 10.0f)) % 5 == 0) ? 1.0f : 0.55f;
         uint32_t col = chase[ph];
-        r_billboard(p, 4.5f * lit, 4.5f * lit, 0, 0, 0, 1, 1, color_alpha(col, on_k * lit));
+        r_billboard(p, 4.5f * lit * near_k, 4.5f * lit * near_k, 0, 0, 0, 1, 1, color_alpha(col, on_k * lit));
     }
     if(ufo.dep_t >= 0) {
         /* Away: a streak behind it, and a flash as it goes. */
         V3 tail = vmad(c, ufo.vel, -0.12f);
-        r_streak(c, tail, 16.0f, argb(220, 220, 250, 255), argb(0, 140, 80, 255));
+        r_streak(c, tail, 16.0f * near_k, argb(220, 220, 250, 255), argb(0, 140, 80, 255));
         float f = ufo.dep_t - (DEPART_T - 0.5f);
         if(f > 0) {
             float a = sinf(clampf(f / 0.5f, 0, 1) * DK_PI);
-            r_billboard(c, (lean ? 70.0f : 110.0f) * a, (lean ? 70.0f : 110.0f) * a, 0, 0, 0, 1, 1, argb((int)(230 * a), 230, 240, 255));
+            float fl = (lean ? 50.0f : 80.0f) * a * near_k;
+            r_billboard(c, fl, fl, 0, 0, 0, 1, 1, argb((int)(230 * a), 230, 240, 255));
         }
         return;
     }
