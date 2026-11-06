@@ -364,6 +364,7 @@ out to 140 m cost ~0.5 ms, so they stop at 80 m and drop to six boxes past
 ## Gotchas
 
 - RAM is the limit, not the ELF's size: with the music linked in (14.6 MB of the 16 MB) the heap had about a megabyte, a release shipped with sound effects failing to load and no online worker thread (`Out of memory` on the serial console), and KOS copies each effect through a temporary heap block its own size. The music is CD audio now and the world's vertex pool is static; the link still strips debug info into `dreamkarts.elf.debug`
+- VRAM filled up with every track's art loaded at boot (19 KiB left after Apple Valley). Each track now lists its own textures in `src/track_tex.c`, and they share one pool sized for the biggest list (Night Meet's, ~1.2 MB), uploaded as the world is built: ~1.4 MB free after the perf overlay. Add a new track's textures to its list; autotest builds log any pooled texture a track draws without listing it
 - Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `tools/kos/patches/kos/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
 - Under dcload the drive is left alone (no music) unless built with `MUSIC=1`: a GD-ROM command blocks its caller for the seek, which is why the game's jukebox thread, not the frame loop, talks to the drive
 - Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/autotest.c`, `src/netlink.c`)

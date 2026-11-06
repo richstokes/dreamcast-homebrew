@@ -15,6 +15,7 @@
 #include "render.h"
 #include "prof.h"
 #include "texture_assets.h"
+#include "track.h"
 #include <malloc.h>
 #include <sh4zam/shz_sh4zam.h>
 
@@ -80,21 +81,51 @@ static int tex_mip_bias(int tex) {
 /* ------------------------------------------------------------------ */
 /* Setup                                                               */
 
+/* Textures a track lists in track_textures (track_tex.c) share one VRAM
+   pool, sized at boot for the biggest list, and are uploaded when the
+   track's world is built; the rest stay resident from boot. The pool is a
+   single block laid out afresh each time, so swapping tracks never
+   fragments VRAM. */
+static uint8_t tex_pooled[TEX_COUNT];
+static pvr_ptr_t tex_pool;
+static size_t tex_pool_size;
+static int tex_track = -1;
+static const int16_t *tex_list;   /* the list in the pool (tracks can share one) */
+
+static size_t tex_size(int tex) {
+    return (dk_tex_assets[tex].bytes + 31) & ~31u;
+}
+
+static size_t track_tex_size(int id) {
+    size_t n = 0;
+    for(const int16_t *t = track_textures[id]; *t >= 0; t++) n += tex_size(*t);
+    return n;
+}
+
 static void load_textures(void) {
     size_t used = 0;
+    for(int id = 0; id < TRACK_COUNT; id++) {
+        for(const int16_t *t = track_textures[id]; *t >= 0; t++) tex_pooled[*t] = 1;
+        size_t n = track_tex_size(id);
+        if(n > tex_pool_size) tex_pool_size = n;
+    }
+    int resident = 0;
     for(int i = 0; i < TEX_COUNT; i++) {
-        const dk_tex_asset_t *t = &dk_tex_assets[i];
-        size_t size = (t->bytes + 31) & ~31u;
+        if(tex_pooled[i]) continue;
+        size_t size = tex_size(i);
         r_textures[i] = pvr_mem_malloc(size);
         if(!r_textures[i]) {
             printf("DreamKarts render: VRAM exhausted at texture %d\n", i);
             continue;
         }
-        pvr_txr_load(dk_textures_pak + t->offset, r_textures[i], size);
+        pvr_txr_load(dk_textures_pak + dk_tex_assets[i].offset, r_textures[i], size);
         used += size;
+        resident++;
     }
-    printf("DreamKarts render: %d textures, %lu KiB VRAM, %lu KiB free\n", TEX_COUNT,
-           (unsigned long)(used / 1024), (unsigned long)(pvr_mem_available() / 1024));
+    tex_pool = pvr_mem_malloc(tex_pool_size);
+    if(!tex_pool) printf("DreamKarts render: no VRAM for the %lu KiB track texture pool\n", (unsigned long)(tex_pool_size / 1024));
+    printf("DreamKarts render: %d resident textures, %lu KiB VRAM; track pool %lu KiB; %lu KiB free\n", resident,
+           (unsigned long)(used / 1024), (unsigned long)(tex_pool_size / 1024), (unsigned long)(pvr_mem_available() / 1024));
 }
 
 void render_init(void) {
@@ -134,19 +165,15 @@ void render_init(void) {
 
 void render_shutdown(void) {
     for(int i = 0; i < TEX_COUNT; i++)
-        if(r_textures[i]) pvr_mem_free(r_textures[i]);
+        if(r_textures[i] && !tex_pooled[i]) pvr_mem_free(r_textures[i]);
+    if(tex_pool) pvr_mem_free(tex_pool);
     free(headers);
     pvr_shutdown();
 }
 
-const pvr_poly_hdr_t *r_header(int tex, int flags) {
-    int key = ((tex + 1) << 10) | flags;
-    for(int i = 0; i < header_count; i++)
-        if(headers[i].key == key) return &headers[i].hdr;
-    if(header_count >= MAX_HEADERS) {
-        printf("DreamKarts render: header cache full\n");
-        return &headers[0].hdr;
-    }
+/* A header slot's key is ((tex + 1) << 10) | flags. */
+static void compile_slot(HeaderSlot *s) {
+    int tex = (s->key >> 10) - 1, flags = s->key & 0x3ff;
     pvr_list_t list = (flags & HF_LIST_MASK) == HF_PT ? PVR_LIST_PT_POLY :
                       (flags & HF_LIST_MASK) == HF_TR ? PVR_LIST_TR_POLY : PVR_LIST_OP_POLY;
     pvr_poly_cxt_t c;
@@ -194,10 +221,46 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
     if(flags & HF_NOZWRITE) c.depth.write = PVR_DEPTHWRITE_DISABLE;
     if(flags & HF_ZWRITE) c.depth.write = PVR_DEPTHWRITE_ENABLE;
     if(flags & HF_NOZTEST) c.depth.comparison = PVR_DEPTHCMP_ALWAYS;
+    pvr_poly_compile(&s->hdr, &c);
+}
+
+const pvr_poly_hdr_t *r_header(int tex, int flags) {
+    int key = ((tex + 1) << 10) | flags;
+    for(int i = 0; i < header_count; i++)
+        if(headers[i].key == key) return &headers[i].hdr;
+    if(header_count >= MAX_HEADERS) {
+        printf("DreamKarts render: header cache full\n");
+        return &headers[0].hdr;
+    }
     HeaderSlot *s = &headers[header_count++];
     s->key = key;
-    pvr_poly_compile(&s->hdr, &c);
+    compile_slot(s);
     return &s->hdr;
+}
+
+void render_load_track_textures(int id) {
+    if(!tex_pool) return;
+    tex_track = id;
+    if(track_textures[id] == tex_list) return;
+    /* The PVR may still be drawing the last frame from the pool. */
+    pvr_wait_ready();
+    pvr_wait_render_done();
+    for(int i = 0; i < TEX_COUNT; i++)
+        if(tex_pooled[i]) r_textures[i] = NULL;
+    uint8_t *at = (uint8_t *)tex_pool;
+    for(const int16_t *t = track_textures[id]; *t >= 0; t++) {
+        size_t size = tex_size(*t);
+        r_textures[*t] = at;
+        pvr_txr_load(dk_textures_pak + dk_tex_assets[*t].offset, at, size);
+        at += size;
+    }
+    /* Headers are handed out once and kept, so the pool's are rebuilt in
+       place: the new track's at their new addresses, the rest untextured. */
+    for(int i = 0; i < header_count; i++) {
+        int tex = (headers[i].key >> 10) - 1;
+        if(tex >= 0 && tex_pooled[tex]) compile_slot(&headers[i]);
+    }
+    tex_list = track_textures[id];
 }
 
 /* The caller paces frames with pvr_wait_ready() before updating. */
@@ -492,8 +555,25 @@ void r_hdr(const pvr_poly_hdr_t *h) {
     cur_hdr = h;
 }
 
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+/* Autotest builds: a pooled texture the track's list leaves out draws
+   untextured, so name it (once) for adding to track_textures. */
+static void check_resident(const pvr_poly_hdr_t *h) {
+    static uint8_t warned[TEX_COUNT];
+    uintptr_t o = (uintptr_t)h - (uintptr_t)&headers[0].hdr;
+    if(o >= sizeof(HeaderSlot) * (size_t)header_count || o % sizeof(HeaderSlot)) return;
+    int t = (headers[o / sizeof(HeaderSlot)].key >> 10) - 1;
+    if(t < 0 || !tex_pooled[t] || r_textures[t] || warned[t]) return;
+    warned[t] = 1;
+    printf("DreamKarts render: texture %d drawn on track %d is not in its track_textures\n", t, tex_track);
+}
+#endif
+
 static inline void flush_hdr(void) {
     if(cur_hdr != sent_hdr) {
+#if defined(DK_AUTOTEST) && !defined(DK_HW)
+        check_resident(cur_hdr);
+#endif
         PROF_COUNT(PN_HDRS, 1);
         pvr_prim(cur_hdr, sizeof(pvr_poly_hdr_t));
         sent_hdr = cur_hdr;

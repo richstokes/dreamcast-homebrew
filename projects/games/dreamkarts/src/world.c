@@ -261,6 +261,7 @@ float world_surface_y(float s, float d) {
 void world_build(void) {
     world_gates = 0;
     if(!pool) return;
+    render_load_track_textures(track.id);
     pool_n = strip_n = chunk_n = palm_n = far_sprite_n = foam_count = 0;
     stand_wave = false;
     cur_chunk = NULL;

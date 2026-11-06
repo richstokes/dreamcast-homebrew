@@ -34,6 +34,11 @@ enum {
 
 void render_init(void);
 void render_shutdown(void);
+/* Upload a track's own textures (track_textures) into the shared pool,
+   once the PVR has finished with the last frame; world_build calls it. */
+void render_load_track_textures(int id);
+/* Per track, the textures only its scenes draw, ended by -1 (track_tex.c). */
+extern const int16_t *const track_textures[];
 /* Mipmap D-adjust for the opaque (RGB565) mipmapped textures:
    DK_MIP_ROAD_BIAS for the surfaces driven on (render.c tex_mip_bias),
    DK_MIP_BIAS for everything beside them. The PVR picks a pixel's mip level
