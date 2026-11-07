@@ -187,6 +187,39 @@ def tex_puff():
     return to_img(rgb, a * 255)
 
 
+def tex_clod():
+    """A clod of mud, a stone or a lump of snow thrown off a spinning tyre:
+    a lumpy hard-edged blob lit from above, white so the vertex colour
+    tints it by surface."""
+    n = 32
+    yy, xx = np.mgrid[0:n, 0:n]
+    c = (n - 1) / 2
+    ang = np.arctan2(yy - c, xx - c)
+    rr = np.hypot(xx - c, yy - c) / (n / 2)
+    edge = 0.78 + 0.10 * np.sin(3 * ang + 0.7) + 0.06 * np.sin(5 * ang + 2.1) + 0.04 * np.sin(8 * ang)
+    a = np.clip((edge - rr) * 12, 0, 1)
+    nz = tile_noise(n, 8, 77)
+    light = np.clip(0.78 - 0.32 * (yy - c) / (n / 2) - 0.12 * (xx - c) / (n / 2) + 0.18 * (nz - 0.5), 0.35, 1.0)
+    rgb = np.repeat((light * 255)[..., None], 3, axis=2)
+    return to_img(rgb, a * 255)
+
+
+def tex_tread():
+    """A tyre track, tiling along v: chevron lug prints, darker where the
+    lugs pressed, fading out at both edges. White, tinted by surface."""
+    w = h = 64    # square, for mipmaps
+    yy, xx = np.mgrid[0:h, 0:w]
+    u = (xx + 0.5) / w
+    v = (yy + 0.5) / h
+    chev = (v * 4 + np.abs(u - 0.5) * 1.3) % 1.0
+    lug = np.clip((np.abs(chev - 0.5) - 0.18) * 9, 0, 1)
+    side = np.clip(np.minimum(u, 1 - u) / 0.16, 0, 1) ** 1.5
+    nz = tile_noise(w, 4, 91)
+    a = side * (0.55 + 0.4 * lug) * (0.85 + 0.3 * nz)
+    rgb = np.repeat((150 + 105 * (1 - lug))[..., None], 3, axis=2)
+    return to_img(rgb, np.clip(a, 0, 1) * 255)
+
+
 def tex_shadow():
     n = 64
     r = radial(n)
@@ -342,6 +375,8 @@ def build(out: Path):
         (Spec("ring", "ARGB4444", False, False), tex_ring()),
         (Spec("puff", "ARGB4444", True, False), tex_puff()),
         (Spec("shadow", "ARGB4444", True, False), tex_shadow()),
+        (Spec("clod", "ARGB4444", True, False), tex_clod()),
+        (Spec("tread", "ARGB4444", True, True), tex_tread()),
         (Spec("cloud", "ARGB4444", False, False), tex_cloud()),
         (Spec("map", "RGB565", True, False), tex_map()),
         (Spec("dial", "ARGB4444", False, False), tex_dial()),

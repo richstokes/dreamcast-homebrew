@@ -460,6 +460,7 @@ static void step(Truck *t, float dt) {
         Contact *k = &ct[i];
         k->fw = fw;
         k->cp = best_q;
+        w->cp = best_q;     /* for the effects: what the tyre throws, its track */
         if(best_d != 0) {
             /* Off the hub's foot: the normal leans from the contact toward the hub. */
             V3 radial = vnorm(vsub(w->centre, best_q));

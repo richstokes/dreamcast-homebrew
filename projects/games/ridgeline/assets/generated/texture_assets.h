@@ -18,6 +18,8 @@ enum {
     TEX_RING,
     TEX_PUFF,
     TEX_SHADOW,
+    TEX_CLOD,
+    TEX_TREAD,
     TEX_CLOUD,
     TEX_MAP,
     TEX_DIAL,
@@ -37,12 +39,14 @@ static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {292288u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
     {308672u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
     {319616u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
-    {330560u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {346944u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {521728u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {554496u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {620032u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {751104u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {330560u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
+    {333312u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
+    {344256u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {360640u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {535424u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {568192u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {633728u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {764800u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

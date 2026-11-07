@@ -30,6 +30,9 @@ been, and the viewpoints you've found.
   tyre gives up its cornering grip. Feed it on the progressive throttle and
   catch it with opposite lock. The Kestrel's traction control reins it in
   (in 2WD and 4WD) until you hold D-pad up to switch it off
+- A spinning tyre flings a roostertail of whatever it's in (mud clods,
+  dirt, stones, snow, spray), and the rear tyres leave tread tracks in soft
+  ground
 - Up to three CPU trucks for company, each taking its own route
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
