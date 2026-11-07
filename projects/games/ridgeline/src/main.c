@@ -49,6 +49,7 @@ void game_start_drive(void) {
         t->model = i == 0 ? game.truck_model : (game.truck_model + i) & 1;
         t->livery = i == 0 ? game.livery : (game.livery + i) % 4;
         t->cpu = i > 0;
+        t->tcs_off = false;   /* traction control starts on */
         const float *s = lvl_spawns[slot[i]];
         truck_place(t, v3(s[0], 0, s[2]), s[3]);
         t->lights = false;
@@ -79,7 +80,21 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     in->throttle = pad.rtrig * sqrtf(pad.rtrig);
     in->brake = pad.ltrig;
     in->handbrake = (pad.held & BTN_A) != 0;
-    p->horn = (pad.held & BTN_UP) != 0;
+    /* D-pad up is the horn; held 2 s on a truck with traction control it
+       switches that off or on instead, and the horn stops. */
+    static float up_hold;
+    static bool up_done;
+    bool up = (pad.held & BTN_UP) != 0;
+    if(!up) {
+        up_hold = 0;
+        up_done = false;
+    }
+    else if(p->spec.tcs && !up_done && (up_hold += dt) >= 2.0f) {
+        p->tcs_off = !p->tcs_off;
+        up_done = true;
+        hud_message(p->tcs_off ? "TRACTION CONTROL OFF" : "TRACTION CONTROL ON", 0xffffd070, 1.6f);
+    }
+    p->horn = up && !up_done;
     if(pad.pressed & BTN_DOWN) {
         p->lights = !p->lights;
         hud_message(p->lights ? "LIGHTS ON" : "LIGHTS OFF", 0xfff8f0dc, 1.2f);
@@ -106,7 +121,15 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
         }
     }
     else recover_hold = 0;
-    hud_recover_k = recover_hold > 0.15f ? recover_hold : 0;
+    hud_hold_k = 0;
+    if(recover_hold > 0.15f) {
+        hud_hold_k = recover_hold;
+        hud_hold_label = "HOLD Y: RECOVER";
+    }
+    else if(p->spec.tcs && up_hold > 0.5f && !up_done) {
+        hud_hold_k = up_hold / 2.0f;
+        hud_hold_label = p->tcs_off ? "HOLD UP: TCS ON" : "HOLD UP: TCS OFF";
+    }
 }
 
 static void progress_update(void) {

@@ -29,6 +29,7 @@ typedef struct {
     float ratio[8], reverse, final_drive, low_range;
     float brake_torque;
     int low_top_gear;      /* the highest gear low range uses */
+    bool tcs;              /* fitted with traction control */
 } TruckSpec;
 
 #define LOW_RANGE_TOP_MPS 13.4f     /* ~30 mph */
@@ -69,6 +70,7 @@ typedef struct Truck {
     float throttle, brake;    /* applied this step */
     float load;               /* engine load 0..1, for the sound */
     float tc;                 /* traction control's cut, 1 = none */
+    bool tcs_off;             /* the driver switched traction control off */
     bool stalled;
     float stall_t, drown_t;
     /* Driver's things. */

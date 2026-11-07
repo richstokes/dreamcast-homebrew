@@ -29,7 +29,7 @@ been, and the viewpoints you've found.
   limited-slip rear, so the tail comes round under power and a spinning
   tyre gives up its cornering grip. Feed it on the progressive throttle and
   catch it with opposite lock; the Kestrel's traction control works only
-  in 4WD
+  in 4WD, and holding D-pad up switches it off
 - Up to three CPU trucks for company, each taking its own route
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
@@ -50,7 +50,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | Analog stick | Steer |
 | R / L trigger | Throttle / brake; hold L at a stop to reverse |
 | D-pad left / right | Drive mode: 2WD, 4WD, LOCK (low range goes in or out only below ~8 mph) |
-| D-pad up | Horn |
+| D-pad up | Horn; hold 2 s to switch traction control off or on (Kestrel) |
 | D-pad down | Lights |
 | A | Handbrake |
 | B | Camera: chase, far chase, bumper |

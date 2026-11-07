@@ -13,6 +13,8 @@ const EngFont *hud_font(void);
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s);
 void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s);
 void hud_panel(float x0, float y0, float x1, float y1, uint32_t col);
-extern float hud_recover_k;         /* 0..1 while Y is held */
+/* A held button's progress bar: 0..1, and what letting go too soon misses. */
+extern float hud_hold_k;
+extern const char *hud_hold_label;
 
 #endif

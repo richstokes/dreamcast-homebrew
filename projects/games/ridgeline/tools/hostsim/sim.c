@@ -138,6 +138,7 @@ int main(int argc, char **argv) {
     }
     truck_place(t, v3(x, 0, z), h);
     t->mode = mode;
+    t->tcs_off = getenv("SIM_TCS_OFF") != NULL;
     r_cam.pos = t->pos;
     float dt = 1.0f / 60.0f;
     if(getenv("SIM_TRACE")) {

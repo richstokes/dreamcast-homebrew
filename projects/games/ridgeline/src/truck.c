@@ -96,6 +96,7 @@ void truck_spec(TruckSpec *s, int model) {
         s->body_hi[0] = 0.95f; s->body_hi[1] = 1.92f; s->body_hi[2] = 2.15f;
         s->wade = 0.85f;
         s->idle_rpm = 700.0f;
+        s->tcs = true;
         s->redline_rpm = 5800.0f;
         s->peak_torque = 540.0f;
         s->peak_rpm = 3100.0f;
@@ -164,12 +165,13 @@ float truck_heading(const Truck *t) {
 
 void truck_place(Truck *t, V3 base, float heading) {
     int model = t->model, livery = t->livery, mode = t->mode;
-    bool cpu = t->cpu, lights = t->lights;
+    bool cpu = t->cpu, lights = t->lights, tcs_off = t->tcs_off;
     memset(t, 0, sizeof(*t));
     t->model = model;
     t->livery = livery;
     t->cpu = cpu;
     t->lights = lights;
+    t->tcs_off = tcs_off;
     truck_spec(&t->spec, model);
     /* Sit it on the ground under its four wheels: on a steep trail a level
        truck would start with its body in the hill. */
@@ -865,15 +867,17 @@ void truck_update(Truck *t, float dt) {
             t->rpm = S->idle_rpm;
         }
     }
-    /* The modern truck's traction control trims the engine when the tyres
-       spin up past the ground; the 80s pickup leaves that to your foot.
-       Only in 4WD: 2WD is the play mode (as with the TC-off button, the
-       tail is yours to slide), and with the lockers in, crawling over rock
-       wants the wheels to turn however much they slip. */
+    /* Traction control (the Kestrel has it, the 80s pickup leaves it to
+       your foot) trims the engine when the tyres spin up past the ground.
+       The driver can switch it off. Only in 4WD: 2WD is the play mode (as
+       with the TC-off button, the tail is yours to slide), and with the
+       lockers in, crawling over rock wants the wheels to turn however much
+       they slip. */
     t->tc = 1.0f;
-    if(t->model == 1 && t->mode == DRIVE_4WD) {
-        static float tc_s[MAX_TRUCKS];
-        int ti2 = (int)(t - trucks) & (MAX_TRUCKS - 1);
+    static float tc_s[MAX_TRUCKS];
+    int ti2 = (int)(t - trucks) & (MAX_TRUCKS - 1);
+    if(!t->spec.tcs || t->tcs_off || t->mode != DRIVE_4WD) tc_s[ti2] = 1.0f;
+    else {
         float slip = 0;
         for(int i = 0; i < 4; i++)
             if(t->wh[i].contact) slip = fmaxf(slip, -(vdot(t->vel, t->ax[2]) - t->wh[i].omega * S->radius) * signf(t->wh[i].omega));

@@ -12,7 +12,8 @@ static const pvr_poly_hdr_t *h_dial, *h_icons, *h_map, *h_flat, *h_glow;
 static char msg[48];
 static float msg_t, msg_len;
 static uint32_t msg_col;
-float hud_recover_k;
+float hud_hold_k;
+const char *hud_hold_label;
 
 #define Z 10.0f
 
@@ -107,7 +108,8 @@ static void drive_mode(const Truck *t) {
         x += w + 6;
     }
     if(t->mode == DRIVE_LOCK) hud_text_c(222, y, 0.48f, ALIGN_LEFT, 0xffe8c070, "LOW + LOCKERS");
-    if(t->tc < 0.9f) hud_text_c(222, y - 20, 0.48f, ALIGN_LEFT, 0xffffb040, "TRACTION CONTROL");
+    if(t->spec.tcs && t->tcs_off) hud_text_c(222, y - 20, 0.48f, ALIGN_LEFT, 0xffff7050, "TCS OFF");
+    else if(t->tc < 0.9f) hud_text_c(222, y - 20, 0.48f, ALIGN_LEFT, 0xffffb040, "TRACTION CONTROL");
     if(t->stalled) hud_text_c(320, 160, 0.7f, ALIGN_CENTER, 0xffff7050, "STALLED - WATER IN THE INTAKE");
 }
 
@@ -195,9 +197,9 @@ void hud_draw(void) {
         float a = clampf(msg_t / 0.4f, 0, 1) * clampf((msg_len - msg_t) / 0.15f, 0, 1);
         hud_text_c(320, 124, 1.0f, ALIGN_CENTER, color_alpha(msg_col, a), msg);
     }
-    if(hud_recover_k > 0) {
+    if(hud_hold_k > 0 && hud_hold_label) {
         hud_panel(240, 300, 400, 330, 0xa0182028);
-        hud_panel(244, 322, 244 + 152 * hud_recover_k, 326, 0xffe8a030);
-        hud_text_c(320, 311, 0.6f, ALIGN_CENTER, 0xffffffff, "HOLD Y: RECOVER");
+        hud_panel(244, 322, 244 + 152 * hud_hold_k, 326, 0xffe8a030);
+        hud_text_c(320, 311, 0.6f, ALIGN_CENTER, 0xffffffff, hud_hold_label);
     }
 }
