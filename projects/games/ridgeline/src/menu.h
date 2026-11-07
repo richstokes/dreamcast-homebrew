@@ -6,6 +6,7 @@
 
 void menu_init(void);
 void menu_title_update(float dt);
+const char *menu_truck_name(int model);
 void menu_title_draw(void);
 void menu_select_update(float dt);
 void menu_select_draw(void);

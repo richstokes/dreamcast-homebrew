@@ -8,6 +8,7 @@
 void hud_init(void);
 void hud_update(float dt);
 void hud_draw(void);                /* TR list */
+void hud_draw_map(void);            /* the map alone (demo mode) */
 void hud_message(const char *text, uint32_t col, float seconds);
 const EngFont *hud_font(void);
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s);

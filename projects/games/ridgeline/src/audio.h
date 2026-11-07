@@ -9,6 +9,8 @@ void audio_init(void);
 void audio_drive_start(void);
 void audio_drive_stop(void);
 void audio_update(float dt);
+/* Whose engine we are in (demo mode cuts between trucks); 0 on a drive start. */
+void audio_listen(int ti);
 void audio_sfx(int id, int vol);
 
 #endif

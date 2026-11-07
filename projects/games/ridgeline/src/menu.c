@@ -6,6 +6,7 @@
 #include "truck.h"
 #include "camera.h"
 #include "audio.h"
+#include "demo.h"
 #include "sound_assets.h"
 #include "version.h"
 #if __has_include("trucks.h")
@@ -30,7 +31,7 @@ static const char *livery_name(int model, int lv) {
 #endif
 }
 
-static const char *truck_name(int model) {
+const char *menu_truck_name(int model) {
 #ifdef HAVE_TRUCK_MODELS
     return rl_truck_info[model].name;
 #else
@@ -43,10 +44,19 @@ static const char *truck_name(int model) {
 enum { T_SINGLE, T_ONLINE, T_SOUND, T_COUNT };
 static bool title_menu;
 static int title_sel;
+static float title_idle;
 
 void menu_title_update(float dt) {
     camera_flyover(game.time);
+    /* Left alone with no menu up, the demo starts (demo.h). */
+    bool touched = pad.pressed || pad2.pressed || fabsf(pad.stick_x) > 0.6f || fabsf(pad.stick_y) > 0.6f;
+    title_idle = touched ? 0 : title_idle + dt;
     if(!title_menu) {
+        if(title_idle >= DEMO_IDLE_SECONDS) {
+            title_idle = 0;
+            demo_start();
+            return;
+        }
         if(pad.pressed & (BTN_START | BTN_A)) {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
             title_menu = true;
@@ -158,7 +168,7 @@ void menu_select_update(float dt) {
 void menu_select_draw(void) {
     static const char *const company[4] = {"SOLO", "1 CPU TRUCK", "2 CPU TRUCKS", "3 CPU TRUCKS"};
     const char *rows[4][2] = {
-        {"TRUCK", truck_name(game.truck_model)},
+        {"TRUCK", menu_truck_name(game.truck_model)},
         {"PAINT", livery_name(game.truck_model, game.livery)},
         {"COMPANY", company[game.companions]},
         {"", "DRIVE!"},

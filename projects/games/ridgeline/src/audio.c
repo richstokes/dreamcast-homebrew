@@ -19,6 +19,7 @@ extern const uint8_t rl_sfx_pak[];
 static SfxVoice eng_v[2][RL_ENGINE_LOOPS];       /* player: on, off */
 static SfxVoice cpu_v[MAX_TRUCKS][2];
 static int cpu_lo[MAX_TRUCKS];
+static int hear;   /* the truck whose engine is the player's */
 static SfxVoice horn_v, surf_v[5], wind_v, forest_v, creek_v;
 static bool started;
 static float load_s, master, start_t = -1, start_len;
@@ -39,6 +40,7 @@ static const int surf_sfx[5] = {RL_SFX_GRAVEL, RL_SFX_DIRT, RL_SFX_MUD, RL_SFX_W
 void audio_init(void) {
     _Static_assert(sizeof(rl_sfx_asset_t) == sizeof(eng_sfx_asset_t), "sfx table layout");
     sfx_init(rl_sfx_pak, (const eng_sfx_asset_t *)rl_sfx_assets, RL_SFX_COUNT);
+    for(int i = 0; i < MAX_TRUCKS; i++) cpu_v[i][0].channel = cpu_v[i][1].channel = -1;
 }
 
 static void stop_all(void) {
@@ -54,22 +56,27 @@ static void stop_all(void) {
     started = false;
 }
 
-void audio_drive_start(void) {
-    if(!sfx_ready()) return;
-    stop_all();
-    const Truck *p = &trucks[0];
-    const rl_engine_sound_t *es = &rl_engine_sounds[p->model];
+static void engine_loops_start(int model) {
+    const rl_engine_sound_t *es = &rl_engine_sounds[model];
     sfx_batch_begin();
     for(int k = 0; k < RL_ENGINE_LOOPS; k++) {
         sfx_voice_start(&eng_v[0][k], es->on[k]);
         sfx_voice_start(&eng_v[1][k], es->off[k]);
     }
     sfx_batch_end();
-    for(int i = 1; i < game.ntrucks; i++) {
+    sfx_voice_start(&horn_v, rl_horn_sfx[model]);
+}
+
+void audio_drive_start(void) {
+    if(!sfx_ready()) return;
+    stop_all();
+    hear = 0;
+    const Truck *p = &trucks[0];
+    engine_loops_start(p->model);
+    for(int i = 0; i < game.ntrucks; i++) {
         cpu_lo[i] = -1;
         cpu_v[i][0].channel = cpu_v[i][1].channel = -1;
     }
-    sfx_voice_start(&horn_v, rl_horn_sfx[p->model]);
     for(int i = 0; i < 5; i++) sfx_voice_start(&surf_v[i], surf_sfx[i]);
     sfx_voice_start(&wind_v, RL_SFX_WIND);
     sfx_voice_start(&forest_v, RL_SFX_FOREST);
@@ -88,6 +95,26 @@ void audio_drive_start(void) {
 
 void audio_drive_stop(void) {
     stop_all();
+}
+
+void audio_listen(int ti) {
+    if(!started || ti == hear) return;
+    const Truck *p = &trucks[ti];
+    if(p->model != trucks[hear].model) {
+        for(int l = 0; l < 2; l++)
+            for(int k = 0; k < RL_ENGINE_LOOPS; k++) sfx_voice_stop(&eng_v[l][k]);
+        sfx_voice_stop(&horn_v);
+        engine_loops_start(p->model);
+    }
+    /* The new one's distant voices go, the old one gets its own. */
+    sfx_voice_stop(&cpu_v[ti][0]);
+    sfx_voice_stop(&cpu_v[ti][1]);
+    cpu_lo[hear] = -1;
+    hear = ti;
+    load_s = p->load;
+    last_gear = p->gear;
+    last_mode = p->mode;
+    last_lights = p->lights;
 }
 
 void audio_sfx(int id, int vol) {
@@ -123,7 +150,7 @@ static void rpm_weights(const rl_engine_sound_t *es, float rpm, float *w) {
 
 void audio_update(float dt) {
     if(!started) return;
-    Truck *p = &trucks[0];
+    Truck *p = &trucks[hear];
     const rl_engine_sound_t *es = &rl_engine_sounds[p->model];
     bool paused = game.paused;
     /* The engine's loops fade in over the start sound's last moments. */
@@ -145,7 +172,8 @@ void audio_update(float dt) {
         sfx_voice_set(&eng_v[1][k], rate, (int)(215.0f * m * w[k] * (1.0f - load_s)), 128);
     }
     /* CPU trucks: two on-load points each. */
-    for(int i = 1; i < game.ntrucks; i++) {
+    for(int i = 0; i < game.ntrucks; i++) {
+        if(i == hear) continue;
         Truck *t = &trucks[i];
         const rl_engine_sound_t *ec = &rl_engine_sounds[t->model];
         float r = fmaxf(t->rpm, ec->idle_rpm * 0.6f);

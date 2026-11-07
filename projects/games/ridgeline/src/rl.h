@@ -58,6 +58,8 @@ typedef struct {
     bool photo;           /* photo mode: paused, no HUD, the camera orbits */
     float photo_t;        /* seconds in photo mode, for its hint */
     bool cam_scripted;    /* test builds' scenery tour holds the camera */
+    bool demo;            /* demo mode (demo.h): four CPU trucks, the camera cuts between them */
+    int demo_truck;       /* the truck it is watching */
 } Game;
 
 extern Game game;

@@ -185,6 +185,10 @@ static void progress(const Truck *t) {
     hud_text_c(224, 76, 0.52f, ALIGN_RIGHT, 0xffd8d0c0, buf);
 }
 
+void hud_draw_map(void) {
+    map();
+}
+
 void hud_draw(void) {
     if(game.hud_hidden) return;
     const Truck *t = &trucks[0];

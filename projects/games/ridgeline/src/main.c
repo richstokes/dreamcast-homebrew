@@ -11,6 +11,7 @@
 #include "fx.h"
 #include "menu.h"
 #include "autotest.h"
+#include "demo.h"
 #include "sound_assets.h"
 #include "softreset.h"
 #include "version.h"
@@ -159,6 +160,10 @@ static void progress_update(void) {
 
 static void drive_update(float dt) {
     Truck *p = &trucks[0];
+    if(game.demo) {
+        demo_update(dt);
+        return;
+    }
     if(game.paused) {
         menu_pause_update(dt);
         return;
@@ -225,6 +230,7 @@ static void render(void) {
     if(game.state == ST_TITLE) menu_title_draw();
     else if(game.state == ST_SELECT) menu_select_draw();
     else if(game.state == ST_SOUND) soundtest_draw();
+    else if(game.demo) demo_draw();
     else {
         if(!game.photo) hud_draw();
         if(game.paused) menu_pause_draw();
@@ -287,9 +293,12 @@ int main(int argc, char **argv) {
         input_update();
         switch(softreset_poll(game.state == ST_TITLE)) {
             case SOFTRESET_TITLE:
-                audio_drive_stop();
-                game.paused = false;
-                game_set_state(ST_TITLE);
+                if(game.demo) demo_stop();
+                else {
+                    audio_drive_stop();
+                    game.paused = false;
+                    game_set_state(ST_TITLE);
+                }
                 break;
             case SOFTRESET_QUIT:
                 game.quit = true;

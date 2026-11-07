@@ -5,7 +5,7 @@ else
 TARGET = ridgeline.elf
 # Ridgeline's own sources (src/) and the shared engine's
 # (projects/common/engine).
-SOURCES = main.c terrain.c world.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c soundtest.c autotest.c
+SOURCES = main.c terrain.c world.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c soundtest.c autotest.c
 ENGINE_SOURCES = input.c rand.c render.c prof.c mesh.c scenery.c sfx.c text.c
 ENGINE_DIR = ../../common/engine
 GEN = assets/generated

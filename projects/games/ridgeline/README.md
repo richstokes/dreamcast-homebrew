@@ -35,6 +35,9 @@ been, and the viewpoints you've found.
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,
   left/right changes the pitch. Online is on the menu but not built yet
+- Leave the title alone for ten seconds and a demo runs: four CPU trucks
+  set off up the mountain and the camera cuts between them every few
+  seconds, chase, helicopter and trackside shots, until a button is pressed
 
 ## Download
 

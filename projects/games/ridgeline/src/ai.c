@@ -277,6 +277,10 @@ void ai_drive(int ti, float dt) {
 #endif
 }
 
+const char *ai_route_name(int ti) {
+    return lvl_routes[ai[ti].route].name;
+}
+
 float ai_progress(int ti) {
     const Ai *a = &ai[ti];
     return a->leg + (float)a->pt / (float)lvl_routes[a->route].n;

@@ -10,5 +10,7 @@ void ai_start(int ti, int route);
 void ai_drive(int ti, float dt);
 bool ai_done(int ti);
 float ai_progress(int ti);
+/* The route truck ti is on now, for a caption. */
+const char *ai_route_name(int ti);
 
 #endif
