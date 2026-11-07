@@ -12,6 +12,7 @@ static const pvr_poly_hdr_t *h_dial, *h_icons, *h_map, *h_flat, *h_glow;
 static char msg[48];
 static float msg_t, msg_len;
 static uint32_t msg_col;
+static float tcs_lamp; /* seconds the traction control lamp stays lit */
 float hud_hold_k;
 const char *hud_hold_label;
 
@@ -44,6 +45,9 @@ void hud_message(const char *text, uint32_t col, float seconds) {
 
 void hud_update(float dt) {
     if(msg_t > 0) msg_t -= dt;
+    /* Hold the lamp briefly so short cuts don't flicker it. */
+    if(trucks[0].tc < 0.9f) tcs_lamp = 0.4f;
+    else if(tcs_lamp > 0) tcs_lamp -= dt;
 }
 
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s) {
@@ -97,6 +101,52 @@ static void dial(const Truck *t) {
     hud_text_c(cx - 72, cy + 54, 0.6f, ALIGN_LEFT, 0xffe8dcc4, "MPH");
 }
 
+/* A thick 2D line from (x0,y0) to (x1,y1). */
+static void seg2d(float x0, float y0, float x1, float y1, float w, uint32_t col) {
+    float dx = x1 - x0, dy = y1 - y0, l = sqrtf(dx * dx + dy * dy);
+    if(l < 1e-3f) return;
+    float nx = -dy / l * w * 0.5f, ny = dx / l * w * 0.5f;
+    float xy[8] = {x0 + nx, y0 + ny, x1 + nx, y1 + ny, x0 - nx, y0 - ny, x1 - nx, y1 - ny};
+    static const float uv[8] = {0};
+    uint32_t c[4] = {col, col, col, col};
+    r_quad2d_pts(xy, uv, c, Z + 0.3f);
+}
+
+/* The dashboard traction control lamp: a car from behind with two skid
+   squiggles under it. Flashes while it is cutting the throttle; steady with
+   OFF under it when the driver has switched it off. */
+static void tcs_icon(const Truck *t) {
+    if(!t->spec.tcs) return;
+    bool off = t->tcs_off;
+    if(!off && tcs_lamp <= 0) return;
+    const float cx = 452, cy = 368;
+    uint32_t col = off ? 0xffff7050 : 0xffffb040;
+    if(!off && fmodf(game.time, 0.3f) > 0.18f) col = color_alpha(col, 0.35f);
+    hud_panel(cx - 22, cy - 22, cx + 22, cy + (off ? 34 : 22), 0x90182028);
+    r_hdr(h_flat);
+    /* Cabin, with a dark rear window, then the body and the tyres. */
+    r_tri2d(cx - 7, cy - 15, cx + 7, cy - 15, cx - 11, cy - 7, col, col, col, Z + 0.2f);
+    r_tri2d(cx + 7, cy - 15, cx + 11, cy - 7, cx - 11, cy - 7, col, col, col, Z + 0.2f);
+    r_tri2d(cx - 5, cy - 13, cx + 5, cy - 13, cx - 8, cy - 9, 0xff182028, 0xff182028, 0xff182028, Z + 0.3f);
+    r_tri2d(cx + 5, cy - 13, cx + 8, cy - 9, cx - 8, cy - 9, 0xff182028, 0xff182028, 0xff182028, Z + 0.3f);
+    r_quad2d(cx - 14, cy - 7, cx + 14, cy + 1, 0, 0, 1, 1, col, Z + 0.2f);
+    r_quad2d(cx - 13, cy + 1, cx - 8, cy + 5, 0, 0, 1, 1, col, Z + 0.2f);
+    r_quad2d(cx + 8, cy + 1, cx + 13, cy + 5, 0, 0, 1, 1, col, Z + 0.2f);
+    /* Skid marks: one S curve under each side, fanning out. */
+    for(int side = -1; side <= 1; side += 2) {
+        float px = 0, py = 0;
+        for(int i = 0; i <= 8; i++) {
+            float k = i / 8.0f;
+            float x = cx + side * (7.0f + 3.0f * k) + 3.2f * sinf(k * 2.0f * ENG_PI);
+            float y = cy + 8 + 12 * k;
+            if(i) seg2d(px, py, x, y, 2.4f, col);
+            px = x;
+            py = y;
+        }
+    }
+    if(off) hud_text_c(cx, cy + 27, 0.48f, ALIGN_CENTER, col, "OFF");
+}
+
 static void drive_mode(const Truck *t) {
     static const char *const names[DRIVE_COUNT] = {"2WD", "4WD", "LOCK"};
     float x = 34, y = 436;
@@ -108,8 +158,6 @@ static void drive_mode(const Truck *t) {
         x += w + 6;
     }
     if(t->mode == DRIVE_LOCK) hud_text_c(222, y, 0.48f, ALIGN_LEFT, 0xffe8c070, "LOW + LOCKERS");
-    if(t->spec.tcs && t->tcs_off) hud_text_c(222, y - 20, 0.48f, ALIGN_LEFT, 0xffff7050, "TCS OFF");
-    else if(t->tc < 0.9f) hud_text_c(222, y - 20, 0.48f, ALIGN_LEFT, 0xffffb040, "TRACTION CONTROL");
     if(t->stalled) hud_text_c(320, 160, 0.7f, ALIGN_CENTER, 0xffff7050, "STALLED - WATER IN THE INTAKE");
 }
 
@@ -195,6 +243,7 @@ void hud_draw(void) {
     progress(t);
     map();
     dial(t);
+    tcs_icon(t);
     drive_mode(t);
     if(game.map_mode != 1) inclinometer(t);
     if(msg_t > 0) {
