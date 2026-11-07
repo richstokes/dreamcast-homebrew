@@ -101,6 +101,58 @@ static int run_turn(int mode, int model, float steer, int hb) {
     return 0;
 }
 
+/* Two trucks meeting on the meadow: crash<case> <model>. The player's
+   truck drives at a parked one (0 rear end, 1 its side at 90 degrees, 2 a
+   corner at 45, 3 head on), or 4 rubs alongside a moving one, steering
+   into it. Prints how far each tipped, lifted and dug into the other. */
+static int run_crash(int kind, int model) {
+    game.ntrucks = 2;
+    Truck *a = &trucks[0], *b = &trucks[1];
+    a->model = model;
+    b->model = model ^ 1;
+    a->cpu = false;
+    b->cpu = true;
+    static const float ang[5] = {0, 90, 45, 180, 0};
+    truck_place(a, v3(-20, 0, -240), ENG_PI / 2);
+    if(kind == 4) truck_place(b, v3(-20, 0, -237.6f), ENG_PI / 2);
+    else truck_place(b, v3(0, 0, -240), ENG_PI / 2 + ang[kind] * (ENG_PI / 180.0f));
+    a->mode = b->mode = DRIVE_4WD;
+    float dt = 1.0f / 60.0f, roll[2] = {0}, pitch[2] = {0}, lift[2] = {0}, gap = 1e9f, vmax = 0, dig = 0;
+    float base[2];
+    for(int i = 0; i < 2; i++) base[i] = trucks[i].pos.y - terrain_height(trucks[i].pos.x, trucks[i].pos.z);
+    for(int f = 0; f < 60 * 8; f++) {
+        float tm = f * dt;
+        a->in.throttle = tm < 5.0f ? 1.0f : 0.0f;
+        a->in.brake = tm < 5.0f ? 0.0f : 0.6f;
+        a->in.steer = kind == 4 && tm > 1.0f ? -0.35f : 0.0f;
+        b->in.throttle = kind == 4 && tm < 5.0f ? 1.0f : 0.0f;
+        b->in.brake = kind == 4 ? (tm < 5.0f ? 0.0f : 0.6f) : 0.4f;
+        b->in.steer = 0;
+        r_cam.pos = a->pos;
+        truck_update(a, dt);
+        truck_update(b, dt);
+        if(fabsf(a->speed) > vmax) vmax = fabsf(a->speed);
+        for(int i = 0; i < 2; i++) {
+            Truck *t = &trucks[i];
+            roll[i] = fmaxf(roll[i], fabsf(t->roll));
+            pitch[i] = fmaxf(pitch[i], fabsf(t->pitch));
+            lift[i] = fmaxf(lift[i], t->pos.y - terrain_height(t->pos.x, t->pos.z) - base[i]);
+        }
+        V3 d = vsub(b->pos, a->pos);
+        d.y = 0;
+        gap = fminf(gap, vlen(d));
+        dig = fmaxf(dig, truck_overlap(a, b));
+        if(getenv("SIM_TRACE") && f % 15 == 0)
+            printf("  t=%.2f a %6.2f %6.2f %7.2f v %5.2f roll %5.1f pitch %5.1f | b %6.2f %6.2f %7.2f roll %5.1f pitch %5.1f\n",
+                   (double)tm, (double)a->pos.x, (double)a->pos.y, (double)a->pos.z, (double)a->speed, (double)a->roll,
+                   (double)a->pitch, (double)b->pos.x, (double)b->pos.y, (double)b->pos.z, (double)b->roll, (double)b->pitch);
+    }
+    printf("crash%d: hit at %.1f m/s, closest centres %.2f m, dug in %.2f m | player roll %.0f pitch %.0f lift %.2f m | other roll %.0f pitch %.0f lift %.2f m\n",
+           kind, (double)vmax, (double)gap, (double)dig, (double)roll[0], (double)pitch[0], (double)lift[0], (double)roll[1], (double)pitch[1],
+           (double)lift[1]);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *scen = argc > 1 ? argv[1] : "climb";
     int model = argc > 2 ? atoi(argv[2]) : 1;
@@ -109,6 +161,7 @@ int main(int argc, char **argv) {
     turn_drift = getenv("SIM_DRIFT") != NULL;
     if(!strncmp(scen, "turn", 4))
         return run_turn(scen[4] - '0', model, argc > 3 ? atof(argv[3]) : 0.5f, argc > 4 ? atoi(argv[4]) : 0);
+    if(!strncmp(scen, "crash", 5)) return run_crash(scen[5] - '0', model);
     if(!strcmp(scen, "route")) {
         int route = argc > 3 ? atoi(argv[3]) : 1;
         return !run_route(route, model, getenv("SIM_QUIET") != NULL);

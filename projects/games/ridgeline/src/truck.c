@@ -120,6 +120,20 @@ void truck_spec(TruckSpec *s, int model) {
     /* The body's box sits above the wheels' bottoms. */
     s->body_lo[1] = fmaxf(s->body_lo[1], s->radius * 1.15f);
 #endif
+    /* What another truck hits: the body and the wheels, from just off the
+       ground to the roof. */
+    float hx = fmaxf(s->body_hi[0], -s->body_lo[0]), zlo = s->body_lo[2], zhi = s->body_hi[2];
+    for(int i = 0; i < 4; i++) {
+        hx = fmaxf(hx, fabsf(s->wheel[i].x) + s->width * 0.5f);
+        zlo = fminf(zlo, s->wheel[i].z - s->radius);
+        zhi = fmaxf(zhi, s->wheel[i].z + s->radius);
+    }
+    s->hull_c[0] = 0;
+    s->hull_c[1] = (0.12f + s->body_hi[1]) * 0.5f;
+    s->hull_c[2] = (zlo + zhi) * 0.5f;
+    s->hull_h[0] = hx;
+    s->hull_h[1] = (s->body_hi[1] - 0.12f) * 0.5f;
+    s->hull_h[2] = (zhi - zlo) * 0.5f;
     /* Low range holds the automatic to the gears whose redline is under
        LOW_RANGE_TOP_MPS, as modern 4L modes do: 2nd in the pickup (~22 mph),
        4th in the Kestrel (~28 mph). */
@@ -245,22 +259,75 @@ static float total_ratio(const Truck *t) {
 }
 
 /* Is world point p inside u's body box? Its depth and the way out. */
-static bool in_body(const Truck *u, V3 p, V3 *n, float *depth) {
+/* Two trucks' hulls (oriented boxes) against each other, by separating
+   axes. Only horizontal axes are tried, so the push between them is always
+   sideways along the ground: trucks shove and spin each other but can't be
+   pushed up onto one another and rolled. */
+typedef struct {
+    V3 n;          /* from t towards u, horizontal */
+    float depth;
+    V3 p;          /* where they meet */
+} PairHit;
+
+static float hull_reach(const Truck *t, V3 d) {
+    const float *h = t->spec.hull_h;
+    return h[0] * fabsf(vdot(t->ax[0], d)) + h[1] * fabsf(vdot(t->ax[1], d)) + h[2] * fabsf(vdot(t->ax[2], d));
+}
+
+static bool hull_has(const Truck *u, V3 p) {
     const TruckSpec *S = &u->spec;
-    V3 d = vsub(p, u->pos);
-    float m[3] = {vdot(d, u->ax[0]), vdot(d, u->ax[1]) + S->cog_y, vdot(d, u->ax[2]) + S->cog_z};
-    float best = 1e9f;
-    int axis = 0;
-    float sgn = 1;
-    for(int a = 0; a < 3; a++) {
-        if(m[a] <= S->body_lo[a] || m[a] >= S->body_hi[a]) return false;
-        float lo = m[a] - S->body_lo[a], hi = S->body_hi[a] - m[a];
-        if(lo < best) { best = lo; axis = a; sgn = -1; }
-        if(hi < best) { best = hi; axis = a; sgn = 1; }
-    }
-    *n = vscale(u->ax[axis], sgn);
-    *depth = best;
+    V3 d = vsub(p, truck_to_world(u, v3(S->hull_c[0], S->hull_c[1], S->hull_c[2])));
+    for(int a = 0; a < 3; a++)
+        if(fabsf(vdot(d, u->ax[a])) > S->hull_h[a]) return false;
     return true;
+}
+
+static bool truck_pair(const Truck *t, const Truck *u, PairHit *h) {
+    const TruckSpec *St = &t->spec, *Su = &u->spec;
+    V3 ct = truck_to_world(t, v3(St->hull_c[0], St->hull_c[1], St->hull_c[2]));
+    V3 cu = truck_to_world(u, v3(Su->hull_c[0], Su->hull_c[1], Su->hull_c[2]));
+    V3 dc = vsub(cu, ct);
+    V3 up = v3(0, 1, 0);
+    if(hull_reach(t, up) + hull_reach(u, up) <= fabsf(dc.y)) return false;
+    float best = 1e9f;
+    for(int k = 0; k < 6; k++) {
+        const Truck *T = k < 3 ? t : u;
+        V3 d = T->ax[(k % 3 == 0) ? 0 : (k % 3 == 1) ? 2 : 1];
+        d.y = 0;
+        float l = vlen(d);
+        if(l < 0.25f) continue;    /* the up axis, until a truck is well over */
+        d = vscale(d, 1.0f / l);
+        float sep = vdot(dc, d);
+        float ov = hull_reach(t, d) + hull_reach(u, d) - fabsf(sep);
+        if(ov <= 0) return false;
+        if(ov < best) {
+            best = ov;
+            h->n = sep >= 0 ? d : vscale(d, -1.0f);
+        }
+    }
+    h->depth = best;
+    /* Where: the corners of each inside the other, or between the two. */
+    V3 sum = v3(0, 0, 0);
+    int cnt = 0;
+    for(int side = 0; side < 2; side++) {
+        const Truck *A = side ? u : t, *B = side ? t : u;
+        const float *c = A->spec.hull_c, *hh = A->spec.hull_h;
+        for(int k = 0; k < 8; k++) {
+            V3 p = truck_to_world(A, v3(c[0] + ((k & 1) ? hh[0] : -hh[0]), c[1] + ((k & 2) ? hh[1] : -hh[1]),
+                                        c[2] + ((k & 4) ? hh[2] : -hh[2])));
+            if(hull_has(B, p)) {
+                sum = vadd(sum, p);
+                cnt++;
+            }
+        }
+    }
+    h->p = cnt ? vscale(sum, 1.0f / cnt) : vscale(vadd(ct, cu), 0.5f);
+    return true;
+}
+
+float truck_overlap(const Truck *t, const Truck *u) {
+    PairHit h;
+    return truck_pair(t, u, &h) ? h.depth : 0.0f;
 }
 
 /* ---- The driveline solve ---- */
@@ -694,28 +761,31 @@ static void step(Truck *t, float dt) {
             if(wl > water_top) water_top = wl;
         }
     }
-    /* Other trucks: my corners in their boxes push me out; theirs in mine
-       push me away. Each truck does both, so the pair is symmetric. */
+    /* Other trucks: a spring and damper between the two hulls, pushing at
+       the height of my centre of gravity so a knock shoves and turns the
+       truck rather than levering it over, and some rub between the bodies.
+       Each truck feels its own half, so the pair stays symmetric. */
     for(int o = 0; o < game.ntrucks; o++) {
         const Truck *u = &trucks[o];
         if(u == t || vlen(vsub(u->pos, t->pos)) > 8.0f) continue;
-        for(int side = 0; side < 2; side++)
-            for(int k = 0; k < np; k++) {
-                V3 p = side ? truck_to_world(u, pts[k]) : truck_to_world(t, pts[k]);
-                V3 n;
-                float depth;
-                if(!in_body(side ? t : u, p, &n, &depth)) continue;
-                if(side) n = vscale(n, -1.0f);
-                V3 vme = vadd(t->vel, vcross(t->w, vsub(p, t->pos)));
-                V3 vot = vadd(u->vel, vcross(u->w, vsub(p, u->pos)));
-                float vn = vdot(vsub(vme, vot), n);
-                float fn = KC * 0.5f * fminf(depth, 0.4f) - CC * 0.5f * fminf(vn, 0.0f);
-                if(fn <= 0) continue;
-                if(-vn > hit) hit = -vn;
-                V3 f = vscale(n, fn);
-                force = vadd(force, f);
-                torque = vadd(torque, vcross(vsub(p, t->pos), f));
-            }
+        PairHit ph;
+        if(!truck_pair(t, u, &ph)) continue;
+        const float KT = 350000.0f, CT = 30000.0f, MUT = 0.35f;
+        V3 p = v3(ph.p.x, t->pos.y, ph.p.z), n = vscale(ph.n, -1.0f);
+        V3 vme = vadd(t->vel, vcross(t->w, vsub(p, t->pos)));
+        V3 vot = vadd(u->vel, vcross(u->w, vsub(p, u->pos)));
+        V3 vr = vsub(vme, vot);
+        float vn = vdot(vr, n);
+        float fn = KT * fminf(ph.depth, 0.5f) - CT * fminf(vn, 0.0f);
+        if(fn <= 0) continue;
+        if(-vn > hit) hit = -vn;
+        V3 f = vscale(n, fn);
+        V3 vt = vsub(vr, vscale(n, vn));
+        vt.y = 0;
+        float vtl = vlen(vt);
+        if(vtl > 0.01f) f = vmad(f, vt, -fminf(MUT * fn, vtl * 8000.0f) / vtl);
+        force = vadd(force, f);
+        torque = vadd(torque, vcross(vsub(p, t->pos), f));
     }
     /* Wheels against tree trunks and the sides of ledges. */
     for(int i = 0; i < 4; i++) {

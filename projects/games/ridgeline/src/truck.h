@@ -22,6 +22,7 @@ typedef struct {
     float wheel_inertia;
     float max_steer;       /* radians */
     float body_lo[3], body_hi[3];   /* collision box, model space */
+    float hull_c[3], hull_h[3];     /* the box other trucks hit, wheels and all: centre, half sizes */
     float wade;            /* air intake height: deeper water stalls it */
     /* Engine and gearbox. */
     float idle_rpm, redline_rpm, peak_torque, peak_rpm;
@@ -108,6 +109,8 @@ void truck_recover(Truck *t);
 void truck_recover_on(Truck *t, int route);
 float truck_heading(const Truck *t);
 /* A point in model space (origin on the ground at ride height) to world. */
+/* How far two trucks' hulls overlap, metres (0 apart). */
+float truck_overlap(const struct Truck *t, const struct Truck *u);
 V3 truck_to_world(const Truck *t, V3 m);
 V3 truck_dir_to_world(const Truck *t, V3 d);
 
