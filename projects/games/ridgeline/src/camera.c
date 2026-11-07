@@ -11,10 +11,7 @@ static V3 cam_pos, cam_look;
 static bool cam_init;
 
 static void look_at(Camera *c, V3 pos, V3 target, float fov) {
-    c->pos = pos;
-    c->fwd = vnorm(vsub(target, pos));
-    c->right = vnorm(vcross(v3(0, 1, 0), c->fwd));
-    c->up = vcross(c->fwd, c->right);
+    cam_look_at(c, pos, target);
     c->fov = fov;
 }
 
@@ -64,8 +61,7 @@ void camera_follow(const Truck *t, float dt) {
 void camera_flyover(float t) {
     /* A slow orbit round the mountain at the height of its shoulders. */
     float a = t * 0.045f + 3.6f;
-    V3 c = v3(LEVEL_SUMMIT_X, 0, LEVEL_SUMMIT_Z - 120.0f);
-    V3 p = v3(c.x + sinf(a) * 300.0f, 0, c.z + cosf(a) * 300.0f);
+    V3 p = orbit_point(v3(LEVEL_SUMMIT_X, 0, LEVEL_SUMMIT_Z - 120.0f), a, 300.0f, 0);
     p.y = fmaxf(terrain_height(p.x, p.z) + 30.0f, 70.0f + 25.0f * sinf(t * 0.07f));
     V3 look = v3(LEVEL_SUMMIT_X, LEVEL_SUMMIT_Y * 0.55f, LEVEL_SUMMIT_Z - 60.0f);
     look_at(&cam, p, look, 1.2f);

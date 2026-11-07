@@ -80,4 +80,26 @@ typedef struct {
     float shake;
 } Camera;
 
+/* Point the camera at look from pos (world up +Y); fov and shake are left
+   as they are. */
+static inline void cam_look_at(Camera *c, V3 pos, V3 look) {
+    c->pos = pos;
+    c->fwd = vnorm(vsub(look, pos));
+    c->right = vnorm(vcross(v3(0, 1, 0), c->fwd));
+    c->up = vcross(c->fwd, c->right);
+}
+/* Nudge the view: fwd leans by k along axis (the camera's right or up),
+   and right and up follow. A tilt down or a shift that frames a subject
+   off centre. */
+static inline void cam_lean(Camera *c, V3 axis, float k) {
+    c->fwd = vnorm(vmad(c->fwd, axis, k));
+    c->right = vnorm(vcross(v3(0, 1, 0), c->fwd));
+    c->up = vcross(c->fwd, c->right);
+}
+/* A point circling target: angle a (radians, 0 at +Z), radius r, h above
+   it. Orbit cameras and flyovers. */
+static inline V3 orbit_point(V3 target, float a, float r, float h) {
+    return vadd(target, v3(sinf(a) * r, h, cosf(a) * r));
+}
+
 #endif

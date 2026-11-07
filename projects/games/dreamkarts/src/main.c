@@ -55,13 +55,9 @@ static bool split_screen(void) {
     return game.num_players > 1 && (game.state == ST_COUNTDOWN || game.state == ST_RACE || game.state == ST_KARTS);
 }
 
-/* Accumulated microseconds per phase: update, world OP, karts, PT, TR
-   (prof.h); prof_last holds the latest frame's. */
-uint64_t prof_us[6];
-static uint32_t prof_last[6];
-int prof_frames;
-#define PROF_MARK(i) do { uint64_t _n = timer_us_gettime64(); prof_last[i] = (uint32_t)(_n - prof_t); \
-                          prof_us[i] += _n - prof_t; prof_t = _n; } while(0)
+/* The frame's phases for the autotest's log line and the perf overlay
+   (engine/prof.h): update, world OP, karts, PT, TR. */
+enum { PH_UPD, PH_WORLD, PH_KARTS, PH_PT, PH_TR, PH_COUNT };
 
 static void update_places(void);
 
@@ -195,13 +191,6 @@ void game_set_state(int state) {
 /* ------------------------------------------------------------------ */
 /* Cameras                                                             */
 
-static void camera_basis(Camera *c, V3 pos, V3 look) {
-    c->pos = pos;
-    c->fwd = vnorm(vsub(look, pos));
-    c->right = vnorm(vcross(v3(0, 1, 0), c->fwd));
-    c->up = vcross(c->fwd, c->right);
-}
-
 /* behind: turned round, from in front of the kart, a little higher and
    looking further back so the kart doesn't hide who's chasing. */
 static void chase_camera(Player *pl, float dt, bool behind) {
@@ -236,7 +225,7 @@ static void chase_camera(Player *pl, float dt, bool behind) {
         pos = vadd(pos, v3(frand_s() * shake, frand_s() * shake, frand_s() * shake));
         shake = fmaxf(0.0f, shake - dt * 1.2f);
     }
-    camera_basis(cam, pos, look);
+    cam_look_at(cam, pos, look);
     cam->shake = shake;
     float fov_t = 1.30f + n * 0.06f + (boost ? 0.14f : 0.0f);
     pl->fov += (fov_t - pl->fov) * smooth_k(5.0f, dt);
@@ -259,7 +248,7 @@ static void intro_camera(Camera *cam, float t) {
     V3 look1 = vadd(vmad(k->pos, back, 3.0f), v3(0, 0.95f, 0));
     /* Curve the path out over the sea side for a sweeping fly-in. */
     V3 mid = vadd(vlerp(start, end, e), vscale(v3(0, 1, 0), sinf(e * DK_PI) * 6.0f));
-    camera_basis(cam, mid, vlerp(look0, look1, e));
+    cam_look_at(cam, mid, vlerp(look0, look1, e));
     cam->fov = lerpf(1.1f, 1.30f, e);
     cam->shake = 0;
 }
@@ -269,7 +258,7 @@ static void results_camera(Camera *cam, float dt) {
     const Kart *k = &karts[gp.active && gp.page == 1 ? gp.rank[0] : game.player];
     float a = game.time * 0.3f + k->heading + DK_PI * 0.75f;
     V3 target = vadd(k->pos, v3(0, 0.9f, 0));
-    camera_basis(cam, vadd(target, v3(sinf(a) * 6.5f, 2.2f, cosf(a) * 6.5f)), target);
+    cam_look_at(cam, orbit_point(target, a, 6.5f, 2.2f), target);
     cam->fov = 1.2f;
     (void)dt;
 }
@@ -875,7 +864,7 @@ static void draw_finish_banner(int pi, float y0, float y1) {
 }
 
 static void render(void) {
-    uint64_t prof_t = timer_us_gettime64();
+    prof_phase_begin();
     PROF_BEGIN(pp);
     int views = view_count();
     /* FlappyKarts keeps the course's sky, clouds and mountains and draws
@@ -894,7 +883,7 @@ static void render(void) {
         set_view(v);
         world_draw_op();
     }
-    PROF_MARK(1);
+    prof_phase_mark(PH_WORLD);
     PROF_LAP(PS_PHASE_WORLD, pp);
     if(!(dk_probe_off & PROBE_KARTS))
         for(int v = 0; v < views; v++) {
@@ -909,7 +898,7 @@ static void render(void) {
             biplane_draw();
             PROF_LAP(PS_DOLPHINS, pd);
         }
-    PROF_MARK(2);
+    prof_phase_mark(PH_KARTS);
     PROF_LAP(PS_PHASE_KARTS, pp);
     /* The pause menu's Y toggle hides the overlays like the -hud probe. */
     bool hud_off = (dk_probe_off & PROBE_HUD) || (game.paused && game.hud_hidden);
@@ -924,7 +913,7 @@ static void render(void) {
             set_view(v);
             world_draw_pt();
         }
-    PROF_MARK(3);
+    prof_phase_mark(PH_PT);
     PROF_LAP(PS_PHASE_PT, pp);
 
     r_list(PVR_LIST_OP_MOD);
@@ -1015,9 +1004,9 @@ static void render(void) {
     if(perfhud_mode == PERF_FPS && !hud_off && !(dk_probe_off & PROBE_PERFHUD)) perfhud_draw_fps(views > 1);
     r_frame_end();
     dk_probe_off = probe_saved;
-    PROF_MARK(4);
+    prof_phase_mark(PH_TR);
     PROF_LAP(PS_PHASE_TR, pp);
-    prof_frames++;
+    prof_phase_frame();
 }
 
 /* One frame of the loading screen between boot steps. */
@@ -1205,7 +1194,7 @@ int main(int argc, char **argv) {
         }
 #endif
 
-        uint64_t upd_t0 = timer_us_gettime64();
+        prof_phase_begin();
         PROF_BEGIN(pu);
         PROF_BEGIN(pus);
         input_update();
@@ -1223,7 +1212,7 @@ int main(int argc, char **argv) {
         }
         if(game.online) online_tick();
 #if defined(DK_HW) && defined(DK_CAPTURE)
-        if(probe_step(prof_last)) {
+        if(probe_step(prof_phase_last)) {
             steps = 0;
             at_skip = 1;
         }
@@ -1257,7 +1246,7 @@ int main(int argc, char **argv) {
         rumble_update(dt_real, (game.state == ST_RACE || game.state == ST_COUNTDOWN) && !game.paused);
         vmuscreen_update(dt_real);
         PROF_LAP(PS_U_OTHER, pus);
-        prof_us[0] += timer_us_gettime64() - upd_t0;
+        prof_phase_mark(PH_UPD);
         PROF_LAP(PS_PHASE_UPD, pu);
         render();
 #ifdef ENG_PROF
@@ -1270,12 +1259,12 @@ int main(int argc, char **argv) {
             /* This frame's share of the phase totals (the autotest zeroes
                them every log line), kept up while the overlay is off so
                switching it on doesn't start with one huge frame. */
-            static uint64_t prof_prev[5];
-            float phase_ms[5];
-            for(int i = 0; i < 5; i++) {
-                uint64_t d = prof_us[i] >= prof_prev[i] ? prof_us[i] - prof_prev[i] : prof_us[i];
+            static uint64_t prof_prev[PH_COUNT];
+            float phase_ms[PH_COUNT];
+            for(int i = 0; i < PH_COUNT; i++) {
+                uint64_t d = prof_phase_us[i] >= prof_prev[i] ? prof_phase_us[i] - prof_prev[i] : prof_phase_us[i];
                 phase_ms[i] = (float)d * 0.001f;
-                prof_prev[i] = prof_us[i];
+                prof_prev[i] = prof_phase_us[i];
             }
             int missed = frame_missed(dt_real);
 #ifdef DK_AUTOTEST

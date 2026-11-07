@@ -22,6 +22,19 @@
 
 #define PROF_EVENTS 3   /* counter 1 modes, one per frame in turn */
 
+/* Frame phases, timed with the microsecond timer in every build, for the
+   autotests' log lines and a perf overlay: the game marks the end of each
+   phase in turn (update, then the render lists) and reads the sums since
+   the last reset, the latest frame's, and the frames counted. */
+#define PROF_PHASES 8
+extern uint64_t prof_phase_us[PROF_PHASES];
+extern uint32_t prof_phase_last[PROF_PHASES];
+extern int prof_phase_frames;
+void prof_phase_begin(void);        /* the next mark measures from now */
+void prof_phase_mark(int phase);    /* the time since the last begin or mark goes to phase */
+void prof_phase_frame(void);        /* one more frame in the sums */
+void prof_phase_reset(void);        /* zero the sums and the frame count */
+
 #ifdef ENG_PROF
 typedef struct { uint32_t c, e; } ProfMark;
 extern uint32_t prof_cyc[PS_COUNT], prof_ev[PS_COUNT], prof_n[PN_COUNT];

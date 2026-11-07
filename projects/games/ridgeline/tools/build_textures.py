@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -31,8 +30,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from scipy.ndimage import gaussian_filter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
+from assetpak import TexSpec, to_image, write_font_metrics, write_texture_header, write_texture_pak  # noqa: E402
 from fontatlas import LILITA, atlas, font_for_cap  # noqa: E402
-from pvr_texture import pack_texture  # noqa: E402
 
 GEN = Path(__file__).resolve().parent.parent / "assets" / "generated"
 FONT_ROW_H = 42
@@ -40,23 +39,8 @@ FONT_CAP_H = 22
 FONT_BASELINE = 30
 
 
-@dataclass
-class Spec:
-    name: str
-    fmt: str
-    mip: bool
-    wrap: bool
-
-
 def rng(seed):
     return np.random.default_rng(seed)
-
-
-def to_img(rgb, alpha=None):
-    rgb = np.clip(rgb, 0, 255).astype(np.uint8)
-    if alpha is None:
-        return Image.fromarray(rgb, "RGB")
-    return Image.fromarray(np.dstack([rgb, np.clip(alpha, 0, 255).astype(np.uint8)]), "RGBA")
 
 
 def tile_noise(n, period, seed):
@@ -100,7 +84,7 @@ def tex_grass():
     big = tile_noise(n, 4, 13)
     v *= 0.94 + 0.08 * big
     rgb = np.dstack([v * 255, v * 252, v * 240])
-    return to_img(rgb)
+    return to_image(rgb)
 
 
 def tex_rock():
@@ -126,14 +110,14 @@ def tex_rock():
     v = v - 0.08 * np.clip(edge, 0, 1)
     v = gaussian_filter(v, 0.6, mode="wrap")
     rgb = np.dstack([v * 250, v * 252, v * 255])
-    return to_img(rgb)
+    return to_image(rgb)
 
 
 def tex_bark():
     n = 64
     v = strokes(n, 31, 300, 30, 2, math.pi / 2, 0.05, 0.72, 1.0)
     rgb = np.dstack([v * 255, v * 245, v * 235])
-    return to_img(rgb.repeat(2, axis=0)[:128] if False else rgb)
+    return to_image(rgb.repeat(2, axis=0)[:128] if False else rgb)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +135,7 @@ def tex_sun():
     r = radial(n)
     a = np.clip((0.92 - r) / 0.06, 0, 1)
     rgb = np.dstack([np.full((n, n), 255.0), np.full((n, n), 250.0), np.full((n, n), 232.0)])
-    return to_img(rgb, a * 255)
+    return to_image(rgb, a * 255)
 
 
 def tex_glow():
@@ -159,7 +143,7 @@ def tex_glow():
     r = radial(n)
     a = np.clip(1 - r, 0, 1) ** 2.2
     rgb = np.full((n, n, 3), 255.0)
-    return to_img(rgb, a * 255)
+    return to_image(rgb, a * 255)
 
 
 def tex_ring():
@@ -174,7 +158,7 @@ def tex_ring():
     hexa = np.clip((hexr * 0.85 - r) / 0.05, 0, 1) * 0.55
     a = np.concatenate([ring, hexa], axis=1)
     rgb = np.full((n, 2 * n, 3), 255.0)
-    return to_img(rgb, a * 255)
+    return to_image(rgb, a * 255)
 
 
 def tex_puff():
@@ -184,7 +168,7 @@ def tex_puff():
     nz = tile_noise(n, 6, 41)
     a = np.clip(1 - r * (0.85 + 0.35 * nz), 0, 1) ** 1.4
     rgb = np.full((n, n, 3), 255.0)
-    return to_img(rgb, a * 255)
+    return to_image(rgb, a * 255)
 
 
 def tex_clod():
@@ -201,7 +185,7 @@ def tex_clod():
     nz = tile_noise(n, 8, 77)
     light = np.clip(0.78 - 0.32 * (yy - c) / (n / 2) - 0.12 * (xx - c) / (n / 2) + 0.18 * (nz - 0.5), 0.35, 1.0)
     rgb = np.repeat((light * 255)[..., None], 3, axis=2)
-    return to_img(rgb, a * 255)
+    return to_image(rgb, a * 255)
 
 
 def tex_tread():
@@ -217,7 +201,7 @@ def tex_tread():
     nz = tile_noise(w, 4, 91)
     a = side * (0.55 + 0.4 * lug) * (0.85 + 0.3 * nz)
     rgb = np.repeat((150 + 105 * (1 - lug))[..., None], 3, axis=2)
-    return to_img(rgb, np.clip(a, 0, 1) * 255)
+    return to_image(rgb, np.clip(a, 0, 1) * 255)
 
 
 def tex_shadow():
@@ -225,7 +209,7 @@ def tex_shadow():
     r = radial(n)
     a = np.clip((1 - r) / 0.45, 0, 1) ** 1.3
     rgb = np.zeros((n, n, 3))
-    return to_img(rgb, a * 255)
+    return to_image(rgb, a * 255)
 
 
 def tex_cloud():
@@ -243,7 +227,7 @@ def tex_cloud():
     yy = np.mgrid[0:h, 0:w][0]
     shade = 255 - np.clip((yy - 26) * 2.2, 0, 60)
     rgb = np.dstack([shade, shade, shade + 4])
-    return to_img(rgb, a)
+    return to_image(rgb, a)
 
 
 def tex_tuft():
@@ -351,7 +335,7 @@ def tex_logo():
     t = np.clip((yy - ty - 10) / 80.0, 0, 1)[..., None]
     fill = np.array([255, 246, 214]) * (1 - t) + np.array([236, 172, 52]) * t
     layer[..., :3] = layer[..., :3] * (1 - m[..., None]) + fill * m[..., None]
-    return to_img(layer[..., :3], layer[..., 3])
+    return to_image(layer[..., :3], layer[..., 3])
 
 
 def tex_font():
@@ -366,61 +350,29 @@ def build(out: Path):
     previews.mkdir(exist_ok=True)
     font_img, glyphs, cap = tex_font()
     items = [
-        (Spec("grass", "RGB565", True, True), tex_grass()),
-        (Spec("rock", "RGB565", True, True), tex_rock()),
-        (Spec("bark", "RGB565", True, True), tex_bark()),
-        (Spec("tuft", "ARGB4444", True, False), tex_tuft()),
-        (Spec("sun", "ARGB4444", False, False), tex_sun()),
-        (Spec("glow", "ARGB4444", True, False), tex_glow()),
-        (Spec("ring", "ARGB4444", False, False), tex_ring()),
-        (Spec("puff", "ARGB4444", True, False), tex_puff()),
-        (Spec("shadow", "ARGB4444", True, False), tex_shadow()),
-        (Spec("clod", "ARGB4444", True, False), tex_clod()),
-        (Spec("tread", "ARGB4444", True, True), tex_tread()),
-        (Spec("cloud", "ARGB4444", False, False), tex_cloud()),
-        (Spec("map", "RGB565", True, False), tex_map()),
-        (Spec("dial", "ARGB4444", False, False), tex_dial()),
-        (Spec("icons", "ARGB4444", False, False), tex_icons()),
-        (Spec("logo", "ARGB4444", False, False), tex_logo()),
-        (Spec("font", "ARGB4444", False, False), font_img),
+        (TexSpec("grass", "RGB565", True, True), tex_grass()),
+        (TexSpec("rock", "RGB565", True, True), tex_rock()),
+        (TexSpec("bark", "RGB565", True, True), tex_bark()),
+        (TexSpec("tuft", "ARGB4444", True, False), tex_tuft()),
+        (TexSpec("sun", "ARGB4444", False, False), tex_sun()),
+        (TexSpec("glow", "ARGB4444", True, False), tex_glow()),
+        (TexSpec("ring", "ARGB4444", False, False), tex_ring()),
+        (TexSpec("puff", "ARGB4444", True, False), tex_puff()),
+        (TexSpec("shadow", "ARGB4444", True, False), tex_shadow()),
+        (TexSpec("clod", "ARGB4444", True, False), tex_clod()),
+        (TexSpec("tread", "ARGB4444", True, True), tex_tread()),
+        (TexSpec("cloud", "ARGB4444", False, False), tex_cloud()),
+        (TexSpec("map", "RGB565", True, False), tex_map()),
+        (TexSpec("dial", "ARGB4444", False, False), tex_dial()),
+        (TexSpec("icons", "ARGB4444", False, False), tex_icons()),
+        (TexSpec("logo", "ARGB4444", False, False), tex_logo()),
+        (TexSpec("font", "ARGB4444", False, False), font_img),
     ]
-    pak = bytearray()
-    table = []
-    for spec, img in items:
-        img.save(previews / f"tex-{spec.name}.png")
-        words = pack_texture(img, spec.fmt, mipmap=spec.mip, wrap=spec.wrap,
-                             mip_filter="lanczos" if spec.fmt == "RGB565" else "box")
-        data = np.array(words, dtype="<u2").tobytes()
-        while len(pak) % 32:
-            pak.append(0)
-        table.append((spec, img.width, img.height, len(pak), len(data)))
-        pak += data
-        print(f"  {spec.name:8s} {img.width}x{img.height} {spec.fmt}{' mip' if spec.mip else ''} {len(data)} bytes")
-    (out / "textures.pak").write_bytes(bytes(pak))
-    h = ["/* Generated by tools/build_textures.py. Do not edit. */",
-         "#ifndef RL_TEXTURE_ASSETS_H", "#define RL_TEXTURE_ASSETS_H", "#include <stdint.h>", "",
-         "#define RL_TEXFMT_RGB565 0", "#define RL_TEXFMT_ARGB4444 1", "",
-         "typedef struct { uint32_t offset, bytes; uint16_t w, h; uint8_t fmt, mip, pad[2]; } rl_tex_asset_t;",
-         "", "enum {"]
-    for spec, *_ in table:
-        h.append(f"    TEX_{spec.name.upper()},")
-    h += ["    TEX_COUNT", "};", "", "static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {"]
-    for spec, w, hh, off, size in table:
-        fmt = "RL_TEXFMT_ARGB4444" if spec.fmt == "ARGB4444" else "RL_TEXFMT_RGB565"
-        h.append(f"    {{{off}u, {size}u, {w}, {hh}, {fmt}, {int(spec.mip)}, {{0, 0}}}},  /* {spec.name} */")
-    h += ["};", "", "#endif", ""]
-    (out / "texture_assets.h").write_text("\n".join(h))
-    m = ["/* Generated by tools/build_textures.py. Do not edit. */",
-         "#ifndef RL_FONT_METRICS_H", "#define RL_FONT_METRICS_H", "#include <stdint.h>", "",
-         f"#define FONT_ROW_H {FONT_ROW_H}", "#define FONT_TEX_W 512", "#define FONT_TEX_H 256",
-         f"#define FONT_CAP_TOP {cap[0]}", f"#define FONT_CAP_BOTTOM {cap[1]}",
-         "/* ASCII 32..127: atlas x, row, rect width, rect left from the pen, advance (eng_glyph_t). */",
-         "static const struct { uint16_t x; uint8_t row, w; int8_t ox; uint8_t adv; } font_glyphs[96] = {"]
-    for i in range(0, 96, 4):
-        m.append("    " + " ".join(f"{{{x}, {r}, {w}, {ox}, {adv}}}," for x, r, w, ox, adv in glyphs[i:i + 4]))
-    m += ["};", "", "#endif", ""]
-    (out / "font_metrics.h").write_text("\n".join(m))
-    print(f"textures.pak: {len(pak)} bytes, {len(table)} textures")
+    table, _ = write_texture_pak(out, previews, items)
+    write_texture_header(out, "RL", table)
+    write_font_metrics(
+        out, "RL", font_img, glyphs, cap, FONT_ROW_H,
+        glyph_comment=["/* ASCII 32..127: atlas x, row, rect width, rect left from the pen, advance (eng_glyph_t). */"])
 
 
 def main():

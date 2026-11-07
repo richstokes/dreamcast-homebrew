@@ -7,6 +7,8 @@
 #include "hud.h"
 #include "terrain.h"
 #include "engine/prof.h"
+#include "engine/frame.h"
+#include "engine/qa.h"
 
 #ifndef RL_AT_TRUCK
 #define RL_AT_TRUCK 1
@@ -17,9 +19,6 @@
 #ifndef RL_AT_COMPANIONS
 #define RL_AT_COMPANIONS 3
 #endif
-
-extern uint64_t phase_us[4];
-extern int phase_frames;
 
 #ifdef RL_AT_FXBENCH
 #define RL_FXB_DRIVE 15.0f     /* seconds of normal driving, then... */
@@ -50,8 +49,7 @@ extern int phase_frames;
 #endif
 
 static struct {
-    float win_t, win_cpu, win_cpu_max, win_rnd, win_rnd_max;
-    int win_frames, win_over;
+    QaWindow win;                /* this log window (engine/qa.h) */
     float all_cpu, all_cpu_max;
     int all_frames, all_over;
     int shot;
@@ -116,7 +114,7 @@ int autotest_steps(int steps) {
 }
 
 static void shot(const char *name) {
-    printf("RL SHOT %s\n", name);
+    qa_shot("%s", name);
 }
 
 void autotest_frame(float dt_real) {
@@ -193,17 +191,7 @@ void autotest_frame(float dt_real) {
 #endif
     if(game.state != ST_DRIVE || at.done) return;
     float cpu = game.cpu_ms;
-    at.win_t += dt_real;
-    at.win_frames++;
-    at.win_cpu += cpu;
-    if(cpu > at.win_cpu_max) at.win_cpu_max = cpu;
-    if(dt_real > 1.5f / 60.0f) at.win_over++;
-    pvr_stats_t ps;
-    pvr_get_stats(&ps);
-    float rnd = (float)ps.rnd_last_time * 1e-6f;
-    if(!(rnd < 1000.0f)) rnd = 0;    /* no frame rendered yet */
-    at.win_rnd += rnd;
-    if(rnd > at.win_rnd_max) at.win_rnd_max = rnd;
+    qa_window_frame(&at.win, dt_real, eng_frame.steps, cpu);
     at.all_frames++;
     at.all_cpu += cpu;
     if(cpu > at.all_cpu_max) at.all_cpu_max = cpu;
@@ -263,8 +251,8 @@ void autotest_frame(float dt_real) {
         at.done = true;
         return;
     }
-    if(at.win_t >= RL_AT_WINDOW) {
-        float f = phase_frames ? 1.0f / (phase_frames * 1000.0f) : 0;
+    if(at.win.t >= RL_AT_WINDOW) {
+        float f = prof_phase_frames ? 1.0f / (prof_phase_frames * 1000.0f) : 0;
         extern uint64_t world_us[3];
         printf("RL AT split terrain=%.2f trees=%.2f trucks=%.2f ms\n", (double)(world_us[0] * f), (double)(world_us[1] * f),
                (double)(world_us[2] * f));
@@ -273,21 +261,19 @@ void autotest_frame(float dt_real) {
         printf("RL AT terrain verts: near3 %d near6 %d skirts %d far %d\n", (int)(ter_count[0] * f * 1000),
                (int)(ter_count[1] * f * 1000), (int)(ter_count[2] * f * 1000), (int)(ter_count[3] * f * 1000));
         memset(ter_count, 0, sizeof(ter_count));
-        printf("RL AT gpu: render %.2f/%.2f ms\n", (double)(at.win_rnd / at.win_frames), (double)at.win_rnd_max);
+        printf("RL AT gpu: render %.2f/%.2f ms\n", (double)(at.win.rnd_sum / at.win.frames), (double)at.win.rnd_max);
         printf("RL AT t=%.0f fps=%.1f cpu=%.2f/%.2f over=%d upd=%.2f op=%.2f pt=%.2f tr=%.2f tris=%d verts=%d "
                "pos=%.0f,%.0f,%.0f v=%.1f rpm=%.0f g=%d mode=%d prog=%.2f summit=%.0f%%\n",
-               (double)game.clock, (double)(at.win_frames / at.win_t), (double)(at.win_cpu / at.win_frames),
-               (double)at.win_cpu_max, at.win_over, (double)(phase_us[0] * f), (double)(phase_us[1] * f),
-               (double)(phase_us[2] * f), (double)(phase_us[3] * f), rstats.tris, rstats.verts, (double)p->pos.x,
+               (double)game.clock, (double)(at.win.frames / at.win.t), (double)(at.win.cpu_sum / at.win.frames),
+               (double)at.win.cpu_max, at.win.missed, (double)(prof_phase_us[0] * f), (double)(prof_phase_us[1] * f),
+               (double)(prof_phase_us[2] * f), (double)(prof_phase_us[3] * f), rstats.tris, rstats.verts, (double)p->pos.x,
                (double)p->pos.y, (double)p->pos.z, (double)p->speed, (double)p->rpm, p->gear, p->mode,
                (double)ai_progress(0), (double)(game.summit_frac * 100.0f));
 #ifdef ENG_PROF
         prof_print();
 #endif
-        memset(phase_us, 0, sizeof(phase_us));
-        phase_frames = 0;
-        at.win_t = at.win_cpu = at.win_cpu_max = at.win_rnd = at.win_rnd_max = 0;
-        at.win_frames = at.win_over = 0;
+        prof_phase_reset();
+        qa_window_reset(&at.win);
     }
     const char *fail = NULL;
 #ifdef RL_CAPTURE

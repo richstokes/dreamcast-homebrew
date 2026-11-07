@@ -5,6 +5,31 @@
 #include <stdio.h>
 #include <string.h>
 
+uint64_t prof_phase_us[PROF_PHASES];
+uint32_t prof_phase_last[PROF_PHASES];
+int prof_phase_frames;
+static uint64_t phase_t;
+
+void prof_phase_begin(void) {
+    phase_t = timer_us_gettime64();
+}
+
+void prof_phase_mark(int phase) {
+    uint64_t now = timer_us_gettime64();
+    prof_phase_last[phase] = (uint32_t)(now - phase_t);
+    prof_phase_us[phase] += now - phase_t;
+    phase_t = now;
+}
+
+void prof_phase_frame(void) {
+    prof_phase_frames++;
+}
+
+void prof_phase_reset(void) {
+    memset(prof_phase_us, 0, sizeof(prof_phase_us));
+    prof_phase_frames = 0;
+}
+
 #ifdef ENG_PROF
 uint32_t prof_cyc[PS_COUNT], prof_ev[PS_COUNT], prof_n[PN_COUNT];
 static uint64_t prof_n_win[PN_COUNT];

@@ -3,6 +3,7 @@
 #define DK_ENGINE_CONFIG_H
 
 #define ENG_NAME "DreamKarts"
+#define ENG_QA_TAG "DK"
 #define ENG_DT   (1.0f / 60.0f)   /* one simulation step a displayed frame */
 
 /* Test builds. */

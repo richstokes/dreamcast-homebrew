@@ -20,45 +20,21 @@ Truck space is +X right, +Y up, +Z forward; Blender is +X right, +Y forward,
 +Z up, so positions map (x, y, z) -> (x, z, y) and triangle winding is reversed.
 """
 
-import argparse
 import json
-import math
 import sys
+from pathlib import Path
 
 import bpy
 import numpy as np
-from mathutils import Vector
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
+import blender_preview  # noqa: E402
+from blender_preview import argb_to_rgb, look_at, make_object, mesh_faces, norm, parse_args, setup_scene  # noqa: E402
 
 LIGHT_DIR = (0.45, 0.80, 0.40)    # towards the sun, truck space
 AMBIENT = 0.50
 DIFFUSE = 0.58
 BODY, WHEEL_L, WHEEL_R, AXLE = range(4)
-
-
-def parse_args():
-    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--json", required=True)
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--size", type=int, nargs=2, default=(960, 720))
-    return ap.parse_args(argv)
-
-
-def norm(v):
-    length = math.sqrt(sum(c * c for c in v)) or 1.0
-    return tuple(c / length for c in v)
-
-
-def srgb_to_linear(c):
-    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-
-def to_bl(p):
-    return (p[0], p[2], p[1])
-
-
-def argb_to_rgb(argb):
-    return ((argb >> 16) & 0xFF) / 255.0, ((argb >> 8) & 0xFF) / 255.0, (argb & 0xFF) / 255.0
 
 
 def luma(rgb):
@@ -76,22 +52,6 @@ def livery_colour(argb, slot, livery, ref):
     return tuple(min(1.0, c * k) for c in new)
 
 
-def make_object(name, positions, faces, colours, collection):
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata([to_bl(p) for p in positions], [], faces)
-    mesh.update()
-    attr = mesh.color_attributes.new("Col", "FLOAT_COLOR", "POINT")
-    flat = []
-    for c in colours:
-        flat += [srgb_to_linear(min(1.0, c[0])), srgb_to_linear(min(1.0, c[1])),
-                 srgb_to_linear(min(1.0, c[2])), 1.0]
-    attr.data.foreach_set("color", flat)
-    mesh.color_attributes.active_color = attr
-    obj = bpy.data.objects.new(name, mesh)
-    collection.objects.link(obj)
-    return obj
-
-
 def mesh_object(m, collection, offset, scale_x=1.0, livery=None, ref=None):
     light = norm(LIGHT_DIR)
     pos = [(p[0] * scale_x + offset[0], p[1] + offset[1], p[2] + offset[2]) for p in m["pos"]]
@@ -102,9 +62,7 @@ def mesh_object(m, collection, offset, scale_x=1.0, livery=None, ref=None):
         if slot in (5, 7):
             k = max(k, 0.95)      # lenses read as lit glass
         cols.append((r * k, g * k, b * k))
-    idx = m["idx"]
-    faces = [(idx[i], idx[i + 2], idx[i + 1]) for i in range(0, len(idx), 3)]
-    return make_object(f"t{m['truck']}_p{m['part']}_l{m['lod']}", pos, faces, cols, collection)
+    return make_object(f"t{m['truck']}_p{m['part']}_l{m['lod']}", pos, mesh_faces(m), cols, collection)
 
 
 def add_truck(data, truck, lod, collection, origin=(0.0, 0.0, 0.0), livery=None):
@@ -127,35 +85,11 @@ def add_truck(data, truck, lod, collection, origin=(0.0, 0.0, 0.0), livery=None)
     return objs
 
 
-def ground(collection, extent=40, centres=((0.0, 0.0),)):
-    pos, faces, cols = [], [], []
-    for ix in range(-extent, extent):
-        for iz in range(-extent, extent):
-            base = len(pos)
-            pos += [(ix, 0.0, iz), (ix, 0.0, iz + 1), (ix + 1, 0.0, iz + 1), (ix + 1, 0.0, iz)]
-            shade = 0.50 if (ix + iz) % 2 == 0 else 0.55
-            cols += [(shade * 0.95, shade * 0.92, shade * 0.80)] * 4
-            faces.append((base, base + 1, base + 2, base + 3))
-    ring = 28
-    for cx, cz in centres:
-        centre = len(pos)
-        pos.append((cx, 0.004, cz))
-        cols.append((0.20, 0.20, 0.18))
-        for k in range(ring):
-            a = 2 * math.pi * k / ring
-            pos.append((cx + 1.15 * math.cos(a), 0.004, cz + 2.45 * math.sin(a)))
-            cols.append((0.46, 0.44, 0.38))
-        for k in range(ring):
-            faces.append((centre, centre + 1 + (k + 1) % ring, centre + 1 + k))
-    faces = [tuple(reversed(f)) for f in faces]
-    return make_object("ground", pos, faces, cols, collection)
-
-
-def look_at(cam, eye, target, lens):
-    eye_b, tgt_b = Vector(to_bl(eye)), Vector(to_bl(target))
-    cam.location = eye_b
-    cam.rotation_euler = (tgt_b - eye_b).to_track_quat("-Z", "Y").to_euler()
-    cam.data.lens = lens
+def ground(collection, centres=((0.0, 0.0),)):
+    # sandy checker with a truck-sized blob shadow under each centre
+    return blender_preview.ground(collection, centres, extent=40, shades=(0.50, 0.55), tint=(0.95, 0.92, 0.80),
+                                  blob=(1.15, 2.45), blob_z=0.0, blob_lift=0.004, blob_ring=28,
+                                  blob_colours=((0.20, 0.20, 0.18), (0.46, 0.44, 0.38)))
 
 
 def load_px(path):
@@ -183,30 +117,11 @@ def pixelate(path, scale):
 
 
 def main():
-    args = parse_args()
+    args = parse_args(size=(960, 720))
     with open(args.json) as f:
         data = json.load(f)
 
-    scene = bpy.context.scene
-    for obj in list(bpy.data.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    scene.render.engine = "BLENDER_WORKBENCH"
-    scene.display.shading.light = "FLAT"
-    scene.display.shading.color_type = "VERTEX"
-    scene.display.shading.show_backface_culling = True
-    scene.display.render_aa = "16"
-    scene.view_settings.view_transform = "Standard"
-    scene.view_settings.look = "None"
-    if scene.world is None:
-        scene.world = bpy.data.worlds.new("World")
-    scene.world.color = (srgb_to_linear(0.64), srgb_to_linear(0.80), srgb_to_linear(0.93))
-    scene.render.image_settings.file_format = "PNG"
-    scene.render.resolution_percentage = 100
-
-    cam = bpy.data.objects.new("cam", bpy.data.cameras.new("cam"))
-    scene.collection.objects.link(cam)
-    scene.camera = cam
-    cam.data.clip_start = 0.05
+    scene, cam = setup_scene(sky=(0.64, 0.80, 0.93))
 
     colls = {}
 

@@ -123,10 +123,7 @@ void audio_sfx(int id, int vol) {
 
 /* Pan and distance gain of a world point from the camera. */
 static void place(V3 p, float range, int *pan, float *gain) {
-    V3 d = vsub(p, r_cam.pos);
-    float dist = vlen(d);
-    float side = dist > 0.1f ? vdot(d, r_cam.right) / dist : 0;
-    *pan = 128 + (int)(side * 90.0f);
+    float dist = sfx_listen(p, &r_cam, 90.0f, pan);
     float k = clampf(1.0f - dist / range, 0, 1);
     *gain = k * k;
 }

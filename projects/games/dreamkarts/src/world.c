@@ -11,6 +11,7 @@
    This file builds and draws it; each track's own scenery is built in
    world_<track>.c (world_int.h lists who does what). */
 #include "tide.h"
+#include "engine/sky.h"
 #include "birds.h"
 #include "skylife.h"
 #include "world_int.h"
@@ -102,7 +103,7 @@ V3 foam_p[MAX_FOAM], foam_n[MAX_FOAM];
 float foam_u[MAX_FOAM];
 bool foam_on[MAX_FOAM];
 int foam_count;
-static V3 sky_dir[7][13];
+static SkyDome sky;   /* engine/sky.h: 7 rings of 12 */
 V3 ring_dir[25];
 
 /* Headers. */
@@ -198,11 +199,7 @@ void world_init(void) {
     sf_init();
 
     static const float elev[] = {-0.25f, 0.0f, 0.10f, 0.28f, 0.62f, 1.05f, 1.5708f};
-    for(int e = 0; e < 7; e++)
-        for(int i = 0; i <= 12; i++) {
-            float a = (float)i / 12 * DK_TAU;
-            sky_dir[e][i] = v3(sinf(a) * cosf(elev[e]), sinf(elev[e]), cosf(a) * cosf(elev[e]));
-        }
+    sky_init(&sky, elev, 7, 12, 1500.0f, h_sky);
     for(int i = 0; i <= 24; i++) {
         float a = (float)i / 24 * DK_TAU;
         ring_dir[i] = v3(sinf(a), -cosf(a), cosf(a));
@@ -523,7 +520,7 @@ static void draw_night_sky(void) {
         int n = 0;
         for(int i = 0; i <= 12; i++) {
             for(int k = 1; k >= 0; k--) {
-                V3 d = sky_dir[e + k][i];
+                V3 d = *sky_dir(&sky, e + k, i);
                 v[n++] = (RV){c.x + d.x * R, c.y + d.y * R, c.z + d.z * R, (float)i * 0.5f, v_at[e + k], 0xffffffff};
             }
         }
@@ -562,7 +559,7 @@ static void draw_sunset_sky(void) {
         int n = 0;
         for(int i = 0; i <= az; i++) {
             for(int k = 1; k >= 0; k--) {
-                V3 d = sky_dir[e + k][i];
+                V3 d = *sky_dir(&sky, e + k, i);
                 float t = 0.5f + 0.5f * (d.x * sd.x + d.z * sd.z) / fmaxf(0.01f, sqrtf(d.x * d.x + d.z * d.z));
                 v[n++] = (RV){c.x + d.x * R, c.y + d.y * R, c.z + d.z * R, 0, 0,
                               color_lerp(far_side[e + k], sun_side[e + k], t * t)};
@@ -593,21 +590,8 @@ static void draw_sky(void) {
         0xffd2e0ea, 0xffd2e0ea, 0xffb0d0ec, 0xff82b6e8, 0xff5494dc, 0xff3a78d2, 0xff2c66c8
     };
     const uint32_t *cols = world_av ? av_cols : world_sf ? sf_cols : day_cols;
-    const int az = 12;
-    const float R = 1500.0f;
-    V3 c = r_cam.pos;
-    r_hdr(h_sky);
-    for(int e = 0; e < 6; e++) {
-        RV v[2 * 13];
-        int n = 0;
-        for(int i = 0; i <= az; i++) {
-            for(int k = 1; k >= 0; k--) {
-                V3 d = sky_dir[e + k][i];
-                v[n++] = (RV){c.x + d.x * R, c.y + d.y * R, c.z + d.z * R, 0, 0, cols[e + k]};
-            }
-        }
-        r_strip(v, n);
-    }
+    for(int e = 0; e < 7; e++) sky_ring_color(&sky, e, cols[e]);
+    sky_draw(&sky);
 }
 
 static uint32_t sea_color(float x, float z) {
@@ -1240,20 +1224,14 @@ static void draw_clouds_and_mountains(void) {
 /* Lens flare ghosts along the line from the sun through the screen centre. */
 static void draw_lens_flare(void) {
     if(world_sunset) return;   /* the sun is low and ahead: it would flare through the tunnels */
-    V3 sp = vmad(r_cam.pos, sun_disc_dir, 1300.0f);
-    float sx, sy, w;
-    if(!r_project(sp, &sx, &sy, &w)) return;
-    if(sx < -40 || sx > 680 || sy < -40 || sy > 520) return;
+    float sx, sy;
+    if(!sky_sun_screen(sun_disc_dir, 1300.0f, &sx, &sy)) return;
     float edge = clampf(1.0f - fmaxf(fabsf(sx - 320) / 380.0f, fabsf(sy - 240) / 300.0f), 0, 1);
-    static const float pos[] = {0.35f, 0.62f, 1.0f, 1.35f, 1.7f};
-    static const float size[] = {44, 22, 64, 30, 90};
-    static const uint32_t col[] = {0xffffd090, 0xff90ffb0, 0xff80c0ff, 0xffffa0e0, 0xffa0d0ff};
-    r_hdr(h_flare);
-    for(int i = 0; i < 5; i++) {
-        float x = sx + (320 - sx) * pos[i] * 2.0f, y = sy + (240 - sy) * pos[i] * 2.0f;
-        float s = size[i];
-        r_quad2d(x - s, y - s, x + s, y + s, 0, 0, 1, 1, color_alpha(col[i], 0.35f * edge), 9.0f);
-    }
+    static const SkyGhost ghosts[] = {
+        {0.7f, 44, 0xffffd090, 0, 1}, {1.24f, 22, 0xff90ffb0, 0, 1}, {2.0f, 64, 0xff80c0ff, 0, 1},
+        {2.7f, 30, 0xffffa0e0, 0, 1}, {3.4f, 90, 0xffa0d0ff, 0, 1},
+    };
+    sky_flare(sx, sy, h_flare, ghosts, 5, 0.35f * edge, 9.0f);
 }
 
 /* Open water there, deep enough that a sparkle can't poke up through the

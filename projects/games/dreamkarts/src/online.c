@@ -9,6 +9,7 @@
    practice while waiting for company (a bell rings when someone joins),
    and Start mid-race drops out of it back to the room, not the lobby. */
 #include "online.h"
+#include "engine/qa.h"
 #include "audio.h"
 #include "chat.h"
 #include "fx.h"
@@ -470,7 +471,7 @@ static void lobby_bell(void) {
         if(fresh & (1 << l->players[i].slot)) snprintf(toast, sizeof(toast), "%s JOINED THE LOBBY", l->players[i].name);
     toast_until = net_now() + TOAST_MS;
 #if defined(DK_AT_PRACTICE) && defined(DK_CAPTURE)
-    printf("DK SHOT practice-toast\n");
+    qa_shot("practice-toast");
 #endif
 #ifdef DK_AT_PRACTICE
     pr.bell = true;
@@ -887,7 +888,7 @@ static void lobby_update(float dt) {
    leaves the race), drop out too, and end up in a waiting lobby. Runs
    every frame while online, whatever the game state. */
 #ifdef DK_CAPTURE
-#define PR_SHOT(label) do { static bool shot; if(!shot) { shot = true; printf("DK SHOT %s\n", label); } } while(0)
+#define PR_SHOT(label) do { static bool shot; if(!shot) { shot = true; qa_shot("%s", label); } } while(0)
 #else
 #define PR_SHOT(label) do { } while(0)
 #endif
@@ -1246,10 +1247,7 @@ void online_camera(Camera *cam, float dt) {
     float in = clampf(fly_t * 0.8f, 0, 1);
     in = in * in * (3 - 2 * in);
     float r = lerpf(270.0f, 200.0f, in), h = lerpf(140.0f, 100.0f, in);
-    cam->pos = v3(sinf(a) * r, h, cosf(a) * r * 0.8f);
-    cam->fwd = vnorm(vsub(v3(0, 0, 0), cam->pos));
-    cam->right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
-    cam->up = vcross(cam->fwd, cam->right);
+    cam_look_at(cam, v3(sinf(a) * r, h, cosf(a) * r * 0.8f), v3(0, 0, 0));
     cam->fov = 1.15f;
 }
 
@@ -1627,7 +1625,7 @@ void online_draw_race(void) {
                 shown = (int)(ms / 5000);
                 printf("DK ONLINE: %s\n", buf);
 #ifdef DK_CAPTURE
-                printf("DK SHOT online-waiting-%d\n", shown);
+                qa_shot("online-waiting-%d", shown);
 #endif
             }
 #endif
@@ -1715,7 +1713,7 @@ const char *online_name(void) {
 #endif
 #endif
 #if defined(DK_CAPTURE) && !defined(DK_HW)
-#define AT_SHOT(flag, label) do { if(!(flag)) { flag = true; printf("DK SHOT %s\n", label); } } while(0)
+#define AT_SHOT(flag, label) do { if(!(flag)) { flag = true; qa_shot("%s", label); } } while(0)
 #else
 #define AT_SHOT(flag, label) do { (void)(flag); } while(0)
 #endif

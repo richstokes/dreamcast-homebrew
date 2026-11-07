@@ -16,6 +16,7 @@
    triggers) and the kart (left/right), and hide the overlay (Y) for a
    clean picture. */
 #include "spectate.h"
+#include "engine/qa.h"
 #include "hud.h"
 #include "kart.h"
 #include "net.h"
@@ -383,11 +384,11 @@ static void autotest(float dt) {
     t += dt;
     if(game.state == ST_COUNTDOWN && game.countdown > 1.5f && !s_grid) {
         s_grid = saw_grid = true;
-        printf("DK SHOT watch-grid\n");
+        qa_shot("watch-grid");
     }
     if(game.state == ST_RESULTS && game.time > 1.5f && !s_results) {
         s_results = true;
-        printf("DK SHOT watch-results\n");
+        qa_shot("watch-results");
     }
     if(game.state == ST_RACE && game.race_time > next && presses < CAM_MODES) {
         next = game.race_time + 7.0f;
@@ -401,7 +402,7 @@ static void autotest(float dt) {
     static float shot_at[CAM_MODES];
     if(game.state == ST_RACE && shot_t > 2.5f && shot_at[shot_mode] == 0 && game.race_time > 6.0f) {
         shot_at[shot_mode] = game.race_time;
-        printf("DK SHOT watch-%s\n", mode_names[shot_mode]);
+        qa_shot("watch-%s", mode_names[shot_mode]);
     }
 }
 #endif
@@ -532,10 +533,7 @@ static void update(float dt) {
 /* Cameras                                                             */
 
 static void basis(Camera *c, V3 pos, V3 look, float fov) {
-    c->pos = pos;
-    c->fwd = vnorm(vsub(look, pos));
-    c->right = vnorm(vcross(v3(0, 1, 0), c->fwd));
-    c->up = vcross(c->fwd, c->right);
+    cam_look_at(c, pos, look);
     c->fov = fov;
     c->shake = 0;
 }

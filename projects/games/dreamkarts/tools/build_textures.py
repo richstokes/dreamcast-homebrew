@@ -22,15 +22,14 @@ import argparse
 import math
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
+from assetpak import TexSpec, to_image, write_font_metrics, write_texture_header, write_texture_pak  # noqa: E402
 from fontatlas import LILITA, atlas, font_for_cap  # noqa: E402
-from pvr_texture import pack_texture  # noqa: E402
 
 RNG = np.random.default_rng(1999)
 
@@ -75,14 +74,6 @@ def fbm(w: int, h: int, base: int, octaves: int, seed: int, gain: float = 0.5) -
         norm += amp
         amp *= gain
     return total / norm
-
-
-def to_image(rgb: np.ndarray, alpha: np.ndarray | None = None) -> Image.Image:
-    rgb = np.clip(rgb, 0, 255).astype(np.uint8)
-    if alpha is None:
-        return Image.fromarray(rgb, "RGB")
-    a = np.clip(alpha, 0, 255).astype(np.uint8)
-    return Image.fromarray(np.dstack([rgb, a]), "RGBA")
 
 
 def lerp_color(c0, c1, t):
@@ -708,14 +699,6 @@ def tex_banner():
 
 
 # ---------------------------------------------------------------------------
-
-@dataclass
-class Spec:
-    name: str
-    fmt: str          # RGB565 or ARGB4444
-    mip: bool
-    wrap: bool
-
 
 # ---------------------------------------------------------------------------
 # Neon Skyway (night, cyberpunk). Each draws from its own seeded generator so
@@ -2867,165 +2850,126 @@ def build(out: Path) -> None:
     previews.mkdir(exist_ok=True)
     font_img, glyphs, cap = tex_font()
     logo_img, logo_w = tex_logo()
-    items: list[tuple[Spec, Image.Image]] = [
-        (Spec("road", "RGB565", True, True), tex_road()),
-        (Spec("boardwalk", "RGB565", True, True), tex_boardwalk()),
-        (Spec("curb", "RGB565", True, True), tex_curb()),
-        (Spec("sand", "RGB565", True, True), tex_sand()),
-        (Spec("grass", "RGB565", True, True), tex_grass()),
-        (Spec("barrier", "RGB565", True, True), tex_barrier()),
-        (Spec("wood", "RGB565", True, True), tex_wood()),
-        (Spec("water", "RGB565", True, True), tex_water()),
-        (Spec("foam", "ARGB4444", True, True), tex_foam()),
-        (Spec("rock", "RGB565", True, True), tex_rock()),
-        (Spec("bark", "RGB565", True, True), tex_bark()),
-        (Spec("frond", "ARGB4444", True, False), tex_frond()),
-        (Spec("palm_far", "ARGB4444", True, False), tex_palm_far()),
-        (Spec("cloud", "ARGB4444", False, False), tex_cloud()),
-        (Spec("mountains", "ARGB4444", False, True), tex_mountains()),
-        (Spec("glow", "ARGB4444", True, False), tex_glow()),
-        (Spec("smoke", "ARGB4444", True, False), tex_smoke()),
-        (Spec("shadow", "ARGB4444", True, False), tex_shadow()),
-        (Spec("star", "ARGB4444", True, False), tex_star()),
-        (Spec("flare", "ARGB4444", True, False), tex_flare()),
-        (Spec("flame", "ARGB4444", True, False), tex_flame()),
-        (Spec("dash", "RGB565", True, True), tex_dash()),
-        (Spec("checker", "RGB565", True, True), tex_checker()),
-        (Spec("thatch", "RGB565", True, True), tex_thatch()),
-        (Spec("crowd", "RGB565", True, True), tex_crowd()),
-        (Spec("banner", "RGB565", False, False), tex_banner()),
-        (Spec("font", "ARGB4444", False, False), font_img),
-        (Spec("logo", "ARGB4444", False, False), logo_img),
-        (Spec("bigtext", "ARGB4444", False, False), tex_bigtext()),
-        (Spec("stone", "RGB565", True, True), tex_stone()),
-        *[(Spec(f"skyroad_{i}", "RGB565", True, True), tex_skyroad(i)) for i in range(SKYROAD_PHASES)],
-        (Spec("nightsky", "RGB565", False, True), tex_nightsky()),
-        (Spec("skyline", "ARGB4444", False, True), tex_skyline()),
-        (Spec("moon", "ARGB4444", False, False), tex_moon()),
-        (Spec("cloudsea", "RGB565", True, True), tex_cloudsea()),
-        (Spec("tower", "RGB565", True, True), tex_tower()),
-        (Spec("signs", "RGB565", True, False), tex_signs()),
-        (Spec("canyonroad", "RGB565", True, True), tex_canyonroad()),
-        (Spec("meadow", "RGB565", True, True), tex_meadow()),
-        (Spec("islandrock", "RGB565", True, True), tex_islandrock()),
-        (Spec("ehchecker", "RGB565", True, True), tex_checker_rock((112, 62, 54), (206, 146, 92), 5113)),
-        (Spec("sunflower", "ARGB4444", True, False), tex_sunflower()),
-        (Spec("totem", "RGB565", False, False), tex_totem()),
-        (Spec("bush", "RGB565", True, True), tex_bush()),
-        (Spec("waterfall", "ARGB4444", True, True), tex_waterfall()),
-        (Spec("retrosun", "ARGB4444", True, False), tex_retrosun()),
-        (Spec("tkroad", "RGB565", True, True), tex_tkroad()),
-        (Spec("tkcurb", "RGB565", True, True), tex_tkcurb()),
-        (Spec("verge", "RGB565", True, True), tex_verge()),
-        (Spec("paddy", "RGB565", True, True), tex_paddy()),
-        (Spec("hoarding", "RGB565", True, True), tex_hoarding()),
-        (Spec("ishigaki", "RGB565", True, True), tex_ishigaki()),
-        (Spec("kawara", "RGB565", True, True), tex_kawara()),
-        (Spec("sakura", "ARGB4444", True, False), tex_sakura()),
-        (Spec("sakurafar", "ARGB4444", True, False), tex_sakurafar()),
-        (Spec("sakurabark", "RGB565", True, True), tex_sakurabark()),
-        (Spec("petal", "ARGB4444", False, False), tex_petal()),
-        (Spec("tkcrowd", "RGB565", True, True), tex_tkcrowd()),
-        (Spec("plaster", "RGB565", True, True), tex_plaster()),
-        (Spec("tkbanner", "RGB565", False, False), tex_tkbanner()),
-        (Spec("pitwall", "RGB565", True, True), tex_pitwall()),
-        (Spec("sundisc", "ARGB4444", True, False), tex_sundisc()),
-        (Spec("stream", "RGB565", True, True), tex_stream()),
-        (Spec("avroad", "RGB565", True, True), tex_avroad()),
-        (Spec("avcurb", "RGB565", True, True), tex_avcurb()),
-        (Spec("avdirt", "RGB565", True, True), tex_avdirt()),
-        (Spec("avdesert", "RGB565", True, True), tex_avdesert()),
-        (Spec("avtyres", "RGB565", True, True), tex_avtyres()),
-        (Spec("avmetal", "RGB565", True, True), tex_avmetal()),
-        (Spec("avcrowd", "RGB565", True, True), tex_avcrowd()),
-        (Spec("avjoshua", "ARGB4444", True, False), tex_avjoshua()),
-        (Spec("avjbark", "RGB565", True, True), tex_avjbark()),
-        (Spec("avscrub", "ARGB4444", True, False), tex_avscrub()),
-        (Spec("avbanner", "RGB565", False, False), tex_avbanner()),
-        (Spec("avstucco", "RGB565", True, True), tex_avstucco()),
-        (Spec("avrock", "RGB565", True, True), tex_avrock()),
-        (Spec("avfar", "ARGB4444", True, False), tex_avfar()),
-        (Spec("avtumble", "ARGB4444", True, False), tex_avtumble()),
-        (Spec("avdust", "ARGB4444", True, False), tex_avdust()),
-        (Spec("avmtn", "RGB565", True, True), tex_avmtn()),
-        (Spec("avrange", "RGB565", True, True), tex_avrange()),
-        (Spec("sfroad", "RGB565", True, True), tex_sfroad()),
-        (Spec("sfrails", "RGB565", True, True), tex_sfrails()),
-        (Spec("sfbrick", "RGB565", True, True), tex_sfbrick()),
-        (Spec("sfcurb", "RGB565", True, True), tex_sfcurb()),
-        (Spec("sfwalk", "RGB565", True, True), tex_sfwalk()),
-        (Spec("sfrailing", "RGB565", True, True), tex_sfrailing()),
-        (Spec("sfpier", "RGB565", True, True), tex_sfpier()),
-        (Spec("sfpierrail", "RGB565", True, True), tex_sfpierrail()),
-        (Spec("sffacade", "RGB565", True, True), tex_sffacade()),
-        (Spec("sfbldg", "RGB565", True, True), tex_sfbldg()),
-        (Spec("sfroof", "RGB565", True, True), tex_sfroof()),
-        (Spec("sfhedge", "RGB565", True, True), tex_sfhedge()),
-        (Spec("sfshed", "RGB565", True, True), tex_sfshed()),
-        (Spec("sfsign", "RGB565", False, False), tex_sfsign()),
-        (Spec("sfbay", "RGB565", True, True), tex_sfbay()),
-        (Spec("sffog", "ARGB4444", True, False), tex_sffog()),
-        (Spec("sfpalm", "ARGB4444", True, False), tex_sfpalm()),
-        (Spec("sfpalmbark", "RGB565", True, True), tex_sfpalmbark()),
-        (Spec("sfcablecar", "RGB565", True, False), tex_sfcablecar()),
-        (Spec("sffacade2", "RGB565", True, True), tex_sffacade2()),
-        (Spec("sfstreet", "RGB565", True, True), tex_sfstreet()),
-        (Spec("sfgrass", "RGB565", True, True), tex_sfgrass()),
-        (Spec("sfstall", "RGB565", True, True), tex_sfstall()),
-        (Spec("sfsigns", "RGB565", True, False), tex_sfsigns()),
+    items: list[tuple[TexSpec, Image.Image]] = [
+        (TexSpec("road", "RGB565", True, True), tex_road()),
+        (TexSpec("boardwalk", "RGB565", True, True), tex_boardwalk()),
+        (TexSpec("curb", "RGB565", True, True), tex_curb()),
+        (TexSpec("sand", "RGB565", True, True), tex_sand()),
+        (TexSpec("grass", "RGB565", True, True), tex_grass()),
+        (TexSpec("barrier", "RGB565", True, True), tex_barrier()),
+        (TexSpec("wood", "RGB565", True, True), tex_wood()),
+        (TexSpec("water", "RGB565", True, True), tex_water()),
+        (TexSpec("foam", "ARGB4444", True, True), tex_foam()),
+        (TexSpec("rock", "RGB565", True, True), tex_rock()),
+        (TexSpec("bark", "RGB565", True, True), tex_bark()),
+        (TexSpec("frond", "ARGB4444", True, False), tex_frond()),
+        (TexSpec("palm_far", "ARGB4444", True, False), tex_palm_far()),
+        (TexSpec("cloud", "ARGB4444", False, False), tex_cloud()),
+        (TexSpec("mountains", "ARGB4444", False, True), tex_mountains()),
+        (TexSpec("glow", "ARGB4444", True, False), tex_glow()),
+        (TexSpec("smoke", "ARGB4444", True, False), tex_smoke()),
+        (TexSpec("shadow", "ARGB4444", True, False), tex_shadow()),
+        (TexSpec("star", "ARGB4444", True, False), tex_star()),
+        (TexSpec("flare", "ARGB4444", True, False), tex_flare()),
+        (TexSpec("flame", "ARGB4444", True, False), tex_flame()),
+        (TexSpec("dash", "RGB565", True, True), tex_dash()),
+        (TexSpec("checker", "RGB565", True, True), tex_checker()),
+        (TexSpec("thatch", "RGB565", True, True), tex_thatch()),
+        (TexSpec("crowd", "RGB565", True, True), tex_crowd()),
+        (TexSpec("banner", "RGB565", False, False), tex_banner()),
+        (TexSpec("font", "ARGB4444", False, False), font_img),
+        (TexSpec("logo", "ARGB4444", False, False), logo_img),
+        (TexSpec("bigtext", "ARGB4444", False, False), tex_bigtext()),
+        (TexSpec("stone", "RGB565", True, True), tex_stone()),
+        *[(TexSpec(f"skyroad_{i}", "RGB565", True, True), tex_skyroad(i)) for i in range(SKYROAD_PHASES)],
+        (TexSpec("nightsky", "RGB565", False, True), tex_nightsky()),
+        (TexSpec("skyline", "ARGB4444", False, True), tex_skyline()),
+        (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
+        (TexSpec("cloudsea", "RGB565", True, True), tex_cloudsea()),
+        (TexSpec("tower", "RGB565", True, True), tex_tower()),
+        (TexSpec("signs", "RGB565", True, False), tex_signs()),
+        (TexSpec("canyonroad", "RGB565", True, True), tex_canyonroad()),
+        (TexSpec("meadow", "RGB565", True, True), tex_meadow()),
+        (TexSpec("islandrock", "RGB565", True, True), tex_islandrock()),
+        (TexSpec("ehchecker", "RGB565", True, True), tex_checker_rock((112, 62, 54), (206, 146, 92), 5113)),
+        (TexSpec("sunflower", "ARGB4444", True, False), tex_sunflower()),
+        (TexSpec("totem", "RGB565", False, False), tex_totem()),
+        (TexSpec("bush", "RGB565", True, True), tex_bush()),
+        (TexSpec("waterfall", "ARGB4444", True, True), tex_waterfall()),
+        (TexSpec("retrosun", "ARGB4444", True, False), tex_retrosun()),
+        (TexSpec("tkroad", "RGB565", True, True), tex_tkroad()),
+        (TexSpec("tkcurb", "RGB565", True, True), tex_tkcurb()),
+        (TexSpec("verge", "RGB565", True, True), tex_verge()),
+        (TexSpec("paddy", "RGB565", True, True), tex_paddy()),
+        (TexSpec("hoarding", "RGB565", True, True), tex_hoarding()),
+        (TexSpec("ishigaki", "RGB565", True, True), tex_ishigaki()),
+        (TexSpec("kawara", "RGB565", True, True), tex_kawara()),
+        (TexSpec("sakura", "ARGB4444", True, False), tex_sakura()),
+        (TexSpec("sakurafar", "ARGB4444", True, False), tex_sakurafar()),
+        (TexSpec("sakurabark", "RGB565", True, True), tex_sakurabark()),
+        (TexSpec("petal", "ARGB4444", False, False), tex_petal()),
+        (TexSpec("tkcrowd", "RGB565", True, True), tex_tkcrowd()),
+        (TexSpec("plaster", "RGB565", True, True), tex_plaster()),
+        (TexSpec("tkbanner", "RGB565", False, False), tex_tkbanner()),
+        (TexSpec("pitwall", "RGB565", True, True), tex_pitwall()),
+        (TexSpec("sundisc", "ARGB4444", True, False), tex_sundisc()),
+        (TexSpec("stream", "RGB565", True, True), tex_stream()),
+        (TexSpec("avroad", "RGB565", True, True), tex_avroad()),
+        (TexSpec("avcurb", "RGB565", True, True), tex_avcurb()),
+        (TexSpec("avdirt", "RGB565", True, True), tex_avdirt()),
+        (TexSpec("avdesert", "RGB565", True, True), tex_avdesert()),
+        (TexSpec("avtyres", "RGB565", True, True), tex_avtyres()),
+        (TexSpec("avmetal", "RGB565", True, True), tex_avmetal()),
+        (TexSpec("avcrowd", "RGB565", True, True), tex_avcrowd()),
+        (TexSpec("avjoshua", "ARGB4444", True, False), tex_avjoshua()),
+        (TexSpec("avjbark", "RGB565", True, True), tex_avjbark()),
+        (TexSpec("avscrub", "ARGB4444", True, False), tex_avscrub()),
+        (TexSpec("avbanner", "RGB565", False, False), tex_avbanner()),
+        (TexSpec("avstucco", "RGB565", True, True), tex_avstucco()),
+        (TexSpec("avrock", "RGB565", True, True), tex_avrock()),
+        (TexSpec("avfar", "ARGB4444", True, False), tex_avfar()),
+        (TexSpec("avtumble", "ARGB4444", True, False), tex_avtumble()),
+        (TexSpec("avdust", "ARGB4444", True, False), tex_avdust()),
+        (TexSpec("avmtn", "RGB565", True, True), tex_avmtn()),
+        (TexSpec("avrange", "RGB565", True, True), tex_avrange()),
+        (TexSpec("sfroad", "RGB565", True, True), tex_sfroad()),
+        (TexSpec("sfrails", "RGB565", True, True), tex_sfrails()),
+        (TexSpec("sfbrick", "RGB565", True, True), tex_sfbrick()),
+        (TexSpec("sfcurb", "RGB565", True, True), tex_sfcurb()),
+        (TexSpec("sfwalk", "RGB565", True, True), tex_sfwalk()),
+        (TexSpec("sfrailing", "RGB565", True, True), tex_sfrailing()),
+        (TexSpec("sfpier", "RGB565", True, True), tex_sfpier()),
+        (TexSpec("sfpierrail", "RGB565", True, True), tex_sfpierrail()),
+        (TexSpec("sffacade", "RGB565", True, True), tex_sffacade()),
+        (TexSpec("sfbldg", "RGB565", True, True), tex_sfbldg()),
+        (TexSpec("sfroof", "RGB565", True, True), tex_sfroof()),
+        (TexSpec("sfhedge", "RGB565", True, True), tex_sfhedge()),
+        (TexSpec("sfshed", "RGB565", True, True), tex_sfshed()),
+        (TexSpec("sfsign", "RGB565", False, False), tex_sfsign()),
+        (TexSpec("sfbay", "RGB565", True, True), tex_sfbay()),
+        (TexSpec("sffog", "ARGB4444", True, False), tex_sffog()),
+        (TexSpec("sfpalm", "ARGB4444", True, False), tex_sfpalm()),
+        (TexSpec("sfpalmbark", "RGB565", True, True), tex_sfpalmbark()),
+        (TexSpec("sfcablecar", "RGB565", True, False), tex_sfcablecar()),
+        (TexSpec("sffacade2", "RGB565", True, True), tex_sffacade2()),
+        (TexSpec("sfstreet", "RGB565", True, True), tex_sfstreet()),
+        (TexSpec("sfgrass", "RGB565", True, True), tex_sfgrass()),
+        (TexSpec("sfstall", "RGB565", True, True), tex_sfstall()),
+        (TexSpec("sfsigns", "RGB565", True, False), tex_sfsigns()),
     ]
-    pak = bytearray()
-    table = []
-    for spec, img in items:
-        img.save(previews / f"tex-{spec.name}.png")
-        # The opaque textures' mips keep their mid-sized detail (lanczos):
-        # with no anisotropic filtering, the console shows the road, curbs
-        # and walls at small mip levels, and area filtering turned those flat.
-        words = pack_texture(img, spec.fmt, mipmap=spec.mip, wrap=spec.wrap,
-                             mip_filter="lanczos" if spec.fmt == "RGB565" else "box")
-        data = np.array(words, dtype="<u2").tobytes()
-        while len(pak) % 32:
-            pak.append(0)
-        table.append((spec, img.width, img.height, len(pak), len(data)))
-        pak += data
-        print(f"  {spec.name:10s} {img.width}x{img.height} {spec.fmt}{' mip' if spec.mip else ''} {len(data)} bytes")
-    (out / "textures.pak").write_bytes(bytes(pak))
-
-    h = ["/* Generated by tools/build_textures.py. Do not edit. */",
-         "#ifndef DK_TEXTURE_ASSETS_H", "#define DK_TEXTURE_ASSETS_H", "#include <stdint.h>", "",
-         "#define DK_TEXFMT_RGB565 0", "#define DK_TEXFMT_ARGB4444 1", "",
-         "typedef struct { uint32_t offset, bytes; uint16_t w, h; uint8_t fmt, mip, pad[2]; } dk_tex_asset_t;",
-         "", "enum {"]
-    for spec, *_ in table:
-        h.append(f"    TEX_{spec.name.upper()},")
-    h += ["    TEX_COUNT", "};", "",
-          "static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {"]
-    for spec, w, hh, off, size in table:
-        fmt = "DK_TEXFMT_ARGB4444" if spec.fmt == "ARGB4444" else "DK_TEXFMT_RGB565"
-        h.append(f"    {{{off}u, {size}u, {w}, {hh}, {fmt}, {int(spec.mip)}, {{0, 0}}}},  /* {spec.name} */")
-    h += ["};", "", f"#define DK_TEXTURES_BYTES {len(pak)}u", "", "#endif", ""]
-    (out / "texture_assets.h").write_text("\n".join(h))
-
-    m = ["/* Generated by tools/build_textures.py. Do not edit. */",
-         "#ifndef DK_FONT_METRICS_H", "#define DK_FONT_METRICS_H", "#include <stdint.h>", "",
-         f"#define FONT_ROW_H {FONT_ROW_H}", "#define FONT_TEX_W 512", "#define FONT_TEX_H 256",
-         "/* The capitals' rows within a glyph row (top edge, bottom edge). */",
-         f"#define FONT_CAP_TOP {cap[0]}", f"#define FONT_CAP_BOTTOM {cap[1]}",
-         "/* ASCII 32..127 at native size: atlas x, row, rect width, rect left",
-         "   relative to the pen, and pen advance. */",
-         "typedef struct { uint16_t x; uint8_t row, w; int8_t ox; uint8_t adv; } dk_glyph_t;",
-         "static const dk_glyph_t font_glyphs[96] = {"]
-    for i in range(0, 96, 4):
-        m.append("    " + " ".join(f"{{{x}, {r}, {w}, {ox}, {adv}}}," for x, r, w, ox, adv in glyphs[i:i + 4]))
-    m += ["};", "",
-          "/* Countdown cells (3, 2, 1, GO!) in the bigtext texture's top row: x, width. */",
-          "static const uint16_t bigtext_cells[4][2] = {" +
-          ", ".join(f"{{{x}, {w}}}" for x, w in BIGTEXT_CELLS) + "};", "",
-          f'#define LOGO_LETTERS "{LOGO_LETTERS}"', f"#define LOGO_CELL {LOGO_CELL}",
-          "static const uint8_t logo_advance[8] = {" + ", ".join(str(w) for w in logo_w) + "};",
-          "", "#endif", ""]
-    (out / "font_metrics.h").write_text("\n".join(m))
-    print(f"textures.pak: {len(pak)} bytes, {len(table)} textures")
+    table, size = write_texture_pak(out, previews, items)
+    write_texture_header(out, "DK", table, tail=[f"#define DK_TEXTURES_BYTES {size}u", ""])
+    write_font_metrics(
+        out, "DK", font_img, glyphs, cap, FONT_ROW_H, glyph_type="dk_glyph_t",
+        cap_comment=["/* The capitals' rows within a glyph row (top edge, bottom edge). */"],
+        glyph_comment=["/* ASCII 32..127 at native size: atlas x, row, rect width, rect left",
+                       "   relative to the pen, and pen advance. */"],
+        tail=["/* Countdown cells (3, 2, 1, GO!) in the bigtext texture's top row: x, width. */",
+              "static const uint16_t bigtext_cells[4][2] = {" +
+              ", ".join(f"{{{x}, {w}}}" for x, w in BIGTEXT_CELLS) + "};", "",
+              f'#define LOGO_LETTERS "{LOGO_LETTERS}"', f"#define LOGO_CELL {LOGO_CELL}",
+              "static const uint8_t logo_advance[8] = {" + ", ".join(str(w) for w in logo_w) + "};",
+              ""])
 
 
 def main() -> None:

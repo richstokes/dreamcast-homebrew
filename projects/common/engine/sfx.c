@@ -66,6 +66,14 @@ void sfx_play(int id, int vol, int pan, float rate) {
     snd_sfx_play_ex(&d);
 }
 
+float sfx_listen(V3 p, const Camera *c, float width, int *pan) {
+    V3 d = vsub(p, c->pos);
+    float dist = vlen(d);
+    float side = dist > 0.1f ? vdot(d, c->right) / dist : 0;
+    *pan = (int)clampf(128.0f + side * width, 0, 255);
+    return dist;
+}
+
 bool sfx_voice_start(SfxVoice *v, int id) {
     v->channel = -1;
     v->sfx = id;

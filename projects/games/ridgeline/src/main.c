@@ -22,9 +22,8 @@
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
 Game game;
-/* Phase timings for the autotest's log: update, OP, PT, TR (us, summed). */
-uint64_t phase_us[4];
-int phase_frames;
+/* The frame's phases for the autotest's log line (engine/prof.h). */
+enum { PH_UPD, PH_OP, PH_PT, PH_TR };
 
 static float recover_hold;
 
@@ -204,7 +203,7 @@ static void update(float dt) {
 /* ---- Rendering ---- */
 
 static void render(void) {
-    uint64_t t0 = timer_us_gettime64();
+    prof_phase_begin();
     r_frame_begin();
     r_list(PVR_LIST_OP_POLY);
     r_set_camera(&cam);
@@ -216,11 +215,11 @@ static void render(void) {
     bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND;
     if(!no_trucks) truckdraw_draw_op();
     world_us[2] += timer_us_gettime64() - tt;
-    uint64_t t1 = timer_us_gettime64();
+    prof_phase_mark(PH_OP);
     r_list(PVR_LIST_PT_POLY);
     r_load_vp();
     world_draw_pt();
-    uint64_t t2 = timer_us_gettime64();
+    prof_phase_mark(PH_PT);
     r_list(PVR_LIST_TR_POLY);
     r_load_vp();
     PROF_BEGIN(ptr);
@@ -246,10 +245,8 @@ static void render(void) {
 #endif
     PROF_LAP(PS_TR, ptr);
     r_frame_end();
-    uint64_t t3 = timer_us_gettime64();
-    phase_us[1] += t1 - t0;
-    phase_us[2] += t2 - t1;
-    phase_us[3] += t3 - t2;
+    prof_phase_mark(PH_TR);
+    prof_phase_frame();
 }
 
 int main(int argc, char **argv) {
@@ -280,7 +277,7 @@ int main(int argc, char **argv) {
     while(!game.quit) {
         /* The step follows the display (engine/frame.h). */
         frame_begin();
-        uint64_t now = eng_frame.t0;
+        prof_phase_begin();
         float dt_real = eng_frame.dt_real;
         int steps = eng_frame.steps;
 #ifdef RL_AUTOTEST
@@ -308,12 +305,11 @@ int main(int argc, char **argv) {
         }
         ui_time = game.time;
         if(game.state == ST_DRIVE) audio_update(dt_real);
-        phase_us[0] += timer_us_gettime64() - now;
+        prof_phase_mark(PH_UPD);
         render();
 #ifdef ENG_PROF
         prof_frame_end();
 #endif
-        phase_frames++;
         if(frame_end()) game.fps = eng_frame.fps;
         game.cpu_ms = eng_frame.cpu_ms;
 #ifdef RL_AUTOTEST

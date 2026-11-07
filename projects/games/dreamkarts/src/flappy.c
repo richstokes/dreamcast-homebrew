@@ -9,6 +9,7 @@
    every WARP_SCORE points the run flashes white and moves on to the next
    course (a track load, up to a second, hidden behind the flash). */
 #include "flappy.h"
+#include "engine/qa.h"
 #include "audio.h"
 #include "hud.h"
 #include "kart.h"
@@ -511,7 +512,8 @@ void flappy_autotest(void) {
             shot_back = true;
             const Kart *k = kart();
             back_ok = fabsf(k->roll) < 0.1f && k->grounded && fabsf(k->pos.y - k->gnd) < 0.5f && k->tp.s != 0;
-            printf("DK SHOT flappy-back\nDK FLAPPY back roll=%.2f y=%.2f gnd=%.2f s=%.1f\n", (double)k->roll,
+            qa_shot("flappy-back");
+            printf("DK FLAPPY back roll=%.2f y=%.2f gnd=%.2f s=%.1f\n", (double)k->roll,
                    (double)k->pos.y, (double)k->gnd, (double)k->tp.s);
         }
         /* The verdict a moment after the shot: the launcher closes Flycast
@@ -532,7 +534,7 @@ void flappy_autotest(void) {
     }
     if(game.state != ST_FLAPPY) return;
     if(phase == FL_READY) {
-        if(phase_t > 1.0f && !shot_ready) { shot_ready = true; printf("DK SHOT flappy-ready\n"); }
+        if(phase_t > 1.0f && !shot_ready) { shot_ready = true; qa_shot("flappy-ready"); }
         if(phase_t > 1.6f) pad.pressed |= BTN_A;
     }
     else if(phase == FL_PLAY) {
@@ -548,15 +550,15 @@ void flappy_autotest(void) {
             if(cols[i].x > 0 && cols[i].x < ahead) ahead = cols[i].x;
         if(score == 2 && !shot_play && ahead > 2.0f && ahead < 5.0f) {
             shot_play = true;
-            printf("DK SHOT flappy-play\n");
+            qa_shot("flappy-play");
         }
         if(score == WARP_SCORE && name_t > 0 && name_t < NAME_SECS - 0.4f && !shot_warp) {
             shot_warp = true;
-            printf("DK SHOT flappy-warp\n");
+            qa_shot("flappy-warp");
         }
     }
     else if(phase == FL_DEAD) {
-        if(phase_t > 1.6f && !shot_dead) { shot_dead = true; printf("DK SHOT flappy-dead\n"); }
+        if(phase_t > 1.6f && !shot_dead) { shot_dead = true; qa_shot("flappy-dead"); }
         if(phase_t > 2.4f && !left) {
             left = true;
             printf("DK FLAPPY score=%d\n", score);

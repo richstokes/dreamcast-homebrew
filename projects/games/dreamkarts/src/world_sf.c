@@ -12,6 +12,7 @@
 #include "world_int.h"
 #include "cablecar.h"
 #include "audio.h"
+#include "engine/sfx.h"
 
 static const pvr_poly_hdr_t *sf_mat_hdr[SFM_COUNT];
 static const pvr_poly_hdr_t *h_sfroad, *h_sfrails, *h_sfbrick, *h_sfcurb, *h_sfwalk, *h_sfrailing, *h_sfpier,
@@ -1823,11 +1824,8 @@ static void sf_place_props(void) {
 /* Volume (0-255) and pan of a sound at p as player 1's camera hears it,
    loud as `vol` within `near` metres and falling off beyond. */
 static void sf_heard(V3 p, float vol, float near, int *v, int *pan) {
-    const Camera *c = &game.pl[0].cam;
-    V3 rel = vsub(p, c->pos);
-    float d = vlen(rel);
+    float d = sfx_listen(p, &game.pl[0].cam, 90.0f, pan);
     *v = (int)(vol * clampf(near / fmaxf(d, near), 0, 1));
-    *pan = (int)clampf(128.0f + vdot(vnorm(rel), c->right) * 90.0f, 0, 255);
 }
 
 /* The cable car's bell, two clangs as it sets off and every few seconds

@@ -8,6 +8,7 @@
    screen, where the player paints a kart of their own and watches it
    change. */
 #include "title.h"
+#include "engine/qa.h"
 #include "flappy.h"
 #include "audio.h"
 #include "hud.h"
@@ -530,7 +531,7 @@ static void settings_autotest(float dt) {
     }
     if(s->btn & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT)) input_film_tap(0, s->btn);
     else if(s->btn) pad.pressed |= s->btn;
-    if(s->shot) printf("DK SHOT %s\n", s->shot);
+    if(s->shot) qa_shot("%s", s->shot);
     if(s->check && !at_cond(s->check)) {
         printf("DK SETTINGS: check %d failed at step %d (state %d colour %d music %d custom %d %d %d %d)\n", s->check,
                step, game.state, game.pl[0].colour, save.music, save.custom_on, save.custom.body, save.custom.trim,
@@ -789,14 +790,9 @@ void title_camera(Camera *cam, float dt) {
         float in = clampf(fly_t * 0.8f, 0, 1);
         in = in * in * (3 - 2 * in);
         float r = lerpf(260.0f, 190.0f, in), h = lerpf(130.0f, 92.0f, in);
-        cam->pos = v3(sinf(a) * r, h, cosf(a) * r * 0.8f);
-        V3 target = v3(0, 0, 0);
-        cam->fwd = vnorm(vsub(target, cam->pos));
-        cam->right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
-        cam->up = vcross(cam->fwd, cam->right);
+        cam_look_at(cam, v3(sinf(a) * r, h, cosf(a) * r * 0.8f), v3(0, 0, 0));
         /* Tilt down a little so the course sits above the info panel. */
-        cam->fwd = vnorm(vmad(cam->fwd, cam->up, -0.16f));
-        cam->up = vcross(cam->fwd, cam->right);
+        cam_lean(cam, cam->up, -0.16f);
         cam->fov = 1.10f;
         return;
     }
@@ -810,15 +806,9 @@ void title_camera(Camera *cam, float dt) {
         a = game.title_t * 0.35f;
         r = 5.0f;
     }
-    cam->pos = vadd(target, v3(sinf(a) * r, 2.4f + 0.8f * sinf(game.title_t * 0.17f), cosf(a) * r));
-    cam->fwd = vnorm(vsub(target, cam->pos));
-    if(closeup) {
-        /* Shift the view so the kart sits left of centre. */
-        V3 right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
-        cam->fwd = vnorm(vmad(cam->fwd, right, 0.28f));
-    }
-    cam->right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
-    cam->up = vcross(cam->fwd, cam->right);
+    cam_look_at(cam, orbit_point(target, a, r, 2.4f + 0.8f * sinf(game.title_t * 0.17f)), target);
+    /* Shift the view so the kart sits left of centre. */
+    if(closeup) cam_lean(cam, cam->right, 0.28f);
     cam->fov = 1.20f;
 }
 
@@ -830,12 +820,8 @@ void title_kart_cameras(void) {
         V3 target = vadd(karts[game.pl[p].kart].pos, v3(0, 0.75f, 0));
         float a = game.title_t * 0.35f + (float)p * DK_PI;
         float r = 5.2f;
-        cam->pos = vadd(target, v3(sinf(a) * r, 1.6f + 0.4f * sinf(game.title_t * 0.17f + p), cosf(a) * r));
-        cam->fwd = vnorm(vsub(target, cam->pos));
-        V3 right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
-        cam->fwd = vnorm(vmad(cam->fwd, right, 0.30f));
-        cam->right = vnorm(vcross(v3(0, 1, 0), cam->fwd));
-        cam->up = vcross(cam->fwd, cam->right);
+        cam_look_at(cam, orbit_point(target, a, r, 1.6f + 0.4f * sinf(game.title_t * 0.17f + p)), target);
+        cam_lean(cam, cam->right, 0.30f);
         cam->fov = 1.20f;
         cam->shake = 0;
     }

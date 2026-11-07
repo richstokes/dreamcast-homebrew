@@ -3,6 +3,7 @@
 #define RL_ENGINE_CONFIG_H
 
 #define ENG_NAME "Ridgeline"
+#define ENG_QA_TAG "RL"
 #define ENG_DT   (1.0f / 60.0f)
 
 #ifdef RL_CAPTURE

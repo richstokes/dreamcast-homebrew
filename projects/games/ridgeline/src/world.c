@@ -7,6 +7,7 @@
    the haze colour, and the far ranges are flat silhouettes stepping lighter
    with distance. */
 #include "world.h"
+#include "engine/sky.h"
 #include "terrain.h"
 #include "engine/prof.h"
 #include <sh4zam/shz_sh4zam.h>
@@ -288,27 +289,25 @@ static void prop(const lvl_prop_t *p) {
 #define SKY_SEG 16
 #define RANGES 3
 #define RANGE_SEG 48
-static V3 sky_dir[6][SKY_SEG + 1];
-static uint32_t sky_col[6][SKY_SEG + 1];
+static SkyDome sky;   /* engine/sky.h: 6 rings of SKY_SEG */
 static float range_h[RANGES][RANGE_SEG + 1];
 static uint32_t range_top[RANGES], range_bot[RANGES];
 static V3 cloud_p[8];
 static float cloud_w[8];
 
-static void sky_init(void) {
+static void sky_setup(void) {
     static const float el[6] = {-0.25f, 0.0f, 0.08f, 0.22f, 0.55f, 1.5707f};
+    sky_init(&sky, el, 6, SKY_SEG, 1900.0f, h_flat_nofog);
     for(int e = 0; e < 6; e++)
         for(int i = 0; i <= SKY_SEG; i++) {
             float a = ENG_TAU * i / SKY_SEG;
-            float ce = cosf(el[e]);
-            sky_dir[e][i] = v3(sinf(a) * ce, sinf(el[e]), cosf(a) * ce);
             float t = clampf(el[e] / 0.9f, 0, 1);
             uint32_t c = color_lerp(pal->sky_horizon, pal->sky_top, sqrtf(t));
             if(e == 0) c = pal->haze;
             /* Warmer low in the sky toward the sun. */
             float toward = 0.5f + 0.5f * cosf(a - pal->sun_az);
             c = color_lerp(c, 0xfff6e2c4, toward * toward * toward * (1.0f - t) * 0.55f);
-            sky_col[e][i] = c;
+            sky_set_color(&sky, e, i, c);
         }
     uint32_t seed = 4242;
     for(int r = 0; r < RANGES; r++) {
@@ -334,18 +333,8 @@ static void sky_init(void) {
 
 void world_draw_sky(void) {
     V3 c = r_cam.pos;
-    const float R = 1900.0f;
+    sky_draw(&sky);
     r_hdr(h_flat_nofog);
-    for(int e = 0; e < 5; e++) {
-        RV v[2 * (SKY_SEG + 1)];
-        int n = 0;
-        for(int i = 0; i <= SKY_SEG; i++)
-            for(int k = 1; k >= 0; k--) {
-                V3 d = sky_dir[e + k][i];
-                v[n++] = (RV){c.x + d.x * R, c.y + d.y * R, c.z + d.z * R, 0, 0, sky_col[e + k][i]};
-            }
-        r_strip(v, n);
-    }
     /* The ranges, furthest first (the PVR sorts opaque depth anyway). */
     for(int r = RANGES - 1; r >= 0; r--) {
         float rad = 1050.0f + 260.0f * r;
@@ -460,29 +449,23 @@ void world_draw_tr(void) {
 
 void world_draw_flare(void) {
     if(flare_vis <= 0.01f) return;
-    V3 sp = vmad(r_cam.pos, sun_dir, 1600.0f);
-    float sx, sy, w;
-    if(!r_project(sp, &sx, &sy, &w)) return;
+    float sx, sy;
+    if(!sky_sun_screen(sun_dir, 1600.0f, &sx, &sy)) return;
     float facing = vdot(r_cam.fwd, sun_dir);
     if(facing < 0.5f) return;
     /* Fades as the sun leaves the screen. */
     float edge = fminf(fminf(sx + 40.0f, 680.0f - sx), fminf(sy + 40.0f, 520.0f - sy));
     float k = flare_vis * clampf((facing - 0.5f) / 0.4f, 0, 1) * clampf(edge / 80.0f, 0, 1);
     if(k <= 0.01f) return;
-    float dx = 320.0f - sx, dy = 240.0f - sy;
     /* A wash over the screen when looking into the sun. */
     r_hdr(h_glow_add);
     r_quad2d(sx - 260, sy - 260, sx + 260, sy + 260, 0, 0, 1, 1, color_alpha(0xffffe8c0, 0.35f * k), 30.0f);
-    static const struct { float t, size; uint32_t col; int hex; } el[] = {
-        {0.32f, 26.0f, 0xffffc890, 0}, {0.55f, 14.0f, 0xff9fe0d0, 1}, {0.78f, 40.0f, 0xffffb0c8, 0},
-        {1.15f, 22.0f, 0xffc8e0ff, 1}, {1.42f, 60.0f, 0xffffe0a0, 0}, {1.8f, 18.0f, 0xffa0ffd8, 1},
+    /* The ring texture's left half is a disc, its right a hexagon. */
+    static const SkyGhost ghosts[] = {
+        {0.32f, 26.0f, 0xffffc890, 0, 0.5f}, {0.55f, 14.0f, 0xff9fe0d0, 0.5f, 1}, {0.78f, 40.0f, 0xffffb0c8, 0, 0.5f},
+        {1.15f, 22.0f, 0xffc8e0ff, 0.5f, 1}, {1.42f, 60.0f, 0xffffe0a0, 0, 0.5f}, {1.8f, 18.0f, 0xffa0ffd8, 0.5f, 1},
     };
-    r_hdr(h_ring_add);
-    for(unsigned i = 0; i < sizeof(el) / sizeof(el[0]); i++) {
-        float x = sx + dx * el[i].t, y = sy + dy * el[i].t, s = el[i].size;
-        float u0 = el[i].hex ? 0.5f : 0.0f;
-        r_quad2d(x - s, y - s, x + s, y + s, u0, 0, u0 + 0.5f, 1, color_alpha(el[i].col, 0.33f * k), 30.0f);
-    }
+    sky_flare(sx, sy, h_ring_add, ghosts, 6, 0.33f * k, 30.0f);
 }
 
 /* ---- Building ---- */
@@ -503,7 +486,7 @@ void world_init(void) {
                         (pal->haze & 255) / 255.0f);
     pvr_fog_table_linear(pal->fog_near, pal->fog_far);
     pvr_set_bg_color(((pal->haze >> 16) & 255) / 255.0f, ((pal->haze >> 8) & 255) / 255.0f, (pal->haze & 255) / 255.0f);
-    sky_init();
+    sky_setup();
     if(!sc_init(&scenery, 170000, 6000, 1400)) printf("Ridgeline world: no memory for the scenery\n");
 }
 

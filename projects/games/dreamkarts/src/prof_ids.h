@@ -35,12 +35,6 @@ enum {
     PN_COUNT
 };
 
-/* Every build: accumulated microseconds per phase (update, world OP,
-   karts, PT, TR), timed by main.c for the performance overlay; the
-   autotest's log line reads and zeroes them. */
-extern uint64_t prof_us[6];
-extern int prof_frames;
-
 #define PROF_SECTION_NAMES {"mats", "light", ENG_PROF_SECTION_NAMES, "dolphins", "chunks", "sky", "sea", "foam", "upd", \
     "world", "karts", "pt", "shadows", "tr", "u-input", "u-step", "u-camera", "u-audio", "u-other"}
 #define PROF_COUNT_NAMES {ENG_PROF_COUNT_NAMES, "lv"}

@@ -24,7 +24,6 @@ those defaults. Output is deterministic.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import sys
 from collections import defaultdict
@@ -34,6 +33,9 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
+import meshasm  # noqa: E402
+from meshasm import (check_mesh, index_rows, light_group_count, mesh_json, mesh_rows, pack,  # noqa: E402
+                     position_count, vert_rows, weld, write_json)
 from meshkit import (Geo, Paint, _orient, _pkey, box, ellipsoid, geosphere, lathe, lerp_rgb,  # noqa: E402
                      loft, merge, rgb, rot_x, rot_y, rot_z, tube, unit)
 
@@ -44,6 +46,8 @@ TRUCK_NAMES = ["RL_TRUCK_CASCADE", "RL_TRUCK_KESTREL"]
 CASCADE, KESTREL = 0, 1
 PART_NAMES = ["RL_PART_BODY", "RL_PART_WHEEL_L", "RL_PART_WHEEL_R", "RL_PART_AXLE"]
 BODY, WHEEL_L, WHEEL_R, AXLE = range(4)
+PAINT_NAMES = ["RL_PAINT_FIXED", "RL_PAINT_BODY", "RL_PAINT_ACCENT", "RL_PAINT_TRIM", "RL_PAINT_GLASS",
+               "RL_PAINT_HEADLIGHT", "RL_PAINT_TAILLIGHT", "RL_PAINT_AUX"]
 FIXED, S_BODY, S_ACCENT, S_TRIM, S_GLASS, S_HEAD, S_TAIL, S_AUX = range(8)
 
 BUDGET = {   # (lod, part) -> max triangles
@@ -1391,104 +1395,19 @@ KESTREL_INFO = {
 
 
 @dataclass
-class Mesh:
+class Mesh(meshasm.Mesh):
     truck: int
     part: int
     lod: int
-    verts: list     # (pos[3], nrm_i8[3], slot, argb)
-    indices: list
 
 
-def q8(n) -> tuple:
-    return tuple(int(max(-127, min(127, round(float(x) * 127.0)))) for x in n)
-
-
-def cluster_normals(g: Geo, tol_deg: float) -> dict:
-    """Per paint colour, merge vertex normals within tol_deg of each other (the
-    game lights each (normal, slot, colour) group once). Greedy over sorted
-    normals, then one pass moving each centre to its members' mean.
-    Returns {(slot, argb, q8 normal): q8 normal}."""
-    by_col: dict[tuple, set] = defaultdict(set)
-    for t in range(len(g.P)):
-        for k in range(3):
-            c = g.C[t][k]
-            by_col[(c.slot, c.argb)].add(q8(g.N[t][k]))
-    out = {}
-    for col in sorted(by_col):
-        r, gg, b = (col[1] >> 16) & 0xFF, (col[1] >> 8) & 0xFF, col[1] & 0xFF
-        dark = (0.299 * r + 0.587 * gg + 0.114 * b) / 255.0 < 0.25 and col[0] == FIXED
-        cos_t = math.cos(math.radians(tol_deg * (1.8 if dark else 1.0)))
-        ns = sorted(by_col[col])
-        vec = {n: unit(np.array(n, dtype=float)) for n in ns}
-        centres: list[np.ndarray] = []
-        assign = {}
-        for n in ns:
-            best, best_d = None, cos_t
-            for ci, c in enumerate(centres):
-                d = float(np.dot(vec[n], c))
-                if d >= best_d:
-                    best, best_d = ci, d
-            if best is None:
-                centres.append(vec[n])
-                best = len(centres) - 1
-            assign[n] = best
-        sums = [np.zeros(3) for _ in centres]
-        for n, ci in assign.items():
-            sums[ci] += vec[n]
-        cq = [q8(unit(s)) for s in sums]
-        for n, ci in assign.items():
-            out[col + (n,)] = cq[ci]
-    return out
-
-
-NORMAL_TOL = {0: 9.0, 1: 7.0, 2: 6.0}    # degrees, by lod
+NORMAL_TOL = {0: 9.0, 1: 7.0, 2: 6.0}    # degrees, by lod (see meshasm.cluster_normals)
 
 
 def build_mesh(truck, part, lod, g: Geo) -> Mesh:
-    verts, index, lookup = [], [], {}
-    snap = cluster_normals(g, NORMAL_TOL[lod])
-    for t in range(len(g.P)):
-        assert g.N[t] is not None, f"{TRUCK_NAMES[truck]} {PART_NAMES[part]} lod{lod}: triangle without normals"
-        for k in range(3):
-            p = g.P[t][k]
-            c = g.C[t][k]
-            ni = snap[(c.slot, c.argb, q8(g.N[t][k]))]
-            key = (_pkey(p), ni, c.argb, c.slot)
-            if key not in lookup:
-                lookup[key] = len(verts)
-                verts.append(([round(float(x), 5) + 0.0 for x in p], ni, c.slot, c.argb))
-            index.append(lookup[key])
-    # drop triangles that collapsed in welding
-    tris = [index[i:i + 3] for i in range(0, len(index), 3)]
-    tris = [t for t in tris if len(set(t)) == 3]
-    return Mesh(truck, part, lod, verts, [i for t in tris for i in t])
-
-
-def check_mesh(m: Mesh) -> None:
-    name = f"{TRUCK_NAMES[m.truck]} {PART_NAMES[m.part]} lod{m.lod}"
-    assert len(m.indices) % 3 == 0
-    assert len(m.verts) < 65536 and max(m.indices) < 65536
-    P = np.array([v[0] for v in m.verts])
-    Nq = np.array([v[1] for v in m.verts], dtype=float) / 127.0
-    for t in range(0, len(m.indices), 3):
-        a, b, c = m.indices[t:t + 3]
-        assert len({a, b, c}) == 3, f"{name}: repeated index in triangle {t // 3}"
-        fn = np.cross(P[b] - P[a], P[c] - P[a])
-        area = 0.5 * float(np.linalg.norm(fn))
-        assert area > 1e-7, f"{name}: degenerate triangle {t // 3} (area {area:g})"
-        mean_n = Nq[a] + Nq[b] + Nq[c]
-        assert float(np.dot(fn, mean_n)) > 0, f"{name}: triangle {t // 3} winding disagrees with its normals"
-    for v in m.verts:
-        assert 0 <= v[2] <= 7
-        assert (v[3] >> 24) == 0xFF
-
-
-def positions(m: Mesh) -> int:
-    return len({tuple(v[0]) for v in m.verts})
-
-
-def groups(m: Mesh) -> int:
-    return len({(v[1], v[2], v[3]) for v in m.verts})
+    name = f"{TRUCK_NAMES[truck]} {PART_NAMES[part]} lod{lod}"
+    verts, index = weld([g], name, digits=5, normal_tol=NORMAL_TOL[lod], drop_collapsed=True)
+    return Mesh(name, verts, index, truck, part, lod)
 
 
 TRUCKS = [(CASCADE, cascade_parts, CASCADE_INFO), (KESTREL, kestrel_parts, KESTREL_INFO)]
@@ -1501,7 +1420,7 @@ def assemble() -> list[Mesh]:
             parts = fn(lod)
             for part in sorted(parts):
                 m = build_mesh(truck, part, lod, parts[part])
-                check_mesh(m)
+                check_mesh(m, len(PAINT_NAMES))
                 meshes.append(m)
     return meshes
 
@@ -1516,7 +1435,7 @@ def report(meshes: list[Mesh]) -> list[str]:
                 continue
             nt = len(m.indices) // 3
             budget = BUDGET.get((m.lod, m.part))
-            npos, ngr = positions(m), groups(m)
+            npos, ngr = position_count(m), light_group_count(m)
             if m.lod == 0:
                 total_groups += ngr
             print(f"  lod{m.lod} {PART_NAMES[m.part]:<16} {nt:5d} tris (budget {budget}) {len(m.verts):5d} verts "
@@ -1545,37 +1464,25 @@ def truck_info(truck: int, meshes: list[Mesh], info: dict) -> dict:
 
 
 def cf(x: float) -> str:
-    s = f"{x:.5g}"
-    if "e" not in s and "." not in s:
-        s += ".0"
-    return s + "f"
+    return meshasm.cf(x, 5)
 
 
 def v3(p) -> str:
-    return "{ " + ", ".join(cf(float(x)) for x in p) + " }"
+    return meshasm.cf3(p, 5)
 
 
 def write_header(meshes: list[Mesh], infos: list[dict], path: Path) -> None:
-    verts, indices, descs = [], [], []
-    for m in meshes:
-        descs.append((len(verts), len(m.verts), len(indices), len(m.indices), m.truck, m.part, m.lod, 0))
-        verts += m.verts
-        indices += m.indices
+    verts, indices, descs = pack(meshes)
     assert len(verts) < 65536 and len(indices) < 65536 * 4
     assert all(d[0] < 65536 and d[2] < 65536 for d in descs), "mesh offsets overflow uint16"
     out = [
-        "/* Generated by tools/build_trucks.py. Do not edit. */",
-        "#ifndef RL_TRUCKS_H",
-        "#define RL_TRUCKS_H",
-        "#include <stdint.h>",
         "typedef struct { float x, y, z; int8_t nx, ny, nz; uint8_t paint; uint32_t argb; } rl_mvert_t;   "
         "/* normal * 127 */",
         "typedef struct { uint16_t first_vert, vert_count, first_index, index_count; uint8_t truck, part, lod, "
         "flags; } rl_mesh_t;",
-        "enum { RL_TRUCK_CASCADE, RL_TRUCK_KESTREL, RL_TRUCK_COUNT };",
-        "enum { RL_PART_BODY, RL_PART_WHEEL_L, RL_PART_WHEEL_R, RL_PART_AXLE, RL_PART_COUNT };",
-        "enum { RL_PAINT_FIXED, RL_PAINT_BODY, RL_PAINT_ACCENT, RL_PAINT_TRIM, RL_PAINT_GLASS, RL_PAINT_HEADLIGHT, "
-        "RL_PAINT_TAILLIGHT, RL_PAINT_AUX, RL_PAINT_COUNT };",
+        "enum { " + ", ".join(TRUCK_NAMES) + ", RL_TRUCK_COUNT };",
+        "enum { " + ", ".join(PART_NAMES) + ", RL_PART_COUNT };",
+        "enum { " + ", ".join(PAINT_NAMES) + ", RL_PAINT_COUNT };",
         "#define RL_LIVERIES 4",
         "typedef struct {",
         "    const char *name;                 /* \"CASCADE 84\", \"KESTREL\" */",
@@ -1618,26 +1525,20 @@ def write_header(meshes: list[Mesh], infos: list[dict], path: Path) -> None:
     out.append(f"#define RL_TRUCK_INDEX_COUNT {len(indices)}")
     out.append(f"#define RL_TRUCK_MESH_COUNT {len(descs)}")
     out.append("static const rl_mvert_t rl_truck_verts[RL_TRUCK_VERT_COUNT] = {")
-    for p, n, slot, argb in verts:
-        out.append(f"    {{ {cf(p[0])}, {cf(p[1])}, {cf(p[2])}, {n[0]}, {n[1]}, {n[2]}, {slot}, 0x{argb:08X}u }},")
+    out += vert_rows(verts, sig=5)
     out.append("};")
     out.append("static const uint16_t rl_truck_indices[RL_TRUCK_INDEX_COUNT] = {   /* per mesh, relative to its "
                "first_vert */")
-    for i in range(0, len(indices), 20):
-        out.append("    " + ", ".join(str(x) for x in indices[i:i + 20]) + ",")
+    out += index_rows(indices, 20)
     out.append("};")
     out.append("static const rl_mesh_t rl_truck_meshes[RL_TRUCK_MESH_COUNT] = {     /* flags: 0 */")
-    for d in descs:
-        out.append(f"    {{ {d[0]}, {d[1]}, {d[2]}, {d[3]}, {TRUCK_NAMES[d[4]]}, {PART_NAMES[d[5]]}, "
-                   f"{d[6]}, {d[7]} }},")
+    out += mesh_rows(descs, lambda m: f"{TRUCK_NAMES[m.truck]}, {PART_NAMES[m.part]}, {m.lod}, 0")
     out.append("};")
-    out.append("#endif")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(out) + "\n")
+    meshasm.write_header(path, "tools/build_trucks.py", "RL_TRUCKS_H", out)
 
 
 def write_preview_json(meshes: list[Mesh], infos: list[dict], path: Path) -> None:
-    data = {
+    write_json(path, {
         "trucks": [{
             "name": info["name"],
             "wheel_pos": [list(map(float, p)) for p in info["wheel_pos"]],
@@ -1648,17 +1549,8 @@ def write_preview_json(meshes: list[Mesh], infos: list[dict], path: Path) -> Non
             "exhaust": list(map(float, info["exhaust"])),
             "driver_eye": list(map(float, info["driver_eye"])),
         } for info in infos],
-        "meshes": [{
-            "truck": m.truck, "part": m.part, "lod": m.lod,
-            "pos": [v[0] for v in m.verts],
-            "nrm": [[c / 127.0 for c in v[1]] for v in m.verts],
-            "slot": [v[2] for v in m.verts],
-            "argb": [v[3] for v in m.verts],
-            "idx": m.indices,
-        } for m in meshes],
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data))
+        "meshes": [{"truck": m.truck, "part": m.part, "lod": m.lod, **mesh_json(m)} for m in meshes],
+    })
 
 
 def main() -> None:

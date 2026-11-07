@@ -18,6 +18,7 @@
    tuned for range and doppler. */
 #include "biplane.h"
 #include "audio.h"
+#include "engine/sfx.h"
 #include "biplane_mesh.h"
 #include "kart.h"
 #include "engine/render.h"
@@ -312,11 +313,10 @@ void biplane_audio(bool on) {
         audio_plane(0, 128, 1.0f);
         return;
     }
-    const Camera *c = &game.pl[0].cam;
-    V3 rel = vsub(sh->pos, c->pos);
+    int pan;
+    sfx_listen(sh->pos, &game.pl[0].cam, 90.0f, &pan);
     float fade = smoothstep01(sh->t / 0.4f) * (1.0f - smoothstep01((sh->t - (SHOW_LEN - FADE_T)) / FADE_T));
     int vol = (int)(235.0f * clampf(16.0f / (sh->range + 6.0f), 0, 1) * fade);
-    int pan = (int)clampf(128.0f + vdot(vnorm(rel), c->right) * 90.0f, 0, 255);
     /* Doppler, overdone a little so it reads. */
     audio_plane(vol, pan, 340.0f / fmaxf(340.0f - 1.6f * sh->closing, 200.0f));
 }

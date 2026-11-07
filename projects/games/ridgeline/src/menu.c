@@ -145,8 +145,7 @@ static void select_scene(float dt) {
     truck_update(t, dt);
     float a = game.time * 0.25f + 0.9f;
     V3 c = t->pos;
-    V3 p = v3(c.x + sinf(a) * 7.5f, c.y + 1.4f, c.z + cosf(a) * 7.5f);
-    camera_set(p, vadd(c, v3(0, 0.1f, 0)), 1.1f);
+    camera_set(orbit_point(c, a, 7.5f, 1.4f), vadd(c, v3(0, 0.1f, 0)), 1.1f);
 }
 
 void menu_select_update(float dt) {

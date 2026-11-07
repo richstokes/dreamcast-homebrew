@@ -13,6 +13,7 @@
 #ifndef ENG_SFX_H
 #define ENG_SFX_H
 
+#include "vecmath.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -25,6 +26,10 @@ bool sfx_ready(void);
 /* One-shot: volume 0-255, pan 0 (left) - 128 - 255 (right), playback
    rate relative to the effect's own. */
 void sfx_play(int id, int vol, int pan, float rate);
+/* Where a sound at p sits for a listener at camera c: returns its
+   distance and sets the pan, 128 plus width per unit of the camera's
+   right (clamped to 0-255). The gain curve is the game's. */
+float sfx_listen(V3 p, const Camera *c, float width, int *pan);
 
 typedef struct {
     int channel;        /* -1: not started */

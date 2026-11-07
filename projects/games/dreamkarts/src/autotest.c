@@ -4,6 +4,7 @@
    own -D flags (README), so a release build has none of it; main.c calls
    in from its frame loop and race step. */
 #include "autotest.h"
+#include "engine/qa.h"
 #include "audio.h"
 #include "biplane.h"
 #include "dolphins.h"
@@ -40,9 +41,8 @@ static struct {
     float log_t;
     bool done;
     bool gp_done, gp_fail;   /* Grand Prix: verdict printed, a race failed */
-    int win_frames, win_missed, frames, missed;
-    int win_multi, win_zero, multi, zero;   /* frames that ran 2+ or 0 physics steps */
-    float win_cpu_max, rnd_max_ms;
+    QaWindow win;                /* this log window (engine/qa.h) */
+    int frames, missed, multi, zero;   /* the run: frames, dropped vblanks, frames that ran 2+ or 0 steps */
     size_t vtx_max;
     /* The drawn karts against the road as drawn: the deepest any tyre was
        drawn under it, and kart-frames by depth (clear, under 1, 2, 5,
@@ -84,11 +84,12 @@ void take_shot(const char *name) {
         b = (const uint8_t *)n;
         for(size_t i = 0; i < sizeof(n); i++) h = (h ^ b[i]) * 16777619u;
     }
-    printf("DK SHOT %s\nDK STATE %s karts=%08lx rand=%08lx t=%.4f\n", name, name, (unsigned long)h,
+    qa_shot("%s", name);
+    printf("DK STATE %s karts=%08lx rand=%08lx t=%.4f\n", name, (unsigned long)h,
            (unsigned long)eng_rand_peek(), (double)game.time);
     at_hold = 150;
 #else
-    printf("DK SHOT %s\n", name);
+    qa_shot("%s", name);
 #endif
 #endif
 }
@@ -768,25 +769,13 @@ void at_frame(float dt_real, float vbl_dt, int steps) {
         at_skip--;
     }
     else {
-        at.win_frames++;
+        float rnd = qa_window_frame(&at.win, dt_real, steps, game.cpu_ms);
         at.frames++;
-        if(dt_real > 1.5f / 60.0f) {
-            at.win_missed++;
-            at.missed++;
-        }
-        if(steps >= 2) {
-            at.win_multi++;
-            at.multi++;
-        }
-        else if(steps == 0) {
-            at.win_zero++;
-            at.zero++;
-        }
-        if(game.cpu_ms > at.win_cpu_max) at.win_cpu_max = game.cpu_ms;
-        pvr_stats_t ps;
-        if(pvr_get_stats(&ps) == 0 && ps.rnd_last_time < 100000000ull) {
-            float rnd = (float)ps.rnd_last_time * 1e-6f;
-            if(rnd > at.rnd_max_ms) at.rnd_max_ms = rnd;
+        if(dt_real > 1.5f / 60.0f) at.missed++;
+        if(steps >= 2) at.multi++;
+        else if(steps == 0) at.zero++;
+        if(at.win.vtx_max > at.vtx_max) at.vtx_max = at.win.vtx_max;
+        {
 #ifdef DK_AT_PVRSPIKE
             /* Where a slow render happens, at most one line in 4 s
                (each printf under dcload stalls the console). */
@@ -798,7 +787,7 @@ void at_frame(float dt_real, float vbl_dt, int steps) {
                        rstats.tris, rstats.verts);
             }
 #endif
-            if(ps.vtx_buffer_used_max > at.vtx_max) at.vtx_max = ps.vtx_buffer_used_max;
+            (void)rnd;
         }
         if(game.state == ST_RACE || game.state == ST_RESULTS) {
             at.cpu_sum += game.cpu_ms;
@@ -827,15 +816,15 @@ void at_frame(float dt_real, float vbl_dt, int steps) {
     at.log_t += dt_real;
     if(at.log_t >= AT_LOG_SECS) {
         at.log_t = 0;
-        float f = prof_frames ? 1.0f / (prof_frames * 1000.0f) : 0;
+        float f = prof_phase_frames ? 1.0f / (prof_phase_frames * 1000.0f) : 0;
         printf("DK AT %s t=%.1f fps=%.1f missed=%d/%d multi=%d zero=%d step=%.3fms cpu=%.2fms max=%.2fms "
                "[upd %.2f world %.2f karts %.2f pt %.2f tr %.2f] pvr=%.2fms tris=%d lap=%d place=%d spd=%.1f "
                "drift=%d stage=%d\n",
-               state_names[game.state], (double)game.race_time, (double)game.fps, at.win_missed,
-               at.win_frames, at.win_multi, at.win_zero, (double)(vbl_dt * 1000.0f), (double)game.cpu_ms,
-               (double)at.win_cpu_max, (double)(prof_us[0] * f),
-               (double)(prof_us[1] * f), (double)(prof_us[2] * f), (double)(prof_us[3] * f),
-               (double)(prof_us[4] * f), (double)at.rnd_max_ms, rstats.tris, p->lap, p->place,
+               state_names[game.state], (double)game.race_time, (double)game.fps, at.win.missed,
+               at.win.frames, at.win.multi, at.win.zero, (double)(vbl_dt * 1000.0f), (double)game.cpu_ms,
+               (double)at.win.cpu_max, (double)(prof_phase_us[0] * f),
+               (double)(prof_phase_us[1] * f), (double)(prof_phase_us[2] * f), (double)(prof_phase_us[3] * f),
+               (double)(prof_phase_us[4] * f), (double)at.win.rnd_max, rstats.tris, p->lap, p->place,
                (double)p->speed, p->drift, p->stage);
 #ifdef ENG_PROF
         prof_print();
@@ -847,10 +836,8 @@ void at_frame(float dt_real, float vbl_dt, int steps) {
                    (unsigned long)xf_mismatch);
         }
 #endif
-        memset(prof_us, 0, sizeof(prof_us));
-        prof_frames = 0;
-        at.win_frames = at.win_missed = at.win_multi = at.win_zero = 0;
-        at.win_cpu_max = at.rnd_max_ms = 0;
+        prof_phase_reset();
+        qa_window_reset(&at.win);
         at_skip = 2;
     }
 #ifdef DK_AT_GP
@@ -1062,7 +1049,7 @@ static void tour_shot(const char *name, V3 pos, V3 look) {
         pvr_wait_ready();
         world_update(DK_DT);
         game_render();
-        if(f == 12) printf("DK SHOT %s\n", name);
+        if(f == 12) qa_shot("%s", name);
         if(f == 11) printf("DK SHOTSTATS %s tris=%d verts=%d\n", name, rstats.tris, rstats.verts);
 #ifdef DK_CHUNK_STATS
         {
@@ -1267,7 +1254,7 @@ void camera_tour(void) {
             for(int f = 0; f < 150; f++) {   /* 2.5 s: capture.py's screenshots fall behind at less on a busy Mac */
                 pvr_wait_ready();
                 game_render();
-                if(f == 20) printf("DK SHOT tv-%d-%02d\n", tr, i + 1);
+                if(f == 20) qa_shot("tv-%d-%02d", tr, i + 1);
             }
         }
     }

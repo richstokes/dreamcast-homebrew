@@ -633,12 +633,9 @@ void audio_kart_events(const Kart *k, bool is_player) {
     if(!ev) return;
     int vol = 255, pan = 128;
     if(!is_player) {
-        V3 d = vsub(k->pos, r_cam.pos);
-        float dist = vlen(d);
+        float dist = sfx_listen(k->pos, &r_cam, 100.0f, &pan);
         if(dist > 60.0f) return;
         vol = (int)(200.0f * clampf(1.0f - dist / 60.0f, 0, 1));
-        float side = vdot(vnorm(d), r_cam.right);
-        pan = (int)clampf(128.0f + side * 100.0f, 0, 255);
         /* Rivals only make the big noises, and say hi when they wave. */
         ev &= EV_BOOST | EV_DASH | EV_WALL | EV_KART_BUMP | EV_WAVE | EV_FALL | EV_ITEM_GET | EV_SPEAR | EV_SPIN |
               EV_SHIELD_UP | EV_SHIELD_POP | EV_MINE | EV_MINE_HIT;
