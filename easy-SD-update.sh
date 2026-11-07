@@ -6,7 +6,8 @@
 # folder's name.txt, and swaps any disc.cdi that belongs to a project here
 # for the latest build from the rolling "continuous" GitHub release. Folders
 # stay where they are, so openMenu's list needs no rebuild. Everything else
-# on the card is left alone. macOS only.
+# on the card is left alone, and the card is ejected after an update.
+# macOS only.
 #
 #   ./easy-SD-update.sh                 find the card, show the plan, ask, update
 #   ./easy-SD-update.sh -n              show what would change and stop
@@ -27,7 +28,7 @@ Updates this repo's homebrew discs on a GDEMU/openMenu SD card to the
 latest builds from https://github.com/$REPO/releases/tag/continuous
 
   -n        dry run: show what would be updated, change nothing
-  -y        don't ask before updating or ejecting
+  -y        don't ask before updating
   -j JOBS   discs to download and copy at once (default 4)
   -h        show this help
 
@@ -246,9 +247,8 @@ if [ "$failed" -ne 0 ]; then
     echo "Some discs didn't update; run the script again to retry them."
     exit 1
 fi
-echo "Done."
-if { [ "$interactive" -eq 1 ] && ask "Eject $card now?"; } || [ "$assume_yes" -eq 1 ]; then
-    diskutil eject "$card" >/dev/null && echo "Ejected; safe to remove the card."
+if diskutil eject "$card" >/dev/null 2>&1; then
+    echo "Done. Card ejected; safe to remove."
 else
-    echo "Eject the card before removing it."
+    echo "Done, but $card couldn't be ejected (is a window or app using it?). Eject it before removing it."
 fi
