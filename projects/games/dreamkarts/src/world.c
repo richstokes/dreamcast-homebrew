@@ -1014,13 +1014,16 @@ bool world_solid(V3 p, float margin) {
     return world_canyon && dr_in_rock(p, margin);
 }
 
-/* True when nothing solid stands between a and b (world_solid). */
+/* True when nothing solid stands between a and b (world_solid). On Bay
+   City Hills the hills count too: the ground hugs the road, so a crest
+   hides what is climbing up the far side of it. */
 bool world_sight_clear(V3 a, V3 b) {
     if(world_tk) return tk_sight_clear(a, b);
     if(!world_canyon && !world_lot && !world_sf) return true;
     int steps = (int)(vlen(vsub(b, a)) / 2.0f);
     for(int i = 1; i < steps; i++) {
         V3 p = vlerp(a, b, (float)i / steps);
+        if(world_sf && p.y < sf_terrain(p.x, p.z) - 0.3f) return false;
         if(world_lot ? roam_solid(p, 0.3f) : world_sf ? sf_in_solid(p, 0.3f) : dr_in_rock(p, 0.3f)) return false;
     }
     return true;

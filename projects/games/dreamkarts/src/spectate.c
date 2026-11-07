@@ -604,6 +604,8 @@ static void heli_shot(Camera *cam, const Kart *k, float dt) {
     heli_a += dt * 0.16f;
     float a = k->heading + DK_PI + sinf(heli_a) * 0.9f;
     V3 pos = vadd(k->pos, v3(sinf(a) * 24.0f, 15.0f, cosf(a) * 24.0f));
+    /* Over the rooftops rather than through them (frame eases the climb). */
+    for(int i = 0; i < 8 && world_solid(pos, 1.0f); i++) pos.y += 4.0f;
     V3 look = vmad(k->pos, heading_fwd(k->heading), 5.0f);
     frame(cam, pos, look, 0.95f, 1.6f, 4.0f, dt);
 }
