@@ -66,6 +66,13 @@ static const float tour_views[][6] = {
     {-10, 125, 30, 30, 165, 140},       /* the high meadow and the lake */
     {60, 175, 120, -100, 60, -300},     /* from near the summit, down to the meadow */
     {-60, 30, -200, 60, 10, -100},      /* toward the sun across the meadow */
+    {224, 38, 20, 238, 32, 32},         /* the washout on the logging road */
+    {195, 63, 82, 192, 58, 101},        /* the log bridge, coming up the road */
+    {138, 31, -96, 152, 42, -50},       /* up the shortcut */
+    {-112, 8, -268, -130, 3, -250},     /* the boulder field */
+    {-50, 4, -212, -95, 3, -221},       /* across the deep ford to the stone arch */
+    {255, 8.5f, -116, 249, 6, -121},    /* the old pickup in the woods */
+    {7, 101.5f, 91, -2, 98.5f, 86},     /* the high camp */
 };
 #define TOUR_N (int)(sizeof(tour_views) / sizeof(tour_views[0]))
 

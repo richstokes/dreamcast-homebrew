@@ -633,6 +633,200 @@ def place_trees(h, water, routes, surf, rng, spheres, capsules, boxes):
 
 
 # ---------------------------------------------------------------------------
+# Set pieces and things to find, added once the trees are placed so the
+# seeded placement before them stays as it was. Each takes out the trees
+# in its way; every tree's height is read again from the final ground.
+
+PROP = {n: i for i, n in enumerate(["CABIN", "SIGN", "TABLE", "CAIRN", "TOWER", "BRIDGE", "WRECK", "ARCH", "TENT"])}
+BRIDGE_HX, BRIDGE_HZ = 2.9, 7.0     # deck half width and half length (world.c draws the same)
+
+
+def frame(r, k):
+    """Point k of route r with its unit tangent and right-hand normal."""
+    pts = r["pts"]
+    tg = pts[min(len(pts) - 1, k + 2)] - pts[max(0, k - 2)]
+    tg = tg / (np.linalg.norm(tg) + 1e-9)
+    return pts[k], tg, np.array([tg[1], -tg[0]])
+
+
+def find_spot(h, water, avoid_pts, near, radius, min_route=26.0, max_slope=12.0):
+    """The gentlest dry spot within radius of near, well off every route."""
+    sl = slope_deg(h)
+    tree = cKDTree(avoid_pts)
+    best, best_score = None, 1e9
+    for dz in np.arange(-radius, radius + 1, 3.0):
+        for dx in np.arange(-radius, radius + 1, 3.0):
+            p = near + np.array([dx, dz])
+            if abs(p[0]) > 290 or abs(p[1]) > 290:
+                continue
+            g = to_grid(p)
+            i, j = int(round(g[0])), int(round(g[1]))
+            if water[max(0, j - 3):j + 4, max(0, i - 3):i + 4].max() > -999:
+                continue
+            slope = float(sl[max(0, j - 2):j + 3, max(0, i - 2):i + 3].max())
+            if slope > max_slope or tree.query(p)[0] < min_route:
+                continue
+            score = np.hypot(dx, dz) + slope * 2.0
+            if score < best_score:
+                best, best_score = p, score
+    return best
+
+
+def clear_trees(trees, p, r):
+    trees[:] = [t for t in trees if np.hypot(t[0] - p[0], t[2] - p[1]) > r]
+
+
+def set_pieces(h, water, surf, routes, trees, spheres, capsules, boxes, prop_boxes, rng):
+    """Returns (props, views, tracks): props as (x, z, yaw, kind, y or None
+    for the ground), views as (x, z, name), extra map tracks. Rock ledges go
+    in boxes, props' collision boxes in prop_boxes."""
+    props, views, tracks = [], [], []
+    log = routes[1]
+    flat = np.stack([X.ravel(), Z.ravel()], axis=1)
+
+    def band(c, tg, nm):
+        d = flat - c
+        return (d @ tg).reshape(N, N), (d @ nm).reshape(N, N)
+
+    def keep_roads(k_here, span=25):
+        """1 away from roads, 0 on any road but the stretch around
+        log["pts"][k_here]: a gully meant for one crossing must not cut a
+        switchback's other leg."""
+        pts = [r["pts"] for r in routes if r is not log] + [log["pts"][:max(0, k_here - span)],
+                                                             log["pts"][k_here + span:]]
+        pts = np.vstack([q for q in pts if len(q)])
+        d = cKDTree(pts).query(flat)[0].reshape(N, N)
+        return smoothstep(5.0, 11.0, d)
+
+    # A washout across the logging road: a muddy gully with a trickle in it.
+    c, tg, nm = frame(log, 300)
+    u, v = band(c, tg, nm)
+    W, D = 4.5, 1.15
+    prof = np.where(np.abs(u) < W, np.cos(np.pi * u / (2 * W)) ** 2, 0.0) * smoothstep(17, 10, np.abs(v)) * keep_roads(300)
+    h -= D * prof
+    trickle = (np.abs(u) < 1.0) & (np.abs(v) < 14) & (prof > 0.5)
+    water[trickle] = np.maximum(water[trickle], h[trickle] + 0.18)
+    surf[(np.abs(u) < 2.6) & (np.abs(v) < 9) & (prof > 0.2)] = S["MUD"]
+    clear_trees(trees, c, 10)
+
+    # A ravine further up, crossed on a log bridge.
+    c, tg, nm = frame(log, 820)
+    y0 = float(log["y"][820])
+    u, v = band(c, tg, nm)
+    W, D = 5.2, 3.4
+    prof = np.clip(1 - np.abs(u) / W, 0, 1) ** 0.7 * smoothstep(34, 24, np.abs(v)) * keep_roads(820)
+    h[:] = np.minimum(h, h - D * prof)
+    creek = (np.abs(u) < 1.4) & (np.abs(v) < 30) & (prof > 0.5)
+    water[creek] = np.maximum(water[creek], h[creek] + 0.35)
+    surf[(np.abs(u) < 3.5) & (np.abs(v) < 30) & (prof > 0.2)] = S["WETROCK"]
+    yaw = math.atan2(tg[0], tg[1])
+    prop_boxes.append((c[0], y0 + 0.06 - 0.15, c[1], BRIDGE_HX, 0.15, BRIDGE_HZ, yaw))
+    for side in (-1, 1):
+        e = c + nm * side * (BRIDGE_HX - 0.15)
+        a, b = e - tg * BRIDGE_HZ, e + tg * BRIDGE_HZ
+        capsules.append((a[0], y0 + 0.3, a[1], b[0], y0 + 0.3, b[1], 0.14))
+    props.append((c[0], c[1], yaw, PROP["BRIDGE"], y0 + 0.06))
+    clear_trees(trees, c, 12)
+
+    # The shortcut: a steep rocky track from the road's first long leg
+    # straight up to where it comes back round, ~480 m of road saved.
+    a_k, b_k = 148, 680
+    pa, pb = log["pts"][a_k], log["pts"][b_k]
+    # Bent off the straight line so it climbs at about a third, not 40%.
+    mid = (pa + pb) / 2 + np.array([-(pb - pa)[1], (pb - pa)[0]]) * 0.32
+    pts = resample(smooth_path(np.array([pa, mid, pb]), 3), 1.0)
+    ya, yb = float(log["y"][a_k]), float(log["y"][b_k])
+    s_ = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+    t = s_ / s_[-1]
+    ease = 5.0 / s_[-1]     # level off over the last few metres at each end
+    y = ya + (yb - ya) * np.interp(t, [0, ease, 1 - ease, 1], [0, ease * 0.5, 1 - ease * 0.5, 1])
+    sc = {"pts": pts, "y": y, "half": 2.3}
+    carve_route(h, pts, y, np.full(len(pts), 2.3))
+    near = cKDTree(pts).query(flat)[0].reshape(N, N) < 3.2
+    surf[near] = np.where(slope_deg(h)[near] > 22, S["ROCK"], S["DIRT"])
+    for k in (len(pts) // 3, 2 * len(pts) // 3):
+        boxes.append(ledge(sc, k, 0.22, 2.9, rng))
+    for k in range(10, len(pts) - 10, 9):
+        p_, tg_, nm_ = frame(sc, k)
+        q = p_ + nm_ * rng.choice([-1, 1]) * (2.6 + rng.random())
+        rr = 0.4 + rng.random() * 0.5
+        spheres.append((q[0], float(sample(h, q)[0]) - rr * 0.3, q[1], rr))
+    for k in range(len(pts)):
+        clear_trees(trees, pts[k], 6.5) if k % 3 == 0 else None
+    p_, tg_, nm_ = frame(sc, 4)
+    props.append(tuple(p_ + nm_ * 4.0) + (math.atan2(tg_[0], tg_[1]), PROP["SIGN"], None))
+    tracks.append(pts)
+    sg = round(float(np.max(np.abs(np.diff(y)) / np.maximum(np.linalg.norm(np.diff(pts, axis=0), axis=1), 1e-3))) * 100)
+    print(f"  shortcut {s_[-1]:.0f} m, climbs {yb - ya:.1f} m, steepest {sg}%")
+
+    all_pts = np.vstack([r["pts"] for r in routes] + [pts])
+
+    # A boulder field on a rise in the meadow's west, a cairn on top.
+    g = find_spot(h, water, all_pts, np.array([-130.0, -250.0]), 30, max_slope=10)
+    d = np.hypot(X - g[0], Z - g[1])
+    h += 2.4 * smoothstep(20, 4, d)
+    surf[d < 15] = S["ROCK"]
+    for _ in range(46):
+        q = g + rng.normal(0, 6.0, 2)
+        if np.hypot(*(q - g)) < 2.2:
+            continue
+        rr = 0.45 + rng.random() * 0.85
+        spheres.append((q[0], float(sample(h, q)[0]) - rr * 0.4, q[1], rr))
+    clear_trees(trees, g, 24)
+    props.append((g[0], g[1], 0.0, PROP["CAIRN"], None))
+    views.append((g[0], g[1], "BOULDER FIELD"))
+
+    # A deep ford on the creek, away from the creek bed route, with the
+    # stone arch on the far bank to cross for.
+    creek_pts = resample(CREEK, 1.0)
+    cr = cKDTree(routes[3]["pts"])
+    far = [p_ for p_ in creek_pts[len(creek_pts) // 2:] if cr.query(p_)[0] > 40 and water[tuple(np.round(to_grid(p_)[::-1]).astype(int))] > -999]
+    f = far[len(far) // 2]
+    d = np.hypot(X - f[0], Z - f[1])
+    pool = (d < 7) & (water > -999)
+    h[pool] -= 0.3 * smoothstep(7, 3, d[pool])
+    k = int(np.argmin(np.linalg.norm(creek_pts - f, axis=1)))
+    ctg = creek_pts[min(k + 3, len(creek_pts) - 1)] - creek_pts[max(k - 3, 0)]
+    ctg /= np.linalg.norm(ctg)
+    cnm = np.array([ctg[1], -ctg[0]])
+    east = cnm if cnm[0] > 0 else -cnm
+    sign_p = f + east * 9.0
+    props.append((sign_p[0], sign_p[1], math.atan2(east[0], east[1]), PROP["SIGN"], None))
+    arch = find_spot(h, water, all_pts, f - east * 34, 16, max_slope=11)
+    ayaw = math.atan2(east[0], east[1])
+    for side in (-1, 1):
+        q = arch + np.array([math.cos(ayaw), -math.sin(ayaw)]) * side * 3.4
+        gq = float(sample(h, q)[0])
+        prop_boxes.append((q[0], gq + 2.0, q[1], 0.8, 2.0, 1.0, ayaw))
+    props.append((arch[0], arch[1], ayaw, PROP["ARCH"], None))
+    clear_trees(trees, arch, 12)
+    views.append((arch[0], arch[1], "STONE ARCH"))
+    print(f"  ford at {f[0]:.0f},{f[1]:.0f}, arch at {arch[0]:.0f},{arch[1]:.0f}")
+
+    # An old pickup left in the woods east of the logging road.
+    wk = find_spot(h, water, all_pts, np.array([250.0, -120.0]), 40, min_route=30)
+    wyaw = rng.uniform(0, 2 * math.pi)
+    prop_boxes.append((wk[0], float(sample(h, wk)[0]) + 0.9, wk[1], 0.9, 0.9, 2.2, wyaw))
+    props.append((wk[0], wk[1], wyaw, PROP["WRECK"], None))
+    clear_trees(trees, wk, 10)
+    views.append((wk[0], wk[1], "OLD TIMER"))
+
+    # A camp up past the lake: a tent, a fire ring, logs to sit on.
+    cp = find_spot(h, water, all_pts, np.array([-60.0, 100.0]), 60, min_route=20, max_slope=14)
+    cyaw = rng.uniform(0, 2 * math.pi)
+    props.append((cp[0], cp[1], cyaw, PROP["TENT"], None))
+    for side in (-1, 1):
+        q = cp + np.array([math.sin(cyaw), math.cos(cyaw)]) * 4.0 + np.array([math.cos(cyaw), -math.sin(cyaw)]) * side * 1.6
+        gq = float(sample(h, q)[0])
+        dx, dz = math.sin(cyaw) * 0.9, math.cos(cyaw) * 0.9
+        capsules.append((q[0] - dx, gq + 0.18, q[1] - dz, q[0] + dx, gq + 0.18, q[1] + dz, 0.18))
+    clear_trees(trees, cp, 9)
+    views.append((cp[0], cp[1], "HIGH CAMP"))
+    print(f"  boulder field {g[0]:.0f},{g[1]:.0f}, wreck {wk[0]:.0f},{wk[1]:.0f}, camp {cp[0]:.0f},{cp[1]:.0f}")
+    return props, views, tracks
+
+
+# ---------------------------------------------------------------------------
 # Surfaces and colours
 
 def surfaces(h, water, routes, mud_mask):
@@ -723,7 +917,7 @@ def colours(h, water, surf):
 # ---------------------------------------------------------------------------
 # Output
 
-def write_header(path, routes, spheres, capsules, boxes, trees, props, views, spawns, lake_level, summit_y, start_y):
+def write_header(path, routes, spheres, capsules, boxes, rock_boxes, trees, props, views, spawns, lake_level, summit_y, start_y):
     L = []
     w = L.append
     w("/* Generated by tools/build_level.py. Do not edit. */")
@@ -767,6 +961,8 @@ def write_header(path, routes, spheres, capsules, boxes, trees, props, views, sp
     for c in capsules:
         w("    {" + ", ".join(f"{v:.2f}f" for v in c) + "},")
     w("};")
+    w("/* The first LVL_ROCK_BOXES are rock ledges, drawn as rock; the rest are props' (a cabin, a bridge deck). */")
+    w(f"#define LVL_ROCK_BOXES {rock_boxes}")
     w(f"#define LVL_BOXES {len(boxes)}\nstatic const lvl_box_t lvl_boxes[LVL_BOXES] = {{")
     for b in boxes:
         w("    {" + ", ".join(f"{v:.3f}f" for v in b) + "},")
@@ -777,7 +973,8 @@ def write_header(path, routes, spheres, capsules, boxes, trees, props, views, sp
     for t in trees:
         w(f"    {{{t[0]:.1f}f, {t[1]:.2f}f, {t[2]:.1f}f, {t[3]}, {{0}}, {t[4]:.2f}f, {t[5]:.2f}f}},")
     w("};\n")
-    w("enum { PROP_CABIN, PROP_SIGN, PROP_TABLE, PROP_CAIRN, PROP_TOWER, PROP_KIND_COUNT };")
+    w("enum { " + ", ".join(f"PROP_{n}" for n in PROP) + ", PROP_KIND_COUNT };")
+    w(f"#define LVL_BRIDGE_HX {BRIDGE_HX:.2f}f\n#define LVL_BRIDGE_HZ {BRIDGE_HZ:.2f}f")
     w("typedef struct { float x, y, z, yaw; uint8_t kind; uint8_t pad[3]; } lvl_prop_t;")
     w(f"#define LVL_PROPS {len(props)}\nstatic const lvl_prop_t lvl_props[LVL_PROPS] = {{")
     for p in props:
@@ -825,7 +1022,7 @@ def preview_image(rgb, water, routes, spheres, capsules, boxes, trees, views, pa
     img.save(path)
 
 
-def minimap(rgb, water, routes, path):
+def minimap(rgb, water, routes, tracks, path):
     """256 x 256: the terrain's colours, lightened like a park map, with the
     routes drawn on."""
     img = Image.fromarray(np.flipud(rgb.astype(np.uint8)), "RGB").resize((512, 512), Image.LANCZOS)
@@ -839,6 +1036,8 @@ def minimap(rgb, water, routes, path):
     for r in routes:
         d.line([px(p[0], p[1]) for p in r["pts"][::3]], fill=(90, 50, 30), width=6)
         d.line([px(p[0], p[1]) for p in r["pts"][::3]], fill=(250, 240, 210), width=2)
+    for t in tracks:
+        d.line([px(p[0], p[1]) for p in t[::3]], fill=(110, 70, 40), width=3)
     img = img.resize((256, 256), Image.LANCZOS)
     img.save(path)
 
@@ -884,6 +1083,13 @@ def main():
     water[water < h + 0.05] = -1000.0
     surf = surfaces(h, water, routes, mud_mask)
     trees = place_trees(h, water, routes, surf, rng, spheres, capsules, boxes)
+    prop_boxes = []
+    extra_props, extra_views, tracks = set_pieces(h, water, surf, routes, trees, spheres, capsules, boxes, prop_boxes,
+                                                  np.random.default_rng(77))
+    rock_boxes = len(boxes)
+    boxes += prop_boxes
+    water[water < h + 0.05] = -1000.0
+    trees = [(t[0], float(sample(h, np.array([t[0], t[2]]))[0]), t[2], t[3], t[4], t[5]) for t in trees]
     argb, rgb = colours(h, water, surf)
 
     def gy(x, z):
@@ -897,6 +1103,8 @@ def main():
     boxes.append((-28.0, gy(-28, -292) + 1.6, -292.0, 4.2, 1.8, 3.2, 0.3))   # the cabin
     summit_y = gy(PEAK[0], PEAK[1])
     props.append((PEAK[0], summit_y, PEAK[1], 0.2, 4))
+    for (px_, pz_, yaw_, kind_, y_) in extra_props:
+        props.append((px_, gy(px_, pz_) if y_ is None else y_, pz_, yaw_, kind_))
     boxes.append((PEAK[0], summit_y + 1.2, PEAK[1], 2.0, 1.4, 2.0, 0.2))   # the tower's base
     # Viewpoints along each route, high on it, where the view opens out.
     views = []
@@ -912,6 +1120,8 @@ def main():
     for v in views[:-1]:
         props.append((v[0] + 4.0, gy(v[0] + 4.0, v[2]), v[2], 0.0, 3))
     views.append((LAKE_C[0] + LAKE_R + 6, gy(LAKE_C[0] + LAKE_R + 6, LAKE_C[1]), LAKE_C[1], "MIRROR LAKE"))
+    for (vx, vz, name) in extra_views:
+        views.append((vx, gy(vx, vz), vz, name))
     spawns = []
     for k in range(4):
         sx = SPAWN[0] + (k - 1.5) * 6.0
@@ -926,9 +1136,9 @@ def main():
     ground[:, 1] = argb.ravel()
     blob = ground.tobytes() + water.astype("<f4").tobytes() + surf_bytes
     (args.out / "level.bin").write_bytes(blob)
-    write_header(args.out / "level.h", routes, spheres, capsules, boxes, trees, props, views, spawns, lake_level,
+    write_header(args.out / "level.h", routes, spheres, capsules, boxes, rock_boxes, trees, props, views, spawns, lake_level,
                  summit_y, gy(SPAWN[0], SPAWN[1]))
-    minimap(rgb, water, routes, args.out / "level_map.png")
+    minimap(rgb, water, routes, tracks, args.out / "level_map.png")
     if args.preview:
         preview_image(rgb, water, routes, spheres, capsules, boxes, trees, views, args.preview)
     print(f"heights {h.min():.1f}..{h.max():.1f} m, lake {lake_level:.1f} m, summit {summit_y:.1f} m")

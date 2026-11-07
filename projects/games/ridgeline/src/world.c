@@ -263,6 +263,85 @@ static void prop(const lvl_prop_t *p) {
             box(h_flat, v3(c.x + 0.45f, y + 1.15f, c.z), 0.35f, 0.2f, 0.02f, 0, 0xffe04a30, 1.0f);
             break;
         }
+        case PROP_BRIDGE: {
+            /* A plank deck on two log stringers, posts holding the rail
+               logs (the rails and the deck are the level's obstacles). */
+            V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+            box(h_bark, v3(c.x, c.y - 0.15f, c.z), LVL_BRIDGE_HX, 0.15f, LVL_BRIDGE_HZ, p->yaw, 0xffb08a5c, 0.7f);
+            for(int side = -1; side <= 1; side += 2) {
+                V3 m = vadd(c, vscale(r, side * (LVL_BRIDGE_HX - 0.7f)));
+                V3 a = vsub(m, vscale(f, LVL_BRIDGE_HZ + 0.6f)), b = vadd(m, vscale(f, LVL_BRIDGE_HZ + 0.6f));
+                lvl_capsule_t st = {a.x, c.y - 0.55f, a.z, b.x, c.y - 0.55f, b.z, 0.26f};
+                log_mesh(&st);
+                for(float t = -LVL_BRIDGE_HZ + 0.6f; t <= LVL_BRIDGE_HZ - 0.5f; t += 3.2f) {
+                    V3 q = vadd(vadd(c, vscale(r, side * (LVL_BRIDGE_HX - 0.15f))), vscale(f, t));
+                    box(h_bark, v3(q.x, c.y + 0.2f, q.z), 0.09f, 0.22f, 0.09f, p->yaw, 0xff6a4a30, 1.0f);
+                }
+            }
+            break;
+        }
+        case PROP_WRECK: {
+            /* An old pickup left to rust: cab, hood, bed, three wheels. */
+            V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+            const uint32_t rust = 0xff8e5232, teal = 0xff5f7f78;
+            box(h_flat, vadd(c, v3(f.x * 0.3f, 1.35f, f.z * 0.3f)), 0.82f, 0.48f, 0.62f, p->yaw, teal, 1.0f);
+            box(h_flat, vadd(c, v3(f.x * 0.94f, 1.52f, f.z * 0.94f)), 0.74f, 0.26f, 0.03f, p->yaw, 0xff3a4246, 1.0f);
+            box(h_flat, vadd(c, v3(f.x * 1.55f, 0.95f, f.z * 1.55f)), 0.8f, 0.3f, 0.6f, p->yaw, rust, 1.0f);
+            box(h_flat, vadd(c, v3(-f.x * 1.15f, 0.8f, -f.z * 1.15f)), 0.84f, 0.32f, 1.05f, p->yaw, rust, 1.0f);
+            box(h_flat, vadd(c, v3(f.x * 0.2f, 0.6f, f.z * 0.2f)), 0.86f, 0.14f, 2.1f, p->yaw, 0xff4a3a30, 1.0f);
+            for(int k = 0; k < 3; k++) {
+                float along = k == 0 ? 1.4f : -1.3f, side = k == 2 ? -1.0f : 1.0f;
+                V3 w = vadd(vadd(c, vscale(f, along)), vscale(r, side * 0.86f));
+                V3 a = vsub(w, vscale(r, 0.14f)), b = vadd(w, vscale(r, 0.14f));
+                lvl_capsule_t wh = {a.x, c.y + 0.36f, a.z, b.x, c.y + 0.36f, b.z, 0.38f};
+                log_mesh(&wh);
+            }
+            break;
+        }
+        case PROP_ARCH: {
+            /* Two stone pillars and a lintel high enough to drive under. */
+            V3 r = v3(cy, 0, -sy);
+            uint32_t seed = (uint32_t)(p->x * 17.0f) ^ (uint32_t)(p->z * 29.0f);
+            for(int side = -1; side <= 1; side += 2) {
+                V3 q = vadd(c, vscale(r, side * 3.4f));
+                box(h_rock, v3(q.x, c.y + 2.05f, q.z), 0.9f, 2.25f, 1.1f, p->yaw + side * 0.08f, 0xff9a9488, 0.35f);
+            }
+            box(h_rock, v3(c.x, c.y + 4.75f, c.z), 4.4f, 0.55f, 1.2f, p->yaw, 0xffa49e92, 0.35f);
+            boulder(v3(c.x + r.x * 1.5f, c.y + 5.4f, c.z + r.z * 1.5f), 0.7f, seed, 0);
+            boulder(v3(c.x - r.x * 2.2f, c.y + 5.3f, c.z - r.z * 2.2f), 0.5f, seed * 3u, 0);
+            break;
+        }
+        case PROP_TENT: {
+            /* A ridge tent, a fire ring in front of it. */
+            V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+            V3 fr = vadd(c, vscale(f, 1.1f)), bk = vsub(c, vscale(f, 1.1f));
+            for(int side = -1; side <= 1; side += 2) {
+                uint32_t col = lit(0xffd8642a, vnorm(v3(r.x * side, 0.8f, r.z * side)), 1.0f);
+                sc_strip_begin(&scenery, h_flat);
+                sc_vert(&scenery, v3(fr.x + r.x * side * 0.95f, c.y, fr.z + r.z * side * 0.95f), 0, 0, col);
+                sc_vert(&scenery, v3(bk.x + r.x * side * 0.95f, c.y, bk.z + r.z * side * 0.95f), 0, 0, col);
+                sc_vert(&scenery, v3(fr.x, c.y + 1.35f, fr.z), 0, 0, col);
+                sc_vert(&scenery, v3(bk.x, c.y + 1.35f, bk.z), 0, 0, col);
+                sc_strip_end(&scenery);
+            }
+            for(int end = 0; end < 2; end++) {
+                V3 e = end ? fr : bk;
+                uint32_t col = end ? 0xff3a2a20 : lit(0xffc0582a, vscale(f, -1.0f), 0.9f);
+                sc_strip_begin(&scenery, h_flat);
+                sc_vert(&scenery, v3(e.x - r.x * 0.95f, c.y, e.z - r.z * 0.95f), 0, 0, col);
+                sc_vert(&scenery, v3(e.x + r.x * 0.95f, c.y, e.z + r.z * 0.95f), 0, 0, col);
+                sc_vert(&scenery, v3(e.x, c.y + 1.35f, e.z), 0, 0, col);
+                sc_strip_end(&scenery);
+            }
+            V3 fire = vadd(c, vscale(f, 4.0f));
+            uint32_t seed = (uint32_t)(p->x * 13.0f) ^ (uint32_t)(p->z * 7.0f);
+            for(int k = 0; k < 8; k++) {
+                float a = k * ENG_TAU / 8;
+                boulder(v3(fire.x + sinf(a) * 0.62f, c.y + 0.05f, fire.z + cosf(a) * 0.62f), 0.16f, seed + k, 1);
+            }
+            box(h_flat, v3(fire.x, c.y + 0.03f, fire.z), 0.42f, 0.03f, 0.42f, 0, 0xff302824, 1.0f);
+            break;
+        }
         case PROP_TOWER: {
             /* A fire lookout: four legs, the cab on top, a pyramid roof. */
             for(int k = 0; k < 4; k++) {
@@ -583,10 +662,9 @@ void world_build(void) {
                 if(mx < x0 || mx >= x0 + TCELL || mz < z0 || mz >= z0 + TCELL) continue;
                 log_mesh(cp);
             }
-            for(int i = 0; i < LVL_BOXES; i++) {
+            for(int i = 0; i < LVL_ROCK_BOXES; i++) {    /* the rest are props', drawn as the prop */
                 const lvl_box_t *b = &lvl_boxes[i];
                 if(b->x < x0 || b->x >= x0 + TCELL || b->z < z0 || b->z >= z0 + TCELL) continue;
-                if(b->hx > 3.9f && b->hy > 1.5f) continue;   /* a building's footprint: drawn as its prop */
                 box(h_rock, v3(b->x, b->y, b->z), b->hx, b->hy, b->hz, b->yaw, 0xff8c9298, 0.35f);
             }
             sc_chunk_end(&scenery);
