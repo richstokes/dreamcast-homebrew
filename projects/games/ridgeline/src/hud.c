@@ -113,38 +113,46 @@ static void seg2d(float x0, float y0, float x1, float y1, float w, uint32_t col)
 }
 
 /* The dashboard traction control lamp: a car from behind with two skid
-   squiggles under it. Flashes while it is cutting the throttle; steady with
-   OFF under it when the driver has switched it off. */
+   squiggles under it, on the bottom row left of the speed. Flashes while it
+   is cutting the throttle; steady with OFF beside it when the driver has
+   switched it off. */
 static void tcs_icon(const Truck *t) {
     if(!t->spec.tcs) return;
     bool off = t->tcs_off;
     if(!off && tcs_lamp <= 0) return;
-    const float cx = 452, cy = 368;
+    /* A fixed slot clear of a three digit speed, so it never shifts. */
+    const float k = 0.62f, cy = 446;
+    const float cx = 476 - text_width(&font, "888", 1.3f) - 14 * k;
     uint32_t col = off ? 0xffff7050 : 0xffffb040;
     if(!off && fmodf(game.time, 0.3f) > 0.18f) col = color_alpha(col, 0.35f);
-    hud_panel(cx - 22, cy - 22, cx + 22, cy + (off ? 34 : 22), 0x90182028);
+    hud_panel(cx - (off ? 60 : 22) * k, cy - 22 * k, cx + 22 * k, cy + 22 * k, 0x90182028);
     r_hdr(h_flat);
+#define PX(x) (cx + (x) * k)
+#define PY(y) (cy + (y) * k)
+    const uint32_t win = 0xff182028;
     /* Cabin, with a dark rear window, then the body and the tyres. */
-    r_tri2d(cx - 7, cy - 15, cx + 7, cy - 15, cx - 11, cy - 7, col, col, col, Z + 0.2f);
-    r_tri2d(cx + 7, cy - 15, cx + 11, cy - 7, cx - 11, cy - 7, col, col, col, Z + 0.2f);
-    r_tri2d(cx - 5, cy - 13, cx + 5, cy - 13, cx - 8, cy - 9, 0xff182028, 0xff182028, 0xff182028, Z + 0.3f);
-    r_tri2d(cx + 5, cy - 13, cx + 8, cy - 9, cx - 8, cy - 9, 0xff182028, 0xff182028, 0xff182028, Z + 0.3f);
-    r_quad2d(cx - 14, cy - 7, cx + 14, cy + 1, 0, 0, 1, 1, col, Z + 0.2f);
-    r_quad2d(cx - 13, cy + 1, cx - 8, cy + 5, 0, 0, 1, 1, col, Z + 0.2f);
-    r_quad2d(cx + 8, cy + 1, cx + 13, cy + 5, 0, 0, 1, 1, col, Z + 0.2f);
+    r_tri2d(PX(-7), PY(-15), PX(7), PY(-15), PX(-11), PY(-7), col, col, col, Z + 0.2f);
+    r_tri2d(PX(7), PY(-15), PX(11), PY(-7), PX(-11), PY(-7), col, col, col, Z + 0.2f);
+    r_tri2d(PX(-5), PY(-13), PX(5), PY(-13), PX(-8), PY(-9), win, win, win, Z + 0.3f);
+    r_tri2d(PX(5), PY(-13), PX(8), PY(-9), PX(-8), PY(-9), win, win, win, Z + 0.3f);
+    r_quad2d(PX(-14), PY(-7), PX(14), PY(1), 0, 0, 1, 1, col, Z + 0.2f);
+    r_quad2d(PX(-13), PY(1), PX(-8), PY(5), 0, 0, 1, 1, col, Z + 0.2f);
+    r_quad2d(PX(8), PY(1), PX(13), PY(5), 0, 0, 1, 1, col, Z + 0.2f);
     /* Skid marks: one S curve under each side, fanning out. */
     for(int side = -1; side <= 1; side += 2) {
         float px = 0, py = 0;
         for(int i = 0; i <= 8; i++) {
-            float k = i / 8.0f;
-            float x = cx + side * (7.0f + 3.0f * k) + 3.2f * sinf(k * 2.0f * ENG_PI);
-            float y = cy + 8 + 12 * k;
-            if(i) seg2d(px, py, x, y, 2.4f, col);
+            float f = i / 8.0f;
+            float x = PX(side * (7.0f + 3.0f * f) + 3.2f * sinf(f * 2.0f * ENG_PI));
+            float y = PY(8 + 12 * f);
+            if(i) seg2d(px, py, x, y, 2.4f * k + 0.3f, col);
             px = x;
             py = y;
         }
     }
-    if(off) hud_text_c(cx, cy + 27, 0.48f, ALIGN_CENTER, col, "OFF");
+#undef PX
+#undef PY
+    if(off) hud_text_c(cx - 39 * k, cy, 0.42f, ALIGN_CENTER, col, "OFF");
 }
 
 static void drive_mode(const Truck *t) {
