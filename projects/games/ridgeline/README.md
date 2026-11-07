@@ -77,8 +77,8 @@ make -C projects/games/ridgeline run
 | --- | --- |
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
-| `make autotest` | The CPU drives the player up the logging road with three companions and logs frame times every 10 s |
-| `make hwbench` | The same on the console ([real hardware](../../../README.md#real-hardware)) |
+| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all |
+| `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
 | `make hw` | Plays on the console |
 | `make disc` | A self-booting CDI |

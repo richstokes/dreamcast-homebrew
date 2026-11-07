@@ -17,9 +17,6 @@
 #ifndef RL_AT_COMPANIONS
 #define RL_AT_COMPANIONS 3
 #endif
-#ifndef RL_AT_SECONDS
-#define RL_AT_SECONDS 600
-#endif
 
 extern uint64_t phase_us[4];
 extern int phase_frames;
@@ -30,6 +27,26 @@ extern int phase_frames;
 #define RL_AT_WINDOW 5.0f
 #else
 #define RL_AT_WINDOW 10.0f
+#endif
+
+/* Capture builds and console benches run for a set time and pass when
+   it's up. The plain autotest is a test of the CPU driver: it passes only
+   at the summit, and fails when the climb stops making progress or takes
+   too long (the slowest hostsim climb, the pickup up the creek, is ~730 s;
+   the player here can be held up behind a slower companion). */
+#ifndef RL_AT_SECONDS
+#if defined(RL_AT_FXBENCH)
+#define RL_AT_SECONDS (RL_FXB_DRIVE + RL_FXB_SPIN)
+#elif defined(RL_HW)
+#define RL_AT_SECONDS 180
+#elif defined(RL_CAPTURE)
+#define RL_AT_SECONDS 600
+#else
+#define RL_AT_SECONDS 900
+#endif
+#endif
+#ifndef RL_AT_STALL
+#define RL_AT_STALL 120.0f     /* seconds without route progress: stuck */
 #endif
 
 static struct {
@@ -272,13 +289,31 @@ void autotest_frame(float dt_real) {
         at.win_t = at.win_cpu = at.win_cpu_max = at.win_rnd = at.win_rnd_max = 0;
         at.win_frames = at.win_over = 0;
     }
-#ifdef RL_AT_FXBENCH
-    if(game.clock > RL_FXB_DRIVE + RL_FXB_SPIN + 0.5f) game.summit_reached = true;
+    const char *fail = NULL;
+#ifdef RL_CAPTURE
+    bool end = game.clock > RL_AT_SECONDS;
+    const char *how = "bench ran";
+#else
+    static float best_prog, best_t;
+    float prog = ai_progress(0);
+    if(prog > best_prog + 0.005f) {
+        best_prog = prog;
+        best_t = game.clock;
+    }
+    bool end = game.summit_reached;
+    const char *how = "summit reached";
+    if(!end && game.clock - best_t > RL_AT_STALL) fail = "stuck: no route progress";
+    if(!end && game.clock > RL_AT_SECONDS) fail = "no summit in time";
 #endif
-    if(game.summit_reached || game.clock > RL_AT_SECONDS) {
+    if(fail) {
+        printf("RL AUTOTEST: FAIL %s at %.0f s, summit %.0f%%, route %.2f, pos %.0f,%.0f,%.0f\n", fail, (double)game.clock,
+               (double)(game.summit_frac * 100.0f), (double)ai_progress(0), (double)p->pos.x, (double)p->pos.y,
+               (double)p->pos.z);
+        at.done = true;
+    }
+    else if(end) {
         printf("RL AUTOTEST: PASS %s in %.0f s, summit %.0f%%, views %d, cpu avg %.2f max %.2f ms, %d of %d frames late\n",
-               game.summit_reached ? "summit reached" : "timed out", (double)game.clock,
-               (double)(game.summit_frac * 100.0f), __builtin_popcount(game.views_found),
+               how, (double)game.clock, (double)(game.summit_frac * 100.0f), __builtin_popcount(game.views_found),
                (double)(at.all_cpu / at.all_frames), (double)at.all_cpu_max, at.all_over, at.all_frames);
         at.done = true;
     }
