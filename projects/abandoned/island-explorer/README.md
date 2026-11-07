@@ -45,7 +45,7 @@ table counts and data pointers and stops on any other layout; other revisions
 need their offsets checked in `tools/extract_stage.py`.
 
 ```sh
-cd projects/games/island-explorer
+cd projects/abandoned/island-explorer
 uv run tools/extract_stage.py --gdi "/absolute/path/to/Sonic Adventure.gdi"
 uv run tools/build_atmosphere.py
 source "$HOME/.local/share/dreamcast/kos/environ.sh"

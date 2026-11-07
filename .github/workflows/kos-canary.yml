@@ -31,7 +31,6 @@ jobs:
         run: |
           tools/update-sh4zam.sh \
             projects/apps/pico8-dreamcast/third_party/sh4zam \
-            projects/games/drift-los-angeles/third_party/sh4zam \
             projects/games/dreamkarts/third_party/sh4zam \
             projects/games/ridgeline/third_party/sh4zam \
             projects/games/totally-bazaar/third_party/sh4zam

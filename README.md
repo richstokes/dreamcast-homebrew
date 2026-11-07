@@ -35,11 +35,8 @@ after most pushes. Add new games with your card manager as usual.
 | --- | --- | --- | --- |
 | <img src="docs/screenshots/dreamkarts.png" alt="DreamKarts" width="360"> | **[DreamKarts](projects/games/dreamkarts/)**<br>A Mario Kart-style kart racer with hop-into-drift handling and mini-turbos, nine courses, CPU rivals, two-player split screen and online races. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts.cdi)**<br>[CD-R](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/dreamkarts-cdr.zip) | [Play](https://dcvmu.com/play?rom=continuous%2Fdreamkarts.cdi&name=DreamKarts) |
 | <img src="docs/screenshots/ridgeline.png" alt="Ridgeline" width="360"> | **[Ridgeline](projects/games/ridgeline/)**<br>An off-road exploration game: climb a Pacific Northwest mountain in an 80s pickup or a modern 4x4, with selectable 2WD, 4WD and locked diffs. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ridgeline.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ridgeline.elf)<br>[CD-R](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/ridgeline-cdr.zip) | [Play](https://dcvmu.com/play?rom=continuous%2Fridgeline.elf&name=Ridgeline) |
-| <img src="docs/screenshots/drift-los-angeles.png" alt="Drift Los Angeles" width="360"> | **[Drift Los Angeles](projects/games/drift-los-angeles/)**<br>An open-city arcade street-drifting game with a C7-inspired coupe, four Los Angeles-style districts, traffic, drift chains, dense tire smoke, and recorded V8 audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles.elf)<br>[CD-R](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/drift-los-angeles-cdr.zip) | [Play](https://dcvmu.com/play?rom=continuous%2Fdrift-los-angeles.elf&name=Drift%20Los%20Angeles) |
 | <img src="docs/screenshots/gravity-wave.png" alt="Gravity Wave" width="360"> | **[Gravity Wave](projects/games/gravity-wave/)**<br>An infinite 3D arcade flight game featuring four biomes, procedural terrain, enemy formations, guardians, upgrades, and a synthesized soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave.elf)<br>[CD-R](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/gravity-wave-cdr.zip) | [Play](https://dcvmu.com/play?rom=continuous%2Fgravity-wave.elf&name=Gravity%20Wave) |
-| <img src="docs/screenshots/demon-bazooka.png" alt="Demon Bazooka" width="360"> | **[Demon Bazooka](projects/games/demon-bazooka/)**<br>A compact 3D arena shooter with rockets, dashes, screen-clearing barrages, escalating demon waves, and runtime-generated visuals and audio. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka.elf)<br>[CD-R](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/demon-bazooka-cdr.zip) | [Play](https://dcvmu.com/play?rom=continuous%2Fdemon-bazooka.elf&name=Demon%20Bazooka) |
 | <img src="docs/screenshots/totally-bazaar.png" alt="Totally Bazaar" width="360"> | **[Totally Bazaar](projects/games/totally-bazaar/)**<br>A traditional market trading card game for 2-4 players: hot-seat play with hidden hands, CPU merchants, 3D-rendered goods, animated cards and tokens, and a synthesized bazaar soundtrack. | **[CDI](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.cdi)**<br>[ELF](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar.elf)<br>[CD-R](https://github.com/richstokes/dreamcast-homebrew/releases/latest/download/totally-bazaar-cdr.zip) | [Play](https://dcvmu.com/play?rom=continuous%2Ftotally-bazaar.elf&name=Totally%20Bazaar) |
-| <img src="docs/screenshots/island-explorer.png" alt="Island Explorer on the resort beach" width="360"> | **[Island Explorer](projects/games/island-explorer/)** (experimental)<br>A coastal exploration prototype with walking, swimming and dolphins, built on locally extracted Sonic Adventure assets. | Source only | - |
 
 ## dcvmu.com
 
@@ -151,13 +148,13 @@ profile), then build and launch from the repo root:
 
 ```sh
 source "$HOME/.local/share/dreamcast/kos/environ.sh"
-make -C projects/games/drift-los-angeles
-projects/games/drift-los-angeles/run-flycast.sh   # builds first; --skip-build reuses the ELF
+make -C projects/games/ridgeline
+projects/games/ridgeline/run-flycast.sh          # builds first; --skip-build reuses the ELF
 ```
 
 Each project README has its own make targets and launcher options.
 
-- Ridgeline, Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally
+- Ridgeline, DreamKarts, PICO-8 Player and Totally
   Bazaar depend on [SH4ZAM](https://sh4zam.com/), pinned to a tested commit
   (v0.10.0) in `tools/update-sh4zam.sh`. Each build checks out an ignored
   `third_party/sh4zam` clone at the pin; a weekly canary flags new upstream
@@ -194,6 +191,7 @@ options and the ELF.
 
 - `projects/games/`: games
 - `projects/apps/`: apps and demos
+- `projects/abandoned/`: tests and early ideas that are currently abandoned
 - `projects/dcvmu.com/`: DCVMU client and web service
 - `projects/common/`: code shared between projects
 - `tools/`: Flycast build, KOS patches, real-hardware runner, SH4ZAM pin
@@ -214,7 +212,7 @@ These projects are powered by
 KallistiOS is distributed separately under its BSD-like KOS license and
 requires attribution.
 
-Drift Los Angeles, DreamKarts, Island Explorer, PICO-8 Player and Totally
+DreamKarts, Ridgeline, PICO-8 Player and Totally
 Bazaar use [SH4ZAM](https://sh4zam.com/), the SH-4 math library by Falco
 Girgis and contributors, available under the
 [MIT License](https://github.com/gyrovorbis/sh4zam/blob/master/LICENSE).
