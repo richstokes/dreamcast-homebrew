@@ -105,6 +105,30 @@ enum {
     TEX_AVDUST,
     TEX_AVMTN,
     TEX_AVRANGE,
+    TEX_SFROAD,
+    TEX_SFRAILS,
+    TEX_SFBRICK,
+    TEX_SFCURB,
+    TEX_SFWALK,
+    TEX_SFRAILING,
+    TEX_SFPIER,
+    TEX_SFPIERRAIL,
+    TEX_SFFACADE,
+    TEX_SFBLDG,
+    TEX_SFROOF,
+    TEX_SFHEDGE,
+    TEX_SFSHED,
+    TEX_SFSIGN,
+    TEX_SFBAY,
+    TEX_SFFOG,
+    TEX_SFPALM,
+    TEX_SFPALMBARK,
+    TEX_SFCABLECAR,
+    TEX_SFFACADE2,
+    TEX_SFSTREET,
+    TEX_SFGRASS,
+    TEX_SFSTALL,
+    TEX_SFSIGNS,
     TEX_COUNT
 };
 
@@ -205,8 +229,32 @@ static const dk_tex_asset_t dk_tex_assets[TEX_COUNT] = {
     {3376128u, 2752u, 32, 32, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* avdust */
     {3378880u, 2752u, 32, 32, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avmtn */
     {3381632u, 2752u, 32, 32, DK_TEXFMT_RGB565, 1, {0, 0}},  /* avrange */
+    {3384384u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfroad */
+    {3559168u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfrails */
+    {3602880u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfbrick */
+    {3777664u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfcurb */
+    {3788608u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfwalk */
+    {3799552u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfrailing */
+    {3843264u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfpier */
+    {3886976u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfpierrail */
+    {3930688u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sffacade */
+    {4105472u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfbldg */
+    {4149184u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfroof */
+    {4192896u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfhedge */
+    {4236608u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfshed */
+    {4280320u, 32768u, 256, 64, DK_TEXFMT_RGB565, 0, {0, 0}},  /* sfsign */
+    {4313088u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfbay */
+    {4356800u, 10944u, 64, 64, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* sffog */
+    {4367744u, 43712u, 128, 128, DK_TEXFMT_ARGB4444, 1, {0, 0}},  /* sfpalm */
+    {4411456u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfpalmbark */
+    {4422400u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfcablecar */
+    {4597184u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sffacade2 */
+    {4771968u, 43712u, 128, 128, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfstreet */
+    {4815680u, 10944u, 64, 64, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfgrass */
+    {4826624u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfstall */
+    {5001408u, 174784u, 256, 256, DK_TEXFMT_RGB565, 1, {0, 0}},  /* sfsigns */
 };
 
-#define DK_TEXTURES_BYTES 3384384u
+#define DK_TEXTURES_BYTES 5176192u
 
 #endif

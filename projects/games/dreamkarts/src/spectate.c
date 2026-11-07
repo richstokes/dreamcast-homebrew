@@ -112,7 +112,7 @@ static void add_cam(float s, float side, float extra, float h, float hand) {
 
 /* How much of the road a camera covers (len metres up to from + len) it
    can see past solid scenery (world_solid: Spiral Canyon's rock,
-   Tsudoken's ramp and props), nothing if it stands in it, and which
+   Tsudoken's ramp and props, Bay City Hills' buildings), nothing if it stands in it, and which
    ROCK_SEG metre pieces of it are hidden (a bit each). */
 static float sight_view(V3 p, float from, float len, uint32_t *hidden) {
     *hidden = 0xffffffffu;
@@ -134,7 +134,7 @@ static float sight_view(V3 p, float from, float len, uint32_t *hidden) {
    across to the other side, or along the road. What none can see (a
    tunnel's depths) the director films from the chase camera instead. */
 static void clear_view(TvCam *c, float from, float len) {
-    if(track.id != TRACK_CANYON && track.id != TRACK_TSUDOKEN) return;
+    if(track.id != TRACK_CANYON && track.id != TRACK_TSUDOKEN && track.id != TRACK_SF) return;
     float best = sight_view(c->pos, from, len, &c->hidden);
     if(best > 0.999f) return;
     V3 o = track_point(c->s, 0), r = vsub(track_point(c->s, 1), o);
@@ -146,20 +146,23 @@ static void clear_view(TvCam *c, float from, float len) {
         const TrackSample *t = sample_at(s);
         float out[3] = {fabsf(d0), t->half + t->curb + 2.0f, t->half - 1.0f};
         for(int side = 0; side < 2 && best < 0.999f; side++)
-            for(int w = 0; w < 3 && best < 0.999f; w++)
-                for(int h = 0; h < 4 && best < 0.999f; h++) {
-                    float d = (side ? -1.0f : 1.0f) * (d0 < 0 ? -out[w] : out[w]);
-                    V3 p = track_point(s, d);
-                    p.y = track_road_y(s, clampf(d, -t->half, t->half)) + (w == 2 ? 3.5f : rise0) + rise[h];
-                    uint32_t hid;
-                    float v = sight_view(p, from, len, &hid);
-                    if(v > best + 0.01f) {
-                        best = v;
-                        c->pos = p;
-                        c->s = s;
-                        c->hidden = hid;
-                    }
+            for(int i = 0; i < 12 && best < 0.999f; i++) {
+                /* Bay City Hills tries in over the road at each height
+                   before rising: risen over the houses, a camera looks
+                   across a roof that cuts the picture. */
+                int w = track.id == TRACK_SF ? i % 3 : i / 4, h = track.id == TRACK_SF ? i / 3 : i % 4;
+                float d = (side ? -1.0f : 1.0f) * (d0 < 0 ? -out[w] : out[w]);
+                V3 p = track_point(s, d);
+                p.y = track_road_y(s, clampf(d, -t->half, t->half)) + (w == 2 ? 3.5f : rise0) + rise[h];
+                uint32_t hid;
+                float v = sight_view(p, from, len, &hid);
+                if(v > best + 0.01f) {
+                    best = v;
+                    c->pos = p;
+                    c->s = s;
+                    c->hidden = hid;
                 }
+            }
     }
 #ifdef DK_AUTOTEST
     printf("DK SPECTATE: camera moved clear of the scenery to s %.0f (%.0f, %.0f, %.0f), sees %.0f%%\n", (double)c->s,

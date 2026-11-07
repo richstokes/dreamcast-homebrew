@@ -4,7 +4,8 @@
    water's edge on the outside of turn 1, walking with the tide as it comes
    and goes, and on Coral Crossing along the barrier rail on the beach side
    of both loops (on the sand beyond it, the barrier hides them), there
-   only on the first and final laps so they stay a treat. A
+   only on the first and final laps so they stay a treat; on Bay City
+   Hills along the pier's low sea-side rail, out and back. A
    kart coming near flushes a group: each bird lifts off away from it, out
    over the sea in a wide loop, and lands back where it was 5-7 s later (or
    goes round again if a kart is still close).
@@ -41,6 +42,7 @@ typedef struct {
     float height, seed;
     float sea;            /* which side the sea is: +1 right, -1 left */
     bool tidal;           /* stands at the tide's edge (Emerald Beach), else on the rail */
+    float rail_h;         /* the rail's top above the road */
     V3 home, dir;         /* takeoff point and heading out */
 } Gull;
 
@@ -91,7 +93,7 @@ static float ground_d(const Gull *g) {
 
 static V3 ground_pos(const Gull *g) {
     V3 p = track_point(g->s, g->d);
-    p.y = track_height(g->s) + (g->tidal ? 0.0f : f8m.wall_h) + GULL_Y;
+    p.y = track_height(g->s) + (g->tidal ? 0.0f : g->rail_h) + GULL_Y;
     return p;
 }
 
@@ -110,6 +112,7 @@ static void add_group(const GullGroup *gg) {
         int i = gull_n++;
         Gull *g = &gulls[i];
         g->tidal = gg->side == 0;
+        g->rail_h = track.id == TRACK_SF ? SF_PIER_RAIL_H : f8m.wall_h;
         g->sea = gg->side < 0 ? -1.0f : 1.0f;
         g->s = gg->s + ((float)j - (gg->n - 1) * 0.5f) * (g->tidal ? 2.4f : 3.0f) + (hash01(i, 1) - 0.5f) * 1.0f;
         const TrackSample *t = sample_at(g->s);
@@ -185,6 +188,12 @@ void birds_build(void) {
     }
     else if(track.id == TRACK_TEMPLE)
         flock_build();
+    else if(track.id == TRACK_SF) {
+        /* The pier's lanes out and back, the sea on their right. */
+        float out = track_seg_s(SF_PIER_SEG + 1), back = track_seg_s(SF_PIER_SEG + 3);
+        const GullGroup g[] = {{out + 18, 4, 1}, {out + 52, 3, 1}, {back + 16, 3, 1}, {back + 48, 4, 1}};
+        for(unsigned i = 0; i < sizeof(g) / sizeof(g[0]); i++) add_group(&g[i]);
+    }
 }
 
 /* The gull's flight: out and up away from the kart, round, and back down
@@ -388,7 +397,9 @@ void birds_draw(void) {
             float beat = vel.y > 0 ? 1.0f : 0.25f + 0.25f * (sinf(g->air_t * 0.8f + g->seed) > 0.6f);
             flap = 0.15f + 0.75f * beat * sinf(g->air_t * 17.0f + g->seed);
         }
-        if(!in_range(pos, 220.0f, 1.2f)) continue;
+        /* Bay City Hills' pier is in view from the start straight, the
+           busiest view on the lap, where they are specks anyway. */
+        if(!in_range(pos, track.id == TRACK_SF ? 70.0f : 220.0f, 1.2f)) continue;
         draw_bird(pos, yaw, pitch, roll, open, flap, GULL_SCALE, gull_pal, g->air_t < 0);
     }
     r_load_vp();

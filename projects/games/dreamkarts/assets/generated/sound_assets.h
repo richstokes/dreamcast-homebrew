@@ -52,6 +52,8 @@ typedef enum {
     DK_SFX_MINE_HIT,
     DK_SFX_BELL,
     DK_SFX_PLANE,
+    DK_SFX_CC_BELL,
+    DK_SFX_FOGHORN,
     DK_SFX_COUNT
 } dk_sfx_id_t;
 
@@ -99,6 +101,8 @@ static const dk_sfx_asset_t dk_sfx_assets[DK_SFX_COUNT] __attribute__((unused)) 
     { 1068288u, 41920u, 0u, 22050u }, /* MINE_HIT     vol 217 */
     { 1110208u, 61760u, 0u, 22050u }, /* BELL         vol 191 */
     { 1171968u, 12000u, 1u, 11025u }, /* PLANE        vol 204 */
+    { 1184000u, 52928u, 0u, 22050u }, /* CC_BELL      vol 191 */
+    { 1236928u, 127904u, 0u, 22050u }, /* FOGHORN      vol 204 */
 };
 
 /* Effect names for the sound test. */
@@ -145,6 +149,8 @@ static const char *const dk_sfx_label[DK_SFX_COUNT] __attribute__((unused)) = {
     "MINE BLAST",
     "LOBBY BELL",
     "BIPLANE",
+    "CABLE CAR BELL",
+    "FOGHORN",
 };
 
 #endif /* DK_SOUND_ASSETS_H */

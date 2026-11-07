@@ -214,8 +214,10 @@ void f8_build_track_chunk(int c) {
     float hw = f8m.half, ew = f8m.edge;
     f8_ribbon(sv, n, f8m.road, -hw, hw, 0.0f, 0.0f, 0, 1.0f, ROAD_V_M, false, argb(255, 250, 250, 250),
               argb(255, 250, 250, 250));
-    f8_ribbon(sv, n, f8m.curb, -ew, -hw, 0.01f, 0.01f, 0, 0.0f, 2.4f, false, 0xffffffff, 0xffffffff);
-    f8_ribbon(sv, n, f8m.curb, hw, ew, 0.01f, 0.01f, 0, 1.0f, 2.4f, false, 0xffffffff, 0xffffffff);
+    if(ew > hw) {   /* Bay City Hills' sidewalks start at the road's edge */
+        f8_ribbon(sv, n, f8m.curb, -ew, -hw, 0.01f, 0.01f, 0, 0.0f, 2.4f, false, 0xffffffff, 0xffffffff);
+        f8_ribbon(sv, n, f8m.curb, hw, ew, 0.01f, 0.01f, 0, 1.0f, 2.4f, false, 0xffffffff, 0xffffffff);
+    }
     /* Shoulders (sand, or grass verges) to the barriers. */
     f8_ribbon(sv, n, f8m.shoulder, -ew, -1.0f, 0.0f, 0.0f, RB_WALL1, f8m.shoulder_uv, 0, true, argb(255, 238, 238, 238),
               argb(255, 214, 214, 214));

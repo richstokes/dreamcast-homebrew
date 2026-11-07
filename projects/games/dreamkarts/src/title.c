@@ -1238,7 +1238,7 @@ static void draw_tracks(void) {
     ui_panel(52, y0, 588, y1);
     float mx = 160 + swap, my = (y0 + y1) * 0.5f;
     ui_well(mx - 98, y0 + 10, mx + 98, y1 - 10);
-    hud_draw_track_map(mx, my, 0.56f, 16.0f, false);
+    hud_draw_track_map(mx, my, hud_track_map_fit(0.56f, 94.0f, 55.0f), 16.0f, false);
 
     float tx = 412 + swap;
     float pulse = 1.0f + 0.03f * sinf(game.title_t * 5.0f);

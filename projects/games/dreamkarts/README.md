@@ -10,7 +10,7 @@ counter-steer, watch the sparks turn blue, orange and purple, then let go
 for a mini-turbo. You drive a cute little character against five CPU rivals, a friend in
 split screen, or up to five other Dreamcasts online.
 
-Eight courses:
+Nine courses:
 
 - Emerald Beach: a beach oval with a boardwalk straight over the sea and dash panels; the tide washes over the outside of turn 1, and gulls lift off as you pass
 - Coral Crossing: a figure 8 whose ramp jumps one leg over the other, with gulls on the beach rail on the first and final laps
@@ -20,6 +20,7 @@ Eight courses:
 - Spiral Canyon: a hill-zone valley of palms, bushes, sunflowers, checkered loops, totem poles and tiki torches at golden hour, a retrowave sun setting behind the hills, where two banked corkscrews climb and descend 20 m as ledges round slate towers, through torchlit tunnels where they pass under themselves, with a hump on the summit ridge and a chicane on the way home
 - Tsudoken Drift: a flat club circuit after Tsukuba under Mt Fuji on a spring afternoon, 1,031 m of hairpins and long lefts through cherry blossom, paddies and stone lanterns, a grandstand under a swept tiled roof along the start straight, torii over the road and a ramp jump over a stream halfway down the 200 m back straight
 - Apple Valley: a kart club circuit in the Mojave after Apple Valley Speedway, 1,304 m and fifteen turns on a narrower road between tyre walls, on a desert slope that drops 10 m from turn 14 down to turn 1, tumbleweeds and dust devils on the wind, past Joshua trees and creosote, with a brown mountain and the snowy San Bernardinos on the horizon
+- Bay City Hills: a San Francisco street circuit, 1,298 m between painted Victorian row houses: out along a pier past the sea lions, up Hyde Street's cable car tracks in three ~30% blocks that the karts hop at each crossing, a cable car running up and down one of them (which one is drawn each race; online and in time trials, always the first), down the crooked street's four brick switchbacks between hydrangeas, over the crest at its foot and round Coit Tower into a two-crest plunge back to the bay, the Golden Gate and Alcatraz across the water and a ferry crossing the bay
 
 And one place that is not a course:
 
@@ -28,7 +29,7 @@ And one place that is not a course:
 Highlights:
 
 - Free Roam: no laps or places, power-ups if you want them (emeralds on the south straight, up on the deck, across the middle aisle and by the west trees), just the Night Meet lot to drive round, alone or in split screen, with five CPU karts cruising the ring road for company; the ring road's barrier follows each ramp out, so take the ramp lane off the road's edge and the deck down the west side and along the south (two stretches of its inner parapet are missing, so you can drop off into the parking under the deck and drive back out to the road), or the overpass across the lot, which you can also drive under; a speedo in mph instead of the lap counter and no clock, everyone on the map, and a drift score: a slide counts up at ten points a degree-second (the kart's slide angle, tight worth more than wide, at speed), shown centre screen as it climbs, and is banked when you release it cleanly, with your best drift under the speedo; a wall, a spin or the brake throws the slide away
-- Grand Prix: all eight courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
+- Grand Prix: all nine courses back to back against five CPU rivals, 10/8/6/4/2/1 points a race and the standings in between; Single Race on any course, with race again or a new track from the results; Time Trial; all at 3, 5 or 10 laps and 50/100/150cc
 - Two-player split screen in every mode (Versus instead of Time Trial), each player picking their own kart
 - Online multiplayer over a Broadband Adapter, a WIZnet W5500 serial-port adapter or dial-up modem, with lobbies, points and a spectator TV director
 - CPU rivals with their own driving styles that drift, mini-turbo and rubber-band mildly
@@ -156,6 +157,7 @@ needs no Python.
 | `make textures` | Procedural textures, the HUD font, logo and countdown lettering (`assets/generated/textures.pak`) |
 | `make models` | The kart and driver meshes with LODs (`models.h`); preview with `tools/preview_models_blender.py` |
 | `make canyon-rock` | Spiral Canyon's rock (`canyon_rock.h`): a `-DDK_DUMP_ROCK` build prints the rock's height field, tunnel bores and road clearance, and Blender (`tools/build_canyon_rock.py`, ~5 s) cuts one mesh from them; open `captures/canyon_rock.blend` to look at it. Rerun after changing the track's layout, heights or the rock's shape |
+| `make sf-props` | Bay City Hills' props (`sf_props.h`): Blender (`tools/build_sf_props.py`, ~2 s) models the Golden Gate Bridge and its headlands, Alcatraz, Coit Tower, the pyramid, a cable car, a bay ferry, street lamps, date palms, a cypress, a fishing boat, the sea lions' raft and the wharf's sign; `captures/sf-props/` has a render of each |
 | `make apple-valley-props` | Apple Valley's props (`apple_valley_props.h`): Blender (`tools/build_apple_valley_props.py`, ~2 s) models race control, the bleachers, pit canopies, containers, clubhouse, trailer, starter's stand, tyre stacks, light pole, fence, boulders, Joshua trees, creosote and the brown mountain; `captures/apple-valley-props/` has a render of each |
 | `make tsudoken-props` | Tsudoken Drift's props (`tsudoken_props.h`): Blender (`tools/build_tsudoken_props.py`, ~2 s) models Mt Fuji, the cherry trees, torii, stone lanterns, pagoda, grandstand, race control, pit garages, teahouse and bridge, and bakes each as strips per material; `captures/tsudoken_props.blend` holds the scene and `captures/tsudoken-props/` a render of each |
 | `make biplane` | Spiral Canyon's final-lap biplane (`biplane_mesh.h`): Blender (`tools/build_biplane.py`, ~2 s) models the plane and its propeller; `captures/biplane.blend` holds the scene and `captures/biplane/` renders from five angles |
@@ -183,11 +185,11 @@ The `hw` targets run on a real console and need the
 
 | Flag | Effect |
 | --- | --- |
-| `-DDK_AT_TRACK=n` | Track 0-9 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift, Apple Valley, Night Meet); Cyberstone (5) still loads here though no menu offers it, and the lot (9) is Free Roam's alone |
+| `-DDK_AT_TRACK=n` | Track 0-10 (Beach, Coral, Harbour, Temple, Skyway, Cyberstone, Spiral Canyon, Tsudoken Drift, Apple Valley, Night Meet, Bay City Hills); Cyberstone (5) still loads here though no menu offers it, and the lot (9) is Free Roam's alone |
 | `-DDK_AT_ROAM` | Free Roam on the Night Meet lot: the CPU drives the player out of its bay and round the ring with the rivals, 18 s in puts it short of the west ramp and steers it up the deck and down the far ramp, and at 90 s passes if it reached the deck and came down through the west gap, every kart is still on the island, every rival still on the ring and the frame rate held; the capture build screenshots the lot every 6 s (`roam-NN`) |
 | `-DDK_AT_CC=0/1/2` | 50/100/150cc (the time limit scales) |
 | `-DDK_AT_TT`, `-DDK_AT_2P`, `-DDK_AT_LAPS=n` | Time Trial, split screen with both humans CPU-driven (plus TT = Versus), lap count |
-| `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all eight |
+| `-DDK_AT_GP` (`-DDK_AT_GP_RACES=n`) | A whole Grand Prix instead of one race: a summary per race, then the final standings with a points audit; `n` races instead of all nine |
 | `-DDK_AT_NEXT_TRACK` (capture) | Picks NEW TRACK from the results, the next course along, and races that too |
 | `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST`, `-DDK_AT_MINE_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill; hand the player a Mine every 12 s, or every `=<s>` (the capture looks behind at it; alone with `=30` the player laps round to its own) |
 | `-DDK_AT_WRONG_WAY` | Turns the player round 10 s in (player 2 at 12 s) and drives it back up the track for 5 s; `DK WRONG WAY` lines log the banner coming and going (capture shots `wrong-way`, `wrong-way-p2`) |
@@ -204,10 +206,10 @@ The `hw` targets run on a real console and need the
 | `-DDK_AT_NAME=QA1 -DDK_AT_NAME_WANT=QA0` (`-DDK_AT_NAME_CORRUPT`) | Saved-name round trip on the VMU: the name screen must open on the saved name (and recover from a junk file); writes Flycast's real A1 card, delete its `DREAMKARTS` file afterwards |
 | `-DDK_AT_SETTINGS` (capture), then `-DDK_AT_SETTINGS_WANT` | Walks the Settings menu: music off, volume 6, the drift counter off then always on, a custom kart painted and saved, CUSTOM on the race setup's colour row, the online name saved; the second build checks a reboot loads them all. Run both with `DK_VMU_DIR=<folder of blank cards>` so the real VMU is left alone |
 | `-DDK_AT_ONLINE -DDK_AT_CUSTOM` | Goes online with a custom kart; `DK ONLINE: kart` lines show every racer's colour and picks as the lobby sent them (pair with `dk-bot -colour 8 -custom 2,3,4`, the rest as in server/README.md) |
-| `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track to `captures/tv` |
+| `-DDK_AT_CAMTOUR` (capture) | Screenshots every spectator camera on every track (with `-DDK_AT_TRACK=n`, one track's) to `captures/tv` |
 | `-DDK_AT_VIEWS` (capture) | Spiral Canyon's rock: `=1` the rock from outside (both mountains from above and afar, the tunnel mouths from overhead, the waterfalls), `=2` the chase camera every 8 m round the lap with a look left and right every 16 m (`sweep-NNN-f/l/r`, the check that matches what a player sees), `=3` the leak test: cameras inside the rock, each shot twice, the real world and the rock's height function drawn on its own; `=4` Night Meet instead (the food truck and its queue, the bleachers, the vending machines, the south side from above, the buzzing sign lit and put out, both on-ramps from the road and from the side). Add `-DDK_ROCK_TINT` to colour the rock red and everything else grey with the sky black; the leak test needs it, and `uv run --with pillow --with numpy tools/leakcheck.py captures/<dir> --ref <any normal shot>` then lists every shot where the baked rock falls short of the height function, with a sheet of the worst. `-DDK_LEAK_FROM=a -DDK_LEAK_TO=b` restricts the leak test to a stretch of the lap, `-DDK_SWEEP_FROM=a -DDK_SWEEP_TO=b` the sweep |
 | `-DDK_AT_VIEWS=2` (hwbench) | The sweep on the console: no screenshots, one `DK HWVIEW` line per point with its PVR render and render CPU time (average/max) and triangles, forward only; run with `tools/dc-hw.sh run ... dreamkarts-hwbench.elf` as `make hwbench` does |
-| `-DDK_CHUNK_STATS` | Spiral Canyon, Tsudoken Drift, Apple Valley and Night Meet: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches; for Tsudoken and Apple Valley ground, road, buildings, trees and scrub; for Night Meet props, ground, ring, decks, skyline), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
+| `-DDK_CHUNK_STATS` | Spiral Canyon, Tsudoken Drift, Apple Valley, Night Meet and Bay City Hills: strips and vertices the world sends a frame, by kind (ground, deck, rock, props, torches; for Tsudoken and Apple Valley ground, road, buildings, trees and scrub; for Night Meet props, ground, ring, decks, skyline), every 2 s (`DK CHUNKS`); at 0.41 us a vertex and 1.6 us a strip on the console |
 | `-DDK_PERF_HUD` | Starts with the performance overlay on (the pause menu's PERF: OVERLAY): frame CPU time and its phases, PVR render time, vertex buffer, triangles and missed vblanks, half-second averages and maxima against the 16.68 ms frame. It costs ~0.3 ms of CPU a frame on the console. In Flycast the PVR row is a constant 7.50 ms and VTX reads `--`, so judge headroom on hardware. hwbench adds a `-perfhud` probe step |
 | `-DDK_AT_PVRSPIKE=15.0f` | Logs where any race frame's PVR render runs over that many ms (`DK PVRSPIKE`, the player's lap distance and heading), at most one line in 2.5 s |
 | `-DDK_AT_WALLRIDE`, `-DDK_AT_ZIGZAG` | The player rides the right rail all of lap 1 and the left all of lap 2, or slams the rails at an angle every 1.5 s; any kart ending up past a rail logs `DK ESCAPE` |
@@ -283,6 +285,24 @@ all eight courses) missed 61 of 54,733 frames, the track loads included.
 | --- | --- | --- | --- | --- |
 | Apple Valley 1P | 9.3 ms | 18.0 ms | 4 of ~8,700 | 1,241 KiB |
 | Apple Valley 2P split | 11.6 ms | 18.1 ms | 1 of ~8,700 | 1,172 KiB |
+
+Bay City Hills on the console (2026-11-06, `make hwbench`, six karts):
+lighter on the PowerVR than Apple Valley (13-14 ms at worst against 15.5),
+heavier in the world draw (6.8 ms a frame against 4.6), its houses and
+blocks of flats. The start grid is the tightest view (16.5 ms of CPU
+frozen, 10.9 of it the world), so small props stop drawing where they turn
+to specks (sea lions 110 m, boats 170 m, the parked cable car 200 m): the
+same views cost ~2 ms more before. A split screen leaves out the city
+blocks, the ferry, the boats, the sea lions, the palms, downtown and the
+parked cable car, and draws the moving one within 160 m (320 m alone);
+before that it dropped 110 race frames. Race-to-race drops swing with how
+closely the pack runs round the player; frozen-view sweeps
+(`-DDK_AT_VIEWS=2` under `hwbench`) compare builds.
+
+| | CPU avg | Worst frame | Dropped race frames | Vertex buffer peak |
+| --- | --- | --- | --- | --- |
+| Bay City Hills 1P | 9.5 ms | 19.6 ms | 6 of ~9,000 | 1,017 KiB |
+| Bay City Hills 2P split | 13.3 ms | 19.8 ms | 9 of ~9,400 | 1,062 KiB |
 
 Night Meet on the console (2026-10-29, `make hwbench EXTRA_CFLAGS=-DDK_AT_ROAM`,
 Free Roam, six karts cruising, 90 s): the lightest course for one player

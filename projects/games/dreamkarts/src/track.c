@@ -66,6 +66,19 @@
    round to the right hairpin at 13, the 150 m top straight east, the right
    hairpin at 14 and the kink at 15 onto the main straight.
 
+   Bay City Hills: a San Francisco street circuit, run anticlockwise from
+   the waterfront, which climbs a hill and comes back down to the bay
+   twice. The line is on the Embarcadero, heading west toward the Golden
+   Gate; the road scoots out along a pier and round its head, jinks along
+   the wharf and turns left up Hyde Street at the cable car turnaround,
+   three steep blocks with flat crossings between them that the karts
+   hop. At the top
+   it turns east down the crooked street, four brick switchbacks stepping
+   down a terraced hillside, then over a crest at its foot onto the
+   avenue, up Telegraph Hill and left round the tower at the summit into
+   the plunge: two steep blocks, each off a crest, down to the bay, an S
+   and a left back onto the Embarcadero.
+
    Night Meet (Free Roam): the service road round a parking area on a
    man-made island in the bay at night, after Daikoku PA. An
    anticlockwise rounded rectangle, LOT_HX by LOT_HZ about the origin, the
@@ -79,7 +92,7 @@ Track track;
 
 const char *const track_names[TRACK_COUNT] = {"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL",
                                               "NEON SKYWAY", "CYBERSTONE", "SPIRAL CANYON", "TSUDOKEN DRIFT",
-                                              "APPLE VALLEY", "NIGHT MEET"};
+                                              "APPLE VALLEY", "NIGHT MEET", "BAY CITY HILLS"};
 static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 WITH A BIG JUMP",
                                                       "HAIRPINS AND A CHICANE", "SWITCHBACKS AND A VIADUCT",
                                                       "A NIGHT RIDE ABOVE THE CITY",
@@ -87,7 +100,8 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
                                                       "OUTRUN THE SUN",
                                                       "SAKURA DORI",
                                                       "FIFTEEN TURNS IN THE MOJAVE",
-                                                      "A PARKING LOT ON THE BAY"};
+                                                      "A PARKING LOT ON THE BAY",
+                                                      "FOG, HILLS AND A CROOKED STREET"};
 
 #define STRAIGHT_HALF 85.0f
 #define TURN_R        55.0f
@@ -100,7 +114,7 @@ static const char *const track_blurbs[TRACK_COUNT] = {"SEASIDE OVAL", "FIGURE 8 
 static float f8_c, f8_l, f8_arc, f8_u0;   /* loop centre x, half leg, arc, start offset */
 
 /* Palm Harbour, Temple Hill, Neon Skyway, Cyberstone, Spiral Canyon,
-   Tsudoken Drift and Apple Valley are laid out from straights
+   Tsudoken Drift, Apple Valley and Bay City Hills are laid out from straights
    (radius 0) and arcs (degrees, + = right) end to end from an origin. Two
    straights are solved at init so the lap closes. An arc may be banked:
    its outside rises bank metres per metre from the centreline. */
@@ -108,7 +122,7 @@ typedef struct {
     float r, deg, len, bank;
 } Seg;
 
-#define MAX_SEGS 28
+#define MAX_SEGS 40
 typedef struct {
     Seg *seg;
     int n;
@@ -271,6 +285,48 @@ static Seg av_seg[] = {
     {22.0f, -31.1f, 0, 0},    /* 27 turn 15: the kink onto the main straight */
 };
 
+/* Bay City Hills, from the start of the Embarcadero straight; the city's
+   street grid runs square, so most turns are right angles and every
+   stretch side by side keeps its barriers 5 m or more apart. */
+static Seg sf_seg[] = {
+    {0, 0, 101.2f, 0},        /*  0 the Embarcadero, west, past the line (solved) */
+    {12.5f, 90, 0, 0},        /*  1 right, out onto the pier, now north */
+    {0, 0, 45.0f, 0},         /*  2 up the pier */
+    {12.5f, -180, 0, 0},      /*  3 left round the pier head, now south */
+    {0, 0, 45.0f, 0},         /*  4 back down the pier */
+    {12.5f, 90, 0, 0},        /*  5 right, back onto the wharf, now west */
+    {0, 0, 50.0f, 0},         /*  6 along the wharf */
+    {24.0f, 40, 0, 0},        /*  7 a chicane along the wharf: right */
+    {0, 0, 8.0f, 0},
+    {24.0f, -40, 0, 0},       /*  9 and left */
+    {0, 0, 30.0f, 0},
+    {15.0f, -90, 0, 0},       /* 11 turn 1: left, now south, onto Hyde Street */
+    {0, 0, 215.0f, 0},        /* 12 the climb */
+    {15.0f, -90, 0, 0},       /* 13 left at the top, now east */
+    {0, 0, 20.0f, 0},
+    {12.5f, 90, 0, 0},        /* 15 into the crooked street: right, now south */
+    {0, 0, 22.0f, 0},
+    {12.5f, -180, 0, 0},      /* 17 switchback left, now north */
+    {0, 0, 22.0f, 0},
+    {12.5f, 180, 0, 0},       /* 19 switchback right, now south */
+    {0, 0, 22.0f, 0},
+    {12.5f, -180, 0, 0},      /* 21 switchback left, now north */
+    {0, 0, 22.0f, 0},
+    {12.5f, 90, 0, 0},        /* 23 right out of it, now east */
+    {0, 0, 50.0f, 0},         /* 24 over the crest at its foot */
+    {30.0f, -40, 0, 0},       /* 25 left onto the avenue */
+    {0, 0, 35.0f, 0},
+    {30.0f, 40, 0, 0},        /* 27 right, east again */
+    {0, 0, 32.0f, 0},         /* 28 up Telegraph Hill */
+    {16.0f, -90, 0, 0},       /* 29 left round the tower, now north */
+    {0, 0, 98.4f, 0},         /* 30 the plunge (solved) */
+    {26.0f, 35, 0, 0},        /* 31 an S at the bottom: right */
+    {0, 0, 6.0f, 0},
+    {26.0f, -35, 0, 0},       /* 33 and left */
+    {0, 0, 15.0f, 0},
+    {28.0f, -90, 0, 0},       /* 35 left onto the Embarcadero, now west */
+};
+
 /* Night Meet's ring road: four straights and four left-hand corners,
    run anticlockwise from the middle of the south side heading east. */
 static Seg lot_seg[] = {
@@ -295,6 +351,7 @@ static Layout av = {av_seg, NSEGS(av_seg), 234.59f * DK_PI / 180.0f, {105.35f, 0
                     {0}, {0}, {{0}}};
 static Layout lot = {lot_seg, NSEGS(lot_seg), DK_PI * 0.5f, {-(LOT_HX - LOT_CORNER_R), 0, -LOT_HZ},
                      LOT_HX - LOT_CORNER_R, 0, 2, {0}, {0}, {{0}}};
+static Layout sf = {sf_seg, NSEGS(sf_seg), -DK_PI * 0.5f, {60.0f, 0, 60.0f}, 45.0f, 0, SF_PLUNGE_SEG, {0}, {0}, {{0}}};
 static Layout *lay = &hb;
 
 /* Emerald Beach centreline at lap distance u (start/finish line at u = 0). */
@@ -440,7 +497,7 @@ float track_seg_deg(int i) { return lay->seg[i].deg; }
 static V3 centreline(float s, V3 *tangent) {
     if(track.id == TRACK_HARBOUR || track.id == TRACK_TEMPLE || track.id == TRACK_SKYWAY ||
        track.id == TRACK_CYBERSTONE || track.id == TRACK_CANYON || track.id == TRACK_TSUDOKEN ||
-       track.id == TRACK_APPLE || track.id == TRACK_LOT)
+       track.id == TRACK_APPLE || track.id == TRACK_LOT || track.id == TRACK_SF)
         return lay_centreline(lay, s, tangent);
     if(track.id == TRACK_FIGURE8) {
         float u = s + f8_u0;
@@ -985,6 +1042,129 @@ static void init_apple(float *turnk) {
     track.bands[3] = (ItemBand){top + 100.0f};
 }
 
+/* Bay City Hills' road height: straight grades between knots (layout
+   distance, height), each corner rounded by a parabola fillet of its own
+   half length. The ramps are as steep as the city's real streets, a
+   quarter or more; a short fillet over a crest turns the road down
+   faster than gravity can follow, so the karts fly off it (kart.c), as
+   off the crossings on the climb and the plunge. */
+#define SF_KNOTS 36
+static float sf_knots[SF_KNOTS][3];   /* u, height, fillet half length */
+static int sf_nknots;
+
+static void sf_knot(float u, float y, float e) {
+    if(sf_nknots < SF_KNOTS) {
+        sf_knots[sf_nknots][0] = u;
+        sf_knots[sf_nknots][1] = y;
+        sf_knots[sf_nknots][2] = e;
+        sf_nknots++;
+    }
+}
+
+static float sf_grade(int i) {
+    return (sf_knots[i + 1][1] - sf_knots[i][1]) / (sf_knots[i + 1][0] - sf_knots[i][0]);
+}
+
+static float sf_height(float s) {
+    float u = lay_u(&sf, s);
+    int i = 0;
+    while(i + 2 < sf_nknots && u >= sf_knots[i + 1][0]) i++;
+    float h = sf_knots[i][1] + sf_grade(i) * (u - sf_knots[i][0]);
+    /* The fillets of the knots either side (the first and last knots are
+       on the flat quay, so none is needed across the wrap). */
+    for(int k = i; k <= i + 1; k++) {
+        if(k == 0 || k == sf_nknots - 1) continue;
+        float x = fabsf(u - sf_knots[k][0]), e = sf_knots[k][2];
+        if(x >= e) continue;
+        float dg = sf_grade(k) - sf_grade(k - 1);
+        h += dg * (e - x) * (e - x) / (4.0f * e);
+    }
+    return h;
+}
+
+static void init_sf(float *turnk) {
+    init_layout(&sf, turnk);
+    track.fine_bends = true;
+    const float *u0 = sf.s0;
+    const float Q = SF_QUAY_Y;
+    float hy = u0[SF_HYDE_SEG], pl = u0[SF_PLUNGE_SEG];
+    sf_nknots = 0;
+    sf_knot(0.0f, Q, 0);
+    /* Hyde Street: three blocks at ~30%, as steep as the city's steepest,
+       flat crossings between them; each crest is rounded over 2 m, so
+       the karts hop it. */
+    sf_knot(hy + 18.0f, Q, 4.0f);
+    sf_knot(hy + 54.0f, Q + 11.0f, 2.0f);
+    sf_knot(hy + 77.0f, Q + 11.0f, 4.0f);
+    sf_knot(hy + 113.0f, Q + 22.0f, 2.0f);
+    sf_knot(hy + 136.0f, Q + 22.0f, 4.0f);
+    sf_knot(hy + 172.0f, Q + 33.0f, 3.0f);
+    /* The summit, then the crooked street: its legs run level across the
+       hill, and each bend steps down it. */
+    const float top = Q + 33.0f;
+    sf_knot(u0[SF_CROOK_SEG], top, 3.0f);
+    sf_knot(u0[SF_CROOK_SEG + 1], top - 2.0f, 3.0f);
+    for(int k = 0; k < 3; k++) {
+        int g = SF_CROOK_SEG + 2 + 2 * k;
+        sf_knot(u0[g], top - 2.0f - 4.0f * (float)k, 3.0f);
+        sf_knot(u0[g + 1], top - 6.0f - 4.0f * (float)k, 3.0f);
+    }
+    sf_knot(u0[SF_CROOK_END], top - 14.0f, 3.0f);
+    sf_knot(u0[SF_CROOK_END + 1], top - 16.0f, 3.0f);
+    /* The crossing at the foot, crowned, then a block at -28% off its
+       sharp crest: the crown sends the karts up as the road drops away. */
+    float foot = u0[SF_CROOK_END + 1];
+    sf_knot(foot + 2.0f, top - 16.0f, 1.5f);
+    sf_knot(foot + 8.0f, top - 15.4f, 1.5f);
+    sf_knot(foot + 33.0f, top - 23.0f, 5.0f);
+    /* The avenue, then Telegraph Hill at 25%, easing onto the summit
+       before the turn so nobody flies into it. */
+    float tele = u0[SF_PLUNGE_SEG - 2];
+    sf_knot(tele, top - 23.0f, 5.0f);
+    sf_knot(tele + 26.0f, top - 16.5f, 5.0f);
+    /* The plunge: two blocks at -30%, each off a crowned crossing. */
+    sf_knot(pl + 2.0f, top - 16.5f, 1.5f);
+    sf_knot(pl + 8.0f, top - 15.9f, 1.5f);
+    sf_knot(pl + 38.0f, top - 25.5f, 5.0f);
+    sf_knot(pl + 44.0f, top - 25.5f, 1.5f);
+    sf_knot(pl + 50.0f, top - 24.9f, 1.5f);
+    sf_knot(pl + 80.0f, Q, 6.0f);
+    sf_knot(sf.s0[sf.n], Q, 0);
+
+    /* The barriers: the sidewalks' railings and the pier's, 10 m out
+       like Apple Valley's round a road as narrow. */
+    for(int i = 0; i < TRACK_SAMPLES; i++) {
+        TrackSample *t = &track.smp[i];
+        t->half = SF_HALF;
+        t->curb = 1.3f;
+        t->wall_in = t->wall_out = 10.0f;
+    }
+
+    /* Dash panels: the Embarcadero past the line, the foot of the Hyde
+       Street climb and each of its two crossings, and the avenue under
+       Telegraph Hill. A kart has to be on the ground to take one, and
+       the hop off each block carries it 11-15 m onto the crossing, so
+       those sit on its far half, long and wide, firing it up the next
+       block. */
+    float avenue = track_seg_s(SF_PLUNGE_SEG - 4);
+    track.npads = 5;
+    track.pads[0] = (DashPad){30.0f, 35.0f, 1.6f, 5.0f, 1.1f};
+    track.pads[1] = (DashPad){track_wrap(hy + 4.0f - sf.start), track_wrap(hy + 9.0f - sf.start), -1.6f, 1.6f, 1.1f};
+    track.pads[2] = (DashPad){avenue + 14.0f, avenue + 19.0f, -5.0f, -1.6f, 1.1f};
+    for(int k = 0; k < 2; k++) {
+        float x = hy + 54.0f + 59.0f * (float)k;   /* the crossing's foot */
+        track.pads[3 + k] = (DashPad){track_wrap(x + 13.0f - sf.start), track_wrap(x + 21.0f - sf.start), -3.0f, 3.0f, 1.1f};
+    }
+
+    /* Power-ups: down the Embarcadero before the pier, along the wharf,
+       on the summit before the crooked street and out on the avenue. */
+    track.nbands = 4;
+    track.bands[0] = (ItemBand){45.0f};
+    track.bands[1] = (ItemBand){track_seg_s(6) + 25.0f};
+    track.bands[2] = (ItemBand){track_seg_s(SF_CROOK_SEG - 1) + 8.0f};
+    track.bands[3] = (ItemBand){avenue + 30.0f};
+}
+
 /* Night Meet: the ring road has a barrier on the outside only; inside,
    the lot. The walls here are only for show (the map, the cameras):
    roam.c keeps the karts in, off the obstacles and on the decks. */
@@ -1147,6 +1327,7 @@ void track_init(int id) {
     else if(id == TRACK_TSUDOKEN) init_tsudoken(turnk);
     else if(id == TRACK_APPLE) init_apple(turnk);
     else if(id == TRACK_LOT) init_lot(turnk);
+    else if(id == TRACK_SF) init_sf(turnk);
     else init_oval(turnk);
 
     /* Racing line: swing wide before a turn, hug the inside through it and
@@ -1228,6 +1409,7 @@ float track_height(float s) {
     if(track.id == TRACK_CYBERSTONE) return cs_height(s);
     if(track.id == TRACK_CANYON) return dr_height(s);
     if(track.id == TRACK_APPLE) return av_height(s);
+    if(track.id == TRACK_SF) return sf_height(s);
     float base = track.id == TRACK_SKYWAY ? sk_height(s) : 0.0f;
     if(!track.has_jump) return base;
     const Jump *j = &track.jump;

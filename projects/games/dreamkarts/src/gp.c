@@ -207,8 +207,9 @@ static void draw_standings_page(float x0, float x1) {
     else snprintf(buf, sizeof(buf), "AFTER RACE %d OF %d", gp.race, gp.count);
     hud_text(cx, 108, 0.5f, ALIGN_CENTER, PALE, buf);
     hud_text(x1 - 16, 134, 0.42f, ALIGN_RIGHT, PALE, "PTS");
-    /* One small number a race: where each kart finished. */
-    float hx = x0 + 262, hw = 19.0f;
+    /* One small number a race: where each kart finished (nine fit clear
+       of the points gained). */
+    float hx = x0 + 252, hw = 17.0f;
     for(int r = 0; r < gp.race; r++) {
         snprintf(buf, sizeof(buf), "%d", r + 1);
         hud_text(hx + r * hw + hw * 0.5f, 136, 0.36f, ALIGN_CENTER, PALE, buf);

@@ -27,6 +27,7 @@
 #include "spectate.h"
 #include "film.h"
 #include "tide.h"
+#include "cablecar.h"
 #include "birds.h"
 #include "skylife.h"
 #include "gp.h"
@@ -129,6 +130,7 @@ void race_setup(void) {
 void race_reset(void) {
     int humans = game.num_players;
     game.race_time = 0;
+    cablecar_reset();
     game.countdown = 0;
     game.finished_count = 0;
     game.final_lap_announced = false;
@@ -1275,6 +1277,7 @@ int main(int argc, char **argv) {
         for(int p = 0; p < MAX_PLAYERS; p++)
             audio_kart_loops(p, engines && p < game.num_players ? &karts[game.pl[p].kart] : NULL, dt_real);
         biplane_audio(engines && game.state == ST_RACE);
+        world_sf_audio(engines && game.state == ST_RACE, dt_real);
         PROF_LAP(PS_U_AUDIO, pus);
         rumble_update(dt_real, (game.state == ST_RACE || game.state == ST_COUNTDOWN) && !game.paused);
         vmuscreen_update(dt_real);

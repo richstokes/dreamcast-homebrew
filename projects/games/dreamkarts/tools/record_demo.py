@@ -20,7 +20,8 @@ import pathlib
 import struct
 import sys
 
-SLUGS = ["beach", "coral", "harbour", "temple", "skyway", "cyberstone", "spiralcanyon", "tsudoken", "applevalley"]
+SLUGS = ["beach", "coral", "harbour", "temple", "skyway", "cyberstone", "spiralcanyon", "tsudoken", "applevalley", "nightmeet",
+         "baycityhills"]
 KART_BYTES = 29        # what the record build prints (src/net.h NET_KART_BYTES)
 ITEM_BYTE = 14         # held item, barrier, spun out, spear thrown backwards
 SEQ_BYTE = 21          # spear sequence (low nibble) and mine sequence (high)

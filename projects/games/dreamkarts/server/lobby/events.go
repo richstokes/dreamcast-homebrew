@@ -36,7 +36,7 @@ type Event struct {
 // events_test.go checks both against the console's source.
 var (
 	TrackNames = []string{"EMERALD BEACH", "CORAL CROSSING", "PALM HARBOUR", "TEMPLE HILL", "NEON SKYWAY", "CYBERSTONE",
-		"SPIRAL CANYON", "TSUDOKEN DRIFT", "APPLE VALLEY", "NIGHT MEET"}
+		"SPIRAL CANYON", "TSUDOKEN DRIFT", "APPLE VALLEY", "NIGHT MEET", "BAY CITY HILLS"}
 	DisabledTracks = map[byte]bool{5: true, RoamTrack: true} // CYBERSTONE, retired for now; Night Meet, Free Roam's
 	CCNames        = []string{"50cc", "100cc", "150cc"}
 )

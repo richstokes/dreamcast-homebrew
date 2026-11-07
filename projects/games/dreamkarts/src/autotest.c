@@ -106,7 +106,7 @@ void capture_script(void) {
 #endif
     static float t;
     static int step;
-    static bool shot[72];
+    static bool shot[88];
     t += DK_DT;
     const Kart *p = &karts[game.player];
     /* Power-ups: an emerald coming up, the gem held, a spear in flight,
@@ -317,6 +317,19 @@ void capture_script(void) {
             if(!shot[64 + i] && fabsf(track_delta(track_seg_s(av_shots[i].seg) + av_shots[i].at, p->tp.s)) < 3.0f) {
                 shot[64 + i] = true;
                 take_shot(av_shots[i].name);
+            }
+    }
+    /* Bay City Hills: down the Embarcadero toward the bridge, the pier
+       head, under the wharf's sign, up Hyde Street, the summit, the
+       crooked street, the avenue and the top of the plunge. */
+    if(game.state == ST_RACE && track.id == TRACK_SF) {
+        static const struct { int seg; float at; const char *name; } sf_shots[8] = {
+            {0, 60.0f, "sf-line"}, {3, 12.0f, "sf-pier"}, {6, 8.0f, "sf-wharf"}, {12, 64.0f, "sf-hyde"},
+            {14, 6.0f, "sf-summit"}, {18, 8.0f, "sf-crooked"}, {26, 10.0f, "sf-avenue"}, {30, 4.0f, "sf-plunge"}};
+        for(int i = 0; i < 8; i++)
+            if(!shot[76 + i] && fabsf(track_delta(track_seg_s(sf_shots[i].seg) + sf_shots[i].at, p->tp.s)) < 3.0f) {
+                shot[76 + i] = true;
+                take_shot(sf_shots[i].name);
             }
     }
     /* Cyberstone: the first chicane, the crest, down the drop, the
@@ -1234,6 +1247,9 @@ void camera_tour(void) {
     dk_probe_off |= PROBE_HUD;
     game.state = ST_RESULTS;
     for(int tr = 0; tr < TRACK_COUNT; tr++) {
+#ifdef DK_AT_TRACK
+        if(tr != DK_AT_TRACK) continue;   /* one track's cameras */
+#endif
         game_load_track(tr);
         spectate_begin();
         for(int i = 0; i < spectate_tv_count(); i++) {

@@ -27,7 +27,8 @@ typedef struct {
     uint16_t first_strip, nstrips;
     uint8_t list;
     uint8_t far;       /* distant terrain or fine detail: skipped in a split screen */
-    uint8_t lod;       /* split screen: 1 drawn near the camera, 2 (the next chunk) beyond; 3 only in a split screen */
+    uint8_t lod;       /* split screen: 1 drawn near the camera, 2 (the next chunk) beyond; 3 only in a split screen;
+                          4 only in the track select's flyover */
 } Chunk;
 
 typedef struct {
@@ -331,6 +332,19 @@ void av_draw_windsock(void);
 void av_draw_tumbleweeds(void);
 void av_draw_dust_devils(void);
 void av_draw_ranges(void);
+
+/* Bay City Hills (world_sf.c) */
+void sf_init(void);
+float sf_terrain(float x, float z);
+void build_sf(void);
+const pvr_poly_hdr_t *sf_water_hdr(void);
+uint32_t sf_sea_color(float x, float z);
+void sf_draw_ranges(void);
+void sf_draw_fog(void);
+void sf_draw_cablecar(void);
+void sf_draw_ferry(void);
+void sf_draw_ferry_wake(void);
+bool sf_in_solid(V3 p, float margin);
 
 /* Night Meet (world_lot.c): Free Roam's night-time parking area */
 void lot_init(void);

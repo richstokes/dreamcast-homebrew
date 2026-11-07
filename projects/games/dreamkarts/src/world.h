@@ -46,10 +46,14 @@ float world_surface_y(float s, float d);
 bool world_leak_point(float s, float d, V3 *out);
 void world_diag_mode(int mode);
 /* Solid scenery the spectator's cameras keep clear of (Spiral Canyon's
-   rock, Tsudoken's raised road and props; none elsewhere): p is in it or
-   less than margin metres from it, or it stands between a and b. */
+   rock, Tsudoken's raised road and props, Bay City Hills' buildings; none
+   elsewhere): p is in it or less than margin metres from it, or it stands
+   between a and b. */
 bool world_solid(V3 p, float margin);
 bool world_sight_clear(V3 a, V3 b);
+/* Bay City Hills' sounds (the cable car's bell, a foghorn on the bay), each
+   frame; off while the race isn't running. */
+void world_sf_audio(bool on, float dt);
 /* Spiral Canyon's rock alone (false on every other track). */
 bool world_in_rock(V3 p, float margin);
 /* Neon gates over the road (Neon Skyway): their lap distances. */

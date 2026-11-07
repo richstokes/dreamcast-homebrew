@@ -1347,6 +1347,35 @@ def sfx_bell():
     return add_reverb(y, 0.25, seconds=1.0, t60=0.9, seed="blr")[:int(1.4 * SR)]
 
 
+def sfx_cc_bell():
+    """Bay City Hills' cable car: the gripman's bell, two quick clangs of a
+    small brass bell (bright, inharmonic, a hard clapper strike)."""
+    n = int(1.1 * SR)
+    y = np.zeros(n)
+    brass = ((1, 1, 0.35), (2.32, 0.55, 0.2), (3.17, 0.4, 0.12), (4.6, 0.25, 0.07), (6.1, 0.12, 0.04))
+    for i in range(2):
+        st = int(i * 0.17 * SR)
+        y[st:] += bell(1180.0, n - st, brass, strike=0.35, seed=f"ccb{i}") * (1.0 - 0.15 * i)
+    return add_reverb(y, 0.18, seconds=0.8, t60=0.6, seed="ccbr")[:int(1.2 * SR)]
+
+
+def sfx_foghorn():
+    """A foghorn out on the bay: the diaphone's two-tone groan, a reedy
+    high note sliding down into a long low grunt, heard from far off
+    (muffled, with a wide reverb)."""
+    n = int(2.2 * SR)
+    t = np.arange(n) / SR
+    f = np.where(t < 0.9, 176.0, 176.0 - 46.0 * np.minimum((t - 0.9) / 0.12, 1.0))
+    ph = TAU * np.cumsum(f) / SR
+    y = np.zeros(n)
+    for h, a in ((1, 1.0), (2, 0.7), (3, 0.5), (4, 0.32), (5, 0.2), (6, 0.12), (7, 0.08)):
+        y += a * np.sin(h * ph + h)
+    y = softsat(y * 0.6, 1.4)
+    env = np.minimum(t / 0.12, 1.0) * np.clip((2.05 - t) / 0.35, 0, 1)
+    y = filt(y * env, "lp", 900, 0.7)
+    return add_reverb(y, 0.45, seconds=1.5, t60=1.3, seed="fogr", lp_hz=2500.0)[:int(2.9 * SR)]
+
+
 def sfx_chao():
     n = int(0.5 * SR)
     y = chao_syllable(n, 0.0, A_VOWEL, O_VOWEL, 720.0, 760.0, "chao1")
@@ -1656,6 +1685,8 @@ SFX = [
     ("MINE_HIT", sfx_mine_hit, False, 0.85),
     ("BELL", sfx_bell, False, 0.75),
     ("PLANE", sfx_plane, True, 0.8, 2),
+    ("CC_BELL", sfx_cc_bell, False, 0.75),
+    ("FOGHORN", sfx_foghorn, False, 0.8),
 ]
 
 
@@ -1774,7 +1805,7 @@ SFX_LABELS = {
     "WHOOSH": "WHOOSH", "STAR": "STAR",
     "EMERALD": "EMERALD", "SPEAR": "STAR SPEAR", "SPEAR_HIT": "SPEAR HIT", "BARRIER": "BARRIER",
     "BARRIER_POP": "BARRIER POP", "MINE": "MINE", "MINE_HIT": "MINE BLAST", "BELL": "LOBBY BELL",
-    "PLANE": "BIPLANE",
+    "PLANE": "BIPLANE", "CC_BELL": "CABLE CAR BELL", "FOGHORN": "FOGHORN",
 }
 
 

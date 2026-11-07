@@ -31,6 +31,9 @@ void hud_draw_split_overlay(void);
 /* Track outline centred on (cx, cy) at sc pixels per metre; z orders it
    among other overlay quads. Karts are drawn on top when asked. */
 void hud_draw_track_map(float cx, float cy, float sc, float z, bool show_karts);
+/* The scale for the current track's map, no larger than sc, that keeps it
+   within half_w by half_h pixels of its centre. */
+float hud_track_map_fit(float sc, float half_w, float half_h);
 /* Results after a single race, time trial or versus, with the menu of what
    to do next. */
 enum { RESULTS_AGAIN, RESULTS_TRACK, RESULTS_TITLE, RESULTS_ITEMS };

@@ -1944,6 +1944,994 @@ def tex_avrange(n=32):
     return to_image(rgb)
 
 
+# ---------------------------------------------------------------------------
+# Bay City Hills: San Francisco's steep streets, the crooked street and the
+# wharf
+
+def sf_asphalt(w, h, seed, base=104):
+    """Old city asphalt, a little blue-grey: aggregate, sealed cracks and
+    darker rectangles where the street was cut open and patched."""
+    rng = np.random.default_rng(seed)
+    noise = fbm(w, h, 8, 5, seed + 1)
+    fine = rng.random((h, w))
+    lum = base + 22 * (noise - 0.5) + 14 * (fine - 0.5)
+    rgb = np.dstack([lum * 0.98, lum * 1.0, lum * 1.05])
+    speck = rng.random((h, w)) > 0.982
+    rgb[speck] = rgb[speck] * 1.3
+    pit = rng.random((h, w)) > 0.988
+    rgb[pit] = rgb[pit] * 0.62
+    # Patches: utility cuts, squared off, a shade darker and smoother.
+    for _ in range(5):
+        pw, ph = int(rng.integers(w // 10, w // 4)), int(rng.integers(h // 12, h // 4))
+        x0, y0 = int(rng.integers(0, w)), int(rng.integers(0, h))
+        ys = (np.arange(y0, y0 + ph) % h)[:, None]
+        xs = (np.arange(x0, x0 + pw) % w)[None, :]
+        rgb[ys, xs] = rgb[ys, xs] * 0.8 + 6
+        rgb[ys, x0 % w] *= 0.75
+        rgb[ys, (x0 + pw - 1) % w] *= 0.75
+        rgb[y0 % h, xs] *= 0.75
+        rgb[(y0 + ph - 1) % h, xs] *= 0.75
+    # Sealed cracks.
+    f = periodic_noise(w, h, 5, seed + 3) + 0.15 * periodic_noise(w, h, 17, seed + 4)
+    keep = periodic_noise(w, h, 3, seed + 5) > 0.5
+    crack = (np.abs(f - 0.5) < 0.006) & keep
+    rgb[crack] = np.array([44, 44, 48.0])
+    return rgb, fine
+
+
+def tex_sfroad(n=256):
+    """A two-lane city street over 13 m (u) and 16 m (v): grey asphalt,
+    oil darkening down the middle of each lane, the double yellow centre
+    line, and a manhole cover."""
+    rgb, fine = sf_asphalt(n, n, 9001)
+    u = (np.arange(n) + 0.5) / n
+    oil = np.exp(-((u - 0.27) / 0.05) ** 2) + np.exp(-((u - 0.73) / 0.05) ** 2)
+    along = 0.6 + 0.4 * periodic_noise(n, n, 4, 9005)
+    rgb *= (1 - 0.14 * oil[None, :] * along)[..., None]
+    # Double yellow: 15 cm lines, 12 cm apart, worn in places.
+    m = 13.0
+    for c in (0.5 - 0.135 / m, 0.5 + 0.135 / m):
+        line = np.abs(u - c) < 0.075 / m
+        wear = 0.8 + 0.2 * periodic_noise(n, n, 12, 9007)[:, line]
+        rgb[:, line] = np.array([236, 188, 40.0]) * wear[..., None]
+    img = to_image(rgb)
+    d = ImageDraw.Draw(img)
+    for cx, cy in ((0.27 * n, 0.3 * n), (0.73 * n, 0.8 * n)):
+        r = 0.32 / m * n
+        d.ellipse([cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1], fill=(70, 70, 74))
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(92, 88, 84))
+        for k in range(-2, 3):
+            d.line([cx - r * 0.8, cy + k * r * 0.35, cx + r * 0.8, cy + k * r * 0.35], fill=(64, 62, 60))
+    return img
+
+
+def tex_sfrails(n=128):
+    """Hyde Street: the same asphalt with two cable car tracks down the
+    middle, each a concrete trackway with two polished rails and the
+    cable's slot between them."""
+    rgb, fine = sf_asphalt(n, n, 9011, base=100)
+    m = 13.0
+    u = (np.arange(n) + 0.5) / n
+    x = (u - 0.5) * m                     # metres from the centreline
+    for c in (-1.75, 1.75):
+        band = np.abs(x - c) < 0.95
+        conc = 150 + 18 * (fbm(n, n, 6, 3, 9013)[:, band] - 0.5)
+        rgb[:, band] = np.dstack([conc, conc * 0.98, conc * 0.95])
+        for r in (c - 0.535, c + 0.535):
+            rail = np.abs(x - r) < 0.05
+            rgb[:, rail] = np.array([200, 204, 210.0]) * (0.9 + 0.1 * fine[:, rail, None])
+            edge = (np.abs(x - r) >= 0.05) & (np.abs(x - r) < 0.11)
+            rgb[:, edge] *= 0.55
+        slot = np.abs(x - c) < 0.03
+        rgb[:, slot] = np.array([30, 30, 32.0])
+    # Joints across the trackway every 2 m.
+    v = (np.arange(n) + 0.5) / n * 16.0
+    joint = (v % 2.0) < 0.07
+    trk = (np.abs(np.abs(x) - 1.75) < 0.95)
+    rgb[np.ix_(joint, trk)] *= 0.8
+    return to_image(rgb)
+
+
+def tex_sfbrick(n=256):
+    """The crooked street's red brick pavers, laid in running bond across
+    the road with a darker soldier course along each edge, weathered and
+    rubbed paler down the wheel tracks. 256 across the 13 m road, so a
+    brick is ~8 x 5 texels and still reads as brick a few mips down."""
+    rng = np.random.default_rng(9021)
+    s = 2
+    N = n * s
+    img = Image.new("RGB", (N, N), (92, 60, 52))
+    d = ImageDraw.Draw(img)
+    rows = 64                    # 16 m / 0.25 m
+    bw = N / 32                  # 13 m / 0.4 m
+    rh = N / rows
+    edge = N * 0.045             # the soldier course, ~0.6 m
+    for r in range(rows):
+        off = (r % 2) * bw * 0.5
+        for c in range(-1, 33):
+            x0, y0 = c * bw + off, r * rh
+            t = rng.random()
+            col = (int(140 + 62 * t + rng.integers(-12, 12)), int(56 + 30 * t), int(42 + 20 * t))
+            d.rectangle([x0 + s * 0.8, y0 + s * 0.8, x0 + bw - s * 0.8, y0 + rh - s * 0.8], fill=col)
+    # Soldier courses: bricks end-on along each edge, darker.
+    for side in (0, 1):
+        x0 = 0 if side == 0 else N - edge
+        d.rectangle([x0, 0, x0 + edge, N], fill=(70, 40, 34))
+        for r in range(int(N / (rh * 1.6))):
+            y0 = r * rh * 1.6
+            t = rng.random()
+            d.rectangle([x0 + s, y0 + s, x0 + edge - s, y0 + rh * 1.6 - s],
+                        fill=(int(108 + 30 * t), int(44 + 14 * t), int(36 + 10 * t)))
+    img = img.resize((n, n), Image.Resampling.LANCZOS)
+    rgb = np.asarray(img).astype(float)
+    u = (np.arange(n) + 0.5) / n
+    rub = np.exp(-((u - 0.3) / 0.08) ** 2) + np.exp(-((u - 0.7) / 0.08) ** 2)
+    rgb = rgb * (1 + 0.12 * rub[None, :, None]) * (0.9 + 0.2 * fbm(n, n, 8, 3, 9023))[..., None]
+    return to_image(rgb)
+
+
+def tex_sfcurb(n=64):
+    """The kerb and gutter, along the road: grey concrete cast in 1.2 m
+    lengths, the joints dark, grime along the bottom. The same across u
+    (the left kerb samples only its first column)."""
+    v = (np.arange(n) + 0.5) / n
+    g = fbm(n, n, 6, 3, 9031)
+    rgb = lerp_color((150, 150, 148), (186, 186, 182), g)
+    jv = (v * 2) % 1.0
+    joint = (jv < 0.03) | (jv > 0.97)
+    rgb[joint, :] = np.array([86, 86, 88.0])
+    rgb *= (0.92 + 0.12 * np.random.default_rng(9033).random((n, n)))[..., None]
+    return to_image(rgb)
+
+
+def tex_sfwalk(n=64):
+    """Sidewalk from above, 6 m a tile: 1.5 m concrete slabs with scored
+    joints, the odd one replaced paler, and a few stains."""
+    rng = np.random.default_rng(9041)
+    g = fbm(n, n, 6, 3, 9043)
+    rgb = lerp_color((176, 174, 168), (204, 202, 196), g)
+    slab = n // 4
+    for i in range(4):
+        for j in range(4):
+            if rng.random() < 0.2:
+                rgb[j * slab:(j + 1) * slab, i * slab:(i + 1) * slab] *= 1.06
+    idx = np.arange(n)
+    joint = (idx % slab == 0)
+    rgb[joint, :] *= 0.72
+    rgb[:, joint] *= 0.72
+    for _ in range(6):
+        x, y, r = rng.uniform(0, n), rng.uniform(0, n), rng.uniform(1.5, 4)
+        yy, xx = np.mgrid[0:n, 0:n]
+        dd = np.hypot((xx - x + n / 2) % n - n / 2, (yy - y + n / 2) % n - n / 2)
+        rgb *= (1 - 0.18 * np.clip(1 - dd / r, 0, 1))[..., None]
+    return to_image(rgb)
+
+
+def tex_sfrailing(w=128, h=128):
+    """The sidewalk's railing over 4 m, 1 m high: a concrete kerb wall
+    below, green painted iron above (posts every metre, a top rail and
+    thin balusters) in front of the hedges behind."""
+    s = 4
+    W, H = w * s, h * s
+    img = Image.new("RGB", (W, H), (38, 64, 40))
+    d = ImageDraw.Draw(img)
+    rng = np.random.default_rng(9051)
+    for _ in range(400):
+        x, y, r = rng.uniform(0, W), rng.uniform(0, H * 0.6), rng.uniform(2, 6) * s
+        c = int(rng.integers(40, 90))
+        d.ellipse([x - r, y - r, x + r, y + r], fill=(c // 2, c, c // 2 + 6))
+    iron = (30, 72, 52)
+    hi = (70, 120, 92)
+    top = 0.06 * H
+    wall = 0.58 * H
+    for k in range(33):
+        x = k * W / 32
+        d.rectangle([x - 0.25 * s, top, x + 0.25 * s, wall], fill=iron)
+    for k in range(5):
+        x = k * W / 4
+        d.rectangle([x - 1.2 * s, top - 0.02 * H, x + 1.2 * s, wall], fill=iron)
+        d.line([x - 0.6 * s, top, x - 0.6 * s, wall], fill=hi, width=s)
+    d.rectangle([0, top - 0.03 * H, W, top + 0.05 * H], fill=iron)
+    d.line([0, top - 0.02 * H, W, top - 0.02 * H], fill=hi, width=s)
+    d.rectangle([0, wall - 0.04 * H, W, wall], fill=iron)
+    img = img.resize((w, h), Image.Resampling.LANCZOS)
+    rgb = np.asarray(img).astype(float)
+    g = fbm(w, h, 8, 3, 9053)
+    y = (np.arange(h) + 0.5) / h
+    conc = y > 0.58
+    base = lerp_color((168, 166, 160), (198, 196, 190), g)
+    grime = np.clip((y - 0.85) / 0.15, 0, 1)
+    base *= (1 - 0.25 * grime)[:, None, None]
+    rgb[conc] = base[conc]
+    rgb[(y > 0.58) & (y < 0.62)] *= 0.8
+    return to_image(rgb)
+
+
+def tex_sfpier(n=128):
+    """The pier's deck over 13 m (u) and 16 m (v): weathered planks laid
+    across, grey-brown with dark gaps and rows of nail heads."""
+    rng = np.random.default_rng(9061)
+    v = (np.arange(n) + 0.5) / n
+    plank = np.floor(v * 48).astype(int)          # 33 cm planks
+    tone = rng.random(64)[plank]
+    grain = fbm(n, n, 8, 4, 9063)
+    lum = 118 + 34 * tone[:, None] + 26 * (grain - 0.5)
+    rgb = np.dstack([lum * 1.04, lum * 0.98, lum * 0.9])
+    gap = (v * 48) % 1.0 < 0.1
+    rgb[gap, :] *= 0.45
+    u = (np.arange(n) + 0.5) / n
+    for c in (0.1, 0.3, 0.5, 0.7, 0.9):
+        nail = np.abs(u - c) < 0.006
+        rgb[np.ix_(~gap & ((v * 48) % 1.0 > 0.45) & ((v * 48) % 1.0 < 0.6), nail)] *= 0.55
+    # A darker wear lane down each wheel track.
+    rub = np.exp(-((u - 0.3) / 0.07) ** 2) + np.exp(-((u - 0.7) / 0.07) ** 2)
+    rgb *= (1 - 0.1 * rub)[None, :, None]
+    return to_image(rgb)
+
+
+def tex_sfpierrail(w=128, h=128):
+    """The pier's edge over 4 m, 1 m high: a timber bulwark of vertical
+    boards in old blue-grey paint, a white cap rail on top."""
+    rng = np.random.default_rng(9071)
+    u = (np.arange(w) + 0.5) / w
+    y = (np.arange(h) + 0.5) / h
+    board = np.floor(u * 24).astype(int)
+    tone = rng.random(32)[board]
+    g = fbm(w, h, 8, 3, 9073)
+    base = lerp_color((96, 120, 138), (128, 150, 166), g * 0.6 + 0.4 * tone[None, :])
+    seam = (u * 24) % 1.0 < 0.08
+    base[:, seam] *= 0.6
+    flake = (fbm(w, h, 16, 3, 9075) > 0.62)
+    base[flake] = base[flake] * 0.6 + np.array([140, 112, 84.0]) * 0.4
+    cap = y < 0.14
+    base[cap] = np.array([236, 234, 226.0])
+    base[(y >= 0.14) & (y < 0.18)] *= 0.5
+    post = ((u * 2) % 1.0 < 0.05)
+    base[np.ix_(~cap, post)] *= 0.75
+    return to_image(base)
+
+
+SF_FACADES = [
+    # body, trim, accent
+    ((128, 172, 210), (246, 244, 236), (40, 60, 110)),
+    ((240, 214, 120), (250, 248, 240), (70, 112, 70)),
+    ((236, 158, 176), (250, 240, 226), (120, 36, 60)),
+    ((152, 198, 160), (246, 246, 238), (40, 84, 56)),
+    ((188, 162, 216), (248, 246, 240), (84, 50, 120)),
+    ((242, 232, 212), (255, 255, 250), (40, 110, 120)),
+    ((242, 172, 122), (250, 242, 228), (110, 60, 40)),
+    ((128, 190, 192), (248, 246, 240), (170, 74, 44)),
+]
+
+
+def sf_facade_cell(body, trim, accent, seed, s=4):
+    """One Victorian row house's front, 7 m by 12 m in 64 x 128 pixels
+    (drawn s times larger): a garage and the steps up to a portico on the
+    street storey, a bay window and a single window on each of the two
+    floors above, and a bracketed cornice with a false front on top."""
+    W, H = 64 * s, 128 * s
+    px, py = W / 7.0, H / 12.0                     # pixels a metre
+    rng = np.random.default_rng(seed)
+    img = Image.new("RGB", (W, H), body)
+    d = ImageDraw.Draw(img)
+
+    def rect(x0, y0, x1, y1, col):                 # metres, y up from the street
+        d.rectangle([x0 * px, H - y1 * py, x1 * px, H - y0 * py], fill=col)
+
+    shade = tuple(int(c * 0.82) for c in body)
+    # Siding: horizontal clapboard lines.
+    for k in range(int(12 / 0.18)):
+        y = k * 0.18
+        d.line([0, H - y * py, W, H - y * py], fill=tuple(int(c * 0.93) for c in body), width=max(1, s // 2))
+    # Street storey: garage door (left), steps and door under a portico (right).
+    rect(0.4, 0.0, 3.4, 2.5, trim)
+    rect(0.55, 0.0, 3.25, 2.35, tuple(int(c * 0.9) for c in trim))
+    for k in range(4):
+        rect(0.55, 0.12 + k * 0.58, 3.25, 0.16 + k * 0.58, tuple(int(c * 0.75) for c in trim))
+    for k in range(6):
+        rect(4.2 + k * 0.12, k * 0.45, 6.6, k * 0.45 + 0.45, (170, 160, 150) if k % 2 else (190, 182, 170))
+    rect(4.6, 0.6, 6.4, 3.1, trim)
+    rect(4.95, 0.6, 6.05, 2.75, accent)
+    rect(5.05, 1.9, 5.95, 2.6, (60, 80, 100))
+    rect(4.4, 3.0, 6.6, 3.2, trim)
+    # Two floors: a three-sided bay (drawn flat) and a single tall window.
+    for f in range(2):
+        y0 = 3.4 + f * 3.3
+        rect(0.3, y0 - 0.2, 3.7, y0 + 2.9, trim)
+        rect(0.45, y0 - 0.05, 3.55, y0 + 2.75, shade)
+        for k, (a, b_) in enumerate(((0.55, 1.35), (1.55, 2.45), (2.65, 3.45))):
+            rect(a, y0 + 0.2, b_, y0 + 2.45, trim)
+            glass = (52 + 10 * k, 74 + 10 * k, 98 + 12 * k)
+            rect(a + 0.08, y0 + 0.28, b_ - 0.08, y0 + 2.37, glass)
+            sky = (150, 180, 206)
+            d.polygon([(a * px + 0.08 * px, H - (y0 + 2.37) * py), ((a + b_) / 2 * px, H - (y0 + 2.37) * py),
+                       (a * px + 0.08 * px, H - (y0 + 1.6) * py)], fill=sky)
+            rect(a + 0.08, y0 + 1.3, b_ - 0.08, y0 + 1.37, trim)
+        rect(0.3, y0 + 2.75, 3.7, y0 + 2.95, accent)
+        rect(4.6, y0 + 0.2, 6.2, y0 + 2.5, trim)
+        rect(4.7, y0 + 0.3, 6.1, y0 + 2.35, (58, 80, 104))
+        d.polygon([(4.7 * px, H - (y0 + 2.35) * py), (5.4 * px, H - (y0 + 2.35) * py), (4.7 * px, H - (y0 + 1.5) * py)],
+                  fill=(150, 180, 206))
+        rect(4.7, y0 + 1.3, 6.1, y0 + 1.37, trim)
+        d.polygon([(4.45 * px, H - (y0 + 2.55) * py), (6.35 * px, H - (y0 + 2.55) * py), (5.4 * px, H - (y0 + 3.0) * py)],
+                  fill=trim)
+        rect(4.5, y0 + 0.05, 6.3, y0 + 0.2, trim)
+    # Cornice: frieze, brackets, a deep moulding, then the false front.
+    rect(0.0, 10.0, 7.0, 10.35, accent)
+    for k in range(8):
+        x = 0.25 + k * 0.92
+        rect(x, 10.0, x + 0.22, 10.75, trim)
+    rect(0.0, 10.75, 7.0, 11.05, trim)
+    rect(0.0, 11.05, 7.0, 11.75, body)
+    rect(0.0, 11.75, 7.0, 12.0, trim)
+    rect(2.6, 11.15, 4.4, 11.65, accent)
+    rect(0.0, 0.0, 0.18, 10.0, trim)
+    rect(6.82, 0.0, 7.0, 10.0, trim)
+    return img
+
+
+def tex_sffacade():
+    """Eight Victorian row houses in their painted colours, four across
+    and two down (64 x 128 each); the game picks one per house."""
+    s = 4
+    img = Image.new("RGB", (256 * s, 256 * s))
+    for i, (body, trim, accent) in enumerate(SF_FACADES):
+        cell = sf_facade_cell(body, trim, accent, 9100 + i, s)
+        img.paste(cell, ((i % 4) * 64 * s, (i // 4) * 128 * s))
+    return img.resize((256, 256), Image.Resampling.LANCZOS)
+
+
+def tex_sfbldg(n=128):
+    """Plain stucco apartment blocks for the city behind the streets, 8 m
+    across and two 3.2 m floors a tile: white walls (vertex colours tint
+    them) and a grid of sash windows with ledges."""
+    s = 4
+    N = n * s
+    img = Image.new("RGB", (N, N), (232, 230, 224))
+    d = ImageDraw.Draw(img)
+    p = N / 8.0
+    rng = np.random.default_rng(9201)
+    for f in range(2):
+        for c in range(4):
+            x0, y0 = (c * 2 + 0.5) * p, (f * 3.2 + 0.8) * p * (8.0 / 6.4)
+            ww, wh = 1.0 * p, 1.6 * p * (8.0 / 6.4)
+            d.rectangle([x0 - 0.1 * p, y0 - 0.1 * p, x0 + ww + 0.1 * p, y0 + wh + 0.2 * p], fill=(250, 250, 246))
+            t = rng.random()
+            d.rectangle([x0, y0, x0 + ww, y0 + wh], fill=(int(50 + 40 * t), int(66 + 40 * t), int(86 + 40 * t)))
+            d.rectangle([x0, y0 + wh * 0.48, x0 + ww, y0 + wh * 0.52], fill=(240, 240, 236))
+            d.rectangle([x0 - 0.15 * p, y0 + wh + 0.15 * p, x0 + ww + 0.15 * p, y0 + wh + 0.3 * p], fill=(200, 198, 192))
+    img = img.resize((n, n), Image.Resampling.LANCZOS)
+    rgb = np.asarray(img).astype(float) * (0.94 + 0.08 * fbm(n, n, 8, 3, 9203))[..., None]
+    return to_image(rgb)
+
+
+def tex_sfroof(n=128):
+    """The city from above on the same street grid as sfstreet, for the
+    ground where no blocks stand (away from the course, out to the hills):
+    each block's ring of houses painted on as narrow flat roofs in tar
+    grey, gravel and the odd terracotta round the backyards."""
+    return tex_sfstreet(n, roofs=True)
+
+
+def tex_sfstreet(n=128, roofs=False):
+    """The ground under the city, one block of the street grid a tile (47 m
+    east-west, 65 m north-south, as world_sf.c lays the blocks): asphalt
+    streets with zebra crossings at the corners, sidewalks, and inside them
+    backyard lawns with fence lines and trees (the houses stand on the
+    edges; where none do, it reads as a pocket park)."""
+    rng = np.random.default_rng(9231)
+    s = 4
+    N = n * s
+    W, H = 47.0, 65.0
+    px, pz = N / W, N / H
+    img = Image.new("RGB", (N, N), (92, 92, 96))
+    d = ImageDraw.Draw(img)
+    def rect(x0, z0, x1, z1, c):
+        d.rectangle([x0 * px, z0 * pz, x1 * px - 1, z1 * pz - 1], fill=c)
+    # Sidewalks, then the block inside them: the ring the houses stand on
+    # paved (where one is left out, a forecourt), the yards inside it.
+    rect(3.0, 3.0, W - 3.0, H - 3.0, (188, 186, 180))
+    rect(4.5, 4.5, W - 4.5, H - 4.5, (150, 146, 138))
+    rect(14.5, 14.5, W - 14.5, H - 14.5, (96, 128, 72))
+    # Back fences between the lots, out from each edge to mid-block.
+    fence = (78, 104, 60)
+    x = 4.5
+    while x < W - 4.5 - 3:
+        x += rng.uniform(6.5, 8.0)
+        rect(x - 0.12, 4.5, x + 0.12, H / 2 - 1, fence)
+        rect(x - 0.12, H / 2 + 1, x + 0.12, H - 4.5, fence)
+    z = 14.5
+    while z < H - 14.5 - 3:
+        z += rng.uniform(6.5, 8.0)
+        rect(4.5, z - 0.12, W / 2 - 1, z + 0.12, fence)
+        rect(W / 2 + 1, z - 0.12, W - 4.5, z + 0.12, fence)
+    rect(W / 2 - 0.12, 14.5, W / 2 + 0.12, H - 14.5, fence)
+    # Patios and the odd shed along the backs.
+    for _ in range(14):
+        cx, cz = rng.uniform(15, W - 15), rng.uniform(15, H - 15)
+        w, h = rng.uniform(1.5, 3.2), rng.uniform(1.5, 3.0)
+        c = int(rng.integers(150, 200))
+        rect(cx - w / 2, cz - h / 2, cx + w / 2, cz + h / 2, (c, c - 4, c - 12))
+    # Trees in the yards.
+    for _ in range(26):
+        cx, cz, r = rng.uniform(14, W - 14), rng.uniform(14, H - 14), rng.uniform(1.4, 2.8)
+        d.ellipse([(cx - r + 0.5) * px, (cz - r + 0.7) * pz, (cx + r + 0.5) * px, (cz + r + 0.7) * pz], fill=(52, 72, 44))
+        d.ellipse([(cx - r) * px, (cz - r) * pz, (cx + r) * px, (cz + r) * pz], fill=(62, 96, 52))
+        d.ellipse([(cx - r * 0.6) * px, (cz - r * 0.7) * pz, (cx + r * 0.2) * px, cz * pz], fill=(88, 124, 66))
+    if roofs:
+        cols = [(134, 132, 127), (156, 152, 144), (180, 176, 166), (200, 196, 184), (142, 138, 136), (170, 156, 136),
+                (164, 112, 92), (214, 210, 200)]
+        def lot(x0, z0, x1, z1):
+            c = cols[int(rng.integers(0, len(cols)))]
+            rect(x0, z0, x1, z1, (70, 70, 74))
+            rect(x0 + 0.3, z0 + 0.3, x1 - 0.3, z1 - 0.3, c)
+        D = 10.0
+        x = 4.5
+        while x < W - 4.5 - 0.5:
+            w = min(rng.uniform(6.5, 15.0), W - 4.5 - x)
+            lot(x, 4.5, x + w, 4.5 + D)
+            lot(x, H - 4.5 - D, x + w, H - 4.5)
+            x += w
+        z = 4.5 + D
+        while z < H - 4.5 - D - 0.5:
+            w = min(rng.uniform(6.5, 15.0), H - 4.5 - D - z)
+            lot(4.5, z, 4.5 + D, z + w)
+            lot(W - 4.5 - D, z, W - 4.5, z + w)
+            z += w
+    # Zebra crossings over each street just short of the crossroads, and
+    # the crossroads' own darker patch of asphalt.
+    zebra = (226, 226, 220)
+    for c0 in (0.0, 1.0):
+        for c1 in (0.0, 1.0):
+            cx, cz = c0 * W, c1 * H
+            sx, sz = (1 if c0 == 0 else -1), (1 if c1 == 0 else -1)
+            for k in range(6):
+                o = -2.5 + k * 1.0
+                # Across the east-west street (the band along z = cz).
+                xa = cx + sx * 4.8
+                rect(min(xa, xa + sx * 2.2), cz + o - 0.25 if c1 == 0 else cz - o - 0.25,
+                     max(xa, xa + sx * 2.2), cz + o + 0.25 if c1 == 0 else cz - o + 0.25, zebra)
+                za = cz + sz * 4.8
+                rect(cx + o - 0.25 if c0 == 0 else cx - o - 0.25, min(za, za + sz * 2.2),
+                     cx + o + 0.25 if c0 == 0 else cx - o + 0.25, max(za, za + sz * 2.2), zebra)
+    img = img.resize((n, n), Image.Resampling.LANCZOS)
+    rgb = np.asarray(img).astype(float) * (0.92 + 0.12 * fbm(n, n, 8, 3, 9233))[..., None]
+    return to_image(rgb)
+
+
+def tex_sfstall():
+    """The pier's market stalls, one front a cell, four down (6 m by 3 m
+    each, 256 x 64): a sign board in the stall's colour with its name, a
+    striped awning with a scalloped edge, the service window with what it
+    sells on the counter, and painted boards below."""
+    s = 2
+    W, H = 256 * s, 64 * s
+    img = Image.new("RGB", (W, H * 4))
+    stalls = [("CRAB", (214, 72, 56)), ("CHOWDER", (60, 116, 190)), ("SOURDOUGH", (226, 168, 40)), ("GIFTS", (70, 150, 96))]
+    rng = np.random.default_rng(9251)
+    font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), 22 * s)
+    for i, (name, col) in enumerate(stalls):
+        cell = Image.new("RGB", (W, H), (244, 240, 230))
+        d = ImageDraw.Draw(cell)
+        p, q = W / 6.0, H / 3.0   # pixels a metre across and down
+        d.rectangle([0, 0, W, 0.62 * q], fill=col)
+        d.rectangle([0, 0.62 * q, W, 0.68 * q], fill=(250, 248, 240))
+        bb = d.textbbox((0, 0), name, font=font)
+        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        k = min((W * 0.8) / tw, 0.5 * q / th)
+        layer = Image.new("RGB", (tw, th), col)
+        ImageDraw.Draw(layer).text((-bb[0], -bb[1]), name, font=font, fill=(255, 255, 250))
+        layer = layer.resize((max(1, int(tw * k)), max(1, int(th * k))), Image.Resampling.LANCZOS)
+        cell.paste(layer, (int((W - layer.width) / 2), int(0.31 * q - layer.height / 2)))
+        # The awning: stripes 0.5 m wide, scalloped along its foot.
+        a0, a1 = 0.68 * q, 1.15 * q
+        for k2 in range(12):
+            x0 = k2 * 0.5 * p
+            c = col if k2 % 2 == 0 else (250, 248, 240)
+            d.rectangle([x0, a0, x0 + 0.5 * p, a1], fill=c)
+            d.ellipse([x0, a1 - 0.12 * q, x0 + 0.5 * p, a1 + 0.12 * q], fill=c)
+        # The window: dark inside, a lit shelf, the wares on the counter.
+        w0, w1 = 1.35 * q, 2.15 * q
+        d.rectangle([0.3 * p, w0, W - 0.3 * p, w1], fill=(52, 44, 40))
+        d.rectangle([0.3 * p, w0 + 0.12 * q, W - 0.3 * p, w0 + 0.16 * q], fill=(120, 104, 88))
+        for x in np.arange(0.6, 5.5, 0.55):
+            cx, cy = x * p + rng.uniform(-0.05, 0.05) * p, w1 - 0.14 * q
+            if name == "CRAB":
+                d.ellipse([cx - 0.2 * p, cy - 0.1 * q, cx + 0.2 * p, cy + 0.1 * q], fill=(230, 84, 54))
+                d.ellipse([cx - 0.26 * p, cy - 0.16 * q, cx - 0.14 * p, cy - 0.06 * q], fill=(230, 84, 54))
+                d.ellipse([cx + 0.14 * p, cy - 0.16 * q, cx + 0.26 * p, cy - 0.06 * q], fill=(230, 84, 54))
+            elif name == "CHOWDER":
+                d.ellipse([cx - 0.2 * p, cy - 0.16 * q, cx + 0.2 * p, cy + 0.1 * q], fill=(196, 150, 92))
+                d.ellipse([cx - 0.15 * p, cy - 0.14 * q, cx + 0.15 * p, cy - 0.04 * q], fill=(246, 236, 210))
+            elif name == "SOURDOUGH":
+                d.ellipse([cx - 0.22 * p, cy - 0.14 * q, cx + 0.22 * p, cy + 0.1 * q], fill=(206, 152, 84))
+                d.line([cx - 0.1 * p, cy - 0.1 * q, cx + 0.05 * p, cy + 0.02 * q], fill=(236, 210, 160), width=s)
+            else:
+                c = [(240, 200, 80), (120, 180, 230), (230, 120, 150), (250, 250, 250)][int(rng.integers(0, 4))]
+                d.rectangle([cx - 0.16 * p, cy - 0.3 * q, cx + 0.16 * p, cy + 0.1 * q], fill=c)
+        d.rectangle([0.1 * p, w1, W - 0.1 * p, w1 + 0.18 * q], fill=(250, 248, 240))
+        d.rectangle([0.1 * p, w1 + 0.18 * q, W - 0.1 * p, w1 + 0.24 * q], fill=(170, 160, 150))
+        # Boards below.
+        for y in np.arange(2.45, 3.0, 0.18):
+            d.line([0, y * q, W, y * q], fill=(206, 200, 190), width=s)
+        img.paste(cell, (0, i * H))
+    return img.resize((256, 256), Image.Resampling.LANCZOS)
+
+
+def tex_sfsigns():
+    """Signs, eight 256 x 32 boards down a 256 x 256 atlas: six pier
+    numbers for the Embarcadero's warehouse fronts (cream board, dark
+    green letters, a thin border), then the green street name blades,
+    LOMBARD ST and HYDE ST."""
+    s = 4
+    W, H = 256 * s, 32 * s
+    img = Image.new("RGB", (W, H * 8))
+    font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), 22 * s)
+    boards = [(f"PIER {n}", (238, 232, 212), (34, 74, 52)) for n in (45, 43, 41, 39, 35, 33)]
+    boards += [("LOMBARD ST", (30, 108, 64), (250, 250, 244)), ("HYDE ST", (30, 108, 64), (250, 250, 244))]
+    for i, (text, bg, fg) in enumerate(boards):
+        cell = Image.new("RGB", (W, H), bg)
+        d = ImageDraw.Draw(cell)
+        d.rectangle([2 * s, 2 * s, W - 3 * s, H - 3 * s], outline=fg, width=s + 1)
+        bb = d.textbbox((0, 0), text, font=font)
+        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        layer = Image.new("RGB", (tw, th), bg)
+        ImageDraw.Draw(layer).text((-bb[0], -bb[1]), text, font=font, fill=fg)
+        k = min((W * 0.86) / tw, (H * 0.6) / th)
+        layer = layer.resize((int(tw * k), int(th * k)), Image.Resampling.LANCZOS)
+        cell.paste(layer, ((W - layer.width) // 2, (H - layer.height) // 2))
+        img.paste(cell, (0, i * H))
+    return img.resize((256, 256), Image.Resampling.LANCZOS)
+
+
+def tex_sfgrass(n=64):
+    """Pioneer Park's lawn, 6 m a tile: mown grass in two greens with the
+    odd darker clump, tileable."""
+    g = fbm(n, n, 6, 4, 9241)
+    rgb = lerp_color((70, 112, 52), (112, 152, 74), g)
+    stripe = 0.94 + 0.06 * (np.arange(n) // (n // 4) % 2)
+    rgb *= stripe[None, :, None]
+    return to_image(rgb)
+
+
+def tex_sfhedge(n=128):
+    """The crooked street's beds: dark green hedge leaves crowded with
+    hydrangea heads in pink, violet, blue and white, tileable."""
+    rng = np.random.default_rng(9221)
+    s = 2
+    N = n * s
+    g = fbm(N, N, 12, 4, 9223)
+    rgb = lerp_color((34, 70, 34), (78, 128, 62), g)
+    img = to_image(rgb)
+    d = ImageDraw.Draw(img)
+    heads = [(232, 132, 176), (198, 128, 214), (128, 150, 230), (244, 236, 244), (220, 96, 140)]
+    for _ in range(170):
+        x, y, r = rng.uniform(0, N), rng.uniform(0, N), rng.uniform(3, 7) * s
+        c = heads[int(rng.integers(0, len(heads)))]
+        for ox in (-N, 0, N):
+            for oy in (-N, 0, N):
+                cx, cy = x + ox, y + oy
+                d.ellipse([cx - r, cy - r + 1.5 * s, cx + r, cy + r + 1.5 * s], fill=tuple(int(k * 0.55) for k in c))
+                d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=c)
+                d.ellipse([cx - r * 0.5, cy - r * 0.7, cx + r * 0.2, cy - r * 0.1],
+                          fill=tuple(min(255, int(k * 1.12)) for k in c))
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_sfshed(n=128):
+    """A pier shed's front over 8 m, 8 m high: pale concrete pilasters, a
+    big arched doorway dark inside, a cornice and a plain sign band.
+    White, so vertex colours tint each shed."""
+    s = 4
+    N = n * s
+    img = Image.new("RGB", (N, N), (226, 224, 216))
+    d = ImageDraw.Draw(img)
+    p = N / 8.0
+    d.rectangle([0, 0, N, 0.9 * p], fill=(244, 242, 236))
+    d.rectangle([0, 0.9 * p, N, 1.05 * p], fill=(170, 168, 160))
+    d.rectangle([0.6 * p, 1.4 * p, 7.4 * p, 2.3 * p], fill=(250, 250, 246))
+    d.rectangle([0.6 * p, 2.25 * p, 7.4 * p, 2.35 * p], fill=(150, 148, 140))
+    d.rectangle([1.4 * p, 3.6 * p, 6.6 * p, 8 * p], fill=(250, 248, 242))
+    d.ellipse([1.4 * p, 2.8 * p, 6.6 * p, 4.6 * p], fill=(250, 248, 242))
+    d.rectangle([1.7 * p, 3.7 * p, 6.3 * p, 8 * p], fill=(54, 50, 50))
+    d.ellipse([1.7 * p, 3.0 * p, 6.3 * p, 4.4 * p], fill=(54, 50, 50))
+    for k in range(5):
+        x = 1.7 * p + k * 1.15 * p
+        d.line([x, 3.1 * p, x, 5.0 * p], fill=(120, 140, 150), width=s)
+    d.line([1.7 * p, 5.0 * p, 6.3 * p, 5.0 * p], fill=(120, 140, 150), width=s)
+    for x in (0.0, 7.4 * p):
+        d.rectangle([x, 1.05 * p, x + 0.6 * p, N], fill=(236, 234, 228))
+    img = img.resize((n, n), Image.Resampling.LANCZOS)
+    rgb = np.asarray(img).astype(float) * (0.92 + 0.1 * fbm(n, n, 8, 3, 9233))[..., None]
+    return to_image(rgb)
+
+
+def tex_sfsign():
+    """The wharf's sign: a ship's wheel with a red crab in it, and
+    FISHERMAN'S WHARF in white on navy between red rules."""
+    s = 4
+    W, H = 256 * s, 64 * s
+    navy, red, white = (24, 44, 96), (214, 52, 40), (250, 248, 240)
+    img = Image.new("RGB", (W, H), navy)
+    d = ImageDraw.Draw(img)
+    cx, cy, R = 32 * s, 32 * s, 26 * s
+    for k in range(8):
+        a = k * math.pi / 4
+        d.line([cx, cy, cx + math.cos(a) * (R + 4 * s), cy + math.sin(a) * (R + 4 * s)], fill=(200, 150, 70), width=3 * s)
+        ex, ey = cx + math.cos(a) * (R + 4 * s), cy + math.sin(a) * (R + 4 * s)
+        d.ellipse([ex - 2.5 * s, ey - 2.5 * s, ex + 2.5 * s, ey + 2.5 * s], fill=(200, 150, 70))
+    d.ellipse([cx - R, cy - R, cx + R, cy + R], outline=(200, 150, 70), width=4 * s)
+    d.ellipse([cx - R + 5 * s, cy - R + 5 * s, cx + R - 5 * s, cy + R - 5 * s], fill=(236, 232, 220))
+    # The crab: a body, eyes, claws and legs.
+    d.ellipse([cx - 11 * s, cy - 5 * s, cx + 11 * s, cy + 8 * s], fill=red)
+    for sx in (-1, 1):
+        d.ellipse([cx + sx * 4 * s - 2 * s, cy - 10 * s, cx + sx * 4 * s + 2 * s, cy - 6 * s], fill=red)
+        d.ellipse([cx + sx * 15 * s - 5 * s, cy - 14 * s, cx + sx * 15 * s + 5 * s, cy - 5 * s], fill=red)
+        d.line([cx + sx * 9 * s, cy - 2 * s, cx + sx * 14 * s, cy - 7 * s], fill=red, width=3 * s)
+        for k in range(3):
+            d.line([cx + sx * 9 * s, cy + (2 + 2 * k) * s, cx + sx * (17 + k) * s, cy + (6 + 4 * k) * s], fill=red,
+                   width=2 * s)
+    font = ImageFont.truetype(font_path("DejaVuSerif-Bold.ttf"), 30 * s)
+    bb = d.textbbox((0, 0), "FISHERMAN'S WHARF", font=font)
+    layer = Image.new("RGB", (bb[2] - bb[0], bb[3] - bb[1]), navy)
+    ImageDraw.Draw(layer).text((-bb[0], -bb[1]), "FISHERMAN'S WHARF", font=font, fill=white)
+    layer = layer.resize((176 * s, 26 * s), Image.Resampling.LANCZOS)
+    img.paste(layer, (70 * s, 19 * s))
+    d.rectangle([66 * s, 6 * s, W - 4 * s, 9 * s], fill=red)
+    d.rectangle([66 * s, 55 * s, W - 4 * s, 58 * s], fill=red)
+    return img.resize((256, 64), Image.Resampling.LANCZOS)
+
+
+def tex_sfbay(n=128):
+    """The bay: cold grey-green water, choppy, with darker troughs and pale
+    wind-blown streaks, tileable."""
+    g = fbm(n, n, 6, 5, 9241)
+    chop = fbm(n, n, 16, 3, 9243)
+    rgb = lerp_color((176, 196, 196), (236, 246, 244), 0.5 * g + 0.5 * chop)
+    streak = np.abs(periodic_noise(n, n, 3, 9245) - 0.5) < 0.025
+    rgb[streak] = rgb[streak] * 1.08
+    return to_image(rgb)
+
+
+def tex_sffog(n=64):
+    """A bank of sea fog for the Golden Gate: a soft white heap, densest
+    low in the middle and fading out to every edge, its top lumpy (alpha)."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    u, v = (xx + 0.5) / n - 0.5, (yy + 0.5) / n
+    lump = fbm(n, n, 4, 3, 9251)
+    top = 0.25 + 0.3 * lump
+    across = np.exp(-(u / 0.26) ** 2)
+    up = np.clip((v - top) / 0.4, 0, 1) ** 1.5
+    foot = np.clip((1.0 - v) / 0.25, 0, 1)
+    a = across * up * foot * 0.85
+    rgb = lerp_color((210, 218, 228), (252, 252, 252), np.clip(1.3 - v, 0, 1))
+    return to_image(rgb, a * 255)
+
+
+def tex_sfpalm(n=128):
+    """A Canary Island date palm's frond for the crown's cut-out planes:
+    a stiff yellow midrib from the base (v = 1) to the tip (v = 0), with
+    narrow dark olive leaflets crowded along both sides."""
+    s = 4
+    img = Image.new("RGBA", (n * s, n * s), (70, 100, 40, 0))
+    d = ImageDraw.Draw(img)
+    cx = n * s / 2
+    rng = np.random.default_rng(9261)
+    for i in range(34):
+        t = i / 33
+        y = (n * 0.97 - t * n * 0.94) * s
+        length = n * 0.44 * math.sin(math.pi * (0.1 + 0.88 * t)) ** 0.6 * s
+        for side in (-1, 1):
+            sh = 0.75 + 0.35 * rng.random()
+            col = (int(74 * sh), int(108 * sh), int(44 * sh), 255)
+            tip = (cx + side * length, y + length * 0.34)
+            d.line([(cx, y), tip], fill=col, width=int(2.2 * s))
+    d.line([(cx, n * 0.99 * s), (cx, n * 0.02 * s)], fill=(196, 168, 72, 255), width=3 * s)
+    return img.resize((n, n), Image.Resampling.LANCZOS)
+
+
+def tex_sfpalmbark(n=64):
+    """The date palm's trunk: the diamond pattern of old leaf bases, warm
+    brown with darker seams, two diamonds round and four up a tile."""
+    yy, xx = np.mgrid[0:n, 0:n]
+    u, v = (xx + 0.5) / n, (yy + 0.5) / n
+    a = (u * 4 + v * 4) % 1.0
+    b = (u * 4 - v * 4) % 1.0
+    seam = np.minimum(np.minimum(a, 1 - a), np.minimum(b, 1 - b))
+    g = fbm(n, n, 8, 3, 9271)
+    rgb = lerp_color((96, 70, 44), (168, 128, 84), np.clip(seam * 5, 0, 1) * (0.7 + 0.3 * g))
+    return to_image(rgb)
+
+
+SF_CC_MAROON = (128, 24, 34)
+SF_CC_CREAM = (238, 226, 190)
+SF_CC_GOLD = (214, 172, 72)
+
+
+def tex_sfcablecar(n=256):
+    """Hyde Street's cable car, as an atlas for its model (tools/
+    build_sf_props.py maps each face to its cell): the maroon lower side
+    with gold pinstriped panels and HYDE ST in gold over its length (top
+    quarter), the cream cabin side with five framed windows (second
+    quarter); then the dash end with its number and the cabin's end
+    windows, the roof's destination sign and the clerestory's little
+    windows, and the roof boards and the benches' varnished wood."""
+    s = 4
+    N = n * s
+    img = Image.new("RGB", (N, N), SF_CC_CREAM)
+    d = ImageDraw.Draw(img)
+    M, C, G = SF_CC_MAROON, SF_CC_CREAM, SF_CC_GOLD
+    q = N // 4
+    serif = font_path("DejaVuSerif-Bold.ttf")
+
+    def text(box, msg, fill, bg):
+        x0, y0, x1, y1 = box
+        font = ImageFont.truetype(serif, 40 * s)
+        bb = d.textbbox((0, 0), msg, font=font)
+        layer = Image.new("RGB", (bb[2] - bb[0], bb[3] - bb[1]), bg)
+        ImageDraw.Draw(layer).text((-bb[0], -bb[1]), msg, font=font, fill=fill)
+        layer = layer.resize((int(x1 - x0), int(y1 - y0)), Image.Resampling.LANCZOS)
+        img.paste(layer, (int(x0), int(y0)))
+
+    # A: the lower side, 8.4 m long, 1.1 m high.
+    d.rectangle([0, 0, N, q], fill=M)
+    d.rectangle([0, 0, N, 3 * s], fill=G)
+    d.rectangle([0, q - 6 * s, N, q], fill=(70, 18, 22))
+    panels = [(0.02, 0.24), (0.26, 0.74), (0.76, 0.98)]
+    for a, b in panels:
+        x0, x1 = a * N, b * N
+        d.rounded_rectangle([x0, 10 * s, x1, q - 14 * s], radius=6 * s, outline=G, width=2 * s)
+        d.rounded_rectangle([x0 + 5 * s, 15 * s, x1 - 5 * s, q - 19 * s], radius=4 * s, outline=G, width=s)
+    text((0.33 * N, 20 * s, 0.67 * N, q - 24 * s), "HYDE  ST", G, M)
+    for a, b in (panels[0], panels[2]):
+        text(((a + 0.07) * N, 22 * s, (b - 0.07) * N, q - 26 * s), "17", G, M)
+    # B: the cabin side, 4 m of it: a cream frame, five windows.
+    y0, y1 = q, 2 * q
+    d.rectangle([0, y0, N, y1], fill=C)
+    d.rectangle([0, y0, N, y0 + 6 * s], fill=G)
+    d.rectangle([0, y1 - 8 * s, N, y1], fill=M)
+    for k in range(5):
+        wx0 = (0.04 + k * 0.19) * N
+        wx1 = wx0 + 0.15 * N
+        wy0, wy1 = y0 + 14 * s, y1 - 18 * s
+        d.rectangle([wx0 - 3 * s, wy0 - 3 * s, wx1 + 3 * s, wy1 + 3 * s], fill=(110, 60, 36))
+        d.rectangle([wx0, wy0, wx1, wy1], fill=(40, 52, 66))
+        d.polygon([(wx0, wy0), (wx0 + (wx1 - wx0) * 0.6, wy0), (wx0, wy0 + (wy1 - wy0) * 0.7)], fill=(120, 148, 170))
+        d.rectangle([wx0, (wy0 + wy1) / 2 - s, wx1, (wy0 + wy1) / 2 + s], fill=(110, 60, 36))
+    for k in range(6):
+        x = (0.02 + k * 0.19) * N
+        d.rectangle([x, y0 + 8 * s, x + 2 * s, y1 - 10 * s], fill=G)
+    # C: the dash end (left) and the cabin's end (right).
+    y0, y1 = 2 * q, 3 * q
+    d.rectangle([0, y0, N // 2, y1], fill=M)
+    d.rectangle([0, y0, N // 2, y0 + 3 * s], fill=G)
+    d.rounded_rectangle([12 * s, y0 + 10 * s, N // 2 - 12 * s, y1 - 14 * s], radius=6 * s, outline=G, width=2 * s)
+    cx, cy, r = N // 4, (y0 + y1) // 2 - 2 * s, 18 * s
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=C, outline=G, width=2 * s)
+    text((cx - 12 * s, cy - 11 * s, cx + 12 * s, cy + 11 * s), "17", M, C)
+    d.rectangle([N // 2, y0, N, y1], fill=C)
+    d.rectangle([N // 2, y1 - 8 * s, N, y1], fill=M)
+    for k in range(2):
+        wx0 = N // 2 + (0.06 + k * 0.23) * N
+        wx1 = wx0 + 0.15 * N
+        d.rectangle([wx0 - 3 * s, y0 + 7 * s, wx1 + 3 * s, y1 - 13 * s], fill=(110, 60, 36))
+        d.rectangle([wx0, y0 + 10 * s, wx1, y1 - 16 * s], fill=(40, 52, 66))
+        d.polygon([(wx0, y0 + 10 * s), (wx0 + 0.09 * N, y0 + 10 * s), (wx0, y0 + 40 * s)], fill=(120, 148, 170))
+    # D: the destination sign (left) and the clerestory's windows (right).
+    y0, y1 = 3 * q, 3 * q + q // 2
+    d.rectangle([0, y0, N // 2, y1], fill=(24, 22, 22))
+    d.rectangle([0, y0, N // 2, y0 + 2 * s], fill=G)
+    d.rectangle([0, y1 - 2 * s, N // 2, y1], fill=G)
+    text((16 * s, y0 + 6 * s, N // 2 - 16 * s, y1 - 6 * s), "HYDE ST", (250, 240, 210), (24, 22, 22))
+    d.rectangle([N // 2, y0, N, y1], fill=C)
+    for k in range(8):
+        wx0 = N // 2 + (k * 0.0625 + 0.008) * N
+        d.rectangle([wx0, y0 + 6 * s, wx0 + 0.045 * N, y1 - 6 * s], fill=(52, 62, 74))
+    # E: the roof's boards (left) and varnished wood (right).
+    y0, y1 = 3 * q + q // 2, N
+    for k in range(12):
+        x0 = k * (N // 2) / 12
+        t = 0.94 + 0.06 * ((k * 7) % 3)
+        d.rectangle([x0, y0, x0 + (N // 2) / 12, y1], fill=tuple(int(c * t) for c in (240, 236, 224)))
+        d.line([x0, y0, x0, y1], fill=(200, 196, 186), width=s)
+    for k in range(8):
+        y = y0 + k * (y1 - y0) / 8
+        t = 0.9 + 0.1 * ((k * 5) % 3)
+        d.rectangle([N // 2, y, N, y + (y1 - y0) / 8], fill=tuple(int(c * t) for c in (150, 92, 48)))
+        d.line([N // 2, y, N, y], fill=(96, 56, 30), width=s)
+    img = img.resize((n, n), Image.Resampling.LANCZOS)
+    rgb = np.asarray(img).astype(float) * (0.95 + 0.06 * fbm(n, n, 16, 2, 9281))[..., None]
+    return to_image(rgb)
+
+
+# Shopfronts and the plainer buildings of North Beach and Telegraph Hill,
+# 7 m by 12 m each like the Victorians: four shops with flats above and
+# four kinds of flats. (shop sign, upper body, trim, shop frame, sign
+# colours, awning stripes) for the shops.
+SF_SHOPS = [
+    ("CAFFE", (232, 220, 196), (250, 246, 236), (40, 86, 60), ((40, 86, 60), (250, 246, 236)), ((200, 40, 40), (248, 244, 236))),
+    ("DELI", (168, 72, 58), (240, 232, 214), (240, 232, 214), ((240, 232, 214), (176, 34, 34)), ((40, 120, 70), (248, 244, 236))),
+    ("BAKERY", (238, 214, 150), (250, 246, 236), (34, 48, 96), ((34, 48, 96), (232, 196, 90)), ((50, 90, 180), (248, 244, 236))),
+    ("BOOKS", (150, 170, 140), (240, 236, 222), (86, 52, 32), ((110, 30, 36), (232, 196, 90)), ((110, 30, 36), (110, 30, 36))),
+]
+
+
+def sf_facade2_cell(style, s=4):
+    W, H = 64 * s, 128 * s
+    px, py = W / 7.0, H / 12.0
+    rng = np.random.default_rng(9300 + style)
+
+    def rect(d, x0, y0, x1, y1, col):
+        d.rectangle([x0 * px, H - y1 * py, x1 * px, H - y0 * py], fill=col)
+
+    def window(d, x0, y0, x1, y1, frame, glass=(52, 70, 92), pediment=None):
+        rect(d, x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, frame)
+        rect(d, x0, y0, x1, y1, glass)
+        d.polygon([(x0 * px, H - y1 * py), ((x0 + (x1 - x0) * 0.55) * px, H - y1 * py), (x0 * px, H - (y0 + (y1 - y0) * 0.45) * py)],
+                  fill=(140, 170, 196))
+        rect(d, x0, (y0 + y1) / 2 - 0.04, x1, (y0 + y1) / 2 + 0.04, frame)
+        if pediment:
+            d.polygon([((x0 - 0.2) * px, H - (y1 + 0.15) * py), ((x1 + 0.2) * px, H - (y1 + 0.15) * py),
+                       ((x0 + x1) / 2 * px, H - (y1 + 0.55) * py)], fill=pediment)
+
+    if style < 4:
+        sign, body, trim, frame, (sign_bg, sign_fg), (aw_a, aw_b) = SF_SHOPS[style]
+        img = Image.new("RGB", (W, H), body)
+        d = ImageDraw.Draw(img)
+        # The shop: frame, a big window either side of the door, a kick plate.
+        rect(d, 0.0, 0.0, 7.0, 3.9, frame)
+        rect(d, 0.35, 0.55, 3.35, 2.75, (46, 60, 72))
+        rect(d, 4.65, 0.55, 6.65, 2.75, (46, 60, 72))
+        for x0, x1 in ((0.35, 3.35), (4.65, 6.65)):
+            d.polygon([(x0 * px, H - 2.75 * py), ((x0 + 1.3) * px, H - 2.75 * py), (x0 * px, H - 1.6 * py)], fill=(130, 160, 180))
+            rect(d, x0, 0.4, x1, 0.55, trim)
+            # Goods in the window: a few warm blobs.
+            for k in range(4):
+                bx = x0 + 0.3 + k * (x1 - x0 - 0.6) / 3
+                c = tuple(int(v) for v in rng.integers(120, 230, 3))
+                d.ellipse([(bx - 0.2) * px, H - 1.15 * py, (bx + 0.2) * px, H - 0.75 * py], fill=c)
+        rect(d, 3.6, 0.0, 4.4, 2.6, (60, 40, 30))
+        rect(d, 3.68, 1.4, 4.32, 2.5, (52, 70, 92))
+        # The awning's valance (the awning itself is a model) and the sign.
+        for k in range(10):
+            rect(d, k * 0.7, 2.95, k * 0.7 + 0.7, 3.35, aw_a if k % 2 == 0 else aw_b)
+        rect(d, 0.6, 3.45, 6.4, 3.85, sign_bg)
+        font = ImageFont.truetype(font_path("DejaVuSans-Bold.ttf"), 40 * s)
+        dd = ImageDraw.Draw(img)
+        bb = dd.textbbox((0, 0), sign, font=font)
+        layer = Image.new("RGB", (bb[2] - bb[0], bb[3] - bb[1]), sign_bg)
+        ImageDraw.Draw(layer).text((-bb[0], -bb[1]), sign, font=font, fill=sign_fg)
+        tw = min(5.4, 0.9 * len(sign))
+        layer = layer.resize((int(tw * px), int(0.32 * py)), Image.Resampling.LANCZOS)
+        img.paste(layer, (int((3.5 - tw / 2) * px), int(H - 3.81 * py)))
+        # Two floors of flats: three sash windows each, a fire escape on the deli.
+        for f in range(2):
+            y0 = 4.5 + f * 3.0
+            for k in range(3):
+                window(d, 0.6 + k * 2.15, y0, 1.9 + k * 2.15, y0 + 2.0, trim, pediment=trim if style % 2 else None)
+        if style == 1:
+            for f in range(2):
+                y = 4.3 + f * 3.0
+                rect(d, 0.3, y, 4.6, y + 0.08, (30, 30, 32))
+                for k in range(8):
+                    rect(d, 0.3 + k * 0.6, y, 0.34 + k * 0.6, y + 0.9, (30, 30, 32))
+                rect(d, 0.3, y + 0.86, 4.6, y + 0.92, (30, 30, 32))
+        rect(d, 0.0, 10.4, 7.0, 10.8, trim)
+        rect(d, 0.0, 10.8, 7.0, 11.7, body)
+        rect(d, 0.0, 11.7, 7.0, 12.0, trim)
+        return img
+    if style == 4:
+        # Edwardian flats: flat-fronted, grey-blue, white trim, a garage and
+        # an entry, two floors of paired sash windows under pediments.
+        body, trim = (176, 188, 202), (246, 246, 242)
+        img = Image.new("RGB", (W, H), body)
+        d = ImageDraw.Draw(img)
+        rect(d, 0.4, 0.0, 3.3, 2.5, trim)
+        rect(d, 0.55, 0.0, 3.15, 2.35, (210, 212, 214))
+        for k in range(4):
+            rect(d, 0.55, 0.15 + k * 0.58, 3.15, 0.19 + k * 0.58, (170, 172, 176))
+        rect(d, 4.4, 0.0, 6.4, 3.0, trim)
+        rect(d, 4.75, 0.0, 6.05, 2.7, (36, 56, 90))
+        for f in range(3):
+            y0 = 3.4 + f * 2.35
+            for k in range(3):
+                window(d, 0.55 + k * 2.15, y0, 1.95 + k * 2.15, y0 + 1.75, trim, pediment=trim if f == 0 else None)
+        rect(d, 0.0, 10.6, 7.0, 11.0, trim)
+        for k in range(10):
+            rect(d, 0.2 + k * 0.7, 10.3, 0.4 + k * 0.7, 10.6, trim)
+        rect(d, 0.0, 11.0, 7.0, 12.0, body)
+        rect(d, 0.0, 11.8, 7.0, 12.0, trim)
+        return img
+    if style == 5:
+        # Art deco flats: white stucco, fluted pilasters, a stepped parapet,
+        # ribbon windows and an entrance under a little canopy.
+        body = (236, 234, 226)
+        img = Image.new("RGB", (W, H), (200, 196, 186))   # the recessed wall behind the stepped top
+        d = ImageDraw.Draw(img)
+        d.rectangle([0, H - 10.8 * py, W, H], fill=body)
+        d.rectangle([1.5 * px, H - 11.5 * py, 5.5 * px, H], fill=body)
+        d.rectangle([2.7 * px, H - 12.0 * py, 4.3 * px, H], fill=body)
+        for x in (0.2, 3.3, 6.4):
+            rect(d, x, 0.0, x + 0.4, 11.0 if x == 3.3 else 10.8, (214, 210, 200))
+            rect(d, x + 0.18, 0.0, x + 0.22, 10.8, (190, 186, 176))
+        for f in range(4):
+            y0 = 2.0 + f * 2.2
+            rect(d, 0.8, y0, 3.1, y0 + 1.4, (56, 72, 92))
+            rect(d, 3.9, y0, 6.2, y0 + 1.4, (56, 72, 92))
+            for x in (0.8, 3.9):
+                d.polygon([(x * px, H - (y0 + 1.4) * py), ((x + 1.0) * px, H - (y0 + 1.4) * py), (x * px, H - (y0 + 0.6) * py)],
+                          fill=(140, 170, 196))
+                for k in range(1, 4):
+                    rect(d, x + k * 0.58, y0, x + k * 0.58 + 0.05, y0 + 1.4, (236, 234, 226))
+        rect(d, 2.9, 0.0, 4.1, 1.7, (40, 44, 52))
+        rect(d, 2.5, 1.7, 4.5, 1.9, (120, 160, 150))
+        return img
+    if style == 6:
+        # A brick loft: red brick in courses, tall arched windows below,
+        # steel-framed ones above, a painted sign band.
+        img = Image.new("RGB", (W, H), (150, 70, 52))
+        d = ImageDraw.Draw(img)
+        for k in range(int(12 / 0.25)):
+            y = H - k * 0.25 * py
+            d.line([0, y, W, y], fill=(118, 54, 42), width=max(1, s // 2))
+            off = (k % 2) * 0.3
+            for j in range(13):
+                x = (off + j * 0.6) * px
+                d.line([x, y, x, y - 0.25 * py], fill=(118, 54, 42), width=max(1, s // 2))
+        for x0 in (0.4, 2.55, 4.7):
+            d.rectangle([x0 * px, H - 2.6 * py, (x0 + 1.9) * px, H - 0.3 * py], fill=(36, 40, 44))
+            d.ellipse([x0 * px, H - 3.55 * py, (x0 + 1.9) * px, H - 1.65 * py], fill=(36, 40, 44))
+            for k in range(1, 3):
+                rect(d, x0 + k * 0.63, 0.3, x0 + k * 0.63 + 0.05, 3.3, (90, 90, 96))
+        rect(d, 0.0, 3.7, 7.0, 4.3, (226, 214, 180))
+        for f in range(2):
+            y0 = 4.8 + f * 2.8
+            for x0 in (0.5, 2.6, 4.7):
+                rect(d, x0, y0, x0 + 1.8, y0 + 2.0, (44, 50, 58))
+                rect(d, x0, y0 + 0.95, x0 + 1.8, y0 + 1.05, (90, 90, 96))
+                rect(d, x0 + 0.88, y0, x0 + 0.92, y0 + 2.0, (90, 90, 96))
+                rect(d, x0 - 0.1, y0 - 0.15, x0 + 1.9, y0, (200, 190, 170))
+        rect(d, 0.0, 11.2, 7.0, 12.0, (130, 60, 46))
+        rect(d, 0.0, 11.1, 7.0, 11.25, (200, 190, 170))
+        return img
+    # Mission revival: tan stucco, an arched entry, iron balconies and a
+    # red tile eave along the top.
+    body = (222, 196, 156)
+    img = Image.new("RGB", (W, H), body)
+    d = ImageDraw.Draw(img)
+    d.rectangle([2.5 * px, H - 2.4 * py, 4.5 * px, H], fill=(70, 46, 32))
+    d.ellipse([2.5 * px, H - 3.4 * py, 4.5 * px, H - 1.4 * py], fill=(70, 46, 32))
+    for x0 in (0.5, 5.2):
+        window(d, x0, 0.8, x0 + 1.3, 2.6, (150, 110, 80))
+    for f in range(2):
+        y0 = 4.0 + f * 3.0
+        for x0 in (0.6, 2.8, 5.0):
+            d.rectangle([x0 * px, H - (y0 + 1.6) * py, (x0 + 1.4) * px, H - y0 * py], fill=(52, 66, 84))
+            d.ellipse([x0 * px, H - (y0 + 2.3) * py, (x0 + 1.4) * px, H - (y0 + 0.9) * py], fill=(52, 66, 84))
+            rect(d, x0 - 0.2, y0 - 0.1, x0 + 1.6, y0 + 0.05, (30, 30, 30))
+            for k in range(6):
+                rect(d, x0 - 0.15 + k * 0.33, y0, x0 - 0.12 + k * 0.33, y0 + 0.7, (30, 30, 30))
+            rect(d, x0 - 0.2, y0 + 0.7, x0 + 1.6, y0 + 0.78, (30, 30, 30))
+    for k in range(18):
+        x = k * 0.4
+        d.ellipse([x * px, H - 11.4 * py, (x + 0.42) * px, H - 10.9 * py], fill=(180, 80, 50))
+    rect(d, 0.0, 11.15, 7.0, 12.0, (170, 72, 46))
+    rect(d, 0.0, 10.7, 7.0, 10.9, (160, 130, 96))
+    return img
+
+
+def tex_sffacade2():
+    """North Beach and Telegraph Hill: a cafe, a deli, a bakery and a
+    bookshop with flats over them, Edwardian flats, art deco flats, a
+    brick loft and a mission revival block, four across and two down
+    (64 x 128 each), as tex_sffacade lays out the Victorians."""
+    s = 4
+    img = Image.new("RGB", (256 * s, 256 * s))
+    for i in range(8):
+        img.paste(sf_facade2_cell(i, s), ((i % 4) * 64 * s, (i // 4) * 128 * s))
+    return img.resize((256, 256), Image.Resampling.LANCZOS)
+
+
 def build(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     previews = out / "previews"
@@ -2032,6 +3020,30 @@ def build(out: Path) -> None:
         (Spec("avdust", "ARGB4444", True, False), tex_avdust()),
         (Spec("avmtn", "RGB565", True, True), tex_avmtn()),
         (Spec("avrange", "RGB565", True, True), tex_avrange()),
+        (Spec("sfroad", "RGB565", True, True), tex_sfroad()),
+        (Spec("sfrails", "RGB565", True, True), tex_sfrails()),
+        (Spec("sfbrick", "RGB565", True, True), tex_sfbrick()),
+        (Spec("sfcurb", "RGB565", True, True), tex_sfcurb()),
+        (Spec("sfwalk", "RGB565", True, True), tex_sfwalk()),
+        (Spec("sfrailing", "RGB565", True, True), tex_sfrailing()),
+        (Spec("sfpier", "RGB565", True, True), tex_sfpier()),
+        (Spec("sfpierrail", "RGB565", True, True), tex_sfpierrail()),
+        (Spec("sffacade", "RGB565", True, True), tex_sffacade()),
+        (Spec("sfbldg", "RGB565", True, True), tex_sfbldg()),
+        (Spec("sfroof", "RGB565", True, True), tex_sfroof()),
+        (Spec("sfhedge", "RGB565", True, True), tex_sfhedge()),
+        (Spec("sfshed", "RGB565", True, True), tex_sfshed()),
+        (Spec("sfsign", "RGB565", False, False), tex_sfsign()),
+        (Spec("sfbay", "RGB565", True, True), tex_sfbay()),
+        (Spec("sffog", "ARGB4444", True, False), tex_sffog()),
+        (Spec("sfpalm", "ARGB4444", True, False), tex_sfpalm()),
+        (Spec("sfpalmbark", "RGB565", True, True), tex_sfpalmbark()),
+        (Spec("sfcablecar", "RGB565", True, False), tex_sfcablecar()),
+        (Spec("sffacade2", "RGB565", True, True), tex_sffacade2()),
+        (Spec("sfstreet", "RGB565", True, True), tex_sfstreet()),
+        (Spec("sfgrass", "RGB565", True, True), tex_sfgrass()),
+        (Spec("sfstall", "RGB565", True, True), tex_sfstall()),
+        (Spec("sfsigns", "RGB565", True, False), tex_sfsigns()),
     ]
     pak = bytearray()
     table = []

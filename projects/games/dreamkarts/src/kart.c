@@ -17,6 +17,7 @@
    grip blend, so slides drift outward naturally while the body is drawn
    yawed into the turn. */
 #include "tide.h"
+#include "cablecar.h"
 #include "kart.h"
 #include "roam.h"
 #include "items.h"
@@ -919,6 +920,7 @@ void kart_update(Kart *k, const KartInput *in, float dt, bool can_drive) {
         }
         track_locate(k->pos, k->tp.idx, &k->tp);
     }
+    cablecar_collide(k);
 #if defined(DK_AUTOTEST) && !defined(DK_HW)
     if(fabsf(k->tp.d) > fmaxf(track_wall_out_at(&k->tp), track_wall_in_at(&k->tp)) + 0.3f)
         printf("DK ESCAPE kart %d s %.0f d %.1f y %.1f road %.1f below %d\n", (int)(k - karts), (double)k->tp.s, (double)k->tp.d,
@@ -1128,6 +1130,9 @@ static struct { float look, sway, sways, lead, grip; } ai_style[MAX_KARTS] = {
     {0.95f, 1.3f, 4, 7.0f, 0.15f}, {1.08f, 1.8f, 3, 0.0f, 0.10f}, {0.92f, 1.0f, 6, -1.5f, 0.20f},
 };
 static float ai_react[MAX_KARTS];     /* drift reaction delay still to run */
+#define AI_PIN_ENTRY 0.80f   /* fraction of top speed to enter a hairpin at */
+#define AI_PIN_R     18.0f   /* m: bends tighter than this are hairpins */
+#define AI_REV_HOLD  0.6f    /* s: after letting an S's first slide go, grip through the rest */
 
 /* How often a CPU barrel rolls off a ramp: nearly always while a human
    leads the race, rarely while the best-placed human is last, so the
@@ -1175,6 +1180,7 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
     float td = clampf(track_line(s + look) + lane, -edge, edge);
     if(tide_on()) td = fminf(td, tide_edge(s + look) - 1.0f);
     td = items_ai_lane(k, s + look, td);
+    td = cablecar_avoid(k, s + look, td);
     V3 tp = track_point(s + look, td);
     float dx = tp.x - k->pos.x, dz = tp.z - k->pos.z;
     float dist = fmaxf(sqrtf(dx * dx + dz * dz), 1.0f);
@@ -1226,9 +1232,14 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         if(k->drift == DRIFT_PENDING || (k->drift == DRIFT_CHARGE && k->charge_jump_t < 0.2f))
             in->steer = c_ahead < 0 ? -0.34f : 0.34f;
         bool exit_turn = fabsf(c_now) < 0.002f && fabsf(c_ahead) < 0.002f;
-        /* Bail out if even the widest slide turns too sharply. */
+        /* Bail out if even the widest slide turns too sharply, or at
+           once when the road ahead bends the other way (the far half of
+           an S): a slide only turns its own way, and held on it carried
+           the CPUs into the far wall. */
+        bool reverse = k->drift == DRIFT_ACTIVE && c_ahead * (float)k->drift_dir < -0.01f &&
+                       c_des * (float)k->drift_dir < 0.0f;
         bool too_tight = k->drift == DRIFT_ACTIVE && c_des * (float)k->drift_dir < -0.004f &&
-                         k->drift_t > 0.9f;
+                         (k->drift_t > 0.9f || reverse);
         if(exit_turn || too_tight || k->drift == DRIFT_NONE ||
            (k->drift == DRIFT_CHARGE && k->charge_jump_t > 0.3f)) {
 #ifdef DK_AI_TRACE
@@ -1238,7 +1249,7 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
                        (double)c_des);
 #endif
             k->ai_drift_btn = false;
-            k->ai_drift_hold = too_tight ? 0.35f : 0.6f;
+            k->ai_drift_hold = reverse ? AI_REV_HOLD : too_tight ? 0.35f : 0.6f;
             /* A tight track's next hairpin can be 20 m on: be ready for it. */
             if(tight)
                 for(float x = 10.0f; x <= 30.0f; x += 5.0f)
@@ -1246,6 +1257,24 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         }
     }
     in->drift = k->ai_drift_btn;
+    /* A hairpin coming up too fast to hop into a slide in time (on Bay
+       City Hills' crooked street, the next of a run of them with the boost
+       out of the last still on, they ran wide into its wall): brake
+       between slides, or lift off through the hop, down to a speed the
+       slide can take it at by its entry. Once sliding its way, carry on. */
+    if(k->grounded && k->drift != DRIFT_ACTIVE) {
+        float v_pin = AI_PIN_ENTRY * top;
+        for(float x = 2.0f; x <= 48.0f; x += 3.0f) {
+            if(fabsf(track_curvature(s + x)) < 1.0f / AI_PIN_R) continue;
+            float room = fmaxf(0.0f, x - spd * 0.25f);   /* a beat to react */
+            float v_ok = sqrtf(v_pin * v_pin + 2.0f * 0.6f * 22.0f * room);
+            if(spd > v_ok) {
+                in->accel = false;
+                if(k->drift == DRIFT_NONE && !k->ai_drift_btn) in->brake = true;
+            }
+            break;
+        }
+    }
     /* Off a ramp a CPU lets go of the button and, with odds set by how
        the human is doing, flicks it again on the way up for a barrel
        roll. */

@@ -160,8 +160,53 @@ void hud_lap_popup(int player, int lap, float time, bool best) {
     pm[player].lap_best = best;
 }
 
+/* The maps are drawn round the world's origin at a scale that fits every
+   course laid out within MAP_HX by MAP_HZ metres of it. One that reaches
+   further (Bay City Hills) is centred on its own bounds and shrunk to
+   that size instead. */
+#define MAP_HX 180.0f
+#define MAP_HZ 131.0f
+static int fit_id = -1;
+static float fit_len, fit_hx, fit_hz;
+
+static void map_fit(float *cx, float *cy, float *sc) {
+    static float ox, oz, k = 1.0f;
+    if(fit_id != track.id || fit_len != track.length) {
+        fit_id = track.id;
+        fit_len = track.length;
+        float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+        for(int i = 0; i < TRACK_SAMPLES; i++) {
+            V3 p = track.smp[i].p;
+            x0 = fminf(x0, p.x - 9.0f);
+            x1 = fmaxf(x1, p.x + 9.0f);
+            z0 = fminf(z0, p.z - 9.0f);
+            z1 = fmaxf(z1, p.z + 9.0f);
+        }
+        ox = oz = 0.0f;
+        k = 1.0f;
+        if(fmaxf(-x0, x1) > MAP_HX + 9.0f || fmaxf(-z0, z1) > MAP_HZ + 9.0f) {
+            ox = 0.5f * (x0 + x1);
+            oz = 0.5f * (z0 + z1);
+            k = fminf(1.0f, fminf((MAP_HX + 9.0f) / (0.5f * (x1 - x0)), (MAP_HZ + 9.0f) / (0.5f * (z1 - z0))));
+        }
+        /* How far it reaches from the map's centre, as drawn (k applied). */
+        fit_hx = k * fmaxf(x1 - ox, ox - x0);
+        fit_hz = k * fmaxf(z1 - oz, oz - z0);
+    }
+    *sc *= k;
+    *cx -= ox * *sc;
+    *cy += oz * *sc;
+}
+
+float hud_track_map_fit(float sc, float half_w, float half_h) {
+    float cx = 0, cy = 0, s1 = 1.0f;
+    map_fit(&cx, &cy, &s1);   /* brings fit_hx and fit_hz up to date */
+    return fminf(sc, fminf(half_w / fit_hx, half_h / fit_hz));
+}
+
 void hud_draw_track_map(float cx, float cy, float sc, float z, bool show_karts) {
     r_hdr(h_flat);
+    if(!track_is_roam()) map_fit(&cx, &cy, &sc);
     /* Free Roam: the lot inside the ring road, where everyone actually is. */
     if(track_is_roam()) {
         float hx = (LOT_HX - 9.0f) * sc, hz = (LOT_HZ - 9.0f) * sc;

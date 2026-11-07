@@ -47,6 +47,12 @@ static const int16_t apple[] = {
     TEX_AVTUMBLE, TEX_AVDUST, TEX_AVMTN, TEX_AVRANGE, -1
 };
 
+static const int16_t sf[] = {
+    TEX_CLOUD, TEX_FLARE, TEX_DASH, TEX_CHECKER, TEX_SFROAD, TEX_SFRAILS, TEX_SFBRICK, TEX_SFCURB, TEX_SFWALK, TEX_SFRAILING, TEX_SFPIER,
+    TEX_SFPIERRAIL, TEX_SFFACADE, TEX_SFBLDG, TEX_SFROOF, TEX_SFHEDGE, TEX_SFSHED, TEX_SFSIGN, TEX_SFBAY, TEX_SFFOG,
+    TEX_SFPALM, TEX_SFPALMBARK, TEX_SFCABLECAR, TEX_SFFACADE2, TEX_SFSTREET, TEX_SFGRASS, TEX_SFSTALL, TEX_SFSIGNS, -1
+};
+
 /* Free Roam's lot borrows from Tsudoken, Apple Valley and the sky tracks. */
 static const int16_t lot[] = {
     TEX_ROAD, TEX_CURB, TEX_GRASS, TEX_WATER, TEX_DASH, TEX_CHECKER, TEX_BANNER, TEX_SKYROAD_0, TEX_SKYROAD_1,
@@ -59,5 +65,5 @@ static const int16_t lot[] = {
 const int16_t *const track_textures[TRACK_COUNT] = {
     [TRACK_BEACH] = seaside, [TRACK_FIGURE8] = seaside, [TRACK_HARBOUR] = seaside, [TRACK_TEMPLE] = seaside,
     [TRACK_SKYWAY] = sky, [TRACK_CYBERSTONE] = sky, [TRACK_CANYON] = canyon, [TRACK_TSUDOKEN] = tsudoken,
-    [TRACK_APPLE] = apple, [TRACK_LOT] = lot,
+    [TRACK_APPLE] = apple, [TRACK_LOT] = lot, [TRACK_SF] = sf,
 };

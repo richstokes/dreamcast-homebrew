@@ -6,7 +6,7 @@ TARGET = dreamkarts.elf
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c ui.c title.c audio.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c flappy.c roam.c \
 	world_mesh.c world_road.c world_props.c world_beach.c world_coral.c world_harbour.c world_temple.c world_skyway.c \
-	world_canyon.c world_tsudoken.c world_apple.c world_lot.c tide.c birds.c skylife.c autotest.c prof.c track_tex.c
+	world_canyon.c world_tsudoken.c world_apple.c world_lot.c world_sf.c tide.c cablecar.c birds.c skylife.c autotest.c prof.c track_tex.c
 # Shared with other projects, from projects/common.
 COMMON_SOURCES = dialup.c
 GEN = assets/generated
@@ -150,6 +150,17 @@ apple-valley-props:
 	$(BLENDER) --background --python tools/build_apple_valley_props.py -- --header $(GEN)/apple_valley_props.h \
 		--blend captures/apple_valley_props.blend --preview captures/apple-valley-props
 
+# Bay City Hills' props: Blender models every one (the Golden Gate Bridge
+# and its headlands, Alcatraz, Coit Tower, the pyramid, a cable car, a bay
+# ferry, street lamps, date palms, a Monterey cypress, a fishing boat, the
+# sea lions' raft and the wharf's sign arch) and bakes them as strips;
+# captures/sf_props.blend to look at, captures/sf-props/*.png for a render
+# of each.
+sf-props:
+	mkdir -p captures
+	$(BLENDER) --background --python tools/build_sf_props.py -- --header $(GEN)/sf_props.h \
+		--blend captures/sf_props.blend --preview captures/sf-props
+
 # Spiral Canyon's final-lap biplane: Blender models it and bakes the body
 # and propeller meshes; captures/biplane.blend and captures/biplane/*.png
 # to look at.
@@ -169,7 +180,7 @@ music:
 vmu:
 	uv run tools/build_vmu.py --output-dir $(GEN)
 
-assets: textures models audio music vmu canyon-rock tsudoken-props apple-valley-props biplane
+assets: textures models audio music vmu canyon-rock tsudoken-props apple-valley-props sf-props biplane
 
 run: $(TARGET) music
 	./run-flycast.sh --skip-build
@@ -211,6 +222,6 @@ disc: $(TARGET) music
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props apple-valley-props biplane all clean run textures models audio music vmu assets autotest hwbench hw disc force
+.PHONY: canyon-rock tsudoken-props apple-valley-props sf-props biplane all clean run textures models audio music vmu assets autotest hwbench hw disc force
 
 endif
