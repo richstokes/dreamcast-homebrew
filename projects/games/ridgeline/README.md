@@ -62,7 +62,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | B | Camera: chase, far chase, bumper |
 | X | Map: corner, large, off |
 | Y (hold) | Recover the truck to the nearest trail |
-| Start | Pause: recover, FPS counter, HUD on/off, quit |
+| Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/off, quit |
 | Y (paused) | Photo mode: no HUD, the stick turns the camera round the truck, R/L zoom, B back |
 
 ## Build and run

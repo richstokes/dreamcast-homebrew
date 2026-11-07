@@ -999,14 +999,25 @@ static bool spot_clear(const Truck *t, float x, float z) {
     return true;
 }
 
+static void recover_near(Truck *t, V3 at, int only_route);
+
 void truck_recover_on(Truck *t, int only_route) {
+    recover_near(t, t->pos, only_route);
+}
+
+/* Back to a viewpoint: on its route a little below it, as a recover there. */
+void truck_recover_at(Truck *t, V3 at) {
+    recover_near(t, at, -1);
+}
+
+static void recover_near(Truck *t, V3 at, int only_route) {
     float best = 1e18f;
     int br = 0, bp = 0;
     for(int r = 0; r < LVL_ROUTES; r++) {
         if(only_route >= 0 && r != only_route) continue;
         for(int p = 0; p < lvl_routes[r].n; p++) {
             const lvl_pt_t *q = &lvl_routes[r].pts[p];
-            float dx = q->x - t->pos.x, dz = q->z - t->pos.z, d = dx * dx + dz * dz + (q->y - t->pos.y) * (q->y - t->pos.y);
+            float dx = q->x - at.x, dz = q->z - at.z, d = dx * dx + dz * dz + (q->y - at.y) * (q->y - at.y);
             if(d < best) {
                 best = d;
                 br = r;
@@ -1017,13 +1028,13 @@ void truck_recover_on(Truck *t, int only_route) {
     if(best > 60.0f * 60.0f) {
         /* Far from any route: stand it up where it is, or on the nearest dry
            ground if it is in a lake or the creek. */
-        if(!spot_wet(t->pos.x, t->pos.z)) {
-            truck_place(t, t->pos, truck_heading(t));
+        if(!spot_wet(at.x, at.z)) {
+            truck_place(t, at, truck_heading(t));
             return;
         }
         for(float rad = 4.0f; rad <= 60.0f; rad += 4.0f)
             for(int a = 0; a < 24; a++) {
-                float x = t->pos.x + sinf(a * (6.2831853f / 24)) * rad, z = t->pos.z + cosf(a * (6.2831853f / 24)) * rad;
+                float x = at.x + sinf(a * (6.2831853f / 24)) * rad, z = at.z + cosf(a * (6.2831853f / 24)) * rad;
                 if(!spot_wet(x, z)) {
                     truck_place(t, v3(x, 0, z), truck_heading(t));
                     return;

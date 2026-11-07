@@ -6,6 +6,8 @@
 #include "engine/ui.h"
 #include "truck.h"
 #include "camera.h"
+#include "terrain.h"
+#include "fx.h"
 #include "audio.h"
 #include "demo.h"
 #include "sound_assets.h"
@@ -213,7 +215,23 @@ void menu_select_draw(void) {
 
 /* ---- Pause ---- */
 
-enum { P_CARRY_ON, P_RECOVER, P_FPS, P_HUD, P_QUIT, P_COUNT };
+enum { P_CARRY_ON, P_RECOVER, P_VIEW, P_FPS, P_HUD, P_QUIT, P_COUNT };
+
+/* The viewpoint item is there once one has been found; left and right step
+   through the ones found. */
+static bool pause_item_on(int i) {
+    return i != P_VIEW || game.views_found;
+}
+
+static void view_step(int d) {
+    for(int k = 1; k <= LVL_VIEWS; k++) {
+        int v = (game.view_sel + d * k + LVL_VIEWS * k) % LVL_VIEWS;
+        if(game.views_found & (1u << v)) {
+            game.view_sel = v;
+            return;
+        }
+    }
+}
 
 void menu_pause_update(float dt) {
     if(game.photo) {
@@ -228,8 +246,16 @@ void menu_pause_update(float dt) {
         camera_photo(&trucks[0], dt);
         return;
     }
-    if(input_menu_up()) game.pause_sel = (game.pause_sel + P_COUNT - 1) % P_COUNT;
-    if(input_menu_down()) game.pause_sel = (game.pause_sel + 1) % P_COUNT;
+    if(input_menu_up())
+        do game.pause_sel = (game.pause_sel + P_COUNT - 1) % P_COUNT;
+        while(!pause_item_on(game.pause_sel));
+    if(input_menu_down())
+        do game.pause_sel = (game.pause_sel + 1) % P_COUNT;
+        while(!pause_item_on(game.pause_sel));
+    if(game.pause_sel == P_VIEW && (input_menu_left() || input_menu_right())) {
+        view_step(input_menu_right() ? 1 : -1);
+        audio_sfx(RL_SFX_MENU_SELECT, 120);
+    }
     if(pad.pressed & (BTN_START | BTN_B)) {
         game.paused = false;
         return;
@@ -246,6 +272,17 @@ void menu_pause_update(float dt) {
         switch(game.pause_sel) {
             case P_CARRY_ON: game.paused = false; break;
             case P_RECOVER: truck_recover(&trucks[0]); camera_reset(); game.paused = false; break;
+            case P_VIEW: {
+                const lvl_view_t *v = &lvl_views[game.view_sel];
+                char buf[48];
+                truck_recover_at(&trucks[0], v3(v->x, v->y, v->z));
+                camera_reset();
+                fx_clear();
+                game.paused = false;
+                snprintf(buf, sizeof(buf), "BACK AT %s", v->name);
+                hud_message(buf, 0xff90f0b0, 2.0f);
+                break;
+            }
             case P_FPS: game.show_fps = !game.show_fps; break;
             case P_HUD: game.hud_hidden = !game.hud_hidden; break;
             case P_QUIT: game.paused = false; audio_drive_stop(); game_set_state(ST_TITLE); break;
@@ -262,16 +299,24 @@ void menu_pause_draw(void) {
                        "PHOTO MODE   STICK: TURN   R/L: ZOOM   B: BACK");
         return;
     }
-    const char *items[P_COUNT] = {"CARRY ON", "RECOVER TRUCK", game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
+    char view[32] = "";
+    if(game.views_found) snprintf(view, sizeof(view), "TO %s", lvl_views[game.view_sel].name);
+    const char *items[P_COUNT] = {"CARRY ON", "RECOVER TRUCK", view, game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
                                   game.hud_hidden ? "HUD: OFF" : "HUD: ON", "QUIT TO TITLE"};
     ui_dim();
-    ui_panel(190, 150, 450, 364);
+    int n = 0;
+    for(int i = 0; i < P_COUNT; i++) n += pause_item_on(i);
+    ui_panel(190, 150, 450, 204 + n * 32);
     ui_title(190, 150, 450, "PAUSED");
+    float y = 204;
     for(int i = 0; i < P_COUNT; i++) {
-        float y = 204 + i * 32;
+        if(!pause_item_on(i)) continue;
         bool on = i == game.pause_sel;
+        uint32_t c = ui_col(on ? UI_ITEM_SEL : UI_ITEM);
         ui_row(202, y - 14, 438, y + 14, on);
-        hud_text_c(320, y, 0.7f, ALIGN_CENTER, ui_col(on ? UI_ITEM_SEL : UI_ITEM), items[i]);
+        hud_text_c(320, y, 0.7f, ALIGN_CENTER, c, items[i]);
+        if(on && i == P_VIEW && __builtin_popcount(game.views_found) > 1) ui_arrows(214, 426, y, 0.72f, c);
+        y += 32;
     }
     ui_hint("A: OK   Y: PHOTO MODE   B: BACK");
 }

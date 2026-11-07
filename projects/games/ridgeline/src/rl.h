@@ -48,6 +48,8 @@ typedef struct {
     float best_y;         /* highest the player has been */
     float summit_frac;
     uint8_t views_found;  /* bit per viewpoint */
+    int8_t last_view;     /* the latest found, -1 none yet */
+    int8_t view_sel;      /* the pause menu's viewpoint to go back to */
     bool summit_reached;
     float fps, cpu_ms;
     float clock;          /* seconds driving */

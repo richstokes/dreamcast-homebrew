@@ -60,6 +60,7 @@ void game_start_drive(void) {
     game.best_y = trucks[0].pos.y;
     game.summit_frac = 0;
     game.views_found = 0;
+    game.last_view = -1;
     game.summit_reached = false;
     game.clock = 0;
     game.paused = false;
@@ -144,6 +145,7 @@ static void progress_update(void) {
         float dx = p->pos.x - v->x, dz = p->pos.z - v->z;
         if(dx * dx + dz * dz < 16.0f * 16.0f && fabsf(p->pos.y - v->y) < 10.0f) {
             game.views_found |= 1u << i;
+            game.last_view = i;
             char buf[48];
             snprintf(buf, sizeof(buf), "VIEWPOINT: %s", v->name);
             hud_message(buf, 0xff90f0b0, 3.0f);
@@ -172,6 +174,7 @@ static void drive_update(float dt) {
     if(pad.pressed & BTN_START) {
         game.paused = true;
         game.pause_sel = 0;
+        game.view_sel = game.last_view;
         audio_sfx(RL_SFX_MENU_SELECT, 160);
         return;
     }

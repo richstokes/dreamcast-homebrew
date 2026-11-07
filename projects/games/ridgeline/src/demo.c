@@ -50,6 +50,7 @@ void demo_start(void) {
     game.best_y = trucks[0].pos.y;
     game.summit_frac = 0;
     game.views_found = 0;
+    game.last_view = -1;
     game.summit_reached = false;
     game.clock = 0;
     game.paused = false;

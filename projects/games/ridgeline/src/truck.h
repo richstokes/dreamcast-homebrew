@@ -107,6 +107,7 @@ int truck_top_gear(const Truck *t);
 void truck_recover(Truck *t);
 /* The same on one route (-1: any). */
 void truck_recover_on(Truck *t, int route);
+void truck_recover_at(Truck *t, V3 at);
 float truck_heading(const Truck *t);
 /* A point in model space (origin on the ground at ride height) to world. */
 /* How far two trucks' hulls overlap, metres (0 apart). */
