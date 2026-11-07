@@ -977,6 +977,28 @@ void truck_recover(Truck *t) {
     truck_recover_on(t, -1);
 }
 
+/* Water over the ground anywhere under a truck standing at (x, z): its
+   middle and a ring at about its corners. */
+static bool spot_wet(float x, float z) {
+    static const float ring[9][2] = {{0, 0}, {3.5f, 0}, {-3.5f, 0}, {0, 3.5f}, {0, -3.5f},
+                                     {2.5f, 2.5f}, {-2.5f, 2.5f}, {2.5f, -2.5f}, {-2.5f, -2.5f}};
+    for(int k = 0; k < 9; k++) {
+        float px = x + ring[k][0], pz = z + ring[k][1];
+        if(water_at(px, pz) > terrain_height(px, pz)) return true;
+    }
+    return false;
+}
+
+static bool spot_clear(const Truck *t, float x, float z) {
+    for(int o = 0; o < game.ntrucks; o++) {
+        const Truck *u = &trucks[o];
+        if(u == t) continue;
+        float dx = u->pos.x - x, dz = u->pos.z - z;
+        if(dx * dx + dz * dz < 7.0f * 7.0f) return false;
+    }
+    return true;
+}
+
 void truck_recover_on(Truck *t, int only_route) {
     float best = 1e18f;
     int br = 0, bp = 0;
@@ -992,26 +1014,39 @@ void truck_recover_on(Truck *t, int only_route) {
             }
         }
     }
-    const lvl_route_t *r = &lvl_routes[br];
-    /* A little way back down the route, clear of the other trucks. */
-    int p = bp > 2 ? bp - 2 : 0;
-    for(int tries = 0; tries < 12 && p > 0; tries++) {
-        bool clear = true;
-        for(int o = 0; o < game.ntrucks; o++) {
-            const Truck *u = &trucks[o];
-            if(u == t) continue;
-            float dx = u->pos.x - r->pts[p].x, dz = u->pos.z - r->pts[p].z;
-            if(dx * dx + dz * dz < 7.0f * 7.0f) clear = false;
+    if(best > 60.0f * 60.0f) {
+        /* Far from any route: stand it up where it is, or on the nearest dry
+           ground if it is in a lake or the creek. */
+        if(!spot_wet(t->pos.x, t->pos.z)) {
+            truck_place(t, t->pos, truck_heading(t));
+            return;
         }
-        if(clear) break;
-        p--;
+        for(float rad = 4.0f; rad <= 60.0f; rad += 4.0f)
+            for(int a = 0; a < 24; a++) {
+                float x = t->pos.x + sinf(a * (6.2831853f / 24)) * rad, z = t->pos.z + cosf(a * (6.2831853f / 24)) * rad;
+                if(!spot_wet(x, z)) {
+                    truck_place(t, v3(x, 0, z), truck_heading(t));
+                    return;
+                }
+            }
+        /* No dry ground near: back to the nearest route below. */
     }
+    const lvl_route_t *r = &lvl_routes[br];
+    /* A little way back down the route, out of the water and clear of the
+       other trucks. Clear of trucks gives way to dry if both can't be had
+       close by; if the route back is all water, look ahead instead. */
+    int start = bp > 2 ? bp - 2 : 0, p = -1, dry = -1;
+    for(int q = start; q >= 0 && p < 0; q--) {
+        if(spot_wet(r->pts[q].x, r->pts[q].z)) continue;
+        if(dry < 0) dry = q;
+        if(spot_clear(t, r->pts[q].x, r->pts[q].z)) p = q;
+        else if(q < dry - 12) break;
+    }
+    if(p < 0) p = dry;
+    for(int q = start + 1; p < 0 && q < r->n; q++)
+        if(!spot_wet(r->pts[q].x, r->pts[q].z)) p = q;
+    if(p < 0) p = start;
     int p2 = p + 1 < r->n ? p + 1 : p;
     float h = atan2f(r->pts[p2].x - r->pts[p].x, r->pts[p2].z - r->pts[p].z);
-    if(best > 60.0f * 60.0f) {
-        /* Far from any route: stand it up where it is. */
-        truck_place(t, t->pos, truck_heading(t));
-        return;
-    }
     truck_place(t, v3(r->pts[p].x, 0, r->pts[p].z), h);
 }
