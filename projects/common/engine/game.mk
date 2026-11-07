@@ -44,6 +44,12 @@ empty :=
 space := $(empty) $(empty)
 FLAGTAG = $(subst =,-,$(subst $(space),,$(subst -D,+,$(EXTRA_CFLAGS))))
 OBJDIR = build/$(VARIANT)$(FLAGTAG)
+# A game source named like an engine module would take its object's name
+# and quietly replace it; the game's copy has to be renamed.
+CLASH := $(foreach s,$(SOURCES),$(if $(and $(wildcard src/$(s)),$(wildcard $(ENGINE_DIR)/$(s))),$(s)))
+ifneq ($(strip $(CLASH)),)
+$(error $(strip $(CLASH)): both src/ and the engine have this file; rename the game's copy)
+endif
 OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES) $(COMMON_SOURCES)) $(patsubst %.S,$(OBJDIR)/%.o,$(ASM_SOURCES)) \
 	$(OBJDIR)/blobs.o
 

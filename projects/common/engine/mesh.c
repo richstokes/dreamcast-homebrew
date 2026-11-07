@@ -133,6 +133,14 @@ bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *id
         if(d2 > r2) r2 = d2;
     }
     m->ngroups = ng;
+    /* The group arrays were sized for a group per vertex; keep what is used. */
+    if(ng < nv) {
+        void *q;
+        if((q = realloc(m->gnrm, sizeof(float) * 3 * ng))) m->gnrm = q;
+        if((q = realloc(m->gpaint, ng))) m->gpaint = q;
+        if((q = realloc(m->gargb, sizeof(uint32_t) * ng))) m->gargb = q;
+        if((q = realloc(m->gvert, sizeof(uint16_t) * ng))) m->gvert = q;
+    }
     for(int g = 0; g < ng; g++) {
         const eng_mvert_t *w = &v[m->gvert[g]];
         V3 n = vnorm(v3(w->nx, w->ny, w->nz));

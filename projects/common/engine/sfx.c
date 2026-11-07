@@ -99,7 +99,10 @@ void sfx_voice_set(SfxVoice *v, float rate, int vol, int pan) {
     int freq = (int)(table[v->sfx].rate * rate);
     if(freq < 1000) freq = 1000;
     if(freq > 88000) freq = 88000;
-    freq = (freq + 32) & ~63;   /* no command for a tiny pitch change */
+    /* No command for a tiny pitch change. 16 Hz is ~5 cents at the lowest
+       pitch a voice gets to (an 11 kHz loop at half speed), under what a
+       glide shows; 64 Hz stepped audibly there. */
+    freq = (freq + 8) & ~15;
     vol = vol < 0 ? 0 : vol > 255 ? 255 : vol;
     pan = pan < 0 ? 0 : pan > 255 ? 255 : pan;
     uint32_t what = 0;
