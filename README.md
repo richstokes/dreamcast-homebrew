@@ -8,6 +8,27 @@ easiest way to play: open it in an emulator, or load it on a real console with
 GDEMU or similar. If you are burning a physical CD-R, you may want to try the
 **CD-R** download instead. Each project directory has its own README.
 
+### Updating a GDEMU SD card (macOS)
+
+If these games are already on an openMenu SD card, `easy-SD-update.sh` swaps
+them for the latest builds in place. It looks for a mounted card with
+"dreamcast" in its name, matches folders by `name.txt`, and leaves everything
+else alone. Add `-n` to see what would change first, or pass the card's path
+if it is named something else.
+
+```bash
+./easy-SD-update.sh
+```
+
+Without a checkout:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/richstokes/dreamcast-homebrew/main/easy-SD-update.sh)
+```
+
+Any new build counts as an update, so DreamKarts (~250 MB) comes down again
+after most pushes. Add new games with your card manager as usual.
+
 ## Games
 
 | Preview | Project | Latest download | Try in browser |
