@@ -96,7 +96,6 @@ void menu_title_draw(void) {
     r_hdr(h_logo);
     float w = 256 * (0.9f + 0.1f * k), h = 64 * (0.9f + 0.1f * k);
     r_quad2d(320 - w, 150 - h, 320 + w, 150 + h, 0, 0, 1, 1, color_alpha(0xffffffff, k), 12.0f);
-    hud_text_c(320, 214, 0.72f, ALIGN_CENTER, color_alpha(0xfff8f0dc, k), "CASCADE RIDGE  -  A TRAIL TO THE SUMMIT");
     if(title_menu) {
         static const char *const items[T_COUNT] = {"SINGLE PLAYER", "ONLINE", "SOUND TEST"};
         hud_panel(200, 278, 440, 404, color_alpha(0xb0182028, k));
