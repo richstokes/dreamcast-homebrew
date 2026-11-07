@@ -1,4 +1,4 @@
-/* Engine: rigid meshes (mesh.h). The strip builder follows DreamKarts'
+/* Engine: rigid meshes (mesh.h). The strip builder came from DreamKarts'
    models.c, which proved the layout r_mesh_kv's assembly expects. */
 #include "mesh.h"
 #include <malloc.h>
@@ -13,15 +13,15 @@ static bool tri_is(const uint16_t *tri, int t, unsigned a, unsigned b, unsigned 
     return false;
 }
 
-/* Per vertex, the triangles that use it: for finding a strip's next
-   triangle without scanning the whole mesh. */
+/* Per vertex, the triangles that use it (in index order): for finding a
+   strip's next triangle without scanning the whole mesh. */
 typedef struct {
     uint16_t *first, *count, *list;
 } VertTris;
 
 /* Greedy strip from triangle t at rotation rot into out (vertex indices),
-   taking unused triangles that continue it with the right winding; marks
-   those with stamp. Returns the strip's vertex count. */
+   taking the lowest-numbered unused triangle that continues it with the
+   right winding; marks those with stamp. Returns the strip's vertex count. */
 static int grow_strip(const uint16_t *tri, const VertTris *vt, uint16_t *used, uint16_t stamp, int t, int rot,
                       uint16_t *out) {
     const uint16_t *p = tri + t * 3;
@@ -55,46 +55,86 @@ static int grow_strip(const uint16_t *tri, const VertTris *vt, uint16_t *used, u
     return n;
 }
 
-bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *idx, int ni) {
+#ifdef ENG_XF_CHECK
+/* Every strip triangle must be an unclaimed source triangle wound the same
+   way (render.c counts the misses with the vertex paths'). */
+extern uint32_t xf_checked, xf_mismatch;
+static void check_strip(const uint16_t *tri, int ntri, uint8_t *claimed, const uint16_t *strip, int n) {
+    for(int k = 0; k + 2 < n; k++) {
+        unsigned a = strip[k + (k & 1)], b = strip[k + 1 - (k & 1)], c = strip[k + 2];
+        int u = 0;
+        while(u < ntri && (claimed[u] || !tri_is(tri, u, a, b, c))) u++;
+        if(u < ntri) claimed[u] = 1;
+        else xf_mismatch++;
+        xf_checked++;
+    }
+}
+#endif
+
+bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *idx, int ni, const uint8_t *key) {
     memset(m, 0, sizeof(*m));
     int ntri = ni / 3;
     if(nv < 3 || ntri < 1 || nv > 1024) return false;
-    KV *kv = memalign(32, sizeof(KV) * nv);
-    float (*pos)[4] = memalign(32, sizeof(float) * 4 * nv);
+    /* Scratch for the build, freed before returning. */
     uint16_t *vpos = malloc(sizeof(uint16_t) * nv);
-    uint16_t *gvert = malloc(sizeof(uint16_t) * nv);
-    /* Worst case: a strip per triangle, 1 + 3 * 2 words each, and the end. */
-    uint16_t *strips = malloc(sizeof(uint16_t) * (ntri * 7 + 1));
     uint16_t *used = calloc(ntri, sizeof(uint16_t));
     VertTris vt = {calloc(nv, sizeof(uint16_t)), calloc(nv, sizeof(uint16_t)), malloc(sizeof(uint16_t) * ni)};
+#ifdef ENG_XF_CHECK
+    uint8_t *claimed = calloc(ntri, 1);
+#else
+    uint8_t *claimed = NULL;
+#endif
+    /* The mesh's own. */
+    KV *kv = memalign(32, sizeof(KV) * nv);
+    float (*pos)[4] = memalign(32, sizeof(float) * 4 * nv);
+    /* Worst case: a strip per triangle, 1 + 3 * 2 words each, and the end;
+       shrunk to what was used below. */
+    uint16_t *strips = malloc(sizeof(uint16_t) * (ntri * 7 + 1));
     uint16_t *idx_copy = malloc(sizeof(uint16_t) * ni);
-    if(!kv || !pos || !vpos || !gvert || !strips || !used || !vt.first || !vt.count || !vt.list || !idx_copy) {
+    m->gnrm = malloc(sizeof(float) * 3 * nv);
+    m->gpaint = malloc(nv);
+    m->gargb = malloc(sizeof(uint32_t) * nv);
+    m->gvert = malloc(sizeof(uint16_t) * nv);
+    bool ok = vpos && used && vt.first && vt.count && vt.list && kv && pos && strips && idx_copy && m->gnrm &&
+              m->gpaint && m->gargb && m->gvert;
+#ifdef ENG_XF_CHECK
+    ok = ok && claimed;
+#endif
+    if(!ok) {
         printf(ENG_NAME " mesh: out of memory\n");
-        return false;
+        free(kv);
+        free(pos);
+        free(strips);
+        free(idx_copy);
+        free(m->gnrm);
+        free(m->gpaint);
+        free(m->gargb);
+        free(m->gvert);
+        memset(m, 0, sizeof(*m));
+        goto scratch;
     }
     memcpy(idx_copy, idx, sizeof(uint16_t) * ni);
 
-    /* Lighting groups: normal, paint and colour alike. */
+    /* Lighting groups: normal, paint, colour (and key) alike. */
     int ng = 0;
     float r2 = 0;
     for(int i = 0; i < nv; i++) {
         int g = 0;
         for(; g < ng; g++) {
-            const eng_mvert_t *w = &v[gvert[g]];
-            if(v[i].nx == w->nx && v[i].ny == w->ny && v[i].nz == w->nz && v[i].paint == w->paint && v[i].argb == w->argb)
+            int j = m->gvert[g];
+            const eng_mvert_t *w = &v[j];
+            if(v[i].nx == w->nx && v[i].ny == w->ny && v[i].nz == w->nz && v[i].paint == w->paint &&
+               v[i].argb == w->argb && (!key || key[i] == key[j]))
                 break;
         }
-        if(g == ng) gvert[ng++] = (uint16_t)i;
+        if(g == ng) m->gvert[ng++] = (uint16_t)i;
         kv[i] = (KV){v[i].x, v[i].y, v[i].z, (uint16_t)g, 0};
         float d2 = v[i].x * v[i].x + v[i].y * v[i].y + v[i].z * v[i].z;
         if(d2 > r2) r2 = d2;
     }
     m->ngroups = ng;
-    m->gnrm = malloc(sizeof(float) * 3 * ng);
-    m->gpaint = malloc(ng);
-    m->gargb = malloc(sizeof(uint32_t) * ng);
     for(int g = 0; g < ng; g++) {
-        const eng_mvert_t *w = &v[gvert[g]];
+        const eng_mvert_t *w = &v[m->gvert[g]];
         V3 n = vnorm(v3(w->nx, w->ny, w->nz));
         m->gnrm[g][0] = n.x;
         m->gnrm[g][1] = n.y;
@@ -129,7 +169,8 @@ bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *id
             vt.list[vt.first[a] + vt.count[a]++] = (uint16_t)t;
         }
 
-    /* Strips: from each unused triangle, the longest of its three rotations. */
+    /* Strips: from each unused triangle, the longest of its three rotations
+       (trial runs mark with stamp 2 + rot and are undone). */
     static uint16_t strip[R_MESH_STRIP_TRIS + 2];
     int o = 0;
     for(int t = 0; t < ntri; t++) {
@@ -148,6 +189,9 @@ bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *id
             }
         }
         int n = grow_strip(idx, &vt, used, 1, t, best, strip);
+#ifdef ENG_XF_CHECK
+        check_strip(idx, ntri, claimed, strip, n);
+#endif
         strips[o++] = (uint16_t)n;
         for(int k = 0; k < n; k++) {
             strips[o++] = (uint16_t)(vpos[strip[k]] * 16);
@@ -155,14 +199,17 @@ bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *id
         }
     }
     strips[o++] = 0;
+    uint16_t *fit = realloc(strips, sizeof(uint16_t) * o);
+    if(fit) strips = fit;
+    m->km = (KMesh){kv, nv, idx_copy, ni, (const float (*)[4])pos, np, strips};
+scratch:
+    free(vpos);
     free(used);
     free(vt.first);
     free(vt.count);
     free(vt.list);
-    free(vpos);
-    free(gvert);
-    m->km = (KMesh){kv, nv, idx_copy, ni, (const float (*)[4])pos, np, strips};
-    return true;
+    free(claimed);
+    return ok;
 }
 
 void eng_mesh_free(EngMesh *m) {
@@ -173,7 +220,18 @@ void eng_mesh_free(EngMesh *m) {
     free(m->gnrm);
     free(m->gpaint);
     free(m->gargb);
+    free(m->gvert);
     memset(m, 0, sizeof(*m));
+}
+
+void eng_mesh_stats(const EngMesh *m, int *strips, int *strip_verts) {
+    int ns = 0, nv = 0;
+    for(const uint16_t *s = m->km.strips; s && *s; s += 1 + 2 * *s) {
+        ns++;
+        nv += *s;
+    }
+    if(strips) *strips = ns;
+    if(strip_verts) *strip_verts = nv;
 }
 
 static inline int ch(uint32_t c, int s) {

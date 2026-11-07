@@ -1,5 +1,6 @@
-/* HUD and 2D text. The font atlas holds white glyphs with a navy outline,
-   tinted by vertex colour; the countdown lettering is pre-styled. */
+/* HUD and 2D text. The font atlas (font_metrics.h, drawn by the engine's
+   text module) holds white glyphs with a navy outline, tinted by vertex
+   colour; the countdown lettering is pre-styled. */
 #include "hud.h"
 #include "audio.h"
 #include "kart.h"
@@ -14,6 +15,7 @@
 #include "save.h"
 
 static const pvr_poly_hdr_t *h_font, *h_big, *h_flat, *h_glow;
+static EngFont font;
 static struct {
     char msg_text[32];
     uint32_t msg_col;
@@ -29,6 +31,9 @@ static float toast_t;
 
 void hud_init(void) {
     h_font = r_header(TEX_FONT, HF_TR | HF_NOFOG | HF_NOZTEST | HF_CLAMP);
+    _Static_assert(sizeof(dk_glyph_t) == sizeof(eng_glyph_t), "font_metrics.h glyph layout");
+    font = (EngFont){h_font, (const eng_glyph_t *)font_glyphs, FONT_ROW_H, FONT_TEX_W, FONT_TEX_H, FONT_CAP_TOP,
+                     FONT_CAP_BOTTOM};
     h_big = r_header(TEX_BIGTEXT, HF_TR | HF_NOFOG | HF_NOZTEST | HF_CLAMP);
     h_flat = r_header(TEX_NONE, HF_TR | HF_NOFOG | HF_NOZTEST);
     h_glow = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG | HF_NOZTEST);
@@ -47,40 +52,20 @@ void hud_update(float dt) {
     }
 }
 
-float hud_text_width(const char *s, float scale) {
-    float w = 0;
-    for(; *s; s++) {
-        unsigned c = (unsigned char)*s;
-        if(c < 32 || c > 127) c = '?';
-        w += font_glyphs[c - 32].adv * scale;
-    }
-    return w;
+const EngFont *hud_font(void) {
+    return &font;
 }
 
-static void text_run(float x, float y, float scale, uint32_t col, const char *s) {
-    r_hdr(h_font);
-    const float du = 1.0f / FONT_TEX_W, dv = (float)FONT_ROW_H / FONT_TEX_H;
-    for(; *s; s++) {
-        unsigned c = (unsigned char)*s;
-        if(c < 32 || c > 127) c = '?';
-        const dk_glyph_t *g = &font_glyphs[c - 32];
-        if(g->w) {
-            float x0 = x + g->ox * scale, u0 = g->x * du, v0 = g->row * dv;
-            r_quad2d(x0, y, x0 + g->w * scale, y + FONT_ROW_H * scale, u0, v0, u0 + g->w * du, v0 + dv, col, 20.0f);
-        }
-        x += g->adv * scale;
-    }
+float hud_text_width(const char *s, float scale) {
+    return text_width(&font, s, scale);
 }
 
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s) {
-    float w = hud_text_width(s, scale);
-    if(align == ALIGN_CENTER) x -= w * 0.5f;
-    else if(align == ALIGN_RIGHT) x -= w;
-    text_run(x, y, scale, col, s);
+    text_draw(&font, x, y, scale, align, col, s);
 }
 
 void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s) {
-    hud_text(x, cy - (FONT_CAP_TOP + FONT_CAP_BOTTOM) * 0.5f * scale, scale, align, col, s);
+    text_draw_c(&font, x, cy, scale, align, col, s);
 }
 
 void hud_letter_c(float cx, float cy, float scale, uint32_t col, char c) {

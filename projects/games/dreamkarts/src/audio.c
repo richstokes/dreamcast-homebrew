@@ -22,22 +22,16 @@
    16-bit mono PCM.
 
    The player's engine (two crossfaded loops), tyre squeal, spark crackle,
-   sand rumble and brake screech are looping hardware voices. Each one owns a channel reserved
-   with snd_sfx_chn_alloc(): snd_sfx_play() hands out channels round-robin
-   and skips only reserved ones, so an unreserved loop is soon replaced by a
-   one-shot, after which its pitch updates retune the wrong sound. Pitch and
-   volume then change in place with AICA channel UPDATE commands (the
-   hardware pitch register), smoothed per frame and sent only on change. */
+   sand rumble and brake screech are looping voices on reserved channels
+   (engine/sfx.h), their pitch and volume smoothed here per frame. */
 #include "audio.h"
 #include "engine/render.h"
+#include "engine/sfx.h"
 #include "save.h"
-#include <dc/sound/sound.h>
-#include <dc/sound/sfxmgr.h>
 #include <dc/cdrom.h>
 #include <dc/fs_dcload.h>
 #include <kos/thread.h>
 #include <kos/mutex.h>
-#include <dc/sound/aica_comm.h>
 #include <dc/spu.h>
 #include <arch/timer.h>
 #include <math.h>
@@ -46,7 +40,6 @@
 
 extern const uint8_t dk_sfx_pak[];
 
-static sfxhnd_t sfx[DK_SFX_COUNT];
 static bool ready;
 
 /* The disc's audio tracks, matched to the songs in music_tracks.h by
@@ -100,9 +93,8 @@ static volatile bool jb_quit;
 static kthread_t *jukebox;
 
 typedef struct {
-    int channel;
-    int last_freq, last_vol;
-    float vol, rate;
+    SfxVoice v;
+    float vol, rate;    /* smoothed toward each frame's targets */
 } Voice;
 
 enum { V_ENGINE_LOW, V_ENGINE_HIGH, V_DRIFT, V_SPARKS, V_OFFROAD, V_BRAKE, V_COUNT };
@@ -110,8 +102,7 @@ enum { V_ENGINE_LOW, V_ENGINE_HIGH, V_DRIFT, V_SPARKS, V_OFFROAD, V_BRAKE, V_COU
 static Voice voice_sets[MAX_PLAYERS][V_COUNT];
 /* The biplane's drone: one more loop on its own reserved channel, started
    the first time it is heard and kept for the rest of the run. */
-static Voice plane_voice = { -1, -1, -1, 0, 0 };
-static int plane_pan = -1;
+static Voice plane_voice = {{-1, -1, -1, -1, -1}, 0, 0};
 #define voices voice_sets[0]
 static const int voice_sfx[V_COUNT] = {
     DK_SFX_ENGINE_LOW, DK_SFX_ENGINE_HIGH, DK_SFX_DRIFT, DK_SFX_SPARKS, DK_SFX_OFFROAD, DK_SFX_BRAKE
@@ -248,18 +239,9 @@ void audio_disc_init(void) {
 }
 
 void audio_init(void) {
-    if(snd_init() < 0) {
-        printf("DreamKarts audio: sound init failed; running silently\n");
-        return;
-    }
-    ready = true;
-    int loaded = 0;
-    for(int i = 0; i < DK_SFX_COUNT; i++) {
-        const dk_sfx_asset_t *a = &dk_sfx_assets[i];
-        sfx[i] = snd_sfx_load_raw_buf((char *)(dk_sfx_pak + a->offset), a->bytes, a->rate, 16, 1);
-        if(sfx[i] == SFXHND_INVALID) printf("DreamKarts audio: effect %d failed to load\n", i);
-        else loaded++;
-    }
+    _Static_assert(sizeof(dk_sfx_asset_t) == sizeof(eng_sfx_asset_t), "sound_assets.h table layout");
+    ready = sfx_init(dk_sfx_pak, (const eng_sfx_asset_t *)dk_sfx_assets, DK_SFX_COUNT);
+    if(!ready) return;
     audio_disc_init();
     spu_cdda_volume(0, 0);   /* songs fade in from silence */
     cd_level = 0;
@@ -273,9 +255,8 @@ void audio_init(void) {
         }
     }
     for(int p = 0; p < MAX_PLAYERS; p++)
-        for(int i = 0; i < V_COUNT; i++) voice_sets[p][i].channel = -1;
-    printf("DreamKarts audio: %d/%d effects, %d CD-DA tracks%s, %lu KiB AICA RAM free\n", loaded, DK_SFX_COUNT,
-           music_tracks, music_silent ? " (silent under dcload)" : "", (unsigned long)(snd_mem_available() / 1024));
+        for(int i = 0; i < V_COUNT; i++) voice_sets[p][i].v.channel = -1;
+    printf("DreamKarts audio: %d CD-DA tracks%s\n", music_tracks, music_silent ? " (silent under dcload)" : "");
 }
 
 void audio_shutdown(void) {
@@ -286,24 +267,12 @@ void audio_shutdown(void) {
         jukebox = NULL;
         if(jb_playing) cdrom_cdda_pause();   /* not on through the reboot to the menu */
     }
-    /* snd_sfx_stop_all() skips reserved channels; stop the loops here. */
+    /* The loops hold reserved channels, which the sfx manager's stop-all
+       skips; stop them first. */
     for(int p = 0; p < MAX_PLAYERS; p++)
-        for(int i = 0; i < V_COUNT; i++) {
-            Voice *v = &voice_sets[p][i];
-            if(v->channel >= 0) {
-                snd_sfx_stop(v->channel);
-                snd_sfx_chn_free(v->channel);
-                v->channel = -1;
-            }
-        }
-    if(plane_voice.channel >= 0) {
-        snd_sfx_stop(plane_voice.channel);
-        snd_sfx_chn_free(plane_voice.channel);
-        plane_voice.channel = -1;
-    }
-    snd_sfx_stop_all();
-    snd_sfx_unload_all();
-    snd_shutdown();
+        for(int i = 0; i < V_COUNT; i++) sfx_voice_stop(&voice_sets[p][i].v);
+    sfx_voice_stop(&plane_voice.v);
+    sfx_shutdown();
     ready = false;
 }
 
@@ -514,18 +483,7 @@ void audio_update(float dt) {
 }
 
 void audio_sfx_pitch(int id, int vol, int pan, float rate) {
-    if(!ready || id < 0 || id >= DK_SFX_COUNT || sfx[id] == SFXHND_INVALID || vol <= 0) return;
-    sfx_play_data_t d;
-    memset(&d, 0, sizeof(d));
-    d.chn = -1;
-    d.idx = sfx[id];
-    d.vol = vol > 255 ? 255 : vol;
-    d.pan = pan;
-    d.freq = (int)(dk_sfx_assets[id].rate * rate);
-    int chn = snd_sfx_play_ex(&d);
-    for(int i = 0; i < V_COUNT * MAX_PLAYERS; i++)
-        if(chn >= 0 && chn == voice_sets[i / V_COUNT][i % V_COUNT].channel)
-            printf("DreamKarts audio: BUG one-shot %d took loop channel %d\n", id, chn);
+    if(ready) sfx_play(id, vol, pan, rate);
 }
 
 void audio_sfx(int id, int vol, int pan) {
@@ -534,88 +492,22 @@ void audio_sfx(int id, int vol, int pan) {
 
 static void start_voices(void) {
     if(voices_started || !ready) return;
-    for(int i = 0; i < V_COUNT * MAX_PLAYERS; i++) {
-        Voice *v = &voice_sets[i / V_COUNT][i % V_COUNT];
-        int id = voice_sfx[i % V_COUNT];
-        if(sfx[id] == SFXHND_INVALID) continue;
-        int chn = snd_sfx_chn_alloc();
-        if(chn < 0) {
-            printf("DreamKarts audio: no free channel for loop %d\n", i);
-            continue;
-        }
-        sfx_play_data_t d;
-        memset(&d, 0, sizeof(d));
-        d.chn = chn;
-        d.idx = sfx[id];
-        d.vol = 0;
-        d.pan = 128;
-        d.loop = 1;
-        d.freq = DK_SFX_RATE;
-        d.loopstart = 0;
-        d.loopend = dk_sfx_assets[id].bytes / 2;
-        v->channel = snd_sfx_play_ex(&d);
-        if(v->channel < 0) snd_sfx_chn_free(chn);
-        v->last_freq = v->last_vol = -1;
-    }
+    for(int i = 0; i < V_COUNT * MAX_PLAYERS; i++)
+        sfx_voice_start(&voice_sets[i / V_COUNT][i % V_COUNT].v, voice_sfx[i % V_COUNT]);
     voices_started = true;
 #ifdef DK_AUTOTEST   /* once per race: keep console builds quiet under dcload */
-    printf("DreamKarts audio: loop voices on reserved channels %d-%d and %d-%d\n", voice_sets[0][0].channel,
-           voice_sets[0][V_COUNT - 1].channel, voice_sets[1][0].channel, voice_sets[1][V_COUNT - 1].channel);
+    printf("DreamKarts audio: loop voices on reserved channels %d-%d and %d-%d\n", voice_sets[0][0].v.channel,
+           voice_sets[0][V_COUNT - 1].v.channel, voice_sets[1][0].v.channel, voice_sets[1][V_COUNT - 1].v.channel);
 #endif
 }
 
-static void voice_set(Voice *v, int freq, int vol) {
-    if(v->channel < 0) return;
-    if(freq == v->last_freq && vol == v->last_vol) return;
-    AICA_CMDSTR_CHANNEL(packet, cmd, chan);
-    cmd->cmd = AICA_CMD_CHAN;
-    cmd->timestamp = 0;
-    cmd->size = AICA_CMDSTR_CHANNEL_SIZE;
-    cmd->cmd_id = (uint32_t)v->channel;
-    chan->cmd = AICA_CH_CMD_UPDATE | AICA_CH_UPDATE_SET_FREQ | AICA_CH_UPDATE_SET_VOL;
-    chan->freq = (uint32_t)freq;
-    chan->vol = (uint32_t)vol;
-    snd_sh4_to_aica(packet, cmd->size);
-    v->last_freq = freq;
-    v->last_vol = vol;
-}
-
 void audio_plane(int vol, int pan, float rate) {
-    if(!ready || sfx[DK_SFX_PLANE] == SFXHND_INVALID) return;
+    if(!ready) return;
     Voice *v = &plane_voice;
-    if(v->channel < 0) {
-        if(vol <= 0) return;
-        int chn = snd_sfx_chn_alloc();
-        if(chn < 0) return;
-        sfx_play_data_t d;
-        memset(&d, 0, sizeof(d));
-        d.chn = chn;
-        d.idx = sfx[DK_SFX_PLANE];
-        d.vol = 0;
-        d.pan = 128;
-        d.loop = 1;
-        d.freq = (int)dk_sfx_assets[DK_SFX_PLANE].rate;
-        d.loopend = dk_sfx_assets[DK_SFX_PLANE].bytes / 2;
-        v->channel = snd_sfx_play_ex(&d);
-        if(v->channel < 0) {
-            snd_sfx_chn_free(chn);
-            return;
-        }
-        v->last_freq = v->last_vol = -1;
+    if(v->v.channel < 0) {
+        if(vol <= 0 || !sfx_voice_start(&v->v, DK_SFX_PLANE)) return;
     }
-    vol = vol < 0 ? 0 : vol > 255 ? 255 : vol;
-    voice_set(v, (int)(dk_sfx_assets[DK_SFX_PLANE].rate * clampf(rate, 0.5f, 2.0f)), vol);
-    if(vol > 0 && pan != plane_pan) {
-        AICA_CMDSTR_CHANNEL(packet, cmd, chan);
-        cmd->cmd = AICA_CMD_CHAN;
-        cmd->timestamp = 0;
-        cmd->size = AICA_CMDSTR_CHANNEL_SIZE;
-        cmd->cmd_id = (uint32_t)v->channel;
-        chan->cmd = AICA_CH_CMD_UPDATE | AICA_CH_UPDATE_SET_PAN;
-        chan->pan = (uint32_t)pan;
-        snd_sh4_to_aica(packet, cmd->size);
-        plane_pan = pan;
-    }
+    sfx_voice_set(&v->v, clampf(rate, 0.5f, 2.0f), vol, pan);
 }
 
 void audio_kart_loops(int slot, const Kart *k, float dt) {
@@ -667,7 +559,7 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
         grid_flutter[gs] += dt;
         if(fmodf(grid_flutter[gs] * 11.0f, 1.0f) < 0.35f) limiter = 0.94f;
     }
-    snd_sh4_to_aica_stop();
+    sfx_batch_begin();
     for(int i = 0; i < V_COUNT; i++) {
         Voice *v = &voice_sets[slot & 1][i];
         float speed = (i == V_DRIFT || i == V_SPARKS || i == V_BRAKE) ? 900.0f : 500.0f;
@@ -675,9 +567,7 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
         /* Glide pitch like a real engine instead of stepping on boosts. */
         if(v->rate <= 0) v->rate = rate[i];
         v->rate += (rate[i] - v->rate) * smooth_k(i <= V_ENGINE_HIGH ? 7.0f : 14.0f, dt);
-        int freq = (int)(DK_SFX_RATE * clampf(v->rate, 0.3f, 2.6f) * (i <= V_ENGINE_HIGH ? limiter : 1.0f));
-        freq = (freq + 32) & ~63;   /* avoid a command for tiny pitch changes */
-        voice_set(v, freq, (int)v->vol);
+        sfx_voice_set(&v->v, clampf(v->rate, 0.3f, 2.6f) * (i <= V_ENGINE_HIGH ? limiter : 1.0f), (int)v->vol, 128);
 #ifdef DK_AT_BRAKE
         static int brake_on;
         if(i == V_BRAKE && slot == 0 && (v->vol > 0) != brake_on) {
@@ -687,7 +577,7 @@ void audio_kart_loops(int slot, const Kart *k, float dt) {
         }
 #endif
     }
-    snd_sh4_to_aica_start();
+    sfx_batch_end();
 }
 
 /* Voice pitch by colour preset (CLASSIC, HAWK, MANGO, CORAL, PEBBLE,

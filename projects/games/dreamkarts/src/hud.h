@@ -3,12 +3,13 @@
 #define DK_HUD_H
 
 #include "dk.h"
-
-enum { ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT };
+#include "engine/text.h"
 
 void hud_init(void);
 void hud_reset(void);
 void hud_update(float dt);
+/* The HUD font (engine/text.h), for text drawn elsewhere. */
+const EngFont *hud_font(void);
 float hud_text_width(const char *s, float scale);
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s);
 /* The same with the capitals (and digits) centred on cy rather than the

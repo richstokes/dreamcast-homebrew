@@ -60,7 +60,7 @@ static void build_part(PartMeshes *pm, const rl_mesh_t *src) {
             }
             t++;
         }
-        if(!eng_mesh_build(&pm->m[pm->n], vb, nv, ib, ni)) break;
+        if(!eng_mesh_build(&pm->m[pm->n], vb, nv, ib, ni, NULL)) break;
         pm->n++;
     }
 }

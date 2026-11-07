@@ -20,7 +20,11 @@ bool sfx_init(const uint8_t *pak, const eng_sfx_asset_t *assets, int n) {
         return false;
     }
     handles = calloc(n, sizeof(sfxhnd_t));
-    if(!handles) return false;
+    if(!handles) {
+        printf(ENG_NAME " sfx: out of memory for %d effects; running silently\n", n);
+        snd_shutdown();
+        return false;
+    }
     table = assets;
     count = n;
     int loaded = 0;

@@ -356,7 +356,7 @@ What each change saved on the console (ms a frame unless stated):
 | Kart lighting once per normal/paint group (`src/models.c`) | 0.7-0.8 | 950 groups cover 1,614 vertices |
 | Sea and cloud-sea colours cached per camera cell (`src/world.c`) | 0.3-0.55 | |
 | Kart triangles skip outcodes when the mesh is wholly on screen | 0.2-0.45 | |
-| Kart meshes as strips over each mesh's distinct positions (`src/models.c`, `engine/xform.S`) | 0.1-0.4 CPU, 0.05-0.25 render | 959 of 1,614 kart vertices differ only in normal or paint, so only those positions are transformed; strips alone saved render time, not CPU |
+| Kart meshes as strips over each mesh's distinct positions (`engine/mesh.c`, `engine/xform.S`) | 0.1-0.4 CPU, 0.05-0.25 render | 959 of 1,614 kart vertices differ only in normal or paint, so only those positions are transformed; strips alone saved render time, not CPU |
 | Music as CD audio tracks (`src/audio.c`) | the stream's thread, 290 KiB and every refill stall gone | The GD-ROM plays them into the AICA by itself; the final-lap speed-up that retuned the old ADPCM stream went with it |
 | Physics step = measured vblank period (`src/main.c`) | one-frame hitch every 4-16 s gone | A fixed 1/60 s step owed the 16.68 ms display a double step; 18 double and 2 zero-step frames of 5,269 → 0 |
 | Split views on whole 32-pixel tile rows with the PVR user tile clip | | Software clipping at a 240-pixel split broke most ground strips into triangles |
@@ -389,7 +389,7 @@ out to 140 m cost ~0.5 ms, so they stop at 80 m and drop to six boxes past
 - Under dcload the drive is left alone (no music) unless built with `MUSIC=1`: a GD-ROM command blocks its caller for the seek, which is why the game's jukebox thread, not the frame loop, talks to the drive
 - Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/autotest.c`, `src/netlink.c`)
 - Change a vertex loop in its C reference first, then `engine/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches
-- Looping voices (engine, squeal, crackle) need channels reserved with `snd_sfx_chn_alloc()`, or one-shots steal them and pitch updates retune the wrong sound (`src/audio.c`)
+- Looping voices (engine, squeal, crackle) need channels reserved with `snd_sfx_chn_alloc()`, or one-shots steal them and pitch updates retune the wrong sound (`engine/sfx.c`)
 - Flycast's DCNet dial-up does not complete the game's PPP login; test the modem path with `DK_NET=modem`
 - Flycast does not emulate the W5500, and probing for one there spins on SCI timeouts for ~0.9 s. It runs once, on the link thread while the player types a name, so nobody waits on it
 - Online, two level karts each see the other ~150 ms behind, so a power-up hit is only ever judged by the console driving the kart hit; a spear spawned from a packet is moved on by the draw delay, and a mine from a packet catches a kart that crossed its spot in that delay (`src/items.c`)

@@ -3,11 +3,11 @@ include ../../../tools/sh4zam.mk
 else
 
 TARGET = dreamkarts.elf
-# input.c, render.c and prof.c are the shared engine's
-# (projects/common/engine); the rest are src/. The list's order is the
-# link order, which sets the code and data layout the console's timings
-# were measured on, so keep it.
-SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c ui.c title.c audio.c rumble.c dolphins.c biplane.c \
+# input.c, render.c, mesh.c, text.c, sfx.c and prof.c are the shared
+# engine's (projects/common/engine); the rest are src/. The list's order
+# is the link order, which sets the code and data layout the console's
+# timings were measured on, so keep it.
+SOURCES = main.c input.c track.c kart.c render.c world.c models.c mesh.c fx.c hud.c text.c ui.c title.c audio.c sfx.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c flappy.c roam.c \
 	world_mesh.c world_road.c world_props.c world_beach.c world_coral.c world_harbour.c world_temple.c world_skyway.c \
 	world_canyon.c world_tsudoken.c world_apple.c world_lot.c world_sf.c tide.c cablecar.c birds.c skylife.c autotest.c prof.c track_tex.c

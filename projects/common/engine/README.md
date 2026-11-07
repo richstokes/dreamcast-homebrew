@@ -10,10 +10,10 @@ build on it, so a fix or speed-up here reaches both.
 | `input.h`, `input.c` | Two pads with edge detection and menu repeat, triggers as buttons, the keyboard | DreamKarts, Ridgeline |
 | `render.h`, `render.c`, `xform.S` | PowerVR lists, header cache, texture pool, near-plane clipping, strips and rigid meshes sent through the store queues, SH-4 assembly vertex paths | DreamKarts, Ridgeline |
 | `prof.h`, `prof.c` | Per-section cycle and stall counters for console benchmarks | DreamKarts, Ridgeline |
-| `mesh.h`, `mesh.c` | Builds rigid models (vehicles) into `r_mesh_kv` strips with per-group lighting | Ridgeline |
+| `mesh.h`, `mesh.c` | Builds rigid models (vehicles) into `r_mesh_kv` strips with per-group lighting | DreamKarts, Ridgeline |
 | `scenery.h`, `scenery.c` | Static scenery pool: strips and chunks with bounding spheres and distance LOD | Ridgeline |
-| `sfx.h`, `sfx.c` | Effect bank in AICA RAM, one-shots, looping voices on reserved channels | Ridgeline |
-| `text.h`, `text.c` | Bitmap text from a font atlas | Ridgeline |
+| `sfx.h`, `sfx.c` | Effect bank in AICA RAM, one-shots, looping voices on reserved channels | DreamKarts, Ridgeline |
+| `text.h`, `text.c` | Bitmap text from a font atlas | DreamKarts, Ridgeline |
 
 Tools (`tools/`): `pvr_texture.py` (twiddled RGB565/ARGB4444 with mips),
 `fontatlas.py` and `fonts/`, `meshkit.py` (procedural low-poly meshes),
@@ -28,19 +28,28 @@ game supplies three headers on its include path:
 
 | Header | Holds |
 | --- | --- |
-| `engine_config.h` | `ENG_NAME`, `ENG_DT`, the vertex buffer size, test switches (`ENG_PROF`, `ENG_INPUT_TAPS`, ...) |
+| `engine_config.h` | `ENG_NAME`, `ENG_DT`, the vertex buffer size, test switches (`ENG_PROF`, `ENG_INPUT_TAPS`, ...). A switch may expand to a game symbol (DreamKarts' `ENG_TA_SINK` reads its probe mask), so the engine then only links with that game's objects |
 | `engine_assets.h` | Read by `render.c` only: the texture table and pak, mip bias, optional texture sets, PVR settings (bins, fog, clear colour) |
 | `prof_ids.h` | Profile section and count ids, including the renderer's |
 
 ## Rule: no cost to existing games
 
-Moving code here must not slow a game down. The check that settles it:
-build the game's release, autotest, hwbench and capture variants before and
-after with a fixed SHA, `sh-elf-objcopy -O binary` each ELF and compare.
-Only `__TIME__` may differ. DreamKarts passed this when its renderer, input,
-profiler and RNG moved here; console layout luck moves timings by 2-5%
-between unrelated builds, so anything that isn't byte-identical needs an
-A/B on the console.
+Moving code here must not slow a game down on the console. Two ways to
+show it, cheapest first:
+
+1. Byte-identical: build the game's release, autotest, hwbench and capture
+   variants before and after with a fixed SHA, `sh-elf-objcopy -O binary`
+   each ELF and compare. Only `__TIME__` may differ, and then nothing can
+   have moved. DreamKarts' renderer, input, profiler and RNG moved this way.
+2. Otherwise `make hwbench` on the console, before and after (keep the
+   old ELF and run both in one sitting: the numbers in a README are from
+   other days and other builds). Console layout luck moves timings by 2-5% between unrelated builds, so
+   read the CPU averages over the whole run, not one window. DreamKarts'
+   HUD text, loop voices and kart strip builder moved this way.
+
+Duplicating a module to keep a binary identical is not an option: once two
+games want the same code it lives here, and the game that had it moves on
+to the engine's copy.
 
 ## Gotchas
 
@@ -53,9 +62,7 @@ A/B on the console.
 
 ## Not moved yet
 
-These live in DreamKarts and have engine counterparts or would make good
-modules, but moving them changes DreamKarts' code layout, so each needs a
-console A/B first: the kart mesh grouping (`models.c`, now `mesh.c`), its
-audio voices (`audio.c`, now `sfx.c`), the world chunk walk (`world.c`,
-now `scenery.c`), HUD text (`hud.c`, now `text.c`), the frame pacing loop
-in `main.c`, and the perf overlay.
+DreamKarts' world chunk walk (`world.c` `draw_chunks`) does what
+`scenery.c` does with per-track road sheen hooks on top; its frame pacing
+loop in `main.c` and the perf overlay would make good modules too. Each
+needs a console A/B when it moves.

@@ -31,14 +31,19 @@ typedef struct {
     float (*gnrm)[3];       /* each group's unit normal */
     uint8_t *gpaint;        /* its paint slot */
     uint32_t *gargb;        /* its colour */
+    uint16_t *gvert;        /* one of its vertices, for attributes the game keeps per vertex */
     float radius;           /* bounding sphere about the mesh's origin */
 } EngMesh;
 
 /* Build m from nv vertices and ni indices (a triangle list, wound so that
-   cross(b - a, c - a) faces out). Allocates; false if out of memory or
-   over the renderer's limits. */
-bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *idx, int ni);
+   cross(b - a, c - a) faces out). key, if given, is one more byte per
+   vertex that joins the lighting group key (a blend weight the game
+   paints by, say). Allocates; false, with nothing left allocated, if out
+   of memory or over the renderer's limits. */
+bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *idx, int ni, const uint8_t *key);
 void eng_mesh_free(EngMesh *m);
+/* Strips and strip vertices in m (its triangles come as km.ni / 3). */
+void eng_mesh_stats(const EngMesh *m, int *strips, int *strip_verts);
 
 /* The usual lighting: each group's colour (or paint[slot] for slots with a
    non-zero entry, scaled by the vertex's brightness against ref[slot]) lit
