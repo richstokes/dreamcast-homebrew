@@ -32,7 +32,7 @@ from pathlib import Path
 import bmesh
 import bpy
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
 from stripify import stripify  # noqa: E402
 from mathutils import Vector
 from mathutils.kdtree import KDTree

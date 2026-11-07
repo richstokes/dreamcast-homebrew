@@ -13,7 +13,7 @@
    figures leave out the overlay's own work, which has its own row. */
 #include "perfhud.h"
 #include "hud.h"
-#include "render.h"
+#include "engine/render.h"
 #include "texture_assets.h"
 #include "font_metrics.h"
 
@@ -319,7 +319,7 @@ static void compose(int y0, int y1) {
     put_text(LABEL_X, y, ALIGN_LEFT, white, "VTX");
     put_text(AVG_X, y, ALIGN_RIGHT, white, shown.vtx_s);
     put_text(MAX_X, y, ALIGN_RIGHT, dim, shown.vtx_peak_s);
-    put_bar(y, shown.vtx / (float)DK_VTX_BUF_KIB, shown.vtx_peak / (float)DK_VTX_BUF_KIB);
+    put_bar(y, shown.vtx / (float)ENG_VTX_BUF_KIB, shown.vtx_peak / (float)ENG_VTX_BUF_KIB);
     y += ROW_H;
     put_text(LABEL_X, y, ALIGN_LEFT, white, "TRIS");
     put_text(AVG_X, y, ALIGN_RIGHT, white, shown.tris_s);

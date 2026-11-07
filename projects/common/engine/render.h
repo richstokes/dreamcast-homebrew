@@ -1,9 +1,19 @@
-/* DreamKarts renderer: PowerVR lists, SH4ZAM transforms, near-plane
-   clipping and direct store-queue submission. */
-#ifndef DK_RENDER_H
-#define DK_RENDER_H
+/* Engine renderer: PowerVR lists, SH4ZAM transforms, near-plane clipping
+   and direct store-queue submission.
 
-#include "dk.h"
+   The camera matrix folds the perspective and the 640x480 viewport into
+   one 4x4, so a single FTRV per vertex gives screen coordinates. Strips
+   and meshes go straight to the Tile Accelerator through the store
+   queues; only triangles crossing the near plane are clipped.
+
+   The game supplies two headers on its include path: engine_config.h
+   (ENG_NAME, ENG_DT, test switches) and engine_assets.h, read only by
+   render.c: its texture table and the PVR settings (see README.md). */
+#ifndef ENG_RENDER_H
+#define ENG_RENDER_H
+
+#include "engine_config.h"
+#include "vecmath.h"
 #include <dc/pvr.h>
 
 /* World-space vertex for static and dynamic geometry. */
@@ -27,43 +37,15 @@ enum {
 
 #define TEX_NONE -1
 
-/* The Tile Accelerator's vertex buffer (pvr_init): a hard ceiling, past
-   which the console stalls (Tsudoken Drift's split screen passed 1 MB).
-   1536 until the shadow volumes' bins needed the VRAM. */
-#define DK_VTX_BUF_KIB 1472
-
 void render_init(void);
 void render_shutdown(void);
-/* Upload a track's own textures (track_textures) into the shared pool,
-   once the PVR has finished with the last frame; world_build calls it. */
-void render_load_track_textures(int id);
-/* Per track, the textures only its scenes draw, ended by -1 (track_tex.c). */
-extern const int16_t *const track_textures[];
-/* Mipmap D-adjust for the opaque (RGB565) mipmapped textures:
-   DK_MIP_ROAD_BIAS for the surfaces driven on (render.c tex_mip_bias),
-   DK_MIP_BIAS for everything beside them. The PVR picks a pixel's mip level
-   from the long side of its texel footprint, and the chase camera sees the
-   road at about 9 degrees, so at the hardware's own pick (1.0) the road's
-   grain, edge lines and curbs go soft 10-20 m out. Flycast hides this when
-   its anisotropic filtering is on (rend.AnisotropicFiltering).
-
-   Measured on the console from fixed chase views (2026-10-26): 0.5 on
-   every opaque texture picks one level sharper (on the road each level
-   then reaches ~1.4x as far) for 2-7% more PVR time; the same on the
-   ARGB4444 textures (foliage, sprites, effects) sharpens nothing that
-   shows and more than doubles the extra time, so they stay at 1.0. 0.25
-   aliases the boardwalk's planks and the supersample bit doubles the PVR
-   time. The field only steps in quarters. Sharper means more shimmer, and
-   road 0.5 with the sides at 1.0 was the best balance by eye in play on
-   the console. The asphalt's square texels (world_int.h ROAD_V_M) and the
-   Lanczos mips (tools/pvr_texture.py) help at no PVR cost. A compromise we
-   may revisit, e.g. sides at 0.75 or a fractional bias baked into the mips. */
-#ifndef DK_MIP_BIAS
-#define DK_MIP_BIAS PVR_MIPBIAS_1_00
-#endif
-#ifndef DK_MIP_ROAD_BIAS
-#define DK_MIP_ROAD_BIAS PVR_MIPBIAS_0_50
-#endif
+/* Textures the game lists in a texture set (ENG_TEX_SETS) share one VRAM
+   pool, sized at boot for the biggest set; this uploads set id into it
+   once the PVR has finished with the last frame. Textures in no set stay
+   resident from boot. */
+void render_load_tex_set(int id);
+/* A polygon header for texture tex (TEX_NONE: vertex colour only) and the
+   HF_* flags, compiled once and kept: the same pointer every call. */
 const pvr_poly_hdr_t *r_header(int tex, int flags);
 
 void r_frame_begin(void);
@@ -93,13 +75,13 @@ void r_strip_bounded_spec(const RV *v, int n, V3 c, float radius, void (*fill)(c
 void r_quad(const RV *a, const RV *b, const RV *c, const RV *d);  /* strip order */
 /* Lit/coloured indexed triangles (already filled RV array). */
 void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull);
-/* Kart vertex: position and the colour (lighting group) it takes. Karts
-   are untextured (u = v = 0); a textured part would draw through r_mesh. */
+/* Rigid-model vertex: position and the colour (lighting group) it takes.
+   Models are untextured (u = v = 0); a textured part draws through r_mesh. */
 typedef struct {
     float x, y, z;
     uint16_t group, pad;
 } KV;
-/* A kart mesh: KV vertices (u = v = 0, vertex i coloured by its group),
+/* A rigid mesh (a vehicle's body, say): KV vertices (u = v = 0, vertex i coloured by its group),
    the triangle list, and for the fast path taken when no vertex is outside
    a clip plane, the vertices' distinct positions {x, y, z, -} and the
    triangles as strips: {n, then n pairs (position index * 16, group * 4)}
@@ -116,7 +98,8 @@ typedef struct {
     int npos;
     const uint16_t *strips;
 } KMesh;
-/* Draw a kart mesh with back faces culled, coloured col[group]. */
+/* Draw a rigid mesh with back faces culled, coloured col[group]. mesh.h
+   builds the positions and strips from an indexed triangle list. */
 void r_mesh_kv(const KMesh *m, const uint32_t *col);
 
 /* Camera-facing quad in world space (XMTRX must hold the view-projection). */
@@ -139,18 +122,14 @@ void r_quad2d_pts(const float *xy, const float *uv, const uint32_t *col, float z
 
 /* A closed modifier volume in the opaque modifier list: triangles tri over
    the world points pts. Opaque and punch-through surfaces inside it keep
-   DK_SHADOW_SCALE of their colour. Draws nothing and returns false when a
-   point is behind the near plane: cut open there, the volume would turn
-   inside out on screen. */
-#ifndef DK_SHADOW_SCALE
-#define DK_SHADOW_SCALE 0.75f
-#endif
+   ENG_SHADOW_SCALE of their colour (engine_assets.h). Draws nothing and
+   returns false when a point is behind the near plane: cut open there, the
+   volume would turn inside out on screen. */
 bool r_modvol(const V3 *pts, int np, const uint8_t (*tri)[3], int nt);
 
 bool r_sphere_visible(V3 c, float radius);
 /* r_sphere_visible's frustum: the near plane, and the screen's half-width
    and half-height a unit of depth away. */
-#define R_NEAR_W 0.25f
 void r_frustum_slopes(float *tx, float *ty);
 bool r_project(V3 p, float *sx, float *sy, float *inv_w);
 /* Depth along the view, and the near plane geometry is clipped at. */
@@ -159,8 +138,9 @@ float r_view_depth(V3 p);
 
 /* Column-major 4x4 helpers. m4_mul and m4_translate_rotate compute in
    XMTRX (several times faster than C on the SH-4) and put it back before
-   returning: fx.c builds kart matrices between billboards that need the
-   view-projection still loaded. Any helper that touches XMTRX must too. */
+   returning, so a game can build model matrices between billboards that
+   need the view-projection still loaded. Any helper that touches XMTRX
+   must do the same. */
 void m4_identity(float *m);
 void m4_mul(float *out, const float *a, const float *b);
 void m4_translate_rotate(float *m, V3 t, float yaw, float pitch, float roll);

@@ -33,7 +33,7 @@ from pathlib import Path
 import bpy
 from mathutils import Vector
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
 import blender_props  # noqa: E402
 from blender_props import WHITE, mix, rgba, scale_col  # noqa: E402
 

@@ -133,7 +133,7 @@ static void make_token(void) {
     if(n)
         for(int i = 0; i < 6; i++) h = mix(h, n->mac_addr[i] | (i < 4 ? n->ip_addr[i] << 8 : 0));
     for(const char *c = my_name; *c; c++) h = mix(h, (uint8_t)*c);
-    h = mix(h, dk_rand());
+    h = mix(h, eng_rand());
     token = h ? h : 1;
 }
 

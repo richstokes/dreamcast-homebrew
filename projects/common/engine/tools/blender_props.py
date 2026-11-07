@@ -1,5 +1,5 @@
-"""Shared by the Blender prop bakers (tools/build_tsudoken_props.py,
-tools/build_apple_valley_props.py): a bmesh builder in game coordinates, the
+"""Shared by the Blender prop bakers (DreamKarts' tools/build_*_props.py and
+any game's): a bmesh builder in game coordinates, the
 strip exporter, the preview renders and the header writer. Each prop also
 carries a few solid boxes for the spectator's cameras to keep clear of.
 
@@ -164,7 +164,7 @@ class Builder:
 # ---------------------------------------------------------------------------
 # Export
 
-def export(ob, f, prefix, cm, label):
+def export(ob, f, prefix, cm, label, types="dk"):
     me = ob.data
     me.calc_loop_triangles()
     uv_layer = me.uv_layers["UV"].data
@@ -225,7 +225,7 @@ def export(ob, f, prefix, cm, label):
           f"({len(index) / max(1, len(strip_len)):.1f} verts each), {len(index)} strip verts")
     P = prefix
     f.write(f"/* {prefix}: {len(verts)} vertices, {tris} triangles */\n")
-    f.write(f"static const dk_prop_vert_t {P}_verts[{len(verts)}] = {{\n")
+    f.write(f"static const {types}_prop_vert_t {P}_verts[{len(verts)}] = {{\n")
     for pos, n, uv, c, mat in verts:
         f.write(f"{{{pos[0]},{pos[1]},{pos[2]},{n[0]},{n[1]},{n[2]},{mat},{uv[0]},{uv[1]},{c[0]},{c[1]},{c[2]},{c[3]}}},\n")
     f.write(f"}};\nstatic const uint16_t {P}_index[{len(index)}] = {{\n")
@@ -239,7 +239,7 @@ def export(ob, f, prefix, cm, label):
         f.write(",".join(str(v) for v in strip_mat[k:k + 32]) + ",\n")
     f.write("};\n")
     if boxes:
-        f.write(f"static const dk_prop_box_t {P}_solids[{len(boxes)}] = {{\n")
+        f.write(f"static const {types}_prop_box_t {P}_solids[{len(boxes)}] = {{\n")
         for bx in boxes:
             f.write("{" + ",".join(str(v) for v in bx) + "},\n")
         f.write("};\n")
@@ -284,10 +284,11 @@ def preview(objects, out_dir: Path):
 
 
 def bake(props, materials, pt_materials, header: Path, blend: Path | None, preview_dir: Path | None, *,
-         script, guard, label, unit_note, mat_prefix, prop_prefix, table):
+         script, guard, label, unit_note, mat_prefix, prop_prefix, table, types="dk"):
     """Save the scene, render the previews and write the header: each
     prop's strips, the material and prop enums and the table. props is a
-    list of (prefix, object, cm)."""
+    list of (prefix, object, cm); types prefixes the C types the header
+    declares (<types>_prop_t and friends)."""
     x = 0.0
     for _, ob, _ in props:
         ob.location.x = x
@@ -308,23 +309,24 @@ def bake(props, materials, pt_materials, header: Path, blend: Path | None, previ
         f.write(f"#ifndef {guard}\n#define {guard}\n#include <stdint.h>\n")
         f.write(f"/* Position in centimetres ({unit_note}),\n"
                 f"   normal * 127, material ({M}_*), texture u v in 1/256, colour. */\n")
-        f.write("#ifndef DK_PROP_TYPES\n#define DK_PROP_TYPES\n")
-        f.write("typedef struct { int16_t x, y, z; int8_t nx, ny, nz; uint8_t mat; int16_t u, v; uint8_t r, g, b, a; } dk_prop_vert_t;\n")
+        T = types
+        f.write(f"#ifndef {T.upper()}_PROP_TYPES\n#define {T.upper()}_PROP_TYPES\n")
+        f.write(f"typedef struct {{ int16_t x, y, z; int8_t nx, ny, nz; uint8_t mat; int16_t u, v; uint8_t r, g, b, a; }} {T}_prop_vert_t;\n")
         f.write("/* A solid box in the vertices' units, before the prop is turned: the\n"
                 "   spectator's cameras keep clear of them and their sight lines. */\n")
-        f.write("typedef struct { int16_t x0, y0, z0, x1, y1, z1; } dk_prop_box_t;\n")
-        f.write("typedef struct { const dk_prop_vert_t *verts; const uint16_t *index; const uint8_t *strip_len, *strip_mat;\n"
-                "                 const dk_prop_box_t *solids; uint16_t nverts, nstrips; uint8_t nsolids, cm; } dk_prop_t;\n")
+        f.write(f"typedef struct {{ int16_t x0, y0, z0, x1, y1, z1; }} {T}_prop_box_t;\n")
+        f.write(f"typedef struct {{ const {T}_prop_vert_t *verts; const uint16_t *index; const uint8_t *strip_len, *strip_mat;\n"
+                f"                 const {T}_prop_box_t *solids; uint16_t nverts, nstrips; uint8_t nsolids, cm; }} {T}_prop_t;\n")
         f.write("#endif\n")
         f.write("enum { " + ", ".join(f"{M}_{m.upper()}" for m in materials) + f", {M}_COUNT }};\n")
         f.write("/* The materials a punch-through (alpha tested) list draws: " + ", ".join(sorted(pt_materials)) + ". */\n")
         f.write(f"#define {M}_PT_MASK " + " | ".join(f"(1u << {M}_{m.upper()})" for m in sorted(pt_materials)) + "\n\n")
         for prefix, ob, cm in props:
-            n, row = export(ob, f, prefix, cm, label)
+            n, row = export(ob, f, prefix, cm, label, types)
             total += n
             rows.append((prefix, row))
         f.write("enum { " + ", ".join(p.upper() for p, _ in rows) + f", {prop_prefix}_COUNT }};\n")
-        f.write(f"static const dk_prop_t {table}[{prop_prefix}_COUNT] = {{\n")
+        f.write(f"static const {types}_prop_t {table}[{prop_prefix}_COUNT] = {{\n")
         for prefix, row in rows:
             f.write(f"    {row},   /* {prefix} */\n")
         f.write("};\n#endif\n")

@@ -16,7 +16,7 @@
    clocks, so online play is unchanged. */
 #include "skylife.h"
 #include "kart.h"
-#include "render.h"
+#include "engine/render.h"
 #include "track.h"
 #include "world.h"
 #include "world_int.h"

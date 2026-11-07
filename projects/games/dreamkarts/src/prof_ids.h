@@ -1,13 +1,7 @@
-/* Fine-grained frame profiling for the benchmark builds (DK_AUTOTEST).
-
-   Sections accumulate CPU cycles from the SH-4's performance counter 0
-   (KOS runs it in elapsed-time mode, one count per 5 ns cycle) and events
-   from counter 1, whose event changes every frame: pipeline stalls on an
-   operand-cache miss, stalls on the FPU, and operand-cache misses. Each
-   10 s window then reports every section's time per frame and the share of
-   it spent in each kind of stall. Release builds compile it all away. */
-#ifndef DK_PROF_H
-#define DK_PROF_H
+/* DreamKarts' profiling sections and counts for the engine profiler
+   (projects/common/engine/prof.h): what the hwbench's DK PC lines report. */
+#ifndef DK_PROF_IDS_H
+#define DK_PROF_IDS_H
 
 #include <stdint.h>
 
@@ -34,7 +28,6 @@ enum {
     PS_U_OTHER,     /* rumble and VMU screens */
     PS_COUNT
 };
-#define PROF_EVENTS 3   /* counter 1 modes, one per frame in turn */
 /* Work counts a frame. */
 enum {
     PN_SVERTS,      /* r_strip vertices transformed */
@@ -58,33 +51,8 @@ enum {
 extern uint64_t prof_us[6];
 extern int prof_frames;
 
-#ifdef DK_AUTOTEST
-#define DK_PROF 1
-typedef struct { uint32_t c, e; } ProfMark;
-extern uint32_t prof_cyc[PS_COUNT], prof_ev[PS_COUNT], prof_n[PN_COUNT];
-void prof_start(void);       /* counter 1 on its first event */
-void prof_frame_end(void);   /* bank the frame, counter 1 on to the next event */
-void prof_print(void);       /* the window's DK PC line */
-static inline ProfMark prof_mark(void) {
-    ProfMark m = {*(volatile uint32_t *)0xff100008, *(volatile uint32_t *)0xff100010};
-    return m;
-}
-/* Add the time since *m to section id and restart *m from now. */
-static inline void prof_lap(int id, ProfMark *m) {
-    ProfMark n = prof_mark();
-    prof_cyc[id] += n.c - m->c;
-    prof_ev[id] += n.e - m->e;
-    *m = n;
-}
-#define PROF_BEGIN(m) ProfMark m = prof_mark()
-#define PROF_RESTART(m) (m = prof_mark())
-#define PROF_LAP(id, m) prof_lap(id, &m)
-#define PROF_COUNT(id, n) (prof_n[id] += (n))
-#else
-#define PROF_BEGIN(m) do {} while(0)
-#define PROF_RESTART(m) do {} while(0)
-#define PROF_LAP(id, m) do {} while(0)
-#define PROF_COUNT(id, n) do {} while(0)
-#endif
+#define PROF_SECTION_NAMES {"mats", "light", "mxform", "msubmit", "dolphins", "chunks", "sky", "sea", "foam", "upd", \
+    "world", "karts", "pt", "shadows", "tr", "u-input", "u-step", "u-camera", "u-audio", "u-other"}
+#define PROF_COUNT_NAMES {"sv", "se", "scull", "sclip", "mv", "mt", "mback", "lv", "sin", "sout", "strips", "hdrs"}
 
 #endif

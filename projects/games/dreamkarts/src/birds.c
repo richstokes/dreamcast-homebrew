@@ -18,7 +18,7 @@
    hash, so the race RNG is left alone. */
 #include "birds.h"
 #include "kart.h"
-#include "render.h"
+#include "engine/render.h"
 #include "tide.h"
 #include "track.h"
 #include "world.h"

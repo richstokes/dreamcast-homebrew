@@ -19,7 +19,7 @@
 #include "hud.h"
 #include "kart.h"
 #include "net.h"
-#include "render.h"
+#include "engine/render.h"
 #include "track.h"
 #include "world.h"
 #include <stdlib.h>
@@ -312,16 +312,16 @@ static void new_shot(void) {
     static const int weights[CAM_MODES] = {0, 40, 18, 17, 13, 12};
     int mode;
     do {
-        int r = (int)(dk_rand() % 100), acc = 0;
+        int r = (int)(eng_rand() % 100), acc = 0;
         for(mode = CAM_TV; mode < CAM_MODES - 1; mode++) {
             acc += weights[mode];
             if(r < acc) break;
         }
     } while(mode == shot_mode && mode != CAM_TV);
-    int pick = (int)(dk_rand() % 100), b = battle();
+    int pick = (int)(eng_rand() % 100), b = battle();
     int k = front_runner();
     if(pick >= 55 && pick < 90 && b >= 0) k = b;
-    else if(pick >= 90) k = placed(1 + (int)(dk_rand() % kart_count));
+    else if(pick >= 90) k = placed(1 + (int)(eng_rand() % kart_count));
     static const float lo[CAM_MODES] = {0, 10, 6, 7, 5, 5}, hi[CAM_MODES] = {0, 16, 9, 10, 7, 7};
     shot_mode = mode;
     shot_len = rangef(lo[mode], hi[mode]);
@@ -516,7 +516,7 @@ static void update(float dt) {
             cut = true;
         }
         if(target_pick >= 0) set_target(target_pick);
-        else if(mode_pick != CAM_AUTO) set_target((dk_rand() % 3) ? front_runner() : (battle() >= 0 ? battle() : front_runner()));
+        else if(mode_pick != CAM_AUTO) set_target((eng_rand() % 3) ? front_runner() : (battle() >= 0 ? battle() : front_runner()));
     }
     /* Down a tunnel no trackside camera sees the kart: chase it through. */
     float ts = karts[shot_target].tp.s;

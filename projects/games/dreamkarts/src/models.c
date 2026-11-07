@@ -5,8 +5,8 @@
    product. Rival karts recolour paint slots: slot 1 is the body paint, slot 2
    the trim, slots 3/4 the Chao's body and tip colours, blended per vertex. */
 #include "models.h"
-#include "render.h"
-#include "prof.h"
+#include "engine/render.h"
+#include "engine/prof.h"
 #include "world.h"
 #include "models_data.h"
 #include "texture_assets.h"

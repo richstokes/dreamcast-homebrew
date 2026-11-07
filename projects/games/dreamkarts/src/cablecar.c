@@ -53,8 +53,8 @@ void cablecar_reset(void) {
 #ifdef DK_RECORD
     fixed = true;   /* the demo lobby's bots replay these races online, where the car is fixed */
 #endif
-    rail = fixed ? 0 : (int)(dk_rand() & 1u);
-    phase = fixed ? CC_PHASE : (float)(dk_rand() % 1024u) / 1024.0f * cc_cycle();
+    rail = fixed ? 0 : (int)(eng_rand() & 1u);
+    phase = fixed ? CC_PHASE : (float)(eng_rand() % 1024u) / 1024.0f * cc_cycle();
 #if defined(DK_AUTOTEST) && !defined(DK_HW)
     printf("DK CABLECAR on track %d, %.1f s into its %.1f s cycle at the green light\n", rail + 1, (double)phase,
            (double)cc_cycle());

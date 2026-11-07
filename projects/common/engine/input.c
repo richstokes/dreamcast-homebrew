@@ -1,7 +1,8 @@
-/* DreamKarts controller input: first controller found, with edge detection
-   and menu key repeat. Triggers count as buttons past a threshold. A
-   Dreamcast keyboard on any port feeds the lobby chat. */
-#include "dk.h"
+/* Engine: controller input (input.h): first controller found, with edge
+   detection and menu key repeat. Triggers count as buttons past a
+   threshold. A Dreamcast keyboard on any port types keys. */
+#include "input.h"
+#include <kos.h>
 #include <ctype.h>
 #include <dc/maple/keyboard.h>
 
@@ -9,7 +10,7 @@ Pad pad, pad2;
 static bool kbd_connected;
 static uint8_t key_buf[MAX_KEYS];
 static int key_n;
-#ifdef DK_AUTOTEST
+#ifdef ENG_INPUT_FAKE_KEYS
 static uint8_t fake_keys[MAX_KEYS];
 static int fake_n;
 
@@ -18,10 +19,10 @@ void input_fake_keys(const uint8_t *keys, int n) {
     for(int i = 0; i < n && fake_n < MAX_KEYS; i++) fake_keys[fake_n++] = keys[i];
 }
 #endif
-static float repeat_t[MAX_PLAYERS][4];
-static bool repeat_fire[MAX_PLAYERS][4];
-#if defined(DK_FILM) || defined(DK_CAPTURE)
-static uint32_t film_taps[MAX_PLAYERS];
+static float repeat_t[ENG_PADS][4];
+static bool repeat_fire[ENG_PADS][4];
+#ifdef ENG_INPUT_TAPS
+static uint32_t film_taps[ENG_PADS];
 
 /* Film and capture builds: hold these buttons for the next read, as a quick tap. */
 void input_film_tap(int player, uint32_t btns) {
@@ -55,7 +56,7 @@ static void read_pad(Pad *pd, int port_index, int player) {
     pd->connected = st != NULL;
     pd->port = st ? dev->port : -1;
     if(was_connected != pd->connected)
-        printf("DreamKarts input: controller %d %s\n", player + 1, pd->connected ? "connected" : "missing");
+        printf(ENG_NAME " input: controller %d %s\n", player + 1, pd->connected ? "connected" : "missing");
     if(st) {
         uint32_t b = st->buttons;
         if(b & CONT_A) held |= BTN_A;
@@ -77,7 +78,7 @@ static void read_pad(Pad *pd, int port_index, int player) {
     else {
         pd->stick_x = pd->stick_y = pd->ltrig = pd->rtrig = 0;
     }
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#ifdef ENG_INPUT_IGNORE_HOST
     /* Scripted runs in Flycast drive themselves, and Flycast hands every
        instance the host's gamepad whichever window is in front: a stray
        press from a game being played alongside would cycle the title's
@@ -85,7 +86,7 @@ static void read_pad(Pad *pd, int port_index, int player) {
     held = 0;
     pd->stick_x = pd->stick_y = pd->ltrig = pd->rtrig = 0;
 #endif
-#if defined(DK_FILM) || defined(DK_CAPTURE)
+#ifdef ENG_INPUT_TAPS
     held |= film_taps[player];
     film_taps[player] = 0;
 #endif
@@ -109,7 +110,7 @@ static void read_pad(Pad *pd, int port_index, int player) {
             continue;
         }
         if(rt[i] == 0) rf[i] = true;
-        rt[i] += DK_DT;
+        rt[i] += ENG_DT;
         if(rt[i] > 0.32f) {
             rf[i] = true;
             rt[i] -= 0.09f;
@@ -124,7 +125,7 @@ static void read_keyboard(void) {
     maple_device_t *dev = maple_enum_type(0, MAPLE_FUNC_KEYBOARD);
     if((dev != NULL) != kbd_connected) {
         kbd_connected = dev != NULL;
-        printf("DreamKarts input: keyboard %s\n", kbd_connected ? "connected" : "missing");
+        printf(ENG_NAME " input: keyboard %s\n", kbd_connected ? "connected" : "missing");
     }
     key_n = 0;
     if(dev) {
@@ -153,7 +154,7 @@ static void read_keyboard(void) {
             if(out && key_n < MAX_KEYS) key_buf[key_n++] = out;
         }
     }
-#ifdef DK_AUTOTEST
+#ifdef ENG_INPUT_FAKE_KEYS
     for(int i = 0; i < fake_n && key_n < MAX_KEYS; i++) key_buf[key_n++] = fake_keys[i];
     fake_n = 0;
 #endif

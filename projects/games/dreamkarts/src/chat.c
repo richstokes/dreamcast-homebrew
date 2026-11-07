@@ -16,7 +16,7 @@
 #include "ui.h"
 #include "kart.h"
 #include "net.h"
-#include "render.h"
+#include "engine/render.h"
 #include <string.h>
 
 static const KartCustom *chat_custom(const NetChat *c);

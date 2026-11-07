@@ -173,6 +173,9 @@ extern Track track;
 
 static inline bool track_is_roam(void) { return track.id == TRACK_LOT; }
 
+/* Per track, the textures only its scenes draw, ended by -1 (track_tex.c):
+   the engine renderer's texture sets (engine_assets.h). */
+extern const int16_t *const track_textures[];
 extern const char *const track_names[TRACK_COUNT];
 
 void track_init(int id);

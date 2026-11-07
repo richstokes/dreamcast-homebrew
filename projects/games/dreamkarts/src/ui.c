@@ -7,7 +7,7 @@
    as a smudge. */
 #include "ui.h"
 #include "hud.h"
-#include "render.h"
+#include "engine/render.h"
 #include <string.h>
 
 static const pvr_poly_hdr_t *h_flat;

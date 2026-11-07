@@ -1,4 +1,4 @@
-/* DreamKarts renderer.
+/* Engine renderer (render.h).
 
    The camera matrix folds the perspective and the 640x480 viewport into one
    4x4 so a single SH4ZAM FTRV per vertex yields (x*w, y*w, -, w). Vertices
@@ -8,26 +8,33 @@
    UVs, colours and depth linear.
 
    The per-vertex loops (transform, outcodes, projection, store-queue
-   writes, triangle tests) are SH-4 assembly in src/xform.S; this file keeps
+   writes, triangle tests) are SH-4 assembly in xform.S; this file keeps
    the decisions around them and the rare paths (near-plane clipping).
-   Build with -DDK_XF_CHECK to run the C each routine replaces beside it and
-   count any difference (DK XFCHECK lines in the autotest log). */
+   Build with ENG_XF_CHECK to run the C each routine replaces beside it and
+   count any difference in xf_checked/xf_mismatch.
+
+   engine_assets.h (the game's) supplies the texture table: ENG_TEX_COUNT
+   entries ENG_TEX_ASSETS[i] (offset into ENG_TEX_PAK, bytes, w, h, fmt
+   ENG_TEXFMT_RGB565/ENG_TEXFMT_ARGB4444, mip), ENG_TEX_MIP_BIAS(tex),
+   optionally ENG_TEX_SETS/ENG_TEX_SET_COUNT (texture lists ended by -1
+   that share a VRAM pool), and the PVR settings render_init applies. */
 #include "render.h"
 #include "prof.h"
-#include "texture_assets.h"
-#include "track.h"
+#include "engine_assets.h"
 #include <malloc.h>
+#include <stdio.h>
+#include <string.h>
 #include <sh4zam/shz_sh4zam.h>
 
 #define NEAR_W   R_NEAR_W
 #define MAX_STRIP 512
 #define MAX_MESH_VERTS 1024
 
-extern const uint8_t dk_textures_pak[];
+extern const uint8_t ENG_TEX_PAK[];
 
 RenderStats rstats;
 Camera r_cam;
-pvr_ptr_t r_textures[TEX_COUNT];
+pvr_ptr_t r_textures[ENG_TEX_COUNT];
 
 typedef struct { float x, y, w, u, v; uint32_t c, o; } CV;
 
@@ -41,23 +48,23 @@ static unsigned clip_mask = 16;
 static const pvr_poly_hdr_t *cur_hdr, *sent_hdr;
 static bool list_open;
 /* Projected vertices and their clip outcodes, staged in the operand cache
-   by dk_xf_stage (src/xform.S) for r_strip and r_mesh. */
+   by eng_xf_stage (xform.S) for r_strip and r_mesh. */
 static pvr_vertex_t stage_pv[MAX_MESH_VERTS] __attribute__((aligned(32)));
 static uint8_t stage_code[MAX_MESH_VERTS];
-/* A kart mesh's projected positions {X/W, Y/W, 1/W, -}, from dk_xf_pos. */
+/* A rigid mesh's projected positions {X/W, Y/W, 1/W, -}, from eng_xf_pos. */
 static float stage_pos[MAX_MESH_VERTS][4] __attribute__((aligned(32)));
 
-/* src/xform.S */
+/* xform.S */
 typedef struct { float near_w, xmax, y0, y1; uint8_t *codes; const uint32_t *col; } XfParams;
 typedef struct { const pvr_vertex_t *pv; const uint8_t *codes; uint32_t clip_mask, sent, back; } MeshSubmit;
-uint32_t dk_xf_stage(const RV *v, int n, pvr_vertex_t *out, const XfParams *p);
-uint32_t dk_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p);
-void dk_sq_run(const pvr_vertex_t *src, int n);
-void dk_xf_emit(const RV *v, int n);
-int dk_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull);
+uint32_t eng_xf_stage(const RV *v, int n, pvr_vertex_t *out, const XfParams *p);
+uint32_t eng_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p);
+void eng_sq_run(const pvr_vertex_t *src, int n);
+void eng_xf_emit(const RV *v, int n);
+int eng_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull);
 typedef struct { const float (*pos)[4]; const uint32_t *col; uint32_t sent, back; } StripSubmit;
-uint32_t dk_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p);
-void dk_sq_strips(StripSubmit *ss, const uint16_t *strips);
+uint32_t eng_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p);
+void eng_sq_strips(StripSubmit *ss, const uint16_t *strips);
 static XfParams xf = {NEAR_W, 640.0f, 0.0f, 480.0f, stage_code, NULL};
 
 typedef struct { int key; pvr_poly_hdr_t hdr __attribute__((aligned(32))); } HeaderSlot;
@@ -65,74 +72,71 @@ typedef struct { int key; pvr_poly_hdr_t hdr __attribute__((aligned(32))); } Hea
 static HeaderSlot *headers;
 static int header_count;
 
-/* A texture's mip D-adjust (render.h DK_MIP_BIAS): the surfaces driven on
-   apart from everything beside them, the alpha textures at the hardware's own. */
-static int tex_mip_bias(int tex) {
-    if(dk_tex_assets[tex].fmt == DK_TEXFMT_ARGB4444) return PVR_MIPBIAS_NORMAL;
-    switch(tex) {
-        case TEX_ROAD: case TEX_TKROAD: case TEX_CANYONROAD: case TEX_AVROAD: case TEX_BOARDWALK: case TEX_DASH:
-        case TEX_CHECKER:
-            return DK_MIP_ROAD_BIAS;
-        default:
-            return tex >= TEX_SKYROAD_0 && tex <= TEX_SKYROAD_15 ? DK_MIP_ROAD_BIAS : DK_MIP_BIAS;
-    }
-}
-
 /* ------------------------------------------------------------------ */
 /* Setup                                                               */
 
-/* Textures a track lists in track_textures (track_tex.c) share one VRAM
-   pool, sized at boot for the biggest list, and are uploaded when the
-   track's world is built; the rest stay resident from boot. The pool is a
-   single block laid out afresh each time, so swapping tracks never
-   fragments VRAM. */
-static uint8_t tex_pooled[TEX_COUNT];
+/* Textures a set lists (ENG_TEX_SETS) share one VRAM pool, sized at boot
+   for the biggest list, and are uploaded by render_load_tex_set; the rest
+   stay resident from boot. The pool is a single block laid out afresh each
+   time, so swapping sets never fragments VRAM. */
+static uint8_t tex_pooled[ENG_TEX_COUNT];
 static pvr_ptr_t tex_pool;
 static size_t tex_pool_size;
-static int tex_track = -1;
-static const int16_t *tex_list;   /* the list in the pool (tracks can share one) */
+#ifdef ENG_TEX_SETS
+static int tex_set = -1;
+static const int16_t *tex_list;   /* the list in the pool (sets can share one) */
+#endif
+#ifndef ENG_TEX_SET_NAME
+#define ENG_TEX_SET_NAME "set"
+#endif
 
 static size_t tex_size(int tex) {
-    return (dk_tex_assets[tex].bytes + 31) & ~31u;
+    return (ENG_TEX_ASSETS[tex].bytes + 31) & ~31u;
 }
 
-static size_t track_tex_size(int id) {
+#ifdef ENG_TEX_SETS
+static size_t set_tex_size(int id) {
     size_t n = 0;
-    for(const int16_t *t = track_textures[id]; *t >= 0; t++) n += tex_size(*t);
+    for(const int16_t *t = ENG_TEX_SETS[id]; *t >= 0; t++) n += tex_size(*t);
     return n;
 }
+#endif
 
 static void load_textures(void) {
     size_t used = 0;
-    for(int id = 0; id < TRACK_COUNT; id++) {
-        for(const int16_t *t = track_textures[id]; *t >= 0; t++) tex_pooled[*t] = 1;
-        size_t n = track_tex_size(id);
+#ifdef ENG_TEX_SETS
+    for(int id = 0; id < ENG_TEX_SET_COUNT; id++) {
+        for(const int16_t *t = ENG_TEX_SETS[id]; *t >= 0; t++) tex_pooled[*t] = 1;
+        size_t n = set_tex_size(id);
         if(n > tex_pool_size) tex_pool_size = n;
     }
+#endif
     int resident = 0;
-    for(int i = 0; i < TEX_COUNT; i++) {
+    for(int i = 0; i < ENG_TEX_COUNT; i++) {
         if(tex_pooled[i]) continue;
         size_t size = tex_size(i);
         r_textures[i] = pvr_mem_malloc(size);
         if(!r_textures[i]) {
-            printf("DreamKarts render: VRAM exhausted at texture %d\n", i);
+            printf(ENG_NAME " render: VRAM exhausted at texture %d\n", i);
             continue;
         }
-        pvr_txr_load(dk_textures_pak + dk_tex_assets[i].offset, r_textures[i], size);
+        pvr_txr_load(ENG_TEX_PAK + ENG_TEX_ASSETS[i].offset, r_textures[i], size);
         used += size;
         resident++;
     }
+#ifdef ENG_TEX_SETS
     tex_pool = pvr_mem_malloc(tex_pool_size);
-    if(!tex_pool) printf("DreamKarts render: no VRAM for the %lu KiB track texture pool\n", (unsigned long)(tex_pool_size / 1024));
-    printf("DreamKarts render: %d resident textures, %lu KiB VRAM; track pool %lu KiB; %lu KiB free\n", resident,
+    if(!tex_pool) printf(ENG_NAME " render: no VRAM for the %lu KiB " ENG_TEX_SET_NAME " texture pool\n", (unsigned long)(tex_pool_size / 1024));
+#endif
+    printf(ENG_NAME " render: %d resident textures, %lu KiB VRAM; " ENG_TEX_SET_NAME " pool %lu KiB; %lu KiB free\n", resident,
            (unsigned long)(used / 1024), (unsigned long)(tex_pool_size / 1024), (unsigned long)(pvr_mem_available() / 1024));
 }
 
 void render_init(void) {
     pvr_init_params_t params = {
-        /* The opaque modifier list holds the kart shadow volumes (r_modvol). */
-        .opb_sizes = {PVR_BINSIZE_16, PVR_BINSIZE_8, PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_16},
-        .vertex_buf_size = DK_VTX_BUF_KIB * 1024,
+        /* OP, OP modifier (r_modvol), TR, TR modifier, PT. */
+        .opb_sizes = ENG_OPB_SIZES,
+        .vertex_buf_size = ENG_VTX_BUF_KIB * 1024,
         /* Measured: the CPU waits on the TA only ~0.1 ms a frame, so DMA
            to it is not worth having. */
         .dma_enabled = 0,
@@ -144,11 +148,11 @@ void render_init(void) {
         .opb_overflow_count = 3
     };
     if(pvr_init(&params) < 0) {
-        printf("DreamKarts render: pvr_init failed\n");
+        printf(ENG_NAME " render: pvr_init failed\n");
         return;
     }
-    pvr_set_bg_color(0.55f, 0.82f, 0.98f);
-    PVR_SET(PVR_PT_ALPHA_REF, 0x60);
+    pvr_set_bg_color(ENG_BG_COLOR);
+    PVR_SET(PVR_PT_ALPHA_REF, ENG_PT_ALPHA_REF);
     /* FPU_CULL_VAL: the area under which PVR_CULLING_SMALL drops a
        triangle. KOS leaves it as the boot left it; this only has to catch
        the zero-area joins between strips, not real slivers. */
@@ -156,15 +160,15 @@ void render_init(void) {
     PVR_SET(PVR_OBJECT_CLIP, cull_val.u);
     /* Inside a shadow volume, opaque and punch-through surfaces keep this
        much of their colour. */
-    pvr_set_shadow_scale(true, DK_SHADOW_SCALE);
-    pvr_fog_table_color(1.0f, 0.74f, 0.89f, 0.98f);
-    pvr_fog_table_linear(160.0f, 820.0f);
+    pvr_set_shadow_scale(true, ENG_SHADOW_SCALE);
+    pvr_fog_table_color(ENG_FOG_COLOR);
+    pvr_fog_table_linear(ENG_FOG_LINEAR);
     headers = memalign(32, sizeof(HeaderSlot) * MAX_HEADERS);
     load_textures();
 }
 
 void render_shutdown(void) {
-    for(int i = 0; i < TEX_COUNT; i++)
+    for(int i = 0; i < ENG_TEX_COUNT; i++)
         if(r_textures[i] && !tex_pooled[i]) pvr_mem_free(r_textures[i]);
     if(tex_pool) pvr_mem_free(tex_pool);
     free(headers);
@@ -177,14 +181,14 @@ static void compile_slot(HeaderSlot *s) {
     pvr_list_t list = (flags & HF_LIST_MASK) == HF_PT ? PVR_LIST_PT_POLY :
                       (flags & HF_LIST_MASK) == HF_TR ? PVR_LIST_TR_POLY : PVR_LIST_OP_POLY;
     pvr_poly_cxt_t c;
-    if(tex >= 0 && tex < TEX_COUNT && r_textures[tex]) {
-        const dk_tex_asset_t *t = &dk_tex_assets[tex];
-        int fmt = (t->fmt == DK_TEXFMT_ARGB4444 ? PVR_TXRFMT_ARGB4444 : PVR_TXRFMT_RGB565) |
+    if(tex >= 0 && tex < ENG_TEX_COUNT && r_textures[tex]) {
+        const ENG_TEX_ASSET_T *t = &ENG_TEX_ASSETS[tex];
+        int fmt = (t->fmt == ENG_TEXFMT_ARGB4444 ? PVR_TXRFMT_ARGB4444 : PVR_TXRFMT_RGB565) |
                   PVR_TXRFMT_TWIDDLED;
         pvr_poly_cxt_txr(&c, list, fmt, t->w, t->h, r_textures[tex],
                          (flags & HF_POINT) ? PVR_FILTER_NEAREST : PVR_FILTER_BILINEAR);
         c.txr.mipmap = t->mip ? true : false;
-        c.txr.mipmap_bias = tex_mip_bias(tex);
+        c.txr.mipmap_bias = ENG_TEX_MIP_BIAS(tex);
         c.txr.env = PVR_TXRENV_MODULATEALPHA;
         c.txr.uv_clamp = (flags & HF_CLAMP) ? PVR_UVCLAMP_UV : PVR_UVCLAMP_NONE;
     }
@@ -207,8 +211,8 @@ static void compile_slot(HeaderSlot *s) {
         c.depth.write = PVR_DEPTHWRITE_DISABLE;
     }
     if(list == PVR_LIST_PT_POLY) c.gen.alpha = true;
-    /* Opaque and punch-through surfaces take the kart shadow volumes, as
-       the cheap shadow: no second colour, the vertices stay as they are. */
+    /* Opaque and punch-through surfaces take the shadow volumes (r_modvol),
+       as the cheap shadow: no second colour, the vertices stay as they are. */
     if(list != PVR_LIST_TR_POLY) {
         c.fmt.modifier = true;
         c.gen.modifier_mode = false;
@@ -229,7 +233,7 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
     for(int i = 0; i < header_count; i++)
         if(headers[i].key == key) return &headers[i].hdr;
     if(header_count >= MAX_HEADERS) {
-        printf("DreamKarts render: header cache full\n");
+        printf(ENG_NAME " render: header cache full\n");
         return &headers[0].hdr;
     }
     HeaderSlot *s = &headers[header_count++];
@@ -238,30 +242,36 @@ const pvr_poly_hdr_t *r_header(int tex, int flags) {
     return &s->hdr;
 }
 
-void render_load_track_textures(int id) {
+#ifdef ENG_TEX_SETS
+void render_load_tex_set(int id) {
     if(!tex_pool) return;
-    tex_track = id;
-    if(track_textures[id] == tex_list) return;
+    tex_set = id;
+    if(ENG_TEX_SETS[id] == tex_list) return;
     /* The PVR may still be drawing the last frame from the pool. */
     pvr_wait_ready();
     pvr_wait_render_done();
-    for(int i = 0; i < TEX_COUNT; i++)
+    for(int i = 0; i < ENG_TEX_COUNT; i++)
         if(tex_pooled[i]) r_textures[i] = NULL;
     uint8_t *at = (uint8_t *)tex_pool;
-    for(const int16_t *t = track_textures[id]; *t >= 0; t++) {
+    for(const int16_t *t = ENG_TEX_SETS[id]; *t >= 0; t++) {
         size_t size = tex_size(*t);
         r_textures[*t] = at;
-        pvr_txr_load(dk_textures_pak + dk_tex_assets[*t].offset, at, size);
+        pvr_txr_load(ENG_TEX_PAK + ENG_TEX_ASSETS[*t].offset, at, size);
         at += size;
     }
     /* Headers are handed out once and kept, so the pool's are rebuilt in
-       place: the new track's at their new addresses, the rest untextured. */
+       place: the new set's at their new addresses, the rest untextured. */
     for(int i = 0; i < header_count; i++) {
         int tex = (headers[i].key >> 10) - 1;
         if(tex >= 0 && tex_pooled[tex]) compile_slot(&headers[i]);
     }
-    tex_list = track_textures[id];
+    tex_list = ENG_TEX_SETS[id];
 }
+#else
+void render_load_tex_set(int id) {
+    (void)id;
+}
+#endif
 
 /* The caller paces frames with pvr_wait_ready() before updating. */
 void r_frame_begin(void) {
@@ -269,8 +279,8 @@ void r_frame_begin(void) {
     rstats.tris = rstats.verts = 0;
 }
 
-#if defined(DK_HW) && defined(DK_CAPTURE)
-/* Tile Accelerator back-pressure probe (PROBE_NOTA): direct-render writes
+#ifdef ENG_TA_SINK
+/* Tile Accelerator back-pressure probe (ENG_TA_SINK): direct-render writes
    go to a cached scratch line instead of the store queues, so the CPU time
    of a frame without the TA can be set against the real one. Headers still
    go to the TA through pvr_prim; the frame shows no geometry. */
@@ -279,7 +289,7 @@ static uint32_t ta_saved_addr;
 static bool ta_sunk;
 
 static void ta_sink_begin(void) {
-    if(!(dk_probe_off & PROBE_NOTA) || ta_sunk) return;
+    if(!(ENG_TA_SINK) || ta_sunk) return;
     ta_saved_addr = pvr_dr_addr;
     pvr_dr_addr = (uint32_t)ta_sink;
     ta_sunk = true;
@@ -555,23 +565,23 @@ void r_hdr(const pvr_poly_hdr_t *h) {
     cur_hdr = h;
 }
 
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
-/* Autotest builds: a pooled texture the track's list leaves out draws
-   untextured, so name it (once) for adding to track_textures. */
+#ifdef ENG_TEX_CHECK
+/* Test builds: a pooled texture the set's list leaves out draws
+   untextured, so name it (once) for adding to the set. */
 static void check_resident(const pvr_poly_hdr_t *h) {
-    static uint8_t warned[TEX_COUNT];
+    static uint8_t warned[ENG_TEX_COUNT];
     uintptr_t o = (uintptr_t)h - (uintptr_t)&headers[0].hdr;
     if(o >= sizeof(HeaderSlot) * (size_t)header_count || o % sizeof(HeaderSlot)) return;
     int t = (headers[o / sizeof(HeaderSlot)].key >> 10) - 1;
     if(t < 0 || !tex_pooled[t] || r_textures[t] || warned[t]) return;
     warned[t] = 1;
-    printf("DreamKarts render: texture %d drawn on track %d is not in its track_textures\n", t, tex_track);
+    printf(ENG_NAME " render: texture %d drawn on " ENG_TEX_SET_NAME " %d is not in its " ENG_TEX_SET_NAME "_textures\n", t, tex_set);
 }
 #endif
 
 static inline void flush_hdr(void) {
     if(cur_hdr != sent_hdr) {
-#if defined(DK_AUTOTEST) && !defined(DK_HW)
+#ifdef ENG_TEX_CHECK
         check_resident(cur_hdr);
 #endif
         PROF_COUNT(PN_HDRS, 1);
@@ -675,9 +685,9 @@ static void clip_tri(const CV *a, const CV *b, const CV *c) {
         emit_tri(&p[0], &p[i], &p[i + 1]);
 }
 
-#ifdef DK_XF_CHECK
+#ifdef ENG_XF_CHECK
 /* Checks the assembly against the C it replaced: every staged vertex and
-   code, and every triangle decision (src/xform.S must match bit for bit). */
+   code, and every triangle decision (xform.S must match bit for bit). */
 uint32_t xf_checked, xf_mismatch;
 
 static void check_stage(const RV *v, int n, uint32_t codes) {
@@ -713,8 +723,8 @@ static void check_stage(const RV *v, int n, uint32_t codes) {
 /* spec: each vertex's offset (specular) colour, or NULL for none. */
 static inline void strip(const RV *v, const uint32_t *spec, int n) {
     if(n < 3 || n > MAX_STRIP) return;
-    uint32_t codes = dk_xf_stage(v, n, stage_pv, &xf);
-#ifdef DK_XF_CHECK
+    uint32_t codes = eng_xf_stage(v, n, stage_pv, &xf);
+#ifdef ENG_XF_CHECK
     check_stage(v, n, codes);
 #endif
     if(spec)
@@ -744,14 +754,14 @@ static inline void strip(const RV *v, const uint32_t *spec, int n) {
             }
             else {
                 flush_hdr();
-                dk_sq_run(&stage_pv[i], 3);
+                eng_sq_run(&stage_pv[i], 3);
                 rstats.tris++;
             }
         }
         return;
     }
     flush_hdr();
-    dk_sq_run(stage_pv, n);
+    eng_sq_run(stage_pv, n);
     rstats.tris += n - 2;
     rstats.verts += n;
     PROF_COUNT(PN_SEMIT, n);
@@ -800,10 +810,10 @@ void r_strip_bounded(const RV *v, int n, V3 c, float radius) {
     if(n < 3 || n > MAX_STRIP) return;
     PROF_COUNT(PN_STRIPS, 1);
     int cls = sphere_class(c, radius);
-#ifdef DK_XF_CHECK
+#ifdef ENG_XF_CHECK
     if(cls != SPHERE_CROSS) {
         /* The vertex outcodes must agree with the sphere. */
-        uint32_t codes = dk_xf_stage(v, n, stage_pv, &xf);
+        uint32_t codes = eng_xf_stage(v, n, stage_pv, &xf);
         unsigned and_code = codes & 0xff, or_code = codes >> 8;
         extern uint32_t xf_checked, xf_mismatch;
         xf_checked++;
@@ -830,14 +840,14 @@ void r_strip_bounded(const RV *v, int n, V3 c, float radius) {
     PROF_COUNT(PN_SIN, 1);
     PROF_COUNT(PN_SVERTS, n);
     flush_hdr();
-    dk_xf_emit(v, n);
+    eng_xf_emit(v, n);
     rstats.tris += n - 2;
     rstats.verts += n;
     PROF_COUNT(PN_SEMIT, n);
 }
 
 /* The sphere culls, then the strip goes the staged way whether or not it
-   is wholly on screen: dk_xf_emit's fast path writes no offset colour. */
+   is wholly on screen: eng_xf_emit's fast path writes no offset colour. */
 void r_strip_bounded_spec(const RV *v, int n, V3 c, float radius, void (*fill)(const RV *, int, uint32_t *)) {
     static uint32_t spec[MAX_STRIP];
     if(n < 3 || n > MAX_STRIP) return;
@@ -855,8 +865,8 @@ void r_quad(const RV *a, const RV *b, const RV *c, const RV *d) {
     r_strip(q, 4);
 }
 
-#ifdef DK_XF_CHECK
-/* The C triangle decisions dk_sq_tris must reproduce: sent, back faces. */
+#ifdef ENG_XF_CHECK
+/* The C triangle decisions eng_sq_tris must reproduce: sent, back faces. */
 static void check_tris(const uint16_t *idx, int ntri, bool cull, uint32_t sent, uint32_t back) {
     uint32_t s = 0, b = 0;
     for(int t = 0; t < ntri; t++) {
@@ -874,7 +884,7 @@ static void check_tris(const uint16_t *idx, int ntri, bool cull, uint32_t sent, 
     if(s != sent || b != back) xf_mismatch++;
 }
 
-/* The C dk_xf_pos must reproduce: each position's projection, bit for
+/* The C eng_xf_pos must reproduce: each position's projection, bit for
    bit, and the AND and OR of the outcodes. */
 static void check_pos(const float (*pos)[4], int n, uint32_t codes) {
     unsigned and_code = 31, or_code = 0;
@@ -891,7 +901,7 @@ static void check_pos(const float (*pos)[4], int n, uint32_t codes) {
     if(codes != (and_code | or_code << 8)) xf_mismatch++;
 }
 
-/* The C dk_sq_strips must reproduce: each strip triangle is a front
+/* The C eng_sq_strips must reproduce: each strip triangle is a front
    face if its area is positive (counted in sent), else a back face. */
 static void check_strips(const uint16_t *s, uint32_t sent, uint32_t back) {
     uint32_t sn = 0, bk = 0;
@@ -924,13 +934,13 @@ static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, co
        near-plane clipping re-transform their corners (XMTRX still holds
        this mesh's matrix). */
     uint32_t codes;
-    if(v) codes = dk_xf_stage(v, nv, stage_pv, &xf);
+    if(v) codes = eng_xf_stage(v, nv, stage_pv, &xf);
     else {
         xf.col = col;
-        codes = dk_xf_stage_kv(kv, nv, stage_pv, &xf);
+        codes = eng_xf_stage_kv(kv, nv, stage_pv, &xf);
     }
     (void)codes;   /* the triangle tests read stage_code; the check build reads codes */
-#ifdef DK_XF_CHECK
+#ifdef ENG_XF_CHECK
     {
         static RV tmp[MAX_MESH_VERTS];
         for(int i = 0; i < nv; i++) tmp[i] = mesh_vertex(v, kv, col, i);
@@ -944,11 +954,11 @@ static void mesh_draw(const RV *v, const KV *kv, const uint32_t *col, int nv, co
     MeshSubmit ms = {stage_pv, stage_code, clip_mask, 0, 0};
     int ntri = ni / 3;
     for(int t = 0; t < ntri;) {
-#ifdef DK_XF_CHECK
+#ifdef ENG_XF_CHECK
         uint32_t sent0 = ms.sent, back0 = ms.back;
 #endif
-        int done = dk_sq_tris(&ms, idx + t * 3, ntri - t, cull);
-#ifdef DK_XF_CHECK
+        int done = eng_sq_tris(&ms, idx + t * 3, ntri - t, cull);
+#ifdef ENG_XF_CHECK
         check_tris(idx + t * 3, ntri - t, cull, ms.sent - sent0, ms.back - back0);
 #endif
         t += done;
@@ -976,8 +986,8 @@ void r_mesh(const RV *v, int nv, const uint16_t *idx, int ni, bool cull) {
 void r_mesh_kv(const KMesh *m, const uint32_t *col) {
     if(m->npos > MAX_MESH_VERTS) return;
     PROF_BEGIN(pm);
-    uint32_t codes = dk_xf_pos(m->pos, m->npos, stage_pos, &xf);
-#ifdef DK_XF_CHECK
+    uint32_t codes = eng_xf_pos(m->pos, m->npos, stage_pos, &xf);
+#ifdef ENG_XF_CHECK
     check_pos(m->pos, m->npos, codes);
 #endif
     PROF_LAP(PS_MXFORM, pm);
@@ -990,8 +1000,8 @@ void r_mesh_kv(const KMesh *m, const uint32_t *col) {
     PROF_COUNT(PN_MVERTS, m->npos);
     flush_hdr();
     StripSubmit ss = {stage_pos, col, 0, 0};
-    dk_sq_strips(&ss, m->strips);
-#ifdef DK_XF_CHECK
+    eng_sq_strips(&ss, m->strips);
+#ifdef ENG_XF_CHECK
     check_strips(m->strips, ss.sent, ss.back);
 #endif
     rstats.verts += m->npos;

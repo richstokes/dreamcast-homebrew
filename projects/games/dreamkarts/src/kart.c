@@ -1220,8 +1220,8 @@ void ai_drive(Kart *k, KartInput *in, float dt) {
         }
         else if(!want) ai_react[idx] = 0;
         else if(ai_react[idx] <= 0) {
-            ai_react[idx] = 0.04f + (float)(dk_rand() & 255) * (0.20f / 255.0f);
-            if((float)(dk_rand() & 255) < ai_style[idx].grip * 256.0f) {
+            ai_react[idx] = 0.04f + (float)(eng_rand() & 255) * (0.20f / 255.0f);
+            if((float)(eng_rand() & 255) < ai_style[idx].grip * 256.0f) {
                 k->ai_drift_hold = 2.5f;
                 ai_react[idx] = 0;
             }
@@ -1301,17 +1301,6 @@ void kart_set_ai_style(int idx, float look, float sway, float sways, float lead,
     ai_style[idx].grip = grip;
 }
 
-static uint32_t rand_state = 0x2026dcu;
-
-uint32_t dk_rand(void) {
-    rand_state = rand_state * 1664525u + 1013904223u;
-    return rand_state >> 8;
-}
-
-uint32_t dk_rand_peek(void) {
-    return rand_state;
-}
-
-void dk_seed(uint32_t seed) {
-    rand_state = seed;
-}
+/* The shared generator (engine/rand.h), held here where the karts call it. */
+#define ENG_RAND_IMPL
+#include "engine/rand.h"

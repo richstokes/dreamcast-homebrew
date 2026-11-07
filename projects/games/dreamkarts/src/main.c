@@ -11,7 +11,7 @@
 #include "ui.h"
 #include "kart.h"
 #include "models.h"
-#include "render.h"
+#include "engine/render.h"
 #include "rumble.h"
 #include "vmuscreen.h"
 #include "title.h"
@@ -31,7 +31,7 @@
 #include "birds.h"
 #include "skylife.h"
 #include "gp.h"
-#include "prof.h"
+#include "engine/prof.h"
 #include "version.h"
 #include "perfhud.h"
 #include "autotest.h"
@@ -157,7 +157,7 @@ void race_reset(void) {
     world_race_progress(0);
     hud_reset();
     update_places();
-    items_reset(game.online ? online_items_seed() : dk_rand());
+    items_reset(game.online ? online_items_seed() : eng_rand());
 }
 
 void game_load_track(int id) {
@@ -540,7 +540,7 @@ static void countdown_step(float dt) {
         }
         for(int i = 0; i < kart_count; i++) {
             if(!karts[i].cpu) continue;
-            if((dk_rand() % 100) < 45) kart_start_boost(&karts[i], 0.8f + frand() * 0.4f, 1.08f);
+            if((eng_rand() % 100) < 45) kart_start_boost(&karts[i], 0.8f + frand() * 0.4f, 1.08f);
         }
         game.state = ST_RACE;
         game.time = 0;
@@ -1184,7 +1184,7 @@ int main(int argc, char **argv) {
     audio_music_target(210);
 #endif
 
-#ifdef DK_PROF
+#ifdef ENG_PROF
     prof_start();
 #endif
     uint64_t last = timer_us_gettime64();
@@ -1285,7 +1285,7 @@ int main(int argc, char **argv) {
         prof_us[0] += timer_us_gettime64() - upd_t0;
         PROF_LAP(PS_PHASE_UPD, pu);
         render();
-#ifdef DK_PROF
+#ifdef ENG_PROF
         prof_frame_end();
 #endif
 

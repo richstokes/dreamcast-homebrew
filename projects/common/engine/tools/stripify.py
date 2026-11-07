@@ -1,5 +1,5 @@
-"""Triangle strips for the PowerVR, shared by the Blender mesh exporters
-(tools/build_canyon_rock.py, tools/build_tsudoken_props.py)."""
+"""Triangle strips for the PowerVR, shared by the mesh exporters
+(blender_props.py, DreamKarts' tools/build_canyon_rock.py)."""
 
 from __future__ import annotations
 

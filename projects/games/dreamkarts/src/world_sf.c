@@ -1832,7 +1832,7 @@ static void sf_heard(V3 p, float vol, float near, int *v, int *pan) {
 
 /* The cable car's bell, two clangs as it sets off and every few seconds
    while it runs within earshot; and a foghorn out on the bay, under the
-   bridge, every minute or so. Off the race clock and dk_rand, so the
+   bridge, every minute or so. Off the race clock and eng_rand, so the
    race and its replay are untouched. */
 void world_sf_audio(bool on, float dt) {
     static float bell_t, horn_t = 18.0f;

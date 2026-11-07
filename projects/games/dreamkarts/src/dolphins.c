@@ -17,7 +17,7 @@
 #include "audio.h"
 #include "fx.h"
 #include "kart.h"
-#include "render.h"
+#include "engine/render.h"
 #include "track.h"
 #include "world.h"
 

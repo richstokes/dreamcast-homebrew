@@ -29,7 +29,7 @@
    volume then change in place with AICA channel UPDATE commands (the
    hardware pitch register), smoothed per frame and sent only on change. */
 #include "audio.h"
-#include "render.h"
+#include "engine/render.h"
 #include "save.h"
 #include <dc/sound/sound.h>
 #include <dc/sound/sfxmgr.h>

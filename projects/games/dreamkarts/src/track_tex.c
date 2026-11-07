@@ -2,7 +2,7 @@
    draw, apart from the textures every screen shares (the font, logo, big
    text and effect sprites), which render_init keeps resident. A track's
    list is uploaded into one shared VRAM pool when its world is built
-   (render_load_track_textures), and the pool is sized for the biggest
+   (render_load_tex_set), and the pool is sized for the biggest
    list, so a new track only needs its own list here, not VRAM beside
    every other track's art. Autotest builds name any pooled texture drawn
    on a track whose list leaves it out.
@@ -12,7 +12,7 @@
    their scenery), as do the two sky tracks. The sky and canyon road
    headers are copied into sk_road_hdr each frame, which that audit cannot
    see, so those are listed by hand. */
-#include "render.h"
+#include "engine/render.h"
 #include "texture_assets.h"
 #include "track.h"
 

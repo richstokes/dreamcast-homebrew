@@ -3,6 +3,10 @@ include ../../../tools/sh4zam.mk
 else
 
 TARGET = dreamkarts.elf
+# input.c, render.c and prof.c are the shared engine's
+# (projects/common/engine); the rest are src/. The list's order is the
+# link order, which sets the code and data layout the console's timings
+# were measured on, so keep it.
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c fx.c hud.c ui.c title.c audio.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c flappy.c roam.c \
 	world_mesh.c world_road.c world_props.c world_beach.c world_coral.c world_harbour.c world_temple.c world_skyway.c \
@@ -15,11 +19,12 @@ GEN_HEADERS = $(wildcard $(GEN)/*.h)
 SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
 	third_party/sh4zam/include/sh4zam/inline/*.h \
 	third_party/sh4zam/include/sh4zam/inline/sh4/*.h)
-HEADERS = $(wildcard src/*.h ../../common/*.h) $(GEN_HEADERS) $(SH4ZAM_HEADERS)
+ENGINE_DIR = ../../common/engine
+HEADERS = $(wildcard src/*.h ../../common/*.h $(ENGINE_DIR)/*.h) $(GEN_HEADERS) $(SH4ZAM_HEADERS)
 # -ffast-math lets GCC use the SH-4's FSCA for sinf/cosf (KOS passes -mfsca
 # but libm calls remain without it) and plain FSQRT for sqrtf.
 WARN = -std=gnu17 -O2 -ffast-math -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(EXTRA_CFLAGS)
-INCLUDES = -Isrc -I$(GEN) -Ibuild -Ithird_party/sh4zam/include
+INCLUDES = -Isrc -I$(GEN) -Ibuild -I../.. -I../../common -Ithird_party/sh4zam/include
 BLENDER ?= blender
 
 # Build variants share sources; each gets its own object directory.
@@ -64,7 +69,11 @@ $(OBJDIR)/%.o: $(COMMON_DIR)/%.c $(HEADERS)
 	@mkdir -p $(@D)
 	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
 
-$(OBJDIR)/xform.o: src/xform.S
+$(OBJDIR)/%.o: $(ENGINE_DIR)/%.c $(HEADERS)
+	@mkdir -p $(@D)
+	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
+
+$(OBJDIR)/xform.o: $(ENGINE_DIR)/xform.S
 	@mkdir -p $(@D)
 	kos-cc -c $< -o $@
 

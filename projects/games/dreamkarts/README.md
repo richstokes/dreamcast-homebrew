@@ -177,7 +177,7 @@ The `hw` targets run on a real console and need the
 | `make VARIANT=capture dreamkarts-capture.elf` then `uv run tools/capture.py --out captures` | Scripted title, menus, race and results, screenshotting the Flycast window at each `DK SHOT` (an emerald ahead, the held gem, a spear, a barrier, a spin-out and a mine ahead included); `--log FILE` keeps the whole serial console |
 | `make hwbench` | The same scripted race on the real console through `tools/dc-hw.sh`: 10 s timing lines, `DK GPU` / `DK CPU` feature probes, `DK PC` performance counters, screenshots in `captures/hw/`; powers the console off after. Split screen: `make hwbench EXTRA_CFLAGS=-DDK_AT_2P HW_LOG=captures/hw/hwbench2p.log` |
 | `make hw` | Plays the game on the console and leaves it on (`tools/dc-hw.sh power off` afterwards). The music is silent over dcload; `make hw MUSIC=1` plays the CD audio of a DreamKarts disc left in the tray |
-| `make -C tools/microbench run` | Cycles per vertex or triangle for each `src/xform.S` routine on the console, about a minute |
+| `make -C ../../common/engine/tools/microbench run` | Cycles per vertex or triangle for each `engine/xform.S` routine on the console, about a minute |
 | `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
 | `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat (the bot's skid marks must show), custom karts, practice, spectating (the demo lobby, and two braking bots whose skid marks must show), a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
 
@@ -194,7 +194,7 @@ The `hw` targets run on a real console and need the
 | `-DDK_AT_NO_ITEMS`, `-DDK_AT_SOLO`, `-DDK_AT_SHIELD_TEST`, `-DDK_AT_MINE_TEST` | Race without power-ups; race the humans alone, for clean captures of the track; hand the player a Barrier every 12 s, to measure its fill; hand the player a Mine every 12 s, or every `=<s>` (the capture looks behind at it; alone with `=30` the player laps round to its own) |
 | `-DDK_AT_WRONG_WAY` | Turns the player round 10 s in (player 2 at 12 s) and drives it back up the track for 5 s; `DK WRONG WAY` lines log the banner coming and going (capture shots `wrong-way`, `wrong-way-p2`) |
 | `-DDK_AT_FIXED` | One 1/60 s step a frame and held screenshot frames: two runs give pixel-identical captures and `DK STATE` fingerprints, for before/after diffs |
-| `-DDK_XF_CHECK` (with `-DDK_AT_FIXED`) | Runs the C beside each `src/xform.S` routine; `DK XFCHECK ... mismatch=` must stay 0 |
+| `-DDK_XF_CHECK` (with `-DDK_AT_FIXED`) | Runs the C beside each `engine/xform.S` routine; `DK XFCHECK ... mismatch=` must stay 0 |
 | `-DDK_AT_ONLINE -DDK_NET_TEST_HOST=<ip>` | Goes online: joins lobby 9, chats with the bot (a line from a faked keyboard, one from the on-screen keys, the bot's second line starred by the word filter), races, passes when the results arrive (recipe in server/README.md) |
 | `-DDK_AT_ONLINE -DDK_AT_PRACTICE -DDK_AT_LOBBY=<n>` | Online practice: starts a race alone in an empty lobby, drops out, leaves and rejoins the lobby and gets into its next race, hears the bell as a bot joins mid-race, drops out back to the lobby room, races the bot, sees the bot's kart leave when it drops out (`dk-bot -retire`), drops out again (recipe in server/README.md) |
 | `-DDK_AT_ONLINE -DDK_AT_SPECTATE` | Watches the demo lobby through every camera |
@@ -350,13 +350,13 @@ What each change saved on the console (ms a frame unless stated):
 
 | Change | Saving | Lesson |
 | --- | --- | --- |
-| Translucency presorted, PVR autosort off (`src/render.c`) | ~7 | Autosort peels layers per tile; submit back to front instead |
-| Vertex loops in SH-4 assembly (`src/xform.S`) | ~1.5 | 111 → 88 cycles a world vertex, 88 → 57 a kart vertex, 111 → 86 a kart triangle. The CPU, not the Tile Accelerator, was the limit |
-| Bounding spheres on world strips (`src/render.c`) | 0.6-0.9 | Whole strips culled or sent without outcodes; only edge-crossers tested per vertex |
+| Translucency presorted, PVR autosort off (`engine/render.c`) | ~7 | Autosort peels layers per tile; submit back to front instead |
+| Vertex loops in SH-4 assembly (`engine/xform.S`) | ~1.5 | 111 → 88 cycles a world vertex, 88 → 57 a kart vertex, 111 → 86 a kart triangle. The CPU, not the Tile Accelerator, was the limit |
+| Bounding spheres on world strips (`engine/render.c`) | 0.6-0.9 | Whole strips culled or sent without outcodes; only edge-crossers tested per vertex |
 | Kart lighting once per normal/paint group (`src/models.c`) | 0.7-0.8 | 950 groups cover 1,614 vertices |
 | Sea and cloud-sea colours cached per camera cell (`src/world.c`) | 0.3-0.55 | |
 | Kart triangles skip outcodes when the mesh is wholly on screen | 0.2-0.45 | |
-| Kart meshes as strips over each mesh's distinct positions (`src/models.c`, `src/xform.S`) | 0.1-0.4 CPU, 0.05-0.25 render | 959 of 1,614 kart vertices differ only in normal or paint, so only those positions are transformed; strips alone saved render time, not CPU |
+| Kart meshes as strips over each mesh's distinct positions (`src/models.c`, `engine/xform.S`) | 0.1-0.4 CPU, 0.05-0.25 render | 959 of 1,614 kart vertices differ only in normal or paint, so only those positions are transformed; strips alone saved render time, not CPU |
 | Music as CD audio tracks (`src/audio.c`) | the stream's thread, 290 KiB and every refill stall gone | The GD-ROM plays them into the AICA by itself; the final-lap speed-up that retuned the old ADPCM stream went with it |
 | Physics step = measured vblank period (`src/main.c`) | one-frame hitch every 4-16 s gone | A fixed 1/60 s step owed the 16.68 ms display a double step; 18 double and 2 zero-step frames of 5,269 → 0 |
 | Split views on whole 32-pixel tile rows with the PVR user tile clip | | Software clipping at a 240-pixel split broke most ground strips into triangles |
@@ -388,14 +388,14 @@ out to 140 m cost ~0.5 ms, so they stop at 80 m and drop to six boxes past
 - Stock KOS resends a lost first DHCP DISCOVER after 4 s, so online took 7-12 s to connect on the console; `tools/kos/patches/kos/kos-dhcp-fast-retry.patch` backs off from 1 s (4-5 s now)
 - Under dcload the drive is left alone (no music) unless built with `MUSIC=1`: a GD-ROM command blocks its caller for the seek, which is why the game's jukebox thread, not the frame loop, talks to the drive
 - Under dcload-ip every printf runs with IRQs off and can stall or freeze the console: hardware builds log every 10 s and keep `-DDK_NET_TRACE` off (`src/autotest.c`, `src/netlink.c`)
-- Change a vertex loop in its C reference first, then `src/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches
+- Change a vertex loop in its C reference first, then `engine/xform.S` to match, and keep `-DDK_XF_CHECK` at 0 mismatches
 - Looping voices (engine, squeal, crackle) need channels reserved with `snd_sfx_chn_alloc()`, or one-shots steal them and pitch updates retune the wrong sound (`src/audio.c`)
 - Flycast's DCNet dial-up does not complete the game's PPP login; test the modem path with `DK_NET=modem`
 - Flycast does not emulate the W5500, and probing for one there spins on SCI timeouts for ~0.9 s. It runs once, on the link thread while the player types a name, so nobody waits on it
 - Online, two level karts each see the other ~150 ms behind, so a power-up hit is only ever judged by the console driving the kart hit; a spear spawned from a packet is moved on by the draw delay, and a mine from a packet catches a kart that crossed its spot in that delay (`src/items.c`)
 - One emerald per band starves a tight pack if it takes any time to come back: six CPUs cross a band within a second, so it pops back at once
-- The Tile Accelerator's vertex buffer (`pvr_init`, `src/render.c`) is a hard ceiling: a frame that passes it stalls the console to a few fps with the CPU time all in the world draw. A split screen of a flat, open track is the case that hits it; `-DDK_CHUNK_STATS` shows what each kind of scenery sends
-- Flycast with anisotropic filtering on (`rend.AnisotropicFiltering` above 1) keeps the road sharp to the horizon; the console has none, and at its own mip pick the road went soft 10-20 m out. The road surfaces use D-adjust 0.5 for that (everything else stays at 1.0), the asphalt is mapped with square texels and opaque mips are Lanczos filtered (`src/render.h`); judge texture blur and shimmer on the console, or in Flycast with anisotropic filtering at 1
+- The Tile Accelerator's vertex buffer (`pvr_init`, `engine/render.c`) is a hard ceiling: a frame that passes it stalls the console to a few fps with the CPU time all in the world draw. A split screen of a flat, open track is the case that hits it; `-DDK_CHUNK_STATS` shows what each kind of scenery sends
+- Flycast with anisotropic filtering on (`rend.AnisotropicFiltering` above 1) keeps the road sharp to the horizon; the console has none, and at its own mip pick the road went soft 10-20 m out. The road surfaces use D-adjust 0.5 for that (everything else stays at 1.0), the asphalt is mapped with square texels and opaque mips are Lanczos filtered (`src/engine_assets.h`); judge texture blur and shimmer on the console, or in Flycast with anisotropic filtering at 1
 - Big texture coordinates swim on the console: the PVR interpolates UVs with less than float precision, so a road tiled by lap distance (v up to 80 repeats, the curbs 540) wobbled by whole pixels nearest the camera while it settled on the grid, and Flycast, sampling in full float, never showed it at any setting. World strips take a whole number of repeats off their UVs as they are built (`src/world_mesh.c` strip_wrap_uv); keep any new tiling within a few repeats of zero
 - Anything translucent drawn round your own kart fills most of the chase view: the Barrier's first bubble (three 2.5-2.9 m billboards) pushed the PVR to 20 ms and dropped ~70 frames a race; it is a 1.3 m core and ten small orbiting sparks now (`src/items.c`)
 

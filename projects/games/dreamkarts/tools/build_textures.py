@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
 from pvr_texture import pack_texture  # noqa: E402
 
 RNG = np.random.default_rng(1999)

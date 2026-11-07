@@ -7,7 +7,7 @@
 #define DK_WORLD_INT_H
 
 #include "world.h"
-#include "render.h"
+#include "engine/render.h"
 #include "track.h"
 #include "texture_assets.h"
 

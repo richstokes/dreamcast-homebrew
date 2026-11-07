@@ -13,7 +13,7 @@
 #include "hud.h"
 #include "kart.h"
 #include "models.h"
-#include "render.h"
+#include "engine/render.h"
 #include "save.h"
 #include "track.h"
 #include "online.h"
@@ -906,7 +906,7 @@ static const char *const loading_tips[] = {
 
 void title_draw_loading(float progress, const char *what, float t) {
     static int tip = -1;
-    if(tip < 0) tip = (int)(dk_rand() % (sizeof(loading_tips) / sizeof(loading_tips[0])));
+    if(tip < 0) tip = (int)(eng_rand() % (sizeof(loading_tips) / sizeof(loading_tips[0])));
     /* Boot steps are too far apart to animate the letters dropping in, so
        the logo sits settled; the title screen drops it in afterwards. */
     game.title_t = t;

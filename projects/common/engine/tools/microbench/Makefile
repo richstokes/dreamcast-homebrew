@@ -1,4 +1,4 @@
-# Console microbenchmark for src/xform.S (see micro.c).
+# Console microbenchmark for xform.S (see micro.c).
 TARGET = micro.elf
 OBJS = micro.o xform.o
 
@@ -8,7 +8,7 @@ all: $(TARGET)
 
 include $(KOS_BASE)/Makefile.rules
 
-xform.o: ../../src/xform.S
+xform.o: ../../xform.S
 	kos-cc -c $< -o $@
 
 micro.o: micro.c

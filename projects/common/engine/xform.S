@@ -1,24 +1,24 @@
-/* DreamKarts' hot vertex paths in SH-4 assembly (called from src/render.c).
+/* The engine renderer's hot vertex paths in SH-4 assembly (render.c).
 
    These replace C loops whose results they must match bit for bit: every
    floating-point operation is the one GCC emitted for the C it replaces, in
    the same order, so the Tile Accelerator receives the same words.
 
-   dk_xf_stage   transform RVs with XMTRX (FTRV), compute each vertex's
+   eng_xf_stage   transform RVs with XMTRX (FTRV), compute each vertex's
                  clip outcode and its projected PVR vertex (FSRRA), into a
                  32-byte aligned staging buffer in the operand cache.
-   dk_sq_run     copy staged vertices to the TA through the store queues,
+   eng_sq_run     copy staged vertices to the TA through the store queues,
                  64 bits at a time, the last one flagged end of strip.
-   dk_xf_emit    transform, project and send a strip straight to the TA
+   eng_xf_emit    transform, project and send a strip straight to the TA
                  (one known to need no clipping or culling).
-   dk_sq_tris    an indexed triangle list from staged vertices: skip
+   eng_sq_tris    an indexed triangle list from staged vertices: skip
                  triangles outside one clip plane, cull back faces, send the
                  rest; stop at a triangle that needs near-plane clipping.
-   dk_xf_pos     dk_xf_stage for a kart mesh's distinct positions only.
-   dk_sq_strips  a kart mesh wholly inside the clip planes, as strips:
+   eng_xf_pos     eng_xf_stage for a rigid mesh's distinct positions only.
+   eng_sq_strips  a rigid mesh wholly inside the clip planes, as strips:
                  back faces tested, runs of front faces sent as strips.
 
-   Each has a C reference in render.c's -DDK_XF_CHECK build, which runs the
+   Each has a C reference in render.c's ENG_XF_CHECK build, which runs the
    C beside the assembly and counts any word that differs: change the C
    there first, then the assembly to match.
 
@@ -32,7 +32,7 @@
    however it is done), placing the staging buffer to dodge cache conflicts
    (nothing), lighting in assembly (no faster than the per-group C) and the
    4x4 matrix product in assembly (about 0.1 ms). On 2026-10-21, letting
-   the PVR cull kart back faces (whole strips sent, no area tests) saved
+   the PVR cull back faces (whole strips sent, no area tests) saved
    another 0.3-0.4 ms of CPU but cost 0.1-0.5 ms of render time. */
 
 #define VTX_FLAGS 0xe0000000    /* PVR_CMD_VERTEX */
@@ -40,14 +40,14 @@
 
     .text
 
-/* void dk_sq_run(const pvr_vertex_t *src, int n)
+/* void eng_sq_run(const pvr_vertex_t *src, int n)
 
    Send n >= 1 consecutive staged vertices as one strip: each 32 bytes goes
    to the store queue that pvr_dr_target() would give, the last with the
    end-of-strip flag. */
     .balign 32
-    .global _dk_sq_run
-_dk_sq_run:
+    .global _eng_sq_run
+_eng_sq_run:
     mov.l   .Ldr_addr,r1
     mov.l   @r1,r2              /* pvr_dr_addr */
     mov     #32,r3
@@ -82,7 +82,7 @@ _dk_sq_run:
 .Leol_flags:
     .long   EOL_FLAGS
 
-/* int dk_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull)
+/* int eng_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull)
 
    ms: {const pvr_vertex_t *pv; const uint8_t *codes; uint32_t clip_mask;
         uint32_t sent, back}. For each of ntri >= 1 triangles (a, b, c):
@@ -184,8 +184,8 @@ _dk_sq_run:
 .endm
 
     .balign 32
-    .global _dk_sq_tris
-_dk_sq_tris:
+    .global _eng_sq_tris
+_eng_sq_tris:
     mov.l   r8,@-r15
     mov.l   r9,@-r15
     mov.l   r10,@-r15
@@ -230,7 +230,7 @@ _dk_sq_tris:
 .Leol_flags2:
     .long   EOL_FLAGS
 
-/* uint32_t dk_xf_stage(const RV *v, int n, pvr_vertex_t *out, const XfParams *p)
+/* uint32_t eng_xf_stage(const RV *v, int n, pvr_vertex_t *out, const XfParams *p)
 
    For each of n >= 1 vertices (x, y, z, u, v, argb; 24 bytes):
      (X, Y, -, W) = XMTRX * (x, y, z, 1)
@@ -240,9 +240,9 @@ _dk_sq_tris:
    codes go to p->codes[i]. Returns the AND of the codes | their OR << 8.
    p: {float near_w, xmax, y0, y1; uint8_t *codes; const uint32_t *col}.
 
-   uint32_t dk_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p)
+   uint32_t eng_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p)
 
-   The same for kart vertices (x, y, z, group; 16 bytes), with u = v = 0
+   The same for rigid-mesh vertices (x, y, z, group; 16 bytes), with u = v = 0
    and vertex i coloured p->col[v[i].group]. */
 
 
@@ -352,24 +352,24 @@ _dk_sq_tris:
 .endm
 
     .balign 32
-    .global _dk_xf_stage
-_dk_xf_stage:
+    .global _eng_xf_stage
+_eng_xf_stage:
     XF_STAGE 0, .Lxs
 
     .balign 32
-    .global _dk_xf_stage_kv
-_dk_xf_stage_kv:
+    .global _eng_xf_stage_kv
+_eng_xf_stage_kv:
     XF_STAGE 1, .Lxskv
 
-/* void dk_xf_emit(const RV *v, int n)
+/* void eng_xf_emit(const RV *v, int n)
 
    A strip known to need no clipping or culling, straight to the TA: for
    each of n >= 1 vertices the same transform and projection as
-   dk_xf_stage, written through the next store queue, the last vertex
+   eng_xf_stage, written through the next store queue, the last vertex
    flagged end of strip. */
     .balign 32
-    .global _dk_xf_emit
-_dk_xf_emit:
+    .global _eng_xf_emit
+_eng_xf_emit:
     mov.l   r8,@-r15
     mov.l   r9,@-r15
     mov.l   r10,@-r15
@@ -427,14 +427,14 @@ _dk_xf_emit:
 .Leol_flags3:
     .long   EOL_FLAGS
 
-/* uint32_t dk_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p)
+/* uint32_t eng_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p)
 
-   dk_xf_stage for a kart mesh's distinct positions {x, y, z, -}: for each
+   eng_xf_stage for a rigid mesh's distinct positions {x, y, z, -}: for each
    of n >= 1, the same transform, outcode and projection, out = {X inv,
    Y inv, inv, (unwritten)}. Returns the AND of the codes | their OR << 8. */
     .balign 32
-    .global _dk_xf_pos
-_dk_xf_pos:
+    .global _eng_xf_pos
+_eng_xf_pos:
     mov.l   r8,@-r15
     mov.l   r9,@-r15
     fmov.s  fr12,@-r15
@@ -497,12 +497,12 @@ _dk_xf_pos:
     rts
     mov.l   @r15+,r8
 
-/* void dk_sq_strips(StripSubmit *ss, const uint16_t *strips)
+/* void eng_sq_strips(StripSubmit *ss, const uint16_t *strips)
 
-   ss: {const float (*pos)[4] (from dk_xf_pos); const uint32_t *col;
-        uint32_t sent, back}. A kart mesh wholly inside the clip planes,
+   ss: {const float (*pos)[4] (from eng_xf_pos); const uint32_t *col;
+        uint32_t sent, back}. A rigid mesh wholly inside the clip planes,
    as strips (format in render.h, at most 32 triangles each). Each strip's
-   triangles are tested first, area > 0 as in dk_sq_tris (else counted in
+   triangles are tested first, area > 0 as in eng_sq_tris (else counted in
    ss->back), into a mask; then each run of consecutive front faces goes
    to the TA as one strip (counted in ss->sent), each vertex built from
    its position and colour, {VERTEX, x, y, inv, 0, 0, col, 0}, the run's
@@ -557,8 +557,8 @@ _dk_xf_pos:
 .endm
 
     .balign 32
-    .global _dk_sq_strips
-_dk_sq_strips:
+    .global _eng_sq_strips
+_eng_sq_strips:
     mov.l   r8,@-r15
     mov.l   r9,@-r15
     mov.l   r10,@-r15

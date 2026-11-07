@@ -19,7 +19,7 @@
 #include "models.h"
 #include "net.h"
 #include "netlink.h"
-#include "render.h"
+#include "engine/render.h"
 #include "roam.h"
 #include "save.h"
 #include "spectate.h"

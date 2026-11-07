@@ -1,5 +1,5 @@
 /* Console microbenchmark for DreamKarts' assembly vertex paths
-   (src/xform.S): cycles a vertex (or triangle) for each routine, with its
+   (engine/xform.S): cycles a vertex (or triangle) for each routine, with its
    data in the operand cache and streamed from RAM, and the share of those
    cycles stalled on operand-cache misses. A run takes about a minute, so
    it is the quick way to try a change to a loop before a full hwbench. Store-queue writes go to a cached
@@ -17,14 +17,14 @@ typedef struct { float x, y, z, u, v; uint32_t c; } RV;
 typedef struct { float near_w, xmax, y0, y1; uint8_t *codes; const uint32_t *col; } XfParams;
 typedef struct { float x, y, z; uint16_t group, pad; } KV;
 typedef struct { const pvr_vertex_t *pv; const uint8_t *codes; uint32_t clip_mask, sent, back; } MeshSubmit;
-uint32_t dk_xf_stage(const RV *v, int n, pvr_vertex_t *out, const XfParams *p);
-uint32_t dk_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p);
-void dk_sq_run(const pvr_vertex_t *src, int n);
-void dk_xf_emit(const RV *v, int n);
-int dk_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull);
+uint32_t eng_xf_stage(const RV *v, int n, pvr_vertex_t *out, const XfParams *p);
+uint32_t eng_xf_stage_kv(const KV *v, int n, pvr_vertex_t *out, const XfParams *p);
+void eng_sq_run(const pvr_vertex_t *src, int n);
+void eng_xf_emit(const RV *v, int n);
+int eng_sq_tris(MeshSubmit *ms, const uint16_t *idx, int ntri, int cull);
 typedef struct { const float (*pos)[4]; const uint32_t *col; uint32_t sent, back; } StripSubmit;
-uint32_t dk_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p);
-void dk_sq_strips(StripSubmit *ss, const uint16_t *strips);
+uint32_t eng_xf_pos(const float (*pos)[4], int n, float (*out)[4], const XfParams *p);
+void eng_sq_strips(StripSubmit *ss, const uint16_t *strips);
 
 #define BIG (1 << 21)   /* bytes streamed for the cold cases, > 100x the cache */
 static uint8_t sink[64] __attribute__((aligned(64)));
@@ -84,36 +84,36 @@ int main(int argc, char **argv) {
         printf("MICRO: pass %d\n", pass);
         /* Hot: one 11- and one 200-vertex block, repeated. */
         for(int n = 11; n <= 200; n += 189) {
-            dk_xf_stage(rv, n, stage, &xp);
+            eng_xf_stage(rv, n, stage, &xp);
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_xf_stage(rv, n, stage, &xp);
+            for(int r = 0; r < 200; r++) eng_xf_stage(rv, n, stage, &xp);
             char name[48];
             snprintf(name, sizeof(name), "xf_stage hot n=%d", n);
             report(name, cyc() - c0, ev() - e0, 200 * n);
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_xf_stage_kv(kv, n, stage, &xp);
+            for(int r = 0; r < 200; r++) eng_xf_stage_kv(kv, n, stage, &xp);
             snprintf(name, sizeof(name), "xf_stage_kv hot n=%d", n);
             report(name, cyc() - c0, ev() - e0, 200 * n);
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_xf_emit(rv, n);
+            for(int r = 0; r < 200; r++) eng_xf_emit(rv, n);
             snprintf(name, sizeof(name), "xf_emit hot n=%d", n);
             report(name, cyc() - c0, ev() - e0, 200 * n);
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_sq_run(stage, n);
+            for(int r = 0; r < 200; r++) eng_sq_run(stage, n);
             snprintf(name, sizeof(name), "sq_run hot n=%d", n);
             report(name, cyc() - c0, ev() - e0, 200 * n);
         }
         /* Cold: stream the whole array in 11-vertex strips. */
         int strips = nrv / 11;
         c0 = cyc(); e0 = ev();
-        for(int s = 0; s < strips; s++) dk_xf_stage(rv + s * 11, 11, stage, &xp);
+        for(int s = 0; s < strips; s++) eng_xf_stage(rv + s * 11, 11, stage, &xp);
         report("xf_stage cold n=11", cyc() - c0, ev() - e0, strips * 11);
 
         c0 = cyc(); e0 = ev();
-        for(int s = 0; s < strips; s++) dk_xf_emit(rv + s * 11, 11);
+        for(int s = 0; s < strips; s++) eng_xf_emit(rv + s * 11, 11);
         report("xf_emit cold n=11", cyc() - c0, ev() - e0, strips * 11);
         c0 = cyc(); e0 = ev();
-        for(int s = 0; s < nrv / 240; s++) dk_xf_stage(rv + s * 240, 240, stage, &xp);
+        for(int s = 0; s < nrv / 240; s++) eng_xf_stage(rv + s * 240, 240, stage, &xp);
         report("xf_stage cold n=240", cyc() - c0, ev() - e0, (nrv / 240) * 240);
         /* Hot again with the source placed so it cannot share cache lines
            with the staging buffer (8 KB apart, modulo the 16 KB cache). */
@@ -124,26 +124,26 @@ int main(int argc, char **argv) {
             RV *far = (RV *)base;
             memcpy(far, rv, 200 * sizeof(RV));
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_xf_stage(far, 200, stage, &xp);
+            for(int r = 0; r < 200; r++) eng_xf_stage(far, 200, stage, &xp);
             report("xf_stage hot n=200 apart (b)", cyc() - c0, ev() - e0, 200 * 200);
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_xf_stage(far, 200, stage, &xp);
+            for(int r = 0; r < 200; r++) eng_xf_stage(far, 200, stage, &xp);
             report("xf_stage hot n=200 apart", cyc() - c0, ev() - e0, 200 * 200);
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_xf_stage(far, 11, stage, &xp);
+            for(int r = 0; r < 200; r++) eng_xf_stage(far, 11, stage, &xp);
             report("xf_stage hot n=11 apart", cyc() - c0, ev() - e0, 200 * 11);
         }
         /* Triangles from 200 staged vertices, all in view and front-facing
            or not as the synthetic indices fall. */
-        dk_xf_stage(rv, 200, stage, &xp);
+        eng_xf_stage(rv, 200, stage, &xp);
         for(int i = 0; i < 200; i++) codes[i] = 0;
         MeshSubmit ms = {stage, codes, 16, 0, 0};
         c0 = cyc(); e0 = ev();
-        for(int r = 0; r < 20; r++) dk_sq_tris(&ms, idx, 4096, 1);
+        for(int r = 0; r < 20; r++) eng_sq_tris(&ms, idx, 4096, 1);
         report("sq_tris cull (per tri)", cyc() - c0, ev() - e0, 20 * 4096);
         printf("MICRO: sq_tris sent %lu back %lu\n", (unsigned long)ms.sent, (unsigned long)ms.back);
         c0 = cyc(); e0 = ev();
-        for(int r = 0; r < 20; r++) dk_sq_tris(&ms, idx, 4096, 0);
+        for(int r = 0; r < 20; r++) eng_sq_tris(&ms, idx, 4096, 0);
         report("sq_tris no cull (per tri)", cyc() - c0, ev() - e0, 20 * 4096);
         /* The kart fast path: 200 distinct positions, then strips of 8
            triangles over them (synthetic, so front and back faces mix). */
@@ -164,11 +164,11 @@ int main(int argc, char **argv) {
         }
         kstrips[o] = 0;
         c0 = cyc(); e0 = ev();
-        for(int r = 0; r < 200; r++) dk_xf_pos(p4, 200, pout, &xp);
+        for(int r = 0; r < 200; r++) eng_xf_pos(p4, 200, pout, &xp);
         report("xf_pos hot n=200", cyc() - c0, ev() - e0, 200 * 200);
         StripSubmit ss = {pout, col, 0, 0};
         c0 = cyc(); e0 = ev();
-        for(int r = 0; r < 20; r++) dk_sq_strips(&ss, kstrips);
+        for(int r = 0; r < 20; r++) eng_sq_strips(&ss, kstrips);
         report("sq_strips (per tri)", cyc() - c0, ev() - e0, 20 * 4096);
         printf("MICRO: sq_strips sent %lu back %lu\n", (unsigned long)ss.sent, (unsigned long)ss.back);
     }
@@ -186,15 +186,15 @@ int main(int argc, char **argv) {
             for(int i = 0; i < 150; i++) pcol[i] = col[i];
             XfParams kp = xp;
             kp.col = pcol;
-            dk_xf_stage_kv(pkv, 200, pst, &kp);
+            eng_xf_stage_kv(pkv, 200, pst, &kp);
             c0 = cyc(); e0 = ev();
-            for(int r = 0; r < 200; r++) dk_xf_stage_kv(pkv, 200, pst, &kp);
+            for(int r = 0; r < 200; r++) eng_xf_stage_kv(pkv, 200, pst, &kp);
             char name[48];
             snprintf(name, sizeof(name), "xf_stage_kv n=200 %s", lay[k].name);
             report(name, cyc() - c0, ev() - e0, 200 * 200);
         }
     }
-    /* dk_xf_emit's last two vertices must be dk_xf_stage's, the last
+    /* eng_xf_emit's last two vertices must be eng_xf_stage's, the last
        flagged end of strip (the sink only holds the last two). */
     {
         static pvr_vertex_t ref[512] __attribute__((aligned(32)));
@@ -202,11 +202,11 @@ int main(int argc, char **argv) {
         for(int n = 1; n <= 300; n++)
             for(int off = 0; off < 3; off++) {
                 const RV *src = rv + off * 41;
-                dk_xf_stage(src, n, ref, &xp);
+                eng_xf_stage(src, n, ref, &xp);
                 ref[n - 1].flags = 0xf0000000;
                 pvr_dr_addr = (uint32_t)sink;
                 memset(sink, 0x55, sizeof(sink));
-                dk_xf_emit(src, n);
+                eng_xf_emit(src, n);
                 const pvr_vertex_t *last = (const pvr_vertex_t *)pvr_dr_addr;
                 const pvr_vertex_t *prev = (const pvr_vertex_t *)(pvr_dr_addr ^ 32);
                 if(memcmp(last, &ref[n - 1], 32)) bad++;

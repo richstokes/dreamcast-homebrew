@@ -3,7 +3,7 @@
    from each boosting kart's exhausts every frame. */
 #include "fx.h"
 #include "models.h"
-#include "render.h"
+#include "engine/render.h"
 #include "texture_assets.h"
 #include "world.h"
 
@@ -107,7 +107,7 @@ void fx_clear(void) {
 static Particle *spawn(int type, V3 p, V3 v, float life, float size, uint32_t c0, uint32_t c1) {
     if(part_n >= MAX_PARTICLES) {
         /* Recycle the oldest-looking slot. */
-        int i = (int)(dk_rand() % MAX_PARTICLES);
+        int i = (int)(eng_rand() % MAX_PARTICLES);
         parts[i] = parts[--part_n];
     }
     Particle *q = &parts[part_n++];
@@ -248,7 +248,7 @@ void fx_kart(const Kart *k, float dt) {
         spawn_acc[idx][0] += rate * dt;
         while(spawn_acc[idx][0] >= 1.0f) {
             spawn_acc[idx][0] -= 1.0f;
-            V3 base = (dk_rand() & 1) ? wl : wr;
+            V3 base = (eng_rand() & 1) ? wl : wr;
             V3 v = vadd(vscale(k->vel, 0.8f),
                         vadd(vscale(fwd, -(3.0f + frand() * 5.0f)),
                              vadd(v3(0, 1.5f + frand() * 3.5f, 0), vscale(right, frand_s() * 2.5f))));
@@ -294,7 +294,7 @@ void fx_kart(const Kart *k, float dt) {
         spawn_acc[idx][1] += rate * dt;
         while(spawn_acc[idx][1] >= 1.0f) {
             spawn_acc[idx][1] -= 1.0f;
-            V3 base = (dk_rand() & 1) ? wl : wr;
+            V3 base = (eng_rand() & 1) ? wl : wr;
             V3 v = vadd(vscale(k->vel, 0.25f), v3(frand_s() * 1.5f, 0.8f + frand() * 1.5f, frand_s() * 1.5f));
             bool skid = !sand && k->skid && k->drift != DRIFT_ACTIVE;
             uint32_t c = sand ? argb(150, 236, 214, 160) : skid ? argb(80, 228, 228, 230) : argb(90, 240, 240, 240);
@@ -313,7 +313,7 @@ void fx_kart(const Kart *k, float dt) {
         spawn_acc[idx][2] += (50.0f + 40.0f * held) * dt;
         while(spawn_acc[idx][2] >= 1.0f) {
             spawn_acc[idx][2] -= 1.0f;
-            int w = (int)(dk_rand() & 1);
+            int w = (int)(eng_rand() & 1);
             V3 v = v3(frand_s() * 2, 1.0f + frand() * 1.5f, frand_s() * 2);
             if(k->rev_t > 0) {
                 /* Billow out to each tyre's own side and up, so the kart

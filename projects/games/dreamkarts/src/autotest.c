@@ -16,8 +16,8 @@
 #include "net.h"
 #include "online.h"
 #include "perfhud.h"
-#include "prof.h"
-#include "render.h"
+#include "engine/prof.h"
+#include "engine/render.h"
 #include "rumble.h"
 #include "spectate.h"
 #include "title.h"
@@ -85,7 +85,7 @@ void take_shot(const char *name) {
         for(size_t i = 0; i < sizeof(n); i++) h = (h ^ b[i]) * 16777619u;
     }
     printf("DK SHOT %s\nDK STATE %s karts=%08lx rand=%08lx t=%.4f\n", name, name, (unsigned long)h,
-           (unsigned long)dk_rand_peek(), (double)game.time);
+           (unsigned long)eng_rand_peek(), (double)game.time);
     at_hold = 150;
 #else
     printf("DK SHOT %s\n", name);
@@ -837,7 +837,7 @@ void at_frame(float dt_real, float vbl_dt, int steps) {
                (double)(prof_us[1] * f), (double)(prof_us[2] * f), (double)(prof_us[3] * f),
                (double)(prof_us[4] * f), (double)at.rnd_max_ms, rstats.tris, p->lap, p->place,
                (double)p->speed, p->drift, p->stage);
-#ifdef DK_PROF
+#ifdef ENG_PROF
         prof_print();
 #endif
 #ifdef DK_XF_CHECK
@@ -1003,8 +1003,8 @@ bool at_hold_frame(void) {
     static uint32_t hold_rand;
     if(at_hold > 0) {
         at_hold--;
-        if(!holding) hold_rand = dk_rand_peek();
-        else dk_seed(hold_rand);
+        if(!holding) hold_rand = eng_rand_peek();
+        else eng_seed(hold_rand);
         holding = true;
         return true;
     }
@@ -1305,13 +1305,13 @@ static float rec_range(float lo, float hi) {
 /* A personality: one of a few driving types, jittered. */
 static void record_personality(int i, Kart *k) {
     float look = rec_range(0.9f, 1.1f), sway = rec_range(0.5f, 1.4f), lead = rec_range(-2.0f, 6.0f);
-    float grip = rec_range(0.05f, 0.2f), sways = (float)(2 + dk_rand() % 5);
+    float grip = rec_range(0.05f, 0.2f), sways = (float)(2 + eng_rand() % 5);
     k->lane = rec_range(-1.8f, 1.8f);
     k->skill = rec_range(0.94f, 1.0f);
-    switch(dk_rand() % 6) {
+    switch(eng_rand() % 6) {
         case 0: grip = 0.0f; lead = rec_range(8.0f, 12.0f); look = rec_range(0.85f, 0.95f); break;  /* drifts early, always */
         case 1: look = rec_range(1.12f, 1.22f); sway = rec_range(0.2f, 0.6f); break;                 /* smooth and tidy */
-        case 2: sway = rec_range(1.7f, 2.3f); sways = (float)(5 + dk_rand() % 2); break;             /* weaver */
+        case 2: sway = rec_range(1.7f, 2.3f); sways = (float)(5 + eng_rand() % 2); break;             /* weaver */
         case 3: grip = rec_range(0.45f, 0.7f); look = rec_range(1.0f, 1.15f); break;                 /* grips, rarely slides */
         case 4: lead = rec_range(-4.0f, -2.0f); look = rec_range(0.85f, 0.92f); break;               /* late and twitchy */
         default: k->lane = signf(frand_s()) * rec_range(2.0f, 2.6f); break;                          /* wide lines */
@@ -1338,7 +1338,7 @@ void record_races(uint64_t t0) {
 #endif
         game_load_track(tr);
         for(int r = 0; r < DK_RECORD_RACES; r++, done++) {
-            dk_seed(0x5eed0000u + (uint32_t)tr * 977u + (uint32_t)r * 7919u);
+            eng_seed(0x5eed0000u + (uint32_t)tr * 977u + (uint32_t)r * 7919u);
             race_setup();
             int race_id = tr * DK_RECORD_RACES + r + 1;   /* 1-255: never 0, never two tracks alike */
             items_reset(online_items_seed_for(DK_RECORD_LOBBY, race_id, tr));

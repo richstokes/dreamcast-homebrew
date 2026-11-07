@@ -15,7 +15,7 @@
 #include "skylife.h"
 #include "world_int.h"
 #include "roam.h"
-#include "prof.h"
+#include "engine/prof.h"
 #include <malloc.h>
 #include <sh4zam/shz_sh4zam.h>
 
@@ -266,7 +266,7 @@ float world_surface_y(float s, float d) {
 void world_build(void) {
     world_gates = 0;
     if(!pool) return;
-    render_load_track_textures(track.id);
+    render_load_tex_set(track.id);
     pool_n = strip_n = chunk_n = palm_n = far_sprite_n = foam_count = 0;
     stand_wave = false;
     cur_chunk = NULL;
@@ -729,7 +729,7 @@ static float sp_cell;
 typedef struct { float x, z, t, life, l; } Sparkle;
 static Sparkle sparkle[SPARKLE_N];
 static float sparkle_t;
-static uint32_t sp_seed = 0x5eaf00du;   /* its own: dk_rand drives the race */
+static uint32_t sp_seed = 0x5eaf00du;   /* its own: eng_rand drives the race */
 
 static float sp_rand(void) {
     sp_seed = sp_seed * 1664525u + 1013904223u;
