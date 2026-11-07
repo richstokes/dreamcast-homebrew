@@ -16,6 +16,7 @@ build on it, so a fix or speed-up here reaches both.
 | `sfx.h`, `sfx.c` | Effect bank in AICA RAM, one-shots, looping voices on reserved channels, pan and distance of a sound for the listener | DreamKarts, Ridgeline |
 | `text.h`, `text.c` | Bitmap text from a font atlas | DreamKarts, Ridgeline |
 | `sky.h`, `sky.c` | Gradient sky dome about the camera, lens flare ghosts | DreamKarts, Ridgeline |
+| `bird.h` | A low-poly flapping bird for scenery life, held in the drawing file (`ENG_BIRD_IMPL`) so it inlines as before | DreamKarts, Ridgeline |
 | `qa.h`, `qa.c` | Test builds: the shot line for `tools/capture.py`, a log window's frame statistics | DreamKarts, Ridgeline |
 | `ui.h`, `ui.c` | Menu chrome: panels, heading plaques, selection pills, controller button glyphs, hints, keys, dots; colours from the game's theme | DreamKarts, Ridgeline |
 

@@ -34,6 +34,10 @@ been, and the viewpoints you've found.
   dirt, stones, snow, spray), and the rear tyres leave tread tracks in soft
   ground
 - Up to three CPU trucks for company, each taking its own route
+- Birds: jays, juncos and ravens perched on logs, rocks, the cabin roof
+  and the cairns burst away as a truck comes near (or at the horn), hawks
+  circle over the meadow and the bluffs, and now and then a V of geese
+  crosses the sky
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,

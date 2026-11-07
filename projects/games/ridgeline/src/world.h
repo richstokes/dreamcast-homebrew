@@ -27,5 +27,7 @@ void world_draw_op(void);             /* OP: terrain, trees, rocks, props */
 void world_draw_pt(void);             /* PT: grass tufts */
 void world_draw_tr(void);             /* TR: water, clouds, sun */
 void world_draw_flare(void);          /* TR, last: the sun's lens flare */
+/* The top of boulder i (lvl_spheres) as drawn up close. */
+float world_boulder_top(int i);
 
 #endif

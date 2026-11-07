@@ -153,6 +153,16 @@ static void boulder(V3 c, float r, uint32_t seed, int lod) {
     }
 }
 
+/* The height of boulder i's crown as boulder() draws it near (lod 0): the
+   same seed, the same jitter draws, then the squash. */
+float world_boulder_top(int i) {
+    const lvl_sphere_t *s = &lvl_spheres[i];
+    uint32_t seed = (uint32_t)i * 2654435761u;
+    for(int k = 0; k < 4 * 7; k++) hrand(&seed);
+    float squash = 0.7f + 0.25f * hrand(&seed);
+    return s->y + s->r * 1.04f * squash;
+}
+
 /* A box from its centre, half extents and turn: sides then top. */
 static void box(const pvr_poly_hdr_t *h, V3 c, float hx, float hy, float hz, float yaw, uint32_t albedo, float uv) {
     float cy = cosf(yaw), sy = sinf(yaw);

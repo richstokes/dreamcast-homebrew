@@ -18,6 +18,7 @@
 #include "engine/prof.h"
 #include "engine/frame.h"
 #include "engine/ui.h"
+#include "birds.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -67,6 +68,7 @@ void game_start_drive(void) {
     game.photo = false;
     camera_reset();
     fx_clear();
+    birds_reset();
     audio_drive_start();
     game_set_state(ST_DRIVE);
     hud_message("CASCADE RIDGE", 0xfff8f0dc, 3.0f);
@@ -200,6 +202,7 @@ static void update(float dt) {
         case ST_SOUND: soundtest_update(dt); break;
     }
     world_update(dt);
+    birds_update(dt);
     hud_update(dt);
 }
 
@@ -213,6 +216,7 @@ static void render(void) {
     r_load_vp();
     world_draw_sky();
     world_draw_op();
+    birds_draw();
     extern uint64_t world_us[3];
     uint64_t tt = timer_us_gettime64();
     bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND;
@@ -266,6 +270,7 @@ int main(int argc, char **argv) {
     menu_init();
     truckdraw_init();
     fx_init();
+    birds_init();
     audio_init();
     printf("Ridgeline boot: %lu ms, %lu KiB VRAM free\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000),
            (unsigned long)(pvr_mem_available() / 1024));

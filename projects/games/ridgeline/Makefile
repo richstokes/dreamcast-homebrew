@@ -6,7 +6,7 @@ TARGET = ridgeline.elf
 GAME_PREFIX = RL
 # Ridgeline's own sources (src/), then the shared engine's
 # (projects/common/engine), in link order.
-SOURCES = main.c terrain.c world.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c soundtest.c autotest.c \
+SOURCES = main.c terrain.c world.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c soundtest.c autotest.c birds.c \
 	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/level.bin
