@@ -175,8 +175,7 @@ static void drive_update(float dt) {
         return;
     }
 #ifdef RL_AUTOTEST
-    ai_drive(0, dt);
-    autotest_controls(p, dt);
+    if(!autotest_controls(p, dt)) ai_drive(0, dt);
 #else
     player_controls(p, dt);
 #endif

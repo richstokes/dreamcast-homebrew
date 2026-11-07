@@ -24,8 +24,16 @@
 extern uint64_t phase_us[4];
 extern int phase_frames;
 
+#ifdef RL_AT_FXBENCH
+#define RL_FXB_DRIVE 15.0f     /* seconds of normal driving, then... */
+#define RL_FXB_SPIN 25.0f      /* ...this long spinning in mud */
+#define RL_AT_WINDOW 5.0f
+#else
+#define RL_AT_WINDOW 10.0f
+#endif
+
 static struct {
-    float win_t, win_cpu, win_cpu_max;
+    float win_t, win_cpu, win_cpu_max, win_rnd, win_rnd_max;
     int win_frames, win_over;
     float all_cpu, all_cpu_max;
     int all_frames, all_over;
@@ -50,7 +58,7 @@ void autotest_boot(void) {
     game.truck_model = RL_AT_TRUCK;
     game.livery = 0;
     game.companions = RL_AT_COMPANIONS;
-#ifdef RL_CAPTURE
+#if defined(RL_CAPTURE) && !defined(RL_AT_FXBENCH)
     at.tour = 0;
     printf("RL AT capture: title, select, scenery tour, then the drive\n");
 #else
@@ -62,10 +70,24 @@ void autotest_boot(void) {
     printf("RL AT start: truck %d route %d companions %d\n", RL_AT_TRUCK, RL_AT_ROUTE, RL_AT_COMPANIONS);
 }
 
-void autotest_controls(Truck *p, float dt) {
+bool autotest_controls(Truck *p, float dt) {
     (void)dt;
+#ifdef RL_AT_FXBENCH
+    /* Flat out in 2WD with traction control off, weaving, so all the
+       tyres throw what they can. */
+    if(game.clock >= RL_FXB_DRIVE) {
+        p->in.throttle = 1;
+        p->in.brake = 0;
+        p->in.steer = 0.35f * sinf(game.clock * 1.3f);
+        p->in.handbrake = false;
+        p->mode = DRIVE_2WD;
+        p->tcs_off = true;
+        return true;
+    }
+#endif
     /* Lights on for a stretch so they are drawn and costed. */
     p->lights = fmodf(game.clock, 60.0f) > 40.0f;
+    return false;
 }
 
 int autotest_steps(int steps) {
@@ -159,11 +181,28 @@ void autotest_frame(float dt_real) {
     at.win_cpu += cpu;
     if(cpu > at.win_cpu_max) at.win_cpu_max = cpu;
     if(dt_real > 1.5f / 60.0f) at.win_over++;
+    pvr_stats_t ps;
+    pvr_get_stats(&ps);
+    float rnd = (float)ps.rnd_last_time * 1e-6f;
+    if(!(rnd < 1000.0f)) rnd = 0;    /* no frame rendered yet */
+    at.win_rnd += rnd;
+    if(rnd > at.win_rnd_max) at.win_rnd_max = rnd;
     at.all_frames++;
     at.all_cpu += cpu;
     if(cpu > at.all_cpu_max) at.all_cpu_max = cpu;
     if(dt_real > 1.5f / 60.0f) at.all_over++;
-#ifdef RL_CAPTURE
+#ifdef RL_AT_FXBENCH
+    /* Into the meadow's mud, once. */
+    static bool fxb_placed;
+    if(!fxb_placed && game.clock >= RL_FXB_DRIVE) {
+        truck_place(&trucks[0], v3(54, 0, -258), ENG_PI / 2);
+        camera_reset();
+        fxb_placed = true;
+        printf("RL AT fxbench: spinning in mud\n");
+    }
+    static int fxb_shots;
+    if(fxb_shots < 2 && game.clock >= RL_FXB_DRIVE + 6.0f + fxb_shots * 8.0f) shot(fxb_shots++ ? "fxbench-2" : "fxbench-1");
+#elif defined(RL_CAPTURE)
     /* The pause menu: FPS counter on, photo mode, the camera swung round
        as the stick would, back out and on again. */
     static int pf;
@@ -207,7 +246,7 @@ void autotest_frame(float dt_real) {
         at.done = true;
         return;
     }
-    if(at.win_t >= 10.0f) {
+    if(at.win_t >= RL_AT_WINDOW) {
         float f = phase_frames ? 1.0f / (phase_frames * 1000.0f) : 0;
         extern uint64_t world_us[3];
         printf("RL AT split terrain=%.2f trees=%.2f trucks=%.2f ms\n", (double)(world_us[0] * f), (double)(world_us[1] * f),
@@ -217,6 +256,7 @@ void autotest_frame(float dt_real) {
         printf("RL AT terrain verts: near3 %d near6 %d skirts %d far %d\n", (int)(ter_count[0] * f * 1000),
                (int)(ter_count[1] * f * 1000), (int)(ter_count[2] * f * 1000), (int)(ter_count[3] * f * 1000));
         memset(ter_count, 0, sizeof(ter_count));
+        printf("RL AT gpu: render %.2f/%.2f ms\n", (double)(at.win_rnd / at.win_frames), (double)at.win_rnd_max);
         printf("RL AT t=%.0f fps=%.1f cpu=%.2f/%.2f over=%d upd=%.2f op=%.2f pt=%.2f tr=%.2f tris=%d verts=%d "
                "pos=%.0f,%.0f,%.0f v=%.1f rpm=%.0f g=%d mode=%d prog=%.2f summit=%.0f%%\n",
                (double)game.clock, (double)(at.win_frames / at.win_t), (double)(at.win_cpu / at.win_frames),
@@ -229,9 +269,12 @@ void autotest_frame(float dt_real) {
 #endif
         memset(phase_us, 0, sizeof(phase_us));
         phase_frames = 0;
-        at.win_t = at.win_cpu = at.win_cpu_max = 0;
+        at.win_t = at.win_cpu = at.win_cpu_max = at.win_rnd = at.win_rnd_max = 0;
         at.win_frames = at.win_over = 0;
     }
+#ifdef RL_AT_FXBENCH
+    if(game.clock > RL_FXB_DRIVE + RL_FXB_SPIN + 0.5f) game.summit_reached = true;
+#endif
     if(game.summit_reached || game.clock > RL_AT_SECONDS) {
         printf("RL AUTOTEST: PASS %s in %.0f s, summit %.0f%%, views %d, cpu avg %.2f max %.2f ms, %d of %d frames late\n",
                game.summit_reached ? "summit reached" : "timed out", (double)game.clock,

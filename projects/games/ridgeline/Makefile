@@ -118,12 +118,21 @@ hwbench:
 		ridgeline-hwbench.elf -- -m $(CURDIR)/captures/hw
 	@/usr/bin/grep -a 'RL A' $(HW_LOG)
 
+# The tyre effects on the console: 15 s of driving, then 25 s of wheelspin
+# in the meadow's mud, frame and PVR render times every 5 s.
+fxbench:
+	$(MAKE) VARIANT=hwbench EXTRA_CFLAGS=-DRL_AT_FXBENCH ridgeline-hwbench.elf
+	mkdir -p captures/hw
+	$(DC_HW) run -c -o -T 240 -i 90 -u 'RL AUTOTEST: (PASS|FAIL)' -l captures/hw/fxbench.log \
+		ridgeline-hwbench.elf -- -m $(CURDIR)/captures/hw
+	@/usr/bin/grep -a 'RL A' captures/hw/fxbench.log
+
 disc: $(TARGET)
 	../../../tools/flycast/elf-to-cdi.sh $(TARGET) ridgeline.cdi
 
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 ridgeline.elf -- -m $(CURDIR)
 
-.PHONY: all clean run level textures trucks audio assets autotest hwbench disc hw force
+.PHONY: all clean run level textures trucks audio assets autotest hwbench fxbench disc hw force
 
 endif

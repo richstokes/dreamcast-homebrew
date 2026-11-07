@@ -33,7 +33,7 @@ static float emit_acc[MAX_TRUCKS][4], rooster_acc[MAX_TRUCKS][4];
 #define TRK_STEP 0.5f          /* metres between points, at least */
 #define TRK_LONG 1.6f          /* ...and at most, on the straight */
 #define TRK_LIFE 150.0f        /* seconds before a print has gone */
-#define TRK_DRAW 45.0f         /* metres from the camera */
+#define TRK_DRAW 35.0f         /* metres from the camera */
 
 typedef struct {
     V3 l, r;
@@ -122,11 +122,18 @@ static Part *spawn(void) {
     return &parts[best];
 }
 
-static Part *puff(V3 p, V3 v, float max, float size, float grow, uint32_t col, float drag, float gravity) {
+/* Soft puffs are what costs on the console: big translucent quads the PVR
+   has to sort and blend. A spinning tyre flinging haze at the chase camera
+   once took the render past 30 ms, so they have a hard cap. */
+#define MAX_PUFFS 36
+static int puff_n;
+
+static void puff(V3 p, V3 v, float max, float size, float grow, uint32_t col, float drag, float gravity) {
+    if(puff_n >= MAX_PUFFS) return;
+    puff_n++;
     Part *q = spawn();
     *q = (Part){.p = p, .v = v, .max = max, .size = size, .grow = grow, .col = col, .drag = drag, .gravity = gravity,
                 .kind = P_PUFF};
-    return q;
 }
 
 void fx_splash(V3 p, float strength) {
@@ -233,8 +240,8 @@ static void rooster_update(int ti, const Truck *t, int i, float dcam, float dt) 
         Part *q = spawn();
         *q = (Part){.p = p, .v = v, .max = 1.2f, .size = rs->size * (0.7f + 0.6f * frand()), .spin = frand_s() * 9.0f,
                     .col = rs->col[frand() < 0.5f], .drag = 0.12f, .gravity = 9.8f, .kind = P_CLOD, .bounce = rs->bounce};
-        if(rs->haze && frand() < 0.3f)
-            puff(p, vscale(v, 0.5f), 0.9f + 0.6f * frand(), 0.3f, 2.0f, rs->haze, 1.6f, 1.0f);
+        if(rs->haze && frand() < 0.1f)
+            puff(p, vscale(v, 0.5f), 0.7f + 0.4f * frand(), 0.28f, 1.3f, rs->haze, 1.6f, 1.0f);
     }
 }
 
@@ -286,6 +293,7 @@ void fx_update(float dt) {
             fx_splash(vadd(t->pos, vscale(t->ax[2], 2.0f)), fminf(fabsf(t->speed) / 8.0f, 1.5f));
         last_water[ti] = t->water;
     }
+    puff_n = 0;
     for(int i = 0; i < part_n;) {
         Part *q = &parts[i];
         q->life += dt;
@@ -313,6 +321,7 @@ void fx_update(float dt) {
                 }
             }
         }
+        puff_n += q->kind == P_PUFF;
         i++;
     }
 }
@@ -397,6 +406,11 @@ void fx_draw(void) {
         if(q->kind != P_PUFF) continue;
         float k = q->life / q->max;
         float a = (float)(q->col >> 24) / 255.0f * (1.0f - k) * fminf(1.0f, q->life * 10.0f);
+        /* Close to the camera one puff covers half the screen: fade it. */
+        V3 dc = vsub(q->p, r_cam.pos);
+        float d2 = vdot(dc, dc);
+        if(d2 < 25.0f) a *= clampf((sqrtf(d2) - 2.0f) * (1.0f / 3.0f), 0, 1);
+        if(a < 0.02f) continue;
         float s = q->size * (1.0f + q->grow * k);
         r_billboard(q->p, s, s, q->life * 0.7f, 0, 0, 1, 1, color_alpha(q->col, a));
     }

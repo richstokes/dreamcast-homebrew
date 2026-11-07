@@ -79,6 +79,7 @@ make -C projects/games/ridgeline run
 | `make run` | Builds and boots it in Flycast |
 | `make autotest` | The CPU drives the player up the logging road with three companions and logs frame times every 10 s |
 | `make hwbench` | The same on the console ([real hardware](../../../README.md#real-hardware)) |
+| `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
 | `make hw` | Plays on the console |
 | `make disc` | A self-booting CDI |
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour and the drive as screenshots |
@@ -115,7 +116,18 @@ late, 35 of them in the first 10 s (title, menus and scenery tour).
 The terrain went from ~8,900 to ~5,900 vertices a frame and from ~10,900 to
 ~7,100 operand-cache misses. Trees came out 0.1-0.15 ms slower in every
 window without being touched: code layout drift, as DreamKarts sees between
-unrelated builds. GPU time is not measured yet.
+unrelated builds. The bench logs now carry the PVR's render time too.
+
+`make fxbench` (2026-11-07), wheelspin in mud with roostertails and tracks.
+The soft haze puffs flung at the camera were the cost (switching each
+effect off in turn: puffs off took the render from 19.7 to 11.2 ms; tracks
+off, 16.3; clods off, nothing), so puffs got a hard cap of 36, a fade near
+the camera and a third of the mud haze.
+
+| Wheelspin in mud, console | PVR render, average / worst | fps |
+| --- | --- | --- |
+| Before | 17-29 / 24-34 ms | 30-40 |
+| After | 11-13 / 15-18 ms | 57-59 |
 
 ## Gotchas
 
