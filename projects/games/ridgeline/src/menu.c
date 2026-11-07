@@ -19,12 +19,13 @@ static const pvr_poly_hdr_t *h_logo;
 static int sel_row;
 
 /* The chrome's colours (engine/ui.h): smoke panels, amber plaques, cream
-   lettering, dark lettering on the amber. */
+   lettering, white lettering on the amber (dark lettering blurs into the
+   font's dark outline there). */
 #define C(a, r, g, b) (((uint32_t)(a) << 24) | ((uint32_t)(r) << 16) | ((uint32_t)(g) << 8) | (uint32_t)(b))
 static const EngUiTheme theme = {
     .roles = {
-        [UI_TITLE] = C(255, 32, 24, 16),      [UI_ITEM] = C(255, 244, 236, 216),     [UI_ITEM_SEL] = C(255, 32, 24, 16),
-        [UI_LABEL] = C(255, 184, 176, 160),   [UI_VALUE] = C(255, 244, 236, 216),    [UI_VALUE_SEL] = C(255, 32, 24, 16),
+        [UI_TITLE] = C(255, 255, 255, 255),   [UI_ITEM] = C(255, 244, 236, 216),     [UI_ITEM_SEL] = C(255, 255, 255, 255),
+        [UI_LABEL] = C(255, 184, 176, 160),   [UI_VALUE] = C(255, 244, 236, 216),    [UI_VALUE_SEL] = C(255, 255, 255, 255),
         [UI_DIM] = C(255, 184, 176, 160),     [UI_TEXT] = C(255, 248, 240, 220),     [UI_HINT] = C(255, 244, 236, 216),
         [UI_ACCENT] = C(255, 232, 160, 48),   [UI_GOOD] = C(255, 144, 240, 176),     [UI_WARN] = C(255, 255, 144, 80),
     },
