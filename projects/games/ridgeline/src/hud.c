@@ -9,7 +9,7 @@
 
 static EngFont font;
 static const pvr_poly_hdr_t *h_dial, *h_icons, *h_map, *h_flat, *h_glow;
-static char msg[48];
+static char msg[48], msg_sub[64];
 static float msg_t, msg_len;
 static uint32_t msg_col;
 static float tcs_lamp; /* seconds the traction control lamp stays lit */
@@ -39,8 +39,13 @@ const EngFont *hud_font(void) {
 
 void hud_message(const char *text, uint32_t col, float seconds) {
     snprintf(msg, sizeof(msg), "%s", text);
+    msg_sub[0] = 0;
     msg_col = col;
     msg_t = msg_len = seconds;
+}
+
+void hud_message_sub(const char *text) {
+    snprintf(msg_sub, sizeof(msg_sub), "%s", text);
 }
 
 void hud_update(float dt) {
@@ -257,6 +262,7 @@ void hud_draw(void) {
     if(msg_t > 0) {
         float a = clampf(msg_t / 0.4f, 0, 1) * clampf((msg_len - msg_t) / 0.15f, 0, 1);
         hud_text_c(320, 124, 1.0f, ALIGN_CENTER, color_alpha(msg_col, a), msg);
+        if(msg_sub[0]) hud_text_c(320, 162, 0.62f, ALIGN_CENTER, color_alpha(0xfff8f0dc, a), msg_sub);
     }
     if(hud_hold_k > 0 && hud_hold_label) {
         hud_panel(240, 300, 400, 330, 0xa0182028);

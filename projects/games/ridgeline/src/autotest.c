@@ -73,10 +73,40 @@ static const float tour_views[][6] = {
     {-50, 4, -212, -95, 3, -221},       /* across the deep ford to the stone arch */
     {255, 8.5f, -116, 249, 6, -121},    /* the old pickup in the woods */
     {7, 101.5f, 91, -2, 98.5f, 86},     /* the high camp */
+    {140, 3.5f, -214, 152, 1.2f, -194}, /* deer in the east meadow */
 };
 #define TOUR_N (int)(sizeof(tour_views) / sizeof(tour_views[0]))
 
+#ifdef RL_AT_VMUTEST
+#include "records.h"
+/* make vmutest, on blank cards: a summit time saves and reads back, a
+   slower one doesn't replace it. */
+static void vmu_test(void) {
+    char line[64];
+    records_load();
+    game.truck_model = 1;
+    records_start();
+    game.clock = 581.34f;
+    bool first = records_summit(line, sizeof(line));
+    printf("RL AT vmu: %s\n", line);
+    records_start();
+    game.clock = 640.0f;
+    bool second = records_summit(line, sizeof(line));
+    printf("RL AT vmu: %s\n", line);
+    records_load();
+    uint32_t got = records_best(1, WAY_LOGGING), other = records_best(0, WAY_LOGGING);
+    if(first && !second && got == 5813 && other == 0)
+        printf("RL AUTOTEST: PASS vmu save read back %lu\n", (unsigned long)got);
+    else
+        printf("RL AUTOTEST: FAIL vmu save: first %d second %d read back %lu other %lu\n", first, second, (unsigned long)got,
+               (unsigned long)other);
+}
+#endif
+
 void autotest_boot(void) {
+#ifdef RL_AT_VMUTEST
+    vmu_test();
+#endif
     game.truck_model = RL_AT_TRUCK;
     game.livery = 0;
     game.companions = RL_AT_COMPANIONS;

@@ -10,6 +10,8 @@ void hud_update(float dt);
 void hud_draw(void);                /* TR list */
 void hud_draw_map(void);            /* the map alone (demo mode) */
 void hud_message(const char *text, uint32_t col, float seconds);
+/* A smaller second line under the message just set, gone with it. */
+void hud_message_sub(const char *text);
 const EngFont *hud_font(void);
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s);
 void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s);

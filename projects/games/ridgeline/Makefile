@@ -6,7 +6,7 @@ TARGET = ridgeline.elf
 GAME_PREFIX = RL
 # Ridgeline's own sources (src/), then the shared engine's
 # (projects/common/engine), in link order.
-SOURCES = main.c terrain.c world.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c soundtest.c autotest.c birds.c \
+SOURCES = main.c terrain.c world.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c \
 	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/level.bin
@@ -49,6 +49,17 @@ autotest:
 	RL_ELF=ridgeline-autotest.elf RL_EXIT_ON_LOG='RL AUTOTEST: PASS' \
 		RL_FAIL_ON_LOG='RL AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 
+# The best-times save on eight blank Flycast cards (never the real ones).
+vmutest:
+	rm -f ridgeline-autotest.elf
+	$(MAKE) VARIANT=autotest EXTRA_CFLAGS=-DRL_AT_VMUTEST ridgeline-autotest.elf
+	rm -rf build/vmutest-cards
+	python3 -c 'import sys, pathlib; sys.path.insert(0, "../../dcvmu.com/client/tests"); \
+		import isolated_cards; isolated_cards.blank_cards(pathlib.Path("build/vmutest-cards"))'
+	RL_ELF=ridgeline-autotest.elf RL_EXIT_ON_LOG='RL AUTOTEST: PASS' RL_FAIL_ON_LOG='RL AUTOTEST: FAIL' \
+		RL_FLYCAST_CONFIG="config:Dreamcast.VMUPath=$(CURDIR)/build/vmutest-cards" ./run-flycast.sh --skip-build
+	rm -f ridgeline-autotest.elf
+
 DC_HW = ../../../tools/dc-hw.sh
 HW_LOG ?= captures/hw/hwbench.log
 hwbench:
@@ -73,6 +84,6 @@ disc: $(TARGET)
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 ridgeline.elf -- -m $(CURDIR)
 
-.PHONY: run level textures trucks audio assets autotest hwbench fxbench disc hw
+.PHONY: run level textures trucks audio assets autotest vmutest hwbench fxbench disc hw
 
 endif

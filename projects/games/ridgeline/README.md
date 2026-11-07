@@ -33,6 +33,15 @@ been, and the viewpoints you've found.
 - A spinning tyre flings a roostertail of whatever it's in (mud clods,
   dirt, stones, snow, spray), and the rear tyres leave tread tracks in soft
   ground
+- Things to find off the trail: ten viewpoints, among them a boulder
+  field, a stone arch across a deep ford the old pickup can't wade, an
+  abandoned truck in the woods and a camp past the lake. The logging road
+  has a washout, a log bridge and a steep shortcut that skips ~480 m of it
+- Best times to the summit per truck and per way up (or your own way),
+  saved on the VMU and shown on the truck select. A viewpoint jump from
+  the pause menu means no time for that run
+- Deer in the meadows that graze, look up as you come near and bolt when
+  you get close or sound the horn
 - Up to three CPU trucks for company, each taking its own route
 - Birds: jays, juncos and ravens perched on logs, rocks, the cabin roof
   and the cairns burst away as a truck comes near (or at the horn), hawks
@@ -82,6 +91,7 @@ make -C projects/games/ridgeline run
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
 | `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all |
+| `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time saves, reads back, and a slower one doesn't replace it |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
 | `make hw` | Plays on the console |
@@ -157,7 +167,7 @@ the camera and a third of the mud haze.
 ## Known limitations
 
 - One scene (autumn); the desert palette is not built yet
-- No VMU saves, rumble or online play yet
+- No rumble or online play yet; the VMU keeps best times only
 - Rock-ledge climbing is approximate: the tyre is sampled at seven points,
   not swept
 

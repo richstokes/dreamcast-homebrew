@@ -2,6 +2,7 @@
    truck, its paint and company with the truck parked in the meadow, and
    the pause menu. */
 #include "menu.h"
+#include "records.h"
 #include "hud.h"
 #include "engine/ui.h"
 #include "truck.h"
@@ -209,6 +210,18 @@ void menu_select_draw(void) {
         }
         else ui_button(235, y, 200, rows[r][1], on);
     }
+    /* This truck's best times to the summit, by the way up. */
+    ui_panel(446, 282, 610, 426);
+    hud_text_c(528, 298, 0.5f, ALIGN_CENTER, ui_col(UI_LABEL), "BEST TIMES");
+    static const char *const short_way[WAY_COUNT] = {"LOGGING", "RIDGE", "CREEK", "OWN WAY"};
+    for(int w = 0; w < WAY_COUNT; w++) {
+        float y = 328 + w * 26;
+        char t[16] = "--:--";
+        uint32_t b = records_best(game.truck_model, w);
+        if(b) records_format(b, t, sizeof(t));
+        hud_text_c(458, y, 0.52f, ALIGN_LEFT, ui_col(UI_LABEL), short_way[w]);
+        hud_text_c(598, y, 0.52f, ALIGN_RIGHT, ui_col(b ? UI_VALUE : UI_LABEL), t);
+    }
     ui_heading(320, 40, "CHOOSE YOUR TRUCK");
     ui_hint("LEFT/RIGHT: CHANGE   A: DRIVE   B: BACK");
 }
@@ -276,6 +289,7 @@ void menu_pause_update(float dt) {
                 const lvl_view_t *v = &lvl_views[game.view_sel];
                 char buf[48];
                 truck_recover_at(&trucks[0], v3(v->x, v->y, v->z));
+                records_jumped();
                 camera_reset();
                 fx_clear();
                 game.paused = false;

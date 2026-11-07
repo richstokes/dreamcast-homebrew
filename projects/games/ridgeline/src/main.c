@@ -9,6 +9,8 @@
 #include "audio.h"
 #include "ai.h"
 #include "fx.h"
+#include "records.h"
+#include "deer.h"
 #include "menu.h"
 #include "autotest.h"
 #include "demo.h"
@@ -64,6 +66,8 @@ void game_start_drive(void) {
     game.last_view = -1;
     game.summit_reached = false;
     game.clock = 0;
+    records_start();
+    deer_reset();
     game.paused = false;
     game.photo = false;
     camera_reset();
@@ -158,7 +162,10 @@ static void progress_update(void) {
     if(!game.summit_reached && dx * dx + dz * dz < 18.0f * 18.0f) {
         game.summit_reached = true;
         game.summit_frac = 1.0f;
-        hud_message("SUMMIT!  CASCADE RIDGE", 0xffffe070, 5.0f);
+        hud_message("SUMMIT!  CASCADE RIDGE", 0xffffe070, 7.0f);
+        char line[64];
+        records_summit(line, sizeof(line));
+        hud_message_sub(line);
         audio_sfx(RL_SFX_SUMMIT, 240);
     }
 }
@@ -188,6 +195,7 @@ static void drive_update(float dt) {
     for(int i = 1; i < game.ntrucks; i++) ai_drive(i, dt);
     for(int i = 0; i < game.ntrucks; i++) truck_update(&trucks[i], dt);
     progress_update();
+    records_update(dt);
     game.clock += dt;
     fx_update(dt);
     camera_follow(p, dt);
@@ -203,6 +211,7 @@ static void update(float dt) {
     }
     world_update(dt);
     birds_update(dt);
+    if(!game.paused) deer_update_all(dt);
     hud_update(dt);
 }
 
@@ -221,6 +230,7 @@ static void render(void) {
     uint64_t tt = timer_us_gettime64();
     bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND;
     if(!no_trucks) truckdraw_draw_op();
+    deer_draw_all();
     world_us[2] += timer_us_gettime64() - tt;
     prof_phase_mark(PH_OP);
     r_list(PVR_LIST_PT_POLY);
@@ -272,6 +282,7 @@ int main(int argc, char **argv) {
     fx_init();
     birds_init();
     audio_init();
+    records_load();
     printf("Ridgeline boot: %lu ms, %lu KiB VRAM free\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000),
            (unsigned long)(pvr_mem_available() / 1024));
     game_set_state(ST_TITLE);

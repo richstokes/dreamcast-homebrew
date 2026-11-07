@@ -29,5 +29,7 @@ void world_draw_tr(void);             /* TR: water, clouds, sun */
 void world_draw_flare(void);          /* TR, last: the sun's lens flare */
 /* The top of boulder i (lvl_spheres) as drawn up close. */
 float world_boulder_top(int i);
+/* An albedo lit by this scene's sun and sky, for a face with normal n. */
+uint32_t world_lit(uint32_t albedo, V3 n);
 
 #endif

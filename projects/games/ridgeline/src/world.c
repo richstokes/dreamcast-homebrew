@@ -536,6 +536,10 @@ static bool sun_occluded(void) {
     return false;
 }
 
+uint32_t world_lit(uint32_t albedo, V3 n) {
+    return lit(albedo, n, 1.0f);
+}
+
 void world_update(float dt) {
     float target = sun_occluded() ? 0.0f : 1.0f;
     flare_vis = approach(flare_vis, target, dt * 4.0f);
