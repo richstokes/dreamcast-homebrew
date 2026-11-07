@@ -897,30 +897,27 @@ def bubble(f0, dur, rise, sr, rng=None):
 
 
 def sfx_mud():
+    """Tyres churning mud: a thick low slurry, wet slaps as the tread pulls
+    out, and clods spattering the wheel arches. Nothing pitched: tones or
+    pitch sweeps here (it once had both) read as bubbles popping."""
     rng = rng_for("mud")
     sr = SR
-    n = 16 * round(0.85 * sr / 16)
-    y = np.zeros(n)
-    # Squelches: a cavity formant rising as the tread pulls free of the mud.
-    for _ in range(9):
-        d = rng.uniform(0.07, 0.16)
+    n = 16 * round(1.2 * sr / 16)
+
+    def unit(x):
+        return x / (np.sqrt(np.mean(x * x)) + 1e-12)
+
+    churn = fshape(pnoise(n, rng), lambda f: H_lp2(f, 240, 0.7) * H_hp2(f, 35)) * (0.7 + 0.3 * plfo(n, 5, rng))
+    slaps = np.zeros(n)
+    for _ in range(17):
+        d = rng.uniform(0.03, 0.07)
         m = int(d * sr)
         t = np.arange(m) / sr
-        fc = rng.uniform(220, 380) * (1 + rng.uniform(1.0, 2.2) * (t / d) ** 1.5)
-        src = rng.standard_normal(m)
-        env = np.sin(np.pi * t / d) ** 1.5
-        # Narrow resonance sweeping: sum of bubble-like partials for speed.
-        ph = TAU * np.cumsum(fc) / sr
-        tone = (np.sin(ph) + 0.3 * np.sin(2 * ph + 1)) * env
-        wet = filt(src * env, "bp", float(np.mean(fc)), 1.5, sr=sr) * 0.6
-        place_wrap(y, rng.integers(0, n), tone * 0.5 + wet, rng.uniform(0.5, 1.0))
-    # Suction pops and bubbles.
-    for _ in range(26):
-        b = bubble(rng.uniform(250, 900), rng.uniform(0.012, 0.035), rng.uniform(0.4, 1.4), sr)
-        place_wrap(y, rng.integers(0, n), b, rng.uniform(0.15, 0.45))
-    churn = fshape(pnoise(n, rng), lambda f: H_lp2(f, 260, 0.9) * H_hp2(f, 40)) * (0.7 + 0.3 * plfo(n, 4, rng))
-    slop = pnoise(n, rng, 500, 2500) * np.clip(plfo(n, 18, rng), 0, None) * 0.12
-    y = y + 0.45 * churn + slop
+        env = np.minimum(t / 0.003, 1) * np.exp(-t / (d / 3))
+        s = filt(rng.standard_normal(m) * env, "bp", rng.uniform(250, 600), 0.7, sr=sr)
+        place_wrap(slaps, rng.integers(0, n), filt(s, "lp", 1400, sr=sr), rng.uniform(0.5, 1.0))
+    spatter = grains_loop(n, rng, 70, (3, 9), (700, 2400), 0.8, 0.5, sr)
+    y = unit(churn) + 0.8 * unit(slaps) + 0.35 * unit(spatter)
     return tame(y, 99.9, 1.3)
 
 
@@ -1218,15 +1215,19 @@ def sfx_splash():
 
 
 def sfx_blowoff():
-    """Blow-off valve dumping boost: a plain hiss. The flutter, falling
-    whistle and low chuff it used to have read as a bubble popping."""
+    """Blow-off valve dumping boost, with the turbo whistle winding down."""
     rng = rng_for("blowoff")
-    n = int(0.6 * SR)
+    n = int(0.75 * SR)
     t = np.arange(n) / SR
-    env = np.minimum(t / 0.015, 1) ** 2 * (np.exp(-t / 0.12) + 0.12 * np.exp(-t / 0.3))
+    env = np.minimum(t / 0.006, 1) * np.exp(-t / 0.14) + 0.15 * np.exp(-t / 0.35) * np.minimum(t / 0.01, 1)
     nz = rng.standard_normal(n)
-    psh = filt(filt(nz, "hp", 1500), "peak", 3800, 0.8, gain_db=5) * env
-    return fade(filt(psh, "lp", 8000), 0.0, 0.08)
+    psh = filt(filt(nz, "hp", 1200), "peak", 3400, 1.0, gain_db=7) * env
+    psh = filt(psh, "lp", 8000)
+    flutter = 1 + 0.25 * np.sin(TAU * 38 * t) * np.exp(-t / 0.08)
+    f = 6400 * np.exp(-t / 0.5) + 1500
+    whistle = np.sin(TAU * np.cumsum(f) / SR) * np.exp(-t / 0.3) * 0.08
+    chuff = filt(nz, "lp", 400) * np.exp(-t / 0.02) * 0.8
+    return psh * flutter + whistle + chuff
 
 
 def bell(f, n, partials, strike=0.0, seed="bell", sr=SR):

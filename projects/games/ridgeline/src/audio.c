@@ -244,7 +244,7 @@ void audio_update(float dt) {
         blowoff_cool -= dt;
         static float last_load;
         if(p->model == 1 && last_load > 0.7f && p->load < 0.2f && p->rpm > 2600.0f && blowoff_cool <= 0) {
-            sfx_play(RL_SFX_BLOWOFF, 110, 128, 1.0f);
+            sfx_play(RL_SFX_BLOWOFF, 150, 128, 1.0f);
             blowoff_cool = 1.5f;
         }
         last_load = p->load;
