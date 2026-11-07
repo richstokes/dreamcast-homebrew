@@ -9,6 +9,7 @@
 #include "world.h"
 #include "engine/sky.h"
 #include "terrain.h"
+#include "truck.h"
 #include "engine/prof.h"
 #include <sh4zam/shz_sh4zam.h>
 
@@ -356,8 +357,29 @@ void world_draw_sky(void) {
 #define TUFT_CELL 2.0f
 #define TUFT_MAX 220
 
+/* Tufts sit on a fixed grid, so one under a truck would poke up through
+   its bed: leave out any whose billboard (half width w, mostly blades)
+   reaches under a truck's hull footprint. */
+static V3 tuft_hull[MAX_TRUCKS];
+
+static bool under_truck(float px, float pz, float w) {
+    for(int i = 0; i < game.ntrucks; i++) {
+        const Truck *t = &trucks[i];
+        float dx = px - tuft_hull[i].x, dz = pz - tuft_hull[i].z;
+        if(dx * dx + dz * dz > 64.0f) continue;
+        if(fabsf(dx * t->ax[0].x + dz * t->ax[0].z) < t->spec.hull_h[0] + w &&
+           fabsf(dx * t->ax[2].x + dz * t->ax[2].z) < t->spec.hull_h[2] + w)
+            return true;
+    }
+    return false;
+}
+
 void world_draw_pt(void) {
     static RV v[TUFT_MAX * 6];
+    for(int i = 0; i < game.ntrucks; i++) {
+        const float *hc = trucks[i].spec.hull_c;
+        tuft_hull[i] = truck_to_world(&trucks[i], v3(hc[0], hc[1], hc[2]));
+    }
     int n = 0;
     V3 c = r_cam.pos;
     float tx, ty;
@@ -383,6 +405,7 @@ void world_draw_pt(void) {
             float k = 1.0f - d2 / (TUFT_R * TUFT_R);
             float w = (0.55f + ((s >> 16) & 15) / 30.0f) * fminf(1.0f, k * 3.0f);
             float h = w * 1.25f;
+            if(under_truck(px, pz, w * 0.6f)) continue;
             int gi = lvl_clampi((int)((px - LEVEL_ORG) / LEVEL_D + 0.5f)), gj = lvl_clampi((int)((pz - LEVEL_ORG) / LEVEL_D + 0.5f));
             uint32_t col = color_scale(lvl_ground[gj * LEVEL_N + gi].c, 1.35f);
             float u0 = (s >> 24 & 1) ? 0.0f : 1.0f, u1 = 1.0f - u0;
