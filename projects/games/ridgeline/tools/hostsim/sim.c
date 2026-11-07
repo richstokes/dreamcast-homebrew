@@ -68,6 +68,7 @@ static int run_turn(int mode, int model, float steer, int hb) {
     t->model = model;
     truck_place(t, v3(0, 0, -240), ENG_PI / 2);
     t->mode = mode;
+    t->tcs_off = getenv("SIM_TCS_OFF") != NULL;
     float dt = 1.0f / 60.0f, beta_max = 0, yaw_max = 0;
     for(int f = 0; f < 60 * 7; f++) {
         float tm = f * dt;

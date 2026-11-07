@@ -11,7 +11,7 @@ been, and the viewpoints you've found.
 
 - Two trucks: CASCADE 84, an early-80s pickup (2.4 L four, no traction
   control), and KESTREL, a modern two-door 4x4 (twin-turbo V6, 35 inch tyres,
-  traction control off when the lockers are in), four liveries each
+  traction control, off when the lockers are in), four liveries each
 - Three ways up from the fork, meeting at a lake before the summit trail:
   the logging road (long, gentle, gravel then muddy ruts and fallen logs),
   the creek bed (water crossings, mud, wet rock) and the ridge line (steep,
@@ -28,8 +28,8 @@ been, and the viewpoints you've found.
 - 2WD is the loose one: nose-heavy trucks (the pickup ~60% front) with a
   limited-slip rear, so the tail comes round under power and a spinning
   tyre gives up its cornering grip. Feed it on the progressive throttle and
-  catch it with opposite lock; the Kestrel's traction control works only
-  in 4WD, and holding D-pad up switches it off
+  catch it with opposite lock. The Kestrel's traction control reins it in
+  (in 2WD and 4WD) until you hold D-pad up to switch it off
 - Up to three CPU trucks for company, each taking its own route
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music

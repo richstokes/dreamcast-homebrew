@@ -868,15 +868,14 @@ void truck_update(Truck *t, float dt) {
         }
     }
     /* Traction control (the Kestrel has it, the 80s pickup leaves it to
-       your foot) trims the engine when the tyres spin up past the ground.
-       The driver can switch it off. Only in 4WD: 2WD is the play mode (as
-       with the TC-off button, the tail is yours to slide), and with the
-       lockers in, crawling over rock wants the wheels to turn however much
-       they slip. */
+       your foot) trims the engine when the tyres spin up past the ground,
+       in 2WD and 4WD; the driver switches it off to slide the tail. Never
+       with the lockers in: crawling over rock wants the wheels to turn
+       however much they slip. */
     t->tc = 1.0f;
     static float tc_s[MAX_TRUCKS];
     int ti2 = (int)(t - trucks) & (MAX_TRUCKS - 1);
-    if(!t->spec.tcs || t->tcs_off || t->mode != DRIVE_4WD) tc_s[ti2] = 1.0f;
+    if(!t->spec.tcs || t->tcs_off || t->mode == DRIVE_LOCK) tc_s[ti2] = 1.0f;
     else {
         float slip = 0;
         for(int i = 0; i < 4; i++)
