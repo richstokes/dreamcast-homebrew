@@ -3,6 +3,7 @@
    the pause menu. */
 #include "menu.h"
 #include "hud.h"
+#include "engine/ui.h"
 #include "truck.h"
 #include "camera.h"
 #include "audio.h"
@@ -17,8 +18,29 @@
 static const pvr_poly_hdr_t *h_logo;
 static int sel_row;
 
+/* The chrome's colours (engine/ui.h): smoke panels, amber plaques, cream
+   lettering, dark lettering on the amber. */
+#define C(a, r, g, b) (((uint32_t)(a) << 24) | ((uint32_t)(r) << 16) | ((uint32_t)(g) << 8) | (uint32_t)(b))
+static const EngUiTheme theme = {
+    .roles = {
+        [UI_TITLE] = C(255, 32, 24, 16),      [UI_ITEM] = C(255, 244, 236, 216),     [UI_ITEM_SEL] = C(255, 32, 24, 16),
+        [UI_LABEL] = C(255, 184, 176, 160),   [UI_VALUE] = C(255, 244, 236, 216),    [UI_VALUE_SEL] = C(255, 32, 24, 16),
+        [UI_DIM] = C(255, 184, 176, 160),     [UI_TEXT] = C(255, 248, 240, 220),     [UI_HINT] = C(255, 244, 236, 216),
+        [UI_ACCENT] = C(255, 232, 160, 48),   [UI_GOOD] = C(255, 144, 240, 176),     [UI_WARN] = C(255, 255, 144, 80),
+    },
+    .outline = C(255, 12, 16, 20),
+    .shadow = C(96, 0, 0, 0),
+    .panel_top = C(208, 52, 60, 68), .panel_bottom = C(208, 24, 32, 40),
+    .well_top = C(255, 16, 20, 24), .well_bottom = C(255, 12, 16, 20),
+    .plaque_top = C(255, 240, 176, 64), .plaque_bottom = C(255, 208, 128, 32), .plaque_glow = C(255, 252, 200, 96),
+    .button_top = C(255, 84, 92, 100), .button_bottom = C(255, 48, 56, 64),
+    .hint_top = C(224, 52, 60, 68), .hint_bottom = C(224, 24, 32, 40),
+    .dim = C(128, 0, 0, 0),
+};
+
 void menu_init(void) {
     h_logo = r_header(TEX_LOGO, HF_TR | HF_NOFOG | HF_CLAMP);
+    ui_init(hud_font(), &theme);
 }
 
 static const char *livery_name(int model, int lv) {
@@ -98,16 +120,16 @@ void menu_title_draw(void) {
     r_quad2d(320 - w, 150 - h, 320 + w, 150 + h, 0, 0, 1, 1, color_alpha(0xffffffff, k), 12.0f);
     if(title_menu) {
         static const char *const items[T_COUNT] = {"SINGLE PLAYER", "ONLINE", "SOUND TEST"};
-        hud_panel(200, 278, 440, 404, color_alpha(0xb0182028, k));
+        ui_panel(200, 278, 440, 404);
         for(int i = 0; i < T_COUNT; i++) {
             float y = 304 + i * 37;
             bool on = i == title_sel, off = i == T_ONLINE;
-            if(on) hud_panel(206, y - 15, 434, y + 15, off ? 0xc0706860 : 0xd0e8a030);
-            uint32_t c = off ? (on ? 0xffc8c0b0 : 0xff807868) : on ? 0xff201810 : 0xfff4ecd8;
-            hud_text_c(320, y, 0.72f, ALIGN_CENTER, color_alpha(c, k), items[i]);
+            ui_row(206, y - 15, 434, y + 15, on);
+            uint32_t c = on ? ui_col(UI_ITEM_SEL) : off ? ui_col(UI_DIM) : ui_col(UI_ITEM);
+            hud_text_c(320, y, 0.72f, ALIGN_CENTER, c, items[i]);
         }
-        if(title_sel == T_ONLINE)
-            hud_text_c(320, 426, 0.5f, ALIGN_CENTER, color_alpha(0xffb8b0a0, k), "COMING SOON");
+        if(title_sel == T_ONLINE) hud_text_c(320, 426, 0.5f, ALIGN_CENTER, ui_col(UI_DIM), "COMING SOON");
+        ui_hint("A: OK   B: BACK");
     }
     else if(fmodf(game.time, 1.2f) < 0.8f)
         hud_text_c(320, 380, 0.9f, ALIGN_CENTER, color_alpha(0xffffffff, k), "PRESS START");
@@ -172,21 +194,21 @@ void menu_select_draw(void) {
         {"COMPANY", company[game.companions]},
         {"", "DRIVE!"},
     };
-    hud_panel(40, 300, 430, 452, 0xb0182028);
+    ui_panel(40, 282, 430, 426);
     for(int r = 0; r < 4; r++) {
-        float y = 324 + r * 36;
+        float y = 304 + r * 34;
         bool on = r == sel_row;
-        if(on) hud_panel(44, y - 15, 426, y + 15, 0xd0e8a030);
-        uint32_t c = on ? 0xff201810 : 0xfff4ecd8;
-        hud_text_c(58, y, 0.66f, ALIGN_LEFT, on ? 0xff403020 : 0xffb8b0a0, rows[r][0]);
         if(r < 3) {
+            ui_row(44, y - 15, 426, y + 15, on);
+            uint32_t c = ui_col(on ? UI_VALUE_SEL : UI_VALUE);
+            hud_text_c(58, y, 0.66f, ALIGN_LEFT, ui_col(on ? UI_ITEM_SEL : UI_LABEL), rows[r][0]);
             hud_text_c(297, y, 0.64f, ALIGN_CENTER, c, rows[r][1]);
-            hud_text_c(190, y, 0.72f, ALIGN_CENTER, c, "<");
-            hud_text_c(408, y, 0.72f, ALIGN_CENTER, c, ">");
+            if(on) ui_arrows(190, 408, y, 0.72f, c);
         }
-        else hud_text_c(235, y, 0.8f, ALIGN_CENTER, c, rows[r][1]);
+        else ui_button(235, y, 200, rows[r][1], on);
     }
-    hud_text_c(320, 40, 0.8f, ALIGN_CENTER, 0xfff8f0dc, "CHOOSE YOUR TRUCK");
+    ui_heading(320, 40, "CHOOSE YOUR TRUCK");
+    ui_hint("LEFT/RIGHT: CHANGE   A: DRIVE   B: BACK");
 }
 
 /* ---- Pause ---- */
@@ -242,13 +264,14 @@ void menu_pause_draw(void) {
     }
     const char *items[P_COUNT] = {"CARRY ON", "RECOVER TRUCK", game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
                                   game.hud_hidden ? "HUD: OFF" : "HUD: ON", "QUIT TO TITLE"};
-    hud_panel(190, 134, 450, 380, 0xc0182028);
-    hud_text_c(320, 160, 0.9f, ALIGN_CENTER, 0xfff8f0dc, "PAUSED");
+    ui_dim();
+    ui_panel(190, 150, 450, 364);
+    ui_title(190, 150, 450, "PAUSED");
     for(int i = 0; i < P_COUNT; i++) {
         float y = 204 + i * 32;
         bool on = i == game.pause_sel;
-        if(on) hud_panel(202, y - 14, 438, y + 14, 0xd0e8a030);
-        hud_text_c(320, y, 0.7f, ALIGN_CENTER, on ? 0xff201810 : 0xfff4ecd8, items[i]);
+        ui_row(202, y - 14, 438, y + 14, on);
+        hud_text_c(320, y, 0.7f, ALIGN_CENTER, ui_col(on ? UI_ITEM_SEL : UI_ITEM), items[i]);
     }
-    hud_text_c(320, 362, 0.55f, ALIGN_CENTER, 0xffd8d0c0, "Y: PHOTO MODE");
+    ui_hint("A: OK   Y: PHOTO MODE   B: BACK");
 }

@@ -4,52 +4,11 @@
 # dependencies = ["pyobjc-framework-Quartz"]
 # ///
 """Run the DK_CAPTURE build and screenshot the Flycast window at each
-"DK SHOT <name>" line. Usage: uv run tools/capture.py --out captures"""
-import argparse, os, subprocess, sys, time
+"DK SHOT <name>" line (the engine's tools/capture.py with this game's
+names). Usage: uv run tools/capture.py --out captures"""
+import runpy, sys
 from pathlib import Path
-import Quartz
 
-def flycast_window(stem):
-    """The window running our ELF (titled after it); otherwise the newest
-    Flycast window, so another Flycast left open is never grabbed first."""
-    best = None
-    for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID):
-        if w.get("kCGWindowOwnerName") != "Flycast" or w.get("kCGWindowBounds", {}).get("Height", 0) <= 200:
-            continue
-        if stem in (w.get("kCGWindowName") or ""):
-            return w["kCGWindowNumber"]
-        if best is None or w["kCGWindowNumber"] > best:
-            best = w["kCGWindowNumber"]
-    return best
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=Path("captures"))
-    ap.add_argument("--elf", default="dreamkarts-capture.elf")
-    ap.add_argument("--delay", type=float, default=0.25)
-    ap.add_argument("--log", type=Path, help="also keep the whole serial console here")
-    a = ap.parse_args()
-    a.out.mkdir(parents=True, exist_ok=True)
-    here = Path(__file__).resolve().parent.parent
-    env = dict(os.environ, DK_ELF=a.elf, DK_EXIT_ON_LOG="DK AUTOTEST: PASS", DK_FAIL_ON_LOG="DK AUTOTEST: FAIL")
-    proc = subprocess.Popen([str(here / "run-flycast.sh"), "--skip-build"], cwd=here, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    log = open(a.log, "w") if a.log else None
-    for raw in proc.stdout:
-        line = raw.decode("latin-1").rstrip()
-        if log:
-            log.write(line + "\n")
-            log.flush()
-        if line.startswith("DK SHOT "):
-            name = line[8:].strip()
-            time.sleep(a.delay)
-            wid = flycast_window(Path(a.elf).stem)
-            if wid:
-                subprocess.run(["screencapture", "-x", "-o", "-l", str(wid), str(a.out / f"{name}.png")])
-                print("captured", name, flush=True)
-        elif line.startswith("DK AUTOTEST") or line.startswith("DK STATE") or "panic" in line:
-            print(line, flush=True)
-    return proc.wait()
-
-if __name__ == "__main__":
-    sys.exit(main())
+here = Path(__file__).resolve()
+sys.argv[1:1] = ["--project", str(here.parents[1]), "--prefix", "DK", "--elf", "dreamkarts-capture.elf"]
+runpy.run_path(str(here.parents[3] / "common" / "engine" / "tools" / "capture.py"), run_name="__main__")

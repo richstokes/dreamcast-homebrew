@@ -3,31 +3,25 @@ include ../../../tools/sh4zam.mk
 else
 
 TARGET = dreamkarts.elf
-# input.c, render.c, mesh.c, text.c, sfx.c and prof.c are the shared
-# engine's (projects/common/engine); the rest are src/. The list's order
-# is the link order, which sets the code and data layout the console's
-# timings were measured on, so keep it.
-SOURCES = main.c input.c track.c kart.c render.c world.c models.c mesh.c fx.c hud.c text.c ui.c title.c audio.c sfx.c rumble.c dolphins.c biplane.c \
+GAME_PREFIX = DK
+# input.c, render.c, mesh.c, text.c, ui.c, sfx.c, prof.c and frame.c are
+# the shared engine's (projects/common/engine); the rest are src/. The list's
+# order is the link order, which sets the code and data layout the
+# console's timings were measured on, so keep it.
+SOURCES = main.c input.c track.c kart.c render.c world.c models.c mesh.c fx.c hud.c text.c theme.c ui.c title.c audio.c sfx.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c flappy.c roam.c \
 	world_mesh.c world_road.c world_props.c world_beach.c world_coral.c world_harbour.c world_temple.c world_skyway.c \
-	world_canyon.c world_tsudoken.c world_apple.c world_lot.c world_sf.c tide.c cablecar.c birds.c skylife.c autotest.c prof.c track_tex.c
+	world_canyon.c world_tsudoken.c world_apple.c world_lot.c world_sf.c tide.c cablecar.c birds.c skylife.c autotest.c prof.c frame.c track_tex.c
 # Shared with other projects, from projects/common.
 COMMON_SOURCES = dialup.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak
-GEN_HEADERS = $(wildcard $(GEN)/*.h)
-SH4ZAM_HEADERS = $(wildcard third_party/sh4zam/include/sh4zam/*.h \
-	third_party/sh4zam/include/sh4zam/inline/*.h \
-	third_party/sh4zam/include/sh4zam/inline/sh4/*.h)
-ENGINE_DIR = ../../common/engine
-HEADERS = $(wildcard src/*.h ../../common/*.h $(ENGINE_DIR)/*.h) $(GEN_HEADERS) $(SH4ZAM_HEADERS)
-# -ffast-math lets GCC use the SH-4's FSCA for sinf/cosf (KOS passes -mfsca
-# but libm calls remain without it) and plain FSQRT for sqrtf.
-WARN = -std=gnu17 -O2 -ffast-math -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(EXTRA_CFLAGS)
-INCLUDES = -Isrc -I$(GEN) -Ibuild -I../.. -I../../common -Ithird_party/sh4zam/include
+LIBS = -lppp -lm
+EXTRA_INCLUDES = -I../..
+VERSION_SOURCES = title.c main.c
 BLENDER ?= blender
 
-# Build variants share sources; each gets its own object directory.
+# Build variants (projects/common/engine/game.mk).
 # autotest: CPU drives the player kart for a full race and logs frame times.
 VARIANT ?= release
 VARIANT_FLAGS_release =
@@ -42,85 +36,12 @@ VARIANT_FLAGS_film = -DDK_FILM
 ifeq ($(MUSIC),1)
 override EXTRA_CFLAGS += -DDK_DCLOAD_MUSIC
 endif
-# Extra -D flags get their own object directory so builds never mix.
-empty :=
-space := $(empty) $(empty)
-FLAGTAG = $(subst =,-,$(subst $(space),,$(subst -D,+,$(EXTRA_CFLAGS))))
-OBJDIR = build/$(VARIANT)$(FLAGTAG)
-ASM_SOURCES = xform.S
-OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SOURCES) $(COMMON_SOURCES)) $(patsubst %.S,$(OBJDIR)/%.o,$(ASM_SOURCES)) $(OBJDIR)/blobs.o
-
-KOS_BUILD_SUBARCHS = pristine
 
 # The game is a disc: its music is CD-DA tracks (cdda/*.wav, fetched and cut
 # by make music), which run-flycast.sh and the release packaging press onto
 # the image with the ELF. A plain make builds just the ELF, so a toolchain
 # container without ffmpeg or the network can still compile it.
-all: $(TARGET)
-
-include $(KOS_BASE)/Makefile.rules
-include ../../common/common.mk
-
-$(OBJDIR)/%.o: src/%.c $(HEADERS)
-	@mkdir -p $(@D)
-	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
-
-$(OBJDIR)/%.o: $(COMMON_DIR)/%.c $(HEADERS)
-	@mkdir -p $(@D)
-	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
-
-$(OBJDIR)/%.o: $(ENGINE_DIR)/%.c $(HEADERS)
-	@mkdir -p $(@D)
-	kos-cc $(WARN) $(VARIANT_FLAGS_$(VARIANT)) $(INCLUDES) -c $< -o $@
-
-$(OBJDIR)/xform.o: $(ENGINE_DIR)/xform.S
-	@mkdir -p $(@D)
-	kos-cc -c $< -o $@
-
-$(OBJDIR)/blobs.o: src/blobs.S $(BLOBS)
-	@mkdir -p $(@D)
-	kos-cc $(VARIANT_FLAGS_$(VARIANT)) $(EXTRA_CFLAGS) -c $< -o $@
-
-# With debug info the ELF passed 16 MB, which Flycast will not boot. Keep
-# the debug info beside it (for sh-elf-addr2line on panic addresses) and
-# strip it from the ELF.
-define link_elf
-	kos-cc -o $@ $(OBJS) -lppp -lm
-	$(KOS_OBJCOPY) --only-keep-debug $@ $@.debug
-	$(KOS_STRIP) -g $@
-	$(KOS_OBJCOPY) --add-gnu-debuglink=$@.debug $@
-endef
-
-# A build with other EXTRA_CFLAGS has its own objects, but the ELF it links
-# is named the same, so switching back would leave the newer ELF in place:
-# the stamp changes with the flags and forces the link. macOS's make 3.81
-# compares whole seconds, so the stamp waits one out to be newer than an
-# ELF linked just before.
-LINK_STAMP = build/$(VARIANT).flags
-$(LINK_STAMP): force
-	@mkdir -p build
-	@echo '$(FLAGTAG)' | cmp -s - $@ || { sleep 1; echo '$(FLAGTAG)' > $@; }
-
-# The commit the game was built from, shown on the title screen so bug
-# reports can name it. Short SHA plus "-dirty" when this directory has
-# uncommitted changes; DK_GIT_SHA=... overrides it (CI, tarballs). Only
-# rewritten when it changes so a new commit relinks title.o and main.o
-# rather than everything.
-DK_GIT_SHA ?= $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD -- . 2>/dev/null || echo -dirty)
-VERSION_H = build/version.h
-$(VERSION_H): force
-	@mkdir -p build
-	@echo '#define DK_GIT_SHA "$(DK_GIT_SHA)"' | cmp -s - $@ || echo '#define DK_GIT_SHA "$(DK_GIT_SHA)"' > $@
-$(OBJDIR)/title.o $(OBJDIR)/main.o: $(VERSION_H)
-
-dreamkarts.elf: $(OBJS) $(LINK_STAMP)
-	$(link_elf)
-
-dreamkarts-$(VARIANT).elf: $(OBJS) $(LINK_STAMP)
-	$(link_elf)
-
-clean:
-	-rm -rf build dreamkarts.elf dreamkarts-*.elf dreamkarts*.elf.debug dreamkarts.cdi
+include ../../common/engine/game.mk
 
 # Asset generators (outputs are committed so a plain build needs no Python).
 textures:
@@ -231,6 +152,6 @@ disc: $(TARGET) music
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props apple-valley-props sf-props biplane all clean run textures models audio music vmu assets autotest hwbench hw disc force
+.PHONY: canyon-rock tsudoken-props apple-valley-props sf-props biplane run textures models audio music vmu assets autotest hwbench hw disc
 
 endif

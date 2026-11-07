@@ -34,3 +34,9 @@ void text_draw(const EngFont *f, float x, float y, float scale, int align, uint3
 void text_draw_c(const EngFont *f, float x, float cy, float scale, int align, uint32_t col, const char *s) {
     text_draw(f, x, cy - (f->cap_top + f->cap_bottom) * 0.5f * scale, scale, align, col, s);
 }
+
+void text_letter_c(const EngFont *f, float cx, float cy, float scale, uint32_t col, char c) {
+    const eng_glyph_t *g = glyph(f, (unsigned char)c);
+    char s[2] = {c, 0};
+    text_draw_c(f, cx - (g->ox + g->w * 0.5f) * scale, cy, scale, ALIGN_LEFT, col, s);
+}

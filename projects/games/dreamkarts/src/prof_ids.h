@@ -3,13 +3,13 @@
 #ifndef DK_PROF_IDS_H
 #define DK_PROF_IDS_H
 
+#include "engine/prof_engine.h"
 #include <stdint.h>
 
 enum {
     PS_MATS,        /* update_kart_mats: part matrices and part-space sun */
     PS_LIGHT,       /* per-vertex kart lighting */
-    PS_MXFORM,      /* r_mesh: transform, outcode and projection */
-    PS_MSUBMIT,     /* r_mesh: per-triangle cull and store-queue submit */
+    ENG_PROF_SECTIONS,
     PS_DOLPHINS,    /* dolphins_draw and biplane_draw, all of them */
     PS_CHUNKS,      /* draw_chunks (OP), culling and r_strip */
     PS_SKY,
@@ -28,20 +28,10 @@ enum {
     PS_U_OTHER,     /* rumble and VMU screens */
     PS_COUNT
 };
-/* Work counts a frame. */
+/* Work counts a frame: the renderer's, then the kart vertices lit. */
 enum {
-    PN_SVERTS,      /* r_strip vertices transformed */
-    PN_SEMIT,       /* r_strip vertices emitted unclipped */
-    PN_SCULL,       /* r_strip calls culled whole */
-    PN_SCLIP,       /* r_strip calls that took the clipping path */
-    PN_MVERTS,      /* r_mesh vertices transformed */
-    PN_MTRIS,       /* r_mesh triangles submitted */
-    PN_MBACK,       /* r_mesh triangles culled as back faces */
-    PN_LVERTS,      /* kart vertices lit */
-    PN_SIN,         /* bounded strips sent whole on their sphere */
-    PN_SOUT,        /* bounded strips culled on their sphere */
-    PN_STRIPS,      /* r_strip_bounded calls */
-    PN_HDRS,        /* polygon headers sent */
+    ENG_PROF_COUNTS,
+    PN_LVERTS,
     PN_COUNT
 };
 
@@ -51,8 +41,8 @@ enum {
 extern uint64_t prof_us[6];
 extern int prof_frames;
 
-#define PROF_SECTION_NAMES {"mats", "light", "mxform", "msubmit", "dolphins", "chunks", "sky", "sea", "foam", "upd", \
+#define PROF_SECTION_NAMES {"mats", "light", ENG_PROF_SECTION_NAMES, "dolphins", "chunks", "sky", "sea", "foam", "upd", \
     "world", "karts", "pt", "shadows", "tr", "u-input", "u-step", "u-camera", "u-audio", "u-other"}
-#define PROF_COUNT_NAMES {"sv", "se", "scull", "sclip", "mv", "mt", "mback", "lv", "sin", "sout", "strips", "hdrs"}
+#define PROF_COUNT_NAMES {ENG_PROF_COUNT_NAMES, "lv"}
 
 #endif

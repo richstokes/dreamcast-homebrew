@@ -22,72 +22,32 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 import tempfile
 import wave
-import zlib
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 
 import numpy as np
-from scipy.signal import fftconvolve, lfilter, resample_poly
+from scipy.signal import lfilter, resample_poly
 
-SFX_RATE = 22050
-TAU = 2.0 * np.pi
-ONESHOT_PEAK = 10 ** (-1.0 / 20)   # -1 dBFS
-LOOP_PEAK = 10 ** (-4.0 / 20)      # -4 dBFS
-MAX_SFX_SAMPLES = 65534            # AICA 16-bit length limit (KOS warns above)
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
+import synthkit  # noqa: E402
+from synthkit import (  # noqa: E402
+    MAX_SFX_SAMPLES, SFX_RATE, TAU, fade, filt, finish_loop, finish_oneshot, fit, midi_hz, pad_to,
+    periodic, place, place_wrap, plfo, raised, softsat, to_pcm16)
 
-
-def rng_for(name: str) -> np.random.Generator:
-    """Independent seeded stream per asset, so editing one leaves others alone."""
-    return np.random.default_rng(zlib.crc32(name.encode()) + 2026)
-
-
-def midi_hz(n):
-    return 440.0 * 2.0 ** ((np.asarray(n, dtype=np.float64) - 69) / 12.0)
+SEED = 2026
+rng_for = partial(synthkit.rng_for, salt=SEED)
+# Discrete early reflections (delay s, gain) under every reverb tail.
+EARLY_REFLECTIONS = ((0.006, 0.55), (0.011, 0.4), (0.017, 0.35), (0.023, 0.3), (0.031, 0.22),
+                     (0.043, 0.18))
+add_reverb = partial(synthkit.add_reverb, salt=SEED, early=EARLY_REFLECTIONS)
 
 
 # ======================================================================
 # DSP helpers
 # ======================================================================
-
-def rbj(kind, fc, q, sr, gain_db=0.0):
-    fc = min(max(fc, 5.0), 0.49 * sr)
-    w0 = TAU * fc / sr
-    cw, sw = np.cos(w0), np.sin(w0)
-    alpha = sw / (2 * q)
-    A = 10 ** (gain_db / 40)
-    if kind == "lp":
-        b = [(1 - cw) / 2, 1 - cw, (1 - cw) / 2]
-        a = [1 + alpha, -2 * cw, 1 - alpha]
-    elif kind == "hp":
-        b = [(1 + cw) / 2, -(1 + cw), (1 + cw) / 2]
-        a = [1 + alpha, -2 * cw, 1 - alpha]
-    elif kind == "bp":      # 0 dB peak gain
-        b = [alpha, 0.0, -alpha]
-        a = [1 + alpha, -2 * cw, 1 - alpha]
-    elif kind == "peak":
-        b = [1 + alpha * A, -2 * cw, 1 - alpha * A]
-        a = [1 + alpha / A, -2 * cw, 1 - alpha / A]
-    else:
-        raise ValueError(kind)
-    b = np.array(b) / a[0]
-    a = np.array(a) / a[0]
-    return b, a
-
-
-def filt(x, kind, fc, q=0.7071, sr=SFX_RATE, gain_db=0.0):
-    b, a = rbj(kind, fc, q, sr, gain_db)
-    return lfilter(b, a, x, axis=0)
-
-
-def periodic(fn, x):
-    """Apply a (linear or memoryless) process to one period of a periodic
-    signal and return its steady state, so the result loops seamlessly."""
-    n = len(x)
-    reps = np.concatenate([x, x, x], axis=0)
-    return fn(reps)[n:2 * n]
-
 
 def svf(x, fc, q, sr, mode="lp"):
     """Time-varying TPT state-variable filter (per-sample coefficients)."""
@@ -149,95 +109,6 @@ def fix_cycles(f, sr):
     c = np.sum(f) / sr
     return f * (max(1, round(c)) / c)
 
-
-def plfo(n, rate, rng, sr=SFX_RATE):
-    """Periodic, band-limited random LFO in [-1, 1] that repeats every n."""
-    k = max(1, int(rate * n / sr))
-    spec = np.zeros(n // 2 + 1, dtype=complex)
-    spec[1:k + 1] = rng.standard_normal(k) + 1j * rng.standard_normal(k)
-    x = np.fft.irfft(spec, n=n)
-    return x / (np.max(np.abs(x)) + 1e-12)
-
-
-def raised(n):
-    return 0.5 - 0.5 * np.cos(np.linspace(0, np.pi, n))
-
-
-def fade(x, in_s=0.0007, out_s=0.015, sr=SFX_RATE):
-    x = x.copy()
-    a = max(2, int(in_s * sr))
-    b = max(2, int(out_s * sr))
-    a = min(a, len(x))
-    b = min(b, len(x))
-    x[:a] *= raised(a)
-    x[-b:] *= raised(b)[::-1]
-    return x
-
-
-def pad_to(x, n):
-    if len(x) >= n:
-        return x[:n]
-    return np.concatenate([x, np.zeros(n - len(x))])
-
-
-def fit(x, n, sr=SFX_RATE):
-    """Pad or truncate to n samples, fading out a truncated tail."""
-    if len(x) > n:
-        return fade(x[:n], 0.0, min(0.015, 0.3 * n / sr), sr)
-    return pad_to(x, n)
-
-
-def place(buf, start, sig, gain=1.0):
-    """Add sig into buf at sample start (clipped to buf)."""
-    s = int(start)
-    if s >= len(buf):
-        return
-    m = min(len(sig), len(buf) - s)
-    buf[s:s + m] += sig[:m] * gain
-
-
-def place_wrap(buf, start, sig, gain=1.0):
-    """Add sig into a circular buffer (tails wrap round the loop)."""
-    n = len(buf)
-    s = int(start) % n
-    pos = 0
-    while pos < len(sig):
-        take = min(len(sig) - pos, n - s)
-        buf[s:s + take] += sig[pos:pos + take] * gain
-        pos += take
-        s = 0
-
-
-def make_ir(sr, seconds, t60, rng, lp_hz=7000.0, hp_hz=180.0, predelay=0.012, hf_ratio=0.5):
-    """Synthetic diffuse reverb impulse with frequency-dependent decay."""
-    n = int(seconds * sr)
-    t = np.arange(n) / sr
-    nz = rng.standard_normal(n)
-    lo = filt(nz, "lp", 1800, sr=sr)
-    hi = nz - lo
-    ir = lo * 10 ** (-3 * t / t60) + hi * 10 ** (-3 * t / (t60 * hf_ratio))
-    ir = filt(ir, "lp", lp_hz, sr=sr)
-    ir = filt(ir, "hp", hp_hz, sr=sr)
-    ir *= np.minimum(t / 0.02, 1.0)
-    ir /= np.sqrt(np.sum(ir ** 2))
-    er = np.zeros(n)
-    for d, g in ((0.006, 0.55), (0.011, 0.4), (0.017, 0.35), (0.023, 0.3), (0.031, 0.22),
-                 (0.043, 0.18)):
-        er[int(d * sr)] += g * rng.choice([-1.0, 1.0])
-    ir = ir + filt(er, "lp", 5000, sr=sr) * 0.6
-    ir /= np.sqrt(np.sum(ir ** 2))
-    return np.concatenate([np.zeros(int(predelay * sr)), ir])
-
-
-def add_reverb(x, wet, seconds=1.2, t60=1.0, seed="rev", sr=SFX_RATE, lp_hz=6500.0):
-    ir = make_ir(sr, seconds, t60, rng_for(seed), lp_hz=lp_hz)
-    out = np.concatenate([x, np.zeros(len(ir))])
-    out += wet * pad_to(fftconvolve(x, ir), len(out))
-    return out
-
-
-def softsat(x, drive=1.0):
-    return np.tanh(drive * x) / np.tanh(drive)
 
 
 # ======================================================================
@@ -1688,33 +1559,6 @@ SFX = [
     ("CC_BELL", sfx_cc_bell, False, 0.75),
     ("FOGHORN", sfx_foghorn, False, 0.8),
 ]
-
-
-def finish_oneshot(x):
-    x = np.asarray(x, dtype=np.float64)
-    x = filt(x, "hp", 22, 0.6)
-    peak = np.max(np.abs(x))
-    above = np.nonzero(np.abs(x) > peak * 10 ** (-66 / 20))[0]
-    end = min(len(x), above[-1] + int(0.01 * SR)) if len(above) else len(x)
-    x = x[:end]
-    tail = np.sqrt(np.mean(x[-int(0.02 * SR):] ** 2))
-    out_s = 0.02 if tail < peak * 0.01 else min(0.12, 0.2 * len(x) / SR)   # still ringing
-    x = fade(x, 0.0006, min(out_s, 0.15 * len(x) / SR if out_s == 0.02 else out_s))
-    x = x / np.max(np.abs(x)) * ONESHOT_PEAK
-    if len(x) % 16:
-        x = np.concatenate([x, np.zeros(16 - len(x) % 16)])
-    return x
-
-
-def finish_loop(x):
-    x = np.asarray(x, dtype=np.float64)
-    assert len(x) % 16 == 0, len(x)
-    x = x - np.mean(x)
-    return x / np.max(np.abs(x)) * LOOP_PEAK
-
-
-def to_pcm16(x):
-    return np.clip(np.rint(x * 32767), -32768, 32767).astype("<i2")
 
 
 def write_wav(path, data, rate, channels):

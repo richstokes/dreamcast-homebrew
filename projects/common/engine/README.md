@@ -9,16 +9,27 @@ build on it, so a fix or speed-up here reaches both.
 | `rand.h`, `rand.c` | The seeded generator; a game can hold it in its own file (`ENG_RAND_IMPL`) so calls inline | DreamKarts, Ridgeline |
 | `input.h`, `input.c` | Two pads with edge detection and menu repeat, triggers as buttons, the keyboard | DreamKarts, Ridgeline |
 | `render.h`, `render.c`, `xform.S` | PowerVR lists, header cache, texture pool, near-plane clipping, strips and rigid meshes sent through the store queues, SH-4 assembly vertex paths | DreamKarts, Ridgeline |
-| `prof.h`, `prof.c` | Per-section cycle and stall counters for console benchmarks | DreamKarts, Ridgeline |
+| `prof.h`, `prof.c`, `prof_engine.h` | Per-section cycle and stall counters for console benchmarks; the renderer's own ids | DreamKarts, Ridgeline |
+| `frame.h`, `frame.c` | Frame pacing: the step follows the measured vblank period, missed vblanks run extra steps, FPS and CPU counters | DreamKarts, Ridgeline |
 | `mesh.h`, `mesh.c` | Builds rigid models (vehicles) into `r_mesh_kv` strips with per-group lighting | DreamKarts, Ridgeline |
 | `scenery.h`, `scenery.c` | Static scenery pool: strips and chunks with bounding spheres and distance LOD | Ridgeline |
 | `sfx.h`, `sfx.c` | Effect bank in AICA RAM, one-shots, looping voices on reserved channels | DreamKarts, Ridgeline |
 | `text.h`, `text.c` | Bitmap text from a font atlas | DreamKarts, Ridgeline |
+| `ui.h`, `ui.c` | Menu chrome: panels, heading plaques, selection pills, controller button glyphs, hints, keys, dots; colours from the game's theme | DreamKarts, Ridgeline |
+
+`game.mk` holds the build: variants, object directories, the link stamp,
+the version header and the engine's rules (each game's Makefile sets a few
+variables and includes it).
 
 Tools (`tools/`): `pvr_texture.py` (twiddled RGB565/ARGB4444 with mips),
 `fontatlas.py` and `fonts/`, `meshkit.py` (procedural low-poly meshes),
-`stripify.py`, `blender_props.py` (Blender prop baker) and `microbench/`
-(cycles per vertex for `xform.S` on the console).
+`stripify.py`, `blender_props.py` (Blender prop baker), `synthkit.py` (the
+sound generators' filters, fades, reverb and PCM finishing), `capture.py`
+(screenshots at each `<PREFIX> SHOT` line of a capture build; the games'
+`tools/capture.py` call it with their names), `flycast-run.sh` (the core
+of the games' `run-flycast.sh`: build, boot in Flycast, stop on a pass or
+fail line) and `microbench/` (cycles per vertex for `xform.S` on the
+console).
 
 ## Using it
 
@@ -30,7 +41,7 @@ game supplies three headers on its include path:
 | --- | --- |
 | `engine_config.h` | `ENG_NAME`, `ENG_DT`, the vertex buffer size, test switches (`ENG_PROF`, `ENG_INPUT_TAPS`, ...). A switch may expand to a game symbol (DreamKarts' `ENG_TA_SINK` reads its probe mask), so the engine then only links with that game's objects |
 | `engine_assets.h` | Read by `render.c` only: the texture table and pak, mip bias, optional texture sets, PVR settings (bins, fog, clear colour) |
-| `prof_ids.h` | Profile section and count ids, including the renderer's |
+| `prof_ids.h` | Profile section and count ids, with the renderer's from `prof_engine.h` placed among them |
 
 ## Rule: no cost to existing games
 
@@ -63,6 +74,5 @@ to the engine's copy.
 ## Not moved yet
 
 DreamKarts' world chunk walk (`world.c` `draw_chunks`) does what
-`scenery.c` does with per-track road sheen hooks on top; its frame pacing
-loop in `main.c` and the perf overlay would make good modules too. Each
-needs a console A/B when it moves.
+`scenery.c` does with per-track road sheen hooks on top, and its perf
+overlay would make a module too. Each needs a console A/B when it moves.

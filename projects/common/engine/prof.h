@@ -10,10 +10,9 @@
 
    The game's prof_ids.h names its sections and counts: enums PS_* ending
    PS_COUNT and PN_* ending PN_COUNT, with their log names in
-   PROF_SECTION_NAMES and PROF_COUNT_NAMES (initializer lists). The
-   renderer uses PS_MXFORM, PS_MSUBMIT, PN_SVERTS, PN_SEMIT, PN_SCULL,
-   PN_SCLIP, PN_MVERTS, PN_MTRIS, PN_MBACK, PN_SIN, PN_SOUT, PN_STRIPS and
-   PN_HDRS, so every game's list has those. ENG_PROF_TAG starts the line. */
+   PROF_SECTION_NAMES and PROF_COUNT_NAMES (initializer lists), the
+   renderer's own among them from prof_engine.h. ENG_PROF_TAG starts the
+   line. */
 #ifndef ENG_PROF_H
 #define ENG_PROF_H
 

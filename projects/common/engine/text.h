@@ -23,5 +23,9 @@ float text_width(const EngFont *f, const char *s, float scale);
 void text_draw(const EngFont *f, float x, float y, float scale, int align, uint32_t col, const char *s);
 /* The same with the capitals centred on cy. */
 void text_draw_c(const EngFont *f, float x, float cy, float scale, int align, uint32_t col, const char *s);
+/* One character centred on (cx, cy) by its drawn rect rather than its
+   advance: a capital's rect (outline and all) runs wider than its pen
+   advance, so advance centring lands it right of a button's middle. */
+void text_letter_c(const EngFont *f, float cx, float cy, float scale, uint32_t col, char c);
 
 #endif

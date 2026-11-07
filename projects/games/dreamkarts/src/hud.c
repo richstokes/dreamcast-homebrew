@@ -69,14 +69,7 @@ void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const c
 }
 
 void hud_letter_c(float cx, float cy, float scale, uint32_t col, char c) {
-    /* Centre the glyph's atlas rect, not its advance: a capital's rect
-       (outline and all) runs wider than its pen advance, so advance
-       centring lands the letter right of a button's middle. */
-    unsigned i = (unsigned char)c;
-    if(i < 32 || i > 127) i = '?';
-    const dk_glyph_t *g = &font_glyphs[i - 32];
-    char s[2] = {(char)i, 0};
-    hud_text_c(cx - (g->ox + g->w * 0.5f) * scale, cy, scale, ALIGN_LEFT, col, s);
+    text_letter_c(&font, cx, cy, scale, col, c);
 }
 
 void hud_panel(float x0, float y0, float x1, float y1, uint32_t top, uint32_t bottom, float z) {

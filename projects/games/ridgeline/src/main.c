@@ -16,6 +16,8 @@
 #include "softreset.h"
 #include "version.h"
 #include "engine/prof.h"
+#include "engine/frame.h"
+#include "engine/ui.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -237,7 +239,7 @@ static void render(void) {
     if(game.show_fps && !game.photo && game.state == ST_DRIVE) {
         char buf[32];
         snprintf(buf, sizeof(buf), "%.0f FPS  %.1f MS", (double)game.fps, (double)game.cpu_ms);
-        hud_text_c(320, 466, 0.5f, ALIGN_CENTER, 0xe0ffffff, buf);
+        hud_text_c(320, 14, 0.5f, ALIGN_CENTER, 0xe0ffffff, buf);
     }
 #ifdef RL_AUTOTEST
     autotest_draw();
@@ -274,18 +276,13 @@ int main(int argc, char **argv) {
 #ifdef ENG_PROF
     prof_start();
 #endif
-    uint64_t last = timer_us_gettime64(), fps_t0 = last;
-    int fps_frames = 0;
+    frame_init();
     while(!game.quit) {
-        pvr_wait_ready();
-        uint64_t now = timer_us_gettime64();
-        float dt_real = (float)(now - last) * 1e-6f;
-        last = now;
-        /* One step per displayed frame; a frame that missed vblanks runs
-           the steps it owes, at most four. */
-        int steps = (int)(dt_real / RL_DT + 0.5f);
-        if(steps < 1) steps = 1;
-        if(steps > 4) steps = 4;
+        /* The step follows the display (engine/frame.h). */
+        frame_begin();
+        uint64_t now = eng_frame.t0;
+        float dt_real = eng_frame.dt_real;
+        int steps = eng_frame.steps;
 #ifdef RL_AUTOTEST
         steps = autotest_steps(steps);
 #endif
@@ -304,11 +301,12 @@ int main(int argc, char **argv) {
                 continue;
         }
         for(int s = 0; s < steps; s++) {
-            update(RL_DT);
+            update(eng_frame.dt);
             pad.pressed = pad2.pressed = 0;
             pad.released = pad2.released = 0;
             input_step_taken();
         }
+        ui_time = game.time;
         if(game.state == ST_DRIVE) audio_update(dt_real);
         phase_us[0] += timer_us_gettime64() - now;
         render();
@@ -316,14 +314,8 @@ int main(int argc, char **argv) {
         prof_frame_end();
 #endif
         phase_frames++;
-        uint64_t end = timer_us_gettime64();
-        game.cpu_ms = (float)(end - now) * 0.001f;
-        fps_frames++;
-        if(end - fps_t0 >= 1000000) {
-            game.fps = fps_frames * 1e6f / (float)(end - fps_t0);
-            fps_frames = 0;
-            fps_t0 = end;
-        }
+        if(frame_end()) game.fps = eng_frame.fps;
+        game.cpu_ms = eng_frame.cpu_ms;
 #ifdef RL_AUTOTEST
         autotest_frame(dt_real);
 #endif

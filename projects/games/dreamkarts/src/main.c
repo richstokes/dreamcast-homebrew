@@ -32,6 +32,7 @@
 #include "skylife.h"
 #include "gp.h"
 #include "engine/prof.h"
+#include "engine/frame.h"
 #include "version.h"
 #include "perfhud.h"
 #include "autotest.h"
@@ -1078,7 +1079,7 @@ int main(int argc, char **argv) {
     render_init();
     perfhud_reserve();
     hud_init();
-    ui_init();
+    dk_ui_init();
     title_init();
     flappy_init();
     boot_screen(boot_t0, 0.1f, "WAKING UP THE DRIVERS");
@@ -1187,39 +1188,12 @@ int main(int argc, char **argv) {
 #ifdef ENG_PROF
     prof_start();
 #endif
-    uint64_t last = timer_us_gettime64();
-    uint64_t fps_t0 = last;
-    int fps_frames = 0;
-    /* Physics runs one step per displayed frame. pvr_wait_ready() paces
-       the loop to the display, whose period is not 1/60 s (16.68 ms on an
-       NTSC console, whatever the host gives in Flycast), so a fixed 1/60
-       step would owe the clock a whole step every few seconds and run
-       twice in one frame: a one-frame hitch of everything. The step is the
-       measured vblank period instead, nudged by up to 1% toward the time
-       still owed so game time stays on the clock; only a frame that missed
-       vblanks takes more than one step. */
-    float vbl_dt = DK_DT;   /* smoothed length of a single-vblank frame */
-    float owed = 0;         /* clock time not yet stepped: timer jitter, normally */
+    frame_init();
     while(!game.quit) {
-        pvr_wait_ready();
-        uint64_t now = timer_us_gettime64();
-        float dt_real = (float)(now - last) * 1e-6f;
-        last = now;
-        if(dt_real > 0.1f) dt_real = 0.1f;
-        owed += dt_real;
-        int steps = 1;
-        if(dt_real < 1.5f * vbl_dt) {
-            vbl_dt = clampf(vbl_dt + (dt_real - vbl_dt) * 0.01f, 0.8f * DK_DT, 1.25f * DK_DT);
-        }
-        else {
-            steps = (int)(dt_real / vbl_dt + 0.5f);
-            if(steps > 4) {   /* a stall: forget the time rather than replay it */
-                steps = 4;
-                owed = steps * vbl_dt;
-            }
-        }
-        float dt = vbl_dt + clampf((owed / steps - vbl_dt) * 0.1f, -0.01f * vbl_dt, 0.01f * vbl_dt);
-        owed = clampf(owed - steps * dt, -vbl_dt, vbl_dt);
+        /* The step follows the display (engine/frame.h). */
+        frame_begin();
+        float dt_real = eng_frame.dt_real, dt = eng_frame.dt;
+        int steps = eng_frame.steps;
 #ifdef DK_AT_FIXED
         /* Repeatable captures: one 1/60 s step a frame whatever the host's
            timing, and the frame held still while a screenshot is taken. */
@@ -1269,6 +1243,7 @@ int main(int argc, char **argv) {
             input_step_taken();
         }
         PROF_LAP(PS_U_STEP, pus);
+        ui_time = game.title_t;
         update_camera(dt_real);
         PROF_LAP(PS_U_CAMERA, pus);
         audio_update(dt_real);
@@ -1289,8 +1264,8 @@ int main(int argc, char **argv) {
         prof_frame_end();
 #endif
 
-        uint64_t end = timer_us_gettime64();
-        game.cpu_ms = (float)(end - now) * 0.001f;
+        bool second = frame_end();
+        game.cpu_ms = eng_frame.cpu_ms;
         {
             /* This frame's share of the phase totals (the autotest zeroes
                them every log line), kept up while the overlay is off so
@@ -1302,7 +1277,7 @@ int main(int argc, char **argv) {
                 phase_ms[i] = (float)d * 0.001f;
                 prof_prev[i] = prof_us[i];
             }
-            int missed = dt_real > 1.5f * vbl_dt ? (int)(dt_real / vbl_dt + 0.5f) - 1 : 0;
+            int missed = frame_missed(dt_real);
 #ifdef DK_AUTOTEST
             /* Leave out the frames a screenshot or log line stalled, as the
                autotest's own timing does. */
@@ -1310,11 +1285,8 @@ int main(int argc, char **argv) {
 #endif
                 if(perfhud_mode == PERF_OVERLAY) perfhud_frame(dt_real, game.cpu_ms, phase_ms, missed);
         }
-        fps_frames++;
-        if(end - fps_t0 >= 1000000) {
-            game.fps = fps_frames * 1e6f / (float)(end - fps_t0);
-            fps_frames = 0;
-            fps_t0 = end;
+        if(second) {
+            game.fps = eng_frame.fps;
 #if defined(DK_PERF_LOG) && !defined(DK_AUTOTEST)
             /* Off by default: under dcload-ip each printf runs with IRQs
                off, costs a frame or more and can freeze the console. */
@@ -1324,7 +1296,7 @@ int main(int argc, char **argv) {
 #endif
         }
 #ifdef DK_AUTOTEST
-        at_frame(dt_real, vbl_dt, steps);
+        at_frame(dt_real, eng_frame.vbl_dt, steps);
 #endif
     }
     save_finish();
