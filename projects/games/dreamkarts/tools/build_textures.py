@@ -5,8 +5,8 @@
 # ///
 """Procedurally paint every DreamKarts texture and pack it for the PowerVR.
 
-Everything is drawn from code (seeded noise, shapes, Lilita One from
-tools/fonts/ for the menus' lettering and the DejaVu fonts that ship with
+Everything is drawn from code (seeded noise, shapes, Lilita One from the
+engine's tools/fonts/ for the menus' lettering and the DejaVu fonts that ship with
 matplotlib for trackside signs), so the art is original and the output is
 reproducible. Writes to --output-dir:
 
@@ -29,6 +29,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common" / "engine" / "tools"))
+from fontatlas import LILITA, atlas, font_for_cap  # noqa: E402
 from pvr_texture import pack_texture  # noqa: E402
 
 RNG = np.random.default_rng(1999)
@@ -569,10 +570,10 @@ FONT_CAP_H = 22      # cap height every UI font is sized to, so hud_text scales 
 FONT_BASELINE = 30   # baseline row within the 42 px glyph row
 
 
-# The menus' lettering: Lilita One (OFL, tools/fonts/) for the HUD font,
+# The menus' lettering: Lilita One (OFL, the engine's tools/fonts/) for the HUD font,
 # logo and countdown. The outline is 2 px: 3 px pushed Q's tail out of the
 # 42 px glyph row.
-UI_FONT = str(Path(__file__).resolve().parent / "fonts" / "LilitaOne-Regular.ttf")
+UI_FONT = LILITA
 UI_OUTLINE = 2
 LOGO_SIZES = (110, 94)   # capitals, lowercase
 LOGO_OUTLINE = 7
@@ -582,86 +583,14 @@ def ui_font() -> ImageFont.FreeTypeFont:
     """The HUD font at the size whose capitals stand FONT_CAP_H tall (the
     DejaVu Bold Oblique the game shipped with, at 30 px), so every hud_text
     scale in the game keeps its size whatever the font."""
-    best = None
-    for size in range(20, 48):
-        f = ImageFont.truetype(UI_FONT, size)
-        bb = f.getbbox("H")
-        cap = bb[3] - bb[1]
-        if best is None or abs(cap - FONT_CAP_H) < abs(best[0] - FONT_CAP_H):
-            best = (cap, f)
-    return best[1]
+    return font_for_cap(UI_FONT, FONT_CAP_H)
 
 
 def tex_font():
-    """White glyphs with a dark outline; tint with vertex colour at runtime.
-
-    The glyphs and their outline overhang any fixed cell (DejaVu's W is
-    38 px wide, J starts 5 px left of the pen), so each glyph is packed into
-    its own rect: its ink plus one transparent texel each side, which keeps
-    bilinear filtering from sampling a neighbour. Returns the atlas and, per
-    glyph, (x, row, width, left offset from the pen, advance)."""
-    img = Image.new("RGBA", (512, 256), (255, 255, 255, 0))
-    font = ui_font()
-    stroke = UI_OUTLINE
-    pad = 16
-    # The baseline sits FONT_BASELINE rows down, as the original font's did,
-    # unless a tall ascender or deep descender (plus the outline) would leave
-    # the row: then the whole alphabet shifts to fit.
-    ascent = font.getmetrics()[0]
-    ty = FONT_BASELINE - ascent
-    lo, hi = FONT_ROW_H, 0
-    for ch in FONT_CHARS:
-        if ch == " ":
-            continue
-        cell = Image.new("L", (64 + 2 * pad, FONT_ROW_H * 3), 0)
-        ImageDraw.Draw(cell).text((pad + 3, FONT_ROW_H + ty), ch, font=font, fill=255,
-                                  stroke_width=stroke, stroke_fill=255)
-        ys = np.nonzero(np.array(cell))[0]
-        if len(ys):
-            lo, hi = min(lo, ys.min() - FONT_ROW_H), max(hi, ys.max() - FONT_ROW_H)
-    if lo < 1:
-        ty += 1 - lo
-    elif hi > FONT_ROW_H - 2:
-        ty -= hi - (FONT_ROW_H - 2)
-    glyphs = []
-    x = row = 0
-    for ch in FONT_CHARS:
-        adv = int(round(font.getlength(ch))) + 2
-        if ch == " ":
-            glyphs.append((0, 0, 0, 0, adv))
-            continue
-        cell = Image.new("RGBA", (64 + 2 * pad, FONT_ROW_H), (255, 255, 255, 0))
-        ImageDraw.Draw(cell).text((pad + 3, ty), ch, font=font, fill=(255, 255, 255, 255),
-                                  stroke_width=stroke, stroke_fill=(16, 22, 48, 255))
-        alpha = np.array(cell)[..., 3]
-        ys, xs = np.nonzero(alpha)
-        if not len(ys):   # a glyph the font lacks (DEL) draws as a blank
-            glyphs.append((0, 0, 0, 0, adv))
-            continue
-        assert ys.min() >= 1 and ys.max() <= FONT_ROW_H - 2, (ch, ys.min(), ys.max())
-        x0, x1 = xs.min() - 1, xs.max() + 2      # rect with a clear texel each side
-        w = x1 - x0
-        if x + w > img.width:
-            x, row = 0, row + 1
-        assert (row + 1) * FONT_ROW_H <= img.height, "font atlas full"
-        img.alpha_composite(cell.crop((x0, 0, x1, FONT_ROW_H)), (x, row * FONT_ROW_H))
-        glyphs.append((x, row, w, x0 - pad, adv))
-        x += w
-    # Tabular digits: the font's are proportional (its 1 is narrower than
-    # its 0), which made a ticking race clock change width every frame. Each
-    # digit takes the widest one's advance, its ink centred in it, so any
-    # reading keeps its width whatever its digits.
-    tab = max(glyphs[ord(c) - 32][4] for c in "0123456789")
-    for c in "0123456789":
-        gx, grow, gw, gox, gadv = glyphs[ord(c) - 32]
-        glyphs[ord(c) - 32] = (gx, grow, gw, gox + (tab - gadv) // 2, tab)
-    # Where the capitals stand in the row (H's white fill, outline aside),
-    # so hud_text_c can centre lettering on them whatever the font.
-    hx, hrow, hw, _, _ = glyphs[ord("H") - 32]
-    cell = np.array(img)[hrow * FONT_ROW_H:(hrow + 1) * FONT_ROW_H, hx:hx + hw]
-    fill = np.nonzero((cell[..., 3] > 128) & (cell[..., 0] > 200))[0]
-    cap = (int(fill.min()), int(fill.max()) + 1)
-    return img, glyphs, cap
+    """White glyphs with a dark outline; tint with vertex colour at runtime
+    (the engine's fontatlas). Returns the atlas and, per glyph, (x, row,
+    width, left offset from the pen, advance), and the capitals' rows."""
+    return atlas(ui_font(), FONT_ROW_H, FONT_BASELINE, UI_OUTLINE)
 
 
 def gradient_text_layer(size, text, font, stops, outline, outline_w, highlight=True, shadow=True):

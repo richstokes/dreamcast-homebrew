@@ -24,7 +24,7 @@ They are pressed onto the disc as CD audio tracks.
 - [SH4ZAM](https://sh4zam.com/) by Falco Girgis and contributors (MIT): the
   renderer's matrix, transform and reciprocal maths
 - [Lilita One](https://github.com/google/fonts/tree/main/ofl/lilitaone) by
-  Juan Montoreano (SIL Open Font License 1.1, `tools/fonts/`): the menus'
+  Juan Montoreano (SIL Open Font License 1.1, `projects/common/engine/tools/fonts/`): the menus'
   lettering, logo and countdown
 - The DejaVu Sans Bold Oblique font, bundled with matplotlib (Bitstream Vera
   licence): trackside signs and VMU lettering
@@ -87,7 +87,7 @@ SUCH DAMAGE.
 
 Copyright (c) 2011 Juan Montoreano (juan@remolacha.biz), with Reserved Font
 Name Lilita. Licensed under the SIL Open Font License, Version 1.1; the
-licence text is beside the font in `tools/fonts/OFL-LilitaOne.txt`.
+licence text is beside the font in `projects/common/engine/tools/fonts/OFL-LilitaOne.txt`.
 
 ### SH4ZAM
 

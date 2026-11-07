@@ -114,7 +114,10 @@ merely to use it as a template.
 Code more than one project needs lives in `projects/common/`: the soft
 reset, modem dial-up, VMU saves and HTTPS so far (its README lists them). Use it
 instead of copying code from another project, and move code there when a
-second project wants it. Its headers must stay valid C++.
+second project wants it. Its headers must stay valid C++. The game engine
+in `projects/common/engine/` follows one rule: moving code into it must
+leave existing games' binaries byte-identical apart from `__TIME__`, or be
+A/B'd on the console (its README has the check).
 
 Always build through KOS's `Makefile.rules` with `kos-cc` (or `kos-c++` for
 `.cpp` sources); never call the host compiler. Add libraries after the

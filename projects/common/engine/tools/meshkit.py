@@ -1,7 +1,7 @@
 """Procedural low-poly meshes for rigid models (vehicles, karts, props).
 
 Shared by the games' model builders (DreamKarts' tools/build_models.py,
-Diff Lock's tools/build_trucks.py). A Geo is a triangle soup with
+Ridgeline's tools/build_trucks.py). A Geo is a triangle soup with
 per-corner position, normal and Paint; the primitives below (ellipsoid,
 geosphere, tube, lathe, loft, prism, box) build them, autosmooth() splits
 normals at creases, and the game's builder welds, checks and writes them.
