@@ -56,7 +56,7 @@ void game_start_drive(void) {
     static const int slot[4] = {1, 2, 0, 3};
     for(int i = 0; i < game.ntrucks; i++) {
         Truck *t = &trucks[i];
-        t->model = i == 0 ? game.truck_model : (game.truck_model + i) & 1;
+        t->model = (game.truck_model + i) % TRUCK_MODELS;
         t->livery = i == 0 ? game.livery : (game.livery + i) % 4;
         t->cpu = i > 0;
         t->tcs_off = false;   /* traction control starts on */

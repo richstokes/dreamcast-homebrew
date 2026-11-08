@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 1
-	Build    = 2
+	Build    = 3
 	MinBuild = 1
 )
 
@@ -57,7 +57,7 @@ const TruckSummit = 1 << 0
 
 // Models and liveries the console offers; anything else is clamped.
 const (
-	Models   = 2
+	Models   = 3
 	Liveries = 4
 )
 

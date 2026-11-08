@@ -40,7 +40,7 @@ void demo_start(void) {
     static const int slot[4] = {1, 2, 0, 3};
     for(int i = 0; i < game.ntrucks; i++) {
         Truck *t = &trucks[i];
-        t->model = (game.truck_model + i) & 1;
+        t->model = (game.truck_model + i) % TRUCK_MODELS;
         t->livery = (game.livery + i) % 4;
         t->cpu = true;
         t->tcs_off = false;

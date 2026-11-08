@@ -360,7 +360,7 @@ static void take_lobby(const uint8_t *b, int n, uint64_t now) {
         NetPlayer *p = &l->players[l->count++];
         p->slot = e[0] % NET_MAX_PLAYERS;
         copy_name(p->name, e + 1);
-        p->model = e[12] & 1;
+        p->model = e[12] % TRUCK_MODELS;
         p->livery = e[13] & 3;
         p->flags = e[14];
         p->ping = get16(e + 15);

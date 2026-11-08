@@ -26,6 +26,7 @@ typedef struct {
 
 #ifdef HAVE_TRUCK_MODELS
 static PartMeshes parts[RL_TRUCK_COUNT][RL_PART_COUNT][LODS];
+_Static_assert(RL_TRUCK_COUNT == TRUCK_MODELS, "TRUCK_MODELS in rl.h");
 static uint32_t ref_col[RL_TRUCK_COUNT][RL_PAINT_COUNT];
 #endif
 static uint32_t lit_buf[2048] __attribute__((aligned(32)));
@@ -269,7 +270,8 @@ void truckdraw_draw_op(void) {
         }
         /* Axles: a beam between each pair of wheel centres. */
         if(lod < 2) {
-            for(int a = (t->model == 0 ? 0 : 1); a < 2; a++) {
+            /* The Kestrel's front suspension is independent: one beam. */
+            for(int a = (t->model == RL_TRUCK_KESTREL ? 1 : 0); a < 2; a++) {
                 V3 cl = t->wh[a * 2].centre, cr = t->wh[a * 2 + 1].centre;
                 V3 x = vsub(cr, cl);
                 V3 xn = vnorm(x);
@@ -290,7 +292,8 @@ void truckdraw_draw_op(void) {
                                         (k & 4) ? s->body_hi[2] : s->body_lo[2]));
         static const int faces[6][4] = {{0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 4, 5}, {2, 3, 6, 7}, {0, 2, 4, 6}, {1, 3, 5, 7}};
         for(int f = 0; f < 6; f++) {
-            uint32_t col = color_scale(t->model ? 0xffe0601c : 0xffc8202a, 0.6f + 0.08f * f);
+            static const uint32_t box_col[TRUCK_MODELS] = {0xffc8202a, 0xffe0601c, 0xff6a6862};
+            uint32_t col = color_scale(box_col[t->model], 0.6f + 0.08f * f);
             RV q[4];
             for(int k = 0; k < 4; k++) q[k] = (RV){c[faces[f][k]].x, c[faces[f][k]].y, c[faces[f][k]].z, 0, 0, col};
             r_strip(q, 4);

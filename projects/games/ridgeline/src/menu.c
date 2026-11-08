@@ -66,7 +66,8 @@ const char *menu_truck_name(int model) {
 #ifdef HAVE_TRUCK_MODELS
     return rl_truck_info[model].name;
 #else
-    return model ? "KESTREL" : "CASCADE 84";
+    static const char *const n[TRUCK_MODELS] = {"CASCADE 84", "KESTREL", "BOBCAT"};
+    return n[model % TRUCK_MODELS];
 #endif
 }
 
@@ -201,7 +202,7 @@ void menu_select_update(float dt) {
         audio_sfx(RL_SFX_MENU_MOVE, 160);
         int item = sel_page * 2 + sel_row;
         if(item == 0) {
-            game.truck_model ^= 1;
+            game.truck_model = (game.truck_model + TRUCK_MODELS + d) % TRUCK_MODELS;
             trucks[0].model = game.truck_model;
             trucks[0].livery = game.livery;
             truck_place(&trucks[0], trucks[0].pos, 0);

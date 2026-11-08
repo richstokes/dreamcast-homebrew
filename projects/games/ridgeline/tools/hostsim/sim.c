@@ -109,7 +109,7 @@ static int run_crash(int kind, int model) {
     game.ntrucks = 2;
     Truck *a = &trucks[0], *b = &trucks[1];
     a->model = model;
-    b->model = model ^ 1;
+    b->model = (model + 1) % TRUCK_MODELS;
     a->cpu = false;
     b->cpu = true;
     static const float ang[5] = {0, 90, 45, 180, 0};

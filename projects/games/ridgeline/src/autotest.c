@@ -103,7 +103,7 @@ static const int tod_shot_views[2] = {0, 5};
 #ifdef RL_AT_VMUTEST
 #include "records.h"
 /* make vmutest, on blank cards: a summit time saves and reads back, a
-   slower one doesn't replace it. */
+   slower one doesn't replace it, and the third truck's time keeps its own slot. */
 static void vmu_test(void) {
     char line[64];
     records_load();
@@ -116,15 +116,22 @@ static void vmu_test(void) {
     game.clock = 640.0f;
     bool second = records_summit(line, sizeof(line));
     printf("RL AT vmu: %s\n", line);
+    game.truck_model = 2;          /* the Bobcat's times sit past the first two trucks' */
+    records_start();
+    game.clock = 702.5f;
+    bool third = records_summit(line, sizeof(line));
+    printf("RL AT vmu: %s\n", line);
     records_set_name("PEBBLES");   /* the online name, kept with the times */
     records_load();
     uint32_t got = records_best(1, WAY_LOGGING), other = records_best(0, WAY_LOGGING);
+    uint32_t bobcat = records_best(2, WAY_LOGGING);
     bool named = strcmp(records_name(), "PEBBLES") == 0;
-    if(first && !second && got == 5813 && other == 0 && named)
-        printf("RL AUTOTEST: PASS vmu save read back %lu, name %s\n", (unsigned long)got, records_name());
+    if(first && !second && third && got == 5813 && other == 0 && bobcat == 7025 && named)
+        printf("RL AUTOTEST: PASS vmu save read back %lu and %lu, name %s\n", (unsigned long)got,
+               (unsigned long)bobcat, records_name());
     else
-        printf("RL AUTOTEST: FAIL vmu save: first %d second %d read back %lu other %lu name \"%s\"\n", first, second,
-               (unsigned long)got, (unsigned long)other, records_name());
+        printf("RL AUTOTEST: FAIL vmu save: first %d second %d third %d read back %lu other %lu bobcat %lu name \"%s\"\n",
+               first, second, third, (unsigned long)got, (unsigned long)other, (unsigned long)bobcat, records_name());
 }
 #endif
 

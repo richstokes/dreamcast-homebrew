@@ -56,7 +56,7 @@ build can read it.
 | --- | --- | --- | --- |
 | 1 | `HELLO` | name `char[11]` | every 500 ms until `WELCOME` |
 | 2 | `LIST` | nothing | 2 Hz on the lobby browser |
-| 3 | `JOIN` | u8 lobby (0-9), u8 truck model (0-1), u8 livery (0-3) | every 500 ms until the lobby state names this console |
+| 3 | `JOIN` | u8 lobby (0-9), u8 truck model (0-2), u8 livery (0-3) | every 500 ms until the lobby state names this console |
 | 4 | `LEAVE` | nothing | 3 times |
 | 5 | `TRUCK` | 30 bytes, below | 12 Hz on the mountain |
 | 7 | `PING` | nothing | 1 Hz when nothing else goes (keeps NAT open); answered with `LOBBIES` while in no lobby (the truck select), as the console gives up after 6 s of silence |

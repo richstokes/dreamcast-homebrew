@@ -75,7 +75,7 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 2.28f;
         s->brake_torque = 1500.0f;
     }
-    else {
+    else if(model == 1) {
         /* KESTREL: a modern two-door 4x4. Twin-turbo V6, long-travel
            suspension, 35 inch tyres, a crawl ratio to match. */
         s->name = "KESTREL";
@@ -108,6 +108,39 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 3.06f;
         s->brake_torque = 2100.0f;
     }
+    else {
+        /* BOBCAT: a short two-door 4x4 with the top off. A 4.0 L straight
+           six, solid axles both ends, tight steering and a 4:1 transfer
+           case: the slowest crawl of the three. */
+        s->name = "BOBCAT";
+        s->mass = 1800.0f;
+        s->inertia = v3(2700.0f, 2800.0f, 760.0f);
+        s->cog_y = 0.80f;
+        s->cog_z = 0.12f;    /* ~55% front */
+        s->lsd = 120.0f;
+        s->radius = 0.42f;
+        s->width = 0.30f;
+        for(int i = 0; i < 4; i++)
+            s->wheel[i] = v3((i & 1) ? 0.80f : -0.80f, s->radius, (i < 2) ? 1.21f : -1.21f);
+        s->travel = 0.36f;
+        s->sag = 0.36f;
+        s->wheel_inertia = 1.9f;
+        s->max_steer = 0.66f;
+        s->body_lo[0] = -0.85f; s->body_lo[1] = 0.55f; s->body_lo[2] = -2.05f;
+        s->body_hi[0] = 0.85f; s->body_hi[1] = 1.85f; s->body_hi[2] = 1.95f;
+        s->wade = 0.78f;
+        s->idle_rpm = 750.0f;
+        s->redline_rpm = 5200.0f;
+        s->peak_torque = 320.0f;
+        s->peak_rpm = 3000.0f;
+        s->gears = 5;
+        static const float r[5] = {3.59f, 2.19f, 1.41f, 1.00f, 0.83f};
+        memcpy(s->ratio, r, sizeof(r));
+        s->reverse = 3.16f;
+        s->final_drive = 4.10f;
+        s->low_range = 4.00f;
+        s->brake_torque = 1800.0f;
+    }
 #ifdef HAVE_TRUCK_MODELS
     const rl_truck_info_t *ti = &rl_truck_info[model];
     s->radius = ti->wheel_radius;
@@ -136,7 +169,7 @@ void truck_spec(TruckSpec *s, int model) {
     s->hull_h[2] = (zhi - zlo) * 0.5f;
     /* Low range holds the automatic to the gears whose redline is under
        LOW_RANGE_TOP_MPS, as modern 4L modes do: 2nd in the pickup (~22 mph),
-       4th in the Kestrel (~28 mph). */
+       4th in the Kestrel (~28 mph), 3rd in the Bobcat (~22 mph). */
     s->low_top_gear = 1;
     for(int g = 1; g <= s->gears; g++) {
         float v = s->redline_rpm / RPM_PER_RADS / (s->ratio[g - 1] * s->final_drive * s->low_range) * s->radius;

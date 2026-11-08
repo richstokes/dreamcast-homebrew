@@ -43,7 +43,7 @@ from synthkit import (  # noqa: E402
     midi_hz, pad_to, periodic, place, place_wrap, plfo, softsat)
 
 SR = SFX_RATE
-MAX_PAK_BYTES = 1_400_000        # leaves the AICA ~500 KiB free
+MAX_PAK_BYTES = 1_650_000        # three trucks; leaves the AICA ~300 KiB free (no streams)
 ENGINE_LOOPS = 4
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -436,7 +436,7 @@ def render_engine(e: Engine, rpm, load, fire, seed, circular, tail=0, cycles=Non
     return mix, parts
 
 
-# --- the two trucks ---
+# --- the trucks ---
 
 def cascade_bank(f):
     # Cast 4-into-1 manifold feeding the head pipe.
@@ -475,6 +475,24 @@ def kestrel_common(f):
 def kestrel_intake(f):
     # Through the compressors and intercooler: only the low lumps survive.
     return H_bp2(f, 120, 1.5) * 1.0 + 0.2 * H_bp2(f, 380, 2.0)
+
+
+def bobcat_bank(f):
+    # Cast log manifold collecting all six: a short, lumpy path to the head pipe.
+    return H_pipe(f, 0.42, 0.55, 0.55) * H_lp1(f, 4800)
+
+
+def bobcat_common(f):
+    head = H_pipe(f, 1.6, 0.35, -0.55, loss_hz=5000)
+    cat = H_chamber(f, 0.25, 3.0)
+    muffler = H_chamber(f, 0.48, 7.5) * H_lp1(f, 1800) * H_peak(f, 900, 1.2, 3.0)
+    tail = H_pipe(f, 0.55, 0.45, -0.75, loss_hz=7000)
+    return 2.6 * head * cat * muffler * tail * H_hp1(f, 80) * H_peak(f, 110, 1.1, 3.5)
+
+
+def bobcat_intake(f):
+    # Long plastic intake tract and airbox: a deep honk under load.
+    return H_bp2(f, 140, 2.0) + 0.45 * H_bp2(f, 330, 2.6) + 0.12 * H_bp2(f, 900, 2.0)
 
 
 CASCADE = Engine(
@@ -526,7 +544,30 @@ KESTREL = Engine(
     on_db=(-1.5, -0.6, 0.4, 1.4), off_db=(-2.8, -4.2, -5.2, -6.2),
 )
 
-ENGINES = (CASCADE, KESTREL)
+BOBCAT = Engine(
+    key="BOBCAT", label="BOBCAT", idle=750, redline=5200,
+    points=(750, 1400, 2600, 4950), durs=(0.48, 0.42, 0.36, 0.34),
+    # Straight six, 1-5-3-6-2-4: one firing every 120 degrees into one manifold.
+    fire=((0, 0), (120, 0), (240, 0), (360, 0), (480, 0), (600, 0)),
+    cyl_amp=(1.0, 0.93, 1.06, 0.97, 1.04, 0.90), cyl_dth=(0.0, 1.4, -1.0, 0.8, -0.6, 1.8),
+    bank_dth=(0.0,), bank_gain=(1.0,),
+    evo=130.0, blow_peak=42.0, blow_rise=4.2, crack=0.42, crack_tau=0.00025,
+    flow=0.11, flow_band=(600, 4000), pump=0.18,
+    var_on=0.045, var_off=0.18, misfire_off=0.03, off_fire=0.22,
+    pops_per_s=0.0, pop_amp=0.0, shaper=0.25,
+    exhaust_bank=(bobcat_bank,), exhaust_common=bobcat_common,
+    intake_H=bobcat_intake, intake_gain=0.2, roar_gain=0.04, roar_band=(300, 1400),
+    hiss_gain=0.005, hiss_hz=2400,
+    knock_modes=((980, 0.0040, 1.0), (1620, 0.0030, 0.7), (2380, 0.0021, 0.45), (3200, 0.0015, 0.25)),
+    knock_gain=0.07,
+    # Pushrods and hydraulic lifters: twelve seatings a cycle, a light tick.
+    valve_events=(15, 135, 255, 375, 495, 615, 220, 340, 460, 580, 700, 100),
+    valve_modes=((2900, 0.0010, 1.0), (4300, 0.0007, 0.6)),
+    valve_gain=0.022, chain_order=18.0, chain_gain=0.003,
+    starter_ratio=12.5, crank_rpm=215.0, crank_secs=0.55, flare_rpm=1300.0,
+)
+
+ENGINES = (CASCADE, KESTREL, BOBCAT)
 
 
 def loop_geometry(e: Engine, i: int):
@@ -728,6 +769,10 @@ def sfx_horn_cascade():
 
 def sfx_horn_kestrel():
     return horn_loop("horn-kestrel", (420.0, 500.0), 0.35, 0.45)
+
+
+def sfx_horn_bobcat():
+    return horn_loop("horn-bobcat", (380.0, 455.0), 0.6, 0.45)
 
 
 def grains_loop(n, rng, rate, len_ms, band, q, amp_sigma, sr, env=None):
@@ -1291,6 +1336,7 @@ SFX = engine_assets() + [
     # name, generator, loop, rate, normalise
     ("HORN_CASCADE", sfx_horn_cascade, True, SR, True),
     ("HORN_KESTREL", sfx_horn_kestrel, True, SR, True),
+    ("HORN_BOBCAT", sfx_horn_bobcat, True, SR, True),
     ("GRAVEL", sfx_gravel, True, SR, True),
     ("DIRT", sfx_dirt, True, 16000, True),
     ("MUD", sfx_mud, True, SR, True),
@@ -1306,6 +1352,7 @@ SFX = engine_assets() + [
     # Starts are stored at 16 kHz: nothing in them needs the top octave.
     ("START_CASCADE", lambda: resample_poly(engine_start(CASCADE), 320, 441), False, 16000, False),
     ("START_KESTREL", lambda: resample_poly(engine_start(KESTREL), 320, 441), False, 16000, False),
+    ("START_BOBCAT", lambda: resample_poly(engine_start(BOBCAT), 320, 441), False, 16000, False),
     ("CLICK", sfx_click, False, SR, True),
     ("CLUNK", sfx_clunk, False, SR, True),
     ("SHIFT", sfx_shift, False, SR, True),
@@ -1349,8 +1396,8 @@ def engine_report():
 
 def write_header(out, entries):
     ids = {name: i for i, (name, *_) in enumerate(entries)}
-    for name in ("HORN_CASCADE", "HORN_KESTREL", "START_CASCADE", "START_KESTREL"):
-        assert name in ids
+    for e in ENGINES:
+        assert f"HORN_{e.key}" in ids and f"START_{e.key}" in ids
     tail = [f"#define RL_ENGINE_LOOPS {ENGINE_LOOPS}", "",
             "typedef struct {",
             "    uint16_t on[RL_ENGINE_LOOPS], off[RL_ENGINE_LOOPS];  /* sfx ids, rpm points ascending */",
@@ -1360,7 +1407,7 @@ def write_header(out, entries):
             "/* Play each loop at rate rpm / loop rpm. Each holds a whole number of",
             "   four-stroke cycles starting at cylinder 1's firing, so channels",
             "   started together stay in step. */",
-            "static const rl_engine_sound_t rl_engine_sounds[2] __attribute__((unused)) = {"]
+            f"static const rl_engine_sound_t rl_engine_sounds[{len(ENGINES)}] __attribute__((unused)) = {{"]
     for e in ENGINES:
         _, _, rpms = engine_set(e)
         on = ", ".join(f"RL_SFX_{e.key}_ON_{i}" for i in range(ENGINE_LOOPS))
@@ -1374,8 +1421,10 @@ def write_header(out, entries):
                  "    },"]
     tail += ["};", "",
              "/* per truck: the horn loop, and the engine start one-shot */",
-             "static const uint16_t rl_horn_sfx[2] __attribute__((unused)) = { RL_SFX_HORN_CASCADE, RL_SFX_HORN_KESTREL };",
-             "static const uint16_t rl_start_sfx[2] __attribute__((unused)) = { RL_SFX_START_CASCADE, RL_SFX_START_KESTREL };",
+             f"static const uint16_t rl_horn_sfx[{len(ENGINES)}] __attribute__((unused)) = {{ "
+             + ", ".join(f"RL_SFX_HORN_{e.key}" for e in ENGINES) + " };",
+             f"static const uint16_t rl_start_sfx[{len(ENGINES)}] __attribute__((unused)) = {{ "
+             + ", ".join(f"RL_SFX_START_{e.key}" for e in ENGINES) + " };",
              "/* forest birds, one-shots the game plays now and then */",
              "#define RL_BIRDS 4",
              "static const uint16_t rl_bird_sfx[RL_BIRDS] __attribute__((unused)) = { RL_SFX_BIRD_TEEOO, RL_SFX_BIRD_WARBLE, RL_SFX_BIRD_TRILL, RL_SFX_BIRD_COO };",

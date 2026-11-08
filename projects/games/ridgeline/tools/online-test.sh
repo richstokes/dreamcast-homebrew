@@ -10,6 +10,7 @@
 #   RL_NET=modem      dial in through Flycast's emulated modem instead
 #   RL_QA_LIVE=1      against the live server at dcvmu.com:7536
 #   RL_QA_PORT=7594   the local server's port
+#   RL_BOT_TRUCK=2    the bot's truck model (default 0, the Cascade 84)
 set -euo pipefail
 
 GAME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,7 +46,7 @@ make -C "${GAME}" VARIANT=autotest ridgeline-autotest.elf EXTRA_CFLAGS="-DRL_AT_
 # Its own name, so captures and other sessions' Flycasts never mix it up.
 cp "${GAME}/ridgeline-autotest.elf" "${GAME}/ridgeline-online.elf"
 
-"${OUT}/rl-bot" -addr "${ADDR}" -name AT-BOT -lobby 9 -summit-after 5s -leave-after 40s -away 6s -for 180s \
+"${OUT}/rl-bot" -addr "${ADDR}" -name AT-BOT -lobby 9 -model "${RL_BOT_TRUCK:-0}" -summit-after 5s -leave-after 40s -away 6s -for 180s \
     -level "${GAME}/assets/generated/level.bin" > "${OUT}/bot.log" 2>&1 &
 pids+=($!)
 

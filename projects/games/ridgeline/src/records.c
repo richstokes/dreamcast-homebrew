@@ -16,10 +16,14 @@
 typedef struct {
     char magic[8];
     int32_t version;
-    uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none */
+    uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none: Cascade 84, Kestrel */
     char name[12];                 /* the online name (version 2; version 1 saves end before it) */
+    /* The trucks after the first two (Bobcat). Appended to version 2 so
+       older builds still read the rest; a save without it is shorter. */
+    uint32_t best_more[TRUCK_MODELS - 2][WAY_COUNT];
 } record_t;
 #define RECORD_V1_BYTES (int)offsetof(record_t, name)
+#define RECORD_V2_BYTES (int)offsetof(record_t, best_more)
 
 /* Test builds never touch a VMU, except the save test, which runs on
    blank cards (see the README). */
@@ -44,8 +48,9 @@ void records_load(void) {
     memset(&r, 0, sizeof(r));
     int n = vmusave_read(dev, FILENAME, &r, sizeof(r));
     if(n < RECORD_V1_BYTES || memcmp(r.magic, magic, sizeof(magic))) return;
-    if(!(r.version == 1 && n >= RECORD_V1_BYTES) && !(r.version == 2 && n >= (int)sizeof(r))) return;
+    if(!(r.version == 1 && n >= RECORD_V1_BYTES) && !(r.version == 2 && n >= RECORD_V2_BYTES)) return;
     if(r.version == 1) memset(r.name, 0, sizeof(r.name));
+    if(n < (int)sizeof(r)) memset(r.best_more, 0, sizeof(r.best_more));
     r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
     printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);
@@ -180,8 +185,13 @@ void records_set_name(const char *name) {
     save();
 }
 
+static uint32_t *best_slot(int truck, int way) {
+    truck %= TRUCK_MODELS;
+    return truck < 2 ? &rec.best[truck][way] : &rec.best_more[truck - 2][way];
+}
+
 uint32_t records_best(int truck, int way) {
-    return rec.best[truck & 1][way];
+    return *best_slot(truck, way);
 }
 
 bool records_summit(char *msg, int size) {
@@ -196,7 +206,7 @@ bool records_summit(char *msg, int size) {
     for(int w = 1; w < 3; w++)
         if(tally[w] > tally[way]) way = w;
     if(tally[way] < tally[WAY_OWN]) way = WAY_OWN;
-    uint32_t *b = &rec.best[game.truck_model & 1][way];
+    uint32_t *b = best_slot(game.truck_model, way);
     bool better = *b == 0 || tenths < *b;
     if(better) {
         *b = tenths;
