@@ -29,7 +29,7 @@ been, and the viewpoints you've found.
   limited-slip rear, so the tail comes round under power and a spinning
   tyre gives up its cornering grip. Feed it on the progressive throttle and
   catch it with opposite lock. The Kestrel's traction control reins it in
-  (in 2WD and 4WD) until you hold D-pad up to switch it off
+  (in 2WD and 4WD) until you hold D-pad left to switch it off
 - A spinning tyre flings a roostertail of whatever it's in (mud clods,
   dirt, stones, snow, spray), and the rear tyres leave tread tracks in soft
   ground
@@ -74,8 +74,8 @@ If you are burning a physical CD-R, you may want to try the padded
 | --- | --- |
 | Analog stick | Steer |
 | R / L trigger | Throttle / brake; hold L at a stop to reverse |
-| D-pad left / right | Drive mode: 2WD, 4WD, LOCK (low range goes in or out only below ~8 mph) |
-| D-pad up | Horn; hold 2 s to switch traction control off or on (Kestrel) |
+| D-pad left / right | Drive mode: 2WD, 4WD, LOCK (low range goes in or out only below ~8 mph); hold left 2 s to switch traction control off or on (Kestrel) |
+| D-pad up | Horn |
 | D-pad down | Lights: off, dipped, full beam |
 | A | Handbrake |
 | B | Camera: chase, far chase, bumper |

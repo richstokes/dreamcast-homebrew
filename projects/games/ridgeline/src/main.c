@@ -93,28 +93,38 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     in->throttle = pad.rtrig * sqrtf(pad.rtrig);
     in->brake = pad.ltrig;
     in->handbrake = (pad.held & BTN_A) != 0;
-    /* D-pad up is the horn; held 2 s on a truck with traction control it
-       switches that off or on instead, and the horn stops. */
-    static float up_hold;
-    static bool up_done;
-    bool up = (pad.held & BTN_UP) != 0;
-    if(!up) {
-        up_hold = 0;
-        up_done = false;
-    }
-    else if(p->spec.tcs && !up_done && (up_hold += dt) >= 2.0f) {
-        p->tcs_off = !p->tcs_off;
-        up_done = true;
-        hud_message(p->tcs_off ? "TRACTION CONTROL OFF" : "TRACTION CONTROL ON", 0xffffd070, 1.6f);
-    }
-    p->horn = up && !up_done;
+    p->horn = (pad.held & BTN_UP) != 0;
     if(pad.pressed & BTN_DOWN) {
         static const char *const names[LIGHTS_COUNT] = {"LIGHTS OFF", "DIPPED BEAM", "FULL BEAM"};
         p->lights = (uint8_t)((p->lights + 1) % LIGHTS_COUNT);
         hud_message(names[p->lights], 0xfff8f0dc, 1.2f);
     }
-    if(pad.pressed & (BTN_LEFT | BTN_RIGHT)) {
-        int m = p->mode + ((pad.pressed & BTN_RIGHT) ? 1 : -1);
+    /* D-pad left/right step the drive mode. Held 2 s on a truck with
+       traction control, left switches that off or on instead, so there
+       left shifts on release after a tap rather than on the press. */
+    static float left_hold;
+    static bool left_done;
+    int step = 0;
+    if(pad.pressed & BTN_RIGHT) step = 1;
+    if(!p->spec.tcs) {
+        left_hold = 0;
+        left_done = false;
+        if(pad.pressed & BTN_LEFT) step = -1;
+    }
+    else if(pad.held & BTN_LEFT) {
+        if(!left_done && (left_hold += dt) >= 2.0f) {
+            p->tcs_off = !p->tcs_off;
+            left_done = true;
+            hud_message(p->tcs_off ? "TRACTION CONTROL OFF" : "TRACTION CONTROL ON", 0xffffd070, 1.6f);
+        }
+    }
+    else {
+        if(left_hold > 0 && left_hold < 0.5f && !left_done) step = -1;
+        left_hold = 0;
+        left_done = false;
+    }
+    if(step) {
+        int m = p->mode + step;
         if(m >= 0 && m < DRIVE_COUNT) {
             static const char *const names[DRIVE_COUNT] = {"2WD  REAR DRIVE", "4WD  CENTRE LOCKED",
                                                             "LOW RANGE + DIFF LOCKS"};
@@ -140,9 +150,9 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
         hud_hold_k = recover_hold;
         hud_hold_label = "HOLD Y: RECOVER";
     }
-    else if(p->spec.tcs && up_hold > 0.5f && !up_done) {
-        hud_hold_k = up_hold / 2.0f;
-        hud_hold_label = p->tcs_off ? "HOLD UP: TCS ON" : "HOLD UP: TCS OFF";
+    else if(left_hold > 0.5f && !left_done) {
+        hud_hold_k = left_hold / 2.0f;
+        hud_hold_label = p->tcs_off ? "HOLD LEFT: TCS ON" : "HOLD LEFT: TCS OFF";
     }
 }
 
