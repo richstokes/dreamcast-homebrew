@@ -160,6 +160,8 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     }
 }
 
+_Static_assert(LVL_VIEWS <= sizeof(game.views_found) * 8, "a viewpoint without a bit is found again every frame");
+
 static void progress_update(void) {
     const Truck *p = &trucks[0];
     if(p->pos.y > game.best_y) game.best_y = p->pos.y;
