@@ -1,5 +1,5 @@
-// Package alerts posts lobby news to Discord webhooks and Bark (iPhone push)
-// keys. The targets live in a JSON file outside this repository (a webhook
+// Package alerts posts a game server's lobby news (DreamKarts, Ridgeline)
+// to Discord webhooks and Bark (iPhone push) keys. The targets live in a JSON file outside this repository (a webhook
 // URL or Bark key is its own password), installed on the host by
 // richstokes/infra:
 //
@@ -86,13 +86,17 @@ type Webhook struct {
 	URL      string             `json:"url"`
 	Events   []Event            `json:"events"`
 	Throttle map[Event]Duration `json:"throttle,omitempty"`
-	Username string             `json:"username,omitempty"` // Discord's poster name, default "DreamKarts"
-	Icon     string             `json:"icon,omitempty"`     // Bark's notification icon, default DefaultIcon
+	Username string             `json:"username,omitempty"` // Discord's poster name, default the game's
+	Icon     string             `json:"icon,omitempty"`     // Bark's notification icon, default the game's
 	Mute     []string           `json:"mute_players,omitempty"`
 }
 
-// DefaultIcon is the game icon Bark shows beside an alert.
-const DefaultIcon = "https://raw.githubusercontent.com/richstokes/dreamcast-homebrew/main/projects/games/dreamkarts/assets/icon.png"
+// Game says whose alerts these are: its name (Discord's poster, Bark's
+// group) and the icon Bark shows beside an alert.
+type Game struct {
+	Name string
+	Icon string
+}
 
 // Duration reads "5m" style durations from JSON.
 type Duration time.Duration
@@ -164,6 +168,7 @@ type Notifier struct {
 
 type hook struct {
 	cfg      Webhook
+	group    string
 	throttle map[Event]time.Duration
 	last     map[sent]time.Time
 	queue    chan []byte
@@ -186,7 +191,7 @@ var Client = &http.Client{Timeout: 10 * time.Second}
 
 // Load reads the webhook file at path. An empty path or a missing file
 // means no alerts and no error.
-func Load(path string, logf func(string, ...any)) (*Notifier, error) {
+func Load(path string, game Game, logf func(string, ...any)) (*Notifier, error) {
 	if path == "" {
 		return nil, nil
 	}
@@ -201,14 +206,14 @@ func Load(path string, logf func(string, ...any)) (*Notifier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return New(c, logf), nil
+	return New(c, game, logf), nil
 }
 
 // New starts a sender for each webhook in c (from Parse).
-func New(c *Config, logf func(string, ...any)) *Notifier {
+func New(c *Config, game Game, logf func(string, ...any)) *Notifier {
 	n := &Notifier{logf: logf}
 	for _, w := range c.Webhooks {
-		h := &hook{cfg: w, throttle: map[Event]time.Duration{}, last: map[sent]time.Time{},
+		h := &hook{cfg: w, group: game.Name, throttle: map[Event]time.Duration{}, last: map[sent]time.Time{},
 			queue: make(chan []byte, QueueLen), done: make(chan struct{})}
 		h.stop, h.cancel = context.WithCancel(context.Background())
 		for _, ev := range w.Events {
@@ -218,10 +223,10 @@ func New(c *Config, logf func(string, ...any)) *Notifier {
 			}
 		}
 		if h.cfg.Username == "" {
-			h.cfg.Username = "DreamKarts"
+			h.cfg.Username = game.Name
 		}
 		if h.cfg.Icon == "" {
-			h.cfg.Icon = DefaultIcon
+			h.cfg.Icon = game.Icon
 		}
 		n.hooks = append(n.hooks, h)
 		go n.run(h)
@@ -266,7 +271,7 @@ func (n *Notifier) Notify(ev Event, m Message) {
 			}
 		}
 		h.last[k] = m.Time
-		body, err := json.Marshal(payload(h.cfg, m))
+		body, err := json.Marshal(payload(h.cfg, h.group, m))
 		if err != nil {
 			n.logf("alerts %s: %v", h.cfg.Name, err)
 			continue
@@ -293,7 +298,7 @@ func (h *hook) muted(players []string) bool {
 }
 
 // payload is m as w's service wants it.
-func payload(w Webhook, m Message) any {
+func payload(w Webhook, group string, m Message) any {
 	if w.Type == Bark {
 		var inline, lines []string
 		for _, f := range m.Fields {
@@ -306,7 +311,7 @@ func payload(w Webhook, m Message) any {
 		if len(inline) > 0 {
 			lines = append([]string{strings.Join(inline, " · ")}, lines...)
 		}
-		return map[string]any{"title": m.Title, "body": strings.Join(lines, "\n"), "group": "DreamKarts", "icon": w.Icon}
+		return map[string]any{"title": m.Title, "body": strings.Join(lines, "\n"), "group": group, "icon": w.Icon}
 	}
 	embed := map[string]any{"title": m.Title, "color": m.Color, "fields": m.Fields}
 	if !m.Time.IsZero() {

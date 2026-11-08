@@ -11,6 +11,19 @@ go through the bad word filter DreamKarts uses
 stored: a restart empties every lobby. The wire format is in
 [PROTOCOL.md](PROTOCOL.md).
 
+## Alerts
+
+Someone joining a lobby sends a Bark push (or a Discord post) to each
+target in `/etc/ridgeline/alerts.json`, at most once per player every 5
+minutes; test clients (`AT` and a digit or dash, like `AT-BOT`) never do.
+The targets are secret, so they live in the private
+[infra repo](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip)
+(`config/ridgeline/alerts.json`); change them there with `manage.py check`
+and `apply --restart-apps`. The format is DreamKarts' (its
+[server README](../../dreamkarts/server/README.md#alerts)); only
+`lobby_join` means anything here. `-alerts file.json` points a local
+server at a file. Bark shows `assets/icon.png` from `main`.
+
 ## Online change checklist
 
 [`../src/net_version.h`](../src/net_version.h) is the single source of

@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/alerts"
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/udpio"
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/wordfilter"
-	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/alerts"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/demo"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/lobby"
 )
@@ -56,7 +56,7 @@ func main() {
 	}
 
 	// No alerts beats no lobby: a bad alerts file is logged, not fatal.
-	notifier, err := alerts.Load(*alertsConfig, log.Printf)
+	notifier, err := alerts.Load(*alertsConfig, alerts.Game{Name: "DreamKarts", Icon: icon}, log.Printf)
 	if err != nil {
 		log.Printf("alerts off: %v", err)
 	}

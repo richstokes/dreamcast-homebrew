@@ -10,6 +10,10 @@ Type=simple
 User=ridgeline
 Group=ridgeline
 EnvironmentFile=/etc/ridgeline/lobby.env
+# Discord webhooks and Bark keys for lobby alerts, installed
+# (root:ridgeline 0640) by richstokes/infra since they are secret.
+# Missing: no alerts.
+Environment=RIDGELINE_ALERTS_CONFIG=/etc/ridgeline/alerts.json
 # Keeps the last downloaded bad word list (STATE_DIRECTORY, writable under
 # ProtectSystem=strict) for restarts while its host is unreachable.
 StateDirectory=ridgeline

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/alerts"
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/wordfilter"
 )
 
@@ -90,6 +91,17 @@ type Server struct {
 	epoch       time.Time
 	send        func(netip.AddrPort, []byte)
 	rejected    map[string]time.Time
+	// OnJoin, when set, hears about a player arriving in a lobby (for the
+	// Discord and Bark alerts), on the goroutine that feeds the server.
+	// Test clients (alerts.IsTestName) never make one.
+	OnJoin func(Join, time.Time)
+}
+
+// Join is a player arriving in a lobby.
+type Join struct {
+	Name    string
+	Lobby   int      // 1-10, as the console shows it
+	Players []string // everyone there now, a trophy after those who have been to the summit
 }
 
 // New makes a server that writes packets through send.
@@ -280,6 +292,20 @@ func (s *Server) join(p *Player, id int, model, livery byte, now time.Time) {
 	p.HasTruck = false
 	l.dirty = true
 	s.Logf("%q joined lobby %d slot %d (%d/%d)", p.Name, id+1, slot, l.Count(), MaxPlayers)
+	if s.OnJoin != nil && !alerts.IsTestName(p.Name) {
+		var who []string
+		for _, q := range l.Slots {
+			if q == nil {
+				continue
+			}
+			n := q.Name
+			if q.Summit {
+				n += " \U0001F3C6"
+			}
+			who = append(who, n)
+		}
+		s.OnJoin(Join{Name: p.Name, Lobby: id + 1, Players: who}, now)
+	}
 }
 
 func (s *Server) leave(p *Player, why string, now time.Time) {

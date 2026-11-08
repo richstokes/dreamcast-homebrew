@@ -5,9 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/alerts"
+	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/alerts"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/lobby"
 )
+
+// icon is the game icon Bark shows beside an alert.
+const icon = "https://raw.githubusercontent.com/richstokes/dreamcast-homebrew/main/projects/games/dreamkarts/assets/icon.png"
 
 const (
 	joinColour = 0x2ecc71

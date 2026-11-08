@@ -1,8 +1,9 @@
 package lobby
 
 import (
-	"strings"
 	"time"
+
+	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/alerts"
 )
 
 // EventKind says what an Event is about.
@@ -41,16 +42,10 @@ var (
 	CCNames        = []string{"50cc", "100cc", "150cc"}
 )
 
-// IsTestName says whether a player name belongs to our automated testing:
-// "AT" alone or followed by a digit or a dash. Online autotest consoles
-// call themselves AT plus four digits and dk-bot defaults to AT-BOT; name
-// any other test client AT-SOMETHING. Real names like ATOM still count.
+// IsTestName says whether a player name belongs to our automated testing
+// (alerts.IsTestName, shared with Ridgeline's server).
 func IsTestName(name string) bool {
-	if !strings.HasPrefix(name, "AT") {
-		return false
-	}
-	rest := name[2:]
-	return rest == "" || rest[0] == '-' || (rest[0] >= '0' && rest[0] <= '9')
+	return alerts.IsTestName(name)
 }
 
 func anyTest(ps []*Player) bool {

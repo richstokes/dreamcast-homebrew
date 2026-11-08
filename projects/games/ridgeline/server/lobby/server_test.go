@@ -267,3 +267,22 @@ func TestTimeoutsAndDay(t *testing.T) {
 		t.Errorf("fresh lobby at %.2f h", hour)
 	}
 }
+
+// Joins reach OnJoin with who is there (trophies marked); test names never do.
+func TestJoinEvents(t *testing.T) {
+	h := newHarness(t)
+	var got []string
+	h.s.OnJoin = func(j Join, _ time.Time) { got = append(got, fmt.Sprintf("%s@%d:%v", j.Name, j.Lobby, j.Players)) }
+	for _, n := range []string{"RICH", "AT-BOT", "PAL"} {
+		h.hello(n)
+	}
+	h.join("RICH", 2)
+	h.truck("RICH", TruckSummit)
+	h.join("AT-BOT", 2)
+	h.join("PAL", 2)
+	h.join("PAL", 2) // its resent JOIN is not news
+	want := "[RICH@3:[RICH] PAL@3:[RICH \U0001F3C6 AT-BOT PAL]]"
+	if fmt.Sprint(got) != want {
+		t.Errorf("joins %v, want %s", got, want)
+	}
+}

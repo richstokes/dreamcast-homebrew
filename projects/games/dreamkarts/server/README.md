@@ -47,7 +47,8 @@ race they are in) for that target only, and Bark alerts show the game icon
 ]}
 ```
 
-`-alerts file.json` (or `DREAMKARTS_ALERTS_CONFIG`) points a local server
+The code is [`alerts`](../../../common/gameserver/alerts), shared with
+Ridgeline's server. `-alerts file.json` (or `DREAMKARTS_ALERTS_CONFIG`) points a local server
 at a file; plain `http://127.0.0.1:...` URLs are allowed for testing.
 
 ## Online change checklist

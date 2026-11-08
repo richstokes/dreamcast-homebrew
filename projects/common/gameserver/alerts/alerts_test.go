@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+var testGame = Game{Name: "DreamKarts", Icon: "https://example.com/icon.png"}
+
 // fakeDiscord records every post per path and answers with the queued
 // statuses first (then 204).
 type fakeDiscord struct {
@@ -108,7 +110,7 @@ func TestParseRejectsMistakes(t *testing.T) {
 }
 
 func TestLoadMissingFileIsOff(t *testing.T) {
-	n, err := Load(filepath.Join(t.TempDir(), "nope.json"), t.Logf)
+	n, err := Load(filepath.Join(t.TempDir(), "nope.json"), testGame, t.Logf)
 	if n != nil || err != nil {
 		t.Fatalf("missing file: %v, %v", n, err)
 	}
@@ -116,7 +118,7 @@ func TestLoadMissingFileIsOff(t *testing.T) {
 	n.Close(time.Second)
 	path := filepath.Join(t.TempDir(), "bad.json")
 	os.WriteFile(path, []byte(`{"webhooks": [{"name": "a"}]}`), 0o600)
-	if _, err := Load(path, t.Logf); err == nil {
+	if _, err := Load(path, testGame, t.Logf); err == nil {
 		t.Fatal("bad file loaded")
 	}
 }
@@ -130,7 +132,7 @@ func TestThrottleAndRouting(t *testing.T) {
 		{"name": "races", "url": "%[1]s/b", "events": ["race_start"]},
 		{"name": "chatty", "url": "%[1]s/c", "events": ["lobby_join"], "throttle": {"lobby_join": "1m"}}]}`, f.URL))
 	var l logs
-	n := New(c, l.logf)
+	n := New(c, testGame, l.logf)
 	t0 := time.Unix(1000, 0)
 	for i, at := range []time.Duration{0, time.Second, 61 * time.Second, 4 * time.Minute, 5*time.Minute + time.Second} {
 		n.Notify(LobbyJoin, Message{Title: fmt.Sprintf("join %d", i), Time: t0.Add(at)})
@@ -165,7 +167,7 @@ func TestThrottleAndRouting(t *testing.T) {
 // the window does not, and closed windows are forgotten.
 func TestJoinThrottlePerPlayer(t *testing.T) {
 	f := newFake(t)
-	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [{"name": "main", "url": "%s/a", "events": ["lobby_join", "race_start"]}]}`, f.URL)), t.Logf)
+	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [{"name": "main", "url": "%s/a", "events": ["lobby_join", "race_start"]}]}`, f.URL)), testGame, t.Logf)
 	t0 := time.Unix(1000, 0)
 	join := func(name string, at time.Duration) {
 		n.Notify(LobbyJoin, Message{Title: name + " joined", Time: t0.Add(at), Key: name})
@@ -195,7 +197,7 @@ func TestRateLimitRetry(t *testing.T) {
 	f := newFake(t)
 	f.answers = []int{http.StatusTooManyRequests}
 	var l logs
-	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [{"name": "main", "url": "%s/a", "events": ["race_start"]}]}`, f.URL)), l.logf)
+	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [{"name": "main", "url": "%s/a", "events": ["race_start"]}]}`, f.URL)), testGame, l.logf)
 	n.Notify(RaceStart, Message{Title: "race", Time: time.Now()})
 	n.Close(5 * time.Second)
 	if f.count("/a") != 1 {
@@ -215,7 +217,7 @@ func TestErrorsDoNotLeakURL(t *testing.T) {
 	dead := "https://127.0.0.1:1" + secret // nothing listens there
 	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [
 		{"name": "gone", "url": "%s%s", "events": ["race_start"]},
-		{"name": "dead", "url": "%s", "events": ["race_start"]}]}`, f.URL, secret, dead)), l.logf)
+		{"name": "dead", "url": "%s", "events": ["race_start"]}]}`, f.URL, secret, dead)), testGame, l.logf)
 	n.Notify(RaceStart, Message{Title: "race", Time: time.Now()})
 	n.Close(5 * time.Second)
 	out := l.text()
@@ -231,7 +233,7 @@ func TestBarkErrorDoesNotLeakKey(t *testing.T) {
 	f := newFake(t)
 	f.answers = []int{http.StatusBadRequest}
 	var l logs
-	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [{"name": "phone", "type": "bark", "url": "%s/BARKKEY123", "events": ["race_start"]}]}`, f.URL)), l.logf)
+	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [{"name": "phone", "type": "bark", "url": "%s/BARKKEY123", "events": ["race_start"]}]}`, f.URL)), testGame, l.logf)
 	n.Notify(RaceStart, Message{Title: "race", Time: time.Now()})
 	n.Close(5 * time.Second)
 	out := l.text()
@@ -243,14 +245,14 @@ func TestBarkErrorDoesNotLeakKey(t *testing.T) {
 func TestBarkPayload(t *testing.T) {
 	f := newFake(t)
 	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [
-		{"name": "phone", "type": "bark", "url": "%s/key", "events": ["race_start"]}]}`, f.URL)), t.Logf)
+		{"name": "phone", "type": "bark", "url": "%s/key", "events": ["race_start"]}]}`, f.URL)), testGame, t.Logf)
 	n.Notify(RaceStart, Message{Title: "Race starting in lobby 3", Color: 1, Time: time.Now(), Fields: []Field{
 		{Name: "Track", Value: "EMERALD BEACH", Inline: true}, {Name: "Laps", Value: "3", Inline: true},
 		{Name: "Racers (2)", Value: "ANN, BOB"}}})
 	n.Close(5 * time.Second)
 	got := f.posts["/key"]
 	want := map[string]any{"title": "Race starting in lobby 3", "body": "Track: EMERALD BEACH · Laps: 3\nRacers (2): ANN, BOB",
-		"group": "DreamKarts", "icon": DefaultIcon}
+		"group": "DreamKarts", "icon": testGame.Icon}
 	if len(got) != 1 || fmt.Sprint(got[0]) != fmt.Sprint(want) {
 		t.Errorf("bark got %v, want %v", got, want)
 	}
@@ -262,7 +264,7 @@ func TestMutePlayers(t *testing.T) {
 	n := New(mustParse(t, fmt.Sprintf(`{"webhooks": [
 		{"name": "chat", "url": "%s/chat", "events": ["lobby_join", "race_start"]},
 		{"name": "phone", "type": "bark", "url": "%s/phone", "events": ["lobby_join", "race_start"], "mute_players": ["dbr"]}]}`,
-		f.URL, f.URL)), t.Logf)
+		f.URL, f.URL)), testGame, t.Logf)
 	now := time.Now()
 	n.Notify(LobbyJoin, Message{Title: "DBR joined", Time: now, Key: "DBR", Players: []string{"DBR"}})
 	n.Notify(LobbyJoin, Message{Title: "ANN joined", Time: now, Key: "ANN", Players: []string{"ANN"}})
