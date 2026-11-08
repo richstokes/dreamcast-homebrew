@@ -23,7 +23,7 @@ static Ai ai[MAX_TRUCKS];
 
 /* Test builds can give the player's CPU driver the same guide. */
 static inline bool getenv_assist(void) {
-#if defined(RL_AUTOTEST) || defined(RL_AI_TRACE)
+#if defined(RL_AUTOTEST) || defined(RL_AI_TRACE) || defined(RL_FILM)
     return true;
 #else
     return false;
@@ -44,6 +44,19 @@ void ai_start(int ti, int route) {
     a->pt = 0;
     a->delay = ti * 4.0f;
 }
+
+#ifdef RL_FILM
+void ai_start_on(int ti, int route, int on, int pt, float delay) {
+    ai_start(ti, route);
+    Ai *a = &ai[ti];
+    a->leg = on == R_FOREST ? 0 : on == R_SUMMIT ? 2 : 1;
+    a->plan[1] = on == R_FOREST || on == R_SUMMIT ? route : on;
+    a->route = on;
+    a->pt = pt;
+    a->best_at = a->leg * 4096 + pt;
+    a->delay = delay;
+}
+#endif
 
 static int nearest_pt(const lvl_route_t *r, V3 p, int from, int to) {
     int best = from;

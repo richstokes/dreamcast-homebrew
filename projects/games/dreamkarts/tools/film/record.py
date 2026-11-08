@@ -7,6 +7,7 @@
 
 usage: OBS_WS_PASSWORD=... uv run tools/film/record.py <elf> <name>
            [--max-secs N] [--stop-on TEXT [--stop-after SECS] [--stop-nth N]] [--setup-only] [--no-record]
+           [--prefix 'RL FILM' --flycast <launcher> --footage <dir> --work <dir>]   (another game's film build)
 OBS must be running with its websocket server on port 4455.
 
 OBS gets its own profile and scene collection ("DreamKarts Film") so the
@@ -122,6 +123,7 @@ def point_capture(c, wid, bounds):
     return t
 
 def main():
+    global RAW
     ap = argparse.ArgumentParser()
     ap.add_argument('elf')
     ap.add_argument('name')
@@ -131,15 +133,20 @@ def main():
     ap.add_argument('--stop-nth', type=int, default=1, help='stop at the nth --stop-on line')
     ap.add_argument('--setup-only', action='store_true')
     ap.add_argument('--no-record', action='store_true')
+    ap.add_argument('--prefix', default='DK FILM', help="the film build's serial log prefix")
+    ap.add_argument('--flycast', default=str(FLY), help='launcher: <elf> <serial log>')
+    ap.add_argument('--footage', default=str(RAW), help='where OBS saves the recording')
+    ap.add_argument('--work', default=str(WORK), help='logs go to <work>/runs')
     a = ap.parse_args()
+    RAW = Path(a.footage)
     c = client()
     setup(c)
     if a.setup_only:
         return
-    out = WORK / 'runs'
+    out = Path(a.work).resolve() / 'runs'
     out.mkdir(parents=True, exist_ok=True)
     serial = out / f'{a.name}.serial'
-    proc = subprocess.Popen([str(FLY), str(Path(a.elf).resolve()), str(serial)])
+    proc = subprocess.Popen([a.flycast, str(Path(a.elf).resolve()), str(serial)])
     stem = Path(a.elf).stem
     wid = None
     for _ in range(100):
@@ -192,10 +199,10 @@ def main():
             if nl >= 0:
                 chunk, pos = data[:nl + 1], pos + nl + 1
                 for line in chunk.decode('latin-1').splitlines():
-                    if line.startswith('DK FILM') or 'panic' in line or 'Unhandled' in line:
+                    if line.startswith(a.prefix) or 'panic' in line or 'Unhandled' in line:
                         log.write(f'{now:9.3f} {line}\n')
                         log.flush()
-                        if 'state' in line or 'error' in line or 'panic' in line or 'Unhandled' in line:
+                        if 'state' in line or ' go ' in line or 'error' in line or 'panic' in line or 'Unhandled' in line:
                             print(f'{now:8.1f} {line}', flush=True)
                         if a.stop_on and a.stop_on in line and stop_at is None:
                             seen += 1

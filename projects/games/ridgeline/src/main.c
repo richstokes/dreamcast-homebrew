@@ -23,6 +23,7 @@
 #include "birds.h"
 #include "tod.h"
 #include "online.h"
+#include "film.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -190,6 +191,10 @@ static void progress_update(void) {
 
 static void drive_update(float dt) {
     Truck *p = &trucks[0];
+#ifdef RL_FILM
+    film_update(dt);
+    return;
+#endif
     if(game.demo) {
         demo_update(dt);
         return;
@@ -247,7 +252,11 @@ static void update(float dt) {
        relit faster than the drive can afford; the title's slow turn of
        the day a little faster, as its flyover has less to spare. */
     bool run_clock = game.state != ST_SELECT && !(game.state == ST_DRIVE && game_frozen());
+#ifdef RL_FILM
+    float budget = 12.0f;   /* Flycast has time to spare: time-lapses relight quickly */
+#else
     float budget = game.state == ST_DRIVE ? (game.paused ? 4.0f : 1.0f) : game.state == ST_SELECT ? 4.0f : 1.5f;
+#endif
     tod_update(dt, run_clock, budget);
     world_update(dt);
     birds_update(dt);
@@ -291,11 +300,13 @@ static void render(void) {
     else if(game.state == ST_SOUND) soundtest_draw();
     else if(game.state == ST_ONLINE) online_draw();
     else if(game.demo) demo_draw();
+#ifndef RL_FILM   /* film builds draw no HUD */
     else {
         if(!game.photo) hud_draw();
         if(game.online) online_draw_hud();
         if(game.paused) menu_pause_draw();
     }
+#endif
     if(game.show_fps && !game.photo && game.state == ST_DRIVE) {
         char buf[32];
         snprintf(buf, sizeof(buf), "%.0f FPS  %.1f MS", (double)game.fps, (double)game.cpu_ms);
@@ -336,6 +347,9 @@ int main(int argc, char **argv) {
     game_set_state(ST_TITLE);
 #ifdef RL_AUTOTEST
     autotest_boot();
+#endif
+#ifdef RL_FILM
+    film_start();
 #endif
 #ifdef ENG_PROF
     prof_start();

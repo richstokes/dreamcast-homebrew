@@ -114,6 +114,7 @@ make -C projects/games/ridgeline run
 | `make hw` | Plays on the console |
 | `make disc` | A self-booting CDI |
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour) |
+| `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
 | `make -C tools/hostsim && tools/hostsim/sim route <truck 0-2> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second |
 
 Assets (generated output is committed):

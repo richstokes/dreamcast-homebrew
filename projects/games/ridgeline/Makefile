@@ -6,7 +6,7 @@ TARGET = ridgeline.elf
 GAME_PREFIX = RL
 # Ridgeline's own sources (src/), then the shared engine's
 # (projects/common/engine), in link order.
-SOURCES = main.c terrain.c world.c tod.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c \
+SOURCES = main.c terrain.c world.c tod.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c film.c \
 	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c
 # Online play: the network link (Broadband adapter, W5500, modem) and the
 # dialler, shared with DreamKarts from projects/common.
@@ -25,6 +25,8 @@ VARIANT_FLAGS_release =
 VARIANT_FLAGS_autotest = -DRL_AUTOTEST
 VARIANT_FLAGS_capture = -DRL_AUTOTEST -DRL_CAPTURE
 VARIANT_FLAGS_hwbench = -DRL_AUTOTEST -DRL_CAPTURE -DRL_HW
+# film: scripted trailer scenes with no HUD (src/film.c, tools/film/).
+VARIANT_FLAGS_film = -DRL_FILM
 
 include ../../common/engine/game.mk
 
@@ -94,12 +96,24 @@ fxbench:
 		ridgeline-hwbench.elf -- -m $(CURDIR)/captures/hw
 	@/usr/bin/grep -a 'RL A' captures/hw/fxbench.log
 
+# Trailer footage through OBS (its websocket password in OBS_WS_PASSWORD):
+# every scene in src/film.c, or FILM_PICK=3,7 for some. Cut on the
+# "RL FILM go/cut" lines in captures/film/runs/<take>.log.
+FILM_PICK ?=
+TAKE ?= take
+film:
+	rm -f ridgeline-film.elf
+	$(MAKE) VARIANT=film $(if $(FILM_PICK),EXTRA_CFLAGS=-DRL_FILM_PICK=$(FILM_PICK)) ridgeline-film.elf
+	uv run ../dreamkarts/tools/film/record.py ridgeline-film.elf $(TAKE) --prefix 'RL FILM' \
+		--flycast tools/film/flycast-film.sh --footage "$(HOME)/Movies/Ridgeline Footage" --work captures/film \
+		--stop-on 'RL FILM done' --stop-after 1
+
 disc: $(TARGET)
 	../../../tools/flycast/elf-to-cdi.sh $(TARGET) ridgeline.cdi
 
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 ridgeline.elf -- -m $(CURDIR)
 
-.PHONY: run level textures trucks audio assets autotest vmutest online-test hwbench hwreport fxbench disc hw
+.PHONY: run level textures trucks audio assets autotest vmutest online-test hwbench hwreport fxbench film disc hw
 
 endif
