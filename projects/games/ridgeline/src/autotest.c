@@ -333,7 +333,9 @@ void autotest_frame(float dt_real) {
     }
     if(game.state == ST_SELECT) {
         if(frames == 150) shot("select");
-        if(frames == 180) {
+        if(frames == 200) input_film_tap(0, BTN_A);
+        if(frames == 260) shot("select-drive");
+        if(frames == 290) {
             game_start_drive();
             ai_start(0, RL_AT_ROUTE);
             game.paused = false;
