@@ -982,12 +982,9 @@ void truck_update(Truck *t, float dt) {
         float tmp = throttle;
         throttle = brake;
         brake = tmp;
-        /* Reverse is governed to REVERSE_TOP_MPS: the throttle fades over
-           the last ~2 mph, and rolling back down a slope past it brings the
-           brakes on. */
-        float back = -fwd_speed;
-        throttle *= clampf((REVERSE_TOP_MPS - back) / 0.9f, 0, 1);
-        brake = fmaxf(brake, clampf((back - REVERSE_TOP_MPS) / 0.4f, 0, 1));
+        /* The engine only drives reverse up to REVERSE_TOP_MPS, fading over
+           the last ~2 mph. Gravity can still roll it faster down a slope. */
+        throttle *= clampf((REVERSE_TOP_MPS - -fwd_speed) / 0.9f, 0, 1);
     }
     /* Parked: nothing on the pedals at a standstill holds the brakes on. */
     if(fabsf(fwd_speed) < 0.4f && throttle < 0.05f) brake = fmaxf(brake, 0.6f);
