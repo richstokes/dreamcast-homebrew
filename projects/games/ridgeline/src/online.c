@@ -80,6 +80,7 @@ static const char *const key_rows[4] = {"ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ0123"
 static struct {
     float drive_t, last_log;
     bool jumped, reported, menu_open;
+    bool unbuilt;     /* a remote truck drawn without its build (wheels at its centre) */
     uint32_t shots;   /* bit per screenshot taken (tools/capture.py) */
     float seen_m[NET_MAX_PLAYERS];   /* how far each slot's truck was seen to move */
     V3 seen_at[NET_MAX_PLAYERS];
@@ -362,11 +363,13 @@ void online_drive_step(float dt) {
             }
             continue;
         }
-        if(t->model != p->model || t->absent) {
-            if(t->model != p->model) {
-                t->model = p->model;
-                truck_spec(&t->spec, t->model);
-            }
+        /* Its build (wheels, ride height) on arrival and whenever the slot's
+           truck changes. A slot never used yet is all zeros, model 0
+           included, so comparing models alone left a Cascade 84 arriving
+           there with every wheel at its centre and the body floating. */
+        if(t->absent || t->model != p->model) {
+            t->model = p->model;
+            truck_spec(&t->spec, t->model);
         }
         t->livery = p->livery;
         NetTruck n;
@@ -785,6 +788,13 @@ void online_autotest(float dt) {
         if(s == l->you) continue;
         const Truck *t = &trucks[truck_of(s)];
         if(t->absent) continue;
+        float track = vlen(vsub(t->wh[WFR].centre, t->wh[WFL].centre)), base = vlen(vsub(t->wh[WFL].centre, t->wh[WRL].centre));
+        if(t->spec.radius <= 0 || track < 1.0f || base < 1.5f) {
+            if(!at.unbuilt)
+                printf("RL ONLINE: slot %d truck has no build (radius %.2f, track %.2f, wheelbase %.2f m)\n", s,
+                       (double)t->spec.radius, (double)track, (double)base);
+            at.unbuilt = true;
+        }
         if(at.seen_any[s]) at.seen_m[s] += vlen(vsub(t->pos, at.seen_at[s]));
         at.seen_at[s] = t->pos;
         at.seen_any[s] = true;
@@ -825,7 +835,8 @@ void online_autotest(float dt) {
     if(at.drive_t >= RL_AT_ONLINE_SECONDS) {
         at.reported = true;
         const char *fail = NULL;
-        if(!mine) fail = "the server never showed our trophy";
+        if(at.unbuilt) fail = "a remote truck was drawn without its build";
+        else if(!mine) fail = "the server never showed our trophy";
         else if(trophies < RL_AT_EXPECT_TROPHIES) fail = "fewer trophies in the lobby than expected";
 #ifndef RL_AT_ONLINE_ALONE
         else if(remotes == 0 || moved < 10.0f) fail = "no remote truck seen driving";
