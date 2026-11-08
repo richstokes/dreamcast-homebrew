@@ -652,9 +652,20 @@ static void step(Truck *t, float dt) {
             /* The engine's inertia on the shaft, through the gearing. */
             float Ie = I_e * G * G;
             float shaft_prev = t->rpm / RPM_PER_RADS / G;
+            /* Pushed past redline (rolling downhill in too low a gear), the
+               engine fights back harder the further over it is: drag grows
+               by OVERRUN_DRAG x peak torque per 1000 rpm over. Implicit, as
+               a damper toward the redline shaft speed, so it stays stable
+               however steep. */
+            const float OVERRUN_DRAG = 0.5f;
+            float Co = 0, shaft_red = 0;
+            if(t->rpm > S->redline_rpm) {
+                Co = OVERRUN_DRAG * S->peak_torque / (1000.0f / RPM_PER_RADS) * G * G;
+                shaft_red = S->redline_rpm / RPM_PER_RADS / G * signf(q_shaft * G);
+            }
             for(int r = 0; r < nq; r++) {
-                for(int c = 0; c < nq; c++) A[r][c] += Ie / dt * shaft[r] * shaft[c];
-                rhs[r] += Ie / dt * shaft[r] * shaft_prev;
+                for(int c = 0; c < nq; c++) A[r][c] += (Ie / dt + Co) * shaft[r] * shaft[c];
+                rhs[r] += Ie / dt * shaft[r] * shaft_prev + Co * shaft[r] * shaft_red;
             }
         }
         solve(A, rhs, nq);
