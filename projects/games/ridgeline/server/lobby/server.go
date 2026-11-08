@@ -162,6 +162,12 @@ func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
 			s.truck(p, body[:TruckLen], now)
 		}
 	case TypePing:
+		// A console between lobbies (the truck select) only pings, and
+		// gives up on a server it has not heard from in 6 s: answer with
+		// the lobby list. In a lobby its LOBBY packets do that already.
+		if p.Lobby < 0 {
+			s.sendLobbies(p, now)
+		}
 	}
 }
 

@@ -302,3 +302,21 @@ func TestSnapshot(t *testing.T) {
 		t.Errorf("snapshot %+v, lobby 2 %+v", snap, l)
 	}
 }
+
+// A console on the truck select only pings: it must hear back, or it
+// reports a lost connection after 6 s.
+func TestPingAnsweredBetweenLobbies(t *testing.T) {
+	h := newHarness(t)
+	h.hello("RICH")
+	h.out = nil
+	h.packet("RICH", TypePing, Build, nil)
+	if h.last("RICH", TypeLobbies) == nil {
+		t.Error("a ping from the truck select went unanswered")
+	}
+	h.join("RICH", 0)
+	h.out = nil
+	h.packet("RICH", TypePing, Build, nil)
+	if len(h.out) != 0 {
+		t.Errorf("in a lobby a ping got %d packets (its LOBBY packets keep it alive)", len(h.out))
+	}
+}

@@ -51,6 +51,9 @@
 #ifndef RL_AT_ROUTE
 #define RL_AT_ROUTE 1
 #endif
+#ifndef RL_AT_SELECT_WAIT
+#define RL_AT_SELECT_WAIT 8.0f  /* seconds on the truck select before joining */
+#endif
 #endif
 
 enum { OS_NAME, OS_CONNECT, OS_BROWSER, OS_ERROR };
@@ -505,6 +508,15 @@ static void name_update(void) {
     }
 }
 
+/* From the browser to the truck select for the lobby picked. */
+static void to_truck_select(void) {
+    net_want_list(false);
+    game_set_state(ST_SELECT);
+    /* The truck parked in that lobby's light (a fresh one starts in the morning). */
+    const NetLobbyInfo *e = &net_lobbies()[browse_sel];
+    tod_set_hour(e->count ? e->hour : 9.0f);
+}
+
 static void browser_update(void) {
     net_want_list(true);
     if(input_menu_up()) {
@@ -519,11 +531,7 @@ static void browser_update(void) {
         if(net_lobbies()[browse_sel].count >= NET_MAX_PLAYERS) audio_sfx(RL_SFX_MENU_BACK, 200);
         else {
             audio_sfx(RL_SFX_MENU_SELECT, 220);
-            net_want_list(false);
-            game_set_state(ST_SELECT);
-            /* The truck parked in that lobby's light (a fresh one starts in the morning). */
-            const NetLobbyInfo *e = &net_lobbies()[browse_sel];
-            tod_set_hour(e->count ? e->hour : 9.0f);
+            to_truck_select();
         }
     }
     if(pad.pressed & BTN_B) {
@@ -752,12 +760,14 @@ void online_autotest(float dt) {
     at_shot(1, game.state == ST_ONLINE && screen == OS_CONNECT && screen_t > 0.3f, "online-connect");
     if(game.state == ST_ONLINE && screen == OS_BROWSER && net_state() == NET_BROWSE) {
         at_shot(2, screen_t > 1.0f, "online-browser");
-        if(screen_t > 1.8f) game_set_state(ST_SELECT);
+        if(screen_t > 1.8f) to_truck_select();
         return;
     }
     if(game.state == ST_SELECT && !joining) {
         at_shot(3, game.time > 0.6f, "online-select");
-        if(game.time > 1.4f) online_join();
+        /* Long enough on the truck select that a server ignoring the
+           console there would lose it (the connection times out at 6 s). */
+        if(game.time > RL_AT_SELECT_WAIT) online_join();
         return;
     }
     if(game.state == ST_ONLINE && screen == OS_ERROR) {
