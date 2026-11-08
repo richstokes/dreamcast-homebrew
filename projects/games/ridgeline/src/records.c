@@ -2,11 +2,17 @@
    climbs: every few frames the distance driven since the last look goes
    to the climbing route the truck is on (within 9 m of its centreline),
    or to their own way; distance on the shared forest road and summit
-   trail counts for neither. */
+   trail counts for neither.
+
+   A save rewrites the file and the card's directory and FAT, a maple
+   frame or more per block, so it runs on a worker thread: written inline
+   it froze the summit message for about half a second on the console. */
 #include "records.h"
 #include "../../../common/vmusave.h"
 #include "truck.h"
 #include "terrain.h"
+#include <kos/mutex.h>
+#include <kos/thread.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -30,7 +36,12 @@ typedef struct {
 #if !defined(RL_AUTOTEST) || defined(RL_AT_VMUTEST)
 #define RL_USE_VMU 1
 static const char magic[8] = {'R', 'I', 'D', 'G', 'E', 'S', 'V', '1'};
-static int card_port = -1, card_unit = -1;
+static int card_port = -1, card_unit = -1;   /* the worker's, once it runs */
+
+/* The record waiting for the card, and whether a worker is on it. */
+static mutex_t lock = MUTEX_INITIALIZER;
+static record_t pending;
+static bool have_pending, worker_on;
 #endif
 static record_t rec;
 
@@ -40,6 +51,7 @@ static bool have_last, jumped;
 static int frame;
 
 void records_load(void) {
+    records_finish();
     memset(&rec, 0, sizeof(rec));
 #ifdef RL_USE_VMU
     maple_device_t *dev = vmusave_card(&card_port, &card_unit);
@@ -95,27 +107,72 @@ static const char *const icon_art[32] = {
 };
 #endif
 
-static void save(void) {
 #ifdef RL_USE_VMU
+static void write_card(const record_t *r) {
     maple_device_t *dev = vmusave_card(&card_port, &card_unit);
     if(!dev) {
         printf("Ridgeline records: no VMU to save to\n");
         return;
     }
     static uint8_t pixels[512];
-    static record_t r;
-    r = rec;
-    memcpy(r.magic, magic, sizeof(magic));
-    r.version = 2;
     vmu_pkg_t pkg;
     vmusave_header(&pkg, "RIDGELINE", "Ridgeline", "Ridgeline best times");
     /* Palette (ARGB4444): blank, snow, rock, forest, amber. */
     static const uint16_t palette[] = {0x0000, 0xffff, 0xf888, 0xf363, 0xfea3};
     vmusave_icon(&pkg, pixels, icon_art, ".SRGY", palette);
-    if(vmusave_write(dev, FILENAME, &pkg, &r, sizeof(r)) < 0)
+    if(vmusave_write(dev, FILENAME, &pkg, r, sizeof(*r)) < 0)
         printf("Ridgeline records: save failed on VMU %c%d\n", 'A' + dev->port, dev->unit);
     else
         printf("Ridgeline records: saved on VMU %c%d\n", 'A' + dev->port, dev->unit);
+}
+
+/* Writes the latest pending record until none is left. */
+static void *worker(void *arg) {
+    (void)arg;
+    static record_t r;
+    mutex_lock(&lock);
+    while(have_pending) {
+        r = pending;
+        have_pending = false;
+        mutex_unlock(&lock);
+        write_card(&r);
+        mutex_lock(&lock);
+    }
+    worker_on = false;
+    mutex_unlock(&lock);
+    return NULL;
+}
+#endif
+
+static void save(void) {
+#ifdef RL_USE_VMU
+    mutex_lock(&lock);
+    pending = rec;
+    memcpy(pending.magic, magic, sizeof(magic));
+    pending.version = 2;
+    have_pending = true;
+    if(!worker_on) worker_on = thd_create(true, worker, NULL) != NULL;
+    bool inline_write = !worker_on;
+    mutex_unlock(&lock);
+    if(inline_write) {   /* no thread to be had: save the slow way */
+        mutex_lock(&lock);
+        record_t r = pending;
+        have_pending = false;
+        mutex_unlock(&lock);
+        write_card(&r);
+    }
+#endif
+}
+
+void records_finish(void) {
+#ifdef RL_USE_VMU
+    for(int i = 0; i < 300; i++) {   /* 3 s at most, for a card that never answers */
+        mutex_lock(&lock);
+        bool busy = worker_on || have_pending;
+        mutex_unlock(&lock);
+        if(!busy) return;
+        thd_sleep(10);
+    }
 #endif
 }
 

@@ -409,6 +409,7 @@ int main(int argc, char **argv) {
 #endif
     }
     audio_drive_stop();
+    records_finish();
     softreset_leave();
     return 0;
 }

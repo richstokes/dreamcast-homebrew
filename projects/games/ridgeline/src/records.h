@@ -9,6 +9,7 @@
 enum { WAY_LOGGING, WAY_RIDGE, WAY_CREEK, WAY_OWN, WAY_COUNT };
 
 void records_load(void);              /* at boot, from the first VMU with a save */
+void records_finish(void);            /* waits for a save still being written (before leaving) */
 void records_start(void);             /* a drive begins: the clock and the route tally reset */
 void records_update(float dt);        /* each driving frame */
 void records_jumped(void);            /* the player was moved (a viewpoint jump): no time this run */
