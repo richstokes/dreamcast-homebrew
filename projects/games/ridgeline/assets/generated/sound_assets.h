@@ -47,7 +47,8 @@ typedef enum {
     RL_SFX_SHIFT,
     RL_SFX_BUMP_LIGHT,
     RL_SFX_BUMP_HEAVY,
-    RL_SFX_HIT,
+    RL_SFX_CRASH_LIGHT,
+    RL_SFX_CRASH_HEAVY,
     RL_SFX_SPLASH,
     RL_SFX_BLOWOFF,
     RL_SFX_MENU_MOVE,
@@ -94,16 +95,17 @@ static const rl_sfx_asset_t rl_sfx_assets[RL_SFX_COUNT] __attribute__((unused)) 
     { 1000544u, 3008u, 0u, 22050u }, /* CLICK          0.07 s */
     { 1003552u, 22080u, 0u, 22050u }, /* CLUNK          0.50 s */
     { 1025632u, 13248u, 0u, 22050u }, /* SHIFT          0.30 s */
-    { 1038880u, 15904u, 0u, 22050u }, /* BUMP_LIGHT     0.36 s */
-    { 1054784u, 27360u, 0u, 22050u }, /* BUMP_HEAVY     0.62 s */
-    { 1082144u, 33088u, 0u, 22050u }, /* HIT            0.75 s */
-    { 1115232u, 37504u, 0u, 22050u }, /* SPLASH         0.85 s */
-    { 1152736u, 33088u, 0u, 22050u }, /* BLOWOFF        0.75 s */
-    { 1185824u, 2656u, 0u, 22050u }, /* MENU_MOVE      0.06 s */
-    { 1188480u, 23616u, 0u, 22050u }, /* MENU_SELECT    0.54 s */
-    { 1212096u, 19680u, 0u, 22050u }, /* MENU_BACK      0.45 s */
-    { 1231776u, 53280u, 0u, 22050u }, /* CHIME          1.21 s */
-    { 1285056u, 85536u, 0u, 22050u }, /* SUMMIT         1.94 s */
+    { 1038880u, 9600u, 0u, 16000u }, /* BUMP_LIGHT     0.30 s */
+    { 1048480u, 16000u, 0u, 16000u }, /* BUMP_HEAVY     0.50 s */
+    { 1064480u, 19072u, 0u, 22050u }, /* CRASH_LIGHT    0.43 s */
+    { 1083552u, 42016u, 0u, 22050u }, /* CRASH_HEAVY    0.95 s */
+    { 1125568u, 37504u, 0u, 22050u }, /* SPLASH         0.85 s */
+    { 1163072u, 33088u, 0u, 22050u }, /* BLOWOFF        0.75 s */
+    { 1196160u, 2656u, 0u, 22050u }, /* MENU_MOVE      0.06 s */
+    { 1198816u, 23616u, 0u, 22050u }, /* MENU_SELECT    0.54 s */
+    { 1222432u, 19680u, 0u, 22050u }, /* MENU_BACK      0.45 s */
+    { 1242112u, 53280u, 0u, 22050u }, /* CHIME          1.21 s */
+    { 1295392u, 85536u, 0u, 22050u }, /* SUMMIT         1.94 s */
 };
 
 /* display names, for the sound test */
@@ -145,7 +147,8 @@ static const char *const rl_sfx_names[RL_SFX_COUNT] __attribute__((unused)) = {
     "SHIFT",
     "BUMP LIGHT",
     "BUMP HEAVY",
-    "HIT",
+    "CRASH LIGHT",
+    "CRASH HEAVY",
     "SPLASH",
     "BLOWOFF",
     "MENU MOVE",

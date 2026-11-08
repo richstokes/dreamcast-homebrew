@@ -1029,48 +1029,123 @@ def sfx_shift():
     return y
 
 
-def suspension_bump(seed, heavy):
+def thump(n, rng, fc, tau, body_hz, sr=SR):
+    """The weight of a blow: low noise with a body resonance under it.
+    Unpitched on purpose; a swept sine read as a cartoon boing."""
+    t = np.arange(n) / sr
+    nz = rng.standard_normal(n)
+    y = filt(filt(nz, "lp", fc, sr=sr), "lp", fc, sr=sr) * 2.5
+    y += filt(nz, "bp", body_hz, 2.0, sr=sr) * 3.0
+    return y * np.exp(-t / tau) * np.minimum(t / 0.0015, 1)
+
+
+def panel(n, rng, count, band, taus, sr=SR):
+    """Sheet metal and plastic struck hard: many inharmonic modes, damped
+    fast. Dense and short so it reads as a crunch rather than a bell."""
+    t = np.arange(n) / sr
+    y = np.zeros(n)
+    lo, hi = np.log(band[0]), np.log(band[1])
+    for _ in range(count):
+        f = np.exp(rng.uniform(lo, hi))
+        tau = rng.uniform(*taus) * (800.0 / f) ** 0.35
+        y += rng.lognormal(0, 0.5) * np.sin(TAU * f * t + rng.uniform(0, TAU)) * np.exp(-t / tau)
+    return y / np.sqrt(count) * np.minimum(t / 0.0005, 1)
+
+
+def crumple(n, rng, count, span, band, amp, sr=SR, decay=None):
+    """Metal folding and parts giving way: a burst of short noisy crackles,
+    thickest at the start of the blow."""
+    y = np.zeros(n)
+    decay = decay or span[1] * 0.35
+    for _ in range(count):
+        st = span[0] + (span[1] - span[0]) * rng.uniform() ** 2.2
+        m = int(rng.integers(int(0.002 * sr), int(0.012 * sr)))
+        g = filt(rng.standard_normal(m), "bp", np.exp(rng.uniform(np.log(band[0]), np.log(band[1]))), 1.6, sr=sr)
+        g *= np.exp(-np.arange(m) / (m * 0.3))
+        place(y, st * sr, g, amp * rng.lognormal(0, 0.6) * np.exp(-(st - span[0]) / decay))
+    return y
+
+
+def debris(n, rng, count, span, amp, band=(2500, 7500), sr=SR):
+    """Bits of glass, plastic and grit landing after the hit."""
+    y = np.zeros(n)
+    for _ in range(count):
+        st = span[0] + (span[1] - span[0]) * rng.uniform() ** 1.6
+        m = int(0.03 * sr)
+        tt = np.arange(m) / sr
+        f = np.exp(rng.uniform(np.log(band[0]), np.log(band[1])))
+        # Mostly a click, with only a hint of ring: long pings sounded like wind chimes.
+        ping = filt(rng.standard_normal(m), "bp", f, 2.5, sr=sr) * np.exp(-tt / 0.0015)
+        ping += 0.4 * np.sin(TAU * f * tt) * np.exp(-tt / rng.uniform(0.001, 0.004))
+        place(y, st * sr, ping, amp * rng.uniform(0.2, 1.0) * np.exp(-(st - span[0]) / (span[1] * 0.4)))
+    return y
+
+
+def suspension_bump(seed, heavy, sr):
+    """A wheel slamming up into its arch: a dull low knock, the body ringing
+    briefly and loose parts rattling."""
     rng = rng_for(seed)
-    n = int((0.62 if heavy else 0.36) * SR)
-    t = np.arange(n) / SR
-    y = thud(n, 95 if heavy else 130, 42 if heavy else 68, 0.11 if heavy else 0.06) * 1.2
-    y += filt(rng.standard_normal(n), "lp", 380 if heavy else 520) * np.exp(-t / (0.04 if heavy else 0.025)) * 1.2
-    # Coil spring ringing after the hit.
-    spring = np.sin(TAU * (175 if heavy else 210) * t + 0.3) * np.exp(-t / 0.08) * np.clip((t - 0.01) / 0.01, 0, 1)
-    y += spring * (0.35 if heavy else 0.2)
-    body = modal(n, ((240, 0.05, 0.6), (610, 0.03, 0.4), (1350, 0.015, 0.25)), rng)
-    y += body * (0.7 if heavy else 0.35)
-    y += rattle(n, rng, 10 if heavy else 4, (0.015, 0.25 if heavy else 0.14), 0.5 if heavy else 0.3)
+    n = int((0.5 if heavy else 0.3) * sr)
+    y = thump(n, rng, 260 if heavy else 340, 0.075 if heavy else 0.04, 85 if heavy else 120, sr)
+    y += panel(n, rng, 24, (220, 2200), (0.012, 0.03), sr) * (0.5 if heavy else 0.3)
+    y += rattle(n, rng, 9 if heavy else 4, (0.012, 0.22 if heavy else 0.12), 0.45 if heavy else 0.25, (1500, 4500), sr)
     if heavy:
-        # Bump stop: a second, harder clonk as the axle tops out.
-        stop = thud(n, 160, 80, 0.04) + modal(n, ((780, 0.025, 0.5), (1900, 0.012, 0.3)), rng)
-        place(y, 0.045 * SR, stop, 0.7)
-    return softsat(y / np.max(np.abs(y)), 2.0)
+        # Bump stop: the axle tops out a moment later, harder and tighter.
+        stop = thump(n, rng, 420, 0.03, 140, sr) + panel(n, rng, 16, (500, 3500), (0.006, 0.015), sr) * 0.6
+        place(y, 0.04 * sr, stop, 0.6)
+    # Stored ~3.5 dB under full scale: they come often, and with more midrange
+    # than the old sine thumps they would otherwise stand out over the engine.
+    return softsat(y / np.max(np.abs(y)), 2.0) * ONESHOT_PEAK * 0.67
 
 
 def sfx_bump_light():
-    return suspension_bump("bump-light", False)
+    return suspension_bump("bump-light", False, 16000)
 
 
 def sfx_bump_heavy():
-    return suspension_bump("bump-heavy", True)
+    return suspension_bump("bump-heavy", True, 16000)
 
 
-def sfx_hit():
-    """Skid plate on rock: a hard metallic strike, then a short scrape."""
-    rng = rng_for("hit")
-    n = int(0.75 * SR)
+def sfx_crash_light():
+    """Knocking into a rock, a tree or a truck at a few m/s, or the belly
+    landing hard: a heavy whump, the body panels crunching, a little grit."""
+    rng = rng_for("crash-light")
+    n = int(0.6 * SR)
     t = np.arange(n) / SR
-    strike = modal(n, ((1730, 0.06, 0.6), (2890, 0.04, 0.45), (4470, 0.025, 0.3), (690, 0.08, 0.5),
-                       (6100, 0.012, 0.2)), rng)
-    strike += thud(n, 150, 75, 0.07) * 1.2
-    strike += filt(rng.standard_normal(n), "hp", 1500) * np.exp(-t / 0.003) * 0.8
-    scrape_env = np.clip((t - 0.03) / 0.02, 0, 1) * np.exp(-np.maximum(t - 0.05, 0) / 0.18)
-    chatter = np.clip(0.4 + 0.8 * filt(rng.standard_normal(n), "lp", 60), 0, None)
-    scrape = filt(rng.standard_normal(n), "bp", 2400, 1.2) + 0.6 * filt(rng.standard_normal(n), "bp", 4800, 2.0)
-    scrape *= scrape_env * chatter * 0.45
-    grind = rattle(n, rng, 40, (0.03, 0.45), 0.35, (1500, 6000))
-    return strike + scrape + grind
+    y = thump(n, rng, 300, 0.06, 95) * 1.2
+    y += panel(n, rng, 40, (180, 4200), (0.01, 0.035)) * 0.9
+    y += crumple(n, rng, 45, (0.0, 0.11), (500, 5000), 0.55)
+    y += filt(rng.standard_normal(n), "hp", 2000) * np.exp(-t / 0.002) * 0.9
+    grit = filt(rng.standard_normal(n), "bp", 3200, 0.9) * np.clip((t - 0.01) / 0.01, 0, 1) * np.exp(-t / 0.07)
+    y += grit * np.clip(0.3 + 0.9 * filt(rng.standard_normal(n), "lp", 90), 0, None) * 0.35
+    y += rattle(n, rng, 10, (0.03, 0.3), 0.3, (1800, 5500))
+    y = add_reverb(y, 0.12, seconds=0.35, t60=0.3, seed="crash-light-rev")[:n]
+    return softsat(y / np.max(np.abs(y)), 1.6)
+
+
+def sfx_crash_heavy():
+    """A proper smash: the whole truck stops dead against something. A deep
+    blow, metal folding, the body lurching back for a second knock, then
+    glass, plastic and grit coming down."""
+    rng = rng_for("crash-heavy")
+    n = int(1.15 * SR)
+    t = np.arange(n) / SR
+    y = thump(n, rng, 220, 0.11, 70) * 1.5
+    y += filt(rng.standard_normal(n), "hp", 1500) * np.exp(-t / 0.004) * 1.2
+    y += panel(n, rng, 70, (140, 5000), (0.015, 0.06)) * 1.0
+    y += crumple(n, rng, 160, (0.0, 0.32), (350, 6000), 0.7, decay=0.09)
+    # The truck rocks back onto its springs and the body knocks again.
+    second = thump(n, rng, 300, 0.05, 110) + panel(n, rng, 30, (250, 3000), (0.008, 0.025)) * 0.6
+    place(y, 0.13 * SR, second, 0.45)
+    # Metal tearing as it gives: a short, gritty, rough band of noise.
+    tear_env = np.clip((t - 0.015) / 0.02, 0, 1) * np.exp(-np.maximum(t - 0.035, 0) / 0.09)
+    rough = np.clip(0.2 + 1.2 * filt(rng.standard_normal(n), "lp", 140), 0, None)
+    tear = filt(filt(rng.standard_normal(n), "bp", 1700, 0.8), "peak", 3600, 1.5, gain_db=6)
+    y += tear * tear_env * rough * 0.45
+    y += debris(n, rng, 45, (0.06, 0.9), 0.3)
+    y += rattle(n, rng, 30, (0.05, 0.75), 0.35, (1400, 5000))
+    y = add_reverb(y, 0.16, seconds=0.6, t60=0.5, seed="crash-heavy-rev")[:n]
+    return softsat(y / np.max(np.abs(y)), 1.8)
 
 
 def sfx_splash():
@@ -1234,9 +1309,10 @@ SFX = engine_assets() + [
     ("CLICK", sfx_click, False, SR, True),
     ("CLUNK", sfx_clunk, False, SR, True),
     ("SHIFT", sfx_shift, False, SR, True),
-    ("BUMP_LIGHT", sfx_bump_light, False, SR, True),
-    ("BUMP_HEAVY", sfx_bump_heavy, False, SR, True),
-    ("HIT", sfx_hit, False, SR, True),
+    ("BUMP_LIGHT", sfx_bump_light, False, 16000, False),
+    ("BUMP_HEAVY", sfx_bump_heavy, False, 16000, False),
+    ("CRASH_LIGHT", sfx_crash_light, False, SR, True),
+    ("CRASH_HEAVY", sfx_crash_heavy, False, SR, True),
     ("SPLASH", sfx_splash, False, SR, True),
     ("BLOWOFF", sfx_blowoff, False, SR, True),
     ("MENU_MOVE", sfx_menu_move, False, SR, True),

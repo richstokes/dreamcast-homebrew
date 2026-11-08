@@ -278,9 +278,23 @@ void audio_update(float dt) {
         if(p->gear != last_gear) sfx_play(RL_SFX_SHIFT, 120, 128, 1.0f);
         if(p->mode != last_mode) sfx_play(RL_SFX_CLUNK, 220, 128, 1.0f);
         if(p->lights != last_lights) sfx_play(RL_SFX_CLICK, 200, 128, 1.0f);
-        if(p->hit > 2.5f) sfx_play(RL_SFX_HIT, (int)clampf(p->hit * 40.0f, 60, 255), 128, 0.9f + 0.2f * frand());
-        static float bump_cool;
+        /* Crashes: a knock under ~6.5 m/s (belly landings, nudging a rock or
+           a truck), a smash above it (trees and trucks at speed). One blow
+           lasts several frames, so after a crash only a much harder one
+           plays inside the next 0.3 s, and the wheel bump it causes is
+           left out. */
+        static float crash_cool, crash_last, bump_cool;
+        crash_cool -= dt;
         bump_cool -= dt;
+        if(p->hit > 2.5f && (crash_cool <= 0 || p->hit > crash_last * 1.5f)) {
+            bool heavy = p->hit > 6.5f;
+            int vol = heavy ? (int)clampf(190.0f + (p->hit - 6.5f) * 12.0f, 190, 255)
+                            : (int)clampf(110.0f + (p->hit - 2.5f) * 28.0f, 110, 230);
+            sfx_play(heavy ? RL_SFX_CRASH_HEAVY : RL_SFX_CRASH_LIGHT, vol, 128, 0.92f + 0.16f * frand());
+            crash_last = p->hit;
+            crash_cool = 0.3f;
+            bump_cool = 0.25f;
+        }
         float jolt = 0;
         for(int i = 0; i < 4; i++) {
             float dv = (p->wh[i].comp - p->wh[i].comp_prev) * 240.0f;
