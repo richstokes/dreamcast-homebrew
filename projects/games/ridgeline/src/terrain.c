@@ -350,33 +350,34 @@ static void skirt(Scenery *sc, int i0, int j0, int di, int dj, int steps, int st
 
 /* Levels of detail by distance from the centre of the 96 m block a chunk
    lies in, so a block's levels switch together and never overlap or leave
-   a gap: 3 m and 6 m grids in 48 m chunks near, 12 m and 24 m grids over
+   a gap: 3 m and 6 m grids in 24 m tiles near, 12 m and 24 m grids over
    whole blocks further out. The near two are built each frame straight
    from the heightmap (prebuilt, they would take ~5 MB); the far two are
-   prebuilt scenery. Skirts hang under every chunk's edges to hide the
-   cracks where levels meet. */
+   prebuilt scenery. Skirts hang under the edges where levels meet to hide
+   the cracks. */
 #define BLOCK_CELLS 32
 #define BLOCKS ((LEVEL_N - 1) / BLOCK_CELLS)
 static const float lod_far[4] = {100.0f, 180.0f, 300.0f, 620.0f};
-/* The 3 m grid only for chunks whose centre is within this (horizontally). */
+/* The 3 m grid for tiles whose centre is within NEAR_FINE (horizontally),
+   and out to TRAIL_FINE for tiles a route runs through: a trail is two
+   cells wide, and on the 6 m grid its cut into a slope turned into long
+   triangles slashed across the hill. */
 #define NEAR_FINE 50.0f
+#define TRAIL_FINE 100.0f
 /* The far blocks' skirt chunks: [block][12 m, 24 m][edge: -z, +x, +z, -x]. */
 static uint16_t far_skirt[BLOCKS * BLOCKS][2][4];
 static V3 block_c[BLOCKS * BLOCKS];
-/* Near chunks: a sphere per chunk and per strip at each near level (four
-   strips of four rows at 3 m, two of four rows at 6 m). */
+/* Near chunks (48 m, four tiles each): a sphere per chunk, per tile, and
+   per pair of tiles side by side, which the 6 m grid draws as one strip
+   where both have it. Squarish strips have small spheres, so more of them
+   are wholly on screen and take the renderer's fast path (no per-vertex
+   clip tests). A tile is 162 vertices at 3 m, 46 at 6 m; a pair 78. */
 #define NCHUNK (BLOCKS * BLOCKS * 4)
+#define TILE_CELLS 8
+#define TILES (BLOCKS * 4)
 typedef struct { V3 c; float r; } Sphere;
-static Sphere nc_sphere[NCHUNK], nc_strip[NCHUNK][2][4];
-/* Each near level's strips within a chunk: cell offset and size. Squarish
-   strips have small spheres, so more of them are wholly on screen and take
-   the renderer's fast path (no per-vertex clip tests). */
-static const int near_strips[2] = {4, 2};
-static const int8_t near_rect[2][4][4] = {
-    {{0, 0, 8, 8}, {8, 0, 8, 8}, {0, 8, 8, 8}, {8, 8, 8, 8}},   /* 3 m: 8 x 8 cells, 162 vertices */
-    {{0, 0, 16, 8}, {0, 8, 16, 8}},                              /* 6 m: 8 x 4 quads, 78 vertices */
-};
-static int nc_i0[NCHUNK], nc_j0[NCHUNK];
+static Sphere nc_sphere[NCHUNK], tile_sp[TILES * TILES], pair_sp[TILES * TILES / 2];
+static uint8_t tile_trail[TILES * TILES];
 
 static Sphere cells_sphere(int i0, int j0, int ni, int nj) {
     float lo = 1e9f, hi = -1e9f;
@@ -427,6 +428,26 @@ void terrain_build(Scenery *sc) {
     const pvr_poly_hdr_t *h = h_ground = r_header(TEX_GRASS, HF_OP);
     ter_src = realloc(ter_src, sizeof(uint32_t) * sc->pool_max);   /* trimmed to what is used below */
     ter_marked = sc->pool_n;
+    for(int tj = 0; tj < TILES; tj++)
+        for(int ti = 0; ti < TILES; ti++) {
+            tile_sp[tj * TILES + ti] = cells_sphere(ti * TILE_CELLS, tj * TILE_CELLS, TILE_CELLS, TILE_CELLS);
+            if(!(ti & 1))
+                pair_sp[(tj * TILES + ti) / 2] = cells_sphere(ti * TILE_CELLS, tj * TILE_CELLS, TILE_CELLS * 2, TILE_CELLS);
+        }
+    /* The tiles under each route and its cut banks: within this of a
+       point (they are ~4 m apart, so the circles leave no gaps). */
+    const float ts = TILE_CELLS * LEVEL_D;
+    for(int r = 0; r < LVL_ROUTES; r++)
+        for(int k = 0; k < lvl_routes[r].n; k++) {
+            const lvl_pt_t *q = &lvl_routes[r].pts[k];
+            float pad = lvl_routes[r].half + 6.0f, x = q->x - LEVEL_ORG, z = q->z - LEVEL_ORG;
+            for(int j = (int)((z - pad) / ts); j <= (int)((z + pad) / ts); j++)
+                for(int i = (int)((x - pad) / ts); i <= (int)((x + pad) / ts); i++) {
+                    if(i < 0 || j < 0 || i >= TILES || j >= TILES) continue;
+                    float dx = x - clampf(x, i * ts, (i + 1) * ts), dz = z - clampf(z, j * ts, (j + 1) * ts);
+                    if(dx * dx + dz * dz < pad * pad) tile_trail[j * TILES + i] = 1;
+                }
+        }
     for(int bj = 0; bj < BLOCKS; bj++)
         for(int bi = 0; bi < BLOCKS; bi++) {
             int i0 = bi * BLOCK_CELLS, j0 = bj * BLOCK_CELLS;
@@ -434,14 +455,7 @@ void terrain_build(Scenery *sc) {
             for(int k = 0; k < 4; k++) {
                 int n = (bj * BLOCKS + bi) * 4 + k;
                 int ci = i0 + (k & 1) * CHUNK_CELLS, cj = j0 + (k >> 1) * CHUNK_CELLS;
-                nc_i0[n] = ci;
-                nc_j0[n] = cj;
                 nc_sphere[n] = cells_sphere(ci, cj, CHUNK_CELLS, CHUNK_CELLS);
-                for(int lod = 0; lod < 2; lod++)
-                    for(int s = 0; s < near_strips[lod]; s++) {
-                        const int8_t *q = near_rect[lod][s];
-                        nc_strip[n][lod][s] = cells_sphere(ci + q[0], cj + q[1], q[2], q[3]);
-                    }
             }
             terrain_chunk(sc, h, 2, i0, j0, BLOCK_CELLS, c);
             terrain_chunk(sc, h, 3, i0, j0, BLOCK_CELLS, c);
@@ -638,9 +652,9 @@ static inline RV near_v(int i, int j) {
     return (RV){x, g->h, z, x * TEX_TILE, z * TEX_TILE, g->c};
 }
 
-/* The near chunks' grids this frame, on the 16 x 16 chunk grid: -1 for
-   chunks drawn from the prebuilt far blocks. */
-static int8_t chunk_lod[BLOCKS * 2][BLOCKS * 2];
+/* The near tiles' grids this frame: 0 for 3 m, 1 for 6 m, -1 for tiles
+   drawn from the prebuilt far blocks. */
+static int8_t tile_lod[TILES][TILES];
 
 #ifdef RL_AUTOTEST
 int ter_count[4];   /* vertices a frame: near 3 m, near 6 m, skirts, far (world.c) */
@@ -649,51 +663,121 @@ int ter_count[4];   /* vertices a frame: near 3 m, near 6 m, skirts, far (world.
 #define TER_COUNT(i, n) ((void)0)
 #endif
 
-static void near_chunk(int n, int lod, int cgx, int cgz) {
-    int step = 1 << lod, i0 = nc_i0[n], j0 = nc_j0[n];
-    for(int s = 0; s < near_strips[lod]; s++) {
-        const Sphere *sp = &nc_strip[n][lod][s];
-        if(!r_sphere_visible(sp->c, sp->r)) continue;
-        const int8_t *q = near_rect[lod][s];
-        int a0 = i0 + q[0], a1 = a0 + q[2], b0 = j0 + q[1], b1 = b0 + q[3];
-        int k = 0;
-        for(int j = b0; j < b1; j += step) {
-            if(k) {
-                near_buf[k] = near_buf[k - 1];
-                k++;
-                near_buf[k++] = near_v(a0, j + step);
-            }
-            for(int i = a0; i <= a1; i += step) {
-                near_buf[k++] = near_v(i, j + step);
-                near_buf[k++] = near_v(i, j);
-            }
+/* A strip of cells [a0, a0 + ni) x [b0, b0 + nj) on a grid of step cells. */
+static void near_cells(int a0, int b0, int ni, int nj, int step, const Sphere *sp) {
+    if(!r_sphere_visible(sp->c, sp->r)) return;
+    int a1 = a0 + ni, b1 = b0 + nj, k = 0;
+    for(int j = b0; j < b1; j += step) {
+        if(k) {
+            near_buf[k] = near_buf[k - 1];
+            k++;
+            near_buf[k++] = near_v(a0, j + step);
         }
-        r_strip_bounded(near_buf, k, sp->c, sp->r);
-        TER_COUNT(lod, k);
+        for(int i = a0; i <= a1; i += step) {
+            near_buf[k++] = near_v(i, j + step);
+            near_buf[k++] = near_v(i, j);
+        }
     }
-    /* Skirts on the edges whose neighbour has another grid: a copy of the
-       edge dropped below it. Same-grid neighbours share their edge exactly. */
+    r_strip_bounded(near_buf, k, sp->c, sp->r);
+    TER_COUNT(step >> 1, k);
+}
+
+/* A 3 m tile beside 6 m ones: along each edge (bit e, as in nb[] below) it
+   shares with a 6 m tile, the odd vertices take their even neighbour's
+   place, so the edge is the 6 m grid's exactly (no T-junctions to crack,
+   no skirt) and the triangles there fold into fans. */
+static void near_tile_stitched(int a0, int b0, int edges, const Sphere *sp) {
+    if(!r_sphere_visible(sp->c, sp->r)) return;
+    int a1 = a0 + TILE_CELLS, b1 = b0 + TILE_CELLS, k = 0;
+    for(int jb = b0; jb < b1; jb++) {
+        int jt = jb + 1;
+        /* The left and right edges' rows, folded down to even ones. */
+        int lt = (edges & 8) && (jt & 1) ? jb : jt, lb = (edges & 8) && (jb & 1) ? jb - 1 : jb;
+        int rt = (edges & 2) && (jt & 1) ? jb : jt, rb = (edges & 2) && (jb & 1) ? jb - 1 : jb;
+        if(k) {
+            near_buf[k] = near_buf[k - 1];
+            k++;
+            near_buf[k++] = near_v(a0, lt);
+        }
+        near_buf[k++] = near_v(a0, lt);
+        near_buf[k++] = near_v(a0, lb);
+        bool ft = (edges & 4) && jt == b1, fb = (edges & 1) && jb == b0;
+        if(ft || fb)
+            for(int i = a0 + 1; i < a1; i++) {
+                /* An odd vertex on the top or bottom edge: the even one before it. */
+                near_buf[k] = ft && (i & 1) ? near_buf[k - 2] : near_v(i, jt);
+                k++;
+                near_buf[k] = fb && (i & 1) ? near_buf[k - 2] : near_v(i, jb);
+                k++;
+            }
+        else
+            for(int i = a0 + 1; i < a1; i++) {
+                near_buf[k++] = near_v(i, jt);
+                near_buf[k++] = near_v(i, jb);
+            }
+        near_buf[k++] = near_v(a1, rt);
+        near_buf[k++] = near_v(a1, rb);
+    }
+    r_strip_bounded(near_buf, k, sp->c, sp->r);
+    TER_COUNT(0, k);
+}
+
+static const int nb[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+
+static inline int lod_at(int x, int z) {
+    return x >= 0 && z >= 0 && x < TILES && z < TILES ? tile_lod[z][x] : -1;
+}
+
+static void near_tile(int x, int z) {
+    int lod = tile_lod[z][x];
+    const Sphere *sp = &tile_sp[z * TILES + x];
+    if(lod == 0) {
+        int edges = 0;
+        for(int e = 0; e < 4; e++)
+            if(lod_at(x + nb[e][0], z + nb[e][1]) == 1) edges |= 1 << e;
+        if(edges) {
+            near_tile_stitched(x * TILE_CELLS, z * TILE_CELLS, edges, sp);
+            return;
+        }
+    }
+    near_cells(x * TILE_CELLS, z * TILE_CELLS, TILE_CELLS, TILE_CELLS, 1 << lod, sp);
+}
+
+static void near_chunk(int n, int tx, int tz) {
+    for(int r = 0; r < 2; r++) {
+        int z = tz + r;
+        if(tile_lod[z][tx] == 1 && tile_lod[z][tx + 1] == 1)
+            near_cells(tx * TILE_CELLS, z * TILE_CELLS, TILE_CELLS * 2, TILE_CELLS, 2, &pair_sp[(z * TILES + tx) / 2]);
+        else {
+            near_tile(tx, z);
+            near_tile(tx + 1, z);
+        }
+    }
+    /* Skirts where a tile meets the prebuilt far blocks: a copy of the
+       edge dropped below it. */
     const Sphere *sp = &nc_sphere[n];
-    float drop = 1.5f * step + 1.0f;
     int k = 0;
     static const int dir[4][4] = {{0, 0, 1, 0}, {1, 0, 0, 1}, {1, 1, -1, 0}, {0, 1, 0, -1}};
-    static const int nb[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
-    for(int e = 0; e < 4; e++) {
-        int nx = cgx + nb[e][0], nz = cgz + nb[e][1];
-        if(nx >= 0 && nz >= 0 && nx < BLOCKS * 2 && nz < BLOCKS * 2 && chunk_lod[nz][nx] == lod) continue;
-        int ei = i0 + dir[e][0] * CHUNK_CELLS, ej = j0 + dir[e][1] * CHUNK_CELLS;
-        for(int q = 0; q <= CHUNK_CELLS / step; q++) {
-            RV v = near_v(ei + dir[e][2] * q * step, ej + dir[e][3] * q * step);
-            v.c = color_scale(v.c, 0.82f);
-            if(q == 0 && k) {
-                near_buf[k] = near_buf[k - 1];
-                k++;
+    for(int t = 0; t < 4; t++) {
+        int x = tx + (t & 1), z = tz + (t >> 1), step = 1 << tile_lod[z][x];
+        float drop = 1.5f * step + 1.0f;
+        int i0 = x * TILE_CELLS, j0 = z * TILE_CELLS;
+        for(int e = 0; e < 4; e++) {
+            if(lod_at(x + nb[e][0], z + nb[e][1]) >= 0) continue;
+            int ei = i0 + dir[e][0] * TILE_CELLS, ej = j0 + dir[e][1] * TILE_CELLS;
+            for(int q = 0; q <= TILE_CELLS / step; q++) {
+                RV v = near_v(ei + dir[e][2] * q * step, ej + dir[e][3] * q * step);
+                v.c = color_scale(v.c, 0.82f);
+                if(q == 0 && k) {
+                    near_buf[k] = near_buf[k - 1];
+                    k++;
+                    near_buf[k++] = v;
+                }
+                near_buf[k++] = v;
+                v.y -= drop;
+                v.v += drop * TEX_TILE;
                 near_buf[k++] = v;
             }
-            near_buf[k++] = v;
-            v.y -= drop;
-            v.v += drop * TEX_TILE;
-            near_buf[k++] = v;
         }
     }
     if(k) r_strip_bounded(near_buf, k, sp->c, sp->r);
@@ -704,28 +788,34 @@ int terrain_draw_near(void) {
     V3 cam_p = r_cam.pos;
     int drawn = 0;
     r_hdr(h_ground);
-    /* Each near chunk's grid first, so skirts know their neighbours'. */
+    /* Each near tile's grid first, so skirts know their neighbours'. */
     for(int b = 0; b < BLOCKS * BLOCKS; b++) {
         V3 d = vsub(block_c[b], cam_p);
         bool near = vdot(d, d) < lod_far[1] * lod_far[1];
-        for(int k = 0; k < 4; k++) {
-            int n = b * 4 + k;
-            int cgx = (b % BLOCKS) * 2 + (k & 1), cgz = (b / BLOCKS) * 2 + (k >> 1);
-            /* Within a near block each chunk picks its own grid. */
-            V3 dc = vsub(nc_sphere[n].c, cam_p);
-            float dc2 = dc.x * dc.x + dc.z * dc.z;
-            chunk_lod[cgz][cgx] = !near ? -1 : dc2 < NEAR_FINE * NEAR_FINE ? 0 : 1;
+        int x0 = (b % BLOCKS) * 4, z0 = (b / BLOCKS) * 4;
+        for(int t = 0; t < 16; t++) {
+            int x = x0 + (t & 3), z = z0 + (t >> 2);
+            int8_t lod = -1;
+            if(near) {
+                /* Within a near block each tile picks its own grid. */
+                V3 dc = vsub(tile_sp[z * TILES + x].c, cam_p);
+                float dc2 = dc.x * dc.x + dc.z * dc.z;
+                float fine = tile_trail[z * TILES + x] ? TRAIL_FINE : NEAR_FINE;
+                lod = dc2 < fine * fine ? 0 : 1;
+            }
+            tile_lod[z][x] = lod;
         }
     }
-    for(int b = 0; b < BLOCKS * BLOCKS; b++)
+    for(int b = 0; b < BLOCKS * BLOCKS; b++) {
+        int x0 = (b % BLOCKS) * 4, z0 = (b / BLOCKS) * 4;
+        if(tile_lod[z0][x0] < 0) continue;
         for(int k = 0; k < 4; k++) {
-            int cgx = (b % BLOCKS) * 2 + (k & 1), cgz = (b / BLOCKS) * 2 + (k >> 1);
-            int lod = chunk_lod[cgz][cgx];
             int n = b * 4 + k;
-            if(lod < 0 || !r_sphere_visible(nc_sphere[n].c, nc_sphere[n].r)) continue;
-            near_chunk(n, lod, cgx, cgz);
+            if(!r_sphere_visible(nc_sphere[n].c, nc_sphere[n].r)) continue;
+            near_chunk(n, x0 + (k & 1) * 2, z0 + (k >> 1) * 2);
             drawn++;
         }
+    }
     return drawn;
 }
 
@@ -740,7 +830,6 @@ int terrain_draw_far_skirts(const Scenery *sc) {
         float d2 = vdot(d, d);
         lod[b] = d2 < lod_far[1] * lod_far[1] ? 1 : d2 < lod_far[2] * lod_far[2] ? 2 : d2 < lod_far[3] * lod_far[3] ? 3 : -1;
     }
-    static const int nb[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
     int sent = 0;
     for(int b = 0; b < BLOCKS * BLOCKS; b++) {
         if(lod[b] < 2) continue;
