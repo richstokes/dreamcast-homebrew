@@ -5,6 +5,7 @@
 #include "ai.h"
 #include "truck.h"
 #include "terrain.h"
+#include "world.h"
 #include <stdlib.h>
 
 typedef struct {
@@ -80,11 +81,21 @@ bool ai_done(int ti) {
     return a->leg >= 2 && a->pt >= lvl_routes[R_SUMMIT].n - 2;
 }
 
+/* Dipped beams on as dusk falls and off once it is light again, each
+   driver at a slightly different moment, with a gap between the two so
+   they never flicker at the edge. */
+static void cpu_lights(int ti, Truck *t) {
+    float on = 0.45f + 0.1f * (float)(ti % 3);
+    if(t->lights == LIGHTS_OFF && pal->dark > on) t->lights = LIGHTS_DIPPED;
+    else if(t->lights != LIGHTS_OFF && pal->dark < on - 0.25f) t->lights = LIGHTS_OFF;
+}
+
 void ai_drive(int ti, float dt) {
     Truck *t = &trucks[ti];
     Ai *a = &ai[ti];
     TruckInput *in = &t->in;
     const lvl_route_t *r = &lvl_routes[a->route];
+    if(t->cpu) cpu_lights(ti, t);
     a->pt = nearest_pt(r, t->pos, a->pt, a->pt + 4);   /* never across a hairpin to its other leg */
     if(a->pt >= r->n - 2 && a->leg < 2) {
         a->leg++;
@@ -266,7 +277,6 @@ void ai_drive(int ti, float dt) {
     in->throttle = throttle;
     in->brake = brake;
     in->handbrake = false;
-    if(ti != 0) t->lights = trucks[0].lights;
 #ifdef RL_AI_TRACE
     static int trace_n;
     if(getenv("SIM_TRACE_AI") && (trace_n++ % 60) == 0)

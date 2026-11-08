@@ -64,9 +64,9 @@ void demo_start(void) {
     audio_drive_start();
     game_set_state(ST_DRIVE);
     /* Any hour of the day, a different one each time; the CPU drivers
-       put their lights on in the dark. */
+       put their lights on in the dark (ai.c). */
     tod_set_hour(tod_hours[(int)(timer_us_gettime64() / 1000) % TOD_COUNT]);
-    for(int i = 0; i < game.ntrucks; i++) trucks[i].lights = pal->dark > 0.5f ? LIGHTS_DIPPED : LIGHTS_OFF;
+    for(int i = 0; i < game.ntrucks; i++) trucks[i].lights = LIGHTS_OFF;
     cut();
     printf("RL demo: start\n");
 }
