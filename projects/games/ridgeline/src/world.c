@@ -463,8 +463,23 @@ static void prop(const lvl_prop_t *p) {
 static SkyDome sky;   /* engine/sky.h: 6 rings of SKY_SEG */
 static float range_h[RANGES][RANGE_SEG + 1];
 static uint32_t range_top[RANGES], range_bot[RANGES];
-static V3 cloud_p[8];
-static float cloud_w[8];
+/* Clouds: a dozen cumulus (TEX_CLOUD, four shapes) carried across the sky
+   on the wind, each forming and clearing on its own slow cycle. Their
+   positions are kept about the camera (along the wind and across it), so
+   driving never moves them: they are far away. */
+#define CLOUDS 12
+typedef struct {
+    float along, across;   /* metres from the camera, in the wind's frame */
+    float y, w;            /* height and half width */
+    int shape;             /* column of the atlas */
+    float phase, period;   /* its forming and clearing cycle, seconds */
+} Cloud;
+static Cloud clouds[CLOUDS];
+static float cloud_t;
+#define WIND_X 0.78f       /* blowing toward the north-east, 12 m/s */
+#define WIND_Z 0.62f
+#define WIND_SPEED 12.0f
+#define CLOUD_FAR 1350.0f
 static const float sky_el[6] = {-0.25f, 0.0f, 0.08f, 0.22f, 0.55f, 1.5707f};
 
 /* Stars: patches of them (TEX_STARS) on fixed directions, drawn as the
@@ -496,6 +511,18 @@ static void sky_colours(void) {
     }
 }
 
+/* A cloud's shape, size, height and where across the wind it rides:
+   never close overhead, where one would fill the sky. */
+static void cloud_roll(Cloud *c, uint32_t *seed) {
+    float side = hrand(seed) < 0.5f ? -1.0f : 1.0f;
+    c->across = side * (650.0f + 550.0f * hrand(seed));
+    c->y = 240.0f + 180.0f * hrand(seed);
+    c->w = 120.0f + 140.0f * hrand(seed);
+    c->shape = (int)(hrand(seed) * 3.999f);
+    c->period = 180.0f + 200.0f * hrand(seed);
+    c->phase = 0;
+}
+
 static void sky_setup(void) {
     sky_init(&sky, sky_el, 6, SKY_SEG, 1900.0f, h_flat_nofog);
     uint32_t seed = 4242;
@@ -508,11 +535,10 @@ static void sky_setup(void) {
         }
         range_h[r][RANGE_SEG] = range_h[r][0];
     }
-    for(int i = 0; i < 8; i++) {
-        float a = ENG_TAU * (i + hrand(&seed) * 0.6f) / 8;
-        float d = 950.0f + 350.0f * hrand(&seed);
-        cloud_p[i] = v3(sinf(a) * d, 260.0f + 160.0f * hrand(&seed), cosf(a) * d);
-        cloud_w[i] = 110.0f + 120.0f * hrand(&seed);
+    for(int i = 0; i < CLOUDS; i++) {
+        cloud_roll(&clouds[i], &seed);
+        clouds[i].along = -CLOUD_FAR + 2 * CLOUD_FAR * (i + hrand(&seed)) / CLOUDS;
+        clouds[i].phase = clouds[i].period * hrand(&seed);
     }
     /* Star patches round the sky: a ring low, a ring high, one overhead,
        each turned its own way so the pattern never repeats. */
@@ -661,6 +687,19 @@ void world_update(float dt) {
     float target = tod.sun_el > 0 && !sun_occluded() ? 1.0f : 0.0f;
     flare_vis = approach(flare_vis, target, dt * 4.0f);
     sky_colours();
+    /* The clouds blow downwind; one that has gone over the far side comes
+       back round upwind as another cloud. */
+    cloud_t += dt;
+    static uint32_t cloud_seed = 9001;
+    for(int i = 0; i < CLOUDS; i++) {
+        Cloud *c = &clouds[i];
+        c->along += WIND_SPEED * dt;
+        if(c->along > CLOUD_FAR) {
+            cloud_roll(c, &cloud_seed);
+            c->along -= 2 * CLOUD_FAR;
+            c->phase = -cloud_t;   /* arrives forming */
+        }
+    }
     /* The fog and the clear colour follow the haze; the fog table is
        rewritten only when its distances move. */
     static float fog_near, fog_far;
@@ -693,12 +732,46 @@ void world_draw_tr(void) {
                         color_alpha(0xffffffff, pal->stars * star_b[i] * tw));
         }
     }
-    /* Clouds, far and flat. */
+    /* Clouds, far to near so they overlap right: each an upright quad
+       facing the camera, lit on top by the palette and shaded underneath,
+       the underside taking the sunrise or sunset glow on the sun's side.
+       Fewer, fainter by night. */
+    int order[CLOUDS];
+    float dist[CLOUDS];
+    for(int i = 0; i < CLOUDS; i++) {
+        const Cloud *cl = &clouds[i];
+        float d2 = cl->along * cl->along + cl->across * cl->across;
+        int k = i;
+        while(k > 0 && dist[k - 1] < d2) {
+            order[k] = order[k - 1];
+            dist[k] = dist[k - 1];
+            k--;
+        }
+        order[k] = i;
+        dist[k] = d2;
+    }
+    float cover = 0.92f * (0.55f + 0.45f * (1.0f - pal->dark));
+    uint32_t shade = color_scale(pal->cloud_col, 0.72f);
     r_hdr(h_cloud);
-    for(int i = 0; i < 8; i++) {
-        V3 p = vadd(c, cloud_p[i]);
-        p.y = cloud_p[i].y;
-        r_billboard(p, cloud_w[i], cloud_w[i] * 0.42f, 0, 0, 0, 1, 1, color_alpha(pal->cloud_col, 0.92f));
+    for(int k = 0; k < CLOUDS; k++) {
+        const Cloud *cl = &clouds[order[k]];
+        float cyc = (cloud_t + cl->phase) / cl->period;
+        cyc -= floorf(cyc);
+        float a = clampf(sinf(ENG_PI * cyc) * 1.7f, 0, 1) * cover;
+        if(a < 0.02f) continue;
+        float dx = cl->along * WIND_X - cl->across * WIND_Z, dz = cl->along * WIND_Z + cl->across * WIND_X;
+        V3 p = v3(c.x + dx, cl->y, c.z + dz);
+        float inv = 1.0f / sqrtf(dx * dx + dz * dz);
+        V3 rt = v3(dz * inv, 0, -dx * inv);
+        float toward = 0.5f + 0.5f * cosf(atan2f(dx, dz) - tod.glow_az);
+        uint32_t top = color_alpha(pal->cloud_col, a);
+        uint32_t base = color_alpha(color_lerp(shade, pal->glow_col, clampf(pal->glow_k * (0.15f + 0.75f * toward), 0, 1)), a);
+        float w = cl->w, h = cl->w * 0.42f;
+        float u0 = cl->shape * 0.25f, u1 = u0 + 0.25f;
+        V3 l = vmad(p, rt, -w), r = vmad(p, rt, w);
+        RV q[4] = {{l.x, l.y + h, l.z, u0, 0, top}, {r.x, r.y + h, r.z, u1, 0, top},
+                   {l.x, l.y - h, l.z, u0, 1, base}, {r.x, r.y - h, r.z, u1, 1, base}};
+        r_strip(q, 4);
     }
     /* The moon: a disc, faint by day, with a glow at night. */
     float ma = horizon_alpha(tod.moon_el);

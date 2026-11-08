@@ -241,20 +241,42 @@ def tex_shadow():
 
 
 def tex_cloud():
-    """A flat-bottomed painted cumulus, two tones."""
+    """Four flat-bottomed painted cumulus, 128 x 64 each side by side:
+    a row of puffs along the base, heaps piled on them toward the middle.
+    Plain white: the game's vertex colours light the tops and shade the
+    bases, and a gradient here would only pick up the packer's dither."""
     w, h = 128, 64
-    img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
-    d = ImageDraw.Draw(img)
     r = rng(51)
-    blobs = [(20, 40, 16), (40, 30, 22), (64, 24, 26), (88, 32, 20), (106, 40, 14), (52, 42, 16), (76, 42, 16)]
-    for (cx, cy, rr) in blobs:
-        d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=(255, 255, 255, 255))
-    a = np.array(img)[..., 3].astype(float)
-    a[50:, :] = 0
-    a = gaussian_filter(a, 1.2)
-    yy = np.mgrid[0:h, 0:w][0]
-    shade = 255 - np.clip((yy - 26) * 2.2, 0, 60)
-    rgb = np.dstack([shade, shade, shade + 4])
+    alphas = []
+    for k in range(4):
+        img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+        d = ImageDraw.Draw(img)
+        span = r.uniform(38, 50)
+        mid = 64 + r.uniform(-6, 6)
+        # The base row, overlapping, sitting on the flat bottom.
+        n = r.integers(5, 7)
+        for i in range(n):
+            t = (i + 0.5) / n
+            cx = mid + (t - 0.5) * 2 * span
+            rr = r.uniform(10, 14)
+            cy = 47 - rr * 0.8
+            d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=(255, 255, 255, 255))
+        # Heaps: bigger puffs stacked up toward one side of the middle.
+        peak_x = mid + r.uniform(-span * 0.35, span * 0.35)
+        for j in range(r.integers(3, 5)):
+            cx = peak_x + r.uniform(-span * 0.5, span * 0.5)
+            dist = abs(cx - peak_x) / (span * 0.5)
+            rr = r.uniform(13, 20) * (1 - 0.4 * dist)
+            cy = 47 - rr * r.uniform(1.0, 1.35)
+            d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=(255, 255, 255, 255))
+        top = r.uniform(8, 12)
+        d.ellipse([peak_x - top, 47 - 34 - top + r.uniform(0, 6), peak_x + top, 47 - 34 + top + r.uniform(0, 6)],
+                  fill=(255, 255, 255, 255))
+        a = np.array(img)[..., 3].astype(float)
+        a[48:, :] = 0
+        alphas.append(gaussian_filter(a, 1.1))
+    a = np.concatenate(alphas, axis=1)
+    rgb = np.full((h, 4 * w, 3), 255.0)
     return to_image(rgb, a)
 
 

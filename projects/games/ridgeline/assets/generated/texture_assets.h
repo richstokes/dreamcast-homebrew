@@ -45,12 +45,12 @@ static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {458880u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
     {469824u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
     {472576u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
-    {483520u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {499904u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {674688u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {707456u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {772992u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {904064u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {483520u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {549056u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {723840u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {756608u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {822144u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {953216u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif
