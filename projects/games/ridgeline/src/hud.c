@@ -187,8 +187,8 @@ static void drive_mode(const Truck *t) {
     for(int m = 0; m < DRIVE_COUNT; m++) {
         bool on = t->mode == m;
         float w = m == 2 ? 62 : 52;
-        hud_panel(x, y - 15, x + w, y + 15, on ? 0xe0e8a030 : 0x80202830);
-        hud_text_c(x + w * 0.5f, y, 0.72f, ALIGN_CENTER, on ? 0xff201810 : 0xffb8b0a0, names[m]);
+        hud_panel(x, y - 15, x + w, y + 15, on ? 0xf0d08420 : 0x80202830);
+        hud_text_c(x + w * 0.5f, y, 0.72f, ALIGN_CENTER, on ? 0xffffffff : 0xffb8b0a0, names[m]);
         x += w + 6;
     }
     if(t->mode == DRIVE_LOCK) hud_text_c(222, y, 0.48f, ALIGN_LEFT, 0xffe8c070, "LOW + LOCKERS");
