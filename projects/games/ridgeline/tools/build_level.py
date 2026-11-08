@@ -263,7 +263,10 @@ def astar(h, start, goal, gmax, avoid=None, water=None, water_cost=40.0, turn=60
     DC = D * 2
     extra = np.zeros((N, N)) if avoid is None else avoid.copy()
     if water is not None:
-        extra = extra + np.where(water > -999, water_cost, 0.0)
+        # Wading is water_cost; deeper than a truck's intake is never cheap
+        # (the creek bed once took a short cut through the lake's edge).
+        deep = (water > -999) & (water - h > 0.7)
+        extra = extra + np.where(deep, max(water_cost, 60.0), np.where(water > -999, water_cost, 0.0))
     extra = extra[::2, ::2]
 
     def g2(p):
@@ -445,6 +448,15 @@ def ledge(r, k, step, half_w, rng):
     return (c[0], top - 1.0, c[1], half_w, 1.0, depth * 0.5, yaw)
 
 
+def off_line(r, k, off, half):
+    """A boulder's offset across route r at point k, moved out to the edge
+    on a hairpin: rocks across a tight climbing turn knocked trucks off
+    the line and down the bank (the creek bed by the lake)."""
+    if r["turn"][min(k, len(r["turn"]) - 1)] > 0.3 and abs(off) < half + 0.6:
+        return math.copysign(half + 0.6, off if off != 0 else 1.0)
+    return off
+
+
 def place_obstacles(h, water, routes, rng):
     spheres, capsules, boxes, mud = [], [], [], []
     on_trail = set()
@@ -505,6 +517,7 @@ def place_obstacles(h, water, routes, rng):
                     for _ in range(1 + int(diff * 3)):
                         off = rng.uniform(-half - 1, half + 1) * (1.0 if diff > 0.35 else 0.0) or \
                             (half + 0.7) * (1 if rng.random() < 0.5 else -1)
+                        off = off_line(r, k, off, half)
                         c = p + sd * off + tg * rng.uniform(-2, 2)
                         rr = 0.35 + 0.75 * diff * rng.random() + 0.2 * rng.random()
                         on_trail.add(len(spheres))
@@ -527,9 +540,11 @@ def place_obstacles(h, water, routes, rng):
                     k += int(22 + rng.random() * 16)
                 else:
                     for _ in range(2 + int(diff * 3)):
-                        c = p + sd * rng.uniform(-half - 1.5, half + 1.5) + tg * rng.uniform(-3, 3)
+                        off = off_line(r, k, rng.uniform(-half - 1.5, half + 1.5), half)
+                        c = p + sd * off + tg * rng.uniform(-3, 3)
                         rr = 0.3 + 0.55 * diff * rng.random() + 0.15 * rng.random()
-                        on_trail.add(len(spheres))
+                        if abs(off) < half:
+                            on_trail.add(len(spheres))
                         spheres.append((c[0], float(sample(h, c)[0]) - rr * 0.5, c[1], rr))
                     k += int(12 + rng.random() * 10)
             else:   # SUMMIT TRAIL
@@ -540,7 +555,7 @@ def place_obstacles(h, water, routes, rng):
                     k += int(9 + rng.random() * 8)
                 else:
                     for _ in range(1 + int(diff * 2)):
-                        c = p + sd * rng.uniform(-half - 1.0, half + 1.0) + tg * rng.uniform(-2, 2)
+                        c = p + sd * off_line(r, k, rng.uniform(-half - 1.0, half + 1.0), half) + tg * rng.uniform(-2, 2)
                         rr = 0.35 + 0.6 * rng.random()
                         on_trail.add(len(spheres))
                         spheres.append((c[0], float(sample(h, c)[0]) - rr * 0.45, c[1], rr))
@@ -574,6 +589,31 @@ def clear_roads(spheres, routes, keep_on):
         if d > halfs[i] + s_[3] + 0.6:
             out.append(s_)
     return out
+
+
+def settle_routes(h, water, routes):
+    """Each route's driving band back to its own heights where another
+    route's carving moved it more than 0.4 m (the ridge line, carved after
+    the logging road and running beside it 6 m lower, once cut a 4 m hole
+    in it; the creek bed's crossings, raised to keep the creek wadeable,
+    stood 2 m proud of it). Later routes win where bands overlap: the
+    logging road, the easy way up, goes last. Near the top the ridge line
+    runs 2.5-7 m beside it and lower, so it gets two short rock steps
+    there. Mud ruts (under 0.4 m) stay."""
+    order = ["RIDGE LINE", "CREEK BED", "SUMMIT TRAIL", "FOREST ROAD", "LOGGING ROAD"]
+    flat = np.stack([X.ravel(), Z.ravel()], axis=1)
+    for name in order:
+        r = next(q for q in routes if q["name"] == name)
+        d, idx = cKDTree(r["pts"]).query(flat, distance_upper_bound=float(np.max(r["halfs"])))
+        ok = np.isfinite(d)
+        ok[ok] = d[ok] < r["halfs"][idx[ok]]
+        jj, ii = np.unravel_index(np.nonzero(ok)[0], h.shape)
+        y = r["y"][idx[ok]]
+        fix = np.abs(h[jj, ii] - y) > 0.4
+        h[jj[fix], ii[fix]] = y[fix]
+        # Through water the route is a ford: no deeper than a wade.
+        wet = fix & (water[jj, ii] > -999)
+        water[jj[wet], ii[wet]] = np.minimum(water[jj[wet], ii[wet]], y[wet] + 0.45)
 
 
 def apply_mud(h, mud):
@@ -650,7 +690,16 @@ def frame(r, k):
 
 
 def find_spot(h, water, avoid_pts, near, radius, min_route=26.0, max_slope=12.0):
-    """The gentlest dry spot within radius of near, well off every route."""
+    """The gentlest dry spot within radius of near, well off every route;
+    the search widens and the limits ease off until there is one."""
+    for k in range(6):
+        p = _find_spot(h, water, avoid_pts, near, radius * (1 + 0.5 * k), max(12.0, min_route - 3 * k), max_slope + 2 * k)
+        if p is not None:
+            return p
+    raise RuntimeError(f"no spot near {near}")
+
+
+def _find_spot(h, water, avoid_pts, near, radius, min_route, max_slope):
     sl = slope_deg(h)
     tree = cKDTree(avoid_pts)
     best, best_score = None, 1e9
@@ -1080,6 +1129,8 @@ def main():
     still = (np.hypot(X - LAKE_C[0], Z - LAKE_C[1]) < LAKE_R + 4) | (np.hypot(X - POND_C[0], Z - POND_C[1]) < POND_R + 4)
     creek = (water > -999) & ~still
     h[creek] = np.maximum(h[creek], water[creek] - 0.5)
+    water[water < h + 0.05] = -1000.0
+    settle_routes(h, water, routes)
     water[water < h + 0.05] = -1000.0
     surf = surfaces(h, water, routes, mud_mask)
     trees = place_trees(h, water, routes, surf, rng, spheres, capsules, boxes)

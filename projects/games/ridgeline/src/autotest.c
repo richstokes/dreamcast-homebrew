@@ -74,6 +74,7 @@ static const float tour_views[][6] = {
     {255, 8.5f, -116, 249, 6, -121},    /* the old pickup in the woods */
     {7, 101.5f, 91, -2, 98.5f, 86},     /* the high camp */
     {140, 3.5f, -214, 152, 1.2f, -194}, /* deer in the east meadow */
+    {-52, 97, 18, -78, 82, 50},         /* the creek bed's last climb, by the lake */
 };
 #define TOUR_N (int)(sizeof(tour_views) / sizeof(tour_views[0]))
 

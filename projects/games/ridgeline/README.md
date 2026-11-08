@@ -166,6 +166,12 @@ the camera and a third of the mud haze.
 - Route carving: two routes over the same ground at different heights
   carve a step into it. Routes from the fork avoid the forest road, meeting
   points are pinned to one height, and hairpins get a level, wider landing
+- The CPU drivers are winched past spots they can't climb, which hid
+  undrivable bits of route: the creek bed once ran through 6 m of lake.
+  Count winches in hostsim (`sim route ... | grep -c winch`) after changing
+  the level. Route search now never takes deep water, a last pass puts each
+  route's band back to its height where another route's carving moved it,
+  and boulders on a hairpin go to its edges
 - A* turns are capped at ~95 degrees a step so hairpins have a radius;
   tighter caps made routes loop for kilometres
 - The automatic shifts on road speed and holds its gear while the tyres
