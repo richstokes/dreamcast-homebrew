@@ -226,7 +226,7 @@ it the four trucks' headlights, which used to be on a third of the time.
 ## Known limitations
 
 - One scene (autumn); the desert palette is not built yet
-- Headlights light the truck and a pool on the trail ahead, not the
+- Headlights light the truck and a beam on the trail ahead, not the
   terrain or trees around it
 - No rumble or online play yet; the VMU keeps best times only
 - Rock-ledge climbing is approximate: the tyre is sampled at seven points,

@@ -133,6 +133,51 @@ static void draw_part(const PartMeshes *pm, const float *mat, const uint32_t *li
 }
 #endif
 
+/* The headlights on the ground: one beam from the nose to where it lands,
+   a cone footprint widening with distance, drawn as a strip of rows laid
+   on the terrain (each row sampled, so a slope bends it rather than
+   kinking it), the glow texture across for soft sides. Brightest a third
+   of the way out, gone a little past the landing. */
+#define BEAM_ROWS 9
+static void beam_patch(V3 nose, V3 fh, V3 rh, float ymax, float start, float end, float w0, float w1, uint32_t col,
+                       float alpha) {
+    RV v[BEAM_ROWS][3];
+    for(int k = 0; k < BEAM_ROWS; k++) {
+        float t = (float)k / (BEAM_ROWS - 1);
+        float d = start + (end - start) * t;
+        float w = w0 + (w1 - w0) * t;
+        float a = alpha * (t < 0.3f ? 0.55f + 0.45f * t / 0.3f : 1.0f - (t - 0.3f) / 0.7f);
+        uint32_t c = color_alpha(col, a);
+        V3 m = vmad(nose, fh, d);
+        for(int i = 0; i < 3; i++) {
+            V3 q = vmad(m, rh, (i - 1.0f) * w);
+            q.y = ground_below(q.x, q.z, ymax, NULL, NULL) + 0.08f;
+            v[k][i] = (RV){q.x, q.y, q.z, i * 0.5f, 0.5f, c};
+        }
+    }
+    for(int k = 0; k + 1 < BEAM_ROWS; k++) {
+        RV st[6] = {v[k + 1][0], v[k][0], v[k + 1][1], v[k][1], v[k + 1][2], v[k][2]};
+        r_strip(st, 6);
+    }
+}
+
+/* Where a beam from the headlights, pitched down a little from the nose,
+   meets the ground: the distance along the ground, or max if it goes
+   over a crest into the dark. */
+static float beam_landing(const Truck *t, V3 from, float pitch, float max, bool *hit) {
+    V3 F = t->ax[2], U = t->ax[1];
+    V3 dir = vsub(vscale(F, cosf(pitch)), vscale(U, sinf(pitch)));
+    *hit = false;
+    for(float d = 2.0f; d <= max; d += 1.5f) {
+        V3 q = vmad(from, dir, d);
+        if(terrain_height(q.x, q.z) >= q.y) {
+            *hit = true;
+            return d * cosf(pitch);
+        }
+    }
+    return max;
+}
+
 /* A soft shadow on the ground: a 3 x 3 grid following the terrain. */
 /* Only ground below ymax: a vertex that found the cabin's roof beside the
    truck would pull the shadow up the wall. */
@@ -299,12 +344,16 @@ void truckdraw_draw_tr(void) {
                 r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1, color_alpha(0xffffffff, 0.4f + 0.5f * facing));
             }
 #endif
-        /* The pool of light on the ground ahead; full beam reaches further. */
-        V3 ahead = vmad(v3(c.x, 0, c.z), fh, 9.0f);
-        ground_quad(ahead, vscale(rh, 4.5f), vscale(fh, 6.5f), 1e9f, 0.08f, color_alpha(0xffffe8b0, 0.28f + 0.45f * pal->dark));
-        if(full) {
-            V3 far = vmad(v3(c.x, 0, c.z), fh, 19.0f);
-            ground_quad(far, vscale(rh, 6.0f), vscale(fh, 9.0f), 1e9f, 0.08f, color_alpha(0xfffff4d8, 0.18f + 0.4f * pal->dark));
-        }
+        /* The beam on the ground, from the nose to where it lands: dipped
+           is pitched down and short, full beam flatter and far. Over a
+           crest it lands nowhere and only a faint trace is left. */
+        V3 nose = vmad(c, F, s->body_hi[2]);
+        nose.y += 0.4f;
+        bool hit;
+        float pitch = (full ? 2.5f : 6.0f) * ENG_PI / 180.0f;
+        float land = beam_landing(t, nose, pitch, full ? 40.0f : 18.0f, &hit);
+        float a = (full ? 0.34f + 0.5f * pal->dark : 0.3f + 0.45f * pal->dark) * (hit ? 1.0f : 0.45f);
+        V3 nose_h = v3(nose.x, 0, nose.z);
+        beam_patch(nose_h, fh, rh, nose.y + 1.5f, 1.0f, land * 1.25f, 1.6f, full ? 7.0f : 4.5f, full ? 0xfffff4d8 : 0xffffe8b0, a);
     }
 }
