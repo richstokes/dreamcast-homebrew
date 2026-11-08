@@ -320,7 +320,7 @@ int main(int argc, char **argv) {
     input_init();
     render_init();
     terrain_init();
-    game.start_tod = TOD_AFTERNOON;
+    game.start_tod = TOD_MORNING;
     tod_init(tod_hours[game.start_tod]);
     world_init();
     world_build();
