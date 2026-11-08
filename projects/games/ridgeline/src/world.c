@@ -603,7 +603,7 @@ void world_init(void) {
     pvr_fog_table_linear(pal->fog_near, pal->fog_far);
     pvr_set_bg_color(((pal->haze >> 16) & 255) / 255.0f, ((pal->haze >> 8) & 255) / 255.0f, (pal->haze & 255) / 255.0f);
     sky_setup();
-    if(!sc_init(&scenery, 170000, 6000, 1400)) printf("Ridgeline world: no memory for the scenery\n");
+    if(!sc_init(&scenery, 185000, 7000, 1600)) printf("Ridgeline world: no memory for the scenery\n");
 }
 
 /* Trees, rocks and props are grouped into 48 m cells, a chunk per cell
