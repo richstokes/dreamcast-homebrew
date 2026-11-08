@@ -85,6 +85,8 @@ If you are burning a physical CD-R, you may want to try the padded
 
 ## Controls
 
+The same list is under CONTROLS on the main menu.
+
 | Input | Does |
 | --- | --- |
 | Analog stick | Steer |

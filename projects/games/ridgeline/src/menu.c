@@ -73,10 +73,61 @@ const char *menu_truck_name(int model) {
 
 /* Start brings up the main menu under the logo; it stays up when coming
    back from the truck select or the sound test. */
-enum { T_SINGLE, T_ONLINE, T_SOUND, T_COUNT };
-static bool title_menu;
+enum { T_SINGLE, T_ONLINE, T_SOUND, T_CONTROLS, T_COUNT };
+static bool title_menu, title_controls;
 static int title_sel;
 static float title_idle;
+
+/* The controls screen: a read-only list over the flyover. Keep it in step
+   with player_controls() in main.c and the README's table. A row with no
+   action is a section heading. */
+typedef struct {
+    const char *key;     /* lettering, drawn before the glyph */
+    const char *glyph;   /* a button glyph (engine/ui.h), or NULL */
+    const char *does;
+} ControlRow;
+
+static const ControlRow controls[] = {
+    {"DRIVING", NULL, NULL},
+    {"STICK", NULL, "STEER"},
+    {"R TRIGGER", NULL, "THROTTLE"},
+    {"L TRIGGER", NULL, "BRAKE, HOLD AT A STOP TO REVERSE"},
+    {"D-PAD LEFT/RIGHT", NULL, "DRIVE MODE: 2WD, 4WD, LOCK"},
+    {"HOLD D-PAD LEFT", NULL, "TRACTION CONTROL OFF/ON (KESTREL)"},
+    {"D-PAD UP", NULL, "HORN"},
+    {"D-PAD DOWN", NULL, "LIGHTS: OFF, DIPPED, FULL BEAM"},
+    {"", "A", "HANDBRAKE"},
+    {"", "B", "CAMERA: CHASE, FAR CHASE, BUMPER"},
+    {"", "X", "MAP: CORNER, LARGE, OFF"},
+    {"HOLD", "Y", "RECOVER TO THE NEAREST TRAIL"},
+    {"", "START", "PAUSE MENU"},
+    {"PAUSED", NULL, NULL},
+    {"", "Y", "PHOTO MODE"},
+    {"PHOTO MODE", NULL, "STICK: TURN, R/L: ZOOM, D-PAD: CLOCK"},
+};
+#define CONTROL_ROWS (int)(sizeof(controls) / sizeof(controls[0]))
+
+static void controls_draw(void) {
+    const float scale = 0.5f, kx = 64, dx = 252, step = 21;
+    ui_heading(320, 40, "CONTROLS");
+    ui_panel(44, 72, 596, 82 + CONTROL_ROWS * step + 8);
+    float y = 92;
+    for(int i = 0; i < CONTROL_ROWS; i++, y += step) {
+        const ControlRow *r = &controls[i];
+        if(!r->does) {
+            hud_text_c(kx, y, 0.56f, ALIGN_LEFT, ui_col(UI_ACCENT), r->key);
+            continue;
+        }
+        float x = kx;
+        if(r->key[0]) {
+            hud_text_c(x, y, scale, ALIGN_LEFT, ui_col(UI_LABEL), r->key);
+            x += text_width(hud_font(), r->key, scale) + 8;
+        }
+        if(r->glyph) ui_glyph(x, y, r->glyph, true);
+        hud_text_c(dx, y, scale, ALIGN_LEFT, ui_col(UI_TEXT), r->does);
+    }
+    ui_hint("B: BACK");
+}
 
 void menu_title_update(float dt) {
     camera_flyover(game.time);
@@ -93,6 +144,13 @@ void menu_title_update(float dt) {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
             title_menu = true;
             title_sel = T_SINGLE;
+        }
+        return;
+    }
+    if(title_controls) {
+        if(pad.pressed & (BTN_B | BTN_A | BTN_START)) {
+            audio_sfx(RL_SFX_MENU_BACK, 200);
+            title_controls = false;
         }
         return;
     }
@@ -120,6 +178,10 @@ void menu_title_update(float dt) {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
             game_set_state(ST_SOUND);
         }
+        else if(title_sel == T_CONTROLS) {
+            audio_sfx(RL_SFX_MENU_SELECT, 200);
+            title_controls = true;
+        }
         else {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
             online_enter();
@@ -128,15 +190,19 @@ void menu_title_update(float dt) {
 }
 
 void menu_title_draw(void) {
+    if(title_menu && title_controls) {
+        controls_draw();
+        return;
+    }
     float k = clampf(game.time / 1.2f, 0, 1);
     r_hdr(h_logo);
     float w = 256 * (0.9f + 0.1f * k), h = 64 * (0.9f + 0.1f * k);
     r_quad2d(320 - w, 96 - h, 320 + w, 96 + h, 0, 0, 1, 1, color_alpha(0xffffffff, k), 12.0f);
     if(title_menu) {
-        static const char *const items[T_COUNT] = {"SINGLE PLAYER", "ONLINE", "SOUND TEST"};
-        ui_panel(200, 278, 440, 404);
+        static const char *const items[T_COUNT] = {"SINGLE PLAYER", "ONLINE", "SOUND TEST", "CONTROLS"};
+        ui_panel(200, 252, 440, 415);
         for(int i = 0; i < T_COUNT; i++) {
-            float y = 304 + i * 37;
+            float y = 278 + i * 37;
             bool on = i == title_sel;
             ui_row(206, y - 15, 434, y + 15, on);
             hud_text_c(320, y, 0.72f, ALIGN_CENTER, on ? ui_col(UI_ITEM_SEL) : ui_col(UI_ITEM), items[i]);

@@ -312,7 +312,8 @@ void autotest_frame(float dt_real) {
     static int frames;
     frames++;
     /* Start for the main menu, down past Online to the sound test, play a
-       loop and a one-shot, back out and on to the truck select. */
+       loop and a one-shot, back out, down to the controls and back, and on
+       to the truck select. */
     static bool menus_done, sound_seen;
     if(game.state == ST_TITLE) {
         if(sound_seen && !menus_done) {
@@ -325,7 +326,11 @@ void autotest_frame(float dt_real) {
         if(frames == 250 && !menus_done) shot("title-online");
         if(frames == 300 && !menus_done) input_film_tap(0, BTN_DOWN);
         if(frames == 312 && !menus_done) input_film_tap(0, BTN_A);
-        if(frames == 230 && menus_done) {
+        if(frames == 220 && menus_done) input_film_tap(0, BTN_DOWN);
+        if(frames == 232 && menus_done) input_film_tap(0, BTN_A);
+        if(frames == 270 && menus_done) shot("controls");
+        if(frames == 350 && menus_done) input_film_tap(0, BTN_B);
+        if(frames == 370 && menus_done) {
             game_set_state(ST_SELECT);
             frames = 0;
         }
