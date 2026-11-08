@@ -84,6 +84,8 @@ static const float tour_views[][6] = {
     {140, 3.5f, -214, 152, 1.2f, -194}, /* deer in the east meadow */
     {72, 92, 12, 92, 84, 32},           /* where the ridge line meets the logging road */
     {-52, 97, 18, -78, 82, 50},         /* the creek bed's last climb, by the lake */
+    {40, 95, -60, 30, 122, 140},        /* the cloud on the summit, from the south flank */
+    {-20, 116, 114, -37, 117, 132},     /* inside it on the summit trail */
 };
 #define TOUR_N (int)(sizeof(tour_views) / sizeof(tour_views[0]))
 

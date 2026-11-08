@@ -480,7 +480,7 @@ static void prop(const lvl_prop_t *p) {
 #define RANGE_SEG 48
 static SkyDome sky;   /* engine/sky.h: 6 rings of SKY_SEG */
 static float range_h[RANGES][RANGE_SEG + 1];
-static uint32_t range_top[RANGES], range_bot[RANGES];
+static uint32_t range_top[RANGES][2], range_bot[RANGES][2];   /* away from the sun, toward it */
 /* Clouds: a dozen cumulus (TEX_CLOUD, four shapes) carried across the sky
    on the wind, each forming and clearing on its own slow cycle. Their
    positions are kept about the camera (along the wind and across it), so
@@ -499,6 +499,126 @@ static float cloud_t;
 #define WIND_SPEED 12.0f
 #define CLOUD_FAR 1350.0f
 static const float sky_el[6] = {-0.25f, 0.0f, 0.08f, 0.22f, 0.55f, 1.5707f};
+static float range_ca[RANGE_SEG + 1][RANGES], range_sa[RANGE_SEG + 1][RANGES];   /* each range vertex's bearing */
+
+/* ---- The haze toward the sun, and the cloud on the summit ----
+
+   The sky low toward the sun takes the sunrise or sunset glow, so the
+   haze the hills fade into does too: the fog's colour warms as the camera
+   turns toward the sun (the PVR has one fog colour for the screen, so it
+   follows the view's heading), and the bottom of the dome and the far
+   ranges warm by bearing to match.
+
+   A cap of cloud sits on the upper mountain, thick in the morning and
+   the evening, thin by early afternoon: from outside a soft collar of
+   mist wrapped round the peak, from inside a whiteout (the fog pulled in
+   to tens of metres and the sky gone to the cloud's colour). The summit
+   stands above it, so the summit trail climbs through it and comes out
+   into the sun. It goes by the hour alone, which an online lobby shares. */
+#define HAZE_GLOW 0.85f       /* the fog toward the sun: this share of the horizon's glow */
+#define CAP_BASE 108.0f
+#define CAP_TOP 129.0f
+#define CAP_SOFT 6.0f         /* the cloud thins over this either side of the base and top */
+#define CAP_R 115.0f          /* and out to here from the summit (horizontally) */
+#define CAP_R_SOFT 35.0f
+#define CAP_FOG_FAR 55.0f     /* the fog's far distance deep in it */
+/* The collar: rings round the peak, each a height and how far out from
+   the mountain's side it sits there. Clear at the top and the bottom
+   rings, thick between; the mountain narrows as it
+   climbs, so a straight run between two rings stays off the slope. */
+#define CAP_SEG 32
+#define CAP_RINGS 4
+static const float cap_ring_y[CAP_RINGS] = {CAP_TOP + 5.0f, CAP_TOP - 3.0f, CAP_BASE + 5.0f, CAP_BASE - 4.0f};
+static const float cap_ring_out[CAP_RINGS] = {4.0f, 12.0f, 18.0f, 26.0f};
+static V3 cap_v[CAP_RINGS][CAP_SEG + 1];
+static float cap_sa[CAP_SEG + 1], cap_ca[CAP_SEG + 1];
+static bool cap_built;
+static unsigned atmo_tick;   /* frames: slow colours are worked out every fourth */
+#define CAP_NOISE 64
+static float cap_noise_tab[CAP_NOISE];   /* where the mist is thick round the collar */
+static float cap_k;           /* how much cloud this hour, 0..1 */
+static float cap_in;          /* how deep in it the camera is, 0..1 */
+static uint32_t fog_col, cap_col;
+static float fog_near_m, fog_far_m;   /* the fog table's, for what is fogged by hand */
+static const pvr_poly_hdr_t *h_cap;
+
+/* By the hour: thick from first light to mid morning, burning off to a
+   thin cap by early afternoon, back as the evening cools. */
+static float cap_amount(float hour) {
+    static const float k[][2] = {{0, 0.85f}, {5.0f, 1.0f}, {10.0f, 1.0f}, {13.0f, 0.55f}, {15.5f, 0.6f}, {18.5f, 1.0f}, {24.0f, 0.85f}};
+    int i = 0;
+    while(hour > k[i + 1][0]) i++;
+    float t = (hour - k[i][0]) / (k[i + 1][0] - k[i][0]);
+    t = t * t * (3 - 2 * t);
+    return k[i][1] + (k[i + 1][1] - k[i][1]) * t;
+}
+
+static inline float smooth01(float x) {
+    x = clampf(x, 0, 1);
+    return x * x * (3 - 2 * x);
+}
+
+/* How far into the cap a point is, 0..1, before the hour's amount. */
+static float cap_depth(V3 p) {
+    float dx = p.x - LEVEL_SUMMIT_X, dz = p.z - LEVEL_SUMMIT_Z;
+    float r = sqrtf(dx * dx + dz * dz);
+    float v = smooth01((p.y - (CAP_BASE - CAP_SOFT)) / (2 * CAP_SOFT)) * smooth01(((CAP_TOP + CAP_SOFT) - p.y) / (2 * CAP_SOFT));
+    return v * smooth01((CAP_R + CAP_R_SOFT - r) / (2 * CAP_R_SOFT));
+}
+
+/* How far out from the summit the mountain's side passes height y, along
+   bearing (sa, ca). */
+static float mountain_r(float sa, float ca, float y) {
+    float r = 4.0f;
+    while(r < CAP_R + CAP_R_SOFT && terrain_height(LEVEL_SUMMIT_X + sa * r, LEVEL_SUMMIT_Z + ca * r) > y) r += 2.0f;
+    return r;
+}
+
+static void cap_build(void) {
+    for(int i = 0; i <= CAP_SEG; i++) {
+        float a = ENG_TAU * i / CAP_SEG;
+        cap_sa[i] = sinf(a);
+        cap_ca[i] = cosf(a);
+        for(int k = 0; k < CAP_RINGS; k++) {
+            /* Lumpy: the top swells and dips round the peak, the sides bulge. */
+            uint32_t hs = hash32((uint32_t)(i % CAP_SEG) * 977u + 13u);
+            float lump = (hs & 1023) * (1.0f / 1023), bulge = (hs >> 10 & 1023) * (1.0f / 1023);
+            float y = cap_ring_y[k] + (k == 0 ? 5.0f * lump - 2.0f : k == 1 ? 3.0f * lump : 0);
+            float r = mountain_r(cap_sa[i], cap_ca[i], y) + cap_ring_out[k] * (0.7f + 0.6f * bulge);
+            cap_v[k][i] = v3(LEVEL_SUMMIT_X + cap_sa[i] * r, y, LEVEL_SUMMIT_Z + cap_ca[i] * r);
+        }
+    }
+    for(int i = 0; i < CAP_NOISE; i++) cap_noise_tab[i] = (hash32((uint32_t)i * 2654435761u) & 1023) * (1.0f / 1023);
+    cap_built = true;
+}
+
+/* Integer lerp of two colours, t in 0..256 (the dome and ranges do a few
+   hundred a frame). */
+static inline uint32_t mix256(uint32_t a, uint32_t b, int t) {
+    uint32_t rb = ((a & 0xff00ffu) * (uint32_t)(256 - t) + (b & 0xff00ffu) * (uint32_t)t) >> 8;
+    uint32_t ag = (((a >> 8) & 0xff00ffu) * (uint32_t)(256 - t) + ((b >> 8) & 0xff00ffu) * (uint32_t)t) >> 8;
+    return (rb & 0xff00ffu) | ((ag & 0xff00ffu) << 8);
+}
+
+/* The glow toward the sun at a bearing (sin, cos), 0..glow_k. */
+static float glow_cg, glow_sg;
+static inline float glow_at(float sa, float ca) {
+    float t = 0.5f + 0.5f * (sa * glow_sg + ca * glow_cg);
+    return t * t * t * pal->glow_k;
+}
+
+static void haze_update(void) {
+    glow_sg = sinf(tod.glow_az);
+    glow_cg = cosf(tod.glow_az);
+    cap_k = cap_amount(tod.hour);
+    cap_in = cap_depth(cam.pos) * smooth01(cap_k * 1.6f);
+    /* The cloud from inside: the palette's cloud a shade down, in the haze. */
+    cap_col = color_scale(color_lerp(pal->haze, pal->cloud_col, 0.65f), 0.94f);
+    V3 f = cam.fwd;
+    float fl = sqrtf(f.x * f.x + f.z * f.z);
+    float w = fl > 0.01f ? glow_at(f.x / fl, f.z / fl) : 0;
+    fog_col = color_lerp(color_lerp(pal->haze, pal->glow_col, w * HAZE_GLOW), cap_col, cap_in);
+}
 
 /* Stars: patches of them (TEX_STARS) on fixed directions, drawn as the
    sky darkens. A patch each is far cheaper than a sprite a star. */
@@ -509,23 +629,46 @@ static float star_rot[STARS], star_b[STARS];
 /* The dome's colours for the hour: the palette's gradient, warmed low in
    the sky toward the sun (the moon at night), the haze at the horizon. */
 static void sky_colours(void) {
-    for(int e = 0; e < 6; e++)
+    static float sky_sa[SKY_SEG + 1], sky_ca[SKY_SEG + 1];
+    if(sky_ca[0] == 0)
         for(int i = 0; i <= SKY_SEG; i++) {
-            float a = ENG_TAU * i / SKY_SEG;
-            float t = clampf(sky_el[e] / 0.9f, 0, 1);
-            uint32_t c = color_lerp(pal->sky_horizon, pal->sky_top, sqrtf(t));
-            if(e == 0) c = pal->haze;
-            float toward = 0.5f + 0.5f * cosf(a - tod.glow_az);
-            c = color_lerp(c, pal->glow_col, toward * toward * toward * (1.0f - t) * pal->glow_k);
-            sky_set_color(&sky, e, i, c);
+            sky_sa[i] = sinf(ENG_TAU * i / SKY_SEG);
+            sky_ca[i] = cosf(ENG_TAU * i / SKY_SEG);
         }
+    /* Each ring's gradient colour and how much glow it takes; below the
+       horizon the haze, warmed as the fog is. */
+    uint32_t ring_c[6];
+    float ring_g[6];
+    for(int e = 0; e < 6; e++) {
+        float t = clampf(sky_el[e] / 0.9f, 0, 1);
+        ring_c[e] = e ? color_lerp(pal->sky_horizon, pal->sky_top, sqrtf(t)) : pal->haze;
+        ring_g[e] = (e ? 1.0f - t : HAZE_GLOW) * 256.0f;
+    }
+    int in = (int)(cap_in * 256.0f);
+    for(int i = 0; i <= SKY_SEG; i++) {
+        float g = glow_at(sky_sa[i], sky_ca[i]);
+        for(int e = 0; e < 6; e++) {
+            uint32_t c = mix256(ring_c[e], pal->glow_col, (int)(g * ring_g[e]));
+            /* Inside the cap the sky goes to the cloud. */
+            if(in) c = mix256(c, cap_col, in);
+            sky_set_color(&sky, e, i, c | 0xff000000u);
+        }
+    }
     /* Further ranges sit lighter and bluer in the haze; all of them go
-       dark with the night. */
+       dark with the night. Each has a colour away from the sun and one
+       toward it, mixed by bearing as they are drawn. */
     uint32_t base = color_lerp(0xff4e6a70, 0xff0a1424, pal->dark);
+    uint32_t warm = color_lerp(pal->haze, pal->glow_col, HAZE_GLOW);
     for(int r = 0; r < RANGES; r++) {
         float k = 0.35f + 0.22f * r;
-        range_top[r] = color_lerp(base, pal->haze, k);
-        range_bot[r] = color_lerp(range_top[r], pal->haze, 0.55f);
+        range_top[r][0] = color_lerp(base, pal->haze, k);
+        range_bot[r][0] = color_lerp(range_top[r][0], pal->haze, 0.55f);
+        range_top[r][1] = color_lerp(base, warm, k);
+        range_bot[r][1] = color_lerp(range_top[r][1], warm, 0.55f);
+        for(int s = 0; s < 2 && cap_in > 0; s++) {
+            range_top[r][s] = color_lerp(range_top[r][s], cap_col, cap_in);
+            range_bot[r][s] = color_lerp(range_bot[r][s], cap_col, cap_in);
+        }
     }
 }
 
@@ -552,6 +695,11 @@ static void sky_setup(void) {
             range_h[r][i] = h;
         }
         range_h[r][RANGE_SEG] = range_h[r][0];
+        for(int i = 0; i <= RANGE_SEG; i++) {
+            float a = ENG_TAU * i / RANGE_SEG + r * 0.37f;
+            range_sa[i][r] = sinf(a);
+            range_ca[i][r] = cosf(a);
+        }
     }
     for(int i = 0; i < CLOUDS; i++) {
         cloud_roll(&clouds[i], &seed);
@@ -582,22 +730,37 @@ static void sky_setup(void) {
     sky_colours();
 }
 
+/* The ranges go round the camera in arcs, so those behind it are skipped
+   whole (a ring in one strip had half its triangles across the near
+   plane, each clipped on the CPU). */
+#define RANGE_ARC 6   /* segments an arc */
 void world_draw_sky(void) {
     V3 c = r_cam.pos;
     sky_draw(&sky);
     r_hdr(h_flat_nofog);
+    V3 f = r_cam.fwd;
+    float fl = sqrtf(f.x * f.x + f.z * f.z);
+    float fx = fl > 0.01f ? f.x / fl : 0, fz = fl > 0.01f ? f.z / fl : 0;
     /* The ranges, furthest first (the PVR sorts opaque depth anyway). */
     for(int r = RANGES - 1; r >= 0; r--) {
         float rad = 1050.0f + 260.0f * r;
-        RV v[2 * (RANGE_SEG + 1)];
-        int n = 0;
-        for(int i = 0; i <= RANGE_SEG; i++) {
-            float a = ENG_TAU * i / RANGE_SEG + r * 0.37f;
-            float sx = sinf(a) * rad, sz = cosf(a) * rad;
-            v[n++] = (RV){c.x + sx, range_h[r][i] - 40.0f + c.y * 0.15f, c.z + sz, 0, 0, range_top[r]};
-            v[n++] = (RV){c.x + sx, -60.0f, c.z + sz, 0, 0, range_bot[r]};
+        for(int a0 = 0; a0 < RANGE_SEG; a0 += RANGE_ARC) {
+            /* Off the screen: the arc's middle more than 78 degrees off the
+               view's heading (its near end 55 out, past the view's ~40 even
+               at the corners). */
+            int mid = a0 + RANGE_ARC / 2;
+            if(fl > 0.01f && range_sa[mid][r] * fx + range_ca[mid][r] * fz < 0.2f) continue;
+            RV v[2 * (RANGE_ARC + 1)];
+            int n = 0;
+            for(int i = a0; i <= a0 + RANGE_ARC; i++) {
+                float sa = range_sa[i][r], ca = range_ca[i][r];
+                int g = (int)(glow_at(sa, ca) * 256.0f);
+                v[n++] = (RV){c.x + sa * rad, range_h[r][i] - 40.0f + c.y * 0.15f, c.z + ca * rad, 0, 0,
+                              mix256(range_top[r][0], range_top[r][1], g) | 0xff000000u};
+                v[n++] = (RV){c.x + sa * rad, -60.0f, c.z + ca * rad, 0, 0, mix256(range_bot[r][0], range_bot[r][1], g) | 0xff000000u};
+            }
+            r_strip(v, n);
         }
-        r_strip(v, n);
     }
 }
 
@@ -849,9 +1012,11 @@ uint32_t world_lit(uint32_t albedo, V3 n) {
 }
 
 void world_update(float dt) {
-    float target = tod.sun_el > 0 && !sun_occluded() ? 1.0f : 0.0f;
+    haze_update();
+    float target = tod.sun_el > 0 && cap_in < 0.3f && !sun_occluded() ? 1.0f : 0.0f;
     flare_vis = approach(flare_vis, target, dt * 4.0f);
-    sky_colours();
+    /* The dome and the ranges change over seconds: every fourth frame. */
+    if(!(atmo_tick++ & 3)) sky_colours();
     /* The clouds blow downwind; one that has gone over the far side comes
        back round upwind as another cloud. */
     cloud_t += dt;
@@ -866,15 +1031,20 @@ void world_update(float dt) {
             c->phase = -cloud_t;   /* arrives forming */
         }
     }
-    /* The fog and the clear colour follow the haze; the fog table is
-       rewritten only when its distances move. */
+    /* The fog and the clear colour follow the haze (warmed toward the
+       sun, gone to cloud in the cap); the fog table is rewritten only
+       when its distances move. Deep in the cap the far distance closes
+       in by the same share at each step, so the thinning reads evenly. */
     static float fog_near, fog_far;
-    float r = ((pal->haze >> 16) & 255) / 255.0f, g = ((pal->haze >> 8) & 255) / 255.0f, b = (pal->haze & 255) / 255.0f;
+    float r = ((fog_col >> 16) & 255) / 255.0f, g = ((fog_col >> 8) & 255) / 255.0f, b = (fog_col & 255) / 255.0f;
     pvr_fog_table_color(1.0f, r, g, b);
     pvr_set_bg_color(r, g, b);
-    if(fabsf(fog_near - pal->fog_near) > 0.5f || fabsf(fog_far - pal->fog_far) > 0.5f) {
-        fog_near = pal->fog_near;
-        fog_far = pal->fog_far;
+    float want_near = lerpf(pal->fog_near, 2.0f, cap_in), want_far = pal->fog_far * powf(CAP_FOG_FAR / pal->fog_far, cap_in);
+    if(fabsf(fog_near - want_near) > 0.5f || fabsf(fog_far - want_far) > 0.5f) {
+        fog_near = want_near;
+        fog_far = want_far;
+        fog_near_m = fog_near;
+        fog_far_m = fog_far;
         pvr_fog_table_linear(fog_near, fog_far);
     }
 }
@@ -884,18 +1054,87 @@ static float horizon_alpha(float el) {
     return clampf((el + 0.06f) / 0.06f, 0, 1);
 }
 
+/* Slow value noise round the collar: where the mist is thick and where
+   it thins, drifting round with the wind. */
+static float cap_noise(float x) {
+    int i = (int)x;   /* x >= 0 */
+    float f = x - i;
+    f = f * f * (3 - 2 * f);
+    float a = cap_noise_tab[i & (CAP_NOISE - 1)], b = cap_noise_tab[(i + 1) & (CAP_NOISE - 1)];
+    return a + (b - a) * f;
+}
+
+/* The collar, seen from outside the cap: lit on top and shaded under
+   (warmed on the sun's side), thinning near the camera (inside, the fog
+   takes over, and big translucent sheets are what costs the PVR) and
+   fogged by hand like the hills behind it (the PVR's fog would fog its
+   clear edges too). */
+static uint32_t cap_c[CAP_RINGS][CAP_SEG + 1];
+
+/* Lit and fogged a segment at a time, from the thick middle of the
+   collar (the rings are within metres of each other). */
+static void cap_colours(uint32_t shade, float out) {
+    V3 c = r_cam.pos;
+    float fog_k = fog_far_m > fog_near_m ? 128.0f / (fog_far_m - fog_near_m) : 0;
+    float drift = cloud_t * 0.035f;
+    float inv_gk = 1.0f / fmaxf(pal->glow_k, 0.01f);
+    for(int i = 0; i <= CAP_SEG; i++) {
+        int seg = i == CAP_SEG ? 0 : i;   /* the seam: the same mist both sides */
+        float n1 = 0.25f + 0.75f * cap_noise(seg * 0.45f + drift), n2 = 0.25f + 0.75f * cap_noise(seg * 0.45f + drift + 17.3f);
+        V3 p = cap_v[1][i];
+        float dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
+        float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        float a = out * clampf((d - 12.0f) * (1.0f / 30.0f), 0, 1);
+        int fog = (int)clampf((d - fog_near_m) * fog_k, 0, 128);   /* half fogged: a cloud stays brighter than the hills */
+        float g = clampf(glow_at(cap_sa[i], cap_ca[i]) * inv_gk, 0, 1);
+        uint32_t under = mix256(shade, pal->glow_col, (int)(256.0f * clampf(pal->glow_k * (0.15f + 0.75f * g), 0, 1)));
+        uint32_t top = mix256(pal->cloud_col, fog_col, fog) & 0xffffffu;
+        under = mix256(under, fog_col, fog) & 0xffffffu;
+        cap_c[0][i] = top;
+        cap_c[1][i] = top | (uint32_t)(int)(255.0f * a * n1) << 24;
+        cap_c[2][i] = under | (uint32_t)(int)(255.0f * a * n2) << 24;
+        cap_c[3][i] = under;
+    }
+}
+
+static void cap_draw(uint32_t shade) {
+    static bool fresh;
+    float out = (1.0f - cap_in) * cap_k;
+    if(out < 0.02f || !cap_built ||
+       !r_sphere_visible(v3(LEVEL_SUMMIT_X, (CAP_BASE + CAP_TOP) * 0.5f, LEVEL_SUMMIT_Z), CAP_R + 20.0f)) {
+        fresh = false;
+        return;
+    }
+    /* Its colours drift slowly too: every fourth frame, or as it comes
+       back into view. */
+    if((atmo_tick & 3) == 2 || !fresh) cap_colours(shade, out);
+    fresh = true;
+    r_hdr(h_cap);
+    for(int k = 0; k + 1 < CAP_RINGS; k++) {
+        RV v[2 * (CAP_SEG + 1)];
+        int n = 0;
+        for(int i = 0; i <= CAP_SEG; i++) {
+            V3 a = cap_v[k][i], b = cap_v[k + 1][i];
+            v[n++] = (RV){a.x, a.y, a.z, 0, 0, cap_c[k][i]};
+            v[n++] = (RV){b.x, b.y, b.z, 0, 0, cap_c[k + 1][i]};
+        }
+        r_strip(v, n);
+    }
+}
+
 void world_draw_tr(void) {
     terrain_draw_water(&scenery);
     V3 c = r_cam.pos;
     /* Stars, once the sky is dark enough; only the patches ahead. */
-    if(pal->stars > 0.02f) {
+    float clear = 1.0f - cap_in;
+    if(pal->stars * clear > 0.02f) {
         r_hdr(h_stars);
         for(int i = 0; i < STARS; i++) {
             V3 d = star_dir[i];
             if(vdot(d, r_cam.fwd) < -0.1f) continue;
             float tw = 0.88f + 0.12f * sinf(game.time * 1.9f + i * 1.7f);
             r_billboard(vmad(c, d, 1850.0f), 560.0f, 560.0f, star_rot[i], 0, 0, 1, 1,
-                        color_alpha(0xffffffff, pal->stars * star_b[i] * tw));
+                        color_alpha(0xffffffff, pal->stars * clear * star_b[i] * tw));
         }
     }
     /* Clouds, far to near so they overlap right: each an upright quad
@@ -916,7 +1155,7 @@ void world_draw_tr(void) {
         order[k] = i;
         dist[k] = d2;
     }
-    float cover = 0.92f * (0.55f + 0.45f * (1.0f - pal->dark));
+    float cover = 0.92f * (0.55f + 0.45f * (1.0f - pal->dark)) * clear;
     uint32_t shade = color_scale(pal->cloud_col, 0.72f);
     r_hdr(h_cloud);
     for(int k = 0; k < CLOUDS; k++) {
@@ -939,8 +1178,9 @@ void world_draw_tr(void) {
                    {l.x, l.y - h, l.z, u0, 1, base}, {r.x, r.y - h, r.z, u1, 1, base}};
         r_strip(q, 4);
     }
+    cap_draw(shade);
     /* The moon: a disc, faint by day, with a glow at night. */
-    float ma = horizon_alpha(tod.moon_el);
+    float ma = horizon_alpha(tod.moon_el) * (1.0f - 0.85f * cap_in);
     if(ma > 0) {
         V3 mp = vmad(c, tod.moon, 1600.0f);
         if(pal->dark > 0.05f) {
@@ -951,7 +1191,7 @@ void world_draw_tr(void) {
         r_billboard(mp, 44.0f, 44.0f, 0, 0, 0, 1, 1, color_alpha(0xffffffff, ma * (0.35f + 0.65f * pal->dark)));
     }
     /* The sun: a big flat disc with a soft glow. */
-    float sa = horizon_alpha(tod.sun_el);
+    float sa = horizon_alpha(tod.sun_el) * (1.0f - 0.8f * cap_in);
     if(sa > 0) {
         V3 sp = vmad(c, tod.sun, 1600.0f);
         r_hdr(h_glow_add);
@@ -996,6 +1236,7 @@ void world_init(void) {
     h_glow_add = r_header(TEX_GLOW, HF_TR | HF_NOFOG | HF_ADD | HF_NOZTEST);
     h_ring_add = r_header(TEX_RING, HF_TR | HF_NOFOG | HF_ADD | HF_NOZTEST);
     h_cloud = r_header(TEX_CLOUD, HF_TR | HF_NOFOG);
+    h_cap = r_header(TEX_NONE, HF_TR | HF_NOFOG);
     sky_setup();
     if(!sc_init(&scenery, 185000, 7000, 1600)) printf("Ridgeline world: no memory for the scenery\n");
 }
@@ -1055,6 +1296,7 @@ void world_build(void) {
         }
     }
     int tree_v = scenery.pool_n - terrain_v;
+    cap_build();
     /* Boulders, logs and ledges: near and far versions in one chunk per cell. */
     for(int c = 0; c < TCELLS * TCELLS; c++) {
         float x0 = LEVEL_ORG + (c % TCELLS) * TCELL, z0 = LEVEL_ORG + (c / TCELLS) * TCELL;
