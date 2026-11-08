@@ -107,24 +107,28 @@ static void dial(const Truck *t) {
     const float R = 66, cx = 560, cy = HUD_BOTTOM - R;
     r_hdr(h_dial);
     r_quad2d(cx - R, cy - R, cx + R, cy + R, 0, 0, 1, 1, 0xfff4ecd8, Z);
-    /* The needle: 0 to 6000 rpm over 270 degrees. */
+    /* The needle: 0 to 6000 rpm over 270 degrees, out at the rim so it
+       never crosses the speed. */
     float k = clampf(t->rpm / 6000.0f, 0, 1.05f);
     float a = (135.0f + 270.0f * k) * ENG_PI / 180.0f;
     float ca = cosf(a), sa = sinf(a);
     float px = -sa, py = ca;
     r_hdr(h_flat);
     uint32_t nc = t->rpm > t->spec.redline_rpm * 0.97f ? 0xffff5030 : 0xfff09a2a;
-    r_tri2d(cx + ca * (R - 10), cy + sa * (R - 10), cx + px * 4 - ca * 10, cy + py * 4 - sa * 10, cx - px * 4 - ca * 10,
-            cy - py * 4 - sa * 10, nc, nc, nc, Z + 0.5f);
+    const float r0 = 34;
+    r_tri2d(cx + ca * (R - 8), cy + sa * (R - 8), cx + px * 3.5f + ca * r0, cy + py * 3.5f + sa * r0,
+            cx - px * 3.5f + ca * r0, cy - py * 3.5f + sa * r0, nc, nc, nc, Z + 0.5f);
+    /* Speed in the middle, the gear in a tab in the gap at the bottom. */
     char buf[16];
-    if(t->gear < 0) snprintf(buf, sizeof(buf), "R");
-    else snprintf(buf, sizeof(buf), "%d", t->gear);
-    hud_text_c(cx, cy + 4, 1.25f, ALIGN_CENTER, t->gear < 0 ? 0xffffb040 : 0xffffffff, buf);
-    hud_text_c(cx, cy + 34, 0.5f, ALIGN_CENTER, 0xffd8d0c0, "RPM x1000");
     int mph = (int)(fabsf(t->speed) * MPS_TO_MPH + 0.5f);
     snprintf(buf, sizeof(buf), "%d", mph);
-    hud_text_c(cx - 76, cy + 50, 1.3f, ALIGN_RIGHT, 0xffffffff, buf);
-    hud_text_c(cx - 72, cy + 54, 0.6f, ALIGN_LEFT, 0xffe8dcc4, "MPH");
+    hud_text_c(cx, cy - 4, 1.1f, ALIGN_CENTER, 0xffffffff, buf);
+    hud_text_c(cx, cy + 17, 0.42f, ALIGN_CENTER, 0xffd8d0c0, "MPH");
+    if(t->gear < 0) snprintf(buf, sizeof(buf), "R");
+    else snprintf(buf, sizeof(buf), "%d", t->gear);
+    r_hdr(h_flat);
+    r_quad2d(cx - 12, cy + 34, cx + 12, cy + 56, 0, 0, 1, 1, t->gear < 0 ? 0xf0c04020 : 0xf0d08420, Z + 0.6f);
+    hud_text_c(cx, cy + 45, 0.72f, ALIGN_CENTER, 0xffffffff, buf);
 }
 
 /* A thick 2D line from (x0,y0) to (x1,y1). */
@@ -139,16 +143,15 @@ static void seg2d(float x0, float y0, float x1, float y1, float w, uint32_t col)
 }
 
 /* The dashboard traction control lamp: a car from behind with two skid
-   squiggles under it, on the bottom row left of the speed. Flashes while it
+   squiggles under it, on the bottom row left of the rev counter. Flashes while it
    is cutting the throttle; steady with OFF beside it when the driver has
    switched it off. */
 static void tcs_icon(const Truck *t) {
     if(!t->spec.tcs) return;
     bool off = t->tcs_off;
     if(!off && tcs_lamp <= 0) return;
-    /* A fixed slot clear of a three digit speed, so it never shifts. */
     const float k = 0.62f, cy = HUD_BOTTOM - 22 * k;
-    const float cx = 476 - text_width(&font, "888", 1.3f) - 14 * k;
+    const float cx = 560 - 66 - 10 - 22 * k;
     uint32_t col = off ? 0xffff7050 : 0xffffb040;
     if(!off && fmodf(game.time, 0.3f) > 0.18f) col = color_alpha(col, 0.35f);
     hud_panel(cx - (off ? 60 : 22) * k, cy - 22 * k, cx + 22 * k, cy + 22 * k, 0x90182028);

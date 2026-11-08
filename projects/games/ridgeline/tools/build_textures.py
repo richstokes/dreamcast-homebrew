@@ -313,7 +313,8 @@ def tex_map():
 
 
 def tex_dial():
-    """A gauge face: ring, ticks every tenth, longer every half."""
+    """A rev counter face, 0 to 6000 over 270 degrees: a long tick every
+    thousand, a short one between."""
     n = 128
     img = Image.new("RGBA", (n * 4, n * 4), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -322,12 +323,12 @@ def tex_dial():
     d.ellipse([c - R, c - R, c + R, c + R], fill=(20, 24, 30, 170))
     d.ellipse([c - R, c - R, c + R, c + R], outline=(255, 255, 255, 255), width=10)
     a0, a1 = math.radians(135), math.radians(405)
-    for k in range(11):
-        a = a0 + (a1 - a0) * k / 10
-        L = 56 if k % 5 == 0 else 34
+    for k in range(13):
+        a = a0 + (a1 - a0) * k / 12
+        L = 56 if k % 2 == 0 else 34
         p0 = (c + math.cos(a) * (R - 18), c + math.sin(a) * (R - 18))
         p1 = (c + math.cos(a) * (R - 18 - L), c + math.sin(a) * (R - 18 - L))
-        d.line([p0, p1], fill=(255, 255, 255, 255), width=12 if k % 5 == 0 else 8)
+        d.line([p0, p1], fill=(255, 255, 255, 255), width=12 if k % 2 == 0 else 8)
     img = img.resize((n, n), Image.LANCZOS)
     return img
 
