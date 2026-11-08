@@ -31,6 +31,7 @@ func main() {
 	statusAddr := flag.String("status", envOr("RIDGELINE_STATUS", "127.0.0.1:8094"), "loopback HTTP address for lobbies.json (dcvmu.com/lobbies; empty: off)")
 	lag := flag.Duration("lag", 0, "testing: pretend every console is this far away (round trip)")
 	jitter := flag.Duration("jitter", 0, "testing: plus up to this much extra on every packet, each way")
+	idle := flag.Duration("idle", lobby.IdleTimeout, "take a truck out of its lobby after this long idle")
 	flag.Parse()
 	log.SetFlags(0) // journald adds timestamps
 
@@ -40,6 +41,7 @@ func main() {
 	}
 	log.Printf("ridgeline-lobby protocol %d build %d (min %d) on %v", lobby.Proto, lobby.Build, lobby.MinBuild, conn.LocalAddr())
 	srv := lobby.New(conn.Send, time.Now())
+	srv.Idle = *idle
 	srv.Latest, srv.Min = uint16(*latest), uint16(*minBuild)
 	if *latest != lobby.Build || *minBuild != lobby.MinBuild {
 		log.Printf("overriding versions: latest %d, min %d", *latest, *minBuild)

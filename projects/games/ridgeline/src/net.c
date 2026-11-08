@@ -414,7 +414,9 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
             }
             break;
         case 65:   /* REJECT */
-            if(n < 9) return;
+            /* Stray TRUCKs reaching the server after an idle kick come
+               back as session rejects: keep the first reason. */
+            if(n < 9 || state == NET_REJECTED) return;
             if(b[8] == NREJ_SESSION) {   /* the server restarted: say hello again */
                 state = NET_HELLO;
                 last_hello = 0;
@@ -428,7 +430,9 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
             else {
                 reject_reason = b[8];
                 message = b[8] == NREJ_TOO_OLD ? "THIS VERSION IS TOO OLD TO PLAY ONLINE"
-                        : b[8] == NREJ_FULL ? "THE SERVER IS FULL" : "THE SERVER REFUSED THIS NAME";
+                        : b[8] == NREJ_FULL ? "THE SERVER IS FULL"
+                        : b[8] == NREJ_IDLE ? "IDLE FOR 10 MINUTES"
+                        : "THE SERVER REFUSED THIS NAME";
                 state = NET_REJECTED;
             }
             break;

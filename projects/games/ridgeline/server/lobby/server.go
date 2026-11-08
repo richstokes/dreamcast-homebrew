@@ -14,11 +14,15 @@ import (
 
 // Timing.
 const (
-	PlayerTimeout    = 10 * time.Second
-	BrowseTimeout    = 30 * time.Second // a console on the lobby list, in no lobby
-	LobbyInterval    = 250 * time.Millisecond
-	RelayInterval    = 83 * time.Millisecond
-	MaxSessions      = 200
+	PlayerTimeout = 10 * time.Second
+	BrowseTimeout = 30 * time.Second // a console on the lobby list, in no lobby
+	LobbyInterval = 250 * time.Millisecond
+	RelayInterval = 83 * time.Millisecond
+	MaxSessions   = 200
+	// A player whose truck has not moved IdleMove, honked or switched its
+	// lights in IdleTimeout is taken out of the lobby, freeing the seat.
+	IdleTimeout      = 10 * time.Minute
+	IdleMove         = 2.0 // m
 	maxPacketsPerSec = 60
 	// The day in every lobby runs at the console's pace (src/tod.h: an
 	// hour a minute). An empty lobby's day starts again at StartHour when
@@ -48,6 +52,10 @@ type Player struct {
 	Truck    [TruckLen]byte
 	TruckAt  time.Time
 	HasTruck bool
+
+	activeAt time.Time // last sign of someone at the controller
+	restPos  [3]int16  // where the truck was then (TRUCK units, 1/64 m)
+	restSet  bool
 
 	rateWindow time.Time
 	rateCount  int
@@ -85,6 +93,7 @@ func (l *Lobby) Hour(now time.Time) float64 {
 type Server struct {
 	Latest, Min uint16
 	Filter      *wordfilter.Filter // name filter; New leaves it empty
+	Idle        time.Duration      // IdleTimeout unless changed (testing)
 	Lobbies     [MaxLobbies]*Lobby
 	Logf        func(string, ...any)
 	players     map[uint32]*Player
@@ -106,7 +115,7 @@ type Join struct {
 
 // New makes a server that writes packets through send.
 func New(send func(netip.AddrPort, []byte), now time.Time) *Server {
-	s := &Server{Latest: Build, Min: MinBuild, Filter: &wordfilter.Filter{}, Logf: log.Printf,
+	s := &Server{Latest: Build, Min: MinBuild, Filter: &wordfilter.Filter{}, Idle: IdleTimeout, Logf: log.Printf,
 		players: map[uint32]*Player{}, epoch: now, send: send, rejected: map[string]time.Time{}}
 	for i := range s.Lobbies {
 		s.Lobbies[i] = &Lobby{ID: i, dayFrom: now}
@@ -296,6 +305,7 @@ func (s *Server) join(p *Player, id int, model, livery byte, now time.Time) {
 	l.Slots[slot] = p
 	p.Lobby, p.Slot = id, slot
 	p.HasTruck = false
+	p.activeAt, p.restSet = now, false
 	l.dirty = true
 	s.Logf("%q joined lobby %d slot %d (%d/%d)", p.Name, id+1, slot, l.Count(), MaxPlayers)
 	if s.OnJoin != nil && !alerts.IsTestName(p.Name) {
@@ -332,6 +342,9 @@ func (s *Server) truck(p *Player, body []byte, now time.Time) {
 	if p.Lobby < 0 {
 		return
 	}
+	if moved(p, body) {
+		p.activeAt = now
+	}
 	copy(p.Truck[:], body)
 	p.TruckAt = now
 	p.HasTruck = true
@@ -340,6 +353,46 @@ func (s *Server) truck(p *Player, body []byte, now time.Time) {
 		s.Lobbies[p.Lobby].dirty = true
 		s.Logf("%q reached the summit in lobby %d", p.Name, p.Lobby+1)
 	}
+}
+
+// moved says whether a TRUCK body shows someone at the controller since
+// the last: the truck has moved IdleMove from where it rested, or the
+// horn sounded, or the lights changed. Physics jitter and a truck rocking
+// on its springs stay well inside IdleMove.
+func moved(p *Player, body []byte) bool {
+	var pos [3]int16
+	for i := range pos {
+		pos[i] = int16(binary.LittleEndian.Uint16(body[1+i*2:]))
+	}
+	const lights = 3 << TruckLightsShift
+	active := !p.restSet || body[0]&TruckHorn != 0 ||
+		(p.HasTruck && (body[0]^p.Truck[0])&lights != 0)
+	if !active {
+		var d2 float64
+		for i := range pos {
+			d := (float64(pos[i]) - float64(p.restPos[i])) / 64
+			d2 += d * d
+		}
+		active = d2 > IdleMove*IdleMove
+	}
+	if active {
+		p.restPos, p.restSet = pos, true
+	}
+	return active
+}
+
+// idleOut takes an idle player (s.Idle) out of their lobby. A console that knows
+// RejectIdle says why and goes offline (its session times out on the
+// browser's clock); an older one is told its session is gone, says hello
+// again and lands on the lobby list.
+func (s *Server) idleOut(p *Player, now time.Time) {
+	s.leave(p, "idled out of", now)
+	if p.Build >= IdleBuild {
+		s.reject(p.Addr, RejectIdle, now)
+		return
+	}
+	s.reject(p.Addr, RejectSession, now)
+	delete(s.players, p.Token)
 }
 
 // Tick drops silent consoles and sends lobby state. Call it often (every
@@ -356,6 +409,10 @@ func (s *Server) Tick(now time.Time) {
 			}
 			delete(s.players, tok)
 			s.Logf("%q gone (%d sessions)", p.Name, len(s.players))
+			continue
+		}
+		if p.Lobby >= 0 && now.Sub(p.activeAt) > s.Idle {
+			s.idleOut(p, now)
 		}
 	}
 	for _, l := range s.Lobbies {

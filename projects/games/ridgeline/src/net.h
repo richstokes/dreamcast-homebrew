@@ -30,7 +30,8 @@
 #define NET_TRUCK_BYTES  30   /* a TRUCK body */
 
 enum { NET_OFF, NET_LINK, NET_HELLO, NET_BROWSE, NET_JOINING, NET_LOBBY, NET_REJECTED, NET_LOST };
-enum { NREJ_TOO_OLD = 1, NREJ_FULL, NREJ_LOBBY_FULL, NREJ_BAD_NAME, NREJ_SESSION };
+enum { NREJ_TOO_OLD = 1, NREJ_FULL, NREJ_LOBBY_FULL, NREJ_BAD_NAME, NREJ_SESSION,
+       NREJ_IDLE /* taken out of the lobby after 10 minutes idle (build 7) */ };
 enum { NPF_SUMMIT = 1 };   /* player flags: reached the summit this session */
 /* TRUCK flags. */
 enum { NTF_SUMMIT = 1, NTF_LIGHTS_SHIFT = 1, NTF_HORN = 8, NTF_BRAKE = 16, NTF_STALLED = 32 };

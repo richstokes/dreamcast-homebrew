@@ -5,7 +5,8 @@ four Dreamcasts over UDP port 7536 at `dcvmu.com`, reachable by broadband
 adapter, W5500 or 56k modem. Players drop in and out of a lobby whenever
 they like; there is no race and no leader. The server hands out slots,
 keeps each lobby's time of day, relays everyone's truck 12 times a second
-and remembers who has reached the summit (a trophy by their name). Names
+and remembers who has reached the summit (a trophy by their name). A
+truck left idle for 10 minutes is taken out of its lobby. Names
 go through the bad word filter DreamKarts uses
 ([`projects/common/gameserver`](../../../common/gameserver)). Nothing is
 stored: a restart empties every lobby. The wire format is in

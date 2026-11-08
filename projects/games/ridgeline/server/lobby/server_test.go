@@ -320,3 +320,60 @@ func TestPingAnsweredBetweenLobbies(t *testing.T) {
 		t.Errorf("in a lobby a ping got %d packets (its LOBBY packets keep it alive)", len(h.out))
 	}
 }
+
+// truckAt sends name's truck at x metres along the first axis.
+func (h *harness) truckAt(name string, build uint16, flags byte, x float64) {
+	t := Truck{Flags: flags, Pos: [3]float64{x, 100, 0}, Quat: [4]float64{0, 0, 0, 1}}
+	h.packet(name, TypeTruck, build, t.Encode())
+}
+
+// A truck that sits still for IdleTimeout leaves its lobby; driving, the
+// horn or the lights keep it in. Old builds are sent back to the browser.
+func TestIdleKick(t *testing.T) {
+	h := newHarness(t)
+	for _, n := range []string{"STILL", "DRIVER", "HONKER", "OLD"} {
+		h.hello(n)
+		h.join(n, 0)
+	}
+	b := make([]byte, NameLen)
+	PutName(b, "OLD")
+	h.packet("OLD", TypeHello, IdleBuild-1, b) // an older console, same session
+	x := 0.0
+	for i := 0; i < int(IdleTimeout/(5*time.Second))+2; i++ {
+		x += 0.5
+		h.truckAt("STILL", Build, 0, 1+0.3*float64(i%2)) // rocking on its springs
+		h.truckAt("DRIVER", Build, 0, x)
+		horn := byte(0)
+		if i%60 == 0 {
+			horn = TruckHorn
+		}
+		h.truckAt("HONKER", Build, horn, 5)
+		h.truckAt("OLD", IdleBuild-1, 0, 9)
+		h.advance(5 * time.Second)
+	}
+	l := h.s.Lobbies[0]
+	if l.Count() != 2 {
+		t.Fatalf("%d left in the lobby, want DRIVER and HONKER", l.Count())
+	}
+	for _, n := range []string{"DRIVER", "HONKER"} {
+		if p := h.s.players[h.toks[n]]; p.Lobby != 0 {
+			t.Errorf("%s was taken out", n)
+		}
+	}
+	r := h.last("STILL", TypeReject)
+	if r == nil || r[8] != RejectIdle {
+		t.Errorf("STILL got reject % x, want reason %d", r, RejectIdle)
+	}
+	if p := h.s.players[h.toks["STILL"]]; p == nil || p.Lobby != -1 {
+		t.Errorf("STILL's session should stay, out of the lobby: %+v", p)
+	}
+	// Its stray TRUCKs do not put it back.
+	h.truckAt("STILL", Build, 0, 50)
+	if l.Count() != 2 {
+		t.Error("a stray TRUCK rejoined STILL")
+	}
+	r = h.last("OLD", TypeReject)
+	if r == nil || r[8] != RejectSession || h.s.players[h.toks["OLD"]] != nil {
+		t.Errorf("OLD got reject % x, want a dropped session", r)
+	}
+}

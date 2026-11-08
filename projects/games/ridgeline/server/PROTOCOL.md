@@ -92,7 +92,9 @@ included).
 
 REJECT reasons: 1 console too old (or another protocol), 2 server full,
 3 lobby full, 4 bad name (the bad word filter, as DreamKarts), 5 unknown
-session (say `HELLO` again).
+session (say `HELLO` again), 6 idle (build 7 on): the truck has not moved
+2 m, honked or switched its lights in 10 minutes, so the server took it out
+of its lobby. Older builds get a 5 instead and land on the lobby list.
 
 Player entry (17 bytes): u8 slot, `char[11]` name, u8 truck model, u8
 livery, u8 flags (bit0 reached the summit), u16 ping ms.

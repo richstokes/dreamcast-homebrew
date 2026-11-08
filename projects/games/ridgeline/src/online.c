@@ -249,6 +249,7 @@ void online_tick(void) {
     }
     if(st == NET_REJECTED) {
         if(net_reject_reason() == NREJ_TOO_OLD) show_error("PLEASE DOWNLOAD THE LATEST VERSION", DOWNLOAD_URL);
+        else if(net_reject_reason() == NREJ_IDLE) show_error("YOU WERE IDLE", "AND LEFT THE LOBBY AFTER 10 MINUTES");
         else show_error(net_message(), "");
         net_end();
         return;

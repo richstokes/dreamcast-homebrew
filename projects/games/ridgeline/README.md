@@ -50,7 +50,8 @@ been, and the viewpoints you've found.
   W5500 or modem (a DreamPi or any dial-up server). Drop in and out
   whenever you like; there is no race. Everyone's name floats over their
   truck, horns carry, the lobby shares one time of day, and reaching the
-  summit puts a trophy by your name for the session
+  summit puts a trophy by your name for the session. Ten minutes idle
+  (no driving, horn or lights) takes you out of the lobby
 - Birds: jays, juncos and ravens perched on logs, rocks, the cabin roof
   and the cairns burst away as a truck comes near (or at the horn), hawks
   circle over the meadow and the bluffs, and now and then a V of geese

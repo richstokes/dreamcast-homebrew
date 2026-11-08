@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 1
-	Build    = 6
+	Build    = 7
 	MinBuild = 1
 )
 
@@ -46,7 +46,13 @@ const (
 	RejectLobbyFull = 3
 	RejectBadName   = 4
 	RejectSession   = 5
+	RejectIdle      = 6 // build 7 on: left the lobby for idling (IdleTimeout)
 )
+
+// IdleBuild is the first build that understands RejectIdle; older
+// consoles are sent RejectSession instead, which puts them back on the
+// lobby list.
+const IdleBuild = 7
 
 // Player flags in LOBBY and LOBBIES entries.
 const FlagSummit = 1 << 0 // reached the summit this session: a trophy by the name
