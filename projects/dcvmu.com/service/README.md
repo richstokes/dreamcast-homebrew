@@ -15,6 +15,7 @@ needs a modern browser. End-user instructions live in the
 - Card importer (`/import`) previews `.bin`, `.vmu`, `.dcm` and `.dci` images, then imports the selected saves or icons without replacing existing backups
 - Whole-VMU archives (`/archives`) snapshot one 128 KiB card with DCVMU login saves scrubbed out, for one-step restore from the client
 - Dreambox (`/account/archicast`): a network drive for [Archicast](https://github.com/richstokes/Archicast), RISC OS on the Dreamcast, with uploads, downloads and folders on the website. Consoles link with a code typed there, then use a plain-text drive API (`dreambox.py`). Linked from the account page only, not the site navigation
+- Online lobbies (`/lobbies`): who is playing DreamKarts and Ridgeline online, read on request from each game server's loopback status port (127.0.0.1:8093 and 8094, `lobbies.py`; `DCVMU_LOBBY_SOURCES` points it elsewhere). Refreshes every 20 s; linked from the footer
 - Web player (`/play?rom=continuous/dreamkarts.cdi&name=DreamKarts`) runs this repository's release ELFs and disc images in the browser with Flycast WASM and EmulatorJS. Network apps get online through an emulated broadband adapter: `netrelay.py` carries its Ethernet frames over a WebSocket to [DCNet](https://dcnet.flyca.st). Unlisted like `/stats`; the root README's Play links point here
 
 Limits per account: 200 saves, 20 archives, 60 uploads an hour. Dreambox
@@ -55,6 +56,7 @@ to `main`, followed by the client's host tests.
 | `test_archives.py` | Whole-card login scrubbing, archive pages and the console archive API |
 | `test_stats.py` | Unlisted stats page, sortable user table, public-only profiles |
 | `test_play.py` | Web player page and headers, release asset parsing, the ROM cache and its GitHub revalidation |
+| `test_lobbies.py` | Online lobbies page from the game servers' status JSON, a server that is down, the cache |
 | `test_netrelay.py` | DCNet relay framing, origin and path checks, session limits, DCNet outages |
 
 ## Security

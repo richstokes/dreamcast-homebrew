@@ -136,3 +136,4 @@ button:focus-visible{outline:3px solid var(--focus);outline-offset:3px}button:di
 .drive-links li{margin:6px 0}
 .drive-links form{display:inline;margin-left:10px}
 .tool-row .form-panel{flex:1 1 280px}
+.lobby-table th,.lobby-table td,.lobby-table th:last-child,.lobby-table td:last-child{text-align:left;vertical-align:top;font-variant-numeric:normal}.lobby-table th:nth-child(1),.lobby-table th:nth-child(2){width:16%}.lobby-table th:nth-child(3){width:26%}.lobby-table th:last-child{width:auto}.lobby-empty td{color:var(--muted)}

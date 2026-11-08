@@ -17,7 +17,7 @@ if [ ! -x .venv/bin/python ]; then uv venv --python python3 .venv; fi
 uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python -m unittest -v
 # Explicit source manifest prevents uploading credentials, database or local caches.
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$stage/service.tar.gz" app.py dreambox.py play.py netrelay.py vmu_validation.py vmu_tools.py wsgi.py requirements.txt templates static deploy/dcvmu.service deploy/dcvmu-net.service
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$stage/service.tar.gz" app.py dreambox.py lobbies.py play.py netrelay.py vmu_validation.py vmu_tools.py wsgi.py requirements.txt templates static deploy/dcvmu.service deploy/dcvmu-net.service
 scp "$stage/service.tar.gz" "$remote:/tmp/dcvmu-service.tar.gz"
 ssh "$remote" bash -s <<'REMOTE'
 set -euo pipefail
@@ -33,6 +33,7 @@ if [ -f /opt/dcvmu/app.py ]; then
   if [ -f /opt/dcvmu/vmu_tools.py ]; then backup_files+=(vmu_tools.py); fi
   if [ -f /opt/dcvmu/play.py ]; then backup_files+=(play.py); fi
   if [ -f /opt/dcvmu/netrelay.py ]; then backup_files+=(netrelay.py); fi
+  if [ -f /opt/dcvmu/lobbies.py ]; then backup_files+=(lobbies.py); fi
   if [ -f /opt/dcvmu/dreambox.py ]; then backup_files+=(dreambox.py); fi
   tar -czf /opt/dcvmu-previous.tar.gz -C /opt/dcvmu "${backup_files[@]}"
 fi

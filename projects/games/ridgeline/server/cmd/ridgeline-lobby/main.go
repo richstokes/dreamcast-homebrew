@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/alerts"
+	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/status"
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/udpio"
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/wordfilter"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/ridgeline/server/lobby"
@@ -27,6 +28,7 @@ func main() {
 	wordsExtra := flag.String("words-extra", os.Getenv("RIDGELINE_BAD_WORDS_EXTRA"), "comma-separated words to filter on top of the list")
 	wordsCache := flag.String("words-cache", wordfilter.DefaultCache(), "file keeping the last downloaded list, read when the download fails (empty: none)")
 	alertsConfig := flag.String("alerts", os.Getenv("RIDGELINE_ALERTS_CONFIG"), "JSON file of Discord webhooks and Bark keys for lobby alerts (empty or missing: none)")
+	statusAddr := flag.String("status", envOr("RIDGELINE_STATUS", "127.0.0.1:8094"), "loopback HTTP address for lobbies.json (dcvmu.com/lobbies; empty: off)")
 	lag := flag.Duration("lag", 0, "testing: pretend every console is this far away (round trip)")
 	jitter := flag.Duration("jitter", 0, "testing: plus up to this much extra on every packet, each way")
 	flag.Parse()
@@ -70,6 +72,11 @@ func main() {
 	defer tick.Stop()
 	relay := time.NewTicker(lobby.RelayInterval)
 	defer relay.Stop()
+	var pub status.Publisher
+	pub.Publish(srv.Snapshot(time.Now()))
+	pub.Listen(*statusAddr)
+	publish := time.NewTicker(status.Every)
+	defer publish.Stop()
 	for {
 		select {
 		case p, ok := <-conn.In():
@@ -81,6 +88,8 @@ func main() {
 			srv.Relay(time.Now())
 		case <-tick.C:
 			srv.Tick(time.Now())
+		case <-publish.C:
+			pub.Publish(srv.Snapshot(time.Now()))
 		case <-stop:
 			log.Printf("shutting down with %d sessions", srv.Players())
 			return

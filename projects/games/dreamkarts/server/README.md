@@ -22,6 +22,13 @@ with Ridgeline's server, says how a word matches. Nothing else is stored on disk
 restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
 bots that anyone can watch.
 
+## Status page
+
+The server publishes its lobbies as JSON on `127.0.0.1:8093/lobbies.json`
+(`-status`, `DREAMKARTS_STATUS`; test names left out), which
+[dcvmu.com/lobbies](https://dcvmu.com/lobbies) shows beside Ridgeline's.
+Loopback only: DCVMU reads it on the same host.
+
 ## Alerts
 
 The server posts to Discord webhooks and Bark (iPhone push) keys when

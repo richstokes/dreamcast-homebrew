@@ -286,3 +286,19 @@ func TestJoinEvents(t *testing.T) {
 		t.Errorf("joins %v, want %s", got, want)
 	}
 }
+
+func TestSnapshot(t *testing.T) {
+	h := newHarness(t)
+	for _, n := range []string{"RICH", "AT-BOT", "PAL"} {
+		h.hello(n)
+	}
+	h.join("RICH", 1)
+	h.join("AT-BOT", 1)
+	h.truck("RICH", TruckSummit)
+	snap := h.s.Snapshot(h.now)
+	l := snap.Lobbies[1]
+	if snap.Online != 2 || l.ID != 2 || l.Status != "Exploring" || l.Detail != "09:00 on the mountain" ||
+		fmt.Sprint(l.Players) != "[{RICH true}]" || snap.Lobbies[0].Status != "Empty" {
+		t.Errorf("snapshot %+v, lobby 2 %+v", snap, l)
+	}
+}

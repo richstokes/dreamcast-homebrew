@@ -17,6 +17,7 @@ from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, abort, g, redirect, render_template, request, send_file, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 import dreambox
+import lobbies
 import play
 from vmu_validation import MAX_SAVE, validate_vms, header_metadata, has_vms_icon, first_icon_png, game_label
 from vmu_tools import (ICON_NAME, MAX_IMAGE, UNLOCK, build_icondata, validate_icondata,
@@ -484,6 +485,13 @@ def create_app(config=None):
                         sort=sort, page_num=page_num, total_pages=total_pages)
         response.headers['X-Robots-Tag'] = 'noindex, nofollow'
         return response
+
+    @app.get('/lobbies')
+    def online_lobbies():
+        # Who is playing the homebrew games online, from the game servers on
+        # this host (lobbies.py). The page refreshes itself.
+        sources = app.config.get('LOBBY_SOURCES') or lobbies.sources_from_env()
+        return page('lobbies.html', games=lobbies.games(sources), as_of=int(time.time()))
 
     @app.get('/users/<username>')
     def user_profile(username):

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/alerts"
+	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/status"
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/udpio"
 	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/wordfilter"
 	"github.com/richstokes/dreamcast-homebrew/projects/games/dreamkarts/server/demo"
@@ -30,6 +31,7 @@ func main() {
 	lag := flag.Duration("lag", 0, "testing: pretend every console is this far away (round trip)")
 	jitter := flag.Duration("jitter", 0, "testing: plus up to this much extra on every packet, each way")
 	rejectProto := flag.Int("reject-proto", 0, "testing: answer every HELLO with a REJECT stamped with this protocol byte, like a server that moved on")
+	statusAddr := flag.String("status", envOr("DREAMKARTS_STATUS", "127.0.0.1:8093"), "loopback HTTP address for lobbies.json (dcvmu.com/lobbies; empty: off)")
 	raceSeed := flag.Int("race-seed", -1, "testing: every lobby's first race is this plus one (default random), so a restart repeats race ids")
 	flag.Parse()
 	log.SetFlags(0) // journald adds timestamps
@@ -80,6 +82,11 @@ func main() {
 	defer tick.Stop()
 	relay := time.NewTicker(lobby.RaceInterval) // karts go out on the beat
 	defer relay.Stop()
+	var pub status.Publisher
+	pub.Publish(srv.Snapshot(time.Now()))
+	pub.Listen(*statusAddr)
+	publish := time.NewTicker(status.Every)
+	defer publish.Stop()
 	for {
 		select {
 		case p, ok := <-conn.In():
@@ -91,6 +98,8 @@ func main() {
 			srv.Relay(time.Now()) // not the tick's time: packets handled since carry time.Now()
 		case <-tick.C:
 			srv.Tick(time.Now())
+		case <-publish.C:
+			pub.Publish(srv.Snapshot(time.Now()))
 		case <-stop:
 			log.Printf("shutting down with %d sessions", srv.Players())
 			return

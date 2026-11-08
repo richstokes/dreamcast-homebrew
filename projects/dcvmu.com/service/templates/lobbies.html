@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Online lobbies{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="20">{% endblock %}
+{% block content %}
+<p class="eyebrow">PLAYING NOW</p>
+<h1>Online lobbies</h1>
+<p>Who is online in this repository's Dreamcast games, live from their servers. Join from the game's Online menu on a console with a broadband adapter or modem, or in the browser player.</p>
+<p class="hint">As of <time data-local-time datetime="{{ as_of|utc_iso }}">{{ as_of|utc_display }}</time>. Refreshes every 20 seconds.</p>
+
+{% for game in games %}
+<section class="lobby-game" aria-labelledby="game-{{ loop.index }}">
+  <h2 id="game-{{ loop.index }}">{{ game.game }}</h2>
+  {% if not game.up %}
+  <p class="empty">The {{ game.game }} server is not answering right now.</p>
+  {% else %}
+  <p>{{ game.online }} online{% if game.online %}, {{ game.playing }} in a lobby{% endif %}{% if game.play %} &middot; <a href="{{ game.play }}">Play in the browser</a>{% endif %}{% if game.about %} &middot; <a href="{{ game.about }}">About the game</a>{% endif %}</p>
+  <div class="user-table-scroll" role="region" aria-label="{{ game.game }} lobbies" tabindex="0">
+    <table class="user-table lobby-table" aria-label="{{ game.game }} lobbies">
+      <thead><tr><th scope="col">Lobby</th><th scope="col">Players</th><th scope="col">Doing</th><th scope="col">Who</th></tr></thead>
+      <tbody>{% for lobby in game.lobbies %}
+        <tr>
+          <td>Lobby {{ lobby.id }}{% if lobby.demo %} <span class="hint">(demo)</span>{% endif %}</td>
+          <td>{{ lobby.players|length }}/{{ lobby.max }}{% if lobby.watchers %} <span class="hint">+{{ lobby.watchers }} watching</span>{% endif %}</td>
+          <td>{{ lobby.status }}{% if lobby.detail %}<br><span class="hint">{{ lobby.detail }}</span>{% endif %}</td>
+          <td>{% if lobby.demo %}<span class="hint">Bots: </span>{% endif %}{% for player in lobby.players %}{{ player.name }}{% if player.trophy %} <span title="Reached the summit" aria-label="reached the summit">🏆</span>{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        </tr>
+      {% endfor %}{% if game.empty %}
+        <tr class="lobby-empty"><td colspan="4">{% if game.lobbies|rejectattr('demo')|list %}Empty{% else %}Nobody's on right now. Empty{% endif %}: lobb{{ 'y' if '\u2013' not in game.empty and ',' not in game.empty else 'ies' }} {{ game.empty }}</td></tr>
+      {% endif %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

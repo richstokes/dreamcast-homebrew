@@ -11,6 +11,13 @@ go through the bad word filter DreamKarts uses
 stored: a restart empties every lobby. The wire format is in
 [PROTOCOL.md](PROTOCOL.md).
 
+## Status page
+
+The server also publishes its lobbies as JSON on `127.0.0.1:8094/lobbies.json`
+(`-status`, `RIDGELINE_STATUS`; test names left out), which
+[dcvmu.com/lobbies](https://dcvmu.com/lobbies) shows beside DreamKarts'.
+Loopback only: DCVMU reads it on the same host.
+
 ## Alerts
 
 Someone joining a lobby sends a Bark push (or a Discord post) to each
