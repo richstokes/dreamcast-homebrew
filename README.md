@@ -5,7 +5,9 @@ My original Sega Dreamcast games, network apps and technical demos.
 **[Download the latest builds](https://github.com/richstokes/dreamcast-homebrew/releases/latest).**
 Every project ships as a self-booting CDI and a plain ELF. The CDI is the
 easiest way to play: open it in an emulator, or load it on a real console with
-GDEMU or similar. If you are burning a physical CD-R, you may want to try the
+GDEMU or similar.  
+
+If you are burning a physical CD-R, you may want to try the
 **CD-R** download instead. Each project directory has its own README.
 
 ## Games
