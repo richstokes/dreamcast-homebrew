@@ -32,9 +32,6 @@ void tod_set_hour(float hour);
 void tod_update(float dt, bool run_clock, float budget);
 /* Relight the whole world now (tests). */
 void tod_relight_all(void);
-/* Switch every truck's lights on as night falls and off at dawn; at the
-   start of a drive, set them for the hour without a word. */
-void tod_auto_lights(bool start);
 /* "17:40" into out. */
 void tod_format(float hour, char *out, int size);
 /* Microseconds spent relighting since the last reset (the test builds' log). */

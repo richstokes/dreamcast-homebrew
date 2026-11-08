@@ -180,10 +180,15 @@ void truckdraw_draw_op(void) {
         }
         uint32_t unlit = 0;
         if(t->lights) {
-            paint[RL_PAINT_HEADLIGHT] = 0xfffff4d8;
-            paint[RL_PAINT_AUX] = 0xfffff8e8;
+            /* Full beam: whiter lenses, and the roof lights with them. */
+            bool full = t->lights == LIGHTS_FULL;
+            paint[RL_PAINT_HEADLIGHT] = full ? 0xffffffff : 0xfffff4d8;
             paint[RL_PAINT_TAILLIGHT] = t->brake > 0.2f ? 0xffff3020 : 0xffd81818;
-            unlit = (1u << RL_PAINT_HEADLIGHT) | (1u << RL_PAINT_AUX) | (1u << RL_PAINT_TAILLIGHT);
+            unlit = (1u << RL_PAINT_HEADLIGHT) | (1u << RL_PAINT_TAILLIGHT);
+            if(full) {
+                paint[RL_PAINT_AUX] = 0xfffff8e8;
+                unlit |= 1u << RL_PAINT_AUX;
+            }
         }
         else if(t->brake > 0.2f) {
             paint[RL_PAINT_TAILLIGHT] = 0xffff3020;
@@ -269,6 +274,8 @@ void truckdraw_draw_tr(void) {
             ground_quad(sc, vscale(rh, hx), vscale(fh, hz), 0.06f, color_alpha(0xff000000, 0.55f * k));
         }
         if(!t->lights) continue;
+        bool full = t->lights == LIGHTS_FULL;
+        float beam = full ? 1.5f : 1.0f;   /* full beam: bigger glows, a further and brighter pool */
         r_hdr(h_glow);
 #ifdef HAVE_TRUCK_MODELS
         const rl_truck_info_t *info = &rl_truck_info[t->model];
@@ -277,20 +284,25 @@ void truckdraw_draw_tr(void) {
         for(int i = 0; i < 2; i++) {
             V3 p = truck_to_world(t, v3(info->headlight[i][0], info->headlight[i][1], info->headlight[i][2]));
             /* Brighter and bigger in the dark. */
-            float sz = info->headlight_r * (2.5f + 6.0f * facing * facing) * (1.0f + 0.5f * pal->dark);
+            float sz = info->headlight_r * (2.5f + 6.0f * facing * facing) * (1.0f + 0.5f * pal->dark) * beam;
             r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1,
-                        color_alpha(0xfffff0c8, (0.5f + 0.5f * facing) * (1.0f + 0.6f * pal->dark)));
+                        color_alpha(full ? 0xffffffff : 0xfffff0c8, (0.5f + 0.5f * facing) * (1.0f + 0.6f * pal->dark)));
             V3 tl = truck_to_world(t, v3(info->taillight[i][0], info->taillight[i][1], info->taillight[i][2]));
             r_billboard(tl, 0.35f, 0.35f, 0, 0, 0, 1, 1, color_alpha(0xffff2010, 0.6f));
         }
-        for(int i = 0; i < info->n_aux && i < 4; i++) {
-            V3 p = truck_to_world(t, v3(info->aux_light[i][0], info->aux_light[i][1], info->aux_light[i][2]));
-            float sz = 0.25f + 0.9f * facing * facing;
-            r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1, color_alpha(0xffffffff, 0.4f + 0.5f * facing));
-        }
+        if(full)
+            for(int i = 0; i < info->n_aux && i < 4; i++) {
+                V3 p = truck_to_world(t, v3(info->aux_light[i][0], info->aux_light[i][1], info->aux_light[i][2]));
+                float sz = (0.25f + 0.9f * facing * facing) * (1.0f + 0.5f * pal->dark);
+                r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1, color_alpha(0xffffffff, 0.4f + 0.5f * facing));
+            }
 #endif
-        /* The pool of light on the ground ahead. */
+        /* The pool of light on the ground ahead; full beam reaches further. */
         V3 ahead = vmad(v3(c.x, 0, c.z), fh, 9.0f);
         ground_quad(ahead, vscale(rh, 4.5f), vscale(fh, 6.5f), 0.08f, color_alpha(0xffffe8b0, 0.28f + 0.45f * pal->dark));
+        if(full) {
+            V3 far = vmad(v3(c.x, 0, c.z), fh, 19.0f);
+            ground_quad(far, vscale(rh, 6.0f), vscale(fh, 9.0f), 0.08f, color_alpha(0xfffff4d8, 0.18f + 0.4f * pal->dark));
+        }
     }
 }

@@ -179,7 +179,8 @@ float truck_heading(const Truck *t) {
 
 void truck_place(Truck *t, V3 base, float heading) {
     int model = t->model, livery = t->livery, mode = t->mode;
-    bool cpu = t->cpu, lights = t->lights, tcs_off = t->tcs_off;
+    bool cpu = t->cpu, tcs_off = t->tcs_off;
+    uint8_t lights = t->lights;
     memset(t, 0, sizeof(*t));
     t->model = model;
     t->livery = livery;

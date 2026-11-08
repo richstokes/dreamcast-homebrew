@@ -247,8 +247,8 @@ bool autotest_controls(Truck *p, float dt) {
         return true;
     }
 #endif
-    /* Lights on for a stretch so they are drawn and costed, and in the dark. */
-    p->lights = pal->dark > 0.5f || fmodf(game.clock, 60.0f) > 40.0f;
+    /* Each light setting for a third of every minute, so all are drawn and costed. */
+    p->lights = (uint8_t)(fmodf(game.clock, 60.0f) / 20.0f);
     return false;
 }
 

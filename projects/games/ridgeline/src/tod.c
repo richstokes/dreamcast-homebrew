@@ -17,8 +17,6 @@
 #include "tod.h"
 #include "world.h"
 #include "terrain.h"
-#include "truck.h"
-#include "hud.h"
 
 Tod tod;
 static Palette cur;
@@ -267,15 +265,6 @@ void tod_update(float dt, bool run_clock, float budget) {
     }
     eval();
     relight_step(budget);
-}
-
-void tod_auto_lights(bool start) {
-    static bool was_dark;
-    bool dark = cur.dark > 0.5f;
-    if(!start && dark == was_dark) return;
-    was_dark = dark;
-    for(int i = 0; i < game.ntrucks; i++) trucks[i].lights = dark;
-    if(!start && !game.demo) hud_message(dark ? "LIGHTS ON" : "LIGHTS OFF", 0xfff8f0dc, 1.2f);
 }
 
 void tod_format(float hour, char *out, int size) {

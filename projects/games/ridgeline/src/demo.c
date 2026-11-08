@@ -14,6 +14,7 @@
 #include "terrain.h"
 #include "sound_assets.h"
 #include "tod.h"
+#include "world.h"
 
 enum { SHOT_CHASE, SHOT_HELI, SHOT_TRACKSIDE, SHOT_FAR, SHOT_COUNT };
 static const float shot_len[SHOT_COUNT] = {6.0f, 9.0f, 6.0f, 6.0f};
@@ -45,7 +46,6 @@ void demo_start(void) {
         t->tcs_off = false;
         const float *s = lvl_spawns[slot[i]];
         truck_place(t, v3(s[0], 0, s[2]), s[3]);
-        t->lights = false;
         ai_start(i, 1 + i % 3);
     }
     game.best_y = trucks[0].pos.y;
@@ -63,9 +63,10 @@ void demo_start(void) {
     fx_clear();
     audio_drive_start();
     game_set_state(ST_DRIVE);
-    /* Any hour of the day, a different one each time. */
+    /* Any hour of the day, a different one each time; the CPU drivers
+       put their lights on in the dark. */
     tod_set_hour(tod_hours[(int)(timer_us_gettime64() / 1000) % TOD_COUNT]);
-    tod_auto_lights(true);
+    for(int i = 0; i < game.ntrucks; i++) trucks[i].lights = pal->dark > 0.5f ? LIGHTS_DIPPED : LIGHTS_OFF;
     cut();
     printf("RL demo: start\n");
 }
@@ -165,7 +166,6 @@ void demo_update(float dt) {
     for(int i = 0; i < game.ntrucks; i++) truck_update(&trucks[i], dt);
     game.clock += dt;
     fx_update(dt);
-    tod_auto_lights(false);
     dm.t += dt;
     const Truck *t = &trucks[game.demo_truck];
     bool gone = dm.shot == SHOT_TRACKSIDE && dm.t > 2.0f && vlen(vsub(t->pos, dm.post)) > 30.0f;

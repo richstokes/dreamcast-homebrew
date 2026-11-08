@@ -7,6 +7,10 @@
 enum { WFL, WFR, WRL, WRR };
 
 /* A truck's build: geometry from trucks.h, the rest tuned here. */
+/* The headlights: off, dipped (the lenses and a pool on the trail ahead)
+   or full beam (brighter, further, and the roof lights with them). */
+enum { LIGHTS_OFF, LIGHTS_DIPPED, LIGHTS_FULL, LIGHTS_COUNT };
+
 typedef struct {
     const char *name;
     float mass;
@@ -75,7 +79,8 @@ typedef struct Truck {
     bool stalled;
     float stall_t, drown_t;
     /* Driver's things. */
-    bool lights, horn;
+    uint8_t lights;      /* LIGHTS_OFF, LIGHTS_DIPPED, LIGHTS_FULL */
+    bool horn;
     bool cpu;
     TruckInput in;
     /* Derived, for the HUD and effects. */

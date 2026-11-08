@@ -60,7 +60,7 @@ void game_start_drive(void) {
         t->tcs_off = false;   /* traction control starts on */
         const float *s = lvl_spawns[slot[i]];
         truck_place(t, v3(s[0], 0, s[2]), s[3]);
-        t->lights = false;
+        t->lights = LIGHTS_OFF;
         if(i > 0) ai_start(i, 1 + (i - 1) % 3);
     }
     game.best_y = trucks[0].pos.y;
@@ -79,7 +79,6 @@ void game_start_drive(void) {
     audio_drive_start();
     game_set_state(ST_DRIVE);
     tod_set_hour(tod_hours[game.start_tod]);
-    tod_auto_lights(true);
     hud_message("CASCADE RIDGE", 0xfff8f0dc, 3.0f);
 }
 
@@ -110,8 +109,9 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     }
     p->horn = up && !up_done;
     if(pad.pressed & BTN_DOWN) {
-        p->lights = !p->lights;
-        hud_message(p->lights ? "LIGHTS ON" : "LIGHTS OFF", 0xfff8f0dc, 1.2f);
+        static const char *const names[LIGHTS_COUNT] = {"LIGHTS OFF", "DIPPED BEAM", "FULL BEAM"};
+        p->lights = (uint8_t)((p->lights + 1) % LIGHTS_COUNT);
+        hud_message(names[p->lights], 0xfff8f0dc, 1.2f);
     }
     if(pad.pressed & (BTN_LEFT | BTN_RIGHT)) {
         int m = p->mode + ((pad.pressed & BTN_RIGHT) ? 1 : -1);
@@ -204,7 +204,6 @@ static void drive_update(float dt) {
     game.clock += dt;
     fx_update(dt);
     camera_follow(p, dt);
-    tod_auto_lights(false);
 }
 
 static void update(float dt) {

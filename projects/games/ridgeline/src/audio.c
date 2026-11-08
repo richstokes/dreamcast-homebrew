@@ -25,7 +25,7 @@ static bool started;
 static float load_s, master, start_t = -1, start_len;
 static float surf_vol[5];
 static int last_gear, last_mode;
-static bool last_lights;
+static uint8_t last_lights;
 static float blowoff_cool;
 
 static float bird_rand(void) {

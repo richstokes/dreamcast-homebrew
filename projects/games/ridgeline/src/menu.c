@@ -146,7 +146,7 @@ static void select_scene(float dt) {
     Truck *t = &trucks[0];
     TruckInput none = {0};
     t->in = none;
-    t->lights = fmodf(game.time, 8.0f) > 4.0f;
+    t->lights = (uint8_t)(fmodf(game.time, 12.0f) / 4.0f);   /* off, dipped, full beam in turn */
     truck_update(t, dt);
     float a = game.time * 0.25f + 0.9f;
     V3 c = t->pos;

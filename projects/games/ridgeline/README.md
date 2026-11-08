@@ -49,10 +49,10 @@ been, and the viewpoints you've found.
   crosses the sky
 - A day that goes by as you drive, an hour a minute: first light, sunrise
   mist, noon, the long afternoon shadows, sunset, dusk and a starry
-  moonlit night, the hills' shadows swinging round with the sun and the
-  headlights coming on as it gets dark. Pick when to set off on the truck
-  select (dawn, morning, afternoon, dusk or night); photo mode moves the
-  clock with the D-pad
+  moonlit night, the hills' shadows swinging round with the sun. Pick
+  when to set off on the truck select (dawn, morning, afternoon, dusk or
+  night); photo mode moves the clock with the D-pad. Headlights are yours
+  to switch: off, dipped or full beam (which lights the Kestrel's roof bar)
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,
@@ -76,7 +76,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | R / L trigger | Throttle / brake; hold L at a stop to reverse |
 | D-pad left / right | Drive mode: 2WD, 4WD, LOCK (low range goes in or out only below ~8 mph) |
 | D-pad up | Horn; hold 2 s to switch traction control off or on (Kestrel) |
-| D-pad down | Lights |
+| D-pad down | Lights: off, dipped, full beam |
 | A | Handbrake |
 | B | Camera: chase, far chase, bumper |
 | X | Map: corner, large, off |
@@ -172,8 +172,8 @@ and asinf for the steering. Physics went 1.67 to 1.76 ms with the divides and
 is not where the time goes. Fewer substeps or less work per step is the lever.
 
 Time of day, `make hwbench` A/B on the console (2026-11-07), the bench
-now running from 17:00 through sunset into the night (the lights come on,
-the stars and the moon are drawn):
+now running from 17:00 through sunset into the night (the stars and the
+moon are drawn; the bench's lights are on two thirds of the time):
 
 | 180 s on the logging road | Before (b0e9190) | Time of day |
 | --- | --- | --- |
