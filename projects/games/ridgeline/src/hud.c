@@ -17,6 +17,9 @@ float hud_hold_k;
 const char *hud_hold_label;
 
 #define Z 10.0f
+/* The bottom edge every bottom-row element sits on: the rev counter, the
+   traction lamp and the drive mode tabs. */
+#define HUD_BOTTOM 460.0f
 
 void hud_init(void) {
     font.hdr = r_header(TEX_FONT, HF_TR | HF_NOFOG | HF_CLAMP);
@@ -101,7 +104,7 @@ static void quad_rot(float cx, float cy, float hw, float hh, float a, float u0, 
 }
 
 static void dial(const Truck *t) {
-    const float cx = 560, cy = 392, R = 66;
+    const float R = 66, cx = 560, cy = HUD_BOTTOM - R;
     r_hdr(h_dial);
     r_quad2d(cx - R, cy - R, cx + R, cy + R, 0, 0, 1, 1, 0xfff4ecd8, Z);
     /* The needle: 0 to 6000 rpm over 270 degrees. */
@@ -144,7 +147,7 @@ static void tcs_icon(const Truck *t) {
     bool off = t->tcs_off;
     if(!off && tcs_lamp <= 0) return;
     /* A fixed slot clear of a three digit speed, so it never shifts. */
-    const float k = 0.62f, cy = 446;
+    const float k = 0.62f, cy = HUD_BOTTOM - 22 * k;
     const float cx = 476 - text_width(&font, "888", 1.3f) - 14 * k;
     uint32_t col = off ? 0xffff7050 : 0xffffb040;
     if(!off && fmodf(game.time, 0.3f) > 0.18f) col = color_alpha(col, 0.35f);
@@ -180,7 +183,7 @@ static void tcs_icon(const Truck *t) {
 
 static void drive_mode(const Truck *t) {
     static const char *const names[DRIVE_COUNT] = {"2WD", "4WD", "LOCK"};
-    float x = 34, y = 436;
+    float x = 34, y = HUD_BOTTOM - 15;
     for(int m = 0; m < DRIVE_COUNT; m++) {
         bool on = t->mode == m;
         float w = m == 2 ? 62 : 52;
@@ -194,7 +197,7 @@ static void drive_mode(const Truck *t) {
 
 static void inclinometer(const Truck *t) {
     /* Side view tilts with pitch, rear view with roll. */
-    float y = 360;
+    float y = HUD_BOTTOM - 91;
     hud_panel(28, y - 34, 212, y + 40, 0x70182028);
     r_hdr(h_icons);
     float p = clampf(t->pitch, -60, 60) * ENG_PI / 180.0f, r = clampf(t->roll, -60, 60) * ENG_PI / 180.0f;
