@@ -18,7 +18,7 @@
 Scenery scenery;
 V3 sun_dir;
 
-static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_tuft, *h_sun, *h_moon, *h_stars, *h_glow_add,
+static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_sun, *h_moon, *h_stars, *h_glow_add,
     *h_ring_add, *h_cloud;
 
 /* ---- Lighting ---- */
@@ -603,9 +603,49 @@ void world_draw_sky(void) {
 
 /* ---- Grass tufts near the camera ---- */
 
-#define TUFT_R 26.0f
+/* Tufts sit on a jittered 2 m grid, thinned into clumps by a slow noise
+   so the meadow has lush patches and bare ones. Every tuft is drawn out
+   to TUFT_NEAR; past it every other one carries on, growing a little to
+   fill the gap, out to TUFT_FAR, the rest shrinking away as they near
+   TUFT_NEAR (the eye reads it as the same meadow, as with far trees).
+   Working out a tuft (surface, water, height) is a handful of cache
+   misses into the level, so tufts are worked out once per 8 m block and
+   kept while the block stays near: a frame only reads them back. Each
+   tuft's lit colour is read from the ground as it is drawn, so they
+   follow the time of day. */
 #define TUFT_CELL 2.0f
-#define TUFT_MAX 220
+#define TUFT_NEAR 24.0f
+#define TUFT_FAR 44.0f
+#define TUFT_MAX 560
+#define TB_CELLS 4                          /* cells a block side */
+#define TB_SIZE (TUFT_CELL * TB_CELLS)
+#define TB_RAD (TB_SIZE * 0.7072f + 1.2f)   /* a block's tufts lie within this of its centre */
+#define TB_SLOTS 16                         /* cached blocks a side; > 2 * TUFT_FAR / TB_SIZE + 2 */
+#define TB_FILLS 10                         /* blocks worked out a frame at most (after a camera cut) */
+#define TB_EMPTY INT16_MIN
+
+typedef struct {
+    float x, y, z;
+    uint32_t g;          /* the lvl_ground vertex it takes its colour from */
+    uint8_t var;         /* which of the four tuft textures */
+    uint8_t flags;       /* 1: mirrored, 2: carries on past TUFT_NEAR */
+    uint8_t size;        /* half width, cm */
+    uint8_t tint;        /* brightness, 0.8 + tint / 850 */
+} Tuft;
+
+typedef struct {
+    int16_t bi, bj;
+    uint8_t n;
+    Tuft t[TB_CELLS * TB_CELLS];
+} TuftBlock;
+
+static TuftBlock tblocks[TB_SLOTS * TB_SLOTS];
+static float tuft_wind_t;
+int world_tufts;   /* drawn last frame, for the bench */
+
+/* Height of each texture over the half width: tall seed grass, a low
+   wide spray, the broad clumps in between. */
+static const float tuft_aspect[4] = {1.25f, 1.6f, 1.0f, 1.3f};
 
 /* Tufts sit on a fixed grid, so one under a truck would poke up through
    its bed: leave out any whose billboard (half width w, mostly blades)
@@ -624,62 +664,169 @@ static bool under_truck(float px, float pz, float w) {
     return false;
 }
 
+/* Value noise on a 14 m lattice, 0..1: where the grass grows thick. */
+static float tuft_patch(float x, float z) {
+    float gx = x * (1.0f / 14.0f), gz = z * (1.0f / 14.0f);
+    int i = (int)floorf(gx), j = (int)floorf(gz);
+    float fx = gx - i, fz = gz - j;
+    fx = fx * fx * (3 - 2 * fx);
+    fz = fz * fz * (3 - 2 * fz);
+#define TP(a, b) ((hash32((uint32_t)(a) * 2654435761u ^ (uint32_t)(b) * 40503u ^ 0x5bd1e995u) & 1023) * (1.0f / 1023))
+    float a = TP(i, j), b = TP(i + 1, j), c = TP(i, j + 1), d = TP(i + 1, j + 1);
+#undef TP
+    return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
+}
+
+static void tuft_fill(TuftBlock *b, int bi, int bj) {
+    b->bi = (int16_t)bi;
+    b->bj = (int16_t)bj;
+    b->n = 0;
+    for(int cj = 0; cj < TB_CELLS; cj++)
+        for(int ci = 0; ci < TB_CELLS; ci++) {
+            int i = bi * TB_CELLS + ci, j = bj * TB_CELLS + cj;
+            uint32_t s = hash32((uint32_t)i * 73856093u ^ (uint32_t)j * 19349663u);
+            float px = (i + (s & 255) / 255.0f) * TUFT_CELL, pz = (j + ((s >> 8) & 255) / 255.0f) * TUFT_CELL;
+            int sf = surface_at(px, pz);
+            if(sf != SURF_GRASS && !(sf == SURF_FOREST && (s >> 20 & 3) == 0)) continue;
+            if(water_at(px, pz) > -999.0f) continue;
+            uint32_t s2 = hash32(s ^ 0x68e31da4u);
+            float y = terrain_height(px, pz);
+            /* Up the mountain the grass thins and stays short: from the
+               meadow's edge (30 m) to near the scree (160 m) a tuft
+               grows a third as often and a third smaller. */
+            float alp = clampf((y - 30.0f) * (1.0f / 130.0f), 0, 1);
+            alp = alp * alp * (3 - 2 * alp);
+            float dens = tuft_patch(px, pz) * (1.0f - 0.35f * alp);
+            if((s2 & 255) * (1.0f / 255) > (0.4f + dens) * (1.0f - 0.55f * alp)) continue;
+            Tuft *t = &b->t[b->n++];
+            t->x = px;
+            t->y = y - 0.05f;
+            t->z = pz;
+            int gi = lvl_clampi((int)((px - LEVEL_ORG) / LEVEL_D + 0.5f)), gj = lvl_clampi((int)((pz - LEVEL_ORG) / LEVEL_D + 0.5f));
+            t->g = (uint32_t)(gj * LEVEL_N + gi);
+            static const uint8_t var_pick[8] = {0, 0, 0, 1, 1, 2, 2, 3};
+            t->var = var_pick[s2 >> 8 & 7];
+            t->flags = (uint8_t)((s >> 24 & 1) | (s2 >> 10 & 2));
+            float w = (0.55f + ((s >> 16) & 15) / 30.0f) * (0.8f + 0.35f * dens) * (1.0f - 0.3f * alp);
+            t->size = (uint8_t)fminf(w * 100.0f, 255.0f);
+            t->tint = (uint8_t)(s2 >> 16);
+        }
+}
+
+typedef struct {
+    float d2;
+    int16_t bi, bj;
+} TuftDraw;
+
+#define TUFT_BUF 192
+static RV tuft_v[4][TUFT_BUF + 6];
+static int tuft_n[4];
+static const pvr_poly_hdr_t *h_tufts[4];
+
+static void tuft_flush(int k) {
+    if(!tuft_n[k]) return;
+    r_hdr(h_tufts[k]);
+    r_strip(tuft_v[k], tuft_n[k]);
+    tuft_n[k] = 0;
+}
+
 void world_draw_pt(void) {
-    static RV v[TUFT_MAX * 6];
     for(int i = 0; i < game.ntrucks; i++) {
         const float *hc = trucks[i].spec.hull_c;
         tuft_hull[i] = truck_to_world(&trucks[i], v3(hc[0], hc[1], hc[2]));
     }
-    int n = 0;
     V3 c = r_cam.pos;
     float tx, ty;
     r_frustum_slopes(&tx, &ty);
+    float sec = sqrtf(1.0f + tx * tx);
     V3 rt = vnorm(v3(r_cam.right.x, 0, r_cam.right.z));
-    int i0 = (int)floorf((c.x - TUFT_R) / TUFT_CELL), i1 = (int)floorf((c.x + TUFT_R) / TUFT_CELL);
-    int j0 = (int)floorf((c.z - TUFT_R) / TUFT_CELL), j1 = (int)floorf((c.z + TUFT_R) / TUFT_CELL);
+
+    /* The blocks in reach and in view, nearest first, so a full buffer
+       drops the furthest tufts. */
+    static TuftDraw vis[TB_SLOTS * TB_SLOTS];
+    int nvis = 0, fills = 0;
+    int bi0 = (int)floorf((c.x - TUFT_FAR) / TB_SIZE), bi1 = (int)floorf((c.x + TUFT_FAR) / TB_SIZE);
+    int bj0 = (int)floorf((c.z - TUFT_FAR) / TB_SIZE), bj1 = (int)floorf((c.z + TUFT_FAR) / TB_SIZE);
+    for(int bj = bj0; bj <= bj1; bj++)
+        for(int bi = bi0; bi <= bi1; bi++) {
+            float dx = (bi + 0.5f) * TB_SIZE - c.x, dz = (bj + 0.5f) * TB_SIZE - c.z;
+            float d2 = dx * dx + dz * dz;
+            if(d2 > (TUFT_FAR + TB_RAD) * (TUFT_FAR + TB_RAD)) continue;
+            float fz = dx * r_cam.fwd.x + dz * r_cam.fwd.z;
+            float fx = dx * r_cam.right.x + dz * r_cam.right.z;
+            if(fz < -TB_RAD || fabsf(fx) > fz * tx + TB_RAD * sec) continue;
+            int k = nvis++;
+            while(k > 0 && vis[k - 1].d2 > d2) {
+                vis[k] = vis[k - 1];
+                k--;
+            }
+            vis[k] = (TuftDraw){d2, (int16_t)bi, (int16_t)bj};
+        }
     int count = 0;
-    for(int j = j0; j <= j1 && count < TUFT_MAX; j++)
-        for(int i = i0; i <= i1 && count < TUFT_MAX; i++) {
-            uint32_t s = hash32((uint32_t)i * 73856093u ^ (uint32_t)j * 19349663u);
-            float px = (i + (s & 255) / 255.0f) * TUFT_CELL, pz = (j + ((s >> 8) & 255) / 255.0f) * TUFT_CELL;
-            float dx = px - c.x, dz = pz - c.z, d2 = dx * dx + dz * dz;
-            if(d2 > TUFT_R * TUFT_R) continue;
+    float sway_t = tuft_wind_t;
+    for(int v = 0; v < nvis && count < TUFT_MAX; v++) {
+        int bi = vis[v].bi, bj = vis[v].bj;
+        TuftBlock *b = &tblocks[(bj & (TB_SLOTS - 1)) * TB_SLOTS + (bi & (TB_SLOTS - 1))];
+        /* New blocks are worked out nearest first, a few a frame; the
+           rest wait (they only pile up after a camera cut). */
+        if(b->bi != bi || b->bj != bj) {
+            if(fills >= TB_FILLS) continue;
+            tuft_fill(b, bi, bj);
+            fills++;
+        }
+        if(!b->n) continue;
+        float bx = (bi + 0.5f) * TB_SIZE, bz = (bj + 0.5f) * TB_SIZE;
+        bool near_truck = false;
+        for(int i = 0; i < game.ntrucks; i++) {
+            float dx = bx - tuft_hull[i].x, dz = bz - tuft_hull[i].z;
+            if(dx * dx + dz * dz < (TB_RAD + 8.0f) * (TB_RAD + 8.0f)) near_truck = true;
+        }
+        for(int k = 0; k < b->n && count < TUFT_MAX; k++) {
+            const Tuft *t = &b->t[k];
+            float dx = t->x - c.x, dz = t->z - c.z, d2 = dx * dx + dz * dz;
+            bool far = t->flags & 2;
+            if(d2 > (far ? TUFT_FAR * TUFT_FAR : TUFT_NEAR * TUFT_NEAR)) continue;
             /* In view? (by the vertical frustum slope only roughly) */
             float fz = dx * r_cam.fwd.x + dz * r_cam.fwd.z;
             float fx = dx * r_cam.right.x + dz * r_cam.right.z;
             if(fz < -1.0f || fabsf(fx) > fz * tx + 2.0f) continue;
-            int sf = surface_at(px, pz);
-            if(sf != SURF_GRASS && !(sf == SURF_FOREST && (s >> 20 & 3) == 0)) continue;
-            if(water_at(px, pz) > -999.0f) continue;
-            float y = terrain_height(px, pz);
-            float k = 1.0f - d2 / (TUFT_R * TUFT_R);
-            float w = (0.55f + ((s >> 16) & 15) / 30.0f) * fminf(1.0f, k * 3.0f);
-            float h = w * 1.25f;
-            if(under_truck(px, pz, w * 0.6f)) continue;
-            int gi = lvl_clampi((int)((px - LEVEL_ORG) / LEVEL_D + 0.5f)), gj = lvl_clampi((int)((pz - LEVEL_ORG) / LEVEL_D + 0.5f));
-            uint32_t col = color_scale(lvl_ground[gj * LEVEL_N + gi].c, 1.35f);
-            float u0 = (s >> 24 & 1) ? 0.0f : 1.0f, u1 = 1.0f - u0;
-            V3 l = vmad(v3(px, y - 0.05f, pz), rt, -w), r = vmad(v3(px, y - 0.05f, pz), rt, w);
-            if(n) {
-                v[n] = v[n - 1];
-                n++;
-                v[n++] = (RV){l.x, l.y + h, l.z, u0, 0, col};
+            float d = sqrtf(d2), w = t->size * 0.01f;
+            if(far) {
+                w *= (1.0f + 0.45f * clampf((d - (TUFT_NEAR - 8.0f)) * (1.0f / 8.0f), 0, 1)) *
+                     fminf(1.0f, (TUFT_FAR - d) * (1.0f / 8.0f));
             }
-            v[n++] = (RV){l.x, l.y + h, l.z, u0, 0, col};
-            v[n++] = (RV){r.x, r.y + h, r.z, u1, 0, col};
-            v[n++] = (RV){l.x, l.y, l.z, u0, 1, color_scale(col, 0.7f)};
-            v[n++] = (RV){r.x, r.y, r.z, u1, 1, color_scale(col, 0.7f)};
+            else w *= fminf(1.0f, (TUFT_NEAR - d) * (1.0f / 8.0f));
+            if(near_truck && under_truck(t->x, t->z, w * 0.6f)) continue;
+            float h = w * tuft_aspect[t->var];
+            uint32_t col = color_scale(lvl_ground[t->g].c, 1.35f * (0.8f + t->tint * (1.0f / 850)));
+            uint32_t root = color_scale(col, 0.7f);
+            /* The tips lean downwind and back, a slow gust rolling across
+               the meadow with a quicker flutter of each tuft's own. */
+            float along = t->x * WIND_X + t->z * WIND_Z;
+            float lean = h * (0.07f + 0.06f * sinf(sway_t * 1.3f - along * 0.11f) +
+                              0.035f * sinf(sway_t * 3.1f + (float)(t->tint & 63)));
+            float u0 = (t->flags & 1) ? 0.0f : 1.0f, u1 = 1.0f - u0;
+            V3 base = v3(t->x, t->y, t->z);
+            V3 l = vmad(base, rt, -w), r = vmad(base, rt, w);
+            V3 top = v3(WIND_X * lean, h, WIND_Z * lean);
+            int bk = t->var;
+            RV *o = tuft_v[bk] + tuft_n[bk];
+            if(tuft_n[bk]) {
+                o[0] = o[-1];
+                o[1] = (RV){l.x + top.x, l.y + top.y, l.z + top.z, u0, 0, col};
+                o += 2;
+            }
+            o[0] = (RV){l.x + top.x, l.y + top.y, l.z + top.z, u0, 0, col};
+            o[1] = (RV){r.x + top.x, r.y + top.y, r.z + top.z, u1, 0, col};
+            o[2] = (RV){l.x, l.y, l.z, u0, 1, root};
+            o[3] = (RV){r.x, r.y, r.z, u1, 1, root};
+            tuft_n[bk] = (int)(o + 4 - tuft_v[bk]);
             count++;
-            if(n > 480) {
-                r_hdr(h_tuft);
-                r_strip(v, n);
-                n = 0;
-            }
+            if(tuft_n[bk] > TUFT_BUF) tuft_flush(bk);
         }
-    if(n) {
-        r_hdr(h_tuft);
-        r_strip(v, n);
     }
+    for(int k = 0; k < 4; k++) tuft_flush(k);
+    world_tufts = count;
 }
 
 /* ---- Sun, clouds and flare ---- */
@@ -708,6 +855,7 @@ void world_update(float dt) {
     /* The clouds blow downwind; one that has gone over the far side comes
        back round upwind as another cloud. */
     cloud_t += dt;
+    tuft_wind_t += dt;
     static uint32_t cloud_seed = 9001;
     for(int i = 0; i < CLOUDS; i++) {
         Cloud *c = &clouds[i];
@@ -841,7 +989,7 @@ void world_init(void) {
     h_flat_nofog = r_header(TEX_NONE, HF_OP | HF_NOFOG);
     h_rock = r_header(TEX_ROCK, HF_OP);
     h_bark = r_header(TEX_BARK, HF_OP);
-    h_tuft = r_header(TEX_TUFT, HF_PT);
+    for(int k = 0; k < 4; k++) h_tufts[k] = r_header(TEX_TUFT0 + k, HF_PT);
     h_sun = r_header(TEX_SUN, HF_TR | HF_NOFOG | HF_ADD);
     h_moon = r_header(TEX_MOON, HF_TR | HF_NOFOG);
     h_stars = r_header(TEX_STARS, HF_TR | HF_NOFOG | HF_ADD);
@@ -860,6 +1008,7 @@ void world_init(void) {
 static const float tree_far[3] = {70.0f, 170.0f, 430.0f};
 
 void world_build(void) {
+    for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
     sc_clear(&scenery);
     terrain_build(&scenery);
     int terrain_v = scenery.pool_n;

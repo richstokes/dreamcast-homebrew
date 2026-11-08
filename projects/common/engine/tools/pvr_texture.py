@@ -195,9 +195,32 @@ def _mip_images(image: Image.Image, wrap: bool, mip_filter: str = "box") -> list
     return levels
 
 
+def _keep_coverage(levels: list[Image.Image], alpha_ref: float) -> None:
+    """Scale each mip level's alpha so the share of texels that pass a
+    punch-through test at alpha_ref (0..1) matches the full-size image.
+    Averaged alpha falls under the threshold at the edges of thin shapes,
+    so grass and foliage drawn far away (on the small levels) would
+    otherwise thin out and vanish."""
+    base = np.asarray(levels[-1], dtype=np.float64)[..., 3] / 255.0
+    want = float(np.mean(base >= alpha_ref))
+    for k, level in enumerate(levels[:-1]):
+        px = np.asarray(level, dtype=np.float64).copy()
+        a = px[..., 3] / 255.0
+        lo, hi = 0.25, 8.0
+        for _ in range(24):
+            mid = (lo + hi) / 2
+            if np.mean(np.clip(a * mid, 0, 1) >= alpha_ref) < want:
+                lo = mid
+            else:
+                hi = mid
+        px[..., 3] = np.clip(a * hi, 0, 1) * 255.0 + 0.5
+        levels[k] = Image.fromarray(px.astype(np.uint8), "RGBA")
+
+
 def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
                  mipmap: bool = False, dither: bool = True,
-                 wrap: bool = False, mip_filter: str = "box") -> list[int]:
+                 wrap: bool = False, mip_filter: str = "box",
+                 alpha_ref: float | None = None) -> list[int]:
     """Return twiddled uint16 words including complete mips and DMA padding.
 
     Dimensions must be powers of two from 8 through 1024; mipmaps require a
@@ -205,6 +228,8 @@ def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
     materials); it does not change runtime UV clamp flags. RGB565 ignores alpha.
     ARGB4444 stores straight alpha, with premultiplied filtering during mip
     generation to prevent invisible RGB from bleeding into particle edges.
+    ``alpha_ref`` (0..1, punch-through textures) keeps the mips' coverage
+    at that alpha test the same as the full-size image's.
     """
     pixel_format = pixel_format.upper()
     if pixel_format not in _FORMATS:
@@ -213,6 +238,8 @@ def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
     # Opaque RGB565 must not let source alpha alter the filtering result.
     source = image.convert("RGB") if pixel_format == "RGB565" else image.convert("RGBA")
     levels = _mip_images(source, wrap, mip_filter) if mipmap else [source]
+    if mipmap and alpha_ref is not None and pixel_format != "RGB565":
+        _keep_coverage(levels, alpha_ref)
     words = []
     for level in levels:
         packed = _pack_level(level, pixel_format, dither)

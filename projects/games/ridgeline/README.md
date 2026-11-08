@@ -209,6 +209,12 @@ operand-cache misses (~6,700 and ~7,000 misses a frame), the trucks and
 physics ~10-17%; that cache traffic, not arithmetic, is where the frame
 goes.
 
+Grass tufts out to 44 m instead of 26 (2026-11-08, `make hwbench` A/B):
+the PT pass stayed at ~0.7 ms of CPU, as tufts are now worked out once
+per 8 m block and kept, but the PVR render went from 11.4 to 12.3 ms on
+average (14.8 worst window). The CPU came out 0.7 ms faster overall,
+which is layout drift, not the tufts.
+
 Relighting the world as the clock runs is 0.8 ms a frame (0.6-0.9 in
 Flycast): a slice of the 236,000 ground and scenery vertices each frame,
 so a whole pass takes ~3.5 s while the sun moves under a degree. A pass

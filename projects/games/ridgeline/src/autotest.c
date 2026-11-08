@@ -510,9 +510,9 @@ void autotest_frame(float dt_real) {
         printf("RL AT worst %.2f ms: upd=%.2f op=%.2f pt=%.2f tr=%.2f relight=%.2f\n", (double)worst_cpu,
                worst_ph[0] * 1e-3, worst_ph[1] * 1e-3, worst_ph[2] * 1e-3, worst_ph[3] * 1e-3, worst_relight * 1e-3);
         worst_cpu = 0;
-        extern int ter_count[4];
-        printf("RL AT terrain verts: near3 %d near6 %d skirts %d far %d\n", (int)(ter_count[0] * f * 1000),
-               (int)(ter_count[1] * f * 1000), (int)(ter_count[2] * f * 1000), (int)(ter_count[3] * f * 1000));
+        extern int ter_count[4], world_tufts;
+        printf("RL AT terrain verts: near3 %d near6 %d skirts %d far %d; tufts %d\n", (int)(ter_count[0] * f * 1000),
+               (int)(ter_count[1] * f * 1000), (int)(ter_count[2] * f * 1000), (int)(ter_count[3] * f * 1000), world_tufts);
         memset(ter_count, 0, sizeof(ter_count));
         printf("RL AT gpu: render %.2f/%.2f ms\n", (double)(at.win.rnd_sum / at.win.frames), (double)at.win.rnd_max);
         printf("RL AT t=%.0f fps=%.1f cpu=%.2f/%.2f over=%d upd=%.2f op=%.2f pt=%.2f tr=%.2f tris=%d verts=%d "

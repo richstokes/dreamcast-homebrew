@@ -12,7 +12,10 @@ enum {
     TEX_GRASS,
     TEX_ROCK,
     TEX_BARK,
-    TEX_TUFT,
+    TEX_TUFT0,
+    TEX_TUFT1,
+    TEX_TUFT2,
+    TEX_TUFT3,
     TEX_SUN,
     TEX_MOON,
     TEX_STARS,
@@ -35,22 +38,25 @@ static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {0u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* grass */
     {174784u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* rock */
     {218496u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* bark */
-    {229440u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft */
-    {273152u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* sun */
-    {281344u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
-    {289536u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
-    {420608u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
-    {431552u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
-    {447936u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
-    {458880u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
-    {469824u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
-    {472576u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
-    {483520u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {549056u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {723840u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {756608u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {822144u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {953216u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {229440u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft0 */
+    {273152u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft1 */
+    {316864u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft2 */
+    {360576u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft3 */
+    {404288u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* sun */
+    {412480u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
+    {420672u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
+    {551744u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
+    {562688u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
+    {579072u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
+    {590016u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
+    {600960u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
+    {603712u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
+    {614656u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {680192u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {854976u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {887744u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {953280u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {1084352u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

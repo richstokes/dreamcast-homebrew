@@ -280,31 +280,92 @@ def tex_cloud():
     return to_image(rgb, a)
 
 
-def tex_tuft():
-    """A clump of tall grass as a dozen broad brush strokes fanning up from
-    its root: light tips, darker toward the ground, white so the vertex
-    colour tints it; punch-through alpha, so the edges are crisp."""
+TUFT_SS = 4   # drawn at 4x and box-filtered down, for smooth alpha edges
+
+
+def _blade(d, hgt, x0, ang, w, rgb, n):
+    """One brush stroke of grass, fanning out from the root at x0; rgb is
+    its colour at the root, lightening toward the tip."""
+    S = TUFT_SS
+    pts = []
+    for t in np.linspace(0, 1, 13):
+        bend = ang * t * t
+        pts.append((x0 + math.sin(bend) * hgt * t, n - 1 - math.cos(bend) * hgt * t, w * (1 - 0.85 * t)))
+    for (xa, ya, wa), (xb, yb, wb) in zip(pts[:-1], pts[1:]):
+        k = 0.62 + 0.38 * (n - ya) / n
+        col = tuple(int(min(255, c * k)) for c in rgb) + (255,)
+        ww = max(1.0, (wa + wb) / 2) * S
+        d.line([(xa * S, ya * S), (xb * S, yb * S)], fill=col, width=max(1, int(ww)))
+        d.ellipse([xb * S - ww / 2, yb * S - ww / 2, xb * S + ww / 2, yb * S + ww / 2], fill=col)
+    return pts
+
+
+def _tuft_canvas(n):
+    img = Image.new("RGBA", (n * TUFT_SS, n * TUFT_SS), (0, 0, 0, 0))
+    return img, ImageDraw.Draw(img)
+
+
+def _tuft_finish(img, n):
+    """Box down to n x n with premultiplied colour, so edge texels keep
+    the blade's colour rather than fading to the black background."""
+    a = np.asarray(img, dtype=float)
+    al = a[..., 3:4] / 255.0
+    pm = np.concatenate([a[..., :3] * al, al], axis=2)
+    pm = pm.reshape(n, TUFT_SS, n, TUFT_SS, 4).mean(axis=(1, 3))
+    rgb = pm[..., :3] / np.maximum(pm[..., 3:4], 1e-6)
+    return to_image(rgb, pm[..., 3] * 255.0)
+
+
+def tex_tuft(variant):
+    """Clumps of tall grass, white so the vertex colour tints them, each
+    a set of brush strokes fanning up from the root, light at the tips and
+    darker toward the ground. Punch-through, so edges stay crisp; the mips
+    keep their coverage at the alpha test so far tufts don't thin out.
+      0: a dozen broad blades
+      1: thin blades and drooping seed heads (drawn taller)
+      2: a low, wide spray of short blades (drawn squatter)
+      3: broad blades, some turned rust for the autumn"""
     n = 128
-    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    r = rng(61)
-    strokes_ = []
-    for k in range(15):
-        x0 = n / 2 + r.normal(0, 13)
-        ang = r.normal(0, 0.42)
-        hgt = r.uniform(0.55, 0.97) * n
-        strokes_.append((hgt, x0, ang))
-    for hgt, x0, ang in sorted(strokes_, reverse=True):
-        w = r.uniform(6, 10)
-        pts = []
-        for t in np.linspace(0, 1, 9):
-            bend = ang * t * t
-            pts.append((x0 + math.sin(bend) * hgt * t, n - 1 - math.cos(bend) * hgt * t, w * (1 - 0.85 * t)))
-        tone = r.uniform(0.82, 1.0)
-        for (xa, ya, wa), (xb, yb, wb) in zip(pts[:-1], pts[1:]):
-            v = int(255 * tone * (0.62 + 0.38 * (n - ya) / n))
-            d.line([(xa, ya), (xb, yb)], fill=(v, v, int(v * 0.92), 255), width=max(1, int((wa + wb) / 2)))
-    return img
+    img, d = _tuft_canvas(n)
+    r = rng(61 + variant)
+    strokes = []
+    if variant == 0:
+        for _ in range(15):
+            tone = r.uniform(0.82, 1.0)
+            strokes.append((r.uniform(0.55, 0.97) * n, n / 2 + r.normal(0, 13), r.normal(0, 0.42),
+                            r.uniform(6, 10), (255 * tone, 255 * tone, 235 * tone), 0))
+    elif variant == 1:
+        for _ in range(11):
+            tone = r.uniform(0.72, 0.9)
+            strokes.append((r.uniform(0.45, 0.85) * n, n / 2 + r.normal(0, 11), r.normal(0, 0.4),
+                            r.uniform(3.5, 6), (225 * tone, 255 * tone, 200 * tone), 0))
+        for _ in range(6):
+            strokes.append((r.uniform(0.82, 0.98) * n, n / 2 + r.normal(0, 9), r.normal(0, 0.55),
+                            2.2, (255, 240, 205), 1))
+    elif variant == 2:
+        for _ in range(24):
+            tone = r.uniform(0.8, 1.0)
+            ang = float(np.clip(r.normal(0, 0.7), -1.05, 1.05))
+            strokes.append((r.uniform(0.5, 0.95) * n, n / 2 + r.normal(0, 16) + ang * 6, ang,
+                            r.uniform(4.5, 7.5), (255 * tone, 255 * tone, 235 * tone), 0))
+    else:
+        for k in range(14):
+            tone = r.uniform(0.82, 1.0)
+            rust = (255 * tone, 178 * tone, 120 * tone) if k % 2 else (255 * tone, 236 * tone, 200 * tone)
+            strokes.append((r.uniform(0.5, 0.95) * n, n / 2 + r.normal(0, 13), r.normal(0, 0.5),
+                            r.uniform(6, 10), rust, 0))
+    for hgt, x0, ang, w, rgb, seed in sorted(strokes, key=lambda s: -s[0]):
+        pts = _blade(d, hgt, x0, ang, w, rgb, n)
+        if seed:
+            # Oat-like spikelets hanging off the last third of the stem.
+            S = TUFT_SS
+            for i, (x, y, _) in enumerate(pts[7:]):
+                side = -1 if i % 2 else 1
+                for j in range(3):
+                    sx, sy = x + side * (1.5 + j * 0.8), y + 2.5 + j * 3.2
+                    d.polygon([(sx * S, (sy - 2.6) * S), ((sx + 1.5) * S, sy * S),
+                               (sx * S, (sy + 2.6) * S), ((sx - 1.5) * S, sy * S)], fill=(255, 248, 225, 255))
+    return _tuft_finish(img, n)
 
 
 def tex_map():
@@ -404,7 +465,7 @@ def build(out: Path):
         (TexSpec("grass", "RGB565", True, True), tex_grass()),
         (TexSpec("rock", "RGB565", True, True), tex_rock()),
         (TexSpec("bark", "RGB565", True, True), tex_bark()),
-        (TexSpec("tuft", "ARGB4444", True, False), tex_tuft()),
+        *[(TexSpec(f"tuft{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_tuft(k)) for k in range(4)],
         (TexSpec("sun", "ARGB4444", False, False), tex_sun()),
         (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
         (TexSpec("stars", "ARGB4444", False, False), tex_stars()),
