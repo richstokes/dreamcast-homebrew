@@ -25,6 +25,17 @@ check), and redeploy with `projects/games/dreamkarts/server/deploy/deploy.sh`,
 which ends by checking the live server reports the new build. See
 `projects/games/dreamkarts/server/README.md`.
 
+Ridgeline's online server (`projects/games/ridgeline/server/`, Go, UDP 7536
+on the same host, infra app id `ridgeline`) works the same way:
+`projects/games/ridgeline/src/net_version.h` holds the versions both sides
+use. When a change touches online play (that header, `src/net.c`,
+`src/online.c`, what a TRUCK packet carries, truck physics, the level, or
+anything under `server/`), bump `RL_NET_BUILD` (and `RL_NET_MIN_BUILD` if
+old consoles would disagree), update `server/lobby/proto.go`, run `make
+online-test` and redeploy with `server/deploy/deploy.sh`. Both servers
+share Go packages from `projects/common/gameserver/` and the consoles share
+`projects/common/netlink.c`. See `projects/games/ridgeline/server/README.md`.
+
 ## Worktrees and branches
 
 Finished work belongs on `main`. Sessions often run in a git worktree under

@@ -82,6 +82,9 @@ typedef struct Truck {
     uint8_t lights;      /* LIGHTS_OFF, LIGHTS_DIPPED, LIGHTS_FULL */
     bool horn;
     bool cpu;
+    /* Online: another console drives it (online.c poses it from the
+       network, no physics here); absent while that slot is empty. */
+    bool remote, absent;
     TruckInput in;
     /* Derived, for the HUD and effects. */
     float speed;              /* forward speed, m/s */
@@ -118,6 +121,10 @@ float truck_heading(const Truck *t);
 /* How far two trucks' hulls overlap, metres (0 apart). */
 float truck_overlap(const struct Truck *t, const struct Truck *u);
 V3 truck_to_world(const Truck *t, V3 m);
+/* A remote truck where the network says (centre of gravity, body axes,
+   velocity, front wheel steer), its wheels set down on the ground here,
+   turning with its speed. */
+void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, float dt);
 V3 truck_dir_to_world(const Truck *t, V3 d);
 
 #endif

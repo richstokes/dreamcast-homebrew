@@ -22,6 +22,7 @@
 #include "engine/ui.h"
 #include "birds.h"
 #include "tod.h"
+#include "online.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -37,7 +38,8 @@ void game_set_state(int state) {
     game.time = 0;
     /* The truck select shows the hour the drive will start at. */
     if(state == ST_SELECT) tod_set_hour(tod_hours[game.start_tod]);
-    if(state == ST_SELECT || state == ST_TITLE || state == ST_SOUND) {
+    if(state == ST_SELECT || state == ST_TITLE || state == ST_SOUND || state == ST_ONLINE) {
+        for(int i = 0; i < MAX_TRUCKS; i++) trucks[i].remote = trucks[i].absent = false;
         game.ntrucks = state == ST_SELECT ? 1 : 0;
         trucks[0].model = game.truck_model;
         trucks[0].livery = game.livery;
@@ -182,6 +184,7 @@ static void progress_update(void) {
         records_summit(line, sizeof(line));
         hud_message_sub(line);
         audio_sfx(RL_SFX_SUMMIT, 240);
+        if(game.online) online_summit();
     }
 }
 
@@ -191,29 +194,43 @@ static void drive_update(float dt) {
         demo_update(dt);
         return;
     }
-    if(game.paused) {
+    bool menu = game.paused;
+    if(menu) {
         menu_pause_update(dt);
-        return;
+        /* Online, the mountain runs on behind the menu (the others are
+           still driving), the truck left in neutral. */
+        if(!game.online || game.state != ST_DRIVE) return;
     }
-    if(pad.pressed & BTN_START) {
-        game.paused = true;
+    else if(pad.pressed & BTN_START) {
+        game.paused = menu = true;
         game.pause_sel = 0;
         game.view_sel = game.last_view;
         audio_sfx(RL_SFX_MENU_SELECT, 160);
-        return;
+        if(!game.online) return;
     }
+    if(menu) {
+        TruckInput none = {0};
+        p->in = none;
+        p->horn = false;
+        hud_hold_k = 0;
+    }
+    else {
 #ifdef RL_AUTOTEST
-    if(!autotest_controls(p, dt)) ai_drive(0, dt);
+        if(!autotest_controls(p, dt)) ai_drive(0, dt);
 #else
-    player_controls(p, dt);
+        player_controls(p, dt);
 #endif
-    for(int i = 1; i < game.ntrucks; i++) ai_drive(i, dt);
-    for(int i = 0; i < game.ntrucks; i++) truck_update(&trucks[i], dt);
+    }
+    if(!game.online)
+        for(int i = 1; i < game.ntrucks; i++) ai_drive(i, dt);
+    for(int i = 0; i < game.ntrucks; i++)
+        if(!trucks[i].remote) truck_update(&trucks[i], dt);
+    if(game.online) online_drive_step(dt);
     progress_update();
     records_update(dt);
     game.clock += dt;
     fx_update(dt);
-    camera_follow(p, dt);
+    if(!game.photo) camera_follow(p, dt);
 }
 
 static void update(float dt) {
@@ -223,17 +240,18 @@ static void update(float dt) {
         case ST_SELECT: menu_select_update(dt); break;
         case ST_DRIVE: drive_update(dt); break;
         case ST_SOUND: soundtest_update(dt); break;
+        case ST_ONLINE: online_update(dt); break;
     }
     /* The clock stops on the truck select (it shows the start hour) and
        in the pause menu. A jump of the clock there, or in photo mode, is
        relit faster than the drive can afford; the title's slow turn of
        the day a little faster, as its flyover has less to spare. */
-    bool run_clock = game.state != ST_SELECT && !(game.state == ST_DRIVE && game.paused);
+    bool run_clock = game.state != ST_SELECT && !(game.state == ST_DRIVE && game_frozen());
     float budget = game.state == ST_DRIVE ? (game.paused ? 4.0f : 1.0f) : game.state == ST_SELECT ? 4.0f : 1.5f;
     tod_update(dt, run_clock, budget);
     world_update(dt);
     birds_update(dt);
-    if(!game.paused) deer_update_all(dt);
+    if(!game_frozen()) deer_update_all(dt);
     hud_update(dt);
 }
 
@@ -250,7 +268,7 @@ static void render(void) {
     birds_draw();
     extern uint64_t world_us[3];
     uint64_t tt = timer_us_gettime64();
-    bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND;
+    bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND || game.state == ST_ONLINE;
     if(!no_trucks) truckdraw_draw_op();
     deer_draw_all();
     world_us[2] += timer_us_gettime64() - tt;
@@ -271,9 +289,11 @@ static void render(void) {
     if(game.state == ST_TITLE) menu_title_draw();
     else if(game.state == ST_SELECT) menu_select_draw();
     else if(game.state == ST_SOUND) soundtest_draw();
+    else if(game.state == ST_ONLINE) online_draw();
     else if(game.demo) demo_draw();
     else {
         if(!game.photo) hud_draw();
+        if(game.online) online_draw_hud();
         if(game.paused) menu_pause_draw();
     }
     if(game.show_fps && !game.photo && game.state == ST_DRIVE) {
@@ -335,7 +355,8 @@ int main(int argc, char **argv) {
         input_update();
         switch(softreset_poll(game.state == ST_TITLE)) {
             case SOFTRESET_TITLE:
-                if(game.demo) demo_stop();
+                if(game.online) online_quit();
+                else if(game.demo) demo_stop();
                 else {
                     audio_drive_stop();
                     game.paused = false;
@@ -346,6 +367,7 @@ int main(int argc, char **argv) {
                 game.quit = true;
                 continue;
         }
+        if(game.online) online_tick();
         RL_WHERE(3);
         for(int s = 0; s < steps; s++) {
             update(eng_frame.dt);

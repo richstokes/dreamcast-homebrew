@@ -154,7 +154,7 @@ static void open_socket(void) {
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
     server.sin_port = htons(DK_NET_PORT);
-    server.sin_addr.s_addr = link_server_ip();
+    server.sin_addr.s_addr = netlink_server_ip();
 }
 
 static void forget_chat(void) {
@@ -180,7 +180,8 @@ void net_begin(const char *name) {
     green_locked = false;
     forget_karts();
     state = NET_LINK;
-    link_start();
+    netlink_set_server(DK_NET_HOST, DK_NET_FALLBACK_IP);
+    netlink_start();
 }
 
 void net_end(void) {
@@ -193,7 +194,7 @@ void net_end(void) {
 }
 
 int net_state(void) { return state; }
-const char *net_message(void) { return state == NET_LINK ? link_status() : message; }
+const char *net_message(void) { return state == NET_LINK ? netlink_status() : message; }
 int net_reject_reason(void) { return reject_reason; }
 bool net_update_available(void) { return update_available; }
 int net_latest_build(void) { return latest_build; }
@@ -697,8 +698,8 @@ void net_update(void) {
     uint64_t now = net_now();
     if(state == NET_OFF || state == NET_REJECTED) return;
     if(state == NET_LINK) {
-        int ls = link_stage();
-        if(ls == LINK_UP) {
+        int ls = netlink_stage();
+        if(ls == NETLINK_UP) {
             open_socket();
             if(sock < 0) {
                 state = NET_LOST;
@@ -710,18 +711,18 @@ void net_update(void) {
             last_hello = 0;
             last_rx = now;
 #ifdef DK_NET_TRACE
-            printf("DK NET hello to %s via %s\n", inet_ntoa(server.sin_addr), link_status());
+            printf("DK NET hello to %s via %s\n", inet_ntoa(server.sin_addr), netlink_status());
 #endif
         }
-        else if(ls == LINK_FAILED) {
+        else if(ls == NETLINK_FAILED) {
             state = NET_LOST;
-            message = link_status();
+            message = netlink_status();
         }
         return;
     }
-    if(link_stage() == LINK_FAILED) {
+    if(netlink_stage() == NETLINK_FAILED) {
         state = NET_LOST;
-        message = link_status();
+        message = netlink_status();
         return;
     }
 

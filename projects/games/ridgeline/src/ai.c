@@ -157,6 +157,7 @@ void ai_drive(int ti, float dt) {
     /* Keep a gap to a truck ahead on the trail. */
     for(int o = 0; o < game.ntrucks; o++) {
         const Truck *u = &trucks[o];
+        if(u->absent) continue;
         if(u == t) continue;
         V3 du = vsub(u->pos, t->pos);
         float ux = vdot(du, t->ax[0]), uz = vdot(du, t->ax[2]);

@@ -25,7 +25,8 @@ enum {
     ST_TITLE,     /* logo over a flyover of the mountain */
     ST_SELECT,    /* truck, livery and company */
     ST_DRIVE,     /* out on the mountain (paused or not) */
-    ST_SOUND      /* the sound test, over the title's flyover */
+    ST_SOUND,     /* the sound test, over the title's flyover */
+    ST_ONLINE     /* online: the name, connecting and the lobby browser (online.c) */
 };
 
 /* Drive modes, stepped with the D-pad: rear-wheel drive; all-wheel drive
@@ -64,6 +65,7 @@ typedef struct {
     int demo_truck;       /* the truck it is watching */
     int start_tod;        /* when the drive starts: TOD_DAWN .. (tod.h) */
     float photo_time_t;   /* seconds since photo mode last moved the clock, for its readout */
+    bool online;          /* playing online (online.h): the select and the drive are a lobby's */
 } Game;
 
 extern Game game;
@@ -72,6 +74,11 @@ extern Camera cam;
 /* The direction the world is lit from (toward the sun, or the moon at
    night; tod.c sets it). */
 extern V3 sun_dir;
+
+/* The pause menu stops the world, except online, where it runs on. */
+static inline bool game_frozen(void) {
+    return game.paused && !game.online;
+}
 
 void game_set_state(int state);
 void game_start_drive(void);

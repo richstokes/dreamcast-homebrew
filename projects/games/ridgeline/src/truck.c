@@ -179,12 +179,14 @@ float truck_heading(const Truck *t) {
 
 void truck_place(Truck *t, V3 base, float heading) {
     int model = t->model, livery = t->livery, mode = t->mode;
-    bool cpu = t->cpu, tcs_off = t->tcs_off;
+    bool cpu = t->cpu, tcs_off = t->tcs_off, remote = t->remote, absent = t->absent;
     uint8_t lights = t->lights;
     memset(t, 0, sizeof(*t));
     t->model = model;
     t->livery = livery;
     t->cpu = cpu;
+    t->remote = remote;
+    t->absent = absent;
     t->lights = lights;
     t->tcs_off = tcs_off;
     truck_spec(&t->spec, model);
@@ -772,7 +774,7 @@ static void step(Truck *t, float dt) {
        Each truck feels its own half, so the pair stays symmetric. */
     for(int o = 0; o < game.ntrucks; o++) {
         const Truck *u = &trucks[o];
-        if(u == t || vlen(vsub(u->pos, t->pos)) > 8.0f) continue;
+        if(u == t || u->absent || vlen(vsub(u->pos, t->pos)) > 8.0f) continue;
         PairHit ph;
         if(!truck_pair(t, u, &ph)) continue;
         const float KT = 350000.0f, CT = 30000.0f, MUT = 0.35f;
@@ -1042,6 +1044,47 @@ void truck_update(Truck *t, float dt) {
     if(t->stalled) t->rpm = approach(t->rpm, 0, dt * 3000.0f);
 }
 
+/* ---- Remote trucks ---- */
+
+void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, float dt) {
+    const TruckSpec *S = &t->spec;
+    t->pos = pos;
+    t->ax[0] = ax[0];
+    t->ax[1] = ax[1];
+    t->ax[2] = ax[2];
+    t->vel = vel;
+    t->w = v3(0, 0, 0);
+    V3 U = ax[1];
+    float fwd = vdot(vel, ax[2]);
+    /* Each wheel where its suspension would put it on this ground: the
+       sender's ground is the same mountain, so the tyres meet it. */
+    for(int i = 0; i < 4; i++) {
+        Wheel *w = &t->wh[i];
+        V3 m = S->wheel[i];
+        V3 droop = truck_to_world(t, v3(m.x, m.y - S->sag * S->travel, m.z));
+        int sf;
+        float g = ground_below(droop.x, droop.z, droop.y + S->travel, NULL, &sf) - surf_props[sf].sink;
+        float pen = g - (droop.y - S->radius);
+        float c = clampf(pen / fmaxf(U.y, 0.4f), 0, S->travel);
+        w->comp_prev = w->comp;
+        w->comp = c;
+        w->centre = vmad(droop, U, c);
+        w->contact = pen > -0.05f;
+        w->surf = sf;
+        w->cp = v3(droop.x, g, droop.z);
+        float wl = water_at(droop.x, droop.z);
+        w->water = wl > -999.0f ? fmaxf(0, wl - g) : 0;
+        w->steer = i < 2 ? steer : 0;
+        w->omega = fwd / S->radius;
+        w->spin += w->omega * dt;
+    }
+    t->speed = fwd;
+    t->pitch = asinf(clampf(ax[2].y, -1, 1)) * (180.0f / ENG_PI);
+    t->roll = asinf(clampf(ax[0].y, -1, 1)) * (180.0f / ENG_PI);
+    t->water = 0;
+    for(int i = 0; i < 4; i++) t->water = fmaxf(t->water, t->wh[i].water);
+}
+
 /* ---- Recovery ---- */
 
 void truck_recover(Truck *t) {
@@ -1063,7 +1106,7 @@ static bool spot_wet(float x, float z) {
 static bool spot_clear(const Truck *t, float x, float z) {
     for(int o = 0; o < game.ntrucks; o++) {
         const Truck *u = &trucks[o];
-        if(u == t) continue;
+        if(u == t || u->absent) continue;
         float dx = u->pos.x - x, dz = u->pos.z - z;
         if(dx * dx + dz * dz < 7.0f * 7.0f) return false;
     }

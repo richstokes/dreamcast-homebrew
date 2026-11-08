@@ -63,6 +63,24 @@ void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const c
     text_draw_c(&font, x, cy, scale, align, col, s);
 }
 
+/* A little gold cup, s pixels tall, centred on (cx, cy). */
+void hud_trophy(float cx, float cy, float s, float alpha) {
+    r_hdr(h_flat);
+    for(int pass = 0; pass < 2; pass++) {
+        /* A dark copy a pixel down and right, then the gold. */
+        float o = pass ? 0 : 1.2f, z = Z + 0.6f + pass * 0.1f;
+        uint32_t c = color_alpha(pass ? 0xffffc838 : 0xff201808, alpha), d = color_alpha(pass ? 0xffd89820 : 0xff201808, alpha);
+        float x = cx + o, y = cy + o;
+        float t = y - 0.5f * s, b = y + 0.08f * s;
+        r_tri2d(x - 0.42f * s, t, x + 0.42f * s, t, x + 0.22f * s, b, c, c, d, z);
+        r_tri2d(x - 0.42f * s, t, x + 0.22f * s, b, x - 0.22f * s, b, c, d, d, z);
+        r_quad2d(x - 0.6f * s, t + 0.06f * s, x - 0.3f * s, t + 0.3f * s, 0, 0, 1, 1, d, z);
+        r_quad2d(x + 0.3f * s, t + 0.06f * s, x + 0.6f * s, t + 0.3f * s, 0, 0, 1, 1, d, z);
+        r_quad2d(x - 0.07f * s, b, x + 0.07f * s, y + 0.3f * s, 0, 0, 1, 1, d, z);
+        r_quad2d(x - 0.26f * s, y + 0.3f * s, x + 0.26f * s, y + 0.46f * s, 0, 0, 1, 1, c, z);
+    }
+}
+
 void hud_panel(float x0, float y0, float x1, float y1, uint32_t col) {
     r_hdr(h_flat);
     r_quad2d(x0, y0, x1, y1, 0, 0, 1, 1, col, Z - 1);
@@ -212,6 +230,7 @@ static void map(void) {
     }
     for(int i = game.ntrucks - 1; i >= 0; i--) {
         const Truck *t = &trucks[i];
+        if(t->absent) continue;
         float x = MX(t->pos.x), y = MY(t->pos.z), h = truck_heading(t);
         float fx = sinf(h), fy = -cosf(h);
         uint32_t c = i == 0 ? 0xffffffff : 0xfff0a030;

@@ -43,6 +43,11 @@ been, and the viewpoints you've found.
 - Deer in the meadows that graze, look up as you come near and bolt when
   you get close or sound the horn
 - Up to three CPU trucks for company, each taking its own route
+- Online: ten lobbies of four on the same mountain, by broadband adapter,
+  W5500 or modem (a DreamPi or any dial-up server). Drop in and out
+  whenever you like; there is no race. Everyone's name floats over their
+  truck, horns carry, the lobby shares one time of day, and reaching the
+  summit puts a trophy by your name for the session
 - Birds: jays, juncos and ravens perched on logs, rocks, the cabin roof
   and the cairns burst away as a truck comes near (or at the horn), hawks
   circle over the meadow and the bluffs, and now and then a V of geese
@@ -56,7 +61,7 @@ been, and the viewpoints you've found.
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,
-  left/right changes the pitch. Online is on the menu but not built yet
+  left/right changes the pitch
 - Leave the title alone for ten seconds and a demo runs: four CPU trucks
   set off up the mountain and the camera cuts between them every few
   seconds, chase, helicopter and trackside shots, until a button is pressed
@@ -83,6 +88,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | Y (hold) | Recover the truck to the nearest trail |
 | Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/off, quit |
 | Y (paused) | Photo mode: no HUD, the stick turns the camera round the truck, R/L zoom, D-pad left/right moves the clock, B back |
+| Start (online) | The menu, over a mountain that keeps going: recover, viewpoints, leave the lobby. The lobby keeps the clock |
 
 ## Build and run
 
@@ -97,7 +103,8 @@ make -C projects/games/ridgeline run
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
 | `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all |
-| `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time saves, reads back, and a slower one doesn't replace it |
+| `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, and a slower time doesn't replace it |
+| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 9, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
@@ -240,7 +247,10 @@ it the four trucks' headlights, which used to be on a third of the time.
 - One scene (autumn); the desert palette is not built yet
 - Headlights light the truck and a beam on the trail ahead, not the
   terrain or trees around it
-- No rumble or online play yet; the VMU keeps best times only
+- No rumble yet; the VMU keeps best times and the online name only
+- Online has no chat. Trucks bump each other, but each console pushes only
+  its own truck against the others as they were ~150 ms ago, so a shove
+  lands a little late
 - Rock-ledge climbing is approximate: the tyre is sampled at seven points,
   not swept
 

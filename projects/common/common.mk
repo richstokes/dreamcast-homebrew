@@ -14,7 +14,7 @@
 # HTTPS projects name where the CA bundle goes in their romdisk before the
 # include, CACERT = romdisk/cacert.pem, and it is copied there from here.
 COMMON_DIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
-COMMON_MODULES := dialup https
+COMMON_MODULES := dialup https netlink
 
 $(foreach module,$(COMMON_MODULES),$(eval vpath $(module).c $(COMMON_DIR)))
 $(COMMON_MODULES:%=%.o): %.o: $(COMMON_DIR)/%.h

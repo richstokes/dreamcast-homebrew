@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"sort"
 	"time"
+
+	"github.com/richstokes/dreamcast-homebrew/projects/common/gameserver/wordfilter"
 )
 
 // Timing.
@@ -109,7 +111,7 @@ type Lobby struct {
 // one goroutine feeds it packets and ticks.
 type Server struct {
 	Latest, Min uint16
-	Filter      *Filter // chat and name word filter; New leaves it empty
+	Filter      *wordfilter.Filter // chat and name word filter; New leaves it empty
 	Lobbies     [MaxLobbies]*Lobby
 	players     map[uint32]*Player
 	joinSeq     uint64
@@ -135,7 +137,7 @@ const rejectLogEvery = time.Minute
 
 // New makes a server that writes packets through send.
 func New(send func(netip.AddrPort, []byte), now time.Time) *Server {
-	s := &Server{Latest: Build, Min: MinBuild, Filter: &Filter{}, players: map[uint32]*Player{}, epoch: now, Logf: log.Printf}
+	s := &Server{Latest: Build, Min: MinBuild, Filter: &wordfilter.Filter{}, players: map[uint32]*Player{}, epoch: now, Logf: log.Printf}
 	s.send = func(to netip.AddrPort, b []byte) {
 		if to.IsValid() { // bots have no address
 			send(to, b)

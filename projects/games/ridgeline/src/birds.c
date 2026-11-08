@@ -282,7 +282,7 @@ static void skein_update(float dt) {
 }
 
 void birds_update(float dt) {
-    if(game.state == ST_DRIVE && game.paused) return;
+    if(game.state == ST_DRIVE && game_frozen()) return;
     bird_clock += dt;
     skein_update(dt);
     int nt = game.state == ST_DRIVE || game.state == ST_SELECT ? game.ntrucks : 0;

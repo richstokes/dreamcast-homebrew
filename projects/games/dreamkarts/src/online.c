@@ -155,7 +155,8 @@ void online_enter(void) {
     game.online = true;
     name_only = false;
     name_screen_open();
-    link_prepare();
+    netlink_set_server(DK_NET_HOST, DK_NET_FALLBACK_IP);
+    netlink_prepare();
 #ifdef DK_AT_NAME
     printf("DK NAME: entry %s\n", name);
     strcpy(entry_name, name);
@@ -1368,7 +1369,7 @@ static void draw_connect(void) {
     hud_text(320, 190, 0.95f, ALIGN_CENTER, GOLD, buf);
     const char *what = net_state() == NET_HELLO ? "SAYING HELLO TO THE SERVER" : net_message();
     hud_text(320, 248, 0.55f, ALIGN_CENTER, TEXT, what);
-    if(link_is_modem())
+    if(netlink_is_modem())
         hud_text(320, 280, 0.45f, ALIGN_CENTER, PALE, "DIALING CAN TAKE UP TO A MINUTE");
     hint("B: CANCEL");
 }
@@ -1377,7 +1378,7 @@ static void draw_browser(void) {
     title_bar("ONLINE LOBBIES");
     panel(40, 76, 600, 428);
     const NetLobbyInfo *ls = net_lobbies();
-    hud_text(56, 82, 0.45f, ALIGN_LEFT, PALE, link_status());
+    hud_text(56, 82, 0.45f, ALIGN_LEFT, PALE, netlink_status());
     if(net_update_available())
         hud_text(584, 82, 0.45f, ALIGN_RIGHT, GOLD, "NEW VERSION OUT!");
     for(int i = 0; i < NET_LOBBIES; i++) {

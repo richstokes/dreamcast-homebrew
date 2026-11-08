@@ -11,6 +11,9 @@
 #include "engine/qa.h"
 #include "tod.h"
 #include "world.h"
+#ifdef RL_AT_ONLINE
+#include "online.h"
+#endif
 
 #ifndef RL_AT_TRUCK
 #define RL_AT_TRUCK 1
@@ -113,13 +116,15 @@ static void vmu_test(void) {
     game.clock = 640.0f;
     bool second = records_summit(line, sizeof(line));
     printf("RL AT vmu: %s\n", line);
+    records_set_name("PEBBLES");   /* the online name, kept with the times */
     records_load();
     uint32_t got = records_best(1, WAY_LOGGING), other = records_best(0, WAY_LOGGING);
-    if(first && !second && got == 5813 && other == 0)
-        printf("RL AUTOTEST: PASS vmu save read back %lu\n", (unsigned long)got);
+    bool named = strcmp(records_name(), "PEBBLES") == 0;
+    if(first && !second && got == 5813 && other == 0 && named)
+        printf("RL AUTOTEST: PASS vmu save read back %lu, name %s\n", (unsigned long)got, records_name());
     else
-        printf("RL AUTOTEST: FAIL vmu save: first %d second %d read back %lu other %lu\n", first, second, (unsigned long)got,
-               (unsigned long)other);
+        printf("RL AUTOTEST: FAIL vmu save: first %d second %d read back %lu other %lu name \"%s\"\n", first, second,
+               (unsigned long)got, (unsigned long)other, records_name());
 }
 #endif
 
@@ -220,7 +225,10 @@ void autotest_boot(void) {
     game.livery = 0;
     game.companions = RL_AT_COMPANIONS;
     game.start_tod = RL_AT_TOD;
-#if defined(RL_CAPTURE) && !defined(RL_AT_FXBENCH)
+#if defined(RL_AT_ONLINE)
+    at.tour = TOUR_N + TOD_N;
+    online_autotest_boot();
+#elif defined(RL_CAPTURE) && !defined(RL_AT_FXBENCH)
     at.tour = 0;
     printf("RL AT capture: title, select, scenery tour%s, then the drive\n", TOD_N ? ", the day over the meadow" : "");
 #else
@@ -406,6 +414,9 @@ void autotest_frame(float dt_real) {
     }
 #endif
 #endif
+#ifdef RL_AT_ONLINE
+    online_autotest(dt_real);
+#endif
     if(game.state != ST_DRIVE || at.done) return;
     float cpu = game.cpu_ms;
     /* The window's slowest frame, phase by phase, with its relighting. */
@@ -509,7 +520,11 @@ void autotest_frame(float dt_real) {
         qa_window_reset(&at.win);
     }
     const char *fail = NULL;
-#ifdef RL_CAPTURE
+#if defined(RL_AT_ONLINE)
+    /* online_autotest() decides. */
+    bool end = false;
+    const char *how = "";
+#elif defined(RL_CAPTURE)
     bool end = game.clock > RL_AT_SECONDS;
     const char *how = "bench ran";
 #else

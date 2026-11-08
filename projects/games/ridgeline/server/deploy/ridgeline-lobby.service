@@ -1,0 +1,39 @@
+# Ridgeline online server. Installed by deploy.sh in this directory;
+# registered in richstokes/infra servers/netsplit.vip/applications.json.
+[Unit]
+Description=Ridgeline online server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ridgeline
+Group=ridgeline
+EnvironmentFile=/etc/ridgeline/lobby.env
+# Keeps the last downloaded bad word list (STATE_DIRECTORY, writable under
+# ProtectSystem=strict) for restarts while its host is unreachable.
+StateDirectory=ridgeline
+ExecStart=/opt/ridgeline/bin/ridgeline-lobby
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+
+LimitNOFILE=4096
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

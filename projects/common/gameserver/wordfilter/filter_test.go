@@ -1,4 +1,4 @@
-package lobby
+package wordfilter
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 var testWords = []string{"blorp", "zap", "gronk", "flim flam", "xx", "#comment-looking"}
 
 func TestCensor(t *testing.T) {
-	f := NewFilter(testWords)
+	f := New(testWords)
 	cases := map[string]string{
 		"GG EVERYONE":         "GG EVERYONE",
 		"YOU ARE A BLORPHEAD": "YOU ARE A *********",
@@ -50,7 +50,7 @@ func TestCensor(t *testing.T) {
 		t.Errorf("filter has %d entries, want %d", n, len(testWords)-1)
 	}
 	// An empty filter changes nothing.
-	for _, e := range []*Filter{nil, {}, NewFilter(nil)} {
+	for _, e := range []*Filter{nil, {}, New(nil)} {
 		if got := e.Censor("what the blorp"); got != "what the blorp" {
 			t.Errorf("empty filter: %q", got)
 		}
@@ -78,7 +78,7 @@ func TestLiveWords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := NewFilter(words)
+	f := New(words)
 	if f.Len() < 300 {
 		t.Fatalf("%d entries from %s, expected hundreds", f.Len(), from)
 	}
@@ -103,27 +103,5 @@ func TestLiveWords(t *testing.T) {
 		if got := f.Censor(in); got != in {
 			t.Errorf("Censor(%q) = %q", in, got)
 		}
-	}
-}
-
-func TestCleanChat(t *testing.T) {
-	cases := map[string]string{
-		"hello there":         "HELLO THERE",
-		"  two   spaces  ":    "TWO SPACES",
-		"tab\tand\x01control": "TABANDCONTROL",
-		"":                    "",
-		"   ":                 "",
-	}
-	for in, want := range cases {
-		if got := CleanChat([]byte(in)); got != want {
-			t.Errorf("CleanChat(%q) = %q, want %q", in, got, want)
-		}
-	}
-	long := CleanChat([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
-	if len(long) != ChatLen-1 {
-		t.Errorf("long line kept %d characters, want %d", len(long), ChatLen-1)
-	}
-	if trailing := CleanChat([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ12345 6789")); trailing[len(trailing)-1] == ' ' {
-		t.Errorf("a cut line ends in a space: %q", trailing)
 	}
 }

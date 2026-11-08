@@ -21,6 +21,7 @@ static SfxVoice cpu_v[MAX_TRUCKS][2];
 static int cpu_lo[MAX_TRUCKS];
 static int hear;   /* the truck whose engine is the player's */
 static SfxVoice horn_v, surf_v[5], wind_v, forest_v, creek_v;
+static SfxVoice rhorn_v[MAX_TRUCKS];   /* online: other players' horns */
 static bool started;
 static float load_s, master, start_t = -1, start_len;
 static float surf_vol[5];
@@ -40,14 +41,16 @@ static const int surf_sfx[5] = {RL_SFX_GRAVEL, RL_SFX_DIRT, RL_SFX_MUD, RL_SFX_W
 void audio_init(void) {
     _Static_assert(sizeof(rl_sfx_asset_t) == sizeof(eng_sfx_asset_t), "sfx table layout");
     sfx_init(rl_sfx_pak, (const eng_sfx_asset_t *)rl_sfx_assets, RL_SFX_COUNT);
-    for(int i = 0; i < MAX_TRUCKS; i++) cpu_v[i][0].channel = cpu_v[i][1].channel = -1;
+    for(int i = 0; i < MAX_TRUCKS; i++) cpu_v[i][0].channel = cpu_v[i][1].channel = rhorn_v[i].channel = -1;
 }
 
 static void stop_all(void) {
     for(int l = 0; l < 2; l++)
         for(int k = 0; k < RL_ENGINE_LOOPS; k++) sfx_voice_stop(&eng_v[l][k]);
-    for(int i = 0; i < MAX_TRUCKS; i++)
+    for(int i = 0; i < MAX_TRUCKS; i++) {
         for(int k = 0; k < 2; k++) sfx_voice_stop(&cpu_v[i][k]);
+        sfx_voice_stop(&rhorn_v[i]);
+    }
     sfx_voice_stop(&horn_v);
     for(int i = 0; i < 5; i++) sfx_voice_stop(&surf_v[i]);
     sfx_voice_stop(&wind_v);
@@ -128,6 +131,21 @@ static void place(V3 p, float range, int *pan, float *gain) {
     *gain = k * k;
 }
 
+/* Another player's horn (online), on a voice of its own while it sounds:
+   a horn carries further than an engine. t NULL: that truck is gone. */
+static void remote_horn(int i, const Truck *t, bool paused) {
+    SfxVoice *v = &rhorn_v[i];
+    if(!t || !t->remote || !t->horn || paused) {
+        if(v->channel >= 0) sfx_voice_stop(v);
+        return;
+    }
+    if(v->channel < 0 && !sfx_voice_start(v, rl_horn_sfx[t->model])) return;
+    int pan;
+    float gain;
+    place(t->pos, 160.0f, &pan, &gain);
+    sfx_voice_set(v, 1.0f, (int)(210.0f * gain), pan);
+}
+
 static void rpm_weights(const rl_engine_sound_t *es, float rpm, float *w) {
     for(int k = 0; k < RL_ENGINE_LOOPS; k++) w[k] = 0;
     if(rpm <= es->rpm[0]) {
@@ -149,7 +167,7 @@ void audio_update(float dt) {
     if(!started) return;
     Truck *p = &trucks[hear];
     const rl_engine_sound_t *es = &rl_engine_sounds[p->model];
-    bool paused = game.paused;
+    bool paused = game_frozen();
     /* The engine's loops fade in over the start sound's last moments. */
     if(start_t >= 0) {
         start_t += dt;
@@ -172,6 +190,15 @@ void audio_update(float dt) {
     for(int i = 0; i < game.ntrucks; i++) {
         if(i == hear) continue;
         Truck *t = &trucks[i];
+        if(t->absent) {
+            if(cpu_lo[i] >= 0) {
+                sfx_voice_stop(&cpu_v[i][0]);
+                sfx_voice_stop(&cpu_v[i][1]);
+                cpu_lo[i] = -1;
+            }
+            remote_horn(i, NULL, paused);
+            continue;
+        }
         const rl_engine_sound_t *ec = &rl_engine_sounds[t->model];
         float r = fmaxf(t->rpm, ec->idle_rpm * 0.6f);
         int lo = 0;
@@ -190,6 +217,7 @@ void audio_update(float dt) {
         float v = paused ? 0.0f : 170.0f * gain * (0.6f + 0.4f * t->load);
         sfx_voice_set(&cpu_v[i][0], r / ec->rpm[lo], (int)(v * powf(cosf(x * 1.5708f), 1.5f)), pan);
         sfx_voice_set(&cpu_v[i][1], r / ec->rpm[lo + 1], (int)(v * powf(sinf(x * 1.5708f), 1.5f)), pan);
+        remote_horn(i, t, paused);
     }
     /* The horn, with a short ramp so it doesn't click. */
     static float horn = 0;

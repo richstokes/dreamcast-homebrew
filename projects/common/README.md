@@ -7,7 +7,9 @@ project with that project's own flags through [common.mk](common.mk).
 | File | What | Used by |
 | --- | --- | --- |
 | `softreset.h` | A+B+X+Y+Start back to the title screen, and from there out to the BIOS menu | The games, Ping Cube, IRC, Browser, LemonPlay, PICO-8 Player |
-| `dialup.h`, `dialup.c` | Modem dial-up and PPP for when there's no Ethernet adapter: the saved ISP profile or DreamPi defaults, on a worker thread, with cancel and drop detection | Ping Cube, IRC, Browser, DCVMU, PICO-8 Player, DreamKarts |
+| `dialup.h`, `dialup.c` | Modem dial-up and PPP for when there's no Ethernet adapter: the saved ISP profile or DreamPi defaults, on a worker thread, with cancel and drop detection | Ping Cube, IRC, Browser, DCVMU, PICO-8 Player, DreamKarts, Ridgeline |
+| `netlink.h`, `netlink.c` | A game going online: Broadband/LAN adapter, W5500 or the modem (through `dialup.c`) on a worker thread, then the game server's address. `NETLINK_TRACE` in a game's `engine_config.h` times each step | DreamKarts, Ridgeline |
+| `gameserver/` | Go packages for the game servers: the bad word filter for names and chat (`wordfilter`) and the UDP socket with a pretend WAN for tests (`udpio`). The servers' `go.mod` points at it with a `replace` | DreamKarts' and Ridgeline's servers |
 | `https.h`, `https.c` | curl's TLS options for HTTPS, and the certificate date check the kos-ports Mbed TLS leaves out | Browser, DCVMU, PICO-8 Player |
 | `cacert.pem` | Mozilla's CA roots as curl exports them; `update-cacert.sh` refreshes it, and builds copy it into the romdisk (`CACERT` in `common.mk`) | Browser, DCVMU, PICO-8 Player |
 | `vmusave.h` | One small packaged save on a VMU: picking the card, header text, an ASCII-art icon, writing and reading it back | IRC, Browser, BASIC, LemonPlay, DCVMU's login |
@@ -23,6 +25,7 @@ module's name so it can't clash with a game's own helpers.
 | --- | --- |
 | `python3 projects/common/tests/run_dialup_checks.py --log-dir /tmp/dialup-checks` | The dialer on SH-4 with the modem and PPP faked: ISP profiles, every failure, cancel before and during a dial, the worker thread, drops and redial |
 | `uv run projects/common/tests/run_https_checks.py --log-dir /tmp/https-checks` | Real curl and Mbed TLS on SH-4 against local servers: expired, not-yet-valid, untrusted, wrong-host and expired-intermediate certificates, the time zone leeway, an unset clock, connection reuse |
+| `cd projects/common/gameserver && go test ./...` | The word filter's matching rules (`-short` skips downloading the real list) |
 | `python3 projects/common/tests/run_vmusave_checks.py --log-dir /tmp/vmusave-checks` | Saves on blank Flycast cards: card choice, header text limits, icon, exact read-back, saves made the old fs_vmu way, overwrite, a full card; then the card images through DCVMU's VMU parser |
 
 ## Gotchas

@@ -12,6 +12,7 @@
 #include "fx.h"
 #include "audio.h"
 #include "demo.h"
+#include "online.h"
 #include "sound_assets.h"
 #include "version.h"
 #if __has_include("trucks.h")
@@ -114,7 +115,10 @@ void menu_title_update(float dt) {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
             game_set_state(ST_SOUND);
         }
-        /* Online: not yet. */
+        else {
+            audio_sfx(RL_SFX_MENU_SELECT, 200);
+            online_enter();
+        }
     }
 }
 
@@ -128,12 +132,10 @@ void menu_title_draw(void) {
         ui_panel(200, 278, 440, 404);
         for(int i = 0; i < T_COUNT; i++) {
             float y = 304 + i * 37;
-            bool on = i == title_sel, off = i == T_ONLINE;
+            bool on = i == title_sel;
             ui_row(206, y - 15, 434, y + 15, on);
-            uint32_t c = on ? ui_col(UI_ITEM_SEL) : off ? ui_col(UI_DIM) : ui_col(UI_ITEM);
-            hud_text_c(320, y, 0.72f, ALIGN_CENTER, c, items[i]);
+            hud_text_c(320, y, 0.72f, ALIGN_CENTER, on ? ui_col(UI_ITEM_SEL) : ui_col(UI_ITEM), items[i]);
         }
-        if(title_sel == T_ONLINE) hud_text_c(320, 426, 0.5f, ALIGN_CENTER, ui_col(UI_DIM), "COMING SOON");
         ui_hint("A: OK   B: BACK");
     }
     else if(fmodf(game.time, 1.2f) < 0.8f)
@@ -154,18 +156,33 @@ static void select_scene(float dt) {
 }
 
 #define SEL_ROWS 5
+/* Online it is the truck, its paint and the lobby to join: company comes
+   from the lobby, and the lobby keeps the time of day. */
+#define SEL_ONLINE_ROWS 3
+#define SEL_LAST (game.online ? SEL_ONLINE_ROWS - 1 : SEL_ROWS - 1)
 
 void menu_select_update(float dt) {
+    if(game.online && online_joining()) {
+        if(pad.pressed & BTN_B) {
+            audio_sfx(RL_SFX_MENU_BACK, 200);
+            online_back_to_browser();
+            return;
+        }
+        select_scene(dt);
+        return;
+    }
+    int rows = SEL_LAST + 1;
+    if(sel_row >= rows) sel_row = 0;
     if(input_menu_up()) {
-        sel_row = (sel_row + SEL_ROWS - 1) % SEL_ROWS;
+        sel_row = (sel_row + rows - 1) % rows;
         audio_sfx(RL_SFX_MENU_MOVE, 160);
     }
     if(input_menu_down()) {
-        sel_row = (sel_row + 1) % SEL_ROWS;
+        sel_row = (sel_row + 1) % rows;
         audio_sfx(RL_SFX_MENU_MOVE, 160);
     }
     int d = input_menu_right() ? 1 : input_menu_left() ? -1 : 0;
-    if(d) {
+    if(d && sel_row < SEL_LAST) {
         audio_sfx(RL_SFX_MENU_MOVE, 160);
         if(sel_row == 0) {
             game.truck_model ^= 1;
@@ -185,19 +202,25 @@ void menu_select_update(float dt) {
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(RL_SFX_MENU_BACK, 200);
-        game_set_state(ST_TITLE);
+        if(game.online) online_back_to_browser();
+        else game_set_state(ST_TITLE);
         return;
     }
-    if((pad.pressed & BTN_START) || ((pad.pressed & BTN_A) && sel_row == SEL_ROWS - 1)) {
+    if((pad.pressed & BTN_START) || ((pad.pressed & BTN_A) && sel_row == SEL_LAST)) {
         audio_sfx(RL_SFX_MENU_SELECT, 220);
-        game_start_drive();
-        return;
+        if(game.online) online_join();
+        else {
+            game_start_drive();
+            return;
+        }
     }
     select_scene(dt);
 }
 
 void menu_select_draw(void) {
     static const char *const company[4] = {"SOLO", "1 CPU TRUCK", "2 CPU TRUCKS", "3 CPU TRUCKS"};
+    char join[24];
+    snprintf(join, sizeof(join), "JOIN LOBBY %d", online_lobby_pick() + 1);
     const char *rows[SEL_ROWS][2] = {
         {"TRUCK", menu_truck_name(game.truck_model)},
         {"PAINT", livery_name(game.truck_model, game.livery)},
@@ -205,18 +228,23 @@ void menu_select_draw(void) {
         {"START AT", tod_names[game.start_tod]},
         {"", "DRIVE!"},
     };
+    if(game.online) {
+        rows[2][0] = "";
+        rows[2][1] = join;
+    }
+    int nrows = SEL_LAST + 1;
     ui_panel(40, 268, 430, 432);
-    for(int r = 0; r < SEL_ROWS; r++) {
-        float y = 288 + r * 31;
+    for(int r = 0; r < nrows; r++) {
+        float y = 288 + (SEL_ROWS - nrows) * 15.5f + r * 31;   /* online's three rows centred */
         bool on = r == sel_row;
-        if(r < SEL_ROWS - 1) {
+        if(r < nrows - 1) {
             ui_row(44, y - 15, 426, y + 15, on);
             uint32_t c = ui_col(on ? UI_VALUE_SEL : UI_VALUE);
             hud_text_c(58, y, 0.66f, ALIGN_LEFT, ui_col(on ? UI_ITEM_SEL : UI_LABEL), rows[r][0]);
             hud_text_c(297, y, 0.64f, ALIGN_CENTER, c, rows[r][1]);
             if(on) ui_arrows(190, 408, y, 0.72f, c);
         }
-        else ui_button(235, y, 200, rows[r][1], on);
+        else ui_button(235, y, game.online ? 240 : 200, rows[r][1], on);
     }
     /* This truck's best times to the summit, by the way up. */
     ui_panel(446, 268, 610, 432);
@@ -231,7 +259,9 @@ void menu_select_draw(void) {
         hud_text_c(598, y, 0.52f, ALIGN_RIGHT, ui_col(b ? UI_VALUE : UI_LABEL), t);
     }
     ui_heading(320, 40, "CHOOSE YOUR TRUCK");
-    ui_hint("LEFT/RIGHT: CHANGE   A: DRIVE   B: BACK");
+    if(game.online && online_joining()) ui_hint("JOINING...   B: CANCEL");
+    else if(game.online) ui_hint("LEFT/RIGHT: CHANGE   A: JOIN   B: BACK");
+    else ui_hint("LEFT/RIGHT: CHANGE   A: DRIVE   B: BACK");
 }
 
 /* ---- Pause ---- */
@@ -272,7 +302,7 @@ void menu_pause_update(float dt) {
         if(pad.pressed & (BTN_LEFT | BTN_RIGHT)) step = 0.25f;
         held = dir ? held + dt : 0;
         if(held > 0.4f) step = 2.0f * dt;
-        if(dir && step > 0) {
+        if(dir && step > 0 && !game.online) {   /* online the lobby keeps the clock */
             tod_set_hour(tod.hour + dir * step);
             game.photo_time_t = 0;
         }
@@ -320,7 +350,14 @@ void menu_pause_update(float dt) {
             }
             case P_FPS: game.show_fps = !game.show_fps; break;
             case P_HUD: game.hud_hidden = !game.hud_hidden; break;
-            case P_QUIT: game.paused = false; audio_drive_stop(); game_set_state(ST_TITLE); break;
+            case P_QUIT:
+                if(game.online) online_leave_lobby();
+                else {
+                    game.paused = false;
+                    audio_drive_stop();
+                    game_set_state(ST_TITLE);
+                }
+                break;
         }
     }
 }
@@ -331,7 +368,8 @@ void menu_pause_draw(void) {
         float a = clampf(2.5f - game.photo_t, 0, 1);
         if(a > 0 && !game.cam_scripted)
             hud_text_c(320, 452, 0.55f, ALIGN_CENTER, color_alpha(0xfff8f0dc, a),
-                       "PHOTO MODE   STICK: TURN   R/L: ZOOM   D-PAD: TIME   B: BACK");
+                       game.online ? "PHOTO MODE   STICK: TURN   R/L: ZOOM   B: BACK"
+                                   : "PHOTO MODE   STICK: TURN   R/L: ZOOM   D-PAD: TIME   B: BACK");
         /* The clock while it is being moved. */
         float ta = clampf(2.0f - game.photo_time_t, 0, 1);
         if(ta > 0 && !game.cam_scripted) {
@@ -344,14 +382,15 @@ void menu_pause_draw(void) {
     char view[32] = "";
     if(game.views_found) snprintf(view, sizeof(view), "TO %s", lvl_views[game.view_sel].name);
     const char *items[P_COUNT] = {"CARRY ON", "RECOVER TRUCK", view, game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
-                                  game.hud_hidden ? "HUD: OFF" : "HUD: ON", "QUIT TO TITLE"};
+                                  game.hud_hidden ? "HUD: OFF" : "HUD: ON", game.online ? "LEAVE LOBBY" : "QUIT TO TITLE"};
     ui_dim();
     int n = 0;
     for(int i = 0; i < P_COUNT; i++) n += pause_item_on(i);
     ui_panel(190, 150, 450, 204 + n * 32);
     char title[24], t[8];
     tod_format(tod.hour, t, sizeof(t));
-    snprintf(title, sizeof(title), "PAUSED   %s", t);
+    /* Online nothing stops: it is a menu over the mountain. */
+    snprintf(title, sizeof(title), "%s   %s", game.online ? "MENU" : "PAUSED", t);
     ui_title(190, 150, 450, title);
     float y = 204;
     for(int i = 0; i < P_COUNT; i++) {

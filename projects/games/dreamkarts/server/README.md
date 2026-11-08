@@ -17,7 +17,8 @@ when it starts and keeps a copy in its state directory for restarts while
 GitHub is down; with neither it starts unfiltered and says so in the log.
 `DREAMKARTS_BAD_WORDS_URL` points it at another list (one word per line)
 and `DREAMKARTS_BAD_WORDS_EXTRA` adds words of your own, comma-separated;
-`lobby/filter.go` says how a word matches. Nothing else is stored on disk: a
+[`wordfilter`](../../../common/gameserver/wordfilter/filter.go), shared
+with Ridgeline's server, says how a word matches. Nothing else is stored on disk: a
 restart empties every lobby. Lobby 10 is a [demo lobby](#demo-lobby) of
 bots that anyone can watch.
 
@@ -71,7 +72,7 @@ differ.
 The host, its port registry and runbook are in
 [richstokes/infra](https://github.com/richstokes/infra/tree/main/servers/netsplit.vip)
 (app id `dreamkarts`); keep the port there in step with `DK_NET_PORT` in
-`../src/netlink.h`. UDP 7535 is open to the internet with no cloud firewall
+`../src/net.h`. UDP 7535 is open to the internet with no cloud firewall
 rule needed (checked 2026-10-17).
 
 Check the live server at any time:

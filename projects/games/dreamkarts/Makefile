@@ -13,7 +13,8 @@ SOURCES = main.c input.c track.c kart.c render.c world.c models.c mesh.c fx.c hu
 	net.c netlink.c online.c save.c vmuscreen.c spectate.c film.c items.c gp.c chat.c perfhud.c flappy.c roam.c \
 	world_mesh.c world_road.c world_props.c world_beach.c world_coral.c world_harbour.c world_temple.c world_skyway.c \
 	world_canyon.c world_tsudoken.c world_apple.c world_lot.c world_sf.c tide.c cablecar.c birds.c skylife.c autotest.c prof.c frame.c qa.c sky.c track_tex.c
-# Shared with other projects, from projects/common.
+# Shared with other projects, from projects/common (netlink.c, in SOURCES
+# above, is too: listed there to keep its place in the link order).
 COMMON_SOURCES = dialup.c
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak

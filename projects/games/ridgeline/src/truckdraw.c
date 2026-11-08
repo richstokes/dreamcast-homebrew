@@ -199,6 +199,7 @@ void truckdraw_draw_op(void) {
     PROF_BEGIN(pt);
     for(int ti = 0; ti < game.ntrucks; ti++) {
         Truck *t = &trucks[ti];
+        if(t->absent) continue;
         V3 d = vsub(t->pos, r_cam.pos);
         float dist = vlen(d);
         if(!r_sphere_visible(t->pos, 3.5f)) continue;
@@ -306,7 +307,7 @@ void truckdraw_draw_op(void) {
 void truckdraw_draw_tr(void) {
     for(int ti = 0; ti < game.ntrucks; ti++) {
         Truck *t = &trucks[ti];
-        if(vlen(vsub(t->pos, r_cam.pos)) > 120.0f) continue;
+        if(t->absent || vlen(vsub(t->pos, r_cam.pos)) > 120.0f) continue;
         const TruckSpec *s = &t->spec;
         V3 F = t->ax[2];
         V3 fh = vnorm(v3(F.x, 0, F.z)), rh = v3(fh.z, 0, -fh.x);

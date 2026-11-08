@@ -1,8 +1,10 @@
-package lobby
+// Package wordfilter stars out bad words in what players type: lobby chat
+// and player names on the game servers (DreamKarts, Ridgeline).
+package wordfilter
 
 import "strings"
 
-// The lobby chat's word filter. The words come from a public list the
+// The word filter. The words come from a public list the
 // server downloads when it starts (words.go), so nothing rude lives in this
 // repository. Censor reads through the usual disguises: case, letter
 // look-alikes (0 for O, 3 for E, @ for A, $ for S...) and dots, dashes or
@@ -38,10 +40,10 @@ var lookalike = map[byte]byte{
 	'!': 'I', '|': 'I', '+': 'T', '(': 'C', '<': 'C', '[': 'C', '{': 'C',
 }
 
-// NewFilter builds a filter from a word list as ParseWords returns it.
+// New builds a filter from a word list as ParseWords returns it.
 // Entries are normalized like the text they match; those that come out
 // shorter than three letters are dropped.
-func NewFilter(words []string) *Filter {
+func New(words []string) *Filter {
 	f := &Filter{words: map[string]bool{}}
 	for _, w := range words {
 		n, _ := normalize(w)

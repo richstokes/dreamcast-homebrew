@@ -1,6 +1,6 @@
-/* DreamKarts network link: the Broadband/LAN adapter, a WIZnet W5500 on the
-   serial port, or the modem dialling a dial-up server (a DreamPi or any
-   other PPP setup).
+/* Network link (netlink.h): the Broadband/LAN adapter, a WIZnet W5500 on
+   the serial port, or the modem dialling a dial-up server (a DreamPi or
+   any other PPP setup).
 
    Nothing touches the network until the player picks Online, so normal
    boots stay fast and never wait on an unplugged adapter. Entering the
@@ -13,9 +13,14 @@
    dream/cast (a DreamPi accepts these). Dialling and PPP block for up to a
    minute, so they never run on the render thread.
 
-   Dialing itself is projects/common/dialup.c, run on this file's worker. */
+   Dialing itself is dialup.c, run on this file's worker. */
 #include "netlink.h"
-#include "../../../common/dialup.h"
+#include "dialup.h"
+/* A game turns on the start-up timing log (NETLINK_TRACE) in its
+   engine_config.h, from its own test flag. */
+#if __has_include("engine_config.h")
+#include "engine_config.h"
+#endif
 #include <kos.h>
 #include <dc/net/broadband_adapter.h>
 #include <dc/net/lan_adapter.h>
@@ -27,7 +32,7 @@
 extern void arch_init_net(void);
 
 static kthread_t *worker;
-static volatile int stage = LINK_OFF;
+static volatile int stage = NETLINK_OFF;
 static volatile int worker_running;
 static volatile int want_dial;   /* the player asked to connect, so the modem may dial */
 static volatile bool modem_link;
@@ -35,6 +40,12 @@ static const char *volatile failure = "";
 static char status_buf[48];
 static bool stack_up;
 static uint32_t server_ip;   /* network byte order */
+static const char *server_host = "dcvmu.com", *server_fallback = "143.110.224.215";
+
+void netlink_set_server(const char *host, const char *fallback_ip) {
+    server_host = host;
+    server_fallback = fallback_ip;
+}
 
 static bool has_address(const uint8_t a[4]) {
     return a[0] | a[1] | a[2] | a[3];
@@ -68,18 +79,18 @@ static bool dial(void) {
 
 /* While the worker dials, the shared dialer knows which step it is on. */
 static int shown_stage(void) {
-    if(stage == LINK_STARTING && modem_link) {
+    if(stage == NETLINK_STARTING && modem_link) {
         dialup_stage_t step = dialup_stage();
-        if(step == DIALUP_DIALING) return LINK_DIALING;
-        if(step == DIALUP_NEGOTIATING) return LINK_NEGOTIATING;
+        if(step == DIALUP_DIALING) return NETLINK_DIALING;
+        if(step == DIALUP_NEGOTIATING) return NETLINK_NEGOTIATING;
     }
     return stage;
 }
 
-#ifdef DK_NET_TRACE
+#ifdef NETLINK_TRACE
 /* Time each step of bringing the link up (few lines: printf stalls under dcload). */
 static uint64_t trace_t0;
-#define NET_TRACE(what) printf("DK NET %5lu ms %s\n", (unsigned long)(timer_ms_gettime64() - trace_t0), what)
+#define NET_TRACE(what) printf("NET %5lu ms %s\n", (unsigned long)(timer_ms_gettime64() - trace_t0), what)
 
 /* Watch KOS from outside: when the adapter's link came up, and when DHCP
    gave an address. KOS mutes dcload's console while it starts the network,
@@ -98,17 +109,17 @@ static void *trace_watch(void *unused) {
 }
 
 static void trace_report(void) {
-    printf("DK NET link up %lu ms, DHCP address %lu ms, player connects %lu ms\n",
+    printf("NET link up %lu ms, DHCP address %lu ms, player connects %lu ms\n",
            (unsigned long)trace_link_ms, (unsigned long)trace_dhcp_ms, (unsigned long)trace_player_ms);
 }
 #else
 #define NET_TRACE(what) do { } while(0)
 #endif
 
-static void *link_worker(void *unused) {
+static void *netlink_worker(void *unused) {
     (void)unused;
     failure = "";
-#ifdef DK_NET_TRACE
+#ifdef NETLINK_TRACE
     trace_t0 = timer_ms_gettime64();
     if(!stack_up) thd_create(1, trace_watch, NULL);
 #endif
@@ -125,7 +136,7 @@ static void *link_worker(void *unused) {
         NET_TRACE("w5500_adapter_init");
         arch_init_net();
         NET_TRACE("arch_init_net (adapter start, DHCP)");
-#ifdef DK_NET_TRACE
+#ifdef NETLINK_TRACE
         trace_report();
 #endif
         stack_up = true;
@@ -144,7 +155,7 @@ static void *link_worker(void *unused) {
         if(!want_dial) {
             /* Started early by link_prepare: dialling waits for link_start. */
             NET_TRACE("no Ethernet adapter, dialling waits for the player");
-            stage = LINK_OFF;
+            stage = NETLINK_OFF;
             worker_running = 0;
             return NULL;
         }
@@ -153,24 +164,24 @@ static void *link_worker(void *unused) {
     }
 
     /* Find the server: DNS, or the built-in address if lookup fails. */
-    stage = LINK_RESOLVING;
+    stage = NETLINK_RESOLVING;
     server_ip = 0;
     struct addrinfo hints, *res = NULL;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
-    if(getaddrinfo(DK_NET_HOST, NULL, &hints, &res) == 0 && res) {
+    if(getaddrinfo(server_host, NULL, &hints, &res) == 0 && res) {
         server_ip = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
         freeaddrinfo(res);
     }
     NET_TRACE(server_ip ? "DNS lookup" : "DNS lookup failed");
-    if(!server_ip) server_ip = inet_addr(DK_NET_FALLBACK_IP);
-    stage = LINK_UP;
+    if(!server_ip) server_ip = inet_addr(server_fallback);
+    stage = NETLINK_UP;
     worker_running = 0;
     return NULL;
 
 failed:
-    stage = LINK_FAILED;
+    stage = NETLINK_FAILED;
     worker_running = 0;
     return NULL;
 }
@@ -180,66 +191,66 @@ static void start_worker(void) {
         thd_join(worker, NULL);
         worker = NULL;
     }
-    stage = LINK_STARTING;
+    stage = NETLINK_STARTING;
     worker_running = 1;
-    worker = thd_create(0, link_worker, NULL);
+    worker = thd_create(0, netlink_worker, NULL);
     if(!worker) {
         failure = "NO WORKER THREAD";
-        stage = LINK_FAILED;
+        stage = NETLINK_FAILED;
         worker_running = 0;
     }
 }
 
-void link_prepare(void) {
-    if(worker_running || stage != LINK_OFF) return;
+void netlink_prepare(void) {
+    if(worker_running || stage != NETLINK_OFF) return;
     start_worker();
 }
 
-void link_start(void) {
-#ifdef DK_NET_TRACE
+void netlink_start(void) {
+#ifdef NETLINK_TRACE
     if(!want_dial) trace_player_ms = timer_ms_gettime64() - trace_t0;
 #endif
     want_dial = 1;
-    if(worker_running || stage == LINK_UP) return;
+    if(worker_running || stage == NETLINK_UP) return;
     start_worker();
 }
 
-int link_stage(void) {
+int netlink_stage(void) {
     /* An early start found no Ethernet adapter after link_start was called. */
-    if(want_dial && stage == LINK_OFF && !worker_running) start_worker();
-    if(stage == LINK_UP && modem_link && dialup_dropped()) {
+    if(want_dial && stage == NETLINK_OFF && !worker_running) start_worker();
+    if(stage == NETLINK_UP && modem_link && dialup_dropped()) {
         failure = "DIAL-UP CONNECTION DROPPED";
-        stage = LINK_FAILED;
+        stage = NETLINK_FAILED;
     }
     return stage;
 }
 
-const char *link_status(void) {
+const char *netlink_status(void) {
     switch(shown_stage()) {
-        case LINK_STARTING: return "LOOKING FOR A NETWORK ADAPTER";
-        case LINK_DIALING: return "DIALING MODEM";
-        case LINK_NEGOTIATING: return "CONNECTING (PPP)";
-        case LINK_RESOLVING: return "FINDING THE SERVER";
-        case LINK_UP: return status_buf;
-        case LINK_FAILED: return failure;
+        case NETLINK_STARTING: return "LOOKING FOR A NETWORK ADAPTER";
+        case NETLINK_DIALING: return "DIALING MODEM";
+        case NETLINK_NEGOTIATING: return "CONNECTING (PPP)";
+        case NETLINK_RESOLVING: return "FINDING THE SERVER";
+        case NETLINK_UP: return status_buf;
+        case NETLINK_FAILED: return failure;
         default: return "";
     }
 }
 
-bool link_is_modem(void) {
+bool netlink_is_modem(void) {
     return modem_link;
 }
 
-uint32_t link_server_ip(void) {
+uint32_t netlink_server_ip(void) {
     return server_ip;
 }
 
-void link_shutdown(void) {
+void netlink_shutdown(void) {
     if(worker) {
         thd_join(worker, NULL);
         worker = NULL;
     }
     if(modem_link) dialup_hang_up();
     want_dial = 0;
-    stage = LINK_OFF;
+    stage = NETLINK_OFF;
 }

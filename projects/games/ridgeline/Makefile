@@ -7,7 +7,11 @@ GAME_PREFIX = RL
 # Ridgeline's own sources (src/), then the shared engine's
 # (projects/common/engine), in link order.
 SOURCES = main.c terrain.c world.c tod.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c \
-	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c
+	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c
+# Online play: the network link (Broadband adapter, W5500, modem) and the
+# dialler, shared with DreamKarts from projects/common.
+COMMON_SOURCES = netlink.c dialup.c
+LIBS = -lppp -lm
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/level.bin
 VERSION_SOURCES = main.c menu.c
@@ -60,6 +64,11 @@ vmutest:
 		RL_FLYCAST_CONFIG="config:Dreamcast.VMUPath=$(CURDIR)/build/vmutest-cards" ./run-flycast.sh --skip-build
 	rm -f ridgeline-autotest.elf
 
+# Online play in Flycast against a server and bot on this Mac (RL_NET=modem
+# dials in instead, RL_QA_LIVE=1 uses dcvmu.com): tools/online-test.sh.
+online-test:
+	tools/online-test.sh
+
 DC_HW = ../../../tools/dc-hw.sh
 HW_LOG ?= captures/hw/hwbench.log
 # HW_OFF= leaves the console on after the run, so a bench that went quiet
@@ -91,6 +100,6 @@ disc: $(TARGET)
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 ridgeline.elf -- -m $(CURDIR)
 
-.PHONY: run level textures trucks audio assets autotest vmutest hwbench hwreport fxbench disc hw
+.PHONY: run level textures trucks audio assets autotest vmutest online-test hwbench hwreport fxbench disc hw
 
 endif

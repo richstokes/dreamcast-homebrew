@@ -19,6 +19,9 @@
 #define ENG_INPUT_IGNORE_HOST 1
 #define ENG_TEX_CHECK 1
 #endif
+#ifdef DK_NET_TRACE
+#define NETLINK_TRACE 1   /* projects/common/netlink.c's start-up timings */
+#endif
 #ifdef DK_XF_CHECK
 #define ENG_XF_CHECK 1
 #endif

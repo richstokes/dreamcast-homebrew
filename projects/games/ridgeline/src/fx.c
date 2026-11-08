@@ -251,6 +251,7 @@ void fx_update(float dt) {
     /* Wheels: what each one throws, by surface, slip and speed. */
     for(int ti = 0; ti < game.ntrucks; ti++) {
         Truck *t = &trucks[ti];
+        if(t->absent) continue;
         float dcam = vlen(vsub(t->pos, r_cam.pos));
         if(dcam > 90.0f) continue;
         tracks_update(ti, t);

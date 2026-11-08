@@ -7,6 +7,7 @@
 #include "../../../common/vmusave.h"
 #include "truck.h"
 #include "terrain.h"
+#include <stddef.h>
 #include <string.h>
 
 #define FILENAME "RIDGELINE"
@@ -16,7 +17,9 @@ typedef struct {
     char magic[8];
     int32_t version;
     uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none */
+    char name[12];                 /* the online name (version 2; version 1 saves end before it) */
 } record_t;
+#define RECORD_V1_BYTES (int)offsetof(record_t, name)
 
 /* Test builds never touch a VMU, except the save test, which runs on
    blank cards (see the README). */
@@ -38,8 +41,12 @@ void records_load(void) {
     maple_device_t *dev = vmusave_card(&card_port, &card_unit);
     if(!dev) return;
     record_t r;
+    memset(&r, 0, sizeof(r));
     int n = vmusave_read(dev, FILENAME, &r, sizeof(r));
-    if(n != (int)sizeof(r) || memcmp(r.magic, magic, sizeof(magic)) || r.version != 1) return;
+    if(n < RECORD_V1_BYTES || memcmp(r.magic, magic, sizeof(magic))) return;
+    if(!(r.version == 1 && n >= RECORD_V1_BYTES) && !(r.version == 2 && n >= (int)sizeof(r))) return;
+    if(r.version == 1) memset(r.name, 0, sizeof(r.name));
+    r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
     printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);
 #endif
@@ -94,7 +101,7 @@ static void save(void) {
     static record_t r;
     r = rec;
     memcpy(r.magic, magic, sizeof(magic));
-    r.version = 1;
+    r.version = 2;
     vmu_pkg_t pkg;
     vmusave_header(&pkg, "RIDGELINE", "Ridgeline", "Ridgeline best times");
     /* Palette (ARGB4444): blank, snow, rock, forest, amber. */
@@ -160,6 +167,17 @@ const char *records_way_name(int way) {
 void records_format(uint32_t tenths, char *out, int size) {
     snprintf(out, size, "%lu:%02lu.%lu", (unsigned long)(tenths / 600), (unsigned long)(tenths / 10 % 60),
              (unsigned long)(tenths % 10));
+}
+
+const char *records_name(void) {
+    return rec.name;
+}
+
+void records_set_name(const char *name) {
+    if(strncmp(rec.name, name, sizeof(rec.name) - 1) == 0) return;
+    memset(rec.name, 0, sizeof(rec.name));
+    strncpy(rec.name, name, sizeof(rec.name) - 1);
+    save();
 }
 
 uint32_t records_best(int truck, int way) {
