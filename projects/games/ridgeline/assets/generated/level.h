@@ -407,7 +407,7 @@ static const lvl_capsule_t lvl_capsules[LVL_CAPSULES] = {
 };
 /* The first LVL_ROCK_BOXES are rock ledges, drawn as rock; the rest are props' (a cabin, a bridge deck). */
 #define LVL_ROCK_BOXES 7
-#define LVL_BOXES 13
+#define LVL_BOXES 16
 static const lvl_box_t lvl_boxes[LVL_BOXES] = {
     {-2.162f, 19.605f, -100.323f, 3.400f, 1.000f, 0.459f, 0.573f},
     {69.708f, 71.751f, 9.821f, 3.400f, 1.000f, 0.972f, 0.507f},
@@ -421,7 +421,10 @@ static const lvl_box_t lvl_boxes[LVL_BOXES] = {
     {-94.589f, 2.069f, -224.584f, 0.800f, 2.000f, 1.000f, 1.460f},
     {249.000f, 6.710f, -121.000f, 0.900f, 0.900f, 2.200f, 4.978f},
     {-28.000f, 1.695f, -292.000f, 4.200f, 1.800f, 3.200f, 0.300f},
-    {30.000f, 139.930f, 140.000f, 2.000f, 1.400f, 2.000f, 0.200f},
+    {28.200f, 141.755f, 138.200f, 0.450f, 3.000f, 0.450f, 0.000f},
+    {31.800f, 141.476f, 138.200f, 0.450f, 3.000f, 0.450f, 0.000f},
+    {28.200f, 141.754f, 141.800f, 0.450f, 3.000f, 0.450f, 0.000f},
+    {31.800f, 141.268f, 141.800f, 0.450f, 3.000f, 0.450f, 0.000f},
 };
 
 /* Trees: base, kind (0 fir, 1 larch, 2 maple), scale, turn. */

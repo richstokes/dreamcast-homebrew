@@ -159,6 +159,10 @@ float water_at(float x, float z) {
 }
 
 float ground_at(float x, float z, V3 *n, int *surf) {
+    return ground_below(x, z, 1e9f, n, surf);
+}
+
+float ground_below(float x, float z, float ymax, V3 *n, int *surf) {
     V3 tn;
     float h = terrain_height_n(x, z, &tn);
     int sf = -1;
@@ -197,7 +201,7 @@ float ground_at(float x, float z, V3 *n, int *surf) {
                 on = v3(0, 1, 0);
             }
             else continue;
-            if(top > h) {
+            if(top > h && top <= ymax) {
                 h = top;
                 tn = on;
                 sf = SURF_ROCK;

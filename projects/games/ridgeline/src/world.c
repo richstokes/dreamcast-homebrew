@@ -356,7 +356,7 @@ static void prop(const lvl_prop_t *p) {
             /* A fire lookout: four legs, the cab on top, a pyramid roof. */
             for(int k = 0; k < 4; k++) {
                 float lx = (k & 1) ? 1.8f : -1.8f, lz = (k & 2) ? 1.8f : -1.8f;
-                box(h_bark, v3(c.x + lx, c.y + 3.0f, c.z + lz), 0.12f, 3.0f, 0.12f, 0, 0xff6a4a30, 1.0f);
+                box(h_bark, v3(c.x + lx, c.y + 3.0f, c.z + lz), 0.24f, 3.0f, 0.24f, 0, 0xff6a4a30, 1.0f);
             }
             box(h_bark, v3(c.x, c.y + 6.0f, c.z), 2.2f, 0.12f, 2.2f, 0, 0xff8a6440, 0.5f);
             box(h_flat, v3(c.x, c.y + 7.2f, c.z), 1.9f, 1.1f, 1.9f, 0, 0xffe8dcc0, 1.0f);

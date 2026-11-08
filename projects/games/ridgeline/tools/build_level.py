@@ -1105,7 +1105,10 @@ def main():
     props.append((PEAK[0], summit_y, PEAK[1], 0.2, 4))
     for (px_, pz_, yaw_, kind_, y_) in extra_props:
         props.append((px_, gy(px_, pz_) if y_ is None else y_, pz_, yaw_, kind_))
-    boxes.append((PEAK[0], summit_y + 1.2, PEAK[1], 2.0, 1.4, 2.0, 0.2))   # the tower's base
+    for lx, lz in ((-1.8, -1.8), (1.8, -1.8), (-1.8, 1.8), (1.8, 1.8)):   # the tower's legs, room to drive under
+        # Wider than drawn: the body's contact points are ~1 m apart and
+        # would slip past a post as thin as the leg.
+        boxes.append((PEAK[0] + lx, gy(PEAK[0] + lx, PEAK[1] + lz) + 3.0, PEAK[1] + lz, 0.45, 3.0, 0.45, 0.0))
     # Viewpoints along each route, high on it, where the view opens out.
     views = []
     names = {"LOGGING ROAD": "EAGLE BLUFF", "RIDGE LINE": "KNIFE EDGE", "CREEK BED": "CEDAR FALLS",

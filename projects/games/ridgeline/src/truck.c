@@ -427,12 +427,15 @@ static void step(Truck *t, float dt) {
         V3 best_n = v3(0, 1, 0), best_q = droop;
         int best_s = SURF_GRASS;
         static const float off[7][2] = {{0, 0}, {-0.65f, 0}, {-0.33f, 0}, {0.33f, 0}, {0.65f, 0}, {0, -0.4f}, {0, 0.4f}};
+        /* The highest a tyre can stand: its travel and most of a radius
+           above the tyre's bottom at full droop. Taller is a wall. */
+        float reach = droop.y + S->travel - 0.2f * S->radius;
         for(int k = 0; k < 7; k++) {
             float d = off[k][0] * S->radius;
             V3 q = vadd(vmad(droop, fh, d), vscale(rh, off[k][1] * S->width));
             V3 n;
             int sf;
-            float g = ground_at(q.x, q.z, &n, &sf) - surf_props[sf].sink;
+            float g = ground_below(q.x, q.z, reach, &n, &sf) - surf_props[sf].sink;
             float pen = g - (droop.y - sqrtf(S->radius * S->radius - d * d));
             if(pen > best) {
                 best = pen;
@@ -729,7 +732,7 @@ static void step(Truck *t, float dt) {
         ObsContact oc[4];
         int nc = 0;
         V3 gn;
-        float g = ground_at(p.x, p.z, &gn, NULL);
+        float g = ground_below(p.x, p.z, p.y + 0.45f, &gn, NULL);
         if(p.y < g) oc[nc++] = (ObsContact){gn, g - p.y};
         nc += obstacle_contacts(p, 0.02f, oc + nc, 4 - nc);
         for(int c = 0; c < nc; c++) {
