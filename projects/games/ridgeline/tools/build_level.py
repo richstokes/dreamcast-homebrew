@@ -386,9 +386,14 @@ def carve_route(h, pts, y, half):
 ROUTE_DEFS = [
     # name, waypoints after the fork, grade limit, half width
     ("LOGGING ROAD", [(100, -100), (150, -30), (110, 30)], 0.15, 3.4),
-    ("RIDGE LINE", [(14, -78), (8, -30), (4, 12)], 0.40, 2.6),
+    ("RIDGE LINE", [(14, -78), (8, -30)], 0.40, 2.6),
     ("CREEK BED", [(-80, -118), (-116, -50), (-100, 0), (-70, 36)], 0.26, 3.0),
 ]
+# A route listed here ends on the logging road at its point nearest this
+# spot instead of at the high meadow, and follows it from there. The ridge
+# line used to finish beside it, 2.5-7 m away and up to 10 m lower, and
+# the two couldn't both be carved.
+JOINS = {"RIDGE LINE": (95.0, 36.0)}
 FORK = np.array([8.0, -136.0])
 HIGH_MEADOW = np.array([2.0, 44.0])
 
@@ -409,7 +414,11 @@ def build_routes(h, water):
     d, _ = cKDTree(main).query(np.stack([X.ravel(), Z.ravel()], axis=1))
     avoid += np.exp(-(d.reshape(N, N) / 14.0) ** 2) * 6.0
     for name, wps, gmax, half in ROUTE_DEFS:
-        pts = [FORK] + [np.array(w, dtype=float) for w in wps] + [HIGH_MEADOW]
+        end = HIGH_MEADOW
+        if name in JOINS:
+            road = np.vstack(next(sg[1] for sg in segs if sg[0] == "LOGGING ROAD"))
+            end = road[int(np.argmin(np.linalg.norm(road - np.array(JOINS[name]), axis=1)))]
+        pts = [FORK] + [np.array(w, dtype=float) for w in wps] + [end]
         legs = []
         for a, b in zip(pts[:-1], pts[1:]):
             legs.append(leg(a, b, gmax, half, wcost=4.0 if name == "CREEK BED" else 40.0))
@@ -424,8 +433,19 @@ def build_routes(h, water):
     for name, legs, gmax, half in segs:
         raw = np.vstack([legs[0]] + [lg[1:] for lg in legs[1:]])
         pts = resample(smooth_path(raw, 3), 1.0)
-        routes.append({"name": name, "pts": pts, "gmax": gmax, "half": half})
+        r = {"name": name, "pts": pts, "gmax": gmax, "half": half}
+        if name in JOINS:
+            road = next(q for q in routes if q["name"] == "LOGGING ROAD")
+            js = int(np.argmin(np.linalg.norm(road["pts"] - pts[-1], axis=1)))
+            r["own"], r["join"] = len(pts) - 1, js
+            r["pts"] = np.vstack([pts[:-1], road["pts"][js:]])
+        routes.append(r)
     return routes
+
+
+def own(r):
+    """How many of route r's points are its own (the rest follow another)."""
+    return r.get("own", len(r["pts"]))
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +483,7 @@ def place_obstacles(h, water, routes, rng):
     # name -> list of (kind, spacing)
     for r in routes:
         pts, y, half = r["pts"], r["y"], r["half"]
-        n = len(pts)
+        n = own(r)
         s = np.arange(n, dtype=float)
         name = r["name"]
         tang = np.gradient(pts, axis=0)
@@ -604,7 +624,8 @@ def settle_routes(h, water, routes):
     flat = np.stack([X.ravel(), Z.ravel()], axis=1)
     for name in order:
         r = next(q for q in routes if q["name"] == name)
-        d, idx = cKDTree(r["pts"]).query(flat, distance_upper_bound=float(np.max(r["halfs"])))
+        o = own(r)
+        d, idx = cKDTree(r["pts"][:o]).query(flat, distance_upper_bound=float(np.max(r["halfs"][:o])))
         ok = np.isfinite(d)
         ok[ok] = d[ok] < r["halfs"][idx[ok]]
         jj, ii = np.unravel_index(np.nonzero(ok)[0], h.shape)
@@ -891,12 +912,13 @@ def surfaces(h, water, routes, mud_mask):
     surf[snow] = S["SNOW"]
     flat = np.stack([X.ravel(), Z.ravel()], axis=1)
     for r in routes:
-        tree = cKDTree(r["pts"])
-        d, idx = tree.query(flat, distance_upper_bound=float(np.max(r["halfs"])) + 1.2)
+        o = own(r)
+        tree = cKDTree(r["pts"][:o])
+        d, idx = tree.query(flat, distance_upper_bound=float(np.max(r["halfs"][:o])) + 1.2)
         ok = np.isfinite(d)
         ok[ok] = d[ok] < r["halfs"][idx[ok]] + 1.2
         jj, ii = np.unravel_index(np.nonzero(ok)[0], h.shape)
-        t = idx[ok] / len(r["pts"])
+        t = idx[ok] / o
         name = r["name"]
         if name == "FOREST ROAD":
             v = np.full(len(jj), S["GRAVEL"])
@@ -1120,7 +1142,23 @@ def main():
         pin(r, -1, meet)
     pin(routes[4], 0, meet)
     for r in routes:
-        carve_route(h, r["pts"], r["y"], r["halfs"])
+        if "join" in r:
+            road = next(q for q in routes if q["name"] == "LOGGING ROAD")
+            o, js = r["own"], r["join"]
+            r["y"][o:] = road["y"][js:]
+            r["halfs"][o:] = road["halfs"][js:]
+            # At the road's height by the edge of its band, so the climb
+            # meets the road level rather than as a step at its edge, and
+            # eased into that over the 30 m before.
+            s_ = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(r["pts"][:o + 1], axis=0), axis=1))])
+            back = s_[o] - s_[:o]
+            edge = float(road["halfs"][js]) + 1.5
+            k_edge = int(np.argmax(back <= edge))
+            r["y"][:o] += (road["y"][js] - r["y"][k_edge]) * np.clip(1 - (back - edge) / 30.0, 0, 1)
+            r["y"][k_edge:o] = road["y"][js]
+    for r in routes:
+        o = own(r)
+        carve_route(h, r["pts"][:o], r["y"][:o], r["halfs"][:o])
     spheres, capsules, boxes, mud = place_obstacles(h, water, routes, rng)
     mud_mask = apply_mud(h, mud)
     # The creek stays wadeable (a route carved down into its bed would
@@ -1168,7 +1206,7 @@ def main():
         if r["name"] == "SUMMIT TRAIL":
             p = r["pts"][-1]
         else:
-            k = int(len(r["pts"]) * 0.82)
+            k = int(own(r) * 0.82)
             p = r["pts"][k] + np.array([0.0, 0.0])
         views.append((p[0], gy(p[0], p[1]), p[1], names[r["name"]]))
     for v in views[:-1]:

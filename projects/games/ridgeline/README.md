@@ -171,7 +171,9 @@ the camera and a third of the mud haze.
   Count winches in hostsim (`sim route ... | grep -c winch`) after changing
   the level. Route search now never takes deep water, a last pass puts each
   route's band back to its height where another route's carving moved it,
-  and boulders on a hairpin go to its edges
+  and boulders on a hairpin go to its edges. The ridge line ends on the
+  logging road and shares its last stretch: it used to run beside it, 2.5-7
+  m away and lower, and the two couldn't both be carved
 - A* turns are capped at ~95 degrees a step so hairpins have a radius;
   tighter caps made routes loop for kilometres
 - The automatic shifts on road speed and holds its gear while the tyres
