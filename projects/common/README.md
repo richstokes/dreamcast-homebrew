@@ -13,6 +13,7 @@ project with that project's own flags through [common.mk](common.mk).
 | `https.h`, `https.c` | curl's TLS options for HTTPS, and the certificate date check the kos-ports Mbed TLS leaves out | Browser, DCVMU, PICO-8 Player |
 | `cacert.pem` | Mozilla's CA roots as curl exports them; `update-cacert.sh` refreshes it, and builds copy it into the romdisk (`CACERT` in `common.mk`) | Browser, DCVMU, PICO-8 Player |
 | `vmusave.h` | One small packaged save on a VMU: picking the card, header text, an ASCII-art icon, writing and reading it back | IRC, Browser, BASIC, LemonPlay, DCVMU's login |
+| `vmulcd.h`, `vmulcd.c` | The 48x32 screens of VMUs in controllers: lines, 1-bit sprites, a 3x5 font, and each VMU sent its screen only when it changes, at a rate the game picks | DreamKarts, Ridgeline |
 | `engine/` | Shared game engine: renderer, input, profiler, meshes, scenery, effects, text and asset tools ([its README](engine/README.md)) | DreamKarts, Ridgeline |
 | `common.mk` | Finds the `.c` modules a project lists in `OBJS`, and copies the CA bundle in | Projects on KOS's default rules, HTTPS projects |
 

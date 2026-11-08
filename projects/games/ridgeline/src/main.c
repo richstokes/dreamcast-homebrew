@@ -24,6 +24,7 @@
 #include "tod.h"
 #include "online.h"
 #include "film.h"
+#include "vmuscreen.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -391,6 +392,7 @@ int main(int argc, char **argv) {
         }
         ui_time = game.time;
         if(game.state == ST_DRIVE) audio_update(dt_real);
+        vmuscreen_update(dt_real);
         prof_phase_mark(PH_UPD);
         RL_WHERE(4);
         render();

@@ -6,11 +6,12 @@
 """Draw DreamKarts' VMU art: the save file icon and the 48x32 LCD sprites.
 
 The save icon is two 32x32 16-colour frames (the BIOS memory manager
-animates them). The LCD art is 1-bit: hand-placed pixel sprites, a 3x5
-pixel font and big digits and logo lettering rendered from the HUD's DejaVu
-Sans Bold Oblique (Bitstream Vera licence). Writes to --output-dir:
+animates them). The LCD art is 1-bit: hand-placed pixel sprites, and big
+digits and logo lettering rendered from the HUD's DejaVu Sans Bold Oblique
+(Bitstream Vera licence). The 3x5 text font is projects/common/vmulcd.c's.
+Writes to --output-dir:
 
-    vmu_assets.h        icon palette and frames, LCD sprites and font
+    vmu_assets.h        icon palette and frames, LCD sprites
     previews/vmu_*.png  the icon frames and every sprite (git-ignored)
 """
 
@@ -117,30 +118,6 @@ def text_bits(s: str, size: int, thr: int = 110, ss: int = 4) -> np.ndarray:
     ys, xs = np.nonzero(a)
     return a[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
 
-
-FONT = {
-    "A": [".#.", "#.#", "###", "#.#", "#.#"], "B": ["##.", "#.#", "##.", "#.#", "##."],
-    "C": [".##", "#..", "#..", "#..", ".##"], "D": ["##.", "#.#", "#.#", "#.#", "##."],
-    "E": ["###", "#..", "##.", "#..", "###"], "F": ["###", "#..", "##.", "#..", "#.."],
-    "G": [".##", "#..", "#.#", "#.#", ".##"], "H": ["#.#", "#.#", "###", "#.#", "#.#"],
-    "I": ["###", ".#.", ".#.", ".#.", "###"], "J": ["..#", "..#", "..#", "#.#", ".#."],
-    "K": ["#.#", "#.#", "##.", "#.#", "#.#"], "L": ["#..", "#..", "#..", "#..", "###"],
-    "M": ["#...#", "##.##", "#.#.#", "#...#", "#...#"], "N": ["#..#", "##.#", "#.##", "#..#", "#..#"],
-    "O": [".#.", "#.#", "#.#", "#.#", ".#."], "P": ["##.", "#.#", "##.", "#..", "#.."],
-    "Q": [".#.", "#.#", "#.#", "##.", ".##"], "R": ["##.", "#.#", "##.", "#.#", "#.#"],
-    "S": [".##", "#..", ".#.", "..#", "##."], "T": ["###", ".#.", ".#.", ".#.", ".#."],
-    "U": ["#.#", "#.#", "#.#", "#.#", "###"], "V": ["#.#", "#.#", "#.#", "#.#", ".#."],
-    "W": ["#...#", "#...#", "#.#.#", "##.##", "#...#"], "X": ["#.#", "#.#", ".#.", "#.#", "#.#"],
-    "Y": ["#.#", "#.#", ".#.", ".#.", ".#."], "Z": ["###", "..#", ".#.", "#..", "###"],
-    "0": ["###", "#.#", "#.#", "#.#", "###"], "1": [".#.", "##.", ".#.", ".#.", "###"],
-    "2": ["##.", "..#", ".#.", "#..", "###"], "3": ["##.", "..#", ".#.", "..#", "##."],
-    "4": ["#.#", "#.#", "###", "..#", "..#"], "5": ["###", "#..", "##.", "..#", "##."],
-    "6": [".##", "#..", "###", "#.#", "###"], "7": ["###", "..#", ".#.", ".#.", ".#."],
-    "8": ["###", "#.#", "###", "#.#", "###"], "9": ["###", "#.#", "###", "..#", "##."],
-    ":": [".", "#", ".", "#", "."], ".": [".", ".", ".", ".", "#"], "/": ["..#", "..#", ".#.", "#..", "#.."],
-    "!": ["#", "#", "#", ".", "#"], "-": ["...", "...", "###", "...", "..."], "'": ["#", "#", ".", ".", "."],
-    "\"": ["#.#", "#.#", "...", "...", "..."], " ": ["..", "..", "..", "..", ".."],
-}
 
 KART = art([
     "...........##...............",
@@ -255,16 +232,6 @@ def write_header(path: Path, icons: list[bytes], spr: dict[str, np.ndarray]) -> 
     out += [f"    LCD_{n}," for n in names]
     out += ["    LCD_SPRITE_COUNT", "};", "static const LcdSprite lcd_sprites[LCD_SPRITE_COUNT] = {"]
     out += [f"    {{{spr[n].shape[1]}, {spr[n].shape[0]}, lcd_rows_{n.lower()}}}," for n in names]
-    out += ["};", "",
-            "/* 3x5 pixel font for ' '..'Z': widths, then rows (bit 7 leftmost). */",
-            "static const uint8_t lcd_font_w[59] = {"]
-    chars = [chr(c) for c in range(32, 91)]
-    out.append("    " + ", ".join(str(len(FONT[c][0])) if c in FONT else "0" for c in chars) + ",")
-    out += ["};", "static const uint8_t lcd_font[59][5] = {"]
-    for c in chars:
-        rows = FONT.get(c, ["", "", "", "", ""])
-        vals = [sum(0x80 >> i for i, ch in enumerate(r) if ch == "#") for r in rows]
-        out.append("    {" + ", ".join(f"0x{v:02x}" for v in vals) + "},")
     out += ["};", "", "#endif", ""]
     path.write_text("\n".join(out))
 

@@ -65,6 +65,9 @@ been, and the viewpoints you've found.
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,
   left/right changes the pitch
+- The VMU screen: the mountain in the menus; while driving an
+  inclinometer (side and rear views of the truck in degrees) over the
+  altitude and drive mode, and a screen for each viewpoint and the summit
 - Leave the title alone for ten seconds and a demo runs: four CPU trucks
   set off up the mountain and the camera cuts between them every few
   seconds, chase, helicopter and trackside shots, until a button is pressed
@@ -251,7 +254,7 @@ it the four trucks' headlights, which used to be on a third of the time.
 - One scene (autumn); the desert palette is not built yet
 - Headlights light the truck and a beam on the trail ahead, not the
   terrain or trees around it
-- No rumble yet; the VMU keeps best times and the online name only
+- No rumble yet
 - Online has no chat. Trucks bump each other, but each console pushes only
   its own truck against the others as they were ~150 ms ago, so a shove
   lands a little late
