@@ -159,6 +159,12 @@ the camera and a third of the mud haze.
 | Before | 17-29 / 24-34 ms | 30-40 |
 | After | 11-13 / 15-18 ms | 57-59 |
 
+Tried and dropped (console, 2026-11-07): SH4ZAM's FSRRA divide on the
+physics step's 24 variable-denominator divisions, and its atan2f, atanf, tanf
+and asinf for the steering. Physics went 1.67 to 1.76 ms with the divides and
+1.70 ms with the trig added; the FPU-stall share never moved, so FDIV latency
+is not where the time goes. Fewer substeps or less work per step is the lever.
+
 ## Gotchas
 
 - A console run under dcload that goes quiet and stays quiet is usually
