@@ -182,6 +182,18 @@ moon are drawn; the bench's lights are on two thirds of the time):
 | PVR render, ms | 10.86 | 11.15 |
 | Late frames in the drive | ~110 | 56 |
 
+`make hwbench` again on 2026-11-08 with the 3 m trail grid, the single
+headlight beam and the drifting clouds: CPU 14.60 ms a frame (terrain
+4.07, up 0.5 for ~500 more terrain vertices a frame; trees 2.77, trucks
+1.67, relight 0.81), PVR render 11.36 ms, 59.1 fps, 89 late frames in the
+drive. The late frames cluster where the logging road climbs through the
+forest past the lake turn (~14,000 triangles, CPU 16-16.6 ms), the one
+stretch that now sits on the 60 fps line. With `EXTRA_CFLAGS=-DENG_PROF`
+the terrain and tree sections spend ~40% of their cycles stalled on
+operand-cache misses (~6,700 and ~7,000 misses a frame), the trucks and
+physics ~10-17%; that cache traffic, not arithmetic, is where the frame
+goes.
+
 Relighting the world as the clock runs is 0.8 ms a frame (0.6-0.9 in
 Flycast): a slice of the 236,000 ground and scenery vertices each frame,
 so a whole pass takes ~3.5 s while the sun moves under a degree. A pass
