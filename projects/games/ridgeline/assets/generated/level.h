@@ -401,7 +401,7 @@ static const lvl_capsule_t lvl_capsules[LVL_CAPSULES] = {
 };
 /* The first LVL_ROCK_BOXES are rock ledges, drawn as rock; the rest are props' (a cabin, a bridge deck). */
 #define LVL_ROCK_BOXES 4
-#define LVL_BOXES 13
+#define LVL_BOXES 9
 static const lvl_box_t lvl_boxes[LVL_BOXES] = {
     {-2.152f, 19.615f, -100.305f, 3.400f, 1.000f, 0.480f, 0.573f},
     {17.499f, 97.012f, 70.998f, 3.400f, 1.000f, 1.300f, 0.431f},
@@ -412,10 +412,16 @@ static const lvl_box_t lvl_boxes[LVL_BOXES] = {
     {-94.589f, 2.069f, -224.584f, 0.800f, 2.000f, 1.000f, 1.460f},
     {249.000f, 6.710f, -121.000f, 0.900f, 0.900f, 2.200f, 4.978f},
     {-28.000f, 1.695f, -292.000f, 4.200f, 1.800f, 3.200f, 0.300f},
-    {28.200f, 141.755f, 138.200f, 0.450f, 3.000f, 0.450f, 0.000f},
-    {31.800f, 141.476f, 138.200f, 0.450f, 3.000f, 0.450f, 0.000f},
-    {28.200f, 141.754f, 141.800f, 0.450f, 3.000f, 0.450f, 0.000f},
-    {31.800f, 141.268f, 141.800f, 0.450f, 3.000f, 0.450f, 0.000f},
+};
+
+/* Posts (the lookout's legs): from the foot (x0, y0, z0) up to (x1, y1, z1), radius r. */
+typedef struct { float x0, y0, z0, x1, y1, z1, r; } lvl_post_t;
+#define LVL_POSTS 4
+static const lvl_post_t lvl_posts[LVL_POSTS] = {
+    {27.300f, 138.523f, 137.300f, 28.200f, 144.730f, 138.200f, 0.300f},
+    {32.700f, 138.256f, 137.300f, 31.800f, 144.730f, 138.200f, 0.300f},
+    {27.300f, 138.446f, 142.700f, 28.200f, 144.730f, 141.800f, 0.300f},
+    {32.700f, 137.594f, 142.700f, 31.800f, 144.730f, 141.800f, 0.300f},
 };
 
 /* Trees: base, kind (0 fir, 1 larch, 2 maple), scale, turn. */

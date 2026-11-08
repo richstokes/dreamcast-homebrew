@@ -134,12 +134,14 @@ static void draw_part(const PartMeshes *pm, const float *mat, const uint32_t *li
 #endif
 
 /* A soft shadow on the ground: a 3 x 3 grid following the terrain. */
-static void ground_quad(V3 c, V3 ax, V3 az, float lift, uint32_t col) {
+/* Only ground below ymax: a vertex that found the cabin's roof beside the
+   truck would pull the shadow up the wall. */
+static void ground_quad(V3 c, V3 ax, V3 az, float ymax, float lift, uint32_t col) {
     RV v[3][3];
     for(int j = 0; j < 3; j++)
         for(int i = 0; i < 3; i++) {
             V3 p = vadd(c, vadd(vscale(ax, (i - 1.0f)), vscale(az, (j - 1.0f))));
-            p.y = ground_at(p.x, p.z, NULL, NULL) + lift;
+            p.y = ground_below(p.x, p.z, ymax, NULL, NULL) + lift;
             v[j][i] = (RV){p.x, p.y, p.z, i * 0.5f, j * 0.5f, col};
         }
     for(int j = 0; j < 2; j++) {
@@ -265,13 +267,13 @@ void truckdraw_draw_tr(void) {
         V3 fh = vnorm(v3(F.x, 0, F.z)), rh = v3(fh.z, 0, -fh.x);
         /* The shadow, darker the closer the body sits to the ground. */
         V3 c = t->pos;
-        float g = ground_at(c.x, c.z, NULL, NULL);
+        float g = ground_below(c.x, c.z, c.y, NULL, NULL);
         float k = clampf(1.0f - (c.y - g - s->cog_y) / 3.0f, 0, 1);
         if(k > 0) {
             r_hdr(h_shadow);
             float hx = (s->body_hi[0] - s->body_lo[0]) * 0.62f, hz = (s->body_hi[2] - s->body_lo[2]) * 0.56f;
             V3 sc = vadd(v3(c.x, 0, c.z), vscale(v3(-sun_dir.x, 0, -sun_dir.z), 0.6f));
-            ground_quad(sc, vscale(rh, hx), vscale(fh, hz), 0.06f, color_alpha(0xff000000, 0.55f * k));
+            ground_quad(sc, vscale(rh, hx), vscale(fh, hz), c.y, 0.06f, color_alpha(0xff000000, 0.55f * k));
         }
         if(!t->lights) continue;
         bool full = t->lights == LIGHTS_FULL;
@@ -299,10 +301,10 @@ void truckdraw_draw_tr(void) {
 #endif
         /* The pool of light on the ground ahead; full beam reaches further. */
         V3 ahead = vmad(v3(c.x, 0, c.z), fh, 9.0f);
-        ground_quad(ahead, vscale(rh, 4.5f), vscale(fh, 6.5f), 0.08f, color_alpha(0xffffe8b0, 0.28f + 0.45f * pal->dark));
+        ground_quad(ahead, vscale(rh, 4.5f), vscale(fh, 6.5f), 1e9f, 0.08f, color_alpha(0xffffe8b0, 0.28f + 0.45f * pal->dark));
         if(full) {
             V3 far = vmad(v3(c.x, 0, c.z), fh, 19.0f);
-            ground_quad(far, vscale(rh, 6.0f), vscale(fh, 9.0f), 0.08f, color_alpha(0xfffff4d8, 0.18f + 0.4f * pal->dark));
+            ground_quad(far, vscale(rh, 6.0f), vscale(fh, 9.0f), 1e9f, 0.08f, color_alpha(0xfffff4d8, 0.18f + 0.4f * pal->dark));
         }
     }
 }

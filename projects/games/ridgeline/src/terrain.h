@@ -29,8 +29,10 @@ float terrain_height_n(float x, float z, V3 *n);
 float ground_at(float x, float z, V3 *n, int *surf);
 /* ground_at, but an obstacle whose top is above ymax isn't ground: it's a
    wall there (obstacle_contacts pushes back). Without the limit, a tyre
-   touching the footprint of something tall (the lookout tower) found the
-   ground metres above it and the bump stop launched the truck. */
+   touching the footprint of something tall (the cabin) found the ground
+   metres above it and the bump stop launched the truck. The lookout's legs
+   are lvl_posts, which aren't ground at all: truck.c tests them against
+   the whole hull. */
 float ground_below(float x, float z, float ymax, V3 *n, int *surf);
 int surface_at(float x, float z);
 /* The water's surface at (x, z), or -1000 where there is none. */

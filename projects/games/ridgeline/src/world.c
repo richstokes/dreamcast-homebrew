@@ -269,6 +269,22 @@ static void box(const pvr_poly_hdr_t *h, V3 c, float hx, float hy, float hz, flo
     sc_strip_end(&scenery);
 }
 
+/* A square timber from its foot up to its top, half width w, sides only:
+   the foot is in the ground and the top under a deck. */
+static void leg(V3 a, V3 b, float w, uint32_t albedo) {
+    V3 c[4] = {v3(w, 0, w), v3(w, 0, -w), v3(-w, 0, -w), v3(-w, 0, w)};
+    float len = vlen(vsub(b, a));
+    sc_strip_begin(&scenery, h_bark);
+    for(int s = 0; s <= 4; s++) {
+        V3 o = c[s & 3];
+        V3 nrm = vnorm(vadd(o, c[(s + 3) & 3]));
+        float u = s * 2 * w;
+        lv(vadd(b, o), u, 0, albedo, nrm, 0.95f);
+        lv(vadd(a, o), u, len, albedo, nrm, 0.95f * 0.75f);
+    }
+    sc_strip_end(&scenery);
+}
+
 /* A log: a six-sided cylinder along the capsule, bark round it. */
 static void log_mesh(const lvl_capsule_t *cp) {
     V3 a = v3(cp->ax, cp->ay, cp->az), b = v3(cp->bx, cp->by, cp->bz);
@@ -434,10 +450,12 @@ static void prop(const lvl_prop_t *p) {
             break;
         }
         case PROP_TOWER: {
-            /* A fire lookout: four legs, the cab on top, a pyramid roof. */
-            for(int k = 0; k < 4; k++) {
-                float lx = (k & 1) ? 1.8f : -1.8f, lz = (k & 2) ? 1.8f : -1.8f;
-                box(h_bark, v3(c.x + lx, c.y + 3.0f, c.z + lz), 0.24f, 3.0f, 0.24f, 0, 0xff6a4a30, 1.0f);
+            /* A fire lookout: four splayed legs (the level's posts), the
+               cab on top, a pyramid roof. */
+            for(int k = 0; k < LVL_POSTS; k++) {
+                const lvl_post_t *q = &lvl_posts[k];
+                if(fabsf(q->x1 - c.x) > 3.0f || fabsf(q->z1 - c.z) > 3.0f) continue;
+                leg(v3(q->x0, q->y0, q->z0), v3(q->x1, q->y1, q->z1), 0.24f, 0xff6a4a30);
             }
             box(h_bark, v3(c.x, c.y + 6.0f, c.z), 2.2f, 0.12f, 2.2f, 0, 0xff8a6440, 0.5f);
             box(h_flat, v3(c.x, c.y + 7.2f, c.z), 1.9f, 1.1f, 1.9f, 0, 0xffe8dcc0, 1.0f);

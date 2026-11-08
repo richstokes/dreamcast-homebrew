@@ -792,6 +792,73 @@ static void step(Truck *t, float dt) {
         force = vadd(force, f);
         torque = vadd(torque, vcross(vsub(p, t->pos), f));
     }
+    /* Posts (the lookout's legs) against the whole hull, wheels and all:
+       one is thinner than the gaps between the hull's contact points, and
+       found its way in between them to hold the truck. In the hull's frame
+       the post is a circle against its rectangle, where it crosses the
+       hull's mid-plane (a pitched truck meets a post ahead of it higher or
+       lower than its centre). As with another truck, the push and the rub
+       are level and at my centre of gravity's height: a corner caught
+       going over the crest nose down otherwise levered the truck onto its
+       side. */
+    for(int k = 0; k < LVL_POSTS; k++) {
+        const lvl_post_t *q = &lvl_posts[k];
+        float ex = q->x0 - t->pos.x, ez = q->z0 - t->pos.z;
+        if(ex * ex + ez * ez > 36.0f) continue;
+        V3 hc = truck_to_world(t, v3(S->hull_c[0], S->hull_c[1], S->hull_c[2]));
+        /* e: the post's step for each metre it climbs. */
+        V3 foot = v3(q->x0, q->y0, q->z0);
+        V3 e = vscale(v3(q->x1 - q->x0, q->y1 - q->y0, q->z1 - q->z0), 1.0f / (q->y1 - q->y0));
+        float h = hc.y, eu = vdot(e, U);
+        if(eu > 0.3f) h -= vdot(vsub(vmad(foot, e, h - q->y0), hc), U) / eu;
+        V3 a = vmad(foot, e, clampf(h, q->y0, q->y1) - q->y0);
+        V3 d = vsub(a, hc);
+        float lx = vdot(d, R), ly = vdot(d, U), lz = vdot(d, F);
+        float hx = S->hull_h[0], hz = S->hull_h[2];
+        if(fabsf(ly) > S->hull_h[1]) continue;
+        float cx = clampf(lx, -hx, hx), cz = clampf(lz, -hz, hz);
+        float nx, nz, depth;
+        if(cx != lx || cz != lz) {
+            float dx = lx - cx, dz = lz - cz, dl = sqrtf(dx * dx + dz * dz);
+            if(dl >= q->r) continue;
+            nx = dx / dl;
+            nz = dz / dl;
+            depth = q->r - dl;
+        }
+        else if(hx - fabsf(lx) < hz - fabsf(lz)) {
+            nx = signf(lx);
+            nz = 0;
+            depth = hx - fabsf(lx) + q->r;
+        }
+        else {
+            nx = 0;
+            nz = signf(lz);
+            depth = hz - fabsf(lz) + q->r;
+        }
+        /* Toward the post, level: the truck goes the other way. */
+        V3 n = vadd(vscale(R, nx), vscale(F, nz));
+        n.y = 0;
+        float nl = vlen(n);
+        if(nl < 1e-3f) continue;
+        n = vscale(n, -1.0f / nl);
+        V3 p = vmad(a, n, q->r);
+        p.y = t->pos.y;
+        V3 vp = vadd(t->vel, vcross(t->w, vsub(p, t->pos)));
+        float vn = vdot(vp, n);
+        float fn = KC * fminf(depth, 0.5f) - CC * fminf(vn, 0.0f);
+        if(fn <= 0) continue;
+        if(-vn > hit) hit = -vn;
+        V3 f = vscale(n, fn);
+        V3 vt = vsub(vp, vscale(n, vn));
+        vt.y = 0;
+        float vtl = vlen(vt);
+        if(vtl > 0.01f) {
+            f = vmad(f, vt, -fminf(MUC * fn, vtl * 6000.0f) / vtl);
+            scrape = fmaxf(scrape, vtl);
+        }
+        force = vadd(force, f);
+        torque = vadd(torque, vcross(vsub(p, t->pos), f));
+    }
     /* Wheels against tree trunks and the sides of ledges. */
     for(int i = 0; i < 4; i++) {
         Wheel *w = &t->wh[i];
