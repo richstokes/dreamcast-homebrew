@@ -131,7 +131,7 @@ void menu_title_draw(void) {
     float k = clampf(game.time / 1.2f, 0, 1);
     r_hdr(h_logo);
     float w = 256 * (0.9f + 0.1f * k), h = 64 * (0.9f + 0.1f * k);
-    r_quad2d(320 - w, 150 - h, 320 + w, 150 + h, 0, 0, 1, 1, color_alpha(0xffffffff, k), 12.0f);
+    r_quad2d(320 - w, 96 - h, 320 + w, 96 + h, 0, 0, 1, 1, color_alpha(0xffffffff, k), 12.0f);
     if(title_menu) {
         static const char *const items[T_COUNT] = {"SINGLE PLAYER", "ONLINE", "SOUND TEST"};
         ui_panel(200, 278, 440, 404);
