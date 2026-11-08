@@ -595,13 +595,16 @@ static void step(Truck *t, float dt) {
     }
     else {
         /* The torque converter slips: the engine spins up toward its stall
-           speed and multiplies torque into the shaft; idle creeps. */
+           speed and multiplies torque into the shaft; idle creeps. The
+           creep fades as the brake goes on, as an automatic's neutral idle
+           does at a stop: in low range it would otherwise outpull the
+           brakes and the parked truck would crawl off on its own. */
         float stall = S->idle_rpm + 1500.0f;
         float target = t->stalled ? 0.0f : S->idle_rpm + throttle * (stall - S->idle_rpm);
         t->rpm = approach(t->rpm, target, dt * 5000.0f);
         float sr = clampf(rpm_shaft / fmaxf(t->rpm, 1.0f), 0, 1);
-        float Te = (throttle * engine_torque(S, t->rpm) + (t->stalled ? 0.0f : 0.12f * S->peak_torque * (1 - throttle))) *
-                   (1.0f + 0.9f * (1.0f - sr));
+        float creep = t->stalled ? 0.0f : 0.12f * S->peak_torque * (1 - throttle) * (1 - fminf(t->brake, 1.0f));
+        float Te = (throttle * engine_torque(S, t->rpm) + creep) * (1.0f + 0.9f * (1.0f - sr));
         T_shaft = Te * G * shift_lock;
     }
     float r_w = S->radius, Iw = S->wheel_inertia;
@@ -618,7 +621,10 @@ static void step(Truck *t, float dt) {
             float brake = t->brake;
             if(t->in.handbrake && i >= 2) brake = fmaxf(brake, 1.0f);
             float tb = brake * S->brake_torque * (i < 2 ? 1.15f : 0.85f);
-            a[i] += tb / fmaxf(fabsf(w->omega), 0.6f);
+            /* Implicit, as a damper that reaches full torque at 0.01 rad/s,
+               so a held brake stops the wheel rather than letting it turn
+               slowly against any torque. */
+            a[i] += tb / fmaxf(fabsf(w->omega), 0.01f);
             if(!w->contact) continue;
             a[i] += k->rr * Lf[i] * r_w / fmaxf(fabsf(w->omega), 2.0f);
             if(sat[i]) {
@@ -998,7 +1004,7 @@ void truck_update(Truck *t, float dt) {
         throttle *= clampf((REVERSE_TOP_MPS - -fwd_speed) / 0.9f, 0, 1);
     }
     /* Parked: nothing on the pedals at a standstill holds the brakes on. */
-    if(fabsf(fwd_speed) < 0.4f && throttle < 0.05f) brake = fmaxf(brake, 0.6f);
+    if(fabsf(fwd_speed) < 0.4f && throttle < 0.05f) brake = fmaxf(brake, 1.0f);
     t->throttle = throttle;
     t->brake = brake;
     /* Gearbox. */

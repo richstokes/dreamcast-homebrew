@@ -174,6 +174,15 @@ int main(int argc, char **argv) {
     float throttle = 1, brake = 0, secs = 8;
     if(!strcmp(scen, "flat")) { x = 40; z = -280; h = 0; mode = DRIVE_4WD; }
     if(!strcmp(scen, "park")) { throttle = 0; }
+    if(!strcmp(scen, "spawn")) {
+        /* Hands off at the drive's start: the truck should sit still. */
+        x = lvl_spawns[1][0];
+        z = lvl_spawns[1][2];
+        h = lvl_spawns[1][3];
+        mode = getenv("SIM_MODE") ? atoi(getenv("SIM_MODE")) : DRIVE_2WD;
+        throttle = 0;
+        secs = 20;
+    }
     if(!strcmp(scen, "climb2wd")) mode = DRIVE_2WD;
     if(!strcmp(scen, "climb4wd")) mode = DRIVE_4WD;
     if(!strncmp(scen, "speed", 5)) {

@@ -245,6 +245,9 @@ it the four trucks' headlights, which used to be on a third of the time.
   force: scaling only the drive left a spinning tyre half its cornering
   grip, and 2WD could not slide. `tools/hostsim/sim turn<mode> <truck>`
   measures the slide angle (`SIM_THROTTLE`, `SIM_DRIFT`)
+- A parked truck used to crawl off on its own (up to 7 m in 20 s in LOCK):
+  the brakes only reached full torque at 0.6 rad/s, so idle creep always
+  won. `tools/hostsim/sim spawn <truck>` (`SIM_MODE=0-2`) should not move
 - CPU trucks get a gentle pull back toward the trail and are winched past
   anything that holds them up for 25 s; the player drives unaided
 - `tools/hostsim` reads `level.h` at compile time and `level.bin` at run
