@@ -138,6 +138,34 @@ def tex_sun():
     return to_image(rgb, a * 255)
 
 
+def tex_moon():
+    """A full moon: a flat disc, soft at the rim, with faint grey maria."""
+    n = 64
+    r = radial(n)
+    a = np.clip((0.9 - r) / 0.05, 0, 1)
+    maria = tile_noise(n, 10, 32) * 0.6 + tile_noise(n, 5, 33) * 0.4
+    shade = 1.0 - 0.22 * np.clip((maria - 0.45) / 0.3, 0, 1) - 0.08 * r * r
+    rgb = np.dstack([232 * shade, 236 * shade, 244 * shade])
+    return to_image(rgb, a * 255)
+
+
+def tex_stars():
+    """A patch of night sky: some forty stars, a few bright, soft-edged, on
+    nothing (drawn additively); a dozen of these cover the sky."""
+    n = 256
+    r = rng(41)
+    a = np.zeros((n, n))
+    yy, xx = np.mgrid[0:n, 0:n]
+    for _ in range(70):
+        cx, cy = r.uniform(10, n - 10, 2)
+        b = r.random() ** 3
+        rad = 0.55 + 0.75 * b
+        a += (0.4 + 0.6 * b) * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * rad * rad))
+    a = np.clip(a, 0, 1)
+    rgb = np.dstack([np.full((n, n), 232.0), np.full((n, n), 238.0), np.full((n, n), 255.0)])
+    return to_image(rgb, a * 255)
+
+
 def tex_glow():
     n = 64
     r = radial(n)
@@ -355,6 +383,8 @@ def build(out: Path):
         (TexSpec("bark", "RGB565", True, True), tex_bark()),
         (TexSpec("tuft", "ARGB4444", True, False), tex_tuft()),
         (TexSpec("sun", "ARGB4444", False, False), tex_sun()),
+        (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
+        (TexSpec("stars", "ARGB4444", False, False), tex_stars()),
         (TexSpec("glow", "ARGB4444", True, False), tex_glow()),
         (TexSpec("ring", "ARGB4444", False, False), tex_ring()),
         (TexSpec("puff", "ARGB4444", True, False), tex_puff()),

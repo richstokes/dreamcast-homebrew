@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-uint8_t rl_level_bin[900000] __attribute__((aligned(32)));
+uint8_t rl_level_bin[2000000] __attribute__((aligned(32)));
 
 __attribute__((constructor)) static void load_level(void) {
     FILE *f = fopen(LEVEL_BIN_FILE, "rb");

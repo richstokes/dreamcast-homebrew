@@ -6,6 +6,7 @@
 #include "rl.h"
 #include "level.h"
 #include "engine/scenery.h"
+#include "world.h"
 
 /* How a surface drives: peak friction, rolling resistance (per unit load),
    how far a tyre sinks in (m), how bumpy it is (m) and how much grip a
@@ -53,12 +54,23 @@ int terrain_draw_far_skirts(const Scenery *sc);
 /* Water chunks, back to front. */
 void terrain_draw_water(const Scenery *sc);
 
-/* The ground's vertices: height and baked colour side by side, so the
-   terrain drawn each frame reads one cache line for both. */
+/* The ground's vertices: height and colour side by side, so the terrain
+   drawn each frame reads one cache line for both. The colours are relit
+   as the day goes by (tod.c), in a copy of the level's. */
 typedef struct { float h; uint32_t c; } GroundVert;
 extern const GroundVert *lvl_ground;
+
 extern const float *lvl_water;
 extern const uint8_t *lvl_surf;
+
+/* Relighting (tod.c): a pass colours grid vertices [from, to) for the
+   palette and light given to setup (from the level's albedo, normals and
+   horizon map), then copies them into the prebuilt far terrain's pool
+   vertices [from, to) of terrain_pool_n(), tinting the water too. */
+void terrain_relight_setup(const Palette *p, V3 light);
+void terrain_relight(int from, int to);
+int terrain_pool_n(void);
+void terrain_relight_pool(Scenery *sc, int from, int to);
 
 static inline int lvl_clampi(int v) { return v < 0 ? 0 : v > LEVEL_N - 1 ? LEVEL_N - 1 : v; }
 static inline float lvl_h(int i, int j) { return lvl_ground[lvl_clampi(j) * LEVEL_N + lvl_clampi(i)].h; }

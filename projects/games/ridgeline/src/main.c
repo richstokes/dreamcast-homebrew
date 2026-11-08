@@ -21,6 +21,7 @@
 #include "engine/frame.h"
 #include "engine/ui.h"
 #include "birds.h"
+#include "tod.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -34,6 +35,8 @@ void game_set_state(int state) {
     if(game.state == ST_SOUND && state != ST_SOUND) soundtest_stop();
     game.state = state;
     game.time = 0;
+    /* The truck select shows the hour the drive will start at. */
+    if(state == ST_SELECT) tod_set_hour(tod_hours[game.start_tod]);
     if(state == ST_SELECT || state == ST_TITLE || state == ST_SOUND) {
         game.ntrucks = state == ST_SELECT ? 1 : 0;
         trucks[0].model = game.truck_model;
@@ -75,6 +78,8 @@ void game_start_drive(void) {
     birds_reset();
     audio_drive_start();
     game_set_state(ST_DRIVE);
+    tod_set_hour(tod_hours[game.start_tod]);
+    tod_auto_lights(true);
     hud_message("CASCADE RIDGE", 0xfff8f0dc, 3.0f);
 }
 
@@ -199,6 +204,7 @@ static void drive_update(float dt) {
     game.clock += dt;
     fx_update(dt);
     camera_follow(p, dt);
+    tod_auto_lights(false);
 }
 
 static void update(float dt) {
@@ -209,6 +215,13 @@ static void update(float dt) {
         case ST_DRIVE: drive_update(dt); break;
         case ST_SOUND: soundtest_update(dt); break;
     }
+    /* The clock stops on the truck select (it shows the start hour) and
+       in the pause menu. A jump of the clock there, or in photo mode, is
+       relit faster than the drive can afford; the title's slow turn of
+       the day a little faster, as its flyover has less to spare. */
+    bool run_clock = game.state != ST_SELECT && !(game.state == ST_DRIVE && game.paused);
+    float budget = game.state == ST_DRIVE ? (game.paused ? 4.0f : 1.0f) : game.state == ST_SELECT ? 4.0f : 1.5f;
+    tod_update(dt, run_clock, budget);
     world_update(dt);
     birds_update(dt);
     if(!game.paused) deer_update_all(dt);
@@ -278,6 +291,8 @@ int main(int argc, char **argv) {
     input_init();
     render_init();
     terrain_init();
+    game.start_tod = TOD_AFTERNOON;
+    tod_init(tod_hours[game.start_tod]);
     world_init();
     world_build();
     hud_init();

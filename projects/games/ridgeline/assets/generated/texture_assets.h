@@ -14,6 +14,8 @@ enum {
     TEX_BARK,
     TEX_TUFT,
     TEX_SUN,
+    TEX_MOON,
+    TEX_STARS,
     TEX_GLOW,
     TEX_RING,
     TEX_PUFF,
@@ -35,18 +37,20 @@ static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {218496u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* bark */
     {229440u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft */
     {273152u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* sun */
-    {281344u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
-    {292288u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
-    {308672u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
-    {319616u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
-    {330560u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
-    {333312u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
-    {344256u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {360640u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {535424u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {568192u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {633728u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {764800u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {281344u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
+    {289536u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
+    {420608u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
+    {431552u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
+    {447936u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
+    {458880u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
+    {469824u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
+    {472576u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
+    {483520u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {499904u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {674688u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {707456u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {772992u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {904064u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

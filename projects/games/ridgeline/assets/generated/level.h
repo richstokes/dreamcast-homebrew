@@ -8,10 +8,18 @@
 #define LEVEL_ORG -384.0f
 #define LEVEL_SIZE 768.0f
 /* level.bin: {f32 height, u32 argb}[N*N] (side by side: drawing the ground reads both),
-   f32 water[N*N] (-1000: none), u8 surface[N*N]. */
+   f32 water[N*N] (-1000: none), u8 surface[N*N], then the relighting inputs:
+   {u8 r, g, b (albedo x ao), s8 nx, nz, u8 deep, pad[2]}[N*N] and the horizon map,
+   u8 half-degrees [HZ_DIRS][HZ_N][HZ_N] (bearing HZ_AZ0 + d * HZ_STEP). */
 #define LEVEL_BIN_GROUND 0
 #define LEVEL_BIN_WATER 528392
 #define LEVEL_BIN_SURF 792588
+#define LEVEL_BIN_LIGHT 858640
+#define LEVEL_BIN_HORIZON 1387032
+#define LEVEL_HZ_N 129
+#define LEVEL_HZ_DIRS 21
+#define LEVEL_HZ_AZ0 45
+#define LEVEL_HZ_STEP 15
 enum { SURF_GRASS, SURF_FOREST, SURF_DIRT, SURF_GRAVEL, SURF_ROCK, SURF_MUD, SURF_SCREE, SURF_SNOW, SURF_WETROCK, SURF_COUNT };
 #define LEVEL_LAKE_Y 93.14f
 #define LEVEL_START_Y -0.21f

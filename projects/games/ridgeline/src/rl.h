@@ -62,12 +62,15 @@ typedef struct {
     bool cam_scripted;    /* test builds' scenery tour holds the camera */
     bool demo;            /* demo mode (demo.h): four CPU trucks, the camera cuts between them */
     int demo_truck;       /* the truck it is watching */
+    int start_tod;        /* when the drive starts: TOD_DAWN .. (tod.h) */
+    float photo_time_t;   /* seconds since photo mode last moved the clock, for its readout */
 } Game;
 
 extern Game game;
 extern Camera cam;
 
-/* The scene's light: sun direction (toward the sun), its colour, the sky's. */
+/* The direction the world is lit from (toward the sun, or the moon at
+   night; tod.c sets it). */
 extern V3 sun_dir;
 
 void game_set_state(int state);

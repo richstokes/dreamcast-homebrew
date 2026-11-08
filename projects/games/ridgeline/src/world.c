@@ -1,12 +1,14 @@
 /* Ridgeline world (world.h).
 
    The look: flat colour fields with soft painted shading. Nothing here is
-   lit at run time; every vertex colour is baked when the scenery is built,
-   from the scene's sun and sky, with a darker base and a lighter crown on
-   each tree. Distance does the rest: the PVR's fog fades everything toward
-   the haze colour, and the far ranges are flat silhouettes stepping lighter
-   with distance. */
+   lit per frame; every vertex colour is computed when the scenery is
+   built, from the hour's sun and sky, with a darker base and a lighter
+   crown on each tree, and each vertex keeps the albedo, normal and
+   occlusion it was lit from so the clock can relight it (tod.c). Distance
+   does the rest: the PVR's fog fades everything toward the haze colour,
+   and the far ranges are flat silhouettes stepping lighter with distance. */
 #include "world.h"
+#include "tod.h"
 #include "engine/sky.h"
 #include "terrain.h"
 #include "truck.h"
@@ -16,34 +18,117 @@
 Scenery scenery;
 V3 sun_dir;
 
-/* Autumn: mustard gold, forest green, cool grey, pale sky. A late sun in
-   the west-north-west, low enough to throw long shadows and backlight the
-   trees when driving up the mountain. */
-static const Palette autumn = {
-    .sky_top = 0xff8fbcd8, .sky_horizon = 0xffdce9ee, .haze = 0xffd6e2e8,
-    .sun_col = 0xfffff2d8,
-    .fog_near = 140.0f, .fog_far = 760.0f,
-    .sun_az = 300.0f * ENG_PI / 180.0f, .sun_el = 22.0f * ENG_PI / 180.0f,
-    .sun_k = {0.80f, 0.70f, 0.55f}, .sky_k = {0.42f, 0.47f, 0.54f}, .amb_k = {0.22f, 0.22f, 0.24f},
-};
-const Palette *pal = &autumn;
+static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_tuft, *h_sun, *h_moon, *h_stars, *h_glow_add,
+    *h_ring_add, *h_cloud;
 
-static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_tuft, *h_sun, *h_glow_add, *h_ring_add,
-    *h_cloud;
+/* ---- Lighting ---- */
 
-/* ---- Baked lighting ---- */
-
-static inline uint32_t lit(uint32_t albedo, V3 n, float ao) {
-    float d = vdot(n, sun_dir);
+static inline uint32_t lit_with(const Palette *p, V3 L, uint32_t albedo, V3 n, float ao) {
+    float d = vdot(n, L);
     if(d < 0) d = 0;
     float up = 0.5f + 0.5f * n.y;
     int ch[3];
     for(int i = 0; i < 3; i++) {
-        float k = (pal->amb_k[i] + pal->sky_k[i] * up + pal->sun_k[i] * d * 1.15f) * ao;
+        float k = (p->amb_k[i] + p->sky_k[i] * up + p->sun_k[i] * d * 1.15f) * ao;
         int c = (int)(((albedo >> (16 - 8 * i)) & 255) * k);
         ch[i] = c > 255 ? 255 : c;
     }
     return 0xff000000u | (uint32_t)ch[0] << 16 | (uint32_t)ch[1] << 8 | (uint32_t)ch[2];
+}
+
+static inline uint32_t lit(uint32_t albedo, V3 n, float ao) {
+    return lit_with(pal, sun_dir, albedo, n, ao);
+}
+
+/* What each scenery vertex was lit from, kept beside the pool for
+   relighting: its albedo (an index into a small table; bit 7 marks a
+   colour used as is, bit 6 a downward normal), the normal's x and z, and
+   the occlusion (hundredths). */
+typedef struct { uint8_t alb; int8_t nx, nz; uint8_t ao; } LightRec;
+static LightRec *lrec;
+static uint32_t lrec_first, lrec_marked;   /* pool index of record 0; the next pool index to record */
+static uint32_t alb_tab[64];
+static int alb_n;
+
+static uint8_t alb_index(uint32_t albedo) {
+    for(int i = 0; i < alb_n; i++)
+        if(alb_tab[i] == albedo) return (uint8_t)i;
+    if(alb_n < 64) alb_tab[alb_n++] = albedo;
+    return (uint8_t)(alb_n - 1);
+}
+
+static void rec_mark(LightRec r) {
+    if(!lrec) return;
+    for(uint32_t i = lrec_marked; i < scenery.pool_n; i++) lrec[i - lrec_first] = r;
+    /* A join appends the previous vertex again before this one twice. */
+    if(scenery.pool_n - lrec_marked == 3) lrec[lrec_marked - lrec_first] = lrec[lrec_marked - 1 - lrec_first];
+    lrec_marked = scenery.pool_n;
+}
+
+static LightRec rec_of(uint32_t albedo, V3 n, float ao) {
+    int a = (int)(ao * 100.0f + 0.5f);
+    return (LightRec){(uint8_t)(alb_index(albedo) | (n.y < 0 ? 0x40 : 0)), (int8_t)(n.x * 127.0f), (int8_t)(n.z * 127.0f),
+                      (uint8_t)(a > 255 ? 255 : a)};
+}
+
+/* A lit vertex into the open strip (lj joined on to it), and one in a
+   colour used as is. */
+static void lv(V3 p, float u, float v, uint32_t albedo, V3 n, float ao) {
+    sc_vert(&scenery, p, u, v, lit(albedo, n, ao));
+    rec_mark(rec_of(albedo, n, ao));
+}
+
+static void lj(V3 p, float u, float v, uint32_t albedo, V3 n, float ao) {
+    sc_join(&scenery, p, u, v, lit(albedo, n, ao));
+    rec_mark(rec_of(albedo, n, ao));
+}
+
+static void lc(V3 p, float u, float v, uint32_t col) {
+    sc_vert(&scenery, p, u, v, col);
+    rec_mark((LightRec){(uint8_t)(alb_index(col) | 0x80), 0, 0, 100});
+}
+
+/* The pass's light as the per-channel weights of 1, the normal's y and
+   its dot with the light: k = a + b * ny + c * d. */
+static float rl_a[3], rl_b[3], rl_c[3];
+static V3 rl_L;
+
+void world_relight_setup(const Palette *p, V3 light) {
+    for(int i = 0; i < 3; i++) {
+        rl_a[i] = p->amb_k[i] + 0.5f * p->sky_k[i];
+        rl_b[i] = 0.5f * p->sky_k[i];
+        rl_c[i] = 1.15f * p->sun_k[i];
+    }
+    rl_L = light;
+}
+
+int world_relight_n(void) {
+    return lrec ? (int)(scenery.pool_n - lrec_first) : 0;
+}
+
+void world_relight(int from, int to) {
+    RV *pool = scenery.pool + lrec_first;
+    for(int k = from; k < to; k++) {
+        LightRec r = lrec[k];
+        uint32_t albedo = alb_tab[r.alb & 0x3f];
+        if(r.alb & 0x80) {
+            pool[k].c = albedo;
+            continue;
+        }
+        float nx = r.nx * (1.0f / 127.0f), nz = r.nz * (1.0f / 127.0f);
+        float ny = sqrtf(fmaxf(1.0f - nx * nx - nz * nz, 0.0f));
+        if(r.alb & 0x40) ny = -ny;
+        float d = nx * rl_L.x + ny * rl_L.y + nz * rl_L.z;
+        if(d < 0) d = 0;
+        float ao = r.ao * 0.01f;
+        int cr = (int)(((albedo >> 16) & 255) * (rl_a[0] + rl_b[0] * ny + rl_c[0] * d) * ao);
+        int cg = (int)(((albedo >> 8) & 255) * (rl_a[1] + rl_b[1] * ny + rl_c[1] * d) * ao);
+        int cb = (int)((albedo & 255) * (rl_a[2] + rl_b[2] * ny + rl_c[2] * d) * ao);
+        if(cr > 255) cr = 255;
+        if(cg > 255) cg = 255;
+        if(cb > 255) cb = 255;
+        pool[k].c = 0xff000000u | (uint32_t)cr << 16 | (uint32_t)cg << 8 | (uint32_t)cb;
+    }
 }
 
 /* ---- Tree, rock and prop builders ---- */
@@ -74,11 +159,10 @@ static void cone(V3 base, float r0, float r1, float y0, float y1, int k, float y
         V3 n = vnorm(v3(ca, slope, sa));
         V3 pt = v3(base.x + ca * r1, base.y + y1, base.z + sa * r1);
         V3 pb = v3(base.x + ca * r0, base.y + y0, base.z + sa * r0);
-        uint32_t ct = lit(albedo, vnorm(v3(ca * 0.6f, 1.0f, sa * 0.6f)), ao1);
-        uint32_t cb = lit(albedo, n, ao0);
-        if(s == 0 && join) sc_join(&scenery, pt, 0, 0, ct);
-        else sc_vert(&scenery, pt, 0, 0, ct);
-        sc_vert(&scenery, pb, 0, 0, cb);
+        V3 nt = vnorm(v3(ca * 0.6f, 1.0f, sa * 0.6f));
+        if(s == 0 && join) lj(pt, 0, 0, albedo, nt, ao1);
+        else lv(pt, 0, 0, albedo, nt, ao1);
+        lv(pb, 0, 0, albedo, n, ao0);
     }
 }
 
@@ -145,8 +229,7 @@ static void boulder(V3 c, float r, uint32_t seed, int lod) {
                 float rr = r * ring_r[ri] * jit[ri][sm];
                 V3 p = v3(c.x + cosf(a) * rr, c.y + r * ring_y[ri] * squash, c.z + sinf(a) * rr);
                 V3 n = vnorm(v3(cosf(a) * (1.0f - ring_y[ri] * 0.5f), ring_y[ri] + 0.3f, sinf(a) * (1.0f - ring_y[ri] * 0.5f)));
-                uint32_t col = lit(0xff9aa0a6, n, 0.8f + 0.25f * ring_y[ri]);
-                sc_vert(&scenery, p, a * 0.6f, ring_y[ri] * 1.2f, col);
+                lv(p, a * 0.6f, ring_y[ri] * 1.2f, 0xff9aa0a6, n, 0.8f + 0.25f * ring_y[ri]);
             }
         }
         sc_strip_end(&scenery);
@@ -172,18 +255,17 @@ static void box(const pvr_poly_hdr_t *h, V3 c, float hx, float hy, float hz, flo
     for(int s = 0; s <= 4; s++) {
         V3 p = corner[s & 3];
         V3 nrm = vnorm(vsub(vadd(corner[s & 3], corner[(s + 3) & 3]), vscale(c, 2)));
-        uint32_t col = lit(albedo, nrm, 0.95f);
         float u = (float)s * (hx + hz) * uv;
-        sc_vert(&scenery, v3(p.x, c.y + hy, p.z), u, 0, col);
-        sc_vert(&scenery, v3(p.x, c.y - hy, p.z), u, hy * 2 * uv, color_scale(col, 0.75f));
+        lv(v3(p.x, c.y + hy, p.z), u, 0, albedo, nrm, 0.95f);
+        lv(v3(p.x, c.y - hy, p.z), u, hy * 2 * uv, albedo, nrm, 0.95f * 0.75f);
     }
     sc_strip_end(&scenery);
     sc_strip_begin(&scenery, h);
-    uint32_t top = lit(albedo, v3(0, 1, 0), 1.0f);
-    sc_vert(&scenery, v3(corner[0].x, c.y + hy, corner[0].z), 0, 0, top);
-    sc_vert(&scenery, v3(corner[1].x, c.y + hy, corner[1].z), hz * 2 * uv, 0, top);
-    sc_vert(&scenery, v3(corner[3].x, c.y + hy, corner[3].z), 0, hx * 2 * uv, top);
-    sc_vert(&scenery, v3(corner[2].x, c.y + hy, corner[2].z), hz * 2 * uv, hx * 2 * uv, top);
+    V3 up = v3(0, 1, 0);
+    lv(v3(corner[0].x, c.y + hy, corner[0].z), 0, 0, albedo, up, 1.0f);
+    lv(v3(corner[1].x, c.y + hy, corner[1].z), hz * 2 * uv, 0, albedo, up, 1.0f);
+    lv(v3(corner[3].x, c.y + hy, corner[3].z), 0, hx * 2 * uv, albedo, up, 1.0f);
+    lv(v3(corner[2].x, c.y + hy, corner[2].z), hz * 2 * uv, hx * 2 * uv, albedo, up, 1.0f);
     sc_strip_end(&scenery);
 }
 
@@ -198,19 +280,18 @@ static void log_mesh(const lvl_capsule_t *cp) {
     for(int s = 0; s <= 6; s++) {
         float ang = ENG_TAU * (s % 6) / 6.0f;
         V3 n = vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang)));
-        uint32_t col = lit(0xff7a5a3e, n, 0.9f);
-        sc_vert(&scenery, vmad(a, n, r), s / 3.0f, 0, col);
-        sc_vert(&scenery, vmad(b, n, r), s / 3.0f, len / 1.5f, col);
+        lv(vmad(a, n, r), s / 3.0f, 0, 0xff7a5a3e, n, 0.9f);
+        lv(vmad(b, n, r), s / 3.0f, len / 1.5f, 0xff7a5a3e, n, 0.9f);
     }
     sc_strip_end(&scenery);
     for(int e = 0; e < 2; e++) {
         V3 c = e ? b : a;
         sc_strip_begin(&scenery, h_flat);
-        uint32_t col = lit(0xffd8b88a, vscale(ax, e ? 1.0f : -1.0f), 1.0f);
+        V3 en = vscale(ax, e ? 1.0f : -1.0f);
         static const int order[6] = {0, 1, 5, 2, 4, 3};
         for(int s = 0; s < 6; s++) {
             float ang = ENG_TAU * order[s] / 6.0f;
-            sc_vert(&scenery, vmad(c, vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang))), r * 0.98f), 0, 0, col);
+            lv(vmad(c, vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang))), r * 0.98f), 0, 0, 0xffd8b88a, en, 1.0f);
         }
         sc_strip_end(&scenery);
     }
@@ -228,24 +309,21 @@ static void prop(const lvl_prop_t *p) {
             float eave = c.y + 3.0f, ridge = c.y + 5.0f;
             uint32_t rc = 0xff9a3a2a;
             for(int side = -1; side <= 1; side += 2) {
-                V3 n = vnorm(v3(ax.x * side * 0.2f, 1.0f, ax.z * side * 0.2f));
-                uint32_t col = lit(rc, vnorm(v3(cy * side, 0.9f, -sy * side)), 1.0f);
-                (void)n;
+                V3 n = vnorm(v3(cy * side, 0.9f, -sy * side));
                 sc_strip_begin(&scenery, h_flat);
                 V3 o = vscale(ax, (float)side);
-                sc_vert(&scenery, v3(e0.x + o.x, eave, e0.z + o.z), 0, 0, col);
-                sc_vert(&scenery, v3(e1.x + o.x, eave, e1.z + o.z), 0, 0, col);
-                sc_vert(&scenery, v3(e0.x, ridge, e0.z), 0, 0, col);
-                sc_vert(&scenery, v3(e1.x, ridge, e1.z), 0, 0, col);
+                lv(v3(e0.x + o.x, eave, e0.z + o.z), 0, 0, rc, n, 1.0f);
+                lv(v3(e1.x + o.x, eave, e1.z + o.z), 0, 0, rc, n, 1.0f);
+                lv(v3(e0.x, ridge, e0.z), 0, 0, rc, n, 1.0f);
+                lv(v3(e1.x, ridge, e1.z), 0, 0, rc, n, 1.0f);
                 sc_strip_end(&scenery);
             }
             for(int end = -1; end <= 1; end += 2) {
-                V3 o = vscale(az, (float)end * 0.84f);
-                uint32_t col = lit(0xffb88850, vnorm(o), 0.95f);
+                V3 o = vscale(az, (float)end * 0.84f), n = vnorm(o);
                 sc_strip_begin(&scenery, h_flat);
-                sc_vert(&scenery, v3(c.x + o.x - ax.x * 0.88f, eave, c.z + o.z - ax.z * 0.88f), 0, 0, col);
-                sc_vert(&scenery, v3(c.x + o.x + ax.x * 0.88f, eave, c.z + o.z + ax.z * 0.88f), 0, 0, col);
-                sc_vert(&scenery, v3(c.x + o.x, ridge - 0.1f, c.z + o.z), 0, 0, col);
+                lv(v3(c.x + o.x - ax.x * 0.88f, eave, c.z + o.z - ax.z * 0.88f), 0, 0, 0xffb88850, n, 0.95f);
+                lv(v3(c.x + o.x + ax.x * 0.88f, eave, c.z + o.z + ax.z * 0.88f), 0, 0, 0xffb88850, n, 0.95f);
+                lv(v3(c.x + o.x, ridge - 0.1f, c.z + o.z), 0, 0, 0xffb88850, n, 0.95f);
                 sc_strip_end(&scenery);
             }
             box(h_rock, v3(c.x + cy * 2.6f, c.y + 3.6f, c.z - sy * 2.6f), 0.4f, 1.6f, 0.4f, p->yaw, 0xff8a8a90, 0.5f);
@@ -326,21 +404,24 @@ static void prop(const lvl_prop_t *p) {
             V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
             V3 fr = vadd(c, vscale(f, 1.1f)), bk = vsub(c, vscale(f, 1.1f));
             for(int side = -1; side <= 1; side += 2) {
-                uint32_t col = lit(0xffd8642a, vnorm(v3(r.x * side, 0.8f, r.z * side)), 1.0f);
+                V3 n = vnorm(v3(r.x * side, 0.8f, r.z * side));
                 sc_strip_begin(&scenery, h_flat);
-                sc_vert(&scenery, v3(fr.x + r.x * side * 0.95f, c.y, fr.z + r.z * side * 0.95f), 0, 0, col);
-                sc_vert(&scenery, v3(bk.x + r.x * side * 0.95f, c.y, bk.z + r.z * side * 0.95f), 0, 0, col);
-                sc_vert(&scenery, v3(fr.x, c.y + 1.35f, fr.z), 0, 0, col);
-                sc_vert(&scenery, v3(bk.x, c.y + 1.35f, bk.z), 0, 0, col);
+                lv(v3(fr.x + r.x * side * 0.95f, c.y, fr.z + r.z * side * 0.95f), 0, 0, 0xffd8642a, n, 1.0f);
+                lv(v3(bk.x + r.x * side * 0.95f, c.y, bk.z + r.z * side * 0.95f), 0, 0, 0xffd8642a, n, 1.0f);
+                lv(v3(fr.x, c.y + 1.35f, fr.z), 0, 0, 0xffd8642a, n, 1.0f);
+                lv(v3(bk.x, c.y + 1.35f, bk.z), 0, 0, 0xffd8642a, n, 1.0f);
                 sc_strip_end(&scenery);
             }
             for(int end = 0; end < 2; end++) {
-                V3 e = end ? fr : bk;
-                uint32_t col = end ? 0xff3a2a20 : lit(0xffc0582a, vscale(f, -1.0f), 0.9f);
+                V3 e = end ? fr : bk, n = vscale(f, -1.0f);
+                V3 q[3] = {v3(e.x - r.x * 0.95f, c.y, e.z - r.z * 0.95f), v3(e.x + r.x * 0.95f, c.y, e.z + r.z * 0.95f),
+                           v3(e.x, c.y + 1.35f, e.z)};
                 sc_strip_begin(&scenery, h_flat);
-                sc_vert(&scenery, v3(e.x - r.x * 0.95f, c.y, e.z - r.z * 0.95f), 0, 0, col);
-                sc_vert(&scenery, v3(e.x + r.x * 0.95f, c.y, e.z + r.z * 0.95f), 0, 0, col);
-                sc_vert(&scenery, v3(e.x, c.y + 1.35f, e.z), 0, 0, col);
+                for(int k = 0; k < 3; k++) {
+                    /* The open end is the dark inside of the tent. */
+                    if(end) lc(q[k], 0, 0, 0xff3a2a20);
+                    else lv(q[k], 0, 0, 0xffc0582a, n, 0.9f);
+                }
                 sc_strip_end(&scenery);
             }
             V3 fire = vadd(c, vscale(f, 4.0f));
@@ -360,13 +441,13 @@ static void prop(const lvl_prop_t *p) {
             }
             box(h_bark, v3(c.x, c.y + 6.0f, c.z), 2.2f, 0.12f, 2.2f, 0, 0xff8a6440, 0.5f);
             box(h_flat, v3(c.x, c.y + 7.2f, c.z), 1.9f, 1.1f, 1.9f, 0, 0xffe8dcc0, 1.0f);
-            uint32_t rc = lit(0xff3c6a44, vnorm(v3(-0.6f, 1, 0.2f)), 1.0f);
+            V3 rn = vnorm(v3(-0.6f, 1, 0.2f));
             sc_strip_begin(&scenery, h_flat);
             V3 apex = v3(c.x, c.y + 9.8f, c.z);
             static const float cx[5] = {-2.4f, 2.4f, 2.4f, -2.4f, -2.4f}, cz[5] = {-2.4f, -2.4f, 2.4f, 2.4f, -2.4f};
             for(int k = 0; k < 5; k++) {
-                sc_vert(&scenery, v3(c.x + cx[k], c.y + 8.3f, c.z + cz[k]), 0, 0, color_scale(rc, 0.8f + 0.1f * (k & 1)));
-                sc_vert(&scenery, apex, 0, 0, rc);
+                lv(v3(c.x + cx[k], c.y + 8.3f, c.z + cz[k]), 0, 0, 0xff3c6a44, rn, 0.8f + 0.1f * (k & 1));
+                lv(apex, 0, 0, 0xff3c6a44, rn, 1.0f);
             }
             sc_strip_end(&scenery);
             break;
@@ -384,21 +465,39 @@ static float range_h[RANGES][RANGE_SEG + 1];
 static uint32_t range_top[RANGES], range_bot[RANGES];
 static V3 cloud_p[8];
 static float cloud_w[8];
+static const float sky_el[6] = {-0.25f, 0.0f, 0.08f, 0.22f, 0.55f, 1.5707f};
 
-static void sky_setup(void) {
-    static const float el[6] = {-0.25f, 0.0f, 0.08f, 0.22f, 0.55f, 1.5707f};
-    sky_init(&sky, el, 6, SKY_SEG, 1900.0f, h_flat_nofog);
+/* Stars: patches of them (TEX_STARS) on fixed directions, drawn as the
+   sky darkens. A patch each is far cheaper than a sprite a star. */
+#define STARS 14
+static V3 star_dir[STARS];
+static float star_rot[STARS], star_b[STARS];
+
+/* The dome's colours for the hour: the palette's gradient, warmed low in
+   the sky toward the sun (the moon at night), the haze at the horizon. */
+static void sky_colours(void) {
     for(int e = 0; e < 6; e++)
         for(int i = 0; i <= SKY_SEG; i++) {
             float a = ENG_TAU * i / SKY_SEG;
-            float t = clampf(el[e] / 0.9f, 0, 1);
+            float t = clampf(sky_el[e] / 0.9f, 0, 1);
             uint32_t c = color_lerp(pal->sky_horizon, pal->sky_top, sqrtf(t));
             if(e == 0) c = pal->haze;
-            /* Warmer low in the sky toward the sun. */
-            float toward = 0.5f + 0.5f * cosf(a - pal->sun_az);
-            c = color_lerp(c, 0xfff6e2c4, toward * toward * toward * (1.0f - t) * 0.55f);
+            float toward = 0.5f + 0.5f * cosf(a - tod.glow_az);
+            c = color_lerp(c, pal->glow_col, toward * toward * toward * (1.0f - t) * pal->glow_k);
             sky_set_color(&sky, e, i, c);
         }
+    /* Further ranges sit lighter and bluer in the haze; all of them go
+       dark with the night. */
+    uint32_t base = color_lerp(0xff4e6a70, 0xff0a1424, pal->dark);
+    for(int r = 0; r < RANGES; r++) {
+        float k = 0.35f + 0.22f * r;
+        range_top[r] = color_lerp(base, pal->haze, k);
+        range_bot[r] = color_lerp(range_top[r], pal->haze, 0.55f);
+    }
+}
+
+static void sky_setup(void) {
+    sky_init(&sky, sky_el, 6, SKY_SEG, 1900.0f, h_flat_nofog);
     uint32_t seed = 4242;
     for(int r = 0; r < RANGES; r++) {
         float base = 60.0f + 50.0f * r;
@@ -408,10 +507,6 @@ static void sky_setup(void) {
             range_h[r][i] = h;
         }
         range_h[r][RANGE_SEG] = range_h[r][0];
-        /* Further ranges sit lighter and bluer in the haze. */
-        float k = 0.35f + 0.22f * r;
-        range_top[r] = color_lerp(0xff4e6a70, pal->haze, k);
-        range_bot[r] = color_lerp(range_top[r], pal->haze, 0.55f);
     }
     for(int i = 0; i < 8; i++) {
         float a = ENG_TAU * (i + hrand(&seed) * 0.6f) / 8;
@@ -419,6 +514,28 @@ static void sky_setup(void) {
         cloud_p[i] = v3(sinf(a) * d, 260.0f + 160.0f * hrand(&seed), cosf(a) * d);
         cloud_w[i] = 110.0f + 120.0f * hrand(&seed);
     }
+    /* Star patches round the sky: a ring low, a ring high, one overhead,
+       each turned its own way so the pattern never repeats. */
+    seed = 777;
+    for(int i = 0; i < STARS; i++) {
+        float a, el;
+        if(i < 8) {
+            a = ENG_TAU * (i + 0.5f * hrand(&seed)) / 8;
+            el = 0.22f + 0.12f * hrand(&seed);
+        }
+        else if(i < 13) {
+            a = ENG_TAU * (i - 8 + 0.5f * hrand(&seed)) / 5;
+            el = 0.62f + 0.15f * hrand(&seed);
+        }
+        else {
+            a = 0;
+            el = 1.5f;
+        }
+        star_dir[i] = v3(sinf(a) * cosf(el), sinf(el), cosf(a) * cosf(el));
+        star_rot[i] = ENG_TAU * hrand(&seed);
+        star_b[i] = 0.75f + 0.25f * hrand(&seed);
+    }
+    sky_colours();
 }
 
 void world_draw_sky(void) {
@@ -529,7 +646,7 @@ static bool sun_occluded(void) {
     V3 p = r_cam.pos;
     for(int k = 1; k <= 30; k++) {
         float t = k * k * 0.9f + 4.0f;
-        V3 q = vmad(p, sun_dir, t);
+        V3 q = vmad(p, tod.sun, t);
         if(fabsf(q.x) > 383 || fabsf(q.z) > 383) break;
         if(terrain_height(q.x, q.z) > q.y) return true;
     }
@@ -541,33 +658,75 @@ uint32_t world_lit(uint32_t albedo, V3 n) {
 }
 
 void world_update(float dt) {
-    float target = sun_occluded() ? 0.0f : 1.0f;
+    float target = tod.sun_el > 0 && !sun_occluded() ? 1.0f : 0.0f;
     flare_vis = approach(flare_vis, target, dt * 4.0f);
+    sky_colours();
+    /* The fog and the clear colour follow the haze; the fog table is
+       rewritten only when its distances move. */
+    static float fog_near, fog_far;
+    float r = ((pal->haze >> 16) & 255) / 255.0f, g = ((pal->haze >> 8) & 255) / 255.0f, b = (pal->haze & 255) / 255.0f;
+    pvr_fog_table_color(1.0f, r, g, b);
+    pvr_set_bg_color(r, g, b);
+    if(fabsf(fog_near - pal->fog_near) > 0.5f || fabsf(fog_far - pal->fog_far) > 0.5f) {
+        fog_near = pal->fog_near;
+        fog_far = pal->fog_far;
+        pvr_fog_table_linear(fog_near, fog_far);
+    }
+}
+
+/* A disc in the sky fades out over the last few degrees before it sets. */
+static float horizon_alpha(float el) {
+    return clampf((el + 0.06f) / 0.06f, 0, 1);
 }
 
 void world_draw_tr(void) {
     terrain_draw_water(&scenery);
     V3 c = r_cam.pos;
+    /* Stars, once the sky is dark enough; only the patches ahead. */
+    if(pal->stars > 0.02f) {
+        r_hdr(h_stars);
+        for(int i = 0; i < STARS; i++) {
+            V3 d = star_dir[i];
+            if(vdot(d, r_cam.fwd) < -0.1f) continue;
+            float tw = 0.88f + 0.12f * sinf(game.time * 1.9f + i * 1.7f);
+            r_billboard(vmad(c, d, 1850.0f), 560.0f, 560.0f, star_rot[i], 0, 0, 1, 1,
+                        color_alpha(0xffffffff, pal->stars * star_b[i] * tw));
+        }
+    }
     /* Clouds, far and flat. */
     r_hdr(h_cloud);
     for(int i = 0; i < 8; i++) {
         V3 p = vadd(c, cloud_p[i]);
         p.y = cloud_p[i].y;
-        r_billboard(p, cloud_w[i], cloud_w[i] * 0.42f, 0, 0, 0, 1, 1, color_alpha(0xfff8fbfc, 0.92f));
+        r_billboard(p, cloud_w[i], cloud_w[i] * 0.42f, 0, 0, 0, 1, 1, color_alpha(pal->cloud_col, 0.92f));
+    }
+    /* The moon: a disc, faint by day, with a glow at night. */
+    float ma = horizon_alpha(tod.moon_el);
+    if(ma > 0) {
+        V3 mp = vmad(c, tod.moon, 1600.0f);
+        if(pal->dark > 0.05f) {
+            r_hdr(h_glow_add);
+            r_billboard(mp, 220.0f, 220.0f, 0, 0, 0, 1, 1, color_alpha(0xff8090b8, 0.3f * pal->dark * ma));
+        }
+        r_hdr(h_moon);
+        r_billboard(mp, 44.0f, 44.0f, 0, 0, 0, 1, 1, color_alpha(0xffffffff, ma * (0.35f + 0.65f * pal->dark)));
     }
     /* The sun: a big flat disc with a soft glow. */
-    V3 sp = vmad(c, sun_dir, 1600.0f);
-    r_hdr(h_glow_add);
-    r_billboard(sp, 320.0f, 320.0f, 0, 0, 0, 1, 1, 0x60fff0d0);
-    r_hdr(h_sun);
-    r_billboard(sp, 62.0f, 62.0f, 0, 0, 0, 1, 1, pal->sun_col);
+    float sa = horizon_alpha(tod.sun_el);
+    if(sa > 0) {
+        V3 sp = vmad(c, tod.sun, 1600.0f);
+        r_hdr(h_glow_add);
+        r_billboard(sp, 320.0f, 320.0f, 0, 0, 0, 1, 1, color_alpha(pal->sun_col, 0.375f * sa));
+        r_hdr(h_sun);
+        r_billboard(sp, 62.0f, 62.0f, 0, 0, 0, 1, 1, color_alpha(pal->sun_col, sa));
+    }
 }
 
 void world_draw_flare(void) {
     if(flare_vis <= 0.01f) return;
     float sx, sy;
-    if(!sky_sun_screen(sun_dir, 1600.0f, &sx, &sy)) return;
-    float facing = vdot(r_cam.fwd, sun_dir);
+    if(!sky_sun_screen(tod.sun, 1600.0f, &sx, &sy)) return;
+    float facing = vdot(r_cam.fwd, tod.sun);
     if(facing < 0.5f) return;
     /* Fades as the sun leaves the screen. */
     float edge = fminf(fminf(sx + 40.0f, 680.0f - sx), fminf(sy + 40.0f, 520.0f - sy));
@@ -587,21 +746,17 @@ void world_draw_flare(void) {
 /* ---- Building ---- */
 
 void world_init(void) {
-    float ce = cosf(pal->sun_el);
-    sun_dir = v3(sinf(pal->sun_az) * ce, sinf(pal->sun_el), cosf(pal->sun_az) * ce);
     h_flat = r_header(TEX_NONE, HF_OP);
     h_flat_nofog = r_header(TEX_NONE, HF_OP | HF_NOFOG);
     h_rock = r_header(TEX_ROCK, HF_OP);
     h_bark = r_header(TEX_BARK, HF_OP);
     h_tuft = r_header(TEX_TUFT, HF_PT);
     h_sun = r_header(TEX_SUN, HF_TR | HF_NOFOG | HF_ADD);
+    h_moon = r_header(TEX_MOON, HF_TR | HF_NOFOG);
+    h_stars = r_header(TEX_STARS, HF_TR | HF_NOFOG | HF_ADD);
     h_glow_add = r_header(TEX_GLOW, HF_TR | HF_NOFOG | HF_ADD | HF_NOZTEST);
     h_ring_add = r_header(TEX_RING, HF_TR | HF_NOFOG | HF_ADD | HF_NOZTEST);
     h_cloud = r_header(TEX_CLOUD, HF_TR | HF_NOFOG);
-    pvr_fog_table_color(1.0f, ((pal->haze >> 16) & 255) / 255.0f, ((pal->haze >> 8) & 255) / 255.0f,
-                        (pal->haze & 255) / 255.0f);
-    pvr_fog_table_linear(pal->fog_near, pal->fog_far);
-    pvr_set_bg_color(((pal->haze >> 16) & 255) / 255.0f, ((pal->haze >> 8) & 255) / 255.0f, (pal->haze & 255) / 255.0f);
     sky_setup();
     if(!sc_init(&scenery, 185000, 7000, 1600)) printf("Ridgeline world: no memory for the scenery\n");
 }
@@ -617,6 +772,10 @@ void world_build(void) {
     sc_clear(&scenery);
     terrain_build(&scenery);
     int terrain_v = scenery.pool_n;
+    lrec_first = lrec_marked = scenery.pool_n;
+    alb_n = 0;
+    if(!lrec) lrec = malloc(sizeof(LightRec) * (scenery.pool_max - scenery.pool_n));
+    if(!lrec) printf("Ridgeline world: no memory to relight the scenery\n");
     /* Bucket the trees by cell. */
     static uint16_t order[LVL_TREES];
     static uint16_t first[TCELLS * TCELLS + 1];

@@ -8,6 +8,15 @@ const GroundVert *lvl_ground;
 const float *lvl_water;
 const uint8_t *lvl_surf;
 
+/* The ground's colours live in a copy of the level's grid so the clock
+   can relight them (terrain_relight); the level also carries each
+   vertex's albedo, normal and depth under water, and a horizon map. */
+static GroundVert *ground_ram;
+typedef struct { uint8_t r, g, b; int8_t nx, nz; uint8_t deep, pad[2]; } LvlLight;
+static const LvlLight *lvl_light;
+static const uint8_t *lvl_hz;
+static inline uint32_t water_colour(float depth, float k);
+
 /* Friction from the usual off-road figures: dry rock grips best, mud and
    snow worst; mud also drags the tyres and swallows them. A sliding tyre
    on loose ground keeps nearly all its grip (it ploughs the surface), so
@@ -111,9 +120,13 @@ static inline void box_local(int i, float x, float z, float *lx, float *lz) {
 }
 
 void terrain_init(void) {
-    lvl_ground = (const GroundVert *)(rl_level_bin + LEVEL_BIN_GROUND);
+    ground_ram = memalign(32, sizeof(GroundVert) * LEVEL_N * LEVEL_N);
+    memcpy(ground_ram, rl_level_bin + LEVEL_BIN_GROUND, sizeof(GroundVert) * LEVEL_N * LEVEL_N);
+    lvl_ground = ground_ram;
     lvl_water = (const float *)(rl_level_bin + LEVEL_BIN_WATER);
     lvl_surf = rl_level_bin + LEVEL_BIN_SURF;
+    lvl_light = (const LvlLight *)(rl_level_bin + LEVEL_BIN_LIGHT);
+    lvl_hz = rl_level_bin + LEVEL_BIN_HORIZON;
     ob_grid_build();
     printf("Ridgeline terrain: %d boulders, %d logs, %d ledges, %d trees\n", LVL_SPHERES, LVL_CAPSULES, LVL_BOXES,
            LVL_TREES);
@@ -300,10 +313,24 @@ static inline uint32_t grid_c(int i, int j) {
 
 #define TEX_TILE (1.0f / 9.0f)
 
+/* Where each terrain pool vertex gets its colour when relit: a grid
+   vertex, a grid vertex darkened for a skirt, or the water at a depth. */
+enum { SRC_GRID, SRC_SKIRT, SRC_WATER };
+static uint32_t *ter_src;
+static uint32_t ter_src_n, ter_marked;
+
+static void src_mark(const Scenery *sc, uint32_t src) {
+    /* A join appends the previous vertex again before this one twice. */
+    for(uint32_t i = ter_marked; i < sc->pool_n; i++) ter_src[i] = src;
+    if(sc->pool_n - ter_marked == 3) ter_src[ter_marked] = ter_src[ter_marked - 1];
+    ter_marked = sc->pool_n;
+}
+
 static void tv(Scenery *sc, int i, int j, bool join) {
     V3 p = grid_p(i, j);
     if(join) sc_join(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, grid_c(i, j));
     else sc_vert(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, grid_c(i, j));
+    src_mark(sc, SRC_GRID << 30 | (uint32_t)(j * LEVEL_N + i));
 }
 
 /* A chunk's skirt along one edge: the edge's vertices and a copy dropped
@@ -317,6 +344,7 @@ static void skirt(Scenery *sc, int i0, int j0, int di, int dj, int steps, int st
         if(k == 0) sc_join(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, c);
         else sc_vert(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, c);
         sc_vert(sc, q, p.x * TEX_TILE, p.z * TEX_TILE + drop * TEX_TILE, c);
+        src_mark(sc, SRC_SKIRT << 30 | (uint32_t)(j * LEVEL_N + i));
     }
 }
 
@@ -397,6 +425,8 @@ static const pvr_poly_hdr_t *h_ground;
 
 void terrain_build(Scenery *sc) {
     const pvr_poly_hdr_t *h = h_ground = r_header(TEX_GRASS, HF_OP);
+    ter_src = realloc(ter_src, sizeof(uint32_t) * sc->pool_max);   /* trimmed to what is used below */
+    ter_marked = sc->pool_n;
     for(int bj = 0; bj < BLOCKS; bj++)
         for(int bi = 0; bi < BLOCKS; bi++) {
             int i0 = bi * BLOCK_CELLS, j0 = bj * BLOCK_CELLS;
@@ -453,11 +483,11 @@ void terrain_build(Scenery *sc) {
                         float g = lvl_h(ii, jj);
                         float y = w > -999.0f ? w : level - 0.25f;
                         float depth = clampf((y - g) / 1.6f, 0, 1);
-                        uint32_t c = color_lerp(0xff9ed2cc, 0xff2e6a74, depth);
-                        c = color_alpha(c, 0.42f + 0.38f * depth);
+                        uint32_t c = water_colour(depth, pal->water_k);
                         V3 p = v3(LEVEL_ORG + ii * LEVEL_D, y, LEVEL_ORG + jj * LEVEL_D);
                         if(k == 0 && run < 0) sc_join(sc, p, 0, 0, c);
                         else if(k >= 2 || run < 0) sc_vert(sc, p, 0, 0, c);
+                        src_mark(sc, SRC_WATER << 30 | (uint32_t)(depth * 255.0f));
                     }
                     run = i;
                 }
@@ -465,6 +495,106 @@ void terrain_build(Scenery *sc) {
             sc_strip_end(sc);
             sc_chunk_end(sc);
         }
+    ter_src_n = sc->pool_n;
+    ter_src = realloc(ter_src, sizeof(uint32_t) * (ter_src_n ? ter_src_n : 1));
+}
+
+/* ---- Relighting ---- */
+
+/* The light a relight pass is for: the sky's and the sun's weight per
+   channel, the sun's direction, and where it sits in the horizon map. */
+static struct {
+    float sky[3], sun[3];
+    V3 L;
+    const uint8_t *hz0, *hz1;   /* the two bearings either side of the sun's */
+    float hz_t;                 /* and how far between them */
+    float el2;                  /* the sun's elevation in the map's half-degrees */
+    float water_k;
+} rlt;
+
+void terrain_relight_setup(const Palette *p, V3 light) {
+    /* The ground was painted a little flatter than the trees: the same
+       sky and sun, scaled to the level tool's weights. */
+    static const float sun_scale[3] = {0.674f, 0.717f, 0.784f};
+    for(int i = 0; i < 3; i++) {
+        rlt.sky[i] = 0.96f * (p->amb_k[i] + p->sky_k[i]);
+        rlt.sun[i] = p->sun_k[i] * 1.15f * sun_scale[i];
+    }
+    rlt.L = light;
+    rlt.water_k = p->water_k;
+    float az = atan2f(light.x, light.z) * 180.0f / ENG_PI;
+    if(az < 0) az += 360.0f;
+    float u = clampf((az - LEVEL_HZ_AZ0) / LEVEL_HZ_STEP, 0, LEVEL_HZ_DIRS - 1.001f);
+    int d = (int)u;
+    rlt.hz_t = u - d;
+    rlt.hz0 = lvl_hz + d * LEVEL_HZ_N * LEVEL_HZ_N;
+    rlt.hz1 = rlt.hz0 + LEVEL_HZ_N * LEVEL_HZ_N;
+    rlt.el2 = asinf(clampf(light.y, -1, 1)) * (360.0f / ENG_PI);
+}
+
+/* The skyline's elevation toward the sun from grid vertex (i, j): the map
+   is on every other vertex, so the odd ones take the mean of their
+   neighbours'. */
+static inline float horizon_at(int i, int j) {
+    int hi = i >> 1, hj = j >> 1;
+    int hi1 = (i & 1) && hi + 1 < LEVEL_HZ_N ? hi + 1 : hi, hj1 = (j & 1) && hj + 1 < LEVEL_HZ_N ? hj + 1 : hj;
+    int a = hj * LEVEL_HZ_N + hi, b = hj * LEVEL_HZ_N + hi1, c = hj1 * LEVEL_HZ_N + hi, d = hj1 * LEVEL_HZ_N + hi1;
+    float h0 = 0.25f * (rlt.hz0[a] + rlt.hz0[b] + rlt.hz0[c] + rlt.hz0[d]);
+    float h1 = 0.25f * (rlt.hz1[a] + rlt.hz1[b] + rlt.hz1[c] + rlt.hz1[d]);
+    return h0 + (h1 - h0) * rlt.hz_t;
+}
+
+static inline uint32_t water_colour(float depth, float k) {
+    uint32_t c = color_lerp(0xff9ed2cc, 0xff2e6a74, depth);
+    return color_alpha(color_scale(c, k), 0.42f + 0.38f * depth);
+}
+
+void terrain_relight(int from, int to) {
+    /* Under the water the bed tints toward the water's colour. */
+    const float wet[3] = {52.0f * rlt.water_k, 92.0f * rlt.water_k, 98.0f * rlt.water_k};
+    int i = from % LEVEL_N, j = from / LEVEL_N;
+    for(int idx = from; idx < to; idx++) {
+        const LvlLight *l = &lvl_light[idx];
+        float nx = l->nx * (1.0f / 127.0f), nz = l->nz * (1.0f / 127.0f);
+        float ny = sqrtf(fmaxf(1.0f - nx * nx - nz * nz, 0.0f));
+        float d = nx * rlt.L.x + ny * rlt.L.y + nz * rlt.L.z;
+        if(d > 0) {
+            /* In a hill's shadow where the sun sits under the skyline;
+               soft over 3 degrees. */
+            float sh = clampf((rlt.el2 - horizon_at(i, j)) * (1.0f / 6.0f) + 0.5f, 0, 1);
+            d *= sh;
+        }
+        else d = 0;
+        float up = 0.55f + 0.45f * ny;
+        float deep = l->deep * (0.5f / 255.0f), dry = 1.0f - deep;
+        int r = (int)(l->r * (rlt.sky[0] * up + rlt.sun[0] * d) * dry + wet[0] * deep);
+        int g = (int)(l->g * (rlt.sky[1] * up + rlt.sun[1] * d) * dry + wet[1] * deep);
+        int b = (int)(l->b * (rlt.sky[2] * up + rlt.sun[2] * d) * dry + wet[2] * deep);
+        if(r > 255) r = 255;
+        if(g > 255) g = 255;
+        if(b > 255) b = 255;
+        ground_ram[idx].c = 0xff000000u | (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b;
+        if(++i == LEVEL_N) {
+            i = 0;
+            j++;
+        }
+    }
+}
+
+int terrain_pool_n(void) {
+    return (int)ter_src_n;
+}
+
+void terrain_relight_pool(Scenery *sc, int from, int to) {
+    RV *pool = sc->pool;
+    for(int i = from; i < to; i++) {
+        uint32_t s = ter_src[i], v = s & 0x3fffffffu;
+        switch(s >> 30) {
+            case SRC_GRID: pool[i].c = ground_ram[v].c; break;
+            case SRC_SKIRT: pool[i].c = color_scale(ground_ram[v].c, 0.82f); break;
+            default: pool[i].c = water_colour(v * (1.0f / 255.0f), rlt.water_k); break;
+        }
+    }
 }
 
 void terrain_draw_water(const Scenery *sc) {

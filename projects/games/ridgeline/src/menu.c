@@ -3,6 +3,7 @@
    the pause menu. */
 #include "menu.h"
 #include "records.h"
+#include "tod.h"
 #include "hud.h"
 #include "engine/ui.h"
 #include "truck.h"
@@ -152,13 +153,15 @@ static void select_scene(float dt) {
     camera_set(orbit_point(c, a, 7.5f, 1.4f), vadd(c, v3(0, 0.1f, 0)), 1.1f);
 }
 
+#define SEL_ROWS 5
+
 void menu_select_update(float dt) {
     if(input_menu_up()) {
-        sel_row = (sel_row + 3) % 4;
+        sel_row = (sel_row + SEL_ROWS - 1) % SEL_ROWS;
         audio_sfx(RL_SFX_MENU_MOVE, 160);
     }
     if(input_menu_down()) {
-        sel_row = (sel_row + 1) % 4;
+        sel_row = (sel_row + 1) % SEL_ROWS;
         audio_sfx(RL_SFX_MENU_MOVE, 160);
     }
     int d = input_menu_right() ? 1 : input_menu_left() ? -1 : 0;
@@ -175,13 +178,17 @@ void menu_select_update(float dt) {
             trucks[0].livery = game.livery;
         }
         else if(sel_row == 2) game.companions = (game.companions + 4 + d) % 4;
+        else if(sel_row == 3) {
+            game.start_tod = (game.start_tod + TOD_COUNT + d) % TOD_COUNT;
+            tod_set_hour(tod_hours[game.start_tod]);
+        }
     }
     if(pad.pressed & BTN_B) {
         audio_sfx(RL_SFX_MENU_BACK, 200);
         game_set_state(ST_TITLE);
         return;
     }
-    if((pad.pressed & BTN_START) || ((pad.pressed & BTN_A) && sel_row == 3)) {
+    if((pad.pressed & BTN_START) || ((pad.pressed & BTN_A) && sel_row == SEL_ROWS - 1)) {
         audio_sfx(RL_SFX_MENU_SELECT, 220);
         game_start_drive();
         return;
@@ -191,17 +198,18 @@ void menu_select_update(float dt) {
 
 void menu_select_draw(void) {
     static const char *const company[4] = {"SOLO", "1 CPU TRUCK", "2 CPU TRUCKS", "3 CPU TRUCKS"};
-    const char *rows[4][2] = {
+    const char *rows[SEL_ROWS][2] = {
         {"TRUCK", menu_truck_name(game.truck_model)},
         {"PAINT", livery_name(game.truck_model, game.livery)},
         {"COMPANY", company[game.companions]},
+        {"START AT", tod_names[game.start_tod]},
         {"", "DRIVE!"},
     };
-    ui_panel(40, 282, 430, 426);
-    for(int r = 0; r < 4; r++) {
-        float y = 304 + r * 34;
+    ui_panel(40, 268, 430, 432);
+    for(int r = 0; r < SEL_ROWS; r++) {
+        float y = 288 + r * 31;
         bool on = r == sel_row;
-        if(r < 3) {
+        if(r < SEL_ROWS - 1) {
             ui_row(44, y - 15, 426, y + 15, on);
             uint32_t c = ui_col(on ? UI_VALUE_SEL : UI_VALUE);
             hud_text_c(58, y, 0.66f, ALIGN_LEFT, ui_col(on ? UI_ITEM_SEL : UI_LABEL), rows[r][0]);
@@ -211,7 +219,7 @@ void menu_select_draw(void) {
         else ui_button(235, y, 200, rows[r][1], on);
     }
     /* This truck's best times to the summit, by the way up. */
-    ui_panel(446, 282, 610, 426);
+    ui_panel(446, 268, 610, 432);
     hud_text_c(528, 298, 0.5f, ALIGN_CENTER, ui_col(UI_LABEL), "BEST TIMES");
     static const char *const short_way[WAY_COUNT] = {"LOGGING", "RIDGE", "CREEK", "OWN WAY"};
     for(int w = 0; w < WAY_COUNT; w++) {
@@ -251,10 +259,22 @@ void menu_pause_update(float dt) {
         /* Photo mode: the stick orbits, B, Y or Start goes back. */
         if(game.cam_scripted) return;
         game.photo_t += dt;
+        game.photo_time_t += dt;
         if(pad.pressed & (BTN_B | BTN_Y | BTN_START)) {
             game.photo = false;
             audio_sfx(RL_SFX_MENU_BACK, 160);
             return;
+        }
+        /* The D-pad moves the clock: a tap a quarter hour, held it runs. */
+        static float held;
+        int dir = (pad.held & BTN_RIGHT) ? 1 : (pad.held & BTN_LEFT) ? -1 : 0;
+        float step = 0;
+        if(pad.pressed & (BTN_LEFT | BTN_RIGHT)) step = 0.25f;
+        held = dir ? held + dt : 0;
+        if(held > 0.4f) step = 2.0f * dt;
+        if(dir && step > 0) {
+            tod_set_hour(tod.hour + dir * step);
+            game.photo_time_t = 0;
         }
         camera_photo(&trucks[0], dt);
         return;
@@ -276,6 +296,7 @@ void menu_pause_update(float dt) {
     if(pad.pressed & BTN_Y) {
         game.photo = true;
         game.photo_t = 0;
+        game.photo_time_t = 10.0f;
         camera_photo_begin(&trucks[0]);
         audio_sfx(RL_SFX_MENU_SELECT, 160);
         return;
@@ -310,7 +331,14 @@ void menu_pause_draw(void) {
         float a = clampf(2.5f - game.photo_t, 0, 1);
         if(a > 0 && !game.cam_scripted)
             hud_text_c(320, 452, 0.55f, ALIGN_CENTER, color_alpha(0xfff8f0dc, a),
-                       "PHOTO MODE   STICK: TURN   R/L: ZOOM   B: BACK");
+                       "PHOTO MODE   STICK: TURN   R/L: ZOOM   D-PAD: TIME   B: BACK");
+        /* The clock while it is being moved. */
+        float ta = clampf(2.0f - game.photo_time_t, 0, 1);
+        if(ta > 0 && !game.cam_scripted) {
+            char t[8];
+            tod_format(tod.hour, t, sizeof(t));
+            hud_text_c(320, 30, 0.9f, ALIGN_CENTER, color_alpha(0xfff8f0dc, ta), t);
+        }
         return;
     }
     char view[32] = "";
@@ -321,7 +349,10 @@ void menu_pause_draw(void) {
     int n = 0;
     for(int i = 0; i < P_COUNT; i++) n += pause_item_on(i);
     ui_panel(190, 150, 450, 204 + n * 32);
-    ui_title(190, 150, 450, "PAUSED");
+    char title[24], t[8];
+    tod_format(tod.hour, t, sizeof(t));
+    snprintf(title, sizeof(title), "PAUSED   %s", t);
+    ui_title(190, 150, 450, title);
     float y = 204;
     for(int i = 0; i < P_COUNT; i++) {
         if(!pause_item_on(i)) continue;

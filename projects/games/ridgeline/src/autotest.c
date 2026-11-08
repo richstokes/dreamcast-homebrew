@@ -9,6 +9,8 @@
 #include "engine/prof.h"
 #include "engine/frame.h"
 #include "engine/qa.h"
+#include "tod.h"
+#include "world.h"
 
 #ifndef RL_AT_TRUCK
 #define RL_AT_TRUCK 1
@@ -18,6 +20,9 @@
 #endif
 #ifndef RL_AT_COMPANIONS
 #define RL_AT_COMPANIONS 3
+#endif
+#ifndef RL_AT_TOD
+#define RL_AT_TOD TOD_AFTERNOON   /* when the drive starts (tod.h) */
 #endif
 
 #ifdef RL_AT_FXBENCH
@@ -78,6 +83,19 @@ static const float tour_views[][6] = {
     {-52, 97, 18, -78, 82, 50},         /* the creek bed's last climb, by the lake */
 };
 #define TOUR_N (int)(sizeof(tour_views) / sizeof(tour_views[0]))
+
+#if defined(RL_CAPTURE) && !defined(RL_HW)
+/* The day over the meadow (tour view 0) and the west (view 5): the
+   hours, each shot once the world has been relit for it (Flycast only:
+   relighting the whole world at once stalls a console bench's first
+   window). */
+static const float tod_shot_hours[] = {5.5f, 6.3f, 8.0f, 12.5f, 17.0f, 18.3f, 19.0f, 22.0f};
+#define TOD_SHOTS (int)(sizeof(tod_shot_hours) / sizeof(tod_shot_hours[0]))
+static const int tod_shot_views[2] = {0, 5};
+#define TOD_N (TOD_SHOTS * 2)
+#else
+#define TOD_N 0
+#endif
 
 #ifdef RL_AT_VMUTEST
 #include "records.h"
@@ -201,11 +219,12 @@ void autotest_boot(void) {
     game.truck_model = RL_AT_TRUCK;
     game.livery = 0;
     game.companions = RL_AT_COMPANIONS;
+    game.start_tod = RL_AT_TOD;
 #if defined(RL_CAPTURE) && !defined(RL_AT_FXBENCH)
     at.tour = 0;
-    printf("RL AT capture: title, select, scenery tour, then the drive\n");
+    printf("RL AT capture: title, select, scenery tour%s, then the drive\n", TOD_N ? ", the day over the meadow" : "");
 #else
-    at.tour = TOUR_N;
+    at.tour = TOUR_N + TOD_N;
     game_start_drive();
     ai_start(0, RL_AT_ROUTE);
 #endif
@@ -228,8 +247,8 @@ bool autotest_controls(Truck *p, float dt) {
         return true;
     }
 #endif
-    /* Lights on for a stretch so they are drawn and costed. */
-    p->lights = fmodf(game.clock, 60.0f) > 40.0f;
+    /* Lights on for a stretch so they are drawn and costed, and in the dark. */
+    p->lights = pal->dark > 0.5f || fmodf(game.clock, 60.0f) > 40.0f;
     return false;
 }
 
@@ -241,7 +260,19 @@ int autotest_steps(int steps) {
 #endif
 }
 
-static void shot(const char *name) {
+#ifdef RL_CAPTURE
+/* The scripted views are over: back to the drive at its start hour. */
+static void tour_done(void) {
+    game.photo = false;
+    game.cam_scripted = false;
+    game.paused = false;
+    camera_reset();
+    game.clock = 0;
+    tod_set_hour(tod_hours[game.start_tod]);
+}
+#endif
+
+static void __attribute__((unused)) shot(const char *name) {
 #ifdef RL_HW
     rl_wd.in_print = 1;
     qa_shot("%s", name);
@@ -336,19 +367,58 @@ void autotest_frame(float dt_real) {
         if(at.tour_frames >= 60) {
             at.tour++;
             at.tour_frames = 0;
-            if(at.tour == TOUR_N) {
-                game.photo = false;
-                game.cam_scripted = false;
-                game.paused = false;
-                camera_reset();
-                game.clock = 0;
-            }
+            if(at.tour == TOUR_N + TOD_N) tour_done();
+        }
+        return;
+    }
+#if defined(RL_CAPTURE) && !defined(RL_HW)
+    if(at.tour < TOUR_N + TOD_N) {
+        /* The same two views through the day. */
+        int k = at.tour - TOUR_N;
+        const float *v = tour_views[tod_shot_views[k / TOD_SHOTS]];
+        float hour = tod_shot_hours[k % TOD_SHOTS];
+        V3 p = v3(v[0], v[1], v[2]);
+        float g = terrain_height(p.x, p.z);
+        if(p.y < g + 3.0f) p.y = g + 3.0f;
+        camera_set(p, v3(v[3], v[4], v[5]), 1.2f);
+        game.photo = true;
+        game.cam_scripted = true;
+        game.paused = true;
+        if(at.tour_frames == 0) {
+            uint64_t t0 = timer_us_gettime64();
+            tod_set_hour(hour);
+            tod_relight_all();
+            printf("RL AT tod %.1f: relit in %lu ms\n", (double)hour, (unsigned long)((timer_us_gettime64() - t0) / 1000));
+        }
+        /* Shot early and held: the capture tool grabs the window a
+           quarter of a second after the line. */
+        if(++at.tour_frames == 15) {
+            char name[24];
+            snprintf(name, sizeof(name), "tod-%d-%02d%02d", k / TOD_SHOTS, (int)hour, (int)(fmodf(hour, 1.0f) * 60.0f + 0.5f));
+            shot(name);
+        }
+        if(at.tour_frames >= 50) {
+            at.tour++;
+            at.tour_frames = 0;
+            if(at.tour == TOUR_N + TOD_N) tour_done();
         }
         return;
     }
 #endif
+#endif
     if(game.state != ST_DRIVE || at.done) return;
     float cpu = game.cpu_ms;
+    /* The window's slowest frame, phase by phase, with its relighting. */
+    static float worst_cpu;
+    static uint32_t worst_ph[4], worst_relight;
+    static uint64_t tod_us_last;
+    uint32_t relight_us = (uint32_t)(tod_us - tod_us_last);
+    tod_us_last = tod_us;
+    if(cpu > worst_cpu) {
+        worst_cpu = cpu;
+        memcpy(worst_ph, prof_phase_last, sizeof(worst_ph));
+        worst_relight = relight_us;
+    }
     qa_window_frame(&at.win, dt_real, eng_frame.steps, cpu);
     at.all_frames++;
     at.all_cpu += cpu;
@@ -412,9 +482,14 @@ void autotest_frame(float dt_real) {
     if(at.win.t >= RL_AT_WINDOW) {
         float f = prof_phase_frames ? 1.0f / (prof_phase_frames * 1000.0f) : 0;
         extern uint64_t world_us[3];
-        printf("RL AT split terrain=%.2f trees=%.2f trucks=%.2f ms\n", (double)(world_us[0] * f), (double)(world_us[1] * f),
-               (double)(world_us[2] * f));
+        printf("RL AT split terrain=%.2f trees=%.2f trucks=%.2f relight=%.2f ms at %.1f h\n", (double)(world_us[0] * f),
+               (double)(world_us[1] * f), (double)(world_us[2] * f), (double)(tod_us * f), (double)tod.hour);
         memset(world_us, 0, sizeof(world_us));
+        tod_us = 0;
+        tod_us_last = 0;
+        printf("RL AT worst %.2f ms: upd=%.2f op=%.2f pt=%.2f tr=%.2f relight=%.2f\n", (double)worst_cpu,
+               worst_ph[0] * 1e-3, worst_ph[1] * 1e-3, worst_ph[2] * 1e-3, worst_ph[3] * 1e-3, worst_relight * 1e-3);
+        worst_cpu = 0;
         extern int ter_count[4];
         printf("RL AT terrain verts: near3 %d near6 %d skirts %d far %d\n", (int)(ter_count[0] * f * 1000),
                (int)(ter_count[1] * f * 1000), (int)(ter_count[2] * f * 1000), (int)(ter_count[3] * f * 1000));

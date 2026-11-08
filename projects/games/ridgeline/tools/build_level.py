@@ -21,7 +21,12 @@ World: +X east, +Y up, +Z north, metres. Writes to --out:
 
     level.bin       heights (f32) beside baked vertex colours (u32 argb),
                     water surface (f32, -1000 none) and surface ids (u8),
-                    each N x N, row-major by z then x
+                    each N x N, row-major by z then x; then what the game
+                    needs to relight the ground as the day goes by: per
+                    vertex its albedo (with the ambient occlusion folded
+                    in), normal and how deep under water it lies, and a
+                    horizon map (the skyline's elevation in HZ_DIRS
+                    directions from every other vertex) for hill shadows
     level.h         grid constants, surfaces, routes, obstacles, trees,
                     props, spawn points and viewpoints
     level_map.png   the minimap's picture (packed by build_textures.py)
@@ -68,6 +73,10 @@ ALBEDO = {
 }
 SUN = np.array([-0.803, 0.375, 0.464])   # a late sun in the west-north-west (world.c palette)
 SUN = SUN / np.linalg.norm(SUN)
+# The horizon map: bearings (degrees from north) the sun's arc covers, and
+# the half-resolution grid it is sampled on.
+HZ_AZ0, HZ_STEP, HZ_DIRS = 45, 15, 21     # 45 .. 345
+HZ_N = (N - 1) // 2 + 1
 HAZE = (214, 228, 236)
 
 
@@ -955,6 +964,38 @@ def sun_shadow(h):
     return gaussian_filter(lit, 1.0)
 
 
+def horizon_map(h):
+    """The skyline's elevation (degrees, as u8 half-degrees) in HZ_DIRS
+    bearings from every other vertex: the sun is in a hill's shadow where it
+    sits below that. Marched out to 600 m."""
+    gi, gj = np.meshgrid(np.arange(0, N, 2, dtype=float), np.arange(0, N, 2, dtype=float))
+    h0 = h[::2, ::2] + 0.5
+    out = np.zeros((HZ_DIRS, HZ_N, HZ_N), dtype=np.uint8)
+    for d in range(HZ_DIRS):
+        az = math.radians(HZ_AZ0 + d * HZ_STEP)
+        sx, sz = math.sin(az), math.cos(az)
+        best = np.full(h0.shape, -90.0)
+        for k in range(1, 201):
+            dist = 3.0 * k
+            hh = map_coordinates(h, [gj + sz * dist / D, gi + sx * dist / D], order=1, mode="nearest")
+            best = np.maximum(best, np.degrees(np.arctan2(hh - h0, dist)))
+        out[d] = np.clip(np.round(best * 2), 0, 255).astype(np.uint8)
+    return out
+
+
+def light_inputs(alb_ao, nrm, h, water):
+    """Per vertex, 8 bytes: albedo with the ambient occlusion folded in
+    (u8 rgb), the normal's x and z (s8, y is recovered), how far under
+    water it lies (u8, 0..1 over 2.5 m), two spare."""
+    rec = np.zeros((N * N, 8), dtype=np.uint8)
+    rec[:, 0:3] = np.clip(alb_ao, 0, 255).reshape(-1, 3).astype(np.uint8)
+    rec[:, 3] = np.clip(np.round(nrm[..., 0] * 127), -127, 127).astype(np.int8).ravel().view(np.uint8)
+    rec[:, 4] = np.clip(np.round(nrm[..., 2] * 127), -127, 127).astype(np.int8).ravel().view(np.uint8)
+    deep = np.clip((water - h) / 2.5, 0, 1)
+    rec[:, 5] = np.round(deep * 255).astype(np.uint8).ravel()
+    return rec.tobytes()
+
+
 def colours(h, water, surf):
     nrm = normals(h)
     lam = np.clip(np.einsum("jik,k->ji", nrm, SUN), 0, 1)
@@ -982,7 +1023,7 @@ def colours(h, water, surf):
     rgb = rgb * (1 - 0.5 * deep[..., None]) + np.array([52, 92, 98]) * 0.5 * deep[..., None]
     rgb = np.clip(rgb, 0, 255).astype(np.uint32)
     argb = (0xFF << 24) | (rgb[..., 0] << 16) | (rgb[..., 1] << 8) | rgb[..., 2]
-    return argb.astype(np.uint32), rgb
+    return argb.astype(np.uint32), rgb, alb * ao[..., None], nrm
 
 
 # ---------------------------------------------------------------------------
@@ -995,10 +1036,16 @@ def write_header(path, routes, spheres, capsules, boxes, rock_boxes, trees, prop
     w("#ifndef RL_LEVEL_H\n#define RL_LEVEL_H\n#include <stdint.h>\n")
     w(f"#define LEVEL_N {N}\n#define LEVEL_D {D:.1f}f\n#define LEVEL_ORG {ORG:.1f}f\n#define LEVEL_SIZE {SIZE:.1f}f")
     w("/* level.bin: {f32 height, u32 argb}[N*N] (side by side: drawing the ground reads both),")
-    w("   f32 water[N*N] (-1000: none), u8 surface[N*N]. */")
+    w("   f32 water[N*N] (-1000: none), u8 surface[N*N], then the relighting inputs:")
+    w("   {u8 r, g, b (albedo x ao), s8 nx, nz, u8 deep, pad[2]}[N*N] and the horizon map,")
+    w("   u8 half-degrees [HZ_DIRS][HZ_N][HZ_N] (bearing HZ_AZ0 + d * HZ_STEP). */")
     w("#define LEVEL_BIN_GROUND 0")
     w(f"#define LEVEL_BIN_WATER {N * N * 8}")
     w(f"#define LEVEL_BIN_SURF {N * N * 12}")
+    surf_len = N * N + (-(N * N)) % 4
+    w(f"#define LEVEL_BIN_LIGHT {N * N * 12 + surf_len}")
+    w(f"#define LEVEL_BIN_HORIZON {N * N * 12 + surf_len + N * N * 8}")
+    w(f"#define LEVEL_HZ_N {HZ_N}\n#define LEVEL_HZ_DIRS {HZ_DIRS}\n#define LEVEL_HZ_AZ0 {HZ_AZ0}\n#define LEVEL_HZ_STEP {HZ_STEP}")
     w("enum { " + ", ".join(f"SURF_{n}" for n in SURFACES) + ", SURF_COUNT };")
     w(f"#define LEVEL_LAKE_Y {lake_level:.2f}f\n#define LEVEL_START_Y {start_y:.2f}f\n#define LEVEL_SUMMIT_Y {summit_y:.2f}f")
     w(f"#define LEVEL_SUMMIT_X {PEAK[0]:.1f}f\n#define LEVEL_SUMMIT_Z {PEAK[1]:.1f}f\n")
@@ -1179,7 +1226,7 @@ def main():
     boxes += prop_boxes
     water[water < h + 0.05] = -1000.0
     trees = [(t[0], float(sample(h, np.array([t[0], t[2]]))[0]), t[2], t[3], t[4], t[5]) for t in trees]
-    argb, rgb = colours(h, water, surf)
+    argb, rgb, alb_ao, nrm = colours(h, water, surf)
 
     def gy(x, z):
         return float(sample(h, np.array([x, z]))[0])
@@ -1227,6 +1274,7 @@ def main():
     ground[:, 0] = h.astype("<f4").ravel().view("<u4")
     ground[:, 1] = argb.ravel()
     blob = ground.tobytes() + water.astype("<f4").tobytes() + surf_bytes
+    blob += light_inputs(alb_ao, nrm, h, water) + horizon_map(h).tobytes()
     (args.out / "level.bin").write_bytes(blob)
     write_header(args.out / "level.h", routes, spheres, capsules, boxes, rock_boxes, trees, props, views, spawns, lake_level,
                  summit_y, gy(SPAWN[0], SPAWN[1]))

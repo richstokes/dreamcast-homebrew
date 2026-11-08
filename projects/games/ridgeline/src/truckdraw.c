@@ -276,8 +276,10 @@ void truckdraw_draw_tr(void) {
         float facing = clampf(vdot(to_cam, F), 0, 1);
         for(int i = 0; i < 2; i++) {
             V3 p = truck_to_world(t, v3(info->headlight[i][0], info->headlight[i][1], info->headlight[i][2]));
-            float sz = info->headlight_r * (2.5f + 6.0f * facing * facing);
-            r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1, color_alpha(0xfffff0c8, 0.5f + 0.5f * facing));
+            /* Brighter and bigger in the dark. */
+            float sz = info->headlight_r * (2.5f + 6.0f * facing * facing) * (1.0f + 0.5f * pal->dark);
+            r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1,
+                        color_alpha(0xfffff0c8, (0.5f + 0.5f * facing) * (1.0f + 0.6f * pal->dark)));
             V3 tl = truck_to_world(t, v3(info->taillight[i][0], info->taillight[i][1], info->taillight[i][2]));
             r_billboard(tl, 0.35f, 0.35f, 0, 0, 0, 1, 1, color_alpha(0xffff2010, 0.6f));
         }
@@ -289,6 +291,6 @@ void truckdraw_draw_tr(void) {
 #endif
         /* The pool of light on the ground ahead. */
         V3 ahead = vmad(v3(c.x, 0, c.z), fh, 9.0f);
-        ground_quad(ahead, vscale(rh, 4.5f), vscale(fh, 6.5f), 0.08f, color_alpha(0xffffe8b0, 0.28f));
+        ground_quad(ahead, vscale(rh, 4.5f), vscale(fh, 6.5f), 0.08f, color_alpha(0xffffe8b0, 0.28f + 0.45f * pal->dark));
     }
 }

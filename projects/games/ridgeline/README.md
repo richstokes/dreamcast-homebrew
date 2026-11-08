@@ -47,6 +47,12 @@ been, and the viewpoints you've found.
   and the cairns burst away as a truck comes near (or at the horn), hawks
   circle over the meadow and the bluffs, and now and then a V of geese
   crosses the sky
+- A day that goes by as you drive, an hour a minute: first light, sunrise
+  mist, noon, the long afternoon shadows, sunset, dusk and a starry
+  moonlit night, the hills' shadows swinging round with the sun and the
+  headlights coming on as it gets dark. Pick when to set off on the truck
+  select (dawn, morning, afternoon, dusk or night); photo mode moves the
+  clock with the D-pad
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,
@@ -76,7 +82,7 @@ If you are burning a physical CD-R, you may want to try the padded
 | X | Map: corner, large, off |
 | Y (hold) | Recover the truck to the nearest trail |
 | Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/off, quit |
-| Y (paused) | Photo mode: no HUD, the stick turns the camera round the truck, R/L zoom, B back |
+| Y (paused) | Photo mode: no HUD, the stick turns the camera round the truck, R/L zoom, D-pad left/right moves the clock, B back |
 
 ## Build and run
 
@@ -97,7 +103,7 @@ make -C projects/games/ridgeline run
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
 | `make hw` | Plays on the console |
 | `make disc` | A self-booting CDI |
-| `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour and the drive as screenshots |
+| `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour) |
 | `make -C tools/hostsim && tools/hostsim/sim route <truck 0/1> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second |
 
 Assets (generated output is committed):
@@ -165,6 +171,24 @@ and asinf for the steering. Physics went 1.67 to 1.76 ms with the divides and
 1.70 ms with the trig added; the FPU-stall share never moved, so FDIV latency
 is not where the time goes. Fewer substeps or less work per step is the lever.
 
+Time of day, `make hwbench` A/B on the console (2026-11-07), the bench
+now running from 17:00 through sunset into the night (the lights come on,
+the stars and the moon are drawn):
+
+| 180 s on the logging road | Before (b0e9190) | Time of day |
+| --- | --- | --- |
+| fps, average | 58.9 | 59.3 |
+| CPU, ms a frame | 13.02 | 14.16 |
+| PVR render, ms | 10.86 | 11.15 |
+| Late frames in the drive | ~110 | 56 |
+
+Relighting the world as the clock runs is 0.8 ms a frame (0.6-0.9 in
+Flycast): a slice of the 236,000 ground and scenery vertices each frame,
+so a whole pass takes ~3.5 s while the sun moves under a degree. A pass
+all at once (a clock jump in a test) is ~165 ms on the console, ~115 in
+Flycast. The night costs another ~0.9 ms of TR submission, nearly all of
+it the four trucks' headlights, which used to be on a third of the time.
+
 ## Gotchas
 
 - A console run under dcload that goes quiet and stays quiet is usually
@@ -202,6 +226,8 @@ is not where the time goes. Fewer substeps or less work per step is the lever.
 ## Known limitations
 
 - One scene (autumn); the desert palette is not built yet
+- Headlights light the truck and a pool on the trail ahead, not the
+  terrain or trees around it
 - No rumble or online play yet; the VMU keeps best times only
 - Rock-ledge climbing is approximate: the tyre is sampled at seven points,
   not swept

@@ -4,6 +4,7 @@
    short-lived: on the console the PVR's fill rate, not the CPU, sets the
    budget. Clods are small and cheap, so a roostertail can be dense. */
 #include "fx.h"
+#include "world.h"
 #include "truck.h"
 #include "terrain.h"
 
@@ -400,6 +401,8 @@ static void tracks_draw(void) {
 
 void fx_draw(void) {
     tracks_draw();
+    /* What the tyres throw is lit by the day too: dim it at night. */
+    float dim = 1.0f - 0.65f * pal->dark;
     r_hdr(h_puff);
     for(int i = 0; i < part_n; i++) {
         const Part *q = &parts[i];
@@ -412,13 +415,13 @@ void fx_draw(void) {
         if(d2 < 25.0f) a *= clampf((sqrtf(d2) - 2.0f) * (1.0f / 3.0f), 0, 1);
         if(a < 0.02f) continue;
         float s = q->size * (1.0f + q->grow * k);
-        r_billboard(q->p, s, s, q->life * 0.7f, 0, 0, 1, 1, color_alpha(q->col, a));
+        r_billboard(q->p, s, s, q->life * 0.7f, 0, 0, 1, 1, color_alpha(color_scale(q->col, dim), a));
     }
     r_hdr(h_clod);
     for(int i = 0; i < part_n; i++) {
         const Part *q = &parts[i];
         if(q->kind != P_CLOD) continue;
         float a = clampf((q->max - q->life) / 0.3f, 0, 1);
-        r_billboard(q->p, q->size, q->size, q->rot, 0, 0, 1, 1, color_alpha(q->col, a));
+        r_billboard(q->p, q->size, q->size, q->rot, 0, 0, 1, 1, color_alpha(color_scale(q->col, dim), a));
     }
 }
