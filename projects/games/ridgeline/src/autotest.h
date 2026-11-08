@@ -15,8 +15,17 @@ void autotest_boot(void);
 /* True when the test drives the player itself (the AI then sits out). */
 bool autotest_controls(struct Truck *p, float dt);
 int autotest_steps(int steps);
+/* Console benches: which part of the frame the main loop is in, for the
+   stall watchdog's report. */
+#ifdef RL_HW
+extern volatile int rl_where;
+#define RL_WHERE(n) (rl_where = (n))
+#endif
 void autotest_frame(float dt_real);
 void autotest_draw(void);
+#endif
+#ifndef RL_WHERE
+#define RL_WHERE(n) ((void)0)
 #endif
 
 #endif

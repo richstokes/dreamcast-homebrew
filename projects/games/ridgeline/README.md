@@ -93,6 +93,7 @@ make -C projects/games/ridgeline run
 | `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all |
 | `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time saves, reads back, and a slower one doesn't replace it |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
+| `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
 | `make hw` | Plays on the console |
 | `make disc` | A self-booting CDI |
@@ -160,6 +161,11 @@ the camera and a third of the mud haze.
 
 ## Gotchas
 
+- A console run under dcload that goes quiet and stays quiet is usually
+  stuck inside a print, not in the game: dcload waits for the Mac's reply
+  with interrupts off and a lost packet leaves it waiting. `make hwreport`
+  says which. The bench's prints a third of a second apart never stalled;
+  silencing them so prints came a second apart stalled 5 runs out of 5
 - Rebuild the level and then the textures: the minimap comes from the level
 - A truck placed level on a steep slope starts with its body in the hill and
   is thrown off it; `truck_place` sits it on the ground under its wheels

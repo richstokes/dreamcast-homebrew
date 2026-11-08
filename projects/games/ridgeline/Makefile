@@ -62,12 +62,19 @@ vmutest:
 
 DC_HW = ../../../tools/dc-hw.sh
 HW_LOG ?= captures/hw/hwbench.log
+# HW_OFF= leaves the console on after the run, so a bench that went quiet
+# can be looked into with make hwreport (then dc-hw.sh power off).
+HW_OFF ?= -o
 hwbench:
 	$(MAKE) VARIANT=hwbench ridgeline-hwbench.elf
 	mkdir -p captures/hw
-	$(DC_HW) run -c -o -T 420 -i 90 -u 'RL AUTOTEST: (PASS|FAIL)' -l $(HW_LOG) \
+	$(DC_HW) run -c $(HW_OFF) -T 420 -i 90 -u 'RL AUTOTEST: (PASS|FAIL)' -l $(HW_LOG) \
 		ridgeline-hwbench.elf -- -m $(CURDIR)/captures/hw
 	@/usr/bin/grep -a 'RL A' $(HW_LOG)
+
+# What a console bench was doing when it went quiet: read from its memory.
+hwreport:
+	python3 tools/hwreport.py ridgeline-hwbench.elf
 
 # The tyre effects on the console: 15 s of driving, then 25 s of wheelspin
 # in the meadow's mud, frame and PVR render times every 5 s.
@@ -84,6 +91,6 @@ disc: $(TARGET)
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 ridgeline.elf -- -m $(CURDIR)
 
-.PHONY: run level textures trucks audio assets autotest vmutest hwbench fxbench disc hw
+.PHONY: run level textures trucks audio assets autotest vmutest hwbench hwreport fxbench disc hw
 
 endif

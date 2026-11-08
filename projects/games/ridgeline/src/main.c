@@ -233,10 +233,12 @@ static void render(void) {
     deer_draw_all();
     world_us[2] += timer_us_gettime64() - tt;
     prof_phase_mark(PH_OP);
+    RL_WHERE(5);
     r_list(PVR_LIST_PT_POLY);
     r_load_vp();
     world_draw_pt();
     prof_phase_mark(PH_PT);
+    RL_WHERE(6);
     r_list(PVR_LIST_TR_POLY);
     r_load_vp();
     PROF_BEGIN(ptr);
@@ -261,7 +263,9 @@ static void render(void) {
     autotest_draw();
 #endif
     PROF_LAP(PS_TR, ptr);
+    RL_WHERE(7);
     r_frame_end();
+    RL_WHERE(8);
     prof_phase_mark(PH_TR);
     prof_phase_frame();
 }
@@ -295,7 +299,9 @@ int main(int argc, char **argv) {
     frame_init();
     while(!game.quit) {
         /* The step follows the display (engine/frame.h). */
+        RL_WHERE(1);
         frame_begin();
+        RL_WHERE(2);
         prof_phase_begin();
         float dt_real = eng_frame.dt_real;
         int steps = eng_frame.steps;
@@ -316,6 +322,7 @@ int main(int argc, char **argv) {
                 game.quit = true;
                 continue;
         }
+        RL_WHERE(3);
         for(int s = 0; s < steps; s++) {
             update(eng_frame.dt);
             pad.pressed = pad2.pressed = 0;
@@ -325,7 +332,9 @@ int main(int argc, char **argv) {
         ui_time = game.time;
         if(game.state == ST_DRIVE) audio_update(dt_real);
         prof_phase_mark(PH_UPD);
+        RL_WHERE(4);
         render();
+        RL_WHERE(10);
 #ifdef ENG_PROF
         prof_frame_end();
 #endif

@@ -105,7 +105,96 @@ static void vmu_test(void) {
 }
 #endif
 
+#ifdef RL_HW
+/* What a console bench was doing when it stopped, for make hwreport, which
+   reads rl_wd out of the console's memory with dc-tool-ip once dcload is
+   back in control. A watchdog thread wakes twice a second and, if no frame
+   has finished for 3 s, writes where the main thread is into the report
+   and exits to dcload (dcload only answers dc-tool-ip from inside its own
+   calls). It never prints: a print can be the thing that is stuck. Under
+   dcload a print waits for the Mac's reply with interrupts off, and a
+   reply that never comes stops the console there, inside dcload; then
+   in_print is set and the report stays empty, as no other thread can run. */
+#include <kos/thread.h>
+#include <arch/cache.h>
+#include <stdarg.h>
+#include <dc/pvr.h>
+
+volatile int rl_where;
+volatile struct {
+    uint32_t magic;          /* "RLWD" */
+    uint32_t frames, prints, in_print, stalls;
+    int32_t where, tour, tour_frames;
+    char report[4096];
+} rl_wd = {.magic = 0x44574c52u};
+static kthread_t *wd_main;
+static int wd_len;
+
+static int wd_printf(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf((char *)rl_wd.report + wd_len, sizeof(rl_wd.report) - wd_len, fmt, ap);
+    va_end(ap);
+    if(n > 0) wd_len += n;
+    if(wd_len > (int)sizeof(rl_wd.report) - 1) wd_len = sizeof(rl_wd.report) - 1;
+    return n;
+}
+
+/* This file's prints, marked so a hang inside one shows. */
+static int at_printf(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    rl_wd.in_print = 1;
+    int n = vprintf(fmt, ap);
+    rl_wd.in_print = 0;
+    rl_wd.prints++;
+    va_end(ap);
+    return n;
+}
+#define printf at_printf
+
+static void *watchdog(void *arg) {
+    (void)arg;
+    uint32_t last = 0;
+    int still = 0;
+    for(;;) {
+        thd_sleep(500);
+        uint32_t f = rl_wd.frames;
+        if(f != last) {
+            last = f;
+            still = 0;
+            continue;
+        }
+        if(++still != 6) continue;
+        const kthread_t *m = wd_main;
+        wd_len = 0;
+        wd_printf("stall at frame %lu, where %d\n", (unsigned long)f, rl_where);
+        wd_printf("main: state %d wait '%s' pc %08lx pr %08lx sp %08lx sr %08lx\n", (int)m->state,
+                  m->wait_msg ? m->wait_msg : "-", (unsigned long)m->context.pc, (unsigned long)m->context.pr,
+                  (unsigned long)m->context.r[15], (unsigned long)m->context.sr);
+        const uint32_t *sp = (const uint32_t *)m->context.r[15];
+        wd_printf("stack code:");
+        for(int i = 0; i < 96; i++)
+            if(sp[i] >= 0x8c010000u && sp[i] < 0x8c070000u) wd_printf(" %08lx", (unsigned long)sp[i]);
+        wd_printf("\nasic %08lx %08lx %08lx  ta opb %08lx/%08lx vert %08lx/%08lx sync %08lx\n",
+                  (unsigned long)*(volatile uint32_t *)0xa05f6900, (unsigned long)*(volatile uint32_t *)0xa05f6904,
+                  (unsigned long)*(volatile uint32_t *)0xa05f6908, (unsigned long)PVR_GET(PVR_TA_OPB_POS),
+                  (unsigned long)PVR_GET(PVR_TA_OPB_END), (unsigned long)PVR_GET(PVR_TA_VERTBUF_POS),
+                  (unsigned long)PVR_GET(PVR_TA_VERTBUF_END), (unsigned long)PVR_GET(PVR_SYNC_STATUS));
+        thd_pslist(wd_printf);
+        rl_wd.stalls++;
+        dcache_wback_range((uintptr_t)&rl_wd, sizeof(rl_wd));
+        arch_exit();
+    }
+    return NULL;
+}
+#endif
+
 void autotest_boot(void) {
+#ifdef RL_HW
+    wd_main = thd_get_current();
+    thd_create(true, watchdog, NULL);
+#endif
 #ifdef RL_AT_VMUTEST
     vmu_test();
 #endif
@@ -153,10 +242,23 @@ int autotest_steps(int steps) {
 }
 
 static void shot(const char *name) {
+#ifdef RL_HW
+    rl_wd.in_print = 1;
     qa_shot("%s", name);
+    rl_wd.in_print = 0;
+    rl_wd.prints++;
+#else
+    qa_shot("%s", name);
+#endif
 }
 
 void autotest_frame(float dt_real) {
+#ifdef RL_HW
+    rl_wd.frames++;
+    rl_wd.where = rl_where;
+    rl_wd.tour = at.tour;
+    rl_wd.tour_frames = at.tour_frames;
+#endif
 #ifdef RL_CAPTURE
     /* Title, then select, then the tour, then drive. */
     static int frames;
