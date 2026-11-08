@@ -212,6 +212,23 @@ void autotest_frame(float dt_real) {
             snprintf(name, sizeof(name), "tour-%d", at.tour);
             shot(name);
         }
+        /* Each view timed once it has settled: CPU and the PVR's render. */
+        static float tcpu, tcpu_max, trnd, trnd_max;
+        if(at.tour_frames > 20) {
+            pvr_stats_t ps;
+            pvr_get_stats(&ps);
+            float rnd = (float)ps.rnd_last_time * 1e-6f;
+            if(!(rnd < 1000.0f)) rnd = 0;
+            tcpu += game.cpu_ms;
+            trnd += rnd;
+            if(game.cpu_ms > tcpu_max) tcpu_max = game.cpu_ms;
+            if(rnd > trnd_max) trnd_max = rnd;
+        }
+        if(at.tour_frames == 60) {
+            printf("RL AT tour-%d cpu %.2f/%.2f render %.2f/%.2f ms tris %d\n", at.tour, (double)(tcpu / 39),
+                   (double)tcpu_max, (double)(trnd / 39), (double)trnd_max, rstats.tris);
+            tcpu = tcpu_max = trnd = trnd_max = 0;
+        }
         if(at.tour_frames >= 60) {
             at.tour++;
             at.tour_frames = 0;

@@ -132,6 +132,21 @@ The terrain went from ~8,900 to ~5,900 vertices a frame and from ~10,900 to
 window without being touched: code layout drift, as DreamKarts sees between
 unrelated builds. The bench logs now carry the PVR's render time too.
 
+`make hwbench` A/B on the console (2026-11-07), before and after the set
+pieces, birds, deer, best times and tower fix: no change in the drive.
+
+| 180 s on the logging road | Before (7ffab7d) | After (b0e9190) |
+| --- | --- | --- |
+| fps, average | 58.9 | 58.9 |
+| CPU, ms a frame | 13.18 | 13.02 |
+| PVR render, ms | 10.77 | 10.86 |
+| Late frames | 144 | 144 |
+
+The bench also times each scenery-tour view; the new set pieces render
+in 7.5-13.8 ms. Its occasional single-frame render spikes (35-85 ms, a
+different view each run) come with the RL SHOT prints, which stall the
+console under dcload.
+
 `make fxbench` (2026-11-07), wheelspin in mud with roostertails and tracks.
 The soft haze puffs flung at the camera were the cost (switching each
 effect off in turn: puffs off took the render from 19.7 to 11.2 ms; tracks
