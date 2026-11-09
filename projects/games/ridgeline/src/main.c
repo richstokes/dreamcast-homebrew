@@ -95,7 +95,16 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     /* A progressive pedal, as trucks map theirs: the first half of the
        trigger's travel asks for about a third of the power, so a 2WD slide
        can be fed and held rather than switched on. */
-    in->throttle = pad.rtrig * sqrtf(pad.rtrig);
+    float x = pad.rtrig;
+    in->throttle = x * sqrtf(x);
+    /* Low range softens the pedal further, as many 4L throttle maps do:
+       light pedal gives about the wheel torque high range would, rising to
+       the full low-range shove only near the floor, so a crawl isn't a
+       lurch. */
+    if(p->mode == DRIVE_LOCK) {
+        float k = 1.0f / p->spec.low_range;
+        in->throttle *= k + (1.0f - k) * x * x;
+    }
     in->brake = pad.ltrig;
     in->handbrake = (pad.held & BTN_A) != 0;
     p->horn = (pad.held & BTN_UP) != 0;
