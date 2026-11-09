@@ -63,7 +63,9 @@ been, and the viewpoints you've found.
 - A day that goes by as you drive, an hour a minute: first light, sunrise
   mist, noon, the long afternoon shadows, sunset, dusk and a starry
   moonlit night, the hills' shadows swinging round with the sun, and the
-  haze warming toward a low sun. A cap of cloud sits on the upper
+  haze warming toward a low sun. Mist lies in the valleys at dawn and
+  dusk, and the water ripples downstream, foams at the falls and fords
+  and catches the sun. A cap of cloud sits on the upper
   mountain, thick in the morning and the evening and thin by early
   afternoon: the summit trail climbs through it and out above it. Pick
   when to set off on the truck select (dawn, morning, afternoon, dusk or

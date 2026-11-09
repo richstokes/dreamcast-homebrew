@@ -54,7 +54,8 @@ int terrain_draw_near(void);
 /* The prebuilt far terrain's skirts, where a neighbour's grid differs. */
 int terrain_draw_far_skirts(const Scenery *sc);
 /* Water chunks, back to front. */
-void terrain_draw_water(const Scenery *sc);
+/* The terrain pool's relight sources, one a vertex (water.c reads its own). */
+const uint32_t *terrain_pool_src(void);
 
 /* The ground's vertices: height and colour side by side, so the terrain
    drawn each frame reads one cache line for both. The colours are relit

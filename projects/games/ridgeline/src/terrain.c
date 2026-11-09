@@ -1,5 +1,6 @@
 /* Ridgeline terrain (terrain.h). */
 #include "terrain.h"
+#include "water.h"
 #include <malloc.h>
 
 extern const uint8_t rl_level_bin[];
@@ -15,8 +16,6 @@ static GroundVert *ground_ram;
 typedef struct { uint8_t r, g, b; int8_t nx, nz; uint8_t deep, pad[2]; } LvlLight;
 static const LvlLight *lvl_light;
 static const uint8_t *lvl_hz;
-static inline uint32_t water_colour(float depth, float k);
-
 /* Friction from the usual off-road figures: dry rock grips best, mud and
    snow worst; mud also drags the tyres and swallows them. A sliding tyre
    on loose ground keeps nearly all its grip (it ploughs the surface), so
@@ -461,54 +460,7 @@ void terrain_build(Scenery *sc) {
             terrain_chunk(sc, h, 3, i0, j0, BLOCK_CELLS, c);
         }
 
-    /* The water: translucent, its colour deepening with depth. */
-    const pvr_poly_hdr_t *hw = r_header(TEX_NONE, HF_TR);
-    for(int cj = 0; cj < CHUNKS; cj++)
-        for(int ci = 0; ci < CHUNKS; ci++) {
-            int i0 = ci * CHUNK_CELLS, j0 = cj * CHUNK_CELLS;
-            bool any = false;
-            for(int j = j0; j <= j0 + CHUNK_CELLS && !any; j++)
-                for(int i = i0; i <= i0 + CHUNK_CELLS; i++)
-                    if(lvl_water[lvl_clampi(j) * LEVEL_N + lvl_clampi(i)] > -999.0f) {
-                        any = true;
-                        break;
-                    }
-            if(!any) continue;
-            sc_chunk_begin(sc, HF_TR, 0, 900.0f, TAG_WATER);
-            sc_strip_begin(sc, hw);
-            for(int j = j0; j < j0 + CHUNK_CELLS; j++) {
-                int run = -1;
-                for(int i = i0; i < i0 + CHUNK_CELLS; i++) {
-                    bool wet = false;
-                    float level = -1000.0f;
-                    for(int k = 0; k < 4; k++) {
-                        float w = lvl_water[lvl_clampi(j + (k >> 1)) * LEVEL_N + lvl_clampi(i + (k & 1))];
-                        if(w > level) level = w;
-                    }
-                    wet = level > -999.0f;
-                    if(!wet) {
-                        run = -1;
-                        continue;
-                    }
-                    /* A quad per wet cell, joined into the chunk's strip. */
-                    for(int k = 0; k < 4; k++) {
-                        int ii = i + (k >> 1), jj = j + ((k & 1) ? 0 : 1);
-                        float w = lvl_water[lvl_clampi(jj) * LEVEL_N + lvl_clampi(ii)];
-                        float g = lvl_h(ii, jj);
-                        float y = w > -999.0f ? w : level - 0.25f;
-                        float depth = clampf((y - g) / 1.6f, 0, 1);
-                        uint32_t c = water_colour(depth, pal->water_k);
-                        V3 p = v3(LEVEL_ORG + ii * LEVEL_D, y, LEVEL_ORG + jj * LEVEL_D);
-                        if(k == 0 && run < 0) sc_join(sc, p, 0, 0, c);
-                        else if(k >= 2 || run < 0) sc_vert(sc, p, 0, 0, c);
-                        src_mark(sc, SRC_WATER << 30 | (uint32_t)(depth * 255.0f));
-                    }
-                    run = i;
-                }
-            }
-            sc_strip_end(sc);
-            sc_chunk_end(sc);
-        }
+    water_build(sc, src_mark, SRC_WATER << 30);
     ter_src_n = sc->pool_n;
     ter_src = realloc(ter_src, sizeof(uint32_t) * (ter_src_n ? ter_src_n : 1));
 }
@@ -558,11 +510,6 @@ static inline float horizon_at(int i, int j) {
     return h0 + (h1 - h0) * rlt.hz_t;
 }
 
-static inline uint32_t water_colour(float depth, float k) {
-    uint32_t c = color_lerp(0xff9ed2cc, 0xff2e6a74, depth);
-    return color_alpha(color_scale(c, k), 0.42f + 0.38f * depth);
-}
-
 void terrain_relight(int from, int to) {
     /* Under the water the bed tints toward the water's colour. */
     const float wet[3] = {52.0f * rlt.water_k, 92.0f * rlt.water_k, 98.0f * rlt.water_k};
@@ -599,6 +546,10 @@ int terrain_pool_n(void) {
     return (int)ter_src_n;
 }
 
+const uint32_t *terrain_pool_src(void) {
+    return ter_src;
+}
+
 void terrain_relight_pool(Scenery *sc, int from, int to) {
     RV *pool = sc->pool;
     for(int i = from; i < to; i++) {
@@ -606,37 +557,7 @@ void terrain_relight_pool(Scenery *sc, int from, int to) {
         switch(s >> 30) {
             case SRC_GRID: pool[i].c = ground_ram[v].c; break;
             case SRC_SKIRT: pool[i].c = color_scale(ground_ram[v].c, 0.82f); break;
-            default: pool[i].c = water_colour(v * (1.0f / 255.0f), rlt.water_k); break;
-        }
-    }
-}
-
-void terrain_draw_water(const Scenery *sc) {
-    /* Few chunks: draw the visible ones far to near. */
-    int idx[64], n = 0;
-    float d2s[64];
-    V3 cam_p = r_cam.pos;
-    for(uint32_t i = 0; i < sc->chunk_n && n < 64; i++) {
-        const ScChunk *c = &sc->chunks[i];
-        if(c->tag != TAG_WATER) continue;
-        V3 d = vsub(c->c, cam_p);
-        float d2 = vdot(d, d);
-        if(d2 >= c->far2 || !r_sphere_visible(c->c, c->r)) continue;
-        int k = n++;
-        while(k > 0 && d2s[k - 1] < d2) {
-            idx[k] = idx[k - 1];
-            d2s[k] = d2s[k - 1];
-            k--;
-        }
-        idx[k] = (int)i;
-        d2s[k] = d2;
-    }
-    for(int k = 0; k < n; k++) {
-        const ScChunk *c = &sc->chunks[idx[k]];
-        for(int s = 0; s < c->nstrips; s++) {
-            const ScStrip *t = &sc->strips[c->first_strip + s];
-            r_hdr(t->hdr);
-            r_strip_bounded(sc->pool + t->first, t->count, t->c, t->r);
+            default: pool[i].c = water_relit(v, rlt.water_k); break;
         }
     }
 }

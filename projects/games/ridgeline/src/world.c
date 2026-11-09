@@ -11,6 +11,7 @@
 #include "tod.h"
 #include "engine/sky.h"
 #include "terrain.h"
+#include "water.h"
 #include "truck.h"
 #include "engine/prof.h"
 #include <sh4zam/shz_sh4zam.h>
@@ -1008,6 +1009,10 @@ float world_mist(void) {
     return cap_in;
 }
 
+float world_fog_far(void) {
+    return fog_far_m;
+}
+
 uint32_t world_lit(uint32_t albedo, V3 n) {
     return lit(albedo, n, 1.0f);
 }
@@ -1126,8 +1131,137 @@ static void cap_draw(uint32_t shade) {
     }
 }
 
+/* ---- Valley mist ----
+
+   At dawn, and less at dusk and by moonlight, mist lies over the low
+   ground: the meadow and the pond, the east meadow, the boulder field, up
+   the creek's valley and on the lake. Each patch is a soft sheet a couple
+   of metres up, drifting with the wind, cut into a coarse grid so the
+   cells about the camera are never drawn (a translucent sheet filling the
+   screen is what costs the PVR; driving into the mist, the fog does the
+   rest). Fogged by hand, as the PVR's fog would fog its clear texels. */
+#define MIST_N 6              /* cells a side, near */
+#define MIST_FAR_N 3          /* and far off */
+typedef struct { float x, z, r, y; } Mist;
+static Mist mists[] = {
+    {-40, -255, 55, 0}, {20, -228, 55, 0}, {140, -210, 50, 0}, {-130, -250, 45, 0},
+    {-70, -180, 40, 0}, {-105, -100, 40, 0}, {-115, -20, 40, 0}, {-42, 66, 38, 0},
+};
+#define MISTS (int)(sizeof(mists) / sizeof(mists[0]))
+static const pvr_poly_hdr_t *h_mist;
+/* A sheet's soft round edge, for each grid: the same for every sheet. */
+static float mist_edge[MIST_N + 1][MIST_N + 1], mist_edge_far[MIST_FAR_N + 1][MIST_FAR_N + 1];
+
+static float mist_amount(float hour) {
+    static const float k[][2] = {{0, 0.3f}, {4.5f, 0.55f}, {5.5f, 1.0f}, {7.8f, 1.0f}, {9.5f, 0},
+                                 {18.0f, 0}, {19.5f, 0.6f}, {21.5f, 0.35f}, {24.0f, 0.3f}};
+    int i = 0;
+    while(hour > k[i + 1][0]) i++;
+    float t = (hour - k[i][0]) / (k[i + 1][0] - k[i][0]);
+    t = t * t * (3 - 2 * t);
+    return k[i][1] + (k[i + 1][1] - k[i][1]) * t;
+}
+
+/* Each sheet lies a little over the lowest ground near its middle. */
+static void mist_build(void) {
+    for(int m = 0; m < MISTS; m++) {
+        Mist *s = &mists[m];
+        float lo = 1e9f;
+        for(int k = 0; k < 9; k++) {
+            float a = ENG_TAU * k / 8, r = k ? s->r * 0.35f : 0;
+            lo = fminf(lo, terrain_height(s->x + sinf(a) * r, s->z + cosf(a) * r));
+        }
+        float w = water_at(s->x, s->z);
+        if(w > lo) lo = w;
+        s->y = lo + 2.2f;
+    }
+    for(int j = 0; j <= MIST_N; j++)
+        for(int i = 0; i <= MIST_N; i++) {
+            float ex = 2.0f * i / MIST_N - 1.0f, ez = 2.0f * j / MIST_N - 1.0f;
+            mist_edge[j][i] = clampf(1.0f - (ex * ex + ez * ez), 0, 1);
+        }
+    for(int j = 0; j <= MIST_FAR_N; j++)
+        for(int i = 0; i <= MIST_FAR_N; i++) {
+            float ex = 2.0f * i / MIST_FAR_N - 1.0f, ez = 2.0f * j / MIST_FAR_N - 1.0f;
+            mist_edge_far[j][i] = clampf(1.0f - 0.8f * (ex * ex + ez * ez), 0, 1);
+        }
+}
+
+/* One sheet as a grid of n cells a side: alpha a[j * (n + 1) + i], below
+   zero for a corner behind the camera. A run of cells with mist on all
+   four corners goes in one strip; any other cell ends it. */
+static void mist_sheet(const Mist *s, int n, const float *a, uint32_t col, float u0, float v0) {
+    float cell = 2.0f * s->r / n, x0 = s->x - s->r, z0 = s->z - s->r, uk = cell * (1.0f / 30.0f);
+    int w = n + 1;
+    for(int j = 0; j < n; j++) {
+        RV v[2 * (MIST_N + 1)];
+        int k = 0;
+        float za = z0 + j * cell, zb = za + cell, va = j * uk + v0, vb = va + uk;
+        for(int i = 0; i <= n; i++) {
+            const float *r0 = a + j * w, *r1 = r0 + w;
+            bool lr = i < n && r0[i] >= 0 && r0[i + 1] >= 0 && r1[i] >= 0 && r1[i + 1] >= 0 &&
+                      r0[i] + r0[i + 1] + r1[i] + r1[i + 1] > 0.02f;
+            bool ll = i > 0 && r0[i - 1] >= 0 && r0[i] >= 0 && r1[i - 1] >= 0 && r1[i] >= 0 &&
+                      r0[i - 1] + r0[i] + r1[i - 1] + r1[i] > 0.02f;
+            if(!lr && !ll) {
+                if(k >= 4) r_strip(v, k);
+                k = 0;
+                continue;
+            }
+            float x = x0 + i * cell, u = i * uk + u0;
+            v[k++] = (RV){x, s->y, zb, u, vb, color_alpha(col, r1[i])};
+            v[k++] = (RV){x, s->y, za, u, va, color_alpha(col, r0[i])};
+        }
+        if(k >= 4) r_strip(v, k);
+    }
+}
+
+static void mist_draw(void) {
+    float k = mist_amount(tod.hour) * (1.0f - cap_in);
+    if(k < 0.02f) return;
+    k *= 0.85f;
+    V3 c = r_cam.pos, f = r_cam.fwd;
+    uint32_t col = mix256(fog_col, pal->cloud_col, 110) & 0xffffffu;
+    float fog_k = fog_far_m > fog_near_m ? 128.0f / (fog_far_m - fog_near_m) : 0;
+    float drift = cloud_t * 0.25f;   /* metres downwind */
+    float u0 = -(drift * WIND_X) * (1.0f / 30.0f), v0 = -(drift * WIND_Z) * (1.0f / 30.0f);
+    u0 -= floorf(u0);
+    v0 -= floorf(v0);
+    r_hdr(h_mist);
+    for(int m = 0; m < MISTS; m++) {
+        const Mist *s = &mists[m];
+        V3 sc = v3(s->x, s->y, s->z);
+        float sd = vlen(vsub(sc, c));
+        if(sd > 450.0f || !r_sphere_visible(sc, s->r)) continue;
+        /* Fogged as a whole, by its middle's distance. */
+        uint32_t sheet_col = mix256(col, fog_col, (int)clampf((sd - fog_near_m) * fog_k, 0, 128)) & 0xffffffu;
+        if(sd - s->r > 50.0f) {
+            /* Far off: a coarse grid, the edge fade alone. */
+            float a[(MIST_FAR_N + 1) * (MIST_FAR_N + 1)];
+            for(int q = 0; q < (MIST_FAR_N + 1) * (MIST_FAR_N + 1); q++) a[q] = k * (&mist_edge_far[0][0])[q];
+            mist_sheet(s, MIST_FAR_N, a, sheet_col, u0, v0);
+            continue;
+        }
+        /* Near: clear about the camera, and no corner behind it (that
+           cell would be clipped on the CPU, for mist the clear hole about
+           the camera hides anyway). */
+        float a[(MIST_N + 1) * (MIST_N + 1)];
+        float cell = 2.0f * s->r / MIST_N, dy = s->y - c.y;
+        for(int j = 0; j <= MIST_N; j++) {
+            float dz = s->z - s->r + j * cell - c.z;
+            for(int i = 0; i <= MIST_N; i++) {
+                float dx = s->x - s->r + i * cell - c.x, d2 = dx * dx + dy * dy + dz * dz;
+                float hole = clampf((d2 - 14.0f * 14.0f) * (1.0f / (32.0f * 32.0f - 14.0f * 14.0f)), 0, 1);
+                a[j * (MIST_N + 1) + i] = dx * f.x + dy * f.y + dz * f.z < 3.0f ? -1.0f : k * mist_edge[j][i] * hole;
+            }
+        }
+        mist_sheet(s, MIST_N, a, sheet_col, u0, v0);
+    }
+}
+
 void world_draw_tr(void) {
-    terrain_draw_water(&scenery);
+    water_draw(&scenery);
+    mist_draw();
     V3 c = r_cam.pos;
     /* Stars, once the sky is dark enough; only the patches ahead. */
     float clear = 1.0f - cap_in;
@@ -1241,6 +1375,7 @@ void world_init(void) {
     h_ring_add = r_header(TEX_RING, HF_TR | HF_NOFOG | HF_ADD | HF_NOZTEST);
     h_cloud = r_header(TEX_CLOUD, HF_TR | HF_NOFOG);
     h_cap = r_header(TEX_NONE, HF_TR | HF_NOFOG);
+    h_mist = r_header(TEX_MIST, HF_TR | HF_NOFOG);
     sky_setup();
     if(!sc_init(&scenery, 185000, 7000, 1600)) printf("Ridgeline world: no memory for the scenery\n");
 }
@@ -1301,6 +1436,7 @@ void world_build(void) {
     }
     int tree_v = scenery.pool_n - terrain_v;
     cap_build();
+    mist_build();
     /* Boulders, logs and ledges: near and far versions in one chunk per cell. */
     for(int c = 0; c < TCELLS * TCELLS; c++) {
         float x0 = LEVEL_ORG + (c % TCELLS) * TCELL, z0 = LEVEL_ORG + (c / TCELLS) * TCELL;

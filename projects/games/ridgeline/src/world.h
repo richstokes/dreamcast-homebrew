@@ -43,6 +43,8 @@ float world_boulder_top(int i);
 uint32_t world_lit(uint32_t albedo, V3 n);
 /* How deep in the summit's cloud the camera is, 0..1. */
 float world_mist(void);
+/* Where the fog is solid this frame, metres. */
+float world_fog_far(void);
 
 /* Relighting the trees, rocks and props (tod.c): every scenery vertex
    keeps what it was lit from; a pass recolours [from, to) of them for

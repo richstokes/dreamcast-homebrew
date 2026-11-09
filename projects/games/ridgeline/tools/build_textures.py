@@ -87,6 +87,30 @@ def tex_grass():
     return to_image(rgb)
 
 
+def tex_ripple():
+    """Ripples on the water: light crests on a mid field, near white so the
+    vertex colour carries the water. v runs downstream (the game turns the
+    texture with each stretch of water's flow), so the crests lie across."""
+    n = 64
+    v = strokes(n, 51, 220, 16, 2, 0.0, 0.3, 0.70, 1.0)
+    v2 = strokes(n, 52, 90, 26, 3, 0.0, 0.25, 0.78, 1.0)
+    v = v * 0.55 + v2 * 0.45
+    big = tile_noise(n, 4, 53)
+    v *= 0.93 + 0.09 * big
+    rgb = np.dstack([v * 255, v * 255, v * 255])
+    return to_image(rgb)
+
+
+def tex_mist():
+    """Valley mist: soft wisps on nothing, tileable, white (the game colours
+    it); a few of these lie over the low ground at dawn and dusk."""
+    n = 64
+    v = tile_noise(n, 4, 61) * 0.6 + tile_noise(n, 8, 62) * 0.4
+    a = np.clip((v - 0.22) * 1.7, 0, 1) ** 1.3
+    rgb = np.full((n, n, 3), 255.0)
+    return to_image(rgb, a * 255)
+
+
 def tex_rock():
     """Faceted stone: flat cells of slightly different value, crisp edges."""
     n = 128
@@ -475,6 +499,8 @@ def build(out: Path):
         (TexSpec("shadow", "ARGB4444", True, False), tex_shadow()),
         (TexSpec("clod", "ARGB4444", True, False), tex_clod()),
         (TexSpec("tread", "ARGB4444", True, True), tex_tread()),
+        (TexSpec("ripple", "RGB565", True, True), tex_ripple()),
+        (TexSpec("mist", "ARGB4444", True, True), tex_mist()),
         (TexSpec("cloud", "ARGB4444", False, False), tex_cloud()),
         (TexSpec("map", "RGB565", True, False), tex_map()),
         (TexSpec("dial", "ARGB4444", False, False), tex_dial()),
