@@ -111,7 +111,8 @@ void truck_spec(TruckSpec *s, int model) {
     else {
         /* BOBCAT: a short two-door 4x4 with the top off. A 4.0 L straight
            six, solid axles both ends, tight steering and a 4:1 transfer
-           case: the slowest crawl of the three. */
+           case, the deepest of the three (the Kestrel's lower gearbox
+           still crawls slower overall). */
         s->name = "BOBCAT";
         s->mass = 1800.0f;
         s->inertia = v3(2700.0f, 2800.0f, 760.0f);
