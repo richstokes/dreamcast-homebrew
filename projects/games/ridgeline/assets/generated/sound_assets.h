@@ -34,9 +34,18 @@ typedef enum {
     RL_SFX_BOBCAT_OFF_1,
     RL_SFX_BOBCAT_OFF_2,
     RL_SFX_BOBCAT_OFF_3,
+    RL_SFX_FFR_ON_0,
+    RL_SFX_FFR_ON_1,
+    RL_SFX_FFR_ON_2,
+    RL_SFX_FFR_ON_3,
+    RL_SFX_FFR_OFF_0,
+    RL_SFX_FFR_OFF_1,
+    RL_SFX_FFR_OFF_2,
+    RL_SFX_FFR_OFF_3,
     RL_SFX_HORN_CASCADE,
     RL_SFX_HORN_KESTREL,
     RL_SFX_HORN_BOBCAT,
+    RL_SFX_HORN_FFR,
     RL_SFX_GRAVEL,
     RL_SFX_DIRT,
     RL_SFX_MUD,
@@ -52,6 +61,7 @@ typedef enum {
     RL_SFX_START_CASCADE,
     RL_SFX_START_KESTREL,
     RL_SFX_START_BOBCAT,
+    RL_SFX_START_FFR,
     RL_SFX_CLICK,
     RL_SFX_CLUNK,
     RL_SFX_SHIFT,
@@ -94,38 +104,48 @@ static const rl_sfx_asset_t rl_sfx_assets[RL_SFX_COUNT] __attribute__((unused)) 
     { 425504u, 18912u, 1u, 22050u }, /* BOBCAT_OFF_1   0.43 s */
     { 444448u, 16288u, 1u, 22050u }, /* BOBCAT_OFF_2   0.37 s */
     { 460768u, 14976u, 1u, 22050u }, /* BOBCAT_OFF_3   0.34 s */
-    { 475776u, 19840u, 1u, 22050u }, /* HORN_CASCADE   0.45 s */
-    { 495648u, 19840u, 1u, 22050u }, /* HORN_KESTREL   0.45 s */
-    { 515520u, 19840u, 1u, 22050u }, /* HORN_BOBCAT    0.45 s */
-    { 535392u, 35264u, 1u, 22050u }, /* GRAVEL         0.80 s */
-    { 570688u, 25600u, 1u, 16000u }, /* DIRT           0.80 s */
-    { 596320u, 52928u, 1u, 22050u }, /* MUD            1.20 s */
-    { 649280u, 37472u, 1u, 22050u }, /* WATER          0.85 s */
-    { 686784u, 26464u, 1u, 22050u }, /* SCRUB          0.60 s */
-    { 713280u, 51200u, 1u, 16000u }, /* WIND           1.60 s */
-    { 764512u, 51200u, 1u, 8000u }, /* FOREST         3.20 s */
-    { 815744u, 64000u, 1u, 16000u }, /* CREEK          2.00 s */
-    { 879776u, 30848u, 0u, 12000u }, /* BIRD_TEEOO     1.29 s */
-    { 910624u, 40192u, 0u, 12000u }, /* BIRD_WARBLE    1.67 s */
-    { 950816u, 33568u, 0u, 12000u }, /* BIRD_TRILL     1.40 s */
-    { 984384u, 44288u, 0u, 12000u }, /* BIRD_COO       1.85 s */
-    { 1028672u, 74560u, 0u, 16000u }, /* START_CASCADE  2.33 s */
-    { 1103232u, 60160u, 0u, 16000u }, /* START_KESTREL  1.88 s */
-    { 1163392u, 61632u, 0u, 16000u }, /* START_BOBCAT   1.93 s */
-    { 1225024u, 3008u, 0u, 22050u }, /* CLICK          0.07 s */
-    { 1228032u, 22080u, 0u, 22050u }, /* CLUNK          0.50 s */
-    { 1250112u, 13248u, 0u, 22050u }, /* SHIFT          0.30 s */
-    { 1263360u, 9600u, 0u, 16000u }, /* BUMP_LIGHT     0.30 s */
-    { 1272960u, 16000u, 0u, 16000u }, /* BUMP_HEAVY     0.50 s */
-    { 1288960u, 19072u, 0u, 22050u }, /* CRASH_LIGHT    0.43 s */
-    { 1308032u, 42016u, 0u, 22050u }, /* CRASH_HEAVY    0.95 s */
-    { 1350048u, 37504u, 0u, 22050u }, /* SPLASH         0.85 s */
-    { 1387552u, 33088u, 0u, 22050u }, /* BLOWOFF        0.75 s */
-    { 1420640u, 2656u, 0u, 22050u }, /* MENU_MOVE      0.06 s */
-    { 1423296u, 23616u, 0u, 22050u }, /* MENU_SELECT    0.54 s */
-    { 1446912u, 19680u, 0u, 22050u }, /* MENU_BACK      0.45 s */
-    { 1466592u, 53280u, 0u, 22050u }, /* CHIME          1.21 s */
-    { 1519872u, 85536u, 0u, 22050u }, /* SUMMIT         1.94 s */
+    { 475776u, 21184u, 1u, 22050u }, /* FFR_ON_0       0.48 s */
+    { 496992u, 14912u, 1u, 22050u }, /* FFR_ON_1       0.34 s */
+    { 511936u, 15680u, 1u, 22050u }, /* FFR_ON_2       0.36 s */
+    { 527648u, 14528u, 1u, 22050u }, /* FFR_ON_3       0.33 s */
+    { 542208u, 21184u, 1u, 22050u }, /* FFR_OFF_0      0.48 s */
+    { 563424u, 14912u, 1u, 22050u }, /* FFR_OFF_1      0.34 s */
+    { 578368u, 15680u, 1u, 22050u }, /* FFR_OFF_2      0.36 s */
+    { 594080u, 14528u, 1u, 22050u }, /* FFR_OFF_3      0.33 s */
+    { 608640u, 19840u, 1u, 22050u }, /* HORN_CASCADE   0.45 s */
+    { 628512u, 19840u, 1u, 22050u }, /* HORN_KESTREL   0.45 s */
+    { 648384u, 19840u, 1u, 22050u }, /* HORN_BOBCAT    0.45 s */
+    { 668256u, 19840u, 1u, 22050u }, /* HORN_FFR       0.45 s */
+    { 688128u, 35264u, 1u, 22050u }, /* GRAVEL         0.80 s */
+    { 723424u, 25600u, 1u, 16000u }, /* DIRT           0.80 s */
+    { 749056u, 52928u, 1u, 22050u }, /* MUD            1.20 s */
+    { 802016u, 37472u, 1u, 22050u }, /* WATER          0.85 s */
+    { 839520u, 26464u, 1u, 22050u }, /* SCRUB          0.60 s */
+    { 866016u, 51200u, 1u, 16000u }, /* WIND           1.60 s */
+    { 917248u, 51200u, 1u, 8000u }, /* FOREST         3.20 s */
+    { 968480u, 64000u, 1u, 16000u }, /* CREEK          2.00 s */
+    { 1032512u, 30848u, 0u, 12000u }, /* BIRD_TEEOO     1.29 s */
+    { 1063360u, 40192u, 0u, 12000u }, /* BIRD_WARBLE    1.67 s */
+    { 1103552u, 33568u, 0u, 12000u }, /* BIRD_TRILL     1.40 s */
+    { 1137120u, 44288u, 0u, 12000u }, /* BIRD_COO       1.85 s */
+    { 1181408u, 74560u, 0u, 16000u }, /* START_CASCADE  2.33 s */
+    { 1255968u, 60160u, 0u, 16000u }, /* START_KESTREL  1.88 s */
+    { 1316128u, 61632u, 0u, 16000u }, /* START_BOBCAT   1.93 s */
+    { 1377760u, 63296u, 0u, 16000u }, /* START_FFR      1.98 s */
+    { 1441056u, 3008u, 0u, 22050u }, /* CLICK          0.07 s */
+    { 1444064u, 22080u, 0u, 22050u }, /* CLUNK          0.50 s */
+    { 1466144u, 13248u, 0u, 22050u }, /* SHIFT          0.30 s */
+    { 1479392u, 9600u, 0u, 16000u }, /* BUMP_LIGHT     0.30 s */
+    { 1488992u, 16000u, 0u, 16000u }, /* BUMP_HEAVY     0.50 s */
+    { 1504992u, 19072u, 0u, 22050u }, /* CRASH_LIGHT    0.43 s */
+    { 1524064u, 42016u, 0u, 22050u }, /* CRASH_HEAVY    0.95 s */
+    { 1566080u, 37504u, 0u, 22050u }, /* SPLASH         0.85 s */
+    { 1603584u, 33088u, 0u, 22050u }, /* BLOWOFF        0.75 s */
+    { 1636672u, 2656u, 0u, 22050u }, /* MENU_MOVE      0.06 s */
+    { 1639328u, 23616u, 0u, 22050u }, /* MENU_SELECT    0.54 s */
+    { 1662944u, 19680u, 0u, 22050u }, /* MENU_BACK      0.45 s */
+    { 1682624u, 53280u, 0u, 22050u }, /* CHIME          1.21 s */
+    { 1735904u, 85536u, 0u, 22050u }, /* SUMMIT         1.94 s */
 };
 
 /* display names, for the sound test */
@@ -154,9 +174,18 @@ static const char *const rl_sfx_names[RL_SFX_COUNT] __attribute__((unused)) = {
     "BOBCAT OFF 1",
     "BOBCAT OFF 2",
     "BOBCAT OFF 3",
+    "FFR ON 0",
+    "FFR ON 1",
+    "FFR ON 2",
+    "FFR ON 3",
+    "FFR OFF 0",
+    "FFR OFF 1",
+    "FFR OFF 2",
+    "FFR OFF 3",
     "HORN CASCADE",
     "HORN KESTREL",
     "HORN BOBCAT",
+    "HORN FFR",
     "GRAVEL",
     "DIRT",
     "MUD",
@@ -172,6 +201,7 @@ static const char *const rl_sfx_names[RL_SFX_COUNT] __attribute__((unused)) = {
     "START CASCADE",
     "START KESTREL",
     "START BOBCAT",
+    "START FFR",
     "CLICK",
     "CLUNK",
     "SHIFT",
@@ -199,7 +229,7 @@ typedef struct {
 /* Play each loop at rate rpm / loop rpm. Each holds a whole number of
    four-stroke cycles starting at cylinder 1's firing, so channels
    started together stay in step. */
-static const rl_engine_sound_t rl_engine_sounds[3] __attribute__((unused)) = {
+static const rl_engine_sound_t rl_engine_sounds[4] __attribute__((unused)) = {
     { /* CASCADE 84 */
         { RL_SFX_CASCADE_ON_0, RL_SFX_CASCADE_ON_1, RL_SFX_CASCADE_ON_2, RL_SFX_CASCADE_ON_3 },
         { RL_SFX_CASCADE_OFF_0, RL_SFX_CASCADE_OFF_1, RL_SFX_CASCADE_OFF_2, RL_SFX_CASCADE_OFF_3 },
@@ -218,11 +248,17 @@ static const rl_engine_sound_t rl_engine_sounds[3] __attribute__((unused)) = {
         { 749.43f, 1399.11f, 2599.21f, 4947.12f },
         750.0f, 5200.0f
     },
+    { /* FFR */
+        { RL_SFX_FFR_ON_0, RL_SFX_FFR_ON_1, RL_SFX_FFR_ON_2, RL_SFX_FFR_ON_3 },
+        { RL_SFX_FFR_OFF_0, RL_SFX_FFR_OFF_1, RL_SFX_FFR_OFF_2, RL_SFX_FFR_OFF_3 },
+        { 749.43f, 1419.53f, 2700.00f, 5099.67f },
+        750.0f, 5400.0f
+    },
 };
 
 /* per truck: the horn loop, and the engine start one-shot */
-static const uint16_t rl_horn_sfx[3] __attribute__((unused)) = { RL_SFX_HORN_CASCADE, RL_SFX_HORN_KESTREL, RL_SFX_HORN_BOBCAT };
-static const uint16_t rl_start_sfx[3] __attribute__((unused)) = { RL_SFX_START_CASCADE, RL_SFX_START_KESTREL, RL_SFX_START_BOBCAT };
+static const uint16_t rl_horn_sfx[4] __attribute__((unused)) = { RL_SFX_HORN_CASCADE, RL_SFX_HORN_KESTREL, RL_SFX_HORN_BOBCAT, RL_SFX_HORN_FFR };
+static const uint16_t rl_start_sfx[4] __attribute__((unused)) = { RL_SFX_START_CASCADE, RL_SFX_START_KESTREL, RL_SFX_START_BOBCAT, RL_SFX_START_FFR };
 /* forest birds, one-shots the game plays now and then */
 #define RL_BIRDS 4
 static const uint16_t rl_bird_sfx[RL_BIRDS] __attribute__((unused)) = { RL_SFX_BIRD_TEEOO, RL_SFX_BIRD_WARBLE, RL_SFX_BIRD_TRILL, RL_SFX_BIRD_COO };

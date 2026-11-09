@@ -24,8 +24,9 @@ typedef struct {
     int32_t version;
     uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none: Cascade 84, Kestrel */
     char name[12];                 /* the online name (version 2; version 1 saves end before it) */
-    /* The trucks after the first two (Bobcat). Appended to version 2 so
-       older builds still read the rest; a save without it is shorter. */
+    /* The trucks after the first two (Bobcat, FFR), a row each in model
+       order. Appended to version 2 so older builds still read the rest; a
+       save from a build with fewer trucks is shorter. */
     uint32_t best_more[TRUCK_MODELS - 2][WAY_COUNT];
 } record_t;
 #define RECORD_V1_BYTES (int)offsetof(record_t, name)
@@ -62,7 +63,10 @@ void records_load(void) {
     if(n < RECORD_V1_BYTES || memcmp(r.magic, magic, sizeof(magic))) return;
     if(!(r.version == 1 && n >= RECORD_V1_BYTES) && !(r.version == 2 && n >= RECORD_V2_BYTES)) return;
     if(r.version == 1) memset(r.name, 0, sizeof(r.name));
-    if(n < (int)sizeof(r)) memset(r.best_more, 0, sizeof(r.best_more));
+    /* Rows a shorter save lacks stay as cleared above: no time yet. A row
+       cut short is cleared too. */
+    int rows = n < RECORD_V2_BYTES ? 0 : (n - RECORD_V2_BYTES) / (int)sizeof(r.best_more[0]);
+    for(int i = rows; i < TRUCK_MODELS - 2; i++) memset(r.best_more[i], 0, sizeof(r.best_more[i]));
     r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
     printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);

@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["numpy>=1.26"]
 # ///
-"""Procedurally build Ridgeline's trucks (Cascade 84, Kestrel, Bobcat).
+"""Procedurally build Ridgeline's trucks (Cascade 84, Kestrel, Bobcat, FFR).
 
 Usage:
     uv run tools/build_trucks.py                        # writes assets/generated/trucks.h
@@ -42,8 +42,8 @@ from meshkit import (Geo, Paint, _orient, _pkey, box, ellipsoid, geosphere, lath
 ROOT = Path(__file__).resolve().parent.parent
 HEADER = ROOT / "assets" / "generated" / "trucks.h"
 
-TRUCK_NAMES = ["RL_TRUCK_CASCADE", "RL_TRUCK_KESTREL", "RL_TRUCK_BOBCAT"]
-CASCADE, KESTREL, BOBCAT = 0, 1, 2
+TRUCK_NAMES = ["RL_TRUCK_CASCADE", "RL_TRUCK_KESTREL", "RL_TRUCK_BOBCAT", "RL_TRUCK_FFR"]
+CASCADE, KESTREL, BOBCAT, FFR = 0, 1, 2, 3
 PART_NAMES = ["RL_PART_BODY", "RL_PART_WHEEL_L", "RL_PART_WHEEL_R", "RL_PART_AXLE"]
 BODY, WHEEL_L, WHEEL_R, AXLE = range(4)
 PAINT_NAMES = ["RL_PAINT_FIXED", "RL_PAINT_BODY", "RL_PAINT_ACCENT", "RL_PAINT_TRIM", "RL_PAINT_GLASS",
@@ -1781,6 +1781,322 @@ BOBCAT_INFO = {
 
 
 # --------------------------------------------------------------------------
+# FFR: mid-90s midsize extended-cab pickup with a long bed
+# --------------------------------------------------------------------------
+
+D_R, D_TW = 0.40, 0.27
+D_WX, D_WZ = 0.735, 1.59
+D_HW = 0.84
+D_ROCK = 0.60
+D_BELT = 1.24             # cab beltline
+D_BED_TOP = 1.22
+D_FRONT = 2.34            # grille face
+D_COWL = 1.04             # hood's rear edge, windshield base
+D_CABB = -0.62
+D_BEDF, D_BEDB = -0.70, -2.56
+D_ARCH = (0.53, 0.50)     # wheel arch half-length, height above the wheel centre
+D_SIDE_Z = [-0.02, -0.10, -0.46]   # door window end, B pillar end, quarter window end
+D_ROOF = 1.80
+D_LAMP_Y = (0.86, 0.975)  # headlamp band
+
+D_BODY_RGB = rgb(0xC8, 0x1A, 0x1E)
+D_STRIPE_RGB = rgb(0xB4, 0xB8, 0xC0)
+D_RIM_RGB = rgb(0xE6, 0xE6, 0xE2)
+
+D_BODY = Paint(D_BODY_RGB, S_BODY)
+D_STRIPE = Paint(D_STRIPE_RGB, S_ACCENT)
+D_RIM = Paint(D_RIM_RGB, S_TRIM)
+D_SHIRT = fixed(0x6A, 0x2C, 0x30)
+D_HAT = fixed(0xC4, 0xB0, 0x86)
+
+D_WHEEL = WheelStyle(D_R, D_TW, 10, 3, 0.036, 0.62, 0.64, 0.42, D_RIM, fixed(0x30, 0x30, 0x34),
+                     Paint(lerp_rgb(D_RIM_RGB, 0xFF000000, 0.30), S_TRIM), beadlock=False)
+
+D_HEAD_C = [(-0.56, 0.918, D_FRONT + 0.01), (0.56, 0.918, D_FRONT + 0.01)]
+D_TAIL_C = [(-0.765, 0.98, D_BEDB - 0.03), (0.765, 0.98, D_BEDB - 0.03)]
+D_AUX_C = [(-0.52, 0.555, D_FRONT + 0.035), (0.52, 0.555, D_FRONT + 0.035)]   # fog lamps under the bumper
+D_EXHAUST = (0.62, 0.47, -2.30)
+D_DRIVER = (-0.38, 1.40, 0.18)
+
+
+def d_arch(z, lod):
+    return arch_points(z, D_R, D_ARCH[0], D_ARCH[1], D_ROCK, n=(5, 3, 2)[lod])
+
+
+def d_well(cz, hw):
+    def paint(c, n):
+        if n[1] < -0.7:
+            return UNDER
+        d = np.array([c[2] - cz, c[1] - D_R])
+        if c[1] < D_R + D_ARCH[1] + 0.03 and abs(c[2] - cz) < D_ARCH[0] + 0.08 and \
+                float(np.dot(n[[2, 1]], d)) < 0 and abs(c[0]) < hw:
+            return WELL
+        return None
+    return paint
+
+
+def d_hood_y(z):
+    """Hood top along the centre line, falling gently from the cowl to the nose."""
+    return 1.19 + (z - D_COWL) * (1.09 - 1.19) / (D_FRONT - 0.22 - D_COWL)
+
+
+def ffr_lower(lod: int) -> Geo:
+    """Front clip and cab below the beltline, one rounded extrusion across X."""
+    outline = [(D_FRONT, 0.64), (D_FRONT, 0.99), (D_FRONT - 0.07, 1.06), (D_FRONT - 0.22, 1.09),
+               (D_COWL, 1.19), (D_CABB, D_BELT), (D_CABB, D_ROCK)] + d_arch(D_WZ, lod)
+    secs = [round_sections(-D_HW, D_HW, 0.06, 2), round_sections(-D_HW, D_HW, 0.06, 1),
+            [(-D_HW, 0.0), (D_HW, 0.0)]][lod]
+    g = extrude(outline, "x", secs, D_BODY, 50.0, edge_bevel=not_bottom(0.65))
+    g.recolour(d_well(D_WZ, D_HW - 0.02))
+    return g.recolour(lambda c, n: INTERIOR if n[1] > 0.9 and D_CABB < c[2] < D_COWL and abs(c[0]) < D_HW - 0.03
+                      else None)
+
+
+def ffr_cab(lod: int) -> Geo:
+    y_sill = 1.30
+    zA, zB, zC = D_SIDE_Z
+    if lod == 2:
+        rings = [[(-0.80, 1.18, D_COWL), (0.80, 1.18, D_COWL), (0.80, 1.18, D_CABB), (-0.80, 1.18, D_CABB)],
+                 [(-0.70, D_ROOF, 0.36), (0.70, D_ROOF, 0.36), (0.70, D_ROOF, -0.56), (-0.70, D_ROOF, -0.56)]]
+        g = loft(rings, D_BODY, 20.0, cap0=False, cap1=True).flat()
+        g.recolour(lambda c, n: GLASS if n[2] > 0.4 else None)
+        for sgn in (1.0, -1.0):
+            g.extend(decal([(sgn * 0.79, 1.32, 0.92), (sgn * 0.79, 1.32, -0.44), (sgn * 0.72, 1.74, -0.44),
+                            (sgn * 0.72, 1.74, 0.40)], (sgn, 0.12, 0.0), GLASS, 0.004))
+        return g
+    rings = [plan_ring(1.18, 0.81, D_COWL, D_CABB, 0.06, D_SIDE_Z, 0.50),
+             plan_ring(y_sill, 0.80, 0.96, D_CABB + 0.002, 0.07, D_SIDE_Z, 0.50),
+             plan_ring(1.74, 0.74, 0.40, D_CABB + 0.03, 0.10, D_SIDE_Z, 0.46),
+             plan_ring(D_ROOF, 0.69, 0.32, D_CABB + 0.07, 0.12, D_SIDE_Z, 0.42)]
+    if lod == 1:
+        rings = [rings[0], rings[1], plan_ring(1.79, 0.72, 0.35, D_CABB + 0.05, 0.11, D_SIDE_Z, 0.44)]
+    y_top = rings[2][0][1]
+
+    def paint(c, n):
+        if c[1] < y_sill - 0.005:
+            return D_BODY
+        if c[1] < y_top - 0.002 and n[2] > 0.4 and abs(n[0]) < 0.35:
+            return GLASS
+        if n[1] > 0.5 or c[1] > y_top - 0.002:
+            return D_BODY
+        if n[2] > 0.3:
+            return BLACK                      # windshield frame
+        if n[2] < -0.95 and abs(c[0]) < 0.46:
+            return GLASS
+        if abs(n[0]) > 0.95 and zC < c[2] < zB:
+            return GLASS                      # extended cab's small quarter window
+        if lod > 0 and abs(n[0]) > 0.95 and c[2] > zA:
+            return GLASS
+        if abs(n[0]) > 0.95 and zB <= c[2] <= zA:
+            return BLACK                      # B pillar
+        return D_BODY
+
+    def window(c, n):
+        return lod == 0 and abs(n[0]) > 0.95 and c[1] > y_sill and c[2] > zA
+
+    g = cab_glass(rings, paint, window)
+    g.repaint_corners(lambda p, n, old: glass_at(p[1], y_sill, y_top) if old.slot == S_GLASS else old)
+    if lod == 0:
+        inner = [shrink_ring(rings[1], 0.03, -0.12), shrink_ring(rings[2], 0.03, -0.03)]
+        g.extend(invert(loft(inner, INTERIOR, 20.0, cap0=False, cap1=True).flat()))
+    return g
+
+
+def ffr_bed(lod: int) -> Geo:
+    G = Geo()
+    hw = D_HW
+    xi = hw - 0.05                       # bed wall inner face
+    if lod == 2:
+        bed = rbox((0, 0.91, (D_BEDF + D_BEDB) / 2), (2 * hw, 0.62, abs(D_BEDB - D_BEDF)), D_BODY, bottom=False)
+        bed.recolour(lambda c, n: BLACK if n[1] > 0.9 else None)
+        return G.extend(bed)
+    wall = [(D_BEDF, D_BED_TOP), (D_BEDB, D_BED_TOP), (D_BEDB, D_ROCK)] + d_arch(-D_WZ, lod) + [(D_BEDF, D_ROCK)]
+    secs = [(xi, 0.0)] + round_sections(xi, hw, 0.04, 2)[3:] if lod == 0 else [(xi, 0.0), (hw, 0.0)]
+    w = extrude(wall, "x", secs, D_BODY, 50.0, edge_bevel=not_bottom(0.65))
+    w.recolour(d_well(-D_WZ, hw - 0.01))
+    G.extend(mirror_pair(w))
+    G.extend(rbox((0, 0.93, D_BEDF - 0.025), (2 * xi, 0.58, 0.05), D_BODY, bottom=False))
+    floor = rbox((0, 0.83, (D_BEDF + D_BEDB) / 2), (2 * xi, 0.05, abs(D_BEDB - D_BEDF) - 0.02), BLACK)
+    G.extend(drop(floor, lambda c, n: abs(n[0]) > 0.9 or abs(n[2]) > 0.9))
+    post = drop(rbox((xi - 0.055, 0.93, D_BEDB + 0.05), (0.11, 0.58, 0.10), D_BODY, bottom=False),
+                lambda c, n: n[0] > 0.9)
+    G.extend(mirror_pair(post))
+    gate_hw = xi - 0.11
+    G.extend(rbox((0, 0.94, D_BEDB + 0.025), (2 * gate_hw, 0.54, 0.05), D_BODY, bevel=0.02 if lod == 0 else 0.0))
+    if lod == 0:
+        # ribbed liner, wheel tubs, gate handle
+        for k in range(4):
+            x = -0.48 + 0.32 * k
+            G.extend(decal([(x - 0.04, 0.855, D_BEDF - 0.06), (x + 0.04, 0.855, D_BEDF - 0.06),
+                            (x + 0.04, 0.855, D_BEDB + 0.08), (x - 0.04, 0.855, D_BEDB + 0.08)],
+                           (0, 1, 0), fixed(0x34, 0x35, 0x39), 0.002))
+        tub = drop(rbox((xi - 0.125, 0.93, -D_WZ), (0.25, 0.17, 1.00), D_BODY), lambda c, n: n[0] > 0.9)
+        G.extend(mirror_pair(tub.recolour(lambda c, n: WELL if n[1] < -0.9 else None)))
+        G.extend(quad_z(D_BEDB, -0.12, 0.12, 1.13, 1.16, BLACK, side=-1.0))
+    return G
+
+
+def ffr_body(lod: int) -> Geo:
+    G = Geo()
+    hw = D_HW
+    zf, zr = D_FRONT, D_BEDB
+    G.extend(ffr_lower(lod))
+    G.extend(ffr_cab(lod))
+    G.extend(ffr_bed(lod))
+
+    # ---- pinstripes down the flank, broken at the cab-to-bed gap
+    bands = [(0.955, 0.978), (0.934, 0.941)] if lod == 0 else [(0.934, 0.978)] if lod == 1 else []
+    for y0, y1 in bands:
+        for sgn in (1.0, -1.0):
+            G.extend(quad_x(sgn * hw, D_CABB + 0.03, zf - 0.10, y0, y1, D_STRIPE, sgn))
+            G.extend(quad_x(sgn * hw, zr + 0.06, D_BEDF - 0.03, y0, y1, D_STRIPE, sgn))
+
+    # ---- panel detail: door, hood, handles, markers, cowl, wipers, fuel door
+    if lod == 0:
+        for sgn in (1.0, -1.0):
+            for z in (D_COWL - 0.04, D_SIDE_Z[0] + 0.005):
+                G.extend(quad_x(sgn * hw, z - 0.005, z + 0.005, 0.66, 1.20, SEAM, sgn, lift=0.004))
+            G.extend(rbox((sgn * (hw + 0.012), 1.13, 0.10), (0.024, 0.028, 0.14), BLACK))
+            G.extend(quad_x(sgn * hw, zr + 0.06, zr + 0.14, 0.86, 0.90, fixed(0xC8, 0x14, 0x14), sgn, lift=0.004))
+            x = sgn * 0.72
+            za, zb = D_COWL + 0.05, zf - 0.24
+            G.extend(decal([(x - 0.006, d_hood_y(za), za), (x + 0.006, d_hood_y(za), za),
+                            (x + 0.006, d_hood_y(zb), zb), (x - 0.006, d_hood_y(zb), zb)],
+                           (0, 0.996, 0.092), SEAM, 0.004))
+        G.extend(decal([(-0.70, 1.19, D_COWL), (0.70, 1.19, D_COWL), (0.70, d_hood_y(D_COWL + 0.08), D_COWL + 0.08),
+                        (-0.70, d_hood_y(D_COWL + 0.08), D_COWL + 0.08)], (0, 0.996, 0.092), BLACK, 0.003))
+        for x0 in (-0.52, 0.04):
+            G.extend(decal([(x0, 1.325, 0.928), (x0 + 0.44, 1.325, 0.928), (x0 + 0.44, 1.345, 0.903),
+                            (x0, 1.345, 0.903)], (0, 0.786, 0.618), BLACK, 0.004))
+        G.extend(quad_x(-hw, -1.02, -0.88, 1.02, 1.13, fixed(0x24, 0x24, 0x27), -1.0, lift=0.003))
+        for sgn in (1.0, -1.0):
+            head = rbox((sgn * 0.94, 1.40, 0.86), (0.10, 0.15, 0.05), BLACK)
+            G.extend(head.recolour(lambda c, n: GLASS if n[2] < -0.9 else None))
+            G.extend(tube([(sgn * 0.80, 1.31, 0.90), (sgn * 0.90, 1.37, 0.87)], [0.014, 0.014], 4, BLACK,
+                          up=(0, 0, 1), phase=math.pi / 4).flat())
+        G.extend(tube([(0.80, 1.06, 1.86), (0.84, 1.98, 1.80)], [0.006, 0.003], 3, BLACK, phase=0.0).flat())
+
+    # ---- black flares
+    if lod < 2:
+        for cz in (D_WZ, -D_WZ):
+            G.extend(mirror_pair(flare(d_arch(cz, lod), (cz, D_R), hw, 1.0, 0.06, 0.07, BLACK, wedge=lod > 0)))
+
+    # ---- front: grille with a chrome surround, wraparound lamps, chrome bumper, air dam and fog lamps
+    ly0, ly1 = D_LAMP_Y
+    if lod == 0:
+        G.extend(chrome_corners(rbox((0, 0.918, zf + 0.010), (0.84, 0.15, 0.022), BLACK)))
+        G.extend(quad_z(zf + 0.0215, -0.39, 0.39, 0.862, 0.974, fixed(0x1C, 0x1C, 0x1F), lift=0.002))
+        for y in (0.892, 0.944):
+            slat = rbox((0, y, zf + 0.028), (0.76, 0.012, 0.012), BLACK)
+            G.extend(chrome_corners(drop(slat, lambda c, n: n[2] < -0.9 or abs(n[0]) > 0.9)))
+        for sgn in (1.0, -1.0):
+            x0, x1 = sorted((sgn * 0.43, sgn * 0.69))
+            G.extend(quad_z(zf, x0, x1, ly0, ly1, HEAD_LENS, lift=0.004))
+            x0, x1 = sorted((sgn * 0.69, sgn * 0.78))
+            G.extend(quad_z(zf, x0, x1, ly0, ly1, AMBER, lift=0.004))
+            G.extend(quad_x(sgn * hw, zf - 0.16, zf - 0.06, ly0, ly1, AMBER, sgn, lift=0.004))
+    else:
+        G.extend(quad_z(zf, -0.40, 0.40, 0.86, 0.976, BLACK))
+        for sgn in (1.0, -1.0):
+            x0, x1 = sorted((sgn * 0.42, sgn * 0.78))
+            G.extend(quad_z(zf, x0, x1, ly0, ly1, HEAD_LENS))
+    if lod < 2:
+        bump = [(-0.88, 0.70, zf - 0.04), (-0.82, 0.70, zf + 0.09), (0.82, 0.70, zf + 0.09), (0.88, 0.70, zf - 0.04)]
+        prof = [(-0.05, -0.075), (0.04, -0.075), (0.05, -0.05), (0.05, 0.05), (0.04, 0.075), (-0.05, 0.075)] \
+            if lod == 0 else [(-0.05, -0.075), (0.05, -0.075), (0.05, 0.075), (-0.05, 0.075)]
+        G.extend(chrome_corners(sweep(bump, prof, BLACK, 40.0)))
+        dam = rbox((0, 0.555, zf - 0.01), (1.48, 0.13, 0.10), BLACK, bottom=False)
+        G.extend(drop(dam, lambda c, n: n[2] < -0.9))
+        for c in D_AUX_C:
+            if lod == 0:
+                G.extend(lens_light((c[0], c[1], zf + 0.035), (0, 0, 1), 0.052, 0.05, 8, AUX_LENS, BLACK))
+            else:
+                G.extend(quad_z(zf + 0.041, c[0] - 0.05, c[0] + 0.05, c[1] - 0.04, c[1] + 0.04, AUX_LENS))
+    else:
+        G.extend(chrome_corners(rbox((0, 0.68, zf + 0.05), (1.74, 0.20, 0.10), BLACK, bottom=False)))
+    if lod == 0:
+        for sgn in (1.0, -1.0):
+            hook = tube([(sgn * 0.36, 0.56, zf + 0.04), (sgn * 0.36, 0.51, zf + 0.15), (sgn * 0.36, 0.57, zf + 0.21)],
+                        [0.02, 0.02, 0.02], 3, BLACK, cap1=BLACK, up=(1, 0, 0), phase=math.pi / 2)
+            G.extend(hook.autosmooth(50.0))
+
+    # ---- rear: tall corner taillights, chrome step bumper
+    for sgn in (1.0, -1.0):
+        tc = D_TAIL_C[0 if sgn < 0 else 1]
+        if lod == 0:
+            bezel = rbox((tc[0], tc[1], zr - 0.008), (0.14, 0.38, 0.016), BLACK)
+            G.extend(drop(bezel, lambda c, n: n[2] > 0.9))
+            lens = rbox((tc[0], tc[1] + 0.03, zr - 0.022), (0.11, 0.28, 0.014), TAIL_LENS)
+            G.extend(drop(lens, lambda c, n: n[2] > 0.9 or abs(n[0]) > 0.9))
+            G.extend(quad_z(zr - 0.029, tc[0] - 0.055, tc[0] + 0.055, 0.82, 0.86, REVERSE, side=-1.0, lift=0.002))
+        else:
+            G.extend(quad_z(zr, tc[0] - 0.065, tc[0] + 0.065, 0.80, 1.16, TAIL_LENS, side=-1.0))
+    if lod < 2:
+        rb = [(0.86, 0.60, zr - 0.01), (0.82, 0.60, zr - 0.11), (-0.82, 0.60, zr - 0.11), (-0.86, 0.60, zr - 0.01)]
+        rprof = [(-0.04, -0.07), (0.04, -0.07), (0.05, -0.05), (0.05, 0.07), (-0.04, 0.07)] if lod == 0 else \
+            [(-0.04, -0.07), (0.05, -0.07), (0.05, 0.07), (-0.04, 0.07)]
+        G.extend(chrome_corners(sweep(rb, rprof, BLACK, 40.0)))
+        if lod == 0:
+            G.extend(rbox((0, 0.672, zr - 0.07), (0.50, 0.012, 0.10), fixed(0x2A, 0x2A, 0x2D)))
+    else:
+        G.extend(chrome_corners(rbox((0, 0.60, zr - 0.06), (1.72, 0.14, 0.10), BLACK, bottom=False)))
+
+    # ---- underbody: frame rails, skid, tank, exhaust out behind the right rear wheel
+    if lod == 0:
+        for sgn in (1.0, -1.0):
+            G.extend(rbox((sgn * 0.42, 0.53, -0.10), (0.08, 0.14, 4.70), UNDER))
+        G.extend(rbox((0, 0.55, 0.40), (0.70, 0.12, 1.30), UNDER))
+        G.extend(rbox((-0.10, 0.56, -0.95), (0.62, 0.14, 0.55), STEEL))
+        G.extend(tube([(0.25, 0.50, 0.90), (0.30, 0.48, 0.0), (0.45, 0.47, -1.00), (0.48, 0.47, -2.06), D_EXHAUST],
+                      [0.03] * 5, 4, STEEL, cap1=SEAM, up=(0, 1, 0), phase=math.pi / 4).autosmooth(50.0))
+    elif lod == 1:
+        G.extend(rbox((0, 0.54, -0.10), (0.84, 0.12, 4.6), UNDER, bottom=False))
+
+    # ---- driver and dash
+    if lod == 0:
+        G.extend(rbox((0, 1.25, 0.76), (1.50, 0.16, 0.28), INTERIOR, bottom=False))
+        G.extend(driver(D_DRIVER[0], D_DRIVER[1], D_DRIVER[2], D_SHIRT, D_HAT, 0.66, 1.42))
+    elif lod == 1:
+        G.extend(ellipsoid((D_DRIVER[0], D_DRIVER[1] + 0.18, D_DRIVER[2]), (0.10, 0.12, 0.11), 4, [0, 90, 180],
+                           SKIN, phase=math.pi / 4))
+    return G
+
+
+def ffr_parts(lod: int) -> dict[int, Geo]:
+    if lod == 0:
+        w, a = wheel_lod0(D_WHEEL), axle_lod0(2 * D_WX, D_WX - 0.5 * D_TW)
+    elif lod == 1:
+        w, a = wheel_lod1(D_WHEEL), axle_lod1(2 * D_WX)
+    else:
+        w, a = wheel_lod2(D_WHEEL), None
+    body = ffr_body(lod)
+    if lod == 0:
+        shade_low(body, S_BODY, D_ROCK, 1.0, 0.82)
+    parts = {BODY: body, WHEEL_R: w, WHEEL_L: w.mirrored_x()}
+    if a is not None:
+        parts[AXLE] = a
+    return parts
+
+
+FFR_INFO = {
+    "name": "FFR",
+    "wheel_pos": [(-D_WX, D_R, D_WZ), (D_WX, D_R, D_WZ), (-D_WX, D_R, -D_WZ), (D_WX, D_R, -D_WZ)],
+    "wheel_radius": D_R, "wheel_width": D_TW,
+    "headlight": D_HEAD_C, "headlight_r": 0.08,
+    "aux": D_AUX_C,
+    "taillight": D_TAIL_C,
+    "exhaust": D_EXHAUST,
+    "driver_eye": (D_DRIVER[0], D_DRIVER[1] + 0.20, D_DRIVER[2] + 0.10),
+    "liveries": [
+        ("CANDY RED", D_BODY_RGB, D_STRIPE_RGB, D_RIM_RGB, 0),
+        ("BRIGHT WHITE", rgb(0xF0, 0xF0, 0xEC), rgb(0x2A, 0x5C, 0xA8), D_RIM_RGB, 0),
+        ("TEAL", rgb(0x14, 0x78, 0x80), rgb(0xC4, 0xC8, 0xCE), D_RIM_RGB, 0),
+        ("WILLOW", rgb(0x6C, 0x80, 0x6A), rgb(0xD6, 0xC4, 0x98), rgb(0xCC, 0xCC, 0xC6), 0),
+    ],
+}
+
+
+# --------------------------------------------------------------------------
 # Assembly, welding, checks, output
 # --------------------------------------------------------------------------
 
@@ -1802,7 +2118,7 @@ def build_mesh(truck, part, lod, g: Geo) -> Mesh:
 
 
 TRUCKS = [(CASCADE, cascade_parts, CASCADE_INFO), (KESTREL, kestrel_parts, KESTREL_INFO),
-          (BOBCAT, bobcat_parts, BOBCAT_INFO)]
+          (BOBCAT, bobcat_parts, BOBCAT_INFO), (FFR, ffr_parts, FFR_INFO)]
 
 
 def assemble() -> list[Mesh]:
@@ -1877,7 +2193,7 @@ def write_header(meshes: list[Mesh], infos: list[dict], path: Path) -> None:
         "enum { " + ", ".join(PAINT_NAMES) + ", RL_PAINT_COUNT };",
         "#define RL_LIVERIES 4",
         "typedef struct {",
-        "    const char *name;                 /* \"CASCADE 84\", \"KESTREL\", \"BOBCAT\" */",
+        "    const char *name;                 /* \"CASCADE 84\", \"KESTREL\", \"BOBCAT\", \"FFR\" */",
         "    float wheel_pos[4][3];            /* FL, FR, RL, RR wheel centres at ride height */",
         "    float wheel_radius, wheel_width;",
         "    float body_min[3], body_max[3];   /* a box round the body (not wheels), for collisions */",

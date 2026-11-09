@@ -364,7 +364,7 @@ void truckdraw_draw_op(void) {
                                         (k & 4) ? s->body_hi[2] : s->body_lo[2]));
         static const int faces[6][4] = {{0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 4, 5}, {2, 3, 6, 7}, {0, 2, 4, 6}, {1, 3, 5, 7}};
         for(int f = 0; f < 6; f++) {
-            static const uint32_t box_col[TRUCK_MODELS] = {0xffc8202a, 0xffe0601c, 0xff6a6862};
+            static const uint32_t box_col[TRUCK_MODELS] = {0xffc8202a, 0xffe0601c, 0xff6a6862, 0xffc81a1e};
             uint32_t col = color_scale(box_col[t->model], 0.6f + 0.08f * f);
             RV q[4];
             for(int k = 0; k < 4; k++) q[k] = (RV){c[faces[f][k]].x, c[faces[f][k]].y, c[faces[f][k]].z, 0, 0, col};

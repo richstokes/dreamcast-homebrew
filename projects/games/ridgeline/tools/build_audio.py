@@ -43,7 +43,7 @@ from synthkit import (  # noqa: E402
     midi_hz, pad_to, periodic, place, place_wrap, plfo, softsat)
 
 SR = SFX_RATE
-MAX_PAK_BYTES = 1_650_000        # three trucks; leaves the AICA ~300 KiB free (no streams)
+MAX_PAK_BYTES = 1_850_000        # four trucks
 ENGINE_LOOPS = 4
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -196,6 +196,7 @@ class Engine:
     turbo_order: float = 0.0   # whistle frequency in crank orders
     turbo_gain: float = 0.0
     turbo_hiss: float = 0.0
+    seed: str = ""             # RNG seed when it isn't the key (a renamed truck keeps its sound)
     starter_ratio: float = 12.0
     crank_rpm: float = 210.0
     crank_secs: float = 0.8
@@ -567,7 +568,53 @@ BOBCAT = Engine(
     starter_ratio=12.5, crank_rpm=215.0, crank_secs=0.55, flare_rpm=1300.0,
 )
 
-ENGINES = (CASCADE, KESTREL, BOBCAT)
+def ffr_bank_a(f):
+    # Tubular-ish cast manifold on the near bank, straight into the Y-pipe.
+    return H_pipe(f, 0.40, 0.55, 0.55) * H_lp1(f, 4400)
+
+
+def ffr_bank_b(f):
+    # The far bank's crossover is longer, so its pulses land a little late.
+    return 0.94 * H_pipe(f, 0.78, 0.55, 0.55) * H_lp1(f, 4000) * H_delay(f, 0.0006)
+
+
+def ffr_common(f):
+    head = H_pipe(f, 1.7, 0.35, -0.55, loss_hz=5000)
+    cat = H_chamber(f, 0.28, 3.2)
+    muffler = H_chamber(f, 0.46, 7.0) * H_lp1(f, 2100) * H_peak(f, 1050, 1.3, 2.5)
+    tail = H_pipe(f, 0.5, 0.45, -0.75, loss_hz=7000)
+    return 2.5 * head * cat * muffler * tail * H_hp1(f, 85) * H_peak(f, 125, 1.1, 3.0)
+
+
+def ffr_intake(f):
+    # Plastic airbox in the fender and a short tube to the throttle body.
+    return H_bp2(f, 175, 2.1) + 0.4 * H_bp2(f, 420, 2.6) + 0.14 * H_bp2(f, 1050, 2.0)
+
+
+FFR = Engine(
+    key="FFR", label="FFR", seed="BADGER", idle=750, redline=5400,
+    points=(750, 1420, 2700, 5100), durs=(0.44, 0.38, 0.34, 0.32),
+    # 60 degree V6, 1-4-2-5-3-6: banks alternate every 120 degrees.
+    fire=((0, 0), (120, 1), (240, 0), (360, 1), (480, 0), (600, 1)),
+    cyl_amp=(1.0, 0.94, 1.05, 0.96, 1.03, 0.92), cyl_dth=(0.0, 1.2, -0.9, 0.7, -0.5, 1.4),
+    bank_dth=(0.0, 4.0), bank_gain=(1.0, 0.9),
+    evo=132.0, blow_peak=40.0, blow_rise=4.0, crack=0.46, crack_tau=0.00024,
+    flow=0.12, flow_band=(650, 4300), pump=0.17,
+    var_on=0.05, var_off=0.20, misfire_off=0.03, off_fire=0.18,
+    pops_per_s=0.0, pop_amp=0.0, shaper=0.28,
+    exhaust_bank=(ffr_bank_a, ffr_bank_b), exhaust_common=ffr_common,
+    intake_H=ffr_intake, intake_gain=0.2, roar_gain=0.045, roar_band=(320, 1500),
+    hiss_gain=0.005, hiss_hz=2500,
+    knock_modes=((1060, 0.0038, 1.0), (1720, 0.0028, 0.7), (2500, 0.0020, 0.45), (3350, 0.0014, 0.25)),
+    knock_gain=0.08,
+    # Pushrods, one cam in the vee: twelve seatings a cycle, a busier tick than the six.
+    valve_events=(10, 130, 250, 370, 490, 610, 215, 335, 455, 575, 695, 95),
+    valve_modes=((3100, 0.0010, 1.0), (4500, 0.0007, 0.6)),
+    valve_gain=0.026, chain_order=18.0, chain_gain=0.0035,
+    starter_ratio=12.0, crank_rpm=220.0, crank_secs=0.6, flare_rpm=1350.0,
+)
+
+ENGINES = (CASCADE, KESTREL, BOBCAT, FFR)
 
 
 def loop_geometry(e: Engine, i: int):
@@ -628,7 +675,7 @@ def engine_set(e: Engine):
             else:
                 L, F = 0.0, e.off_fire    # overrun
             y, _ = render_engine(e, np.full(n, rpm), np.full(n, L), np.full(n, F),
-                                 f"{e.key}-{'on' if want else 'off'}-{i}", True, cycles=cycles)
+                                 f"{e.seed or e.key}-{'on' if want else 'off'}-{i}", True, cycles=cycles)
             y -= np.mean(y)
             # Gentle limiting: keeps the crest factor sane without dulling.
             y = softsat(y / np.percentile(np.abs(y), 99.95), 1.15)
@@ -657,7 +704,7 @@ def engine_set(e: Engine):
 # ======================================================================
 
 def engine_start(e: Engine):
-    rng = rng_for(e.key + "-start")
+    rng = rng_for((e.seed or e.key) + "-start")
     t_sol = 0.07                       # solenoid clack, then the starter bites
     t_catch = t_sol + 0.06 + e.crank_secs
     total = t_catch + 1.25
@@ -723,7 +770,7 @@ def engine_start(e: Engine):
                  + 0.7 * filt(rng.standard_normal(m_), "hp", 2000) * np.exp(-tt / 0.0015))
         place(starter, ts * SR, clack, 0.05 * g)
 
-    y, _ = render_engine(e, rpm, load, fire, e.key + "-start-eng", False, tail=int(0.25 * SR),
+    y, _ = render_engine(e, rpm, load, fire, (e.seed or e.key) + "-start-eng", False, tail=int(0.25 * SR),
                          misfire=misfire, starter=starter)
     y = y[:n] - np.mean(y[:n])
     # Level it so the idle it settles into matches the closed-throttle idle
@@ -773,6 +820,10 @@ def sfx_horn_kestrel():
 
 def sfx_horn_bobcat():
     return horn_loop("horn-bobcat", (380.0, 455.0), 0.6, 0.45)
+
+
+def sfx_horn_ffr():
+    return horn_loop("horn-badger", (360.0, 440.0), 0.45, 0.45)
 
 
 def grains_loop(n, rng, rate, len_ms, band, q, amp_sigma, sr, env=None):
@@ -1337,6 +1388,7 @@ SFX = engine_assets() + [
     ("HORN_CASCADE", sfx_horn_cascade, True, SR, True),
     ("HORN_KESTREL", sfx_horn_kestrel, True, SR, True),
     ("HORN_BOBCAT", sfx_horn_bobcat, True, SR, True),
+    ("HORN_FFR", sfx_horn_ffr, True, SR, True),
     ("GRAVEL", sfx_gravel, True, SR, True),
     ("DIRT", sfx_dirt, True, 16000, True),
     ("MUD", sfx_mud, True, SR, True),
@@ -1353,6 +1405,7 @@ SFX = engine_assets() + [
     ("START_CASCADE", lambda: resample_poly(engine_start(CASCADE), 320, 441), False, 16000, False),
     ("START_KESTREL", lambda: resample_poly(engine_start(KESTREL), 320, 441), False, 16000, False),
     ("START_BOBCAT", lambda: resample_poly(engine_start(BOBCAT), 320, 441), False, 16000, False),
+    ("START_FFR", lambda: resample_poly(engine_start(FFR), 320, 441), False, 16000, False),
     ("CLICK", sfx_click, False, SR, True),
     ("CLUNK", sfx_clunk, False, SR, True),
     ("SHIFT", sfx_shift, False, SR, True),

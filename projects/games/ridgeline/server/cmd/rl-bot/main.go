@@ -182,7 +182,7 @@ func main() {
 	cz := flag.Float64("z", -255, "loop centre z (m)")
 	radius := flag.Float64("radius", 14, "loop radius (m)")
 	speed := flag.Float64("speed", 4.5, "speed round the loop (m/s)")
-	model := flag.Int("model", 0, "truck model (0 Cascade 84, 1 Kestrel, 2 Bobcat)")
+	model := flag.Int("model", 0, "truck model (0 Cascade 84, 1 Kestrel, 2 Bobcat, 3 FFR)")
 	livery := flag.Int("livery", 2, "livery 0-3")
 	flag.Parse()
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
