@@ -494,9 +494,6 @@ typedef struct {
 } Cloud;
 static Cloud clouds[CLOUDS];
 static float cloud_t;
-#define WIND_X 0.78f       /* blowing toward the north-east, 12 m/s */
-#define WIND_Z 0.62f
-#define WIND_SPEED 12.0f
 #define CLOUD_FAR 1350.0f
 static const float sky_el[6] = {-0.25f, 0.0f, 0.08f, 0.22f, 0.55f, 1.5707f};
 static float range_ca[RANGE_SEG + 1][RANGES], range_sa[RANGE_SEG + 1][RANGES];   /* each range vertex's bearing */
@@ -1007,14 +1004,21 @@ static bool sun_occluded(void) {
     return false;
 }
 
+float world_mist(void) {
+    return cap_in;
+}
+
 uint32_t world_lit(uint32_t albedo, V3 n) {
     return lit(albedo, n, 1.0f);
 }
 
 void world_update(float dt) {
     haze_update();
-    float target = tod.sun_el > 0 && cap_in < 0.3f && !sun_occluded() ? 1.0f : 0.0f;
-    flare_vis = approach(flare_vis, target, dt * 4.0f);
+    /* Whether the hills hide the sun: a march over the terrain, every
+       fourth frame (the flare eases in and out over a quarter second). */
+    static float flare_target;
+    if((atmo_tick & 3) == 1) flare_target = tod.sun_el > 0 && cap_in < 0.3f && !sun_occluded() ? 1.0f : 0.0f;
+    flare_vis = approach(flare_vis, flare_target, dt * 4.0f);
     /* The dome and the ranges change over seconds: every fourth frame. */
     if(!(atmo_tick++ & 3)) sky_colours();
     /* The clouds blow downwind; one that has gone over the far side comes

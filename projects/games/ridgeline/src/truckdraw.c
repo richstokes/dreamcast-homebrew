@@ -30,7 +30,7 @@ _Static_assert(RL_TRUCK_COUNT == TRUCK_MODELS, "TRUCK_MODELS in rl.h");
 static uint32_t ref_col[RL_TRUCK_COUNT][RL_PAINT_COUNT];
 #endif
 static uint32_t lit_buf[2048] __attribute__((aligned(32)));
-static const pvr_poly_hdr_t *h_model, *h_shadow, *h_glow, *h_flat;
+static const pvr_poly_hdr_t *h_model, *h_shadow, *h_glow, *h_flat, *h_beam;
 
 #ifdef HAVE_TRUCK_MODELS
 /* Split a mesh's triangles into pieces of at most ~1000 vertices. */
@@ -72,6 +72,7 @@ void truckdraw_init(void) {
     h_flat = h_model;
     h_shadow = r_header(TEX_SHADOW, HF_TR);
     h_glow = r_header(TEX_GLOW, HF_TR | HF_ADD);
+    h_beam = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
 #ifdef HAVE_TRUCK_MODELS
     _Static_assert(sizeof(rl_mvert_t) == sizeof(eng_mvert_t), "model vertex layout");
     int groups = 0, meshes = 0;
@@ -123,6 +124,32 @@ static int light_part(const PartMeshes *pm, const EngLight *l, uint32_t *buf) {
     return o;
 }
 
+/* The sun's glint on paint and glass: a Blinn highlight per lighting
+   group (each a flat face), added on to its lit colour. H is the half
+   vector in the part's space, k the sun's strength. A panel flares as it
+   turns through the angle that sends the sun to the camera. */
+static void sheen_part(const PartMeshes *pm, uint32_t *buf, V3 H, const float *k) {
+    int o = 0;
+    for(int m = 0; m < pm->n; m++) {
+        const EngMesh *em = &pm->m[m];
+        for(int g = 0; g < em->ngroups; g++) {
+            int slot = em->gpaint[g];
+            if(slot < RL_PAINT_BODY || slot > RL_PAINT_GLASS) continue;
+            const float *n = em->gnrm[g];
+            float d = n[0] * H.x + n[1] * H.y + n[2] * H.z;
+            if(d < 0.8f) continue;
+            float d2 = d * d, d4 = d2 * d2, d8 = d4 * d4, d16 = d8 * d8;
+            float s = slot == RL_PAINT_GLASS ? d16 * d16 : d16;   /* glass sharper */
+            uint32_t c = buf[o + g];
+            int r = (int)((c >> 16) & 255) + (int)(k[0] * s), gg = (int)((c >> 8) & 255) + (int)(k[1] * s),
+                b = (int)(c & 255) + (int)(k[2] * s);
+            buf[o + g] = (c & 0xff000000u) | (uint32_t)(r > 255 ? 255 : r) << 16 | (uint32_t)(gg > 255 ? 255 : gg) << 8 |
+                         (uint32_t)(b > 255 ? 255 : b);
+        }
+        o += em->ngroups;
+    }
+}
+
 static void draw_part(const PartMeshes *pm, const float *mat, const uint32_t *lit) {
     r_load_model(mat);
     r_hdr(h_model);
@@ -140,9 +167,10 @@ static void draw_part(const PartMeshes *pm, const float *mat, const uint32_t *li
    kinking it), the glow texture across for soft sides. Brightest a third
    of the way out, gone a little past the landing. */
 #define BEAM_ROWS 9
+#define BEAM_COLS 3
 static void beam_patch(V3 nose, V3 fh, V3 rh, float ymax, float start, float end, float w0, float w1, uint32_t col,
                        float alpha) {
-    RV v[BEAM_ROWS][3];
+    RV v[BEAM_ROWS][BEAM_COLS];
     for(int k = 0; k < BEAM_ROWS; k++) {
         float t = (float)k / (BEAM_ROWS - 1);
         float d = start + (end - start) * t;
@@ -150,16 +178,51 @@ static void beam_patch(V3 nose, V3 fh, V3 rh, float ymax, float start, float end
         float a = alpha * (t < 0.3f ? 0.55f + 0.45f * t / 0.3f : 1.0f - (t - 0.3f) / 0.7f);
         uint32_t c = color_alpha(col, a);
         V3 m = vmad(nose, fh, d);
-        for(int i = 0; i < 3; i++) {
-            V3 q = vmad(m, rh, (i - 1.0f) * w);
+        for(int i = 0; i < BEAM_COLS; i++) {
+            float u = (float)i / (BEAM_COLS - 1);
+            V3 q = vmad(m, rh, (2.0f * u - 1.0f) * w);
             q.y = ground_below(q.x, q.z, ymax, NULL, NULL) + 0.08f;
-            v[k][i] = (RV){q.x, q.y, q.z, i * 0.5f, 0.5f, c};
+            /* The middle of the glow across it: a broad pool with soft
+               edges rather than a bright stripe down the centre. */
+            v[k][i] = (RV){q.x, q.y, q.z, 0.18f + 0.64f * u, 0.5f, c};
         }
     }
-    for(int k = 0; k + 1 < BEAM_ROWS; k++) {
-        RV st[6] = {v[k + 1][0], v[k][0], v[k + 1][1], v[k][1], v[k + 1][2], v[k][2]};
-        r_strip(st, 6);
+    /* A strip down each pair of columns. */
+    for(int i = 0; i + 1 < BEAM_COLS; i++) {
+        RV st[2 * BEAM_ROWS];
+        for(int k = 0; k < BEAM_ROWS; k++) {
+            st[2 * k] = v[k][i];
+            st[2 * k + 1] = v[k][i + 1];
+        }
+        r_strip(st, 2 * BEAM_ROWS);
     }
+}
+
+/* A headlight's beam through the air: a soft wedge along it, turned about
+   its axis to face the camera, brightest just out from the lamp and gone
+   by its end (the glow texture across it gives the soft sides). Seen
+   along its length it would fold into a smear, so it fades out there. */
+static void beam_air(V3 lamp, V3 dir, float len, float w1, uint32_t col, float alpha) {
+    V3 end = vmad(lamp, dir, len);
+    V3 mid = vscale(vadd(lamp, end), 0.5f);
+    V3 to = vsub(r_cam.pos, mid);
+    float tl = vlen(to);
+    if(tl < 0.01f) return;
+    V3 side = vcross(dir, vscale(to, 1.0f / tl));
+    float sl = vlen(side);
+    alpha *= clampf((sl - 0.4f) * (1.0f / 0.4f), 0, 1);
+    if(alpha < 0.01f) return;
+    side = vscale(side, 1.0f / sl);
+    V3 q = vmad(lamp, dir, len * 0.25f);
+    float wq = 0.1f + (w1 - 0.1f) * 0.25f;
+    uint32_t c0 = color_alpha(col, alpha * 0.5f), c1 = color_alpha(col, alpha), c2 = col & 0xffffffu;
+    RV v[6] = {{lamp.x - side.x * 0.1f, lamp.y - side.y * 0.1f, lamp.z - side.z * 0.1f, 0, 0.5f, c0},
+               {lamp.x + side.x * 0.1f, lamp.y + side.y * 0.1f, lamp.z + side.z * 0.1f, 1, 0.5f, c0},
+               {q.x - side.x * wq, q.y - side.y * wq, q.z - side.z * wq, 0, 0.5f, c1},
+               {q.x + side.x * wq, q.y + side.y * wq, q.z + side.z * wq, 1, 0.5f, c1},
+               {end.x - side.x * w1, end.y - side.y * w1, end.z - side.z * w1, 0, 0.5f, c2},
+               {end.x + side.x * w1, end.y + side.y * w1, end.z + side.z * w1, 1, 0.5f, c2}};
+    r_strip(v, 6);
 }
 
 /* Where a beam from the headlights, pitched down a little from the nose,
@@ -247,6 +310,15 @@ void truckdraw_draw_op(void) {
         l.ref = ref_col[t->model];
         l.unlit_mask = unlit;
         int used = light_part(&parts[t->model][RL_PART_BODY][lod], &l, lit_buf);
+        if(lod < 2) {
+            /* The glint: the sun's colour, as strong as its light. */
+            V3 to = vsub(r_cam.pos, t->pos);
+            V3 V = vnorm(v3(vdot(to, R), vdot(to, U), vdot(to, F)));
+            V3 H = vnorm(vadd(l.L, V));
+            float k[3];
+            for(int i = 0; i < 3; i++) k[i] = 150.0f * pal->sun_k[i] * (((pal->sun_col >> (16 - 8 * i)) & 255) * (1.0f / 255));
+            if(k[0] + k[1] + k[2] > 6.0f) sheen_part(&parts[t->model][RL_PART_BODY][lod], lit_buf, H, k);
+        }
         draw_part(&parts[t->model][RL_PART_BODY][lod], mat, lit_buf);
         /* Wheels: steered, spinning, where the suspension puts them. Lit
            once for all four with the body's sun: a tyre is dark and round,
@@ -326,18 +398,36 @@ void truckdraw_draw_tr(void) {
         }
         if(!t->lights) continue;
         bool full = t->lights == LIGHTS_FULL;
-        float beam = full ? 1.5f : 1.0f;   /* full beam: bigger glows, a further and brighter pool */
+        /* Where the beam lands: dipped is pitched down and short, full
+           beam flatter and far. */
+        V3 nose = vmad(c, F, s->body_hi[2]);
+        nose.y += 0.4f;
+        bool hit;
+        float pitch = (full ? 2.5f : 6.0f) * ENG_PI / 180.0f;
+        float land = beam_landing(t, nose, pitch, full ? 40.0f : 18.0f, &hit);
         r_hdr(h_glow);
 #ifdef HAVE_TRUCK_MODELS
         const rl_truck_info_t *info = &rl_truck_info[t->model];
         V3 to_cam = vnorm(vsub(r_cam.pos, t->pos));
         float facing = clampf(vdot(to_cam, F), 0, 1);
+        /* The beams through the air: faint by day, carrying at night and
+           in the summit's cloud. */
+        V3 bdir = vsub(vscale(F, cosf(pitch)), vscale(t->ax[1], sinf(pitch)));
+        float blen = fminf(full ? 26.0f : 15.0f, land / cosf(pitch) + 1.0f);
+        float air_a = (0.05f + 0.3f * pal->dark + 0.3f * world_mist()) * (full ? 1.0f : 0.8f);
+        r_hdr(h_beam);
         for(int i = 0; i < 2; i++) {
             V3 p = truck_to_world(t, v3(info->headlight[i][0], info->headlight[i][1], info->headlight[i][2]));
-            /* Brighter and bigger in the dark. */
-            float sz = info->headlight_r * (2.5f + 6.0f * facing * facing) * (1.0f + 0.5f * pal->dark) * beam;
+            beam_air(vmad(p, F, 0.1f), bdir, blen, full ? 2.6f : 1.8f, full ? 0xfffff8ec : 0xfffff0d0, air_a);
+        }
+        r_hdr(h_glow);
+        for(int i = 0; i < 2; i++) {
+            V3 p = truck_to_world(t, v3(info->headlight[i][0], info->headlight[i][1], info->headlight[i][2]));
+            /* Brighter and bigger in the dark (full beam a little more,
+               short of a glare that hides the truck). */
+            float sz = info->headlight_r * (2.2f + 4.5f * facing * facing) * (1.0f + 0.4f * pal->dark) * (full ? 1.2f : 1.0f);
             r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1,
-                        color_alpha(full ? 0xffffffff : 0xfffff0c8, (0.5f + 0.5f * facing) * (1.0f + 0.6f * pal->dark)));
+                        color_alpha(full ? 0xffffffff : 0xfffff0c8, (0.45f + 0.4f * facing) * (1.0f + 0.5f * pal->dark)));
             V3 tl = truck_to_world(t, v3(info->taillight[i][0], info->taillight[i][1], info->taillight[i][2]));
             r_billboard(tl, 0.35f, 0.35f, 0, 0, 0, 1, 1, color_alpha(0xffff2010, 0.6f));
         }
@@ -348,14 +438,8 @@ void truckdraw_draw_tr(void) {
                 r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1, color_alpha(0xffffffff, 0.4f + 0.5f * facing));
             }
 #endif
-        /* The beam on the ground, from the nose to where it lands: dipped
-           is pitched down and short, full beam flatter and far. Over a
-           crest it lands nowhere and only a faint trace is left. */
-        V3 nose = vmad(c, F, s->body_hi[2]);
-        nose.y += 0.4f;
-        bool hit;
-        float pitch = (full ? 2.5f : 6.0f) * ENG_PI / 180.0f;
-        float land = beam_landing(t, nose, pitch, full ? 40.0f : 18.0f, &hit);
+        /* The beam on the ground, from the nose to where it lands. Over
+           a crest it lands nowhere and only a faint trace is left. */
         float a = (full ? 0.34f + 0.5f * pal->dark : 0.3f + 0.45f * pal->dark) * (hit ? 1.0f : 0.45f);
         V3 nose_h = v3(nose.x, 0, nose.z);
         beam_patch(nose_h, fh, rh, nose.y + 1.5f, 1.0f, land * 1.25f, 1.6f, full ? 7.0f : 4.5f, full ? 0xfffff4d8 : 0xffffe8b0, a);

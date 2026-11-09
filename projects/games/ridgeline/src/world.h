@@ -8,6 +8,11 @@
 
 extern Scenery scenery;
 
+/* The wind aloft: toward the north-east, 12 m/s (the clouds ride it). */
+#define WIND_X 0.78f
+#define WIND_Z 0.62f
+#define WIND_SPEED 12.0f
+
 /* The hour's palette and light (tod.c works it out from the clock). */
 typedef struct {
     uint32_t sky_top, sky_horizon, haze;
@@ -36,6 +41,8 @@ void world_draw_flare(void);          /* TR, last: the sun's lens flare */
 float world_boulder_top(int i);
 /* An albedo lit by this scene's sun and sky, for a face with normal n. */
 uint32_t world_lit(uint32_t albedo, V3 n);
+/* How deep in the summit's cloud the camera is, 0..1. */
+float world_mist(void);
 
 /* Relighting the trees, rocks and props (tod.c): every scenery vertex
    keeps what it was lit from; a pass recolours [from, to) of them for

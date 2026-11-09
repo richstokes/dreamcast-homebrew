@@ -1,4 +1,5 @@
 /* Ridgeline: boot, the frame loop, driving and the render order. */
+#include "air.h"
 #include "rl.h"
 #include "world.h"
 #include "terrain.h"
@@ -263,6 +264,7 @@ static void update(float dt) {
     tod_update(dt, run_clock, budget);
     world_update(dt);
     birds_update(dt);
+    air_update(dt);
     if(!game_frozen()) deer_update_all(dt);
     hud_update(dt);
 }
@@ -278,6 +280,7 @@ static void render(void) {
     world_draw_sky();
     world_draw_op();
     birds_draw();
+    air_draw_op();
     extern uint64_t world_us[3];
     uint64_t tt = timer_us_gettime64();
     bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND || game.state == ST_ONLINE;
@@ -297,6 +300,7 @@ static void render(void) {
     world_draw_tr();
     if(!no_trucks) truckdraw_draw_tr();
     fx_draw();
+    air_draw_tr();
     world_draw_flare();
     if(game.state == ST_TITLE) menu_title_draw();
     else if(game.state == ST_SELECT) menu_select_draw();
@@ -343,6 +347,7 @@ int main(int argc, char **argv) {
     truckdraw_init();
     fx_init();
     birds_init();
+    air_init();
     audio_init();
     records_load();
     printf("Ridgeline boot: %lu ms, %lu KiB VRAM free\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000),

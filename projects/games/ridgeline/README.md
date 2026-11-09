@@ -55,7 +55,9 @@ been, and the viewpoints you've found.
 - Birds: jays, juncos and ravens perched on logs, rocks, the cabin roof
   and the cairns burst away as a truck comes near (or at the horn), hawks
   circle over the meadow and the bluffs, and now and then a V of geese
-  crosses the sky
+  crosses the sky. Leaves come down from the larches and maples, dust
+  motes hang in the forest light, fireflies come out over the meadow
+  after dusk and snow blows about the summit
 - A day that goes by as you drive, an hour a minute: first light, sunrise
   mist, noon, the long afternoon shadows, sunset, dusk and a starry
   moonlit night, the hills' shadows swinging round with the sun, and the
@@ -64,7 +66,9 @@ been, and the viewpoints you've found.
   afternoon: the summit trail climbs through it and out above it. Pick
   when to set off on the truck select (dawn, morning, afternoon, dusk or
   night); photo mode moves the clock with the D-pad. Headlights are yours
-  to switch: off, dipped or full beam (which lights the Kestrel's roof bar)
+  to switch: off, dipped or full beam (which lights the Kestrel's roof bar),
+  and the beams carry through the air at night and in the cloud. The low
+  sun glints off paint and glass
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,
