@@ -39,7 +39,7 @@ typedef struct {
 
 #define LOW_RANGE_TOP_MPS 13.4f     /* ~30 mph */
 #define LOW_RANGE_SHIFT_MPS 3.6f    /* ~8 mph: in or out of low range only below this */
-#define REVERSE_TOP_MPS 8.94f       /* 20 mph: the most the engine drives in reverse */
+#define REVERSE_TOP_MPS 10.28f      /* 23 mph: the most the engine drives in reverse */
 
 typedef struct {
     float comp, comp_prev;      /* suspension compression from full droop, m */
