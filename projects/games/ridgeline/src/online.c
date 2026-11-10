@@ -717,8 +717,10 @@ void online_draw_hud(void) {
         const NetPlayer *p = &l->players[i];
         float cy = y0 + 27 + i * 20;
         bool me = p->slot == l->you;
-        hud_text_c(x0 + 10, cy, 0.5f, ALIGN_LEFT, me ? 0xffffd070 : 0xfff4ecd8, p->name);
-        if(p->flags & NPF_SUMMIT) hud_trophy(x0 + 10 + text_width(hud_font(), p->name, 0.5f) + 12, cy, 15, 1.0f);
+        /* A swatch in the colour of their arrow on the map. */
+        hud_panel(x0 + 9, cy - 4, x0 + 17, cy + 4, hud_map_color(truck_of(p->slot)));
+        hud_text_c(x0 + 23, cy, 0.5f, ALIGN_LEFT, me ? 0xffffd070 : 0xfff4ecd8, p->name);
+        if(p->flags & NPF_SUMMIT) hud_trophy(x0 + 23 + text_width(hud_font(), p->name, 0.5f) + 12, cy, 15, 1.0f);
         if(!me) {
             snprintf(buf, sizeof(buf), "%d MS", p->ping);
             hud_text_c(x1 - 10, cy, 0.4f, ALIGN_RIGHT, ping_col(p->ping), buf);

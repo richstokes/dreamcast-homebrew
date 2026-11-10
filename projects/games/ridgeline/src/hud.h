@@ -9,6 +9,8 @@ void hud_init(void);
 void hud_update(float dt);
 void hud_draw(void);                /* TR list */
 void hud_draw_map(void);            /* the map alone (demo mode) */
+/* The colour of truck index `truck` on the map. */
+uint32_t hud_map_color(int truck);
 void hud_message(const char *text, uint32_t col, float seconds);
 /* A smaller second line under the message just set, gone with it. */
 void hud_message_sub(const char *text);

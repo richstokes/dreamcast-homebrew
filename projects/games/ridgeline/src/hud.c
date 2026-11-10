@@ -250,6 +250,13 @@ static void inclinometer(const Truck *t) {
     hud_text_c(168, y + 28, 0.5f, ALIGN_CENTER, cr, buf);
 }
 
+/* A truck's colour on the map: the player's white, each other truck its
+   own, so they can be told apart (online, the roster repeats it). */
+uint32_t hud_map_color(int truck) {
+    static const uint32_t col[MAX_TRUCKS] = {0xffffffff, 0xfff0a030, 0xff40c8f0, 0xffb890ff};
+    return col[truck % MAX_TRUCKS];
+}
+
 /* The corner map, or the large one (X), which sits between the drive mode
    tabs, the speed and the summit panel and covers the inclinometer. */
 static void map(void) {
@@ -275,7 +282,7 @@ static void map(void) {
         if(t->absent) continue;
         float x = MX(t->pos.x), y = MY(t->pos.z), h = truck_heading(t);
         float fx = sinf(h), fy = -cosf(h);
-        uint32_t c = i == 0 ? 0xffffffff : 0xfff0a030;
+        uint32_t c = hud_map_color(i);
         float s = (i == 0 ? 6.0f : 4.0f) * m;
         r_tri2d(x + fx * s, y + fy * s, x - fx * s * 0.6f - fy * s * 0.6f, y - fy * s * 0.6f + fx * s * 0.6f,
                 x - fx * s * 0.6f + fy * s * 0.6f, y - fy * s * 0.6f - fx * s * 0.6f, c, c, c, Z + 0.4f);
