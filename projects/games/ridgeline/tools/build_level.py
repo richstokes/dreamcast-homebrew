@@ -1243,6 +1243,7 @@ def main():
              (FORK[0] - 6, gy(FORK[0] - 6, FORK[1]), FORK[1], 0.4, 1),
              (HIGH_MEADOW[0] + 6, gy(HIGH_MEADOW[0] + 6, HIGH_MEADOW[1]), HIGH_MEADOW[1], 0.8, 1)]
     boxes.append((-28.0, gy(-28, -292) + 1.6, -292.0, 4.2, 1.8, 3.2, 0.3))   # the cabin
+    boxes.append((-14.0, gy(-14, -276) + 0.4, -276.0, 0.9, 0.4, 0.4, 1.2))    # the picnic table
     summit_y = gy(PEAK[0], PEAK[1])
     props.append((PEAK[0], summit_y, PEAK[1], 0.2, 4))
     for (px_, pz_, yaw_, kind_, y_) in extra_props:

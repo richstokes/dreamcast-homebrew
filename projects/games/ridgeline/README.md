@@ -305,7 +305,7 @@ over them. The three-tier middle tree all the way to 170 m cost up to
 - One scene (autumn); the desert palette is not built yet
 - Headlights cast no shadows: a tree behind a cabin catches the beam too
 - Headlights do not light the grass tufts (the fire and lanterns do), and
-  the lantern post has no collision
+  the lantern post has no collision (the picnic table does)
 - The campfire has no crackle, and it and the lanterns have no
   console timings yet (Flycast only)
 - No rumble yet
