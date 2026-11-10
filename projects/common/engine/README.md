@@ -45,7 +45,7 @@ game supplies three headers on its include path:
 
 | Header | Holds |
 | --- | --- |
-| `engine_config.h` | `ENG_NAME`, `ENG_DT`, the vertex buffer size, test switches (`ENG_PROF`, `ENG_INPUT_TAPS`, ...). A switch may expand to a game symbol (DreamKarts' `ENG_TA_SINK` reads its probe mask), so the engine then only links with that game's objects |
+| `engine_config.h` | `ENG_NAME`, `ENG_DT`, the vertex buffer size, test switches (`ENG_PROF`, `ENG_INPUT_TAPS`, ...), `ENG_CROSS_EMIT` for games with big strips (`render.h`). A switch may expand to a game symbol (DreamKarts' `ENG_TA_SINK` reads its probe mask), so the engine then only links with that game's objects |
 | `engine_assets.h` | Read by `render.c` only: the texture table and pak, mip bias, optional texture sets, PVR settings (bins, fog, clear colour) |
 | `prof_ids.h` | Profile section and count ids, with the renderer's from `prof_engine.h` placed among them |
 

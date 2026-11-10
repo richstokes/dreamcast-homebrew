@@ -66,7 +66,12 @@ void r_strip(const RV *v, int n);
 void r_strip_spec(const RV *v, const uint32_t *spec, int n);
 /* r_strip for a strip whose vertices all lie within the sphere (c, radius):
    the sphere decides whole strips, and only those it cannot are tested
-   vertex by vertex. */
+   vertex by vertex. A game with big strips (terrain tiles, scenery chunks)
+   can define ENG_CROSS_EMIT in its engine_config.h: a strip across the
+   screen's edge but wholly beyond the near plane is then sent whole
+   without the vertex tests, as the tests would only have found it needs
+   no clipping, or, more rarely, that all of it was off screen, which the
+   Tile Accelerator discards. */
 void r_strip_bounded(const RV *v, int n, V3 c, float radius);
 /* r_strip_bounded with an offset colour per vertex (headers made with
    HF_SPEC): fill writes spec[0..n) for the strip, and is only called once

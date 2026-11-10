@@ -251,9 +251,46 @@ at night and 15.30 -> 15.36 into dusk; late frames 740 -> 825 and
 Worth another look if those windows get tighter: lighting only the
 player's truck should cut the peaks to about a third. Flycast showed the
 same shape but doesn't price `fsrra` against a divide. The grass and the
-other trucks taking the beams came later (2026-11-10): +0.06 ms of PT in
-a Flycast night drive, 0.16 at the start with every truck on the meadow;
-not benched on the console.
+other trucks taking the beams came later the same day: CPU 15.75 ->
+15.80 ms at night, PT up 0.04-0.10 ms.
+
+Where a night frame went on the console that evening (2026-11-09,
+15.8 ms average, 17.1 on the forest climb, a tenth of the frames late):
+
+| Part | ms | |
+| --- | --- | --- |
+| Terrain | 4.35 | near tiles 0.98 building and 2.04 submitting, far blocks 0.82, skirts 0.25 |
+| Update | 3.7 | physics 1.9, relighting 0.84 |
+| Trees | 2.2 | |
+| Trucks | 1.8 | |
+| Translucent | 1.7 | effects and glows 0.7-1.0, water and sky 0.5, beams 0.26, HUD 0.21 |
+| Grass | 0.74 | |
+| Rocks and props | 0.58 | |
+
+Two things in it were waste, and fixing them (`make hwbench` A/B at
+night, each against the build before it) put the drive back at 60:
+
+| | CPU, ms | Forest climb, ms | Late frames |
+| --- | --- | --- | --- |
+| Before | 15.72 | 17.13 | 1042 of 10882 |
+| Far terrain, rocks, props and water drawn by index | 14.90 | 16.40 | 575 |
+| Strips across the screen's edge sent whole | 13.43 | 14.72 | 263 (32 after the first 20 s) |
+
+- The scenery's walk reads every chunk's record on each call. Three
+  calls a frame over ~1,300 chunks cost 0.8 ms for the far terrain's
+  ~800 vertices alone; the terrain, rocks, props and water now keep
+  their own lists, as the trees did already
+- A strip whose sphere touches the screen's edge used to be transformed
+  into a buffer, tested, then copied out: 5,500 of the ~9,000 strip
+  vertices a frame, nearly all then sent whole anyway. With
+  `ENG_CROSS_EMIT` (engine `render.h`) those clear of the near plane go
+  straight out. The strips that were wholly off screen go to the Tile
+  Accelerator too (5-40% more triangles sent), which drops them: its
+  vertex buffer and the PVR's render time did not move
+- Still there if it gets tight again: tiles round the camera go out
+  triangle by triangle (~580 vertices a frame), the near tiles' spheres
+  are padded 13 m down for skirts they don't hold, and relighting is a
+  steady 0.84 ms
 
 Textured near trees (2026-11-09, `make hwbench` A/B against that
 morning's main): CPU 15.29 -> 14.61 ms, late frames 571 -> 315, PVR

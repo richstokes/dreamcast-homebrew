@@ -787,7 +787,14 @@ void r_strip_spec(const RV *v, const uint32_t *spec, int n) {
    Each margin is far wider than the rounding of FTRV or of this test, so
    SPHERE_OUT strips are ones r_strip would cull (or skip triangle by
    triangle) and SPHERE_IN strips ones it would send whole. */
-enum { SPHERE_IN, SPHERE_OUT, SPHERE_CROSS };
+enum { SPHERE_IN, SPHERE_OUT, SPHERE_CROSS,
+#ifdef ENG_CROSS_EMIT
+       /* Across the screen's edge but wholly beyond the near plane: no
+          triangle of it needs clipping, so it can be sent as SPHERE_IN
+          strips are (r_strip_bounded). */
+       SPHERE_SIDE
+#endif
+};
 
 static int sphere_class(V3 c, float radius) {
     V3 d = vsub(c, r_cam.pos);
@@ -797,12 +804,22 @@ static int sphere_class(V3 c, float radius) {
     float v[5] = {F * x + view_cx * z, (640.0f - view_cx) * z - F * x, -F * y + (view_cy - view_y0) * z,
                   F * y + (view_y1 - view_cy) * z, z - NEAR_W};
     bool inside = true;
+#ifdef ENG_CROSS_EMIT
+    bool near_in = false;
+#endif
     for(int p = 0; p < 5; p++) {
         float g = p < 4 ? plane_g[p] : 1.0f;
         float m = g * (radius * 1.01f + mag * 1e-4f + 0.01f);
         if(v[p] < -m) return SPHERE_OUT;
         if(v[p] < m) inside = false;
+#ifdef ENG_CROSS_EMIT
+        else if(p == 4) near_in = true;
+#endif
     }
+#ifdef ENG_CROSS_EMIT
+    /* (not in a split screen, where the viewport's edges clip too) */
+    if(!inside && near_in && clip_mask == 16u) return SPHERE_SIDE;
+#endif
     return inside ? SPHERE_IN : SPHERE_CROSS;
 }
 
@@ -818,6 +835,9 @@ void r_strip_bounded(const RV *v, int n, V3 c, float radius) {
         extern uint32_t xf_checked, xf_mismatch;
         xf_checked++;
         if(cls == SPHERE_IN && or_code != 0) xf_mismatch++;
+#ifdef ENG_CROSS_EMIT
+        if(cls == SPHERE_SIDE && (or_code & 16)) xf_mismatch++;   /* no vertex may reach the near plane */
+#endif
         if(cls == SPHERE_OUT && and_code == 0) {
             /* No plane has every vertex outside: every triangle must
                still share one. */

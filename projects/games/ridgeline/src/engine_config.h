@@ -17,6 +17,11 @@
 #define ENG_INPUT_IGNORE_HOST 1
 #endif
 
+/* Terrain tiles and scenery chunks are big, so most reach across the
+   screen's edge: send those whole when they are clear of the near plane
+   (render.h). */
+#define ENG_CROSS_EMIT 1
+
 /* The Tile Accelerator's vertex buffer: open hillsides show a lot. */
 #define ENG_VTX_BUF_KIB 1280
 

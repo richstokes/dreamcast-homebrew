@@ -449,6 +449,14 @@ void autotest_frame(float dt_real) {
         worst_relight = relight_us;
     }
     qa_window_frame(&at.win, dt_real, eng_frame.steps, cpu);
+    static uint64_t vbuf_sum;
+    static uint32_t vbuf_max;
+    {
+        pvr_stats_t ps;
+        pvr_get_stats(&ps);
+        vbuf_sum += ps.vtx_buffer_used;
+        if(ps.vtx_buffer_used > vbuf_max) vbuf_max = (uint32_t)ps.vtx_buffer_used;
+    }
     at.all_frames++;
     at.all_cpu += cpu;
     if(cpu > at.all_cpu_max) at.all_cpu_max = cpu;
@@ -526,7 +534,11 @@ void autotest_frame(float dt_real) {
         printf("RL AT terrain verts: near3 %d near6 %d skirts %d far %d; tufts %d\n", (int)(ter_count[0] * f * 1000),
                (int)(ter_count[1] * f * 1000), (int)(ter_count[2] * f * 1000), (int)(ter_count[3] * f * 1000), world_tufts);
         memset(ter_count, 0, sizeof(ter_count));
-        printf("RL AT gpu: render %.2f/%.2f ms\n", (double)(at.win.rnd_sum / at.win.frames), (double)at.win.rnd_max);
+        /* The Tile Accelerator's vertex buffer, too: what it kept of the
+           frame (it drops what is wholly off screen). */
+        printf("RL AT gpu: render %.2f/%.2f ms, vertex buffer %lu/%lu KiB\n", (double)(at.win.rnd_sum / at.win.frames),
+               (double)at.win.rnd_max, (unsigned long)(vbuf_sum / at.win.frames / 1024), (unsigned long)(vbuf_max / 1024));
+        vbuf_sum = vbuf_max = 0;
         printf("RL AT t=%.0f fps=%.1f cpu=%.2f/%.2f over=%d upd=%.2f op=%.2f pt=%.2f tr=%.2f tris=%d verts=%d "
                "pos=%.0f,%.0f,%.0f v=%.1f rpm=%.0f g=%d mode=%d prog=%.2f summit=%.0f%%\n",
                (double)game.clock, (double)(at.win.frames / at.win.t), (double)(at.win.cpu_sum / at.win.frames),
