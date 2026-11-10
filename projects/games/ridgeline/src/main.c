@@ -108,11 +108,8 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     in->brake = pad.ltrig;
     in->handbrake = (pad.held & BTN_A) != 0;
     p->horn = (pad.held & BTN_UP) != 0;
-    if(pad.pressed & BTN_DOWN) {
-        static const char *const names[LIGHTS_COUNT] = {"LIGHTS OFF", "DIPPED BEAM", "FULL BEAM"};
-        p->lights = (uint8_t)((p->lights + 1) % LIGHTS_COUNT);
-        hud_message(names[p->lights], 0xfff8f0dc, 1.2f);
-    }
+    /* No message: the HUD's headlight lamp shows which beam is on. */
+    if(pad.pressed & BTN_DOWN) p->lights = (uint8_t)((p->lights + 1) % LIGHTS_COUNT);
     /* D-pad left/right step the drive mode. Held 2 s on a truck with
        traction control, left switches that off or on instead, so there
        left shifts on release after a tap rather than on the press. */

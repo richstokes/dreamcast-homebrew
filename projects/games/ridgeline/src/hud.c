@@ -18,8 +18,13 @@ const char *hud_hold_label;
 
 #define Z 10.0f
 /* The bottom edge every bottom-row element sits on: the rev counter, the
-   traction lamp and the drive mode tabs. */
+   dashboard lamps and the drive mode tabs. */
 #define HUD_BOTTOM 460.0f
+/* The lamps are LAMP_K of their 44 pixel drawings, in slots leftwards from
+   the rev counter: headlights in the first, traction control in the next. */
+#define LAMP_K 0.62f
+#define LAMP_CY (HUD_BOTTOM - 22 * LAMP_K)
+#define LAMP_CX(slot) (560 - 66 - 10 - 22 * LAMP_K - (slot) * (44 * LAMP_K + 6))
 
 void hud_init(void) {
     font.hdr = r_header(TEX_FONT, HF_TR | HF_NOFOG | HF_CLAMP);
@@ -142,16 +147,42 @@ static void seg2d(float x0, float y0, float x1, float y1, float w, uint32_t col)
     r_quad2d_pts(xy, uv, c, Z + 0.3f);
 }
 
+/* The dashboard headlight lamp, lit while the lights are on: a lens with
+   its rays to the left, green and slanting down on dipped beam, blue and
+   level on full. */
+static void lights_icon(const Truck *t) {
+    if(t->lights == LIGHTS_OFF) return;
+    bool full = t->lights == LIGHTS_FULL;
+    const float k = LAMP_K, cx = LAMP_CX(0), cy = LAMP_CY;
+    uint32_t col = full ? 0xff58a0ff : 0xff58d878;
+    hud_panel(cx - 22 * k, cy - 22 * k, cx + 22 * k, cy + 22 * k, 0x90182028);
+    r_hdr(h_flat);
+    /* The lens: a half disc, flat side to the rays. */
+    const float lx = cx + 2 * k, r = 11 * k;
+    float px = lx, py = cy - r;
+    for(int i = 1; i <= 8; i++) {
+        float a = (i / 8.0f - 0.5f) * ENG_PI;
+        float x = lx + r * cosf(a), y = cy + r * sinf(a);
+        r_tri2d(lx, cy, px, py, x, y, col, col, col, Z + 0.2f);
+        px = x;
+        py = y;
+    }
+    float drop = full ? 0 : 4 * k;
+    for(int i = 0; i < 4; i++) {
+        float y = cy + (i * 6 - 9) * k;
+        seg2d(cx - 2 * k, y, cx - 15 * k, y + drop, 2.4f * k + 0.3f, col);
+    }
+}
+
 /* The dashboard traction control lamp: a car from behind with two skid
-   squiggles under it, on the bottom row left of the rev counter. Flashes while it
+   squiggles under it, left of the headlight lamp. Flashes while it
    is cutting the throttle; steady with OFF beside it when the driver has
    switched it off. */
 static void tcs_icon(const Truck *t) {
     if(!t->spec.tcs) return;
     bool off = t->tcs_off;
     if(!off && tcs_lamp <= 0) return;
-    const float k = 0.62f, cy = HUD_BOTTOM - 22 * k;
-    const float cx = 560 - 66 - 10 - 22 * k;
+    const float k = LAMP_K, cx = LAMP_CX(1), cy = LAMP_CY;
     uint32_t col = off ? 0xffff7050 : 0xffffb040;
     if(!off && fmodf(game.time, 0.3f) > 0.18f) col = color_alpha(col, 0.35f);
     hud_panel(cx - (off ? 60 : 22) * k, cy - 22 * k, cx + 22 * k, cy + 22 * k, 0x90182028);
@@ -184,15 +215,20 @@ static void tcs_icon(const Truck *t) {
     if(off) hud_text_c(cx - 39 * k, cy, 0.42f, ALIGN_CENTER, col, "OFF");
 }
 
+/* The drive mode as a selector: the mode in use on a tab, with an arrow
+   each side for the d-pad, dimmed where there is no further mode that way. */
 static void drive_mode(const Truck *t) {
     static const char *const names[DRIVE_COUNT] = {"2WD", "4WD", "LOCK"};
-    float x = 34, y = HUD_BOTTOM - 15;
-    for(int m = 0; m < DRIVE_COUNT; m++) {
-        bool on = t->mode == m;
-        float w = m == 2 ? 62 : 52;
-        hud_panel(x, y - 15, x + w, y + 15, on ? 0xf0d08420 : 0x80202830);
-        hud_text_c(x + w * 0.5f, y, 0.72f, ALIGN_CENTER, on ? 0xffffffff : 0xffb8b0a0, names[m]);
-        x += w + 6;
+    const float cx = 120, y = HUD_BOTTOM - 15, w = 35;
+    hud_panel(cx - w - 24, y - 15, cx + w + 24, y + 15, 0x80202830);
+    hud_panel(cx - w, y - 15, cx + w, y + 15, 0xf0d08420);
+    hud_text_c(cx, y, 0.72f, ALIGN_CENTER, 0xffffffff, names[t->mode]);
+    r_hdr(h_flat);
+    for(int side = -1; side <= 1; side += 2) {
+        bool more = side < 0 ? t->mode > 0 : t->mode < DRIVE_COUNT - 1;
+        uint32_t c = more ? 0xfff4ecd8 : 0x50b8b0a0;
+        float bx = cx + side * (w + 8), tx = cx + side * (w + 17);
+        r_tri2d(bx, y - 7, bx, y + 7, tx, y, c, c, c, Z + 0.2f);
     }
     if(t->mode == DRIVE_LOCK) hud_text_c(222, y, 0.48f, ALIGN_LEFT, 0xffe8c070, "LOW + LOCKERS");
     if(t->stalled) hud_text_c(320, 160, 0.7f, ALIGN_CENTER, 0xffff7050, "STALLED - WATER IN THE INTAKE");
@@ -281,6 +317,7 @@ void hud_draw(void) {
     progress(t);
     map();
     dial(t);
+    lights_icon(t);
     tcs_icon(t);
     drive_mode(t);
     if(game.map_mode != 1) inclinometer(t);
