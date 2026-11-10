@@ -23,6 +23,7 @@ static const pvr_poly_hdr_t *h_add;
 #define RINGS 10
 #define SPOKES 16
 #define LANTERN_FAR 420.0f
+#define GROUND_K 0.55f       /* how much of a light shows on the ground and the grass */
 static const float ring_t[RINGS] = {0, 0.035f, 0.075f, 0.13f, 0.2f, 0.3f, 0.425f, 0.575f, 0.75f, 1.0f};
 typedef struct {
     V3 c;
@@ -37,27 +38,44 @@ static Fan fans[GLOW_GROUPS];
 static const V3 tower_lanterns[5] = {{-2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, 2.25f},
                                      {-2.25f, 7.72f, 2.25f}, {0, 5.5f, 0}};
 
-int glow_tower_lanterns(const V3 **out) {
-    *out = tower_lanterns;
-    return 5;
-}
-
 void glow_place(void) {
     if(placed) return;
     placed = true;
     glow_n = 0;
     V3 f = campfire_pos();
-    glows[glow_n++] = (Glow){v3(f.x, f.y + 0.5f, f.z), 20.0f, 5.0f, 1.0f, GLOW_FIRE, false};
+    glows[glow_n++] = (Glow){v3(f.x, f.y + 0.5f, f.z), 20.0f, 5.0f, 1.0f, GLOW_FIRE, false, 0, 0, false};
+    /* The first lookout, cabin and picnic table are the ones lit. */
+    bool tower = false, cabin = false, table = false;
     for(int i = 0; i < LVL_PROPS; i++) {
         const lvl_prop_t *p = &lvl_props[i];
-        if(p->kind != PROP_TOWER) continue;
-        for(int k = 0; k < 5; k++) {
-            V3 q = v3(p->x + tower_lanterns[k].x, p->y + tower_lanterns[k].y, p->z + tower_lanterns[k].z);
-            glows[glow_n++] = k < 4 ? (Glow){q, 9.0f, 2.2f, 0.55f, GLOW_LANTERNS, true}
-                                    : (Glow){q, 16.0f, 4.5f, 1.3f, GLOW_LANTERNS, true};
+        float sy = sinf(p->yaw), cy = cosf(p->yaw);
+        if(p->kind == PROP_TOWER && !tower) {
+            tower = true;
+            for(int k = 0; k < 5; k++) {
+                V3 q = v3(p->x + tower_lanterns[k].x, p->y + tower_lanterns[k].y, p->z + tower_lanterns[k].z);
+                glows[glow_n++] = k < 4 ? (Glow){q, 9.0f, 2.2f, 0.55f, GLOW_TOWER, true, 0.09f, 0.42f, false}
+                                        : (Glow){q, 16.0f, 4.5f, 1.3f, GLOW_TOWER, true, 0.13f, 0.35f, false};
+            }
         }
-        break;
+        else if(p->kind == PROP_CABIN && !cabin) {
+            /* Under the eave on the side the trucks start from, toward
+               the north end of the wall. */
+            cabin = true;
+            V3 q = v3(p->x + cy * 4.5f + sy * 1.4f, p->y + 2.45f, p->z - sy * 4.5f + cy * 1.4f);
+            glows[glow_n++] = (Glow){q, 14.0f, 4.0f, 1.1f, GLOW_CABIN, true, 0.12f, 0.33f, false};
+        }
+        else if(p->kind == PROP_TABLE && !table) {
+            /* Stood on one end of the table. */
+            table = true;
+            V3 q = v3(p->x + cy * 0.5f, p->y + 0.8f + 0.13f, p->z - sy * 0.5f);
+            glows[glow_n++] = (Glow){q, 9.0f, 2.4f, 0.75f, GLOW_TABLE, true, 0.1f, 0, false};
+        }
     }
+    /* A post beside the east end of the start grid. */
+    const float *sp = lvl_spawns[LVL_SPAWNS - 1];
+    V3 q = v3(sp[0] + 4.6f, 0, sp[2] + 1.5f);
+    q.y = terrain_height(q.x, q.z) + 2.3f;
+    glows[glow_n++] = (Glow){q, 14.0f, 4.0f, 1.0f, GLOW_POST, true, 0.12f, 0.3f, true};
     for(int g = 0; g < GLOW_GROUPS; g++) {
         V3 c = v3(0, 0, 0);
         int n = 0;
@@ -124,12 +142,35 @@ float glow_light(V3 p, V3 *from) {
     return sum;
 }
 
+bool glow_near(V3 p, float r) {
+    for(int g = 0; g < GLOW_GROUPS; g++) {
+        if(glow_level[g] < 0.02f) continue;
+        float dx = p.x - glow_c[g].x, dz = p.z - glow_c[g].z, reach = glow_r[g] + r;
+        if(dx * dx + dz * dz < reach * reach) return true;
+    }
+    return false;
+}
+
+uint32_t glow_tint(uint32_t col, V3 p) {
+    float w = glow_light(p, NULL) * GROUND_K;
+    if(w < 0.01f) return col;
+    if(w > 1.0f) w = 1.0f;
+    int r = (int)((col >> 16) & 255) + (int)(255.0f * w), g = (int)((col >> 8) & 255) + (int)(140.0f * w),
+        b = (int)(col & 255) + (int)(52.0f * w);
+    return (col & 0xff000000u) | (uint32_t)(r > 255 ? 255 : r) << 16 | (uint32_t)(g > 255 ? 255 : g) << 8 |
+           (uint32_t)(b > 255 ? 255 : b);
+}
+
 void glow_update(float dt) {
     if(game_frozen()) return;
     glow_t += dt;
-    /* The fire sets its own level (campfire.c); a lantern burns steadier. */
-    glow_level[GLOW_LANTERNS] = clampf(pal->dark * 1.15f, 0, 1) *
-                                (0.95f + 0.04f * sinf(glow_t * 6.1f) * sinf(glow_t * 1.7f) + 0.02f * sinf(glow_t * 17.0f));
+    /* The fire sets its own level (campfire.c); a lantern burns steadier,
+       each place's a little out of step with the others. */
+    float dark = clampf(pal->dark * 1.15f, 0, 1);
+    for(int g = GLOW_TOWER; g < GLOW_GROUPS; g++) {
+        float t = glow_t + g * 2.3f;
+        glow_level[g] = dark * (0.95f + 0.04f * sinf(t * 6.1f) * sinf(t * 1.7f) + 0.02f * sinf(t * 17.0f));
+    }
 }
 
 static void sprite(V3 p, float s, uint32_t col) {
@@ -162,7 +203,7 @@ void glow_draw_tr(void) {
             static const uint32_t warm = 0xffff8c34;
             uint32_t col[RINGS][SPOKES];
             for(int r = 0; r < RINGS; r++)
-                for(int s = 0; s < SPOKES; s++) col[r][s] = color_alpha(warm, clampf(fan->k[r][s] * lv * 0.55f * fog, 0, 1));
+                for(int s = 0; s < SPOKES; s++) col[r][s] = color_alpha(warm, clampf(fan->k[r][s] * lv * GROUND_K * fog, 0, 1));
             for(int r = 0; r + 1 < RINGS; r++) {
                 RV st[2 * (SPOKES + 1)];
                 for(int s = 0; s <= SPOKES; s++) {

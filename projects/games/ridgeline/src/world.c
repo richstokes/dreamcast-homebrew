@@ -551,26 +551,32 @@ static void prop(const lvl_prop_t *p) {
                 lv(apex, 0, 0, 0xff3c6a44, rn, 1.0f);
             }
             sc_strip_end(&scenery);
-            /* Lanterns (glow.c lights them): one hung under each corner
-               of the roof, one under the deck. A brass cap, amber glass
-               in a colour used as is, so it shows lit by day too. */
-            const V3 *lp;
-            int ln = glow_tower_lanterns(&lp);
-            for(int k = 0; k < ln; k++) {
-                V3 q = vadd(c, lp[k]);
-                float s = k < 4 ? 0.09f : 0.13f;
-                box(h_flat, v3(q.x, q.y + s * 1.7f, q.z), s * 1.25f, s * 0.25f, s * 1.25f, 0, 0xff5a4a30, 1.0f);
-                leg(v3(q.x, q.y + s * 1.9f, q.z), v3(q.x, q.y + s * 1.9f + (k < 4 ? 0.42f : 0.35f), q.z), 0.012f, 0xff3a3028);
-                sc_strip_begin(&scenery, h_flat);
-                for(int e = 0; e <= 4; e++) {
-                    float ex = ((e + 1) & 2) ? -s : s, ez = (e & 2) ? -s : s;
-                    lc(v3(q.x + ex, q.y + s * 1.45f, q.z + ez), 0, 0, 0xffe6a84c);
-                    lc(v3(q.x + ex * 0.8f, q.y - s * 1.3f, q.z + ez * 0.8f), 0, 0, 0xffc8802c);
-                }
-                sc_strip_end(&scenery);
-            }
             break;
         }
+    }
+}
+
+/* A lantern (glow.c lights it and draws its glow): a brass cap, amber
+   glass in a colour used as is, so it shows lit by day too; what it
+   hangs by, and its post if it has one. */
+static void lantern(const Glow *g) {
+    V3 q = g->p;
+    float s = g->size;
+    box(h_flat, v3(q.x, q.y + s * 1.7f, q.z), s * 1.25f, s * 0.25f, s * 1.25f, 0, 0xff5a4a30, 1.0f);
+    if(g->hang > 0) leg(v3(q.x, q.y + s * 1.9f, q.z), v3(q.x, q.y + s * 1.9f + g->hang, q.z), 0.012f, 0xff3a3028);
+    sc_strip_begin(&scenery, h_flat);
+    for(int e = 0; e <= 4; e++) {
+        float ex = ((e + 1) & 2) ? -s : s, ez = (e & 2) ? -s : s;
+        lc(v3(q.x + ex, q.y + s * 1.45f, q.z + ez), 0, 0, 0xffe6a84c);
+        lc(v3(q.x + ex * 0.8f, q.y - s * 1.3f, q.z + ez * 0.8f), 0, 0, 0xffc8802c);
+    }
+    sc_strip_end(&scenery);
+    if(g->post) {
+        /* The post stands half a metre east of it, an arm across the top. */
+        float top = q.y + s * 1.9f + g->hang, px = q.x + 0.5f;
+        box_seg(h_bark, v3(px, (terrain_height(px, q.z) - 0.2f + top + 0.12f) * 0.5f, q.z), 0.07f,
+                (top + 0.12f - terrain_height(px, q.z) + 0.2f) * 0.5f, 0.07f, 0, 0xff6a4a30, 1.0f, 1.0f);
+        box(h_bark, v3(q.x + 0.2f, top + 0.03f, q.z), 0.36f, 0.035f, 0.035f, 0, 0xff6a4a30, 1.0f);
     }
 }
 
@@ -1042,6 +1048,9 @@ void world_draw_pt(void) {
             float dx = bx - tuft_hull[i].x, dz = bz - tuft_hull[i].z;
             if(dx * dx + dz * dz < (TB_RAD + 8.0f) * (TB_RAD + 8.0f)) near_truck = true;
         }
+        /* By the fire or a lantern the grass takes their light as the
+           ground under it does (glow.c), or it would stand black on it. */
+        bool warm = glow_near(v3(bx, 0, bz), TB_RAD);
         for(int k = 0; k < b->n && count < TUFT_MAX; k++) {
             const Tuft *t = &b->t[k];
             float dx = t->x - c.x, dz = t->z - c.z, d2 = dx * dx + dz * dz;
@@ -1060,6 +1069,7 @@ void world_draw_pt(void) {
             if(near_truck && under_truck(t->x, t->z, w * 0.6f)) continue;
             float h = w * tuft_aspect[t->var];
             uint32_t col = color_scale(lvl_ground[t->g].c, 1.35f * (0.8f + t->tint * (1.0f / 850)));
+            if(warm) col = glow_tint(col, v3(t->x, t->y + 0.25f, t->z));
             uint32_t root = color_scale(col, 0.7f);
             /* The tips lean downwind and back, a slow gust rolling across
                the meadow with a quicker flutter of each tuft's own. */
@@ -1660,6 +1670,14 @@ void world_build(void) {
     }
     uint32_t tree_c = scenery.chunk_n, tree_p = scenery.pool_n;
     trees_build();
+    for(int i = 0; i < glow_n; i++) {
+        if(!glows[i].lantern) continue;
+        sc_chunk_begin(&scenery, HF_OP, 0, 600.0f, TAG_PROPS);
+        uint32_t f0 = scenery.pool_n;
+        lantern(&glows[i]);
+        lamps_add(f0, scenery.pool_n);
+        sc_chunk_end(&scenery);
+    }
     lamps_index();
     printf("Ridgeline world: %lu vertices (terrain %d, trees %lu), %lu strips, %lu chunks%s\n",
            (unsigned long)scenery.pool_n, terrain_v, (unsigned long)(scenery.pool_n - tree_p),

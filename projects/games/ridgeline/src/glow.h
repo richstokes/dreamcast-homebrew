@@ -1,5 +1,6 @@
 /* Ridgeline: the warm lights that stay put - the campfire at the high
-   camp and the lanterns on the summit lookout. Where they are, how far
+   camp, the lanterns on the summit lookout and the ones at the start (on
+   the cabin, the picnic table and a post by the grid). Where they are, how far
    each reaches, their light on the ground and on a truck beside them,
    and the lanterns' own glow. Their light on the scenery is in lamps.c;
    the fire itself is campfire.c. */
@@ -8,9 +9,10 @@
 
 #include "rl.h"
 
-/* Lights in a group flicker as one. */
-enum { GLOW_FIRE, GLOW_LANTERNS, GLOW_GROUPS };
-#define GLOW_MAX 8
+/* Lights in a group flicker as one, and share a patch of lit ground: a
+   group's lights stand close together. */
+enum { GLOW_FIRE, GLOW_TOWER, GLOW_CABIN, GLOW_TABLE, GLOW_POST, GLOW_GROUPS };
+#define GLOW_MAX 12
 #define GLOW_REACH_MAX 20.0f
 
 typedef struct {
@@ -18,7 +20,10 @@ typedef struct {
     float reach, core;   /* gone by reach metres; half as bright by about core */
     float k;             /* how bright beside it */
     uint8_t group;
-    bool lantern;        /* drawn here as a lantern's glow (the fire draws itself) */
+    bool lantern;        /* a lantern: world.c builds it, its glow is drawn here */
+    float size;          /* the lantern's half width */
+    float hang;          /* the length of what it hangs by (0: it stands on something) */
+    bool post;           /* on a post of its own, an arm out to it */
 } Glow;
 extern Glow glows[GLOW_MAX];
 extern int glow_n;
@@ -38,9 +43,12 @@ void glow_place(void);         /* from the level, once the terrain is up */
 void glow_init(void);          /* after the world is built */
 void glow_update(float dt);
 void glow_draw_tr(void);
-/* The summit lookout's lanterns, about its base: n of them into out. */
-int glow_tower_lanterns(const V3 **out);
 /* The warm light on p this frame, and the direction it comes from. */
 float glow_light(V3 p, V3 *from);
+/* Whether any of it could reach within r metres of p (the grass asks
+   block by block before asking tuft by tuft). */
+bool glow_near(V3 p, float r);
+/* col with the warm light at p added, as the lit ground has it. */
+uint32_t glow_tint(uint32_t col, V3 p);
 
 #endif
