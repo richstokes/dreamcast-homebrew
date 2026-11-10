@@ -32,7 +32,8 @@
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
-Game game;
+/* Single player starts with a full line-up; the select page can thin it out. */
+Game game = {.companions = 3};
 /* The frame's phases for the autotest's log line (engine/prof.h). */
 enum { PH_UPD, PH_OP, PH_PT, PH_TR };
 

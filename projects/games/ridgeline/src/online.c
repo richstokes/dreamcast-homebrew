@@ -170,8 +170,11 @@ static void park(Truck *t) {
    other three slots remote (absent until their trucks arrive). */
 static void drive_start(void) {
     const NetLobby *l = net_lobby();
+    /* No CPU trucks online, but keep the single player choice for later. */
+    int company = game.companions;
     game.companions = 0;
     game_start_drive();
+    game.companions = company;
     Truck *p = &trucks[0];
     const float *s = lvl_spawns[l->you % LVL_SPAWNS];
     truck_place(p, v3(s[0], 0, s[2]), s[3]);
