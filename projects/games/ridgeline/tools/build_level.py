@@ -396,7 +396,11 @@ ROUTE_DEFS = [
     # name, waypoints after the fork, grade limit, half width
     ("LOGGING ROAD", [(100, -100), (150, -30), (110, 30)], 0.15, 3.4),
     ("RIDGE LINE", [(14, -78), (8, -30)], 0.40, 2.6),
-    ("CREEK BED", [(-80, -118), (-116, -50), (-100, 0), (-70, 36)], 0.26, 3.0),
+    # The last waypoint sits on the shelf the route reaches the falls' pool
+    # along, heading for the lake. At the foot of the falls (-70, 36) the
+    # route had to turn back on itself to leave, and the two legs were
+    # carved into a knot with a 3 m step in it.
+    ("CREEK BED", [(-80, -118), (-116, -50), (-100, 0), (-78, 48)], 0.26, 3.0),
 ]
 # A route listed here ends on the logging road at its point nearest this
 # spot instead of at the high meadow, and follows it from there. The ridge
@@ -1264,6 +1268,9 @@ def main():
     for r in routes:
         if r["name"] == "SUMMIT TRAIL":
             p = r["pts"][-1]
+        elif r["name"] == "CREEK BED":
+            # On the shelf above the long drop, in sight of the pool.
+            p = r["pts"][int(np.argmin(np.linalg.norm(r["pts"] - np.array([-83.0, 60.0]), axis=1)))]
         else:
             k = int(own(r) * 0.82)
             p = r["pts"][k] + np.array([0.0, 0.0])
