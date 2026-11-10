@@ -13,6 +13,7 @@
 #include "terrain.h"
 #include "water.h"
 #include "truck.h"
+#include "lamps.h"
 #include "engine/prof.h"
 #include <sh4zam/shz_sh4zam.h>
 
@@ -41,28 +42,26 @@ static inline uint32_t lit(uint32_t albedo, V3 n, float ao) {
     return lit_with(pal, sun_dir, albedo, n, ao);
 }
 
-/* What each scenery vertex was lit from, kept beside the pool for
-   relighting: its albedo (an index into a small table; bit 7 marks a
-   colour used as is, bit 6 a downward normal), the normal's x and z, and
-   the occlusion (hundredths). */
-typedef struct { uint8_t alb; int8_t nx, nz; uint8_t ao; } LightRec;
-static LightRec *lrec;
-static uint32_t lrec_first, lrec_marked;   /* pool index of record 0; the next pool index to record */
-static uint32_t alb_tab[64];
+/* What each scenery vertex was lit from (world.h), kept beside the pool
+   for relighting and the headlights (lamps.c). */
+LightRec *world_lrec;
+uint32_t world_lrec_first;      /* pool index of record 0 */
+static uint32_t lrec_marked;   /* the next pool index to record */
+uint32_t world_alb[64];
 static int alb_n;
 
 static uint8_t alb_index(uint32_t albedo) {
     for(int i = 0; i < alb_n; i++)
-        if(alb_tab[i] == albedo) return (uint8_t)i;
-    if(alb_n < 64) alb_tab[alb_n++] = albedo;
+        if(world_alb[i] == albedo) return (uint8_t)i;
+    if(alb_n < 64) world_alb[alb_n++] = albedo;
     return (uint8_t)(alb_n - 1);
 }
 
 static void rec_mark(LightRec r) {
-    if(!lrec) return;
-    for(uint32_t i = lrec_marked; i < scenery.pool_n; i++) lrec[i - lrec_first] = r;
+    if(!world_lrec) return;
+    for(uint32_t i = lrec_marked; i < scenery.pool_n; i++) world_lrec[i - world_lrec_first] = r;
     /* A join appends the previous vertex again before this one twice. */
-    if(scenery.pool_n - lrec_marked == 3) lrec[lrec_marked - lrec_first] = lrec[lrec_marked - 1 - lrec_first];
+    if(scenery.pool_n - lrec_marked == 3) world_lrec[lrec_marked - world_lrec_first] = world_lrec[lrec_marked - 1 - world_lrec_first];
     lrec_marked = scenery.pool_n;
 }
 
@@ -104,14 +103,14 @@ void world_relight_setup(const Palette *p, V3 light) {
 }
 
 int world_relight_n(void) {
-    return lrec ? (int)(scenery.pool_n - lrec_first) : 0;
+    return world_lrec ? (int)(scenery.pool_n - world_lrec_first) : 0;
 }
 
 void world_relight(int from, int to) {
-    RV *pool = scenery.pool + lrec_first;
+    RV *pool = scenery.pool + world_lrec_first;
     for(int k = from; k < to; k++) {
-        LightRec r = lrec[k];
-        uint32_t albedo = alb_tab[r.alb & 0x3f];
+        LightRec r = world_lrec[k];
+        uint32_t albedo = world_alb[r.alb & 0x3f];
         if(r.alb & 0x80) {
             pool[k].c = albedo;
             continue;
@@ -148,11 +147,14 @@ static inline float hrand(uint32_t *s) {
     return (float)(*s & 0xffff) / 65535.0f;
 }
 
+static bool cone_lamps;   /* each cone its own object for the headlights (lamps.c) */
+
 /* A frustum (a cone with a small flat top) round a vertical axis: k sides,
    radii r0 at y0 and r1 at y1, joined on to the strip so far. Colours from
    the albedo, lit on the sun's side, darker at the base. */
 static void cone(V3 base, float r0, float r1, float y0, float y1, int k, float yaw, uint32_t albedo, float ao0,
                  float ao1, bool join) {
+    uint32_t f0 = scenery.pool_n;
     float slope = (r0 - r1) / fmaxf(y1 - y0, 0.01f);
     for(int s = 0; s <= k; s++) {
         float a = yaw + ENG_TAU * (float)(s % k) / k;
@@ -165,6 +167,8 @@ static void cone(V3 base, float r0, float r1, float y0, float y1, int k, float y
         else lv(pt, 0, 0, albedo, nt, ao1);
         lv(pb, 0, 0, albedo, n, ao0);
     }
+    /* (joined on, it starts with the last cone's vertex again) */
+    if(cone_lamps) lamps_add(join ? f0 + 1 : f0, scenery.pool_n);
 }
 
 static const uint32_t fir_col = 0xff2f6a3c, fir_col2 = 0xff3f7a44, larch_col = 0xffe4b23a, maple_col = 0xffd8642e,
@@ -270,6 +274,46 @@ static void box(const pvr_poly_hdr_t *h, V3 c, float hx, float hy, float hz, flo
     sc_strip_end(&scenery);
 }
 
+/* box() with its sides cut into columns about seg metres wide and, when
+   taller than 2.4 m, two rows: a headlight lights vertices, and a wall
+   with only its corners would stay dark with the beam on its middle. */
+static void box_seg(const pvr_poly_hdr_t *h, V3 c, float hx, float hy, float hz, float yaw, uint32_t albedo, float uv,
+                    float seg) {
+    float cy = cosf(yaw), sy = sinf(yaw);
+    V3 ax = v3(cy * hx, 0, -sy * hx), az = v3(sy * hz, 0, cy * hz);
+    V3 corner[4] = {vadd(vadd(c, ax), az), vsub(vadd(c, ax), az), vsub(vsub(c, ax), az), vadd(vsub(c, ax), az)};
+    V3 nrm[4];
+    for(int s = 0; s < 4; s++) nrm[s] = vnorm(vsub(vadd(corner[s], corner[(s + 3) & 3]), vscale(c, 2)));
+    int rows = hy > 1.2f ? 2 : 1;
+    for(int r = 0; r < rows; r++) {
+        float t0 = (float)r / rows, t1 = (float)(r + 1) / rows;   /* down from the top */
+        float y0 = c.y + hy - 2 * hy * t0, y1 = c.y + hy - 2 * hy * t1;
+        float ao0 = 0.95f * (1.0f - 0.25f * t0), ao1 = 0.95f * (1.0f - 0.25f * t1);
+        sc_strip_begin(&scenery, h);
+        for(int s = 0; s < 4; s++) {
+            V3 p0 = corner[s], p1 = corner[(s + 1) & 3];
+            int n = (int)ceilf(vlen(vsub(p1, p0)) / seg);
+            if(n < 1) n = 1;
+            for(int i = s ? 1 : 0; i <= n; i++) {
+                float t = (float)i / n;
+                V3 p = vadd(p0, vscale(vsub(p1, p0), t));
+                V3 nn = vnorm(vadd(vscale(nrm[s], 1.0f - t), vscale(nrm[(s + 1) & 3], t)));
+                float u = (s + t) * (hx + hz) * uv;
+                lv(v3(p.x, y0, p.z), u, 2 * hy * t0 * uv, albedo, nn, ao0);
+                lv(v3(p.x, y1, p.z), u, 2 * hy * t1 * uv, albedo, nn, ao1);
+            }
+        }
+        sc_strip_end(&scenery);
+    }
+    sc_strip_begin(&scenery, h);
+    V3 up = v3(0, 1, 0);
+    lv(v3(corner[0].x, c.y + hy, corner[0].z), 0, 0, albedo, up, 1.0f);
+    lv(v3(corner[1].x, c.y + hy, corner[1].z), hz * 2 * uv, 0, albedo, up, 1.0f);
+    lv(v3(corner[3].x, c.y + hy, corner[3].z), 0, hx * 2 * uv, albedo, up, 1.0f);
+    lv(v3(corner[2].x, c.y + hy, corner[2].z), hz * 2 * uv, hx * 2 * uv, albedo, up, 1.0f);
+    sc_strip_end(&scenery);
+}
+
 /* A square timber from its foot up to its top, half width w, sides only:
    the foot is in the ground and the top under a deck. */
 static void leg(V3 a, V3 b, float w, uint32_t albedo) {
@@ -319,7 +363,7 @@ static void prop(const lvl_prop_t *p) {
     float cy = cosf(p->yaw), sy = sinf(p->yaw);
     switch(p->kind) {
         case PROP_CABIN: {
-            box(h_bark, v3(c.x, c.y + 1.4f, c.z), 4.2f, 1.6f, 3.2f, p->yaw, 0xffa0703e, 0.4f);
+            box_seg(h_bark, v3(c.x, c.y + 1.4f, c.z), 4.2f, 1.6f, 3.2f, p->yaw, 0xffa0703e, 0.4f, 1.5f);
             /* The roof: a ridge along the cabin's length. */
             V3 ax = v3(cy * 4.8f, 0, -sy * 4.8f), az = v3(sy * 3.8f, 0, cy * 3.8f);
             V3 e0 = vadd(c, az), e1 = vsub(c, az);
@@ -409,9 +453,9 @@ static void prop(const lvl_prop_t *p) {
             uint32_t seed = (uint32_t)(p->x * 17.0f) ^ (uint32_t)(p->z * 29.0f);
             for(int side = -1; side <= 1; side += 2) {
                 V3 q = vadd(c, vscale(r, side * 3.4f));
-                box(h_rock, v3(q.x, c.y + 2.05f, q.z), 0.9f, 2.25f, 1.1f, p->yaw + side * 0.08f, 0xff9a9488, 0.35f);
+                box_seg(h_rock, v3(q.x, c.y + 2.05f, q.z), 0.9f, 2.25f, 1.1f, p->yaw + side * 0.08f, 0xff9a9488, 0.35f, 1.5f);
             }
-            box(h_rock, v3(c.x, c.y + 4.75f, c.z), 4.4f, 0.55f, 1.2f, p->yaw, 0xffa49e92, 0.35f);
+            box_seg(h_rock, v3(c.x, c.y + 4.75f, c.z), 4.4f, 0.55f, 1.2f, p->yaw, 0xffa49e92, 0.35f, 1.5f);
             boulder(v3(c.x + r.x * 1.5f, c.y + 5.4f, c.z + r.z * 1.5f), 0.7f, seed, 0);
             boulder(v3(c.x - r.x * 2.2f, c.y + 5.3f, c.z - r.z * 2.2f), 0.5f, seed * 3u, 0);
             break;
@@ -459,7 +503,7 @@ static void prop(const lvl_prop_t *p) {
                 leg(v3(q->x0, q->y0, q->z0), v3(q->x1, q->y1, q->z1), 0.24f, 0xff6a4a30);
             }
             box(h_bark, v3(c.x, c.y + 6.0f, c.z), 2.2f, 0.12f, 2.2f, 0, 0xff8a6440, 0.5f);
-            box(h_flat, v3(c.x, c.y + 7.2f, c.z), 1.9f, 1.1f, 1.9f, 0, 0xffe8dcc0, 1.0f);
+            box_seg(h_flat, v3(c.x, c.y + 7.2f, c.z), 1.9f, 1.1f, 1.9f, 0, 0xffe8dcc0, 1.0f, 1.3f);
             V3 rn = vnorm(v3(-0.6f, 1, 0.2f));
             sc_strip_begin(&scenery, h_flat);
             V3 apex = v3(c.x, c.y + 9.8f, c.z);
@@ -1390,12 +1434,13 @@ static const float tree_far[3] = {70.0f, 170.0f, 430.0f};
 void world_build(void) {
     for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
     sc_clear(&scenery);
+    lamps_clear();
     terrain_build(&scenery);
     int terrain_v = scenery.pool_n;
-    lrec_first = lrec_marked = scenery.pool_n;
+    world_lrec_first = lrec_marked = scenery.pool_n;
     alb_n = 0;
-    if(!lrec) lrec = malloc(sizeof(LightRec) * (scenery.pool_max - scenery.pool_n));
-    if(!lrec) printf("Ridgeline world: no memory to relight the scenery\n");
+    if(!world_lrec) world_lrec = malloc(sizeof(LightRec) * (scenery.pool_max - scenery.pool_n));
+    if(!world_lrec) printf("Ridgeline world: no memory to relight the scenery\n");
     /* Bucket the trees by cell. */
     static uint16_t order[LVL_TREES];
     static uint16_t first[TCELLS * TCELLS + 1];
@@ -1427,7 +1472,9 @@ void world_build(void) {
                     if(order[k] & 1) continue;
                     t.scale *= 1.2f;
                 }
+                cone_lamps = lod == 0;
                 tree(&t, lod, firstt);
+                cone_lamps = false;
                 firstt = false;
             }
             sc_strip_end(&scenery);
@@ -1449,27 +1496,36 @@ void world_build(void) {
                 const lvl_sphere_t *s = &lvl_spheres[i];
                 if(s->x < x0 || s->x >= x0 + TCELL || s->z < z0 || s->z >= z0 + TCELL) continue;
                 if(lod && s->r < 0.6f) continue;
+                uint32_t f0 = scenery.pool_n;
                 boulder(v3(s->x, s->y, s->z), s->r * 1.04f, (uint32_t)i * 2654435761u, lod);
+                if(lod == 0) lamps_add(f0, scenery.pool_n);
             }
             for(int i = 0; i < LVL_CAPSULES; i++) {
                 const lvl_capsule_t *cp = &lvl_capsules[i];
                 float mx = (cp->ax + cp->bx) * 0.5f, mz = (cp->az + cp->bz) * 0.5f;
                 if(mx < x0 || mx >= x0 + TCELL || mz < z0 || mz >= z0 + TCELL) continue;
+                uint32_t f0 = scenery.pool_n;
                 log_mesh(cp);
+                if(lod == 0) lamps_add(f0, scenery.pool_n);
             }
             for(int i = 0; i < LVL_ROCK_BOXES; i++) {    /* the rest are props', drawn as the prop */
                 const lvl_box_t *b = &lvl_boxes[i];
                 if(b->x < x0 || b->x >= x0 + TCELL || b->z < z0 || b->z >= z0 + TCELL) continue;
+                uint32_t f0 = scenery.pool_n;
                 box(h_rock, v3(b->x, b->y, b->z), b->hx, b->hy, b->hz, b->yaw, 0xff8c9298, 0.35f);
+                if(lod == 0) lamps_add(f0, scenery.pool_n);
             }
             sc_chunk_end(&scenery);
         }
     }
     for(int i = 0; i < LVL_PROPS; i++) {
         sc_chunk_begin(&scenery, HF_OP, 0, 600.0f, TAG_PROPS);
+        uint32_t f0 = scenery.pool_n;
         prop(&lvl_props[i]);
+        lamps_add(f0, scenery.pool_n);
         sc_chunk_end(&scenery);
     }
+    lamps_index();
     printf("Ridgeline world: %lu vertices (terrain %d, trees %d), %lu strips, %lu chunks%s\n",
            (unsigned long)scenery.pool_n, terrain_v, tree_v, (unsigned long)scenery.strip_n,
            (unsigned long)scenery.chunk_n, scenery.full ? " - FULL, some scenery missing" : "");

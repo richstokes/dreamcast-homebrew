@@ -2,6 +2,7 @@
 #include "air.h"
 #include "rl.h"
 #include "world.h"
+#include "lamps.h"
 #include "terrain.h"
 #include "truck.h"
 #include "truckdraw.h"
@@ -282,14 +283,16 @@ static void render(void) {
     r_frame_begin();
     r_list(PVR_LIST_OP_POLY);
     r_set_camera(&cam);
+    bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND || game.state == ST_ONLINE;
     r_load_vp();
     world_draw_sky();
+    lamps_begin(!no_trucks);
     world_draw_op();
+    lamps_end();
     birds_draw();
     air_draw_op();
     extern uint64_t world_us[3];
     uint64_t tt = timer_us_gettime64();
-    bool no_trucks = game.state == ST_TITLE || game.state == ST_SOUND || game.state == ST_ONLINE;
     if(!no_trucks) truckdraw_draw_op();
     deer_draw_all();
     world_us[2] += timer_us_gettime64() - tt;

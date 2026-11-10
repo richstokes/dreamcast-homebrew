@@ -52,5 +52,13 @@ float world_fog_far(void);
 void world_relight_setup(const Palette *p, V3 light);
 int world_relight_n(void);
 void world_relight(int from, int to);
+/* What each of those vertices was lit from: its albedo (an index into
+   world_alb; bit 7 marks a colour used as is, bit 6 a downward normal),
+   the normal's x and z, and the occlusion (hundredths). Record k is pool
+   vertex world_lrec_first + k. */
+typedef struct { uint8_t alb; int8_t nx, nz; uint8_t ao; } LightRec;
+extern LightRec *world_lrec;
+extern uint32_t world_lrec_first;
+extern uint32_t world_alb[64];
 
 #endif

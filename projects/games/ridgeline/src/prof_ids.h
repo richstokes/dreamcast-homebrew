@@ -10,11 +10,12 @@ enum {
     PS_TERRAIN,     /* terrain chunks */
     PS_TREES,       /* trees, rocks and props */
     PS_TRUCKS,      /* truck meshes and lighting */
+    PS_LAMPS,       /* headlights on the trees, rocks and props */
     PS_TR,          /* water, effects, sky sprites, HUD */
     PS_COUNT
 };
 enum { ENG_PROF_COUNTS, PN_COUNT };
-#define PROF_SECTION_NAMES {ENG_PROF_SECTION_NAMES, "phys", "terrain", "trees", "trucks", "tr"}
+#define PROF_SECTION_NAMES {ENG_PROF_SECTION_NAMES, "phys", "terrain", "trees", "trucks", "lamps", "tr"}
 #define PROF_COUNT_NAMES {ENG_PROF_COUNT_NAMES}
 
 #endif

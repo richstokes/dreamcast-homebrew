@@ -1,0 +1,278 @@
+/* Ridgeline: the trucks' headlights on the trees, rocks and props
+   (lamps.h).
+
+   The scenery's colours are baked (world.c) and relit only by the clock,
+   so a beam is added on to the vertices it reaches just before they are
+   drawn and taken off again straight after: no extra geometry, and the
+   clock's relighting never sees it. Each near tree, boulder, log and prop
+   is a range of pool vertices with a bounding sphere (a tree a few: its
+   trunk and each tier), bucketed by 24 m cell, so a frame tests the cells
+   along a beam, the spheres in those, and lights only what is in it.
+
+   The beam is a cone with an elliptical section, wider than it is tall,
+   pitched down as the beams on the ground are (truckdraw.c), soft to its
+   edge and fading out by its range. It shows only in the dark.
+
+   Cost (console, 2026-11-09): up to ~0.35 ms a frame, 0.5-0.6 ms with
+   four lit trucks together in the forest (README, Performance). If that
+   needs to come down, LAMPS 1 (the player's truck only) is the first
+   thing to try. */
+#include "lamps.h"
+#include "world.h"
+#include "tod.h"
+#include "truck.h"
+#include "terrain.h"
+#include "engine/prof.h"
+#include <sh4zam/shz_sh4zam.h>
+
+#define LCELL 24.0f
+#define LCELLS 32
+#define OBJ_MAX 6400        /* a near tree is a few: its trunk and each tier */
+#define LAMPS 3             /* trucks lit at once: the player's, then the nearest */
+#define SAVE_MAX 6144       /* vertices relit in a frame, at most */
+#define LAMP_NEAR 70.0f     /* other trucks further from the camera light nothing */
+#define OBJ_VERTS 1024      /* an object's vertices lit, at most */
+#define DRAW_NEAR 90.0f     /* the near trees' and rocks' range (world.c) */
+
+typedef struct {
+    float x, y, z, r;
+    uint32_t first_n;       /* first pool vertex (low 20 bits), count (high 12) */
+} LObj;
+_Static_assert(sizeof(LObj) == 20, "LObj packing");
+static LObj obj[OBJ_MAX];
+static int nobj;
+static uint16_t order[OBJ_MAX], cell_first[LCELLS * LCELLS + 1];
+
+typedef struct {
+    V3 o, f, r, u;          /* where it shines from, along, across, up (all unit) */
+    float th, tv, range;    /* the spread across and up (tangents), metres */
+    float ih2, iv2, irange, k;
+} Lamp;
+
+static struct {
+    uint32_t k, c;
+} saved[SAVE_MAX];
+static int nsaved;
+static uint16_t cand[OBJ_MAX];
+static uint8_t cand_mask[OBJ_MAX];
+uint64_t lamps_us;   /* time spent lighting, for the autotest's split */
+
+void lamps_clear(void) {
+    nobj = 0;
+}
+
+void lamps_add(uint32_t first, uint32_t end) {
+    if(nobj >= OBJ_MAX || end <= first) return;
+    V3 lo = v3(1e9f, 1e9f, 1e9f), hi = v3(-1e9f, -1e9f, -1e9f);
+    for(uint32_t k = first; k < end; k++) {
+        const RV *v = &scenery.pool[k];
+        lo = v3(fminf(lo.x, v->x), fminf(lo.y, v->y), fminf(lo.z, v->z));
+        hi = v3(fmaxf(hi.x, v->x), fmaxf(hi.y, v->y), fmaxf(hi.z, v->z));
+    }
+    LObj *o = &obj[nobj++];
+    o->x = (lo.x + hi.x) * 0.5f;
+    o->y = (lo.y + hi.y) * 0.5f;
+    o->z = (lo.z + hi.z) * 0.5f;
+    o->r = vlen(vsub(hi, lo)) * 0.5f;
+    uint32_t n = end - first;
+    if(n > 4095 || first >= (1u << 20)) {
+        nobj--;
+        return;
+    }
+    o->first_n = first | n << 20;
+}
+
+static int cell_of(float v) {
+    int c = (int)((v - LEVEL_ORG) / LCELL);
+    return c < 0 ? 0 : c >= LCELLS ? LCELLS - 1 : c;
+}
+
+void lamps_index(void) {
+    static uint16_t cnt[LCELLS * LCELLS];
+    memset(cnt, 0, sizeof(cnt));
+    for(int i = 0; i < nobj; i++) cnt[cell_of(obj[i].z) * LCELLS + cell_of(obj[i].x)]++;
+    cell_first[0] = 0;
+    for(int c = 0; c < LCELLS * LCELLS; c++) cell_first[c + 1] = cell_first[c] + cnt[c];
+    memset(cnt, 0, sizeof(cnt));
+    for(int i = 0; i < nobj; i++) {
+        int c = cell_of(obj[i].z) * LCELLS + cell_of(obj[i].x);
+        order[cell_first[c] + cnt[c]++] = (uint16_t)i;
+    }
+}
+
+/* Could anything of object o be in lamp l's beam? */
+static bool obj_in(const LObj *o, const Lamp *l) {
+    V3 d = vsub(v3(o->x, o->y, o->z), l->o);
+    float a = vdot(d, l->f);
+    if(a + o->r < 0.3f || a - o->r > l->range) return false;
+    float am = a + o->r;
+    if(fabsf(vdot(d, l->r)) - o->r > am * l->th) return false;
+    float h = vdot(d, l->u);
+    return h - o->r < am * l->tv && h + o->r > -am * l->tv * 2.0f;
+}
+
+/* Light object o's vertices with the lamps in mask, saving what they
+   were. Lamp by lamp, so each one's numbers stay in registers across the
+   vertices; most vertices are out of the beam and cost only the test. */
+static void obj_light(const LObj *o, const Lamp *lamps, int mask) {
+    static float sum[OBJ_VERTS];
+    RV *pool = scenery.pool;
+    const LightRec *rec = world_lrec - world_lrec_first;
+    uint32_t first = o->first_n & 0xfffff;
+    int n = (int)(o->first_n >> 20);
+    if(n > OBJ_VERTS) n = OBJ_VERTS;
+    const RV *v = pool + first;
+    bool any = false;
+    for(int i = 0; i < n; i++) sum[i] = 0;
+    for(int li = 0; li < LAMPS; li++) {
+        if(!(mask & (1 << li))) continue;
+        const Lamp *l = &lamps[li];
+        const float ox = l->o.x, oy = l->o.y, oz = l->o.z, fx = l->f.x, fy = l->f.y, fz = l->f.z;
+        const float rx = l->r.x, ry = l->r.y, rz = l->r.z, ux = l->u.x, uy = l->u.y, uz = l->u.z;
+        const float range = l->range, ih2 = l->ih2, iv2 = l->iv2, ir = l->irange, k = l->k;
+        for(int i = 0; i < n; i++) {
+            float dx = v[i].x - ox, dy = v[i].y - oy, dz = v[i].z - oz;
+            float a = dx * fx + dy * fy + dz * fz;
+            if(a < 0.3f || a > range) continue;
+            float s = dx * rx + dy * ry + dz * rz;
+            float h = dx * ux + dy * uy + dz * uz;
+            /* Below the axis the beam spreads on down to the ground. */
+            float e = s * s * ih2 + h * h * (h > 0 ? iv2 : iv2 * 0.25f);
+            float a2 = a * a;
+            if(e >= a2) continue;
+            LightRec lr = rec[first + i];
+            float nx = lr.nx * (1.0f / 127.0f), nz = lr.nz * (1.0f / 127.0f);
+            float ny2 = fmaxf(1.0f - nx * nx - nz * nz, 1e-4f);
+            float ny = ny2 * shz_inv_sqrtf_fsrra(ny2);
+            if(lr.alb & 0x40) ny = -ny;
+            /* Facing the lamp, wrapped a little round the sides (fsrra, not
+               a divide: a is at least 0.3 m, so nothing here is zero). */
+            float ndl = -(nx * dx + ny * dy + nz * dz) * shz_inv_sqrtf_fsrra(dx * dx + dy * dy + dz * dz);
+            float lam = 0.25f + 0.75f * ndl;
+            if(lam <= 0) continue;
+            float ia = shz_inv_sqrtf_fsrra(a2), x = a * ir;
+            sum[i] += (1.0f - e * ia * ia) * (1.0f - x * x) * lam * k;
+            any = true;
+        }
+    }
+    if(!any) return;
+    for(int i = 0; i < n; i++) {
+        float t = sum[i];
+        if(t < 0.02f) continue;
+        LightRec lr = rec[first + i];
+        if(lr.alb & 0x80) continue;   /* a colour used as is: the tent's dark inside */
+        if(nsaved >= SAVE_MAX) return;
+        RV *pv = &pool[first + i];
+        uint32_t c = pv->c;
+        saved[nsaved].k = first + i;
+        saved[nsaved].c = c;
+        nsaved++;
+        /* The lamps' warm white on the vertex's own colour, lifted a
+           little so dark green firs still show it. */
+        uint32_t alb = world_alb[lr.alb & 0x3f];
+        int r = (int)((c >> 16) & 255) + (int)((((alb >> 16) & 255) * 0.8f + 40.0f) * t);
+        int g = (int)((c >> 8) & 255) + (int)((((alb >> 8) & 255) * 0.8f + 38.0f) * t);
+        int b = (int)(c & 255) + (int)(((alb & 255) * 0.8f + 30.0f) * t * 0.85f);
+        pv->c = 0xff000000u | (uint32_t)(r > 255 ? 255 : r) << 16 | (uint32_t)(g > 255 ? 255 : g) << 8 |
+                (uint32_t)(b > 255 ? 255 : b);
+    }
+}
+
+void lamps_begin(bool on_screen) {
+    nsaved = 0;
+    if(!on_screen || !world_lrec) return;
+    /* By day a headlight is lost in the sun. */
+    float dark = clampf(pal->dark * 1.1f + 0.4f * world_mist(), 0, 1);
+    if(dark < 0.05f) return;
+    PROF_BEGIN(pl);
+    uint64_t t0 = timer_us_gettime64();
+    Lamp lamps[LAMPS];
+    float ldist[LAMPS];
+    int nl = 0;
+    for(int ti = 0; ti < game.ntrucks; ti++) {
+        const Truck *t = &trucks[ti];
+        if(t->absent || !t->lights) continue;
+        /* The player's truck always; others near the camera, nearest first. */
+        float d = ti == 0 ? 0 : vlen(vsub(t->pos, r_cam.pos));
+        if(d > LAMP_NEAR) continue;
+        int slot = nl < LAMPS ? nl++ : -1;
+        if(slot < 0) {
+            /* Full: replace the furthest, if this is nearer. */
+            int far = 0;
+            for(int i = 1; i < LAMPS; i++)
+                if(ldist[i] > ldist[far]) far = i;
+            if(ldist[far] <= d) continue;
+            slot = far;
+        }
+        bool full = t->lights == LIGHTS_FULL;
+        V3 R = t->ax[0], U = t->ax[1], F = t->ax[2];
+        /* The nose, as the beams on the ground start from (truckdraw.c). */
+        V3 nose = vmad(t->pos, F, t->spec.body_hi[2]);
+        nose.y += 0.4f;
+        float pitch = (full ? 2.5f : 6.0f) * ENG_PI / 180.0f, cp = cosf(pitch), sp = sinf(pitch);
+        Lamp *l = &lamps[slot];
+        l->o = vsub(nose, vscale(F, 0.6f));   /* a little back, so the bumper's sides are in it */
+        l->f = vsub(vscale(F, cp), vscale(U, sp));
+        l->r = R;
+        l->u = vadd(vscale(U, cp), vscale(F, sp));
+        l->th = full ? 0.42f : 0.55f;
+        l->tv = full ? 0.34f : 0.28f;
+        l->range = full ? 48.0f : 26.0f;
+        l->ih2 = 1.0f / (l->th * l->th);
+        l->iv2 = 1.0f / (l->tv * l->tv);
+        l->irange = 1.0f / l->range;
+        l->k = dark * (full ? 1.3f : 1.05f);
+        ldist[slot] = d;
+    }
+    /* The objects any beam might reach, each once, with the lamps on it. */
+    int nc = 0;
+    for(int li = 0; li < nl; li++) {
+        const Lamp *l = &lamps[li];
+        V3 e = vmad(l->o, l->f, l->range);
+        float w = l->range * l->th + 9.0f;   /* the beam's spread and the biggest object */
+        int c0 = cell_of(fminf(l->o.x, e.x) - w), c1 = cell_of(fmaxf(l->o.x, e.x) + w);
+        int r0 = cell_of(fminf(l->o.z, e.z) - w), r1 = cell_of(fmaxf(l->o.z, e.z) + w);
+        /* Across and along the beam, flat: a cell's circle (and the
+           biggest prop) against the beam's wedge. */
+        V3 fh = v3(l->f.x, 0, l->f.z);
+        float fl = vlen(fh);
+        if(fl < 0.1f) fl = 0.1f;
+        fh = vscale(fh, 1.0f / fl);
+        const float cr = LCELL * 0.71f + 9.0f;
+        for(int cj = r0; cj <= r1; cj++)
+            for(int ci = c0; ci <= c1; ci++) {
+                int c = cj * LCELLS + ci;
+                if(cell_first[c + 1] == cell_first[c]) continue;
+                float dx = LEVEL_ORG + (ci + 0.5f) * LCELL - l->o.x, dz = LEVEL_ORG + (cj + 0.5f) * LCELL - l->o.z;
+                float a = dx * fh.x + dz * fh.z;
+                if(a + cr < 0 || a - cr > l->range) continue;
+                if(fabsf(dx * fh.z - dz * fh.x) - cr > (a + cr) * l->th) continue;
+                for(int k = cell_first[c]; k < cell_first[c + 1]; k++) {
+                    int i = order[k];
+                    if(!obj_in(&obj[i], l)) continue;
+                    if(!cand_mask[i]) cand[nc++] = (uint16_t)i;
+                    cand_mask[i] |= (uint8_t)(1 << li);
+                }
+            }
+    }
+    /* Only what is drawn near: on screen, and closer than the near
+       trees and rocks are drawn (world.c) - past that the far versions
+       stand in, which keep their colours. */
+    for(int k = 0; k < nc; k++) {
+        int i = cand[k];
+        const LObj *o = &obj[i];
+        V3 c = v3(o->x, o->y, o->z);
+        float fd = DRAW_NEAR + o->r;
+        V3 d = vsub(c, r_cam.pos);
+        if(vdot(d, d) < fd * fd && r_sphere_visible(c, o->r)) obj_light(o, lamps, cand_mask[i]);
+        cand_mask[i] = 0;
+    }
+    PROF_LAP(PS_LAMPS, pl);
+    lamps_us += timer_us_gettime64() - t0;
+}
+
+void lamps_end(void) {
+    RV *pool = scenery.pool;
+    for(int i = 0; i < nsaved; i++) pool[saved[i].k].c = saved[i].c;
+    nsaved = 0;
+}

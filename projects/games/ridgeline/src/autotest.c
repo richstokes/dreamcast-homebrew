@@ -511,9 +511,12 @@ void autotest_frame(float dt_real) {
     if(at.win.t >= RL_AT_WINDOW) {
         float f = prof_phase_frames ? 1.0f / (prof_phase_frames * 1000.0f) : 0;
         extern uint64_t world_us[3];
-        printf("RL AT split terrain=%.2f trees=%.2f trucks=%.2f relight=%.2f ms at %.1f h\n", (double)(world_us[0] * f),
-               (double)(world_us[1] * f), (double)(world_us[2] * f), (double)(tod_us * f), (double)tod.hour);
+        extern uint64_t lamps_us;
+        printf("RL AT split terrain=%.2f trees=%.2f trucks=%.2f lamps=%.2f relight=%.2f ms at %.1f h\n",
+               (double)(world_us[0] * f), (double)(world_us[1] * f), (double)(world_us[2] * f), (double)(lamps_us * f),
+               (double)(tod_us * f), (double)tod.hour);
         memset(world_us, 0, sizeof(world_us));
+        lamps_us = 0;
         tod_us = 0;
         tod_us_last = 0;
         printf("RL AT worst %.2f ms: upd=%.2f op=%.2f pt=%.2f tr=%.2f relight=%.2f\n", (double)worst_cpu,

@@ -71,7 +71,8 @@ been, and the viewpoints you've found.
   when to set off on the truck select (dawn, morning, afternoon, dusk or
   night); photo mode moves the clock with the D-pad. Headlights are yours
   to switch: off, dipped or full beam (which lights the Kestrel's roof bar),
-  and the beams carry through the air at night and in the cloud. The low
+  and the beams carry through the air at night and in the cloud and light
+  up the trees, rocks and cabins they reach. The low
   sun glints off paint and glass
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
@@ -235,6 +236,16 @@ all at once (a clock jump in a test) is ~165 ms on the console, ~115 in
 Flycast. The night costs another ~0.9 ms of TR submission, nearly all of
 it the four trucks' headlights, which used to be on a third of the time.
 
+Headlights on the trees, rocks and props (2026-11-09, `make hwbench` A/B,
+`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` and the afternoon into dusk): the
+`lamps=` split is 0.01-0.35 ms most of the drive and 0.5-0.6 ms where the
+four lit trucks climb through the forest together. CPU 15.47 -> 15.56 ms
+at night and 15.30 -> 15.36 into dusk; late frames 740 -> 825 and
+588 -> 685, all in the forest windows that were already the slowest.
+Worth another look if those windows get tighter: lighting only the
+player's truck should cut the peaks to about a third. Flycast showed the
+same shape but doesn't price `fsrra` against a divide.
+
 ## Gotchas
 
 - A console run under dcload that goes quiet and stays quiet is usually
@@ -275,8 +286,7 @@ it the four trucks' headlights, which used to be on a third of the time.
 ## Known limitations
 
 - One scene (autumn); the desert palette is not built yet
-- Headlights light the truck and a beam on the trail ahead, not the
-  terrain or trees around it
+- Headlights cast no shadows: a tree behind a cabin catches the beam too
 - No rumble yet
 - Online has no chat. Trucks bump each other, but each console pushes only
   its own truck against the others as they were ~150 ms ago, so a shove
