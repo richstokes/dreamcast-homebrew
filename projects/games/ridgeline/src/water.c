@@ -284,12 +284,6 @@ static void wet_dyn(int id) {
     }
 }
 
-static const WChunk *water_chunk(uint32_t ci) {
-    for(int k = 0; k < wch_n; k++)
-        if(wch[k].chunk == ci) return &wch[k];
-    return NULL;
-}
-
 void water_draw(const Scenery *sc) {
     static const pvr_poly_hdr_t *h_water, *h_spark;
     if(!h_water) {
@@ -316,12 +310,14 @@ void water_draw(const Scenery *sc) {
     float fog_far = world_fog_far();
 
     /* Few chunks: draw the visible ones far to near. */
+    /* (From the water's own list: the scenery's holds every chunk.) */
     int idx[64], n = 0;
     float d2s[64];
     V3 cam_p = r_cam.pos;
-    for(uint32_t i = 0; i < sc->chunk_n && n < 64; i++) {
-        const ScChunk *c = &sc->chunks[i];
-        if(c->tag != TAG_WATER) continue;
+    for(int w = 0; w < wch_n && n < 64; w++) {
+        const ScChunk *c = &sc->chunks[wch[w].chunk];
+        /* (a chunk that came out empty left its place to the next) */
+        if(c->tag != TAG_WATER || (w && wch[w].chunk == wch[w - 1].chunk)) continue;
         V3 d = vsub(c->lc, cam_p);
         float d2 = vdot(d, d);
         if(d2 < c->near2) continue;
@@ -335,16 +331,16 @@ void water_draw(const Scenery *sc) {
             d2s[k] = d2s[k - 1];
             k--;
         }
-        idx[k] = (int)i;
+        idx[k] = w;
         d2s[k] = d2;
     }
     static RV buf[512] __attribute__((aligned(32)));
     static uint32_t spec[512];
     r_hdr(h_water);
     for(int k = 0; k < n; k++) {
-        const ScChunk *c = &sc->chunks[idx[k]];
-        const WChunk *wc = water_chunk((uint32_t)idx[k]);
-        float scroll = wc ? wc->speed * wat_t * RIPPLE_ALONG : 0;
+        const WChunk *wc = &wch[idx[k]];
+        const ScChunk *c = &sc->chunks[wc->chunk];
+        float scroll = wc->speed * wat_t * RIPPLE_ALONG;
         scroll -= floorf(scroll);
         for(int s = 0; s < c->nstrips; s++) {
             const ScStrip *t = &sc->strips[c->first_strip + s];

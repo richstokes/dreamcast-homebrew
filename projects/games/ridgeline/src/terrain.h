@@ -49,10 +49,11 @@ int obstacle_contacts(V3 p, float r, ObsContact *out, int max);
 enum { TAG_TERRAIN, TAG_WATER, TAG_TREES, TAG_ROCKS, TAG_PROPS, TAG_SKIRT };
 void terrain_build(Scenery *sc);
 /* The near terrain (within ~210 m), built from the heightmap as it is
-   drawn; the prebuilt far terrain draws with the scenery. */
+   drawn. */
 int terrain_draw_near(void);
-/* The prebuilt far terrain's skirts, where a neighbour's grid differs. */
-int terrain_draw_far_skirts(const Scenery *sc);
+/* The prebuilt far terrain, and its skirts where a neighbour's grid
+   differs: the blocks' vertices sent, the skirts' in *skirts. */
+int terrain_draw_far(const Scenery *sc, int *skirts);
 /* Water chunks, back to front. */
 /* The terrain pool's relight sources, one a vertex (water.c reads its own). */
 const uint32_t *terrain_pool_src(void);

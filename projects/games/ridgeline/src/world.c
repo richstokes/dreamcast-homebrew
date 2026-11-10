@@ -1588,7 +1588,8 @@ static void trees_build(void) {
     }
 }
 
-/* A tree chunk if it is in range and in view; headers only on a change. */
+/* A chunk (trees, rocks, a prop) if it is in range and in view; headers
+   only on a change. */
 static void tree_draw_chunk(uint16_t i, const pvr_poly_hdr_t **last) {
     if(i == TREE_NONE) return;
     const ScChunk *c = &scenery.chunks[i];
@@ -1625,9 +1626,37 @@ static void trees_draw(void) {
     }
 }
 
+/* Rocks and props, from their own lists as the trees are: a cell's rocks
+   near or far by its middle's distance, every prop (and lantern) to
+   600 m. The scenery's own walk would read every chunk's record to find
+   these few. */
+#define ROCK_NEAR_M 90.0f
+#define ROCK_FAR_M 360.0f
+typedef struct {
+    V3 lp;
+    uint16_t chunk[2];   /* near, far */
+} RockCell;
+static RockCell rock_cells[TCELLS * TCELLS];
+static uint16_t prop_chunks[LVL_PROPS + GLOW_MAX];
+static int rock_cell_n, prop_chunk_n;
+
+static void rocks_draw(void) {
+    const pvr_poly_hdr_t *last = NULL;
+    V3 cam = r_cam.pos;
+    for(int i = 0; i < rock_cell_n; i++) {
+        const RockCell *rc = &rock_cells[i];
+        V3 d = vsub(rc->lp, cam);
+        float d2 = vdot(d, d);
+        if(d2 < ROCK_NEAR_M * ROCK_NEAR_M) tree_draw_chunk(rc->chunk[0], &last);
+        else if(d2 < ROCK_FAR_M * ROCK_FAR_M) tree_draw_chunk(rc->chunk[1], &last);
+    }
+    for(int i = 0; i < prop_chunk_n; i++) tree_draw_chunk(prop_chunks[i], &last);
+}
+
 void world_build(void) {
     for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
     sc_clear(&scenery);
+    rock_cell_n = prop_chunk_n = 0;
     lamps_clear();
     glow_place();
     terrain_build(&scenery);
@@ -1643,8 +1672,11 @@ void world_build(void) {
         float x0 = LEVEL_ORG + (c % TCELLS) * TCELL, z0 = LEVEL_ORG + (c / TCELLS) * TCELL;
         V3 lp = v3(x0 + TCELL / 2, 0, z0 + TCELL / 2);
         lp.y = terrain_height(lp.x, lp.z);
+        RockCell *rc = &rock_cells[rock_cell_n];
+        rc->lp = lp;
         for(int lod = 0; lod < 2; lod++) {
-            sc_chunk_begin(&scenery, HF_OP, lod ? 90.0f : 0.0f, lod ? 360.0f : 90.0f, TAG_ROCKS);
+            uint32_t at = scenery.chunk_n;
+            sc_chunk_begin(&scenery, HF_OP, lod ? ROCK_NEAR_M : 0.0f, lod ? ROCK_FAR_M : ROCK_NEAR_M, TAG_ROCKS);
             sc_chunk_lod_point(&scenery, lp);
             lamps_lod(lp, 90.0f);
             for(int i = 0; i < LVL_SPHERES; i++) {
@@ -1671,25 +1703,31 @@ void world_build(void) {
                 if(lod == 0) lamps_add(f0, scenery.pool_n);
             }
             sc_chunk_end(&scenery);
+            rc->chunk[lod] = scenery.chunk_n > at ? (uint16_t)at : TREE_NONE;
         }
+        if(rc->chunk[0] != TREE_NONE || rc->chunk[1] != TREE_NONE) rock_cell_n++;
     }
     lamps_lod(v3(0, 0, 0), 0);
     for(int i = 0; i < LVL_PROPS; i++) {
+        uint32_t at = scenery.chunk_n;
         sc_chunk_begin(&scenery, HF_OP, 0, 600.0f, TAG_PROPS);
         uint32_t f0 = scenery.pool_n;
         prop(&lvl_props[i]);
         lamps_add(f0, scenery.pool_n);
         sc_chunk_end(&scenery);
+        if(scenery.chunk_n > at) prop_chunks[prop_chunk_n++] = (uint16_t)at;
     }
     uint32_t tree_c = scenery.chunk_n, tree_p = scenery.pool_n;
     trees_build();
     for(int i = 0; i < glow_n; i++) {
         if(!glows[i].lantern) continue;
+        uint32_t at = scenery.chunk_n;
         sc_chunk_begin(&scenery, HF_OP, 0, 600.0f, TAG_PROPS);
         uint32_t f0 = scenery.pool_n;
         lantern(&glows[i]);
         lamps_add(f0, scenery.pool_n);
         sc_chunk_end(&scenery);
+        if(scenery.chunk_n > at) prop_chunks[prop_chunk_n++] = (uint16_t)at;
     }
     lamps_index();
     printf("Ridgeline world: %lu vertices (terrain %d, trees %lu), %lu strips, %lu chunks%s\n",
@@ -1705,18 +1743,18 @@ void world_draw_op(void) {
     PROF_BEGIN(pw);
     uint64_t t0 = timer_us_gettime64();
     terrain_draw_near();
+    int skirts, far = terrain_draw_far(&scenery, &skirts);
 #ifdef RL_AUTOTEST
     extern int ter_count[4];
-    ter_count[3] += sc_draw(&scenery, HF_OP, 1u << TAG_TERRAIN);
-    ter_count[2] += terrain_draw_far_skirts(&scenery);
+    ter_count[3] += far;
+    ter_count[2] += skirts;
 #else
-    sc_draw(&scenery, HF_OP, 1u << TAG_TERRAIN);
-    terrain_draw_far_skirts(&scenery);
+    (void)far;
 #endif
     PROF_LAP(PS_TERRAIN, pw);
     uint64_t t1 = timer_us_gettime64();
     trees_draw();
-    sc_draw(&scenery, HF_OP, (1u << TAG_ROCKS) | (1u << TAG_PROPS));
+    rocks_draw();
     PROF_LAP(PS_TREES, pw);
     uint64_t t2 = timer_us_gettime64();
     world_us[0] += t1 - t0;

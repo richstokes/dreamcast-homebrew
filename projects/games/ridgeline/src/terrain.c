@@ -363,7 +363,10 @@ static const float lod_far[4] = {100.0f, 180.0f, 300.0f, 620.0f};
    triangles slashed across the hill. */
 #define NEAR_FINE 50.0f
 #define TRAIL_FINE 100.0f
-/* The far blocks' skirt chunks: [block][12 m, 24 m][edge: -z, +x, +z, -x]. */
+/* The far blocks' chunks, [block][12 m, 24 m], and their skirts' on each
+   edge (-z, +x, +z, -x): drawn by index, as the scenery's own walk reads
+   every chunk's record to find the few in range. */
+static uint16_t far_chunk[BLOCKS * BLOCKS][2];
 static uint16_t far_skirt[BLOCKS * BLOCKS][2][4];
 static V3 block_c[BLOCKS * BLOCKS];
 /* Near chunks (48 m, four tiles each): a sphere per chunk, per tile, and
@@ -394,6 +397,8 @@ static Sphere cells_sphere(int i0, int j0, int ni, int nj) {
 
 static void terrain_chunk(Scenery *sc, const pvr_poly_hdr_t *h, int lod, int i0, int j0, int cells, V3 lod_p) {
     int step = 1 << lod, i1 = i0 + cells, j1 = j0 + cells;
+    int b = (j0 / BLOCK_CELLS) * BLOCKS + i0 / BLOCK_CELLS;
+    far_chunk[b][lod - 2] = sc->chunk_n;
     sc_chunk_begin(sc, HF_OP, lod ? lod_far[lod - 1] : 0.0f, lod_far[lod], TAG_TERRAIN);
     sc_chunk_lod_point(sc, lod_p);
     sc_strip_begin(sc, h);
@@ -405,11 +410,10 @@ static void terrain_chunk(Scenery *sc, const pvr_poly_hdr_t *h, int lod, int i0,
     sc_strip_end(sc);
     sc_chunk_end(sc);
     /* Each edge's skirt is a chunk of its own, drawn only where the block
-       beside it has another grid (terrain_draw_far_skirts). */
+       beside it has another grid (terrain_draw_far). */
     float drop = 1.5f * step + 1.0f;
     int steps = cells / step;
     static const int e0[4][4] = {{0, 0, 1, 0}, {1, 0, 0, 1}, {1, 1, -1, 0}, {0, 1, 0, -1}};
-    int b = (j0 / BLOCK_CELLS) * BLOCKS + i0 / BLOCK_CELLS;
     for(int e = 0; e < 4; e++) {
         far_skirt[b][lod - 2][e] = sc->chunk_n;
         sc_chunk_begin(sc, HF_OP, lod_far[lod - 1], lod_far[lod], TAG_SKIRT);
@@ -740,10 +744,12 @@ int terrain_draw_near(void) {
     return drawn;
 }
 
-/* The far blocks' skirts, only on edges whose neighbour block has another
-   grid: between two blocks at one grid the edge vertices match exactly,
-   and those skirts were half of a 24 m block's vertices. */
-int terrain_draw_far_skirts(const Scenery *sc) {
+/* The far blocks, each at its distance's grid, and their skirts, only on
+   edges whose neighbour block has another grid: between two blocks at one
+   grid the edge vertices match exactly, and those skirts were half of a
+   24 m block's vertices. Returns the blocks' vertices, the skirts' in
+   *skirts. */
+int terrain_draw_far(const Scenery *sc, int *skirts) {
     int8_t lod[BLOCKS * BLOCKS];
     V3 cam_p = r_cam.pos;
     for(int b = 0; b < BLOCKS * BLOCKS; b++) {
@@ -751,15 +757,17 @@ int terrain_draw_far_skirts(const Scenery *sc) {
         float d2 = vdot(d, d);
         lod[b] = d2 < lod_far[1] * lod_far[1] ? 1 : d2 < lod_far[2] * lod_far[2] ? 2 : d2 < lod_far[3] * lod_far[3] ? 3 : -1;
     }
-    int sent = 0;
+    int sent = 0, sk = 0;
     for(int b = 0; b < BLOCKS * BLOCKS; b++) {
         if(lod[b] < 2) continue;
+        sent += sc_draw_chunk(sc, far_chunk[b][lod[b] - 2]);
         int bi = b % BLOCKS, bj = b / BLOCKS;
         for(int e = 0; e < 4; e++) {
             int ni = bi + nb[e][0], nj = bj + nb[e][1];
             if(ni >= 0 && nj >= 0 && ni < BLOCKS && nj < BLOCKS && lod[nj * BLOCKS + ni] == lod[b]) continue;
-            sent += sc_draw_chunk(sc, far_skirt[b][lod[b] - 2][e]);
+            sk += sc_draw_chunk(sc, far_skirt[b][lod[b] - 2][e]);
         }
     }
+    *skirts = sk;
     return sent;
 }
