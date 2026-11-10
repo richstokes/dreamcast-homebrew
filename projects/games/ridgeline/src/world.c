@@ -20,7 +20,7 @@
 Scenery scenery;
 V3 sun_dir;
 
-static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_sun, *h_moon, *h_stars, *h_glow_add,
+static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_crown, *h_sun, *h_moon, *h_stars, *h_glow_add,
     *h_ring_add, *h_cloud;
 
 /* ---- Lighting ---- */
@@ -149,23 +149,30 @@ static inline float hrand(uint32_t *s) {
 
 static bool cone_lamps;   /* each cone its own object for the headlights (lamps.c) */
 
+/* Texture on a cone (near trees only): us repeats round it, vs metres
+   of its side a repeat, v running from its top down; 0 for none. */
+static float cone_us, cone_vs;
+
 /* A frustum (a cone with a small flat top) round a vertical axis: k sides,
    radii r0 at y0 and r1 at y1, joined on to the strip so far. Colours from
    the albedo, lit on the sun's side, darker at the base. */
+
 static void cone(V3 base, float r0, float r1, float y0, float y1, int k, float yaw, uint32_t albedo, float ao0,
                  float ao1, bool join) {
     uint32_t f0 = scenery.pool_n;
     float slope = (r0 - r1) / fmaxf(y1 - y0, 0.01f);
+    float vb = cone_vs > 0 ? sqrtf((r0 - r1) * (r0 - r1) + (y1 - y0) * (y1 - y0)) / cone_vs : 0;
     for(int s = 0; s <= k; s++) {
+        float u = cone_us * (float)s / k;
         float a = yaw + ENG_TAU * (float)(s % k) / k;
         float ca = cosf(a), sa = sinf(a);
         V3 n = vnorm(v3(ca, slope, sa));
         V3 pt = v3(base.x + ca * r1, base.y + y1, base.z + sa * r1);
         V3 pb = v3(base.x + ca * r0, base.y + y0, base.z + sa * r0);
         V3 nt = vnorm(v3(ca * 0.6f, 1.0f, sa * 0.6f));
-        if(s == 0 && join) lj(pt, 0, 0, albedo, nt, ao1);
-        else lv(pt, 0, 0, albedo, nt, ao1);
-        lv(pb, 0, 0, albedo, n, ao0);
+        if(s == 0 && join) lj(pt, u, 0, albedo, nt, ao1);
+        else lv(pt, u, 0, albedo, nt, ao1);
+        lv(pb, u, vb, albedo, n, ao0);
     }
     /* (joined on, it starts with the last cone's vertex again) */
     if(cone_lamps) lamps_add(join ? f0 + 1 : f0, scenery.pool_n);
@@ -174,7 +181,10 @@ static void cone(V3 base, float r0, float r1, float y0, float y1, int k, float y
 static const uint32_t fir_col = 0xff2f6a3c, fir_col2 = 0xff3f7a44, larch_col = 0xffe4b23a, maple_col = 0xffd8642e,
                       trunk_col = 0xff5a4030;
 
-/* One tree at a level of detail (0 near .. 2 far) into the open strip. */
+/* One tree at a level of detail (0 near .. 3 far) into the open strip.
+   Near, trunk and crown take the painted strokes (one texture, so a
+   chunk of trees stays one strip); further off a tree is flat colour,
+   the strokes being a few pixels there. */
 static void tree(const lvl_tree_t *t, int lod, bool first) {
     V3 b = v3(t->x, t->y - 0.2f, t->z);
     float s = t->scale;
@@ -185,31 +195,45 @@ static void tree(const lvl_tree_t *t, int lod, bool first) {
     else if(t->kind == 2) col = maple_col;
     else col = hrand(&seed) < 0.5f ? fir_col : fir_col2;
     bool j = !first;
+    cone_us = lod == 0 ? 1.0f : 0;   /* the trunk */
+    cone_vs = lod == 0 ? 1.6f : 0;
+    float crown_us = lod == 0 ? 2.0f : 0, crown_vs = lod == 0 ? 3.0f * s : 0;
     if(t->kind == 2) {
         /* A vine maple: a round crown in two cones on a short trunk. */
-        int k = lod == 0 ? 6 : lod == 1 ? 5 : 4;
-        if(lod == 0) {
-            cone(b, 0.18f * s, 0.14f * s, 0, 2.2f * s, 4, yaw, trunk_col, 0.7f, 0.8f, j);
-            j = true;
-        }
+        int k = lod == 0 ? 6 : lod < 3 ? 5 : 4;
+        if(lod == 0) cone(b, 0.18f * s, 0.14f * s, 0, 2.2f * s, 4, yaw, trunk_col, 0.7f, 0.8f, j);
+        else if(lod == 1) cone(b, 0.18f * s, 0.16f * s, 0, 1.9f * s, 3, yaw, trunk_col, 0.7f, 0.75f, j);
+        j = j || lod < 2;   /* past the middle the crown hides the trunk */
+        cone_us = crown_us;
+        cone_vs = crown_vs;
         cone(b, 0.5f * s, 2.6f * s, 1.6f * s, 3.6f * s, k, yaw, col, 0.62f, 0.95f, j);
         cone(b, 2.6f * s, 0.4f * s, 3.6f * s, 6.0f * s, k, yaw, col, 0.95f, 1.15f, true);
         return;
     }
     float slim = t->kind == 1 ? 0.78f : 1.0f;
-    if(lod == 0) {
-        cone(b, 0.26f * s, 0.2f * s, 0, 3.0f * s, 4, yaw, trunk_col, 0.7f, 0.8f, j);
+    static const float tiers[3][4] = {{3.0f, 1.2f, 6.8f, 0.30f}, {2.3f, 4.6f, 9.6f, 0.24f}, {1.5f, 8.0f, 12.6f, 0.12f}};
+    if(lod < 2) {
+        /* Out to ~105 m a tree is the near one's three tiers on five
+           sides over a three-sided stump of trunk, so the change between
+           them is hard to see. */
+        if(lod == 0) cone(b, 0.26f * s, 0.2f * s, 0, 3.0f * s, 4, yaw, trunk_col, 0.7f, 0.8f, j);
+        else cone(b, 0.26f * s, 0.24f * s, 0, 1.6f * s, 3, yaw, trunk_col, 0.7f, 0.75f, j);
         j = true;
-        static const float tiers[3][4] = {{3.0f, 1.2f, 6.8f, 0.30f}, {2.3f, 4.6f, 9.6f, 0.24f}, {1.5f, 8.0f, 12.6f, 0.12f}};
+        cone_us = crown_us;
+        cone_vs = crown_vs;
         for(int i = 0; i < 3; i++) {
             float ao = 0.62f + 0.14f * i;
-            cone(b, tiers[i][0] * s * slim, tiers[i][3] * s, tiers[i][1] * s, tiers[i][2] * s, 6, yaw + i * 0.5f, col,
-                 ao, ao + 0.42f, j);
+            cone(b, tiers[i][0] * s * slim, tiers[i][3] * s, tiers[i][1] * s, tiers[i][2] * s, lod ? 5 : 6, yaw + i * 0.5f,
+                 col, ao, ao + 0.42f, j);
+            j = true;
         }
     }
-    else if(lod == 1) {
-        cone(b, 2.9f * s * slim, 0.4f * s, 1.0f * s, 7.6f * s, 5, yaw, col, 0.64f, 1.0f, j);
-        cone(b, 1.9f * s * slim, 0.1f * s, 5.6f * s, 12.6f * s, 5, yaw + 0.6f, col, 0.78f, 1.12f, true);
+    else if(lod == 2) {
+        /* Then the bottom tier and one cone over the top two, the same
+           outline less a notch and as light at the top. */
+        cone(b, tiers[0][0] * s * slim, tiers[0][3] * s, tiers[0][1] * s, tiers[0][2] * s, 5, yaw, col, 0.62f, 1.04f, j);
+        cone(b, tiers[1][0] * s * slim, tiers[2][3] * s, tiers[1][1] * s, tiers[2][2] * s, 5, yaw + 0.5f, col, 0.76f, 1.32f,
+             true);
     }
     else {
         cone(b, 2.8f * s * slim, 0.05f * s, 0.6f * s, 12.4f * s, 3, yaw, col, 0.66f, 1.1f, j);
@@ -1411,6 +1435,7 @@ void world_init(void) {
     h_flat_nofog = r_header(TEX_NONE, HF_OP | HF_NOFOG);
     h_rock = r_header(TEX_ROCK, HF_OP);
     h_bark = r_header(TEX_BARK, HF_OP);
+    h_crown = r_header(TEX_CROWN, HF_OP);
     for(int k = 0; k < 4; k++) h_tufts[k] = r_header(TEX_TUFT0 + k, HF_PT);
     h_sun = r_header(TEX_SUN, HF_TR | HF_NOFOG | HF_ADD);
     h_moon = r_header(TEX_MOON, HF_TR | HF_NOFOG);
@@ -1421,26 +1446,61 @@ void world_init(void) {
     h_cap = r_header(TEX_NONE, HF_TR | HF_NOFOG);
     h_mist = r_header(TEX_MIST, HF_TR | HF_NOFOG);
     sky_setup();
-    if(!sc_init(&scenery, 185000, 7000, 1600)) printf("Ridgeline world: no memory for the scenery\n");
+    if(!sc_init(&scenery, 250000, 7000, 2400)) printf("Ridgeline world: no memory for the scenery\n");
 }
 
-/* Trees, rocks and props are grouped into 48 m cells, a chunk per cell
-   and level of detail. Far away only every other tree is drawn, a little
-   bigger, which the eye reads as the same forest. */
+/* Rocks, props and trees are grouped into 48 m cells. */
 #define TCELL 48.0f
 #define TCELLS 16
-static const float tree_far[3] = {70.0f, 170.0f, 430.0f};
 
-void world_build(void) {
-    for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
-    sc_clear(&scenery);
-    lamps_clear();
-    terrain_build(&scenery);
-    int terrain_v = scenery.pool_n;
-    world_lrec_first = lrec_marked = scenery.pool_n;
-    alb_n = 0;
-    if(!world_lrec) world_lrec = malloc(sizeof(LightRec) * (scenery.pool_max - scenery.pool_n));
-    if(!world_lrec) printf("Ridgeline world: no memory to relight the scenery\n");
+/* Trees: a cell picks its version by its middle's distance. Nearer than
+   110 m each 24 m quarter of it picks the near tree (to 70 m) or the
+   middle one by the quarter's middle, so no tree changes nearer than
+   ~53 m, and the middle tree has the near one's three tiers. Past 110 m
+   (the nearest tree ~76 m off) a tree is two cones, past 170 m every
+   other tree is one cone, a little bigger, which the eye reads as the
+   same forest. The trees' chunks sit past scenery.chunk_n, so the
+   scenery's own walks (sc_draw, the water's) never visit them. */
+#define TREE_NEAR_M 70.0f
+#define TREE_SPLIT_M 110.0f
+#define TREE_MID_M 170.0f
+#define TREE_FAR_M 430.0f
+#define TREE_NONE 0xffff
+typedef struct {
+    V3 lp;
+    uint16_t quarter[4][2];   /* near, middle */
+    uint16_t far[2];          /* two cones, one */
+} TreeCell;
+static TreeCell tcells[TCELLS * TCELLS];
+static int tcell_n;
+
+/* One chunk of trees into the open strip, as the near tree or the rest. */
+static uint16_t tree_chunk(const uint16_t *order, int from, int to, float qx, float qz, int q, V3 lp, int lod) {
+    static const float range[4][2] = {{0, TREE_NEAR_M}, {TREE_NEAR_M, 1000.0f}, {TREE_SPLIT_M, TREE_MID_M},
+                                      {TREE_MID_M, TREE_FAR_M}};
+    uint32_t at = scenery.chunk_n;
+    sc_chunk_begin(&scenery, HF_OP, range[lod][0], range[lod][1], TAG_TREES);
+    sc_chunk_lod_point(&scenery, lp);
+    sc_strip_begin(&scenery, lod ? h_flat : h_crown);
+    bool firstt = true;
+    for(int k = from; k < to; k++) {
+        lvl_tree_t t = lvl_trees[order[k]];
+        if(q >= 0 && q != ((t.x >= qx) | (t.z >= qz) << 1)) continue;
+        if(lod == 3) {
+            if(order[k] & 1) continue;
+            t.scale *= 1.2f;
+        }
+        cone_lamps = lod == 0;
+        tree(&t, lod, firstt);
+        cone_lamps = false;
+        firstt = false;
+    }
+    sc_strip_end(&scenery);
+    sc_chunk_end(&scenery);
+    return scenery.chunk_n > at ? (uint16_t)at : TREE_NONE;
+}
+
+static void trees_build(void) {
     /* Bucket the trees by cell. */
     static uint16_t order[LVL_TREES];
     static uint16_t first[TCELLS * TCELLS + 1];
@@ -1457,31 +1517,68 @@ void world_build(void) {
         int c = cj * TCELLS + ci;
         order[first[c] + cnt[c]++] = (uint16_t)i;
     }
+    tcell_n = 0;
     for(int c = 0; c < TCELLS * TCELLS; c++) {
         if(first[c + 1] == first[c]) continue;
-        V3 lp = v3(LEVEL_ORG + ((c % TCELLS) + 0.5f) * TCELL, 0, LEVEL_ORG + ((c / TCELLS) + 0.5f) * TCELL);
-        lp.y = terrain_height(lp.x, lp.z);
-        for(int lod = 0; lod < 3; lod++) {
-            sc_chunk_begin(&scenery, HF_OP, lod ? tree_far[lod - 1] : 0.0f, tree_far[lod], TAG_TREES);
-            sc_chunk_lod_point(&scenery, lp);
-            sc_strip_begin(&scenery, h_flat);
-            bool firstt = true;
-            for(int k = first[c]; k < first[c + 1]; k++) {
-                lvl_tree_t t = lvl_trees[order[k]];
-                if(lod == 2) {
-                    if(order[k] & 1) continue;
-                    t.scale *= 1.2f;
-                }
-                cone_lamps = lod == 0;
-                tree(&t, lod, firstt);
-                cone_lamps = false;
-                firstt = false;
+        TreeCell *tc = &tcells[tcell_n++];
+        float mx = LEVEL_ORG + ((c % TCELLS) + 0.5f) * TCELL, mz = LEVEL_ORG + ((c / TCELLS) + 0.5f) * TCELL;
+        tc->lp = v3(mx, terrain_height(mx, mz), mz);
+        for(int q = 0; q < 4; q++) {
+            float x = mx + ((q & 1) ? 0.25f : -0.25f) * TCELL, z = mz + ((q & 2) ? 0.25f : -0.25f) * TCELL;
+            V3 lp = v3(x, terrain_height(x, z), z);
+            for(int l = 0; l < 2; l++) tc->quarter[q][l] = tree_chunk(order, first[c], first[c + 1], mx, mz, q, lp, l);
+        }
+        for(int l = 0; l < 2; l++) tc->far[l] = tree_chunk(order, first[c], first[c + 1], mx, mz, -1, tc->lp, 2 + l);
+    }
+}
+
+/* A tree chunk if it is in range and in view; headers only on a change. */
+static void tree_draw_chunk(uint16_t i, const pvr_poly_hdr_t **last) {
+    if(i == TREE_NONE) return;
+    const ScChunk *c = &scenery.chunks[i];
+    V3 d = vsub(c->lc, r_cam.pos);
+    float d2 = vdot(d, d);
+    if(d2 < c->near2 || d2 >= c->far2 || !r_sphere_visible(c->c, c->r)) return;
+    const ScStrip *t = &scenery.strips[c->first_strip];
+    for(int k = 0; k < c->nstrips; k++, t++) {
+        if(t->hdr != *last) {
+            r_hdr(t->hdr);
+            *last = t->hdr;
+        }
+        r_strip_bounded(scenery.pool + t->first, t->count, t->c, t->r);
+    }
+}
+
+static void trees_draw(void) {
+    const pvr_poly_hdr_t *last = NULL;
+    V3 cam = r_cam.pos;
+    for(int i = 0; i < tcell_n; i++) {
+        const TreeCell *tc = &tcells[i];
+        V3 d = vsub(tc->lp, cam);
+        float d2 = vdot(d, d);
+        if(d2 < TREE_SPLIT_M * TREE_SPLIT_M) {
+            for(int q = 0; q < 4; q++) {
+                tree_draw_chunk(tc->quarter[q][0], &last);
+                tree_draw_chunk(tc->quarter[q][1], &last);
             }
-            sc_strip_end(&scenery);
-            sc_chunk_end(&scenery);
+        }
+        else if(d2 < TREE_FAR_M * TREE_FAR_M) {
+            tree_draw_chunk(tc->far[0], &last);
+            tree_draw_chunk(tc->far[1], &last);
         }
     }
-    int tree_v = scenery.pool_n - terrain_v;
+}
+
+void world_build(void) {
+    for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
+    sc_clear(&scenery);
+    lamps_clear();
+    terrain_build(&scenery);
+    int terrain_v = scenery.pool_n;
+    world_lrec_first = lrec_marked = scenery.pool_n;
+    alb_n = 0;
+    if(!world_lrec) world_lrec = malloc(sizeof(LightRec) * (scenery.pool_max - scenery.pool_n));
+    if(!world_lrec) printf("Ridgeline world: no memory to relight the scenery\n");
     cap_build();
     mist_build();
     /* Boulders, logs and ledges: near and far versions in one chunk per cell. */
@@ -1525,10 +1622,14 @@ void world_build(void) {
         lamps_add(f0, scenery.pool_n);
         sc_chunk_end(&scenery);
     }
+    uint32_t tree_c = scenery.chunk_n, tree_p = scenery.pool_n;
+    trees_build();
     lamps_index();
-    printf("Ridgeline world: %lu vertices (terrain %d, trees %d), %lu strips, %lu chunks%s\n",
-           (unsigned long)scenery.pool_n, terrain_v, tree_v, (unsigned long)scenery.strip_n,
-           (unsigned long)scenery.chunk_n, scenery.full ? " - FULL, some scenery missing" : "");
+    printf("Ridgeline world: %lu vertices (terrain %d, trees %lu), %lu strips, %lu chunks%s\n",
+           (unsigned long)scenery.pool_n, terrain_v, (unsigned long)(scenery.pool_n - tree_p),
+           (unsigned long)scenery.strip_n, (unsigned long)scenery.chunk_n,
+           scenery.full ? " - FULL, some scenery missing" : "");
+    scenery.chunk_n = tree_c;
 }
 
 uint64_t world_us[3];
@@ -1547,7 +1648,8 @@ void world_draw_op(void) {
 #endif
     PROF_LAP(PS_TERRAIN, pw);
     uint64_t t1 = timer_us_gettime64();
-    sc_draw(&scenery, HF_OP, (1u << TAG_TREES) | (1u << TAG_ROCKS) | (1u << TAG_PROPS));
+    trees_draw();
+    sc_draw(&scenery, HF_OP, (1u << TAG_ROCKS) | (1u << TAG_PROPS));
     PROF_LAP(PS_TREES, pw);
     uint64_t t2 = timer_us_gettime64();
     world_us[0] += t1 - t0;

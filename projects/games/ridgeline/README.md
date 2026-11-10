@@ -59,7 +59,8 @@ been, and the viewpoints you've found.
   circle over the meadow and the bluffs, and now and then a V of geese
   crosses the sky. Leaves come down from the larches and maples, dust
   motes hang in the forest light, fireflies come out over the meadow
-  after dusk and snow blows about the summit
+  after dusk and snow blows about the summit. Near trees carry painted
+  brush strokes
 - A day that goes by as you drive, an hour a minute: first light, sunrise
   mist, noon, the long afternoon shadows, sunset, dusk and a starry
   moonlit night, the hills' shadows swinging round with the sun, and the
@@ -245,6 +246,17 @@ at night and 15.30 -> 15.36 into dusk; late frames 740 -> 825 and
 Worth another look if those windows get tighter: lighting only the
 player's truck should cut the peaks to about a third. Flycast showed the
 same shape but doesn't price `fsrra` against a divide.
+
+Textured near trees (2026-11-09, `make hwbench` A/B against that
+morning's main): CPU 15.29 -> 14.61 ms, late frames 571 -> 315, PVR
+render level. Once textured, trees visibly changed shape as they swapped
+detail, so a 48 m cell now picks its trees' version in their own draw:
+each 24 m quarter goes near or three-tier middle, so none swaps nearer
+than ~53 m. The trees' chunks are kept out of the scenery's other walks,
+and terrain came out ~0.5 ms faster in every window for not stepping
+over them. The three-tier middle tree all the way to 170 m cost up to
+1.3 ms, so past 110 m it is two cones. Four versions of every tree are
+~207,000 vertices: the heap tops out at ~14 MB of 16 after boot.
 
 ## Gotchas
 

@@ -137,6 +137,20 @@ def tex_rock():
     return to_image(rgb)
 
 
+def tex_crown():
+    """Tree crowns, near trees only: long soft brush strokes running down
+    the cone (v runs from a tier's tip to its skirt), near white and
+    averaging just under it, so the vertex colours keep the palette, the
+    relighting and their brightness."""
+    n = 128
+    v = strokes(n, 71, 260, 40, 4, math.pi / 2, 0.12, 0.80, 1.0)
+    v2 = strokes(n, 72, 120, 56, 6, math.pi / 2, 0.08, 0.86, 1.0)
+    v = v * 0.55 + v2 * 0.45
+    v = np.clip(v * (0.97 / v.mean()), 0, 1)
+    rgb = np.dstack([v * 255, v * 255, v * 250])
+    return to_image(rgb)
+
+
 def tex_bark():
     n = 64
     v = strokes(n, 31, 300, 30, 2, math.pi / 2, 0.05, 0.72, 1.0)
@@ -489,6 +503,7 @@ def build(out: Path):
         (TexSpec("grass", "RGB565", True, True), tex_grass()),
         (TexSpec("rock", "RGB565", True, True), tex_rock()),
         (TexSpec("bark", "RGB565", True, True), tex_bark()),
+        (TexSpec("crown", "RGB565", True, True), tex_crown()),
         *[(TexSpec(f"tuft{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_tuft(k)) for k in range(4)],
         (TexSpec("sun", "ARGB4444", False, False), tex_sun()),
         (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
