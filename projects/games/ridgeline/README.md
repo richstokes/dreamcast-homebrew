@@ -78,7 +78,7 @@ been, and the viewpoints you've found.
   night); photo mode moves the clock with the D-pad. Headlights are yours
   to switch: off, dipped or full beam (which lights the Kestrel's roof bar),
   and the beams carry through the air at night and in the cloud and light
-  up the trees, rocks and cabins they reach. The low
+  up the trees, rocks, cabins, grass and other trucks they reach. The low
   sun glints off paint and glass
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music
@@ -250,7 +250,10 @@ at night and 15.30 -> 15.36 into dusk; late frames 740 -> 825 and
 588 -> 685, all in the forest windows that were already the slowest.
 Worth another look if those windows get tighter: lighting only the
 player's truck should cut the peaks to about a third. Flycast showed the
-same shape but doesn't price `fsrra` against a divide.
+same shape but doesn't price `fsrra` against a divide. The grass and the
+other trucks taking the beams came later (2026-11-10): +0.06 ms of PT in
+a Flycast night drive, 0.16 at the start with every truck on the meadow;
+not benched on the console.
 
 Textured near trees (2026-11-09, `make hwbench` A/B against that
 morning's main): CPU 15.29 -> 14.61 ms, late frames 571 -> 315, PVR

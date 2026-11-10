@@ -19,4 +19,13 @@ void lamps_index(void);
 void lamps_begin(bool trucks);
 void lamps_end(void);
 
+/* This frame's beams for what is lit as it is drawn (the grass, the
+   trucks), between lamps_begin and the next one. Which beams could reach
+   the ground within r of (x, z), as a mask; and their light at p from
+   the beams in mask (LAMPS_ALL: every one) bar truck skip's own (-1:
+   none), about 0..1.3, with the way back to them in *from if given. */
+#define LAMPS_ALL 0xff
+int lamps_ground_mask(float x, float z, float r);
+float lamps_light(V3 p, int mask, int skip, V3 *from);
+
 #endif

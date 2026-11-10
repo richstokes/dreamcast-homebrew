@@ -1051,6 +1051,8 @@ void world_draw_pt(void) {
         /* By the fire or a lantern the grass takes their light as the
            ground under it does (glow.c), or it would stand black on it. */
         bool warm = glow_near(v3(bx, 0, bz), TB_RAD);
+        /* And in a headlight beam, as the beam's pool on the ground. */
+        int beams = lamps_ground_mask(bx, bz, TB_RAD);
         for(int k = 0; k < b->n && count < TUFT_MAX; k++) {
             const Tuft *t = &b->t[k];
             float dx = t->x - c.x, dz = t->z - c.z, d2 = dx * dx + dz * dz;
@@ -1070,6 +1072,17 @@ void world_draw_pt(void) {
             float h = w * tuft_aspect[t->var];
             uint32_t col = color_scale(lvl_ground[t->g].c, 1.35f * (0.8f + t->tint * (1.0f / 850)));
             if(warm) col = glow_tint(col, v3(t->x, t->y + 0.25f, t->z));
+            if(beams) {
+                float k = lamps_light(v3(t->x, t->y + h * 0.5f, t->z), beams, -1, NULL);
+                if(k > 0.02f) {
+                    /* Warm white, a little of the grass's own colour in it. */
+                    int cr = (int)((col >> 16) & 255) + (int)((((col >> 16) & 255) * 0.6f + 120.0f) * k);
+                    int cg = (int)((col >> 8) & 255) + (int)((((col >> 8) & 255) * 0.6f + 112.0f) * k);
+                    int cb = (int)(col & 255) + (int)(((col & 255) * 0.6f + 84.0f) * k);
+                    col = 0xff000000u | (uint32_t)(cr > 255 ? 255 : cr) << 16 | (uint32_t)(cg > 255 ? 255 : cg) << 8 |
+                          (uint32_t)(cb > 255 ? 255 : cb);
+                }
+            }
             uint32_t root = color_scale(col, 0.7f);
             /* The tips lean downwind and back, a slow gust rolling across
                the meadow with a quicker flutter of each tuft's own. */

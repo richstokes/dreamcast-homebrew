@@ -9,6 +9,7 @@
 #include "truck.h"
 #include "terrain.h"
 #include "world.h"
+#include "lamps.h"
 #include "glow.h"
 #include "engine/mesh.h"
 #include "engine/prof.h"
@@ -297,6 +298,20 @@ void truckdraw_draw_op(void) {
             l.sun[2] += fire_k * 0.2f;
             l.ambient[0] += fire_k * 0.12f;
             l.ambient[1] += fire_k * 0.06f;
+        }
+        /* In another truck's headlights: their warm white on the side
+           toward them, swinging the light round the same way. */
+        V3 beam_from;
+        float beam_k = lamps_light(t->pos, LAMPS_ALL, ti, &beam_from) * 0.65f;
+        if(beam_k > 0.01f) {
+            V3 Lw = vadd(vadd(vscale(R, l.L.x), vscale(U, l.L.y)), vscale(F, l.L.z));
+            float rest = (l.sun[0] + l.sun[1] + l.sun[2]) * (1.0f / 3.0f);
+            V3 L = vnorm(vlerp(Lw, beam_from, beam_k / (beam_k + rest + 0.01f)));
+            l.L = v3(vdot(L, R), vdot(L, U), vdot(L, F));
+            l.sun[0] += beam_k;
+            l.sun[1] += beam_k * 0.95f;
+            l.sun[2] += beam_k * 0.8f;
+            for(int i = 0; i < 3; i++) l.ambient[i] += beam_k * 0.06f;
         }
         uint32_t paint[RL_PAINT_COUNT] = {0};
         const rl_truck_info_t *info = &rl_truck_info[t->model];

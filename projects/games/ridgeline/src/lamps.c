@@ -16,7 +16,9 @@
    Cost (console, 2026-11-09): up to ~0.35 ms a frame, 0.5-0.6 ms with
    four lit trucks together in the forest (README, Performance). If that
    needs to come down, LAMPS 1 (the player's truck only) is the first
-   thing to try.
+   thing to try. The grass tufts and the other trucks take the same beams
+   (lamps_light): a tuft as the ground under it, a truck on its side
+   toward the lamp.
 
    The campfire and the lookout's lanterns (glow.h) light what stands
    round them the same way. They never move, so each vertex in their
@@ -54,7 +56,12 @@ typedef struct {
     V3 o, f, r, u;          /* where it shines from, along, across, up (all unit) */
     float th, tv, range;    /* the spread across and up (tangents), metres */
     float ih2, iv2, irange, k;
+    float fhx, fhz;         /* along, flat (unit) */
+    int truck;              /* whose */
 } Lamp;
+/* This frame's beams (lamps_begin), for the grass and the trucks too. */
+static Lamp lamps[LAMPS];
+static int nl;
 
 static struct {
     uint32_t k, c;
@@ -305,6 +312,7 @@ static void obj_light(const LObj *o, const Lamp *lamps, int mask) {
 
 void lamps_begin(bool on_screen) {
     nsaved = 0;
+    nl = 0;
     if(!world_lrec) return;
     PROF_BEGIN(pl);
     uint64_t t0 = timer_us_gettime64();
@@ -316,9 +324,7 @@ void lamps_begin(bool on_screen) {
         lamps_us += timer_us_gettime64() - t0;
         return;
     }
-    Lamp lamps[LAMPS];
     float ldist[LAMPS];
-    int nl = 0;
     for(int ti = 0; ti < game.ntrucks; ti++) {
         const Truck *t = &trucks[ti];
         if(t->absent || !t->lights) continue;
@@ -352,6 +358,11 @@ void lamps_begin(bool on_screen) {
         l->iv2 = 1.0f / (l->tv * l->tv);
         l->irange = 1.0f / l->range;
         l->k = dark * (full ? 1.3f : 1.05f);
+        float fl = sqrtf(l->f.x * l->f.x + l->f.z * l->f.z);
+        if(fl < 0.1f) fl = 0.1f;
+        l->fhx = l->f.x / fl;
+        l->fhz = l->f.z / fl;
+        l->truck = ti;
         ldist[slot] = d;
     }
     /* The objects any beam might reach, each once, with the lamps on it. */
@@ -364,10 +375,7 @@ void lamps_begin(bool on_screen) {
         int r0 = cell_of(fminf(l->o.z, e.z) - w), r1 = cell_of(fmaxf(l->o.z, e.z) + w);
         /* Across and along the beam, flat: a cell's circle (and the
            biggest prop) against the beam's wedge. */
-        V3 fh = v3(l->f.x, 0, l->f.z);
-        float fl = vlen(fh);
-        if(fl < 0.1f) fl = 0.1f;
-        fh = vscale(fh, 1.0f / fl);
+        V3 fh = v3(l->fhx, 0, l->fhz);
         const float cr = LCELL * 0.71f + 9.0f;
         for(int cj = r0; cj <= r1; cj++)
             for(int ci = c0; ci <= c1; ci++) {
@@ -399,6 +407,42 @@ void lamps_begin(bool on_screen) {
     }
     PROF_LAP(PS_LAMPS, pl);
     lamps_us += timer_us_gettime64() - t0;
+}
+
+int lamps_ground_mask(float x, float z, float r) {
+    int mask = 0;
+    for(int li = 0; li < nl; li++) {
+        const Lamp *l = &lamps[li];
+        float dx = x - l->o.x, dz = z - l->o.z;
+        float a = dx * l->fhx + dz * l->fhz;
+        if(a + r < 0 || a - r > l->range) continue;
+        if(fabsf(dx * l->fhz - dz * l->fhx) - r > (a + r) * l->th) continue;
+        mask |= 1 << li;
+    }
+    return mask;
+}
+
+float lamps_light(V3 p, int mask, int skip, V3 *from) {
+    float sum = 0;
+    V3 dir = v3(0, 0, 0);
+    for(int li = 0; li < nl; li++) {
+        const Lamp *l = &lamps[li];
+        if(!(mask & (1 << li)) || l->truck == skip) continue;
+        float dx = p.x - l->o.x, dy = p.y - l->o.y, dz = p.z - l->o.z;
+        float a = dx * l->f.x + dy * l->f.y + dz * l->f.z;
+        if(a < 0.3f || a > l->range) continue;
+        float s = dx * l->r.x + dy * l->r.y + dz * l->r.z;
+        float h = dx * l->u.x + dy * l->u.y + dz * l->u.z;
+        float e = s * s * l->ih2 + h * h * (h > 0 ? l->iv2 : l->iv2 * 0.25f);
+        float a2 = a * a;
+        if(e >= a2) continue;
+        float ia = shz_inv_sqrtf_fsrra(a2), x = a * l->irange;
+        float k = (1.0f - e * ia * ia) * (1.0f - x * x) * l->k;
+        sum += k;
+        if(from) dir = vmad(dir, v3(-dx, -dy, -dz), k * shz_inv_sqrtf_fsrra(dx * dx + dy * dy + dz * dz));
+    }
+    if(from) *from = sum > 0 ? vnorm(dir) : v3(0, 1, 0);
+    return sum;
 }
 
 void lamps_end(void) {
