@@ -353,6 +353,9 @@ int main(int argc, char **argv) {
     uint64_t boot_t0 = timer_us_gettime64();
     input_init();
     render_init();
+    /* Sounds first: KOS copies each through a scratch buffer on the way to
+       the AICA, and by the end of this list the heap has no room for one. */
+    audio_init();
     terrain_init();
     game.start_tod = TOD_MORNING;
     tod_init(tod_hours[game.start_tod]);
@@ -366,7 +369,6 @@ int main(int argc, char **argv) {
     air_init();
     campfire_init();
     glow_init();
-    audio_init();
     records_load();
     printf("Ridgeline boot: %lu ms, %lu KiB VRAM free\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000),
            (unsigned long)(pvr_mem_available() / 1024));

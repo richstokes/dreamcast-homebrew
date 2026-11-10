@@ -43,6 +43,9 @@ Truck trucks[MAX_TRUCKS];
 
 void truck_spec(TruckSpec *s, int model) {
     memset(s, 0, sizeof(*s));
+    s->grip = 1.0f;
+    s->damp_bump = 0.28f;
+    s->damp_rebound = 0.45f;
     if(model == 0) {
         /* CASCADE 84: an early-80s compact pickup. A 2.4 L four, light,
            short wheelbase, solid front axle. */
@@ -176,12 +179,12 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 2.72f;
         s->brake_torque = 1650.0f;
     }
-    else {
+    else if(model == 4) {
         /* TACO: a 2026 midsize double-cab pickup. A 2.4 L turbo four with
            its torque low down, an eight-speed automatic, independent front
-           suspension and traction control. The longest wheelbase here
-           (3.35 m): steady at speed, wide in the hairpins, and the first
-           to ground its belly on a sharp crest. */
+           suspension and traction control. The longest wheelbase of the
+           pickups (3.35 m): steady at speed, wide in the hairpins, and
+           quick to ground its belly on a sharp crest. */
         s->name = "TACO";
         s->mass = 2050.0f;
         s->inertia = v3(4900.0f, 5000.0f, 950.0f);
@@ -212,6 +215,46 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 2.57f;
         s->brake_torque = 2100.0f;
     }
+    else {
+        /* GOOSE: a four-seat sport side-by-side. Half the weight of the
+           trucks on the longest wheelbase here (3.43 m), a 900 cc turbo
+           triple behind the seats (~45% of the weight on the front) that
+           revs to 8000, half a metre of wheel travel on long arms with
+           dampers to match, and soft knobbly tyres that grip better than
+           anything else here. The belt drive's range is stood in for by
+           six close gears. */
+        s->name = "GOOSE";
+        s->mass = 1050.0f;
+        s->inertia = v3(2600.0f, 2750.0f, 450.0f);
+        s->cog_y = 0.58f;
+        s->cog_z = -0.17f;
+        s->lsd = 90.0f;
+        s->radius = 0.40f;
+        s->width = 0.27f;
+        for(int i = 0; i < 4; i++)
+            s->wheel[i] = v3((i & 1) ? 0.78f : -0.78f, s->radius, (i < 2) ? 1.715f : -1.715f);
+        s->travel = 0.50f;
+        s->sag = 0.38f;
+        s->damp_bump = 0.36f;
+        s->damp_rebound = 0.60f;
+        s->grip = 1.12f;
+        s->wheel_inertia = 1.2f;
+        s->max_steer = 0.62f;
+        s->body_lo[0] = -0.90f; s->body_lo[1] = 0.45f; s->body_lo[2] = -2.10f;
+        s->body_hi[0] = 0.90f; s->body_hi[1] = 1.78f; s->body_hi[2] = 2.20f;
+        s->wade = 0.70f;
+        s->idle_rpm = 1200.0f;
+        s->redline_rpm = 8000.0f;
+        s->peak_torque = 175.0f;
+        s->peak_rpm = 6000.0f;
+        s->gears = 6;
+        static const float r[6] = {5.60f, 4.20f, 3.30f, 2.70f, 2.30f, 2.00f};
+        memcpy(s->ratio, r, sizeof(r));
+        s->reverse = 5.00f;
+        s->final_drive = 4.30f;
+        s->low_range = 1.90f;
+        s->brake_torque = 1300.0f;
+    }
 #ifdef HAVE_TRUCK_MODELS
     const rl_truck_info_t *ti = &rl_truck_info[model];
     s->radius = ti->wheel_radius;
@@ -241,7 +284,7 @@ void truck_spec(TruckSpec *s, int model) {
     /* Low range holds the automatic to the gears whose redline is under
        LOW_RANGE_TOP_MPS, as modern 4L modes do: 2nd in the pickup (~22 mph),
        4th in the Kestrel (~28 mph), 3rd in the Bobcat (~22 mph), 2nd in the
-       FFR and the Taco (~22 mph). */
+       FFR and the Taco (~22 mph), 3rd in the Goose (~27 mph). */
     s->low_top_gear = 1;
     for(int g = 1; g <= s->gears; g++) {
         float v = s->redline_rpm / RPM_PER_RADS / (s->ratio[g - 1] * s->final_drive * s->low_range) * s->radius;
@@ -250,15 +293,15 @@ void truck_spec(TruckSpec *s, int model) {
     /* Springs: each corner's share of the weight (more on the front, with
        the centre of gravity ahead of mid-wheelbase) compresses sag of the
        travel, so the truck sits level. Dampers about a third and a half of
-       critical. */
+       critical, more on the Goose. */
     float zf = s->wheel[WFL].z, zr = s->wheel[WRL].z;
     float front = clampf((s->cog_z - zr) / (zf - zr), 0.3f, 0.7f);
     for(int a = 0; a < 2; a++) {
         float corner = s->mass * 0.5f * (a ? 1.0f - front : front);
         s->k[a] = corner * GRAVITY / (s->sag * s->travel);
         float crit = 2.0f * sqrtf(s->k[a] * corner);
-        s->c_bump[a] = 0.28f * crit;
-        s->c_rebound[a] = 0.45f * crit;
+        s->c_bump[a] = s->damp_bump * crit;
+        s->c_rebound[a] = s->damp_rebound * crit;
     }
     s->arb_front = s->k[0] * 0.35f;
     s->arb_rear = s->k[1] * 0.25f;
@@ -587,7 +630,7 @@ static void step(Truck *t, float dt) {
             k->N = fmaxf(0, spring);
         }
         const SurfProps *sp = &surf_props[best_s];
-        k->mu = sp->mu * (w->water > 0.05f ? 0.85f : 1.0f);
+        k->mu = sp->mu * S->grip * (w->water > 0.05f ? 0.85f : 1.0f);
         k->slide = sp->slide;
         k->rr = sp->rr + 0.08f * fminf(w->water, 1.0f);
     }

@@ -167,6 +167,13 @@ bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *id
         vpos[i] = (uint16_t)p;
     }
 
+    /* Sized for a position per vertex: keep what is used (in place, so the
+       alignment stands). */
+    if(np < nv) {
+        void *q = realloc(pos, sizeof(float) * 4 * np);
+        if(q) pos = q;
+    }
+
     /* Triangles by vertex. */
     for(int i = 0; i < ni; i++) vt.count[idx[i]]++;
     for(int i = 1; i < nv; i++) vt.first[i] = vt.first[i - 1] + vt.count[i - 1];

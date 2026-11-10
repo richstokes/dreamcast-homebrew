@@ -28,15 +28,22 @@ bool sfx_init(const uint8_t *pak, const eng_sfx_asset_t *assets, int n) {
     table = assets;
     count = n;
     int loaded = 0;
+    /* What KOS leaves for samples: 2 MB less its driver's 0x30000, in
+       32-byte blocks. (snd_mem_available() is no help: it gives the largest
+       block, in use or not.) */
+    long left = 2 * 1024 * 1024 - 0x30000;
     for(int i = 0; i < n; i++) {
         const eng_sfx_asset_t *a = &assets[i];
         handles[i] = snd_sfx_load_raw_buf((char *)(pak + a->offset), a->bytes, a->rate, 16, 1);
         if(handles[i] == SFXHND_INVALID) printf(ENG_NAME " sfx: effect %d failed to load\n", i);
-        else loaded++;
+        else {
+            loaded++;
+            left -= (a->bytes + 31) & ~31u;
+        }
     }
     ready = true;
     printf(ENG_NAME " sfx: %d/%d effects, %lu KiB AICA RAM free\n", loaded, n,
-           (unsigned long)(snd_mem_available() / 1024));
+           (unsigned long)(left > 0 ? left / 1024 : 0));
     return true;
 }
 

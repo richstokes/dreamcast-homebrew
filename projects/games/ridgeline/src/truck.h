@@ -21,6 +21,8 @@ typedef struct {
     float radius, width;
     float travel, sag;     /* suspension travel, and how much of it the weight takes */
     float k[2], c_bump[2], c_rebound[2];   /* per axle: front, rear */
+    float damp_bump, damp_rebound;   /* dampers, as fractions of critical */
+    float grip;            /* tyre grip against the surface's own, 1 for an all-terrain truck tyre */
     float lsd;             /* limited-slip rear: N m per rad/s of left-right difference */
     float arb_front, arb_rear;   /* anti-roll bars, N/m of difference */
     float wheel_inertia;

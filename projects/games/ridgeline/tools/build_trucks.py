@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["numpy>=1.26"]
 # ///
-"""Procedurally build Ridgeline's trucks (Cascade 84, Kestrel, Bobcat, FFR, Taco).
+"""Procedurally build Ridgeline's trucks (Cascade 84, Kestrel, Bobcat, FFR, Taco, Goose).
 
 Usage:
     uv run tools/build_trucks.py                        # writes assets/generated/trucks.h
@@ -43,8 +43,8 @@ ROOT = Path(__file__).resolve().parent.parent
 HEADER = ROOT / "assets" / "generated" / "trucks.h"
 
 TRUCK_NAMES = ["RL_TRUCK_CASCADE", "RL_TRUCK_KESTREL", "RL_TRUCK_BOBCAT", "RL_TRUCK_FFR",
-               "RL_TRUCK_TACO"]
-CASCADE, KESTREL, BOBCAT, FFR, TACO = 0, 1, 2, 3, 4
+               "RL_TRUCK_TACO", "RL_TRUCK_GOOSE"]
+CASCADE, KESTREL, BOBCAT, FFR, TACO, GOOSE = 0, 1, 2, 3, 4, 5
 PART_NAMES = ["RL_PART_BODY", "RL_PART_WHEEL_L", "RL_PART_WHEEL_R", "RL_PART_AXLE"]
 BODY, WHEEL_L, WHEEL_R, AXLE = range(4)
 PAINT_NAMES = ["RL_PAINT_FIXED", "RL_PAINT_BODY", "RL_PAINT_ACCENT", "RL_PAINT_TRIM", "RL_PAINT_GLASS",
@@ -2458,6 +2458,388 @@ TACO_INFO = {
 
 
 # --------------------------------------------------------------------------
+# GOOSE: four-seat sport side-by-side. A long narrow tub between four wheels
+# set far out on long arms, two rows of seats behind four half doors, a low
+# raked cage. Graphite structure with painted panels: hood, fender pods,
+# door tops and rear quarters
+# --------------------------------------------------------------------------
+
+G_R, G_TW = 0.40, 0.27
+G_WX, G_WZ = 0.78, 1.715
+G_HW = 0.62               # cockpit half-width; the nose and tail are narrower, clear of the tyres
+G_FRONT, G_REAR = 1.84, -2.055      # the nose stops just past the front axle: the tyres lead
+G_SEAT_Y = 0.52           # cockpit floor: they sit low, heads under the roof's front edge
+G_DOOR_Z = (1.055, -1.015)  # cockpit opening, front and back
+G_ROW_Z = (0.52, -0.46)   # seat bases, front row and back
+G_CAGE_Z = (1.10, 0.50, 0.04, -1.03, -1.80)   # A pillar foot, roof front, B pillar, C pillar, tail
+# The roof rail, (z, y): lowest at the front, a peak over the back seats, then down to the rear quarters
+G_ROOF = [(G_CAGE_Z[1], 1.48), (-0.55, 1.63), (G_CAGE_Z[3], 1.60)]
+G_STAY_Y = 1.27
+G_CAGE_R = 0.04
+G_DOOR_Y = 0.80           # the doors' crease: paint above, graphite below
+
+# Hull stations front to back: z, half-width, underside, top. The cockpit is
+# the stretch where the top drops to the floor.
+G_HULL = [(G_FRONT, 0.30, 0.52, 0.90), (1.74, 0.34, 0.46, 0.975), (1.415, 0.42, 0.42, 1.03),
+          (1.235, 0.58, 0.40, 1.07), (G_DOOR_Z[0], G_HW, 0.40, 1.08), (G_DOOR_Z[0] - 0.08, G_HW, 0.40, G_SEAT_Y),
+          (G_DOOR_Z[1] + 0.08, G_HW, 0.40, G_SEAT_Y), (G_DOOR_Z[1], G_HW, 0.40, 1.04), (-1.365, 0.50, 0.40, 1.02),
+          (-1.935, 0.46, 0.46, 0.99), (G_REAR, 0.36, 0.66, 0.90)]
+
+G_BODY_RGB = rgb(0xD6, 0x2C, 0x1C)
+G_ACCENT_RGB = rgb(0xE8, 0x30, 0x20)        # springs, helmet
+G_RIM_RGB = rgb(0x6E, 0x71, 0x76)
+
+G_BODY = Paint(G_BODY_RGB, S_BODY)
+G_ACCENT = Paint(G_ACCENT_RGB, S_ACCENT)
+G_RIM = Paint(G_RIM_RGB, S_TRIM)
+G_SUIT = fixed(0x3A, 0x3C, 0x44)
+G_FRAME = fixed(0x58, 0x5B, 0x60)         # graphite plastics
+G_FRAME_LO = fixed(0x3C, 0x3E, 0x43)
+G_FLAG = fixed(0xFF, 0x5A, 0x14)
+
+G_WHEEL = WheelStyle(G_R, G_TW, 8, 4, 0.046, 0.56, 0.60, 0.42, G_RIM, fixed(0x1A, 0x1A, 0x1C),
+                     Paint(lerp_rgb(G_RIM_RGB, 0xFF000000, 0.4), S_TRIM), beadlock=True)
+G_SPARE = WheelStyle(G_R, G_TW * 0.9, 8, 3, 0.044, 0.56, 0.60, 0.42, G_RIM, fixed(0x1A, 0x1A, 0x1C),
+                     Paint(lerp_rgb(G_RIM_RGB, 0xFF000000, 0.4), S_TRIM), beadlock=True)
+
+# Fender pods either side of the hood and the engine deck: z, inner x, outer x, underside, top
+G_POD_F = [(1.235, 0.36, 0.62, 0.80, 1.14), (1.50, 0.34, 0.58, 0.93, 1.13), (1.78, 0.33, 0.52, 0.90, 1.05)]
+G_POD_R = [(G_DOOR_Z[1], 0.40, 0.62, 0.95, 1.31), (-1.40, 0.40, 0.60, 0.98, 1.30), (-2.00, 0.40, 0.52, 1.00, 1.20)]
+G_HEAD_C = [(-0.425, 0.975, G_POD_F[2][0] + 0.005), (0.425, 0.975, G_POD_F[2][0] + 0.005)]
+G_TAIL_C = [(-0.24, 0.835, G_REAR - 0.005), (0.24, 0.835, G_REAR - 0.005)]
+G_BAR = (G_ROOF[0][1] + 0.075, G_CAGE_Z[1] - 0.02)          # roof light bar: y, z
+G_AUX_C = [(x, G_BAR[0], G_BAR[1] + 0.033) for x in (-0.30, -0.10, 0.10, 0.30)]
+G_EXHAUST = (0.0, 0.73, G_REAR - 0.07)
+G_DRIVER = (-0.30, 1.09, G_ROW_Z[0] - 0.10)
+G_SPARE_C = (0.0, 1.14, -1.555)
+
+
+def goose_hull(lod: int) -> Geo:
+    stations = G_HULL if lod < 2 else [G_HULL[i] for i in (0, 2, 4, 5, 6, 7, 8, 10)]
+    secs = []
+    for z, hw, yb, yt in stations:
+        if lod == 2:
+            secs.append([(hw, yb, z), (hw, yt, z), (-hw, yt, z), (-hw, yb, z)])
+            continue
+        cb = min(0.10, 0.3 * (yt - yb))
+        ct = min(0.05, 0.1 * (yt - yb))
+        secs.append([(hw - cb, yb, z), (hw, yb + cb, z), (hw, yt - ct, z), (hw - ct, yt, z),
+                     (-hw + ct, yt, z), (-hw, yt - ct, z), (-hw, yb + cb, z), (-hw + cb, yb, z)])
+    g = loft(secs, G_BODY, 35.0)
+    zf, zb = G_DOOR_Z
+
+    def paint(c, n):
+        if n[1] < -0.5:
+            return UNDER
+        if n[1] < -0.2 or (abs(n[0]) > 0.7 and c[1] < 0.54):
+            return G_FRAME_LO                     # darker lower sides
+        if zb - 0.01 < c[2] < zf + 0.01 and abs(c[0]) < G_HW - 0.01 and (n[1] > 0.5 or abs(n[2]) > 0.5):
+            return INTERIOR                       # floor, dash face, bulkhead
+        if zf < c[2] < zf + 0.19 and n[1] > 0.9:
+            return BLACK                          # dash top
+        if c[2] > zf + 0.19 and n[1] > 0.5:
+            return None                           # the hood, painted
+        return G_FRAME
+    return g.recolour(paint)
+
+
+def goose_pod(stations, lod: int) -> Geo:
+    """A faceted fender pod on the right, lofted through its stations."""
+    if lod == 1:
+        stations = [stations[0], stations[-1]]
+    secs = []
+    for z, xi, xo, yb, yt in stations:
+        c = 0.07
+        secs.append([(xi, yb, z), (xo, yb + 0.03, z), (xo, yt - c, z), (xo - c, yt, z), (xi, yt, z)])
+    g = loft(secs, G_BODY, 30.0)
+    return g.recolour(lambda c, n: G_FRAME_LO if n[1] < -0.5 else None)
+
+
+def goose_hood_panel(i: int, hw0: float, hw1: float, paint: Paint) -> Geo:
+    """A strip down the centre of the hull's top between stations i and i + 1."""
+    (z0, _, _, y0), (z1, _, _, y1) = G_HULL[i], G_HULL[i + 1]
+    nrm = unit((0.0, z0 - z1, y1 - y0))
+    return decal([(-hw1, y1, z1), (hw1, y1, z1), (hw0, y0, z0), (-hw0, y0, z0)], nrm, paint, 0.004)
+
+
+def goose_doors(lod: int) -> Geo:
+    """Four half doors, creased along their length: painted above the crease,
+    graphite below. The crease falls from front to back along each door, so
+    the paint makes two wedges."""
+    zf, zb = G_DOOR_Z
+    zm = G_CAGE_Z[2]
+    ys = G_SEAT_Y - 0.02
+    top = [(zf, 1.07), (0.60, 1.00), (zb, 0.99)]
+    if lod == 2:
+        g = decal([(G_HW, G_DOOR_Y, zb), (G_HW, G_DOOR_Y, zf)] + [(G_HW, y, z) for z, y in top], (1, 0, 0), G_BODY, 0.0)
+        g.extend(quad_x(G_HW, zb, zf, ys, G_DOOR_Y, G_FRAME, lift=0.0))
+        return mirror_pair(g)
+    hi, lo = G_DOOR_Y + 0.06, G_DOOR_Y - 0.09
+    line = [(zf, 1.07, hi), (0.60, 1.00, hi + (lo - hi) * (zf - 0.60) / (zf - zm)), (zm + 0.012, 0.99, lo),
+            (zm - 0.012, 0.99, hi), (zb, 0.99, lo)]
+    if lod == 1:
+        line = [(z, yt, G_DOOR_Y) for z, yt in top]
+    secs = [[(G_HW - 0.04, ys, z), (G_HW, ys, z), (G_HW + 0.055, yc, z), (G_HW, yt, z), (G_HW - 0.04, yt, z)]
+            for z, yt, yc in line]
+    w = loft(secs, G_BODY, 25.0)
+
+    def paint(c, n):
+        if n[0] < -0.9:
+            return INTERIOR
+        if n[1] > 0.9:
+            return BLACK
+        if n[0] > 0.3 and n[1] < 0.0:
+            return G_FRAME
+        return None
+    w.recolour(paint)
+    if lod == 0:
+        # the gap between the doors
+        w.extend(rbox((G_HW + 0.03, 0.5 * (ys + 0.99), zm), (0.075, 0.99 - ys + 0.01, 0.035), G_FRAME_LO, bottom=False))
+    return mirror_pair(w)
+
+
+def goose_roof_y(z: float) -> float:
+    for (z0, y0), (z1, y1) in zip(G_ROOF, G_ROOF[1:]):
+        if z >= z1:
+            return y0 + (y1 - y0) * (z0 - z) / (z0 - z1)
+    return G_ROOF[-1][1]
+
+
+def goose_cage(lod: int) -> Geo:
+    """A pillars raked back to a roof rail that climbs to a peak over the
+    back seats, B pillars between the rows, C pillars behind them and stays
+    down to the rear quarters."""
+    G = Geo()
+    za, _zf, zm, zc, zt = G_CAGE_Z
+
+    def main(sgn):
+        return ([(sgn * 0.58, 1.06, za)] + [(sgn * 0.50, y, z) for z, y in G_ROOF] + [(sgn * 0.46, G_STAY_Y, zt)])
+    if lod == 2:
+        for sgn in (1.0, -1.0):
+            G.extend(tube(main(sgn), [0.05] * 5, 3, SATIN, up=(1, 0, 0), phase=0.0).flat())
+        return G
+    sides, r = (4, 3)[lod], G_CAGE_R
+    ph = math.pi / sides
+    for sgn in (1.0, -1.0):
+        G.extend(tube(main(sgn), [r] * 5, sides, SATIN, up=(1, 0, 0), phase=ph).autosmooth(55.0))
+        for z, y0 in ((zm, 1.00), (zc + 0.02, 1.02))[lod:]:
+            G.extend(tube([(sgn * 0.59, y0, z), (sgn * 0.50, goose_roof_y(z), z)], [r] * 2, sides, SATIN, up=(1, 0, 0),
+                          phase=ph).autosmooth(55.0))
+    bars = [(y, z, 0.50) for z, y in G_ROOF[::2]]
+    if lod == 0:
+        # at the peak, across the tail, and a harness bar behind each row
+        bars += [(G_ROOF[1][1], G_ROOF[1][0], 0.50), (G_STAY_Y, zt, 0.46), (1.24, zm, 0.57), (1.24, zc + 0.02, 0.57)]
+    for by, bz, bx in bars:
+        G.extend(tube([(-bx, by, bz), (bx, by, bz)], [r * 0.9] * 2, sides, SATIN, up=(0, 0, 1), phase=ph).autosmooth(55.0))
+    return G
+
+
+def goose_seats(lod: int) -> Geo:
+    G = Geo()
+    if lod == 2:
+        return G
+    lean = rot_x(math.radians(-14))
+    for row, z in enumerate(G_ROW_Z):
+        if lod == 1 and row == 1:
+            G.extend(rbox((0, G_SEAT_Y + 0.42, z - 0.26), (1.04, 0.84, 0.26), SEAT, bottom=False))
+            continue
+        for x in (-0.30, 0.30):
+            if lod == 0:
+                G.extend(box((x, G_SEAT_Y + 0.08, z), (0.44, 0.14, 0.46), SEAT, bottom=False))
+                G.extend(box((x, G_SEAT_Y + 0.44, z - 0.30), (0.44, 0.70, 0.11), SEAT, frame=lean))
+                G.extend(box((x, G_SEAT_Y + 0.82, z - 0.385), (0.24, 0.14, 0.10), SEAT, frame=lean))
+                if row == 0:
+                    for dx in (-0.20, 0.20):
+                        G.extend(box((x + dx, G_SEAT_Y + 0.40, z - 0.24), (0.06, 0.50, 0.13), PAD, frame=lean))
+            else:
+                G.extend(rbox((x, G_SEAT_Y + 0.42, z - 0.26), (0.44, 0.84, 0.26), SEAT, bottom=False))
+    if lod == 0:
+        # harness on the empty front seat
+        for dx in (-0.08, 0.08):
+            G.extend(box((0.30 + dx, G_SEAT_Y + 0.50, G_ROW_Z[0] - 0.235), (0.05, 0.52, 0.02), G_ACCENT, frame=lean))
+    return G
+
+
+def goose_driver(x, ys, z, steer_z, steer_y) -> Geo:
+    """Head and shoulders in a full-face helmet, behind the wheel."""
+    g = Geo()
+    g.extend(ellipsoid((x, ys - 0.07, z), (0.21, 0.17, 0.13), 6, [0, 55, 110], G_SUIT, phase=math.pi / 6))
+    hc = np.array([x, ys + 0.18, z + 0.01])
+    g.extend(ellipsoid(hc, (0.125, 0.135, 0.14), 7, [0, 45, 90, 135, 180], G_ACCENT, phase=math.pi / 7))
+    g.extend(box(hc + (0, 0.015, 0.125), (0.19, 0.07, 0.035), SHADES))
+    g.extend(box(hc + (0, 0.085, 0.15), (0.17, 0.018, 0.13), G_ACCENT, frame=rot_x(math.radians(12))))
+    m = rot_x(math.radians(-60))
+    rim = [m @ np.array([0.16 * math.cos(a), 0.0, 0.16 * math.sin(a)]) + (x, steer_y, steer_z)
+           for a in (2 * math.pi * k / 6 for k in range(6))]
+    g.extend(tube(rim, [0.02] * 6, 3, BLACK, closed_path=True, up=m @ np.array([0, 1.0, 0])).autosmooth(70.0))
+    return g
+
+
+def goose_body(lod: int) -> Geo:
+    G = Geo()
+    zf, zr = G_FRONT, G_REAR
+    G.extend(goose_hull(lod))
+    G.extend(goose_doors(lod))
+    G.extend(goose_cage(lod))
+    G.extend(goose_seats(lod))
+
+    # ---- roof panel, light bar
+    lift = G_CAGE_R - 0.005
+    over = [(z + dz, y + lift) for (z, y), dz in zip(G_ROOF, (0.03, 0.0, -0.03))]
+    roof = extrude(over + [(z, y + 0.03) for z, y in reversed(over)], "x", [(-0.54, 0.0), (0.54, 0.0)], G_FRAME, 30.0)
+    G.extend(roof if lod == 0 else drop(roof, lambda c, n: n[1] < -0.5 or (lod == 2 and abs(n[0]) > 0.9)))
+    if lod == 0:
+        G.extend(rbox((0, G_BAR[0], G_BAR[1]), (0.86, 0.06, 0.06), BLACK, bottom=False))
+        for c in G_AUX_C:
+            G.extend(quad_z(c[2], c[0] - 0.085, c[0] + 0.085, c[1] - 0.022, c[1] + 0.022, AUX_LENS, lift=0.001))
+    elif lod == 1:
+        G.extend(quad_z(G_BAR[1] + 0.03, -0.40, 0.40, G_BAR[0] - 0.025, G_BAR[0] + 0.025, AUX_LENS))
+
+    # ---- fender pods: beside the hood with the lamps in their noses, and beside the engine deck
+    if lod < 2:
+        G.extend(mirror_pair(goose_pod(G_POD_F, lod)))
+        rear = goose_pod(G_POD_R, lod)
+        if lod == 0:
+            rear.extend(quad_x(G_POD_R[0][2], -1.27, -1.07, 1.04, 1.20, fixed(0x1C, 0x1C, 0x1E), slant=-0.07))
+        G.extend(mirror_pair(rear))
+
+    if lod == 0:
+        # hood vents
+        (z0, _, _, y0), (z1, _, _, y1) = G_HULL[1], G_HULL[2]
+        nrm = unit((0.0, z0 - z1, y1 - y0))
+        at = lambda x, f: (x, y0 + (y1 - y0) * f, z0 + (z1 - z0) * f)
+        for sgn in (1.0, -1.0):
+            for f in (0.22, 0.48):
+                G.extend(decal([at(sgn * 0.06, f), at(sgn * 0.22, f), at(sgn * 0.23, f + 0.16), at(sgn * 0.07, f + 0.16)],
+                               nrm, fixed(0x1C, 0x1C, 0x1E), 0.004))
+
+    # ---- nose: slim lamps over a dark intake, a tube bumper
+    for c in G_HEAD_C:
+        sgn = 1.0 if c[0] > 0 else -1.0
+        zl = c[2] - 0.005
+        lamp = [(c[0] - sgn * 0.075, c[1] - 0.045, zl), (c[0] + sgn * 0.075, c[1] - 0.015, zl),
+                (c[0] + sgn * 0.075, c[1] + 0.045, zl), (c[0] - sgn * 0.075, c[1] + 0.015, zl)]
+        G.extend(decal(lamp, (0, 0, 1), HEAD_LENS))
+    if lod < 2:
+        G.extend(quad_z(zf, -0.22, 0.22, 0.58, 0.82, fixed(0x1C, 0x1C, 0x1E)))
+    if lod == 0:
+        bump = [(-0.30, 0.50, zf - 0.06), (-0.25, 0.56, zf + 0.09), (0.25, 0.56, zf + 0.09), (0.30, 0.50, zf - 0.06)]
+        G.extend(tube(bump, [0.026] * 4, 4, SATIN, up=(0, 1, 0), phase=math.pi / 4).autosmooth(55.0))
+        G.extend(rbox((0, 0.57, zf + 0.05), (0.10, 0.05, 0.10), RED_HOOK))
+
+    # ---- tail: lamps, centre exhaust, engine cover vents
+    for c in G_TAIL_C:
+        G.extend(quad_z(zr, c[0] - 0.08, c[0] + 0.08, c[1] - 0.035, c[1] + 0.035, TAIL_LENS, side=-1.0))
+    if lod == 0:
+        G.extend(tube([(0, G_EXHAUST[1], zr + 0.10), G_EXHAUST], [0.05, 0.05], 6, STEEL, cap1=SEAM, up=(0, 1, 0),
+                      phase=math.pi / 6).autosmooth(50.0))
+        G.extend(goose_hood_panel(8, 0.30, 0.30, fixed(0x1C, 0x1C, 0x1E)))
+        for y in (0.775, 0.815, 0.855):
+            G.extend(quad_z(zr, -0.12, 0.12, y, y + 0.022, fixed(0x1C, 0x1C, 0x1E), side=-1.0))
+    elif lod == 1:
+        G.extend(quad_z(zr, -0.05, 0.05, G_EXHAUST[1] - 0.05, G_EXHAUST[1] + 0.05, SEAM, side=-1.0))
+
+    # ---- coil-overs (the upper halves: the arms below move with the wheels), rear bumper
+    if lod == 0:
+        for top, foot in (((0.42, 1.00, G_WZ - 0.08), (0.57, 0.50, G_WZ)), ((0.47, 1.04, 0.16 - G_WZ), (0.58, 0.50, -G_WZ))):
+            shock = tube([top, foot], [0.06, 0.06], 6, G_ACCENT, up=(0, 0, 1), phase=0.0).autosmooth(60.0)
+            G.extend(mirror_pair(shock))
+        rb = [(-0.40, 0.60, zr + 0.10), (-0.34, 0.58, zr - 0.07), (0.34, 0.58, zr - 0.07), (0.40, 0.60, zr + 0.10)]
+        G.extend(tube(rb, [0.026] * 4, 4, SATIN, up=(0, 1, 0), phase=math.pi / 4).autosmooth(55.0))
+
+    # ---- mirrors, sill bars, dash, skid plate
+    if lod == 0:
+        for sgn in (1.0, -1.0):
+            head = rbox((sgn * 0.74, 1.27, 0.81), (0.15, 0.10, 0.04), BLACK)
+            G.extend(head.recolour(lambda c, n: GLASS if n[2] < -0.9 else None))
+            G.extend(tube([(sgn * 0.545, 1.25, 0.83), (sgn * 0.68, 1.26, 0.81)], [0.014, 0.014], 4, BLACK, up=(0, 0, 1),
+                          phase=math.pi / 4).flat())
+            G.extend(tube([(sgn * 0.70, 0.47, 0.97), (sgn * 0.70, 0.47, -0.95)], [0.03, 0.03], 4, SATIN, cap0=SATIN,
+                          cap1=SATIN, up=(0, 1, 0), phase=math.pi / 4).autosmooth(55.0))
+            for z in (0.66, -0.64):
+                G.extend(tube([(sgn * 0.60, 0.47, z), (sgn * 0.70, 0.47, z)], [0.022, 0.022], 3, SATIN, up=(0, 1, 0),
+                              phase=0.0).flat())
+        G.extend(rbox((G_DRIVER[0], 1.11, G_DOOR_Z[0] - 0.04), (0.24, 0.07, 0.08), BLACK, bottom=False))
+        G.extend(tube([(0.12, 1.02, 1.045), (0.14, 1.10, 0.955), (0.46, 1.10, 0.955), (0.48, 1.02, 1.045)], [0.016] * 4, 3,
+                      SATIN, up=(0, 1, 0), phase=0.0).autosmooth(60.0))
+        G.extend(box((0, 0.50, zf - 0.08), (0.50, 0.025, 0.36), SATIN, frame=rot_x(math.radians(-22))).flat())
+
+    # ---- behind the seats: the intake box, then the spare flat on the deck
+    if lod == 0:
+        G.extend(rbox((0, 1.17, -1.135), (0.86, 0.28, 0.18), BLACK, bottom=False))
+    if lod == 0:
+        spare = drop(wheel_lod0(G_SPARE), lambda c, n: n[0] < -0.95)
+        G.extend(spare.xform(rot_z(math.pi / 2), G_SPARE_C))
+    elif lod == 1:
+        segs = 6
+        spare = lathe([(-0.12, G_R), (0.12, G_R * 0.92), (0.13, 0.0)], segs, RUBBER, 50.0,
+                      face_paint=lambda i, j: G_RIM if i == 1 else None, phase=math.pi / segs)
+        G.extend(spare.xform(rot_z(math.pi / 2), G_SPARE_C))
+
+    # ---- whip flag on the tail
+    if lod == 0:
+        zt = G_CAGE_Z[4]
+        G.extend(tube([(0.46, G_STAY_Y, zt), (0.48, 2.40, zt - 0.08)], [0.008, 0.004], 3, BLACK, phase=0.0).flat())
+        flag = [(0.48, 2.40, zt - 0.08), (0.48, 2.24, zt - 0.07), (0.48, 2.31, zt - 0.30)]
+        G.extend(decal(flag, (1, 0, 0), G_FLAG, 0.0))
+        G.extend(decal(flag[::-1], (-1, 0, 0), G_FLAG, 0.0))
+
+    # ---- driver, steering wheel
+    if lod == 0:
+        G.extend(goose_driver(G_DRIVER[0], G_DRIVER[1], G_DRIVER[2], G_DRIVER[2] + 0.46, 0.97))
+    elif lod == 1:
+        G.extend(ellipsoid((G_DRIVER[0], G_DRIVER[1] + 0.18, G_DRIVER[2]), (0.125, 0.135, 0.14), 4, [0, 90, 180],
+                           G_ACCENT, phase=math.pi / 4))
+    return G
+
+
+def goose_axle(lod: int) -> Geo:
+    """Independent both ends: a half shaft and a pair of arms out to each hub
+    from a small diff, drawn as one piece between the wheel centres."""
+    span = 2 * G_WX
+    k = np.diag([1.0 / span, 1.0, 1.0])
+    if lod == 1:
+        return tube([(-G_WX, 0, 0), (G_WX, 0, 0)], [0.04, 0.04], 4, STEEL, phase=math.pi / 4).flat().xform(k)
+    xi = G_WX - 0.5 * G_TW - 0.02
+    g = tube([(-xi, 0, 0), (xi, 0, 0)], [0.028, 0.028], 4, STEEL, phase=math.pi / 4).autosmooth(50.0)
+    for sgn in (1.0, -1.0):
+        for dz in (0.22, -0.22):
+            g.extend(tube([(sgn * xi, -0.07, 0.0), (sgn * 0.24, -0.03, dz)], [0.024, 0.024], 4, SATIN, up=(0, 1, 0),
+                          phase=math.pi / 4).autosmooth(50.0))
+    g.extend(box((0, 0, 0), (0.24, 0.18, 0.26), fixed(0x58, 0x5C, 0x62)).flat())
+    return g.xform(k)
+
+
+def goose_parts(lod: int) -> dict[int, Geo]:
+    w = (wheel_lod0, wheel_lod1, wheel_lod2)[lod](G_WHEEL)
+    body = goose_body(lod)
+    if lod == 0:
+        shade_low(body, S_BODY, 0.54, 0.95, 0.84)
+    parts = {BODY: body, WHEEL_R: w, WHEEL_L: w.mirrored_x()}
+    if lod < 2:
+        parts[AXLE] = goose_axle(lod)
+    return parts
+
+
+GOOSE_INFO = {
+    "name": "GOOSE",
+    "wheel_pos": [(-G_WX, G_R, G_WZ), (G_WX, G_R, G_WZ), (-G_WX, G_R, -G_WZ), (G_WX, G_R, -G_WZ)],
+    "wheel_radius": G_R, "wheel_width": G_TW,
+    "headlight": G_HEAD_C, "headlight_r": 0.07,
+    "aux": G_AUX_C,
+    "taillight": G_TAIL_C,
+    "exhaust": G_EXHAUST,
+    "driver_eye": (G_DRIVER[0], G_DRIVER[1] + 0.20, G_DRIVER[2] + 0.10),
+    "liveries": [
+        ("CANYON RED", G_BODY_RGB, G_ACCENT_RGB, G_RIM_RGB, 0),
+        ("SNOW GOOSE", rgb(0xEC, 0xEC, 0xE8), rgb(0xE8, 0x30, 0x20), rgb(0x2E, 0x2F, 0x33), 0),
+        ("SUNBURST", rgb(0xF2, 0xBE, 0x18), rgb(0x2A, 0x2B, 0x2E), rgb(0x2E, 0x2F, 0x33), 0),
+        ("NIGHT FLIGHT", rgb(0x20, 0x22, 0x28), rgb(0x2C, 0xB8, 0xE0), rgb(0xB4, 0xB8, 0xBE), 0),
+    ],
+}
+
+
+# --------------------------------------------------------------------------
 # Assembly, welding, checks, output
 # --------------------------------------------------------------------------
 
@@ -2479,7 +2861,8 @@ def build_mesh(truck, part, lod, g: Geo) -> Mesh:
 
 
 TRUCKS = [(CASCADE, cascade_parts, CASCADE_INFO), (KESTREL, kestrel_parts, KESTREL_INFO),
-          (BOBCAT, bobcat_parts, BOBCAT_INFO), (FFR, ffr_parts, FFR_INFO), (TACO, taco_parts, TACO_INFO)]
+          (BOBCAT, bobcat_parts, BOBCAT_INFO), (FFR, ffr_parts, FFR_INFO), (TACO, taco_parts, TACO_INFO),
+          (GOOSE, goose_parts, GOOSE_INFO)]
 
 
 def assemble() -> list[Mesh]:
@@ -2554,7 +2937,7 @@ def write_header(meshes: list[Mesh], infos: list[dict], path: Path) -> None:
         "enum { " + ", ".join(PAINT_NAMES) + ", RL_PAINT_COUNT };",
         "#define RL_LIVERIES 4",
         "typedef struct {",
-        "    const char *name;                 /* \"CASCADE 84\", \"KESTREL\", \"BOBCAT\", \"FFR\", \"TACO\" */",
+        "    const char *name;                 /* \"CASCADE 84\", \"KESTREL\", \"BOBCAT\", \"FFR\", \"TACO\", \"GOOSE\" */",
         "    float wheel_pos[4][3];            /* FL, FR, RL, RR wheel centres at ride height */",
         "    float wheel_radius, wheel_width;",
         "    float body_min[3], body_max[3];   /* a box round the body (not wheels), for collisions */",

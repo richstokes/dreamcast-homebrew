@@ -17,7 +17,7 @@
 
 #define RL_DT ENG_DT
 #define MAX_TRUCKS 4
-#define TRUCK_MODELS 5   /* RL_TRUCK_COUNT in trucks.h (truckdraw.c checks) */
+#define TRUCK_MODELS 6   /* RL_TRUCK_COUNT in trucks.h (truckdraw.c checks) */
 #define GRAVITY 9.81f
 #define MPS_TO_MPH 2.23694f
 #define M_TO_FT 3.28084f

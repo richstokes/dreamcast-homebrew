@@ -9,15 +9,18 @@ Cascade Ridge, a Pacific Northwest mountain in autumn, from the meadow at its
 foot to the fire lookout on the summit. No race and no clock: how high you've
 been, and the viewpoints you've found.
 
-- Five trucks, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
+- Six vehicles, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
   four, no traction control); KESTREL, a modern two-door 4x4 (twin-turbo V6,
   35 inch tyres, traction control, off when the lockers are in); BOBCAT, a
   short two-door with the top off and a roll cage (4.0 L straight six, no
   traction control, a 4:1 transfer case); FFR, a mid-90s
   extended-cab pickup with a long bed (3.0 L V6, steady at speed but
-  beaches on sharp crests and turns wide); and TACO, a 2026 double-cab
-  pickup (2.4 L turbo four, eight-speed automatic, traction control, the
-  longest wheelbase of the five)
+  beaches on sharp crests and turns wide); TACO, a 2026 double-cab
+  pickup (2.4 L turbo four, eight-speed automatic, traction control, a
+  long 3.35 m wheelbase); and GOOSE, a four-seat sport side-by-side at
+  half the trucks' weight (900 cc turbo triple that revs to 8000, half a
+  metre of wheel travel, the grippiest tyres and the longest wheelbase
+  here)
 - Three ways up from the fork, meeting at a lake before the summit trail:
   the logging road (long, gentle, gravel then muddy ruts and fallen logs),
   the creek bed (water crossings, mud, wet rock) and the ridge line (steep,
@@ -31,7 +34,7 @@ been, and the viewpoints you've found.
   4WD with the centre locked, LOCK with low range and both axles locked.
   Low range holds the automatic to the gears that redline under ~30 mph
   (2nd in the pickups, ~22 mph; 4th in the Kestrel, ~28 mph; 3rd in the
-  Bobcat, ~22 mph; 2nd in the Taco, ~22 mph)
+  Bobcat, ~22 mph; 2nd in the Taco, ~22 mph; 3rd in the Goose, ~27 mph)
 - 2WD is the loose one: nose-heavy trucks (the pickup ~60% front) with a
   limited-slip rear, so the tail comes round under power and a spinning
   tyre gives up its cornering grip. Feed it on the progressive throttle and
@@ -139,7 +142,7 @@ make -C projects/games/ridgeline run
 | `make disc` | A self-booting CDI |
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour) |
 | `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
-| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-3> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second |
+| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second |
 
 Assets (generated output is committed):
 

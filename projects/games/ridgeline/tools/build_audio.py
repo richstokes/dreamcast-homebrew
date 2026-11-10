@@ -43,7 +43,7 @@ from synthkit import (  # noqa: E402
     midi_hz, pad_to, periodic, place, place_wrap, plfo, softsat)
 
 SR = SFX_RATE
-MAX_PAK_BYTES = 1_890_000        # five trucks; the game logs the AICA RAM left (83 KiB at 1,888,896)
+MAX_PAK_BYTES = 1_900_544        # all the AICA has: 2 MB less the 0x30000 KOS keeps for its driver
 ENGINE_LOOPS = 4
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -665,6 +665,13 @@ TACO = Engine(
 )
 
 ENGINES = (CASCADE, KESTREL, BOBCAT, FFR, TACO)
+
+# The Goose has no samples of its own: the sound RAM is full (5 KiB spare).
+# It plays the Taco's loops with their rpm points stretched to its 8000
+# redline, so the turbo four comes out 38% higher and busier, with the
+# Cascade's horn and the Kestrel's start. (truck, loops from, horn from,
+# start from, idle, redline)
+BORROWED = (("GOOSE", TACO, CASCADE, KESTREL, 1200, 8000),)
 
 
 def loop_geometry(e: Engine, i: int):
@@ -1526,24 +1533,29 @@ def write_header(out, entries):
             "/* Play each loop at rate rpm / loop rpm. Each holds a whole number of",
             "   four-stroke cycles starting at cylinder 1's firing, so channels",
             "   started together stay in step. */",
-            f"static const rl_engine_sound_t rl_engine_sounds[{len(ENGINES)}] __attribute__((unused)) = {{"]
-    for e in ENGINES:
+            f"static const rl_engine_sound_t rl_engine_sounds[{len(ENGINES) + len(BORROWED)}] __attribute__((unused)) = {{"]
+    # Each truck's row: its name, whose loops it plays and how far their rpm
+    # points are stretched, its idle and redline, whose horn and start.
+    rows = [(e.label, e, 1.0, e.idle, e.redline, e.horn or e.key, e.start or e.key) for e in ENGINES]
+    rows += [(name, src, redline / src.redline, idle, redline, horn.horn or horn.key, start.start or start.key)
+             for name, src, horn, start, idle, redline in BORROWED]
+    for label, e, stretch, idle, redline, _horn, _start in rows:
         _, _, rpms = engine_set(e)
         on = ", ".join(f"RL_SFX_{e.key}_ON_{i}" for i in range(ENGINE_LOOPS))
         off = ", ".join(f"RL_SFX_{e.key}_OFF_{i}" for i in range(ENGINE_LOOPS))
-        rp = ", ".join(f"{r:.2f}f" for r in rpms)
-        tail += [f"    {{ /* {e.label} */",
+        rp = ", ".join(f"{r * stretch:.2f}f" for r in rpms)
+        tail += [f"    {{ /* {label} */",
                  f"        {{ {on} }},",
                  f"        {{ {off} }},",
                  f"        {{ {rp} }},",
-                 f"        {e.idle:.1f}f, {e.redline:.1f}f",
+                 f"        {idle:.1f}f, {redline:.1f}f",
                  "    },"]
     tail += ["};", "",
              "/* per truck: the horn loop, and the engine start one-shot */",
-             f"static const uint16_t rl_horn_sfx[{len(ENGINES)}] __attribute__((unused)) = {{ "
-             + ", ".join(f"RL_SFX_HORN_{e.horn or e.key}" for e in ENGINES) + " };",
-             f"static const uint16_t rl_start_sfx[{len(ENGINES)}] __attribute__((unused)) = {{ "
-             + ", ".join(f"RL_SFX_START_{e.start or e.key}" for e in ENGINES) + " };",
+             f"static const uint16_t rl_horn_sfx[{len(rows)}] __attribute__((unused)) = {{ "
+             + ", ".join(f"RL_SFX_HORN_{r[5]}" for r in rows) + " };",
+             f"static const uint16_t rl_start_sfx[{len(rows)}] __attribute__((unused)) = {{ "
+             + ", ".join(f"RL_SFX_START_{r[6]}" for r in rows) + " };",
              "/* forest birds, one-shots the game plays now and then */",
              "#define RL_BIRDS 4",
              "static const uint16_t rl_bird_sfx[RL_BIRDS] __attribute__((unused)) = { RL_SFX_BIRD_TEEOO, RL_SFX_BIRD_WARBLE, RL_SFX_BIRD_TRILL, RL_SFX_BIRD_COO };",
