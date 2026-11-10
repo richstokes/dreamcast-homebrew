@@ -13,6 +13,7 @@
 #include "terrain.h"
 #include "water.h"
 #include "campfire.h"
+#include "glow.h"
 #include "truck.h"
 #include "lamps.h"
 #include "engine/prof.h"
@@ -550,6 +551,24 @@ static void prop(const lvl_prop_t *p) {
                 lv(apex, 0, 0, 0xff3c6a44, rn, 1.0f);
             }
             sc_strip_end(&scenery);
+            /* Lanterns (glow.c lights them): one hung under each corner
+               of the roof, one under the deck. A brass cap, amber glass
+               in a colour used as is, so it shows lit by day too. */
+            const V3 *lp;
+            int ln = glow_tower_lanterns(&lp);
+            for(int k = 0; k < ln; k++) {
+                V3 q = vadd(c, lp[k]);
+                float s = k < 4 ? 0.09f : 0.13f;
+                box(h_flat, v3(q.x, q.y + s * 1.7f, q.z), s * 1.25f, s * 0.25f, s * 1.25f, 0, 0xff5a4a30, 1.0f);
+                leg(v3(q.x, q.y + s * 1.9f, q.z), v3(q.x, q.y + s * 1.9f + (k < 4 ? 0.42f : 0.35f), q.z), 0.012f, 0xff3a3028);
+                sc_strip_begin(&scenery, h_flat);
+                for(int e = 0; e <= 4; e++) {
+                    float ex = ((e + 1) & 2) ? -s : s, ez = (e & 2) ? -s : s;
+                    lc(v3(q.x + ex, q.y + s * 1.45f, q.z + ez), 0, 0, 0xffe6a84c);
+                    lc(v3(q.x + ex * 0.8f, q.y - s * 1.3f, q.z + ez * 0.8f), 0, 0, 0xffc8802c);
+                }
+                sc_strip_end(&scenery);
+            }
             break;
         }
     }
@@ -1587,6 +1606,7 @@ void world_build(void) {
     for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
     sc_clear(&scenery);
     lamps_clear();
+    glow_place();
     terrain_build(&scenery);
     int terrain_v = scenery.pool_n;
     world_lrec_first = lrec_marked = scenery.pool_n;

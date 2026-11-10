@@ -18,13 +18,13 @@
    needs to come down, LAMPS 1 (the player's truck only) is the first
    thing to try.
 
-   The campfire (campfire.h) lights what stands round it the same way.
-   It never moves, so each vertex in its reach has its share worked out
-   once, when the world is built; a frame only scales that by the flicker
+   The campfire and the lookout's lanterns (glow.h) light what stands
+   round them the same way. They never move, so each vertex in their
+   reach has its share worked out once, when the world is built; a frame only scales that by the flicker
    and adds it on. Near trees and rocks swap for far versions that keep
    their colours (world.c), so their firelight fades out before the swap. */
 #include "lamps.h"
-#include "campfire.h"
+#include "glow.h"
 #include "world.h"
 #include "tod.h"
 #include "truck.h"
@@ -73,6 +73,7 @@ typedef struct {
     V3 lod;                 /* where its chunk measures the camera's distance from */
     float far;              /* ...and how far that draws it (0: always) */
     uint16_t obj, first, n; /* the object; its run of fire_v */
+    uint8_t group;          /* whose light (glow.h) */
 } FObj;
 static FObj fobj[FIRE_OBJS];
 static struct {
@@ -112,9 +113,16 @@ void lamps_add(uint32_t first, uint32_t end) {
         return;
     }
     o->first_n = first | n << 20;
-    V3 d = vsub(v3(o->x, o->y, o->z), campfire_pos());
-    float reach = CAMPFIRE_REACH + o->r;
-    if(nfobj < FIRE_OBJS && vdot(d, d) < reach * reach) fobj[nfobj++] = (FObj){lod_p, lod_far, (uint16_t)(nobj - 1), 0, 0};
+    /* Once for each group of warm lights that reaches it. */
+    for(int g = 0; g < GLOW_GROUPS; g++)
+        for(int i = 0; i < glow_n; i++) {
+            if(glows[i].group != g) continue;
+            V3 d = vsub(v3(o->x, o->y, o->z), glows[i].p);
+            float reach = glows[i].reach + o->r;
+            if(vdot(d, d) >= reach * reach) continue;
+            if(nfobj < FIRE_OBJS) fobj[nfobj++] = (FObj){lod_p, lod_far, (uint16_t)(nobj - 1), 0, 0, (uint8_t)g};
+            break;
+        }
 }
 
 /* Each fire object's vertices and what the fire adds to them: by how
@@ -122,8 +130,6 @@ void lamps_add(uint32_t first, uint32_t end) {
    vertex's own colour. */
 static void fire_index(void) {
     if(!world_lrec) return;
-    V3 f = campfire_pos();
-    f.y += 0.5f;
     const LightRec *rec = world_lrec - world_lrec_first;
     for(int i = 0; i < nfobj; i++) {
         FObj *fo = &fobj[i];
@@ -132,19 +138,22 @@ static void fire_index(void) {
         fo->first = (uint16_t)nfire_v;
         for(uint32_t k = first; k < first + n && nfire_v < FIRE_VERTS; k++) {
             const RV *v = &scenery.pool[k];
-            V3 d = vsub(f, v3(v->x, v->y, v->z));
-            float d2 = vdot(d, d), w = campfire_falloff(d2) * 1.7f;
-            if(w < 0.01f) continue;
             LightRec lr = rec[k];
-            float lam = 0.6f;   /* a colour used as is has no normal: the tent's inside */
-            if(!(lr.alb & 0x80)) {
-                float nx = lr.nx * (1.0f / 127.0f), nz = lr.nz * (1.0f / 127.0f);
-                float ny = sqrtf(fmaxf(1.0f - nx * nx - nz * nz, 0.0f));
-                if(lr.alb & 0x40) ny = -ny;
-                lam = 0.3f + 0.7f * (nx * d.x + ny * d.y + nz * d.z) / sqrtf(fmaxf(d2, 1e-4f));
-                if(lam <= 0) continue;
+            float nx = lr.nx * (1.0f / 127.0f), nz = lr.nz * (1.0f / 127.0f);
+            float ny = sqrtf(fmaxf(1.0f - nx * nx - nz * nz, 0.0f));
+            if(lr.alb & 0x40) ny = -ny;
+            float w = 0;
+            for(int gi = 0; gi < glow_n; gi++) {
+                const Glow *gl = &glows[gi];
+                if(gl->group != fo->group) continue;
+                V3 d = vsub(gl->p, v3(v->x, v->y, v->z));
+                float d2 = vdot(d, d), fall = glow_falloff(gl, d2) * 1.7f;
+                if(fall < 0.01f) continue;
+                /* A colour used as is has no normal: the tent's inside. */
+                float lam = lr.alb & 0x80 ? 0.6f : 0.3f + 0.7f * (nx * d.x + ny * d.y + nz * d.z) / sqrtf(fmaxf(d2, 1e-4f));
+                if(lam > 0) w += fall * lam;
             }
-            w *= lam;
+            if(w < 0.01f) continue;
             uint32_t alb = world_alb[lr.alb & 0x3f];
             int r = (int)((((alb >> 16) & 255) * 0.9f + 36.0f) * w);
             int g = (int)((((alb >> 8) & 255) * 0.9f + 30.0f) * w * 0.55f);
@@ -162,12 +171,19 @@ static void fire_index(void) {
 
 /* The fire's light on to its vertices, saving what they were. */
 static void fire_light(void) {
-    float level = campfire_level();
-    if(level < 0.03f || !nfire_v || !r_sphere_visible(campfire_pos(), CAMPFIRE_REACH)) return;
+    if(!nfire_v) return;
+    float level[GLOW_GROUPS];
+    bool any = false;
+    for(int g = 0; g < GLOW_GROUPS; g++) {
+        level[g] = glow_level[g] >= 0.03f && r_sphere_visible(glow_c[g], glow_r[g]) ? glow_level[g] : 0;
+        any |= level[g] > 0;
+    }
+    if(!any) return;
     RV *pool = scenery.pool;
     for(int i = 0; i < nfobj; i++) {
         const FObj *fo = &fobj[i];
-        float k = level;
+        float k = level[fo->group];
+        if(k <= 0) continue;
         if(fo->far > 0) {
             float d = vlen(vsub(fo->lod, r_cam.pos));
             if(d >= fo->far) continue;
@@ -206,7 +222,7 @@ void lamps_index(void) {
         order[cell_first[c] + cnt[c]++] = (uint16_t)i;
     }
     fire_index();
-    printf("Ridgeline lamps: %d objects, %d by the campfire (%d vertices)\n", nobj, nfobj, nfire_v);
+    printf("Ridgeline lamps: %d objects, %d by the fire and lanterns (%d vertices)\n", nobj, nfobj, nfire_v);
 }
 
 /* Could anything of object o be in lamp l's beam? */

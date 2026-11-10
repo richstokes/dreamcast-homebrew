@@ -1,0 +1,185 @@
+/* Ridgeline: the campfire's and the lanterns' light (glow.h).
+
+   The light on the ground is a fan of rings laid on the terrain about
+   each place, additive, brightest under the light and gone by its reach;
+   every vertex is weighted once (nothing here moves) and only scaled by
+   the group's flicker each frame. A lantern is a soft glow round a hot
+   point, held a few pixels wide from far off so the lookout shows from
+   the valley. Nothing is drawn by day. */
+#include "glow.h"
+#include "campfire.h"
+#include "world.h"
+#include "terrain.h"
+
+Glow glows[GLOW_MAX];
+int glow_n;
+float glow_level[GLOW_GROUPS];
+V3 glow_c[GLOW_GROUPS];
+float glow_r[GLOW_GROUPS];
+static bool placed;
+static float glow_t;
+static const pvr_poly_hdr_t *h_add;
+
+#define RINGS 10
+#define SPOKES 16
+#define LANTERN_FAR 420.0f
+static const float ring_t[RINGS] = {0, 0.035f, 0.075f, 0.13f, 0.2f, 0.3f, 0.425f, 0.575f, 0.75f, 1.0f};
+typedef struct {
+    V3 c;
+    float reach;
+    V3 p[RINGS][SPOKES];
+    float k[RINGS][SPOKES];
+} Fan;
+static Fan fans[GLOW_GROUPS];
+
+/* The lookout's lanterns from its base: one under each corner of the
+   roof, a bigger one hung under the deck. */
+static const V3 tower_lanterns[5] = {{-2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, 2.25f},
+                                     {-2.25f, 7.72f, 2.25f}, {0, 5.5f, 0}};
+
+int glow_tower_lanterns(const V3 **out) {
+    *out = tower_lanterns;
+    return 5;
+}
+
+void glow_place(void) {
+    if(placed) return;
+    placed = true;
+    glow_n = 0;
+    V3 f = campfire_pos();
+    glows[glow_n++] = (Glow){v3(f.x, f.y + 0.5f, f.z), 20.0f, 5.0f, 1.0f, GLOW_FIRE, false};
+    for(int i = 0; i < LVL_PROPS; i++) {
+        const lvl_prop_t *p = &lvl_props[i];
+        if(p->kind != PROP_TOWER) continue;
+        for(int k = 0; k < 5; k++) {
+            V3 q = v3(p->x + tower_lanterns[k].x, p->y + tower_lanterns[k].y, p->z + tower_lanterns[k].z);
+            glows[glow_n++] = k < 4 ? (Glow){q, 9.0f, 2.2f, 0.55f, GLOW_LANTERNS, true}
+                                    : (Glow){q, 16.0f, 4.5f, 1.3f, GLOW_LANTERNS, true};
+        }
+        break;
+    }
+    for(int g = 0; g < GLOW_GROUPS; g++) {
+        V3 c = v3(0, 0, 0);
+        int n = 0;
+        for(int i = 0; i < glow_n; i++)
+            if(glows[i].group == g) {
+                c = vadd(c, glows[i].p);
+                n++;
+            }
+        glow_c[g] = n ? vscale(c, 1.0f / n) : c;
+        glow_r[g] = 0;
+        for(int i = 0; i < glow_n; i++)
+            if(glows[i].group == g) glow_r[g] = fmaxf(glow_r[g], vlen(vsub(glows[i].p, glow_c[g])) + glows[i].reach);
+    }
+}
+
+void glow_init(void) {
+    h_add = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
+    glow_place();
+    for(int g = 0; g < GLOW_GROUPS; g++) {
+        Fan *fan = &fans[g];
+        fan->c = glow_c[g];
+        fan->reach = 0;
+        for(int i = 0; i < glow_n; i++)
+            if(glows[i].group == g) fan->reach = fmaxf(fan->reach, glows[i].reach);
+        for(int r = 0; r < RINGS; r++)
+            for(int s = 0; s < SPOKES; s++) {
+                float a = ENG_TAU * (s + 0.5f * (r & 1)) / SPOKES, rad = ring_t[r] * fan->reach;
+                V3 n, p = v3(fan->c.x + sinf(a) * rad, 0, fan->c.z + cosf(a) * rad);
+                p.y = terrain_height_n(p.x, p.z, &n);
+                float sum = 0;
+                for(int i = 0; i < glow_n && r < RINGS - 1; i++) {
+                    const Glow *gl = &glows[i];
+                    if(gl->group != g) continue;
+                    V3 to = vsub(gl->p, p);
+                    /* Facing a point a little above the light, so flat
+                       ground further out still catches some of it. */
+                    V3 up = v3(to.x, to.y + 1.7f, to.z);
+                    sum += glow_falloff(gl, vdot(to, to)) * clampf(0.35f + 0.65f * vdot(n, vnorm(up)), 0, 1);
+                }
+                fan->k[r][s] = sum;
+                /* Lifted clear of the ground, more where the fan is
+                   coarse (and by then nearly nothing). */
+                p.y += 0.06f + 0.03f * rad;
+                fan->p[r][s] = p;
+            }
+    }
+}
+
+float glow_light(V3 p, V3 *from) {
+    float sum = 0;
+    V3 dir = v3(0, 0, 0);
+    for(int i = 0; i < glow_n; i++) {
+        const Glow *g = &glows[i];
+        float lv = glow_level[g->group];
+        if(lv <= 0) continue;
+        V3 d = vsub(g->p, p);
+        float d2 = vdot(d, d);
+        if(d2 >= g->reach * g->reach) continue;
+        float w = lv * glow_falloff(g, d2);
+        sum += w;
+        dir = vmad(dir, d, w / sqrtf(fmaxf(d2, 1e-4f)));
+    }
+    if(from && sum > 0) *from = vnorm(dir);
+    return sum;
+}
+
+void glow_update(float dt) {
+    if(game_frozen()) return;
+    glow_t += dt;
+    /* The fire sets its own level (campfire.c); a lantern burns steadier. */
+    glow_level[GLOW_LANTERNS] = clampf(pal->dark * 1.15f, 0, 1) *
+                                (0.95f + 0.04f * sinf(glow_t * 6.1f) * sinf(glow_t * 1.7f) + 0.02f * sinf(glow_t * 17.0f));
+}
+
+static void sprite(V3 p, float s, uint32_t col) {
+    V3 rx = vscale(r_cam.right, s), ry = vscale(r_cam.up, s);
+    RV q[4] = {{p.x - rx.x + ry.x, p.y - rx.y + ry.y, p.z - rx.z + ry.z, 0, 0, col},
+               {p.x + rx.x + ry.x, p.y + rx.y + ry.y, p.z + rx.z + ry.z, 1, 0, col},
+               {p.x - rx.x - ry.x, p.y - rx.y - ry.y, p.z - rx.z - ry.z, 0, 1, col},
+               {p.x + rx.x - ry.x, p.y + rx.y - ry.y, p.z + rx.z - ry.z, 1, 1, col}};
+    r_strip(q, 4);
+}
+
+void glow_draw_tr(void) {
+    bool hdr = false;
+    for(int g = 0; g < GLOW_GROUPS; g++) {
+        float lv = glow_level[g];
+        if(lv < 0.02f) continue;
+        V3 dc = vsub(glow_c[g], r_cam.pos);
+        float dist = vlen(dc);
+        if(dist > LANTERN_FAR || !r_sphere_visible(glow_c[g], glow_r[g])) continue;
+        /* The fog takes it with everything else (this list isn't fogged). */
+        float fog = clampf(1.0f - dist / world_fog_far(), 0, 1);
+        if(fog <= 0) continue;
+        if(!hdr) {
+            r_load_vp();
+            r_hdr(h_add);
+            hdr = true;
+        }
+        if(dist < 140.0f) {
+            const Fan *fan = &fans[g];
+            static const uint32_t warm = 0xffff8c34;
+            uint32_t col[RINGS][SPOKES];
+            for(int r = 0; r < RINGS; r++)
+                for(int s = 0; s < SPOKES; s++) col[r][s] = color_alpha(warm, clampf(fan->k[r][s] * lv * 0.55f * fog, 0, 1));
+            for(int r = 0; r + 1 < RINGS; r++) {
+                RV st[2 * (SPOKES + 1)];
+                for(int s = 0; s <= SPOKES; s++) {
+                    int m = s % SPOKES;
+                    V3 a = fan->p[r][m], b = fan->p[r + 1][m];
+                    st[2 * s] = (RV){a.x, a.y, a.z, 0.5f, 0.5f, col[r][m]};
+                    st[2 * s + 1] = (RV){b.x, b.y, b.z, 0.5f, 0.5f, col[r + 1][m]};
+                }
+                r_strip_bounded(st, 2 * (SPOKES + 1), fan->c, fan->reach + 6.0f);
+            }
+        }
+        for(int i = 0; i < glow_n; i++) {
+            const Glow *gl = &glows[i];
+            if(gl->group != g || !gl->lantern) continue;
+            float d = vlen(vsub(gl->p, r_cam.pos));
+            sprite(gl->p, fmaxf(0.75f * gl->k + 0.25f, d * 0.009f), color_alpha(0xffff8a30, 0.3f * lv * fog));
+            sprite(gl->p, fmaxf(0.16f, d * 0.0035f), color_alpha(0xffffe2a0, 0.9f * lv * fog));
+        }
+    }
+}

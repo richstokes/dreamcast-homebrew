@@ -6,13 +6,11 @@
    on the draught, and thin smoke above. From across the valley only a
    point of light is left, held a few pixels wide so it still shows.
 
-   Its light on the ground is a fan of rings laid on the terrain round
-   the ring of stones, brightest by the fire and gone by CAMPFIRE_REACH,
-   every vertex weighted once (the ground doesn't move) and only scaled
-   by the flicker each frame. The scenery's share is in lamps.c and the
-   trucks' in truckdraw.c, all from campfire_level() so they flicker as
-   one. Nothing but the flames and smoke is drawn by day. */
+   Its light on the ground, the scenery and the trucks is glow.c's,
+   lamps.c's and truckdraw.c's, all from glow_level[GLOW_FIRE], set here,
+   so they flicker as one. */
 #include "campfire.h"
+#include "glow.h"
 #include "world.h"
 #include "terrain.h"
 
@@ -20,13 +18,11 @@
 #define T_ROWS 5
 #define SPARKS 14
 #define SMOKE 6
-#define RINGS 10
-#define SPOKES 16
 #define FLAME_FAR 260.0f      /* nothing of it drawn past this */
 
 static V3 fire;
 static bool placed;
-static float fire_t, level, flick = 1.0f;
+static float fire_t, flick = 1.0f;
 static const pvr_poly_hdr_t *h_add, *h_smoke;
 
 typedef struct {
@@ -36,11 +32,6 @@ typedef struct {
 } Bit;
 static Bit sparks[SPARKS], smoke[SMOKE];
 static float spark_acc, smoke_acc;
-
-/* The ground's fan: where each vertex is and how much light it gets. */
-static const float ring_r[RINGS] = {0, 0.7f, 1.5f, 2.6f, 4.0f, 6.0f, 8.5f, 11.5f, 15.0f, CAMPFIRE_REACH};
-static V3 gnd_p[RINGS][SPOKES];
-static float gnd_k[RINGS][SPOKES];
 
 static uint32_t seed = 0xc4f1e5u;
 static inline float rnd(void) {
@@ -66,39 +57,9 @@ V3 campfire_pos(void) {
 void campfire_init(void) {
     h_add = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
     h_smoke = r_header(TEX_PUFF, HF_TR);
-    V3 f = campfire_pos();
-    /* The light comes from a little above the flames, so the flat ground
-       further out still catches some of it. */
-    V3 lamp = v3(f.x, f.y + 2.2f, f.z);
-    for(int r = 0; r < RINGS; r++)
-        for(int s = 0; s < SPOKES; s++) {
-            float a = ENG_TAU * (s + 0.5f * (r & 1)) / SPOKES;
-            V3 n, p = v3(f.x + sinf(a) * ring_r[r], 0, f.z + cosf(a) * ring_r[r]);
-            p.y = terrain_height_n(p.x, p.z, &n);
-            V3 to = vsub(lamp, p);
-            float d2 = ring_r[r] * ring_r[r] + (p.y - f.y) * (p.y - f.y);
-            float lam = clampf(0.35f + 0.65f * vdot(n, vnorm(to)), 0, 1);
-            gnd_k[r][s] = r == RINGS - 1 ? 0 : campfire_falloff(d2) * lam;
-            /* Lifted clear of the ground, more where the fan is coarse
-               (and by then nearly nothing). */
-            p.y += 0.06f + 0.03f * ring_r[r];
-            gnd_p[r][s] = p;
-        }
+    campfire_pos();
     for(int i = 0; i < SPARKS; i++) sparks[i].live = false;
     for(int i = 0; i < SMOKE; i++) smoke[i].live = false;
-}
-
-float campfire_level(void) {
-    return level;
-}
-
-float campfire_light(V3 p, V3 *from) {
-    if(level <= 0) return 0;
-    V3 d = vsub(v3(fire.x, fire.y + 0.8f, fire.z), p);
-    float d2 = vdot(d, d);
-    if(d2 >= CAMPFIRE_REACH * CAMPFIRE_REACH) return 0;
-    if(from) *from = d2 > 1e-4f ? vscale(d, 1.0f / sqrtf(d2)) : v3(0, 1, 0);
-    return level * campfire_falloff(d2);
 }
 
 void campfire_update(float dt) {
@@ -108,7 +69,7 @@ void campfire_update(float dt) {
     /* A fire's flicker: slow breathing with a fast shiver on top. */
     flick = clampf(0.88f + 0.10f * sinf(t * 3.7f) * sinf(t * 1.3f + 1.0f) + 0.06f * sinf(t * 11.3f) +
                        0.05f * sinf(t * 23.1f + 2.0f), 0.65f, 1.1f);
-    level = clampf(pal->dark * 1.15f, 0, 1) * flick;
+    glow_level[GLOW_FIRE] = clampf(pal->dark * 1.15f, 0, 1) * flick;
     /* Sparks and smoke only when someone is near enough to see them. */
     V3 dc = vsub(fire, cam.pos);
     bool near = vdot(dc, dc) < 90.0f * 90.0f;
@@ -178,24 +139,6 @@ static void sprite(V3 p, float s, uint32_t col) {
     r_strip(q, 4);
 }
 
-/* The firelight on the ground: a strip between each pair of rings. */
-static void ground_draw(float k) {
-    static const uint32_t warm = 0xffff8c34;
-    uint32_t col[RINGS][SPOKES];
-    for(int r = 0; r < RINGS; r++)
-        for(int s = 0; s < SPOKES; s++) col[r][s] = color_alpha(warm, clampf(gnd_k[r][s] * k, 0, 1));
-    for(int r = 0; r + 1 < RINGS; r++) {
-        RV st[2 * (SPOKES + 1)];
-        for(int s = 0; s <= SPOKES; s++) {
-            int m = s % SPOKES;
-            V3 a = gnd_p[r][m], b = gnd_p[r + 1][m];
-            st[2 * s] = (RV){a.x, a.y, a.z, 0.5f, 0.5f, col[r][m]};
-            st[2 * s + 1] = (RV){b.x, b.y, b.z, 0.5f, 0.5f, col[r + 1][m]};
-        }
-        r_strip_bounded(st, 2 * (SPOKES + 1), fire, ring_r[r + 1] + 3.0f);
-    }
-}
-
 /* One tongue of flame: how far through its rise it is (0 just lit, 1
    topping out), from its foot, across the screen along side. */
 static void tongue(int i, V3 side, float fade) {
@@ -228,7 +171,7 @@ static void tongue(int i, V3 side, float fade) {
 void campfire_draw_tr(void) {
     V3 dc = vsub(fire, r_cam.pos);
     float dist = vlen(dc);
-    if(dist > FLAME_FAR || !r_sphere_visible(fire, CAMPFIRE_REACH)) return;
+    if(dist > FLAME_FAR || !r_sphere_visible(fire, 6.0f)) return;
     /* The fog takes it with everything else (these lists aren't fogged). */
     float fog = clampf(1.0f - dist / world_fog_far(), 0, 1);
     if(fog <= 0) return;
@@ -249,7 +192,6 @@ void campfire_draw_tr(void) {
         }
     }
     r_hdr(h_add);
-    if(level > 0.02f && dist < 140.0f) ground_draw(level * 0.55f * fog);
     /* The glow round the fire, wider in the dark; from far off a point
        of light that never gets smaller than a few pixels. */
     V3 mid = v3(fire.x, fire.y + 0.45f, fire.z);
