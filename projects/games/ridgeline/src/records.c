@@ -24,7 +24,7 @@ typedef struct {
     int32_t version;
     uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none: Cascade 84, Kestrel */
     char name[12];                 /* the online name (version 2; version 1 saves end before it) */
-    /* The trucks after the first two (Bobcat, FFR), a row each in model
+    /* The trucks after the first two (Bobcat, FFR, Taco), a row each in model
        order. Appended to version 2 so older builds still read the rest; a
        save from a build with fewer trucks is shorter. */
     uint32_t best_more[TRUCK_MODELS - 2][WAY_COUNT];

@@ -43,7 +43,7 @@ from synthkit import (  # noqa: E402
     midi_hz, pad_to, periodic, place, place_wrap, plfo, softsat)
 
 SR = SFX_RATE
-MAX_PAK_BYTES = 1_850_000        # four trucks
+MAX_PAK_BYTES = 1_890_000        # five trucks; the game logs the AICA RAM left (83 KiB at 1,888,896)
 ENGINE_LOOPS = 4
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -197,6 +197,9 @@ class Engine:
     turbo_gain: float = 0.0
     turbo_hiss: float = 0.0
     seed: str = ""             # RNG seed when it isn't the key (a renamed truck keeps its sound)
+    loop_rate: tuple = (1, 1)  # the loops' stored rate as a fraction of SR: sound RAM is nearly full
+    horn: str = ""             # another engine's key when this truck borrows its horn...
+    start: str = ""            # ...or its start one-shot
     starter_ratio: float = 12.0
     crank_rpm: float = 210.0
     crank_secs: float = 0.8
@@ -614,7 +617,54 @@ FFR = Engine(
     starter_ratio=12.0, crank_rpm=220.0, crank_secs=0.6, flare_rpm=1350.0,
 )
 
-ENGINES = (CASCADE, KESTREL, BOBCAT, FFR)
+def taco_bank(f):
+    # Four short runners into a twin-scroll turbine: little of the pulse edge gets past it.
+    return H_pipe(f, 0.30, 0.6, 0.5) * H_lp1(f, 1700) * H_lp1(f, 4200)
+
+
+def taco_common(f):
+    down = H_pipe(f, 2.0, 0.3, -0.5, loss_hz=5000)
+    resonator = H_chamber(f, 0.28, 4.0)
+    muffler = H_chamber(f, 0.50, 8.0) * H_lp1(f, 1500)
+    tail = H_pipe(f, 0.8, 0.4, -0.75, loss_hz=7000)
+    return 3.2 * down * resonator * muffler * tail * H_hp1(f, 75) * H_peak(f, 105, 1.0, 3.5)
+
+
+def taco_intake(f):
+    # Through the compressor and intercooler: a low thrum and not much else.
+    return H_bp2(f, 130, 1.6) + 0.25 * H_bp2(f, 400, 2.0)
+
+
+TACO = Engine(
+    key="TACO", label="TACO", idle=700, redline=5800,
+    points=(700, 1400, 2800, 5450), durs=(0.36, 0.32, 0.26, 0.20),
+    fire=((0, 0), (180, 0), (360, 0), (540, 0)),           # 1-3-4-2
+    cyl_amp=(1.0, 0.97, 1.03, 0.98), cyl_dth=(0.0, 0.5, -0.4, 0.3),
+    bank_dth=(0.0,), bank_gain=(1.0,),
+    evo=134.0, blow_peak=44.0, blow_rise=5.0, crack=0.32, crack_tau=0.0003,
+    flow=0.09, flow_band=(500, 3600), pump=0.22,
+    # Fuel cut on overrun, as the Kestrel.
+    var_on=0.03, var_off=0.05, misfire_off=0.0, off_fire=0.0,
+    pops_per_s=0.0, pop_amp=0.0, shaper=0.14,
+    exhaust_bank=(taco_bank,), exhaust_common=taco_common,
+    intake_H=taco_intake, intake_gain=0.16, roar_gain=0.03, roar_band=(260, 1300),
+    hiss_gain=0.005, hiss_hz=2300,
+    knock_modes=((1450, 0.0028, 0.8), (2250, 0.0022, 0.6), (3150, 0.0016, 0.35)),
+    knock_gain=0.035,
+    valve_events=(),          # DOHC roller followers: quiet
+    valve_modes=((4200, 0.0007, 1.0),), valve_gain=0.0,
+    chain_order=22.0, chain_gain=0.0025,
+    di_gain=0.009, pump_events=(0.0, 180.0, 360.0, 540.0),
+    turbo_order=46.0, turbo_gain=0.022, turbo_hiss=0.009,
+    on_db=(-1.5, -0.6, 0.4, 1.4), off_db=(-2.8, -4.2, -5.2, -6.2),
+    # The fifth engine has to fit in what sound RAM the other four left:
+    # short loops at two thirds of the rate (a turbo four has little up
+    # top to lose), and the Kestrel's horn and start. Its own start (58 KiB)
+    # left the last effect in the pak with nowhere to load.
+    loop_rate=(2, 3), horn="KESTREL", start="KESTREL",
+)
+
+ENGINES = (CASCADE, KESTREL, BOBCAT, FFR, TACO)
 
 
 def loop_geometry(e: Engine, i: int):
@@ -622,8 +672,20 @@ def loop_geometry(e: Engine, i: int):
     so both hold exactly."""
     nominal = e.points[i]
     cycles = max(1, round(e.durs[i] * nominal / 120.0))
-    n = 16 * round(cycles * 120.0 * SR / nominal / 16)
+    q = 16 * e.loop_rate[1]          # still a 16-sample multiple once stored at loop_rate
+    n = q * round(cycles * 120.0 * SR / nominal / q)
     return cycles, n, cycles * 120.0 * SR / n
+
+
+def resample_loop(x, m):
+    """A loop as m samples: band-limited, and it still joins up."""
+    X = np.fft.rfft(x)
+    Y = np.zeros(m // 2 + 1, dtype=complex)
+    k = min(len(X), len(Y))
+    Y[:k] = X[:k]
+    if m < len(x) and m % 2 == 0:
+        Y[-1] = 0.0
+    return np.fft.irfft(Y, n=m) * (m / len(x))
 
 
 def rms_db(x):
@@ -1378,8 +1440,12 @@ def engine_assets():
     for e in ENGINES:
         for kind in ("on", "off"):
             for i in range(ENGINE_LOOPS):
-                fn = (lambda e=e, kind=kind, i=i: engine_set(e)[0 if kind == "on" else 1][i])
-                out.append((f"{e.key}_{kind.upper()}_{i}", fn, True, SR, False))
+                num, den = e.loop_rate
+
+                def fn(e=e, kind=kind, i=i, num=num, den=den):
+                    x = engine_set(e)[0 if kind == "on" else 1][i]
+                    return x if num == den else resample_loop(x, len(x) * num // den)
+                out.append((f"{e.key}_{kind.upper()}_{i}", fn, True, SR * num // den, False))
     return out
 
 
@@ -1450,7 +1516,7 @@ def engine_report():
 def write_header(out, entries):
     ids = {name: i for i, (name, *_) in enumerate(entries)}
     for e in ENGINES:
-        assert f"HORN_{e.key}" in ids and f"START_{e.key}" in ids
+        assert f"HORN_{e.horn or e.key}" in ids and f"START_{e.start or e.key}" in ids
     tail = [f"#define RL_ENGINE_LOOPS {ENGINE_LOOPS}", "",
             "typedef struct {",
             "    uint16_t on[RL_ENGINE_LOOPS], off[RL_ENGINE_LOOPS];  /* sfx ids, rpm points ascending */",
@@ -1475,9 +1541,9 @@ def write_header(out, entries):
     tail += ["};", "",
              "/* per truck: the horn loop, and the engine start one-shot */",
              f"static const uint16_t rl_horn_sfx[{len(ENGINES)}] __attribute__((unused)) = {{ "
-             + ", ".join(f"RL_SFX_HORN_{e.key}" for e in ENGINES) + " };",
+             + ", ".join(f"RL_SFX_HORN_{e.horn or e.key}" for e in ENGINES) + " };",
              f"static const uint16_t rl_start_sfx[{len(ENGINES)}] __attribute__((unused)) = {{ "
-             + ", ".join(f"RL_SFX_START_{e.key}" for e in ENGINES) + " };",
+             + ", ".join(f"RL_SFX_START_{e.start or e.key}" for e in ENGINES) + " };",
              "/* forest birds, one-shots the game plays now and then */",
              "#define RL_BIRDS 4",
              "static const uint16_t rl_bird_sfx[RL_BIRDS] __attribute__((unused)) = { RL_SFX_BIRD_TEEOO, RL_SFX_BIRD_WARBLE, RL_SFX_BIRD_TRILL, RL_SFX_BIRD_COO };",

@@ -9,13 +9,15 @@ Cascade Ridge, a Pacific Northwest mountain in autumn, from the meadow at its
 foot to the fire lookout on the summit. No race and no clock: how high you've
 been, and the viewpoints you've found.
 
-- Four trucks, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
+- Five trucks, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
   four, no traction control); KESTREL, a modern two-door 4x4 (twin-turbo V6,
   35 inch tyres, traction control, off when the lockers are in); BOBCAT, a
   short two-door with the top off and a roll cage (4.0 L straight six, no
-  traction control, a 4:1 transfer case); and FFR, a mid-90s
+  traction control, a 4:1 transfer case); FFR, a mid-90s
   extended-cab pickup with a long bed (3.0 L V6, steady at speed but
-  beaches on sharp crests and turns wide)
+  beaches on sharp crests and turns wide); and TACO, a 2026 double-cab
+  pickup (2.4 L turbo four, eight-speed automatic, traction control, the
+  longest wheelbase of the five)
 - Three ways up from the fork, meeting at a lake before the summit trail:
   the logging road (long, gentle, gravel then muddy ruts and fallen logs),
   the creek bed (water crossings, mud, wet rock) and the ridge line (steep,
@@ -29,11 +31,11 @@ been, and the viewpoints you've found.
   4WD with the centre locked, LOCK with low range and both axles locked.
   Low range holds the automatic to the gears that redline under ~30 mph
   (2nd in the pickups, ~22 mph; 4th in the Kestrel, ~28 mph; 3rd in the
-  Bobcat, ~22 mph)
+  Bobcat, ~22 mph; 2nd in the Taco, ~22 mph)
 - 2WD is the loose one: nose-heavy trucks (the pickup ~60% front) with a
   limited-slip rear, so the tail comes round under power and a spinning
   tyre gives up its cornering grip. Feed it on the progressive throttle and
-  catch it with opposite lock. The Kestrel's traction control reins it in
+  catch it with opposite lock. Traction control on the Kestrel and the Taco reins it in
   (in 2WD and 4WD) until you hold D-pad left to switch it off
 - A spinning tyre flings a roostertail of whatever it's in (mud clods,
   dirt, stones, snow, spray), and the rear tyres leave tread tracks in soft
@@ -101,7 +103,7 @@ The same list is under CONTROLS on the main menu.
 | --- | --- |
 | Analog stick | Steer |
 | R / L trigger | Throttle / brake; hold L at a stop to reverse |
-| D-pad left / right | Drive mode: 2WD, 4WD, LOCK (low range goes in or out only below ~8 mph); hold left 2 s to switch traction control off or on (Kestrel) |
+| D-pad left / right | Drive mode: 2WD, 4WD, LOCK (low range goes in or out only below ~8 mph); hold left 2 s to switch traction control off or on (Kestrel, Taco) |
 | D-pad up | Horn |
 | D-pad down | Lights: off, dipped, full beam |
 | A | Handbrake |

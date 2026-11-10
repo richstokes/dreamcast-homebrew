@@ -66,7 +66,7 @@ const char *menu_truck_name(int model) {
 #ifdef HAVE_TRUCK_MODELS
     return rl_truck_info[model].name;
 #else
-    static const char *const n[TRUCK_MODELS] = {"CASCADE 84", "KESTREL", "BOBCAT", "FFR"};
+    static const char *const n[TRUCK_MODELS] = {"CASCADE 84", "KESTREL", "BOBCAT", "FFR", "TACO"};
     return n[model % TRUCK_MODELS];
 #endif
 }
@@ -93,7 +93,7 @@ static const ControlRow controls[] = {
     {"R TRIGGER", NULL, "THROTTLE"},
     {"L TRIGGER", NULL, "BRAKE, HOLD AT A STOP TO REVERSE"},
     {"D-PAD LEFT/RIGHT", NULL, "DRIVE MODE: 2WD, 4WD, LOCK"},
-    {"HOLD D-PAD LEFT", NULL, "TRACTION CONTROL OFF/ON (KESTREL)"},
+    {"HOLD D-PAD LEFT", NULL, "TRACTION CONTROL OFF/ON (KESTREL, TACO)"},
     {"D-PAD UP", NULL, "HORN"},
     {"D-PAD DOWN", NULL, "LIGHTS: OFF, DIPPED, FULL BEAM"},
     {"", "A", "HANDBRAKE"},

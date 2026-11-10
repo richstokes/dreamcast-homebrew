@@ -307,10 +307,11 @@ void audio_update(float dt) {
         static float last_water;
         if(p->water > 0.15f && last_water <= 0.15f && spd > 2.0f) sfx_play(RL_SFX_SPLASH, 220, 128, 1.0f);
         last_water = p->water;
-        /* The Kestrel's turbo sighs when the throttle snaps shut high up. */
+        /* The turbo trucks (the Kestrel and the Taco) sigh when the
+           throttle snaps shut high up. */
         blowoff_cool -= dt;
         static float last_load;
-        if(p->model == 1 && last_load > 0.7f && p->load < 0.2f && p->rpm > 2600.0f && blowoff_cool <= 0) {
+        if((p->model == 1 || p->model == 4) && last_load > 0.7f && p->load < 0.2f && p->rpm > 2600.0f && blowoff_cool <= 0) {
             sfx_play(RL_SFX_BLOWOFF, 150, 128, 1.0f);
             blowoff_cool = 1.5f;
         }

@@ -142,7 +142,7 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 4.00f;
         s->brake_torque = 1800.0f;
     }
-    else {
+    else if(model == 3) {
         /* FFR: a mid-90s midsize extended-cab pickup with a long bed. A
            3.0 L pushrod V6 that wants revs, a 3.2 m wheelbase that rides
            washboard well but beaches on sharp crests and turns wide, and
@@ -176,6 +176,42 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 2.72f;
         s->brake_torque = 1650.0f;
     }
+    else {
+        /* TACO: a 2026 midsize double-cab pickup. A 2.4 L turbo four with
+           its torque low down, an eight-speed automatic, independent front
+           suspension and traction control. The longest wheelbase here
+           (3.35 m): steady at speed, wide in the hairpins, and the first
+           to ground its belly on a sharp crest. */
+        s->name = "TACO";
+        s->mass = 2050.0f;
+        s->inertia = v3(4900.0f, 5000.0f, 950.0f);
+        s->cog_y = 0.84f;
+        s->cog_z = 0.20f;    /* ~56% front */
+        s->lsd = 130.0f;
+        s->radius = 0.42f;
+        s->width = 0.29f;
+        for(int i = 0; i < 4; i++)
+            s->wheel[i] = v3((i & 1) ? 0.82f : -0.82f, s->radius, (i < 2) ? 1.675f : -1.675f);
+        s->travel = 0.32f;
+        s->sag = 0.36f;
+        s->wheel_inertia = 2.0f;
+        s->max_steer = 0.60f;
+        s->body_lo[0] = -0.94f; s->body_lo[1] = 0.57f; s->body_lo[2] = -2.81f;
+        s->body_hi[0] = 0.94f; s->body_hi[1] = 1.90f; s->body_hi[2] = 2.62f;
+        s->wade = 0.72f;
+        s->idle_rpm = 700.0f;
+        s->tcs = true;
+        s->redline_rpm = 5800.0f;
+        s->peak_torque = 430.0f;
+        s->peak_rpm = 2000.0f;
+        s->gears = 8;
+        static const float r[8] = {4.41f, 2.81f, 1.95f, 1.51f, 1.27f, 1.00f, 0.79f, 0.65f};
+        memcpy(s->ratio, r, sizeof(r));
+        s->reverse = 3.99f;
+        s->final_drive = 3.58f;
+        s->low_range = 2.57f;
+        s->brake_torque = 2100.0f;
+    }
 #ifdef HAVE_TRUCK_MODELS
     const rl_truck_info_t *ti = &rl_truck_info[model];
     s->radius = ti->wheel_radius;
@@ -205,7 +241,7 @@ void truck_spec(TruckSpec *s, int model) {
     /* Low range holds the automatic to the gears whose redline is under
        LOW_RANGE_TOP_MPS, as modern 4L modes do: 2nd in the pickup (~22 mph),
        4th in the Kestrel (~28 mph), 3rd in the Bobcat (~22 mph), 2nd in the
-       FFR (~22 mph). */
+       FFR and the Taco (~22 mph). */
     s->low_top_gear = 1;
     for(int g = 1; g <= s->gears; g++) {
         float v = s->redline_rpm / RPM_PER_RADS / (s->ratio[g - 1] * s->final_drive * s->low_range) * s->radius;
@@ -1100,9 +1136,9 @@ void truck_update(Truck *t, float dt) {
             t->rpm = S->idle_rpm;
         }
     }
-    /* Traction control (the Kestrel has it, the 80s pickup leaves it to
-       your foot) trims the engine when the tyres spin up past the ground,
-       in 2WD and 4WD; the driver switches it off to slide the tail. Never
+    /* Traction control (the Kestrel and the Taco have it, the older trucks
+       leave it to your foot) trims the engine when the tyres spin up past
+       the ground, in 2WD and 4WD; the driver switches it off to slide the tail. Never
        with the lockers in: crawling over rock wants the wheels to turn
        however much they slip. */
     t->tc = 1.0f;
