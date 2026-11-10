@@ -42,7 +42,8 @@ been, and the viewpoints you've found.
   ground
 - Things to find off the trail: ten viewpoints, among them a boulder
   field, a stone arch across a deep ford the old pickup can't wade, an
-  abandoned truck in the woods and a camp past the lake. The logging road
+  abandoned truck in the woods and a camp past the lake, where a fire
+  burns and lights the tent, the trees and your truck after dark. The logging road
   has a washout, a log bridge and a steep shortcut that skips ~480 m of it
 - Best times to the summit per truck and per way up (or your own way),
   saved on the VMU and shown on the truck select. A viewpoint jump from
@@ -301,6 +302,7 @@ over them. The three-tier middle tree all the way to 170 m cost up to
 
 - One scene (autumn); the desert palette is not built yet
 - Headlights cast no shadows: a tree behind a cabin catches the beam too
+- The campfire has no crackle and no console timings yet (Flycast only)
 - No rumble yet
 - Online has no chat. Trucks bump each other, but each console pushes only
   its own truck against the others as they were ~150 ms ago, so a shove

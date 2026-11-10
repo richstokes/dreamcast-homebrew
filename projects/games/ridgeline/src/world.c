@@ -12,6 +12,7 @@
 #include "engine/sky.h"
 #include "terrain.h"
 #include "water.h"
+#include "campfire.h"
 #include "truck.h"
 #include "lamps.h"
 #include "engine/prof.h"
@@ -509,13 +510,25 @@ static void prop(const lvl_prop_t *p) {
                 }
                 sc_strip_end(&scenery);
             }
-            V3 fire = vadd(c, vscale(f, 4.0f));
+            /* The ring of stones on the ground where the fire burns
+               (campfire.c), embers in it, split logs leant
+               together over them. */
+            V3 fire = campfire_pos();
             uint32_t seed = (uint32_t)(p->x * 13.0f) ^ (uint32_t)(p->z * 7.0f);
             for(int k = 0; k < 8; k++) {
                 float a = k * ENG_TAU / 8;
-                boulder(v3(fire.x + sinf(a) * 0.62f, c.y + 0.05f, fire.z + cosf(a) * 0.62f), 0.16f, seed + k, 1);
+                float sx = fire.x + sinf(a) * 0.62f, sz = fire.z + cosf(a) * 0.62f;
+                boulder(v3(sx, terrain_height(sx, sz) + 0.05f, sz), 0.16f, seed + k, 1);
             }
-            box(h_flat, v3(fire.x, c.y + 0.03f, fire.z), 0.42f, 0.03f, 0.42f, 0, 0xff302824, 1.0f);
+            sc_strip_begin(&scenery, h_flat);
+            for(int k = 0; k < 4; k++)
+                lc(v3(fire.x + (k & 1 ? 0.3f : -0.3f), fire.y + 0.05f, fire.z + (k & 2 ? 0.3f : -0.3f)), 0, 0, 0xffb8431a);
+            sc_strip_end(&scenery);
+            for(int k = 0; k < 5; k++) {
+                float a = k * ENG_TAU / 5 + 0.3f;
+                V3 foot = v3(fire.x + sinf(a) * 0.4f, fire.y + 0.02f, fire.z + cosf(a) * 0.4f);
+                leg(foot, v3(fire.x - sinf(a) * 0.05f, fire.y + 0.3f, fire.z - cosf(a) * 0.05f), 0.045f, 0xff4a3426);
+            }
             break;
         }
         case PROP_TOWER: {
@@ -1481,6 +1494,7 @@ static uint16_t tree_chunk(const uint16_t *order, int from, int to, float qx, fl
     uint32_t at = scenery.chunk_n;
     sc_chunk_begin(&scenery, HF_OP, range[lod][0], range[lod][1], TAG_TREES);
     sc_chunk_lod_point(&scenery, lp);
+    lamps_lod(lp, TREE_NEAR_M);
     sc_strip_begin(&scenery, lod ? h_flat : h_crown);
     bool firstt = true;
     for(int k = from; k < to; k++) {
@@ -1589,6 +1603,7 @@ void world_build(void) {
         for(int lod = 0; lod < 2; lod++) {
             sc_chunk_begin(&scenery, HF_OP, lod ? 90.0f : 0.0f, lod ? 360.0f : 90.0f, TAG_ROCKS);
             sc_chunk_lod_point(&scenery, lp);
+            lamps_lod(lp, 90.0f);
             for(int i = 0; i < LVL_SPHERES; i++) {
                 const lvl_sphere_t *s = &lvl_spheres[i];
                 if(s->x < x0 || s->x >= x0 + TCELL || s->z < z0 || s->z >= z0 + TCELL) continue;
@@ -1615,6 +1630,7 @@ void world_build(void) {
             sc_chunk_end(&scenery);
         }
     }
+    lamps_lod(v3(0, 0, 0), 0);
     for(int i = 0; i < LVL_PROPS; i++) {
         sc_chunk_begin(&scenery, HF_OP, 0, 600.0f, TAG_PROPS);
         uint32_t f0 = scenery.pool_n;

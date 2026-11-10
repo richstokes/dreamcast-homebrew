@@ -1,4 +1,5 @@
-/* Ridgeline: the trucks' headlights on the trees, rocks and props. */
+/* Ridgeline: the trucks' headlights and the campfire's light on the
+   trees, rocks and props. */
 #ifndef RL_LAMPS_H
 #define RL_LAMPS_H
 
@@ -8,6 +9,9 @@
    and prop as its range of scenery pool vertices, then index them. */
 void lamps_clear(void);
 void lamps_add(uint32_t first, uint32_t end);
+/* The chunk the next objects are in: where it measures the camera's
+   distance from and how far it is drawn (0: always), for the campfire. */
+void lamps_lod(V3 p, float far);
 void lamps_index(void);
 
 /* Drawing: light what the beams reach before the scenery is drawn

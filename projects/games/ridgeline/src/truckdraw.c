@@ -9,6 +9,7 @@
 #include "truck.h"
 #include "terrain.h"
 #include "world.h"
+#include "campfire.h"
 #include "engine/mesh.h"
 #include "engine/prof.h"
 #if __has_include("trucks.h")
@@ -280,6 +281,21 @@ void truckdraw_draw_op(void) {
             l.sun[i] = pal->sun_k[i] * 1.1f;
             l.sky[i] = pal->sky_k[i];
             l.ambient[i] = pal->amb_k[i] * 1.2f;
+        }
+        /* By the campfire after dark: its orange on the side toward it.
+           One light direction is all a model has, so it swings from the
+           moon to the fire as the fire takes over. */
+        V3 fire_from;
+        float fire_k = campfire_light(t->pos, &fire_from) * 1.5f;
+        if(fire_k > 0.01f) {
+            float moon = (l.sun[0] + l.sun[1] + l.sun[2]) * (1.0f / 3.0f);
+            V3 L = vnorm(vlerp(sun_dir, fire_from, fire_k / (fire_k + moon + 0.01f)));
+            l.L = v3(vdot(L, R), vdot(L, U), vdot(L, F));
+            l.sun[0] += fire_k;
+            l.sun[1] += fire_k * 0.55f;
+            l.sun[2] += fire_k * 0.2f;
+            l.ambient[0] += fire_k * 0.12f;
+            l.ambient[1] += fire_k * 0.06f;
         }
         uint32_t paint[RL_PAINT_COUNT] = {0};
         const rl_truck_info_t *info = &rl_truck_info[t->model];

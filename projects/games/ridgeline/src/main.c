@@ -27,6 +27,7 @@
 #include "online.h"
 #include "film.h"
 #include "vmuscreen.h"
+#include "campfire.h"
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -272,6 +273,7 @@ static void update(float dt) {
     world_update(dt);
     birds_update(dt);
     air_update(dt);
+    campfire_update(dt);
     if(!game_frozen()) deer_update_all(dt);
     hud_update(dt);
 }
@@ -308,6 +310,7 @@ static void render(void) {
     PROF_BEGIN(ptr);
     world_draw_tr();
     if(!no_trucks) truckdraw_draw_tr();
+    campfire_draw_tr();
     fx_draw();
     air_draw_tr();
     world_draw_flare();
@@ -357,6 +360,7 @@ int main(int argc, char **argv) {
     fx_init();
     birds_init();
     air_init();
+    campfire_init();
     audio_init();
     records_load();
     printf("Ridgeline boot: %lu ms, %lu KiB VRAM free\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000),

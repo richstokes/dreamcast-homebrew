@@ -16,8 +16,15 @@
    Cost (console, 2026-11-09): up to ~0.35 ms a frame, 0.5-0.6 ms with
    four lit trucks together in the forest (README, Performance). If that
    needs to come down, LAMPS 1 (the player's truck only) is the first
-   thing to try. */
+   thing to try.
+
+   The campfire (campfire.h) lights what stands round it the same way.
+   It never moves, so each vertex in its reach has its share worked out
+   once, when the world is built; a frame only scales that by the flicker
+   and adds it on. Near trees and rocks swap for far versions that keep
+   their colours (world.c), so their firelight fades out before the swap. */
 #include "lamps.h"
+#include "campfire.h"
 #include "world.h"
 #include "tod.h"
 #include "truck.h"
@@ -29,7 +36,7 @@
 #define LCELLS 32
 #define OBJ_MAX 6400        /* a near tree is a few: its trunk and each tier */
 #define LAMPS 3             /* trucks lit at once: the player's, then the nearest */
-#define SAVE_MAX 6144       /* vertices relit in a frame, at most */
+#define SAVE_MAX 8192       /* vertices relit in a frame, at most */
 #define LAMP_NEAR 70.0f     /* other trucks further from the camera light nothing */
 #define OBJ_VERTS 1024      /* an object's vertices lit, at most */
 #define DRAW_NEAR 90.0f     /* the near trees' and rocks' range (world.c) */
@@ -57,8 +64,33 @@ static uint16_t cand[OBJ_MAX];
 static uint8_t cand_mask[OBJ_MAX];
 uint64_t lamps_us;   /* time spent lighting, for the autotest's split */
 
+/* The campfire's objects and their vertices: which pool vertex, and the
+   colour full firelight adds to it. */
+#define FIRE_OBJS 192
+#define FIRE_VERTS 4096
+#define FIRE_FADE 14.0f     /* metres short of the swap the firelight starts to go */
+typedef struct {
+    V3 lod;                 /* where its chunk measures the camera's distance from */
+    float far;              /* ...and how far that draws it (0: always) */
+    uint16_t obj, first, n; /* the object; its run of fire_v */
+} FObj;
+static FObj fobj[FIRE_OBJS];
+static struct {
+    uint32_t k;
+    uint8_t r, g, b, pad;
+} fire_v[FIRE_VERTS];
+static int nfobj, nfire_v;
+static V3 lod_p;
+static float lod_far;
+
 void lamps_clear(void) {
-    nobj = 0;
+    nobj = nfobj = nfire_v = 0;
+    lod_far = 0;
+}
+
+void lamps_lod(V3 p, float far) {
+    lod_p = p;
+    lod_far = far;
 }
 
 void lamps_add(uint32_t first, uint32_t end) {
@@ -80,6 +112,81 @@ void lamps_add(uint32_t first, uint32_t end) {
         return;
     }
     o->first_n = first | n << 20;
+    V3 d = vsub(v3(o->x, o->y, o->z), campfire_pos());
+    float reach = CAMPFIRE_REACH + o->r;
+    if(nfobj < FIRE_OBJS && vdot(d, d) < reach * reach) fobj[nfobj++] = (FObj){lod_p, lod_far, (uint16_t)(nobj - 1), 0, 0};
+}
+
+/* Each fire object's vertices and what the fire adds to them: by how
+   near they are and how they face it, in the fire's orange on the
+   vertex's own colour. */
+static void fire_index(void) {
+    if(!world_lrec) return;
+    V3 f = campfire_pos();
+    f.y += 0.5f;
+    const LightRec *rec = world_lrec - world_lrec_first;
+    for(int i = 0; i < nfobj; i++) {
+        FObj *fo = &fobj[i];
+        const LObj *o = &obj[fo->obj];
+        uint32_t first = o->first_n & 0xfffff, n = o->first_n >> 20;
+        fo->first = (uint16_t)nfire_v;
+        for(uint32_t k = first; k < first + n && nfire_v < FIRE_VERTS; k++) {
+            const RV *v = &scenery.pool[k];
+            V3 d = vsub(f, v3(v->x, v->y, v->z));
+            float d2 = vdot(d, d), w = campfire_falloff(d2) * 1.7f;
+            if(w < 0.01f) continue;
+            LightRec lr = rec[k];
+            float lam = 0.6f;   /* a colour used as is has no normal: the tent's inside */
+            if(!(lr.alb & 0x80)) {
+                float nx = lr.nx * (1.0f / 127.0f), nz = lr.nz * (1.0f / 127.0f);
+                float ny = sqrtf(fmaxf(1.0f - nx * nx - nz * nz, 0.0f));
+                if(lr.alb & 0x40) ny = -ny;
+                lam = 0.3f + 0.7f * (nx * d.x + ny * d.y + nz * d.z) / sqrtf(fmaxf(d2, 1e-4f));
+                if(lam <= 0) continue;
+            }
+            w *= lam;
+            uint32_t alb = world_alb[lr.alb & 0x3f];
+            int r = (int)((((alb >> 16) & 255) * 0.9f + 36.0f) * w);
+            int g = (int)((((alb >> 8) & 255) * 0.9f + 30.0f) * w * 0.55f);
+            int b = (int)(((alb & 255) * 0.9f + 20.0f) * w * 0.2f);
+            if(r < 3) continue;
+            fire_v[nfire_v].k = k;
+            fire_v[nfire_v].r = (uint8_t)(r > 255 ? 255 : r);
+            fire_v[nfire_v].g = (uint8_t)(g > 255 ? 255 : g);
+            fire_v[nfire_v].b = (uint8_t)(b > 255 ? 255 : b);
+            nfire_v++;
+        }
+        fo->n = (uint16_t)(nfire_v - fo->first);
+    }
+}
+
+/* The fire's light on to its vertices, saving what they were. */
+static void fire_light(void) {
+    float level = campfire_level();
+    if(level < 0.03f || !nfire_v || !r_sphere_visible(campfire_pos(), CAMPFIRE_REACH)) return;
+    RV *pool = scenery.pool;
+    for(int i = 0; i < nfobj; i++) {
+        const FObj *fo = &fobj[i];
+        float k = level;
+        if(fo->far > 0) {
+            float d = vlen(vsub(fo->lod, r_cam.pos));
+            if(d >= fo->far) continue;
+            k *= fminf((fo->far - d) * (1.0f / FIRE_FADE), 1.0f);
+        }
+        int s = (int)(k * 256.0f);
+        if(s < 4 || nsaved + fo->n > SAVE_MAX) continue;
+        for(int j = fo->first; j < fo->first + fo->n; j++) {
+            RV *pv = &pool[fire_v[j].k];
+            uint32_t c = pv->c;
+            saved[nsaved].k = fire_v[j].k;
+            saved[nsaved].c = c;
+            nsaved++;
+            uint32_t r = ((c >> 16) & 255) + ((fire_v[j].r * s) >> 8);
+            uint32_t g = ((c >> 8) & 255) + ((fire_v[j].g * s) >> 8);
+            uint32_t b = (c & 255) + ((fire_v[j].b * s) >> 8);
+            pv->c = 0xff000000u | (r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
+        }
+    }
 }
 
 static int cell_of(float v) {
@@ -98,6 +205,8 @@ void lamps_index(void) {
         int c = cell_of(obj[i].z) * LCELLS + cell_of(obj[i].x);
         order[cell_first[c] + cnt[c]++] = (uint16_t)i;
     }
+    fire_index();
+    printf("Ridgeline lamps: %d objects, %d by the campfire (%d vertices)\n", nobj, nfobj, nfire_v);
 }
 
 /* Could anything of object o be in lamp l's beam? */
@@ -180,12 +289,17 @@ static void obj_light(const LObj *o, const Lamp *lamps, int mask) {
 
 void lamps_begin(bool on_screen) {
     nsaved = 0;
-    if(!on_screen || !world_lrec) return;
-    /* By day a headlight is lost in the sun. */
-    float dark = clampf(pal->dark * 1.1f + 0.4f * world_mist(), 0, 1);
-    if(dark < 0.05f) return;
+    if(!world_lrec) return;
     PROF_BEGIN(pl);
     uint64_t t0 = timer_us_gettime64();
+    fire_light();
+    /* By day a headlight is lost in the sun. */
+    float dark = clampf(pal->dark * 1.1f + 0.4f * world_mist(), 0, 1);
+    if(!on_screen || dark < 0.05f) {
+        PROF_LAP(PS_LAMPS, pl);
+        lamps_us += timer_us_gettime64() - t0;
+        return;
+    }
     Lamp lamps[LAMPS];
     float ldist[LAMPS];
     int nl = 0;
@@ -272,7 +386,8 @@ void lamps_begin(bool on_screen) {
 }
 
 void lamps_end(void) {
+    /* Newest first: a vertex in the firelight and a beam was saved twice. */
     RV *pool = scenery.pool;
-    for(int i = 0; i < nsaved; i++) pool[saved[i].k].c = saved[i].c;
+    for(int i = nsaved - 1; i >= 0; i--) pool[saved[i].k].c = saved[i].c;
     nsaved = 0;
 }
