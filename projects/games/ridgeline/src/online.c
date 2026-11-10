@@ -60,6 +60,9 @@ enum { OS_NAME, OS_CONNECT, OS_BROWSER, OS_ERROR };
 
 #define DOWNLOAD_URL "GITHUB.COM/RICHSTOKES/DREAMCAST-HOMEBREW"
 #define TOAST_S 3.0f
+/* From the end of a name's advance to its trophy (the cup is 1.2 s wide).
+   The lettering's outline spills about 4 px past the advance. */
+#define TROPHY_GAP 12.0f
 
 static int screen = OS_NAME;
 static float screen_t, fly_t;
@@ -651,12 +654,12 @@ static void draw_browser(void) {
             float w = text_width(hud_font(), e->names[k], 0.46f);
             if(x + w > 596) break;
             hud_text_c(x, cy, 0.46f, ALIGN_LEFT, col, e->names[k]);
-            x += w + 4;
+            x += w;
             if(e->flags[k] & NPF_SUMMIT) {
-                hud_trophy(x + 6, cy, 14, 1.0f);
-                x += 14;
+                hud_trophy(x + TROPHY_GAP + 0.6f * 14, cy, 14, 1.0f);
+                x += TROPHY_GAP + 1.2f * 14;
             }
-            x += 10;
+            x += 14;
         }
     }
     if(net_message()[0]) hud_text_c(320, 452, 0.5f, ALIGN_CENTER, ui_col(UI_WARN), net_message());
@@ -704,11 +707,11 @@ void online_draw_hud(void) {
         float sc = clampf(0.62f - dist * 0.002f, 0.38f, 0.62f);
         float w = text_width(hud_font(), p->name, sc);
         hud_text_c(sx, sy, sc, ALIGN_CENTER, color_alpha(0xfff8f0dc, a), p->name);
-        if(p->flags & NPF_SUMMIT) hud_trophy(sx + w * 0.5f + 10, sy, 30 * sc, a);
+        if(p->flags & NPF_SUMMIT) hud_trophy(sx + w * 0.5f + TROPHY_GAP + 0.6f * 30 * sc, sy, 30 * sc, a);
     }
     /* The roster, on the right under the corner map (clear of the
        messages across the middle, and of the large map). */
-    float x0 = 430, x1 = 622, y0 = game.map_mode == 0 ? 152 : 20, h = 18 + l->count * 20;
+    float x0 = 420, x1 = 622, y0 = game.map_mode == 0 ? 152 : 20, h = 18 + l->count * 20;
     hud_panel(x0, y0, x1, y0 + h, 0x90182028);
     char buf[24];
     snprintf(buf, sizeof(buf), "LOBBY %d", l->id + 1);
@@ -720,7 +723,7 @@ void online_draw_hud(void) {
         /* A swatch in the colour of their arrow on the map. */
         hud_panel(x0 + 9, cy - 4, x0 + 17, cy + 4, hud_map_color(truck_of(p->slot)));
         hud_text_c(x0 + 23, cy, 0.5f, ALIGN_LEFT, me ? 0xffffd070 : 0xfff4ecd8, p->name);
-        if(p->flags & NPF_SUMMIT) hud_trophy(x0 + 23 + text_width(hud_font(), p->name, 0.5f) + 12, cy, 15, 1.0f);
+        if(p->flags & NPF_SUMMIT) hud_trophy(x0 + 23 + text_width(hud_font(), p->name, 0.5f) + TROPHY_GAP + 0.6f * 15, cy, 15, 1.0f);
         if(!me) {
             snprintf(buf, sizeof(buf), "%d MS", p->ping);
             hud_text_c(x1 - 10, cy, 0.4f, ALIGN_RIGHT, ping_col(p->ping), buf);
