@@ -304,6 +304,111 @@ def tex_tread():
     return to_image(rgb, np.clip(a, 0, 1) * 255)
 
 
+def tex_marks():
+    """Marks on the ground (world.c), white for the vertex colour to tint,
+    three to a sheet: left, the rubber a tyre leaves on slickrock (along
+    v: streaks, soft at both edges); top right, a three-toed dinosaur's
+    track, toes up; bottom right, a dash of trail paint, worn."""
+    n, ss = 64, 4
+    a = np.zeros((n, n))
+    yy, xx = np.mgrid[0:n, 0:32]
+    u = (xx + 0.5) / 32
+    side = np.clip(np.minimum(u, 1 - u) / 0.3, 0, 1) ** 1.3
+    r = rng(93)
+    lanes = gaussian_filter(r.random((1, 32)), (0, 1.2))            # streaks run the length of it
+    lanes = (lanes - lanes.min()) / (np.ptp(lanes) + 1e-9)
+    along = gaussian_filter(r.random((n, 32)), (5.0, 1.0))
+    along = (along - along.min()) / (np.ptp(along) + 1e-9)
+    a[:, 0:32] = side * (0.5 + 0.5 * lanes) * (0.6 + 0.4 * along)
+    a[:, 0:1] = a[:, 31:32] = 0
+    # The track: a heel pad and three toes, the middle one longest.
+    img = Image.new("L", (32 * ss, 32 * ss), 0)
+    d = ImageDraw.Draw(img)
+    cx, heel = 16 * ss, 24 * ss
+    d.ellipse([cx - 5 * ss, heel - 5 * ss, cx + 5 * ss, heel + 4 * ss], fill=255)
+    for ang, length, wide in ((-34, 15, 2.6), (0, 19, 3.0), (34, 15, 2.6)):
+        t = math.radians(ang)
+        dx, dy = math.sin(t), -math.cos(t)
+        for k in range(40):
+            f = k / 39
+            w = wide * ss * (1.0 - 0.75 * f ** 1.6)
+            x, y = cx + dx * length * ss * f, heel - 2 * ss + dy * length * ss * f
+            d.ellipse([x - w, y - w, x + w, y + w], fill=255)
+    pr = np.asarray(img.filter(ImageFilter.GaussianBlur(ss * 0.6)).resize((32, 32), Image.LANCZOS), dtype=float) / 255
+    a[0:32, 32:64] = pr * (0.8 + 0.2 * r.random((32, 32)))
+    # The paint: a rounded bar, chipped where the rock has shed it.
+    img = Image.new("L", (32 * ss, 32 * ss), 0)
+    ImageDraw.Draw(img).rounded_rectangle([3 * ss, 3 * ss, 29 * ss, 29 * ss], radius=5 * ss, fill=255)
+    bar = np.asarray(img.resize((32, 32), Image.LANCZOS), dtype=float) / 255
+    chips = gaussian_filter(r.random((32, 32)), 1.3)
+    chips = (chips - chips.min()) / (np.ptp(chips) + 1e-9)
+    a[32:64, 32:64] = bar * np.clip((chips - 0.16) * 8, 0.3, 1)
+    rgb = np.full((n, n, 3), 255.0)
+    return to_image(rgb, np.clip(a, 0, 1) * 255)
+
+
+def tex_glyphs():
+    """A panel of petroglyphs: figures pecked through the dark varnish to
+    the pale rock under it. White, alpha where the rock is pecked."""
+    n, ss = 64, 4
+    img = Image.new("L", (n * ss, n * ss), 0)
+    d = ImageDraw.Draw(img)
+    w = int(1.7 * ss)
+
+    def line(pts, width=w):
+        d.line([(x * ss, y * ss) for x, y in pts], fill=255, width=width, joint="curve")
+
+    def sheep(x, y, s=1.0, flip=1):
+        # A bighorn: a boat of a body, four legs, the horns swept back.
+        d.ellipse([(x - 5 * s) * ss, (y - 2.2 * s) * ss, (x + 5 * s) * ss, (y + 2.2 * s) * ss], fill=255)
+        for lx in (-3.8, -2.0, 2.0, 3.8):
+            line([(x + lx * s, y + 1.5 * s), (x + lx * s, y + 6.0 * s)], max(2, int(w * 0.8)))
+        hx = x + 5.2 * s * flip
+        line([(x + 3.6 * s * flip, y - 1.0 * s), (hx, y - 3.6 * s)])
+        d.arc([(hx - 3.6 * s - 2.4 * s * flip) * ss, (y - 7.4 * s) * ss, (hx + 3.6 * s - 2.4 * s * flip) * ss, (y - 2.2 * s) * ss],
+              180 if flip > 0 else 270, 360 if flip > 0 else 90 + 90, fill=255, width=w)
+        line([(x - 5 * s * flip, y - 0.8 * s), (x - 6.4 * s * flip, y - 2.4 * s)], max(2, int(w * 0.7)))
+
+    def figure(x, y, s=1.0):
+        # A broad-shouldered figure, as the canyons' old ones are.
+        d.polygon([((x - 3.4 * s) * ss, (y - 5 * s) * ss), ((x + 3.4 * s) * ss, (y - 5 * s) * ss), ((x + 1.5 * s) * ss, (y + 5 * s) * ss),
+                   ((x - 1.5 * s) * ss, (y + 5 * s) * ss)], fill=255)
+        d.ellipse([(x - 1.8 * s) * ss, (y - 9 * s) * ss, (x + 1.8 * s) * ss, (y - 5.6 * s) * ss], fill=255)
+        line([(x - 3.4 * s, y - 4.6 * s), (x - 5.6 * s, y - 0.5 * s)], max(2, int(w * 0.8)))
+        line([(x + 3.4 * s, y - 4.6 * s), (x + 5.6 * s, y - 0.5 * s)], max(2, int(w * 0.8)))
+        line([(x - 1.0 * s, y + 5 * s), (x - 1.2 * s, y + 8.5 * s)], max(2, int(w * 0.8)))
+        line([(x + 1.0 * s, y + 5 * s), (x + 1.2 * s, y + 8.5 * s)], max(2, int(w * 0.8)))
+
+    def spiral(x, y, r, turns=2.6):
+        pts = [(x + r * (t / (turns * 24)) * math.cos(t * 2 * math.pi / 24), y + r * (t / (turns * 24)) * math.sin(t * 2 * math.pi / 24))
+               for t in range(int(turns * 24) + 1)]
+        line(pts)
+
+    def sun(x, y, r):
+        d.ellipse([(x - r) * ss, (y - r) * ss, (x + r) * ss, (y + r) * ss], outline=255, width=w)
+        for k in range(8):
+            t = k * math.pi / 4
+            line([(x + math.cos(t) * (r + 1.2), y + math.sin(t) * (r + 1.2)), (x + math.cos(t) * (r + 3.4), y + math.sin(t) * (r + 3.4))],
+                 max(2, int(w * 0.8)))
+
+    sheep(15, 12, 1.0)
+    sheep(33, 9, 0.8)
+    sheep(47, 15, 1.1, -1)
+    figure(11, 36, 1.15)
+    figure(25, 38, 0.9)
+    spiral(43, 36, 7.5)
+    sun(56, 44, 3.0)
+    line([(3, 55), (8, 51), (13, 56), (18, 51), (23, 56), (28, 51), (33, 55)])          # a snake
+    sheep(43, 57, 0.75)
+    for k in range(5):                                                               # a count of something
+        d.ellipse([(52 + k * 2.4 - 0.8) * ss, (27 - 0.8) * ss, (52 + k * 2.4 + 0.8) * ss, (27 + 0.8) * ss], fill=255)
+    a = np.asarray(img.filter(ImageFilter.GaussianBlur(ss * 0.35)).resize((n, n), Image.LANCZOS), dtype=float) / 255
+    r = rng(94)
+    a = a * (0.72 + 0.28 * r.random((n, n)))        # pecked, not painted
+    a[0, :] = a[-1, :] = a[:, 0] = a[:, -1] = 0
+    return to_image(np.full((n, n, 3), 255.0), np.clip(a, 0, 1) * 255)
+
+
 def tex_shadow():
     n = 64
     r = radial(n)
@@ -644,6 +749,8 @@ def build(out: Path):
         (TexSpec("shadow", "ARGB4444", True, False), tex_shadow()),
         (TexSpec("clod", "ARGB4444", True, False), tex_clod()),
         (TexSpec("tread", "ARGB4444", True, True), tex_tread()),
+        (TexSpec("marks", "ARGB4444", True, False), tex_marks()),
+        (TexSpec("glyphs", "ARGB4444", True, False), tex_glyphs()),
         (TexSpec("ripple", "RGB565", True, True), tex_ripple()),
         (TexSpec("mist", "ARGB4444", True, True), tex_mist()),
         (TexSpec("cloud", "ARGB4444", False, False), tex_cloud()),

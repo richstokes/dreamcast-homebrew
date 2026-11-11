@@ -36,7 +36,12 @@ enum {
 
 enum {
     PROP_CABIN, PROP_SIGN, PROP_TABLE, PROP_CAIRN, PROP_TOWER, PROP_BRIDGE, PROP_WRECK, PROP_ARCH, PROP_TENT,
-    PROP_KIOSK, PROP_RAMADA, PROP_KIND_COUNT
+    PROP_KIOSK, PROP_RAMADA,
+    PROP_PANEL,     /* a slab of varnished rock with petroglyphs pecked into it */
+    PROP_TRACKS,    /* a dinosaur's trackway across the slickrock, from here along yaw */
+    PROP_ADIT,      /* a mine's portal in the foot of a cliff, rails and an ore cart on its dump */
+    PROP_PLATE,     /* a trail's rating on a post: var 0 green circle, 1 blue square, 2 black diamond */
+    PROP_KIND_COUNT
 };
 #define LVL_BRIDGE_HX 2.90f
 #define LVL_BRIDGE_HZ 7.00f
@@ -65,7 +70,7 @@ typedef struct { float x, y, z, hx, hy, hz, yaw; } lvl_box_t;
 typedef struct { float x0, y0, z0, x1, y1, z1, r; } lvl_post_t;
 /* Trees: base, kind (by area: world.c), scale, turn. */
 typedef struct { float x, y, z; uint8_t kind; uint8_t pad[3]; float scale, yaw; } lvl_tree_t;
-typedef struct { float x, y, z, yaw; uint8_t kind; uint8_t pad[3]; } lvl_prop_t;
+typedef struct { float x, y, z, yaw; uint8_t kind, var; uint8_t pad[2]; } lvl_prop_t;
 /* Viewpoints to find: where, and the name shown. */
 typedef struct { float x, y, z; const char *name; } lvl_view_t;
 /* Where mist lies at dawn and dusk: centre and radius. */

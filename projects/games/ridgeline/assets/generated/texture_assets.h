@@ -32,6 +32,8 @@ enum {
     TEX_SHADOW,
     TEX_CLOD,
     TEX_TREAD,
+    TEX_MARKS,
+    TEX_GLYPHS,
     TEX_RIPPLE,
     TEX_MIST,
     TEX_CLOUD,
@@ -68,15 +70,17 @@ static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {994304u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
     {1005248u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
     {1008000u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
-    {1018944u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
-    {1029888u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
-    {1040832u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {1106368u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {1281152u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
-    {1455936u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {1488704u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {1554240u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {1685312u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {1018944u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* marks */
+    {1029888u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glyphs */
+    {1040832u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
+    {1051776u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
+    {1062720u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {1128256u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {1303040u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
+    {1477824u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {1510592u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {1576128u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {1707200u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

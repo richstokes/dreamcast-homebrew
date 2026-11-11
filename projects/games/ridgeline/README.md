@@ -39,7 +39,10 @@ you've been, and the viewpoints you've found.
   with a river in a gooseneck far below. The flats at the bottom are the
   playground: a baby fin to drive over, potholes in the slickrock (one
   full of water), a sand hill, the wash, a beach on the river (which is
-  deeper than it looks)
+  deeper than it looks). Where a trail crosses bare rock it is marked as
+  the real ones are: two black lines of tyre rubber and dashes of white
+  paint, and each way up has its rating on a post (green circle, blue
+  square, black diamond)
 - Physics: suspension per wheel with ledge-climbing tyre contact, tyres
   that slide by surface (rock, dirt, gravel, grass, mud, scree, snow, wet
   rock, sand, slickrock), water with drag and a stall if it reaches the intake, an automatic
@@ -63,8 +66,12 @@ you've been, and the viewpoints you've found.
   hang on the summit lookout and at the start: on the cabin, the picnic
   table and a post by the grid. The logging road
   has a washout, a log bridge and a steep shortcut that skips ~480 m of it.
-  On Mesa Grande twelve: goblins, a balanced rock, the hot tubs, a camp
-  under the cottonwoods, an old truck where a mine road gave out
+  On Mesa Grande sixteen: goblins, a balanced rock, the hot tubs, a camp
+  under the cottonwoods, an old truck where a mine road gave out and the
+  mine it hauled from in the cliff above (an ore cart still on its
+  rails), a panel of petroglyphs in the canyon, a dinosaur's tracks
+  across the slickrock, a line cabin under the wall with its lantern lit
+  at night
 - In the desert: junipers and pinyons on the benches, cottonwoods gone
   gold along the water, sagebrush, blackbrush and rabbitbrush on the
   flats, tumbleweeds bowling across them in the gusts and a dust devil in
@@ -173,7 +180,7 @@ Assets (generated output is committed):
 
 | Target | Builds |
 | --- | --- |
-| `make level` | Both areas' terrain, routes, obstacles, trees and colours (`tools/build_level.py`; `AREA=moab` for one), previews in `captures/`. Mesa Grande is `tools/level_moab.py` (the land past its map's edge with `tools/outland.py`), which also writes `captures/level-moab-views.png`: the ground from twenty cameras, without the game |
+| `make level` | Both areas' terrain, routes, obstacles, trees and colours (`tools/build_level.py`; `AREA=moab` for one), previews in `captures/`. Mesa Grande is `tools/level_moab.py` (the land past its map's edge with `tools/outland.py`), which also writes `captures/level-moab-views.png`: the ground from twenty-six cameras, without the game |
 | `make textures` | Textures and the font (`tools/build_textures.py`) |
 | `make trucks` | Truck models (`tools/build_trucks.py`), previews with `tools/preview_trucks_blender.py` |
 | `make audio` | Every sound (`tools/build_audio.py`) |
@@ -347,12 +354,15 @@ over them. The three-tier middle tree all the way to 170 m cost up to
 ~207,000 vertices: the heap tops out at ~14 MB of 16 after boot.
 
 Mesa Grande (2026-11-10, Flycast only): the CPU up the rim road with
-three CPU trucks, 7.7-9.7 ms a frame, 8.92 on average (Cascade Ridge
+three CPU trucks, 7.8-10.0 ms a frame, 9.08 on average (Cascade Ridge
 7.5-12.4, 9.57): terrain 3.0, trees 0.7 (it has ~270 of them, not 1,450),
 trucks 1.3. The land past the map's edge is ~0.5 ms of the terrain's on
 that drive and up to 1.3 ms looking out from the top (700-1,500 vertices
 a frame). Before it was checked against the map's skyline it cost 0.9 ms
-everywhere, most of it under the cliffs where none of it shows. With both
+everywhere, most of it under the cliffs where none of it shows. The tyre
+marks and paint are ~4,300 vertices in 46 chunks drawn within 90 m:
+0.1-0.35 ms where a slickrock trail is in view, and with the new props
+0.16 ms on that drive's average. With both
 areas linked in and six vehicles 1.1 MB of the 16 is free after boot (one
 area, before: ~0.3): each area's grid packs to ~0.5 MB (it was 1.7), and
 the loaded one unpacks into the room the sounds were linked into, which
@@ -431,6 +441,20 @@ is spare once the sound chip has them.
   stands out (the dirt loop had a few loud clods and a tread pattern):
   keep the grains even, and play the loop twice at two speeds a fifth
   apart so what pattern is left does not come round (`audio.c`, dirt only)
+- The scenery has 64 colours to light (`world.c` `alb_index`, six bits of
+  each vertex's light record) and a 65th is quietly drawn as the 64th.
+  Mesa Grande uses 53: a new prop takes its colours from the ones there
+  already where it can. The build's log says `FULL` when they run out
+- A mark on the ground (tyre rubber, paint, a track) is laid over the
+  3 m grid, and a trail's ground is only on that grid within 100 m: draw
+  marks no further than that, or they float and sink. Rubber is drawn in
+  its own colour with the strength in its alpha; anything lit loses its
+  vertex alpha when the hour relights it, so paint's edges are in its
+  texture
+- A cliff is two or three vertices from foot to rim: varnish can be a
+  dark column down it, darker at the top, and no finer. A waterline on
+  the wall the river runs under cannot be drawn in the ground's colours
+  at all (the first dry vertex is 30 m up)
 - Loading a second area has about 1 MB of heap to work in, and ~300 KiB
   less online with the network up. A scratch block that fits at boot can
   fail there, and nothing crashes: a 1 MB one for the far ground's relight

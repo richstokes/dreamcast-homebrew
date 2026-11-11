@@ -28,7 +28,7 @@ import math
 from pathlib import Path
 
 import numpy as np
-from scipy.ndimage import gaussian_filter, gaussian_filter1d
+from scipy.ndimage import gaussian_filter, gaussian_filter1d, maximum_filter, minimum_filter
 from scipy.spatial import cKDTree
 
 from levelkit import *  # noqa: F401,F403
@@ -661,6 +661,7 @@ def surfaces(h, water, f, routes):
     surf[sl > 43] = S["ROCK"]
     surf[slick & (sl > 52)] = S["ROCK"]
     surf[f["face"]] = S["ROCK"]
+    surf[f["mine"]["fill"]] = S["SCREE"]
     surf[(f["canyon"] > 0.05) & (sl < 16)] = S["SAND"]
     appr, rim, canyon, fins, summit = routes
     for r in routes:
@@ -733,11 +734,24 @@ def colours(h, water, surf, f, routes):
     # The streaks run down the face: one value for a column of it, taken
     # from how far along the wall the vertex is.
     along = X * fz - Z * fx
-    streak = 0.66 + 0.4 * vnoise(along / 2.6, np.round(np.arctan2(fz, fx) * 2.5), 363) ** 0.7
-    streak *= 0.86 + 0.28 * vnoise(along / 21.0, np.round(np.arctan2(fz, fx) * 2.5), 364)   # and in panels, bay to buttress
+    side_k = np.round(np.arctan2(fz, fx) * 2.5)
+    streak = 0.66 + 0.4 * vnoise(along / 2.6, side_k, 363) ** 0.7
+    streak *= 0.86 + 0.28 * vnoise(along / 21.0, side_k, 364)   # and in panels, bay to buttress
     streak = np.where(face, streak, 0.80 + 0.26 * fbm(X, Z, 7, 2, 363))
     m = (surf == S["ROCK"]) & ~slick
-    alb[m] = (bed * streak[..., None] * 0.9)[m]
+    wall = bed * streak[..., None] * 0.96
+    # Desert varnish: blue-black tongues hanging from the rim where water
+    # runs off it, widest and darkest at the top; here and there a pale
+    # stripe where a seep has bleached the rock instead.
+    rim_y = maximum_filter(h, size=7)
+    foot_y = minimum_filter(h, size=7)
+    up = np.clip((h - foot_y) / np.maximum(rim_y - foot_y, 1.0), 0, 1)
+    tongue = smoothstep(0.44, 0.7, vnoise(along / 3.4, side_k, 365)) * (0.55 + 0.45 * vnoise(along / 26.0, side_k, 366))
+    tongue *= smoothstep(-0.25, 0.75, up) * face
+    wall = wall * (1 - 0.74 * tongue[..., None]) + np.array([44.0, 32.0, 38.0]) * 0.74 * tongue[..., None]
+    seep = smoothstep(0.8, 0.93, vnoise(along / 4.5, side_k, 367)) * face * (1 - tongue)
+    wall = wall * (1 - 0.3 * seep[..., None]) + np.array([236.0, 190.0, 150.0]) * 0.3 * seep[..., None]
+    alb[m] = wall[m]
     m = (surf == S["ROCK"]) & slick
     alb[m] = (sr * (0.9 + 0.1 * streak[..., None]))[m]
     # Talus: the bed greyed and dulled.
@@ -749,8 +763,18 @@ def colours(h, water, surf, f, routes):
     damp = np.maximum(smoothstep(-296, -322, Z), smoothstep(34, 12, f["basin_river"]) * (Z > 236)) * (sl < 10)
     alb = alb * (1 - 0.3 * damp[..., None]) + np.array([150.0, 138.0, 86.0]) * 0.3 * damp[..., None]
     alb *= (0.92 + 0.16 * n1)[..., None] * (0.96 + 0.08 * n2)[..., None]
+    # The river's high-water mark: a bleached band along its banks and
+    # the foot of the wall it runs under.
+    wet = water > -999
+    ring = gaussian_filter((maximum_filter(wet, size=5) & ~wet).astype(float), 0.6)[..., None] * 0.55
+    alb = alb * (1 - ring) + np.array([240.0, 220.0, 190.0]) * ring
+    # The mine's tailings: yellow-grey waste on its dump and down the
+    # slope below it.
+    tail = f["mine"]["tail"][..., None]
+    alb = alb * (1 - 0.72 * tail) + np.array([228.0, 204.0, 128.0]) * (0.9 + 0.2 * n1[..., None]) * 0.72 * tail
     # Rubber on the slickrock where everyone drives: a soft darker band
-    # up the fins (the grid is too coarse for a pair of tyre marks, and a
+    # up the fins, which is how the tyre marks read from a distance (the
+    # game draws the pair of them close to: the grid is too coarse, and a
     # hard line across it comes out as a zigzag).
     wear = np.zeros((N, N))
     for r in routes:
@@ -758,7 +782,7 @@ def colours(h, water, surf, f, routes):
         ok = np.isfinite(d).reshape(N, N)
         wear = np.maximum(wear, np.where(ok, np.clip(1 - d.reshape(N, N) / 5.5, 0, 1), 0.0))
     wear = gaussian_filter(wear, 1.0) * ((surf == S["SLICKROCK"]) | (surf == S["ROCK"]))
-    alb = alb * (1 - 0.2 * wear[..., None]) + np.array([84.0, 62.0, 54.0]) * 0.2 * wear[..., None]
+    alb = alb * (1 - 0.27 * wear[..., None]) + np.array([84.0, 62.0, 54.0]) * 0.27 * wear[..., None]
     ao = np.clip(1.0 + (h - gaussian_filter(h, 4)) * 0.05, 0.74, 1.08)
     ao = np.where(face, np.clip(ao, 0.84, 0.96), ao)
     lam = np.clip(np.einsum("jik,k->ji", nrm, SUN), 0, 1)
@@ -900,6 +924,50 @@ def carve_basin(h, water):
 
 
 LEDGE_C = (0.12, 0.12)     # the canyon's ledges: the first one's step, and how much taller by the head
+
+WRECK = np.array([-246.0, -66.0])      # the old truck on the first bench, where the mine road gave out
+
+
+def mine_site(h):
+    """The mine the old truck hauled from: an adit in the foot of the
+    nearest cliff, at the top of its talus, and its dump levelled off in
+    front (waste rock tipped from the portal, flat on top, lying at its
+    angle of repose down the slope). Cuts the dump into h; returns the
+    portal, the way out of it and the dump."""
+    face, fx, fz = faces(h)
+    sl = slope_deg(h)
+    best = None
+    for j, i in zip(*np.nonzero(face & (np.hypot(X - WRECK[0], Z - WRECK[1]) < 90))):
+        p = np.array([X[j, i], Z[j, i]])
+        out = np.array([fx[j, i], fz[j, i]])
+        # The foot of the face: a few metres out the ground is talus.
+        q = p + out * 5.0
+        gi, gj = to_grid(q)
+        qi, qj = int(round(float(gi))), int(round(float(gj)))
+        if face[qj, qi] or sl[qj, qi] > 40 or h[j, i] > h[qj, qi] + 9:
+            continue
+        # (facing the truck, so the dump shows from where it stands)
+        to = WRECK - p
+        score = np.hypot(*to) - 25.0 * float(out @ to) / np.hypot(*to)
+        if best is None or score < best[0]:
+            best = (score, p, out)
+    _, p, out = best
+    portal = p + out * 2.2
+    y = float(sample(h, portal)[0]) - 0.2
+    c = portal + out * 5.2
+    R = 4.6
+    d = np.hypot(X - c[0], Z - c[1])
+    ahead = (X - portal[0]) * out[0] + (Z - portal[1]) * out[1]
+    pad = (d < R) & (ahead > -1.0)
+    spill = y - 0.82 * np.maximum(d - R, 0)
+    dump = (spill > h) & (ahead > -1.0)
+    h[dump] = spill[dump]
+    h[pad] = y
+    # Tailings: the dump, and a fan of them washed on down the slope.
+    side = np.abs((X - portal[0]) * -out[1] + (Z - portal[1]) * out[0])
+    fan = np.clip(1 - side / (5.0 + 0.3 * np.maximum(ahead, 0)), 0, 1) * smoothstep(46, 16, ahead) * (ahead > 2)
+    tail = np.maximum(np.where(dump | pad, 1.0, 0.0), fan * (0.55 + 0.45 * fbm(X, Z, 6, 2, 391)))
+    return {"portal": portal, "out": out, "y": y, "dump": c, "tail": gaussian_filter(tail, 0.7), "fill": dump | pad}
 
 
 def set_pieces(h, water, f, routes, rng):
@@ -1071,13 +1139,78 @@ def set_pieces(h, water, f, routes, rng):
     props.append((FORK[0] - 7, FORK[1] + 2, 0.4, PROP["SIGN"], None))
     props.append((MEET[0] + 9, MEET[1] + 9, 0.8, PROP["SIGN"], None))
     # An old truck left where the mine road gave out, on the first bench.
-    wk = np.array([-246.0, -66.0])
+    wk = WRECK
     wyaw = 0.7
     prop_boxes.append((wk[0], gy(*wk) + 0.9, wk[1], 0.9, 0.9, 2.2, wyaw))
     props.append((wk[0], wk[1], wyaw, PROP["WRECK"], None))
     views.append((wk[0], wk[1], "OLD TIMER"))
-    return {"rocks": rocks, "spheres": clear_roads(spheres, routes, on_trail), "boxes": boxes, "prop_boxes": prop_boxes,
-            "posts": posts, "capsules": capsules, "props": props, "views": views}
+    clear = [wk]
+
+    def yaw_of(v):
+        return math.atan2(v[0], v[1])       # a prop faces (sin yaw, cos yaw)
+
+    # The mine it hauled from, in the cliff above: the portal's timbers,
+    # an ore cart left at the end of its rails on the dump.
+    mine = f["mine"]
+    mp, mo = mine["portal"], mine["out"]
+    props.append((mp[0], mp[1], yaw_of(mo), PROP["ADIT"], mine["y"]))
+    right = np.array([mo[1], -mo[0]])
+    for side in (-1, 1):
+        q = mp + right * side * 1.15
+        posts.append((q[0], mine["y"] - 0.5, q[1], q[0], mine["y"] + 2.3, q[1], 0.16))
+    cart = mp + mo * 6.4
+    prop_boxes.append((cart[0], mine["y"] + 0.65, cart[1], 0.55, 0.5, 0.8, yaw_of(mo)))
+    # (found from the foot of the dump: the talus up to it is a climb)
+    mv = mp + mo * 22.0
+    views.append((mv[0], mv[1], "LUCKY BURRO MINE"))
+    clear += [mp, cart, mv]
+    # A panel of petroglyphs in the canyon, on a slab fallen from the wall
+    # and stood against its foot: on a straight below the first pour-off.
+    k = min(range(mouth + 8, mouth + 32), key=lambda q: float(np.max(canyon["turn"][q - 8:q + 8])))
+    p, tg, nm = frame(canyon, k)
+    side = 1.0 if gy(*(p + nm * 30)) > gy(*(p - nm * 30)) else -1.0     # under the higher wall
+    off = float(canyon["halfs"][k]) + 3.2
+    while gy(*(p + nm * side * (off + 1.0))) < gy(*p) + 1.6 and off < 24:   # out to where the wall starts up
+        off += 0.5
+    q = p + nm * side * off
+    pyaw = yaw_of(-nm * side)
+    props.append((q[0], q[1], pyaw, PROP["PANEL"], gy(*q) - 0.5))
+    prop_boxes.append((q[0], gy(*q) + 1.0, q[1], 1.9, 1.5, 0.5, pyaw))
+    views.append((p[0], p[1], "PICTURE ROCK"))
+    clear += [q, q + nm * 1.5, q - nm * 1.5]
+    # A dinosaur's tracks across the slickrock on the high bench, making
+    # for the pothole (as they would have, when it was mud).
+    t0 = np.array([-61.0, 53.5])
+    td = np.array([-47.5, 46.0]) - t0
+    td /= np.hypot(*td)
+    props.append((t0[0], t0[1], yaw_of(td), PROP["TRACKS"], None))
+    tv = t0 + td * 5.0 + np.array([-td[1], td[0]]) * 4.0
+    views.append((tv[0], tv[1], "DINOSAUR TRACKS"))
+    clear += [t0 + td * s_ for s_ in (0.0, 4.0, 8.0, 11.0)]
+    # A line cabin under the wall at the east end of the flats, where the
+    # herd waters.
+    cb = np.array([272.0, -226.0])
+    cyaw2 = -1.25
+    props.append((cb[0], cb[1], cyaw2, PROP["CABIN"], None))
+    prop_boxes.append((cb[0], gy(*cb) + 1.4, cb[1], 4.2, 1.6, 3.2, cyaw2))
+    cf = np.array([math.sin(cyaw2), math.cos(cyaw2)])
+    cr = np.array([cf[1], -cf[0]])
+    cv = cb + cr * 12.0
+    views.append((cv[0], cv[1], "LINE CABIN"))
+    clear += [cb + cr * a_ + cf * b_ for a_ in (-4, 0, 4) for b_ in (-3, 0, 3)] + [cv]
+    # Each trail's rating on a post a little way up it from where it
+    # starts: a green circle, a blue square, a black diamond.
+    for r, var, k in ((rim, 0, 26), (fins, 1, 22), (canyon, 2, 26), (summit, 2, 16)):
+        p, tg, nm = frame(r, k)
+        q = p + nm * (float(r["halfs"][k]) + 1.4)
+        props.append((q[0], q[1], yaw_of(-tg), PROP["PLATE"], None, var))
+        posts.append((q[0], gy(*q) - 0.5, q[1], q[0], gy(*q) + 1.5, q[1], 0.12))
+        clear.append(q)
+    # Nothing lies where one of these stands.
+    ck = cKDTree(np.array(clear))
+    spheres = [s_ for s_ in clear_roads(spheres, routes, on_trail) if ck.query((s_[0], s_[2]))[0] > 3.5 + s_[3]]
+    return {"rocks": rocks, "spheres": spheres, "boxes": boxes, "prop_boxes": prop_boxes,
+            "posts": posts, "capsules": capsules, "props": props, "views": views, "clear": clear}
 
 
 # ---------------------------------------------------------------------------
@@ -1257,6 +1390,7 @@ def build(out, preview_path=None, raw=None):
             m = np.hypot(X - x, Z - z) < r_
             level = float(h[m].min()) + wd
             water[m & (h < level - 0.03)] = level
+    f["mine"] = mine_site(h)
     f["face"], f["face_x"], f["face_z"] = faces(h)
     # The mesa's ledges are faces too, small as they are: without their
     # own colour and light its top is a dune.
@@ -1272,15 +1406,16 @@ def build(out, preview_path=None, raw=None):
     rock_boxes = len(sp["boxes"])
     # Nothing grows through a rock or a prop.
     keep = cKDTree(np.array([(s_[0], s_[2]) for s_ in spheres] + [(b[0], b[2]) for b in boxes] + [(q[0], q[2]) for q in posts] +
-                            [(p[0], p[1]) for p in sp["props"]] + [((c[0] + c[3]) / 2, (c[2] + c[5]) / 2) for c in capsules]))
+                            [(p[0], p[1]) for p in sp["props"]] + [((c[0] + c[3]) / 2, (c[2] + c[5]) / 2) for c in capsules] +
+                            [tuple(c) for c in sp["clear"]]))
     trees = [(t[0], gy(t[0], t[2]), t[2], t[3], t[4], t[5]) for t in trees if keep.query((t[0], t[2]))[0] > 4.5]
     argb, rgb, alb_ao, nrm = colours(h, water, surf, f, routes)
-    props = [(p[0], gy(p[0], p[1]) if p[4] is None else p[4], p[1], p[2], p[3]) for p in sp["props"]]
+    props = [(p[0], gy(p[0], p[1]) if p[4] is None else p[4], p[1], p[2], p[3], p[5] if len(p) > 5 else 0) for p in sp["props"]]
     views = [(v[0], gy(v[0], v[1]), v[1], v[2]) for v in sp["views"]]
     # A cairn by each thing to find, but the summit and the arch.
     for v in views:
-        if v[3] not in ("THE DIVING BOARD", "WINDOW ARCH", "RIVER CAMP", "OLD TIMER"):
-            props.append((v[0] + 4.0, gy(v[0] + 4.0, v[2] + 3.0), v[2] + 3.0, 0.0, PROP["CAIRN"]))
+        if v[3] not in ("THE DIVING BOARD", "WINDOW ARCH", "RIVER CAMP", "OLD TIMER", "LINE CABIN", "PICTURE ROCK"):
+            props.append((v[0] + 4.0, gy(v[0] + 4.0, v[2] + 3.0), v[2] + 3.0, 0.0, PROP["CAIRN"], 0))
     summit_y = gy(SUMMIT[0], SUMMIT[1])
     spawns = []
     for k in range(4):
@@ -1320,7 +1455,12 @@ def build(out, preview_path=None, raw=None):
         az, el = math.degrees(math.atan2(SUN[0], SUN[2])) % 360, math.degrees(math.asin(SUN[1]))
         orgb = ol.lit(o["alb"], o["nrm"], o["hz"], az, el, (0.62, 0.66, 0.72), (0.62, 0.577, 0.496))
         land = [ol.mesh(o["h"], orgb)] + [ol.ribbon_mesh(r, WATER_RGB) for r in o["ribbons"]]
-        preview(h, rgb, water, preview_path.with_name("level-moab-views.png"), land=land, rocks=rocks, spheres=spheres,
+        mp, mo = f["mine"]["portal"], f["mine"]["out"]
+        extra = [("mine", (WRECK[0], gy(*WRECK) + 3, WRECK[1]), (mp[0], f["mine"]["y"] + 2, mp[1])),
+                 ("mine-near", tuple(np.insert(mp + mo * 26 + np.array([mo[1], -mo[0]]) * 8, 1, f["mine"]["y"] - 4)), (mp[0], f["mine"]["y"] + 1, mp[1])),
+                 ("canyon-wall", (-186, 16, -150), (-200, 30, -90)), ("river-wall", (-40, 8, -312), (120, 12, -345)),
+                 ("cabin", (236, 9, -240), (272, 10, -226)), ("wall-east", (150, 12, -230), (260, 40, -150))]
+        preview(h, rgb, water, preview_path.with_name("level-moab-views.png"), extra=extra, land=land, rocks=rocks, spheres=spheres,
                 boxes=boxes, trees=trees, tree_rgb=((74, 96, 58), (122, 150, 62), (64, 88, 60)))
 
 

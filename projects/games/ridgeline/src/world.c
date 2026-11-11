@@ -23,6 +23,7 @@
 Scenery scenery;
 V3 sun_dir;
 
+static const pvr_poly_hdr_t *h_marks, *h_glyphs;
 static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_crown, *h_sun, *h_moon, *h_stars, *h_glow_add,
     *h_ring_add, *h_cloud, *h_stone;
 
@@ -435,8 +436,9 @@ static void leg(V3 a, V3 b, float w, uint32_t albedo) {
     sc_strip_end(&scenery);
 }
 
-/* A log: a six-sided cylinder along the capsule, bark round it. */
-static void log_mesh(const lvl_capsule_t *cp) {
+/* A log: a six-sided cylinder along the capsule, bark round it and pale
+   cut ends (or a wheel, in a colour of its own). */
+static void log_mesh_in(const lvl_capsule_t *cp, uint32_t round, uint32_t ends) {
     V3 a = v3(cp->ax, cp->ay, cp->az), b = v3(cp->bx, cp->by, cp->bz);
     V3 ax = vnorm(vsub(b, a));
     V3 side = vnorm(vcross(ax, v3(0, 1, 0)));
@@ -446,8 +448,8 @@ static void log_mesh(const lvl_capsule_t *cp) {
     for(int s = 0; s <= 6; s++) {
         float ang = ENG_TAU * (s % 6) / 6.0f;
         V3 n = vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang)));
-        lv(vmad(a, n, r), s / 3.0f, 0, 0xff7a5a3e, n, 0.9f);
-        lv(vmad(b, n, r), s / 3.0f, len / 1.5f, 0xff7a5a3e, n, 0.9f);
+        lv(vmad(a, n, r), s / 3.0f, 0, round, n, 0.9f);
+        lv(vmad(b, n, r), s / 3.0f, len / 1.5f, round, n, 0.9f);
     }
     sc_strip_end(&scenery);
     for(int e = 0; e < 2; e++) {
@@ -457,23 +459,36 @@ static void log_mesh(const lvl_capsule_t *cp) {
         static const int order[6] = {0, 1, 5, 2, 4, 3};
         for(int s = 0; s < 6; s++) {
             float ang = ENG_TAU * order[s] / 6.0f;
-            lv(vmad(c, vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang))), r * 0.98f), 0, 0, 0xffd8b88a, en, 1.0f);
+            lv(vmad(c, vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang))), r * 0.98f), 0, 0, ends, en, 1.0f);
         }
         sc_strip_end(&scenery);
     }
 }
+
+static void log_mesh(const lvl_capsule_t *cp) {
+    log_mesh_in(cp, 0xff7a5a3e, 0xffd8b88a);
+}
+
+/* The scenery has 64 colours to light (alb_index), and the desert uses
+   most of them: these share what is there already where they can. */
+#define PANEL_VARNISH 0xff4c2e28   /* the petroglyph slab's face */
+#define MARK_BLACK 0xff0e0a0a      /* the mine's dark, a black diamond */
+#define MARK_PALE 0xfff0e0b0       /* trail paint and pecked rock: the signs' cream */
 
 static void prop(const lvl_prop_t *p) {
     V3 c = v3(p->x, p->y, p->z);
     float cy = cosf(p->yaw), sy = sinf(p->yaw);
     switch(p->kind) {
         case PROP_CABIN: {
-            box_seg(h_bark, v3(c.x, c.y + 1.4f, c.z), 4.2f, 1.6f, 3.2f, p->yaw, 0xffa0703e, 0.4f, 1.5f);
+            /* Logs and a red roof on the mountain; in the desert a line
+               cabin's bleached boards under rusted tin. */
+            bool dry = lvl_area == AREA_MOAB;
+            box_seg(h_bark, v3(c.x, c.y + 1.4f, c.z), 4.2f, 1.6f, 3.2f, p->yaw, dry ? 0xffb09a78 : 0xffa0703e, 0.4f, 1.5f);
             /* The roof: a ridge along the cabin's length. */
             V3 ax = v3(cy * 4.8f, 0, -sy * 4.8f), az = v3(sy * 3.8f, 0, cy * 3.8f);
             V3 e0 = vadd(c, az), e1 = vsub(c, az);
-            float eave = c.y + 3.0f, ridge = c.y + 5.0f;
-            uint32_t rc = 0xff9a3a2a;
+            float eave = c.y + 3.0f, ridge = c.y + (dry ? 4.3f : 5.0f);
+            uint32_t rc = dry ? 0xff8e5232 : 0xff9a3a2a;
             for(int side = -1; side <= 1; side += 2) {
                 V3 n = vnorm(v3(cy * side, 0.9f, -sy * side));
                 sc_strip_begin(&scenery, h_flat);
@@ -487,12 +502,15 @@ static void prop(const lvl_prop_t *p) {
             for(int end = -1; end <= 1; end += 2) {
                 V3 o = vscale(az, (float)end * 0.84f), n = vnorm(o);
                 sc_strip_begin(&scenery, h_flat);
-                lv(v3(c.x + o.x - ax.x * 0.88f, eave, c.z + o.z - ax.z * 0.88f), 0, 0, 0xffb88850, n, 0.95f);
-                lv(v3(c.x + o.x + ax.x * 0.88f, eave, c.z + o.z + ax.z * 0.88f), 0, 0, 0xffb88850, n, 0.95f);
-                lv(v3(c.x + o.x, ridge - 0.1f, c.z + o.z), 0, 0, 0xffb88850, n, 0.95f);
+                uint32_t gc = dry ? 0xffb09a78 : 0xffb88850;
+                lv(v3(c.x + o.x - ax.x * 0.88f, eave, c.z + o.z - ax.z * 0.88f), 0, 0, gc, n, 0.95f);
+                lv(v3(c.x + o.x + ax.x * 0.88f, eave, c.z + o.z + ax.z * 0.88f), 0, 0, gc, n, 0.95f);
+                lv(v3(c.x + o.x, ridge - 0.1f, c.z + o.z), 0, 0, gc, n, 0.95f);
                 sc_strip_end(&scenery);
             }
-            box(h_rock, v3(c.x + cy * 2.6f, c.y + 3.6f, c.z - sy * 2.6f), 0.4f, 1.6f, 0.4f, p->yaw, 0xff8a8a90, 0.5f);
+            /* A stone chimney, or a stovepipe. */
+            if(dry) box(h_flat, v3(c.x + cy * 2.6f, c.y + 4.3f, c.z - sy * 2.6f), 0.14f, 0.9f, 0.14f, p->yaw, 0xff3a4246, 1.0f);
+            else box(h_rock, v3(c.x + cy * 2.6f, c.y + 3.6f, c.z - sy * 2.6f), 0.4f, 1.6f, 0.4f, p->yaw, 0xff8a8a90, 0.5f);
             break;
         }
         case PROP_SIGN:
@@ -660,7 +678,284 @@ static void prop(const lvl_prop_t *p) {
             sc_strip_end(&scenery);
             break;
         }
+        case PROP_PANEL: {
+            /* A slab stood against the canyon wall, black with varnish
+               (the figures pecked into it are a mark: marks_build), and
+               what broke off it at its foot. */
+            V3 r = v3(cy, 0, -sy);
+            uint32_t seed = (uint32_t)(p->x * 19.0f) ^ (uint32_t)(p->z * 23.0f);
+            box_seg(h_rock, v3(c.x, c.y + 1.5f, c.z), 1.9f, 1.5f, 0.5f, p->yaw, PANEL_VARNISH, 0.35f, 1.3f);
+            boulder(v3(c.x + r.x * 2.3f, c.y + 0.7f, c.z + r.z * 2.3f), 0.9f, seed, 0);
+            boulder(v3(c.x - r.x * 2.5f + sy * 0.5f, c.y + 0.6f, c.z - r.z * 2.5f + cy * 0.5f), 0.65f, seed * 5u, 0);
+            /* (and the rest of the fall behind and over it, so it is a
+               rock among rocks and not a board) */
+            boulder(v3(c.x - r.x * 1.3f - sy * 0.5f, c.y + 2.9f, c.z - r.z * 1.3f - cy * 0.5f), 1.0f, seed * 7u, 0);
+            boulder(v3(c.x + r.x * 1.1f - sy * 0.7f, c.y + 3.1f, c.z + r.z * 1.1f - cy * 0.7f), 1.2f, seed * 11u, 0);
+            boulder(v3(c.x + r.x * 2.6f - sy * 0.9f, c.y + 2.0f, c.z + r.z * 2.6f - cy * 0.9f), 1.1f, seed * 13u, 0);
+            boulder(v3(c.x - r.x * 2.8f - sy * 0.8f, c.y + 1.9f, c.z - r.z * 2.8f - cy * 0.8f), 0.95f, seed * 17u, 0);
+            break;
+        }
+        case PROP_ADIT: {
+            /* A mine's portal: the dark of the drift, a set of timbers
+               round it, rails out across the dump and an ore cart left
+               at the end of them. */
+            V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+            const uint32_t timber = 0xff6a4a30, rust = 0xff8e5232;
+            box(h_flat, vadd(c, v3(-f.x * 0.75f, 1.0f, -f.z * 0.75f)), 0.98f, 1.1f, 1.0f, p->yaw, MARK_BLACK, 1.0f);
+            for(int side = -1; side <= 1; side += 2)
+                box(h_bark, vadd(c, v3(r.x * side * 1.12f + f.x * 0.36f, 1.1f, r.z * side * 1.12f + f.z * 0.36f)), 0.14f, 1.25f, 0.14f,
+                    p->yaw + side * 0.06f, timber, 1.0f);
+            box(h_bark, vadd(c, v3(f.x * 0.36f, 2.42f, f.z * 0.36f)), 1.5f, 0.14f, 0.16f, p->yaw, timber, 1.0f);
+            box(h_bark, vadd(c, v3(f.x * 0.2f, 2.2f, f.z * 0.2f)), 1.0f, 0.05f, 0.45f, p->yaw, 0xff4a3426, 1.0f);
+            for(int side = -1; side <= 1; side += 2)
+                box(h_flat, vadd(c, v3(r.x * side * 0.38f + f.x * 3.3f, 0.07f, r.z * side * 0.38f + f.z * 3.3f)), 0.035f, 0.05f, 3.7f,
+                    p->yaw, rust, 1.0f);
+            for(float t = 0.4f; t < 7.0f; t += 1.1f)
+                box(h_bark, vadd(c, v3(f.x * t, 0.03f, f.z * t)), 0.62f, 0.04f, 0.09f, p->yaw, 0xff4a3426, 1.0f);
+            V3 k = vadd(c, vscale(f, 6.4f));
+            box(h_flat, vadd(k, v3(0, 0.8f, 0)), 0.5f, 0.36f, 0.72f, p->yaw, rust, 1.0f);
+            box(h_flat, vadd(k, v3(0, 1.13f, 0)), 0.42f, 0.04f, 0.64f, p->yaw, 0xff3a2a20, 1.0f);
+            boulder(vadd(k, v3(0.05f, 1.2f, -0.1f)), 0.3f, 0x5eedu, 1);
+            for(int w = 0; w < 4; w++) {
+                V3 q = vadd(k, vadd(vscale(f, w & 1 ? 0.45f : -0.45f), vscale(r, w & 2 ? 0.38f : -0.38f)));
+                V3 a = vsub(q, vscale(r, 0.05f)), b = vadd(q, vscale(r, 0.05f));
+                lvl_capsule_t wh = {a.x, c.y + 0.22f, a.z, b.x, c.y + 0.22f, b.z, 0.2f};
+                log_mesh_in(&wh, 0xff3a2a20, 0xff4a3a30);
+            }
+            break;
+        }
+        case PROP_PLATE: {
+            /* A trail's rating, as a ski run's: a shape on a pale board,
+               both sides. */
+            static const uint32_t shade[3] = {0xff2f9a48, 0xff2a5cc4, MARK_BLACK};
+            static const int sides[3] = {10, 4, 4};
+            static const float rad[3] = {0.23f, 0.3f, 0.27f}, rot[3] = {0, ENG_PI * 0.25f, 0};
+            int var = p->var < 3 ? p->var : 2;
+            V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy), m = v3(c.x, c.y + 1.72f, c.z);
+            box(h_bark, v3(c.x, c.y + 0.75f, c.z), 0.06f, 0.75f, 0.06f, p->yaw, 0xff6a4a30, 1.0f);
+            box(h_flat, m, 0.36f, 0.36f, 0.035f, p->yaw, 0xffeadfc0, 1.0f);
+            for(int face = -1; face <= 1; face += 2) {
+                V3 o = vadd(m, vscale(f, face * 0.045f)), rr = vscale(r, (float)-face), n = vscale(f, (float)face);
+                int ns = sides[var];
+                sc_strip_begin(&scenery, h_flat);
+                for(int k = 0; k < ns; k++) {
+                    /* Round the shape from both ends at once: a strip. */
+                    int idx = k & 1 ? ns - (k + 1) / 2 : k / 2;
+                    float a = rot[var] + ENG_TAU * idx / ns;
+                    lv(vadd(o, vadd(vscale(rr, sinf(a) * rad[var]), v3(0, cosf(a) * rad[var], 0))), 0, 0, shade[var], n, 1.0f);
+                }
+                sc_strip_end(&scenery);
+            }
+            break;
+        }
+        case PROP_TRACKS: break;   /* marks on the rock, no more (marks_build) */
     }
+}
+
+/* ---- Marks on the ground ----
+
+   What lies on the rock and takes its shape: the pair of black lines
+   tyres leave up the slickrock wherever a route crosses it, the dashes
+   of white paint that blaze the way over bare rock, a dinosaur's tracks,
+   and the figures on the petroglyph panel. Thin translucent strips a hand
+   above the ground, built once and drawn within MARK_FAR_M: that is as
+   far as a trail's ground stays on the grid they were laid over (further
+   off, the darker band in the ground's own colours is the tyre marks). */
+#define MARK_MAX 128
+#define MARK_FAR_M 90.0f
+#define MARK_LIFT 0.05f
+#define MARK_STEP 1.25f            /* metres between a line's vertices */
+#define MARK_RUN 20                /* steps to a chunk */
+#define RUBBER_HALF 0.17f
+#define RUBBER_TRACK 0.84f         /* each line's distance from the middle */
+#define RUBBER_RGB 0x241a18u
+static uint16_t mark_chunks[MARK_MAX];
+static int mark_n;
+
+static V3 mark_at(float x, float z, V3 *n) {
+    V3 nn;
+    float y = terrain_height_n(x, z, &nn);
+    if(n) *n = nn;
+    return v3(x + nn.x * MARK_LIFT, y + nn.y * MARK_LIFT, z + nn.z * MARK_LIFT);
+}
+
+/* Smooth noise along a line, 0..1. */
+static float mark_noise(float s, uint32_t seed) {
+    int i = (int)floorf(s);
+    float f = s - i;
+    f = f * f * (3 - 2 * f);
+    float a = (float)(hash32((uint32_t)i * 2246822519u + seed) & 0xffff) / 65535.0f;
+    float b = (float)(hash32((uint32_t)(i + 1) * 2246822519u + seed) & 0xffff) / 65535.0f;
+    return a + (b - a) * f;
+}
+
+/* A flat quad on the ground about (x, z): half_w across, half_l along
+   dir, its texture's v running along it. */
+static void mark_quad(float x, float z, V3 dir, float half_w, float half_l, float u0, float v0, float u1, float v1,
+                      uint32_t col, bool lit_it) {
+    V3 side = v3(dir.z, 0, -dir.x);
+    for(int k = 0; k < 4; k++) {
+        float a = k & 2 ? half_l : -half_l, b = k & 1 ? half_w : -half_w;
+        V3 n, q = mark_at(x + dir.x * a + side.x * b, z + dir.z * a + side.z * b, &n);
+        float u = k & 1 ? u1 : u0, v = k & 2 ? v0 : v1;
+        if(lit_it) lv(q, u, v, col, n, 1.0f);
+        else lc(q, u, v, col);
+    }
+}
+
+static void mark_chunk_begin(V3 lp, float far) {
+    sc_chunk_begin(&scenery, HF_TR, 0, far, TAG_PROPS);
+    sc_chunk_lod_point(&scenery, lp);
+}
+
+static void mark_chunk_end(uint32_t at) {
+    sc_chunk_end(&scenery);
+    if(scenery.chunk_n > at && mark_n < MARK_MAX) mark_chunks[mark_n++] = (uint16_t)at;
+}
+
+static bool mark_rock(float x, float z) {
+    int s = surface_at(x, z);
+    return s == SURF_SLICKROCK || s == SURF_ROCK;
+}
+
+/* The tyre marks and the blazes along route r. */
+static void marks_route(int r) {
+    const lvl_route_t *rt = &lvl_routes[r];
+    typedef struct { V3 p, side; float a[2], s; bool on, paint; } Step;
+    Step st[MARK_RUN + 1];
+    int n = 0, count = 0;
+    float s = 0, carry = 0;
+    for(int k = 0; k + 1 < rt->n; k++) {
+        V3 a = v3(rt->pts[k].x, rt->pts[k].y, rt->pts[k].z), b = v3(rt->pts[k + 1].x, rt->pts[k + 1].y, rt->pts[k + 1].z);
+        float dx = b.x - a.x, dz = b.z - a.z, len = sqrtf(dx * dx + dz * dz);
+        if(len < 0.01f) continue;
+        V3 dir = v3(dx / len, 0, dz / len);
+        float grade = fabsf(b.y - a.y) / len;
+        bool last_seg = k + 2 >= rt->n;
+        float t = carry;
+        for(;; t += MARK_STEP) {
+            bool flush = t >= len;      /* past this stretch: at the route's end, what is left */
+            if(flush && !(last_seg && n > 1)) break;
+            if(!flush) {
+                Step *q = &st[n++];
+                /* The pair wanders a little across the trail, together. */
+                float w = 0.24f * sinf(s * 0.11f + r * 1.7f) + 0.1f * sinf(s * 0.37f + r);
+                q->side = v3(dir.z, 0, -dir.x);
+                q->p = v3(a.x + dir.x * t + q->side.x * w, 0, a.z + dir.z * t + q->side.z * w);
+                q->s = s;
+                q->on = mark_rock(q->p.x, q->p.z);
+                /* Blacker the steeper the climb, where tyres work, and
+                   coming and going: each wheel finds its own grip. */
+                float base = clampf(0.4f + 1.3f * grade, 0, 0.85f);
+                for(int e = 0; e < 2; e++) {
+                    float come = clampf((mark_noise(s * 0.085f, 77u + r * 31u + e * 977u) - 0.2f) * 3.4f, 0, 1);
+                    q->a[e] = q->on ? base * come : 0;
+                }
+                q->paint = q->on && surface_at(q->p.x, q->p.z) == SURF_SLICKROCK && count % 8 == 3;
+                count++;
+                s += MARK_STEP;
+            }
+            if(n == MARK_RUN + 1 || flush) {
+                uint32_t at = scenery.chunk_n;
+                V3 lp = st[n / 2].p;
+                lp.y = terrain_height(lp.x, lp.z);
+                mark_chunk_begin(lp, MARK_FAR_M);
+                /* The paint first, in a run of its own: it is lit, and a
+                   headlight finds it (lamps.c); the rubber is neither. */
+                uint32_t f0 = scenery.pool_n;
+                for(int i = 0; i + 1 < n; i++) {
+                    if(!st[i].paint) continue;
+                    V3 d2 = vnorm(v3(st[i + 1].p.x - st[i].p.x, 0, st[i + 1].p.z - st[i].p.z));
+                    sc_strip_begin(&scenery, h_marks);
+                    mark_quad(st[i].p.x, st[i].p.z, d2, 0.075f, 0.5f, 0.53f, 0.53f, 0.97f, 0.97f, MARK_PALE, true);
+                    sc_strip_end(&scenery);
+                }
+                if(scenery.pool_n > f0) {
+                    lamps_lod(lp, MARK_FAR_M);
+                    lamps_add(f0, scenery.pool_n);
+                }
+                for(int e = 0; e < 2; e++) {
+                    bool open = false;
+                    for(int i = 0; i < n; i++) {
+                        bool draw = st[i].on && (st[i].a[e] > 0.02f || (i > 0 && st[i - 1].a[e] > 0.02f) ||
+                                                 (i + 1 < n && st[i + 1].a[e] > 0.02f));
+                        if(!draw) {
+                            if(open) sc_strip_end(&scenery);
+                            open = false;
+                            continue;
+                        }
+                        if(!open) sc_strip_begin(&scenery, h_marks);
+                        open = true;
+                        float off = (e ? RUBBER_TRACK : -RUBBER_TRACK);
+                        /* (the sheet's rubber does not tile: back and forth along it) */
+                        float ph = st[i].s * (1.0f / 3.4f), v = ph - floorf(ph);
+                        v = 0.03f + 0.94f * (v < 0.5f ? v * 2 : 2 - v * 2);
+                        /* (its strength in three steps: each is one of the scenery's colours) */
+                        uint32_t col = RUBBER_RGB | (uint32_t)((int)(st[i].a[e] * 2.4f + 0.5f) * 0x54) << 24;
+                        for(int h = 0; h < 2; h++) {
+                            float o = off + (h ? RUBBER_HALF : -RUBBER_HALF);
+                            lc(mark_at(st[i].p.x + st[i].side.x * o, st[i].p.z + st[i].side.z * o, NULL), h ? 0.47f : 0.03f, v, col);
+                        }
+                    }
+                    if(open) sc_strip_end(&scenery);
+                }
+                mark_chunk_end(at);
+                /* The next run starts on this one's last step. */
+                st[0] = st[n - 1];
+                st[0].paint = false;
+                n = flush ? 0 : 1;
+                if(flush) break;
+            }
+        }
+        carry = t - len;
+    }
+}
+
+static void marks_build(void) {
+    mark_n = 0;
+    if(lvl_area != AREA_MOAB) return;
+    for(int r = 0; r < LVL_ROUTES; r++) marks_route(r);
+    for(int i = 0; i < LVL_PROPS; i++) {
+        const lvl_prop_t *p = &lvl_props[i];
+        float cy = cosf(p->yaw), sy = sinf(p->yaw);
+        V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+        if(p->kind == PROP_TRACKS) {
+            /* Nine prints, left and right, a stride apart, the toes a
+               little out. */
+            uint32_t at = scenery.chunk_n;
+            mark_chunk_begin(v3(p->x + f.x * 5.0f, p->y, p->z + f.z * 5.0f), 60.0f);
+            for(int k = 0; k < 9; k++) {
+                float side = k & 1 ? 0.3f : -0.3f, out = k & 1 ? 0.16f : -0.16f;
+                V3 d = vnorm(v3(f.x + r.x * out, 0, f.z + r.z * out));
+                sc_strip_begin(&scenery, h_marks);
+                mark_quad(p->x + f.x * k * 1.2f + r.x * side, p->z + f.z * k * 1.2f + r.z * side, d, 0.27f, 0.3f,
+                          0.53f, 0.03f, 0.97f, 0.47f, RUBBER_RGB | 0xa8000000u, false);
+                sc_strip_end(&scenery);
+            }
+            mark_chunk_end(at);
+        }
+        else if(p->kind == PROP_PANEL) {
+            /* The figures, a finger's width proud of the slab's face. */
+            uint32_t at = scenery.chunk_n;
+            V3 m = v3(p->x + f.x * 0.53f, p->y + 1.75f, p->z + f.z * 0.53f);
+            mark_chunk_begin(m, 70.0f);
+            uint32_t f0 = scenery.pool_n;
+            sc_strip_begin(&scenery, h_glyphs);
+            for(int k = 0; k < 4; k++) {
+                float a = k & 2 ? 1.6f : -1.6f, b = k & 1 ? -1.0f : 1.0f;
+                lv(v3(m.x + r.x * a, m.y + b, m.z + r.z * a), k & 2 ? 0.0f : 1.0f, k & 1 ? 1.0f : 0.0f, MARK_PALE, f, 1.0f);
+            }
+            sc_strip_end(&scenery);
+            lamps_lod(m, 70.0f);
+            lamps_add(f0, scenery.pool_n);
+            mark_chunk_end(at);
+        }
+    }
+    lamps_lod(v3(0, 0, 0), 0);
+}
+
+static void marks_draw(void) {
+    for(int i = 0; i < mark_n; i++) sc_draw_chunk(&scenery, mark_chunks[i]);
 }
 
 /* ---- Rock formations (level.h): spires, arches, balanced rocks ---- */
@@ -1735,6 +2030,7 @@ static void mist_draw(void) {
 }
 
 void world_draw_tr(void) {
+    marks_draw();
     outland_draw_tr();
     water_draw(&scenery);
     mist_draw();
@@ -1840,6 +2136,8 @@ void world_draw_flare(void) {
 
 void world_init(void) {
     h_flat = r_header(TEX_NONE, HF_OP);
+    h_marks = r_header(TEX_MARKS, HF_TR);
+    h_glyphs = r_header(TEX_GLYPHS, HF_TR);
     h_flat_nofog = r_header(TEX_NONE, HF_OP | HF_NOFOG);
     h_rock = r_header(TEX_ROCK, HF_OP);
     h_bark = r_header(TEX_BARK, HF_OP);
@@ -2105,6 +2403,7 @@ void world_build(void) {
         sc_chunk_end(&scenery);
         if(scenery.chunk_n > at) prop_chunks[prop_chunk_n++] = (uint16_t)at;
     }
+    marks_build();
     uint32_t tree_c = scenery.chunk_n, tree_p = scenery.pool_n;
     trees_build();
     for(int i = 0; i < glow_n; i++) {
@@ -2121,7 +2420,8 @@ void world_build(void) {
     printf("Ridgeline world: %lu vertices (terrain %d, trees %lu), %lu strips, %lu chunks%s\n",
            (unsigned long)scenery.pool_n, terrain_v, (unsigned long)(scenery.pool_n - tree_p),
            (unsigned long)scenery.strip_n, (unsigned long)scenery.chunk_n,
-           scenery.full || scenery.pool_n - world_lrec_first > lrec_max ? " - FULL, some scenery missing" : "");
+           scenery.full || scenery.pool_n - world_lrec_first > lrec_max || alb_n >= 64 ? " - FULL, some scenery missing" : "");
+    printf("Ridgeline marks: %d chunks, %d colours in the scenery\n", mark_n, alb_n);
     scenery.chunk_n = tree_c;
 }
 

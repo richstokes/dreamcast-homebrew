@@ -337,7 +337,7 @@ def apply_mud(h, mud):
 # in its way; every tree's height is read again from the final ground.
 
 PROP = {n: i for i, n in enumerate(["CABIN", "SIGN", "TABLE", "CAIRN", "TOWER", "BRIDGE", "WRECK", "ARCH", "TENT",
-                                    "KIOSK", "RAMADA"])}
+                                    "KIOSK", "RAMADA", "PANEL", "TRACKS", "ADIT", "PLATE"])}
 BRIDGE_HX, BRIDGE_HZ = 2.9, 7.0     # deck half width and half length (world.c draws the same)
 
 
@@ -604,7 +604,7 @@ def write_header(path, area, lv):
     table("lvl_tree_t", "trees", lv["trees"],
           lambda t: f"{{{t[0]:.1f}f, {t[1]:.2f}f, {t[2]:.1f}f, {t[3]}, {{0}}, {t[4]:.2f}f, {t[5]:.2f}f}}", 2048)
     table("lvl_prop_t", "props", lv["props"],
-          lambda p: f"{{{p[0]:.1f}f, {p[1]:.2f}f, {p[2]:.1f}f, {p[3]:.3f}f, {p[4]}, {{0}}}}", 48)
+          lambda p: f"{{{p[0]:.1f}f, {p[1]:.2f}f, {p[2]:.1f}f, {p[3]:.3f}f, {p[4]}, {p[5] if len(p) > 5 else 0}, {{0}}}}", 48)
     table("lvl_view_t", "views", lv["views"], lambda v: f'{{{v[0]:.1f}f, {v[1]:.2f}f, {v[2]:.1f}f, "{v[3]}"}}', 16)
     w(f"static const float {a}_spawns[{len(lv['spawns'])}][4] = {{")
     for s_ in lv["spawns"]:
