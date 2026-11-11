@@ -292,6 +292,8 @@ static void ground_quad(V3 c, V3 ax, V3 az, float ymax, float lift, uint32_t col
     }
 }
 
+#define TAIL_REVERSE 0xfffff6e4 /* the tail lamps in reverse gear */
+
 void truckdraw_draw_op(void) {
     PROF_BEGIN(pt);
     draw_frame++;
@@ -311,7 +313,7 @@ void truckdraw_draw_op(void) {
         TruckLit *tl = &truck_lit[ti];
         uint32_t *lit_b = tl->buf ? tl->buf : lit_buf;
         uint32_t key = (uint32_t)t->model | (uint32_t)lod << 8 | (uint32_t)(t->livery % RL_LIVERIES) << 12 |
-                       (uint32_t)t->lights << 16 | (t->brake > 0.2f ? 1u << 20 : 0);
+                       (uint32_t)t->lights << 16 | (t->brake > 0.2f ? 1u << 20 : 0) | (t->gear < 0 ? 1u << 21 : 0);
         if(!tl->buf || eng_lit_due(&tl->age, key, draw_frame, (unsigned)ti)) {
             EngLight l;
             l.L = v3(vdot(sun_dir, R), vdot(sun_dir, U), vdot(sun_dir, F));
@@ -360,19 +362,22 @@ void truckdraw_draw_op(void) {
                 paint[RL_PAINT_TRIM] = info->livery[lv][2];
             }
             uint32_t unlit = 0;
+            /* The tail lenses: white in reverse (the models have no lamp
+               of their own for it), bright red on the brakes. */
+            uint32_t tail = t->gear < 0 ? TAIL_REVERSE : t->brake > 0.2f ? 0xffff3020 : 0;
             if(t->lights) {
                 /* Full beam: whiter lenses, and the roof lights with them. */
                 bool full = t->lights == LIGHTS_FULL;
                 paint[RL_PAINT_HEADLIGHT] = full ? 0xffffffff : 0xfffff4d8;
-                paint[RL_PAINT_TAILLIGHT] = t->brake > 0.2f ? 0xffff3020 : 0xffd81818;
+                paint[RL_PAINT_TAILLIGHT] = tail ? tail : 0xffd81818;
                 unlit = (1u << RL_PAINT_HEADLIGHT) | (1u << RL_PAINT_TAILLIGHT);
                 if(full) {
                     paint[RL_PAINT_AUX] = 0xfffff8e8;
                     unlit |= 1u << RL_PAINT_AUX;
                 }
             }
-            else if(t->brake > 0.2f) {
-                paint[RL_PAINT_TAILLIGHT] = 0xffff3020;
+            else if(tail) {
+                paint[RL_PAINT_TAILLIGHT] = tail;
                 unlit = 1u << RL_PAINT_TAILLIGHT;
             }
             l.paint = paint;
@@ -502,7 +507,7 @@ void truckdraw_draw_tr(void) {
             r_billboard(vmad(p, F, 0.05f), sz, sz, 0, 0, 0, 1, 1,
                         color_alpha(full ? 0xffffffff : 0xfffff0c8, (0.45f + 0.4f * facing) * (1.0f + 0.5f * pal->dark)));
             V3 tl = truck_to_world(t, v3(info->taillight[i][0], info->taillight[i][1], info->taillight[i][2]));
-            r_billboard(tl, 0.35f, 0.35f, 0, 0, 0, 1, 1, color_alpha(0xffff2010, 0.6f));
+            r_billboard(tl, 0.35f, 0.35f, 0, 0, 0, 1, 1, color_alpha(t->gear < 0 ? TAIL_REVERSE : 0xffff2010, 0.6f));
         }
         if(full)
             for(int i = 0; i < info->n_aux && i < 4; i++) {
