@@ -370,6 +370,7 @@ static void area_ground(int area) {
         uint32_t room;
         level_buf = audio_spent_pak(&room);
         if(room < LEVEL_GRID_BYTES) level_buf = memalign(32, LEVEL_GRID_BYTES);
+        if(!level_buf) rl_no_memory("the area's ground");
     }
     game.area = area;
     terrain_load(area, level_buf);

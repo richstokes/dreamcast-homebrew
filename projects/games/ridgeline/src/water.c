@@ -149,6 +149,7 @@ void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t 
     wv_n = 0;
     wch_n = 0;
     if(idmap) memset(idmap, 0xff, sizeof(int16_t) * LEVEL_N * LEVEL_N);
+    if(!idmap || !wv || !wv_col) rl_no_memory("the water");
     for(int cj = 0; cj < W_CHUNKS && idmap && wv && wv_col; cj++)
         for(int ci = 0; ci < W_CHUNKS; ci++) {
             int i0 = ci * W_CHUNK_CELLS, j0 = cj * W_CHUNK_CELLS;
@@ -292,6 +293,7 @@ void water_draw(const Scenery *sc) {
         wv_dc = malloc(sizeof(uint32_t) * WET_MAX);
         wv_sp = malloc(sizeof(uint32_t) * WET_MAX);
         wv_stamp = calloc(WET_MAX, sizeof(uint16_t));
+        if(!wv_dc || !wv_sp || !wv_stamp) rl_no_memory("the water's ripples");
     }
     const uint32_t *psrc = terrain_pool_src();
     if(!wv || !wv_dc || !wv_sp || !wv_stamp || !psrc) return;

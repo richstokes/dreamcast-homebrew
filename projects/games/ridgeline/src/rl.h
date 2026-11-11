@@ -78,6 +78,16 @@ extern Camera cam;
    night; tod.c sets it). */
 extern V3 sun_dir;
 
+/* An allocation that failed. The game carries on without whatever it was
+   for, which otherwise only shows as scenery quietly missing or lit wrong:
+   say so, and fail a test run on it. */
+static inline void rl_no_memory(const char *what) {
+    printf("Ridgeline: NO MEMORY for %s\n", what);
+#ifdef RL_AUTOTEST
+    printf("RL AUTOTEST: FAIL no memory for %s\n", what);
+#endif
+}
+
 /* The pause menu stops the world, except online, where it runs on. */
 static inline bool game_frozen(void) {
     return game.paused && !game.online;

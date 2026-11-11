@@ -338,7 +338,10 @@ static void edge_drop_build(void) {
         return;
     }
     if(!edge_drop) edge_drop = malloc(LEVEL_N * LEVEL_N);
-    if(!edge_drop) return;
+    if(!edge_drop) {
+        rl_no_memory("the far ground's skirts");
+        return;
+    }
     for(int j = 0; j < LEVEL_N; j++)
         for(int i = 0; i < LEVEL_N; i++) {
             float h = lvl_h(i, j), lo = h;
@@ -359,9 +362,28 @@ static inline float skirt_drop(int i, int j, float base) {
    vertex, a grid vertex darkened for a skirt, or the water at a depth. */
 enum { SRC_GRID, SRC_SKIRT, SRC_WATER };
 static uint32_t *ter_src;
-static uint32_t ter_src_n, ter_marked;
+static uint32_t ter_src_n, ter_src_cap, ter_marked;
+static bool ter_src_short;
 
 static void src_mark(const Scenery *sc, uint32_t src) {
+    /* The table starts with room for either area's far ground and water
+       (Mesa Grande's are 32,294 vertices) and grows if another's needs
+       more. (Room for the whole pool, trimmed afterwards, was 1 MB: more
+       than a second area's load has free.) */
+    if(sc->pool_n > ter_src_cap && !ter_src_short) {
+        uint32_t cap = ter_src_cap ? sc->pool_n + 4096 : 34 * 1024;
+        if(cap < sc->pool_n) cap = sc->pool_n + 4096;
+        uint32_t *grown = realloc(ter_src, sizeof(uint32_t) * cap);
+        if(grown) {
+            ter_src = grown;
+            ter_src_cap = cap;
+        }
+        else {
+            ter_src_short = true;
+            rl_no_memory("the far ground's relighting");
+        }
+    }
+    if(ter_src_short) return;
     /* A join appends the previous vertex again before this one twice. */
     for(uint32_t i = ter_marked; i < sc->pool_n; i++) ter_src[i] = src;
     if(sc->pool_n - ter_marked == 3) ter_src[ter_marked] = ter_src[ter_marked - 1];
@@ -506,8 +528,8 @@ void terrain_build(Scenery *sc) {
        its heights, so its ground is drawn out to the fog. */
     lod_far[3] = lvl_area == AREA_MOAB ? 1040.0f : 620.0f;
     edge_drop_build();
-    ter_src = realloc(ter_src, sizeof(uint32_t) * sc->pool_max);   /* trimmed to what is used below */
     ter_marked = sc->pool_n;
+    ter_src_short = false;
     memset(tile_trail, 0, sizeof(tile_trail));
     for(int tj = 0; tj < TILES; tj++)
         for(int ti = 0; ti < TILES; ti++) {
@@ -543,8 +565,9 @@ void terrain_build(Scenery *sc) {
         }
 
     water_build(sc, src_mark, SRC_WATER << 30);
-    ter_src_n = sc->pool_n;
-    ter_src = realloc(ter_src, sizeof(uint32_t) * (ter_src_n ? ter_src_n : 1));
+    /* Without its table the far ground and the water keep the light they
+       were built in, and the water is not drawn (water.c). */
+    ter_src_n = ter_src_short ? 0 : sc->pool_n;
 }
 
 /* ---- Relighting ---- */
@@ -633,7 +656,7 @@ int terrain_pool_n(void) {
 }
 
 const uint32_t *terrain_pool_src(void) {
-    return ter_src;
+    return ter_src_short ? NULL : ter_src;
 }
 
 void terrain_relight_pool(Scenery *sc, int from, int to) {

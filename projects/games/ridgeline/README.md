@@ -347,7 +347,7 @@ over them. The three-tier middle tree all the way to 170 m cost up to
 ~207,000 vertices: the heap tops out at ~14 MB of 16 after boot.
 
 Mesa Grande (2026-11-10, Flycast only): the CPU up the rim road with
-three CPU trucks, 7.7-9.8 ms a frame, 8.97 on average (Cascade Ridge
+three CPU trucks, 7.7-9.7 ms a frame, 8.92 on average (Cascade Ridge
 7.5-12.4, 9.57): terrain 3.0, trees 0.7 (it has ~270 of them, not 1,450),
 trucks 1.3. The land past the map's edge is ~0.5 ms of the terrain's on
 that drive and up to 1.3 ms looking out from the top (700-1,500 vertices
@@ -431,6 +431,12 @@ is spare once the sound chip has them.
   stands out (the dirt loop had a few loud clods and a tread pattern):
   keep the grains even, and play the loop twice at two speeds a fifth
   apart so what pattern is left does not come round (`audio.c`, dirt only)
+- Loading a second area has about 1 MB of heap to work in, and ~300 KiB
+  less online with the network up. A scratch block that fits at boot can
+  fail there, and nothing crashes: a 1 MB one for the far ground's relight
+  table left Mesa Grande with no water offline (the water's own scratch
+  then failed) and with wrongly lit far ground online. Failed allocations
+  now print `NO MEMORY` and fail a test run (`rl_no_memory`)
 
 ## Known limitations
 

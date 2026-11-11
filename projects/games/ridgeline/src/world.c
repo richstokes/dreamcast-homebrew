@@ -1853,7 +1853,7 @@ void world_init(void) {
     h_cap = r_header(TEX_NONE, HF_TR | HF_NOFOG);
     h_mist = r_header(TEX_MIST, HF_TR | HF_NOFOG);
     sky_setup();
-    if(!sc_init(&scenery, 250000, 7000, 2400)) printf("Ridgeline world: no memory for the scenery\n");
+    if(!sc_init(&scenery, 250000, 7000, 2400)) rl_no_memory("the scenery");
 }
 
 /* Rocks, props and trees are grouped into 48 m cells. */
@@ -2030,7 +2030,7 @@ void world_build(void) {
        an area's water: any area's far ground alone is over 20,000. */
     lrec_max = scenery.pool_max - 20000;
     if(!world_lrec) world_lrec = malloc(sizeof(LightRec) * lrec_max);
-    if(!world_lrec) printf("Ridgeline world: no memory to relight the scenery\n");
+    if(!world_lrec) rl_no_memory("the scenery's relighting");
     cap_build();
     mist_build();
     /* Boulders, logs and ledges: near and far versions in one chunk per cell. */
