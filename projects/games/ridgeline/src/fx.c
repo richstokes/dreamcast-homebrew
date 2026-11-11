@@ -28,7 +28,11 @@ static float emit_acc[MAX_TRUCKS][4], rooster_acc[MAX_TRUCKS][4];
 /* ---- Tracks ----
    Each truck's rear wheels lay a strip of tread prints on soft ground:
    a ring of points per wheel, the player's longest. A run breaks where the
-   ground turns hard, the wheel leaves it, or the truck jumps (a recover). */
+   ground turns hard, the wheel leaves it, or the truck jumps (a recover).
+   A point is only laid where the print has something to say (below), up
+   to TRK_LONG apart, so the last stretch of a run is drawn to the tyre
+   itself: without it the print trails the truck by up to that far, and
+   catches up in jumps. */
 #define TRK_PLAYER 448
 #define TRK_CPU 128
 #define TRK_STEP 0.5f          /* metres between points, at least */
@@ -51,6 +55,11 @@ typedef struct {
     uint32_t col;
     float v;
     uint16_t run;
+    /* Under the tyre now, past the last point laid. */
+    bool tip_on;
+    V3 tip_l, tip_r;
+    float tip_v;
+    uint32_t tip_col;
 } TrkSlot;
 
 static TrkPt trk_pool[TRK_PLAYER * 2 + TRK_CPU * 2 * (MAX_TRUCKS - 1)];
@@ -59,6 +68,18 @@ static float fx_clock;
 
 /* What a tyre prints in each surface (none on rock): colour and how dark. */
 static uint32_t track_col(int surf) {
+    if(look->dust) {
+        /* The desert: red ground prints darker red; none on bare rock. */
+        switch(surf) {
+            case SURF_MUD: return 0xe0301408;
+            case SURF_DIRT: return 0x90582c1a;
+            case SURF_GRASS: return 0x90582c1a;
+            case SURF_SAND: return 0xb0683a22;
+            case SURF_GRAVEL: return 0x70583a2c;
+            case SURF_SCREE: return 0x70583a2c;
+            default: return 0;
+        }
+    }
     switch(surf) {
         case SURF_MUD: return 0xe0201006;
         case SURF_DIRT: return 0xa04a3420;
@@ -89,7 +110,29 @@ static const Rooster rooster[SURF_COUNT] = {
     [SURF_MUD] = {{0xff3c2a1c, 0xff523e28}, 60, 0.60f, 0.11f, 0, 0x806a5440},
     [SURF_SCREE] = {{0xff88827a, 0xff9c948a}, 30, 0.60f, 0.07f, 1, 0},
     [SURF_SNOW] = {{0xffe6ecf2, 0xfff6f8fa}, 45, 0.50f, 0.08f, 0, 0x90f0f4f8},
+    /* Sand flies in sheets with a cloud of it hanging behind. */
+    [SURF_SAND] = {{0xffc8845a, 0xffd89a6c}, 55, 0.55f, 0.06f, 0, 0x70d8a074},
 };
+
+/* The desert's dirt, scrub and talus are all red (the table above is the
+   mountain's). */
+static const Rooster rooster_red[4] = {
+    {{0xff9a5c3c, 0xffb06e48}, 30, 0.55f, 0.08f, 0, 0},      /* dirt, scrub */
+    {{0xff9c6a54, 0xffb07c62}, 30, 0.62f, 0.06f, 1, 0},      /* gravel, talus */
+};
+
+static const Rooster *rooster_of(int surf) {
+    if(look->dust) {
+        if(surf == SURF_DIRT || surf == SURF_GRASS || surf == SURF_FOREST) return &rooster_red[0];
+        if(surf == SURF_GRAVEL || surf == SURF_SCREE) return &rooster_red[1];
+    }
+    return &rooster[surf];
+}
+
+static uint32_t dust_of(int surf) {
+    if(look->dust && surf != SURF_MUD && surf != SURF_SNOW) return look->dust;
+    return surf_props[surf].dust;
+}
 
 void fx_init(void) {
     h_puff = r_header(TEX_PUFF, HF_TR);
@@ -110,7 +153,7 @@ void fx_clear(void) {
     for(int ti = 0; ti < MAX_TRUCKS; ti++)
         for(int s = 0; s < 2; s++) {
             trk[ti][s].count = trk[ti][s].head = 0;
-            trk[ti][s].live = false;
+            trk[ti][s].live = trk[ti][s].tip_on = false;
         }
 }
 
@@ -171,7 +214,7 @@ static void tracks_update(int ti, const Truck *t) {
            trails they follow each other and their prints pile up unseen. */
         if(ti != 0 && w->surf != SURF_MUD && w->surf != SURF_SNOW) col = 0;
         if(!col) {
-            s->live = false;
+            s->live = s->tip_on = false;
             continue;
         }
         /* Dug in: a spinning tyre leaves a darker print. */
@@ -202,6 +245,20 @@ static void tracks_update(int ti, const Truck *t) {
                 track_add(s, p, dn, half, col);
             }
         }
+        /* From the last point to the tyre. */
+        d = vsub(p, s->last);
+        d.y = 0;
+        dist = vlen(d);
+        s->tip_on = dist > 0.05f;
+        if(s->tip_on) {
+            V3 side = vscale(v3(d.z, 0, -d.x), half / dist);
+            s->tip_l = vsub(p, side);
+            s->tip_r = vadd(p, side);
+            s->tip_l.y = terrain_height(s->tip_l.x, s->tip_l.z) + 0.035f;
+            s->tip_r.y = terrain_height(s->tip_r.x, s->tip_r.z) + 0.035f;
+            s->tip_v = s->v + dist;
+            s->tip_col = col;
+        }
     }
 }
 
@@ -219,7 +276,7 @@ static void rooster_update(int ti, const Truck *t, int i, float dcam, float dt) 
     float k = clampf((fabsf(spin) - 1.5f) / 5.0f, 0, 1);
     if(k <= 0) return;
     bool wet = w->water > 0.08f;
-    const Rooster *rs = &rooster[w->surf];
+    const Rooster *rs = rooster_of(w->surf);
     if(!wet && rs->rate <= 0) return;
     float rate = (wet ? 50.0f : rs->rate) * k;
     if(dcam > 30.0f) rate *= 0.5f;
@@ -261,9 +318,9 @@ void fx_update(float dt) {
             rooster_update(ti, t, i, dcam, dt);
             float v = fabsf(w->omega * t->spec.radius);
             float rate = w->slip * 9.0f + v * 0.9f;
-            const SurfProps *sp = &surf_props[w->surf];
             bool wet = w->water > 0.08f;
-            if(w->surf == SURF_ROCK && !wet) rate = w->slip * 2.0f;
+            if((w->surf == SURF_ROCK || w->surf == SURF_SLICKROCK) && !wet) rate = w->slip * 2.0f;
+            if(w->surf == SURF_SAND) rate *= 1.5f;
             if(w->surf == SURF_WETROCK && !wet) rate *= 0.3f;
             if(dcam > 45.0f) rate *= 0.4f;
             emit_acc[ti][i] += rate * dt;
@@ -286,7 +343,7 @@ void fx_update(float dt) {
                 else
                     /* Dust: rises, spreads and hangs. */
                     puff(p, vadd(vscale(back, 1.0f + v * 0.12f), v3(frand_s() * 0.6f, 0.5f + 0.8f * frand(), frand_s() * 0.6f)),
-                         1.6f + 1.2f * frand(), 0.45f, 1.5f, color_alpha(sp->dust, 0.42f), 1.4f, -0.15f);
+                         1.6f + 1.2f * frand(), 0.45f, 1.5f, color_alpha(dust_of(w->surf), 0.42f), 1.4f, -0.15f);
             }
         }
         /* Entering water: a splash. */
@@ -395,6 +452,22 @@ static void tracks_draw(void) {
                 float v = q->v * (1.0f / 1.1f);
                 chunk_add(&b, &(RV){q->l.x, q->l.y, q->l.z, 0, v, c});
                 chunk_add(&b, &(RV){q->r.x, q->r.y, q->r.z, 1, v, c});
+            }
+            /* The run still being laid, on to the tyre. */
+            if(s->tip_on && run == s->run && b.n >= 2) {
+                if(b.n >= TRK_CHUNK * 2) {
+                    RV l = b.v[b.n - 2], r = b.v[b.n - 1];
+                    chunk_flush(&b);
+                    chunk_add(&b, &l);
+                    chunk_add(&b, &r);
+                }
+                float dx = s->tip_l.x - cam.x, dz = s->tip_l.z - cam.z, dist2 = dx * dx + dz * dz;
+                float a = (float)(s->tip_col >> 24) * (1.0f / 255.0f) *
+                          clampf((TRK_DRAW * TRK_DRAW - dist2) * (1.0f / (TRK_DRAW * TRK_DRAW * 0.45f)), 0, 1);
+                uint32_t c = color_alpha(s->tip_col, a);
+                float v = s->tip_v * (1.0f / 1.1f);
+                chunk_add(&b, &(RV){s->tip_l.x, s->tip_l.y, s->tip_l.z, 0, v, c});
+                chunk_add(&b, &(RV){s->tip_r.x, s->tip_r.y, s->tip_r.z, 1, v, c});
             }
             chunk_flush(&b);
         }

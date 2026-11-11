@@ -21,7 +21,7 @@
 #define FLAME_FAR 260.0f      /* nothing of it drawn past this */
 
 static V3 fire;
-static bool placed;
+static bool lit;      /* the area has a camp */
 static float fire_t, flick = 1.0f;
 static const pvr_poly_hdr_t *h_add, *h_smoke;
 
@@ -40,29 +40,35 @@ static inline float rnd(void) {
 }
 static inline float rnd_s(void) { return rnd() * 2.0f - 1.0f; }
 
-V3 campfire_pos(void) {
-    if(!placed) {
-        for(int i = 0; i < LVL_PROPS; i++) {
-            const lvl_prop_t *p = &lvl_props[i];
-            if(p->kind != PROP_TENT) continue;
-            fire = v3(p->x + sinf(p->yaw) * 4.0f, 0, p->z + cosf(p->yaw) * 4.0f);
-            fire.y = terrain_height(fire.x, fire.z);
-            break;
-        }
-        placed = true;
+bool campfire_place(V3 *at) {
+    lit = false;
+    for(int i = 0; i < LVL_PROPS && !lit; i++) {
+        const lvl_prop_t *p = &lvl_props[i];
+        if(p->kind != PROP_TENT) continue;
+        fire = v3(p->x + sinf(p->yaw) * 4.0f, 0, p->z + cosf(p->yaw) * 4.0f);
+        fire.y = terrain_height(fire.x, fire.z);
+        lit = true;
     }
+    if(lit && at) *at = fire;
+    return lit;
+}
+
+V3 campfire_pos(void) {
     return fire;
 }
 
 void campfire_init(void) {
     h_add = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
     h_smoke = r_header(TEX_PUFF, HF_TR);
-    campfire_pos();
     for(int i = 0; i < SPARKS; i++) sparks[i].live = false;
     for(int i = 0; i < SMOKE; i++) smoke[i].live = false;
 }
 
 void campfire_update(float dt) {
+    if(!lit) {
+        glow_level[GLOW_FIRE] = 0;
+        return;
+    }
     if(game_frozen()) return;
     fire_t += dt;
     float t = fire_t;
@@ -169,6 +175,7 @@ static void tongue(int i, V3 side, float fade) {
 }
 
 void campfire_draw_tr(void) {
+    if(!lit) return;
     V3 dc = vsub(fire, r_cam.pos);
     float dist = vlen(dc);
     if(dist > FLAME_FAR || !r_sphere_visible(fire, 6.0f)) return;

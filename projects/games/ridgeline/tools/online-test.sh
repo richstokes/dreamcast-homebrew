@@ -2,7 +2,7 @@
 # make online-test: Ridgeline's online mode in Flycast. Builds the server
 # and its bot from server/, runs them on this Mac, builds the online
 # autotest pointed at this Mac's LAN address (Flycast's network proxy can't
-# reach 127.0.0.1) and boots it. The console joins lobby 9, where the bot
+# reach 127.0.0.1) and boots it. The console joins lobby 5, where the bot
 # drives a loop in the meadow, claims the summit, leaves and comes back;
 # the CPU drives the console's truck, which jumps to the summit 25 s in.
 # Passes when each has seen the other's truck and both trophies show.
@@ -10,11 +10,15 @@
 #   RL_NET=modem      dial in through Flycast's emulated modem instead
 #   RL_QA_LIVE=1      against the live server at dcvmu.com:7536
 #   RL_QA_PORT=7594   the local server's port
+#   RL_QA_LOBBY=9     another lobby (6-10 are Mesa Grande's)
 #   RL_BOT_TRUCK=2    the bot's truck model (default 0, the Cascade 84)
 set -euo pipefail
 
 GAME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${RL_QA_PORT:-7594}"
+LOBBY="${RL_QA_LOBBY:-5}"
+AREA=cascade
+if [[ "${LOBBY}" -gt 5 ]]; then AREA=moab; fi
 OUT="${GAME}/build/online-test"
 mkdir -p "${OUT}"
 pids=()
@@ -42,12 +46,12 @@ else
 fi
 echo "server ${ADDR}, logs in ${OUT}"
 
-make -C "${GAME}" VARIANT=autotest ridgeline-autotest.elf EXTRA_CFLAGS="-DRL_AT_ONLINE -DRL_AT_EXPECT_TROPHIES=2 ${FLAGS}"
+make -C "${GAME}" VARIANT=autotest ridgeline-autotest.elf EXTRA_CFLAGS="-DRL_AT_ONLINE -DRL_AT_EXPECT_TROPHIES=2 -DRL_AT_LOBBY=${LOBBY} ${FLAGS}"
 # Its own name, so captures and other sessions' Flycasts never mix it up.
 cp "${GAME}/ridgeline-autotest.elf" "${GAME}/ridgeline-online.elf"
 
-"${OUT}/rl-bot" -addr "${ADDR}" -name AT-BOT -lobby 9 -model "${RL_BOT_TRUCK:-0}" -summit-after 5s -leave-after 40s -away 6s -for 180s \
-    -level "${GAME}/assets/generated/level.bin" > "${OUT}/bot.log" 2>&1 &
+"${OUT}/rl-bot" -addr "${ADDR}" -name AT-BOT -lobby "${LOBBY}" -model "${RL_BOT_TRUCK:-0}" -summit-after 5s -leave-after 40s -away 6s -for 180s \
+    -level "${GAME}/assets/generated/level_${AREA}.lvl" > "${OUT}/bot.log" 2>&1 &
 pids+=($!)
 
 status=0

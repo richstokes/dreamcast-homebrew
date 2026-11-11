@@ -35,6 +35,10 @@ static struct {
 static void cut(void);
 
 void demo_start(void) {
+    /* Either area, a different one from the last demo. */
+    static int next_area = AREA_MOAB;
+    game_load_area(next_area);
+    next_area = (next_area + 1) % AREA_COUNT;
     game.demo = true;
     game.ntrucks = MAX_TRUCKS;
     static const int slot[4] = {1, 2, 0, 3};

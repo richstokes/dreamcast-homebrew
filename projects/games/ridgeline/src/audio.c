@@ -14,13 +14,13 @@
 #include "engine/sfx.h"
 #include "sound_assets.h"
 
-extern const uint8_t rl_sfx_pak[];
+extern uint8_t rl_sfx_pak[], rl_sfx_pak_end[];
 
 static SfxVoice eng_v[2][RL_ENGINE_LOOPS];       /* player: on, off */
 static SfxVoice cpu_v[MAX_TRUCKS][2];
 static int cpu_lo[MAX_TRUCKS];
 static int hear;   /* the truck whose engine is the player's */
-static SfxVoice horn_v, surf_v[5], wind_v, forest_v, creek_v;
+static SfxVoice horn_v, surf_v[5], dirt2_v, wind_v, forest_v, creek_v;
 static SfxVoice rhorn_v[MAX_TRUCKS];   /* online: other players' horns */
 static bool started;
 static float load_s, master, start_t = -1, start_len;
@@ -44,6 +44,12 @@ void audio_init(void) {
     for(int i = 0; i < MAX_TRUCKS; i++) cpu_v[i][0].channel = cpu_v[i][1].channel = rhorn_v[i].channel = -1;
 }
 
+void *audio_spent_pak(uint32_t *bytes) {
+    uintptr_t a = ((uintptr_t)rl_sfx_pak + 31) & ~(uintptr_t)31;
+    *bytes = (uint32_t)((uintptr_t)rl_sfx_pak_end - a);
+    return (void *)a;
+}
+
 static void stop_all(void) {
     for(int l = 0; l < 2; l++)
         for(int k = 0; k < RL_ENGINE_LOOPS; k++) sfx_voice_stop(&eng_v[l][k]);
@@ -53,6 +59,7 @@ static void stop_all(void) {
     }
     sfx_voice_stop(&horn_v);
     for(int i = 0; i < 5; i++) sfx_voice_stop(&surf_v[i]);
+    sfx_voice_stop(&dirt2_v);
     sfx_voice_stop(&wind_v);
     sfx_voice_stop(&forest_v);
     sfx_voice_stop(&creek_v);
@@ -81,6 +88,7 @@ void audio_drive_start(void) {
         cpu_v[i][0].channel = cpu_v[i][1].channel = -1;
     }
     for(int i = 0; i < 5; i++) sfx_voice_start(&surf_v[i], surf_sfx[i]);
+    sfx_voice_start(&dirt2_v, RL_SFX_DIRT);
     sfx_voice_start(&wind_v, RL_SFX_WIND);
     sfx_voice_start(&forest_v, RL_SFX_FOREST);
     sfx_voice_start(&creek_v, RL_SFX_CREEK);
@@ -234,13 +242,24 @@ void audio_update(float dt) {
         if(wh->water > 0.08f) target[SV_WATER] += clampf(spd / 6.0f, 0.2f, 1.0f) * 0.3f;
         else if(wh->surf == SURF_MUD) target[SV_MUD] += roll + slip * 1.6f;
         else if(wh->surf == SURF_GRAVEL || wh->surf == SURF_SCREE) target[SV_GRAVEL] += roll + slip;
-        else if(wh->surf == SURF_ROCK || wh->surf == SURF_WETROCK) target[SV_SCRUB] += slip * 1.4f;
+        else if(wh->surf == SURF_ROCK || wh->surf == SURF_WETROCK || wh->surf == SURF_SLICKROCK)
+            target[SV_SCRUB] += slip * 1.4f;
         else target[SV_DIRT] += roll * 0.9f + slip;
     }
     target[SV_SCRUB] += clampf(p->scrape / 2.0f, 0, 1) * 0.6f;
     for(int i = 0; i < 5; i++) {
         surf_vol[i] = approach(surf_vol[i], clampf(target[i], 0, 1), dt * 3.0f);
         float rate = 0.8f + 0.4f * clampf(spd / 15.0f, 0, 1);
+        if(i == SV_DIRT) {
+            /* The one heard most, for minutes on end (dirt, sand, grass):
+               0.8 s of it over and over is a rhythm however even the
+               sample. Two of it a fifth of the speed apart, a little to
+               either side, do not come round together for many seconds. */
+            int vol = (int)((paused ? 0 : 112.0f) * surf_vol[i]);
+            sfx_voice_set(&surf_v[i], rate, vol, 104);
+            sfx_voice_set(&dirt2_v, rate * 0.81f, vol, 152);
+            continue;
+        }
         sfx_voice_set(&surf_v[i], rate, (int)((paused ? 0 : 200.0f) * surf_vol[i]), 128);
     }
     float wind = clampf((spd - 6.0f) / 20.0f, 0, 1) + clampf((cam.pos.y - 120.0f) / 80.0f, 0, 0.4f);
@@ -255,7 +274,7 @@ void audio_update(float dt) {
                 near_water = fmaxf(near_water, 1.0f - r / 3.0f);
         }
     }
-    float forest = 1.0f - clampf((cam.pos.y - 150.0f) / 60.0f, 0, 0.8f);
+    float forest = (1.0f - clampf((cam.pos.y - 150.0f) / 60.0f, 0, 0.8f)) * look->woods;
     sfx_voice_set(&forest_v, 1.0f, (int)((paused ? 20.0f : 70.0f) * forest), 128);
     sfx_voice_set(&creek_v, 1.0f, (int)((paused ? 0.0f : 150.0f) * near_water), 128);
     sfx_batch_end();

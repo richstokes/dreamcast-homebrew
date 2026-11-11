@@ -37,7 +37,7 @@
 #define RL_AT_NAME AT-RL
 #endif
 #ifndef RL_AT_LOBBY
-#define RL_AT_LOBBY 9           /* 1-10 */
+#define RL_AT_LOBBY 5           /* 1-10: the first five are Cascade Ridge's, where the test's bot drives */
 #endif
 #ifndef RL_AT_SUMMIT_AFTER
 #define RL_AT_SUMMIT_AFTER 25   /* seconds on the mountain before jumping to the top */
@@ -170,6 +170,7 @@ static void park(Truck *t) {
    other three slots remote (absent until their trucks arrive). */
 static void drive_start(void) {
     const NetLobby *l = net_lobby();
+    game_load_area(online_lobby_area(l->id));   /* (the truck select loaded it already) */
     /* No CPU trucks online, but keep the single player choice for later. */
     int company = game.companions;
     game.companions = 0;
@@ -518,6 +519,7 @@ static void name_update(void) {
 /* From the browser to the truck select for the lobby picked. */
 static void to_truck_select(void) {
     net_want_list(false);
+    game_load_area(online_lobby_area(browse_sel));
     game_set_state(ST_SELECT);
     /* The truck parked in that lobby's light (a fresh one starts in the morning). */
     const NetLobbyInfo *e = &net_lobbies()[browse_sel];
@@ -631,14 +633,18 @@ static void draw_connect(void) {
 static void draw_browser(void) {
     ui_heading(320, 40, "ONLINE LOBBIES");
     ui_panel(30, 72, 610, 432);
-    hud_text_c(44, 88, 0.45f, ALIGN_LEFT, PALE, netlink_status());
-    if(net_update_available()) hud_text_c(596, 88, 0.45f, ALIGN_RIGHT, GOLD, "NEW VERSION OUT!");
+    hud_text_c(596, 86, 0.45f, ALIGN_RIGHT, PALE, netlink_status());
+    if(net_update_available()) hud_text_c(320, 86, 0.45f, ALIGN_CENTER, GOLD, "NEW VERSION OUT!");
     const NetLobbyInfo *ls = net_lobbies();
     for(int i = 0; i < NET_LOBBIES; i++) {
         const NetLobbyInfo *e = &ls[i];
-        float y = 106 + i * 31, cy = y + 13;
+        /* Each area's lobbies under its name. */
+        int group = i / (NET_LOBBIES / 2);
+        float y = 114 + i * 29 + group * 18, cy = y + 12;
+        if(i % (NET_LOBBIES / 2) == 0)
+            hud_text_c(44, y - 9, 0.42f, ALIGN_LEFT, GOLD, rl_levels[online_lobby_area(i)]->name);
         bool sel = i == browse_sel;
-        ui_row(38, y - 2, 602, y + 28, sel);
+        ui_row(38, y - 1, 602, y + 25, sel);
         uint32_t col = sel ? ui_col(UI_ITEM_SEL) : TEXT;
         char buf[24];
         snprintf(buf, sizeof(buf), "LOBBY %d", i + 1);

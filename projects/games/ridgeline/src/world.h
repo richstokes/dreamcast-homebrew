@@ -45,6 +45,20 @@ uint32_t world_lit(uint32_t albedo, V3 n);
 float world_mist(void);
 /* Where the fog is solid this frame, metres. */
 float world_fog_far(void);
+/* The fog this frame, for what fogs itself: where it starts and is solid,
+   and its colour. */
+void world_fog(float *near_m, float *far_m, uint32_t *col);
+/* How much of the haze the skyline's nearest ring is: land drawn in front
+   of it should never be hazier. */
+#define WORLD_SKYLINE_HAZE 0.70f
+
+/* Integer lerp of two colours, t in 0..256 (the dome and ranges do a few
+   hundred a frame). */
+static inline uint32_t mix256(uint32_t a, uint32_t b, int t) {
+    uint32_t rb = ((a & 0xff00ffu) * (uint32_t)(256 - t) + (b & 0xff00ffu) * (uint32_t)t) >> 8;
+    uint32_t ag = (((a >> 8) & 0xff00ffu) * (uint32_t)(256 - t) + ((b >> 8) & 0xff00ffu) * (uint32_t)t) >> 8;
+    return (rb & 0xff00ffu) | ((ag & 0xff00ffu) << 8);
+}
 
 /* Relighting the trees, rocks and props (tod.c): every scenery vertex
    keeps what it was lit from; a pass recolours [from, to) of them for

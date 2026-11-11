@@ -4,10 +4,12 @@
   <img src="../../../docs/screenshots/ridgeline.png" alt="A Kestrel 4x4 climbing the logging road on Cascade Ridge" width="640">
 </p>
 
-An off-road exploration game for the Sega Dreamcast. Pick a truck and climb
-Cascade Ridge, a Pacific Northwest mountain in autumn, from the meadow at its
-foot to the fire lookout on the summit. No race and no clock: how high you've
-been, and the viewpoints you've found.
+An off-road exploration game for the Sega Dreamcast. Pick a truck and an
+area and climb it: Cascade Ridge, a Pacific Northwest mountain in autumn,
+from the meadow at its foot to the fire lookout on the summit; or Mesa
+Grande, red rock canyon country, from the sand flats by the river to a
+slab of rock hung out over the drop at the top. No race and no clock: how high
+you've been, and the viewpoints you've found.
 
 - Six vehicles, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
   four, no traction control); KESTREL, a modern two-door 4x4 (twin-turbo V6,
@@ -21,15 +23,26 @@ been, and the viewpoints you've found.
   half the trucks' weight (900 cc turbo triple that revs to 8000, half a
   metre of wheel travel, the grippiest tyres and the longest wheelbase
   here)
-- Three ways up from the fork, meeting at a lake before the summit trail:
-  the logging road (long, gentle, gravel then muddy ruts and fallen logs),
-  the creek bed (water crossings, mud, wet rock) and the ridge line (steep,
-  rock ledges, boulders). Each gets harder the higher it climbs
-- A meadow at the bottom to play in first: a creek ford, a pond, a mud
-  wallow, logs and a rock pile
+- Cascade Ridge: three ways up from the fork, meeting at a lake before the
+  summit trail: the logging road (long, gentle, gravel then muddy ruts and
+  fallen logs), the creek bed (water crossings, mud, wet rock) and the
+  ridge line (steep, rock ledges, boulders). Each gets harder the higher
+  it climbs. A meadow at the bottom to play in first: a creek ford, a
+  pond, a mud wallow, logs and a rock pile
+- Mesa Grande: three tiers of sandstone over a river, and three ways up
+  the first two that meet under an arch: the rim road (graded dirt,
+  switchbacks up the talus where each cliff has fallen in), the fins
+  (straight up the spines of two sandstone fins, steep and bare, on rock
+  with the grip for it) and Bighorn Canyon (up the wash into a canyon:
+  sand, boulders, ledges at every pour-off). From the arch a shelf road
+  crosses the mesa's cliff and ledges lead over its top to the overlook,
+  with a river in a gooseneck far below. The flats at the bottom are the
+  playground: a baby fin to drive over, potholes in the slickrock (one
+  full of water), a sand hill, the wash, a beach on the river (which is
+  deeper than it looks)
 - Physics: suspension per wheel with ledge-climbing tyre contact, tyres
   that slide by surface (rock, dirt, gravel, grass, mud, scree, snow, wet
-  rock), water with drag and a stall if it reaches the intake, an automatic
+  rock, sand, slickrock), water with drag and a stall if it reaches the intake, an automatic
   box, and the driveline solved per drive mode: 2WD with an open rear diff,
   4WD with the centre locked, LOCK with low range and both axles locked.
   Low range holds the automatic to the gears that redline under ~30 mph
@@ -43,20 +56,30 @@ been, and the viewpoints you've found.
 - A spinning tyre flings a roostertail of whatever it's in (mud clods,
   dirt, stones, snow, spray), and the rear tyres leave tread tracks in soft
   ground
-- Things to find off the trail: ten viewpoints, among them a boulder
+- Things to find off the trail: on Cascade Ridge ten viewpoints, among them a boulder
   field, a stone arch across a deep ford the old pickup can't wade, an
   abandoned truck in the woods and a camp past the lake, where a fire
   burns and lights the tent, the trees and your truck after dark. Lanterns
   hang on the summit lookout and at the start: on the cabin, the picnic
   table and a post by the grid. The logging road
-  has a washout, a log bridge and a steep shortcut that skips ~480 m of it
-- Best times to the summit per truck and per way up (or your own way),
+  has a washout, a log bridge and a steep shortcut that skips ~480 m of it.
+  On Mesa Grande twelve: goblins, a balanced rock, the hot tubs, a camp
+  under the cottonwoods, an old truck where a mine road gave out
+- In the desert: junipers and pinyons on the benches, cottonwoods gone
+  gold along the water, sagebrush, blackbrush and rabbitbrush on the
+  flats, tumbleweeds bowling across them in the gusts and a dust devil in
+  the heat of the day, mesas along the skyline and one snowy range. The
+  country carries on past the map's edge for 770 m, to look at from the
+  top: mesas and buttes on the low desert, the river out of the gooseneck
+  winding straight into another, a canyon into the upland
+- Best times to the summit per area, truck and way up (or your own way),
   saved on the VMU and shown on the truck select. A viewpoint jump from
   the pause menu means no time for that run
 - Deer in the meadows that graze, look up as you come near and bolt when
   you get close or sound the horn
 - Up to three CPU trucks for company, each taking its own route
-- Online: ten lobbies of four on the same mountain, by broadband adapter,
+- Online: ten lobbies of four, the first five on Cascade Ridge and the
+  rest on Mesa Grande, by broadband adapter,
   W5500 or modem (a DreamPi or any dial-up server). Drop in and out
   whenever you like; there is no race. Everyone's name floats over their
   truck, horns carry, the lobby shares one time of day, and reaching the
@@ -132,23 +155,23 @@ make -C projects/games/ridgeline run
 | --- | --- |
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
-| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all |
+| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande (any test build takes it) |
 | `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, and a slower time doesn't replace it |
-| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 9, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
+| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 5, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=9` joins a Mesa Grande lobby, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
 | `make hw` | Plays on the console |
 | `make disc` | A self-booting CDI |
-| `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour) |
+| `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour, `-DRL_AT_TOUR_ONLY` stops after the tour, `-DRL_AT_TOUR_ROUTE=2` makes the tour a drive up that route) |
 | `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
-| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second |
+| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande |
 
 Assets (generated output is committed):
 
 | Target | Builds |
 | --- | --- |
-| `make level` | Terrain, routes, obstacles, trees and colours (`tools/build_level.py`), preview in `captures/level-preview.png` |
+| `make level` | Both areas' terrain, routes, obstacles, trees and colours (`tools/build_level.py`; `AREA=moab` for one), previews in `captures/`. Mesa Grande is `tools/level_moab.py` (the land past its map's edge with `tools/outland.py`), which also writes `captures/level-moab-views.png`: the ground from twenty cameras, without the game |
 | `make textures` | Textures and the font (`tools/build_textures.py`) |
 | `make trucks` | Truck models (`tools/build_trucks.py`), previews with `tools/preview_trucks_blender.py` |
 | `make audio` | Every sound (`tools/build_audio.py`) |
@@ -306,6 +329,18 @@ over them. The three-tier middle tree all the way to 170 m cost up to
 1.3 ms, so past 110 m it is two cones. Four versions of every tree are
 ~207,000 vertices: the heap tops out at ~14 MB of 16 after boot.
 
+Mesa Grande (2026-11-10, Flycast only): the CPU up the rim road with
+three CPU trucks, 7.7-9.8 ms a frame, 8.97 on average (Cascade Ridge
+7.5-12.4, 9.57): terrain 3.0, trees 0.7 (it has ~270 of them, not 1,450),
+trucks 1.3. The land past the map's edge is ~0.5 ms of the terrain's on
+that drive and up to 1.3 ms looking out from the top (700-1,500 vertices
+a frame). Before it was checked against the map's skyline it cost 0.9 ms
+everywhere, most of it under the cliffs where none of it shows. With both
+areas linked in and six vehicles 1.1 MB of the 16 is free after boot (one
+area, before: ~0.3): each area's grid packs to ~0.5 MB (it was 1.7), and
+the loaded one unpacks into the room the sounds were linked into, which
+is spare once the sound chip has them.
+
 ## Gotchas
 
 - A console run under dcload that goes quiet and stays quiet is usually
@@ -340,12 +375,49 @@ over them. The three-tier middle tree all the way to 170 m cost up to
   won. `tools/hostsim/sim spawn <truck>` (`SIM_MODE=0-2`) should not move
 - CPU trucks get a gentle pull back toward the trail and are winched past
   anything that holds them up for 25 s; the player drives unaided
-- `tools/hostsim` reads `level.h` at compile time and `level.bin` at run
-  time, so rebuild it after `make level`
+- `tools/hostsim` reads the levels' headers at compile time and their
+  packed grids at run time, so rebuild it after `make level`
+- Cliffs on a heightfield: the ground's colours run smoothly from vertex
+  to vertex, so a cliff's rim shaded as the bench it joins turns it into
+  a slope. `level_moab.py` marks every vertex a cell from a big drop
+  (`faces`), on the 3 m grid and the 6 m one, and gives those the wall's
+  colour and a level normal; the far ground's 12 and 24 m grids take
+  their colour from the nearest marked vertex (`far_colour_src`).
+  Cliffs 6 m wide survive the 6 m grid; narrower ones come and go
+- Where grids meet across a cliff the crack is as tall as the cliff:
+  skirts hang by how far the ground drops within 24 m (`edge_drop`), the
+  desert only
+- Rock formations lofted from rings read as slugs once smooth-shaded:
+  towers and buttes are better as heightfield (they get the cliffs'
+  treatment). The arch and the goblins are lofts
+- Land past the map's edge (`src/outland.c`, a 24 m grid): the PVR's fog
+  is solid from its far distance, so a mesa out there stood paler than
+  the skyline painted behind it. It fogs itself a vertex at a time,
+  never past the haze the skyline's nearest ring has
+- A cliff on that grid: ramped over a few metres it comes out as a mound.
+  All of the wall goes between two vertices (`outland.cliff`), and only
+  its foot is coloured and lit as wall, so the top stays level to its edge
+- Where it meets the map, and where its own chunks change grid, an edge
+  takes the coarser side's line and a skirt hangs from the map's edge by
+  how far the map dips under it; without them the sky shows through in
+  dashes
+- A ledge across a bend turns a truck along it into the wall, and one
+  with sand in front of it can't be climbed from a stop (0.58 of grip
+  under the back tyres): ledges go on straights, with rock under the run up
+- Boulders on a trail leave a gap of their radius plus 2 m either side
+  of the line, not a share of the trail's width
+- Ledge boxes on open ground look like planks laid on it. Out of a
+  canyon the ledges are steps in the ground itself (the mesa's top is
+  terraced), and the boxes that remain take the colour of the bed they
+  sit in
+- A tyre loop under a second long turns into a rhythm if anything in it
+  stands out (the dirt loop had a few loud clods and a tread pattern):
+  keep the grains even, and play the loop twice at two speeds a fifth
+  apart so what pattern is left does not come round (`audio.c`, dirt only)
 
 ## Known limitations
 
-- One scene (autumn); the desert palette is not built yet
+- Mesa Grande has no console timings yet (Flycast only)
 - Headlights cast no shadows: a tree behind a cabin catches the beam too
 - Headlights do not light the grass tufts (the fire and lanterns do), and
   the lantern post has no collision (the picnic table does)

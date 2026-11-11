@@ -48,7 +48,7 @@ static inline float rnd_s(void) { return rnd() * 2.0f - 1.0f; }
 
 /* The larches and maples near the camera, found a slice of the forest a
    frame: a sweep of the whole forest takes about a quarter of a second. */
-static uint16_t decid[LVL_TREES];
+static uint16_t decid[LVL_MAX_TREES];
 static int ndecid;
 static uint16_t near_t[NEAR_TREES], scan_t[NEAR_TREES];
 static int nnear, nscan, scan_at, forest_n, scan_forest;
@@ -56,13 +56,19 @@ static float leaf_acc;
 #define NEAR_LEAF 40.0f       /* trees that drop leaves within this */
 #define SCAN_STEP 48
 
+/* Trees that drop leaves: the mountain's larches and maples, the
+   desert's cottonwoods (its junipers and pinyons keep theirs). */
+static inline bool air_sheds(int kind) {
+    return lvl_area == AREA_MOAB ? kind == 1 : kind == 1 || kind == 2;
+}
+
 void air_init(void) {
     h_leaf = r_header(TEX_NONE, HF_OP);
     h_add = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
     h_snow = r_header(TEX_SUN, HF_TR | HF_NOFOG);   /* a flat disc, soft at its rim */
     ndecid = 0;
     for(int i = 0; i < LVL_TREES; i++)
-        if(lvl_trees[i].kind == 1 || lvl_trees[i].kind == 2) decid[ndecid++] = (uint16_t)i;
+        if(air_sheds(lvl_trees[i].kind)) decid[ndecid++] = (uint16_t)i;
     nnear = nscan = scan_at = forest_n = scan_forest = 0;
     for(int i = 0; i < LEAVES; i++) leaves[i].live = 0;
     for(int i = 0; i < MOTES; i++) motes[i].live = 0;
@@ -79,7 +85,7 @@ static void scan_trees(V3 c) {
         const lvl_tree_t *t = &lvl_trees[i];
         float dx = t->x - c.x, dz = t->z - c.z, d2 = dx * dx + dz * dz;
         if(d2 < 22.0f * 22.0f) scan_forest++;
-        if((t->kind == 1 || t->kind == 2) && d2 < NEAR_LEAF * NEAR_LEAF && nscan < NEAR_TREES) scan_t[nscan++] = (uint16_t)i;
+        if(air_sheds(t->kind) && d2 < NEAR_LEAF * NEAR_LEAF && nscan < NEAR_TREES) scan_t[nscan++] = (uint16_t)i;
     }
     scan_at = to;
     if(scan_at >= LVL_TREES) {
@@ -289,9 +295,9 @@ void air_update(float dt) {
     float sun = (pal->sun_k[0] + pal->sun_k[1] + pal->sun_k[2]) * (1.0f / 3.0f) * (1.0f - pal->dark);
     motes_update(dt, c, forest_n >= 6 && !tod.moonlit && world_mist() < 0.3f ? sun : 0);
     /* Fireflies: after dusk, low on the mountain. */
-    flies_update(dt, c, pal->dark > 0.45f && c.y < 60.0f ? 1.0f : 0);
+    flies_update(dt, c, look->fireflies && pal->dark > 0.45f && c.y < 60.0f ? 1.0f : 0);
     /* Snow: blowing about the top of the mountain. */
-    snow_update(dt, c, clampf((c.y - 112.0f) * (1.0f / 20.0f), 0, 1));
+    snow_update(dt, c, look->snow ? clampf((c.y - 112.0f) * (1.0f / 20.0f), 0, 1) : 0);
 }
 
 /* ---- Drawing ---- */

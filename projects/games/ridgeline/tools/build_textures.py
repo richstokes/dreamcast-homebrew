@@ -87,6 +87,40 @@ def tex_grass():
     return to_image(rgb)
 
 
+def tex_sandstone():
+    """The desert's ground: sandstone and what weathers off it. Fine grain,
+    soft blotches where it has bleached or stained, a few hairline joints;
+    near white, so the vertex colours carry the beds' reds."""
+    n = 256
+    r = rng(81)
+    v = 0.93 + 0.07 * tile_noise(n, 5, 82) + 0.045 * (tile_noise(n, 24, 83) - 0.5)
+    grain = r.random((n, n))
+    v += 0.05 * (gaussian_filter(grain, 0.7, mode="wrap") - 0.5) * 2
+    # Pits: small dark flecks where grains have plucked out.
+    pits = gaussian_filter((r.random((n, n)) > 0.992).astype(float), 0.9, mode="wrap")
+    v -= 0.5 * pits
+    # Joints: a few thin wandering lines, drawn three times over so they tile.
+    img = Image.new("L", (n * 3, n * 3), 0)
+    d = ImageDraw.Draw(img)
+    for _ in range(7):
+        x, y = r.uniform(0, n), r.uniform(0, n)
+        a = r.uniform(0, math.pi)
+        pts = [(x, y)]
+        for _ in range(14):
+            a += r.normal(0, 0.22)
+            x += math.cos(a) * 16
+            y += math.sin(a) * 16
+            pts.append((x, y))
+        for ox in (0, n, 2 * n):
+            for oy in (0, n, 2 * n):
+                d.line([(px + ox, py + oy) for px, py in pts], fill=255, width=1)
+    cracks = np.array(img.filter(ImageFilter.GaussianBlur(0.6)), dtype=float)[n:2 * n, n:2 * n] / 255
+    v -= 0.10 * cracks
+    v = np.clip(v, 0.74, 1.0)
+    rgb = np.dstack([v * 255, v * 250, v * 243])
+    return to_image(rgb)
+
+
 def tex_ripple():
     """Ripples on the water: light crests on a mid field, near white so the
     vertex colour carries the water. v runs downstream (the game turns the
@@ -406,8 +440,101 @@ def tex_tuft(variant):
     return _tuft_finish(img, n)
 
 
-def tex_map():
-    img = Image.open(GEN / "level_map.png").convert("RGB").resize((256, 256), Image.LANCZOS)
+def tex_brush(variant):
+    """Desert brush, in its own colours (the game's vertex colour only
+    lights it): punch-through, as the grass tufts are.
+      0: sagebrush, a rounded grey-green shrub on woody stems
+      1: blackbrush, a low dense dark dome of twigs
+      2: rabbitbrush, upright green stems topped with yellow flower heads
+      3: ricegrass, a dry straw-coloured bunch"""
+    n = 128
+    img, d = _tuft_canvas(n)
+    r = rng(161 + variant)
+    S = TUFT_SS
+
+    def leaf(x, y, rad, col):
+        d.ellipse([(x - rad) * S, (y - rad * 0.8) * S, (x + rad) * S, (y + rad * 0.8) * S], fill=col + (255,))
+
+    if variant == 0:
+        stems = []
+        for _ in range(30):
+            ang = float(np.clip(r.normal(0, 0.6), -1.0, 1.0))
+            hgt = r.uniform(0.42, 0.8) * n * (1 - 0.3 * abs(ang))
+            stems.append((hgt, n / 2 + r.normal(0, 5), ang))
+        for hgt, x0, ang in sorted(stems, key=lambda q: -q[0]):
+            pts = _blade(d, hgt, x0, ang, 2.4, (112, 96, 78), n)
+            for (x, y, _) in pts[2:]:
+                for _ in range(3):
+                    # Paler toward the top, where the light gets in.
+                    tone = r.uniform(0.8, 1.04) * (0.8 + 0.3 * (n - y) / n)
+                    leaf(float(np.clip(x + r.normal(0, 3.5), 5, n - 5)), y + r.normal(0, 3.2), r.uniform(2.6, 4.4),
+                         (int(146 * tone), int(162 * tone), int(134 * tone)))
+    elif variant == 1:
+        for _ in range(46):
+            a = r.uniform(-1.2, 1.2)
+            x1, y1 = n / 2 + math.sin(a) * n * 0.46, n - 4 - math.cos(a) * n * 0.6
+            d.line([(n / 2 * S, (n - 3) * S), (x1 * S, y1 * S)], fill=(74, 64, 50, 255), width=S)
+        for _ in range(170):
+            a = r.uniform(-1.25, 1.25)
+            rad = r.uniform(0.12, 1.0) ** 0.6 * n * 0.44
+            x, y = n / 2 + math.sin(a) * rad * 1.0, n - 5 - math.cos(a) * rad * 1.25
+            tone = r.uniform(0.72, 1.12) * (0.72 + 0.4 * (n - y) / n)
+            leaf(x, y, r.uniform(3.2, 5.6), (int(96 * tone), int(106 * tone), int(68 * tone)))
+    elif variant == 2:
+        stems = []
+        for _ in range(46):
+            ang = float(np.clip(r.normal(0, 0.5), -0.95, 0.95))
+            stems.append((r.uniform(0.5, 0.86) * n * (1 - 0.25 * abs(ang)), n / 2 + r.normal(0, 7), ang))
+        heads = []
+        for hgt, x0, ang in sorted(stems, key=lambda q: -q[0]):
+            tone = r.uniform(0.78, 1.05)
+            pts = _blade(d, hgt, x0, ang, 3.4, (112 * tone, 138 * tone, 80 * tone), n)
+            heads.append(pts[-1])
+        for (x, y, _) in heads:
+            for _ in range(5):
+                g = r.uniform(0.86, 1.06)
+                leaf(float(np.clip(x + r.normal(0, 3.6), 5, n - 5)), y + r.normal(0, 2.6) + 2.0, r.uniform(2.8, 4.8),
+                     (int(238 * g), int(200 * g), int(60 * g)))
+    else:
+        for _ in range(30):
+            tone = r.uniform(0.8, 1.0)
+            ang = float(np.clip(r.normal(0, 0.55), -1.1, 1.1))
+            _blade(d, r.uniform(0.45, 0.95) * n, n / 2 + r.normal(0, 6) + ang * 4, ang, r.uniform(2.0, 3.4),
+                   (232 * tone, 204 * tone, 146 * tone), n)
+    return _tuft_finish(img, n)
+
+
+def tex_weed():
+    """A tumbleweed: a ball of dry twigs, mostly air. Its own colours, as
+    the brush; punch-through."""
+    n = 64
+    S = TUFT_SS
+    img = Image.new("RGBA", (n * S, n * S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    r = rng(171)
+    c, rad = n / 2, n / 2 - 3
+    for _ in range(46):
+        # Twigs as chords and arcs through the ball, crowding its rim.
+        a0, a1 = r.uniform(0, 2 * math.pi), r.uniform(0, 2 * math.pi)
+        k0, k1 = r.uniform(0.55, 1.0), r.uniform(0.3, 1.0)
+        p0 = (c + math.cos(a0) * rad * k0, c + math.sin(a0) * rad * k0)
+        p1 = (c + math.cos(a1) * rad * k1, c + math.sin(a1) * rad * k1)
+        mid = ((p0[0] + p1[0]) / 2 + r.normal(0, 5), (p0[1] + p1[1]) / 2 + r.normal(0, 5))
+        tone = r.uniform(0.7, 1.0)
+        col = (int(206 * tone), int(176 * tone), int(124 * tone), 255)
+        w = int(S * r.uniform(1.0, 1.8))
+        d.line([(p0[0] * S, p0[1] * S), (mid[0] * S, mid[1] * S), (p1[0] * S, p1[1] * S)], fill=col, width=w)
+    for k in range(30):
+        a = 2 * math.pi * k / 30
+        b = a + r.uniform(0.3, 0.9)
+        tone = r.uniform(0.75, 1.0)
+        d.line([((c + math.cos(a) * rad) * S, (c + math.sin(a) * rad) * S), ((c + math.cos(b) * rad * 0.94) * S, (c + math.sin(b) * rad * 0.94) * S)],
+               fill=(int(214 * tone), int(184 * tone), int(130 * tone), 255), width=int(S * 1.5))
+    return _tuft_finish(img, n)
+
+
+def tex_map(area):
+    img = Image.open(GEN / f"level_map_{area}.png").convert("RGB").resize((256, 256), Image.LANCZOS)
     return img
 
 
@@ -501,10 +628,13 @@ def build(out: Path):
     font_img, glyphs, cap = tex_font()
     items = [
         (TexSpec("grass", "RGB565", True, True), tex_grass()),
+        (TexSpec("sandstone", "RGB565", True, True), tex_sandstone()),
         (TexSpec("rock", "RGB565", True, True), tex_rock()),
         (TexSpec("bark", "RGB565", True, True), tex_bark()),
         (TexSpec("crown", "RGB565", True, True), tex_crown()),
         *[(TexSpec(f"tuft{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_tuft(k)) for k in range(4)],
+        *[(TexSpec(f"brush{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_brush(k)) for k in range(4)],
+        (TexSpec("weed", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_weed()),
         (TexSpec("sun", "ARGB4444", False, False), tex_sun()),
         (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
         (TexSpec("stars", "ARGB4444", False, False), tex_stars()),
@@ -517,7 +647,8 @@ def build(out: Path):
         (TexSpec("ripple", "RGB565", True, True), tex_ripple()),
         (TexSpec("mist", "ARGB4444", True, True), tex_mist()),
         (TexSpec("cloud", "ARGB4444", False, False), tex_cloud()),
-        (TexSpec("map", "RGB565", True, False), tex_map()),
+        (TexSpec("map", "RGB565", True, False), tex_map("cascade")),
+        (TexSpec("map_moab", "RGB565", True, False), tex_map("moab")),
         (TexSpec("dial", "ARGB4444", False, False), tex_dial()),
         (TexSpec("icons", "ARGB4444", False, False), tex_icons()),
         (TexSpec("logo", "ARGB4444", False, False), tex_logo()),

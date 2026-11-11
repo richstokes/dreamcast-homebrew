@@ -8,6 +8,8 @@ void menu_init(void);
 void menu_title_update(float dt);
 const char *menu_truck_name(int model);
 void menu_title_draw(void);
+/* The truck select opens on its first page (the area's, offline). */
+void menu_select_begin(void);
 void menu_select_update(float dt);
 void menu_select_draw(void);
 void menu_pause_update(float dt);

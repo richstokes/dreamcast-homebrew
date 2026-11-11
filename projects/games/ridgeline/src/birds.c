@@ -66,14 +66,11 @@ static Group groups[MAX_GROUPS];
 static int group_n;
 
 /* Hawks circling: centre, radius, height over the ground there. */
-typedef struct { float x, z, r, h, phase, dir; } Hawk;
-static const Hawk hawks[] = {
-    {10, -235, 34, 42, 0.0f, 1},     /* over the meadow */
-    {118, 36, 28, 38, 2.0f, -1},     /* Eagle Bluff */
-    {-80, 84, 40, 46, 4.0f, 1},      /* above Cedar Falls */
-};
-#define HAWK_N (int)(sizeof(hawks) / sizeof(hawks[0]))
-static float hawk_y[HAWK_N];
+typedef lvl_hawk_t Hawk;
+#define hawks (lvl->hawks)
+#define HAWK_MAX 6
+#define HAWK_N (lvl->nhawks < HAWK_MAX ? lvl->nhawks : HAWK_MAX)
+static float hawk_y[HAWK_MAX];
 
 /* A skein of geese. */
 #define GEESE 9
@@ -196,6 +193,18 @@ void birds_init(void) {
                 add_bird(SP_JUNCO, v3(c.x + cy * 0.5f, c.y + 0.8f, c.z - sy * 0.5f), p->yaw);
                 add_bird(SP_JUNCO, v3(c.x - cy * 0.2f, c.y + 0.8f, c.z + sy * 0.2f), p->yaw + 2.5f);
                 add_bird(SP_JUNCO, v3(c.x - cy * 0.6f + sy * 0.15f, c.y + 0.8f, c.z + sy * 0.6f + cy * 0.15f), p->yaw + 4.0f);
+                group_end();
+                break;
+            case PROP_RAMADA:
+                /* On the shade's roof. */
+                group_begin(SP_RAVEN);
+                add_bird(SP_RAVEN, v3(c.x + cy * 1.2f, c.y + 2.66f, c.z - sy * 1.2f), p->yaw + 1.0f);
+                add_bird(SP_RAVEN, v3(c.x - cy * 0.8f, c.y + 2.66f, c.z + sy * 0.8f), p->yaw - 2.0f);
+                group_end();
+                break;
+            case PROP_KIOSK:
+                group_begin(SP_JAY);
+                add_bird(SP_JAY, v3(c.x + cy * 0.5f, c.y + 2.61f, c.z - sy * 0.5f), p->yaw);
                 group_end();
                 break;
             case PROP_CAIRN:

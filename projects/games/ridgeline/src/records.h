@@ -1,4 +1,4 @@
-/* Ridgeline best times: to the summit, per truck and per way up, kept on
+/* Ridgeline best times: to the summit, per area, truck and way up, kept on
    a VMU with the player's online name. The way up is the climbing route the player spent most of the
    climb on, or their own way. */
 #ifndef RL_RECORDS_H
@@ -16,9 +16,11 @@ void records_jumped(void);            /* the player was moved (a viewpoint jump)
 /* At the summit: fills msg with the time and the way up (a line for under
    the summit message), saves a new best. Returns true for a new best. */
 bool records_summit(char *msg, int size);
-/* Tenths of a second, 0 for none. */
+/* Tenths of a second, 0 for none; the loaded area's. */
 uint32_t records_best(int truck, int way);
+/* The loaded area's ways up by name; short for the truck select's panel. */
 const char *records_way_name(int way);
+const char *records_way_short(int way);
 void records_format(uint32_t tenths, char *out, int size);   /* "9:41.3" */
 /* The online name kept with the times ("" for none yet); setting a new
    one saves. */

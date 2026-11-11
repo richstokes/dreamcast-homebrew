@@ -67,7 +67,7 @@ typedef struct {
 } Deer;
 
 static Deer deer[NDEER];
-static const float deer_homes[2][2] = {{150, -196}, {-150, -172}};
+static int ndeer;     /* none where the area has nowhere for them */
 
 static void deer_update(Deer *d, float dt) {
     V3 tp = d->p;
@@ -144,8 +144,10 @@ static void deer_draw(const Deer *d) {
 
 void deer_reset(void) {
     h = r_header(TEX_NONE, HF_OP);
-    for(int i = 0; i < NDEER; i++) {
-        const float *hm = deer_homes[i < 4 ? 0 : 1];
+    ndeer = lvl->nherds ? NDEER : 0;
+    for(int i = 0; i < ndeer; i++) {
+        /* Four on the first home, two on the second. */
+        const float *hm = lvl->herds[i < 4 || lvl->nherds < 2 ? 0 : 1];
         Deer *d = &deer[i];
         d->home = v3(hm[0], 0, hm[1]);
         d->p = v3(hm[0] + rnd_s() * 8.0f, 0, hm[1] + rnd_s() * 8.0f);
@@ -161,14 +163,14 @@ void deer_reset(void) {
 
 void deer_update_all(float dt) {
     if(!h) deer_reset();
-    for(int i = 0; i < NDEER; i++) deer_update(&deer[i], dt);
+    for(int i = 0; i < ndeer; i++) deer_update(&deer[i], dt);
 }
 
 void deer_draw_all(void) {
     if(!h) return;
     r_load_vp();
     r_hdr(h);
-    for(int i = 0; i < NDEER; i++) {
+    for(int i = 0; i < ndeer; i++) {
         V3 d = vsub(deer[i].p, r_cam.pos);
         if(vdot(d, d) < 130.0f * 130.0f && r_sphere_visible(vadd(deer[i].p, v3(0, 1, 0)), 1.6f)) deer_draw(&deer[i]);
     }

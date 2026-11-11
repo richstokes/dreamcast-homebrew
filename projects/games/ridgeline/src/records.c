@@ -19,15 +19,23 @@
 #define FILENAME "RIDGELINE"
 #define NEAR_M 9.0f
 
+#define REC_TRUCKS 8   /* rows the file has room for */
+_Static_assert(TRUCK_MODELS <= REC_TRUCKS, "the save has no row for this truck");
+
 typedef struct {
     char magic[8];
     int32_t version;
+    /* Cascade Ridge's times. */
     uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none: Cascade 84, Kestrel */
     char name[12];                 /* the online name (version 2; version 1 saves end before it) */
-    /* The trucks after the first two (Bobcat, FFR, Taco, Goose), a row each in model
-       order. Appended to version 2 so older builds still read the rest; a
-       save from a build with fewer trucks is shorter. */
-    uint32_t best_more[TRUCK_MODELS - 2][WAY_COUNT];
+    /* The trucks after the first two (Bobcat, FFR, Taco, Goose...), a row each in
+       model order. Appended to version 2 so older builds still read the
+       rest; a save from a build with fewer trucks is shorter. */
+    uint32_t best_more[REC_TRUCKS - 2][WAY_COUNT];
+    /* The areas after Cascade Ridge, a row a truck. Still version 2: an
+       older build reads what it knows and writes a shorter save, which
+       forgets these. */
+    uint32_t area_best[AREA_COUNT - 1][REC_TRUCKS][WAY_COUNT];
 } record_t;
 #define RECORD_V1_BYTES (int)offsetof(record_t, name)
 #define RECORD_V2_BYTES (int)offsetof(record_t, best_more)
@@ -66,7 +74,8 @@ void records_load(void) {
     /* Rows a shorter save lacks stay as cleared above: no time yet. A row
        cut short is cleared too. */
     int rows = n < RECORD_V2_BYTES ? 0 : (n - RECORD_V2_BYTES) / (int)sizeof(r.best_more[0]);
-    for(int i = rows; i < TRUCK_MODELS - 2; i++) memset(r.best_more[i], 0, sizeof(r.best_more[i]));
+    for(int i = rows; i < REC_TRUCKS - 2; i++) memset(r.best_more[i], 0, sizeof(r.best_more[i]));
+    if(n < (int)sizeof(r)) memset(r.area_best, 0, sizeof(r.area_best));
     r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
     printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);
@@ -226,8 +235,11 @@ void records_update(float dt) {
 }
 
 const char *records_way_name(int way) {
-    static const char *const names[WAY_COUNT] = {"LOGGING ROAD", "RIDGE LINE", "CREEK BED", "YOUR OWN WAY"};
-    return names[way];
+    return way < WAY_OWN ? lvl_routes[1 + way].name : "YOUR OWN WAY";
+}
+
+const char *records_way_short(int way) {
+    return way < WAY_OWN ? lvl_routes[1 + way].short_name : "OWN WAY";
 }
 
 void records_format(uint32_t tenths, char *out, int size) {
@@ -248,6 +260,7 @@ void records_set_name(const char *name) {
 
 static uint32_t *best_slot(int truck, int way) {
     truck %= TRUCK_MODELS;
+    if(game.area != AREA_CASCADE) return &rec.area_best[game.area - 1][truck][way];
     return truck < 2 ? &rec.best[truck][way] : &rec.best_more[truck - 2][way];
 }
 
@@ -269,15 +282,18 @@ bool records_summit(char *msg, int size) {
     if(tally[way] < tally[WAY_OWN]) way = WAY_OWN;
     uint32_t *b = best_slot(game.truck_model, way);
     bool better = *b == 0 || tenths < *b;
+    /* "BY THE LOGGING ROAD", "BY THE FINS", "BY YOUR OWN WAY". */
+    const char *wn = records_way_name(way);
+    const char *by = way == WAY_OWN || !strncmp(wn, "THE ", 4) ? "BY" : "BY THE";
     if(better) {
         *b = tenths;
-        snprintf(msg, size, "%s %s %s   NEW BEST!", t, way == WAY_OWN ? "BY" : "BY THE", records_way_name(way));
+        snprintf(msg, size, "%s %s %s   NEW BEST!", t, by, wn);
         save();
     }
     else {
         char bt[16];
         records_format(*b, bt, sizeof(bt));
-        snprintf(msg, size, "%s %s %s   BEST %s", t, way == WAY_OWN ? "BY" : "BY THE", records_way_name(way), bt);
+        snprintf(msg, size, "%s %s %s   BEST %s", t, by, wn, bt);
     }
     printf("Ridgeline records: summit %s by way %d (tally %.0f %.0f %.0f own %.0f m)%s\n", t, way, (double)tally[0],
            (double)tally[1], (double)tally[2], (double)tally[3], better ? ", a new best" : "");

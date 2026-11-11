@@ -1,12 +1,13 @@
 // rl-bot is a pretend Ridgeline console for testing the server and the
 // game's online mode: it says hello, joins a lobby and drives a truck
-// round a loop on the real mountain (heights from the level's level.bin),
+// round a loop on the real mountain (heights from the area's packed level),
 // logging who else is there and where they drive. -smoke only checks the
 // server answers.
 package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -30,17 +31,109 @@ const (
 
 type terrain []float32
 
+// lz4Block unpacks one LZ4 block of n bytes.
+func lz4Block(src []byte, n int) ([]byte, error) {
+	dst := make([]byte, 0, n)
+	bad := errors.New("damaged LZ4 block")
+	for s := 0; s < len(src); {
+		tok := int(src[s])
+		s++
+		lit := tok >> 4
+		if lit == 15 {
+			for {
+				if s >= len(src) {
+					return nil, bad
+				}
+				b := int(src[s])
+				s++
+				lit += b
+				if b != 255 {
+					break
+				}
+			}
+		}
+		if s+lit > len(src) {
+			return nil, bad
+		}
+		dst = append(dst, src[s:s+lit]...)
+		s += lit
+		if s >= len(src) {
+			break
+		}
+		if s+2 > len(src) {
+			return nil, bad
+		}
+		off := int(src[s]) | int(src[s+1])<<8
+		s += 2
+		ln := tok&15 + 4
+		if tok&15 == 15 {
+			for {
+				if s >= len(src) {
+					return nil, bad
+				}
+				b := int(src[s])
+				s++
+				ln += b
+				if b != 255 {
+					break
+				}
+			}
+		}
+		if off == 0 || off > len(dst) {
+			return nil, bad
+		}
+		for ; ln > 0; ln-- {
+			dst = append(dst, dst[len(dst)-off])
+		}
+	}
+	if len(dst) != n {
+		return nil, bad
+	}
+	return dst, nil
+}
+
+// loadTerrain reads the heights out of a packed level (level_<area>.lvl),
+// as src/level.c unpacks them: "RLVL", a version, the heights' base and
+// step, five block sizes, then the heights' block: zigzagged residuals
+// from a plane through each vertex's left, upper and upper-left
+// neighbours, low bytes then high.
 func loadTerrain(path string) (terrain, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	if len(b) < levelN*levelN*8 {
-		return nil, fmt.Errorf("%s: too short for a %dx%d heightfield", path, levelN, levelN)
+	const nn = levelN * levelN
+	if len(b) < 36 || string(b[:4]) != "RLVL" || binary.LittleEndian.Uint32(b[4:]) != 1 {
+		return nil, fmt.Errorf("%s: not a packed level", path)
 	}
-	t := make(terrain, levelN*levelN)
-	for i := range t {
-		t[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*8:]))
+	base := math.Float32frombits(binary.LittleEndian.Uint32(b[8:]))
+	step := math.Float32frombits(binary.LittleEndian.Uint32(b[12:]))
+	size := int(binary.LittleEndian.Uint32(b[16:]))
+	if 36+size > len(b) {
+		return nil, fmt.Errorf("%s: cut short", path)
+	}
+	raw, err := lz4Block(b[36:36+size], nn*2)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	q := make([]int32, nn)
+	t := make(terrain, nn)
+	for j := 0; j < levelN; j++ {
+		for i := 0; i < levelN; i++ {
+			k := j*levelN + i
+			zz := uint32(raw[k]) | uint32(raw[nn+k])<<8
+			v := int32(zz>>1) ^ -int32(zz&1)
+			switch {
+			case j == 0 && i > 0:
+				v += q[k-1]
+			case j > 0 && i == 0:
+				v += q[k-levelN]
+			case j > 0:
+				v += q[k-1] + q[k-levelN] - q[k-levelN-1]
+			}
+			q[k] = v
+			t[k] = base + step*float32(v)
+		}
 	}
 	return t, nil
 }
@@ -171,13 +264,13 @@ func (b *bot) logTrucks(p []byte) {
 func main() {
 	addr := flag.String("addr", "dcvmu.com:7536", "server address")
 	name := flag.String("name", "AT-BOT", "player name (AT and a digit or dash marks a test client)")
-	lobbyN := flag.Int("lobby", 9, "lobby to join, 1-10")
+	lobbyN := flag.Int("lobby", 5, "lobby to join, 1-10")
 	smoke := flag.Bool("smoke", false, "just check the server answers: hello, the lobby list, then quit")
 	dur := flag.Duration("for", 0, "quit after this long (0: run until killed)")
 	summitAfter := flag.Duration("summit-after", 0, "claim the summit after this long in the lobby (0: never)")
 	leaveAfter := flag.Duration("leave-after", 0, "leave the lobby after this long, then come back after -away")
 	away := flag.Duration("away", 10*time.Second, "how long a -leave-after trip lasts")
-	levelPath := flag.String("level", "../assets/generated/level.bin", "the level's level.bin, for ground heights")
+	levelPath := flag.String("level", "../assets/generated/level_cascade.lvl", "the lobby's area's packed level, for ground heights (lobbies 6-10 are level_moab.lvl's)")
 	cx := flag.Float64("x", 0, "loop centre x (m)")
 	cz := flag.Float64("z", -255, "loop centre z (m)")
 	radius := flag.Float64("radius", 14, "loop radius (m)")

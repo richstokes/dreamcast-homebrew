@@ -6,7 +6,9 @@
 
 #include "rl.h"
 
-/* The middle of the fire ring, on the ground (in front of the tent). */
+/* Find the area's camp: the middle of its fire ring, on the ground in
+   front of the tent. False if the area has none. */
+bool campfire_place(V3 *at);
 V3 campfire_pos(void);
 
 void campfire_init(void);          /* after the terrain is up */

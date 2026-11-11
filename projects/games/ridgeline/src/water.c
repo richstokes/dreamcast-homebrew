@@ -23,19 +23,19 @@ static int wv_n;
 /* Each water chunk's flow: unit direction downstream and speed (m/s);
    still water drifts slowly with the wind. */
 typedef struct { uint16_t chunk; float fx, fz, speed; V3 o; } WChunk;
-#define WCHUNKS 64
+#define WCHUNKS 128
 static WChunk wch[WCHUNKS];
 static int wch_n;
 
 static inline uint32_t water_colour(float depth, float foam, float k) {
-    uint32_t c = color_lerp(0xff9ed2cc, 0xff2e6a74, depth);
+    uint32_t c = color_lerp(look->water_shallow, look->water_deep, depth);
     c = color_lerp(c, 0xffeef6f4, foam * 0.85f);
     return color_alpha(color_scale(c, k), 0.42f + 0.38f * depth + 0.4f * foam);
 }
 
 /* ---- Water, built ---- */
 
-#define WET_MAX 2048
+#define WET_MAX 5120
 static inline float lvl_wat(int i, int j) {
     return lvl_water[lvl_clampi(j) * LEVEL_N + lvl_clampi(i)];
 }

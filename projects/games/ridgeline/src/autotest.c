@@ -67,7 +67,7 @@ static struct {
 } at;
 
 /* Fixed views for screenshots of the scenery: position, target. */
-static const float tour_views[][6] = {
+static const float tour_cascade[][6] = {
     {10, 8, -300, 20, 60, 60},          /* the meadow, looking up the mountain */
     {-90, 30, -120, -40, 100, 70},      /* the creek valley */
     {150, 70, -40, 20, 120, 120},       /* the east flank and the logging road */
@@ -87,9 +87,34 @@ static const float tour_views[][6] = {
     {40, 95, -60, 30, 122, 140},        /* the cloud on the summit, from the south flank */
     {-20, 116, 114, -37, 117, 132},     /* inside it on the summit trail */
 };
-#define TOUR_N (int)(sizeof(tour_views) / sizeof(tour_views[0]))
+#define TOUR_CASCADE_N (int)(sizeof(tour_cascade) / sizeof(tour_cascade[0]))
+/* The desert's (-DRL_AT_AREA=1). */
+static const float tour_desert[][6] = {
+    {0, 9, -300, 10, 50, -100},         /* the flats, looking up at the tiers */
+    {-60, 8, -250, 250, 30, -160},      /* east along the wall */
+    {60, 8, -240, -300, 50, -150},      /* west to the upland */
+    {8, 12, -215, 20, 40, -110},        /* the fork, the fins ahead */
+    {30, 44, -100, 60, 60, 20},         /* off the top of the first fin, the bench and the second */
+    {150, 14, -215, 230, 40, -140},     /* the rim road's first dugway */
+    {-150, 13, -176, -200, 30, -100},   /* the canyon's mouth */
+    {-190, 30, -60, -180, 60, 10},      /* in the canyon, the park */
+    {-180, 46, 20, -160, 70, 70},       /* the upper canyon */
+    {262, 30, -176, 60, 0, -260},       /* down over the flats from the dugway */
+    {90, 50, -80, 20, 80, 50},          /* the second fin */
+    {40, 82, 44, -10, 88, 74},          /* the arch from the head of the fin */
+    {-60, 84, 70, 60, 104, 100},        /* the shelf across the mesa's cliff */
+    {24, 137, 226, 30, 20, 320},        /* the overlook, north */
+    {24, 146, 214, 0, 20, -280},        /* from the overlook, south */
+    {-140, 150, 250, 60, 20, 320},      /* the basin from the rim, west of the overlook */
+    {-128, 12, -214, -100, 8, -238},    /* the hot tubs */
+    {-276, 10, -252, -260, 8, -272},    /* the goblins */
+};
+#define TOUR_DESERT_N (int)(sizeof(tour_desert) / sizeof(tour_desert[0]))
+_Static_assert(TOUR_CASCADE_N == TOUR_DESERT_N, "the tours are as long as each other");
+#define TOUR_N TOUR_CASCADE_N
+#define tour_views (game.area == AREA_MOAB ? tour_desert : tour_cascade)
 
-#if defined(RL_CAPTURE) && !defined(RL_HW)
+#if defined(RL_CAPTURE) && !defined(RL_HW) && !defined(RL_AT_TOUR_ONLY)
 /* The day over the meadow (tour view 0) and the west (view 5): the
    hours, each shot once the world has been relit for it (Flycast only:
    relighting the whole world at once stalls a console bench's first
@@ -105,8 +130,8 @@ static const int tod_shot_views[2] = {0, 5};
 #ifdef RL_AT_VMUTEST
 #include "records.h"
 /* make vmutest, on blank cards: a summit time saves and reads back, a
-   slower one doesn't replace it, and the last truck's time keeps its own
-   slot, apart from the Bobcat's. */
+   slower one doesn't replace it, the last truck's time keeps its own
+   slot, apart from the Bobcat's, and the desert's times keep theirs. */
 static void vmu_test(void) {
     char line[64];
     records_load();
@@ -124,18 +149,27 @@ static void vmu_test(void) {
     game.clock = 702.5f;
     bool third = records_summit(line, sizeof(line));
     printf("RL AT vmu: %s\n", line);
+    /* The other area's times are its own. */
+    game.area = AREA_MOAB;
+    game.truck_model = 1;
+    records_start();
+    game.clock = 333.3f;
+    bool fourth = records_summit(line, sizeof(line));
+    printf("RL AT vmu: %s\n", line);
     records_set_name("PEBBLES");   /* the online name, kept with the times */
     records_load();
+    uint32_t desert = records_best(1, WAY_LOGGING);
+    game.area = AREA_CASCADE;
     uint32_t got = records_best(1, WAY_LOGGING), other = records_best(0, WAY_LOGGING);
     uint32_t last = records_best(TRUCK_MODELS - 1, WAY_LOGGING), bobcat = records_best(2, WAY_LOGGING);
     bool named = strcmp(records_name(), "PEBBLES") == 0;
-    if(first && !second && third && got == 5813 && other == 0 && last == 7025 && bobcat == 0 && named)
-        printf("RL AUTOTEST: PASS vmu save read back %lu and %lu, name %s\n", (unsigned long)got,
-               (unsigned long)last, records_name());
+    if(first && !second && third && fourth && got == 5813 && other == 0 && last == 7025 && bobcat == 0 && desert == 3333 && named)
+        printf("RL AUTOTEST: PASS vmu save read back %lu, %lu and the desert's %lu, name %s\n", (unsigned long)got,
+               (unsigned long)last, (unsigned long)desert, records_name());
     else
-        printf("RL AUTOTEST: FAIL vmu save: first %d second %d third %d read back %lu other %lu last %lu bobcat %lu "
-               "name \"%s\"\n", first, second, third, (unsigned long)got, (unsigned long)other, (unsigned long)last,
-               (unsigned long)bobcat, records_name());
+        printf("RL AUTOTEST: FAIL vmu save: first %d second %d third %d fourth %d read back %lu other %lu last %lu "
+               "bobcat %lu desert %lu name \"%s\"\n", first, second, third, fourth, (unsigned long)got,
+               (unsigned long)other, (unsigned long)last, (unsigned long)bobcat, (unsigned long)desert, records_name());
 }
 #endif
 
@@ -232,6 +266,9 @@ void autotest_boot(void) {
 #ifdef RL_AT_VMUTEST
     vmu_test();
 #endif
+#ifdef RL_AT_AREA
+    game_load_area(RL_AT_AREA);   /* -DRL_AT_AREA=1: the desert */
+#endif
     game.truck_model = RL_AT_TRUCK;
     game.livery = 0;
     game.companions = RL_AT_COMPANIONS;
@@ -288,6 +325,10 @@ static void tour_done(void) {
     camera_reset();
     game.clock = 0;
     tod_set_hour(tod_hours[game.start_tod]);
+#ifdef RL_AT_TOUR_ONLY
+    printf("RL AUTOTEST: PASS tour done\n");
+    at.done = true;
+#endif
 }
 #endif
 
@@ -317,6 +358,14 @@ void autotest_frame(float dt_real) {
        loop and a one-shot, back out, down to the controls and back, and on
        to the truck select. */
     static bool menus_done, sound_seen;
+#ifdef RL_AT_TOUR_ONLY
+    /* -DRL_AT_TOUR_ONLY: straight to the scenery tour, and done after it. */
+    if(game.state != ST_DRIVE) {
+        game_start_drive();
+        ai_start(0, RL_AT_ROUTE);
+        return;
+    }
+#endif
     if(game.state == ST_TITLE) {
         if(sound_seen && !menus_done) {
             menus_done = true;
@@ -348,10 +397,15 @@ void autotest_frame(float dt_real) {
         return;
     }
     if(game.state == ST_SELECT) {
-        if(frames == 150) shot("select");
-        if(frames == 200) input_film_tap(0, BTN_A);
-        if(frames == 260) shot("select-drive");
-        if(frames == 290) {
+        if(frames == 60) shot("select-area");
+        if(frames == 100) input_film_tap(0, BTN_RIGHT);
+        if(frames == 140) shot("select-area-other");
+        if(frames == 150) input_film_tap(0, BTN_LEFT);
+        if(frames == 170) input_film_tap(0, BTN_A);
+        if(frames == 230) shot("select");
+        if(frames == 250) input_film_tap(0, BTN_A);
+        if(frames == 300) shot("select-drive");
+        if(frames == 330) {
             game_start_drive();
             ai_start(0, RL_AT_ROUTE);
             game.paused = false;
@@ -360,8 +414,18 @@ void autotest_frame(float dt_real) {
         return;
     }
     if(at.tour < TOUR_N) {
+#ifdef RL_AT_TOUR_ROUTE
+        /* -DRL_AT_TOUR_ROUTE=2: the tour is a drive up that route instead,
+           the views a chase camera's at even steps along it. */
+        const lvl_route_t *rt = &lvl_routes[RL_AT_TOUR_ROUTE];
+        int k = (int)((at.tour + 0.5f) * rt->n / TOUR_N), k1 = k + 4 < rt->n ? k + 4 : rt->n - 1, k0 = k > 2 ? k - 2 : 0;
+        V3 p = v3(rt->pts[k0].x, rt->pts[k0].y + 3.4f, rt->pts[k0].z);
+        float tv[6] = {p.x, p.y, p.z, rt->pts[k1].x, rt->pts[k1].y + 1.0f, rt->pts[k1].z};
+        const float *v = tv;
+#else
         const float *v = tour_views[at.tour];
         V3 p = v3(v[0], v[1], v[2]);
+#endif
         float g = terrain_height(p.x, p.z);
         if(p.y < g + 3.0f) p.y = g + 3.0f;
         camera_set(p, v3(v[3], v[4], v[5]), 1.2f);
@@ -375,7 +439,7 @@ void autotest_frame(float dt_real) {
         }
         /* Each view timed once it has settled: CPU and the PVR's render. */
         static float tcpu, tcpu_max, trnd, trnd_max;
-        if(at.tour_frames > 20) {
+        if(at.tour_frames > 20 && at.tour_frames <= 60) {
             pvr_stats_t ps;
             pvr_get_stats(&ps);
             float rnd = (float)ps.rnd_last_time * 1e-6f;
@@ -386,18 +450,23 @@ void autotest_frame(float dt_real) {
             if(rnd > trnd_max) trnd_max = rnd;
         }
         if(at.tour_frames == 60) {
-            printf("RL AT tour-%d cpu %.2f/%.2f render %.2f/%.2f ms tris %d\n", at.tour, (double)(tcpu / 39),
-                   (double)tcpu_max, (double)(trnd / 39), (double)trnd_max, rstats.tris);
+            printf("RL AT tour-%d cpu %.2f/%.2f render %.2f/%.2f ms tris %d\n", at.tour, (double)(tcpu / 40),
+                   (double)tcpu_max, (double)(trnd / 40), (double)trnd_max, rstats.tris);
             tcpu = tcpu_max = trnd = trnd_max = 0;
         }
+        /* (a tour-only capture holds each view until its screenshot is in) */
+#ifdef RL_AT_TOUR_ONLY
+        if(at.tour_frames >= 110) {
+#else
         if(at.tour_frames >= 60) {
+#endif
             at.tour++;
             at.tour_frames = 0;
             if(at.tour == TOUR_N + TOD_N) tour_done();
         }
         return;
     }
-#if defined(RL_CAPTURE) && !defined(RL_HW)
+#if defined(RL_CAPTURE) && !defined(RL_HW) && !defined(RL_AT_TOUR_ONLY)
     if(at.tour < TOUR_N + TOD_N) {
         /* The same two views through the day. */
         int k = at.tour - TOUR_N;

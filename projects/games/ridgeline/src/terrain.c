@@ -3,17 +3,14 @@
 #include "water.h"
 #include <malloc.h>
 
-extern const uint8_t rl_level_bin[];
-
 const GroundVert *lvl_ground;
 const float *lvl_water;
 const uint8_t *lvl_surf;
 
-/* The ground's colours live in a copy of the level's grid so the clock
-   can relight them (terrain_relight); the level also carries each
-   vertex's albedo, normal and depth under water, and a horizon map. */
+/* The loaded area's grid (level.h). The clock relights the ground's
+   colours in place (terrain_relight) from each vertex's albedo, normal
+   and depth under water, and the horizon map. */
 static GroundVert *ground_ram;
-typedef struct { uint8_t r, g, b; int8_t nx, nz; uint8_t deep, pad[2]; } LvlLight;
 static const LvlLight *lvl_light;
 static const uint8_t *lvl_hz;
 /* Friction from the usual off-road figures: dry rock grips best, mud and
@@ -30,6 +27,11 @@ const SurfProps surf_props[SURF_COUNT] = {
     [SURF_SCREE] = {0.52f, 0.050f, 0.03f, 0.03f, 0.95f, 0xffb0aaa0, "SCREE"},
     [SURF_SNOW] = {0.33f, 0.040f, 0.06f, 0.005f, 0.95f, 0xfff0f4f8, "SNOW"},
     [SURF_WETROCK] = {0.46f, 0.015f, 0.00f, 0.03f, 0.85f, 0xff8a9496, "WET ROCK"},
+    /* The desert's: dry sand drags and swallows the tyres but ploughs
+       rather than lets go; slickrock is sandstone as rough as sandpaper,
+       the best grip there is, and lets go all at once. */
+    [SURF_SAND] = {0.58f, 0.085f, 0.07f, 0.01f, 0.96f, 0xffd8a070, "SAND"},
+    [SURF_SLICKROCK] = {1.05f, 0.011f, 0.00f, 0.02f, 0.80f, 0xffd09870, "SLICKROCK"},
 };
 
 /* ---- Obstacles ---- */
@@ -39,7 +41,7 @@ enum { OB_SPHERE, OB_CAPSULE, OB_BOX, OB_TREE };
 #define OB_N ((int)(LEVEL_SIZE / OB_CELL) + 1)
 static uint16_t *ob_first, *ob_count, *ob_list;
 /* Boxes: the inverse turn, cached. */
-static float box_c[LVL_BOXES], box_s[LVL_BOXES];
+static float box_c[LVL_MAX_BOXES], box_s[LVL_MAX_BOXES];
 
 static void ob_bounds(int type, int i, float *x0, float *z0, float *x1, float *z1) {
     switch(type) {
@@ -69,9 +71,13 @@ static void ob_bounds(int type, int i, float *x0, float *z0, float *x1, float *z
 }
 
 static void ob_grid_build(void) {
-    static const int counts[4] = {LVL_SPHERES, LVL_CAPSULES, LVL_BOXES, LVL_TREES};
-    ob_first = calloc(OB_N * OB_N, sizeof(uint16_t));
-    ob_count = calloc(OB_N * OB_N, sizeof(uint16_t));
+    const int counts[4] = {LVL_SPHERES, LVL_CAPSULES, LVL_BOXES, LVL_TREES};
+    if(!ob_first) ob_first = malloc(OB_N * OB_N * sizeof(uint16_t));
+    if(!ob_count) ob_count = malloc(OB_N * OB_N * sizeof(uint16_t));
+    memset(ob_first, 0, OB_N * OB_N * sizeof(uint16_t));
+    memset(ob_count, 0, OB_N * OB_N * sizeof(uint16_t));
+    free(ob_list);
+    ob_list = NULL;
     for(int pass = 0; pass < 2; pass++) {
         int total = 0;
         if(pass == 1) {
@@ -118,17 +124,21 @@ static inline void box_local(int i, float x, float z, float *lx, float *lz) {
     *lz = dx * s + dz * c;
 }
 
-void terrain_init(void) {
-    ground_ram = memalign(32, sizeof(GroundVert) * LEVEL_N * LEVEL_N);
-    memcpy(ground_ram, rl_level_bin + LEVEL_BIN_GROUND, sizeof(GroundVert) * LEVEL_N * LEVEL_N);
-    lvl_ground = ground_ram;
-    lvl_water = (const float *)(rl_level_bin + LEVEL_BIN_WATER);
-    lvl_surf = rl_level_bin + LEVEL_BIN_SURF;
-    lvl_light = (const LvlLight *)(rl_level_bin + LEVEL_BIN_LIGHT);
-    lvl_hz = rl_level_bin + LEVEL_BIN_HORIZON;
+bool terrain_load(int area, void *buf) {
+    LvlGrid g;
+    if(!level_load(area, buf, &g)) {
+        printf("Ridgeline terrain: area %d's grid is damaged\n", area);
+        return false;
+    }
+    lvl_ground = ground_ram = g.ground;
+    lvl_water = g.water;
+    lvl_surf = g.surf;
+    lvl_light = g.light;
+    lvl_hz = g.hz;
     ob_grid_build();
-    printf("Ridgeline terrain: %d boulders, %d logs, %d ledges, %d trees\n", LVL_SPHERES, LVL_CAPSULES, LVL_BOXES,
-           LVL_TREES);
+    printf("Ridgeline terrain: %s, %d boulders, %d logs, %d ledges, %d trees\n", lvl->name, LVL_SPHERES, LVL_CAPSULES,
+           LVL_BOXES, LVL_TREES);
+    return true;
 }
 
 /* ---- Queries ---- */
@@ -312,6 +322,39 @@ static inline uint32_t grid_c(int i, int j) {
 
 #define TEX_TILE (1.0f / 9.0f)
 
+/* Skirts hide the cracks where two grids meet: along a shared edge the
+   finer one's extra vertices leave the coarser one's straight line. On
+   rolling ground a couple of metres of skirt covers that; across a cliff
+   the two can part by the cliff's height. So where an area has cliffs
+   each vertex knows how far below it the lowest ground lies within the
+   coarsest grid's step along the grid lines (half metres), and its skirt
+   hangs that much further. */
+static uint8_t *edge_drop;
+
+static void edge_drop_build(void) {
+    if(lvl_area == AREA_CASCADE) {   /* no cliffs: its skirts stay as they were measured */
+        free(edge_drop);
+        edge_drop = NULL;
+        return;
+    }
+    if(!edge_drop) edge_drop = malloc(LEVEL_N * LEVEL_N);
+    if(!edge_drop) return;
+    for(int j = 0; j < LEVEL_N; j++)
+        for(int i = 0; i < LEVEL_N; i++) {
+            float h = lvl_h(i, j), lo = h;
+            for(int d = -8; d <= 8; d++) {
+                lo = fminf(lo, lvl_h(i + d, j));
+                lo = fminf(lo, lvl_h(i, j + d));
+            }
+            float v = (h - lo) * 2.0f;
+            edge_drop[j * LEVEL_N + i] = (uint8_t)(v > 255.0f ? 255.0f : v);
+        }
+}
+
+static inline float skirt_drop(int i, int j, float base) {
+    return edge_drop ? base + edge_drop[lvl_clampi(j) * LEVEL_N + lvl_clampi(i)] * 0.5f : base;
+}
+
 /* Where each terrain pool vertex gets its colour when relit: a grid
    vertex, a grid vertex darkened for a skirt, or the water at a depth. */
 enum { SRC_GRID, SRC_SKIRT, SRC_WATER };
@@ -325,11 +368,35 @@ static void src_mark(const Scenery *sc, uint32_t src) {
     ter_marked = sc->pool_n;
 }
 
+/* The grid vertex a far block's vertex takes its colour from: itself,
+   unless a cliff's face passes within half a step of it. A coarse grid
+   draws a cliff as one ramp between two of its vertices, and coloured as
+   the bench above and the talus below it would fade from one to the
+   other; from the face's own vertices it stays a wall. */
+static int far_colour_src(int i, int j, int step) {
+    int best = lvl_clampi(j) * LEVEL_N + lvl_clampi(i), bd = 1 << 30, r = step / 2;
+    if(lvl_light[best].flags & LVL_FACE) return best;
+    for(int dj = -r; dj <= r; dj++)
+        for(int di = -r; di <= r; di++) {
+            int a = i + di, b = j + dj;
+            if(a < 0 || b < 0 || a >= LEVEL_N || b >= LEVEL_N) continue;
+            int d = di * di + dj * dj;
+            if(d < bd && (lvl_light[b * LEVEL_N + a].flags & LVL_FACE)) {
+                bd = d;
+                best = b * LEVEL_N + a;
+            }
+        }
+    return best;
+}
+
+static int tv_step;   /* the grid step of the far block being built */
+
 static void tv(Scenery *sc, int i, int j, bool join) {
     V3 p = grid_p(i, j);
-    if(join) sc_join(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, grid_c(i, j));
-    else sc_vert(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, grid_c(i, j));
-    src_mark(sc, SRC_GRID << 30 | (uint32_t)(j * LEVEL_N + i));
+    int src = far_colour_src(i, j, tv_step);
+    if(join) sc_join(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, lvl_ground[src].c);
+    else sc_vert(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, lvl_ground[src].c);
+    src_mark(sc, SRC_GRID << 30 | (uint32_t)src);
 }
 
 /* A chunk's skirt along one edge: the edge's vertices and a copy dropped
@@ -338,12 +405,16 @@ static void skirt(Scenery *sc, int i0, int j0, int di, int dj, int steps, int st
     for(int k = 0; k <= steps; k++) {
         int i = i0 + di * k * step, j = j0 + dj * k * step;
         V3 p = grid_p(i, j);
-        uint32_t c = color_scale(grid_c(i, j), 0.82f);
-        V3 q = v3(p.x, p.y - drop, p.z);
+        /* A skirt hung down a cliff shows beside the face: its colour
+           from the face, as the block's vertices there. */
+        int src = far_colour_src(i, j, step);
+        uint32_t c = color_scale(lvl_ground[src].c, 0.82f);
+        float dr = skirt_drop(i, j, drop);
+        V3 q = v3(p.x, p.y - dr, p.z);
         if(k == 0) sc_join(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, c);
         else sc_vert(sc, p, p.x * TEX_TILE, p.z * TEX_TILE, c);
-        sc_vert(sc, q, p.x * TEX_TILE, p.z * TEX_TILE + drop * TEX_TILE, c);
-        src_mark(sc, SRC_SKIRT << 30 | (uint32_t)(j * LEVEL_N + i));
+        sc_vert(sc, q, p.x * TEX_TILE, p.z * TEX_TILE + dr * TEX_TILE, c);
+        src_mark(sc, SRC_SKIRT << 30 | (uint32_t)src);
     }
 }
 
@@ -356,7 +427,7 @@ static void skirt(Scenery *sc, int i0, int j0, int di, int dj, int steps, int st
    the cracks. */
 #define BLOCK_CELLS 32
 #define BLOCKS ((LEVEL_N - 1) / BLOCK_CELLS)
-static const float lod_far[4] = {100.0f, 180.0f, 300.0f, 620.0f};
+static float lod_far[4] = {100.0f, 180.0f, 300.0f, 620.0f};
 /* The 3 m grid for tiles whose centre is within NEAR_FINE (horizontally),
    and out to TRAIL_FINE for tiles a route runs through: a trail is two
    cells wide, and on the 6 m grid its cut into a slope turned into long
@@ -382,14 +453,15 @@ static Sphere nc_sphere[NCHUNK], tile_sp[TILES * TILES], pair_sp[TILES * TILES /
 static uint8_t tile_trail[TILES * TILES];
 
 static Sphere cells_sphere(int i0, int j0, int ni, int nj) {
-    float lo = 1e9f, hi = -1e9f;
+    float lo = 1e9f, hi = -1e9f, deep = 0;
     for(int j = j0; j <= j0 + nj; j++)
         for(int i = i0; i <= i0 + ni; i++) {
             float h = lvl_h(i, j);
             lo = fminf(lo, h);
             hi = fmaxf(hi, h);
+            deep = fmaxf(deep, skirt_drop(i, j, 0));
         }
-    lo -= 13.0f;   /* the skirts */
+    lo -= 13.0f + deep;   /* the skirts */
     float hx = ni * LEVEL_D * 0.5f, hz = nj * LEVEL_D * 0.5f, hy = (hi - lo) * 0.5f;
     return (Sphere){v3(LEVEL_ORG + (i0 + ni * 0.5f) * LEVEL_D, (lo + hi) * 0.5f, LEVEL_ORG + (j0 + nj * 0.5f) * LEVEL_D),
                     sqrtf(hx * hx + hy * hy + hz * hz) + 0.1f};
@@ -402,6 +474,7 @@ static void terrain_chunk(Scenery *sc, const pvr_poly_hdr_t *h, int lod, int i0,
     sc_chunk_begin(sc, HF_OP, lod ? lod_far[lod - 1] : 0.0f, lod_far[lod], TAG_TERRAIN);
     sc_chunk_lod_point(sc, lod_p);
     sc_strip_begin(sc, h);
+    tv_step = step;
     for(int j = j0, r = 0; j < j1; j += step, r++)
         for(int i = i0; i <= i1; i += step) {
             tv(sc, i, j + step, i == i0 && r != 0);
@@ -428,9 +501,14 @@ static void terrain_chunk(Scenery *sc, const pvr_poly_hdr_t *h, int lod, int i0,
 static const pvr_poly_hdr_t *h_ground;
 
 void terrain_build(Scenery *sc) {
-    const pvr_poly_hdr_t *h = h_ground = r_header(TEX_GRASS, HF_OP);
+    const pvr_poly_hdr_t *h = h_ground = r_header(look->ground_tex, HF_OP);
+    /* The mountain hides its own far side; the desert is seen whole from
+       its heights, so its ground is drawn out to the fog. */
+    lod_far[3] = lvl_area == AREA_MOAB ? 1040.0f : 620.0f;
+    edge_drop_build();
     ter_src = realloc(ter_src, sizeof(uint32_t) * sc->pool_max);   /* trimmed to what is used below */
     ter_marked = sc->pool_n;
+    memset(tile_trail, 0, sizeof(tile_trail));
     for(int tj = 0; tj < TILES; tj++)
         for(int ti = 0; ti < TILES; ti++) {
             tile_sp[tj * TILES + ti] = cells_sphere(ti * TILE_CELLS, tj * TILE_CELLS, TILE_CELLS, TILE_CELLS);
@@ -482,14 +560,18 @@ static struct {
     float water_k;
 } rlt;
 
-void terrain_relight_setup(const Palette *p, V3 light) {
+void terrain_light(const Palette *p, float sky[3], float sun[3]) {
     /* The ground was painted a little flatter than the trees: the same
        sky and sun, scaled to the level tool's weights. */
     static const float sun_scale[3] = {0.674f, 0.717f, 0.784f};
     for(int i = 0; i < 3; i++) {
-        rlt.sky[i] = 0.96f * (p->amb_k[i] + p->sky_k[i]);
-        rlt.sun[i] = p->sun_k[i] * 1.15f * sun_scale[i];
+        sky[i] = 0.96f * (p->amb_k[i] + p->sky_k[i]);
+        sun[i] = p->sun_k[i] * 1.15f * sun_scale[i];
     }
+}
+
+void terrain_relight_setup(const Palette *p, V3 light) {
+    terrain_light(p, rlt.sky, rlt.sun);
     rlt.L = light;
     rlt.water_k = p->water_k;
     float az = atan2f(light.x, light.z) * 180.0f / ENG_PI;
@@ -516,7 +598,7 @@ static inline float horizon_at(int i, int j) {
 
 void terrain_relight(int from, int to) {
     /* Under the water the bed tints toward the water's colour. */
-    const float wet[3] = {52.0f * rlt.water_k, 92.0f * rlt.water_k, 98.0f * rlt.water_k};
+    const float wet[3] = {look->wet[0] * rlt.water_k, look->wet[1] * rlt.water_k, look->wet[2] * rlt.water_k};
     int i = from % LEVEL_N, j = from / LEVEL_N;
     for(int idx = from; idx < to; idx++) {
         const LvlLight *l = &lvl_light[idx];
@@ -691,7 +773,9 @@ static void near_chunk(int n, int tx, int tz) {
             if(lod_at(x + nb[e][0], z + nb[e][1]) >= 0) continue;
             int ei = i0 + dir[e][0] * TILE_CELLS, ej = j0 + dir[e][1] * TILE_CELLS;
             for(int q = 0; q <= TILE_CELLS / step; q++) {
-                RV v = near_v(ei + dir[e][2] * q * step, ej + dir[e][3] * q * step);
+                int vi = ei + dir[e][2] * q * step, vj = ej + dir[e][3] * q * step;
+                RV v = near_v(vi, vj);
+                float vdrop = skirt_drop(vi, vj, drop);
                 v.c = color_scale(v.c, 0.82f);
                 if(q == 0 && k) {
                     near_buf[k] = near_buf[k - 1];
@@ -699,8 +783,8 @@ static void near_chunk(int n, int tx, int tz) {
                     near_buf[k++] = v;
                 }
                 near_buf[k++] = v;
-                v.y -= drop;
-                v.v += drop * TEX_TILE;
+                v.y -= vdrop;
+                v.v += vdrop * TEX_TILE;
                 near_buf[k++] = v;
             }
         }

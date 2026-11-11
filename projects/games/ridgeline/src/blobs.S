@@ -6,11 +6,27 @@ _rl_textures_pak:
     .incbin "assets/generated/textures.pak"
 
     .balign 32
+    .global _rl_level_cascade_lvl
+_rl_level_cascade_lvl:
+    .incbin "assets/generated/level_cascade.lvl"
+
+    .balign 32
+    .global _rl_level_moab_lvl
+_rl_level_moab_lvl:
+    .incbin "assets/generated/level_moab.lvl"
+
+    .balign 32
+    .global _rl_outland_moab
+_rl_outland_moab:
+    .incbin "assets/generated/level_moab.out"
+
+/* The sounds are copied to the sound chip's own memory at boot and never
+   read here again, so their room is handed on (audio.c): in .data, as it
+   is written to after that. */
+    .section .data
+    .balign 32
     .global _rl_sfx_pak
 _rl_sfx_pak:
     .incbin "assets/generated/sfx.pak"
-
-    .balign 32
-    .global _rl_level_bin
-_rl_level_bin:
-    .incbin "assets/generated/level.bin"
+    .global _rl_sfx_pak_end
+_rl_sfx_pak_end:

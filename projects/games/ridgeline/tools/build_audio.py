@@ -924,15 +924,23 @@ def sfx_gravel():
 
 
 def sfx_dirt():
+    """Tyres on dirt, sand and grass: a low roar with a fine crumble and a
+    little hiss over it, all of it even. Anything in a loop this short
+    that stands out is heard again every time round, and the sound turns
+    into a rhythm: it had clods a few of which were loud, and a tread
+    pattern seven to the loop. (The game also plays it twice over at two
+    speeds, so what pattern is left does not repeat: audio.c.)"""
     rng = rng_for("dirt")
     sr = 16000
     n = 16 * round(0.8 * sr / 16)
-    lug = 0.7 + 0.3 * np.sin(TAU * 7 * np.arange(n) / n) ** 2
-    rumble = fshape(pnoise(n, rng, sr=sr), lambda f: H_lp2(f, 170, 1.0) * H_hp2(f, 30), sr) * lug
-    clods = grains_loop(n, rng, 90, (6, 20), (180, 700), 1.4, 0.5, sr, lug)
-    grass = pnoise(n, rng, 1800, 6500, sr) * np.clip(0.5 + 0.6 * plfo(n, 9, rng, sr), 0.05, None) * 0.07
-    y = rumble * 0.9 + 0.5 * clods + grass
-    return tame(y, 99.9, 1.2)
+    swell = 0.9 + 0.1 * plfo(n, 4, rng, sr)
+    rumble = fshape(pnoise(n, rng, sr=sr), lambda f: H_lp2(f, 180, 0.9) * H_hp2(f, 30), sr) * swell
+    # Many small grains of much the same size: a crumble, not a crunch.
+    crumble = grains_loop(n, rng, 520, (5, 14), (200, 800), 1.0, 0.15, sr)
+    crumble /= np.std(crumble) + 1e-12
+    hiss = pnoise(n, rng, 1600, 6000, sr) * (0.85 + 0.15 * plfo(n, 6, rng, sr)) * 0.045
+    y = rumble * 0.9 + 0.3 * crumble * 0.14 + hiss
+    return tame(y, 99.5, 1.2)
 
 
 def bubble(f0, dur, rise, sr, rng=None):

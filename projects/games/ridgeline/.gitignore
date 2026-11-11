@@ -13,5 +13,3 @@
 *.blend[0-9]*
 /tools/hostsim/sim
 /tools/hostsim/sim.dSYM/
-# The level is generated data the build links in, not a build product.
-!/assets/generated/level.bin

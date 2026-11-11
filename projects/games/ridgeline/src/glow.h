@@ -39,7 +39,7 @@ static inline float glow_falloff(const Glow *g, float d2) {
     return w <= 0 ? 0 : g->k * w / (1.0f + d2 / (g->core * g->core));
 }
 
-void glow_place(void);         /* from the level, once the terrain is up */
+void glow_place(void);         /* from the level, each time the world is built */
 void glow_init(void);          /* after the world is built */
 void glow_update(float dt);
 void glow_draw_tr(void);

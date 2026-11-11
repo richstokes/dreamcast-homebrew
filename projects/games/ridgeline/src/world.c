@@ -11,6 +11,7 @@
 #include "tod.h"
 #include "engine/sky.h"
 #include "terrain.h"
+#include "outland.h"
 #include "water.h"
 #include "campfire.h"
 #include "glow.h"
@@ -23,7 +24,7 @@ Scenery scenery;
 V3 sun_dir;
 
 static const pvr_poly_hdr_t *h_flat, *h_flat_nofog, *h_rock, *h_bark, *h_crown, *h_sun, *h_moon, *h_stars, *h_glow_add,
-    *h_ring_add, *h_cloud;
+    *h_ring_add, *h_cloud, *h_stone;
 
 /* ---- Lighting ---- */
 
@@ -49,6 +50,7 @@ static inline uint32_t lit(uint32_t albedo, V3 n, float ao) {
 LightRec *world_lrec;
 uint32_t world_lrec_first;      /* pool index of record 0 */
 static uint32_t lrec_marked;   /* the next pool index to record */
+static uint32_t lrec_max;      /* records there is room for */
 uint32_t world_alb[64];
 static int alb_n;
 
@@ -60,7 +62,7 @@ static uint8_t alb_index(uint32_t albedo) {
 }
 
 static void rec_mark(LightRec r) {
-    if(!world_lrec) return;
+    if(!world_lrec || scenery.pool_n - world_lrec_first > lrec_max) return;
     for(uint32_t i = lrec_marked; i < scenery.pool_n; i++) world_lrec[i - world_lrec_first] = r;
     /* A join appends the previous vertex again before this one twice. */
     if(scenery.pool_n - lrec_marked == 3) world_lrec[lrec_marked - world_lrec_first] = world_lrec[lrec_marked - 1 - world_lrec_first];
@@ -105,7 +107,8 @@ void world_relight_setup(const Palette *p, V3 light) {
 }
 
 int world_relight_n(void) {
-    return world_lrec ? (int)(scenery.pool_n - world_lrec_first) : 0;
+    uint32_t n = scenery.pool_n - world_lrec_first;
+    return world_lrec ? (int)(n < lrec_max ? n : lrec_max) : 0;
 }
 
 void world_relight(int from, int to) {
@@ -187,7 +190,82 @@ static const uint32_t fir_col = 0xff2f6a3c, fir_col2 = 0xff3f7a44, larch_col = 0
    Near, trunk and crown take the painted strokes (one texture, so a
    chunk of trees stays one strip); further off a tree is flat colour,
    the strokes being a few pixels there. */
+/* The desert's trees: a juniper (kind 0) is a squat round crown leaning
+   off a twisted trunk, a pinyon (2) a small dark pine, a cottonwood (1) a
+   tall pale trunk under a broad crown, green or already gold. */
+static void tree_desert(const lvl_tree_t *t, int lod, bool first) {
+    V3 b = v3(t->x, t->y - 0.2f, t->z);
+    float s = t->scale, yaw = t->yaw;
+    uint32_t seed = (uint32_t)(t->x * 131.0f) ^ (uint32_t)(t->z * 977.0f);
+    float pick = hrand(&seed);
+    bool j = !first;
+    int k = lod == 0 ? 6 : lod < 3 ? 5 : 4;
+    float crown_us = lod == 0 ? 2.0f : 0, crown_vs = lod == 0 ? 2.4f * s : 0;
+    cone_us = lod == 0 ? 1.0f : 0;
+    cone_vs = lod == 0 ? 1.6f : 0;
+    if(t->kind == 1) {
+        uint32_t col = pick < 0.45f ? 0xffe0b63a : pick < 0.7f ? 0xffc4b83c : 0xff98b040;
+        const uint32_t bark = 0xffb4a48c;
+        if(lod == 0) cone(b, 0.36f * s, 0.24f * s, 0, 3.6f * s, 5, yaw, bark, 0.72f, 0.85f, j);
+        else if(lod < 3) cone(b, 0.36f * s, 0.26f * s, 0, 3.2f * s, 3, yaw, bark, 0.72f, 0.8f, j);
+        j = j || lod < 3;
+        cone_us = crown_us;
+        cone_vs = crown_vs;
+        if(lod == 3) {
+            cone(b, 3.0f * s, 0.6f * s, 2.8f * s, 8.4f * s, 4, yaw, col, 0.7f, 1.12f, j);
+            return;
+        }
+        /* A broad round head: out, up, and in again. */
+        cone(b, 1.0f * s, 3.1f * s, 2.6f * s, 4.2f * s, k, yaw, col, 0.58f, 0.86f, j);
+        cone(b, 3.1f * s, 3.3f * s, 4.2f * s, 6.2f * s, k, yaw + 0.3f, col, 0.86f, 1.04f, true);
+        cone(b, 3.3f * s, 0.9f * s, 6.2f * s, 8.4f * s, k, yaw + 0.6f, col, 1.04f, 1.18f, true);
+        return;
+    }
+    if(t->kind == 2) {
+        uint32_t col = pick < 0.5f ? 0xff40603e : 0xff4a6a42;
+        if(lod < 2) cone(b, 0.2f * s, 0.16f * s, 0, 1.2f * s, lod ? 3 : 4, yaw, 0xff5a4636, 0.7f, 0.8f, j);
+        j = j || lod < 2;
+        cone_us = crown_us;
+        cone_vs = crown_vs;
+        if(lod == 3) {
+            cone(b, 1.7f * s, 0.06f * s, 0.6f * s, 4.4f * s, 3, yaw, col, 0.66f, 1.1f, j);
+            return;
+        }
+        cone(b, 1.75f * s, 0.7f * s, 0.7f * s, 2.6f * s, k, yaw, col, 0.6f, 0.98f, j);
+        cone(b, 1.2f * s, 0.08f * s, 2.2f * s, 4.5f * s, k, yaw + 0.5f, col, 0.8f, 1.16f, true);
+        return;
+    }
+    /* Juniper: the crown sits off to one side of where the trunk roots. */
+    uint32_t col = pick < 0.5f ? 0xff5c7040 : 0xff50643a;
+    float la = hrand(&seed) * ENG_TAU, lean = 0.45f * s;
+    V3 c = v3(b.x + cosf(la) * lean, b.y, b.z + sinf(la) * lean);
+    if(lod == 0) {
+        /* The trunk in two bends, grey and stringy. */
+        V3 m = v3(b.x + cosf(la) * lean * 0.2f, b.y, b.z + sinf(la) * lean * 0.2f);
+        cone(b, 0.3f * s, 0.2f * s, 0, 0.8f * s, 4, yaw, 0xff8a7866, 0.7f, 0.8f, j);
+        cone(m, 0.2f * s, 0.15f * s, 0.8f * s, 1.5f * s, 4, yaw + 0.6f, 0xff8a7866, 0.8f, 0.85f, true);
+        j = true;
+    }
+    else if(lod == 1) {
+        cone(b, 0.28f * s, 0.18f * s, 0, 1.3f * s, 3, yaw, 0xff8a7866, 0.7f, 0.78f, j);
+        j = true;
+    }
+    cone_us = crown_us;
+    cone_vs = crown_vs;
+    if(lod == 3) {
+        cone(c, 2.0f * s, 0.5f * s, 0.7f * s, 3.5f * s, 4, yaw, col, 0.66f, 1.1f, j);
+        return;
+    }
+    cone(c, 0.8f * s, 2.15f * s, 0.8f * s, 1.9f * s, k, yaw, col, 0.56f, 0.9f, j);
+    cone(c, 2.15f * s, 1.5f * s, 1.9f * s, 2.9f * s, k, yaw + 0.3f, col, 0.9f, 1.08f, true);
+    cone(c, 1.5f * s, 0.3f * s, 2.9f * s, 3.7f * s, k, yaw + 0.6f, col, 1.08f, 1.2f, true);
+}
+
 static void tree(const lvl_tree_t *t, int lod, bool first) {
+    if(lvl_area == AREA_MOAB) {
+        tree_desert(t, lod, first);
+        return;
+    }
     V3 b = v3(t->x, t->y - 0.2f, t->z);
     float s = t->scale;
     uint32_t seed = (uint32_t)(t->x * 131.0f) ^ (uint32_t)(t->z * 977.0f);
@@ -250,6 +328,7 @@ static void boulder(V3 c, float r, uint32_t seed, int lod) {
     for(int i = 0; i < 4; i++)
         for(int s = 0; s < k; s++) jit[i][s] = 0.82f + 0.3f * hrand(&seed);
     float squash = 0.7f + 0.25f * hrand(&seed);
+    uint32_t albedo = look->boulder[seed % 3];
     for(int i = 0; i < 3; i++) {
         sc_strip_begin(&scenery, h_rock);
         for(int s = 0; s <= k; s++) {
@@ -260,7 +339,7 @@ static void boulder(V3 c, float r, uint32_t seed, int lod) {
                 float rr = r * ring_r[ri] * jit[ri][sm];
                 V3 p = v3(c.x + cosf(a) * rr, c.y + r * ring_y[ri] * squash, c.z + sinf(a) * rr);
                 V3 n = vnorm(v3(cosf(a) * (1.0f - ring_y[ri] * 0.5f), ring_y[ri] + 0.3f, sinf(a) * (1.0f - ring_y[ri] * 0.5f)));
-                lv(p, a * 0.6f, ring_y[ri] * 1.2f, 0xff9aa0a6, n, 0.8f + 0.25f * ring_y[ri]);
+                lv(p, a * 0.6f, ring_y[ri] * 1.2f, albedo, n, 0.8f + 0.25f * ring_y[ri]);
             }
         }
         sc_strip_end(&scenery);
@@ -418,7 +497,8 @@ static void prop(const lvl_prop_t *p) {
         }
         case PROP_SIGN:
             box(h_bark, v3(c.x, c.y + 1.0f, c.z), 0.1f, 1.0f, 0.1f, p->yaw, 0xff6a4a30, 1.0f);
-            box(h_flat, v3(c.x, c.y + 1.9f, c.z), 0.9f, 0.35f, 0.06f, p->yaw, 0xff3c6a44, 1.0f);
+            /* Forest green on the mountain, the desert's routed brown. */
+            box(h_flat, v3(c.x, c.y + 1.9f, c.z), 0.9f, 0.35f, 0.06f, p->yaw, lvl_area == AREA_MOAB ? 0xff74482c : 0xff3c6a44, 1.0f);
             box(h_flat, v3(c.x, c.y + 1.9f, c.z), 0.75f, 0.06f, 0.07f, p->yaw, 0xfff0e0b0, 1.0f);
             break;
         case PROP_TABLE:
@@ -532,6 +612,33 @@ static void prop(const lvl_prop_t *p) {
             }
             break;
         }
+        case PROP_KIOSK: {
+            /* A trailhead notice board: two posts, the board with its
+               map, a strip of roof to keep the sun off it. */
+            V3 r = v3(cy, 0, -sy);
+            for(int side = -1; side <= 1; side += 2)
+                box(h_bark, v3(c.x + r.x * side * 1.0f, c.y + 1.2f, c.z + r.z * side * 1.0f), 0.08f, 1.3f, 0.08f, p->yaw,
+                    0xff6a4a30, 1.0f);
+            box(h_flat, v3(c.x, c.y + 1.55f, c.z), 1.0f, 0.62f, 0.05f, p->yaw, 0xff7a5638, 1.0f);
+            box(h_flat, v3(c.x, c.y + 1.55f, c.z), 0.86f, 0.5f, 0.06f, p->yaw, 0xffeadfc0, 1.0f);
+            box(h_flat, v3(c.x - r.x * 0.3f, c.y + 1.62f, c.z - r.z * 0.3f), 0.42f, 0.3f, 0.07f, p->yaw, 0xffd8905c, 1.0f);
+            box(h_bark, v3(c.x, c.y + 2.56f, c.z), 1.3f, 0.05f, 0.42f, p->yaw, 0xff8a6440, 0.8f);
+            break;
+        }
+        case PROP_RAMADA: {
+            /* Shade for a picnic table: four posts and a slatted roof. */
+            V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+            for(int k = 0; k < 4; k++) {
+                float sx = (k & 1 ? 1.0f : -1.0f) * 1.9f, sz = (k & 2 ? 1.0f : -1.0f) * 1.3f;
+                box(h_bark, v3(c.x + r.x * sx + f.x * sz, c.y + 1.25f, c.z + r.z * sx + f.z * sz), 0.07f, 1.3f, 0.07f, p->yaw,
+                    0xff6a4a30, 1.0f);
+            }
+            box(h_bark, v3(c.x, c.y + 2.6f, c.z), 2.3f, 0.06f, 1.7f, p->yaw, 0xffa07850, 0.9f);
+            box(h_bark, v3(c.x, c.y + 0.75f, c.z), 0.9f, 0.05f, 0.4f, p->yaw, 0xffa07850, 1.0f);
+            box(h_bark, v3(c.x, c.y + 0.45f, c.z), 0.9f, 0.04f, 0.15f, p->yaw, 0xff8a6440, 1.0f);
+            box(h_bark, v3(c.x, c.y + 0.37f, c.z), 0.7f, 0.37f, 0.06f, p->yaw, 0xff6a4a30, 1.0f);
+            break;
+        }
         case PROP_TOWER: {
             /* A fire lookout: four splayed legs (the level's posts), the
                cab on top, a pyramid roof. */
@@ -554,6 +661,89 @@ static void prop(const lvl_prop_t *p) {
             break;
         }
     }
+}
+
+/* ---- Rock formations (level.h): spires, arches, balanced rocks ---- */
+
+/* The area's rock by height, as the level tool colours its cliffs
+   (tools/level_moab.py BEDS), in steps so a formation uses few albedos:
+   dark red at the river, paler with every tier. */
+static uint32_t rock_bed(float y, bool dark) {
+    static const uint32_t beds[2][10] = {
+        {0xffa24c34, 0xffb04e2c, 0xffb4502e, 0xffc05e38, 0xffd06e40, 0xffd27042, 0xffd87a48, 0xffdc8450, 0xffe08c56,
+         0xffe2925c},
+        {0xff803c2a, 0xff8a3e26, 0xff8e4026, 0xff984a2e, 0xffa45834, 0xffa65a36, 0xffac623c, 0xffb06a42, 0xffb47046,
+         0xffb8764a},
+    };
+    int k = (int)((y + 8.0f) * (1.0f / 16.0f));
+    return beds[dark][k < 0 ? 0 : k > 9 ? 9 : k];
+}
+
+/* A rock's skin over its rings: each an ellipse across the spine,
+   roughened by a few waves round it that drift from ring to ring. The
+   waves are of the angle, not the vertex, so the far version with fewer
+   sides is the same rock. */
+static void rock_loft(const lvl_rock_t *rk, int lod) {
+    const lvl_ring_t *rg = &lvl->rings[rk->first];
+    int n = rk->n < LVL_ROCK_RINGS ? rk->n : LVL_ROCK_RINGS;
+    if(n < 2) return;
+    int k = lod ? (rk->sides * 5 + 4) / 8 : rk->sides;
+    if(k < 4) k = 4;
+    if(k > 14) k = 14;
+    V3 c[LVL_ROCK_RINGS], t[LVL_ROCK_RINGS], B[LVL_ROCK_RINGS], Nn[LVL_ROCK_RINGS];
+    float s[LVL_ROCK_RINGS];
+    for(int i = 0; i < n; i++) c[i] = v3(rg[i].x, rg[i].y, rg[i].z);
+    s[0] = 0;
+    for(int i = 0; i < n; i++) {
+        t[i] = vnorm(vsub(c[i + 1 < n ? i + 1 : i], c[i ? i - 1 : 0]));
+        if(i) s[i] = s[i - 1] + vlen(vsub(c[i], c[i - 1]));
+    }
+    /* Across the spine: square to the plane it bends in (an arch's), or
+       level for a straight one (north-south for one standing upright). */
+    V3 bn = v3(0, 0, 0);
+    for(int i = 0; i + 1 < n; i++) bn = vadd(bn, vcross(t[i], t[i + 1]));
+    if(vlen(bn) < 0.05f) bn = fabsf(t[0].y) > 0.9f ? v3(1, 0, 0) : vcross(v3(0, 1, 0), t[0]);
+    for(int i = 0; i < n; i++) {
+        B[i] = vnorm(vsub(bn, vscale(t[i], vdot(bn, t[i]))));
+        Nn[i] = vcross(B[i], t[i]);
+    }
+    uint32_t seed = rk->seed * 2654435761u + 77u;
+    float p1 = hrand(&seed) * ENG_TAU, p2 = hrand(&seed) * ENG_TAU, p3 = hrand(&seed) * ENG_TAU;
+    float rough = rk->flags & ROCK_SMOOTH ? 0.035f : 0.1f;
+    bool dark = rk->flags & ROCK_DARK;
+    float top_y = c[0].y;
+    for(int i = 1; i < n; i++) top_y = fmaxf(top_y, c[i].y);
+    /* The far version takes every other ring, the ends always. */
+    int idx[LVL_ROCK_RINGS], m = 0;
+    for(int i = 0; i < n; i++)
+        if(!lod || n <= 5 || !(i & 1) || i == n - 1) idx[m++] = i;
+    float girth = ENG_TAU * 0.5f * (rg[n / 2].ra + rg[n / 2].rb);
+    float us = floorf(girth * (1.0f / 5.0f) + 0.5f);
+    if(us < 1) us = 1;
+    sc_strip_begin(&scenery, h_stone);
+    for(int b = 0; b + 1 < m; b++)
+        for(int q = 0; q <= k; q++) {
+            float a = ENG_TAU * (float)(q % k) / k, ca = cosf(a), sa = sinf(a);
+            for(int e = 1; e >= 0; e--) {
+                int i = idx[b + e];
+                float w = 1.0f + rough * (0.55f * sinf(2 * a + p1 + 0.9f * i) + 0.3f * sinf(3 * a + p2 - 1.7f * i) +
+                                          0.2f * sinf(5 * a + p3 + 0.6f * i));
+                float ra = rg[i].ra * w, rb = rg[i].rb * w;
+                V3 p = vadd(c[i], vadd(vscale(B[i], ca * ra), vscale(Nn[i], sa * rb)));
+                /* An ellipse's normal, leaning back where the rock tapers. */
+                int j0 = i ? i - 1 : 0, j1 = i + 1 < n ? i + 1 : i;
+                float taper = ((rg[j1].ra + rg[j1].rb) - (rg[j0].ra + rg[j0].rb)) * 0.5f / fmaxf(s[j1] - s[j0], 0.1f);
+                V3 nr = vnorm(vsub(vadd(vscale(B[i], ca * rg[i].rb), vscale(Nn[i], sa * rg[i].ra)),
+                                   vscale(t[i], taper * fmaxf(rg[i].ra, rg[i].rb))));
+                uint32_t alb = rock_bed(p.y, dark);
+                if((rk->flags & ROCK_CAP) && p.y > top_y - 0.3f * (top_y - c[0].y)) alb = rock_bed(p.y + 48.0f, false);
+                float ao = 0.84f + 0.2f * nr.y;
+                float u = us * (float)q / k, v = s[i] * (1.0f / 5.0f);
+                if(b && q == 0 && e == 1) lj(p, u, v, alb, nr, ao);
+                else lv(p, u, v, alb, nr, ao);
+            }
+        }
+    sc_strip_end(&scenery);
 }
 
 /* A lantern (glow.c lights it and draws its glow): a brass cap, amber
@@ -679,6 +869,9 @@ static float mountain_r(float sa, float ca, float y) {
 }
 
 static void cap_build(void) {
+    /* Cascade Ridge's alone: the desert's sky is clear to the top. */
+    cap_built = look->cloud_cap;
+    if(!cap_built) return;
     for(int i = 0; i <= CAP_SEG; i++) {
         float a = ENG_TAU * i / CAP_SEG;
         cap_sa[i] = sinf(a);
@@ -693,15 +886,6 @@ static void cap_build(void) {
         }
     }
     for(int i = 0; i < CAP_NOISE; i++) cap_noise_tab[i] = (hash32((uint32_t)i * 2654435761u) & 1023) * (1.0f / 1023);
-    cap_built = true;
-}
-
-/* Integer lerp of two colours, t in 0..256 (the dome and ranges do a few
-   hundred a frame). */
-static inline uint32_t mix256(uint32_t a, uint32_t b, int t) {
-    uint32_t rb = ((a & 0xff00ffu) * (uint32_t)(256 - t) + (b & 0xff00ffu) * (uint32_t)t) >> 8;
-    uint32_t ag = (((a >> 8) & 0xff00ffu) * (uint32_t)(256 - t) + ((b >> 8) & 0xff00ffu) * (uint32_t)t) >> 8;
-    return (rb & 0xff00ffu) | ((ag & 0xff00ffu) << 8);
 }
 
 /* The glow toward the sun at a bearing (sin, cos), 0..glow_k. */
@@ -714,8 +898,8 @@ static inline float glow_at(float sa, float ca) {
 static void haze_update(void) {
     glow_sg = sinf(tod.glow_az);
     glow_cg = cosf(tod.glow_az);
-    cap_k = cap_amount(tod.hour);
-    cap_in = cap_depth(cam.pos) * smooth01(cap_k * 1.6f);
+    cap_k = cap_built ? cap_amount(tod.hour) : 0;
+    cap_in = cap_built ? cap_depth(cam.pos) * smooth01(cap_k * 1.6f) : 0;
     /* The cloud from inside: the palette's cloud a shade down, in the haze. */
     cap_col = color_scale(color_lerp(pal->haze, pal->cloud_col, 0.65f), 0.94f);
     V3 f = cam.fwd;
@@ -729,6 +913,8 @@ static void haze_update(void) {
 #define STARS 14
 static V3 star_dir[STARS];
 static float star_rot[STARS], star_b[STARS];
+
+static void dsky_colours(uint32_t warm);
 
 /* The dome's colours for the hour: the palette's gradient, warmed low in
    the sky toward the sun (the moon at night), the haze at the horizon. */
@@ -774,6 +960,143 @@ static void sky_colours(void) {
             range_bot[r][s] = color_lerp(range_bot[r][s], cap_col, cap_in);
         }
     }
+    if(lvl_area == AREA_MOAB) dsky_colours(warm);
+}
+
+/* ---- The desert's skyline ----
+
+   Round the desert the far country is tablelands, not hills: a ring of
+   mesas and buttes with cliffs for edges, a longer, lower, hazier ring of
+   them behind, and behind that to the east-south-east one range of real
+   mountains with snow on it. Each ring is a run of vertices by bearing,
+   as close together as a cliff needs. */
+#define DSKY_MAX 160
+#define DSKY_RUN 8             /* vertices a strip */
+#define DSKY_SNOW 208.0f       /* the snow line on the mountains */
+static struct { float sa, ca, h; } dsky[RANGES][DSKY_MAX];
+static int dsky_n[RANGES];
+static uint32_t dsky_top[RANGES][2], dsky_bot[RANGES][2], dsky_snow[2];
+
+static void dsky_put(int l, float az, float h) {
+    if(dsky_n[l] >= DSKY_MAX) return;
+    float a = az * (ENG_PI / 180.0f);
+    dsky[l][dsky_n[l]].sa = sinf(a);
+    dsky[l][dsky_n[l]].ca = cosf(a);
+    dsky[l][dsky_n[l]++].h = h;
+}
+
+/* A flat-topped block from az, w degrees wide: talus, a cliff, the top
+   (tilted by tilt), a cliff, talus. */
+static void dsky_block(int l, float az, float w, float base, float top, float tilt, float cliff) {
+    float skirt = (top - base) * 0.035f * cliff;   /* degrees of talus: about its angle of rest out there */
+    dsky_put(l, az, base);
+    dsky_put(l, az + skirt, base + (top - base) * 0.42f);
+    dsky_put(l, az + skirt + 0.3f, top);
+    dsky_put(l, az + w - skirt - 0.3f, top + tilt);
+    dsky_put(l, az + w - skirt, base + (top + tilt - base) * 0.42f);
+    dsky_put(l, az + w, base);
+}
+
+static void dsky_build(void) {
+    uint32_t seed = 9091;
+    for(int l = 0; l < 2; l++) {
+        dsky_n[l] = 0;
+        float az = 0, base0 = l ? 52.0f : 36.0f;
+        dsky_put(l, 0, base0);
+        while(az < 340.0f) {
+            float base = base0 + 10.0f * hrand(&seed), pick = hrand(&seed);
+            float w;
+            if(l) {
+                /* Far off: long tablelands. */
+                w = 18.0f + 22.0f * hrand(&seed);
+                dsky_block(l, az, w, base, 78.0f + 34.0f * hrand(&seed), (hrand(&seed) - 0.5f) * 8.0f, 0.8f);
+            }
+            else if(pick < 0.7f) {
+                w = 16.0f + 18.0f * hrand(&seed);
+                dsky_block(l, az, w, base, 84.0f + 44.0f * hrand(&seed), (hrand(&seed) - 0.5f) * 10.0f, 1.0f);
+            }
+            else if(pick < 0.9f) {
+                /* A butte standing alone. */
+                w = 9.0f + 3.0f * hrand(&seed);
+                dsky_block(l, az, w, base, 104.0f + 40.0f * hrand(&seed), -3.0f, 0.9f);
+            }
+            else {
+                /* Two spires on one footing. */
+                w = 5.5f;
+                float top = 130.0f + 50.0f * hrand(&seed);
+                dsky_put(l, az, base);
+                dsky_put(l, az + 1.2f, base + 28.0f);
+                dsky_put(l, az + 1.7f, top);
+                dsky_put(l, az + 2.2f, top - 6.0f);
+                dsky_put(l, az + 2.6f, base + 34.0f);
+                dsky_put(l, az + 3.3f, top * 0.8f);
+                dsky_put(l, az + 3.8f, base + 26.0f);
+                dsky_put(l, az + w, base);
+            }
+            az += w + 2.5f + (l ? 10.0f : 8.0f) * hrand(&seed);
+        }
+        dsky_put(l, 360.0f, base0);
+    }
+    /* The mountains: a cluster of peaks about bearing 118, low country
+       either side. */
+    dsky_n[2] = 0;
+    for(int i = 0; i <= 120; i++) {
+        float az = i * 3.0f, d = (az - 118.0f) * (1.0f / 38.0f);
+        float m = d > -1.0f && d < 1.0f ? powf(1.0f - d * d, 1.3f) : 0;
+        float jag = 0.6f + 0.4f * hrand(&seed) + 0.25f * sinf(az * 0.35f);
+        dsky_put(2, az, i == 120 ? dsky[2][0].h : 58.0f + 16.0f * hrand(&seed) + 330.0f * m * jag);
+    }
+}
+
+/* Each ring's colours away from the sun and toward it: red rock near,
+   dustier behind, the mountains blue with distance; all into the haze by
+   how far, all dark by night. */
+static void dsky_colours(uint32_t warm) {
+    static const uint32_t rock[RANGES] = {0xffa0502e, 0xff9a5e4c, 0xff4e6a96};
+    for(int l = 0; l < RANGES; l++) {
+        uint32_t base = color_lerp(rock[l], 0xff0a1424, pal->dark);
+        /* Far enough off to be mostly haze: no more of the rock's colour
+           than the land in front has left where the fog takes it. */
+        float k = WORLD_SKYLINE_HAZE + 0.08f * l;
+        dsky_top[l][0] = color_lerp(base, pal->haze, k);
+        dsky_bot[l][0] = color_lerp(dsky_top[l][0], pal->haze, 0.3f);
+        dsky_top[l][1] = color_lerp(base, warm, k);
+        dsky_bot[l][1] = color_lerp(dsky_top[l][1], warm, 0.3f);
+    }
+    uint32_t snow = color_lerp(0xfff4f6fa, 0xff1a2438, pal->dark);
+    dsky_snow[0] = color_lerp(snow, pal->haze, 0.55f);
+    dsky_snow[1] = color_lerp(snow, warm, 0.55f);
+}
+
+static void dsky_draw(V3 c, float fx, float fz, bool turn) {
+    for(int l = RANGES - 1; l >= 0; l--) {
+        float rad = 1050.0f + 260.0f * l, lift = c.y * 0.15f - 40.0f;
+        for(int i0 = 0; i0 + 1 < dsky_n[l]; i0 += DSKY_RUN) {
+            int i1 = i0 + DSKY_RUN < dsky_n[l] - 1 ? i0 + DSKY_RUN : dsky_n[l] - 1, mid = (i0 + i1) / 2;
+            /* Off the screen: the run's middle well off the view's heading
+               (runs are short in bearing where the vertices crowd). */
+            if(turn && dsky[l][mid].sa * fx + dsky[l][mid].ca * fz < 0.2f) continue;
+            RV v[2 * (DSKY_RUN + 1)], sn[2 * (DSKY_RUN + 1)];
+            int n = 0, ns = 0;
+            bool any_snow = false;
+            for(int i = i0; i <= i1; i++) {
+                float sa = dsky[l][i].sa, ca = dsky[l][i].ca, h = dsky[l][i].h;
+                int g = (int)(glow_at(sa, ca) * 256.0f);
+                v[n++] = (RV){c.x + sa * rad, h + lift, c.z + ca * rad, 0, 0, mix256(dsky_top[l][0], dsky_top[l][1], g) | 0xff000000u};
+                v[n++] = (RV){c.x + sa * rad, -60.0f, c.z + ca * rad, 0, 0, mix256(dsky_bot[l][0], dsky_bot[l][1], g) | 0xff000000u};
+                if(l == 2) {
+                    /* The snow, a little nearer so it lies over the rock. */
+                    uint32_t sc = mix256(dsky_snow[0], dsky_snow[1], g) | 0xff000000u;
+                    float line = h < DSKY_SNOW ? h : DSKY_SNOW + 0.25f * (h - DSKY_SNOW) * (float)(i & 1);
+                    any_snow |= h > DSKY_SNOW;
+                    sn[ns++] = (RV){c.x + sa * (rad - 8.0f), h + lift, c.z + ca * (rad - 8.0f), 0, 0, sc};
+                    sn[ns++] = (RV){c.x + sa * (rad - 8.0f), line + lift, c.z + ca * (rad - 8.0f), 0, 0, sc};
+                }
+            }
+            r_strip(v, n);
+            if(any_snow) r_strip(sn, ns);
+        }
+    }
 }
 
 /* A cloud's shape, size, height and where across the wind it rides:
@@ -790,6 +1113,7 @@ static void cloud_roll(Cloud *c, uint32_t *seed) {
 
 static void sky_setup(void) {
     sky_init(&sky, sky_el, 6, SKY_SEG, 1900.0f, h_flat_nofog);
+    dsky_build();
     uint32_t seed = 4242;
     for(int r = 0; r < RANGES; r++) {
         float base = 60.0f + 50.0f * r;
@@ -845,6 +1169,10 @@ void world_draw_sky(void) {
     V3 f = r_cam.fwd;
     float fl = sqrtf(f.x * f.x + f.z * f.z);
     float fx = fl > 0.01f ? f.x / fl : 0, fz = fl > 0.01f ? f.z / fl : 0;
+    if(lvl_area == AREA_MOAB) {
+        dsky_draw(c, fx, fz, fl > 0.01f);
+        return;
+    }
     /* The ranges, furthest first (the PVR sorts opaque depth anyway). */
     for(int r = RANGES - 1; r >= 0; r--) {
         float rad = 1050.0f + 260.0f * r;
@@ -912,7 +1240,10 @@ int world_tufts;   /* drawn last frame, for the bench */
 
 /* Height of each texture over the half width: tall seed grass, a low
    wide spray, the broad clumps in between. */
-static const float tuft_aspect[4] = {1.25f, 1.6f, 1.0f, 1.3f};
+static const float tuft_aspects[2][4] = {{1.25f, 1.6f, 1.0f, 1.3f},
+                                        /* The desert's brush: sage, blackbrush, rabbitbrush, ricegrass. */
+                                        {0.9f, 0.74f, 1.0f, 1.1f}};
+#define tuft_aspect (tuft_aspects[lvl_area == AREA_MOAB])
 
 /* Tufts sit on a fixed grid, so one under a truck would poke up through
    its bed: leave out any whose billboard (half width w, mostly blades)
@@ -954,25 +1285,30 @@ static void tuft_fill(TuftBlock *b, int bi, int bj) {
             uint32_t s = hash32((uint32_t)i * 73856093u ^ (uint32_t)j * 19349663u);
             float px = (i + (s & 255) / 255.0f) * TUFT_CELL, pz = (j + ((s >> 8) & 255) / 255.0f) * TUFT_CELL;
             int sf = surface_at(px, pz);
-            if(sf != SURF_GRASS && !(sf == SURF_FOREST && (s >> 20 & 3) == 0)) continue;
+            bool desert = lvl_area == AREA_MOAB;
+            /* The mountain's grass, thin in the forest; the desert's brush
+               on its scrub flats, the odd bush out on the sand. */
+            if(sf != SURF_GRASS && !(sf == (desert ? SURF_SAND : SURF_FOREST) && (s >> 20 & 3) == 0)) continue;
             if(water_at(px, pz) > -999.0f) continue;
             uint32_t s2 = hash32(s ^ 0x68e31da4u);
             float y = terrain_height(px, pz);
             /* Up the mountain the grass thins and stays short: from the
                meadow's edge (30 m) to near the scree (160 m) a tuft
                grows a third as often and a third smaller. */
-            float alp = clampf((y - 30.0f) * (1.0f / 130.0f), 0, 1);
+            float alp = desert ? 0 : clampf((y - 30.0f) * (1.0f / 130.0f), 0, 1);
             alp = alp * alp * (3 - 2 * alp);
             float dens = tuft_patch(px, pz) * (1.0f - 0.35f * alp);
-            if((s2 & 255) * (1.0f / 255) > (0.4f + dens) * (1.0f - 0.55f * alp)) continue;
+            /* Brush stands apart, each bush with ground to itself. */
+            float keep = desert ? 0.08f + 0.5f * dens : (0.4f + dens) * (1.0f - 0.55f * alp);
+            if((s2 & 255) * (1.0f / 255) > keep) continue;
             Tuft *t = &b->t[b->n++];
             t->x = px;
             t->y = y - 0.05f;
             t->z = pz;
             int gi = lvl_clampi((int)((px - LEVEL_ORG) / LEVEL_D + 0.5f)), gj = lvl_clampi((int)((pz - LEVEL_ORG) / LEVEL_D + 0.5f));
             t->g = (uint32_t)(gj * LEVEL_N + gi);
-            static const uint8_t var_pick[8] = {0, 0, 0, 1, 1, 2, 2, 3};
-            t->var = var_pick[s2 >> 8 & 7];
+            static const uint8_t var_pick[2][8] = {{0, 0, 0, 1, 1, 2, 2, 3}, {0, 0, 0, 1, 1, 2, 3, 3}};
+            t->var = var_pick[desert][s2 >> 8 & 7];
             t->flags = (uint8_t)((s >> 24 & 1) | (s2 >> 10 & 2));
             float w = (0.55f + ((s >> 16) & 15) / 30.0f) * (0.8f + 0.35f * dens) * (1.0f - 0.3f * alp);
             t->size = (uint8_t)fminf(w * 100.0f, 255.0f);
@@ -1031,6 +1367,7 @@ void world_draw_pt(void) {
         }
     int count = 0;
     float sway_t = tuft_wind_t;
+    bool desert = lvl_area == AREA_MOAB;
     for(int v = 0; v < nvis && count < TUFT_MAX; v++) {
         int bi = vis[v].bi, bj = vis[v].bj;
         TuftBlock *b = &tblocks[(bj & (TB_SLOTS - 1)) * TB_SLOTS + (bi & (TB_SLOTS - 1))];
@@ -1070,7 +1407,14 @@ void world_draw_pt(void) {
             else w *= fminf(1.0f, (TUFT_NEAR - d) * (1.0f / 8.0f));
             if(near_truck && under_truck(t->x, t->z, w * 0.6f)) continue;
             float h = w * tuft_aspect[t->var];
-            uint32_t col = color_scale(lvl_ground[t->g].c, 1.35f * (0.8f + t->tint * (1.0f / 850)));
+            uint32_t gc = lvl_ground[t->g].c, col;
+            if(desert) {
+                /* Brush has its own colours: only the ground's light. */
+                int l = (int)((((gc >> 16) & 255) * 5 + ((gc >> 8) & 255) * 9 + (gc & 255) * 4) * (0.8f + t->tint * (1.0f / 850))) / 10;
+                if(l > 255) l = 255;
+                col = 0xff000000u | (uint32_t)l << 16 | (uint32_t)l << 8 | (uint32_t)l;
+            }
+            else col = color_scale(gc, 1.35f * (0.8f + t->tint * (1.0f / 850)));
             if(warm) col = glow_tint(col, v3(t->x, t->y + 0.25f, t->z));
             if(beams) {
                 float k = lamps_light(v3(t->x, t->y + h * 0.5f, t->z), beams, -1, NULL);
@@ -1089,6 +1433,7 @@ void world_draw_pt(void) {
             float along = t->x * WIND_X + t->z * WIND_Z;
             float lean = h * (0.07f + 0.06f * sinf(sway_t * 1.3f - along * 0.11f) +
                               0.035f * sinf(sway_t * 3.1f + (float)(t->tint & 63)));
+            if(desert && t->var != 3) lean *= 0.3f;   /* woody: it barely stirs */
             float u0 = (t->flags & 1) ? 0.0f : 1.0f, u1 = 1.0f - u0;
             V3 base = v3(t->x, t->y, t->z);
             V3 l = vmad(base, rt, -w), r = vmad(base, rt, w);
@@ -1134,6 +1479,12 @@ float world_mist(void) {
 
 float world_fog_far(void) {
     return fog_far_m;
+}
+
+void world_fog(float *near_m, float *far_m, uint32_t *col) {
+    *near_m = fog_near_m;
+    *far_m = fog_far_m;
+    *col = fog_col;
 }
 
 uint32_t world_lit(uint32_t albedo, V3 n) {
@@ -1266,11 +1617,10 @@ static void cap_draw(uint32_t shade) {
 #define MIST_N 6              /* cells a side, near */
 #define MIST_FAR_N 3          /* and far off */
 typedef struct { float x, z, r, y; } Mist;
-static Mist mists[] = {
-    {-40, -255, 55, 0}, {20, -228, 55, 0}, {140, -210, 50, 0}, {-130, -250, 45, 0},
-    {-70, -180, 40, 0}, {-105, -100, 40, 0}, {-115, -20, 40, 0}, {-42, 66, 38, 0},
-};
-#define MISTS (int)(sizeof(mists) / sizeof(mists[0]))
+#define MIST_MAX 12
+static Mist mists[MIST_MAX];   /* the area's (lvl->mists), each with its height */
+static int mist_n;
+#define MISTS mist_n
 static const pvr_poly_hdr_t *h_mist;
 /* A sheet's soft round edge, for each grid: the same for every sheet. */
 static float mist_edge[MIST_N + 1][MIST_N + 1], mist_edge_far[MIST_FAR_N + 1][MIST_FAR_N + 1];
@@ -1287,8 +1637,10 @@ static float mist_amount(float hour) {
 
 /* Each sheet lies a little over the lowest ground near its middle. */
 static void mist_build(void) {
+    mist_n = lvl->nmists < MIST_MAX ? lvl->nmists : MIST_MAX;
     for(int m = 0; m < MISTS; m++) {
         Mist *s = &mists[m];
+        *s = (Mist){lvl->mists[m].x, lvl->mists[m].z, lvl->mists[m].r, 0};
         float lo = 1e9f;
         for(int k = 0; k < 9; k++) {
             float a = ENG_TAU * k / 8, r = k ? s->r * 0.35f : 0;
@@ -1383,6 +1735,7 @@ static void mist_draw(void) {
 }
 
 void world_draw_tr(void) {
+    outland_draw_tr();
     water_draw(&scenery);
     mist_draw();
     V3 c = r_cam.pos;
@@ -1491,7 +1844,6 @@ void world_init(void) {
     h_rock = r_header(TEX_ROCK, HF_OP);
     h_bark = r_header(TEX_BARK, HF_OP);
     h_crown = r_header(TEX_CROWN, HF_OP);
-    for(int k = 0; k < 4; k++) h_tufts[k] = r_header(TEX_TUFT0 + k, HF_PT);
     h_sun = r_header(TEX_SUN, HF_TR | HF_NOFOG | HF_ADD);
     h_moon = r_header(TEX_MOON, HF_TR | HF_NOFOG);
     h_stars = r_header(TEX_STARS, HF_TR | HF_NOFOG | HF_ADD);
@@ -1558,7 +1910,7 @@ static uint16_t tree_chunk(const uint16_t *order, int from, int to, float qx, fl
 
 static void trees_build(void) {
     /* Bucket the trees by cell. */
-    static uint16_t order[LVL_TREES];
+    static uint16_t order[LVL_MAX_TREES];
     static uint16_t first[TCELLS * TCELLS + 1];
     int cnt[TCELLS * TCELLS] = {0};
     for(int i = 0; i < LVL_TREES; i++) {
@@ -1637,7 +1989,12 @@ typedef struct {
     uint16_t chunk[2];   /* near, far */
 } RockCell;
 static RockCell rock_cells[TCELLS * TCELLS];
-static uint16_t prop_chunks[LVL_PROPS + GLOW_MAX];
+static uint16_t prop_chunks[LVL_MAX_PROPS + GLOW_MAX];
+/* Rock formations: near and far, by each one's own distance. */
+#define FORM_NEAR_M 170.0f
+#define FORM_FAR_M 900.0f
+static uint16_t form_chunks[LVL_MAX_ROCKS][2];
+static int form_n;
 static int rock_cell_n, prop_chunk_n;
 
 static void rocks_draw(void) {
@@ -1651,10 +2008,16 @@ static void rocks_draw(void) {
         else if(d2 < ROCK_FAR_M * ROCK_FAR_M) tree_draw_chunk(rc->chunk[1], &last);
     }
     for(int i = 0; i < prop_chunk_n; i++) tree_draw_chunk(prop_chunks[i], &last);
+    for(int i = 0; i < form_n; i++) {
+        tree_draw_chunk(form_chunks[i][0], &last);
+        tree_draw_chunk(form_chunks[i][1], &last);
+    }
 }
 
 void world_build(void) {
     for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
+    for(int k = 0; k < 4; k++) h_tufts[k] = r_header((lvl_area == AREA_MOAB ? TEX_BRUSH0 : TEX_TUFT0) + k, HF_PT);
+    h_stone = r_header(look->ground_tex, HF_OP);
     sc_clear(&scenery);
     rock_cell_n = prop_chunk_n = 0;
     lamps_clear();
@@ -1663,7 +2026,10 @@ void world_build(void) {
     int terrain_v = scenery.pool_n;
     world_lrec_first = lrec_marked = scenery.pool_n;
     alb_n = 0;
-    if(!world_lrec) world_lrec = malloc(sizeof(LightRec) * (scenery.pool_max - scenery.pool_n));
+    /* Room for every vertex after the terrain's, whose count moves with
+       an area's water: any area's far ground alone is over 20,000. */
+    lrec_max = scenery.pool_max - 20000;
+    if(!world_lrec) world_lrec = malloc(sizeof(LightRec) * lrec_max);
     if(!world_lrec) printf("Ridgeline world: no memory to relight the scenery\n");
     cap_build();
     mist_build();
@@ -1699,13 +2065,35 @@ void world_build(void) {
                 const lvl_box_t *b = &lvl_boxes[i];
                 if(b->x < x0 || b->x >= x0 + TCELL || b->z < z0 || b->z >= z0 + TCELL) continue;
                 uint32_t f0 = scenery.pool_n;
-                box(h_rock, v3(b->x, b->y, b->z), b->hx, b->hy, b->hz, b->yaw, 0xff8c9298, 0.35f);
+                /* The desert's ledges are the bed they stand in, in its
+                   stone; the mountain's grey rock. */
+                if(lvl_area == AREA_MOAB)
+                    box(h_stone, v3(b->x, b->y, b->z), b->hx, b->hy, b->hz, b->yaw, rock_bed(b->y + b->hy, false), 0.2f);
+                else box(h_rock, v3(b->x, b->y, b->z), b->hx, b->hy, b->hz, b->yaw, look->ledge, 0.35f);
                 if(lod == 0) lamps_add(f0, scenery.pool_n);
             }
             sc_chunk_end(&scenery);
             rc->chunk[lod] = scenery.chunk_n > at ? (uint16_t)at : TREE_NONE;
         }
         if(rc->chunk[0] != TREE_NONE || rc->chunk[1] != TREE_NONE) rock_cell_n++;
+    }
+    form_n = 0;
+    for(int i = 0; i < lvl->nrocks && i < LVL_MAX_ROCKS; i++) {
+        const lvl_rock_t *rk = &lvl->rocks[i];
+        const lvl_ring_t *mid = &lvl->rings[rk->first + rk->n / 2];
+        V3 lp = v3(mid->x, mid->y, mid->z);
+        for(int lod = 0; lod < 2; lod++) {
+            uint32_t at = scenery.chunk_n;
+            sc_chunk_begin(&scenery, HF_OP, lod ? FORM_NEAR_M : 0.0f, lod ? FORM_FAR_M : FORM_NEAR_M, TAG_ROCKS);
+            sc_chunk_lod_point(&scenery, lp);
+            lamps_lod(lp, 90.0f);
+            uint32_t f0 = scenery.pool_n;
+            rock_loft(rk, lod);
+            if(lod == 0) lamps_add(f0, scenery.pool_n);
+            sc_chunk_end(&scenery);
+            form_chunks[form_n][lod] = scenery.chunk_n > at ? (uint16_t)at : TREE_NONE;
+        }
+        form_n++;
     }
     lamps_lod(v3(0, 0, 0), 0);
     for(int i = 0; i < LVL_PROPS; i++) {
@@ -1733,7 +2121,7 @@ void world_build(void) {
     printf("Ridgeline world: %lu vertices (terrain %d, trees %lu), %lu strips, %lu chunks%s\n",
            (unsigned long)scenery.pool_n, terrain_v, (unsigned long)(scenery.pool_n - tree_p),
            (unsigned long)scenery.strip_n, (unsigned long)scenery.chunk_n,
-           scenery.full ? " - FULL, some scenery missing" : "");
+           scenery.full || scenery.pool_n - world_lrec_first > lrec_max ? " - FULL, some scenery missing" : "");
     scenery.chunk_n = tree_c;
 }
 
@@ -1744,6 +2132,7 @@ void world_draw_op(void) {
     uint64_t t0 = timer_us_gettime64();
     terrain_draw_near();
     int skirts, far = terrain_draw_far(&scenery, &skirts);
+    far += outland_draw();
 #ifdef RL_AUTOTEST
     extern int ter_count[4];
     ter_count[3] += far;

@@ -971,7 +971,7 @@ static void step(Truck *t, float dt) {
     for(int k = 0; k < LVL_POSTS; k++) {
         const lvl_post_t *q = &lvl_posts[k];
         float ex = q->x0 - t->pos.x, ez = q->z0 - t->pos.z;
-        if(ex * ex + ez * ez > 36.0f) continue;
+        if(ex * ex + ez * ez > (6.0f + q->r) * (6.0f + q->r)) continue;
         V3 hc = truck_to_world(t, v3(S->hull_c[0], S->hull_c[1], S->hull_c[2]));
         /* e: the post's step for each metre it climbs. */
         V3 foot = v3(q->x0, q->y0, q->z0);

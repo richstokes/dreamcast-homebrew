@@ -19,7 +19,10 @@ typedef struct {
 } SurfProps;
 extern const SurfProps surf_props[SURF_COUNT];
 
-void terrain_init(void);
+/* Make area the level in use: unpack its grid into buf (32-byte aligned,
+   LEVEL_GRID_BYTES, kept by the caller) and index its obstacles. The
+   ground has no colours until the clock lights it (tod_init). */
+bool terrain_load(int area, void *buf);
 
 /* The heightfield alone, triangle by triangle as it is drawn. */
 float terrain_height(float x, float z);
@@ -72,6 +75,9 @@ extern const uint8_t *lvl_surf;
    horizon map), then copies them into the prebuilt far terrain's pool
    vertices [from, to) of terrain_pool_n(), tinting the water too. */
 void terrain_relight_setup(const Palette *p, V3 light);
+/* What the ground is lit by under a palette: the sky's weight on a level
+   face and the sun's on one square to it. */
+void terrain_light(const Palette *p, float sky[3], float sun[3]);
 void terrain_relight(int from, int to);
 int terrain_pool_n(void);
 void terrain_relight_pool(Scenery *sc, int from, int to);

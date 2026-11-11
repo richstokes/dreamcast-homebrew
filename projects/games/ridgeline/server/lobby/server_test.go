@@ -331,6 +331,7 @@ func (h *harness) truckAt(name string, build uint16, flags byte, x float64) {
 // horn or the lights keep it in. Old builds are sent back to the browser.
 func TestIdleKick(t *testing.T) {
 	h := newHarness(t)
+	h.s.Min = 1 // builds from before IdleBuild are let in here, to see what they are sent
 	for _, n := range []string{"STILL", "DRIVER", "HONKER", "OLD"} {
 		h.hello(n)
 		h.join(n, 0)

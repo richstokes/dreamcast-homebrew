@@ -1,6 +1,6 @@
-/* Ridgeline menus: the title and main menu over a flyover of the mountain, picking a
-   truck, its paint and company with the truck parked in the meadow, and
-   the pause menu. */
+/* Ridgeline menus: the title and main menu over a flyover of the mountain,
+   picking an area, then a truck, its paint and company with the truck
+   parked at the area's start, and the pause menu. */
 #include "menu.h"
 #include "records.h"
 #include "tod.h"
@@ -23,8 +23,9 @@
 static const pvr_poly_hdr_t *h_logo;
 static int sel_row;
 /* The truck select's page (menu_select_update). */
-enum { PG_TRUCK, PG_DRIVE };
+enum { PG_AREA, PG_TRUCK, PG_DRIVE };
 static int sel_page;
+static int area_pick;   /* the area page's choice, loaded on the way to the truck page */
 
 /* The chrome's colours (engine/ui.h): smoke panels, amber plaques, cream
    lettering, white lettering on the amber (dark lettering blurs into the
@@ -171,8 +172,6 @@ void menu_title_update(float dt) {
         if(title_sel == T_SINGLE) {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
             game_set_state(ST_SELECT);
-            sel_row = 0;
-            sel_page = PG_TRUCK;
         }
         else if(title_sel == T_SOUND) {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
@@ -226,20 +225,28 @@ static void select_scene(float dt) {
     camera_set(orbit_point(c, a, 7.5f, 1.4f), vadd(c, v3(0, 0.1f, 0)), 1.1f);
 }
 
-/* Two pages so the truck stays in view: the truck and its paint, then the
-   company and the time to set off with the best times. Online it is one
-   page, the truck, its paint and the lobby to join: company comes from the
-   lobby, and the lobby keeps the time of day. */
-#define SEL_LAST 2   /* every page is two rows and a button */
+/* Three pages: the area, with its map and ways up; the truck and its
+   paint, so the truck stays in view; then the company and the time to set
+   off with the best times. Online it is one page, the truck, its paint
+   and the lobby to join: the area and the company come with the lobby,
+   and the lobby keeps the time of day. */
+#define SEL_LAST (sel_page == PG_AREA ? 1 : 2)   /* a page is its rows and a button */
 
 static void select_back(void) {
     audio_sfx(RL_SFX_MENU_BACK, 200);
     if(game.online) online_back_to_browser();
-    else if(sel_page == PG_DRIVE) {
-        sel_page = PG_TRUCK;
+    else if(sel_page == PG_AREA) game_set_state(ST_TITLE);
+    else {
+        sel_page--;
         sel_row = 0;
+        area_pick = game.area;
     }
-    else game_set_state(ST_TITLE);
+}
+
+void menu_select_begin(void) {
+    sel_row = 0;
+    sel_page = PG_AREA;
+    area_pick = game.area;
 }
 
 void menu_select_update(float dt) {
@@ -255,6 +262,29 @@ void menu_select_update(float dt) {
     if(game.online) sel_page = PG_TRUCK;
     int rows = SEL_LAST + 1;
     if(sel_row >= rows) sel_row = 0;
+    if(sel_page == PG_AREA) {
+        int da = input_menu_right() ? 1 : input_menu_left() ? -1 : 0;
+        if(da && sel_row == 0) {
+            audio_sfx(RL_SFX_MENU_MOVE, 160);
+            area_pick = (area_pick + AREA_COUNT + da) % AREA_COUNT;
+        }
+        if(input_menu_up() || input_menu_down()) {
+            sel_row ^= 1;
+            audio_sfx(RL_SFX_MENU_MOVE, 160);
+        }
+        if(pad.pressed & BTN_B) {
+            select_back();
+            return;
+        }
+        if(pad.pressed & (BTN_A | BTN_START)) {
+            audio_sfx(RL_SFX_MENU_SELECT, 200);
+            game_load_area(area_pick);
+            sel_page = PG_TRUCK;
+            sel_row = 0;
+        }
+        select_scene(dt);
+        return;
+    }
     if(input_menu_up()) {
         sel_row = (sel_row + rows - 1) % rows;
         audio_sfx(RL_SFX_MENU_MOVE, 160);
@@ -266,7 +296,7 @@ void menu_select_update(float dt) {
     int d = input_menu_right() ? 1 : input_menu_left() ? -1 : 0;
     if(d && sel_row < SEL_LAST) {
         audio_sfx(RL_SFX_MENU_MOVE, 160);
-        int item = sel_page * 2 + sel_row;
+        int item = (sel_page - PG_TRUCK) * 2 + sel_row;
         if(item == 0) {
             game.truck_model = (game.truck_model + TRUCK_MODELS + d) % TRUCK_MODELS;
             trucks[0].model = game.truck_model;
@@ -323,8 +353,49 @@ static void select_rows(float x0, float x1, float y0, float y1, const char *cons
     }
 }
 
+/* The area page: the picked area's map, what it is and its ways up, over
+   one row to change it and the button. */
+static void area_draw(void) {
+    const RlLevel *a = rl_levels[area_pick];
+    ui_heading(320, 40, "CHOOSE YOUR AREA");
+    ui_panel(70, 74, 570, 306);
+    r_hdr(hud_map_hdr(area_pick));
+    r_quad2d(86, 90, 286, 290, 0, 0, 1, 1, 0xffffffff, 12.0f);
+    const float tx = 304;
+    hud_text_c(tx, 104, 0.8f, ALIGN_LEFT, ui_col(UI_TITLE), a->name);
+    hud_text_c(tx, 130, 0.42f, ALIGN_LEFT, ui_col(UI_LABEL), a->blurb);
+    char buf[40];
+    snprintf(buf, sizeof(buf), "SUMMIT %d FT", (int)((float)a->base_ft + a->summit_y * M_TO_FT));
+    hud_text_c(tx, 160, 0.5f, ALIGN_LEFT, ui_col(UI_TEXT), buf);
+    hud_text_c(tx, 190, 0.46f, ALIGN_LEFT, ui_col(UI_ACCENT), "WAYS UP");
+    /* Easiest first. */
+    static const char *const grade[3] = {"EASY", "HARDER", "HARDEST"};
+    static const int role[3] = {UI_GOOD, UI_ACCENT, UI_WARN};
+    float y = 214;
+    for(int d = 1; d <= 3; d++)
+        for(int r = 1; r <= 3; r++) {
+            if(a->routes[r].difficulty != d) continue;
+            hud_text_c(tx, y, 0.52f, ALIGN_LEFT, ui_col(UI_TEXT), a->routes[r].name);
+            hud_text_c(554, y, 0.46f, ALIGN_RIGHT, ui_col(role[d - 1]), grade[d - 1]);
+            y += 24;
+        }
+    ui_panel(140, 330, 500, 432);
+    bool on = sel_row == 0;
+    uint32_t c = ui_col(on ? UI_VALUE_SEL : UI_VALUE);
+    ui_row(144, 341, 496, 371, on);
+    hud_text_c(158, 356, 0.66f, ALIGN_LEFT, ui_col(on ? UI_ITEM_SEL : UI_LABEL), "AREA");
+    hud_text_c(354, 356, 0.6f, ALIGN_CENTER, c, a->name);
+    if(on) ui_arrows(354 - 122, 354 + 126, 356, 0.72f, c);
+    ui_button(320, 402, 200, "NEXT", !on);
+    ui_hint("LEFT/RIGHT: CHANGE   A: NEXT   B: BACK");
+}
+
 void menu_select_draw(void) {
     static const char *const company[4] = {"SOLO", "1 CPU TRUCK", "2 CPU TRUCKS", "3 CPU TRUCKS"};
+    if(sel_page == PG_AREA && !game.online) {
+        area_draw();
+        return;
+    }
     if(sel_page == PG_TRUCK) {
         char join[24];
         snprintf(join, sizeof(join), "JOIN LOBBY %d", online_lobby_pick() + 1);
@@ -349,13 +420,12 @@ void menu_select_draw(void) {
     /* This truck's best times to the summit, by the way up. */
     ui_panel(446, 312, 610, 432);
     hud_text_c(528, 332, 0.5f, ALIGN_CENTER, ui_col(UI_LABEL), "BEST TIMES");
-    static const char *const short_way[WAY_COUNT] = {"LOGGING", "RIDGE", "CREEK", "OWN WAY"};
     for(int w = 0; w < WAY_COUNT; w++) {
         float y = 356 + w * 22;
         char t[16] = "--:--";
         uint32_t b = records_best(game.truck_model, w);
         if(b) records_format(b, t, sizeof(t));
-        hud_text_c(458, y, 0.5f, ALIGN_LEFT, ui_col(UI_LABEL), short_way[w]);
+        hud_text_c(458, y, 0.5f, ALIGN_LEFT, ui_col(UI_LABEL), records_way_short(w));
         hud_text_c(598, y, 0.5f, ALIGN_RIGHT, ui_col(b ? UI_VALUE : UI_LABEL), t);
     }
     ui_heading(320, 40, "PLAN YOUR DRIVE");

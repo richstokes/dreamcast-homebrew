@@ -2,7 +2,9 @@
 
 The online server for [Ridgeline](../README.md): Go, ten lobbies of up to
 four Dreamcasts over UDP port 7536 at `dcvmu.com`, reachable by broadband
-adapter, W5500 or 56k modem. Players drop in and out of a lobby whenever
+adapter, W5500 or 56k modem. Lobbies 1-5 are Cascade Ridge's and 6-10
+Mesa Grande's: the consoles work that out from the lobby's number, the
+server never knows. Players drop in and out of a lobby whenever
 they like; there is no race and no leader. The server hands out slots,
 keeps each lobby's time of day, relays everyone's truck 12 times a second
 and remembers who has reached the summit (a trophy by their name). A
@@ -69,13 +71,14 @@ emulated modem; `RL_QA_LIVE=1` uses dcvmu.com. To do it by hand:
 
 ```bash
 go run ./cmd/ridgeline-lobby -listen :7594 -words-extra BLORP     # -lag 40ms -jitter 8ms fakes a WAN
-go run ./cmd/rl-bot -addr 127.0.0.1:7594 -lobby 9 -summit-after 5s -level ../assets/generated/level.bin
+go run ./cmd/rl-bot -addr 127.0.0.1:7594 -lobby 5 -summit-after 5s -level ../assets/generated/level_cascade.lvl
 make -C .. VARIANT=autotest ridgeline-autotest.elf EXTRA_CFLAGS="-DRL_AT_ONLINE -DRL_NET_TEST_HOST=$(ipconfig getifaddr en0) -DRL_NET_PORT=7594"
 cd .. && RL_ELF=ridgeline-autotest.elf RL_EXIT_ON_LOG='RL AUTOTEST: PASS' RL_FAIL_ON_LOG='RL AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
 
 `rl-bot` drives a loop in the meadow (`-x -z -radius -speed`), heights read
-from the level's `level.bin`, and logs the lobby and everyone else's truck.
+from the area's packed level (`level_moab.lvl` for lobbies 6-10), and logs
+the lobby and everyone else's truck.
 `-summit-after` claims the summit, `-leave-after` and `-away` drop out and
 back in. Two consoles: build the autotest twice with
 `-DRL_AT_NAME=AT-RL1` / `AT-RL2`, copy each to its own ELF name and launch

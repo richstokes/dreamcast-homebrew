@@ -6,6 +6,8 @@
 #include "engine/text.h"
 
 void hud_init(void);
+void hud_area(void);                /* the loaded area changed: its map */
+const pvr_poly_hdr_t *hud_map_hdr(int area);   /* an area's map picture, for a 2D quad */
 void hud_update(float dt);
 void hud_draw(void);                /* TR list */
 void hud_draw_map(void);            /* the map alone (demo mode) */

@@ -14,6 +14,7 @@
 #include "engine/input.h"
 #include "engine/render.h"
 #include "texture_assets.h"
+#include "level.h"
 
 #define RL_DT ENG_DT
 #define MAX_TRUCKS 4
@@ -67,6 +68,7 @@ typedef struct {
     int start_tod;        /* when the drive starts: TOD_DAWN .. (tod.h) */
     float photo_time_t;   /* seconds since photo mode last moved the clock, for its readout */
     bool online;          /* playing online (online.h): the select and the drive are a lobby's */
+    int area;             /* AREA_* (level.h): the one loaded */
 } Game;
 
 extern Game game;
@@ -83,5 +85,8 @@ static inline bool game_frozen(void) {
 
 void game_set_state(int state);
 void game_start_drive(void);
+/* Load another area (level.h): about a second, the screen held on a
+   LOADING card. Nothing if it is the one loaded. */
+void game_load_area(int area);
 
 #endif

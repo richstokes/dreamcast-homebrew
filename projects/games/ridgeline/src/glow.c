@@ -16,7 +16,6 @@ int glow_n;
 float glow_level[GLOW_GROUPS];
 V3 glow_c[GLOW_GROUPS];
 float glow_r[GLOW_GROUPS];
-static bool placed;
 static float glow_t;
 static const pvr_poly_hdr_t *h_add;
 
@@ -39,11 +38,9 @@ static const V3 tower_lanterns[5] = {{-2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, -2.
                                      {-2.25f, 7.72f, 2.25f}, {0, 5.5f, 0}};
 
 void glow_place(void) {
-    if(placed) return;
-    placed = true;
     glow_n = 0;
-    V3 f = campfire_pos();
-    glows[glow_n++] = (Glow){v3(f.x, f.y + 0.5f, f.z), 20.0f, 5.0f, 1.0f, GLOW_FIRE, false, 0, 0, false};
+    V3 f;
+    if(campfire_place(&f)) glows[glow_n++] = (Glow){v3(f.x, f.y + 0.5f, f.z), 20.0f, 5.0f, 1.0f, GLOW_FIRE, false, 0, 0, false};
     /* The first lookout, cabin and picnic table are the ones lit. */
     bool tower = false, cabin = false, table = false;
     for(int i = 0; i < LVL_PROPS; i++) {
@@ -64,12 +61,24 @@ void glow_place(void) {
             V3 q = v3(p->x + cy * 4.5f + sy * 1.4f, p->y + 2.45f, p->z - sy * 4.5f + cy * 1.4f);
             glows[glow_n++] = (Glow){q, 14.0f, 4.0f, 1.1f, GLOW_CABIN, true, 0.12f, 0.33f, false};
         }
+        else if(p->kind == PROP_RAMADA && !table) {
+            /* Hung under the shade's roof, over one end of the table. */
+            table = true;
+            V3 q = v3(p->x + cy * 0.9f, p->y + 2.2f, p->z - sy * 0.9f);
+            glows[glow_n++] = (Glow){q, 12.0f, 3.2f, 0.95f, GLOW_TABLE, true, 0.11f, 0.22f, false};
+        }
         else if(p->kind == PROP_TABLE && !table) {
             /* Stood on one end of the table. */
             table = true;
             V3 q = v3(p->x + cy * 0.5f, p->y + 0.8f + 0.13f, p->z - sy * 0.5f);
             glows[glow_n++] = (Glow){q, 9.0f, 2.4f, 0.75f, GLOW_TABLE, true, 0.1f, 0, false};
         }
+    }
+    /* Where the top has no lookout, a lantern on a post marks it. */
+    if(!tower) {
+        V3 s = v3(LEVEL_SUMMIT_X - 6.0f, 0, LEVEL_SUMMIT_Z - 8.0f);
+        s.y = terrain_height(s.x, s.z) + 2.3f;
+        glows[glow_n++] = (Glow){s, 16.0f, 4.5f, 1.2f, GLOW_TOWER, true, 0.13f, 0.3f, true};
     }
     /* A post beside the east end of the start grid. */
     const float *sp = lvl_spawns[LVL_SPAWNS - 1];
@@ -93,7 +102,6 @@ void glow_place(void) {
 
 void glow_init(void) {
     h_add = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
-    glow_place();
     for(int g = 0; g < GLOW_GROUPS; g++) {
         Fan *fan = &fans[g];
         fan->c = glow_c[g];

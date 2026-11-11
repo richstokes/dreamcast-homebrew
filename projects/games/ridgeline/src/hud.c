@@ -36,9 +36,17 @@ void hud_init(void) {
     font.cap_bottom = FONT_CAP_BOTTOM;
     h_dial = r_header(TEX_DIAL, HF_TR | HF_NOFOG | HF_CLAMP);
     h_icons = r_header(TEX_ICONS, HF_TR | HF_NOFOG | HF_CLAMP);
-    h_map = r_header(TEX_MAP, HF_TR | HF_NOFOG | HF_CLAMP);
+    hud_area();
     h_flat = r_header(TEX_NONE, HF_TR | HF_NOFOG);
     h_glow = r_header(TEX_GLOW, HF_TR | HF_NOFOG | HF_ADD);
+}
+
+const pvr_poly_hdr_t *hud_map_hdr(int area) {
+    return r_header(area == AREA_MOAB ? TEX_MAP_MOAB : TEX_MAP, HF_TR | HF_NOFOG | HF_CLAMP);
+}
+
+void hud_area(void) {
+    h_map = hud_map_hdr(lvl_area);
 }
 
 const EngFont *hud_font(void) {
@@ -305,7 +313,7 @@ static void progress(const Truck *t) {
     hud_panel(30, 50, 224, 58, 0xa0404850);
     hud_panel(30, 50, 30 + 194 * game.summit_frac, 58, 0xc0e8a030);
     hud_panel(29 + 194 * cur, 47, 32 + 194 * cur, 61, 0xffffffff);
-    int ft = (int)(2380.0f + t->pos.y * M_TO_FT);
+    int ft = (int)((float)lvl->base_ft + t->pos.y * M_TO_FT);
     int found = 0;
     for(int i = 0; i < LVL_VIEWS; i++) found += (game.views_found >> i) & 1;
     snprintf(buf, sizeof(buf), "%d FT", ft);

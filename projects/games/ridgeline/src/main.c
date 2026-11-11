@@ -29,6 +29,9 @@
 #include "vmuscreen.h"
 #include "campfire.h"
 #include "glow.h"
+#include "desert.h"
+#include "outland.h"
+#include <malloc.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
@@ -44,7 +47,10 @@ void game_set_state(int state) {
     game.state = state;
     game.time = 0;
     /* The truck select shows the hour the drive will start at. */
-    if(state == ST_SELECT) tod_set_hour(tod_hours[game.start_tod]);
+    if(state == ST_SELECT) {
+        tod_set_hour(tod_hours[game.start_tod]);
+        menu_select_begin();
+    }
     if(state == ST_SELECT || state == ST_TITLE || state == ST_SOUND || state == ST_ONLINE) {
         for(int i = 0; i < MAX_TRUCKS; i++) trucks[i].remote = trucks[i].absent = false;
         game.ntrucks = state == ST_SELECT ? 1 : 0;
@@ -88,7 +94,7 @@ void game_start_drive(void) {
     audio_drive_start();
     game_set_state(ST_DRIVE);
     tod_set_hour(tod_hours[game.start_tod]);
-    hud_message("CASCADE RIDGE", 0xfff8f0dc, 3.0f);
+    hud_message(lvl->name, 0xfff8f0dc, 3.0f);
 }
 
 /* ---- Driving ---- */
@@ -171,7 +177,7 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     }
 }
 
-_Static_assert(LVL_VIEWS <= sizeof(game.views_found) * 8, "a viewpoint without a bit is found again every frame");
+_Static_assert(LVL_MAX_VIEWS <= sizeof(game.views_found) * 8, "a viewpoint without a bit is found again every frame");
 
 static void progress_update(void) {
     const Truck *p = &trucks[0];
@@ -194,8 +200,9 @@ static void progress_update(void) {
     if(!game.summit_reached && dx * dx + dz * dz < 18.0f * 18.0f) {
         game.summit_reached = true;
         game.summit_frac = 1.0f;
-        hud_message("SUMMIT!  CASCADE RIDGE", 0xffffe070, 7.0f);
         char line[64];
+        snprintf(line, sizeof(line), "SUMMIT!  %s", lvl->name);
+        hud_message(line, 0xffffe070, 7.0f);
         records_summit(line, sizeof(line));
         hud_message_sub(line);
         audio_sfx(RL_SFX_SUMMIT, 240);
@@ -275,6 +282,7 @@ static void update(float dt) {
     world_update(dt);
     birds_update(dt);
     air_update(dt);
+    desert_update(dt);
     campfire_update(dt);
     glow_update(dt);
     if(!game_frozen()) deer_update_all(dt);
@@ -306,6 +314,7 @@ static void render(void) {
     r_list(PVR_LIST_PT_POLY);
     r_load_vp();
     world_draw_pt();
+    desert_draw_pt();
     prof_phase_mark(PH_PT);
     RL_WHERE(6);
     r_list(PVR_LIST_TR_POLY);
@@ -317,6 +326,7 @@ static void render(void) {
     campfire_draw_tr();
     fx_draw();
     air_draw_tr();
+    desert_draw_tr();
     world_draw_flare();
     if(game.state == ST_TITLE) menu_title_draw();
     else if(game.state == ST_SELECT) menu_select_draw();
@@ -346,6 +356,77 @@ static void render(void) {
     prof_phase_frame();
 }
 
+static void memory_report(void);
+
+/* ---- Areas ---- */
+
+/* The loaded area's grid (level.h) lives in the room the sounds were
+   linked into, spent once the sound chip has them (audio.h). */
+static void *level_buf;
+
+/* The ground, lit for the hour; then everything that stands on it. */
+static void area_ground(int area) {
+    if(!level_buf) {
+        uint32_t room;
+        level_buf = audio_spent_pak(&room);
+        if(room < LEVEL_GRID_BYTES) level_buf = memalign(32, LEVEL_GRID_BYTES);
+    }
+    game.area = area;
+    terrain_load(area, level_buf);
+    tod_init(tod.hour);
+}
+
+static void area_world(void) {
+    world_build();
+    outland_init();
+    birds_init();
+    air_init();
+    desert_init();
+    campfire_init();
+    glow_init();
+    deer_reset();
+    hud_area();
+    fx_clear();
+}
+
+/* A card over a still frame while the area loads: the world is rebuilt
+   in one go, with nothing to draw from meanwhile. */
+static void loading_card(const char *name) {
+    for(int f = 0; f < 2; f++) {
+        r_frame_begin();
+        r_list(PVR_LIST_OP_POLY);
+        r_list(PVR_LIST_PT_POLY);
+        r_list(PVR_LIST_TR_POLY);
+        ui_dim();
+        ui_panel(170, 196, 470, 284);
+        hud_text_c(320, 226, 0.9f, ALIGN_CENTER, 0xffffffff, name);
+        hud_text_c(320, 258, 0.5f, ALIGN_CENTER, 0xffd8d0c0, "LOADING");
+        r_frame_end();
+    }
+}
+
+void game_load_area(int area) {
+    if(area == game.area) return;
+    uint64_t t0 = timer_us_gettime64();
+    loading_card(rl_levels[area]->name);
+    area_ground(area);
+    area_world();
+    /* Whatever stood on the old ground stands on the new. */
+    if(game.state != ST_DRIVE) game_set_state(game.state);
+    camera_reset();
+    printf("Ridgeline area: %s in %lu ms\n", lvl->name, (unsigned long)((timer_us_gettime64() - t0) / 1000));
+    memory_report();
+}
+
+/* The console has 16 MB for the program, its data and the heap. */
+static void memory_report(void) {
+    extern void *sbrk(intptr_t);
+    struct mallinfo mi = mallinfo();
+    printf("Ridgeline memory: heap %lu KiB in use, %lu KiB free in it, %lu KiB above the break\n",
+           (unsigned long)mi.uordblks / 1024, (unsigned long)mi.fordblks / 1024,
+           (unsigned long)(0x8d000000u - (uintptr_t)sbrk(0)) / 1024);
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -354,24 +435,22 @@ int main(int argc, char **argv) {
     input_init();
     render_init();
     /* Sounds first: KOS copies each through a scratch buffer on the way to
-       the AICA, and by the end of this list the heap has no room for one. */
+       the AICA, and by the end of this list the heap has no room for one.
+       (The loaded area's grid then unpacks into the room they came from.) */
     audio_init();
-    terrain_init();
     game.start_tod = TOD_MORNING;
-    tod_init(tod_hours[game.start_tod]);
+    tod.hour = tod_hours[game.start_tod];
+    area_ground(AREA_CASCADE);
     world_init();
-    world_build();
     hud_init();
     menu_init();
     truckdraw_init();
     fx_init();
-    birds_init();
-    air_init();
-    campfire_init();
-    glow_init();
+    area_world();
     records_load();
     printf("Ridgeline boot: %lu ms, %lu KiB VRAM free\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000),
            (unsigned long)(pvr_mem_available() / 1024));
+    memory_report();
     game_set_state(ST_TITLE);
 #ifdef RL_AUTOTEST
     autotest_boot();

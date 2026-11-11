@@ -17,6 +17,7 @@
 #include "tod.h"
 #include "world.h"
 #include "terrain.h"
+#include "outland.h"
 
 Tod tod;
 static Palette cur;
@@ -99,6 +100,37 @@ static const Key keys[] = {
 };
 #define KEYS (int)(sizeof(keys) / sizeof(keys[0]))
 
+/* The desert's day, hour for hour with the mountain's: drier air, so a
+   deeper blue overhead and a haze of dust rather than damp, the low sun
+   redder on rock that is red already, and a long violet dusk. The fog
+   stands further off than the mountain's: what there is to see here is
+   in the distance (terrain.c draws the ground out to match). */
+static const Key keys_desert[] = {
+    {0.0f, 0xff060c1c, 0xff18223a, 0xff161e30, 0xffe8ecf4, 0xff2c3858, 0xff2a3448, 0.35f, 120, 700,
+     {0.18f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {4.6f, 0xff060c1c, 0xff18223a, 0xff161e30, 0xffe8ecf4, 0xff2c3858, 0xff2a3448, 0.35f, 120, 700,
+     {0.18f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {5.5f, 0xff182a52, 0xff8a5a66, 0xff4a4056, 0xffe8ecf4, 0xffe08050, 0xff6a5068, 0.9f, 110, 680,
+     {0.10f, 0.11f, 0.17f}, {0.16f, 0.16f, 0.22f}, {0.10f, 0.09f, 0.12f}, 0.5f, 0.8f, 0.45f},
+    {6.3f, 0xff4a7cc0, 0xfff4b888, 0xffe0a890, 0xffffa850, 0xffffb868, 0xffffc8a0, 1.0f, 110, 720,
+     {0.86f, 0.46f, 0.22f}, {0.36f, 0.32f, 0.36f}, {0.17f, 0.14f, 0.16f}, 0.0f, 0.25f, 0.75f},
+    {8.0f, 0xff4c92dc, 0xffcfe2f0, 0xffdccac4, 0xfffff4dc, 0xfff8e4c0, 0xfffafcfc, 0.5f, 180, 940,
+     {0.90f, 0.78f, 0.62f}, {0.44f, 0.43f, 0.47f}, {0.24f, 0.22f, 0.21f}, 0.0f, 0.0f, 1.0f},
+    {12.5f, 0xff3f88dc, 0xffc4dcf0, 0xffd8c8c6, 0xfffffaf0, 0xfff4ecd8, 0xfffcfdfe, 0.3f, 200, 1000,
+     {0.98f, 0.90f, 0.78f}, {0.46f, 0.45f, 0.48f}, {0.26f, 0.24f, 0.22f}, 0.0f, 0.0f, 1.0f},
+    {17.0f, 0xff4a8cd4, 0xffd4e0ea, 0xffdcc2b6, 0xfffff0d0, 0xfff8dcb4, 0xfff8fbfc, 0.6f, 190, 960,
+     {0.98f, 0.78f, 0.54f}, {0.46f, 0.43f, 0.45f}, {0.25f, 0.22f, 0.20f}, 0.0f, 0.0f, 1.0f},
+    {18.3f, 0xff4a68a8, 0xfff49a58, 0xffe09878, 0xffff8838, 0xffff9048, 0xffffa880, 1.0f, 140, 820,
+     {0.86f, 0.40f, 0.15f}, {0.34f, 0.28f, 0.36f}, {0.16f, 0.13f, 0.15f}, 0.0f, 0.3f, 0.8f},
+    {19.0f, 0xff1e2a58, 0xff9a5a6a, 0xff66486a, 0xffff9040, 0xffe86a44, 0xff684868, 0.85f, 120, 700,
+     {0.0f, 0.0f, 0.0f}, {0.16f, 0.15f, 0.23f}, {0.10f, 0.09f, 0.12f}, 0.5f, 0.8f, 0.45f},
+    {20.2f, 0xff060c1c, 0xff18223a, 0xff161e30, 0xffe8ecf4, 0xff2c3858, 0xff2a3448, 0.35f, 120, 700,
+     {0.18f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {24.0f, 0xff060c1c, 0xff18223a, 0xff161e30, 0xffe8ecf4, 0xff2c3858, 0xff2a3448, 0.35f, 120, 700,
+     {0.18f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+};
+_Static_assert(sizeof(keys_desert) == sizeof(keys), "an hour for an hour");
+
 /* Moonlight: a cool, faint sun from the moon's direction. */
 static const float moon_k[3] = {0.17f, 0.20f, 0.28f};
 
@@ -107,9 +139,10 @@ static void lerp3(float *o, const float *a, const float *b, float t) {
 }
 
 static void palette_at(float hour, Palette *p) {
+    const Key *ks = lvl_area == AREA_MOAB ? keys_desert : keys;
     int k = 0;
-    while(k + 2 < KEYS && hour >= keys[k + 1].hour) k++;
-    const Key *a = &keys[k], *b = &keys[k + 1];
+    while(k + 2 < KEYS && hour >= ks[k + 1].hour) k++;
+    const Key *a = &ks[k], *b = &ks[k + 1];
     float t = clampf((hour - a->hour) / (b->hour - a->hour), 0, 1);
     t = t * t * (3.0f - 2.0f * t);
     p->sky_top = color_lerp(a->sky_top, b->sky_top, t);
@@ -164,7 +197,7 @@ static void eval(void) {
 /* A pass: the ground grid, the far terrain and water in the scenery
    pool, then the trees, rocks and props. A frame does budget vertices'
    worth, in the proportion each phase costs. */
-enum { PH_GRID, PH_POOL, PH_SCENERY, PH_DONE };
+enum { PH_GRID, PH_OUTLAND, PH_POOL, PH_SCENERY, PH_DONE };
 static struct {
     int phase, at;
     Palette snap;         /* the light this pass is for */
@@ -186,6 +219,7 @@ static void pass_begin(void) {
     rl.phase = PH_GRID;
     rl.at = 0;
     terrain_relight_setup(&rl.snap, rl.snap_dir);
+    outland_relight_setup(&rl.snap, rl.snap_dir);
     world_relight_setup(&rl.snap, rl.snap_dir);
 }
 
@@ -195,6 +229,7 @@ static int relight_work(int n) {
         int total, step;
         switch(rl.phase) {
             case PH_GRID: total = LEVEL_N * LEVEL_N; step = n; break;
+            case PH_OUTLAND: total = outland_relight_n(); step = n; break;
             case PH_POOL: total = terrain_pool_n(); step = n * 3; break;   /* a copy: cheap */
             default: total = world_relight_n(); step = n; break;
         }
@@ -203,6 +238,7 @@ static int relight_work(int n) {
         if(to > rl.at) {
             switch(rl.phase) {
                 case PH_GRID: terrain_relight(rl.at, to); n -= to - rl.at; break;
+                case PH_OUTLAND: outland_relight(rl.at, to); n -= to - rl.at; break;
                 case PH_POOL: terrain_relight_pool(&scenery, rl.at, to); n -= (to - rl.at + 2) / 3; break;
                 default: world_relight(rl.at, to); n -= to - rl.at; break;
             }
