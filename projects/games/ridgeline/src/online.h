@@ -6,10 +6,12 @@
 #include "rl.h"
 #include "net.h"
 
-/* A lobby is one area's: the first half Cascade Ridge's, the rest the
-   desert's. Every console works it out from the lobby's number. */
+/* A lobby is one area's: five each, in the areas' order. Every console
+   works it out from the lobby's number. (A build from before an area was
+   added lists only the lobbies it knows, and the server keeps the rest.) */
+#define ONLINE_AREA_LOBBIES (NET_LOBBIES / AREA_COUNT)
 static inline int online_lobby_area(int lobby) {
-    return lobby < NET_LOBBIES / 2 ? AREA_CASCADE : AREA_MOAB;
+    return lobby / ONLINE_AREA_LOBBIES;
 }
 
 void online_init(void);

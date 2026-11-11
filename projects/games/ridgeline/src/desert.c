@@ -50,7 +50,7 @@ static inline float rnd(void) {
 static bool open_ground(float x, float z) {
     if(fabsf(x) > 370.0f || fabsf(z) > 370.0f) return false;
     int sf = surface_at(x, z);
-    if(sf != SURF_GRASS && sf != SURF_SAND && sf != SURF_DIRT) return false;
+    if(sf != SURF_GRASS && sf != SURF_SAND && sf != SURF_DIRT && sf != SURF_HARDPACK) return false;
     if(water_at(x, z) > -999.0f) return false;
     V3 n;
     terrain_height_n(x, z, &n);
@@ -60,7 +60,7 @@ static bool open_ground(float x, float z) {
 void desert_init(void) {
     h_weed = r_header(TEX_WEED, HF_PT);
     h_dust = r_header(TEX_PUFF, HF_TR);
-    on = lvl_area == AREA_MOAB;
+    on = lvl_area != AREA_CASCADE;
     for(int i = 0; i < WEEDS; i++) weeds[i].live = false;
     devil.live = false;
     devil_wait = 20.0f;
@@ -171,7 +171,7 @@ void desert_draw_tr(void) {
               clampf((dist - 22.0f) * (1.0f / 25.0f), 0, 1) * (1.0f - pal->dark);
     if(k < 0.03f) return;
     /* Paler than the ground it came off: dust in the sun. */
-    uint32_t dust = world_lit(0xfff0c8a4, v3(0, 1, 0));
+    uint32_t dust = world_lit(lvl_area == AREA_DUNES ? 0xffe4dcc8 : 0xfff0c8a4, v3(0, 1, 0));
     r_hdr(h_dust);
     for(int i = 0; i < DEVIL_PUFFS; i++) {
         /* Each puff climbs the column and starts again at its foot. */

@@ -9,7 +9,9 @@
 /* Add the water's chunks to sc, marking each vertex with mark(sc, tag | its
    water vertex) for the relight. */
 void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t tag);
-/* A water vertex's colour for the hour's water brightness. */
+/* A water vertex's colour for the hour's water brightness: worked out
+   once in a relight pass (water_relight_begin starts one). */
+void water_relight_begin(void);
 uint32_t water_relit(uint32_t id, float water_k);
 void water_draw(const Scenery *sc);
 

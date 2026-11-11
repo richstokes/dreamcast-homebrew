@@ -639,34 +639,34 @@ static void draw_browser(void) {
     for(int i = 0; i < NET_LOBBIES; i++) {
         const NetLobbyInfo *e = &ls[i];
         /* Each area's lobbies under its name. */
-        int group = i / (NET_LOBBIES / 2);
-        float y = 114 + i * 29 + group * 18, cy = y + 12;
-        if(i % (NET_LOBBIES / 2) == 0)
-            hud_text_c(44, y - 9, 0.42f, ALIGN_LEFT, GOLD, rl_levels[online_lobby_area(i)]->name);
+        int group = i / ONLINE_AREA_LOBBIES;
+        float y = 107 + i * 19.4f + group * 15, cy = y + 8.5f;
+        if(i % ONLINE_AREA_LOBBIES == 0)
+            hud_text_c(44, y - 8, 0.4f, ALIGN_LEFT, GOLD, rl_levels[online_lobby_area(i)]->name);
         bool sel = i == browse_sel;
-        ui_row(38, y - 1, 602, y + 25, sel);
+        ui_row(38, y - 1, 602, y + 17.5f, sel);
         uint32_t col = sel ? ui_col(UI_ITEM_SEL) : TEXT;
         char buf[24];
         snprintf(buf, sizeof(buf), "LOBBY %d", i + 1);
-        hud_text_c(52, cy, 0.56f, ALIGN_LEFT, col, buf);
+        hud_text_c(52, cy, 0.5f, ALIGN_LEFT, col, buf);
         snprintf(buf, sizeof(buf), "%d/%d", e->count, NET_MAX_PLAYERS);
-        hud_text_c(196, cy, 0.56f, ALIGN_RIGHT, e->count >= NET_MAX_PLAYERS ? ui_col(UI_WARN) : col, buf);
+        hud_text_c(196, cy, 0.5f, ALIGN_RIGHT, e->count >= NET_MAX_PLAYERS ? ui_col(UI_WARN) : col, buf);
         if(!e->count) {
-            hud_text_c(222, cy, 0.48f, ALIGN_LEFT, sel ? col : PALE, "EMPTY");
+            hud_text_c(222, cy, 0.44f, ALIGN_LEFT, sel ? col : PALE, "EMPTY");
             continue;
         }
         tod_format(e->hour, buf, sizeof(buf));
-        hud_text_c(222, cy, 0.48f, ALIGN_LEFT, sel ? col : PALE, buf);
+        hud_text_c(222, cy, 0.44f, ALIGN_LEFT, sel ? col : PALE, buf);
         /* Who is there, a trophy by each who has been to the top. */
         float x = 286;
         for(int k = 0; k < e->count; k++) {
-            float w = text_width(hud_font(), e->names[k], 0.46f);
+            float w = text_width(hud_font(), e->names[k], 0.44f);
             if(x + w > 596) break;
-            hud_text_c(x, cy, 0.46f, ALIGN_LEFT, col, e->names[k]);
+            hud_text_c(x, cy, 0.44f, ALIGN_LEFT, col, e->names[k]);
             x += w;
             if(e->flags[k] & NPF_SUMMIT) {
-                hud_trophy(x + TROPHY_GAP + 0.6f * 14, cy, 14, 1.0f);
-                x += TROPHY_GAP + 1.2f * 14;
+                hud_trophy(x + TROPHY_GAP + 0.6f * 12, cy, 12, 1.0f);
+                x += TROPHY_GAP + 1.2f * 12;
             }
             x += 14;
         }

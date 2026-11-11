@@ -30,6 +30,7 @@
 #include "campfire.h"
 #include "glow.h"
 #include "desert.h"
+#include "dunes.h"
 #include "outland.h"
 #include <malloc.h>
 
@@ -283,6 +284,7 @@ static void update(float dt) {
     birds_update(dt);
     air_update(dt);
     desert_update(dt);
+    dunes_update(dt);
     campfire_update(dt);
     glow_update(dt);
     if(!game_frozen()) deer_update_all(dt);
@@ -304,6 +306,7 @@ static void render(void) {
     lamps_end();
     birds_draw();
     air_draw_op();
+    dunes_draw_op();
     extern uint64_t world_us[3];
     uint64_t tt = timer_us_gettime64();
     if(!no_trucks) truckdraw_draw_op();
@@ -327,6 +330,7 @@ static void render(void) {
     fx_draw();
     air_draw_tr();
     desert_draw_tr();
+    dunes_draw_tr();
     world_draw_flare();
     if(game.state == ST_TITLE) menu_title_draw();
     else if(game.state == ST_SELECT) menu_select_draw();
@@ -358,6 +362,20 @@ static void render(void) {
 
 static void memory_report(void);
 
+/* ---- Memory ---- */
+
+extern uint8_t rl_textures_pak[], rl_textures_pak_end[];
+static uintptr_t spent_at;
+
+void *spent_alloc(size_t bytes) {
+    if(!spent_at) spent_at = ((uintptr_t)rl_textures_pak + 31) & ~(uintptr_t)31;
+    bytes = (bytes + 31) & ~(size_t)31;
+    if(spent_at + bytes > (uintptr_t)rl_textures_pak_end) return memalign(32, bytes);
+    void *p = (void *)spent_at;
+    spent_at += bytes;
+    return p;
+}
+
 /* ---- Areas ---- */
 
 /* The loaded area's grid (level.h) lives in the room the sounds were
@@ -383,6 +401,7 @@ static void area_world(void) {
     birds_init();
     air_init();
     desert_init();
+    dunes_init();
     campfire_init();
     glow_init();
     deer_reset();
@@ -423,9 +442,10 @@ void game_load_area(int area) {
 static void memory_report(void) {
     extern void *sbrk(intptr_t);
     struct mallinfo mi = mallinfo();
-    printf("Ridgeline memory: heap %lu KiB in use, %lu KiB free in it, %lu KiB above the break\n",
+    printf("Ridgeline memory: heap %lu KiB in use, %lu KiB free in it, %lu KiB above the break, %lu KiB of the textures' room\n",
            (unsigned long)mi.uordblks / 1024, (unsigned long)mi.fordblks / 1024,
-           (unsigned long)(0x8d000000u - (uintptr_t)sbrk(0)) / 1024);
+           (unsigned long)(0x8d000000u - (uintptr_t)sbrk(0)) / 1024,
+           (unsigned long)(spent_at ? ((uintptr_t)rl_textures_pak_end - spent_at) / 1024 : 0));
 }
 
 int main(int argc, char **argv) {

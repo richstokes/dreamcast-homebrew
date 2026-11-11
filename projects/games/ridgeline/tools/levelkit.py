@@ -15,7 +15,7 @@ from pathlib import Path
 import lz4.block
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy.ndimage import gaussian_filter, map_coordinates
+from scipy.ndimage import gaussian_filter, gaussian_filter1d, map_coordinates
 from scipy.spatial import cKDTree
 
 N = 257                  # vertices per side
@@ -24,7 +24,8 @@ ORG = -384.0             # world x/z of vertex 0
 SIZE = D * (N - 1)       # 768 m
 
 # Surfaces: friction, rolling resistance, softness and colour live in the game.
-SURFACES = ["GRASS", "FOREST", "DIRT", "GRAVEL", "ROCK", "MUD", "SCREE", "SNOW", "WETROCK", "SAND", "SLICKROCK"]
+SURFACES = ["GRASS", "FOREST", "DIRT", "GRAVEL", "ROCK", "MUD", "SCREE", "SNOW", "WETROCK", "SAND", "SLICKROCK",
+            "HARDPACK", "DEEPSAND"]
 S = {n: i for i, n in enumerate(SURFACES)}
 
 SUN = np.array([-0.803, 0.375, 0.464])   # a late sun in the west-north-west (world.c palette)
@@ -337,7 +338,7 @@ def apply_mud(h, mud):
 # in its way; every tree's height is read again from the final ground.
 
 PROP = {n: i for i, n in enumerate(["CABIN", "SIGN", "TABLE", "CAIRN", "TOWER", "BRIDGE", "WRECK", "ARCH", "TENT",
-                                    "KIOSK", "RAMADA", "PANEL", "TRACKS", "ADIT", "PLATE"])}
+                                    "KIOSK", "RAMADA", "PANEL", "TRACKS", "ADIT", "PLATE", "PYLON", "CAMPER", "FLAG"])}
 BRIDGE_HX, BRIDGE_HZ = 2.9, 7.0     # deck half width and half length (world.c draws the same)
 
 
@@ -484,6 +485,169 @@ def minimap(rgb, water, routes, tracks, path):
         d.line([px(p[0], p[1]) for p in t[::3]], fill=(110, 70, 40), width=3)
     img = img.resize((256, 256), Image.LANCZOS)
     img.save(path)
+
+
+# ---------------------------------------------------------------------------
+# Land drawn by hand (level_moab.py, level_dunes.py): outlines and lines,
+# what stands inside or beside them, routes with their heights and the
+# ground built to them, and cliffs' faces.
+
+FLAT = np.stack([X.ravel(), Z.ravel()], axis=1)
+
+
+def chaikin(poly, iters=3, closed=False):
+    p = np.asarray(poly, dtype=float)
+    for _ in range(iters):
+        q = []
+        n = len(p)
+        for i in range(n if closed else n - 1):
+            a, b = p[i], p[(i + 1) % n]
+            q.append(a * 0.75 + b * 0.25)
+            q.append(a * 0.25 + b * 0.75)
+        if not closed:
+            q = [p[0]] + q + [p[-1]]
+        p = np.array(q)
+    return p
+
+
+def line_dist(poly, step=0.75):
+    """Distance from every vertex to a line, and how far along it (m)."""
+    pts = resample(np.asarray(poly, dtype=float), step)
+    d, idx = cKDTree(pts).query(FLAT)
+    return d.reshape(N, N), (idx * step).reshape(N, N), pts
+
+
+def inside(poly):
+    """Even-odd: which vertices lie inside a closed outline."""
+    p = np.asarray(poly, dtype=float)
+    x, z = X, Z
+    m = np.zeros((N, N), dtype=bool)
+    for a, b in zip(p, np.roll(p, -1, axis=0)):
+        if a[1] == b[1]:
+            continue
+        cross = ((a[1] > z) != (b[1] > z)) & (x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0])
+        m ^= cross
+    return m
+
+
+def plateau_dist(outline, round_off=3):
+    """Signed distance to a plateau's rim: positive inside."""
+    p = chaikin(outline, round_off, closed=True)
+    d, _, _ = line_dist(np.vstack([p, p[:1]]))
+    return np.where(inside(p), d, -d)
+
+
+def side_dist(line, left=True):
+    """Signed distance to an open line: positive to its left (looking
+    along it), or its right."""
+    p = chaikin(line, 3)
+    pts = resample(p, 0.75)
+    d, idx = cKDTree(pts).query(FLAT)
+    tg = np.gradient(pts, axis=0)
+    rel = FLAT - pts[idx]
+    cr = tg[idx, 0] * rel[:, 1] - tg[idx, 1] * rel[:, 0]
+    s = np.where(cr > 0, d, -d).reshape(N, N)
+    return s if left else -s
+
+
+def scarp(d, rise, talus=0.3, slope=0.64, face=6.4):
+    """The height gained crossing a rim (d metres inside it): a talus
+    slope piled against the foot of the cliff up to talus of the rise,
+    steepening toward the wall, then the face."""
+    rise = np.broadcast_to(np.asarray(rise, dtype=float), d.shape)
+    tw = np.maximum(talus * rise / slope, 1e-3)
+    t = np.clip((d + tw) / tw, 0, 1)
+    y = talus * rise * t ** 1.3
+    return y + (1 - talus) * rise * np.clip(d / face, 0, 1)
+
+
+def route_line(h, ctrl, gmax, name):
+    """A route from its control points: the line rounded off, a point a
+    metre, and its heights (fixed where given, the ground's elsewhere),
+    smoothed."""
+    c = np.array([(x, z) for x, z, _ in ctrl], dtype=float)
+    pts = resample(smooth_path(c, 3), 1.0)
+    tree = cKDTree(pts)
+    at = np.array([tree.query(q)[1] for q in c])
+    ys = np.array([float(sample(h, q)[0]) if y is None else y for (_, _, y), q in zip(ctrl, c)])
+    y = np.interp(np.arange(len(pts)), at, ys)
+    y = gaussian_filter1d(y, 3.0, mode="nearest")
+    # Between two points left to the ground the line follows it, steps
+    # and all (only rounded enough to drive).
+    ground = gaussian_filter1d(sample(h, pts), 1.2, mode="nearest")
+    free = np.zeros(len(pts))
+    for k in range(len(ctrl) - 1):
+        if ctrl[k][2] is None and ctrl[k + 1][2] is None:
+            free[at[k]:at[k + 1] + 1] = 1.0
+    free = gaussian_filter1d(free, 2.0, mode="nearest")
+    y = y * (1 - free) + ground * free
+    return {"name": name, "pts": pts, "y": y, "gmax": gmax}
+
+
+def cut_canyon(h, pts, y, half, wall=4.5, lip=0.0):
+    """A canyon along a line: a floor half wide at the line's heights,
+    walls rising steeply from it to whatever ground was there."""
+    tree = cKDTree(pts)
+    d, idx = tree.query(FLAT, distance_upper_bound=70.0)
+    ok = np.isfinite(d)
+    jj, ii = np.unravel_index(np.nonzero(ok)[0], h.shape)
+    d = d[ok]
+    yc = y[idx[ok]]
+    w = half[idx[ok]] if np.ndim(half) else np.full(len(d), half)
+    e = np.maximum(d - w, 0)
+    prof = yc + wall * e + lip * np.minimum(e, 3.0)
+    cur = h[jj, ii]
+    h[jj, ii] = np.minimum(cur, prof)
+    cut = np.zeros((N, N))
+    cut[jj, ii] = np.clip((cur - prof) / 3.0, 0, 1) * (d < w + 1.5)
+    return cut
+
+
+def lay_route(h, r, shoulder_max):
+    pts, y, half = r["pts"], r["y"], r["halfs"]
+    d, idx = cKDTree(pts).query(FLAT, distance_upper_bound=float(np.max(half)) + shoulder_max + 3.0)
+    ok = np.isfinite(d)
+    jj, ii = np.unravel_index(np.nonzero(ok)[0], h.shape)
+    d = d[ok]
+    yt = y[idx[ok]]
+    hw = half[idx[ok]]
+    diff = h[jj, ii] - yt
+    shoulder = np.minimum(2.0 + np.abs(diff) * 0.9, shoulder_max)
+    h[jj, ii] = yt + diff * smoothstep(hw, hw + shoulder, d)
+
+
+def report(h, routes):
+    for r in routes:
+        seg = np.linalg.norm(np.diff(r["pts"], axis=0), axis=1)
+        grade = np.abs(np.diff(r["y"])) / np.maximum(seg, 1e-3)
+        off = np.abs(sample(h, r["pts"]) - r["y"])
+        print(f"  {r['name']:15s} {seg.sum():6.0f} m, climbs {r['y'][-1] - r['y'][0]:6.1f} m, "
+              f"grade p95 {np.percentile(grade, 95) * 100:4.0f}% max {grade.max() * 100:4.0f}%, ground off by {off.max():.2f} m")
+
+
+def faces(h, drop=4.6):
+    """Which vertices are on a cliff's face: one a cell from a neighbour
+    far above or below it. Taken with the rim and the foot, so a face is
+    coloured and lit as a wall from top to bottom (the ground's colours
+    run smoothly between vertices, and a rim shaded as the top it joins
+    turns a cliff into a slope). Returns the mask and each vertex's
+    direction out of the wall."""
+    big = np.zeros_like(h)
+    for dj, di in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        nb = np.roll(np.roll(h, dj, axis=0), di, axis=1)
+        big = np.maximum(big, np.abs(nb - h) / math.hypot(dj, di))
+    face = big > drop
+    # And on the 6 m grid the game draws further off (every other vertex):
+    # the vertices a cliff falls between there.
+    e = h[::2, ::2]
+    big2 = np.zeros_like(e)
+    for dj, di in ((0, 1), (1, 0), (0, -1), (-1, 0)):
+        big2 = np.maximum(big2, np.abs(np.roll(np.roll(e, dj, axis=0), di, axis=1) - e) / 2.0)
+    face[::2, ::2] |= big2 > drop
+    face[0, :] = face[-1, :] = face[:, 0] = face[:, -1] = False
+    gz, gx = np.gradient(gaussian_filter(h, 0.6), D)
+    g = np.hypot(gx, gz) + 1e-6
+    return face, -gx / g, -gz / g
 
 
 # ---------------------------------------------------------------------------

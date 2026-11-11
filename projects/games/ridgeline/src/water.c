@@ -19,11 +19,12 @@
 typedef struct { float x, y, z; uint8_t depth, foam; uint16_t pad; } WetV;
 static WetV *wv;
 static uint32_t *wv_col;      /* lit, by the relight */
+static uint8_t *wv_pass, wv_pass_n;   /* the relight pass each was last lit in, and the pass now */
 static int wv_n;
 /* Each water chunk's flow: unit direction downstream and speed (m/s);
    still water drifts slowly with the wind. */
 typedef struct { uint16_t chunk; float fx, fz, speed; V3 o; } WChunk;
-#define WCHUNKS 128
+#define WCHUNKS 256
 static WChunk wch[WCHUNKS];
 static int wch_n;
 
@@ -35,7 +36,7 @@ static inline uint32_t water_colour(float depth, float foam, float k) {
 
 /* ---- Water, built ---- */
 
-#define WET_MAX 5120
+#define WET_MAX 9216
 static inline float lvl_wat(int i, int j) {
     return lvl_water[lvl_clampi(j) * LEVEL_N + lvl_clampi(i)];
 }
@@ -143,11 +144,14 @@ void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t 
     const pvr_poly_hdr_t *hw = r_header(TEX_RIPPLE, HF_TR);
     int16_t *idmap = malloc(sizeof(int16_t) * LEVEL_N * LEVEL_N);
     if(!wv) {
-        wv = malloc(sizeof(WetV) * WET_MAX);
-        wv_col = malloc(sizeof(uint32_t) * WET_MAX);
+        wv = spent_alloc(sizeof(WetV) * WET_MAX);
+        wv_col = spent_alloc(sizeof(uint32_t) * WET_MAX);
+        wv_pass = spent_alloc(WET_MAX);
     }
     wv_n = 0;
     wch_n = 0;
+    if(wv_pass) memset(wv_pass, 0, WET_MAX);   /* another area's: no vertex is this pass's yet */
+    wv_pass_n = 1;
     if(idmap) memset(idmap, 0xff, sizeof(int16_t) * LEVEL_N * LEVEL_N);
     if(!idmap || !wv || !wv_col) rl_no_memory("the water");
     for(int cj = 0; cj < W_CHUNKS && idmap && wv && wv_col; cj++)
@@ -182,13 +186,16 @@ void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t 
             }
             /* Near, on the 3 m grid in strips of a few rows; far, a 6 m
                grid in long strips (a quarter of the vertices, and the fog
-               hides the difference). */
-            for(int lod = 0; lod < 2; lod++) {
+               hides the difference). A lake is level and there is a lot
+               of it: its grid coarsens sooner, and again further out. */
+            static const float lod_m[2][4] = {{0, WATER_LOD_M, 900.0f, 900.0f}, {0, 70.0f, 190.0f, 900.0f}};
+            const float *lm = lod_m[look->lake && gl <= 0.5f];
+            for(int lod = 0; lod < 3 && lm[lod] < lm[lod + 1]; lod++) {
                 WChunk w = {(uint16_t)sc->chunk_n, fx, fz, speed, o};
                 if(wch_n < WCHUNKS) wch[wch_n++] = w;
-                sc_chunk_begin(sc, HF_TR, lod ? WATER_LOD_M : 0, lod ? 900.0f : WATER_LOD_M, TAG_WATER);
+                sc_chunk_begin(sc, HF_TR, lm[lod], lm[lod + 1], TAG_WATER);
                 sc_chunk_lod_point(sc, o);
-                water_cells(sc, mark, tag, idmap, &w, hw, i0, j0, lod ? 2 : 1);
+                water_cells(sc, mark, tag, idmap, &w, hw, i0, j0, 1 << lod);
                 sc_chunk_end(sc);
             }
         }
@@ -196,8 +203,22 @@ void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t 
     printf("Ridgeline water: %d vertices, %d chunks\n", wv_n, wch_n);
 }
 
+/* A relight pass colours each water vertex the first time the pool asks
+   for it and hands the rest the same: a wet cell's corner is in the pool
+   four times over at each grid the water is drawn on, which on a lake
+   was most of what relighting cost. */
+void water_relight_begin(void) {
+    if(!wv_pass) return;
+    if(++wv_pass_n == 0) {
+        memset(wv_pass, 0, WET_MAX);
+        wv_pass_n = 1;
+    }
+}
+
 uint32_t water_relit(uint32_t id, float water_k) {
+    if(wv_pass && wv_pass[id] == wv_pass_n) return wv_col[id];
     const WetV *w = &wv[id];
+    if(wv_pass) wv_pass[id] = wv_pass_n;
     return wv_col[id] = water_colour(w->depth * (1.0f / 255), w->foam * (1.0f / 255), water_k);
 }
 
@@ -290,9 +311,10 @@ void water_draw(const Scenery *sc) {
     if(!h_water) {
         h_water = r_header(TEX_RIPPLE, HF_TR | HF_SPEC);
         h_spark = r_header(TEX_SUN, HF_TR | HF_ADD | HF_NOFOG);
-        wv_dc = malloc(sizeof(uint32_t) * WET_MAX);
-        wv_sp = malloc(sizeof(uint32_t) * WET_MAX);
-        wv_stamp = calloc(WET_MAX, sizeof(uint16_t));
+        wv_dc = spent_alloc(sizeof(uint32_t) * WET_MAX);
+        wv_sp = spent_alloc(sizeof(uint32_t) * WET_MAX);
+        wv_stamp = spent_alloc(WET_MAX * sizeof(uint16_t));
+        if(wv_stamp) memset(wv_stamp, 0, WET_MAX * sizeof(uint16_t));
         if(!wv_dc || !wv_sp || !wv_stamp) rl_no_memory("the water's ripples");
     }
     const uint32_t *psrc = terrain_pool_src();
@@ -313,10 +335,10 @@ void water_draw(const Scenery *sc) {
 
     /* Few chunks: draw the visible ones far to near. */
     /* (From the water's own list: the scenery's holds every chunk.) */
-    int idx[64], n = 0;
-    float d2s[64];
+    int idx[96], n = 0;
+    float d2s[96];
     V3 cam_p = r_cam.pos;
-    for(int w = 0; w < wch_n && n < 64; w++) {
+    for(int w = 0; w < wch_n && n < 96; w++) {
         const ScChunk *c = &sc->chunks[wch[w].chunk];
         /* (a chunk that came out empty left its place to the next) */
         if(c->tag != TAG_WATER || (w && wch[w].chunk == wch[w - 1].chunk)) continue;

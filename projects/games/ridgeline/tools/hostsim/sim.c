@@ -218,7 +218,7 @@ static int run_crash(int kind, int model) {
 int main(int argc, char **argv) {
     const char *scen = argc > 1 ? argv[1] : "climb";
     int model = argc > 2 ? atoi(argv[2]) : 1;
-    /* SIM_AREA=1 for the desert. */
+    /* SIM_AREA=1 for the desert, 2 for the dunes. */
     game.area = getenv("SIM_AREA") ? atoi(getenv("SIM_AREA")) : 0;
     if(!terrain_load(game.area, aligned_alloc(32, (LEVEL_GRID_BYTES + 31) & ~31))) return 2;
     if(getenv("SIM_THROTTLE")) turn_throttle = atof(getenv("SIM_THROTTLE"));

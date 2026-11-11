@@ -75,7 +75,10 @@ void records_load(void) {
        cut short is cleared too. */
     int rows = n < RECORD_V2_BYTES ? 0 : (n - RECORD_V2_BYTES) / (int)sizeof(r.best_more[0]);
     for(int i = rows; i < REC_TRUCKS - 2; i++) memset(r.best_more[i], 0, sizeof(r.best_more[i]));
-    if(n < (int)sizeof(r)) memset(r.area_best, 0, sizeof(r.area_best));
+    /* And the areas: a save from before the latest of them is that
+       much shorter. */
+    int areas = n < (int)offsetof(record_t, area_best) ? 0 : (n - (int)offsetof(record_t, area_best)) / (int)sizeof(r.area_best[0]);
+    for(int i = areas < 0 ? 0 : areas; i < AREA_COUNT - 1; i++) memset(r.area_best[i], 0, sizeof(r.area_best[i]));
     r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
     printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);

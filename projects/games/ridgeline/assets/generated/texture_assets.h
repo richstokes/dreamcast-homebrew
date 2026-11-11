@@ -11,6 +11,7 @@ typedef struct { uint32_t offset, bytes; uint16_t w, h; uint8_t fmt, mip, pad[2]
 enum {
     TEX_GRASS,
     TEX_SANDSTONE,
+    TEX_DUNE,
     TEX_ROCK,
     TEX_BARK,
     TEX_CROWN,
@@ -22,6 +23,7 @@ enum {
     TEX_BRUSH1,
     TEX_BRUSH2,
     TEX_BRUSH3,
+    TEX_REED,
     TEX_WEED,
     TEX_SUN,
     TEX_MOON,
@@ -39,6 +41,7 @@ enum {
     TEX_CLOUD,
     TEX_MAP,
     TEX_MAP_MOAB,
+    TEX_MAP_DUNES,
     TEX_DIAL,
     TEX_ICONS,
     TEX_LOGO,
@@ -49,38 +52,41 @@ enum {
 static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {0u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* grass */
     {174784u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* sandstone */
-    {349568u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* rock */
-    {393280u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* bark */
-    {404224u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* crown */
-    {447936u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft0 */
-    {491648u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft1 */
-    {535360u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft2 */
-    {579072u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft3 */
-    {622784u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush0 */
-    {666496u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush1 */
-    {710208u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush2 */
-    {753920u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush3 */
-    {797632u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* weed */
-    {808576u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* sun */
-    {816768u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
-    {824960u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
-    {956032u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
-    {966976u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
-    {983360u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
-    {994304u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
-    {1005248u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
-    {1008000u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
-    {1018944u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* marks */
-    {1029888u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glyphs */
-    {1040832u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
-    {1051776u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
-    {1062720u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {1128256u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {1303040u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
-    {1477824u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {1510592u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {1576128u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {1707200u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {349568u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* dune */
+    {524352u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* rock */
+    {568064u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* bark */
+    {579008u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* crown */
+    {622720u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft0 */
+    {666432u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft1 */
+    {710144u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft2 */
+    {753856u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft3 */
+    {797568u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush0 */
+    {841280u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush1 */
+    {884992u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush2 */
+    {928704u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush3 */
+    {972416u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* reed */
+    {1016128u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* weed */
+    {1027072u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* sun */
+    {1035264u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
+    {1043456u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
+    {1174528u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
+    {1185472u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
+    {1201856u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
+    {1212800u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
+    {1223744u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
+    {1226496u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
+    {1237440u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* marks */
+    {1248384u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glyphs */
+    {1259328u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
+    {1270272u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
+    {1281216u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {1346752u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {1521536u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
+    {1696320u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_dunes */
+    {1871104u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {1903872u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {1969408u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {2100480u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

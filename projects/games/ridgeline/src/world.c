@@ -262,9 +262,76 @@ static void tree_desert(const lvl_tree_t *t, int lod, bool first) {
     cone(c, 1.5f * s, 0.3f * s, 2.9f * s, 3.7f * s, k, yaw + 0.6f, col, 1.08f, 1.2f, true);
 }
 
+/* The dunes' trees, all of them where roots reach water: a Russian olive
+   (kind 0) is a low spreading crown of silver-grey leaves in two heaps
+   on a dark leaning trunk, a willow (2) a thicket with no trunk to see,
+   a cottonwood (1) the desert's. */
+static void tree_dunes(const lvl_tree_t *t, int lod, bool first) {
+    if(t->kind == 1) {
+        tree_desert(t, lod, first);
+        return;
+    }
+    V3 b = v3(t->x, t->y - 0.2f, t->z);
+    float s = t->scale, yaw = t->yaw;
+    uint32_t seed = (uint32_t)(t->x * 131.0f) ^ (uint32_t)(t->z * 977.0f);
+    float pick = hrand(&seed);
+    bool j = !first;
+    int k = lod == 0 ? 6 : lod < 3 ? 5 : 4;
+    float crown_us = lod == 0 ? 2.0f : 0, crown_vs = lod == 0 ? 2.4f * s : 0;
+    cone_us = lod == 0 ? 1.0f : 0;
+    cone_vs = lod == 0 ? 1.6f : 0;
+    if(t->kind == 2) {
+        /* Green going to yellow, as willows do first. */
+        uint32_t col = pick < 0.4f ? 0xff96a44c : pick < 0.75f ? 0xffb0ac48 : 0xffc8b044;
+        cone_us = crown_us;
+        cone_vs = crown_vs;
+        if(lod == 3) {
+            cone(b, 2.3f * s, 0.5f * s, 0.1f * s, 3.4f * s, 4, yaw, col, 0.62f, 1.1f, j);
+            return;
+        }
+        cone(b, 1.5f * s, 2.5f * s, 0.0f, 1.3f * s, k, yaw, col, 0.5f, 0.84f, j);
+        cone(b, 2.5f * s, 1.7f * s, 1.3f * s, 2.6f * s, k, yaw + 0.3f, col, 0.84f, 1.04f, true);
+        cone(b, 1.7f * s, 0.25f * s, 2.6f * s, 3.5f * s, k, yaw + 0.6f, col, 1.04f, 1.2f, true);
+        return;
+    }
+    uint32_t col = pick < 0.5f ? 0xffaebca0 : 0xff9cae96;
+    const uint32_t bark = 0xff4e4036;
+    float la = hrand(&seed) * ENG_TAU, lean = 0.7f * s;
+    V3 c = v3(b.x + cosf(la) * lean, b.y, b.z + sinf(la) * lean);
+    if(lod == 0) {
+        V3 m = v3(b.x + cosf(la) * lean * 0.4f, b.y, b.z + sinf(la) * lean * 0.4f);
+        cone(b, 0.3f * s, 0.22f * s, 0, 1.2f * s, 4, yaw, bark, 0.7f, 0.8f, j);
+        cone(m, 0.22f * s, 0.16f * s, 1.2f * s, 2.3f * s, 4, yaw + 0.6f, bark, 0.8f, 0.85f, true);
+        j = true;
+    }
+    else if(lod == 1) {
+        cone(b, 0.28f * s, 0.2f * s, 0, 2.0f * s, 3, yaw, bark, 0.7f, 0.78f, j);
+        j = true;
+    }
+    cone_us = crown_us;
+    cone_vs = crown_vs;
+    if(lod == 3) {
+        cone(c, 2.3f * s, 0.5f * s, 1.3f * s, 5.0f * s, 4, yaw, col, 0.64f, 1.1f, j);
+        return;
+    }
+    /* The main heap, and at hand a second, lower, to the other side. */
+    cone(c, 0.7f * s, 2.3f * s, 1.7f * s, 2.8f * s, k, yaw, col, 0.54f, 0.88f, j);
+    cone(c, 2.3f * s, 1.7f * s, 2.8f * s, 4.0f * s, k, yaw + 0.3f, col, 0.88f, 1.06f, true);
+    cone(c, 1.7f * s, 0.3f * s, 4.0f * s, 5.0f * s, k, yaw + 0.6f, col, 1.06f, 1.22f, true);
+    if(lod < 2) {
+        V3 c2 = v3(b.x - cosf(la) * lean * 2.1f, b.y, b.z - sinf(la) * lean * 2.1f);
+        cone(c2, 0.6f * s, 1.6f * s, 1.1f * s, 2.0f * s, 5, yaw + 1.0f, col, 0.52f, 0.84f, true);
+        cone(c2, 1.6f * s, 0.3f * s, 2.0f * s, 3.4f * s, 5, yaw + 1.4f, col, 0.84f, 1.16f, true);
+    }
+}
+
 static void tree(const lvl_tree_t *t, int lod, bool first) {
     if(lvl_area == AREA_MOAB) {
         tree_desert(t, lod, first);
+        return;
+    }
+    if(lvl_area == AREA_DUNES) {
+        tree_dunes(t, lod, first);
         return;
     }
     V3 b = v3(t->x, t->y - 0.2f, t->z);
@@ -475,6 +542,31 @@ static void log_mesh(const lvl_capsule_t *cp) {
 #define MARK_BLACK 0xff0e0a0a      /* the mine's dark, a black diamond */
 #define MARK_PALE 0xfff0e0b0       /* trail paint and pecked rock: the signs' cream */
 
+/* A drum on its side from a to b: eight flat sides, a cap each end. */
+static void drum(V3 a, V3 b, float r, uint32_t col, uint32_t cap) {
+    V3 ax = vnorm(vsub(b, a));
+    V3 side = vnorm(vcross(ax, v3(0, 1, 0)));
+    V3 up = vcross(side, ax);
+    sc_strip_begin(&scenery, h_flat);
+    for(int s = 0; s <= 8; s++) {
+        float ang = ENG_TAU * (s % 8) / 8.0f;
+        V3 n = vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang)));
+        lv(vmad(a, n, r), 0, 0, col, n, 0.9f);
+        lv(vmad(b, n, r), 0, 0, col, n, 0.9f);
+    }
+    sc_strip_end(&scenery);
+    for(int e = 0; e < 2; e++) {
+        V3 c = e ? b : a, en = vscale(ax, e ? 1.0f : -1.0f);
+        static const int order[8] = {0, 1, 7, 2, 6, 3, 5, 4};
+        sc_strip_begin(&scenery, h_flat);
+        for(int s = 0; s < 8; s++) {
+            float ang = ENG_TAU * order[s] / 8.0f;
+            lv(vmad(c, vadd(vscale(side, cosf(ang)), vscale(up, sinf(ang))), r * 0.72f), 0, 0, cap, en, 1.0f);
+        }
+        sc_strip_end(&scenery);
+    }
+}
+
 static void prop(const lvl_prop_t *p) {
     V3 c = v3(p->x, p->y, p->z);
     float cy = cosf(p->yaw), sy = sinf(p->yaw);
@@ -516,7 +608,7 @@ static void prop(const lvl_prop_t *p) {
         case PROP_SIGN:
             box(h_bark, v3(c.x, c.y + 1.0f, c.z), 0.1f, 1.0f, 0.1f, p->yaw, 0xff6a4a30, 1.0f);
             /* Forest green on the mountain, the desert's routed brown. */
-            box(h_flat, v3(c.x, c.y + 1.9f, c.z), 0.9f, 0.35f, 0.06f, p->yaw, lvl_area == AREA_MOAB ? 0xff74482c : 0xff3c6a44, 1.0f);
+            box(h_flat, v3(c.x, c.y + 1.9f, c.z), 0.9f, 0.35f, 0.06f, p->yaw, lvl_area == AREA_CASCADE ? 0xff3c6a44 : 0xff74482c, 1.0f);
             box(h_flat, v3(c.x, c.y + 1.9f, c.z), 0.75f, 0.06f, 0.07f, p->yaw, 0xfff0e0b0, 1.0f);
             break;
         case PROP_TABLE:
@@ -655,6 +747,76 @@ static void prop(const lvl_prop_t *p) {
             box(h_bark, v3(c.x, c.y + 0.75f, c.z), 0.9f, 0.05f, 0.4f, p->yaw, 0xffa07850, 1.0f);
             box(h_bark, v3(c.x, c.y + 0.45f, c.z), 0.9f, 0.04f, 0.15f, p->yaw, 0xff8a6440, 1.0f);
             box(h_bark, v3(c.x, c.y + 0.37f, c.z), 0.7f, 0.37f, 0.06f, p->yaw, 0xff6a4a30, 1.0f);
+            break;
+        }
+        case PROP_PYLON: {
+            /* A powerline's H-frame: two poles (the level's posts), a
+               crossarm past them both ways, braces crossed between, an
+               insulator for each wire (dunes.c hangs them). */
+            V3 r = v3(cy, 0, -sy);
+            const uint32_t wood = 0xff6c5a48;
+            for(int side = -1; side <= 1; side += 2) {
+                V3 q = vadd(c, vscale(r, side * 2.6f));
+                leg(v3(q.x, terrain_height(q.x, q.z) - 0.5f, q.z), v3(q.x, c.y + 15.0f, q.z), 0.19f, wood);
+                V3 lo = vadd(c, vscale(r, side * 2.6f)), hi = vadd(c, vscale(r, -side * 2.6f));
+                leg(v3(lo.x, c.y + 7.0f, lo.z), v3(hi.x, c.y + 12.6f, hi.z), 0.07f, wood);
+            }
+            box(h_bark, v3(c.x, c.y + 13.7f, c.z), 4.7f, 0.13f, 0.11f, p->yaw, wood, 0.5f);
+            for(int k = -1; k <= 1; k++)
+                box(h_flat, v3(c.x + r.x * k * 4.2f, c.y + 13.3f, c.z + r.z * k * 4.2f), 0.07f, 0.28f, 0.07f, p->yaw, 0xff6a8088, 1.0f);
+            break;
+        }
+        case PROP_CAMPER: {
+            /* A travel trailer parked up for the weekend: the box, its
+               stripe, windows and door, the hitch, an awning out over
+               the door side. */
+            V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+            uint32_t seed = (uint32_t)(p->x * 19.0f) ^ (uint32_t)(p->z * 23.0f);
+            static const uint32_t stripes[4] = {0xff2f8a96, 0xffc8542a, 0xff3a5a9a, 0xff7a8a3a};
+            uint32_t stripe = stripes[hash32(seed) & 3];
+            const uint32_t shell = 0xffe6e2d6, glass = 0xff2a363c;
+            box_seg(h_flat, v3(c.x, c.y + 1.62f, c.z), 1.15f, 1.02f, 2.9f, p->yaw, shell, 1.0f, 1.6f);
+            box(h_flat, v3(c.x, c.y + 1.2f, c.z), 1.17f, 0.13f, 2.92f, p->yaw, stripe, 1.0f);
+            box(h_flat, v3(c.x, c.y + 0.5f, c.z), 0.95f, 0.12f, 2.6f, p->yaw, 0xff3a3a3c, 1.0f);
+            box(h_flat, vadd(c, v3(f.x * 1.2f, 2.0f, f.z * 1.2f)), 1.18f, 0.27f, 0.62f, p->yaw, glass, 1.0f);
+            box(h_flat, vadd(c, v3(-f.x * 1.5f, 2.0f, -f.z * 1.5f)), 1.18f, 0.27f, 0.4f, p->yaw, glass, 1.0f);
+            box(h_flat, vadd(c, v3(f.x * 2.9f, 2.0f, f.z * 2.9f)), 0.7f, 0.27f, 0.03f, p->yaw, glass, 1.0f);
+            box(h_flat, vadd(c, v3(r.x * 1.16f - f.x * 0.3f, 1.52f, r.z * 1.16f - f.z * 0.3f)), 0.02f, 0.88f, 0.34f, p->yaw, 0xffcfcabb, 1.0f);
+            box(h_flat, vadd(c, v3(-f.x * 0.6f, 2.74f, -f.z * 0.6f)), 0.42f, 0.11f, 0.5f, p->yaw, 0xffd0d0cc, 1.0f);
+            for(int side = -1; side <= 1; side += 2) {
+                V3 w = vadd(c, v3(r.x * side * 1.0f - f.x * 0.5f, 0.38f, r.z * side * 1.0f - f.z * 0.5f));
+                drum(vsub(w, vscale(r, 0.13f)), vadd(w, vscale(r, 0.13f)), 0.38f, 0xff26262a, 0xffb8b8b4);
+                V3 a = vadd(c, v3(f.x * 2.9f + r.x * side * 0.75f, 0.58f, f.z * 2.9f + r.z * side * 0.75f));
+                leg(a, vadd(c, v3(f.x * 4.2f, 0.55f, f.z * 4.2f)), 0.04f, 0xff3a3a3c);
+            }
+            box(h_flat, vadd(c, v3(f.x * 4.1f, 0.28f, f.z * 4.1f)), 0.04f, 0.3f, 0.04f, p->yaw, 0xff8a8a88, 1.0f);
+            /* The awning, and the two poles under its outer edge. */
+            V3 in0 = vadd(c, v3(r.x * 1.16f + f.x * 1.9f, 2.6f, r.z * 1.16f + f.z * 1.9f)),
+               in1 = vadd(c, v3(r.x * 1.16f - f.x * 1.3f, 2.6f, r.z * 1.16f - f.z * 1.3f));
+            V3 o0 = vadd(in0, v3(r.x * 2.3f, -0.55f, r.z * 2.3f)), o1 = vadd(in1, v3(r.x * 2.3f, -0.55f, r.z * 2.3f));
+            V3 an = vnorm(v3(r.x * 0.24f, 1.0f, r.z * 0.24f));
+            sc_strip_begin(&scenery, h_flat);
+            lv(in0, 0, 0, stripe, an, 1.0f);
+            lv(in1, 0, 0, stripe, an, 1.0f);
+            lv(o0, 0, 0, stripe, an, 0.92f);
+            lv(o1, 0, 0, stripe, an, 0.92f);
+            sc_strip_end(&scenery);
+            leg(v3(o0.x, terrain_height(o0.x, o0.z) - 0.1f, o0.z), o0, 0.025f, 0xffb8b8b4);
+            leg(v3(o1.x, terrain_height(o1.x, o1.z) - 0.1f, o1.z), o1, 0.025f, 0xffb8b8b4);
+            break;
+        }
+        case PROP_FLAG: {
+            /* A whip and its pennant, as every rig in the dunes carries
+               to be seen over a crest: here stuck in the sand to mark a
+               place. It leans with the wind. */
+            V3 top = v3(c.x + WIND_X * 0.3f, c.y + 3.5f, c.z + WIND_Z * 0.3f);
+            leg(v3(c.x, c.y - 0.2f, c.z), top, 0.022f, 0xffd8d6cc);
+            V3 n = v3(-WIND_Z, 0, WIND_X);
+            sc_strip_begin(&scenery, h_flat);
+            lv(top, 0, 0, 0xffff6a1c, n, 1.0f);
+            lv(v3(top.x - WIND_X * 0.03f, top.y - 0.4f, top.z - WIND_Z * 0.03f), 0, 0, 0xffff6a1c, n, 0.9f);
+            lv(v3(top.x + WIND_X * 0.62f, top.y - 0.24f, top.z + WIND_Z * 0.62f), 0, 0, 0xffff7a2a, n, 1.0f);
+            sc_strip_end(&scenery);
             break;
         }
         case PROP_TOWER: {
@@ -1210,6 +1372,7 @@ static V3 star_dir[STARS];
 static float star_rot[STARS], star_b[STARS];
 
 static void dsky_colours(uint32_t warm);
+static void dsky_build(void);
 
 /* The dome's colours for the hour: the palette's gradient, warmed low in
    the sky toward the sun (the moon at night), the haze at the horizon. */
@@ -1255,7 +1418,7 @@ static void sky_colours(void) {
             range_bot[r][s] = color_lerp(range_bot[r][s], cap_col, cap_in);
         }
     }
-    if(lvl_area == AREA_MOAB) dsky_colours(warm);
+    if(lvl_area != AREA_CASCADE) dsky_colours(warm);
 }
 
 /* ---- The desert's skyline ----
@@ -1267,7 +1430,8 @@ static void sky_colours(void) {
    as close together as a cliff needs. */
 #define DSKY_MAX 160
 #define DSKY_RUN 8             /* vertices a strip */
-#define DSKY_SNOW 208.0f       /* the snow line on the mountains */
+static float dsky_snowline;    /* the snow line on the mountains */
+#define DSKY_SNOW dsky_snowline
 static struct { float sa, ca, h; } dsky[RANGES][DSKY_MAX];
 static int dsky_n[RANGES];
 static uint32_t dsky_top[RANGES][2], dsky_bot[RANGES][2], dsky_snow[2];
@@ -1292,7 +1456,52 @@ static void dsky_block(int l, float az, float w, float base, float top, float ti
     dsky_put(l, az + w, base);
 }
 
+/* The dunes' skyline: the Columbia Basin, which is mostly sky. Low sage
+   hills all round, never more than a couple of degrees high; the long
+   whalebacks of the Frenchman Hills and the Saddle Mountains to the
+   south, with the notch the river cut through the second; and far to
+   the west the Cascades, a blue saw-edge with one white volcano standing
+   over it. */
+static float basin_hump(float az, float at, float half) {
+    float d = (az - at) / half;
+    return d > -1.0f && d < 1.0f ? (1.0f - d * d) * (1.0f - d * d) : 0;
+}
+
+static void basin_build(void) {
+    uint32_t seed = 1949;
+    dsky_snowline = 138.0f;
+    for(int l = 0; l < RANGES; l++) dsky_n[l] = 0;
+    float n0 = 0, n1 = 0;
+    for(int i = 0; i <= 120; i++) {
+        float az = i * 3.0f;
+        n0 = n0 * 0.6f + 0.4f * hrand(&seed);
+        n1 = n1 * 0.7f + 0.3f * hrand(&seed);
+        /* Near: swells of sage, the Frenchman Hills south-west, the
+           Beezley Hills north. */
+        float h0 = 43.0f + 9.0f * n0 + 34.0f * basin_hump(az, 232.0f, 52.0f) + 22.0f * basin_hump(az, 8.0f, 46.0f) +
+                   22.0f * basin_hump(az, 368.0f, 46.0f);
+        /* Behind: the Saddle Mountains, cut clean through at the gap. */
+        float gap = 1.0f - 0.85f * basin_hump(az, 204.0f, 5.0f);
+        float h1 = 50.0f + 8.0f * n1 + 78.0f * basin_hump(az, 184.0f, 58.0f) * gap + 30.0f * basin_hump(az, 60.0f, 70.0f);
+        /* Far off: the Cascades from the south-west round to the north,
+           the Stuart Range's teeth, the volcano. */
+        float casc = basin_hump(az, 286.0f, 74.0f);
+        float h2 = 46.0f + casc * (64.0f + 46.0f * hrand(&seed)) + 120.0f * basin_hump(az, 306.0f, 15.0f) * (0.55f + 0.45f * hrand(&seed));
+        float cone = (az - 262.0f) * (1.0f / 7.5f);
+        if(cone > -1.0f && cone < 1.0f) h2 = fmaxf(h2, 58.0f + 132.0f * powf(1.0f - fabsf(cone), 1.3f) - 8.0f * basin_hump(az, 262.0f, 1.6f));
+        dsky_put(0, az, h0);
+        dsky_put(1, az, h1);
+        dsky_put(2, az, h2);
+    }
+    for(int l = 0; l < RANGES; l++) dsky[l][dsky_n[l] - 1].h = dsky[l][0].h;
+}
+
 static void dsky_build(void) {
+    if(lvl_area == AREA_DUNES) {
+        basin_build();
+        return;
+    }
+    dsky_snowline = 208.0f;
     uint32_t seed = 9091;
     for(int l = 0; l < 2; l++) {
         dsky_n[l] = 0;
@@ -1347,7 +1556,10 @@ static void dsky_build(void) {
    dustier behind, the mountains blue with distance; all into the haze by
    how far, all dark by night. */
 static void dsky_colours(uint32_t warm) {
-    static const uint32_t rock[RANGES] = {0xffa0502e, 0xff9a5e4c, 0xff4e6a96};
+    static const uint32_t rocks[2][RANGES] = {{0xffa0502e, 0xff9a5e4c, 0xff4e6a96},
+                                              /* Sage hills, tawny then dun; the Cascades blue. */
+                                              {0xff8c8262, 0xff7e7a6a, 0xff526c98}};
+    const uint32_t *rock = rocks[lvl_area == AREA_DUNES];
     for(int l = 0; l < RANGES; l++) {
         uint32_t base = color_lerp(rock[l], 0xff0a1424, pal->dark);
         /* Far enough off to be mostly haze: no more of the rock's colour
@@ -1408,7 +1620,6 @@ static void cloud_roll(Cloud *c, uint32_t *seed) {
 
 static void sky_setup(void) {
     sky_init(&sky, sky_el, 6, SKY_SEG, 1900.0f, h_flat_nofog);
-    dsky_build();
     uint32_t seed = 4242;
     for(int r = 0; r < RANGES; r++) {
         float base = 60.0f + 50.0f * r;
@@ -1464,7 +1675,7 @@ void world_draw_sky(void) {
     V3 f = r_cam.fwd;
     float fl = sqrtf(f.x * f.x + f.z * f.z);
     float fx = fl > 0.01f ? f.x / fl : 0, fz = fl > 0.01f ? f.z / fl : 0;
-    if(lvl_area == AREA_MOAB) {
+    if(lvl_area != AREA_CASCADE) {
         dsky_draw(c, fx, fz, fl > 0.01f);
         return;
     }
@@ -1498,6 +1709,12 @@ void world_draw_sky(void) {
    to TUFT_NEAR; past it every other one carries on, growing a little to
    fill the gap, out to TUFT_FAR, the rest shrinking away as they near
    TUFT_NEAR (the eye reads it as the same meadow, as with far trees).
+   That is for grass, which is a texture of the meadow. Brush is bushes,
+   each one a thing standing on bare ground, and a bush seen to swell or
+   shrink 20 m ahead of the truck is plainly wrong: so every bush is
+   drawn at its own size out to BRUSH_FAR and only the last few metres of
+   that, where it is a dozen pixels across, bring it in. They stand far
+   enough apart that this is fewer of them than a meadow has blades.
    Working out a tuft (surface, water, height) is a handful of cache
    misses into the level, so tufts are worked out once per 8 m block and
    kept while the block stays near: a frame only reads them back. Each
@@ -1506,11 +1723,13 @@ void world_draw_sky(void) {
 #define TUFT_CELL 2.0f
 #define TUFT_NEAR 24.0f
 #define TUFT_FAR 44.0f
+#define BRUSH_FAR 56.0f
+#define BRUSH_IN 7.0f                       /* a bush comes up to size over this much of it */
 #define TUFT_MAX 560
 #define TB_CELLS 4                          /* cells a block side */
 #define TB_SIZE (TUFT_CELL * TB_CELLS)
 #define TB_RAD (TB_SIZE * 0.7072f + 1.2f)   /* a block's tufts lie within this of its centre */
-#define TB_SLOTS 16                         /* cached blocks a side; > 2 * TUFT_FAR / TB_SIZE + 2 */
+#define TB_SLOTS 16                         /* cached blocks a side; > 2 * BRUSH_FAR / TB_SIZE + 2 */
 #define TB_FILLS 10                         /* blocks worked out a frame at most (after a camera cut) */
 #define TB_EMPTY INT16_MIN
 
@@ -1535,10 +1754,13 @@ int world_tufts;   /* drawn last frame, for the bench */
 
 /* Height of each texture over the half width: tall seed grass, a low
    wide spray, the broad clumps in between. */
-static const float tuft_aspects[2][4] = {{1.25f, 1.6f, 1.0f, 1.3f},
-                                        /* The desert's brush: sage, blackbrush, rabbitbrush, ricegrass. */
-                                        {0.9f, 0.74f, 1.0f, 1.1f}};
-#define tuft_aspect (tuft_aspects[lvl_area == AREA_MOAB])
+static const float tuft_aspects[AREA_COUNT][4] = {{1.25f, 1.6f, 1.0f, 1.3f},
+                                                 /* The desert's brush: sage, blackbrush, rabbitbrush, ricegrass. */
+                                                 {0.9f, 0.74f, 1.0f, 1.1f},
+                                                 /* The dunes': sage, cattails, rabbitbrush, ricegrass. */
+                                                 {0.9f, 2.0f, 1.0f, 1.1f}};
+#define tuft_aspect (tuft_aspects[lvl_area])
+#define TUFT_REED 1   /* the dunes' cattails: only where it is wet */
 
 /* Tufts sit on a fixed grid, so one under a truck would poke up through
    its bed: leave out any whose billboard (half width w, mostly blades)
@@ -1580,13 +1802,22 @@ static void tuft_fill(TuftBlock *b, int bi, int bj) {
             uint32_t s = hash32((uint32_t)i * 73856093u ^ (uint32_t)j * 19349663u);
             float px = (i + (s & 255) / 255.0f) * TUFT_CELL, pz = (j + ((s >> 8) & 255) / 255.0f) * TUFT_CELL;
             int sf = surface_at(px, pz);
-            bool desert = lvl_area == AREA_MOAB;
+            bool desert = lvl_area != AREA_CASCADE, dunes = lvl_area == AREA_DUNES;
+            float wat = water_at(px, pz), y = terrain_height(px, pz);
+            /* Cattails stand in the dunes' shallows and on the mud beside
+               them, in beds. */
+            bool reed = false;
+            if(dunes && (sf == SURF_MUD || sf == SURF_HARDPACK || wat > -999.0f)) {
+                bool wet = wat > -999.0f ? wat - y < 0.45f
+                                         : water_at(px + 3.0f, pz) > -999.0f || water_at(px - 3.0f, pz) > -999.0f ||
+                                               water_at(px, pz + 3.0f) > -999.0f || water_at(px, pz - 3.0f) > -999.0f;
+                reed = wet && tuft_patch(px * 1.7f + 40.0f, pz * 1.7f) > 0.42f && (s >> 20 & 7) < 6;
+            }
             /* The mountain's grass, thin in the forest; the desert's brush
                on its scrub flats, the odd bush out on the sand. */
-            if(sf != SURF_GRASS && !(sf == (desert ? SURF_SAND : SURF_FOREST) && (s >> 20 & 3) == 0)) continue;
-            if(water_at(px, pz) > -999.0f) continue;
+            if(!reed && sf != SURF_GRASS && !(sf == (desert ? SURF_SAND : SURF_FOREST) && (s >> 20 & 3) == 0)) continue;
+            if(!reed && wat > -999.0f) continue;
             uint32_t s2 = hash32(s ^ 0x68e31da4u);
-            float y = terrain_height(px, pz);
             /* Up the mountain the grass thins and stays short: from the
                meadow's edge (30 m) to near the scree (160 m) a tuft
                grows a third as often and a third smaller. */
@@ -1595,17 +1826,22 @@ static void tuft_fill(TuftBlock *b, int bi, int bj) {
             float dens = tuft_patch(px, pz) * (1.0f - 0.35f * alp);
             /* Brush stands apart, each bush with ground to itself. */
             float keep = desert ? 0.08f + 0.5f * dens : (0.4f + dens) * (1.0f - 0.55f * alp);
-            if((s2 & 255) * (1.0f / 255) > keep) continue;
+            if(!reed && (s2 & 255) * (1.0f / 255) > keep) continue;
             Tuft *t = &b->t[b->n++];
             t->x = px;
             t->y = y - 0.05f;
             t->z = pz;
             int gi = lvl_clampi((int)((px - LEVEL_ORG) / LEVEL_D + 0.5f)), gj = lvl_clampi((int)((pz - LEVEL_ORG) / LEVEL_D + 0.5f));
             t->g = (uint32_t)(gj * LEVEL_N + gi);
-            static const uint8_t var_pick[2][8] = {{0, 0, 0, 1, 1, 2, 2, 3}, {0, 0, 0, 1, 1, 2, 3, 3}};
-            t->var = var_pick[desert][s2 >> 8 & 7];
+            static const uint8_t var_pick[AREA_COUNT][8] = {{0, 0, 0, 1, 1, 2, 2, 3}, {0, 0, 0, 1, 1, 2, 3, 3},
+                                                            {0, 0, 0, 0, 2, 2, 3, 3}};
+            t->var = var_pick[lvl_area][s2 >> 8 & 7];
+            /* (out on the dunes' open sand, ricegrass alone) */
+            if(dunes && sf == SURF_SAND) t->var = 3;
+            if(reed) t->var = TUFT_REED;
             t->flags = (uint8_t)((s >> 24 & 1) | (s2 >> 10 & 2));
             float w = (0.55f + ((s >> 16) & 15) / 30.0f) * (0.8f + 0.35f * dens) * (1.0f - 0.3f * alp);
+            if(reed) w = 0.7f + ((s >> 16) & 15) / 40.0f;
             t->size = (uint8_t)fminf(w * 100.0f, 255.0f);
             t->tint = (uint8_t)(s2 >> 16);
         }
@@ -1643,13 +1879,15 @@ void world_draw_pt(void) {
        drops the furthest tufts. */
     static TuftDraw vis[TB_SLOTS * TB_SLOTS];
     int nvis = 0, fills = 0;
-    int bi0 = (int)floorf((c.x - TUFT_FAR) / TB_SIZE), bi1 = (int)floorf((c.x + TUFT_FAR) / TB_SIZE);
-    int bj0 = (int)floorf((c.z - TUFT_FAR) / TB_SIZE), bj1 = (int)floorf((c.z + TUFT_FAR) / TB_SIZE);
+    bool desert = lvl_area != AREA_CASCADE;
+    const float reach = desert ? BRUSH_FAR : TUFT_FAR;
+    int bi0 = (int)floorf((c.x - reach) / TB_SIZE), bi1 = (int)floorf((c.x + reach) / TB_SIZE);
+    int bj0 = (int)floorf((c.z - reach) / TB_SIZE), bj1 = (int)floorf((c.z + reach) / TB_SIZE);
     for(int bj = bj0; bj <= bj1; bj++)
         for(int bi = bi0; bi <= bi1; bi++) {
             float dx = (bi + 0.5f) * TB_SIZE - c.x, dz = (bj + 0.5f) * TB_SIZE - c.z;
             float d2 = dx * dx + dz * dz;
-            if(d2 > (TUFT_FAR + TB_RAD) * (TUFT_FAR + TB_RAD)) continue;
+            if(d2 > (reach + TB_RAD) * (reach + TB_RAD)) continue;
             float fz = dx * r_cam.fwd.x + dz * r_cam.fwd.z;
             float fx = dx * r_cam.right.x + dz * r_cam.right.z;
             if(fz < -TB_RAD || fabsf(fx) > fz * tx + TB_RAD * sec) continue;
@@ -1662,7 +1900,6 @@ void world_draw_pt(void) {
         }
     int count = 0;
     float sway_t = tuft_wind_t;
-    bool desert = lvl_area == AREA_MOAB;
     for(int v = 0; v < nvis && count < TUFT_MAX; v++) {
         int bi = vis[v].bi, bj = vis[v].bj;
         TuftBlock *b = &tblocks[(bj & (TB_SLOTS - 1)) * TB_SLOTS + (bi & (TB_SLOTS - 1))];
@@ -1689,13 +1926,14 @@ void world_draw_pt(void) {
             const Tuft *t = &b->t[k];
             float dx = t->x - c.x, dz = t->z - c.z, d2 = dx * dx + dz * dz;
             bool far = t->flags & 2;
-            if(d2 > (far ? TUFT_FAR * TUFT_FAR : TUFT_NEAR * TUFT_NEAR)) continue;
+            if(d2 > (desert ? BRUSH_FAR * BRUSH_FAR : far ? TUFT_FAR * TUFT_FAR : TUFT_NEAR * TUFT_NEAR)) continue;
             /* In view? (by the vertical frustum slope only roughly) */
             float fz = dx * r_cam.fwd.x + dz * r_cam.fwd.z;
             float fx = dx * r_cam.right.x + dz * r_cam.right.z;
             if(fz < -1.0f || fabsf(fx) > fz * tx + 2.0f) continue;
             float d = sqrtf(d2), w = t->size * 0.01f;
-            if(far) {
+            if(desert) w *= fminf(1.0f, (BRUSH_FAR - d) * (1.0f / BRUSH_IN));
+            else if(far) {
                 w *= (1.0f + 0.45f * clampf((d - (TUFT_NEAR - 8.0f)) * (1.0f / 8.0f), 0, 1)) *
                      fminf(1.0f, (TUFT_FAR - d) * (1.0f / 8.0f));
             }
@@ -2314,7 +2552,9 @@ static void rocks_draw(void) {
 
 void world_build(void) {
     for(int i = 0; i < TB_SLOTS * TB_SLOTS; i++) tblocks[i].bi = TB_EMPTY;
-    for(int k = 0; k < 4; k++) h_tufts[k] = r_header((lvl_area == AREA_MOAB ? TEX_BRUSH0 : TEX_TUFT0) + k, HF_PT);
+    for(int k = 0; k < 4; k++) h_tufts[k] = r_header((lvl_area != AREA_CASCADE ? TEX_BRUSH0 : TEX_TUFT0) + k, HF_PT);
+    if(lvl_area == AREA_DUNES) h_tufts[TUFT_REED] = r_header(TEX_REED, HF_PT);
+    dsky_build();
     h_stone = r_header(look->ground_tex, HF_OP);
     sc_clear(&scenery);
     rock_cell_n = prop_chunk_n = 0;
@@ -2327,7 +2567,7 @@ void world_build(void) {
     /* Room for every vertex after the terrain's, whose count moves with
        an area's water: any area's far ground alone is over 20,000. */
     lrec_max = scenery.pool_max - 20000;
-    if(!world_lrec) world_lrec = malloc(sizeof(LightRec) * lrec_max);
+    if(!world_lrec) world_lrec = spent_alloc(sizeof(LightRec) * lrec_max);
     if(!world_lrec) rl_no_memory("the scenery's relighting");
     cap_build();
     mist_build();

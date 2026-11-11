@@ -68,6 +68,21 @@ static float fx_clock;
 
 /* What a tyre prints in each surface (none on rock): colour and how dark. */
 static uint32_t track_col(int surf) {
+    if(lvl_area == AREA_DUNES) {
+        /* Grey sand: a tyre turns up the damp, darker sand under the
+           crust, deepest where it is softest. */
+        switch(surf) {
+            case SURF_MUD: return 0xe0241c14;
+            case SURF_DEEPSAND: return 0xc0544a3c;
+            case SURF_SAND: return 0xb0544a3c;
+            case SURF_HARDPACK: return 0x80483e32;
+            case SURF_GRASS: return 0x90584c38;
+            case SURF_DIRT: return 0x90584c38;
+            case SURF_GRAVEL: return 0x70544c44;
+            case SURF_SCREE: return 0x70544c44;
+            default: return 0;
+        }
+    }
     if(look->dust) {
         /* The desert: red ground prints darker red; none on bare rock. */
         switch(surf) {
@@ -114,6 +129,16 @@ static const Rooster rooster[SURF_COUNT] = {
     [SURF_SAND] = {{0xffc8845a, 0xffd89a6c}, 55, 0.55f, 0.06f, 0, 0x70d8a074},
 };
 
+/* The dunes' sand is grey: packed, a few clods; loose, sheets of it;
+   deep, a wall of it and a cloud that hangs. */
+static const Rooster rooster_dunes[5] = {
+    {{0xff8a7e68, 0xff9c907a}, 30, 0.55f, 0.07f, 0, 0},              /* packed sand, brush country, dirt */
+    {{0xffa89c86, 0xffb8ac94}, 55, 0.55f, 0.06f, 0, 0x70c8bca4},     /* sand */
+    {{0xffb4a892, 0xffc4b8a0}, 75, 0.62f, 0.065f, 0, 0x90d0c4ac},    /* deep sand */
+    {{0xff8c8880, 0xff9a948a}, 30, 0.62f, 0.06f, 1, 0},              /* gravel, talus */
+    {{0xff3a3024, 0xff4e4232}, 60, 0.60f, 0.11f, 0, 0x80645848},     /* mud */
+};
+
 /* The desert's dirt, scrub and talus are all red (the table above is the
    mountain's). */
 static const Rooster rooster_red[4] = {
@@ -122,6 +147,18 @@ static const Rooster rooster_red[4] = {
 };
 
 static const Rooster *rooster_of(int surf) {
+    if(lvl_area == AREA_DUNES) {
+        switch(surf) {
+            case SURF_SAND: return &rooster_dunes[1];
+            case SURF_DEEPSAND: return &rooster_dunes[2];
+            case SURF_GRAVEL:
+            case SURF_SCREE: return &rooster_dunes[3];
+            case SURF_MUD: return &rooster_dunes[4];
+            case SURF_ROCK:
+            case SURF_WETROCK: return &rooster[surf];
+            default: return &rooster_dunes[0];
+        }
+    }
     if(look->dust) {
         if(surf == SURF_DIRT || surf == SURF_GRASS || surf == SURF_FOREST) return &rooster_red[0];
         if(surf == SURF_GRAVEL || surf == SURF_SCREE) return &rooster_red[1];
@@ -320,7 +357,7 @@ void fx_update(float dt) {
             float rate = w->slip * 9.0f + v * 0.9f;
             bool wet = w->water > 0.08f;
             if((w->surf == SURF_ROCK || w->surf == SURF_SLICKROCK) && !wet) rate = w->slip * 2.0f;
-            if(w->surf == SURF_SAND) rate *= 1.5f;
+            if(w->surf == SURF_SAND || w->surf == SURF_DEEPSAND) rate *= 1.5f;
             if(w->surf == SURF_WETROCK && !wet) rate *= 0.3f;
             if(dcam > 45.0f) rate *= 0.4f;
             emit_acc[ti][i] += rate * dt;

@@ -98,5 +98,9 @@ void game_start_drive(void);
 /* Load another area (level.h): about a second, the screen held on a
    LOADING card. Nothing if it is the one loaded. */
 void game_load_area(int area);
+/* Memory for the life of the program, 32-byte aligned, out of the room
+   the textures were linked into (spent once the PVR has them, and bigger
+   than the heap has to spare); from the heap when that runs out. */
+void *spent_alloc(size_t bytes);
 
 #endif

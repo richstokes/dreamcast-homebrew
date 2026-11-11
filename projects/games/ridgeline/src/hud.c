@@ -42,7 +42,7 @@ void hud_init(void) {
 }
 
 const pvr_poly_hdr_t *hud_map_hdr(int area) {
-    return r_header(area == AREA_MOAB ? TEX_MAP_MOAB : TEX_MAP, HF_TR | HF_NOFOG | HF_CLAMP);
+    return r_header(area == AREA_MOAB ? TEX_MAP_MOAB : area == AREA_DUNES ? TEX_MAP_DUNES : TEX_MAP, HF_TR | HF_NOFOG | HF_CLAMP);
 }
 
 void hud_area(void) {

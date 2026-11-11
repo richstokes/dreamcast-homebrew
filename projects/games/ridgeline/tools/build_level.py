@@ -779,7 +779,7 @@ def build(out, preview=None, raw=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--area", choices=["cascade", "moab", "all"], default="all")
+    ap.add_argument("--area", choices=["cascade", "moab", "dunes", "all"], default="all")
     ap.add_argument("--preview", type=Path, default=None, help="a folder for each area's preview picture")
     ap.add_argument("--raw", type=Path, default=None, help="a folder for each area's grid unpacked (level_<area>.bin)")
     args = ap.parse_args()
@@ -795,6 +795,9 @@ def main():
     if args.area in ("moab", "all"):
         import level_moab
         level_moab.build(args.out, opt(args.preview, "level-moab.png"), opt(args.raw, "level_moab.bin"))
+    if args.area in ("dunes", "all"):
+        import level_dunes
+        level_dunes.build(args.out, opt(args.preview, "level-dunes.png"), opt(args.raw, "level_dunes.bin"))
 
 
 if __name__ == "__main__":

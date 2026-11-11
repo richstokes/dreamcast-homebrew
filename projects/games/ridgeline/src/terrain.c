@@ -32,6 +32,14 @@ const SurfProps surf_props[SURF_COUNT] = {
        the best grip there is, and lets go all at once. */
     [SURF_SAND] = {0.58f, 0.085f, 0.07f, 0.01f, 0.96f, 0xffd8a070, "SAND"},
     [SURF_SLICKROCK] = {1.05f, 0.011f, 0.00f, 0.02f, 0.80f, 0xffd09870, "SLICKROCK"},
+    /* The dunes': sand packed and damp is as good as a dirt road; dry
+       and deep (a slip face, a bowl, anywhere off the beaten track on a
+       big dune) it takes the tyres to the rims and gives half the push
+       back: one in five is about the steepest it can be climbed from a
+       crawl with every wheel driving, where plain sand allows nearly
+       one in two, and on the level it costs a third of the pace. */
+    [SURF_HARDPACK] = {0.76f, 0.026f, 0.01f, 0.012f, 0.90f, 0xffc8bca4, "PACKED SAND"},
+    [SURF_DEEPSAND] = {0.36f, 0.210f, 0.16f, 0.008f, 0.97f, 0xffd8ccb4, "DEEP SAND"},
 };
 
 /* ---- Obstacles ---- */
@@ -361,33 +369,28 @@ static inline float skirt_drop(int i, int j, float base) {
 /* Where each terrain pool vertex gets its colour when relit: a grid
    vertex, a grid vertex darkened for a skirt, or the water at a depth. */
 enum { SRC_GRID, SRC_SKIRT, SRC_WATER };
+/* The table is kept for good at more than any area needs (Moses Lake's
+   far ground and water are ~43,000 vertices), in the room the textures
+   were linked into. (Sized to the whole pool and cut back each time, it
+   wanted a megabyte, which is more than a second area's load has free:
+   the water went missing and the far ground was lit from garbage.) */
+#define TER_SRC_MAX 64000
 static uint32_t *ter_src;
-static uint32_t ter_src_n, ter_src_cap, ter_marked;
+static uint32_t ter_src_n, ter_marked;
 static bool ter_src_short;
 
 static void src_mark(const Scenery *sc, uint32_t src) {
-    /* The table starts with room for either area's far ground and water
-       (Mesa Grande's are 32,294 vertices) and grows if another's needs
-       more. (Room for the whole pool, trimmed afterwards, was 1 MB: more
-       than a second area's load has free.) */
-    if(sc->pool_n > ter_src_cap && !ter_src_short) {
-        uint32_t cap = ter_src_cap ? sc->pool_n + 4096 : 34 * 1024;
-        if(cap < sc->pool_n) cap = sc->pool_n + 4096;
-        uint32_t *grown = realloc(ter_src, sizeof(uint32_t) * cap);
-        if(grown) {
-            ter_src = grown;
-            ter_src_cap = cap;
-        }
-        else {
-            ter_src_short = true;
-            rl_no_memory("the far ground's relighting");
-        }
-    }
     if(ter_src_short) return;
+    if(!ter_src || sc->pool_n > TER_SRC_MAX) {
+        ter_src_short = true;
+        rl_no_memory("the far ground's relighting");
+        return;
+    }
+    uint32_t n = sc->pool_n;
     /* A join appends the previous vertex again before this one twice. */
-    for(uint32_t i = ter_marked; i < sc->pool_n; i++) ter_src[i] = src;
-    if(sc->pool_n - ter_marked == 3) ter_src[ter_marked] = ter_src[ter_marked - 1];
-    ter_marked = sc->pool_n;
+    for(uint32_t i = ter_marked; i < n; i++) ter_src[i] = src;
+    if(n - ter_marked == 3) ter_src[ter_marked] = ter_src[ter_marked - 1];
+    ter_marked = n;
 }
 
 /* The grid vertex a far block's vertex takes its colour from: itself,
@@ -526,8 +529,9 @@ void terrain_build(Scenery *sc) {
     const pvr_poly_hdr_t *h = h_ground = r_header(look->ground_tex, HF_OP);
     /* The mountain hides its own far side; the desert is seen whole from
        its heights, so its ground is drawn out to the fog. */
-    lod_far[3] = lvl_area == AREA_MOAB ? 1040.0f : 620.0f;
+    lod_far[3] = lvl_area != AREA_CASCADE ? 1040.0f : 620.0f;
     edge_drop_build();
+    if(!ter_src) ter_src = spent_alloc(sizeof(uint32_t) * TER_SRC_MAX);
     ter_marked = sc->pool_n;
     ter_src_short = false;
     memset(tile_trail, 0, sizeof(tile_trail));
@@ -597,6 +601,7 @@ void terrain_relight_setup(const Palette *p, V3 light) {
     terrain_light(p, rlt.sky, rlt.sun);
     rlt.L = light;
     rlt.water_k = p->water_k;
+    water_relight_begin();
     float az = atan2f(light.x, light.z) * 180.0f / ENG_PI;
     if(az < 0) az += 360.0f;
     float u = clampf((az - LEVEL_HZ_AZ0) / LEVEL_HZ_STEP, 0, LEVEL_HZ_DIRS - 1.001f);

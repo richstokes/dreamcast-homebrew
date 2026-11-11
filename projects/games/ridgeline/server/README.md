@@ -1,10 +1,11 @@
 # Ridgeline online server
 
-The online server for [Ridgeline](../README.md): Go, ten lobbies of up to
+The online server for [Ridgeline](../README.md): Go, fifteen lobbies of up to
 four Dreamcasts over UDP port 7536 at `dcvmu.com`, reachable by broadband
-adapter, W5500 or 56k modem. Lobbies 1-5 are Cascade Ridge's and 6-10
-Mesa Grande's: the consoles work that out from the lobby's number, the
-server never knows. Players drop in and out of a lobby whenever
+adapter, W5500 or 56k modem. Lobbies 1-5 are Cascade Ridge's, 6-10
+Mesa Grande's and 11-15 Moses Lake's: the consoles work that out from the
+lobby's number, the server never knows. A build from before an area was
+added lists only the lobbies it knows. Players drop in and out of a lobby whenever
 they like; there is no race and no leader. The server hands out slots,
 keeps each lobby's time of day, relays everyone's truck 12 times a second
 and remembers who has reached the summit (a trophy by their name). A
@@ -77,7 +78,7 @@ cd .. && RL_ELF=ridgeline-autotest.elf RL_EXIT_ON_LOG='RL AUTOTEST: PASS' RL_FAI
 ```
 
 `rl-bot` drives a loop in the meadow (`-x -z -radius -speed`), heights read
-from the area's packed level (`level_moab.lvl` for lobbies 6-10), and logs
+from the area's packed level (`level_moab.lvl` for lobbies 6-10, `level_dunes.lvl` for 11-15), and logs
 the lobby and everyone else's truck.
 `-summit-after` claims the summit, `-leave-after` and `-away` drop out and
 back in. Two consoles: build the autotest twice with

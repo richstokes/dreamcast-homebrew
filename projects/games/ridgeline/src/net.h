@@ -23,7 +23,7 @@
 #define RL_NET_PORT 7536
 #endif
 
-#define NET_LOBBIES      10
+#define NET_LOBBIES      15
 #define NET_MAX_PLAYERS  4
 #define NET_NAME_LEN     11   /* 10 characters and a NUL */
 #define NET_PLAYER_BYTES 17   /* a LOBBY packet's player entry */

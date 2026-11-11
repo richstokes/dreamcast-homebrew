@@ -121,6 +121,36 @@ def tex_sandstone():
     return to_image(rgb)
 
 
+def tex_dune():
+    """The dunes' ground: sand the wind has rippled. The ripples lie across
+    the game's wind (world.h; 15 crests along the tile's x and 12 along
+    its z, so they join at its edges) and fork and die out as real ones do;
+    over them the salt and pepper of basalt grains in quartz. Near white:
+    the vertex colours carry the sand. Fine and faint, so the same ground
+    passes for packed sand and for the brush country's soil, and a rock
+    face it is stretched down reads as columns."""
+    n = 256
+    r = rng(91)
+    yy, xx = np.mgrid[0:n, 0:n] / n
+    warp = 0.5 * (tile_noise(n, 5, 92) - 0.5) + 0.2 * (tile_noise(n, 13, 93) - 0.5)
+    ph = 15 * xx + 12 * yy + warp * 2.4
+    t = ph - np.floor(ph)
+    # A long back and a short lee to each ripple, lit along its crest.
+    wave = np.where(t < 0.68, t / 0.68, (1 - t) / 0.32)
+    wave = wave * wave * (3 - 2 * wave)
+    # Where they are sharp and where the surface is swept nearly smooth.
+    strong = 0.3 + 0.7 * np.clip((tile_noise(n, 4, 94) - 0.3) * 2.2, 0, 1)
+    v = 0.925 + 0.05 * (wave - 0.5) * 2 * strong
+    v += 0.03 * (tile_noise(n, 6, 95) - 0.5)
+    grain = r.random((n, n))
+    v += 0.04 * (gaussian_filter(grain, 0.6, mode="wrap") - 0.5) * 2
+    pepper = gaussian_filter((r.random((n, n)) > 0.99).astype(float), 0.5, mode="wrap")
+    v -= 0.22 * pepper
+    v = np.clip(v, 0.78, 1.0)
+    rgb = np.dstack([v * 255, v * 252, v * 246])
+    return to_image(rgb)
+
+
 def tex_ripple():
     """Ripples on the water: light crests on a mid field, near white so the
     vertex colour carries the water. v runs downstream (the game turns the
@@ -609,6 +639,36 @@ def tex_brush(variant):
     return _tuft_finish(img, n)
 
 
+def tex_reed():
+    """Cattails: tall straight blades, green going to straw, and the brown
+    heads on their stalks. Their own colours, as the brush; drawn twice as
+    tall as wide."""
+    n = 128
+    img, d = _tuft_canvas(n)
+    r = rng(181)
+    S = TUFT_SS
+    blades = []
+    for _ in range(26):
+        ang = float(np.clip(r.normal(0, 0.16), -0.42, 0.42))
+        tone = r.uniform(0.74, 1.04)
+        straw = r.random() < 0.4
+        rgb = (196 * tone, 172 * tone, 104 * tone) if straw else (122 * tone, 150 * tone, 74 * tone)
+        blades.append((r.uniform(0.55, 0.96) * n, n / 2 + r.normal(0, 17), ang, r.uniform(2.6, 4.2), rgb))
+    for hgt, x0, ang, w, rgb in sorted(blades, key=lambda q: -q[0]):
+        _blade(d, hgt, x0, ang, w, rgb, n)
+    for _ in range(8):
+        x0 = n / 2 + r.normal(0, 15)
+        ang = float(np.clip(r.normal(0, 0.1), -0.25, 0.25))
+        hgt = r.uniform(0.72, 0.97) * n
+        pts = _blade(d, hgt, x0, ang, 1.4, (150, 140, 84), n)
+        (xa, ya, _), (xb, yb, _) = pts[8], pts[11]
+        tone = r.uniform(0.85, 1.1)
+        d.line([(xa * S, ya * S), (xb * S, yb * S)], fill=(int(96 * tone), int(62 * tone), int(40 * tone), 255), width=int(4.6 * S))
+        d.ellipse([(xb - 2.3) * S, (yb - 2.3) * S, (xb + 2.3) * S, (yb + 2.3) * S], fill=(int(96 * tone), int(62 * tone), int(40 * tone), 255))
+        d.ellipse([(xa - 2.3) * S, (ya - 2.3) * S, (xa + 2.3) * S, (ya + 2.3) * S], fill=(int(96 * tone), int(62 * tone), int(40 * tone), 255))
+    return _tuft_finish(img, n)
+
+
 def tex_weed():
     """A tumbleweed: a ball of dry twigs, mostly air. Its own colours, as
     the brush; punch-through."""
@@ -734,11 +794,13 @@ def build(out: Path):
     items = [
         (TexSpec("grass", "RGB565", True, True), tex_grass()),
         (TexSpec("sandstone", "RGB565", True, True), tex_sandstone()),
+        (TexSpec("dune", "RGB565", True, True), tex_dune()),
         (TexSpec("rock", "RGB565", True, True), tex_rock()),
         (TexSpec("bark", "RGB565", True, True), tex_bark()),
         (TexSpec("crown", "RGB565", True, True), tex_crown()),
         *[(TexSpec(f"tuft{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_tuft(k)) for k in range(4)],
         *[(TexSpec(f"brush{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_brush(k)) for k in range(4)],
+        (TexSpec("reed", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_reed()),
         (TexSpec("weed", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_weed()),
         (TexSpec("sun", "ARGB4444", False, False), tex_sun()),
         (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
@@ -756,6 +818,7 @@ def build(out: Path):
         (TexSpec("cloud", "ARGB4444", False, False), tex_cloud()),
         (TexSpec("map", "RGB565", True, False), tex_map("cascade")),
         (TexSpec("map_moab", "RGB565", True, False), tex_map("moab")),
+        (TexSpec("map_dunes", "RGB565", True, False), tex_map("dunes")),
         (TexSpec("dial", "ARGB4444", False, False), tex_dial()),
         (TexSpec("icons", "ARGB4444", False, False), tex_icons()),
         (TexSpec("logo", "ARGB4444", False, False), tex_logo()),

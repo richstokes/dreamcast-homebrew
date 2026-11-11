@@ -6,10 +6,12 @@
 
 An off-road exploration game for the Sega Dreamcast. Pick a truck and an
 area and climb it: Cascade Ridge, a Pacific Northwest mountain in autumn,
-from the meadow at its foot to the fire lookout on the summit; or Mesa
+from the meadow at its foot to the fire lookout on the summit; Mesa
 Grande, red rock canyon country, from the sand flats by the river to a
-slab of rock hung out over the drop at the top. No race and no clock: how high
-you've been, and the viewpoints you've found.
+slab of rock hung out over the drop at the top; or Moses Lake, the sand
+dunes of the Columbia Basin, from a camp on the lake shore to the crest of
+the biggest dune there is. No race and no clock: how high you've been, and
+the viewpoints you've found.
 
 - Six vehicles, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
   four, no traction control); KESTREL, a modern two-door 4x4 (twin-turbo V6,
@@ -43,9 +45,23 @@ you've been, and the viewpoints you've found.
   the real ones are: two black lines of tyre rubber and dashes of white
   paint, and each way up has its rating on a post (green circle, blue
   square, black diamond)
+- Moses Lake: a field of grey basalt sand between a reservoir full of
+  drowned dunes and a rim of black basalt, the wind out of the south-west
+  as it is there: every dune a long back up to a crest and a slip face
+  down the far side. Three ways across it to the rimrock: the shore road
+  (packed sand along the inlet and its marsh, then a graded climb through
+  sagebrush), the powerline (the service track under the wires: down the
+  troughs, over a row of whoops and the saddles, loose on every climb)
+  and the razorback (along a dune's crest, down its slip face into a
+  bowl and out again, deep sand most of the way). From there one line
+  climbs the king dune. Sand comes three ways: packed and damp, as good
+  as a road; loose; and deep, on the slip faces, the crests and in the
+  bowls, where the tyres sink to the rims. The flats by the camp are the
+  playground: barchans, a punch bowl, a drag strip, the mud flats and
+  their wallow, a bar to wade out to an island
 - Physics: suspension per wheel with ledge-climbing tyre contact, tyres
   that slide by surface (rock, dirt, gravel, grass, mud, scree, snow, wet
-  rock, sand, slickrock), water with drag and a stall if it reaches the intake, an automatic
+  rock, sand, slickrock, packed sand, deep sand), water with drag and a stall if it reaches the intake, an automatic
   box, and the driveline solved per drive mode: 2WD with an open rear diff,
   4WD with the centre locked, LOCK with low range and both axles locked.
   Low range holds the automatic to the gears that redline under ~30 mph
@@ -71,7 +87,9 @@ you've been, and the viewpoints you've found.
   mine it hauled from in the cliff above (an ore cart still on its
   rails), a panel of petroglyphs in the canyon, a dinosaur's tracks
   across the slickrock, a line cabin under the wall with its lantern lit
-  at night
+  at night. At Moses
+  Lake fifteen, a whip flag by each: a grove of Russian olives a dune is
+  burying, a pond in the cattails, the truck that never got out of the bowl
 - In the desert: junipers and pinyons on the benches, cottonwoods gone
   gold along the water, sagebrush, blackbrush and rabbitbrush on the
   flats, tumbleweeds bowling across them in the gusts and a dust devil in
@@ -79,6 +97,18 @@ you've been, and the viewpoints you've found.
   country carries on past the map's edge for 770 m, to look at from the
   top: mesas and buttes on the low desert, the river out of the gooseneck
   winding straight into another, a canyon into the upland
+- In the dunes: sagebrush and rabbitbrush in flower on the old dunes,
+  ricegrass out on the sand, cattails in every pond (potholes, where a
+  trough between two dunes reaches the water table), Russian olives and
+  willows wherever roots reach water. A powerline's H-frames march from an
+  island in the lake over the dunes, ravens on the crossarms, and white
+  pelicans raft on the water until a truck comes too near. Every truck
+  carries a flag on a whip that lays back as it pulls away and quivers
+  after a landing. In a gust the crests smoke with blown sand, and
+  tumbleweeds cross the flats. Past the map the reservoir runs on to the
+  south, the dunes west, and on the bench the irrigated circles; the
+  Saddle Mountains and their gap on the skyline, the Cascades and one
+  white volcano far to the west
 - Best times to the summit per area, truck and way up (or your own way),
   saved on the VMU and shown on the truck select. A viewpoint jump from
   the pause menu means no time for that run
@@ -86,8 +116,7 @@ you've been, and the viewpoints you've found.
   you get close or sound the horn
 - Up to three CPU trucks for company, each taking its own route up, then
   back down another way and up again for as long as you stay out
-- Online: ten lobbies of four, the first five on Cascade Ridge and the
-  rest on Mesa Grande, by broadband adapter,
+- Online: fifteen lobbies of four, five on each area, by broadband adapter,
   W5500 or modem (a DreamPi or any dial-up server). Drop in and out
   whenever you like; there is no race. Everyone's name floats over their
   truck, horns carry, the lobby shares one time of day, and reaching the
@@ -163,9 +192,9 @@ make -C projects/games/ridgeline run
 | --- | --- |
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
-| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande (any test build takes it) |
+| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake (any test build takes it) |
 | `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, and a slower time doesn't replace it |
-| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 5, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=9` joins a Mesa Grande lobby, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
+| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 5, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=9` joins a Mesa Grande lobby, `=12` a Moses Lake one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
@@ -173,14 +202,14 @@ make -C projects/games/ridgeline run
 | `make disc` | A self-booting CDI |
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour, `-DRL_AT_TOUR_ONLY` stops after the tour, `-DRL_AT_TOUR_ROUTE=2` makes the tour a drive up that route) |
 | `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
-| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande |
+| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande, `2` for Moses Lake |
 | `tools/hostsim/sim loop <minutes> <trucks 1-4>` | CPU trucks going up and down the mountain for hours of game time in about a minute: logs every arrival, stall, winch and recover, and counts how trucks meeting head on got past |
 
 Assets (generated output is committed):
 
 | Target | Builds |
 | --- | --- |
-| `make level` | Both areas' terrain, routes, obstacles, trees and colours (`tools/build_level.py`; `AREA=moab` for one), previews in `captures/`. Mesa Grande is `tools/level_moab.py` (the land past its map's edge with `tools/outland.py`), which also writes `captures/level-moab-views.png`: the ground from twenty-six cameras, without the game |
+| `make level` | Every area's terrain, routes, obstacles, trees and colours (`tools/build_level.py`; `AREA=moab` or `dunes` for one), previews in `captures/`. Mesa Grande is `tools/level_moab.py` (the land past its map's edge with `tools/outland.py`), which also writes `captures/level-moab-views.png`: the ground from twenty-six cameras, without the game. Moses Lake is `tools/level_dunes.py` |
 | `make textures` | Textures and the font (`tools/build_textures.py`) |
 | `make trucks` | Truck models (`tools/build_trucks.py`), previews with `tools/preview_trucks_blender.py` |
 | `make audio` | Every sound (`tools/build_audio.py`) |
@@ -368,6 +397,44 @@ area, before: ~0.3): each area's grid packs to ~0.5 MB (it was 1.7), and
 the loaded one unpacks into the room the sounds were linked into, which
 is spare once the sound chip has them.
 
+Moses Lake (2026-11-10, Flycast only): the CPU up the shore road with
+three CPU trucks, 8.0-9.8 ms a frame, 8.44 on average, 25 of 14,403
+frames late: terrain 2.5, trees 0.3 (it has ~150 of them), trucks 1.2.
+The lake is ~7,900 water vertices, six times Cascade Ridge's: it is drawn
+on a 6 m grid past 70 m and a 12 m one past 190 m. In `tools/hostsim` all
+eighteen climbs (six vehicles, three routes) reach the top without a
+winch, and two hours of four CPU trucks going round (`SIM_AREA=2 sim loop
+120 4`) is ~49 summits and 5 winches (Cascade Ridge: 29 and 99). With
+three areas linked ~1.2 MB of the heap is free with it loaded, and ~0.9
+MB of the room the textures were linked into.
+
+Moses Lake on the console (`make hwbench EXTRA_CFLAGS=-DRL_AT_AREA=2`,
+2026-11-10, 180 s from 17:00 into the night with three CPU trucks), and
+Cascade Ridge on the same build beside it:
+
+| ms a frame | Shore road | Razorback (`-DRL_AT_ROUTE=2`) | Cascade Ridge, logging road |
+| --- | --- | --- | --- |
+| fps | 59-60 | 59-60 | 59-60 |
+| CPU, average / worst 10 s window | 12.66 / 14.42 | 11.93 / 13.34 | 12.92 / 14.59 |
+| Late frames, of ~11,040 | 26 | 36 | 143 (107 of them in the menus) |
+| PVR render, average / worst window | 9.9 / 12.1 | 10.3 / 12.1 | 12.7 / 14.7 |
+| Terrain (with the land past the map) | 3.6 | 3.9 | 2.9 |
+| Trees, rocks, props | 0.5 | 0.3 | 2.0 |
+| Trucks | 1.7 | 1.5 | 1.5 |
+| Brush or grass | 0.75 (1.4 in the sage) | 0.3 | 0.9 |
+| Translucent (water, wires, effects, HUD) | 1.6 | 1.5 | 1.45 |
+| Relighting | 1.1 | 1.3 (before the fix below) | 0.8 |
+
+Its slowest stretch is the four trucks in convoy at the meet after dark
+(14.4 ms). Trees are what it saves over the mountain and terrain what it
+spends: 6,200-6,500 ground vertices a frame against 5,900, drawn out to
+1,040 m, and the ring past the map. The first run had relighting at 1.28
+ms with a 6 ms frame every couple of seconds: a wet cell's corner is in
+the scenery pool four times over at each of the water's three grids, and
+each copy was coloured afresh. Colouring a water vertex once a pass took
+that to 1.09 ms, the worst frames from 20 ms to 17 and the late frames
+from 64 to 26.
+
 ## Gotchas
 
 - A console run under dcload that goes quiet and stays quiet is usually
@@ -461,6 +528,28 @@ is spare once the sound chip has them.
   table left Mesa Grande with no water offline (the water's own scratch
   then failed) and with wrongly lit far ground online. Failed allocations
   now print `NO MEMORY` and fail a test run (`rl_no_memory`)
+
+- The grass's trick with distance (near tufts shrink away at 24 m, every
+  other one grows to fill in out to 44 m) is invisible in a meadow and
+  plain wrong on brush, where each bush stands alone on bare ground and
+  is seen to swell and shrink ahead of the truck. Brush (Mesa Grande and
+  Moses Lake) is drawn at its own size out to 56 m and brought in over the
+  last 7 m of that: 0.2-0.3 ms more of Flycast CPU where it grows thick
+- Dunes from noise read as a swell on water. Moses Lake's are ridges
+  drawn by hand (`RIDGES` in `tools/level_dunes.py`): a crest line with
+  its peaks and saddles, a long back up to it with the wind and a slip
+  face at 32 degrees beyond; the noise on top is centimetres
+- A track laid through a dune's crest leaves a canyon no sand would
+  stand in: the cut is slumped to the angle of rest (`settle`) and the
+  track trued up again
+- A wire a pixel wide breaks into dashes, and three of them far off run
+  together into a band: near spans are three solid ribbons ~2 pixels
+  wide, far ones the middle wire alone, translucent (`src/dunes.c`)
+- The tables an area fills when it loads (the far ground's relight
+  sources, the scenery's, the water's) are a fixed size and live in the
+  room the textures were linked into, free once the PVR has them
+  (`spent_alloc`): a third area's data left the heap too little for them.
+  ~1.2 MB of heap and ~0.9 MB of that room are free with Moses Lake loaded
 
 ## Known limitations
 

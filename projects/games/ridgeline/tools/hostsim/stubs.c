@@ -21,8 +21,10 @@ void sc_vert(Scenery *s, V3 p, float u, float v, uint32_t c) { (void)s; (void)p;
 void sc_join(Scenery *s, V3 p, float u, float v, uint32_t c) { (void)s; (void)p; (void)u; (void)v; (void)c; }
 void sc_strip_end(Scenery *s) { (void)s; }
 
+void *spent_alloc(size_t bytes) { return malloc(bytes); }
 static const Palette no_pal = {.water_k = 1.0f};
 const Palette *pal = &no_pal;
 int sc_draw_chunk(const Scenery *s, uint32_t i) { (void)s; (void)i; return 0; }
 void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t tag) { (void)sc; (void)mark; (void)tag; }
 uint32_t water_relit(uint32_t id, float water_k) { (void)water_k; return id; }
+void water_relight_begin(void) {}

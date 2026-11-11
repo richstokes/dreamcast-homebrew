@@ -63,7 +63,7 @@ typedef struct { uint16_t first, n; } OutRun;
 _Static_assert(sizeof(OutV) == 8 && sizeof(OutRib) == 20, "tools/outland.py pack()");
 _Static_assert(MAP0 + (LEVEL_N - 1) / MAP_STEP == MAP1, "the map is the middle of it");
 
-extern const uint8_t rl_outland_moab[];
+extern const uint8_t rl_outland_moab[], rl_outland_dunes[];
 
 static const OutV *ov;          /* NULL: this area has none */
 static const uint8_t *ohz;
@@ -141,7 +141,7 @@ void outland_init(void) {
     h_out = r_header(look->ground_tex, HF_OP | HF_NOFOG);
     h_river = r_header(TEX_RIPPLE, HF_TR | HF_NOFOG);
     ov = NULL;
-    const uint8_t *b = lvl_area == AREA_MOAB ? rl_outland_moab : NULL;
+    const uint8_t *b = lvl_area == AREA_MOAB ? rl_outland_moab : lvl_area == AREA_DUNES ? rl_outland_dunes : NULL;
     if(!b) return;
     struct {
         char magic[4];
@@ -216,7 +216,9 @@ void outland_relight_setup(const Palette *p, V3 light) {
     rt.el2 = asinf(clampf(light.y, -1, 1)) * (360.0f / ENG_PI);
     rt.haze = p->haze;
     /* The rivers: the map's water at one depth (water.c). */
-    rib_col = color_alpha(color_scale(color_lerp(look->water_shallow, look->water_deep, 0.75f), p->water_k), 0.72f);
+    /* (a lake's: deep, as the map's is where it meets this) */
+    rib_col = color_alpha(color_scale(color_lerp(look->water_shallow, look->water_deep, look->lake ? 1.0f : 0.75f), p->water_k),
+                          look->lake ? 0.8f : 0.72f);
 }
 
 int outland_relight_n(void) {

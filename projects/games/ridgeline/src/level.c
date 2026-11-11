@@ -14,11 +14,12 @@
 
 #include "level_cascade.h"
 #include "level_moab.h"
+#include "level_dunes.h"
 
-extern const uint8_t rl_level_cascade_lvl[], rl_level_moab_lvl[];
+extern const uint8_t rl_level_cascade_lvl[], rl_level_moab_lvl[], rl_level_dunes_lvl[];
 
-const RlLevel *const rl_levels[AREA_COUNT] = {&rl_level_cascade, &rl_level_moab};
-static const uint8_t *const packs[AREA_COUNT] = {rl_level_cascade_lvl, rl_level_moab_lvl};
+const RlLevel *const rl_levels[AREA_COUNT] = {&rl_level_cascade, &rl_level_moab, &rl_level_dunes};
+static const uint8_t *const packs[AREA_COUNT] = {rl_level_cascade_lvl, rl_level_moab_lvl, rl_level_dunes_lvl};
 const RlLevel *lvl = &rl_level_cascade;
 int lvl_area;
 
@@ -34,6 +35,13 @@ static const LvlLook looks[AREA_COUNT] = {
         .ground_tex = TEX_SANDSTONE, .water_shallow = 0xffb8b48c, .water_deep = 0xff5a6a48, .wet = {96, 100, 66},
         .boulder = {0xffc86c3e, 0xffb45a30, 0xffd27c4a}, .ledge = 0xffd07844, .dust = 0xffd8946a,
         .snow = false, .fireflies = false, .cloud_cap = false, .woods = 0.3f,
+    },
+    /* Grey basalt sand: a lake the sky's own blue, black rimrock, pale
+       dust, and the wind for company. */
+    [AREA_DUNES] = {
+        .ground_tex = TEX_DUNE, .water_shallow = 0xff8cb0b4, .water_deep = 0xff2c5a72, .wet = {58, 84, 92},
+        .boulder = {0xff4c4440, 0xff584c44, 0xff443e3c}, .ledge = 0xff4c4440, .dust = 0xffcfc4ae,
+        .snow = false, .fireflies = false, .cloud_cap = false, .woods = 0.12f, .lake = true,
     },
 };
 const LvlLook *look = &looks[AREA_CASCADE];

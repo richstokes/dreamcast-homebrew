@@ -131,6 +131,39 @@ static const Key keys_desert[] = {
 };
 _Static_assert(sizeof(keys_desert) == sizeof(keys), "an hour for an hour");
 
+/* The dunes' day: the Columbia Basin's big dry sky. Grey sand takes
+   whatever colour the light is, so the light does the work: a strong
+   warm sun against a cool sky, which leaves every slip face blue-grey in
+   shadow beside a back the colour of straw; gold at both ends of the day
+   (pale sand throws the low sun's colour back up, so the ground glows
+   when the sun is too low to light it much), and a pale dusty haze a
+   long way off. */
+static const Key keys_basin[] = {
+    {0.0f, 0xff060c1c, 0xff17233a, 0xff151f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 130, 760,
+     {0.19f, 0.22f, 0.30f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {4.6f, 0xff060c1c, 0xff17233a, 0xff151f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 130, 760,
+     {0.19f, 0.22f, 0.30f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {5.5f, 0xff1a2c52, 0xff866068, 0xff484458, 0xffe8ecf4, 0xffe08656, 0xff665468, 0.9f, 110, 660,
+     {0.10f, 0.12f, 0.18f}, {0.15f, 0.17f, 0.24f}, {0.09f, 0.09f, 0.13f}, 0.5f, 0.8f, 0.45f},
+    {6.3f, 0xff5284c0, 0xfff4c090, 0xffe2b89a, 0xffffac58, 0xffffbe6c, 0xffffcca4, 1.0f, 100, 700,
+     {0.96f, 0.56f, 0.27f}, {0.42f, 0.37f, 0.42f}, {0.25f, 0.20f, 0.20f}, 0.0f, 0.25f, 0.75f},
+    {8.0f, 0xff5a9ee0, 0xffd6e6f0, 0xffd6dcdc, 0xfffff4dc, 0xfff8e6c4, 0xfffafcfc, 0.5f, 180, 960,
+     {0.94f, 0.82f, 0.64f}, {0.40f, 0.46f, 0.56f}, {0.19f, 0.20f, 0.24f}, 0.0f, 0.0f, 1.0f},
+    {12.5f, 0xff4c94e4, 0xffcce0f0, 0xffd2dade, 0xfffffaf0, 0xfff4ecd8, 0xfffcfdfe, 0.3f, 210, 1040,
+     {1.00f, 0.93f, 0.80f}, {0.42f, 0.48f, 0.58f}, {0.21f, 0.22f, 0.25f}, 0.0f, 0.0f, 1.0f},
+    {17.0f, 0xff5a98dc, 0xffdce6ea, 0xffdcd4c4, 0xfffff0d0, 0xfffadcae, 0xfff8fbfc, 0.65f, 190, 980,
+     {1.00f, 0.80f, 0.54f}, {0.40f, 0.45f, 0.55f}, {0.20f, 0.21f, 0.24f}, 0.0f, 0.0f, 1.0f},
+    {18.3f, 0xff5070b0, 0xfff8a45c, 0xffe4a67e, 0xffff8c3c, 0xffff964c, 0xffffb084, 1.0f, 140, 840,
+     {0.98f, 0.50f, 0.20f}, {0.40f, 0.33f, 0.40f}, {0.25f, 0.19f, 0.19f}, 0.0f, 0.3f, 0.8f},
+    {19.0f, 0xff1e2c5a, 0xff9a5e68, 0xff624c68, 0xffff9040, 0xffe87044, 0xff644a66, 0.85f, 120, 720,
+     {0.0f, 0.0f, 0.0f}, {0.19f, 0.17f, 0.25f}, {0.13f, 0.11f, 0.14f}, 0.5f, 0.8f, 0.45f},
+    {20.2f, 0xff060c1c, 0xff17233a, 0xff151f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 130, 760,
+     {0.19f, 0.22f, 0.30f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {24.0f, 0xff060c1c, 0xff17233a, 0xff151f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 130, 760,
+     {0.19f, 0.22f, 0.30f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+};
+_Static_assert(sizeof(keys_basin) == sizeof(keys), "an hour for an hour");
+
 /* Moonlight: a cool, faint sun from the moon's direction. */
 static const float moon_k[3] = {0.17f, 0.20f, 0.28f};
 
@@ -139,7 +172,7 @@ static void lerp3(float *o, const float *a, const float *b, float t) {
 }
 
 static void palette_at(float hour, Palette *p) {
-    const Key *ks = lvl_area == AREA_MOAB ? keys_desert : keys;
+    const Key *ks = lvl_area == AREA_MOAB ? keys_desert : lvl_area == AREA_DUNES ? keys_basin : keys;
     int k = 0;
     while(k + 2 < KEYS && hour >= ks[k + 1].hour) k++;
     const Key *a = &ks[k], *b = &ks[k + 1];

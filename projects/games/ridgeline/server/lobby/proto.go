@@ -12,12 +12,12 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 1
-	Build    = 15
+	Build    = 16
 	MinBuild = 15
 )
 
 const (
-	MaxLobbies = 10
+	MaxLobbies = 15 // five an area; builds before 16 list the first ten
 	MaxPlayers = 4
 	NameLen    = 11 // 10 characters and a NUL
 	TruckLen   = 30 // TRUCK body bytes, relayed as they came in TRUCKS packets

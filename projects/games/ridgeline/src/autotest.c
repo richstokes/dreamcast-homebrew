@@ -110,9 +110,31 @@ static const float tour_desert[][6] = {
     {-276, 10, -252, -260, 8, -272},    /* the goblins */
 };
 #define TOUR_DESERT_N (int)(sizeof(tour_desert) / sizeof(tour_desert[0]))
-_Static_assert(TOUR_CASCADE_N == TOUR_DESERT_N, "the tours are as long as each other");
+/* The dunes' (-DRL_AT_AREA=2). */
+static const float tour_dunes[][6] = {
+    {0, 7, -300, 10, 18, -40},          /* the camp, looking up the dune field */
+    {14, 6, -262, -50, 0, -380},        /* the lake and its islands */
+    {-20, 5, -270, -70, 3, -290},       /* the trailers */
+    {8, 6, -214, -4, 14, -80},          /* the fork */
+    {-112, 16, -172, -226, 22, -40},    /* up the razorback */
+    {-244, 34, -44, -160, 12, 40},      /* off its crest into the bowl */
+    {30, 9, -172, 4, 12, -70},          /* the powerline's trough */
+    {44, 21, 30, 34, 34, 110},          /* the ramp up the rimrock */
+    {296, 6, -196, 304, 12, -60},       /* the shore road and the marsh */
+    {292, -1, -84, 252, 6, -126},       /* the buried grove */
+    {-110, 34, -110, -200, 8, -30},     /* over the big dunes and a pothole between them */
+    {-50, 38, 92, 80, 60, 230},         /* the king dune from the meet */
+    {102, 77, 243, 20, 0, -300},        /* from the top, south over the field and the lake */
+    {86, 76, 226, 260, 20, 360},        /* from the top, north-east down the slip face */
+    {130, 5, -196, 160, 3, -186},       /* the cattail pond */
+    {-70, 5, -300, -64, 2, -352},       /* the bar to Pelican Island */
+    {-150, 7, -262, -200, 2, -278},     /* the mud flats' wallow */
+    {90, 8, -230, 60, 16, -100},        /* under the wires */
+};
+#define TOUR_DUNES_N (int)(sizeof(tour_dunes) / sizeof(tour_dunes[0]))
+_Static_assert(TOUR_CASCADE_N == TOUR_DESERT_N && TOUR_CASCADE_N == TOUR_DUNES_N, "the tours are as long as each other");
 #define TOUR_N TOUR_CASCADE_N
-#define tour_views (game.area == AREA_MOAB ? tour_desert : tour_cascade)
+#define tour_views (game.area == AREA_MOAB ? tour_desert : game.area == AREA_DUNES ? tour_dunes : tour_cascade)
 
 #if defined(RL_CAPTURE) && !defined(RL_HW) && !defined(RL_AT_TOUR_ONLY)
 /* The day over the meadow (tour view 0) and the west (view 5): the
@@ -131,7 +153,8 @@ static const int tod_shot_views[2] = {0, 5};
 #include "records.h"
 /* make vmutest, on blank cards: a summit time saves and reads back, a
    slower one doesn't replace it, the last truck's time keeps its own
-   slot, apart from the Bobcat's, and the desert's times keep theirs. */
+   slot, apart from the Bobcat's, and the desert's and the dunes' times
+   keep theirs. */
 static void vmu_test(void) {
     char line[64];
     records_load();
@@ -156,20 +179,29 @@ static void vmu_test(void) {
     game.clock = 333.3f;
     bool fourth = records_summit(line, sizeof(line));
     printf("RL AT vmu: %s\n", line);
+    game.area = AREA_DUNES;
+    records_start();
+    game.clock = 444.4f;
+    bool fifth = records_summit(line, sizeof(line));
+    printf("RL AT vmu: %s\n", line);
     records_set_name("PEBBLES");   /* the online name, kept with the times */
     records_load();
+    uint32_t dunes = records_best(1, WAY_LOGGING);
+    game.area = AREA_MOAB;
     uint32_t desert = records_best(1, WAY_LOGGING);
     game.area = AREA_CASCADE;
     uint32_t got = records_best(1, WAY_LOGGING), other = records_best(0, WAY_LOGGING);
     uint32_t last = records_best(TRUCK_MODELS - 1, WAY_LOGGING), bobcat = records_best(2, WAY_LOGGING);
     bool named = strcmp(records_name(), "PEBBLES") == 0;
-    if(first && !second && third && fourth && got == 5813 && other == 0 && last == 7025 && bobcat == 0 && desert == 3333 && named)
-        printf("RL AUTOTEST: PASS vmu save read back %lu, %lu and the desert's %lu, name %s\n", (unsigned long)got,
-               (unsigned long)last, (unsigned long)desert, records_name());
+    if(first && !second && third && fourth && fifth && got == 5813 && other == 0 && last == 7025 && bobcat == 0 && desert == 3333 &&
+       dunes == 4444 && named)
+        printf("RL AUTOTEST: PASS vmu save read back %lu, %lu, the desert's %lu and the dunes' %lu, name %s\n", (unsigned long)got,
+               (unsigned long)last, (unsigned long)desert, (unsigned long)dunes, records_name());
     else
-        printf("RL AUTOTEST: FAIL vmu save: first %d second %d third %d fourth %d read back %lu other %lu last %lu "
-               "bobcat %lu desert %lu name \"%s\"\n", first, second, third, fourth, (unsigned long)got,
-               (unsigned long)other, (unsigned long)last, (unsigned long)bobcat, (unsigned long)desert, records_name());
+        printf("RL AUTOTEST: FAIL vmu save: first %d second %d third %d fourth %d fifth %d read back %lu other %lu last %lu "
+               "bobcat %lu desert %lu dunes %lu name \"%s\"\n", first, second, third, fourth, fifth, (unsigned long)got,
+               (unsigned long)other, (unsigned long)last, (unsigned long)bobcat, (unsigned long)desert, (unsigned long)dunes,
+               records_name());
 }
 #endif
 

@@ -21,7 +21,7 @@
 #define ENG_BIRD_IMPL
 #include "engine/bird.h"
 
-enum { SP_JAY, SP_JUNCO, SP_RAVEN, SP_HAWK, SP_GOOSE, SP_COUNT };
+enum { SP_JAY, SP_JUNCO, SP_RAVEN, SP_HAWK, SP_GOOSE, SP_PELICAN, SP_COUNT };
 
 typedef struct {
     uint32_t pal[BIRD_COLS];
@@ -40,6 +40,8 @@ static const Species species[SP_COUNT] = {
     [SP_RAVEN] = {{0xff202228, 0xff16171b, 0xff26282f, 0xff0e0f12, 0xff151518}, 1.05f, 22.0f, 15.0f, 120.0f, 95, 24, 9.0f},
     [SP_HAWK] = {{0xff7a5838, 0xffe6dac4, 0xff6c4c30, 0xff2a2018, 0xffd8b040}, 1.7f, 0, 0, 420.0f, 0, 0, 0},
     [SP_GOOSE] = {{0xff7c6e5e, 0xffd8d0c2, 0xff62564a, 0xff1c1a18, 0xff141414}, 3.0f, 0, 15.0f, 420.0f, 0, 0, 0},
+    /* White pelicans, rafted up on the dunes' lake: slow to rise, and they go a long way. */
+    [SP_PELICAN] = {{0xfff0eee6, 0xfffaf9f4, 0xffe6e4dc, 0xff1e1e22, 0xfff0a034}, 2.4f, 30.0f, 9.0f, 260.0f, 150, 30, 12.0f},
 };
 
 enum { B_PERCHED, B_FLYING, B_GONE };
@@ -58,8 +60,8 @@ typedef struct {
     uint8_t first, n, sp;
 } Group;
 
-#define MAX_BIRDS 96
-#define MAX_GROUPS 40
+#define MAX_BIRDS 128
+#define MAX_GROUPS 56
 static Bird birds[MAX_BIRDS];
 static int bird_n;
 static Group groups[MAX_GROUPS];
@@ -218,6 +220,38 @@ void birds_init(void) {
                 add_bird(SP_RAVEN, v3(c.x, c.y + 9.72f, c.z), 1.0f);
                 group_end();
                 break;
+            case PROP_PYLON: {
+                /* Ravens on the crossarm: the best view for miles. */
+                if(hash01(i, 62) > 0.75f) break;
+                group_begin(SP_RAVEN);
+                float o = 1.0f + 2.5f * hash01(i, 63);
+                add_bird(SP_RAVEN, v3(c.x + cy * o, c.y + 13.83f, c.z - sy * o), p->yaw + 1.2f);
+                if(hash01(i, 64) > 0.4f) add_bird(SP_RAVEN, v3(c.x - cy * (o + 0.6f), c.y + 13.83f, c.z + sy * (o + 0.6f)), p->yaw - 1.6f);
+                group_end();
+                break;
+            }
+            case PROP_CAMPER:
+                /* On the roof's air conditioner. */
+                if(hash01(i, 65) > 0.6f) break;
+                group_begin(SP_JAY);
+                add_bird(SP_JAY, v3(c.x - sy * 0.6f, c.y + 2.85f, c.z - cy * 0.6f), p->yaw + 0.7f);
+                group_end();
+                break;
+        }
+    }
+    /* The dunes' lake: pelicans on the water off the island named for
+       them, off the beach and in the marsh. */
+    if(lvl_area == AREA_DUNES) {
+        static const float rafts[][3] = {{-84, -356, 4}, {-30, -344, 3}, {64, -346, 3}, {188, -338, 2}, {352, -170, 3}};
+        for(int r = 0; r < (int)(sizeof(rafts) / sizeof(rafts[0])); r++) {
+            group_begin(SP_PELICAN);
+            for(int k = 0; k < (int)rafts[r][2]; k++) {
+                float a = hash01(r, 70 + k) * ENG_TAU, d = 2.0f + 3.5f * k * hash01(r, 80 + k);
+                float x = rafts[r][0] + cosf(a) * d, z = rafts[r][1] + sinf(a) * d, w = water_at(x, z);
+                if(w <= -999.0f) continue;
+                add_bird(SP_PELICAN, v3(x, w - 0.12f, z), hash01(r, 90 + k) * ENG_TAU);
+            }
+            group_end();
         }
     }
     for(int i = 0; i < HAWK_N; i++) hawk_y[i] = terrain_height(hawks[i].x, hawks[i].z) + hawks[i].h;

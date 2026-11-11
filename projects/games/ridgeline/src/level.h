@@ -15,7 +15,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum { AREA_CASCADE, AREA_MOAB, AREA_COUNT };
+enum { AREA_CASCADE, AREA_MOAB, AREA_DUNES, AREA_COUNT };
 
 /* The grid, the same for every area (tools/levelkit.py). */
 #define LEVEL_N 257
@@ -31,7 +31,7 @@ enum { AREA_CASCADE, AREA_MOAB, AREA_COUNT };
 
 enum {
     SURF_GRASS, SURF_FOREST, SURF_DIRT, SURF_GRAVEL, SURF_ROCK, SURF_MUD, SURF_SCREE, SURF_SNOW, SURF_WETROCK,
-    SURF_SAND, SURF_SLICKROCK, SURF_COUNT
+    SURF_SAND, SURF_SLICKROCK, SURF_HARDPACK, SURF_DEEPSAND, SURF_COUNT
 };
 
 enum {
@@ -41,6 +41,9 @@ enum {
     PROP_TRACKS,    /* a dinosaur's trackway across the slickrock, from here along yaw */
     PROP_ADIT,      /* a mine's portal in the foot of a cliff, rails and an ore cart on its dump */
     PROP_PLATE,     /* a trail's rating on a post: var 0 green circle, 1 blue square, 2 black diamond */
+    PROP_PYLON,     /* a powerline's H-frame (dunes.c hangs the wires between them) */
+    PROP_CAMPER,    /* a travel trailer parked up, its awning out */
+    PROP_FLAG,      /* a whip and its pennant stuck in the sand */
     PROP_KIND_COUNT
 };
 #define LVL_BRIDGE_HX 2.90f
@@ -139,6 +142,7 @@ typedef struct {
     bool fireflies;                /* over the grass after dusk */
     bool cloud_cap;                /* a cap of cloud sits on the summit */
     float woods;                   /* how much of the forest's sound: birdsong, the trees */
+    bool lake;                     /* still water by the acre: drawn coarser sooner (water.c), and quieter */
 } LvlLook;
 
 extern const RlLevel *lvl;
