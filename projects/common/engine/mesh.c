@@ -2,6 +2,7 @@
    models.c, which proved the layout r_mesh_kv's assembly expects. */
 #include "mesh.h"
 #include <malloc.h>
+#include <sh4zam/shz_sh4zam.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -95,6 +96,8 @@ bool eng_mesh_build(EngMesh *m, const eng_mvert_t *v, int nv, const uint16_t *id
     m->gpaint = malloc(nv);
     m->gargb = malloc(sizeof(uint32_t) * nv);
     m->gvert = malloc(sizeof(uint16_t) * nv);
+    m->gcolf = NULL;
+    m->nslots = 0;
     bool ok = vpos && used && vt.first && vt.count && vt.list && kv && pos && strips && idx_copy && m->gnrm &&
               m->gpaint && m->gargb && m->gvert;
 #ifdef ENG_XF_CHECK
@@ -236,6 +239,7 @@ void eng_mesh_free(EngMesh *m) {
     free(m->gpaint);
     free(m->gargb);
     free(m->gvert);
+    free(m->gcolf);
     memset(m, 0, sizeof(*m));
 }
 
@@ -253,29 +257,75 @@ static inline int ch(uint32_t c, int s) {
     return (int)((c >> s) & 255);
 }
 
+/* A mesh's groups as eng_mesh_light wants them: colour and brightness
+   (the channels' sum + 1, what a repaint scales by) as floats, so a frame
+   converts nothing per group but the result. */
+static bool light_cache(EngMesh *m) {
+    if(m->gcolf) return true;
+    float (*c)[4] = malloc(sizeof(float) * 4 * (m->ngroups ? m->ngroups : 1));
+    if(!c) return false;
+    int top = 0;
+    for(int g = 0; g < m->ngroups; g++) {
+        uint32_t a = m->gargb[g];
+        c[g][0] = (float)ch(a, 16);
+        c[g][1] = (float)ch(a, 8);
+        c[g][2] = (float)ch(a, 0);
+        c[g][3] = c[g][0] + c[g][1] + c[g][2] + 1.0f;
+        if(m->gpaint[g] > top) top = m->gpaint[g];
+    }
+    m->nslots = top + 1 > ENG_PAINT_SLOTS ? ENG_PAINT_SLOTS : top + 1;
+    m->gcolf = c;
+    return true;
+}
+
 void eng_mesh_light(const EngMesh *m, const EngLight *l, uint32_t *out) {
+    if(!light_cache((EngMesh *)m)) {
+        /* No memory for the cache: unlit rather than nothing. */
+        for(int g = 0; g < m->ngroups; g++) out[g] = m->gargb[g] | 0xff000000u;
+        return;
+    }
+    /* The repaints as floats, each with one over its reference's
+       brightness: the livery's colour at the group's brightness against
+       its slot's reference, so baked shading within a slot survives. */
+    float pf[ENG_PAINT_SLOTS][4];
+    uint32_t painted = 0;
+    for(int s = 0; s < m->nslots; s++) {
+        uint32_t p = l->paint ? l->paint[s] : 0;
+        if(!p) continue;
+        painted |= 1u << s;
+        pf[s][0] = (float)ch(p, 16);
+        pf[s][1] = (float)ch(p, 8);
+        pf[s][2] = (float)ch(p, 0);
+        /* (no reference: each group against itself, as it is) */
+        uint32_t ref = l->ref ? l->ref[s] : 0;
+        pf[s][3] = l->ref ? 1.0f / ((float)(ch(ref, 16) + ch(ref, 8) + ch(ref, 0)) + 1.0f) : 0.0f;
+    }
+    /* (d, up, 1, 0) through this gives each channel's light. */
+    float mtx[16] = {l->sun[0], l->sun[1], l->sun[2], 0, l->sky[0], l->sky[1], l->sky[2], 0,
+                     l->ambient[0], l->ambient[1], l->ambient[2], 0, 0, 0, 0, 0};
+    shz_xmtrx_load_unaligned_4x4(mtx);
+    const float Lx = l->L.x, Ly = l->L.y, Lz = l->L.z;
+    const float (*gc)[4] = m->gcolf;
+    uint32_t unlit = l->unlit_mask;
     for(int g = 0; g < m->ngroups; g++) {
         const float *n = m->gnrm[g];
-        int slot = m->gpaint[g];
-        uint32_t c = m->gargb[g];
-        if(l->paint && l->paint[slot]) {
-            /* The livery's colour at the vertex's brightness against the
-               slot's reference, so baked shading within a slot survives. */
-            uint32_t ref = l->ref ? l->ref[slot] : c;
-            float lr = (float)(ch(ref, 16) + ch(ref, 8) + ch(ref, 0)) + 1.0f;
-            float lv = (float)(ch(c, 16) + ch(c, 8) + ch(c, 0)) + 1.0f;
-            c = color_scale(l->paint[slot], fminf(lv / lr, 1.6f));
+        unsigned slot = m->gpaint[g], bit = slot < ENG_PAINT_SLOTS ? 1u << slot : 0;
+        float br = gc[g][0], bg = gc[g][1], bb = gc[g][2];
+        if(painted & bit) {
+            float q = pf[slot][3] != 0.0f ? fminf(gc[g][3] * pf[slot][3], 1.6f) : 1.0f;
+            br = fminf(pf[slot][0] * q, 255.0f);
+            bg = fminf(pf[slot][1] * q, 255.0f);
+            bb = fminf(pf[slot][2] * q, 255.0f);
         }
-        if(l->unlit_mask & (1u << slot)) {
-            out[g] = c | 0xff000000u;
+        if(unlit & bit) {
+            out[g] = painted & bit ? 0xff000000u | (uint32_t)(int)br << 16 | (uint32_t)(int)bg << 8 | (uint32_t)(int)bb
+                                   : m->gargb[g] | 0xff000000u;
             continue;
         }
-        float d = n[0] * l->L.x + n[1] * l->L.y + n[2] * l->L.z;
+        float d = n[0] * Lx + n[1] * Ly + n[2] * Lz;
         if(d < 0) d = 0;
-        float up = 0.5f + 0.5f * n[1];
-        float k[3];
-        for(int i = 0; i < 3; i++) k[i] = l->ambient[i] + l->sky[i] * up + l->sun[i] * d;
-        int r = (int)(ch(c, 16) * k[0]), gg = (int)(ch(c, 8) * k[1]), b = (int)(ch(c, 0) * k[2]);
+        shz_vec4_t k = shz_xmtrx_transform_vec4(shz_vec4_init(d, 0.5f + 0.5f * n[1], 1.0f, 0.0f));
+        int r = (int)(br * k.x), gg = (int)(bg * k.y), b = (int)(bb * k.z);
         out[g] = 0xff000000u | (uint32_t)(r > 255 ? 255 : r) << 16 | (uint32_t)(gg > 255 ? 255 : gg) << 8 |
                  (uint32_t)(b > 255 ? 255 : b);
     }

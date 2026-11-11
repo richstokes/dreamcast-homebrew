@@ -11,7 +11,7 @@ build on it, so a fix or speed-up here reaches both.
 | `render.h`, `render.c`, `xform.S` | PowerVR lists, header cache, texture pool, near-plane clipping, strips and rigid meshes sent through the store queues, SH-4 assembly vertex paths | DreamKarts, Ridgeline |
 | `prof.h`, `prof.c`, `prof_engine.h` | Frame phase timers for the autotests' log lines; per-section cycle and stall counters for console benchmarks; the renderer's own ids | DreamKarts, Ridgeline |
 | `frame.h`, `frame.c` | Frame pacing: the step follows the measured vblank period, missed vblanks run extra steps, FPS and CPU counters | DreamKarts, Ridgeline |
-| `mesh.h`, `mesh.c` | Builds rigid models (vehicles) into `r_mesh_kv` strips with per-group lighting | DreamKarts, Ridgeline |
+| `mesh.h`, `mesh.c` | Builds rigid models (vehicles) into `r_mesh_kv` strips with per-group lighting, and `eng_lit_due` to light an instance every other frame | DreamKarts, Ridgeline |
 | `scenery.h`, `scenery.c` | Static scenery pool: strips and chunks with bounding spheres and distance LOD | Ridgeline |
 | `sfx.h`, `sfx.c` | Effect bank in AICA RAM, one-shots, looping voices on reserved channels, pan and distance of a sound for the listener | DreamKarts, Ridgeline |
 | `text.h`, `text.c` | Bitmap text from a font atlas | DreamKarts, Ridgeline |

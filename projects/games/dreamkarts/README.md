@@ -354,6 +354,7 @@ What each change saved on the console (ms a frame unless stated):
 | Vertex loops in SH-4 assembly (`engine/xform.S`) | ~1.5 | 111 → 88 cycles a world vertex, 88 → 57 a kart vertex, 111 → 86 a kart triangle. The CPU, not the Tile Accelerator, was the limit |
 | Bounding spheres on world strips (`engine/render.c`) | 0.6-0.9 | Whole strips culled or sent without outcodes; only edge-crossers tested per vertex |
 | Kart lighting once per normal/paint group (`src/models.c`) | 0.7-0.8 | 950 groups cover 1,614 vertices |
+| Karts lit every other frame, half of them on each, wheels every frame (engine `eng_lit_due`) | 0.36 | A kart's light turns slowly: 2,410 -> 1,398 groups lit a frame, 0.88 -> 0.53 ms (Emerald Beach, 2026-11-10); a repaint lights everything at once |
 | Sea and cloud-sea colours cached per camera cell (`src/world.c`) | 0.3-0.55 | |
 | Kart triangles skip outcodes when the mesh is wholly on screen | 0.2-0.45 | |
 | Kart meshes as strips over each mesh's distinct positions (`engine/mesh.c`, `engine/xform.S`) | 0.1-0.4 CPU, 0.05-0.25 render | 959 of 1,614 kart vertices differ only in normal or paint, so only those positions are transformed; strips alone saved render time, not CPU |

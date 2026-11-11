@@ -1,8 +1,12 @@
 /* Ridgeline: drawing the trucks.
 
    Each model part (body, wheels, axle) at each level of detail is an
-   engine mesh, lit once a frame per lighting group with the sun turned
-   into the part's own space. The livery repaints the body's paint slots;
+   engine mesh, lit per lighting group with the sun turned into the
+   part's own space. A truck keeps its lit colours and is lit again every
+   other frame (engine eng_lit_due), half the trucks on each, and at once
+   when its lamps, paint, model or detail change: its light turns slowly,
+   and lighting the four trucks' ~960 faces every frame was 0.7-0.8 ms on
+   the console. The livery repaints the body's paint slots;
    lenses light up with the lights. Bodies too big for the renderer's mesh
    limit are split by triangles into several meshes at boot. */
 #include "truckdraw.h"
@@ -13,6 +17,7 @@
 #include "glow.h"
 #include "engine/mesh.h"
 #include "engine/prof.h"
+#include <malloc.h>
 #if __has_include("trucks.h")
 #include "trucks.h"
 #define HAVE_TRUCK_MODELS 1
@@ -31,7 +36,18 @@ static PartMeshes parts[RL_TRUCK_COUNT][RL_PART_COUNT][LODS];
 _Static_assert(RL_TRUCK_COUNT == TRUCK_MODELS, "TRUCK_MODELS in rl.h");
 static uint32_t ref_col[RL_TRUCK_COUNT][RL_PAINT_COUNT];
 #endif
-static uint32_t lit_buf[2048] __attribute__((aligned(32)));
+/* Each truck's lit colours (body, then the two wheels, then the axle),
+   or, with no memory for those, one buffer lit for every truck in turn. */
+#define LIT_MAX 2048
+static uint32_t lit_buf[LIT_MAX] __attribute__((aligned(32)));
+typedef struct {
+    EngLitAge age;
+    uint32_t *buf;
+    uint16_t at_l, at_r, at_a;   /* where the wheels' and the axle's colours start */
+} TruckLit;
+static TruckLit truck_lit[MAX_TRUCKS];
+static int lit_cap = LIT_MAX;
+static uint32_t draw_frame;
 static const pvr_poly_hdr_t *h_model, *h_shadow, *h_glow, *h_flat, *h_beam;
 
 #ifdef HAVE_TRUCK_MODELS
@@ -100,7 +116,22 @@ void truckdraw_init(void) {
                     }
             }
         }
-    printf("Ridgeline trucks: %d meshes, %d lighting groups\n", meshes, groups);
+    /* Room for the biggest truck's groups at full detail, per truck. */
+    int most = 0;
+    for(int tr = 0; tr < RL_TRUCK_COUNT; tr++)
+        for(int lod = 0; lod < LODS; lod++) {
+            int n = 0;
+            for(int part = 0; part < RL_PART_COUNT; part++)
+                for(int k = 0; k < parts[tr][part][lod].n; k++) n += parts[tr][part][lod].m[k].ngroups;
+            if(n > most) most = n;
+        }
+    if(most > LIT_MAX) most = LIT_MAX;
+    uint32_t *all = memalign(32, sizeof(uint32_t) * most * MAX_TRUCKS);
+    if(all) {
+        lit_cap = most;
+        for(int i = 0; i < MAX_TRUCKS; i++) truck_lit[i].buf = all + i * most;
+    }
+    printf("Ridgeline trucks: %d meshes, %d lighting groups, %d at most on a truck\n", meshes, groups, most);
 #endif
 }
 
@@ -113,13 +144,13 @@ static void mat_axes(float *m, V3 x, V3 y, V3 z, V3 o) {
 }
 
 #ifdef HAVE_TRUCK_MODELS
-/* Light a part's meshes into buf (consecutive group colours per mesh);
-   returns the words used. */
-static int light_part(const PartMeshes *pm, const EngLight *l, uint32_t *buf) {
+/* Light a part's meshes into buf (consecutive group colours per mesh, at
+   most cap of them); returns the words used. */
+static int light_part(const PartMeshes *pm, const EngLight *l, uint32_t *buf, int cap) {
     int o = 0;
     for(int k = 0; k < pm->n; k++) {
         const EngMesh *m = &pm->m[k];
-        if(o + m->ngroups > 2048) break;
+        if(o + m->ngroups > cap) break;
         eng_mesh_light(m, l, buf + o);
         o += m->ngroups;
     }
@@ -263,6 +294,7 @@ static void ground_quad(V3 c, V3 ax, V3 az, float ymax, float lift, uint32_t col
 
 void truckdraw_draw_op(void) {
     PROF_BEGIN(pt);
+    draw_frame++;
     for(int ti = 0; ti < game.ntrucks; ti++) {
         Truck *t = &trucks[ti];
         if(t->absent) continue;
@@ -276,93 +308,100 @@ void truckdraw_draw_op(void) {
         V3 origin = vsub(vsub(t->pos, vscale(U, t->spec.cog_y)), vscale(F, t->spec.cog_z));
         mat_axes(mat, R, U, F, origin);
 #ifdef HAVE_TRUCK_MODELS
-        EngLight l;
-        l.L = v3(vdot(sun_dir, R), vdot(sun_dir, U), vdot(sun_dir, F));
-        for(int i = 0; i < 3; i++) {
-            l.sun[i] = pal->sun_k[i] * 1.1f;
-            l.sky[i] = pal->sky_k[i];
-            l.ambient[i] = pal->amb_k[i] * 1.2f;
-        }
-        /* By the campfire or the lookout's lanterns after dark: their
-           orange on the side toward them.
-           One light direction is all a model has, so it swings from the
-           moon to them as they take over. */
-        V3 fire_from;
-        float fire_k = glow_light(t->pos, &fire_from) * 1.5f;
-        if(fire_k > 0.01f) {
-            float moon = (l.sun[0] + l.sun[1] + l.sun[2]) * (1.0f / 3.0f);
-            V3 L = vnorm(vlerp(sun_dir, fire_from, fire_k / (fire_k + moon + 0.01f)));
-            l.L = v3(vdot(L, R), vdot(L, U), vdot(L, F));
-            l.sun[0] += fire_k;
-            l.sun[1] += fire_k * 0.55f;
-            l.sun[2] += fire_k * 0.2f;
-            l.ambient[0] += fire_k * 0.12f;
-            l.ambient[1] += fire_k * 0.06f;
-        }
-        /* In another truck's headlights: their warm white on the side
-           toward them, swinging the light round the same way. */
-        V3 beam_from;
-        float beam_k = lamps_light(t->pos, LAMPS_ALL, ti, &beam_from) * 0.65f;
-        if(beam_k > 0.01f) {
-            V3 Lw = vadd(vadd(vscale(R, l.L.x), vscale(U, l.L.y)), vscale(F, l.L.z));
-            float rest = (l.sun[0] + l.sun[1] + l.sun[2]) * (1.0f / 3.0f);
-            V3 L = vnorm(vlerp(Lw, beam_from, beam_k / (beam_k + rest + 0.01f)));
-            l.L = v3(vdot(L, R), vdot(L, U), vdot(L, F));
-            l.sun[0] += beam_k;
-            l.sun[1] += beam_k * 0.95f;
-            l.sun[2] += beam_k * 0.8f;
-            for(int i = 0; i < 3; i++) l.ambient[i] += beam_k * 0.06f;
-        }
-        uint32_t paint[RL_PAINT_COUNT] = {0};
-        const rl_truck_info_t *info = &rl_truck_info[t->model];
-        int lv = t->livery % RL_LIVERIES;
-        /* Livery 0 is the model's own colours (the stripes' three tones). */
-        if(lv) {
-            paint[RL_PAINT_BODY] = info->livery[lv][0];
-            paint[RL_PAINT_ACCENT] = info->livery[lv][1];
-            paint[RL_PAINT_TRIM] = info->livery[lv][2];
-        }
-        uint32_t unlit = 0;
-        if(t->lights) {
-            /* Full beam: whiter lenses, and the roof lights with them. */
-            bool full = t->lights == LIGHTS_FULL;
-            paint[RL_PAINT_HEADLIGHT] = full ? 0xffffffff : 0xfffff4d8;
-            paint[RL_PAINT_TAILLIGHT] = t->brake > 0.2f ? 0xffff3020 : 0xffd81818;
-            unlit = (1u << RL_PAINT_HEADLIGHT) | (1u << RL_PAINT_TAILLIGHT);
-            if(full) {
-                paint[RL_PAINT_AUX] = 0xfffff8e8;
-                unlit |= 1u << RL_PAINT_AUX;
+        TruckLit *tl = &truck_lit[ti];
+        uint32_t *lit_b = tl->buf ? tl->buf : lit_buf;
+        uint32_t key = (uint32_t)t->model | (uint32_t)lod << 8 | (uint32_t)(t->livery % RL_LIVERIES) << 12 |
+                       (uint32_t)t->lights << 16 | (t->brake > 0.2f ? 1u << 20 : 0);
+        if(!tl->buf || eng_lit_due(&tl->age, key, draw_frame, (unsigned)ti)) {
+            EngLight l;
+            l.L = v3(vdot(sun_dir, R), vdot(sun_dir, U), vdot(sun_dir, F));
+            for(int i = 0; i < 3; i++) {
+                l.sun[i] = pal->sun_k[i] * 1.1f;
+                l.sky[i] = pal->sky_k[i];
+                l.ambient[i] = pal->amb_k[i] * 1.2f;
             }
+            /* By the campfire or the lookout's lanterns after dark: their
+               orange on the side toward them.
+               One light direction is all a model has, so it swings from the
+               moon to them as they take over. */
+            V3 fire_from;
+            float fire_k = glow_light(t->pos, &fire_from) * 1.5f;
+            if(fire_k > 0.01f) {
+                float moon = (l.sun[0] + l.sun[1] + l.sun[2]) * (1.0f / 3.0f);
+                V3 L = vnorm(vlerp(sun_dir, fire_from, fire_k / (fire_k + moon + 0.01f)));
+                l.L = v3(vdot(L, R), vdot(L, U), vdot(L, F));
+                l.sun[0] += fire_k;
+                l.sun[1] += fire_k * 0.55f;
+                l.sun[2] += fire_k * 0.2f;
+                l.ambient[0] += fire_k * 0.12f;
+                l.ambient[1] += fire_k * 0.06f;
+            }
+            /* In another truck's headlights: their warm white on the side
+               toward them, swinging the light round the same way. */
+            V3 beam_from;
+            float beam_k = lamps_light(t->pos, LAMPS_ALL, ti, &beam_from) * 0.65f;
+            if(beam_k > 0.01f) {
+                V3 Lw = vadd(vadd(vscale(R, l.L.x), vscale(U, l.L.y)), vscale(F, l.L.z));
+                float rest = (l.sun[0] + l.sun[1] + l.sun[2]) * (1.0f / 3.0f);
+                V3 L = vnorm(vlerp(Lw, beam_from, beam_k / (beam_k + rest + 0.01f)));
+                l.L = v3(vdot(L, R), vdot(L, U), vdot(L, F));
+                l.sun[0] += beam_k;
+                l.sun[1] += beam_k * 0.95f;
+                l.sun[2] += beam_k * 0.8f;
+                for(int i = 0; i < 3; i++) l.ambient[i] += beam_k * 0.06f;
+            }
+            uint32_t paint[RL_PAINT_COUNT] = {0};
+            const rl_truck_info_t *info = &rl_truck_info[t->model];
+            int lv = t->livery % RL_LIVERIES;
+            /* Livery 0 is the model's own colours (the stripes' three tones). */
+            if(lv) {
+                paint[RL_PAINT_BODY] = info->livery[lv][0];
+                paint[RL_PAINT_ACCENT] = info->livery[lv][1];
+                paint[RL_PAINT_TRIM] = info->livery[lv][2];
+            }
+            uint32_t unlit = 0;
+            if(t->lights) {
+                /* Full beam: whiter lenses, and the roof lights with them. */
+                bool full = t->lights == LIGHTS_FULL;
+                paint[RL_PAINT_HEADLIGHT] = full ? 0xffffffff : 0xfffff4d8;
+                paint[RL_PAINT_TAILLIGHT] = t->brake > 0.2f ? 0xffff3020 : 0xffd81818;
+                unlit = (1u << RL_PAINT_HEADLIGHT) | (1u << RL_PAINT_TAILLIGHT);
+                if(full) {
+                    paint[RL_PAINT_AUX] = 0xfffff8e8;
+                    unlit |= 1u << RL_PAINT_AUX;
+                }
+            }
+            else if(t->brake > 0.2f) {
+                paint[RL_PAINT_TAILLIGHT] = 0xffff3020;
+                unlit = 1u << RL_PAINT_TAILLIGHT;
+            }
+            l.paint = paint;
+            l.ref = ref_col[t->model];
+            l.unlit_mask = unlit;
+            int used = light_part(&parts[t->model][RL_PART_BODY][lod], &l, lit_b, lit_cap);
+            if(lod < 2) {
+                /* The glint: the sun's colour, as strong as its light. */
+                V3 to = vsub(r_cam.pos, t->pos);
+                V3 V = vnorm(v3(vdot(to, R), vdot(to, U), vdot(to, F)));
+                V3 H = vnorm(vadd(l.L, V));
+                float k[3];
+                for(int i = 0; i < 3; i++) k[i] = 150.0f * pal->sun_k[i] * (((pal->sun_col >> (16 - 8 * i)) & 255) * (1.0f / 255));
+                if(k[0] + k[1] + k[2] > 6.0f) sheen_part(&parts[t->model][RL_PART_BODY][lod], lit_b, H, k);
+            }
+            /* Wheels: lit once for all four with the body's sun: a tyre is
+               dark and round, and nobody sees its light turn with the spin. */
+            EngLight lw = l;
+            lw.unlit_mask = 0;
+            int used_l = light_part(&parts[t->model][RL_PART_WHEEL_L][lod], &lw, lit_b + used, lit_cap - used);
+            int used_r = light_part(&parts[t->model][RL_PART_WHEEL_R][lod], &lw, lit_b + used + used_l, lit_cap - used - used_l);
+            light_part(&parts[t->model][RL_PART_AXLE][lod], &lw, lit_b + used + used_l + used_r, lit_cap - used - used_l - used_r);
+            tl->at_l = (uint16_t)used;
+            tl->at_r = (uint16_t)(used + used_l);
+            tl->at_a = (uint16_t)(used + used_l + used_r);
         }
-        else if(t->brake > 0.2f) {
-            paint[RL_PAINT_TAILLIGHT] = 0xffff3020;
-            unlit = 1u << RL_PAINT_TAILLIGHT;
-        }
-        l.paint = paint;
-        l.ref = ref_col[t->model];
-        l.unlit_mask = unlit;
-        int used = light_part(&parts[t->model][RL_PART_BODY][lod], &l, lit_buf);
-        if(lod < 2) {
-            /* The glint: the sun's colour, as strong as its light. */
-            V3 to = vsub(r_cam.pos, t->pos);
-            V3 V = vnorm(v3(vdot(to, R), vdot(to, U), vdot(to, F)));
-            V3 H = vnorm(vadd(l.L, V));
-            float k[3];
-            for(int i = 0; i < 3; i++) k[i] = 150.0f * pal->sun_k[i] * (((pal->sun_col >> (16 - 8 * i)) & 255) * (1.0f / 255));
-            if(k[0] + k[1] + k[2] > 6.0f) sheen_part(&parts[t->model][RL_PART_BODY][lod], lit_buf, H, k);
-        }
-        draw_part(&parts[t->model][RL_PART_BODY][lod], mat, lit_buf);
-        /* Wheels: steered, spinning, where the suspension puts them. Lit
-           once for all four with the body's sun: a tyre is dark and round,
-           and nobody sees its light turn with the spin. */
-        EngLight lw = l;
-        lw.unlit_mask = 0;
-        uint32_t *lit_l = lit_buf + used;
-        int used_l = light_part(&parts[t->model][RL_PART_WHEEL_L][lod], &lw, lit_l);
-        uint32_t *lit_r = lit_l + used_l;
-        int used_r = light_part(&parts[t->model][RL_PART_WHEEL_R][lod], &lw, lit_r);
-        uint32_t *lit_a = lit_r + used_r;
-        light_part(&parts[t->model][RL_PART_AXLE][lod], &lw, lit_a);
+        const uint32_t *lit_l = lit_b + tl->at_l, *lit_r = lit_b + tl->at_r, *lit_a = lit_b + tl->at_a;
+        draw_part(&parts[t->model][RL_PART_BODY][lod], mat, lit_b);
+        /* Wheels: steered, spinning, where the suspension puts them. */
         for(int i = 0; i < 4; i++) {
             const Wheel *w = &t->wh[i];
             float cs = cosf(w->steer), sn = sinf(w->steer);

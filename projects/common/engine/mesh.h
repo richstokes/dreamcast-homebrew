@@ -33,6 +33,8 @@ typedef struct {
     uint32_t *gargb;        /* its colour */
     uint16_t *gvert;        /* one of its vertices, for attributes the game keeps per vertex */
     float radius;           /* bounding sphere about the mesh's origin */
+    float (*gcolf)[4];      /* eng_mesh_light's: each group's colour as floats and its brightness, made on first use */
+    int nslots;             /* ...and one past the highest paint slot in use */
 } EngMesh;
 
 /* Build m from nv vertices and ni indices (a triangle list, wound so that
@@ -50,7 +52,10 @@ void eng_mesh_stats(const EngMesh *m, int *strips, int *strip_verts);
    by a sun from direction L (unit, in mesh space, toward the light), a
    sky from above and a bounce from below:
        c * (ambient + sky * (0.5 + 0.5 ny) + sun * max(0, n.L))
-   unlit_mask: paint slots drawn at full colour (lamps, lit lenses). */
+   unlit_mask: paint slots drawn at full colour (lamps, lit lenses).
+   Paint slots are below ENG_PAINT_SLOTS. Clobbers XMTRX (the three
+   channels' light comes from one FTRV): load the model's matrix after. */
+#define ENG_PAINT_SLOTS 16
 typedef struct {
     V3 L;
     float sun[3], sky[3], ambient[3];
@@ -59,5 +64,23 @@ typedef struct {
     uint32_t unlit_mask;
 } EngLight;
 void eng_mesh_light(const EngMesh *m, const EngLight *l, uint32_t *out);
+
+/* When to light a model instance again. A moving model's light turns
+   slowly, so its groups' colours can be kept and worked out every other
+   frame: half the lighting, and, with slot (the instance's number, say)
+   putting half of them on odd frames and half on even, about the same
+   work each frame. a is the instance's record (zeroed: never lit). key is
+   everything that changes its colours at once: lamps, paint, which mesh
+   or level of detail is drawn. frame counts displayed frames from 1.
+   True: light it now (the record is updated); false: last frame's colours
+   still stand. A second call in one frame (another view) is false. */
+typedef struct { uint32_t key, frame; } EngLitAge;
+static inline bool eng_lit_due(EngLitAge *a, uint32_t key, uint32_t frame, unsigned slot) {
+    if(a->frame == frame) return false;
+    if(a->frame && a->key == key && frame - a->frame < 2 && ((frame + slot) & 1)) return false;
+    a->key = key;
+    a->frame = frame;
+    return true;
+}
 
 #endif

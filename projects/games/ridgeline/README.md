@@ -318,6 +318,21 @@ night, each against the build before it) put the drive back at 60:
   are padded 13 m down for skirts they don't hold, and relighting is a
   steady 0.84 ms
 
+Lighting the trucks' faces was 0.7-0.8 ms a frame for four trucks' ~960
+faces, unmeasured until 2026-11-10. Two changes, both in the engine
+(`make hwbench` A/B at night: trucks 1.74 -> 1.49 ms, CPU 12.93 ->
+12.76 ms, the worst frame of each window 17.6 -> 17.4 ms):
+
+- `eng_mesh_light` keeps each face's colour as floats and takes the
+  three channels' light from one `FTRV`, as the GTA III port's lighting
+  does: a frame's 963 faces 688 -> 506 us, 805 -> 585 us with a livery.
+  Float colours without the `FTRV` were slower than the 8-bit ones
+  (tried on the scenery relight: 141 ms a pass became 151, and 126 with
+  it, which is 0.07 ms a frame and was left out)
+- Each truck keeps its lit colours and is lit again every other frame,
+  half the trucks on each, and at once when its lamps, brake lights,
+  paint or detail change (`eng_lit_due`)
+
 Textured near trees (2026-11-09, `make hwbench` A/B against that
 morning's main): CPU 15.29 -> 14.61 ms, late frames 571 -> 315, PVR
 render level. Once textured, trees visibly changed shape as they swapped

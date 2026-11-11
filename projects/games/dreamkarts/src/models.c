@@ -20,15 +20,19 @@ static uint32_t paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
    groups, vertices alike in normal, paint, colour and Chao tip that light
    alike, so lighting runs once per group and each vertex takes its group's
    colour. A mesh's groups are mesh_g0[mesh] onwards in the per-kart arrays
-   below; each kart's lit group colours are refreshed once per frame and
-   shared by both split-screen views. If lighting ever depends on more than
-   the normal and the paint, that must join the group key. */
+   below; each kart's lit group colours are kept, shared by both
+   split-screen views, and refreshed every other frame, half the karts on
+   each (engine eng_lit_due): a kart's light turns slowly. Its wheels spin
+   in their own space, so they are lit every frame, and a repaint lights
+   everything at once. If lighting ever depends on more than the normal
+   and the paint, that must join the group key. */
 static EngMesh meshes[DK_MODEL_MESH_COUNT];
 static uint16_t mesh_g0[DK_MODEL_MESH_COUNT];
 static uint32_t group_paint[MAX_KARTS][DK_MODEL_VERT_COUNT];
 static uint32_t group_lit[MAX_KARTS][DK_MODEL_VERT_COUNT] __attribute__((aligned(32)));
 static int group_count;
-static uint32_t lit_frame[MAX_KARTS][DK_MODEL_MESH_COUNT];
+static EngLitAge lit_age[MAX_KARTS][DK_MODEL_MESH_COUNT];
+static uint16_t paint_gen[MAX_KARTS];   /* counts a kart's repaints */
 static uint32_t frame_id = 1;
 /* Kart part matrices, computed once per frame and shared by both views. */
 static float part_mats[MAX_KARTS][DK_PART_COUNT][16];
@@ -188,6 +192,7 @@ void models_bake_chao(V3 p, float yaw, float head_yaw, uint32_t chao, uint32_t t
 
 void models_paint_kart(int index) {
     const Kart *k = &karts[index];
+    paint_gen[index]++;
     for(int i = 0; i < DK_MODEL_VERT_COUNT; i++) {
         const dk_mvert_t *v = &dk_model_verts[i];
         uint32_t c = v->argb;
@@ -511,9 +516,9 @@ static void draw_kart_lod(int index, int lod) {
         if(!em->km.nv) continue;
         int g0 = mesh_g0[mi], ng = em->ngroups;
         uint32_t *lit = &group_lit[index][g0];
-        if(lit_frame[index][mi] != frame_id) {
+        bool wheel = m->part >= DK_PART_WHEEL_FL && m->part <= DK_PART_WHEEL_RR;
+        if(eng_lit_due(&lit_age[index][mi], paint_gen[index] | (wheel ? frame_id << 16 : 0), frame_id, (unsigned)index)) {
             PROF_RESTART(pm);
-            lit_frame[index][mi] = frame_id;
             bool unlit = m->flags & 1;
             /* Lighting in 8.8 fixed point: one float->int per group. */
             float lx = lp.x * 158.7f, ly = lp.y * 158.7f + 25.6f, lz = lp.z * 158.7f;
