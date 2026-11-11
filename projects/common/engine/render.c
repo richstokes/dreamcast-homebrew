@@ -736,7 +736,12 @@ static inline void strip(const RV *v, const uint32_t *spec, int n) {
     if(or_code & clip_mask) {
         PROF_COUNT(PN_SCLIP, 1);
         /* Triangle by triangle; only those crossing the near plane go back
-           to C, re-transformed from the source vertices. */
+           to C, re-transformed from the source vertices. This whole path
+           is 0.16-0.19 ms a frame in both games on the console
+           (2026-11-10); sending each run of unclipped triangles as one
+           strip, as the GTA III port's clipper keeps its strips, took
+           0.03 ms off DreamKarts and nothing off Ridgeline, and was left
+           out. */
         for(int i = 0; i + 2 < n; i++) {
             unsigned ca = stage_code[i], cb = stage_code[i + 1], cc = stage_code[i + 2];
             if(ca & cb & cc) continue;
