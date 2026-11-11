@@ -77,7 +77,8 @@ you've been, and the viewpoints you've found.
   the pause menu means no time for that run
 - Deer in the meadows that graze, look up as you come near and bolt when
   you get close or sound the horn
-- Up to three CPU trucks for company, each taking its own route
+- Up to three CPU trucks for company, each taking its own route up, then
+  back down another way and up again for as long as you stay out
 - Online: ten lobbies of four, the first five on Cascade Ridge and the
   rest on Mesa Grande, by broadband adapter,
   W5500 or modem (a DreamPi or any dial-up server). Drop in and out
@@ -166,6 +167,7 @@ make -C projects/games/ridgeline run
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour, `-DRL_AT_TOUR_ONLY` stops after the tour, `-DRL_AT_TOUR_ROUTE=2` makes the tour a drive up that route) |
 | `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
 | `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande |
+| `tools/hostsim/sim loop <minutes> <trucks 1-4>` | CPU trucks going up and down the mountain for hours of game time in about a minute: logs every arrival, stall, winch and recover, and counts how trucks meeting head on got past |
 
 Assets (generated output is committed):
 

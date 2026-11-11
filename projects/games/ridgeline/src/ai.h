@@ -5,7 +5,8 @@
 #include "rl.h"
 
 /* Truck ti will take the forest road, then route (1 logging road,
-   2 ridge line, 3 creek bed), then the summit trail. */
+   2 ridge line, 3 creek bed), then the summit trail; from there it goes
+   up and down the mountain, another way each time. */
 void ai_start(int ti, int route);
 #ifdef RL_FILM
 /* Film builds: already on route `on` (level.h order) at point pt, setting
@@ -13,6 +14,7 @@ void ai_start(int ti, int route);
 void ai_start_on(int ti, int route, int on, int pt, float delay);
 #endif
 void ai_drive(int ti, float dt);
+/* Has been to the summit. */
 bool ai_done(int ti);
 float ai_progress(int ti);
 /* The route truck ti is on now, for a caption. */

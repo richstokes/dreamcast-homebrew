@@ -57,6 +57,68 @@ static int run_route(int route, int model, int quiet) {
     return 0;
 }
 
+/* CPU drivers going round and round: loop [minutes] [trucks]. Prints each
+   arrival, stall, winch and recover (ai.c) and, at the end, how trucks
+   meeting head on got past each other. SIM_TRACE_T=<truck> follows one. */
+static int run_loop(int minutes, int n) {
+    game.ntrucks = n;
+    static const int slot[4] = {1, 2, 0, 3};
+    for(int i = 0; i < n; i++) {
+        Truck *t = &trucks[i];
+        t->model = i % TRUCK_MODELS;
+        t->cpu = true;
+        truck_place(t, v3(lvl_spawns[slot[i]][0], 0, lvl_spawns[slot[i]][2]), lvl_spawns[slot[i]][3]);
+        ai_start(i, 1 + i % 3);
+    }
+    float dt = 1.0f / 60.0f, dig = 0;
+    int touching = 0, meets = 0, bumps = 0;
+    int meeting[MAX_TRUCKS][MAX_TRUCKS] = {{0}};   /* 1 passing, 2 and touched */
+    for(int f = 0; f < 60 * 60 * minutes; f++) {
+        r_cam.pos = trucks[0].pos;
+        for(int i = 0; i < n; i++) ai_drive(i, dt);
+        for(int i = 0; i < n; i++) truck_update(&trucks[i], dt);
+        for(int i = 0; i < n; i++) {
+            if(isnan(trucks[i].pos.x)) {
+                printf("truck %d: NaN at %.0f s\n", i, f * dt);
+                return 1;
+            }
+            for(int j = i + 1; j < n; j++) {
+                float o = truck_overlap(&trucks[i], &trucks[j]);
+                if(o > 0.02f) touching++;
+                dig = fmaxf(dig, o);
+                float gap = vlen(vsub(trucks[i].pos, trucks[j].pos));
+                if(!meeting[i][j] && gap < 12.0f && vdot(trucks[i].ax[2], trucks[j].ax[2]) < -0.5f) {
+                    meeting[i][j] = 1;
+                    meets++;
+                }
+                if(meeting[i][j] == 1 && o > 0.02f) {
+                    meeting[i][j] = 2;
+                    bumps++;
+                }
+                if(gap > 20.0f) meeting[i][j] = 0;
+            }
+        }
+        if(f % (60 * 60) == 0) {
+            printf("%3d min:", f / 3600);
+            for(int i = 0; i < n; i++)
+                printf("  %s %.0f,%.0f,%.0f v %.1f", ai_route_name(i), (double)trucks[i].pos.x, (double)trucks[i].pos.y,
+                       (double)trucks[i].pos.z, (double)trucks[i].speed);
+            printf("\n");
+        }
+        if(getenv("SIM_TRACE_T") && f % 30 == 0) {
+            int w = atoi(getenv("SIM_TRACE_T"));
+            Truck *t = &trucks[w];
+            printf("  t=%.1f %s pos %.1f %.1f %.1f v %.2f hd %.0f steer %.2f thr %.2f brk %.2f g %d\n", f * dt,
+                   ai_route_name(w), (double)t->pos.x, (double)t->pos.y, (double)t->pos.z, (double)t->speed,
+                   (double)(truck_heading(t) * 57.3f), (double)t->in.steer, (double)t->in.throttle, (double)t->in.brake,
+                   t->gear);
+        }
+    }
+    printf("loop: %d min, trucks touching for %.0f s, deepest %.2f m, %d met head on, %d of those touched\n", minutes,
+           touching * dt, (double)dig, meets, bumps);
+    return 0;
+}
+
 /* Power on through a turn from rest: turn<mode> [truck] [steer] [handbrake 0/1].
    Prints the body's slide angle (beta), yaw rate and the rear tyres' spin. */
 static float turn_throttle = 1.0f;
@@ -164,6 +226,7 @@ int main(int argc, char **argv) {
     if(!strncmp(scen, "turn", 4))
         return run_turn(scen[4] - '0', model, argc > 3 ? atof(argv[3]) : 0.5f, argc > 4 ? atoi(argv[4]) : 0);
     if(!strncmp(scen, "crash", 5)) return run_crash(scen[5] - '0', model);
+    if(!strcmp(scen, "loop")) return run_loop(argc > 2 ? atoi(argv[2]) : 60, argc > 3 ? atoi(argv[3]) : 4);
     if(!strcmp(scen, "route")) {
         int route = argc > 3 ? atoi(argv[3]) : 1;
         return !run_route(route, model, getenv("SIM_QUIET") != NULL);
