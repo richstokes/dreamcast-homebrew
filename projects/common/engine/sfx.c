@@ -121,7 +121,12 @@ void sfx_voice_set(SfxVoice *v, float rate, int vol, int pan) {
     vol = vol < 0 ? 0 : vol > 255 ? 255 : vol;
     pan = pan < 0 ? 0 : pan > 255 ? 255 : pan;
     uint32_t what = 0;
-    if(freq != v->last_freq) what |= AICA_CH_UPDATE_SET_FREQ;
+    /* A voice that was silent and stays silent keeps the pitch it had: each
+       command is 20 us on the console with interrupts off, and a crossfade
+       holds most of its voices at zero. The pitch goes out with the volume
+       that brings the voice back. */
+    bool silent = vol == 0 && v->last_vol == 0;
+    if(freq != v->last_freq && !silent) what |= AICA_CH_UPDATE_SET_FREQ;
     if(vol != v->last_vol) what |= AICA_CH_UPDATE_SET_VOL;
     if(pan != v->last_pan && vol > 0) what |= AICA_CH_UPDATE_SET_PAN;
     if(!what) return;

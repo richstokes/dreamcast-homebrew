@@ -402,6 +402,14 @@ night, each against the build before it) put the drive back at 60:
   are padded 13 m down for skirts they don't hold, and relighting is a
   steady 0.84 ms
 
+Sound was 0.31 ms a frame, nearly all of it commands to the AICA: each
+pitch, volume or pan change on a looping voice is 20 us on the console
+with interrupts off, and the drive sent 9.7 a frame. Half were pitch
+changes to voices a crossfade held at zero volume. The engine's
+`sfx_voice_set` now leaves a silent voice's pitch alone until it is
+heard again (`make hwbench`, old and new swapped every second in one
+run, 2026-11-12): 4.5 commands and 0.20 ms a frame.
+
 Lighting the trucks' faces was 0.7-0.8 ms a frame for four trucks' ~960
 faces, unmeasured until 2026-11-10. Two changes, both in the engine
 (`make hwbench` A/B at night: trucks 1.74 -> 1.49 ms, CPU 12.93 ->
