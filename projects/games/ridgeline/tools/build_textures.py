@@ -334,6 +334,27 @@ def tex_tread():
     return to_image(rgb, np.clip(a, 0, 1) * 255)
 
 
+def tex_slide():
+    """Sand running down a slip face, tiling along v: streaks of grain
+    drawn out down the fall line, thinning to nothing at both edges.
+    Near white, for the vertex colour to tint."""
+    n = 64
+
+    def drawn(across, along, seed):
+        g = np.tile(rng(seed).random((along, across)), (3, 3))
+        up = np.array(Image.fromarray((g * 255).astype(np.uint8)).resize((n * 3, n * 3), Image.BICUBIC), dtype=float) / 255
+        return up[n:2 * n, n:2 * n]
+
+    u = (np.mgrid[0:n, 0:n][1] + 0.5) / n
+    g = np.clip(0.5 + 0.9 * (drawn(9, 2, 311) - 0.5) + 0.5 * (drawn(20, 6, 97) - 0.5), 0, 1)
+    side = np.clip(np.minimum(u, 1 - u) / 0.3, 0, 1) ** 1.3
+    # The edges fray: the paler streaks reach further out than the body.
+    a = np.clip(side * (0.5 + 0.7 * g) + np.sqrt(side) * np.clip(g - 0.7, 0, 1) * 0.6, 0, 1) * (side > 0)
+    lum = 205 + 50 * g
+    rgb = np.dstack([lum, lum * 0.985, lum * 0.95])
+    return to_image(rgb, a * 255)
+
+
 def tex_marks():
     """Marks on the ground (world.c), white for the vertex colour to tint,
     three to a sheet: left, the rubber a tyre leaves on slickrock (along
@@ -811,6 +832,7 @@ def build(out: Path):
         (TexSpec("shadow", "ARGB4444", True, False), tex_shadow()),
         (TexSpec("clod", "ARGB4444", True, False), tex_clod()),
         (TexSpec("tread", "ARGB4444", True, True), tex_tread()),
+        (TexSpec("slide", "ARGB4444", True, True), tex_slide()),
         (TexSpec("marks", "ARGB4444", True, False), tex_marks()),
         (TexSpec("glyphs", "ARGB4444", True, False), tex_glyphs()),
         (TexSpec("ripple", "RGB565", True, True), tex_ripple()),

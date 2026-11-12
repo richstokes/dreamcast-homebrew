@@ -29,7 +29,7 @@ import math
 from pathlib import Path
 
 import numpy as np
-from scipy.ndimage import gaussian_filter, gaussian_filter1d
+from scipy.ndimage import gaussian_filter, gaussian_filter1d, grey_opening
 from scipy.spatial import cKDTree
 
 from levelkit import *  # noqa: F401,F403
@@ -113,6 +113,64 @@ KING = [(234, 92, 0), (204, 126, 10), (170, 162, 20), (136, 198, 31), (96, 236, 
 # ---------------------------------------------------------------------------
 # Dunes
 
+# A crest drawn where it falls between the ground's vertices comes out as a
+# row of teeth: one vertex on it, the next a step down its slip face. So
+# each crest is moved on to the mesh, where the game can draw it as an
+# edge (it splits each of this area's cells the way its heights lie:
+# LvlLook.fit_split), and the sand within SNAP_FAR of it moves with it.
+SNAP = 2                        # the grid a crest is put on, in cells: the 6 m one the ground is drawn on past 50 m
+SNAP_NEAR, SNAP_FAR = 8.0, 40.0
+
+
+def snap_crest(pts, hs):
+    """A crest moved on to the mesh: from vertex to neighbouring vertex of
+    the 6 m grid, so it is an unbroken line of edges on that grid and on
+    the 3 m one. Returns its points a metre apart, their heights, and the
+    point of the crest as drawn that each stands for."""
+    step = D * SNAP
+    g = np.round((pts - ORG) / step).astype(int)
+    # The vertices the crest passes nearest, in order, and the points of
+    # it nearest each.
+    chain, where = [], []
+    for k, v in enumerate(map(tuple, g)):
+        if not chain or chain[-1] != v:
+            chain.append(v)
+            where.append([k, k])
+        else:
+            where[-1][1] = k
+
+    def beside(a, b):
+        return max(abs(b[0] - a[0]), abs(b[1] - a[1])) <= 1
+    # Corners the mesh can cut go: a step out and back, two steps where
+    # one would do.
+    changed = True
+    while changed:
+        changed = False
+        out, w = [chain[0]], [where[0]]
+        k = 1
+        while k < len(chain):
+            if k + 1 < len(chain) and beside(out[-1], chain[k + 1]):
+                changed = True
+            elif chain[k] != out[-1]:
+                out.append(chain[k])
+                w.append(where[k])
+            k += 1
+        chain, where = out, w
+    if len(chain) < 2:
+        return pts, hs, pts
+    v = np.array(chain, dtype=float) * step + ORG
+    # Where along the crest as drawn each vertex stands (its ends stay
+    # the crest's ends).
+    at = np.array([0.5 * (a + b) for a, b in where])
+    at[0], at[-1] = 0, len(pts) - 1
+    s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(v, axis=0), axis=1))])
+    u = np.linspace(0, s[-1], int(s[-1]) + 1)
+    k = np.interp(u, s, at)
+    n = np.arange(len(pts))
+    back = np.stack([np.interp(k, n, pts[:, 0]), np.interp(k, n, pts[:, 1])], axis=1)
+    return np.stack([np.interp(u, s, v[:, 0]), np.interp(u, s, v[:, 1])], axis=1), np.interp(k, n, hs), back
+
+
 def crest_line(x, z, half, height, bend, lean):
     """A dune's crest: points a metre apart from its south-east end to its
     north-west, and the height at each."""
@@ -151,12 +209,21 @@ def dune_profile(pts, hs, stoss=6.0, reach=260.0):
     climbing with the wind to the crest, the slip face beyond it. Returns
     the height, how far down the slip face each vertex is (m, 0 off it)
     and how far it is from the crest."""
-    d, idx = cKDTree(pts).query(FLAT, distance_upper_bound=reach)
+    # The dune as drawn, but each vertex near the crest takes the height
+    # of the place it would be had the crest not been moved on to the mesh
+    # (snap_crest): the mesh's line of edges is then the crest exactly,
+    # and the dune's shape either side of it is unchanged.
+    spts, _, back = snap_crest(pts, hs)
+    sd, si = cKDTree(spts).query(FLAT, distance_upper_bound=SNAP_FAR)
+    near = np.isfinite(sd)
+    si = np.where(near, si, 0)
+    at = FLAT + (back[si] - spts[si]) * np.where(near, smoothstep(SNAP_FAR, SNAP_NEAR, sd), 0.0)[:, None]
+    d, idx = cKDTree(pts).query(at, distance_upper_bound=reach)
     ok = np.isfinite(d)
     idx = np.where(ok, idx, 0)
     d = np.where(ok, d, reach)
     tg = np.gradient(pts, axis=0)
-    rel = FLAT - pts[idx]
+    rel = at - pts[idx]
     lee = tg[idx, 0] * rel[:, 1] - tg[idx, 1] * rel[:, 0] < 0
     H = hs[idx]
     L = np.maximum(H * stoss, 8.0)
@@ -205,6 +272,19 @@ def settle(h, sand, iters=40):
     return h
 
 
+def round_off(h, f, sand, routes):
+    """Sand keeps an edge only where the wind makes one, along a dune's
+    crest and down its slip face. Any other (the brink of a bank a track
+    was cut through, the crease where one drift lies against another) is
+    blown round. The tracks and their shoulders stay as they were laid."""
+    keep = (f["slip"] > 0) | (f["dcrest"] < 7.0) | ~sand
+    for r in routes:
+        d, _ = cKDTree(r["pts"]).query(FLAT, distance_upper_bound=r["half"] + 7.0)
+        keep |= np.isfinite(d).reshape(N, N)
+    w = 1.0 - np.clip(gaussian_filter(keep.astype(float), 1.0) * 2.0, 0, 1)
+    return h + (gaussian_filter(h, 1.15) - h) * w
+
+
 # ---------------------------------------------------------------------------
 # The ground
 
@@ -244,7 +324,7 @@ def build_dunes(h, f):
         dcrest = np.where(y > lift, d, dcrest)
         lift = np.maximum(lift, y)
     f["dcrest"] = dcrest
-    f["crests"] = lines
+    f["crests"] = [snap_crest(pts, hs)[:2] for pts, hs in lines]     # where they are on the ground
     # Where the small dunes run: from behind the flats to the rimrock,
     # thinning to nothing toward the water and the brush.
     field = smoothstep(-226, -190, Z) * smoothstep(24, 70, dshore)
@@ -471,6 +551,15 @@ def build_ground():
     # they slump to its angle of rest, and the track is trued up again.
     rock = (f["cliff"] > 2.5) & (f["drim"] > -9) & (f["drim"] < 14) & ~f["ramp"]
     h = settle(h, ~rock & (f["dshore"] > 8), iters=60)
+    # Where two tracks close on each other their cuts leave a blade of
+    # ground a vertex wide standing between them: it goes.
+    beside = np.zeros((N, N), dtype=int)
+    for r in routes:
+        d, _ = cKDTree(r["pts"]).query(FLAT, distance_upper_bound=14.0)
+        beside += np.isfinite(d).reshape(N, N)
+    blade = (beside >= 2) & (f["slip"] == 0) & (f["dcrest"] > 7.0)
+    h = np.where(blade, grey_opening(h, size=(3, 3)), h)
+    h = round_off(h, f, ~rock & (f["dshore"] > 8), routes)
     for r, sh in ((razor, 2.0), (power, 2.5), (summit, 2.5), (shore, 4.0), (appr, 3.0)):
         lay_route(h, r, sh)
     k0 = int(np.argmin(np.linalg.norm(power["pts"] - np.array([36.0, -146.0]), axis=1)))
@@ -720,7 +809,12 @@ def knobs(h, f):
         c = np.mean(np.array(outline, dtype=float), axis=0)
         base = float(sample(h, c)[0])
         top = base + rise + 0.6 * (fbm(X, Z, 9, 2, 685 + k) - 0.5) + scarp(d - 9, 1.8, talus=0.0, face=3.2)
-        y = np.where(d > -12, base - 2.0 + scarp(d, top - base + 2.0, talus=0.22, slope=0.62, face=3.2), -1e9)
+        # Below its talus the foot goes on down as an apron of sand until
+        # it meets the ground: on a slope a level foot would stand out of
+        # the downhill side as a shelf.
+        rise = top - base + 2.0
+        apron = 0.42 * np.minimum(d + 0.22 * rise / 0.62, 0.0)
+        y = np.where(d > -60, base - 2.0 + scarp(d, rise, talus=0.22, slope=0.62, face=3.2) + apron, -1e9)
         kn |= (y > h + 0.3) & (d > -1.0)
         np.maximum(h, y, out=h)
     f["knob"] = kn
@@ -876,6 +970,14 @@ def set_pieces(h, water, f, routes, rng):
         q = cp + np.array([math.sin(cyaw), math.cos(cyaw)]) * 4.0 + np.array([math.cos(cyaw), -math.sin(cyaw)]) * side * 1.6
         dx, dz = math.sin(cyaw) * 0.9, math.cos(cyaw) * 0.9
         capsules.append((q[0] - dx, gy(q[0], q[1]) + 0.18, q[1] - dz, q[0] + dx, gy(q[0], q[1]) + 0.18, q[1] + dz, 0.18))
+    # What the camp came out here to ride: quads by the trailers, a sand
+    # rail by the second fire, where the east trailers' people sit.
+    for (qx, qz, yaw) in [(-38, -270, 0.7), (-41.5, -273.5, 1.0), (52, -264, -2.0)]:
+        props.append((qx, qz, yaw, PROP["QUAD"], None))
+        prop_boxes.append((qx, gy(qx, qz) + 0.5, qz, 0.6, 0.5, 1.0, yaw))
+    props.append((54, -283, 0.6, PROP["FIREPIT"], None))
+    props.append((61, -277, -2.5, PROP["RAIL"], None))
+    prop_boxes.append((61, gy(61, -277) + 0.75, -277, 1.0, 0.75, 1.8, -2.5))
     props.append((SPAWN[0] - 16, SPAWN[1] + 6, 1.2, PROP["RAMADA"], None))
     prop_boxes.append((SPAWN[0] - 16, gy(SPAWN[0] - 16, SPAWN[1] + 6) + 0.4, SPAWN[1] + 6, 0.9, 0.4, 0.4, 1.2))
     props.append((13, -238, 0.2, PROP["KIOSK"], None))
@@ -1151,7 +1253,7 @@ def report_surfaces(surf, routes):
 
 def build(out, preview_path=None, raw=None):
     print("Moses Lake")
-    rng = np.random.default_rng(1949)
+    rng = np.random.default_rng(1962)
     h, water, f, routes = build_ground()
     knobs(h, f)
     f["face"], f["face_x"], f["face_z"] = faces(h)

@@ -7,6 +7,7 @@
 #include "world.h"
 #include "truck.h"
 #include "terrain.h"
+#include "dunes.h"
 
 #define MAX_PARTS 300
 
@@ -32,23 +33,56 @@ static float emit_acc[MAX_TRUCKS][4], rooster_acc[MAX_TRUCKS][4];
    A point is only laid where the print has something to say (below), up
    to TRK_LONG apart, so the last stretch of a run is drawn to the tyre
    itself: without it the print trails the truck by up to that far, and
-   catches up in jumps. */
+   catches up in jumps.
+
+   The dunes keep their prints: sand holds a track until the wind has
+   smoothed it, and from a crest the line a truck took up the last dune
+   is half of what there is to look at. There the rings are several
+   times longer (in the room the textures were linked into, main.c's
+   spent_alloc), every truck prints in sand, a print shows from three
+   times as far and lasts minutes. What wears one away is the wind, so
+   its age runs on the wind's clock (dunes_wear): it softens a notch in
+   each gust and stands in a lull, and sooner on ground open to the wind
+   than in the lee, so a line over a dune goes first off its windward
+   side and its crest. As it wears it spreads. */
 #define TRK_PLAYER 448
 #define TRK_CPU 128
+#define TRK_PLAYER_DUNES 1536
+#define TRK_CPU_DUNES 384
 #define TRK_STEP 0.5f          /* metres between points, at least */
 #define TRK_LONG 1.6f          /* ...and at most, on the straight */
 #define TRK_LIFE 150.0f        /* seconds before a print has gone */
 #define TRK_DRAW 35.0f         /* metres from the camera */
+#define TRK_LIFE_DUNES 400.0f  /* ...of the wind's clock, on ground in the lee */
+#define TRK_DRAW_DUNES 105.0f    /* the player's; the others' as anywhere, or a dune four trucks
+                                    have climbed is a thousand points in view from its top */
+#define TRK_BLOCK 16           /* points to a block of a ring, culled as one (the rings are whole blocks) */
+#define TRK_COARSE 30.0f       /* past this a block of the dunes' prints is drawn from every other one */
+#define TRK_COARSER 70.0f      /* ...and past this from every fourth */
 
 typedef struct {
     V3 l, r;
     float v, born;
     uint32_t col;
     uint16_t run;
+    uint16_t wear;             /* how fast it ages, 256ths: 256 but in the dunes' wind */
 } TrkPt;
+_Static_assert(sizeof(TrkPt) == 40, "TrkPt packing");
+
+/* A sphere round a block's points, once all of them are laid (r < 0
+   until then): most of a long ring is behind the camera or out of range
+   and is passed over a block at a time. */
+typedef struct {
+    V3 c;
+    float r;
+} TrkBlk;
+
+#define TRK_SUPER 8             /* blocks to a stretch, culled as one before its blocks are looked at:
+                                  a full ring is hundreds of blocks, nearly all of them far behind */
 
 typedef struct {
     TrkPt *pt;
+    TrkBlk *blk, *sup;
     int cap, head, count;
     bool live;
     V3 last, dir;
@@ -60,11 +94,19 @@ typedef struct {
     V3 tip_l, tip_r;
     float tip_v;
     uint32_t tip_col;
+    uint16_t wear;
 } TrkSlot;
 
 static TrkPt trk_pool[TRK_PLAYER * 2 + TRK_CPU * 2 * (MAX_TRUCKS - 1)];
+static TrkPt *trk_pool_dunes;
+static TrkBlk trk_blk[(TRK_PLAYER_DUNES * 2 + TRK_CPU_DUNES * 2 * (MAX_TRUCKS - 1)) / TRK_BLOCK];
+static TrkBlk trk_sup[(TRK_PLAYER_DUNES * 2 + TRK_CPU_DUNES * 2 * (MAX_TRUCKS - 1)) / (TRK_BLOCK * TRK_SUPER) + 2 * MAX_TRUCKS];
+_Static_assert(TRK_PLAYER % TRK_BLOCK == 0 && TRK_CPU % TRK_BLOCK == 0 && TRK_PLAYER_DUNES % TRK_BLOCK == 0 &&
+               TRK_CPU_DUNES % TRK_BLOCK == 0, "the rings are whole blocks");
 static TrkSlot trk[MAX_TRUCKS][2];
-static float fx_clock;
+static float fx_clock, trk_clock;
+static float trk_life = TRK_LIFE, trk_draw = TRK_DRAW, trk_fade = 1.0f / 40.0f;
+static bool trk_sand;          /* the dunes' rules */
 
 /* What a tyre prints in each surface (none on rock): colour and how dark. */
 static uint32_t track_col(int surf) {
@@ -175,22 +217,33 @@ void fx_init(void) {
     h_puff = r_header(TEX_PUFF, HF_TR);
     h_clod = r_header(TEX_CLOD, HF_TR);
     h_tread = r_header(TEX_TREAD, HF_TR);
-    TrkPt *p = trk_pool;
-    for(int ti = 0; ti < MAX_TRUCKS; ti++)
-        for(int s = 0; s < 2; s++) {
-            int cap = ti == 0 ? TRK_PLAYER : TRK_CPU;
-            trk[ti][s] = (TrkSlot){.pt = p, .cap = cap};
-            p += cap;
-        }
     fx_clear();
 }
 
+/* Also when the area changes: the dunes have their own rings and rules. */
 void fx_clear(void) {
     part_n = 0;
+    trk_sand = lvl_area == AREA_DUNES;
+    if(trk_sand && !trk_pool_dunes)
+        trk_pool_dunes = spent_alloc(sizeof(TrkPt) * (TRK_PLAYER_DUNES * 2 + TRK_CPU_DUNES * 2 * (MAX_TRUCKS - 1)));
+    if(!trk_pool_dunes) trk_sand = false;
+    trk_life = trk_sand ? TRK_LIFE_DUNES : TRK_LIFE;
+    trk_draw = trk_sand ? TRK_DRAW_DUNES : TRK_DRAW;
+    /* A print in sand softens all through its second half; elsewhere it
+       goes in its last forty seconds. */
+    trk_fade = trk_sand ? 1.0f / (0.55f * TRK_LIFE_DUNES) : 1.0f / 40.0f;
+    TrkPt *p = trk_sand ? trk_pool_dunes : trk_pool;
+    TrkBlk *bl = trk_blk, *su = trk_sup;
     for(int ti = 0; ti < MAX_TRUCKS; ti++)
         for(int s = 0; s < 2; s++) {
-            trk[ti][s].count = trk[ti][s].head = 0;
-            trk[ti][s].live = trk[ti][s].tip_on = false;
+            int cap = trk_sand ? (ti == 0 ? TRK_PLAYER_DUNES : TRK_CPU_DUNES) : (ti == 0 ? TRK_PLAYER : TRK_CPU);
+            int nb = cap / TRK_BLOCK, ns = (nb + TRK_SUPER - 1) / TRK_SUPER;
+            trk[ti][s] = (TrkSlot){.pt = p, .blk = bl, .sup = su, .cap = cap};
+            for(int k = 0; k < nb; k++) bl[k].r = -1.0f;
+            for(int k = 0; k < ns; k++) su[k].r = -1.0f;
+            p += cap;
+            bl += nb;
+            su += ns;
         }
 }
 
@@ -231,10 +284,53 @@ static void track_add(TrkSlot *s, V3 p, V3 dir, float half, uint32_t col) {
     q->r = vadd(p, side);
     q->l.y = terrain_height(q->l.x, q->l.z) + 0.035f;
     q->r.y = terrain_height(q->r.x, q->r.z) + 0.035f;
+    s->wear = 256;
+    if(trk_sand) {
+        /* Open to the wind (the ground leans into it) a print wears up
+           to twice as fast as in the lee. */
+        V3 n;
+        terrain_height_n(p.x, p.z, &n);
+        s->wear = (uint16_t)(256.0f * (1.0f + 1.1f * clampf(0.3f - 3.0f * (n.x * WIND_X + n.z * WIND_Z), 0, 1)));
+    }
     q->v = s->v;
-    q->born = fx_clock;
+    q->born = trk_clock;
     q->col = col;
     q->run = s->run;
+    q->wear = s->wear;
+    /* Its block is being laid again, or is now whole. */
+    int at = s->head % TRK_BLOCK;
+    TrkBlk *bk = &s->blk[s->head / TRK_BLOCK];
+    int bi = s->head / TRK_BLOCK, nb = s->cap / TRK_BLOCK;
+    if(at == 0) bk->r = s->sup[bi / TRK_SUPER].r = -1.0f;
+    else if(at == TRK_BLOCK - 1) {
+        const TrkPt *first = q - (TRK_BLOCK - 1);
+        V3 lo = first->l, hi = first->l;
+        for(int k = 0; k < TRK_BLOCK; k++)
+            for(int e = 0; e < 2; e++) {
+                V3 v = e ? first[k].r : first[k].l;
+                lo = v3(fminf(lo.x, v.x), fminf(lo.y, v.y), fminf(lo.z, v.z));
+                hi = v3(fmaxf(hi.x, v.x), fmaxf(hi.y, v.y), fmaxf(hi.z, v.z));
+            }
+        bk->c = vscale(vadd(lo, hi), 0.5f);
+        bk->r = vlen(vsub(hi, lo)) * 0.5f + 0.5f;
+        /* ...and with it, perhaps, its stretch. */
+        if(bi % TRK_SUPER == TRK_SUPER - 1 || bi == nb - 1) {
+            const TrkBlk *b0 = &s->blk[bi - bi % TRK_SUPER];
+            int n = bi % TRK_SUPER + 1;
+            bool whole = true;
+            V3 slo = b0->c, shi = b0->c;
+            float rmax = 0;
+            for(int k = 0; k < n; k++) {
+                whole &= b0[k].r >= 0;
+                slo = v3(fminf(slo.x, b0[k].c.x), fminf(slo.y, b0[k].c.y), fminf(slo.z, b0[k].c.z));
+                shi = v3(fmaxf(shi.x, b0[k].c.x), fmaxf(shi.y, b0[k].c.y), fmaxf(shi.z, b0[k].c.z));
+                rmax = fmaxf(rmax, b0[k].r);
+            }
+            TrkBlk *sp = &s->sup[bi / TRK_SUPER];
+            sp->c = vscale(vadd(slo, shi), 0.5f);
+            sp->r = whole ? vlen(vsub(shi, slo)) * 0.5f + rmax : -1.0f;
+        }
+    }
     s->head = (s->head + 1) % s->cap;
     if(s->count < s->cap) s->count++;
     s->last = p;
@@ -247,9 +343,12 @@ static void tracks_update(int ti, const Truck *t) {
         const Wheel *w = &t->wh[2 + k];
         TrkSlot *s = &trk[ti][k];
         uint32_t col = w->contact && w->water < 0.08f ? track_col(w->surf) : 0;
-        /* CPU trucks print only where it shows most: mud and snow. On the
-           trails they follow each other and their prints pile up unseen. */
-        if(ti != 0 && w->surf != SURF_MUD && w->surf != SURF_SNOW) col = 0;
+        /* CPU trucks print only where it shows most: mud and snow, and
+           the dunes' sand. On the trails they follow each other and
+           their prints pile up unseen. */
+        if(ti != 0 && w->surf != SURF_MUD && w->surf != SURF_SNOW &&
+           !(trk_sand && (w->surf == SURF_SAND || w->surf == SURF_DEEPSAND)))
+            col = 0;
         if(!col) {
             s->live = s->tip_on = false;
             continue;
@@ -342,6 +441,7 @@ static void rooster_update(int ti, const Truck *t, int i, float dcam, float dt) 
 
 void fx_update(float dt) {
     fx_clock += dt;
+    trk_clock += dt * dunes_wear();
     /* Wheels: what each one throws, by surface, slip and speed. */
     for(int ti = 0; ti < game.ntrucks; ti++) {
         Truck *t = &trucks[ti];
@@ -428,7 +528,7 @@ void fx_update(float dt) {
 #define TRK_CHUNK 16
 
 typedef struct {
-    RV v[TRK_CHUNK * 2];
+    RV v[TRK_CHUNK * 2 + 2];   /* (a full strip can take the pair that joins it to the next block) */
     int n;
     V3 lo, hi;
 } TrkBuf;
@@ -451,11 +551,44 @@ static void chunk_add(TrkBuf *b, const RV *a) {
     b->v[b->n++] = *a;
 }
 
+/* A print's two vertices as they are now: fading out with age and
+   toward the draw distance (by its square: no root per point), its
+   edges slumped outward as it wears in sand. False once it has gone. */
+typedef struct {
+    V3 cam;
+    float draw2, idraw;
+} TrkView;
+
+static inline bool trk_pair(const TrkView *tv, const TrkPt *q, RV *out) {
+    float dx = q->l.x - tv->cam.x, dz = q->l.z - tv->cam.z, dist2 = dx * dx + dz * dz;
+    float age = (trk_clock - q->born) * (float)q->wear * (1.0f / 256.0f);
+    float fa = (trk_life - age) * trk_fade, fd = (tv->draw2 - dist2) * tv->idraw;
+    bool live = fa > 0 && fd > 0;
+    float a = live ? (float)(q->col >> 24) * (1.0f / 255.0f) * fminf(fa, 1.0f) * fminf(fd, 1.0f) : 0;
+    uint32_t c = color_alpha(q->col, a);
+    float v = q->v * (1.0f / 1.1f);
+    if(trk_sand) {
+        float sp = 0.22f * age * (1.0f / TRK_LIFE_DUNES);
+        V3 e = v3((q->l.x - q->r.x) * sp, (q->l.y - q->r.y) * sp, (q->l.z - q->r.z) * sp);
+        out[0] = (RV){q->l.x + e.x, q->l.y + e.y, q->l.z + e.z, 0, v, c};
+        out[1] = (RV){q->r.x - e.x, q->r.y - e.y, q->r.z - e.z, 1, v, c};
+    }
+    else {
+        out[0] = (RV){q->l.x, q->l.y, q->l.z, 0, v, c};
+        out[1] = (RV){q->r.x, q->r.y, q->r.z, 1, v, c};
+    }
+    return live;
+}
+
 static void tracks_draw(void) {
     static TrkBuf b;
-    V3 cam = r_cam.pos;
+    TrkView tv = {.cam = r_cam.pos};
+    V3 cam = tv.cam;
     r_hdr(h_tread);
-    for(int ti = 0; ti < MAX_TRUCKS; ti++)
+    for(int ti = 0; ti < MAX_TRUCKS; ti++) {
+        float draw = ti == 0 ? trk_draw : TRK_DRAW;
+        tv.draw2 = draw * draw;
+        tv.idraw = 1.0f / (tv.draw2 * 0.45f);
         for(int k = 0; k < 2; k++) {
             const TrkSlot *s = &trk[ti][k];
             int run = -1;
@@ -464,14 +597,74 @@ static void tracks_draw(void) {
             if(idx < 0) idx += s->cap;
             for(int j = 0; j < s->count; j++, idx = idx + 1 == s->cap ? 0 : idx + 1) {
                 const TrkPt *q = &s->pt[idx];
-                float age = fx_clock - q->born;
-                float dx = q->l.x - cam.x, dz = q->l.z - cam.z;
-                float dist2 = dx * dx + dz * dz;
-                bool gone = age >= TRK_LIFE || dist2 >= TRK_DRAW * TRK_DRAW;
-                if(gone || q->run != run) {
+                if(idx % (TRK_BLOCK * TRK_SUPER) == 0) {
+                    /* A whole stretch out of range, out of sight or worn
+                       away. */
+                    const TrkBlk *sp = &s->sup[idx / (TRK_BLOCK * TRK_SUPER)];
+                    int span = s->cap - idx < TRK_BLOCK * TRK_SUPER ? s->cap - idx : TRK_BLOCK * TRK_SUPER;
+                    if(sp->r >= 0 && j + span <= s->count) {
+                        float sx = sp->c.x - cam.x, sz = sp->c.z - cam.z, reach = draw + sp->r;
+                        if(sx * sx + sz * sz >= reach * reach || trk_clock - q[span - 1].born >= trk_life ||
+                           !r_sphere_visible(sp->c, sp->r)) {
+                            chunk_flush(&b);
+                            run = -1;
+                            j += span - 1;
+                            idx += span - 1;
+                            continue;
+                        }
+                    }
+                }
+                const TrkBlk *bk = &s->blk[idx / TRK_BLOCK];
+                if(idx % TRK_BLOCK == 0 && j + TRK_BLOCK <= s->count && bk->r >= 0) {
+                    /* A whole block. Nothing of it to draw if it is out of
+                       range, out of sight or worn away (its last point is
+                       its newest). */
+                    float bx = bk->c.x - cam.x, bz = bk->c.z - cam.z, reach = draw + bk->r, bd2 = bx * bx + bz * bz;
+                    bool out = bd2 >= reach * reach || trk_clock - q[TRK_BLOCK - 1].born >= trk_life ||
+                               !r_sphere_visible(bk->c, bk->r);
+                    if(out || q[TRK_BLOCK - 1].run == q->run) {
+                        /* (the strip so far runs on to this block's first print) */
+                        if(!out && run == q->run && b.n >= 2) {
+                            RV e[2];
+                            trk_pair(&tv, q, e);
+                            chunk_add(&b, &e[0]);
+                            chunk_add(&b, &e[1]);
+                        }
+                        chunk_flush(&b);
+                        run = -1;
+                        j += TRK_BLOCK - 1;
+                        idx += TRK_BLOCK - 1;
+                        if(out) continue;
+                        /* One run from end to end: sent as a strip on the
+                           block's own sphere, on to the next block's first
+                           print where the run goes on. In the dunes, from
+                           every other print past TRK_COARSE and every
+                           fourth past TRK_COARSER: a whole climb's prints
+                           are in view from its top. */
+                        int step = !trk_sand || bd2 < TRK_COARSE * TRK_COARSE ? 1 : bd2 < TRK_COARSER * TRK_COARSER ? 2 : 4;
+                        RV v[2 * (TRK_BLOCK + 1)];
+                        int n = 0;
+                        bool any = false;
+                        for(int i = 0; i < TRK_BLOCK; i += step, n += 2) any |= trk_pair(&tv, &q[i], &v[n]);
+                        const TrkPt *nx = &s->pt[idx + 1 == s->cap ? 0 : idx + 1];
+                        if(j + 1 < s->count && nx->run == q->run) {
+                            any |= trk_pair(&tv, nx, &v[n]);
+                            n += 2;
+                        }
+                        else if(step > 1) {
+                            trk_pair(&tv, &q[TRK_BLOCK - 1], &v[n]);
+                            n += 2;
+                        }
+                        if(any && n >= 4) r_strip_bounded(v, n, bk->c, bk->r + 2.6f);
+                        continue;
+                    }
+                }
+                RV e[2];
+                bool live = trk_pair(&tv, q, e);
+                if(!live || q->run != run) {
                     chunk_flush(&b);
                     run = -1;
-                    if(gone) continue;
+                    if(!live) continue;
                     run = q->run;
                 }
                 else if(b.n >= TRK_CHUNK * 2) {
@@ -481,14 +674,8 @@ static void tracks_draw(void) {
                     chunk_add(&b, &l);
                     chunk_add(&b, &r);
                 }
-                /* Fading out with age, and toward the draw distance (by its
-                   square: no root per point). */
-                float a = (float)(q->col >> 24) * (1.0f / 255.0f) * fminf((TRK_LIFE - age) * (1.0f / 40.0f), 1.0f) *
-                          fminf((TRK_DRAW * TRK_DRAW - dist2) * (1.0f / (TRK_DRAW * TRK_DRAW * 0.45f)), 1.0f);
-                uint32_t c = color_alpha(q->col, a);
-                float v = q->v * (1.0f / 1.1f);
-                chunk_add(&b, &(RV){q->l.x, q->l.y, q->l.z, 0, v, c});
-                chunk_add(&b, &(RV){q->r.x, q->r.y, q->r.z, 1, v, c});
+                chunk_add(&b, &e[0]);
+                chunk_add(&b, &e[1]);
             }
             /* The run still being laid, on to the tyre. */
             if(s->tip_on && run == s->run && b.n >= 2) {
@@ -499,8 +686,7 @@ static void tracks_draw(void) {
                     chunk_add(&b, &r);
                 }
                 float dx = s->tip_l.x - cam.x, dz = s->tip_l.z - cam.z, dist2 = dx * dx + dz * dz;
-                float a = (float)(s->tip_col >> 24) * (1.0f / 255.0f) *
-                          clampf((TRK_DRAW * TRK_DRAW - dist2) * (1.0f / (TRK_DRAW * TRK_DRAW * 0.45f)), 0, 1);
+                float a = (float)(s->tip_col >> 24) * (1.0f / 255.0f) * clampf((tv.draw2 - dist2) * tv.idraw, 0, 1);
                 uint32_t c = color_alpha(s->tip_col, a);
                 float v = s->tip_v * (1.0f / 1.1f);
                 chunk_add(&b, &(RV){s->tip_l.x, s->tip_l.y, s->tip_l.z, 0, v, c});
@@ -508,6 +694,7 @@ static void tracks_draw(void) {
             }
             chunk_flush(&b);
         }
+    }
 }
 
 void fx_draw(void) {

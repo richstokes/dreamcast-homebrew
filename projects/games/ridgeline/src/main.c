@@ -278,6 +278,10 @@ static void update(float dt) {
     float budget = 12.0f;   /* Flycast has time to spare: time-lapses relight quickly */
 #else
     float budget = game.state == ST_DRIVE ? (game.paused ? 4.0f : 1.0f) : game.state == ST_SELECT ? 4.0f : 1.5f;
+    /* A drive that is short of time lights less of the world a frame:
+       the day takes a few seconds longer to reach every corner, and the
+       frame gets most of a millisecond back when it has none to spare. */
+    if(game.state == ST_DRIVE && !game.paused && game.cpu_ms > 15.0f) budget = 0.4f;
 #endif
     tod_update(dt, run_clock, budget);
     world_update(dt);

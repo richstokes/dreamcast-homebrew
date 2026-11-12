@@ -132,6 +132,55 @@ static inline void box_local(int i, float x, float z, float *lx, float *lz) {
     *lz = dx * s + dz * c;
 }
 
+/* Which diagonal splits a cell of the ground in two. A ridge that runs
+   across the split is drawn as a row of teeth, a vertex up and a vertex
+   down along it; one that runs with it is an edge. A cell is split along
+   (i, j)-(i+1, j+1) unless the other two corners are nearer each other's
+   height (by more than the slack, so level ground does not dither), where
+   an area asks for it (LvlLook.fit_split): the dunes, whose crests and
+   slip faces are all edges. Every grid the ground is drawn on and the
+   height under a wheel split a cell the same way.
+
+   In a strip the vertices come in pairs, one from each of two rows, and
+   which of a pair goes first picks the diagonal of the cell before it;
+   to change it the vertex two back goes in again (a triangle of no
+   area).
+
+   The 3 m and 6 m grids are built every frame, so their cells' splits are
+   worked out once, at load: a bit a cell, set where it is crossed, a byte
+   for each near tile's row of eight 3 m cells and for each pair of tiles'
+   row of eight 6 m ones. */
+#define FIT_SLACK 0.04f    /* m of height a metre of cell */
+static bool ter_fit;                 /* the area asks for it */
+static float ter_slack = 1e9f;       /* FIT_SLACK, or so much that no cell is crossed */
+#define XCELLS (LEVEL_N - 1)
+static uint8_t ter_x3[XCELLS][XCELLS / 8], ter_x6[XCELLS / 2][XCELLS / 16];
+
+static inline bool cell_cross(float h00, float h10, float h01, float h11, float slack) {
+    return fabsf(h10 - h01) + slack < fabsf(h00 - h11);
+}
+
+static void cross_build(void) {
+    memset(ter_x3, 0, sizeof(ter_x3));
+    memset(ter_x6, 0, sizeof(ter_x6));
+    for(int step = 1; step <= 2; step++)
+        for(int j = 0; j < XCELLS; j += step)
+            for(int i = 0; i < XCELLS; i += step) {
+                if(!cell_cross(lvl_h(i, j), lvl_h(i + step, j), lvl_h(i, j + step), lvl_h(i + step, j + step),
+                               ter_slack * LEVEL_D * step))
+                    continue;
+                if(step == 1) ter_x3[j][i >> 3] |= 1 << (i & 7);
+                else ter_x6[j >> 1][i >> 4] |= 1 << (i >> 1 & 7);
+            }
+}
+
+/* The cells' splits along a row of a near strip: bit c for the c'th cell
+   from a0, cells of them, on the grid of step cells. */
+static inline unsigned cross_bits(int a0, int j, int cells, int step) {
+    unsigned b = step == 1 ? ter_x3[j][a0 >> 3] : (unsigned)ter_x6[j >> 1][a0 >> 4] >> (a0 >> 1 & 7);
+    return b & ((1u << cells) - 1);
+}
+
 bool terrain_load(int area, void *buf) {
     LvlGrid g;
     if(!level_load(area, buf, &g)) {
@@ -143,6 +192,9 @@ bool terrain_load(int area, void *buf) {
     lvl_surf = g.surf;
     lvl_light = g.light;
     lvl_hz = g.hz;
+    ter_fit = look->fit_split;
+    ter_slack = ter_fit ? FIT_SLACK : 1e9f;
+    cross_build();
     ob_grid_build();
     printf("Ridgeline terrain: %s, %d boulders, %d logs, %d ledges, %d trees\n", lvl->name, LVL_SPHERES, LVL_CAPSULES,
            LVL_BOXES, LVL_TREES);
@@ -159,17 +211,31 @@ float terrain_height_n(float x, float z, V3 *n) {
     float fx = gx - i, fz = gz - j;
     const GroundVert *r0 = lvl_ground + j * LEVEL_N + i, *r1 = r0 + LEVEL_N;
     float h00 = r0[0].h, h10 = r0[1].h, h01 = r1[0].h, h11 = r1[1].h;
-    /* Split along (i, j)-(i+1, j+1), as the strips are drawn. */
+    /* Split as the strips are drawn (ter_x3). */
     float dx, dz, h;
-    if(fx >= fz) {
-        dx = h10 - h00;
-        dz = h11 - h10;
+    if(ter_x3[j][i >> 3] >> (i & 7) & 1) {
+        if(fx + fz <= 1.0f) {
+            dx = h10 - h00;
+            dz = h01 - h00;
+            h = h00 + dx * fx + dz * fz;
+        }
+        else {
+            dx = h11 - h01;
+            dz = h11 - h10;
+            h = h10 + h01 - h11 + dx * fx + dz * fz;
+        }
     }
     else {
-        dx = h11 - h01;
-        dz = h01 - h00;
+        if(fx >= fz) {
+            dx = h10 - h00;
+            dz = h11 - h10;
+        }
+        else {
+            dx = h11 - h01;
+            dz = h01 - h00;
+        }
+        h = h00 + dx * fx + dz * fz;
     }
-    h = h00 + dx * fx + dz * fz;
     if(n) *n = vnorm(v3(-dx, LEVEL_D, -dz));
     return h;
 }
@@ -500,11 +566,21 @@ static void terrain_chunk(Scenery *sc, const pvr_poly_hdr_t *h, int lod, int i0,
     sc_chunk_lod_point(sc, lod_p);
     sc_strip_begin(sc, h);
     tv_step = step;
-    for(int j = j0, r = 0; j < j1; j += step, r++)
+    float slack = ter_slack * LEVEL_D * step;
+    for(int j = j0, r = 0; j < j1; j += step, r++) {
+        /* low: the pairs go in lower row first, crossing the cell behind
+           (cell_cross). */
+        int low = cell_cross(lvl_h(i0, j), lvl_h(i0 + step, j), lvl_h(i0, j + step), lvl_h(i0 + step, j + step), slack);
         for(int i = i0; i <= i1; i += step) {
-            tv(sc, i, j + step, i == i0 && r != 0);
-            tv(sc, i, j, false);
+            if(i > i0 &&
+               low != cell_cross(lvl_h(i - step, j), lvl_h(i, j), lvl_h(i - step, j + step), lvl_h(i, j + step), slack)) {
+                tv(sc, i - step, low ? j : j + step, false);
+                low ^= 1;
+            }
+            tv(sc, i, low ? j : j + step, i == i0 && r != 0);
+            tv(sc, i, low ? j + step : j, false);
         }
+    }
     sc_strip_end(sc);
     sc_chunk_end(sc);
     /* Each edge's skirt is a chunk of its own, drawn only where the block
@@ -698,9 +774,56 @@ int ter_count[4];   /* vertices a frame: near 3 m, near 6 m, skirts, far (world.
 #define TER_COUNT(i, n) ((void)0)
 #endif
 
+/* near_cells where cells are split the way their heights lie. */
+static void near_cells_fit(int a0, int b0, int ni, int nj, int step, const Sphere *sp) {
+    int a1 = a0 + ni, b1 = b0 + nj;
+    int cells = ni / step;
+    RV *p = near_buf;
+    for(int j = b0; j < b1; j += step) {
+        /* low: as terrain_chunk's. A pair's upper vertex is p[low]. */
+        unsigned bits = cross_bits(a0, j, cells, step);
+        int low = bits & 1;
+        if(p != near_buf) {
+            *p = p[-1];
+            p++;
+            *p++ = near_v(a0, low ? j : j + step);
+        }
+        if(bits == 0 || bits == (1u << cells) - 1) {
+            /* Most rows: split one way from end to end. */
+            RV *pu = p + low, *pl = p + (low ^ 1);
+            for(int i = a0; i <= a1; i += step, pu += 2, pl += 2) {
+                *pu = near_v(i, j + step);
+                *pl = near_v(i, j);
+            }
+            p += 2 * (cells + 1);
+        }
+        else {
+            p[low] = near_v(a0, j + step);
+            p[low ^ 1] = near_v(a0, j);
+            p += 2;
+            for(int i = a0 + step; i <= a1; i += step, p += 2, bits >>= 1) {
+                if((int)(bits & 1) != low) {
+                    *p = p[-2];
+                    p++;
+                    low ^= 1;
+                }
+                p[low] = near_v(i, j + step);
+                p[low ^ 1] = near_v(i, j);
+            }
+        }
+    }
+    int k = (int)(p - near_buf);
+    r_strip_bounded(near_buf, k, sp->c, sp->r);
+    TER_COUNT(step >> 1, k);
+}
+
 /* A strip of cells [a0, a0 + ni) x [b0, b0 + nj) on a grid of step cells. */
 static void near_cells(int a0, int b0, int ni, int nj, int step, const Sphere *sp) {
     if(!r_sphere_visible(sp->c, sp->r)) return;
+    if(ter_fit) {
+        near_cells_fit(a0, b0, ni, nj, step, sp);
+        return;
+    }
     int a1 = a0 + ni, b1 = b0 + nj, k = 0;
     for(int j = b0; j < b1; j += step) {
         if(k) {
@@ -717,12 +840,58 @@ static void near_cells(int a0, int b0, int ni, int nj, int step, const Sphere *s
     TER_COUNT(step >> 1, k);
 }
 
+/* near_tile_stitched where cells are split the way their heights lie. */
+static void near_stitched_fit(int a0, int b0, int edges, const Sphere *sp) {
+    int a1 = a0 + TILE_CELLS, b1 = b0 + TILE_CELLS, k = 0;
+    for(int jb = b0; jb < b1; jb++) {
+        int jt = jb + 1;
+        /* The left and right edges' rows, folded down to even ones. */
+        int lt = (edges & 8) && (jt & 1) ? jb : jt, lb = (edges & 8) && (jb & 1) ? jb - 1 : jb;
+        int rt = (edges & 2) && (jt & 1) ? jb : jt, rb = (edges & 2) && (jb & 1) ? jb - 1 : jb;
+        if(k) {
+            near_buf[k] = near_buf[k - 1];
+            k++;
+            near_buf[k++] = near_v(a0, lt);
+        }
+        /* As near_cells: a folded cell is split as it would have been. */
+        unsigned bits = cross_bits(a0, jb, TILE_CELLS, 1);
+        int low = 0;
+        near_buf[k++] = near_v(a0, lt);
+        near_buf[k++] = near_v(a0, lb);
+        bool ft = (edges & 4) && jt == b1, fb = (edges & 1) && jb == b0;
+        for(int i = a0 + 1; i <= a1; i++, k += 2, bits >>= 1) {
+            /* The pair before this one, wherever a change of split leaves it. */
+            const RV *pu = &near_buf[k - 2 + low], *pl = &near_buf[k - 1 - low];
+            if((int)(bits & 1) != low) {
+                near_buf[k] = near_buf[k - 2];
+                k++;
+                low ^= 1;
+            }
+            if(i == a1) {
+                near_buf[k + low] = near_v(a1, rt);
+                near_buf[k + (low ^ 1)] = near_v(a1, rb);
+            }
+            else {
+                /* An odd vertex on the top or bottom edge: the even one before it. */
+                near_buf[k + low] = ft && (i & 1) ? *pu : near_v(i, jt);
+                near_buf[k + (low ^ 1)] = fb && (i & 1) ? *pl : near_v(i, jb);
+            }
+        }
+    }
+    r_strip_bounded(near_buf, k, sp->c, sp->r);
+    TER_COUNT(0, k);
+}
+
 /* A 3 m tile beside 6 m ones: along each edge (bit e, as in nb[] below) it
    shares with a 6 m tile, the odd vertices take their even neighbour's
    place, so the edge is the 6 m grid's exactly (no T-junctions to crack,
    no skirt) and the triangles there fold into fans. */
 static void near_tile_stitched(int a0, int b0, int edges, const Sphere *sp) {
     if(!r_sphere_visible(sp->c, sp->r)) return;
+    if(ter_fit) {
+        near_stitched_fit(a0, b0, edges, sp);
+        return;
+    }
     int a1 = a0 + TILE_CELLS, b1 = b0 + TILE_CELLS, k = 0;
     for(int jb = b0; jb < b1; jb++) {
         int jt = jb + 1;

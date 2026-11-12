@@ -1,6 +1,8 @@
-/* Ridgeline: the warm lights that stay put - the campfire at the high
-   camp, the lanterns on the summit lookout and the ones at the start (on
-   the cabin, the picnic table and a post by the grid). Where they are, how far
+/* Ridgeline: the warm lights that stay put - the campfires, the
+   lanterns on the summit lookout and the ones at the start (on the
+   cabin, the picnic table and a post by the grid), and the dunes' camp:
+   a lantern under a trailer's awning and the light in its windows, for
+   the trailers someone is in. Where they are, how far
    each reaches, their light on the ground and on a truck beside them,
    and the lanterns' own glow. Their light on the scenery is in lamps.c;
    the fire itself is campfire.c. */
@@ -11,8 +13,14 @@
 
 /* Lights in a group flicker as one, and share a patch of lit ground: a
    group's lights stand close together. */
-enum { GLOW_FIRE, GLOW_TOWER, GLOW_CABIN, GLOW_TABLE, GLOW_POST, GLOW_GROUPS };
-#define GLOW_MAX 12
+enum {
+    GLOW_FIRE, GLOW_FIRE2,      /* campfire.c's, which sets their levels */
+    GLOW_TOWER, GLOW_CABIN, GLOW_TABLE, GLOW_POST,
+    GLOW_CAMP,                  /* a lit trailer each, GLOW_CAMPS of them */
+    GLOW_GROUPS = GLOW_CAMP + 3
+};
+#define GLOW_CAMPS (GLOW_GROUPS - GLOW_CAMP)
+#define GLOW_MAX 16
 #define GLOW_REACH_MAX 20.0f
 
 typedef struct {

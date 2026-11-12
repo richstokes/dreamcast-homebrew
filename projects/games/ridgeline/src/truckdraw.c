@@ -294,9 +294,38 @@ static void ground_quad(V3 c, V3 ax, V3 az, float ymax, float lift, uint32_t col
 
 #define TAIL_REVERSE 0xfffff6e4 /* the tail lamps in reverse gear */
 
+/* Full detail is over three times a truck's vertices at the next level
+   (~3,400 against ~1,000) and ~1.8 ms of a console's frame, so besides
+   the player's only one other truck has it at a time: the nearest in
+   front of the camera, kept until another is a metre nearer so two
+   beside each other do not trade it back and forth. Where trucks gather
+   (a summit, a meeting online) three more at full detail was most of
+   what took the frame over. Photo mode gives it to all that are close. */
+static int full_other(void) {
+    static int held = -1;
+    int best = -1;
+    float best_d = 9.0f, held_d = 1e9f;
+    for(int ti = 1; ti < game.ntrucks; ti++) {
+        const Truck *t = &trucks[ti];
+        if(t->absent) continue;
+        V3 d = vsub(t->pos, r_cam.pos);
+        if(vdot(d, r_cam.fwd) < 1.0f) continue;
+        float dist = vlen(d);
+        if(ti == held) held_d = dist;
+        if(dist < best_d) {
+            best = ti;
+            best_d = dist;
+        }
+    }
+    if(held_d < 9.0f && held_d < best_d + 1.0f) best = held;
+    held = best;
+    return best;
+}
+
 void truckdraw_draw_op(void) {
     PROF_BEGIN(pt);
     draw_frame++;
+    int full = game.photo ? -1 : full_other();
     for(int ti = 0; ti < game.ntrucks; ti++) {
         Truck *t = &trucks[ti];
         if(t->absent) continue;
@@ -304,7 +333,7 @@ void truckdraw_draw_op(void) {
         float dist = vlen(d);
         if(!r_sphere_visible(t->pos, 3.5f)) continue;
         /* Full detail for the player's truck and anything very close. */
-        int lod = (ti == 0 && dist < 18.0f) || dist < 9.0f ? 0 : dist < 50.0f ? 1 : 2;
+        int lod = (ti == 0 && dist < 18.0f) || (game.photo ? dist < 9.0f : ti == full) ? 0 : dist < 50.0f ? 1 : 2;
         V3 R = t->ax[0], U = t->ax[1], F = t->ax[2];
         float mat[16];
         V3 origin = vsub(vsub(t->pos, vscale(U, t->spec.cog_y)), vscale(F, t->spec.cog_z));

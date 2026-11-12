@@ -17,6 +17,7 @@
 #include "glow.h"
 #include "truck.h"
 #include "lamps.h"
+#include "dunes.h"
 #include "engine/prof.h"
 #include <sh4zam/shz_sh4zam.h>
 
@@ -567,6 +568,200 @@ static void drum(V3 a, V3 b, float r, uint32_t col, uint32_t cap) {
     }
 }
 
+/* A steel tube from a to b, half width w, whichever way it runs. */
+static __attribute__((noinline)) void bar(V3 a, V3 b, float w, uint32_t albedo) {
+    V3 ax = vnorm(vsub(b, a));
+    /* Across it: level, unless it stands upright. */
+    V3 u = fabsf(ax.y) > 0.9f ? v3(0, 0, 1) : vnorm(v3(ax.z, 0, -ax.x)), v = vcross(ax, u);
+    V3 c[4] = {vscale(vadd(u, v), w), vscale(vsub(u, v), w), vscale(vadd(u, v), -w), vscale(vsub(v, u), w)};
+    sc_strip_begin(&scenery, h_flat);
+    for(int s = 0; s <= 4; s++) {
+        V3 o = c[s & 3];
+        V3 nrm = vnorm(vadd(o, c[(s + 3) & 3]));
+        lv(vadd(b, o), 0, 0, albedo, nrm, 1.0f);
+        lv(vadd(a, o), 0, 0, albedo, nrm, 0.9f);
+    }
+    sc_strip_end(&scenery);
+}
+
+/* A fire's ring of stones on the ground where it burns (campfire.c),
+   embers in it, split logs leant together over them. */
+static void fire_ring(V3 fire, uint32_t seed) {
+    for(int k = 0; k < 8; k++) {
+        float a = k * ENG_TAU / 8;
+        float sx = fire.x + sinf(a) * 0.62f, sz = fire.z + cosf(a) * 0.62f;
+        boulder(v3(sx, terrain_height(sx, sz) + 0.05f, sz), 0.16f, seed + k, 1);
+    }
+    sc_strip_begin(&scenery, h_flat);
+    for(int k = 0; k < 4; k++)
+        lc(v3(fire.x + (k & 1 ? 0.3f : -0.3f), fire.y + 0.05f, fire.z + (k & 2 ? 0.3f : -0.3f)), 0, 0, 0xffb8431a);
+    sc_strip_end(&scenery);
+    for(int k = 0; k < 5; k++) {
+        float a = k * ENG_TAU / 5 + 0.3f;
+        V3 foot = v3(fire.x + sinf(a) * 0.4f, fire.y + 0.02f, fire.z + cosf(a) * 0.4f);
+        leg(foot, v3(fire.x - sinf(a) * 0.05f, fire.y + 0.3f, fire.z - cosf(a) * 0.05f), 0.045f, 0xff4a3426);
+    }
+}
+
+/* A whip and its pennant, as every rig in the dunes carries to be seen
+   over a crest (dunes.c lights it after dark). It leans with the wind. */
+static void whip(const lvl_prop_t *p) {
+    V3 base, top;
+    if(!dunes_whip_of(p, &base, &top)) return;
+    leg(base, top, 0.022f, 0xffd8d6cc);
+    V3 n = v3(-WIND_Z, 0, WIND_X);
+    sc_strip_begin(&scenery, h_flat);
+    lv(top, 0, 0, 0xffff6a1c, n, 1.0f);
+    lv(v3(top.x - WIND_X * 0.03f, top.y - 0.4f, top.z - WIND_Z * 0.03f), 0, 0, 0xffff6a1c, n, 0.9f);
+    lv(v3(top.x + WIND_X * 0.62f, top.y - 0.24f, top.z + WIND_Z * 0.62f), 0, 0, 0xffff7a2a, n, 1.0f);
+    sc_strip_end(&scenery);
+}
+
+/* The four colours a trailer's stripe, a quad's plastics or a buggy's
+   frame come in. */
+static const uint32_t camp_paint[4] = {0xff2f8a96, 0xffc8542a, 0xff3a5a9a, 0xff7a8a3a};
+#define CAMP_TYRE 0xff26262a
+#define CAMP_STEEL 0xff3a3a3c
+#define CAMP_ALLOY 0xffb8b8b4
+
+#define AT(right, up, fwd) v3(c.x + r.x * (right) + f.x * (fwd), c.y + (up), c.z + r.z * (right) + f.z * (fwd))
+
+/* A folding camp chair standing at q, facing along yaw. */
+static __attribute__((noinline)) void camp_chair(V3 q, float yaw, uint32_t cloth) {
+    float sy = sinf(yaw), cy = cosf(yaw);
+    box(h_flat, v3(q.x, q.y + 0.42f, q.z), 0.26f, 0.02f, 0.24f, yaw, cloth, 1.0f);
+    box(h_flat, v3(q.x - sy * 0.25f, q.y + 0.72f, q.z - cy * 0.25f), 0.26f, 0.2f, 0.02f, yaw, cloth, 1.0f);
+    /* Its four legs: the back two run on up to carry the back. (A table,
+       not `k & 1 ? a : -a` in the loop: GCC 15 for the SH-4 dies in
+       gen_reg_rtx on that here.) */
+    static const float legs[4][3] = {{-0.25f, -0.23f, 0.92f}, {0.25f, -0.23f, 0.92f}, {-0.25f, 0.23f, 0.44f}, {0.25f, 0.23f, 0.44f}};
+    for(int k = 0; k < 4; k++) {
+        V3 foot = v3(q.x + cy * legs[k][0] + sy * legs[k][1], q.y - 0.03f, q.z - sy * legs[k][0] + cy * legs[k][1]);
+        bar(foot, v3(foot.x, q.y + legs[k][2], foot.z), 0.013f, CAMP_ALLOY);
+    }
+}
+
+static __attribute__((noinline)) void prop_firepit(const lvl_prop_t *p) {
+    /* A fire in its ring, two folding chairs pulled up to it and a
+       cooler between them. */
+    V3 c = v3(p->x, p->y, p->z);
+    uint32_t seed = (uint32_t)(p->x * 13.0f) ^ (uint32_t)(p->z * 7.0f);
+    fire_ring(c, seed);
+    for(int k = 0; k < 2; k++) {
+        /* Each a little round the ring from straight behind it, turned
+           to face the fire. */
+        float a = p->yaw + ENG_PI + (k ? 0.62f : -0.62f);
+        V3 q = v3(c.x + sinf(a) * 1.5f, 0, c.z + cosf(a) * 1.5f);
+        q.y = terrain_height(q.x, q.z);
+        camp_chair(q, a + ENG_PI, camp_paint[(hash32(seed) >> (2 * k)) & 3]);
+    }
+    V3 q = v3(c.x - sinf(p->yaw) * 1.75f, 0, c.z - cosf(p->yaw) * 1.75f);
+    q.y = terrain_height(q.x, q.z);
+    box(h_flat, v3(q.x, q.y + 0.17f, q.z), 0.3f, 0.17f, 0.19f, p->yaw + 0.3f, camp_paint[2], 1.0f);
+    box(h_flat, v3(q.x, q.y + 0.37f, q.z), 0.31f, 0.035f, 0.2f, p->yaw + 0.3f, 0xffe6e2d6, 1.0f);
+}
+
+static __attribute__((noinline)) void prop_quad(const lvl_prop_t *p) {
+    V3 c = v3(p->x, p->y, p->z);
+    float cy = cosf(p->yaw), sy = sinf(p->yaw);
+    /* A quad bike: four fat tyres, the engine between them, a
+       mudguard over each pair, tank and seat, the bars. */
+    V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+    uint32_t paint = camp_paint[hash32((uint32_t)(p->x * 19.0f) ^ (uint32_t)(p->z * 23.0f)) & 3];
+    for(int k = 0; k < 4; k++) {
+        float side = k & 1 ? 1.0f : -1.0f, along = k & 2 ? 0.62f : -0.6f;
+        V3 w = AT(side * 0.46f, 0.29f, along);
+        drum(vsub(w, vscale(r, 0.13f)), vadd(w, vscale(r, 0.13f)), 0.29f, CAMP_TYRE, CAMP_ALLOY);
+    }
+    box(h_flat, AT(0, 0.42f, 0), 0.24f, 0.15f, 0.72f, p->yaw, CAMP_STEEL, 1.0f);
+    box(h_flat, AT(0, 0.66f, 0.62f), 0.56f, 0.05f, 0.33f, p->yaw, paint, 1.0f);
+    box(h_flat, AT(0, 0.66f, -0.62f), 0.56f, 0.05f, 0.35f, p->yaw, paint, 1.0f);
+    box(h_flat, AT(0, 0.73f, 0.14f), 0.19f, 0.13f, 0.3f, p->yaw, paint, 1.0f);
+    box(h_flat, AT(0, 0.8f, -0.4f), 0.19f, 0.07f, 0.34f, p->yaw, CAMP_TYRE, 1.0f);
+    bar(AT(0, 0.74f, 0.44f), AT(0, 1.04f, 0.34f), 0.025f, CAMP_STEEL);
+    bar(AT(-0.38f, 1.04f, 0.32f), AT(0.38f, 1.04f, 0.32f), 0.022f, CAMP_STEEL);
+    /* A rack on the front guard. */
+    box(h_flat, AT(0, 0.74f, 0.7f), 0.36f, 0.015f, 0.2f, p->yaw, CAMP_STEEL, 1.0f);
+    whip(p);
+}
+
+static __attribute__((noinline)) void prop_rail(const lvl_prop_t *p) {
+    V3 c = v3(p->x, p->y, p->z);
+    float cy = cosf(p->yaw), sy = sinf(p->yaw);
+    /* A sand rail: a bare tube frame and cage, two seats, the
+       engine hung out behind them, paddle tyres at the back and
+       thin ones on the front beam. */
+    V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+    uint32_t paint = camp_paint[hash32((uint32_t)(p->x * 19.0f) ^ (uint32_t)(p->z * 23.0f)) & 3];
+    for(int side = -1; side <= 1; side += 2) {
+        V3 w = AT(side * 0.84f, 0.43f, -1.05f);
+        drum(vsub(w, vscale(r, 0.2f)), vadd(w, vscale(r, 0.2f)), 0.43f, CAMP_TYRE, CAMP_ALLOY);
+        w = AT(side * 0.74f, 0.3f, 1.42f);
+        drum(vsub(w, vscale(r, 0.08f)), vadd(w, vscale(r, 0.08f)), 0.3f, CAMP_TYRE, CAMP_ALLOY);
+        float s = (float)side;
+        /* The frame's side: floor rail, nose, hoop, roof, stay. */
+        bar(AT(s * 0.3f, 0.4f, 1.6f), AT(s * 0.54f, 0.32f, 0.55f), 0.03f, paint);
+        bar(AT(s * 0.54f, 0.32f, 0.55f), AT(s * 0.54f, 0.32f, -0.72f), 0.03f, paint);
+        bar(AT(s * 0.54f, 0.32f, -0.72f), AT(s * 0.4f, 0.52f, -1.55f), 0.03f, paint);
+        bar(AT(s * 0.3f, 0.4f, 1.6f), AT(s * 0.5f, 0.8f, 0.55f), 0.03f, paint);
+        bar(AT(s * 0.54f, 0.32f, 0.55f), AT(s * 0.5f, 0.8f, 0.55f), 0.03f, paint);
+        bar(AT(s * 0.5f, 0.8f, 0.55f), AT(s * 0.44f, 1.5f, 0.08f), 0.03f, paint);
+        bar(AT(s * 0.44f, 1.5f, 0.08f), AT(s * 0.44f, 1.5f, -0.62f), 0.03f, paint);
+        bar(AT(s * 0.54f, 0.32f, -0.72f), AT(s * 0.44f, 1.5f, -0.62f), 0.03f, paint);
+        bar(AT(s * 0.44f, 1.5f, -0.62f), AT(s * 0.4f, 0.52f, -1.55f), 0.03f, paint);
+        /* A seat: its squab and its back. */
+        box(h_flat, AT(s * 0.26f, 0.5f, -0.1f), 0.2f, 0.05f, 0.22f, p->yaw, CAMP_TYRE, 1.0f);
+        box(h_flat, AT(s * 0.26f, 0.84f, -0.36f), 0.2f, 0.32f, 0.05f, p->yaw, CAMP_TYRE, 1.0f);
+    }
+    bar(AT(-0.44f, 1.5f, 0.08f), AT(0.44f, 1.5f, 0.08f), 0.03f, paint);
+    bar(AT(-0.44f, 1.5f, -0.62f), AT(0.44f, 1.5f, -0.62f), 0.03f, paint);
+    bar(AT(-0.4f, 0.52f, -1.55f), AT(0.4f, 0.52f, -1.55f), 0.03f, paint);
+    bar(AT(-0.74f, 0.3f, 1.42f), AT(0.74f, 0.3f, 1.42f), 0.035f, CAMP_STEEL);
+    bar(AT(-0.84f, 0.43f, -1.05f), AT(0.84f, 0.43f, -1.05f), 0.04f, CAMP_STEEL);
+    box(h_flat, AT(0, 0.3f, -0.05f), 0.52f, 0.02f, 0.72f, p->yaw, CAMP_STEEL, 1.0f);
+    /* The engine, and its two pipes up past the cage. */
+    box(h_flat, AT(0, 0.62f, -1.12f), 0.3f, 0.2f, 0.3f, p->yaw, 0xff8a8a88, 1.0f);
+    for(int side = -1; side <= 1; side += 2)
+        bar(AT(side * 0.2f, 0.8f, -1.3f), AT(side * 0.24f, 1.25f, -1.72f), 0.035f, CAMP_ALLOY);
+    whip(p);
+#undef AT
+}
+#undef AT
+
+#define PROP_NEAR_M 250.0f   /* a prop's detail is drawn to here */
+
+/* A trailer or a powerline frame from past PROP_NEAR_M: what of it still
+   shows. The same boxes and poles as prop()'s, so nothing moves at the
+   change. */
+static void prop_far(const lvl_prop_t *p) {
+    V3 c = v3(p->x, p->y, p->z);
+    float cy = cosf(p->yaw), sy = sinf(p->yaw);
+    V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+    if(p->kind == PROP_CAMPER) {
+        uint32_t stripe = camp_paint[hash32((uint32_t)(p->x * 19.0f) ^ (uint32_t)(p->z * 23.0f)) & 3];
+        box_seg(h_flat, v3(c.x, c.y + 1.62f, c.z), 1.15f, 1.02f, 2.9f, p->yaw, 0xffe6e2d6, 1.0f, 1.6f);
+        box(h_flat, v3(c.x, c.y + 1.2f, c.z), 1.17f, 0.13f, 2.92f, p->yaw, stripe, 1.0f);
+        V3 in0 = vadd(c, v3(r.x * 1.16f + f.x * 1.9f, 2.6f, r.z * 1.16f + f.z * 1.9f)),
+           in1 = vadd(c, v3(r.x * 1.16f - f.x * 1.3f, 2.6f, r.z * 1.16f - f.z * 1.3f));
+        V3 o0 = vadd(in0, v3(r.x * 2.3f, -0.55f, r.z * 2.3f)), o1 = vadd(in1, v3(r.x * 2.3f, -0.55f, r.z * 2.3f));
+        V3 an = vnorm(v3(r.x * 0.24f, 1.0f, r.z * 0.24f));
+        sc_strip_begin(&scenery, h_flat);
+        lv(in0, 0, 0, stripe, an, 1.0f);
+        lv(in1, 0, 0, stripe, an, 1.0f);
+        lv(o0, 0, 0, stripe, an, 0.92f);
+        lv(o1, 0, 0, stripe, an, 0.92f);
+        sc_strip_end(&scenery);
+    }
+    else if(p->kind == PROP_PYLON) {
+        const uint32_t wood = 0xff6c5a48;
+        for(int side = -1; side <= 1; side += 2) {
+            V3 q = vadd(c, vscale(r, side * 2.6f));
+            leg(v3(q.x, terrain_height(q.x, q.z) - 0.5f, q.z), v3(q.x, c.y + 15.0f, q.z), 0.19f, wood);
+        }
+        box(h_bark, v3(c.x, c.y + 13.7f, c.z), 4.7f, 0.13f, 0.11f, p->yaw, wood, 0.5f);
+    }
+}
+
 static void prop(const lvl_prop_t *p) {
     V3 c = v3(p->x, p->y, p->z);
     float cy = cosf(p->yaw), sy = sinf(p->yaw);
@@ -701,27 +896,13 @@ static void prop(const lvl_prop_t *p) {
                 }
                 sc_strip_end(&scenery);
             }
-            /* The ring of stones on the ground where the fire burns
-               (campfire.c), embers in it, split logs leant
-               together over them. */
-            V3 fire = campfire_pos();
-            uint32_t seed = (uint32_t)(p->x * 13.0f) ^ (uint32_t)(p->z * 7.0f);
-            for(int k = 0; k < 8; k++) {
-                float a = k * ENG_TAU / 8;
-                float sx = fire.x + sinf(a) * 0.62f, sz = fire.z + cosf(a) * 0.62f;
-                boulder(v3(sx, terrain_height(sx, sz) + 0.05f, sz), 0.16f, seed + k, 1);
-            }
-            sc_strip_begin(&scenery, h_flat);
-            for(int k = 0; k < 4; k++)
-                lc(v3(fire.x + (k & 1 ? 0.3f : -0.3f), fire.y + 0.05f, fire.z + (k & 2 ? 0.3f : -0.3f)), 0, 0, 0xffb8431a);
-            sc_strip_end(&scenery);
-            for(int k = 0; k < 5; k++) {
-                float a = k * ENG_TAU / 5 + 0.3f;
-                V3 foot = v3(fire.x + sinf(a) * 0.4f, fire.y + 0.02f, fire.z + cosf(a) * 0.4f);
-                leg(foot, v3(fire.x - sinf(a) * 0.05f, fire.y + 0.3f, fire.z - cosf(a) * 0.05f), 0.045f, 0xff4a3426);
-            }
+            V3 fire;
+            if(campfire_of(p, &fire)) fire_ring(fire, (uint32_t)(p->x * 13.0f) ^ (uint32_t)(p->z * 7.0f));
             break;
         }
+        case PROP_FIREPIT: prop_firepit(p); break;
+        case PROP_QUAD: prop_quad(p); break;
+        case PROP_RAIL: prop_rail(p); break;
         case PROP_KIOSK: {
             /* A trailhead notice board: two posts, the board with its
                map, a strip of roof to keep the sun off it. */
@@ -772,8 +953,7 @@ static void prop(const lvl_prop_t *p) {
                the door side. */
             V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
             uint32_t seed = (uint32_t)(p->x * 19.0f) ^ (uint32_t)(p->z * 23.0f);
-            static const uint32_t stripes[4] = {0xff2f8a96, 0xffc8542a, 0xff3a5a9a, 0xff7a8a3a};
-            uint32_t stripe = stripes[hash32(seed) & 3];
+            uint32_t stripe = camp_paint[hash32(seed) & 3];
             const uint32_t shell = 0xffe6e2d6, glass = 0xff2a363c;
             box_seg(h_flat, v3(c.x, c.y + 1.62f, c.z), 1.15f, 1.02f, 2.9f, p->yaw, shell, 1.0f, 1.6f);
             box(h_flat, v3(c.x, c.y + 1.2f, c.z), 1.17f, 0.13f, 2.92f, p->yaw, stripe, 1.0f);
@@ -785,7 +965,7 @@ static void prop(const lvl_prop_t *p) {
             box(h_flat, vadd(c, v3(-f.x * 0.6f, 2.74f, -f.z * 0.6f)), 0.42f, 0.11f, 0.5f, p->yaw, 0xffd0d0cc, 1.0f);
             for(int side = -1; side <= 1; side += 2) {
                 V3 w = vadd(c, v3(r.x * side * 1.0f - f.x * 0.5f, 0.38f, r.z * side * 1.0f - f.z * 0.5f));
-                drum(vsub(w, vscale(r, 0.13f)), vadd(w, vscale(r, 0.13f)), 0.38f, 0xff26262a, 0xffb8b8b4);
+                drum(vsub(w, vscale(r, 0.13f)), vadd(w, vscale(r, 0.13f)), 0.38f, CAMP_TYRE, CAMP_ALLOY);
                 V3 a = vadd(c, v3(f.x * 2.9f + r.x * side * 0.75f, 0.58f, f.z * 2.9f + r.z * side * 0.75f));
                 leg(a, vadd(c, v3(f.x * 4.2f, 0.55f, f.z * 4.2f)), 0.04f, 0xff3a3a3c);
             }
@@ -806,17 +986,8 @@ static void prop(const lvl_prop_t *p) {
             break;
         }
         case PROP_FLAG: {
-            /* A whip and its pennant, as every rig in the dunes carries
-               to be seen over a crest: here stuck in the sand to mark a
-               place. It leans with the wind. */
-            V3 top = v3(c.x + WIND_X * 0.3f, c.y + 3.5f, c.z + WIND_Z * 0.3f);
-            leg(v3(c.x, c.y - 0.2f, c.z), top, 0.022f, 0xffd8d6cc);
-            V3 n = v3(-WIND_Z, 0, WIND_X);
-            sc_strip_begin(&scenery, h_flat);
-            lv(top, 0, 0, 0xffff6a1c, n, 1.0f);
-            lv(v3(top.x - WIND_X * 0.03f, top.y - 0.4f, top.z - WIND_Z * 0.03f), 0, 0, 0xffff6a1c, n, 0.9f);
-            lv(v3(top.x + WIND_X * 0.62f, top.y - 0.24f, top.z + WIND_Z * 0.62f), 0, 0, 0xffff7a2a, n, 1.0f);
-            sc_strip_end(&scenery);
+            /* A whip stuck in the sand to mark a place. */
+            whip(p);
             break;
         }
         case PROP_TOWER: {
@@ -2525,7 +2696,7 @@ typedef struct {
     uint16_t chunk[2];   /* near, far */
 } RockCell;
 static RockCell rock_cells[TCELLS * TCELLS];
-static uint16_t prop_chunks[LVL_MAX_PROPS + GLOW_MAX];
+static uint16_t prop_chunks[2 * LVL_MAX_PROPS + GLOW_MAX];   /* some have a far version too */
 /* Rock formations: near and far, by each one's own distance. */
 #define FORM_NEAR_M 170.0f
 #define FORM_FAR_M 900.0f
@@ -2635,11 +2806,28 @@ void world_build(void) {
     }
     lamps_lod(v3(0, 0, 0), 0);
     for(int i = 0; i < LVL_PROPS; i++) {
+        /* From the top of the king dune the whole camp and the whole
+           powerline are in view half a kilometre off: four thousand
+           vertices of awning poles and insulators nobody can see. What
+           is small goes by PROP_NEAR_M, and a trailer and an H-frame
+           are their outlines from there on. */
+        const lvl_prop_t *p = &lvl_props[i];
+        bool small = p->kind == PROP_QUAD || p->kind == PROP_RAIL || p->kind == PROP_FIREPIT || p->kind == PROP_FLAG;
+        bool two = p->kind == PROP_CAMPER || p->kind == PROP_PYLON;
+        V3 lp = v3(p->x, p->y, p->z);
         uint32_t at = scenery.chunk_n;
-        sc_chunk_begin(&scenery, HF_OP, 0, 600.0f, TAG_PROPS);
+        sc_chunk_begin(&scenery, HF_OP, 0, small || two ? PROP_NEAR_M : 600.0f, TAG_PROPS);
+        sc_chunk_lod_point(&scenery, lp);
         uint32_t f0 = scenery.pool_n;
-        prop(&lvl_props[i]);
+        prop(p);
         lamps_add(f0, scenery.pool_n);
+        sc_chunk_end(&scenery);
+        if(scenery.chunk_n > at) prop_chunks[prop_chunk_n++] = (uint16_t)at;
+        if(!two) continue;
+        at = scenery.chunk_n;
+        sc_chunk_begin(&scenery, HF_OP, PROP_NEAR_M, 700.0f, TAG_PROPS);
+        sc_chunk_lod_point(&scenery, lp);
+        prop_far(p);
         sc_chunk_end(&scenery);
         if(scenery.chunk_n > at) prop_chunks[prop_chunk_n++] = (uint16_t)at;
     }

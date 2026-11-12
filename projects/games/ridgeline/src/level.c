@@ -41,7 +41,7 @@ static const LvlLook looks[AREA_COUNT] = {
     [AREA_DUNES] = {
         .ground_tex = TEX_DUNE, .water_shallow = 0xff8cb0b4, .water_deep = 0xff2c5a72, .wet = {58, 84, 92},
         .boulder = {0xff4c4440, 0xff584c44, 0xff443e3c}, .ledge = 0xff4c4440, .dust = 0xffcfc4ae,
-        .snow = false, .fireflies = false, .cloud_cap = false, .woods = 0.12f, .lake = true,
+        .snow = false, .fireflies = false, .cloud_cap = false, .woods = 0.12f, .lake = true, .fit_split = true,
     },
 };
 const LvlLook *look = &looks[AREA_CASCADE];

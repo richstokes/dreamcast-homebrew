@@ -73,6 +73,7 @@ uint64_t lamps_us;   /* time spent lighting, for the autotest's split */
 
 /* The campfire's objects and their vertices: which pool vertex, and the
    colour full firelight adds to it. */
+#define GLOW_LIT_FAR 260.0f  /* the warm lights' light on the scenery is gone by here */
 #define FIRE_OBJS 192
 #define FIRE_VERTS 4096
 #define FIRE_FADE 14.0f     /* metres short of the swap the firelight starts to go */
@@ -183,6 +184,14 @@ static void fire_light(void) {
     bool any = false;
     for(int g = 0; g < GLOW_GROUPS; g++) {
         level[g] = glow_level[g] >= 0.03f && r_sphere_visible(glow_c[g], glow_r[g]) ? glow_level[g] : 0;
+        if(level[g] > 0) {
+            /* From across the valley a fire is its glow (glow.c holds
+               that a few pixels wide); what it lights round it is too
+               small to see, and a camp of them is thousands of
+               vertices. */
+            float d = vlen(vsub(glow_c[g], r_cam.pos));
+            level[g] *= clampf((GLOW_LIT_FAR - d) * (1.0f / 40.0f), 0, 1);
+        }
         any |= level[g] > 0;
     }
     if(!any) return;

@@ -5,7 +5,8 @@
    every vertex is weighted once (nothing here moves) and only scaled by
    the group's flicker each frame. A lantern is a soft glow round a hot
    point, held a few pixels wide from far off so the lookout shows from
-   the valley. Nothing is drawn by day. */
+   the valley. A lit window is a pane of the same warm light laid on the
+   glass. Nothing is drawn by day. */
 #include "glow.h"
 #include "campfire.h"
 #include "world.h"
@@ -32,17 +33,45 @@ typedef struct {
 } Fan;
 static Fan fans[GLOW_GROUPS];
 
+/* A trailer's lit windows: a quad each, just clear of the glass. */
+#define PANES 16
+typedef struct {
+    V3 q[4];
+    uint8_t group;
+} Pane;
+static Pane panes[PANES];
+static int pane_n;
+
+static void pane(const lvl_prop_t *p, int group, float side, float along, float y, float half_w, float half_h) {
+    if(pane_n >= PANES) return;
+    float sy = sinf(p->yaw), cy = cosf(p->yaw);
+    V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy);
+    Pane *pn = &panes[pane_n++];
+    pn->group = (uint8_t)group;
+    for(int k = 0; k < 4; k++) {
+        float a = (k & 1 ? half_w : -half_w), h = (k & 2 ? -half_h : half_h);
+        /* side 0: the window in the end wall, toward the hitch. */
+        V3 at = side != 0 ? v3(r.x * side + f.x * (along + a), 0, r.z * side + f.z * (along + a))
+                          : v3(f.x * along + r.x * a, 0, f.z * along + r.z * a);
+        pn->q[k] = v3(p->x + at.x, p->y + y + h, p->z + at.z);
+    }
+}
+
 /* The lookout's lanterns from its base: one under each corner of the
    roof, a bigger one hung under the deck. */
 static const V3 tower_lanterns[5] = {{-2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, 2.25f},
                                      {-2.25f, 7.72f, 2.25f}, {0, 5.5f, 0}};
 
 void glow_place(void) {
-    glow_n = 0;
+    glow_n = pane_n = 0;
     V3 f;
-    if(campfire_place(&f)) glows[glow_n++] = (Glow){v3(f.x, f.y + 0.5f, f.z), 20.0f, 5.0f, 1.0f, GLOW_FIRE, false, 0, 0, false};
+    campfire_place();
+    for(int k = 0; k < CAMPFIRES; k++)
+        if(campfire_lit(k, &f))
+            glows[glow_n++] = (Glow){v3(f.x, f.y + 0.5f, f.z), 20.0f, 5.0f, 1.0f, (uint8_t)(GLOW_FIRE + k), false, 0, 0, false};
     /* The first lookout, cabin and picnic table are the ones lit. */
     bool tower = false, cabin = false, table = false;
+    int campers = 0, camps = 0;
     for(int i = 0; i < LVL_PROPS; i++) {
         const lvl_prop_t *p = &lvl_props[i];
         float sy = sinf(p->yaw), cy = cosf(p->yaw);
@@ -66,6 +95,21 @@ void glow_place(void) {
             table = true;
             V3 q = v3(p->x + cy * 0.9f, p->y + 2.2f, p->z - sy * 0.9f);
             glows[glow_n++] = (Glow){q, 12.0f, 3.2f, 0.95f, GLOW_TABLE, true, 0.11f, 0.22f, false};
+        }
+        else if(p->kind == PROP_CAMPER) {
+            /* Someone is in three trailers of every five. A lantern hung
+               under the awning, over the door; light in the long window
+               and the one by the hitch, and in the small one for some. */
+            int k = campers++ % 5;
+            if(k == 1 || k == 4 || camps >= GLOW_CAMPS) continue;
+            int g = GLOW_CAMP + camps++;
+            V3 q = v3(p->x + cy * 2.5f + sy * 0.3f, p->y + 1.84f, p->z - sy * 2.5f + cy * 0.3f);
+            glows[glow_n++] = (Glow){q, 13.0f, 3.6f, 1.0f, (uint8_t)g, true, 0.11f, 0.24f, false};
+            for(int side = -1; side <= 1; side += 2) {
+                pane(p, g, side * 1.2f, 1.2f, 2.0f, 0.58f, 0.23f);
+                if(k != 2) pane(p, g, side * 1.2f, -1.5f, 2.0f, 0.36f, 0.23f);
+            }
+            pane(p, g, 0, 2.95f, 2.0f, 0.66f, 0.23f);
         }
         else if(p->kind == PROP_TABLE && !table) {
             /* Stood on one end of the table. */
@@ -229,6 +273,17 @@ void glow_draw_tr(void) {
             float d = vlen(vsub(gl->p, r_cam.pos));
             sprite(gl->p, fmaxf(0.75f * gl->k + 0.25f, d * 0.009f), color_alpha(0xffff8a30, 0.3f * lv * fog));
             sprite(gl->p, fmaxf(0.16f, d * 0.0035f), color_alpha(0xffffe2a0, 0.9f * lv * fog));
+        }
+        if(g >= GLOW_CAMP && dist < 260.0f) {
+            /* (the middle of the glow's texture: all of the colour) */
+            uint32_t col = color_alpha(0xffffc470, 0.85f * lv * fog);
+            for(int i = 0; i < pane_n; i++) {
+                const Pane *pn = &panes[i];
+                if(pn->group != g) continue;
+                RV q[4];
+                for(int k = 0; k < 4; k++) q[k] = (RV){pn->q[k].x, pn->q[k].y, pn->q[k].z, 0.5f, 0.5f, col};
+                r_strip(q, 4);
+            }
         }
     }
 }

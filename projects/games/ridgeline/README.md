@@ -56,7 +56,10 @@ the viewpoints you've found.
   bowl and out again, deep sand most of the way). From there one line
   climbs the king dune. Sand comes three ways: packed and damp, as good
   as a road; loose; and deep, on the slip faces, the crests and in the
-  bowls, where the tyres sink to the rims. The flats by the camp are the
+  bowls, where the tyres sink to the rims. A tyre crossing a slip face
+  sets the sand below it sliding, and a line of prints stays on a dune
+  for minutes, wearing away gust by gust, first off the side the wind
+  is on. The flats by the camp are the
   playground: barchans, a punch bowl, a drag strip, the mud flats and
   their wallow, a bar to wade out to an island
 - Physics: suspension per wheel with ledge-climbing tyre contact, tyres
@@ -104,8 +107,11 @@ the viewpoints you've found.
   island in the lake over the dunes, ravens on the crossarms, and white
   pelicans raft on the water until a truck comes too near. Every truck
   carries a flag on a whip that lays back as it pulls away and quivers
-  after a landing. In a gust the crests smoke with blown sand, and
-  tumbleweeds cross the flats. Past the map the reservoir runs on to the
+  after a landing, and after dark the whips are lit, a colour to a rig.
+  The camp has quads and a sand rail parked by the trailers; at night
+  there are lights in the windows of the ones someone is in, a lantern
+  under each awning and a second fire with chairs round it. In a gust
+  the crests smoke with blown sand, and tumbleweeds cross the flats. Past the map the reservoir runs on to the
   south, the dunes west, and on the bench the irrigated circles; the
   Saddle Mountains and their gap on the skyline, the Cascades and one
   white volcano far to the west
@@ -404,9 +410,80 @@ The lake is ~7,900 water vertices, six times Cascade Ridge's: it is drawn
 on a 6 m grid past 70 m and a 12 m one past 190 m. In `tools/hostsim` all
 eighteen climbs (six vehicles, three routes) reach the top without a
 winch, and two hours of four CPU trucks going round (`SIM_AREA=2 sim loop
-120 4`) is ~49 summits and 5 winches (Cascade Ridge: 29 and 99). With
+120 4`) is ~49 summits and no winches (Cascade Ridge: 29 and 99). With
 three areas linked ~1.2 MB of the heap is free with it loaded, and ~0.9
 MB of the room the textures were linked into.
+
+The camp's lights, the lit whips, the sliding sand and prints that last
+(2026-11-11): in Flycast the dune drive is 8.39 ms a frame against 8.60
+on the build before. The dunes' tyre prints are rings of up to 1,536
+points a wheel, every truck's: walked point by point they cost 1.7 ms on
+the king dune, most of it building strips that were then behind the
+camera (what was done about that is below).
+
+On the console, each run on the build before all of this and on the one
+after (three CPU trucks; `-DRL_AT_SECONDS=300` takes the shore road to the
+top and back off it, `-DRL_AT_TOD=TOD_NIGHT` starts in the dark at the
+camp):
+
+| ms a frame, before / after | Shore road to the top, 300 s | Razorback, 180 s | Night at the camp, 60 s |
+| --- | --- | --- | --- |
+| CPU, average | 12.96 / 12.52 | 11.75 / 11.65 | 12.65 / 12.59 |
+| The way down from the top | 18.1 / 15.3 | | |
+| Late frames | 429 / 60 of ~18,200 | 39 / 36 of ~11,050 | 23 / 15 of ~3,850 |
+| Translucent pass (prints, slides, lights) | 1.87 / 1.53 | 1.57 / 1.28 | 1.94 / 1.79 |
+| Trucks | 2.05 / 1.94 | 1.47 / 1.47 | 1.43 / 1.43 |
+| Update | 3.78 / 3.75 | 3.60 / 3.65 | 3.38 / 3.39 |
+| Terrain | 3.54 / 3.65 | 3.83 / 4.00 | 3.74 / 3.89 |
+| PVR render | 10.85 / 11.11 | 10.24 / 10.45 | 9.26 / 9.67 |
+
+- Lit whips cost the PVR ~0.4 ms with four trucks in view. A glow too
+  faint to see costs as much as a bright one, so they stay off until the
+  sun is down (dusk was paying 0.6 ms for nothing)
+- A build between these two, with the camp and the sand but before the
+  work on the way down, read 13.43, 12.15 and 13.19: its update was 4.09
+  ms against 3.78 and 3.75 either side, from the same update code. Where
+  the linker puts things moves the update and the terrain by ~0.3 ms
+  (the SH-4's caches are direct-mapped), so an A/B on the console is
+  only good to about 0.4 ms of CPU
+
+Coming back down from the top the camera looks over the whole area with
+the other trucks all round it: ~17,000 vertices a frame against ~7,600
+on the climb, and 18 ms a frame on the console at night, which was most
+of a run's late frames. What that was made of, and what was done about
+it (the Flycast figures are the two 10 s windows on the way down, 12.4 ms
+a frame before and 10.9 after):
+
+- A truck at full detail is ~3,400 vertices, over three times the next
+  level, and every truck within 9 m had it: 3.9 ms of the console's
+  frame with all four together. Now the player's and the nearest one in
+  front of the camera (photo mode: all that are close): 2.6-3.0 ms
+- The camp's trailers and the powerline's frames were drawn whole from
+  500 m (0.8 ms in Flycast of awning poles and insulators). Past 250 m a
+  trailer is its box, stripe and awning and a frame its poles and
+  crossarm; whip flags, quads and the rest stop there, and a warm
+  light's light on the scenery by 260 m (its glow still shows from
+  anywhere)
+- Tyre prints cost three times what terrain does a vertex, built and
+  bounded one at a time: 1.0 ms in Flycast looking back down a whole
+  climb, 0.28 on the way up. A block of sixteen that is one run now goes
+  out as one strip on the block's sphere (every other print past 30 m,
+  every fourth past 70), and a full ring is culled eight blocks at a
+  time first: 0.65 and 0.21 ms. Every area's prints go this way. Only
+  the player's show from 105 m, the others' from 35
+- The clock's relighting takes ~1.1 ms a frame on the console. After a
+  frame over 15 ms it does 40% of its share: the light takes a few
+  seconds longer to get round, and the way down gets 0.4-0.6 ms back
+- Not touched: the land past the map (0.9 ms in Flycast from the top
+  against 0.3 on the climb) and the far terrain (0.55 against 0.25),
+  which are the view
+
+The crests' fix (Gotchas: cells split the way their heights lie) landed
+with all of this and after the console runs above, which are without it.
+In Flycast it puts the dune drive at 8.66 ms a frame (8.39 without it,
+8.60 before any of this) and the way down at 11.5 (10.9 without, 12.4
+before), all of it terrain: on the console the way down is probably back
+near 16 ms, and that has not been measured.
 
 Moses Lake on the console (`make hwbench EXTRA_CFLAGS=-DRL_AT_AREA=2`,
 2026-11-10, 180 s from 17:00 into the night with three CPU trucks), and
@@ -542,9 +619,34 @@ from 64 to 26.
 - A track laid through a dune's crest leaves a canyon no sand would
   stand in: the cut is slumped to the angle of rest (`settle`) and the
   track trued up again
+- A grid whose cells are all split along the same diagonal draws a ridge
+  that runs the other way as a row of teeth. Moses Lake's cells are each
+  split the way their heights lie (`LvlLook.fit_split`, a table built at
+  load) and its crests are moved on to the 6 m grid's vertices
+  (`snap_crest`), so a crest is a line of mesh edges on the 3 m and 6 m
+  grids alike. It costs ~4% more ground vertices, 0.2-0.3 ms of Flycast CPU;
+  the other two areas draw and cost what they did
+- Two tracks closing on each other leave a blade of ground a vertex wide
+  between their cuts, and an outcrop built with a level foot stands out of
+  a slope as a shelf. The level tool opens the first away and runs the
+  second's foot on down as an apron of sand. Scab Rock's shelf lay across
+  the summit track: CPU trucks were winched off it 21 times in twelve
+  simulated hours, and once since
 - A wire a pixel wide breaks into dashes, and three of them far off run
   together into a band: near spans are three solid ribbons ~2 pixels
   wide, far ones the middle wire alone, translucent (`src/dunes.c`)
+- A ribbon of light down the middle of a thin pole (a lit whip) shows in
+  dashes where the pole's own faces win the depth test: it is drawn a few
+  centimetres nearer the camera
+- Something laid on the ground takes its colour from the ground as it is
+  lit now (`lvl_c`), a shade darker or paler. Sliding sand in a fixed
+  sand colour was a dark smear on a shaded face and white paint on a
+  sunny one
+- `Wheel.cn` is never filled in: the ground's normal under a tyre comes
+  from `terrain_height_n`
+- GCC 15 for the SH-4 dies ("in gen_reg_rtx") on a loop that picks float
+  constants with `k & 1 ? a : -a` beside inlined calls (the camp chair's
+  legs in `world.c`): a table of the constants compiles
 - The tables an area fills when it loads (the far ground's relight
   sources, the scenery's, the water's) are a fixed size and live in the
   room the textures were linked into, free once the PVR has them

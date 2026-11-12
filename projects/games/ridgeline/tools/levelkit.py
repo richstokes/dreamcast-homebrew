@@ -338,7 +338,8 @@ def apply_mud(h, mud):
 # in its way; every tree's height is read again from the final ground.
 
 PROP = {n: i for i, n in enumerate(["CABIN", "SIGN", "TABLE", "CAIRN", "TOWER", "BRIDGE", "WRECK", "ARCH", "TENT",
-                                    "KIOSK", "RAMADA", "PANEL", "TRACKS", "ADIT", "PLATE", "PYLON", "CAMPER", "FLAG"])}
+                                    "KIOSK", "RAMADA", "PANEL", "TRACKS", "ADIT", "PLATE", "PYLON", "CAMPER", "FLAG",
+                                    "FIREPIT", "QUAD", "RAIL"])}
 BRIDGE_HX, BRIDGE_HZ = 2.9, 7.0     # deck half width and half length (world.c draws the same)
 
 

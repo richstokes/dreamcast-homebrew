@@ -44,6 +44,9 @@ enum {
     PROP_PYLON,     /* a powerline's H-frame (dunes.c hangs the wires between them) */
     PROP_CAMPER,    /* a travel trailer parked up, its awning out */
     PROP_FLAG,      /* a whip and its pennant stuck in the sand */
+    PROP_FIREPIT,   /* a ring of stones with a fire in it (campfire.c), camp chairs and a cooler by it */
+    PROP_QUAD,      /* a quad bike parked up, a whip on its tail */
+    PROP_RAIL,      /* a sand rail: a tube-framed buggy on paddle tyres */
     PROP_KIND_COUNT
 };
 #define LVL_BRIDGE_HX 2.90f
@@ -100,7 +103,7 @@ typedef struct {
 
 #define LVL_MAX_TREES 2048
 #define LVL_MAX_BOXES 96
-#define LVL_MAX_PROPS 48
+#define LVL_MAX_PROPS 56
 #define LVL_MAX_VIEWS 16
 #define LVL_MAX_ROCKS 96
 #define LVL_ROCK_RINGS 24      /* the most rings one rock is lofted over */
@@ -143,6 +146,7 @@ typedef struct {
     bool cloud_cap;                /* a cap of cloud sits on the summit */
     float woods;                   /* how much of the forest's sound: birdsong, the trees */
     bool lake;                     /* still water by the acre: drawn coarser sooner (water.c), and quieter */
+    bool fit_split;                /* each cell of the ground split the way its heights lie (terrain.c) */
 } LvlLook;
 
 extern const RlLevel *lvl;
