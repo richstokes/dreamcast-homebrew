@@ -571,8 +571,10 @@ An eighth (the Eagle, 2026-11-11) did not fit: an online lobby ran out of
 heap. The trucks' vertex and index tables in the program (~720 KiB, read
 once at boot) now take the built meshes back in as each truck is built:
 692 KiB of heap returned, so with eight vehicles 0.81 MB is free at boot
-and 0.66 MB in an online lobby after an area switch (Flycast; the console
-has not run it).
+and 0.66 MB in an online lobby after an area switch. On the console
+(`make hwbench`, the logging road with three CPU trucks, 180 s) the frame
+is 12.64 ms where the build before it was 13.18, the same in every window
+of two runs each: where the tables and meshes now sit suits the cache.
 
 On the console (`make hwbench EXTRA_CFLAGS=-DRL_AT_AREA=3`, 180 s from
 17:00 into the night with three CPU trucks), Cascade Ridge on the same
