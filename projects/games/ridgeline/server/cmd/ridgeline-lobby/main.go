@@ -1,4 +1,4 @@
-// ridgeline-lobby is the Ridgeline online server: ten lobbies of up to
+// ridgeline-lobby is the Ridgeline online server: twelve lobbies of up to
 // four Dreamcasts on the mountain, over UDP. See ../../PROTOCOL.md and
 // ../../README.md.
 package main

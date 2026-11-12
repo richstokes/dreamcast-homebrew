@@ -6,9 +6,11 @@
 #include "rl.h"
 #include "net.h"
 
-/* A lobby is one area's: five each, in the areas' order. Every console
-   works it out from the lobby's number. (A build from before an area was
-   added lists only the lobbies it knows, and the server keeps the rest.) */
+/* A lobby is one area's: three each, in the areas' order, which is as
+   many as the browser shows on one page with four areas. Every console
+   works it out from the lobby's number, so a change to how many an area
+   has needs RL_NET_MIN_BUILD raised with it: an older build would put the
+   same lobby in another area. */
 #define ONLINE_AREA_LOBBIES (NET_LOBBIES / AREA_COUNT)
 static inline int online_lobby_area(int lobby) {
     return lobby / ONLINE_AREA_LOBBIES;

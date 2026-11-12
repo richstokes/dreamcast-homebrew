@@ -158,7 +158,7 @@ no clock: how high you've been, and the viewpoints you've found.
   you get close or sound the horn
 - Up to three CPU trucks for company, each taking its own route up, then
   back down another way and up again for as long as you stay out
-- Online: twenty lobbies of four, five on each area, by broadband adapter,
+- Online: twelve lobbies of four, three on each area, by broadband adapter,
   W5500 or modem (a DreamPi or any dial-up server). Drop in and out
   whenever you like; there is no race. Everyone's name floats over their
   truck, horns carry, the lobby shares one time of day, and reaching the
@@ -236,7 +236,7 @@ make -C projects/games/ridgeline run
 | `make run` | Builds and boots it in Flycast |
 | `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake, `=3` for Loch Lowland, and `-DRL_AT_RAIN=0.9f` for a shower the whole way (any test build takes them) |
 | `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, a slower time doesn't replace it, and each area keeps its own |
-| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 5, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=9` joins a Mesa Grande lobby, `=12` a Moses Lake one, `=17` a Loch Lowland one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
+| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 3, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=5` joins a Mesa Grande lobby, `=8` a Moses Lake one, `=11` a Loch Lowland one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |

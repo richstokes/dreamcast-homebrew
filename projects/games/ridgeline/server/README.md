@@ -1,11 +1,12 @@
 # Ridgeline online server
 
-The online server for [Ridgeline](../README.md): Go, fifteen lobbies of up to
+The online server for [Ridgeline](../README.md): Go, twelve lobbies of up to
 four Dreamcasts over UDP port 7536 at `dcvmu.com`, reachable by broadband
-adapter, W5500 or 56k modem. Lobbies 1-5 are Cascade Ridge's, 6-10
-Mesa Grande's, 11-15 Moses Lake's and 16-20 Loch Lowland's: the consoles
-work that out from the lobby's number, the server never knows. A build
-from before an area was added lists only the lobbies it knows. Players drop in and out of a lobby whenever
+adapter, W5500 or 56k modem. Lobbies 1-3 are Cascade Ridge's, 4-6 Mesa
+Grande's, 7-9 Moses Lake's and 10-12 Loch Lowland's: the consoles work
+that out from the lobby's number, the server never knows. Changing how
+many an area has moves every later lobby to another area, so the minimum
+build goes up with it. Players drop in and out of a lobby whenever
 they like; there is no race and no leader. The server hands out slots,
 keeps each lobby's time of day, relays everyone's truck 12 times a second
 and remembers who has reached the summit (a trophy by their name). A
@@ -72,14 +73,14 @@ emulated modem; `RL_QA_LIVE=1` uses dcvmu.com. To do it by hand:
 
 ```bash
 go run ./cmd/ridgeline-lobby -listen :7594 -words-extra BLORP     # -lag 40ms -jitter 8ms fakes a WAN
-go run ./cmd/rl-bot -addr 127.0.0.1:7594 -lobby 5 -summit-after 5s -level ../assets/generated/level_cascade.lvl
+go run ./cmd/rl-bot -addr 127.0.0.1:7594 -lobby 3 -summit-after 5s -level ../assets/generated/level_cascade.lvl
 make -C .. VARIANT=autotest ridgeline-autotest.elf EXTRA_CFLAGS="-DRL_AT_ONLINE -DRL_NET_TEST_HOST=$(ipconfig getifaddr en0) -DRL_NET_PORT=7594"
 cd .. && RL_ELF=ridgeline-autotest.elf RL_EXIT_ON_LOG='RL AUTOTEST: PASS' RL_FAIL_ON_LOG='RL AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 ```
 
 `rl-bot` drives a loop in the meadow (`-x -z -radius -speed`), heights read
-from the area's packed level (`level_moab.lvl` for lobbies 6-10, `level_dunes.lvl` for 11-15,
-`level_lowland.lvl` for 16-20), and logs
+from the area's packed level (`level_moab.lvl` for lobbies 4-6, `level_dunes.lvl` for 7-9,
+`level_lowland.lvl` for 10-12), and logs
 the lobby and everyone else's truck.
 `-summit-after` claims the summit, `-leave-after` and `-away` drop out and
 back in. Two consoles: build the autotest twice with

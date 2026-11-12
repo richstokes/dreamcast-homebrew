@@ -2,7 +2,7 @@
 # make online-test: Ridgeline's online mode in Flycast. Builds the server
 # and its bot from server/, runs them on this Mac, builds the online
 # autotest pointed at this Mac's LAN address (Flycast's network proxy can't
-# reach 127.0.0.1) and boots it. The console joins lobby 5, where the bot
+# reach 127.0.0.1) and boots it. The console joins lobby 3, where the bot
 # drives a loop in the meadow, claims the summit, leaves and comes back;
 # the CPU drives the console's truck, which jumps to the summit 25 s in.
 # Passes when each has seen the other's truck and both trophies show.
@@ -10,17 +10,17 @@
 #   RL_NET=modem      dial in through Flycast's emulated modem instead
 #   RL_QA_LIVE=1      against the live server at dcvmu.com:7536
 #   RL_QA_PORT=7594   the local server's port
-#   RL_QA_LOBBY=9     another lobby (6-10 are Mesa Grande's, 11-15 Moses Lake's, 16-20 Loch Lowland's)
+#   RL_QA_LOBBY=5     another lobby (4-6 are Mesa Grande's, 7-9 Moses Lake's, 10-12 Loch Lowland's)
 #   RL_BOT_TRUCK=2    the bot's truck model (default 0, the Cascade 84)
 set -euo pipefail
 
 GAME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${RL_QA_PORT:-7594}"
-LOBBY="${RL_QA_LOBBY:-5}"
+LOBBY="${RL_QA_LOBBY:-3}"
 AREA=cascade
-if [[ "${LOBBY}" -gt 5 ]]; then AREA=moab; fi
-if [[ "${LOBBY}" -gt 10 ]]; then AREA=dunes; fi
-if [[ "${LOBBY}" -gt 15 ]]; then AREA=lowland; fi
+if [[ "${LOBBY}" -gt 3 ]]; then AREA=moab; fi
+if [[ "${LOBBY}" -gt 6 ]]; then AREA=dunes; fi
+if [[ "${LOBBY}" -gt 9 ]]; then AREA=lowland; fi
 OUT="${GAME}/build/online-test"
 mkdir -p "${OUT}"
 pids=()
