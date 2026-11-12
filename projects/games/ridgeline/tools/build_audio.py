@@ -669,9 +669,14 @@ ENGINES = (CASCADE, KESTREL, BOBCAT, FFR, TACO)
 # The Goose has no samples of its own: the sound RAM is full (5 KiB spare).
 # It plays the Taco's loops with their rpm points stretched to its 8000
 # redline, so the turbo four comes out 38% higher and busier, with the
-# Cascade's horn and the Kestrel's start. (truck, loops from, horn from,
-# start from, idle, redline)
-BORROWED = (("GOOSE", TACO, CASCADE, KESTREL, 1200, 8000),)
+# Cascade's horn and the Kestrel's start.
+# The One Ten's V8 is the FFR's pushrod V6 with its rpm points at three
+# quarters: eight firings a cycle for the V6's six, so a loop plays a third
+# faster at the same revs and the exhaust note lands where a V8's would.
+# The Cascade's horn, the FFR's start.
+# (truck, loops from, horn from, start from, idle, redline, rpm stretch)
+BORROWED = (("GOOSE", TACO, CASCADE, KESTREL, 1200, 8000, 8000 / TACO.redline),
+            ("ONE TEN", FFR, CASCADE, FFR, 650, 5000, 6 / 8))
 
 
 def loop_geometry(e: Engine, i: int):
@@ -1545,8 +1550,8 @@ def write_header(out, entries):
     # Each truck's row: its name, whose loops it plays and how far their rpm
     # points are stretched, its idle and redline, whose horn and start.
     rows = [(e.label, e, 1.0, e.idle, e.redline, e.horn or e.key, e.start or e.key) for e in ENGINES]
-    rows += [(name, src, redline / src.redline, idle, redline, horn.horn or horn.key, start.start or start.key)
-             for name, src, horn, start, idle, redline in BORROWED]
+    rows += [(name, src, stretch, idle, redline, horn.horn or horn.key, start.start or start.key)
+             for name, src, horn, start, idle, redline, stretch in BORROWED]
     for label, e, stretch, idle, redline, _horn, _start in rows:
         _, _, rpms = engine_set(e)
         on = ", ".join(f"RL_SFX_{e.key}_ON_{i}" for i in range(ENGINE_LOOPS))

@@ -46,6 +46,7 @@ void truck_spec(TruckSpec *s, int model) {
     s->grip = 1.0f;
     s->damp_bump = 0.28f;
     s->damp_rebound = 0.45f;
+    s->fade = 0.30f;
     if(model == 0) {
         /* CASCADE 84: an early-80s compact pickup. A 2.4 L four, light,
            short wheelbase, solid front axle. */
@@ -215,7 +216,7 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 2.57f;
         s->brake_torque = 2100.0f;
     }
-    else {
+    else if(model == 5) {
         /* GOOSE: a four-seat sport side-by-side. Half the weight of the
            trucks on the longest wheelbase here (3.43 m), a 900 cc turbo
            triple behind the seats (~45% of the weight on the front) that
@@ -255,6 +256,45 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 1.90f;
         s->brake_torque = 1300.0f;
     }
+    else {
+        /* ONE TEN: a mid-80s British long-wheelbase station wagon. A 3.5 L
+           carburettor V8 with its torque at 2500, out of breath past 4000
+           (fade puts its 85 kW there) and the least power for its weight
+           here. Coil-sprung live
+           axles with long travel keep the tyres on the ground, the weight
+           sits evenly on them (~48% front), and it is tall on a narrow
+           track with a poor steering lock. The transfer case's 1.41 high
+           range is in the final drive; its 3.32 low is what is left. */
+        s->name = "ONE TEN";
+        s->mass = 2000.0f;
+        s->inertia = v3(4000.0f, 4100.0f, 1000.0f);
+        s->cog_y = 0.84f;
+        s->cog_z = -0.05f;
+        s->lsd = 100.0f;
+        s->radius = 0.40f;
+        s->width = 0.22f;
+        for(int i = 0; i < 4; i++)
+            s->wheel[i] = v3((i & 1) ? 0.745f : -0.745f, s->radius, (i < 2) ? 1.397f : -1.397f);
+        s->travel = 0.36f;
+        s->sag = 0.38f;
+        s->wheel_inertia = 1.8f;
+        s->max_steer = 0.54f;
+        s->body_lo[0] = -0.90f; s->body_lo[1] = 0.52f; s->body_lo[2] = -2.55f;
+        s->body_hi[0] = 0.90f; s->body_hi[1] = 2.02f; s->body_hi[2] = 2.05f;
+        s->wade = 0.70f;
+        s->idle_rpm = 650.0f;
+        s->redline_rpm = 5000.0f;
+        s->peak_torque = 251.0f;
+        s->peak_rpm = 2500.0f;
+        s->fade = 0.53f;
+        s->gears = 5;
+        static const float r[5] = {3.65f, 2.18f, 1.44f, 1.00f, 0.79f};
+        memcpy(s->ratio, r, sizeof(r));
+        s->reverse = 3.82f;
+        s->final_drive = 4.99f;
+        s->low_range = 2.35f;
+        s->brake_torque = 1850.0f;
+    }
 #ifdef HAVE_TRUCK_MODELS
     const rl_truck_info_t *ti = &rl_truck_info[model];
     s->radius = ti->wheel_radius;
@@ -284,7 +324,8 @@ void truck_spec(TruckSpec *s, int model) {
     /* Low range holds the automatic to the gears whose redline is under
        LOW_RANGE_TOP_MPS, as modern 4L modes do: 2nd in the pickup (~22 mph),
        4th in the Kestrel (~28 mph), 3rd in the Bobcat (~22 mph), 2nd in the
-       FFR and the Taco (~22 mph), 3rd in the Goose (~27 mph). */
+       FFR and the Taco (~22 mph), 3rd in the Goose (~27 mph) and the One
+       Ten (~28 mph). */
     s->low_top_gear = 1;
     for(int g = 1; g <= s->gears; g++) {
         float v = s->redline_rpm / RPM_PER_RADS / (s->ratio[g - 1] * s->final_drive * s->low_range) * s->radius;
@@ -394,7 +435,7 @@ static float engine_torque(const TruckSpec *s, float rpm) {
         return s->peak_torque * (0.55f + 0.45f * x * (2.0f - x));
     }
     x = clampf((rpm - s->peak_rpm) / (s->redline_rpm - s->peak_rpm), 0, 1.2f);
-    return s->peak_torque * (1.0f - 0.30f * x * x);
+    return s->peak_torque * (1.0f - s->fade * x * x);
 }
 
 static float engine_friction(const TruckSpec *s, float rpm) {

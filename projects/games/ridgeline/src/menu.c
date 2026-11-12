@@ -67,7 +67,7 @@ const char *menu_truck_name(int model) {
 #ifdef HAVE_TRUCK_MODELS
     return rl_truck_info[model].name;
 #else
-    static const char *const n[TRUCK_MODELS] = {"CASCADE 84", "KESTREL", "BOBCAT", "FFR", "TACO", "GOOSE"};
+    static const char *const n[TRUCK_MODELS] = {"CASCADE 84", "KESTREL", "BOBCAT", "FFR", "TACO", "GOOSE", "ONE TEN"};
     return n[model % TRUCK_MODELS];
 #endif
 }
