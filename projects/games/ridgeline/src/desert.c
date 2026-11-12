@@ -60,7 +60,7 @@ static bool open_ground(float x, float z) {
 void desert_init(void) {
     h_weed = r_header(TEX_WEED, HF_PT);
     h_dust = r_header(TEX_PUFF, HF_TR);
-    on = lvl_area != AREA_CASCADE;
+    on = lvl_area == AREA_MOAB || lvl_area == AREA_DUNES;
     for(int i = 0; i < WEEDS; i++) weeds[i].live = false;
     devil.live = false;
     devil_wait = 20.0f;

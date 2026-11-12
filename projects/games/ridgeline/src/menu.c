@@ -353,25 +353,23 @@ static void select_rows(float x0, float x1, float y0, float y1, const char *cons
     }
 }
 
-/* The area page: the picked area's map, what it is and its ways up, over
-   one row to change it and the button. */
-static void area_draw(void) {
-    const RlLevel *a = rl_levels[area_pick];
-    ui_heading(320, 40, "CHOOSE YOUR AREA");
-    ui_panel(70, 74, 570, 306);
-    r_hdr(hud_map_hdr(area_pick));
-    r_quad2d(86, 90, 286, 290, 0, 0, 1, 1, 0xffffffff, 12.0f);
+/* An area's card, its top at y0: its map, what it is and its ways up. */
+void menu_area_card(int area, float y0) {
+    const RlLevel *a = rl_levels[area];
+    ui_panel(70, y0, 570, y0 + 232);
+    r_hdr(hud_map_hdr(area));
+    r_quad2d(86, y0 + 16, 286, y0 + 216, 0, 0, 1, 1, 0xffffffff, 12.0f);
     const float tx = 304;
-    hud_text_c(tx, 104, 0.8f, ALIGN_LEFT, ui_col(UI_TITLE), a->name);
-    hud_text_c(tx, 130, 0.42f, ALIGN_LEFT, ui_col(UI_LABEL), a->blurb);
+    hud_text_c(tx, y0 + 30, 0.8f, ALIGN_LEFT, ui_col(UI_TITLE), a->name);
+    hud_text_c(tx, y0 + 56, 0.42f, ALIGN_LEFT, ui_col(UI_LABEL), a->blurb);
     char buf[40];
     snprintf(buf, sizeof(buf), "SUMMIT %d FT", (int)((float)a->base_ft + a->summit_y * M_TO_FT));
-    hud_text_c(tx, 160, 0.5f, ALIGN_LEFT, ui_col(UI_TEXT), buf);
-    hud_text_c(tx, 190, 0.46f, ALIGN_LEFT, ui_col(UI_ACCENT), "WAYS UP");
+    hud_text_c(tx, y0 + 86, 0.5f, ALIGN_LEFT, ui_col(UI_TEXT), buf);
+    hud_text_c(tx, y0 + 116, 0.46f, ALIGN_LEFT, ui_col(UI_ACCENT), "WAYS UP");
     /* Easiest first. */
     static const char *const grade[3] = {"EASY", "HARDER", "HARDEST"};
     static const int role[3] = {UI_GOOD, UI_ACCENT, UI_WARN};
-    float y = 214;
+    float y = y0 + 140;
     for(int d = 1; d <= 3; d++)
         for(int r = 1; r <= 3; r++) {
             if(a->routes[r].difficulty != d) continue;
@@ -379,6 +377,14 @@ static void area_draw(void) {
             hud_text_c(554, y, 0.46f, ALIGN_RIGHT, ui_col(role[d - 1]), grade[d - 1]);
             y += 24;
         }
+}
+
+/* The area page: the picked area's card over one row to change it and the
+   button. */
+static void area_draw(void) {
+    const RlLevel *a = rl_levels[area_pick];
+    ui_heading(320, 40, "CHOOSE YOUR AREA");
+    menu_area_card(area_pick, 74);
     ui_panel(140, 330, 500, 432);
     bool on = sel_row == 0;
     uint32_t c = ui_col(on ? UI_VALUE_SEL : UI_VALUE);

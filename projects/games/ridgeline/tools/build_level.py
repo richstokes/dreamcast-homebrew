@@ -4,8 +4,8 @@
 # dependencies = ["numpy>=1.26", "scipy>=1.11", "pillow>=10.1", "lz4>=4.3"]
 # ///
 """Build Ridgeline's levels. This file is Cascade Ridge, a Pacific Northwest
-mountain; --area moab (or all) also builds Mesa Grande (level_moab.py).
-Both use levelkit.py.
+mountain; --area moab builds Mesa Grande (level_moab.py), --area lowland
+Loch Lowland (level_lowland.py), all the lot. They share levelkit.py.
 
 A meadow to play in at the south end, a trailhead, and three routes up the
 mountain that meet at an alpine lake before the last climb to the summit:
@@ -728,6 +728,7 @@ def build(out, preview=None, raw=None):
         views.append((p[0], gy(p[0], p[1]), p[1], names[r["name"]]))
     for v in views[:-1]:
         props.append((v[0] + 4.0, gy(v[0] + 4.0, v[2]), v[2], 0.0, 3))
+    boxes += cairn_boxes(props)
     views.append((LAKE_C[0] + LAKE_R + 6, gy(LAKE_C[0] + LAKE_R + 6, LAKE_C[1]), LAKE_C[1], "MIRROR LAKE"))
     for (vx, vz, name) in extra_views:
         views.append((vx, gy(vx, vz), vz, name))
@@ -779,7 +780,7 @@ def build(out, preview=None, raw=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--area", choices=["cascade", "moab", "dunes", "all"], default="all")
+    ap.add_argument("--area", choices=["cascade", "moab", "dunes", "lowland", "all"], default="all")
     ap.add_argument("--preview", type=Path, default=None, help="a folder for each area's preview picture")
     ap.add_argument("--raw", type=Path, default=None, help="a folder for each area's grid unpacked (level_<area>.bin)")
     args = ap.parse_args()
@@ -798,6 +799,9 @@ def main():
     if args.area in ("dunes", "all"):
         import level_dunes
         level_dunes.build(args.out, opt(args.preview, "level-dunes.png"), opt(args.raw, "level_dunes.bin"))
+    if args.area in ("lowland", "all"):
+        import level_lowland
+        level_lowland.build(args.out, opt(args.preview, "level-lowland.png"), opt(args.raw, "level_lowland.bin"))
 
 
 if __name__ == "__main__":

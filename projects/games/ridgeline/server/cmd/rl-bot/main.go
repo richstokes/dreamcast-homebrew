@@ -96,7 +96,7 @@ func lz4Block(src []byte, n int) ([]byte, error) {
 // as src/level.c unpacks them: "RLVL", a version, the heights' base and
 // step, five block sizes, then the heights' block: zigzagged residuals
 // from a plane through each vertex's left, upper and upper-left
-// neighbours, low bytes then high.
+// neighbours (kept to 16 bits), low bytes then high.
 func loadTerrain(path string) (terrain, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -131,6 +131,7 @@ func loadTerrain(path string) (terrain, error) {
 			case j > 0:
 				v += q[k-1] + q[k-levelN] - q[k-levelN-1]
 			}
+			v &= 0xffff
 			q[k] = v
 			t[k] = base + step*float32(v)
 		}
@@ -264,13 +265,13 @@ func (b *bot) logTrucks(p []byte) {
 func main() {
 	addr := flag.String("addr", "dcvmu.com:7536", "server address")
 	name := flag.String("name", "AT-BOT", "player name (AT and a digit or dash marks a test client)")
-	lobbyN := flag.Int("lobby", 5, "lobby to join, 1-10")
+	lobbyN := flag.Int("lobby", 5, "lobby to join, 1-20")
 	smoke := flag.Bool("smoke", false, "just check the server answers: hello, the lobby list, then quit")
 	dur := flag.Duration("for", 0, "quit after this long (0: run until killed)")
 	summitAfter := flag.Duration("summit-after", 0, "claim the summit after this long in the lobby (0: never)")
 	leaveAfter := flag.Duration("leave-after", 0, "leave the lobby after this long, then come back after -away")
 	away := flag.Duration("away", 10*time.Second, "how long a -leave-after trip lasts")
-	levelPath := flag.String("level", "../assets/generated/level_cascade.lvl", "the lobby's area's packed level, for ground heights (lobbies 6-10 are level_moab.lvl's)")
+	levelPath := flag.String("level", "../assets/generated/level_cascade.lvl", "the lobby's area's packed level, for ground heights (lobbies 6-10 are level_moab.lvl's, 11-15 level_dunes.lvl's, 16-20 level_lowland.lvl's)")
 	cx := flag.Float64("x", 0, "loop centre x (m)")
 	cz := flag.Float64("z", -255, "loop centre z (m)")
 	radius := flag.Float64("radius", 14, "loop radius (m)")

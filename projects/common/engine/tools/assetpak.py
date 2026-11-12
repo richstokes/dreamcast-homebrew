@@ -151,6 +151,7 @@ class TexSpec:
     mip: bool
     wrap: bool
     alpha_ref: float | None = None   # punch-through: keep the mips' coverage at this alpha test
+    mip_fade: dict | None = None     # RGB565: mip width -> how much of its detail is kept (pvr_texture.pack_texture)
 
 
 def to_image(rgb: np.ndarray, alpha: np.ndarray | None = None) -> Image.Image:
@@ -177,7 +178,7 @@ def write_texture_pak(out: Path, previews: Path, items):
         img.save(previews / f"tex-{spec.name}.png")
         words = pack_texture(img, spec.fmt, mipmap=spec.mip, wrap=spec.wrap,
                              mip_filter="lanczos" if spec.fmt == "RGB565" else "box",
-                             alpha_ref=spec.alpha_ref)
+                             alpha_ref=spec.alpha_ref, mip_fade=spec.mip_fade)
         data = np.array(words, dtype="<u2").tobytes()
         _align(pak)
         table.append((spec, img.width, img.height, len(pak), len(data)))

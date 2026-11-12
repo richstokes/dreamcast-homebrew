@@ -37,7 +37,7 @@
 #define RL_AT_NAME AT-RL
 #endif
 #ifndef RL_AT_LOBBY
-#define RL_AT_LOBBY 5           /* 1-10: the first five are Cascade Ridge's, where the test's bot drives */
+#define RL_AT_LOBBY 5           /* 1-20: the first five are Cascade Ridge's, where the test's bot drives */
 #endif
 #ifndef RL_AT_SUMMIT_AFTER
 #define RL_AT_SUMMIT_AFTER 25   /* seconds on the mountain before jumping to the top */
@@ -636,11 +636,21 @@ static void draw_browser(void) {
     hud_text_c(596, 86, 0.45f, ALIGN_RIGHT, PALE, netlink_status());
     if(net_update_available()) hud_text_c(320, 86, 0.45f, ALIGN_CENTER, GOLD, "NEW VERSION OUT!");
     const NetLobbyInfo *ls = net_lobbies();
+    /* Three areas' lobbies fit the panel: the list moves an area at a time
+       to keep the chosen lobby's on it. */
+    enum { BROWSE_AREAS = 3 };
+    static int top_group;
+    int sel_group = online_lobby_area(browse_sel);
+    if(sel_group < top_group) top_group = sel_group;
+    if(sel_group >= top_group + BROWSE_AREAS) top_group = sel_group - BROWSE_AREAS + 1;
+    if((int)AREA_COUNT > (int)BROWSE_AREAS)
+        hud_text_c(44, 86, 0.4f, ALIGN_LEFT, PALE, top_group ? "UP: MORE AREAS" : "DOWN: MORE AREAS");
     for(int i = 0; i < NET_LOBBIES; i++) {
         const NetLobbyInfo *e = &ls[i];
         /* Each area's lobbies under its name. */
-        int group = i / ONLINE_AREA_LOBBIES;
-        float y = 107 + i * 19.4f + group * 15, cy = y + 8.5f;
+        int group = i / ONLINE_AREA_LOBBIES - top_group;
+        if(group < 0 || group >= BROWSE_AREAS) continue;
+        float y = 107 + (i - top_group * ONLINE_AREA_LOBBIES) * 19.4f + group * 15, cy = y + 8.5f;
         if(i % ONLINE_AREA_LOBBIES == 0)
             hud_text_c(44, y - 8, 0.4f, ALIGN_LEFT, GOLD, rl_levels[online_lobby_area(i)]->name);
         bool sel = i == browse_sel;

@@ -660,6 +660,76 @@ def tex_brush(variant):
     return _tuft_finish(img, n)
 
 
+def tex_heath(variant):
+    """What grows on a Highland moor, in its own colours as the desert's
+    brush is: punch-through.
+      0: heather, a low dense cushion of wiry stems, dull purple still in
+         flower along the top
+      1: bracken gone rust: fronds arching out from the root
+      2: bog cotton: thin rushes, white tufts at their heads
+    (The moor's grass is the mountain's tuft, which takes the ground's colour.)"""
+    n = 128
+    img, d = _tuft_canvas(n)
+    r = rng(261 + variant)
+    S = TUFT_SS
+
+    def leaf(x, y, rad, col, squash=0.8):
+        d.ellipse([(x - rad) * S, (y - rad * squash) * S, (x + rad) * S, (y + rad * squash) * S], fill=col + (255,))
+
+    if variant == 0:
+        for _ in range(40):
+            a = r.uniform(-1.25, 1.25)
+            x1, y1 = n / 2 + math.sin(a) * n * 0.44, n - 4 - math.cos(a) * n * 0.56
+            d.line([(n / 2 * S, (n - 3) * S), (x1 * S, y1 * S)], fill=(112, 92, 76, 255), width=S)
+        for _ in range(260):
+            a = r.uniform(-1.3, 1.3)
+            rad = r.uniform(0.1, 1.0) ** 0.6 * n * 0.46
+            x, y = n / 2 + math.sin(a) * rad, n - 5 - math.cos(a) * rad * 1.2
+            up = (n - y) / n
+            tone = r.uniform(0.8, 1.08) * (0.74 + 0.42 * up)
+            # Olive within, the flower along the top where the light is.
+            if up > 0.28 and r.random() < 0.2 + 0.7 * up:
+                col = (int(216 * tone), int(124 * tone), int(190 * tone))
+            else:
+                col = (int(126 * tone), int(144 * tone), int(88 * tone))
+            leaf(x, y, r.uniform(2.4, 4.2), col)
+    elif variant == 1:
+        fronds = []
+        for _ in range(9):
+            ang = float(np.clip(r.normal(0, 0.75), -1.2, 1.2))
+            fronds.append((r.uniform(0.6, 0.95) * n * (1 - 0.22 * abs(ang)), n / 2 + r.normal(0, 5), ang))
+        for hgt, x0, ang in sorted(fronds, key=lambda q: -q[0]):
+            tone = r.uniform(0.8, 1.05)
+            rust = (int(176 * tone), int(96 * tone), int(44 * tone)) if r.random() < 0.7 else (int(196 * tone), int(150 * tone), int(60 * tone))
+            pts = _blade(d, hgt, x0, ang, 2.6, rust, n)
+            # Pinnae either side of the stem, shorter toward its tip.
+            for i, ((xa, ya, _), (xb, yb, _)) in enumerate(zip(pts[2:-1], pts[3:])):
+                tx, ty = xb - xa, yb - ya
+                ln = math.hypot(tx, ty) + 1e-6
+                nx, ny = -ty / ln, tx / ln
+                reach = (1 - i / 11.0) * n * 0.16 + 2
+                for side in (-1, 1):
+                    ex, ey = xa + nx * side * reach + tx * 0.6, ya + ny * side * reach + ty * 0.6 + reach * 0.25
+                    k = 0.72 + 0.4 * (n - ya) / n
+                    d.line([(xa * S, ya * S), (ex * S, ey * S)], fill=tuple(int(min(255, c * k)) for c in rust) + (255,),
+                           width=int(S * max(1.6, 3.6 * (1 - i / 12.0))))
+    else:
+        heads = []
+        for _ in range(26):
+            tone = r.uniform(0.76, 1.0)
+            ang = float(np.clip(r.normal(0, 0.34), -0.8, 0.8))
+            pts = _blade(d, r.uniform(0.5, 0.94) * n, n / 2 + r.normal(0, 9), ang, r.uniform(1.4, 2.0),
+                         (150 * tone, 160 * tone, 84 * tone), n)
+            if r.random() < 0.5:
+                heads.append(pts[-1])
+        for (x, y, _) in heads:
+            for _ in range(4):
+                g = r.uniform(0.9, 1.0)
+                leaf(float(np.clip(x + r.normal(0, 2.0), 5, n - 5)), y + r.normal(0, 1.6) + 1.5, r.uniform(2.6, 4.2),
+                     (int(250 * g), int(248 * g), int(240 * g)), 0.9)
+    return _tuft_finish(img, n)
+
+
 def tex_reed():
     """Cattails: tall straight blades, green going to straw, and the brown
     heads on their stalks. Their own colours, as the brush; drawn twice as
@@ -814,6 +884,12 @@ def build(out: Path):
     font_img, glyphs, cap = tex_font()
     items = [
         (TexSpec("grass", "RGB565", True, True), tex_grass()),
+        # The same for the land past the map (Loch Lowland): half the size,
+        # and its small mips fading to its average. A hill 300 m off drawn
+        # with the ground's own was one blot of the texture a 9 m tile, a
+        # pattern of them across it.
+        (TexSpec("grass_far", "RGB565", True, True, mip_fade={64: 0.7, 32: 0.3, 16: 0.08, 8: 0, 4: 0, 2: 0, 1: 0}),
+         tex_grass().resize((128, 128), Image.LANCZOS)),
         (TexSpec("sandstone", "RGB565", True, True), tex_sandstone()),
         (TexSpec("dune", "RGB565", True, True), tex_dune()),
         (TexSpec("rock", "RGB565", True, True), tex_rock()),
@@ -822,6 +898,7 @@ def build(out: Path):
         *[(TexSpec(f"tuft{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_tuft(k)) for k in range(4)],
         *[(TexSpec(f"brush{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_brush(k)) for k in range(4)],
         (TexSpec("reed", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_reed()),
+        *[(TexSpec(f"heath{k}", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_heath(k)) for k in range(3)],
         (TexSpec("weed", "ARGB4444", True, False, alpha_ref=0x60 / 255), tex_weed()),
         (TexSpec("sun", "ARGB4444", False, False), tex_sun()),
         (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
@@ -841,6 +918,7 @@ def build(out: Path):
         (TexSpec("map", "RGB565", True, False), tex_map("cascade")),
         (TexSpec("map_moab", "RGB565", True, False), tex_map("moab")),
         (TexSpec("map_dunes", "RGB565", True, False), tex_map("dunes")),
+        (TexSpec("map_lowland", "RGB565", True, False), tex_map("lowland")),
         (TexSpec("dial", "ARGB4444", False, False), tex_dial()),
         (TexSpec("icons", "ARGB4444", False, False), tex_icons()),
         (TexSpec("logo", "ARGB4444", False, False), tex_logo()),

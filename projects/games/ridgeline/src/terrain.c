@@ -406,12 +406,13 @@ static inline uint32_t grid_c(int i, int j) {
 static uint8_t *edge_drop;
 
 static void edge_drop_build(void) {
+    static uint8_t *room;
     if(lvl_area == AREA_CASCADE) {   /* no cliffs: its skirts stay as they were measured */
-        free(edge_drop);
         edge_drop = NULL;
         return;
     }
-    if(!edge_drop) edge_drop = malloc(LEVEL_N * LEVEL_N);
+    if(!room) room = spent_alloc(LEVEL_N * LEVEL_N);
+    edge_drop = room;
     if(!edge_drop) {
         rl_no_memory("the far ground's skirts");
         return;
@@ -435,8 +436,8 @@ static inline float skirt_drop(int i, int j, float base) {
 /* Where each terrain pool vertex gets its colour when relit: a grid
    vertex, a grid vertex darkened for a skirt, or the water at a depth. */
 enum { SRC_GRID, SRC_SKIRT, SRC_WATER };
-/* The table is kept for good at more than any area needs (Moses Lake's
-   far ground and water are ~43,000 vertices), in the room the textures
+/* The table is kept for good at more than any area needs (Loch Lowland's
+   far ground and water are ~53,000 vertices), in the room the textures
    were linked into. (Sized to the whole pool and cut back each time, it
    wanted a megabyte, which is more than a second area's load has free:
    the water went missing and the far ground was lit from garbage.) */
@@ -603,9 +604,13 @@ static const pvr_poly_hdr_t *h_ground;
 
 void terrain_build(Scenery *sc) {
     const pvr_poly_hdr_t *h = h_ground = r_header(look->ground_tex, HF_OP);
-    /* The mountain hides its own far side; the desert is seen whole from
-       its heights, so its ground is drawn out to the fog. */
-    lod_far[3] = lvl_area != AREA_CASCADE ? 1040.0f : 620.0f;
+    /* The mountain hides its own far side; the other areas are seen whole
+       from their heights, so their ground is drawn out to the fog. The
+       Highlands have no forest to pay for and crags to show across a
+       corrie, so their finer grids reach further too. */
+    lod_far[1] = look->near_m;
+    lod_far[2] = look->mid_m;
+    lod_far[3] = look->far_m;
     edge_drop_build();
     if(!ter_src) ter_src = spent_alloc(sizeof(uint32_t) * TER_SRC_MAX);
     ter_marked = sc->pool_n;
@@ -667,9 +672,11 @@ void terrain_light(const Palette *p, float sky[3], float sun[3]) {
     /* The ground was painted a little flatter than the trees: the same
        sky and sun, scaled to the level tool's weights. */
     static const float sun_scale[3] = {0.674f, 0.717f, 0.784f};
+    /* Wet ground is darker ground: turf, peat and rock alike. */
+    float wet = 1.0f - 0.2f * p->wet;
     for(int i = 0; i < 3; i++) {
-        sky[i] = 0.96f * (p->amb_k[i] + p->sky_k[i]);
-        sun[i] = p->sun_k[i] * 1.15f * sun_scale[i];
+        sky[i] = 0.96f * wet * (p->amb_k[i] + p->sky_k[i]);
+        sun[i] = p->sun_k[i] * 1.15f * wet * sun_scale[i];
     }
 }
 
@@ -738,6 +745,14 @@ int terrain_pool_n(void) {
 
 const uint32_t *terrain_pool_src(void) {
     return ter_src_short ? NULL : ter_src;
+}
+
+int terrain_water_n(void) {
+    return water_wet_n();
+}
+
+void terrain_relight_water(int from, int to) {
+    for(int i = from; i < to; i++) water_relit((uint32_t)i, rlt.water_k);
 }
 
 void terrain_relight_pool(Scenery *sc, int from, int to) {

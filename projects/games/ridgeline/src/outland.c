@@ -34,6 +34,8 @@
 #include "outland.h"
 #include "terrain.h"
 #include "tod.h"
+#include "water.h"
+#include "rain.h"
 #include <string.h>
 
 #define ON 97                   /* vertices a side */
@@ -63,7 +65,7 @@ typedef struct { uint16_t first, n; } OutRun;
 _Static_assert(sizeof(OutV) == 8 && sizeof(OutRib) == 20, "tools/outland.py pack()");
 _Static_assert(MAP0 + (LEVEL_N - 1) / MAP_STEP == MAP1, "the map is the middle of it");
 
-extern const uint8_t rl_outland_moab[], rl_outland_dunes[];
+extern const uint8_t rl_outland_moab[], rl_outland_dunes[], rl_outland_lowland[];
 
 static const OutV *ov;          /* NULL: this area has none */
 static const uint8_t *ohz;
@@ -78,7 +80,12 @@ static struct {
     float err[2];       /* how far the grids of every other and every fourth vertex stray from the ground */
 } chy[CHN][CHN];
 static float skirt[3][4][SIDE_N + 1];   /* by step (1, 2, 4), side (south, north, west, east) and vertex along it */
-static const pvr_poly_hdr_t *h_out, *h_river;
+static const pvr_poly_hdr_t *h_out, *h_river, *h_sheet;
+#define RIPPLE_MEAN 216         /* of 256: TEX_RIPPLE's average (tools/build_textures.py) */
+
+static inline uint32_t dim_rgb(uint32_t c, int k) {
+    return (c & 0xff000000u) | ((c >> 16 & 255) * k >> 8) << 16 | ((c >> 8 & 255) * k >> 8) << 8 | ((c & 255) * k >> 8);
+}
 
 /* What the map hides: the tangent of its skyline's elevation from
    sky_from, by bearing. */
@@ -138,10 +145,13 @@ static void skirt_build(void) {
 }
 
 void outland_init(void) {
-    h_out = r_header(look->ground_tex, HF_OP | HF_NOFOG);
+    h_out = r_header(look->out_tex, HF_OP | HF_NOFOG);
     h_river = r_header(TEX_RIPPLE, HF_TR | HF_NOFOG);
+    h_sheet = r_header(TEX_NONE, HF_TR);
     ov = NULL;
-    const uint8_t *b = lvl_area == AREA_MOAB ? rl_outland_moab : lvl_area == AREA_DUNES ? rl_outland_dunes : NULL;
+    static const uint8_t *const blobs[AREA_COUNT] = {[AREA_MOAB] = rl_outland_moab, [AREA_DUNES] = rl_outland_dunes,
+                                                     [AREA_LOWLAND] = rl_outland_lowland};
+    const uint8_t *b = blobs[lvl_area];
     if(!b) return;
     struct {
         char magic[4];
@@ -225,6 +235,17 @@ int outland_relight_n(void) {
     return ov ? ON * ON : 0;
 }
 
+float outland_height(float x, float z) {
+    if(!ov) return -1e9f;
+    float fx = (x - org) / cell, fz = (z - org) / cell;
+    if(fx < 0 || fz < 0 || fx >= ON - 1 || fz >= ON - 1) return -1e9f;
+    int i = (int)fx, j = (int)fz;
+    float tx = fx - i, tz = fz - j;
+    const OutV *v = &ov[j * ON + i];
+    float a = out_y(&v[0]), b = out_y(&v[1]), c = out_y(&v[ON]), d = out_y(&v[ON + 1]);
+    return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
+}
+
 /* The skyline's elevation toward the sun, as terrain.c's horizon_at(). */
 static inline float horizon_at(int i, int j) {
     int hi = i >> 1, hj = j >> 1;
@@ -271,12 +292,13 @@ void outland_relight(int from, int to) {
 }
 
 /* The fog by hand: by depth, as the PVR's is on the map beside it. */
-#define OUT_FOG_MAX ((int)(WORLD_SKYLINE_HAZE * 256.0f))
 static struct {
     V3 cam, fwd;
     float near, k;      /* k: 256ths a metre */
+    int max;            /* of 256: the skyline's haze, and in a shower nearly all of it */
     uint32_t col;
 } fg;
+#define OUT_FOG_MAX fg.max
 
 static inline uint32_t out_fog(uint32_t c, float x, float y, float z) {
     float depth = (x - fg.cam.x) * fg.fwd.x + (y - fg.cam.y) * fg.fwd.y + (z - fg.cam.z) * fg.fwd.z;
@@ -388,6 +410,19 @@ int outland_draw(void) {
     fg.cam = cam;
     fg.fwd = r_cam.fwd;
     fg.near = fog_near;
+    /* In a shower the land out here goes almost wholly into the haze; and
+       as that is the haze's colour times the ground texture's (the fog is
+       in the vertex), which is a shade darker and warmer than the sky it
+       should be lost in, the haze is made up by the texture's average
+       (TEX_GRASS: 0.89, 0.88, 0.84). */
+    float murk = rain_overcast();
+    fg.max = (int)((WORLD_SKYLINE_HAZE + (1.0f - WORLD_SKYLINE_HAZE) * 0.92f * murk) * 256.0f);
+    if(murk > 0) {
+        int r = (int)(((fg.col >> 16) & 255) * (1.0f / 0.893f)), g = (int)(((fg.col >> 8) & 255) * (1.0f / 0.882f)),
+            b = (int)((fg.col & 255) * (1.0f / 0.840f));
+        uint32_t made = 0xff000000u | (uint32_t)(r > 255 ? 255 : r) << 16 | (uint32_t)(g > 255 ? 255 : g) << 8 | (uint32_t)(b > 255 ? 255 : b);
+        fg.col = color_lerp(fg.col, made, murk);
+    }
     fg.k = fog_far > fog_near ? 256.0f / (fog_far - fog_near) : 0;
     int sent = 0;
     skyline_update(cam);
@@ -467,24 +502,53 @@ void outland_draw_tr(void) {
     V3 cam = r_cam.pos;
     float far = world_fog_far() + 20.0f, scroll = RIVER_FLOW * game.time * RIPPLE_ALONG;
     scroll -= floorf(scroll);
-    r_hdr(h_river);
+    const pvr_poly_hdr_t *cur = NULL;
     for(int k = 0; k < nruns; k++)
         for(int p0 = runs[k].first, end = runs[k].first + runs[k].n; p0 + 1 < end; p0 += RIB_RUN) {
             int p1 = p0 + RIB_RUN < end - 1 ? p0 + RIB_RUN : end - 1;
             const OutRib *a = &rib[p0], *b = &rib[p1];
             V3 c = v3((a->xl + b->xr) * 0.5f, a->y, (a->zl + b->zr) * 0.5f);
             float dx = cam.x - c.x, dz = cam.z - c.z, rad = RIB_RUN * cell * 0.75f;
-            if(sqrtf(dx * dx + dz * dz) - rad > far || !r_sphere_visible(c, rad) || hidden(cam, c.x, c.z, rad, c.y + 2.0f)) continue;
+            /* A loch that runs on from the map's is a sheet of the map's
+               far water: in the PVR's fog as that is, so the two meet
+               without a line, and drawn however far off (past the fog's
+               end it is the fog's colour, where a river left out shows
+               nothing but a loch left out shows its bed). Plain, at the
+               ripples' average: at this size they are a pattern. */
+            bool sheet = look->sheen > 0 && fabsf(a->xr - a->xl) + fabsf(a->zr - a->zl) > 40.0f;
+            if(sheet) rad = fmaxf(rad, fabsf(a->zr - a->zl) + fabsf(a->xr - a->xl));
+            if((!sheet && sqrtf(dx * dx + dz * dz) - rad > far) || !r_sphere_visible(c, rad) ||
+               hidden(cam, c.x, c.z, rad, c.y + 2.0f))
+                continue;
+            const pvr_poly_hdr_t *h = sheet ? h_sheet : h_river;
+            if(h != cur) r_hdr(cur = h);
             RV v[2 * (RIB_RUN + 1)];
             int n = 0;
             for(int p = p0; p <= p1; p++) {
                 const OutRib *q = &rib[p];
                 /* (the texture from each strip's own start: big coordinates swim on the console) */
                 float along = (float)(p - p0) * cell * RIPPLE_ALONG + scroll;
-                uint32_t cl = (out_fog(rib_col, q->xl, q->y, q->zl) & 0xffffffu) | (rib_col & 0xff000000u);
-                uint32_t cr = (out_fog(rib_col, q->xr, q->y, q->zr) & 0xffffffu) | (rib_col & 0xff000000u);
+                /* (the sky on it, as on the map's far water) */
+                uint32_t wl = rib_col, wr = rib_col;
+                if(look->sheen > 0) {
+                    int fl = (int)(water_sheen(v3(q->xl, q->y, q->zl), 0) * 256.0f), fr = (int)(water_sheen(v3(q->xr, q->y, q->zr), 0) * 256.0f);
+                    wl = (mix256(rib_col, pal->sky_horizon, fl) & 0xffffffu) | (uint32_t)(204 + (36 * fl >> 8)) << 24;
+                    wr = (mix256(rib_col, pal->sky_horizon, fr) & 0xffffffu) | (uint32_t)(204 + (36 * fr >> 8)) << 24;
+                }
+                uint32_t cl, cr;
+                if(sheet) {
+                    cl = dim_rgb(wl, RIPPLE_MEAN);
+                    cr = dim_rgb(wr, RIPPLE_MEAN);
+                }
+                else {
+                    cl = (out_fog(wl, q->xl, q->y, q->zl) & 0xffffffu) | (wl & 0xff000000u);
+                    cr = (out_fog(wr, q->xr, q->y, q->zr) & 0xffffffu) | (wr & 0xff000000u);
+                }
+                /* (a river's ripples across it; a loch's lane is wider
+                   than that, and takes them at half the scale) */
+                float wide = fabsf(q->xr - q->xl) + fabsf(q->zr - q->zl);
                 v[n++] = (RV){q->xl, q->y, q->zl, 0, along, cl};
-                v[n++] = (RV){q->xr, q->y, q->zr, 24.0f * RIPPLE_ACROSS, along, cr};
+                v[n++] = (RV){q->xr, q->y, q->zr, wide > 40.0f ? wide * (0.5f * RIPPLE_ACROSS) : 24.0f * RIPPLE_ACROSS, along, cr};
             }
             r_strip(v, n);
         }

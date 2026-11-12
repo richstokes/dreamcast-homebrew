@@ -364,7 +364,7 @@ static const lvl_capsule_t cascade_capsules[19] = {
     {-1.94f, 98.57f, 88.32f, -0.66f, 98.57f, 89.59f, 0.18f},
     {0.32f, 98.52f, 86.06f, 1.60f, 98.52f, 87.33f, 0.18f},
 };
-static const lvl_box_t cascade_boxes[11] = {
+static const lvl_box_t cascade_boxes[16] = {
     {-2.152f, 19.615f, -100.305f, 3.400f, 1.000f, 0.480f, 0.573f},
     {0.472f, 127.365f, 162.236f, 3.400f, 1.000f, 1.300f, 1.288f},
     {22.641f, 128.010f, 165.660f, 3.400f, 1.000f, 1.088f, 1.906f},
@@ -376,6 +376,11 @@ static const lvl_box_t cascade_boxes[11] = {
     {249.000f, 6.710f, -121.000f, 0.900f, 0.900f, 2.200f, 4.978f},
     {-28.000f, 1.695f, -292.000f, 4.200f, 1.800f, 3.200f, 0.300f},
     {-14.000f, 0.219f, -276.000f, 0.900f, 0.400f, 0.400f, 1.200f},
+    {-130.000f, 3.233f, -250.000f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {18.356f, 8.613f, -148.712f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {126.280f, 81.713f, 40.196f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {70.013f, 72.462f, 6.520f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {-79.392f, 82.306f, 59.677f, 0.500f, 0.600f, 0.500f, 0.000f},
 };
 static const lvl_post_t cascade_posts[4] = {
     {27.300f, 138.523f, 137.300f, 28.200f, 144.730f, 138.200f, 0.300f},
@@ -1903,5 +1908,5 @@ static const RlLevel rl_level_cascade = {
     .lake_y = 93.14f, .start_y = -0.21f,
     .summit_x = 30.0f, .summit_y = 138.73f, .summit_z = 140.0f,
     .routes = cascade_routes, .spheres = cascade_spheres, .capsules = cascade_capsules, .boxes = cascade_boxes, .posts = cascade_posts, .trees = cascade_trees, .props = cascade_props, .views = cascade_views, .spawns = cascade_spawns, .mists = cascade_mists, .hawks = cascade_hawks, .herds = cascade_herds, .rings = cascade_rings, .rocks = cascade_rocks,
-    .nroutes = 5, .nspheres = 148, .ncapsules = 19, .nboxes = 11, .nposts = 4, .ntrees = 1454, .nprops = 17, .nviews = 10, .nspawns = 4, .nmists = 8, .nhawks = 3, .nherds = 2, .nrings = 0, .nrocks = 0, .nrock_boxes = 5,
+    .nroutes = 5, .nspheres = 148, .ncapsules = 19, .nboxes = 16, .nposts = 4, .ntrees = 1454, .nprops = 17, .nviews = 10, .nspawns = 4, .nmists = 8, .nhawks = 3, .nherds = 2, .nrings = 0, .nrocks = 0, .nrock_boxes = 5,
 };

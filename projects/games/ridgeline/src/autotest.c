@@ -132,9 +132,33 @@ static const float tour_dunes[][6] = {
     {90, 8, -230, 60, 16, -100},        /* under the wires */
 };
 #define TOUR_DUNES_N (int)(sizeof(tour_dunes) / sizeof(tour_dunes[0]))
-_Static_assert(TOUR_CASCADE_N == TOUR_DESERT_N && TOUR_CASCADE_N == TOUR_DUNES_N, "the tours are as long as each other");
+/* Loch Lowland's (-DRL_AT_AREA=3). */
+static const float tour_lowland[][6] = {
+    {0, 7, -300, 8, 60, 0},             /* from the beach, up the corrie to the pass */
+    {60, 7, -296, -200, 70, -110},      /* west along the shore: the buttress, the pines */
+    {-70, 6, -300, 200, 70, -90},       /* east: the bothy, the burn, the birches */
+    {-10, 16, -214, 20, 50, -60},       /* the fork, the bridge on the right */
+    {-6, 28, -140, 8, 70, 120},         /* up the corrie's floor to its head */
+    {136, 58, -78, 126, 76, 60},        /* along the drove road's shelf */
+    {124, 104, 104, 40, 98, 196},       /* the hairpins from above the east wall */
+    {6, 118, 226, 16, 20, -300},        /* from the pass, down the corrie to the loch */
+    {176, 158, 288, 40, 20, -300},      /* from the top, the same */
+    {-30, 118, 196, 172, 152, 277},     /* from the pass, up the ridge to the mast in its cloud */
+    {-40, 5, -244, -64, 2, -264},       /* the cattle on the in-bye, the fank behind */
+    {-228, 66, -134, -280, 74, -60},    /* Lochan Dubh under its crag */
+    {-140, 126, 66, 60, 50, -10},       /* off the crag's edge into the corrie */
+    {40, 8, -300, -60, 2, -350},        /* the jetty, the crannog, the headland's stones */
+    {-136, 9, -330, -152, 7, -346},     /* the standing stones */
+    {0, 16, -206, 26, 12, -186},        /* the stone bridge */
+    {14, 110, 284, -10, 104, 260},      /* the camp by the lochan north of the pass */
+    {-30, 44, 30, 20, 80, 150},         /* the falls and the staircase */
+};
+#define TOUR_LOWLAND_N (int)(sizeof(tour_lowland) / sizeof(tour_lowland[0]))
+_Static_assert(TOUR_CASCADE_N == TOUR_DESERT_N && TOUR_CASCADE_N == TOUR_DUNES_N && TOUR_CASCADE_N == TOUR_LOWLAND_N,
+               "the tours are as long as each other");
 #define TOUR_N TOUR_CASCADE_N
-#define tour_views (game.area == AREA_MOAB ? tour_desert : game.area == AREA_DUNES ? tour_dunes : tour_cascade)
+#define tour_views \
+    (game.area == AREA_MOAB ? tour_desert : game.area == AREA_DUNES ? tour_dunes : game.area == AREA_LOWLAND ? tour_lowland : tour_cascade)
 
 #if defined(RL_CAPTURE) && !defined(RL_HW) && !defined(RL_AT_TOUR_ONLY)
 /* The day over the meadow (tour view 0) and the west (view 5): the
@@ -143,7 +167,9 @@ _Static_assert(TOUR_CASCADE_N == TOUR_DESERT_N && TOUR_CASCADE_N == TOUR_DUNES_N
    window). */
 static const float tod_shot_hours[] = {5.5f, 6.3f, 8.0f, 12.5f, 17.0f, 18.3f, 19.0f, 22.0f};
 #define TOD_SHOTS (int)(sizeof(tod_shot_hours) / sizeof(tod_shot_hours[0]))
-static const int tod_shot_views[2] = {0, 5};
+/* (Loch Lowland's are the corrie from the beach and the loch from the pass) */
+#define tod_shot_views (game.area == AREA_LOWLAND ? tod_views_lowland : tod_views)
+static const int tod_views[2] = {0, 5}, tod_views_lowland[2] = {0, 7};
 #define TOD_N (TOD_SHOTS * 2)
 #else
 #define TOD_N 0
@@ -184,8 +210,15 @@ static void vmu_test(void) {
     game.clock = 444.4f;
     bool fifth = records_summit(line, sizeof(line));
     printf("RL AT vmu: %s\n", line);
+    game.area = AREA_LOWLAND;
+    records_start();
+    game.clock = 555.5f;
+    bool sixth = records_summit(line, sizeof(line));
+    printf("RL AT vmu: %s\n", line);
     records_set_name("PEBBLES");   /* the online name, kept with the times */
     records_load();
+    uint32_t loch = records_best(1, WAY_LOGGING);
+    game.area = AREA_DUNES;
     uint32_t dunes = records_best(1, WAY_LOGGING);
     game.area = AREA_MOAB;
     uint32_t desert = records_best(1, WAY_LOGGING);
@@ -194,13 +227,15 @@ static void vmu_test(void) {
     uint32_t last = records_best(TRUCK_MODELS - 1, WAY_LOGGING), bobcat = records_best(2, WAY_LOGGING);
     bool named = strcmp(records_name(), "PEBBLES") == 0;
     if(first && !second && third && fourth && fifth && got == 5813 && other == 0 && last == 7025 && bobcat == 0 && desert == 3333 &&
-       dunes == 4444 && named)
-        printf("RL AUTOTEST: PASS vmu save read back %lu, %lu, the desert's %lu and the dunes' %lu, name %s\n", (unsigned long)got,
-               (unsigned long)last, (unsigned long)desert, (unsigned long)dunes, records_name());
+       dunes == 4444 && sixth && loch == 5555 && named)
+        printf("RL AUTOTEST: PASS vmu save read back %lu, %lu, the desert's %lu, the dunes' %lu and the loch's %lu, name %s\n",
+               (unsigned long)got, (unsigned long)last, (unsigned long)desert, (unsigned long)dunes, (unsigned long)loch,
+               records_name());
     else
-        printf("RL AUTOTEST: FAIL vmu save: first %d second %d third %d fourth %d fifth %d read back %lu other %lu last %lu "
-               "bobcat %lu desert %lu dunes %lu name \"%s\"\n", first, second, third, fourth, fifth, (unsigned long)got,
+        printf("RL AUTOTEST: FAIL vmu save: first %d second %d third %d fourth %d fifth %d sixth %d read back %lu other %lu last %lu "
+               "bobcat %lu desert %lu dunes %lu loch %lu name \"%s\"\n", first, second, third, fourth, fifth, sixth, (unsigned long)got,
                (unsigned long)other, (unsigned long)last, (unsigned long)bobcat, (unsigned long)desert, (unsigned long)dunes,
+               (unsigned long)loch,
                records_name());
 }
 #endif

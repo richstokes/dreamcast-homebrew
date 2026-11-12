@@ -25,6 +25,7 @@ typedef struct {
     float stars;                /* 0 .. 1: how bright the stars */
     float dark;                 /* 0 day .. 1 night: headlights matter, dust is dim */
     float water_k;              /* the water's brightness */
+    float wet;                  /* 0 .. 1: how wet a shower has left the ground (rain.c) */
 } Palette;
 extern const Palette *pal;
 

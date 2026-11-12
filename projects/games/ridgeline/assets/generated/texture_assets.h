@@ -10,6 +10,7 @@ typedef struct { uint32_t offset, bytes; uint16_t w, h; uint8_t fmt, mip, pad[2]
 
 enum {
     TEX_GRASS,
+    TEX_GRASS_FAR,
     TEX_SANDSTONE,
     TEX_DUNE,
     TEX_ROCK,
@@ -24,6 +25,9 @@ enum {
     TEX_BRUSH2,
     TEX_BRUSH3,
     TEX_REED,
+    TEX_HEATH0,
+    TEX_HEATH1,
+    TEX_HEATH2,
     TEX_WEED,
     TEX_SUN,
     TEX_MOON,
@@ -43,6 +47,7 @@ enum {
     TEX_MAP,
     TEX_MAP_MOAB,
     TEX_MAP_DUNES,
+    TEX_MAP_LOWLAND,
     TEX_DIAL,
     TEX_ICONS,
     TEX_LOGO,
@@ -52,43 +57,48 @@ enum {
 
 static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {0u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* grass */
-    {174784u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* sandstone */
-    {349568u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* dune */
-    {524352u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* rock */
-    {568064u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* bark */
-    {579008u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* crown */
-    {622720u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft0 */
-    {666432u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft1 */
-    {710144u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft2 */
-    {753856u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft3 */
-    {797568u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush0 */
-    {841280u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush1 */
-    {884992u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush2 */
-    {928704u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush3 */
-    {972416u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* reed */
-    {1016128u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* weed */
-    {1027072u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* sun */
-    {1035264u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
-    {1043456u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
-    {1174528u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
-    {1185472u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
-    {1201856u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
-    {1212800u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
-    {1223744u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
-    {1226496u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
-    {1237440u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* slide */
-    {1248384u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* marks */
-    {1259328u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glyphs */
-    {1270272u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
-    {1281216u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
-    {1292160u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {1357696u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {1532480u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
-    {1707264u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_dunes */
-    {1882048u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {1914816u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {1980352u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {2111424u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {174784u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* grass_far */
+    {218496u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* sandstone */
+    {393280u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* dune */
+    {568064u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* rock */
+    {611776u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* bark */
+    {622720u, 43712u, 128, 128, RL_TEXFMT_RGB565, 1, {0, 0}},  /* crown */
+    {666432u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft0 */
+    {710144u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft1 */
+    {753856u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft2 */
+    {797568u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tuft3 */
+    {841280u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush0 */
+    {884992u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush1 */
+    {928704u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush2 */
+    {972416u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* brush3 */
+    {1016128u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* reed */
+    {1059840u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* heath0 */
+    {1103552u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* heath1 */
+    {1147264u, 43712u, 128, 128, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* heath2 */
+    {1190976u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* weed */
+    {1201920u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* sun */
+    {1210112u, 8192u, 64, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* moon */
+    {1218304u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
+    {1349376u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
+    {1360320u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
+    {1376704u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
+    {1387648u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
+    {1398592u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
+    {1401344u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
+    {1412288u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* slide */
+    {1423232u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* marks */
+    {1434176u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glyphs */
+    {1445120u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
+    {1456064u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
+    {1467008u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {1532544u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {1707328u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
+    {1882112u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_dunes */
+    {2056896u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_lowland */
+    {2231680u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {2264448u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {2329984u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {2461056u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

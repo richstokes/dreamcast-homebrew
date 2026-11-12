@@ -32,9 +32,9 @@ typedef struct {
        model order. Appended to version 2 so older builds still read the
        rest; a save from a build with fewer trucks is shorter. */
     uint32_t best_more[REC_TRUCKS - 2][WAY_COUNT];
-    /* The areas after Cascade Ridge, a row a truck. Still version 2: an
-       older build reads what it knows and writes a shorter save, which
-       forgets these. */
+    /* The areas after Cascade Ridge in order, a row a truck. Still
+       version 2: an older build reads what it knows and writes a shorter
+       save, which forgets the rest. */
     uint32_t area_best[AREA_COUNT - 1][REC_TRUCKS][WAY_COUNT];
 } record_t;
 #define RECORD_V1_BYTES (int)offsetof(record_t, name)

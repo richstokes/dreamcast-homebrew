@@ -484,7 +484,7 @@ void net_update(void) {
         return;
     }
 
-    uint8_t buf[1024];   /* a LOBBIES packet with every lobby full is ~760 bytes */
+    uint8_t buf[1536];   /* a LOBBIES packet with every lobby full is ~1010 bytes */
     received = false;
     for(int i = 0; i < 64; i++) {
         int n = recvfrom(sock, buf, sizeof(buf), 0, NULL, NULL);

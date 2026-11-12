@@ -19,6 +19,7 @@
 typedef struct { float x, y, z; uint8_t depth, foam; uint16_t pad; } WetV;
 static WetV *wv;
 static uint32_t *wv_col;      /* lit, by the relight */
+static uint32_t *wv_far;      /* and with the sky's sheen from afar, this relight pass */
 static uint8_t *wv_pass, wv_pass_n;   /* the relight pass each was last lit in, and the pass now */
 static int wv_n;
 /* Each water chunk's flow: unit direction downstream and speed (m/s);
@@ -81,13 +82,15 @@ static float water_foam(int i, int j, float depth) {
 
 /* The id of grid vertex (i, j) of a wet cell whose highest water is
    level, made on first sight. A dry corner sits a little under the
-   cell's water, under the bank. */
+   cell's water, under the bank; or under its own ground where that is
+   lower still (a burn's bank down a fall, a far cell 12 m across with one
+   wet vertex in it), where the water would stand out over the hill. */
 static int wet_id(int16_t *idmap, int i, int j, float level) {
     int g = lvl_clampi(j) * LEVEL_N + lvl_clampi(i);
     if(idmap[g] >= 0) return idmap[g];
     if(wv_n >= WET_MAX) return wv_n - 1;
     float w = lvl_wat(i, j), gnd = lvl_h(i, j);
-    float y = w > -999.0f ? w : level - 0.25f;
+    float y = w > -999.0f ? w : fminf(level - 0.25f, gnd - 0.15f);
     float depth = clampf((y - gnd) / 1.6f, 0, 1);
     int id = wv_n++;
     WetV *v = &wv[id];
@@ -142,11 +145,14 @@ static void water_cells(Scenery *sc, void (*mark)(const Scenery *, uint32_t), ui
 
 void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t tag) {
     const pvr_poly_hdr_t *hw = r_header(TEX_RIPPLE, HF_TR);
-    int16_t *idmap = malloc(sizeof(int16_t) * LEVEL_N * LEVEL_N);
+    /* (kept: 129 KiB the heap may not have when an area loads online) */
+    static int16_t *idmap;
+    if(!idmap) idmap = spent_alloc(sizeof(int16_t) * LEVEL_N * LEVEL_N);
     if(!wv) {
         wv = spent_alloc(sizeof(WetV) * WET_MAX);
         wv_col = spent_alloc(sizeof(uint32_t) * WET_MAX);
-        wv_pass = spent_alloc(WET_MAX);
+        wv_far = spent_alloc(sizeof(uint32_t) * WET_MAX);
+        wv_pass = wv_far ? spent_alloc(WET_MAX) : NULL;
     }
     wv_n = 0;
     wch_n = 0;
@@ -199,8 +205,33 @@ void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t 
                 sc_chunk_end(sc);
             }
         }
-    free(idmap);
     printf("Ridgeline water: %d vertices, %d chunks\n", wv_n, wch_n);
+}
+
+/* Far water looked at along its surface is the sky, not the bed: from the
+   pass a loch is a sheet of light. Each relight pass gives a vertex past
+   the reach of the per-frame water (WATER_NEAR) the sky's share for where
+   the camera is then; the passes come round every few seconds, which is
+   as fast as the view from a hill changes. */
+#define WATER_NEAR 40.0f
+static inline uint32_t mix256w(uint32_t a, uint32_t b, int t);
+
+float water_sheen(V3 p, float foam) {
+    if(look->sheen <= 0) return 0;
+    float dx = r_cam.pos.x - p.x, dy = r_cam.pos.y - p.y, dz = r_cam.pos.z - p.z;
+    float d2 = dx * dx + dy * dy + dz * dz;
+    if(d2 < WATER_NEAR * WATER_NEAR || dy <= 0) return 0;
+    float d = sqrtf(d2), fr = 1.0f - dy / d;
+    return fr * fr * fr * look->sheen * (1.0f - foam) * clampf((d - WATER_NEAR) * (1.0f / 40.0f), 0, 1);
+}
+
+static uint32_t with_sheen(uint32_t c, const WetV *w) {
+    /* (deep, still water: a burn a hand deep is its bed's colour) */
+    float fr = water_sheen(v3(w->x, w->y, w->z), w->foam * (1.0f / 255)) * (w->depth * (1.0f / 255));
+    if(fr <= 0.01f) return c;
+    int a = (int)(c >> 24);
+    a += (int)((240 - a) * fr);
+    return (mix256w(c, pal->sky_horizon, (int)(fr * 256.0f)) & 0xffffffu) | (uint32_t)a << 24;
 }
 
 /* A relight pass colours each water vertex the first time the pool asks
@@ -215,11 +246,20 @@ void water_relight_begin(void) {
     }
 }
 
+int water_wet_n(void) {
+    return wv && wv_col ? wv_n : 0;
+}
+
 uint32_t water_relit(uint32_t id, float water_k) {
-    if(wv_pass && wv_pass[id] == wv_pass_n) return wv_col[id];
+    if(wv_pass && wv_pass[id] == wv_pass_n) return wv_far[id];
     const WetV *w = &wv[id];
-    if(wv_pass) wv_pass[id] = wv_pass_n;
-    return wv_col[id] = water_colour(w->depth * (1.0f / 255), w->foam * (1.0f / 255), water_k);
+    wv_col[id] = water_colour(w->depth * (1.0f / 255), w->foam * (1.0f / 255), water_k);
+    uint32_t c = with_sheen(wv_col[id], w);
+    if(wv_pass) {
+        wv_pass[id] = wv_pass_n;
+        wv_far[id] = c;
+    }
+    return c;
 }
 
 /* ---- Water, drawn ----
@@ -231,7 +271,6 @@ uint32_t water_relit(uint32_t id, float water_k) {
    a rippled surface in the offset colour, both fading out with distance
    so there is no seam where they stop. The brightest glints throw small
    sparkles. */
-#define WATER_NEAR 40.0f
 #define GLINT_NEAR 35.0f
 #define SPARKS 16
 #define SPARK_CANDS 48
@@ -266,7 +305,7 @@ static void wet_dyn(int id) {
     uint32_t base = wv_col[id];
     wv_sp[id] = 0;
     if(d2 >= WATER_NEAR * WATER_NEAR) {
-        wv_dc[id] = base;
+        wv_dc[id] = with_sheen(base, w);
         return;
     }
     float il = 1.0f / sqrtf(d2 + 0.01f), d = d2 * il;

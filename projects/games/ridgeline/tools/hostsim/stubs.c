@@ -28,3 +28,4 @@ int sc_draw_chunk(const Scenery *s, uint32_t i) { (void)s; (void)i; return 0; }
 void water_build(Scenery *sc, void (*mark)(const Scenery *, uint32_t), uint32_t tag) { (void)sc; (void)mark; (void)tag; }
 uint32_t water_relit(uint32_t id, float water_k) { (void)water_k; return id; }
 void water_relight_begin(void) {}
+int water_wet_n(void) { return 0; }

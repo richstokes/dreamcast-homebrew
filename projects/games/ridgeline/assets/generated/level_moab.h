@@ -361,7 +361,7 @@ static const lvl_capsule_t moab_capsules[5] = {
     {-74.73f, 5.50f, -301.21f, -73.51f, 5.50f, -302.53f, 0.18f},
     {-77.09f, 5.41f, -303.37f, -75.87f, 5.41f, -304.69f, 0.18f},
 };
-static const lvl_box_t moab_boxes[11] = {
+static const lvl_box_t moab_boxes[22] = {
     {-158.007f, 57.738f, 63.608f, 8.517f, 1.000f, 0.777f, 1.589f},
     {-140.263f, 60.596f, 61.835f, 8.497f, 1.000f, 0.812f, 1.744f},
     {-125.349f, 64.658f, 56.140f, 8.546f, 1.000f, 0.826f, 1.675f},
@@ -373,6 +373,17 @@ static const lvl_box_t moab_boxes[11] = {
     {-236.553f, 45.564f, -38.212f, 0.550f, 0.500f, 0.800f, -2.840f},
     {-184.558f, 15.271f, -114.456f, 1.900f, 1.500f, 0.500f, -2.087f},
     {272.000f, 9.835f, -226.000f, 4.200f, 1.600f, 3.200f, -1.250f},
+    {30.000f, 132.736f, 208.000f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {254.010f, 21.873f, -168.035f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {-246.000f, 7.480f, -261.000f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {-103.000f, 37.757f, -151.000f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {-104.000f, 10.945f, -233.000f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {10.000f, 5.768f, -315.000f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {180.000f, 13.919f, -289.000f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {32.790f, 40.570f, -88.493f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {-179.874f, 29.358f, -42.940f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {-237.185f, 41.406f, -50.109f, 0.500f, 0.600f, 0.500f, 0.000f},
+    {-50.687f, 77.609f, 57.568f, 0.500f, 0.600f, 0.500f, 0.000f},
 };
 static const lvl_post_t moab_posts[18] = {
     {-8.500f, 74.436f, 62.000f, -8.500f, 81.436f, 62.000f, 2.600f},
@@ -840,5 +851,5 @@ static const RlLevel rl_level_moab = {
     .lake_y = 0.00f, .start_y = 6.33f,
     .summit_x = 24.0f, .summit_y = 132.13f, .summit_z = 207.0f,
     .routes = moab_routes, .spheres = moab_spheres, .capsules = moab_capsules, .boxes = moab_boxes, .posts = moab_posts, .trees = moab_trees, .props = moab_props, .views = moab_views, .spawns = moab_spawns, .mists = moab_mists, .hawks = moab_hawks, .herds = moab_herds, .rings = moab_rings, .rocks = moab_rocks,
-    .nroutes = 5, .nspheres = 186, .ncapsules = 5, .nboxes = 11, .nposts = 18, .ntrees = 263, .nprops = 25, .nviews = 16, .nspawns = 4, .nmists = 3, .nhawks = 4, .nherds = 2, .nrings = 92, .nrocks = 13, .nrock_boxes = 5,
+    .nroutes = 5, .nspheres = 186, .ncapsules = 5, .nboxes = 22, .nposts = 18, .ntrees = 263, .nprops = 25, .nviews = 16, .nspawns = 4, .nmists = 3, .nhawks = 4, .nherds = 2, .nrings = 92, .nrocks = 13, .nrock_boxes = 5,
 };

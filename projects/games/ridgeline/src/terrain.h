@@ -81,6 +81,12 @@ void terrain_light(const Palette *p, float sky[3], float sun[3]);
 void terrain_relight(int from, int to);
 int terrain_pool_n(void);
 void terrain_relight_pool(Scenery *sc, int from, int to);
+/* The water's vertices [from, to) of terrain_water_n(), coloured for the
+   pass before the pool copies them: each costs several of the ground's,
+   and a loch's worth met in the pool's cheap copies was a 5 ms frame on
+   the console. */
+int terrain_water_n(void);
+void terrain_relight_water(int from, int to);
 
 static inline int lvl_clampi(int v) { return v < 0 ? 0 : v > LEVEL_N - 1 ? LEVEL_N - 1 : v; }
 static inline float lvl_h(int i, int j) { return lvl_ground[lvl_clampi(j) * LEVEL_N + lvl_clampi(i)].h; }

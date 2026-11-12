@@ -9,6 +9,7 @@
    crossover within ~1.6 dB) and the throttle between on and off load.
    CPU trucks get the two nearest on-load points, quieter with distance. */
 #include "audio.h"
+#include "rain.h"
 #include "truck.h"
 #include "terrain.h"
 #include "dunes.h"
@@ -263,7 +264,10 @@ void audio_update(float dt) {
         }
         sfx_voice_set(&surf_v[i], rate, (int)((paused ? 0 : 200.0f) * surf_vol[i]), 128);
     }
-    float wind = clampf((spd - 6.0f) / 20.0f, 0, 1) + clampf((cam.pos.y - 120.0f) / 80.0f, 0, 0.4f) + dunes_wind();
+    /* Rain has no sound of its own (the sound chip is full): it is the
+       wind up a little and the water's hiss raised in pitch, everywhere. */
+    float rain = rain_now();
+    float wind = clampf((spd - 6.0f) / 20.0f, 0, 1) + clampf((cam.pos.y - 120.0f) / 80.0f, 0, 0.4f) + dunes_wind() + 0.3f * rain;
     sfx_voice_set(&wind_v, 0.9f + 0.3f * clampf(spd / 25.0f, 0, 1), (int)((paused ? 0 : 150.0f) * wind), 128);
     /* The forest all round, the creek when near water. */
     float near_water = 0;
@@ -278,7 +282,9 @@ void audio_update(float dt) {
     float forest = (1.0f - clampf((cam.pos.y - 150.0f) / 60.0f, 0, 0.8f)) * look->woods;
     sfx_voice_set(&forest_v, 1.0f, (int)((paused ? 20.0f : 70.0f) * forest), 128);
     /* (a lake only laps at its shore) */
-    sfx_voice_set(&creek_v, look->lake ? 0.8f : 1.0f, (int)((paused ? 0.0f : look->lake ? 44.0f : 150.0f) * near_water), 128);
+    float creek = (look->lake ? 44.0f : 150.0f) * near_water, hiss = 120.0f * rain;
+    sfx_voice_set(&creek_v, lerpf(look->lake ? 0.8f : 1.0f, 1.55f, clampf(hiss / (creek + 1.0f), 0, 1)),
+                  (int)(paused ? 0.0f : fmaxf(creek, hiss)), 128);
     sfx_batch_end();
     /* Now and then a bird calls from somewhere about: one at a time, seconds
        apart (6-16 s), never the same call twice running. Their own

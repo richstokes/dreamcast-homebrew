@@ -16,6 +16,11 @@ _rl_level_dunes_lvl:
     .incbin "assets/generated/level_dunes.lvl"
 
     .balign 32
+    .global _rl_level_lowland_lvl
+_rl_level_lowland_lvl:
+    .incbin "assets/generated/level_lowland.lvl"
+
+    .balign 32
     .global _rl_outland_moab
 _rl_outland_moab:
     .incbin "assets/generated/level_moab.out"
@@ -24,6 +29,11 @@ _rl_outland_moab:
     .global _rl_outland_dunes
 _rl_outland_dunes:
     .incbin "assets/generated/level_dunes.out"
+
+    .balign 32
+    .global _rl_outland_lowland
+_rl_outland_lowland:
+    .incbin "assets/generated/level_lowland.out"
 
 /* The sounds are copied to the sound chip's own memory at boot and never
    read here again, so their room is handed on (audio.c): in .data, as it

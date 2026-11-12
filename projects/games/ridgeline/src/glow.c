@@ -62,8 +62,19 @@ static void pane(const lvl_prop_t *p, int group, float side, float along, float 
 static const V3 tower_lanterns[5] = {{-2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, -2.25f}, {2.25f, 7.72f, 2.25f},
                                      {-2.25f, 7.72f, 2.25f}, {0, 5.5f, 0}};
 
+/* A mast's beacon: red, slow, and seen from the far end of the glen. */
+static V3 beacon;
+static bool has_beacon;
+#define BEACON_FAR 900.0f
+
 void glow_place(void) {
     glow_n = pane_n = 0;
+    has_beacon = false;
+    for(int i = 0; i < LVL_PROPS; i++)
+        if(lvl_props[i].kind == PROP_MAST) {
+            beacon = v3(lvl_props[i].x, lvl_props[i].y + 20.6f, lvl_props[i].z);
+            has_beacon = true;
+        }
     V3 f;
     campfire_place();
     for(int k = 0; k < CAMPFIRES; k++)
@@ -236,6 +247,19 @@ static void sprite(V3 p, float s, uint32_t col) {
 
 void glow_draw_tr(void) {
     bool hdr = false;
+    float dusk = clampf(pal->dark * 1.6f, 0, 1);
+    if(has_beacon && dusk > 0.02f) {
+        float d = vlen(vsub(beacon, r_cam.pos)), fog = clampf(1.0f - d / (world_fog_far() * 1.3f), 0, 1);
+        /* On for most of every three seconds, as they are. */
+        float beat = clampf(sinf(glow_t * (ENG_TAU / 3.0f)) * 3.0f + 1.6f, 0, 1) * dusk * fog;
+        if(d < BEACON_FAR && beat > 0.02f && r_sphere_visible(beacon, 3.0f)) {
+            r_load_vp();
+            r_hdr(h_add);
+            hdr = true;
+            sprite(beacon, fmaxf(1.1f, d * 0.011f), color_alpha(0xffff2010, 0.34f * beat));
+            sprite(beacon, fmaxf(0.2f, d * 0.004f), color_alpha(0xffff7060, 0.95f * beat));
+        }
+    }
     for(int g = 0; g < GLOW_GROUPS; g++) {
         float lv = glow_level[g];
         if(lv < 0.02f) continue;

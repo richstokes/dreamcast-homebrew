@@ -57,9 +57,10 @@ static float leaf_acc;
 #define SCAN_STEP 48
 
 /* Trees that drop leaves: the mountain's larches and maples, the
-   desert's and the dunes' cottonwoods (the rest keep theirs). */
+   Highlands' birches and rowans, the desert's and the dunes' cottonwoods
+   (the rest keep theirs). */
 static inline bool air_sheds(int kind) {
-    return lvl_area == AREA_CASCADE ? kind == 1 || kind == 2 : kind == 1;
+    return lvl_area == AREA_MOAB || lvl_area == AREA_DUNES ? kind == 1 : kind == 1 || kind == 2;
 }
 
 void air_init(void) {

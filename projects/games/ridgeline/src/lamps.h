@@ -27,5 +27,10 @@ void lamps_end(void);
 #define LAMPS_ALL 0xff
 int lamps_ground_mask(float x, float z, float r);
 float lamps_light(V3 p, int mask, int skip, V3 *from);
+/* And the beams themselves, for what falls through them (rain.c): how
+   many, and beam i's cone: from o along f, r across and u up it, its
+   spread each way a tangent, its reach in metres. */
+int lamps_beams(void);
+void lamps_beam(int i, V3 *o, V3 *f, V3 *r, V3 *u, float *th, float *tv, float *range);
 
 #endif

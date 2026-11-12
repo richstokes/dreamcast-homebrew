@@ -454,6 +454,21 @@ float lamps_light(V3 p, int mask, int skip, V3 *from) {
     return sum;
 }
 
+int lamps_beams(void) {
+    return nl;
+}
+
+void lamps_beam(int i, V3 *o, V3 *f, V3 *r, V3 *u, float *th, float *tv, float *range) {
+    const Lamp *l = &lamps[i];
+    *o = l->o;
+    *f = l->f;
+    *r = l->r;
+    *u = l->u;
+    *th = l->th;
+    *tv = l->tv;
+    *range = l->range;
+}
+
 void lamps_end(void) {
     /* Newest first: a vertex in the firelight and a beam was saved twice. */
     RV *pool = scenery.pool;

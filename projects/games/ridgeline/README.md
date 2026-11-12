@@ -8,10 +8,11 @@ An off-road exploration game for the Sega Dreamcast. Pick a truck and an
 area and climb it: Cascade Ridge, a Pacific Northwest mountain in autumn,
 from the meadow at its foot to the fire lookout on the summit; Mesa
 Grande, red rock canyon country, from the sand flats by the river to a
-slab of rock hung out over the drop at the top; or Moses Lake, the sand
+slab of rock hung out over the drop at the top; Moses Lake, the sand
 dunes of the Columbia Basin, from a camp on the lake shore to the crest of
-the biggest dune there is. No race and no clock: how high you've been, and
-the viewpoints you've found.
+the biggest dune there is; or Loch Lowland, a Highland pass, from the bothy
+on the loch's shore up a corrie to the mast above the cloud. No race and
+no clock: how high you've been, and the viewpoints you've found.
 
 - Six vehicles, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
   four, no traction control); KESTREL, a modern two-door 4x4 (twin-turbo V6,
@@ -62,6 +63,18 @@ the viewpoints you've found.
   is on. The flats by the camp are the
   playground: barchans, a punch bowl, a drag strip, the mud flats and
   their wallow, a bar to wade out to an island
+- Loch Lowland: a corrie cut back into a Highland plateau over a long loch
+  (after the Bealach na Bà), and three ways up it that meet on the pass:
+  the drove road (the old single-track road: a stone bridge, a shelf
+  under the crag with passing places, hairpins up the corrie's head), the
+  peat road (through the pines, up into a hanging corrie, round its
+  lochan through the peat, a rake up its back wall and over the moss
+  along the crag's edge) and the Devil's Staircase (up the corrie's floor
+  by the burn's fords, the boulders and a rock bar, then ramps of bare
+  rock up the head wall). From the pass the mast track climbs the ridge
+  to the top. The ground by the loch is the playground: the beach and
+  its shallows, a jetty to drive out on, a causeway just under the water
+  to the crannog, a peat bog, hummocks the ice left, the burn's ford
 - Physics: suspension per wheel with ledge-climbing tyre contact, tyres
   that slide by surface (rock, dirt, gravel, grass, mud, scree, snow, wet
   rock, sand, slickrock, packed sand, deep sand), water with drag and a stall if it reaches the intake, an automatic
@@ -92,7 +105,10 @@ the viewpoints you've found.
   across the slickrock, a line cabin under the wall with its lantern lit
   at night. At Moses
   Lake fifteen, a whip flag by each: a grove of Russian olives a dune is
-  burying, a pond in the cattails, the truck that never got out of the bowl
+  burying, a pond in the cattails, the truck that never got out of the
+  bowl. On Loch Lowland fifteen: standing stones on the headland, the
+  crannog, a shieling's ruin, the falls under the head wall, the crag's
+  edge, a camp by the lochan north of the pass
 - In the desert: junipers and pinyons on the benches, cottonwoods gone
   gold along the water, sagebrush, blackbrush and rabbitbrush on the
   flats, tumbleweeds bowling across them in the gusts and a dust devil in
@@ -115,6 +131,22 @@ the viewpoints you've found.
   south, the dunes west, and on the bench the irrigated circles; the
   Saddle Mountains and their gap on the skyline, the Cascades and one
   white volcano far to the west
+- In the Highlands: Scots pines, birches gone gold and rowans, heather
+  still in flower, bracken and bog cotton, Highland cattle by the fank,
+  blackface sheep at the corrie's mouth and red deer among the hummocks.
+  Mist that never quite leaves the loch, cloud banked on the summit ridge
+  with the mast's red light above it, and the loch a sheet of the sky's
+  light from the pass. The loch carries on past the map to its far
+  shore, hills behind it, and north of the pass a glen runs down to a
+  sound with islands in it
+- Showers on Loch Lowland, three a day by the clock (so a lobby is rained
+  on together): about 08:00, after 13:00 and after 21:00, clear of the
+  sunrise and the sunset. The light goes grey and flat, the far side of
+  the corrie and the hills past the loch go into the murk, the ground
+  darkens and takes an hour or so to dry; rain slants down the wind,
+  rings spread on the lochs, and at night it falls through the
+  headlights. It is heavier up at the pass, and inside the cloud on the
+  tops there is always a drizzle
 - Best times to the summit per area, truck and way up (or your own way),
   saved on the VMU and shown on the truck select. A viewpoint jump from
   the pause menu means no time for that run
@@ -122,7 +154,7 @@ the viewpoints you've found.
   you get close or sound the horn
 - Up to three CPU trucks for company, each taking its own route up, then
   back down another way and up again for as long as you stay out
-- Online: fifteen lobbies of four, five on each area, by broadband adapter,
+- Online: twenty lobbies of four, five on each area, by broadband adapter,
   W5500 or modem (a DreamPi or any dial-up server). Drop in and out
   whenever you like; there is no race. Everyone's name floats over their
   truck, horns carry, the lobby shares one time of day, and reaching the
@@ -198,9 +230,9 @@ make -C projects/games/ridgeline run
 | --- | --- |
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
-| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake (any test build takes it) |
-| `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, and a slower time doesn't replace it |
-| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 5, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=9` joins a Mesa Grande lobby, `=12` a Moses Lake one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
+| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake, `=3` for Loch Lowland, and `-DRL_AT_RAIN=0.9f` for a shower the whole way (any test build takes them) |
+| `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, a slower time doesn't replace it, and each area keeps its own |
+| `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 5, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=9` joins a Mesa Grande lobby, `=12` a Moses Lake one, `=17` a Loch Lowland one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |
 | `make fxbench` | Tyre effects on the console: 15 s of driving, then 25 s of wheelspin in the meadow mud |
@@ -208,14 +240,14 @@ make -C projects/games/ridgeline run
 | `make disc` | A self-booting CDI |
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour, `-DRL_AT_TOUR_ONLY` stops after the tour, `-DRL_AT_TOUR_ROUTE=2` makes the tour a drive up that route) |
 | `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
-| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande, `2` for Moses Lake |
+| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-5> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande, `2` for Moses Lake, `3` for Loch Lowland |
 | `tools/hostsim/sim loop <minutes> <trucks 1-4>` | CPU trucks going up and down the mountain for hours of game time in about a minute: logs every arrival, stall, winch and recover, and counts how trucks meeting head on got past |
 
 Assets (generated output is committed):
 
 | Target | Builds |
 | --- | --- |
-| `make level` | Every area's terrain, routes, obstacles, trees and colours (`tools/build_level.py`; `AREA=moab` or `dunes` for one), previews in `captures/`. Mesa Grande is `tools/level_moab.py` (the land past its map's edge with `tools/outland.py`), which also writes `captures/level-moab-views.png`: the ground from twenty-six cameras, without the game. Moses Lake is `tools/level_dunes.py` |
+| `make level` | Every area's terrain, routes, obstacles, trees and colours (`tools/build_level.py`; `AREA=cascade`, `moab`, `dunes` or `lowland` for one), previews in `captures/`. Mesa Grande is `tools/level_moab.py` (the land past its map's edge with `tools/outland.py`), which also writes `captures/level-moab-views.png`: the ground from twenty-six cameras, without the game. Moses Lake is `tools/level_dunes.py`, Loch Lowland `tools/level_lowland.py` (it writes `captures/level-lowland-views.png` the same way) |
 | `make textures` | Textures and the font (`tools/build_textures.py`) |
 | `make trucks` | Truck models (`tools/build_trucks.py`), previews with `tools/preview_trucks_blender.py` |
 | `make audio` | Every sound (`tools/build_audio.py`) |
@@ -512,6 +544,65 @@ each copy was coloured afresh. Colouring a water vertex once a pass took
 that to 1.09 ms, the worst frames from 20 ms to 17 and the late frames
 from 64 to 26.
 
+Loch Lowland (2026-11-10). In Flycast the CPU up the drove road with three
+CPU trucks is 8.0-11.5 ms a frame, 9.20 on average, 30 of 17,922 frames
+late: terrain 3.0, trees 0.7 (~260 of them), trucks 1.0. In
+`tools/hostsim` all eighteen climbs reach the top without a winch, and
+two hours of four CPU trucks going round (`SIM_AREA=3 sim loop 120 4`) is
+~36 summits and 4 winches. With four areas linked ~0.65 MB of the heap is
+free with it loaded and ~0.8 MB of the textures' room; it was 0.45 MB of
+heap until the scenery's strip and chunk tables and the water's scratch
+map moved into that room.
+
+On the console (`make hwbench EXTRA_CFLAGS=-DRL_AT_AREA=3`, 180 s from
+17:00 into the night with three CPU trucks), Cascade Ridge on the same
+build beside it:
+
+| ms a frame | Drove road | Devil's Staircase (`-DRL_AT_ROUTE=2`) | Cascade Ridge, logging road |
+| --- | --- | --- | --- |
+| fps | 59-60 | 59-60 | 59-60 |
+| CPU, average / worst 10 s window | 13.69 / 14.96 | 13.64 / 15.42 | 12.92 / 15.25 |
+| Late frames, of ~11,040 | 200 (167 of them in the menus) | 201 (166) | 141 (108) |
+| PVR render, average / worst window | 11.5 / 12.4 | 11.6 / 12.7 | 12.6 / 14.7 |
+| Terrain (with the land past the map) | 4.1 | 3.9 | 2.8 |
+| Trees, rocks, props | 1.2 | 1.2 | 2.0 |
+| Trucks | 1.4 | 1.5 | 1.5 |
+| Translucent (water, mist, effects, HUD) | 1.7 | 1.6 | 1.4 |
+| Relighting | 0.8 | 0.8 | 0.8 |
+
+The Highlands spend on ground what they save on trees: 7,000-9,400 ground
+vertices a frame against the mountain's 5,900, as the 6 m grid reaches 220
+m and the 12 m one 400 m to keep the crags' shapes across the corrie. The
+first console run had 77 late frames in the drive and each window's worst
+frame at 16.5-21.6 ms: every relight pass met the loch's 7,300 water
+vertices among the scenery pool's copies, which the pass counts as cheap,
+and coloured them all in a frame or two (5.4 ms). Water has its own step
+in the pass now, a vertex counted as six of the ground's: 33 late frames
+in the drive, worst frames 14.6-18.8 ms.
+
+Rain (2026-11-11): the same drive with a shower the whole way
+(`-DRL_AT_RAIN=0.9f`), dry beside it on the same build:
+
+| ms a frame, the drive | Drove road, dry | Drove road, rain | Staircase, dry | Staircase, rain |
+| --- | --- | --- | --- | --- |
+| CPU, average / worst 10 s window | 13.70 / 15.22 | 14.11 / 15.63 | 14.17 / 16.27 | 14.45 / 16.33 |
+| Late frames in the drive | 39 | 41 | 69 | 73 |
+| PVR render | 11.5 | 11.9 | 11.6 | 12.1 |
+| Translucent list | 1.64 | 2.16 | 1.59 | 2.14 |
+
+(The Staircase pair is from the build before `rain.c` moved to the end of
+the link, below, so compare within a pair.) Rain is ~0.5 ms of the
+translucent list: ~130 streaks about the camera, 14 more in each
+headlight beam after dark, and the rings; the haze takes a little of the
+far ground's drawing back. The grey light, the murk and the wet ground
+are the palette changed before the relight, and cost nothing a frame. In
+Flycast the same drive is 9.53 ms against 9.20.
+
+Adding `rain.c` in the middle of the link made the dry drive 0.43 ms
+slower than the day before (13.70 to 14.13, all in the opaque list:
+terrain and trees), with no rain falling and none of its code running:
+the engine's hot loops had moved. Linked last it was 13.70 again.
+
 ## Gotchas
 
 - A console run under dcload that goes quiet and stays quiet is usually
@@ -605,13 +696,95 @@ from 64 to 26.
   table left Mesa Grande with no water offline (the water's own scratch
   then failed) and with wrongly lit far ground online. Failed allocations
   now print `NO MEMORY` and fail a test run (`rl_no_memory`)
-
+- Crags on the far ground (Loch Lowland): sandstone in tiers with ledges
+  between was truer and turned to brown mush on the 12 m and 24 m grids.
+  A crag is one wall, 14 m through, stepped in and out along its length
+  into buttresses and gullies; the 6 m grid reaches 220 m there
+  (`LvlLook.near_m`), which the area can afford for having no forest
+- A crag that juts in and out by metres from one 3 m vertex to the next
+  is drawn as fins and notches of single triangles, and so is the bank
+  of a track cut across a steep wall at a slant to the grid. Loch
+  Lowland's buttresses are round-nosed and stand out ~2 m (they were
+  creased and 6 m), its gullies are scoops 8 m across (a V 2 m wide),
+  and the faces and the routes' banks are smoothed along themselves, 6 m
+  either way (`CRAG_SMOOTH`, `smooth_banks`): along only, so a rim and a
+  foot stay sharp, and capped (2.5 m, 1.5 m) so an arete is not rounded
+  off. The routes' own surfaces are untouched
+- CPU trucks coming off the mast track met those setting out from the
+  pass on one track's width and both stood until they were winched (most
+  of the area's winches in `sim loop`): a passing place at its foot. A
+  second try 12 m further up made it worse (17 winches in two hours), so
+  check any change to a route's width with the loop
+- The far grids colour a vertex from the nearest flagged cliff face
+  (`LVL_FACE`). Flag every face and a grass hillside with one band of
+  crag across it is drawn as rock from top to bottom: only great crags
+  are flagged (20 m of height within 12 m). The land past the map has
+  the same test for a wall's foot, which a Highland hillside passes:
+  `ol.faces(H, drop=30)` there
+- A zigzag's legs go where the ground already stands at their heights
+  (`level_lowland.py` lists the control points that miss it by 4 m). Legs
+  drawn first and the ground heaped up to them came out as lobes stuck on
+  the hill. The ground inside each hairpin's loop is levelled to the
+  road, or what is left between the two legs stands there as a fin
+- A step across a 30% ramp stops a long truck dead, on rock as on sand:
+  the Devil's Staircase climbs in pitches and treads, its ledges on the
+  treads only
+- Plants in their own colours (the desert's brush, the heather) are lit
+  by the ground's brightness, about 0.7 of them by day: painted as dark
+  as real heather they came out as black blobs
+- Far water takes the sky by the angle it is seen at (`water_sheen`),
+  worked out in the relight passes, not per frame: a loch from the pass
+  was otherwise the peat's colour, and lost in the hills round it
+- Water high on a hill next to dry ground overflowed the packed grid's
+  16-bit residuals: they wrap now, in `levelkit.py`, `level.c` and the
+  bot's reader alike
+- The sun's and the moon's glow is drawn over everything, so with the
+  disc behind a hill it was a patch of light on the hillside (plain on a
+  crag across a corrie at dusk). It fades out when a march toward it
+  meets the map, the land past the map or the painted ranges
+  (`sky_occluded`)
+- Water past the map's edge was left out beyond the fog's far distance:
+  nothing lost for a river, but a loch then showed its bed, as a straight
+  line where the map ends, at dawn and dusk when the fog is near. A
+  loch's lanes are always drawn, as a plain sheet in the PVR's fog like
+  the map's own far water, and start 30 m inside the map (the map's 6 m
+  and 12 m water grids stop short of its edge)
+- A mist sheet's texture repeats every 30 m, which from a hill above a
+  240 m sheet is a grid of tiles: sheets over 100 m use 110 m
+- The ground's detail texture repeats every 9 m, and its small mips are
+  one blot a tile: across a hill 300 m off that is a checkerboard, plain
+  on the land past the map (its fog is in the vertex, under the texture,
+  so nothing softens it) and plainest in rain. Loch Lowland's land past
+  the map has a texture of its own (`grass_far`) whose mips fade to its
+  average (`mip_fade` in the texture packer): full detail close to the
+  map's edge, flat from ~300 m
+- Rain is mostly not the rain. It is the palette (sun down to a fifth,
+  the sky's light up and grey, haze in to 430 m), and then everything
+  that ignores the fog has to be brought into it by hand or it stands
+  out bright in the murk: the sun's disc, the summit's cloud bank, the
+  painted ranges, and the land past the map, whose haze stops at 70% and
+  is tinted by the ground texture (made up for by the texture's
+  average). At night a box of rain about the camera puts one or two
+  drops in a headlight beam: each beam has drops of its own falling
+  through its cone
+- A wet cell's dry corners were drawn at the water's own level, so where
+  the ground beside the water falls away (a lochan drawn on a crag's
+  lip, a burn's bank down a fall) the water stood out over the hill:
+  10 m at the lip, 30 m on the 12 m far grid. A dry corner now sits
+  under its own ground when that is lower (`wet_id`), and
+  `level_lowland.py` gives a closed lochan a rim all the way round and
+  says when later ground work cuts it (`rim_check`)
 - The grass's trick with distance (near tufts shrink away at 24 m, every
   other one grows to fill in out to 44 m) is invisible in a meadow and
   plain wrong on brush, where each bush stands alone on bare ground and
   is seen to swell and shrink ahead of the truck. Brush (Mesa Grande and
   Moses Lake) is drawn at its own size out to 56 m and brought in over the
   last 7 m of that: 0.2-0.3 ms more of Flycast CPU where it grows thick
+- The same goes for Loch Lowland's moor: heather and clumps of hill
+  grass stand apart on dark ground, and at speed were seen to warp as
+  they came up. They are drawn at their own size out to 44 m
+  (`LvlLook.tuft_reach`), a fifth fewer of them: 98 a frame on the drove
+  road against 76, +0.07 ms of Flycast CPU
 - Dunes from noise read as a swell on water. Moses Lake's are ridges
   drawn by hand (`RIDGES` in `tools/level_dunes.py`): a crest line with
   its peaks and saddles, a long back up to it with the wind and a slip
@@ -656,6 +829,8 @@ from 64 to 26.
 ## Known limitations
 
 - Mesa Grande has no console timings yet (Flycast only)
+- The cattle and sheep have no collision: a truck drives through one
+  that hasn't got out of its way
 - Headlights cast no shadows: a tree behind a cabin catches the beam too
 - Headlights do not light the grass tufts (the fire and lanterns do), and
   the lantern post has no collision (the picnic table does)

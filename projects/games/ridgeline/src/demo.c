@@ -35,7 +35,7 @@ static struct {
 static void cut(void);
 
 void demo_start(void) {
-    /* Either area, a different one from the last demo. */
+    /* A different area from the last demo. */
     static int next_area = AREA_MOAB;
     game_load_area(next_area);
     next_area = (next_area + 1) % AREA_COUNT;

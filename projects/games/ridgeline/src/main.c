@@ -29,6 +29,7 @@
 #include "vmuscreen.h"
 #include "campfire.h"
 #include "glow.h"
+#include "rain.h"
 #include "desert.h"
 #include "dunes.h"
 #include "outland.h"
@@ -287,6 +288,7 @@ static void update(float dt) {
     world_update(dt);
     birds_update(dt);
     air_update(dt);
+    rain_update(dt);
     desert_update(dt);
     dunes_update(dt);
     campfire_update(dt);
@@ -333,6 +335,7 @@ static void render(void) {
     campfire_draw_tr();
     fx_draw();
     air_draw_tr();
+    rain_draw_tr();
     desert_draw_tr();
     dunes_draw_tr();
     world_draw_flare();
@@ -413,18 +416,22 @@ static void area_world(void) {
     fx_clear();
 }
 
-/* A card over a still frame while the area loads: the world is rebuilt
-   in one go, with nothing to draw from meanwhile. */
-static void loading_card(const char *name) {
+/* While an area loads the world is rebuilt in one go, with nothing of it
+   to draw meanwhile: the screen is the area's own card (the area page's:
+   its map, what it is, its ways up) on a dark ground, which says where
+   you are going instead of a name on the bare background colour. */
+static void loading_card(int area) {
+    static const pvr_poly_hdr_t *h_back;
+    if(!h_back) h_back = r_header(TEX_NONE, HF_TR | HF_NOFOG);
     for(int f = 0; f < 2; f++) {
         r_frame_begin();
         r_list(PVR_LIST_OP_POLY);
         r_list(PVR_LIST_PT_POLY);
         r_list(PVR_LIST_TR_POLY);
-        ui_dim();
-        ui_panel(170, 196, 470, 284);
-        hud_text_c(320, 226, 0.9f, ALIGN_CENTER, 0xffffffff, name);
-        hud_text_c(320, 258, 0.5f, ALIGN_CENTER, 0xffd8d0c0, "LOADING");
+        r_hdr(h_back);
+        r_quad2d_grad(0, 0, 640, 480, 0xff1d2732, 0xff0a0d11, 16.0f);
+        menu_area_card(area, 104);
+        hud_text_c(320, 372, 0.62f, ALIGN_CENTER, ui_col(UI_ACCENT), "LOADING");
         r_frame_end();
     }
 }
@@ -432,7 +439,7 @@ static void loading_card(const char *name) {
 void game_load_area(int area) {
     if(area == game.area) return;
     uint64_t t0 = timer_us_gettime64();
-    loading_card(rl_levels[area]->name);
+    loading_card(area);
     area_ground(area);
     area_world();
     /* Whatever stood on the old ground stands on the new. */

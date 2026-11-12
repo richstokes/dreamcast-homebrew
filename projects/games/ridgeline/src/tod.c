@@ -18,6 +18,7 @@
 #include "world.h"
 #include "terrain.h"
 #include "outland.h"
+#include "rain.h"
 
 Tod tod;
 static Palette cur;
@@ -163,6 +164,36 @@ static const Key keys_basin[] = {
      {0.19f, 0.22f, 0.30f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
 };
 _Static_assert(sizeof(keys_basin) == sizeof(keys), "an hour for an hour");
+/* The Highlands' day: softer than the mountain's. The sky is paler and
+   takes more of the lighting from the sun, so the hills model gently and
+   the shadows are never hard; the haze is the blue-grey of damp air and
+   stands well off, for what there is to see is the loch from the pass;
+   the low sun, when it gets under the cloud, is gold on everything. */
+static const Key keys_highland[] = {
+    {0.0f, 0xff070e1e, 0xff16243a, 0xff141f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 120, 760,
+     {0.17f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {4.6f, 0xff070e1e, 0xff16243a, 0xff141f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 120, 760,
+     {0.17f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {5.5f, 0xff1c2c4c, 0xff746472, 0xff44465c, 0xffe8ecf4, 0xffd88458, 0xff5e566c, 0.85f, 80, 600,
+     {0.10f, 0.12f, 0.18f}, {0.15f, 0.17f, 0.24f}, {0.08f, 0.09f, 0.13f}, 0.5f, 0.8f, 0.45f},
+    {6.3f, 0xff5c84aa, 0xfff0c498, 0xffdcb8a0, 0xffffb468, 0xffffc478, 0xffffcca8, 1.0f, 60, 560,
+     {0.74f, 0.44f, 0.24f}, {0.36f, 0.36f, 0.42f}, {0.15f, 0.16f, 0.20f}, 0.0f, 0.25f, 0.75f},
+    {8.0f, 0xff7ea6c8, 0xffe2e8ea, 0xffd2dce0, 0xfffff4dc, 0xfff6e8cc, 0xfff8fafa, 0.5f, 110, 820,
+     {0.72f, 0.66f, 0.56f}, {0.46f, 0.50f, 0.56f}, {0.22f, 0.23f, 0.25f}, 0.0f, 0.0f, 1.0f},
+    {12.5f, 0xff7ca8cc, 0xffdce6ea, 0xffcfdade, 0xfffffaf0, 0xfff2ecda, 0xfffafcfc, 0.3f, 150, 940,
+     {0.78f, 0.75f, 0.69f}, {0.48f, 0.52f, 0.58f}, {0.24f, 0.24f, 0.26f}, 0.0f, 0.0f, 1.0f},
+    {17.0f, 0xff86aecc, 0xffe2e6e4, 0xffd4d8d6, 0xfffff0d0, 0xfff8dfb8, 0xfff8f8f4, 0.6f, 130, 880,
+     {0.80f, 0.68f, 0.50f}, {0.46f, 0.49f, 0.55f}, {0.23f, 0.23f, 0.25f}, 0.0f, 0.0f, 1.0f},
+    {18.3f, 0xff5a7aa6, 0xfff2a868, 0xffdcac90, 0xffff9444, 0xffffa058, 0xffffb890, 1.0f, 100, 720,
+     {0.72f, 0.38f, 0.17f}, {0.32f, 0.31f, 0.42f}, {0.15f, 0.14f, 0.17f}, 0.0f, 0.3f, 0.8f},
+    {19.0f, 0xff1e2e52, 0xff8e5e66, 0xff5c4e66, 0xffff9040, 0xffe07444, 0xff5c4c64, 0.8f, 90, 620,
+     {0.0f, 0.0f, 0.0f}, {0.15f, 0.16f, 0.24f}, {0.08f, 0.09f, 0.13f}, 0.5f, 0.8f, 0.45f},
+    {20.2f, 0xff070e1e, 0xff16243a, 0xff141f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 120, 760,
+     {0.17f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+    {24.0f, 0xff070e1e, 0xff16243a, 0xff141f30, 0xffe8ecf4, 0xff2a3a58, 0xff2a3448, 0.35f, 120, 760,
+     {0.17f, 0.20f, 0.28f}, {0.09f, 0.11f, 0.17f}, {0.07f, 0.08f, 0.12f}, 1.0f, 1.0f, 0.30f},
+};
+_Static_assert(sizeof(keys_highland) == sizeof(keys), "an hour for an hour");
 
 /* Moonlight: a cool, faint sun from the moon's direction. */
 static const float moon_k[3] = {0.17f, 0.20f, 0.28f};
@@ -172,7 +203,8 @@ static void lerp3(float *o, const float *a, const float *b, float t) {
 }
 
 static void palette_at(float hour, Palette *p) {
-    const Key *ks = lvl_area == AREA_MOAB ? keys_desert : lvl_area == AREA_DUNES ? keys_basin : keys;
+    static const Key *const area_keys[AREA_COUNT] = {keys, keys_desert, keys_basin, keys_highland};
+    const Key *ks = area_keys[lvl_area];
     int k = 0;
     while(k + 2 < KEYS && hour >= ks[k + 1].hour) k++;
     const Key *a = &ks[k], *b = &ks[k + 1];
@@ -223,6 +255,7 @@ static void eval(void) {
         for(int i = 0; i < 3; i++) cur.sun_k[i] *= sf;
     }
     tod.glow_az = el > -10.0f * ENG_PI / 180.0f ? az : az + ENG_PI;
+    rain_palette(&cur, tod.hour);
 }
 
 /* ---- Relighting ---- */
@@ -230,7 +263,8 @@ static void eval(void) {
 /* A pass: the ground grid, the far terrain and water in the scenery
    pool, then the trees, rocks and props. A frame does budget vertices'
    worth, in the proportion each phase costs. */
-enum { PH_GRID, PH_OUTLAND, PH_POOL, PH_SCENERY, PH_DONE };
+enum { PH_GRID, PH_OUTLAND, PH_WATER, PH_POOL, PH_SCENERY, PH_DONE };
+#define WATER_COST 6      /* a water vertex in ground vertices: its colour by depth, then the sky's sheen */
 static struct {
     int phase, at;
     Palette snap;         /* the light this pass is for */
@@ -242,7 +276,7 @@ static bool relight_needed;
 static bool same_light(const Palette *a, const Palette *b, V3 da, V3 db) {
     for(int i = 0; i < 3; i++)
         if(a->sun_k[i] != b->sun_k[i] || a->sky_k[i] != b->sky_k[i] || a->amb_k[i] != b->amb_k[i]) return false;
-    return a->water_k == b->water_k && da.x == db.x && da.y == db.y && da.z == db.z;
+    return a->water_k == b->water_k && a->wet == b->wet && da.x == db.x && da.y == db.y && da.z == db.z;
 }
 
 static void pass_begin(void) {
@@ -263,6 +297,7 @@ static int relight_work(int n) {
         switch(rl.phase) {
             case PH_GRID: total = LEVEL_N * LEVEL_N; step = n; break;
             case PH_OUTLAND: total = outland_relight_n(); step = n; break;
+            case PH_WATER: total = terrain_water_n(); step = (n + WATER_COST - 1) / WATER_COST; break;
             case PH_POOL: total = terrain_pool_n(); step = n * 3; break;   /* a copy: cheap */
             default: total = world_relight_n(); step = n; break;
         }
@@ -272,6 +307,7 @@ static int relight_work(int n) {
             switch(rl.phase) {
                 case PH_GRID: terrain_relight(rl.at, to); n -= to - rl.at; break;
                 case PH_OUTLAND: outland_relight(rl.at, to); n -= to - rl.at; break;
+                case PH_WATER: terrain_relight_water(rl.at, to); n -= (to - rl.at) * WATER_COST; break;
                 case PH_POOL: terrain_relight_pool(&scenery, rl.at, to); n -= (to - rl.at + 2) / 3; break;
                 default: world_relight(rl.at, to); n -= to - rl.at; break;
             }

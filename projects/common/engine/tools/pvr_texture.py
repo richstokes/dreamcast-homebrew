@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageStat
 
 
 _FORMATS = {"RGB565", "ARGB4444"}
@@ -220,7 +220,7 @@ def _keep_coverage(levels: list[Image.Image], alpha_ref: float) -> None:
 def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
                  mipmap: bool = False, dither: bool = True,
                  wrap: bool = False, mip_filter: str = "box",
-                 alpha_ref: float | None = None) -> list[int]:
+                 alpha_ref: float | None = None, mip_fade: dict | None = None) -> list[int]:
     """Return twiddled uint16 words including complete mips and DMA padding.
 
     Dimensions must be powers of two from 8 through 1024; mipmaps require a
@@ -229,7 +229,11 @@ def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
     ARGB4444 stores straight alpha, with premultiplied filtering during mip
     generation to prevent invisible RGB from bleeding into particle edges.
     ``alpha_ref`` (0..1, punch-through textures) keeps the mips' coverage
-    at that alpha test the same as the full-size image's.
+    at that alpha test the same as the full-size image's. ``mip_fade``
+    (RGB565) maps a mip's width to how much of its detail it keeps, the
+    rest going to the texture's average colour: for a tiled detail texture
+    seen from far off, whose small mips are otherwise one blot a tile, a
+    pattern of them across a hillside.
     """
     pixel_format = pixel_format.upper()
     if pixel_format not in _FORMATS:
@@ -238,6 +242,10 @@ def pack_texture(image: Image.Image, pixel_format: str = "RGB565", *,
     # Opaque RGB565 must not let source alpha alter the filtering result.
     source = image.convert("RGB") if pixel_format == "RGB565" else image.convert("RGBA")
     levels = _mip_images(source, wrap, mip_filter) if mipmap else [source]
+    if mipmap and mip_fade and pixel_format == "RGB565":
+        flat = tuple(int(round(c)) for c in ImageStat.Stat(source).mean[:3])
+        levels = [Image.blend(Image.new("RGB", lv.size, flat).convert(lv.mode), lv, mip_fade[lv.width])
+                  if lv.width in mip_fade else lv for lv in levels]
     if mipmap and alpha_ref is not None and pixel_format != "RGB565":
         _keep_coverage(levels, alpha_ref)
     words = []

@@ -339,8 +339,17 @@ def apply_mud(h, mud):
 
 PROP = {n: i for i, n in enumerate(["CABIN", "SIGN", "TABLE", "CAIRN", "TOWER", "BRIDGE", "WRECK", "ARCH", "TENT",
                                     "KIOSK", "RAMADA", "PANEL", "TRACKS", "ADIT", "PLATE", "PYLON", "CAMPER", "FLAG",
-                                    "FIREPIT", "QUAD", "RAIL"])}
+                                    "FIREPIT", "QUAD", "RAIL",
+                                    "STONEBRIDGE", "RUIN", "MAST", "BOAT", "POLE", "TRIG"])}
 BRIDGE_HX, BRIDGE_HZ = 2.9, 7.0     # deck half width and half length (world.c draws the same)
+
+
+def cairn_boxes(props):
+    """A box round each flag cairn's stones, which stop a truck (world.c
+    stacks four of them, 0.55 m at the foot and 1.3 m high; the pole and
+    the flag do not). props: (x, y, z, yaw, kind, ...) as a level lists
+    them; the boxes go after the rocks', with the other props'."""
+    return [(p[0], p[1] + 0.6, p[2], 0.5, 0.6, 0.5, 0.0) for p in props if p[4] == PROP["CAIRN"]]
 
 
 def frame(r, k):
@@ -489,7 +498,7 @@ def minimap(rgb, water, routes, tracks, path):
 
 
 # ---------------------------------------------------------------------------
-# Land drawn by hand (level_moab.py, level_dunes.py): outlines and lines,
+# Land drawn by hand (level_moab.py, level_dunes.py, level_lowland.py): outlines and lines,
 # what stands inside or beside them, routes with their heights and the
 # ground built to them, and cliffs' faces.
 
@@ -585,6 +594,19 @@ def route_line(h, ctrl, gmax, name):
     return {"name": name, "pts": pts, "y": y, "gmax": gmax}
 
 
+def terrace(r, s0, s1, risers, spread=6.0, flat=0.9):
+    """Redistribute the climb between points s0 and s1 of route r into
+    risers (points along it) with easier ground between: a canyon floor's
+    pour-offs."""
+    y = r["y"]
+    k = np.arange(s0, s1)
+    w = np.full(len(k), flat)
+    for q in risers:
+        w += np.exp(-((k - q) / spread) ** 2)
+    c = np.concatenate([[0], np.cumsum(w)])[:-1] / w.sum()
+    y[s0:s1] = y[s0] + (y[s1] - y[s0]) * c
+
+
 def cut_canyon(h, pts, y, half, wall=4.5, lip=0.0):
     """A canyon along a line: a floor half wide at the line's heights,
     walls rising steeply from it to whatever ground was there."""
@@ -676,9 +698,11 @@ def _lz(data):
 
 
 def _u16_planes(q):
-    """A grid of u16s as plane residuals, zigzagged, low bytes then high."""
-    r = _plane_residual(q)
-    assert np.abs(r).max() < 32768
+    """A grid of u16s as plane residuals, zigzagged, low bytes then high.
+    A residual is kept to 16 bits (water high on a hill beside dry ground
+    is more than that from what its neighbours predict): the game adds
+    them up the same way."""
+    r = (_plane_residual(q) + 32768) % 65536 - 32768
     zz = ((r << 1) ^ (r >> 63)).astype("<u2").reshape(-1)
     return zz.view(np.uint8).reshape(-1, 2).T.copy().tobytes()
 

@@ -208,19 +208,6 @@ R_SUMMIT = [
 ]
 
 
-def terrace(r, s0, s1, risers, spread=6.0, flat=0.9):
-    """Redistribute the climb between points s0 and s1 of route r into
-    risers (points along it) with easier ground between: a canyon floor's
-    pour-offs."""
-    y = r["y"]
-    k = np.arange(s0, s1)
-    w = np.full(len(k), flat)
-    for q in risers:
-        w += np.exp(-((k - q) / spread) ** 2)
-    c = np.concatenate([[0], np.cumsum(w)])[:-1] / w.sum()
-    y[s0:s1] = y[s0] + (y[s1] - y[s0]) * c
-
-
 def raise_fin(h, pts, y, half, crown=1.6, side=2.0, mask=None):
     """A sandstone fin under a line: a rounded crest half wide at the
     line's heights, falling away steeply either side. Returns how near the
@@ -1258,6 +1245,7 @@ def build(out, preview_path=None, raw=None):
     for v in views:
         if v[3] not in ("THE DIVING BOARD", "WINDOW ARCH", "RIVER CAMP", "OLD TIMER", "LINE CABIN", "PICTURE ROCK"):
             props.append((v[0] + 4.0, gy(v[0] + 4.0, v[2] + 3.0), v[2] + 3.0, 0.0, PROP["CAIRN"], 0))
+    boxes += cairn_boxes(props)
     summit_y = gy(SUMMIT[0], SUMMIT[1])
     spawns = []
     for k in range(4):

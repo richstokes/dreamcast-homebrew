@@ -15,7 +15,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum { AREA_CASCADE, AREA_MOAB, AREA_DUNES, AREA_COUNT };
+enum { AREA_CASCADE, AREA_MOAB, AREA_DUNES, AREA_LOWLAND, AREA_COUNT };
 
 /* The grid, the same for every area (tools/levelkit.py). */
 #define LEVEL_N 257
@@ -47,6 +47,13 @@ enum {
     PROP_FIREPIT,   /* a ring of stones with a fire in it (campfire.c), camp chairs and a cooler by it */
     PROP_QUAD,      /* a quad bike parked up, a whip on its tail */
     PROP_RAIL,      /* a sand rail: a tube-framed buggy on paddle tyres */
+    /* The Highlands': */
+    PROP_STONEBRIDGE,   /* an arch of stone over a burn (y: its deck) */
+    PROP_RUIN,      /* a shieling's walls, one gable standing */
+    PROP_MAST,      /* a relay mast on the level's posts, its hut beside it */
+    PROP_BOAT,      /* a rowing boat pulled up */
+    PROP_POLE,      /* a pole of the line over the pass */
+    PROP_TRIG,      /* a survey pillar */
     PROP_KIND_COUNT
 };
 #define LVL_BRIDGE_HX 2.90f
@@ -144,9 +151,21 @@ typedef struct {
     bool snow;                     /* snow blows about the top */
     bool fireflies;                /* over the grass after dusk */
     bool cloud_cap;                /* a cap of cloud sits on the summit */
+    float cap_base, cap_top;       /* the heights it lies between */
+    bool cap_collar;               /* drawn as a collar wrapped round a peak; else as cloud banked on a ridge */
     float woods;                   /* how much of the forest's sound: birdsong, the trees */
     bool lake;                     /* still water by the acre: drawn coarser sooner (water.c), and quieter */
     bool fit_split;                /* each cell of the ground split the way its heights lie (terrain.c) */
+    float mist_day;                /* how much of the dawn's mist lies on the water all day */
+    float near_m, mid_m, far_m;    /* how far out the ground's 6 m grid goes, its 12 m one, and all of it */
+    float sheen;                   /* how much of the sky far water takes, looked at along it (a loch from a hill) */
+    int tuft_tex[4];               /* TEX_*: the four things that grow on it */
+    uint8_t tuft_own;              /* bit k: number k comes in its own colours (the ground only lights it) */
+    float tuft_reach;              /* they are drawn at their own size out to this, metres; 0: the meadow's way,
+                                      the near ones shrinking away as every other one grows to fill in (world.c) */
+    float rain;                    /* showers come through (rain.c): 0 never, 1 a Highland day's worth */
+    int out_tex;                   /* TEX_*: the ground's detail on the land past the map (outland.c) */
+    float cap_r;                   /* how far out from the summit the cloud lies, metres */
 } LvlLook;
 
 extern const RlLevel *lvl;

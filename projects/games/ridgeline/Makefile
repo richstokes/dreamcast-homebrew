@@ -6,14 +6,17 @@ TARGET = ridgeline.elf
 GAME_PREFIX = RL
 # Ridgeline's own sources (src/), then the shared engine's
 # (projects/common/engine), in link order.
+# (A new file goes at the end: rain.c added in the middle moved the
+# engine's hot loops and cost the console 0.4 ms a frame, dry.)
 SOURCES = main.c level.c terrain.c world.c outland.c lamps.c air.c desert.c dunes.c water.c tod.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c film.c vmuscreen.c campfire.c glow.c \
-	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c
+	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c rain.c
 # Shared with DreamKarts from projects/common: the network link (Broadband
 # adapter, W5500, modem), the dialler and the VMU screens.
 COMMON_SOURCES = netlink.c dialup.c vmulcd.c
 LIBS = -lppp -lm
 GEN = assets/generated
-BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/level_cascade.lvl $(GEN)/level_moab.lvl $(GEN)/level_moab.out $(GEN)/level_dunes.lvl $(GEN)/level_dunes.out
+BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak $(GEN)/level_cascade.lvl $(GEN)/level_moab.lvl $(GEN)/level_moab.out \
+	$(GEN)/level_dunes.lvl $(GEN)/level_dunes.out $(GEN)/level_lowland.lvl $(GEN)/level_lowland.out
 VERSION_SOURCES = main.c menu.c
 
 # Build variants (projects/common/engine/game.mk).
@@ -31,7 +34,7 @@ VARIANT_FLAGS_film = -DRL_FILM
 include ../../common/engine/game.mk
 
 # Asset generators (outputs are committed so a plain build needs no Python).
-# AREA=cascade, moab or dunes builds one area.
+# AREA=cascade, moab, dunes or lowland builds one area.
 AREA ?= all
 level:
 	uv run tools/build_level.py --out $(GEN) --area $(AREA) --preview captures

@@ -15,11 +15,13 @@
 #include "level_cascade.h"
 #include "level_moab.h"
 #include "level_dunes.h"
+#include "level_lowland.h"
 
-extern const uint8_t rl_level_cascade_lvl[], rl_level_moab_lvl[], rl_level_dunes_lvl[];
+extern const uint8_t rl_level_cascade_lvl[], rl_level_moab_lvl[], rl_level_dunes_lvl[], rl_level_lowland_lvl[];
 
-const RlLevel *const rl_levels[AREA_COUNT] = {&rl_level_cascade, &rl_level_moab, &rl_level_dunes};
-static const uint8_t *const packs[AREA_COUNT] = {rl_level_cascade_lvl, rl_level_moab_lvl, rl_level_dunes_lvl};
+const RlLevel *const rl_levels[AREA_COUNT] = {&rl_level_cascade, &rl_level_moab, &rl_level_dunes, &rl_level_lowland};
+static const uint8_t *const packs[AREA_COUNT] = {rl_level_cascade_lvl, rl_level_moab_lvl, rl_level_dunes_lvl,
+                                                 rl_level_lowland_lvl};
 const RlLevel *lvl = &rl_level_cascade;
 int lvl_area;
 
@@ -27,7 +29,8 @@ static const LvlLook looks[AREA_COUNT] = {
     [AREA_CASCADE] = {
         .ground_tex = TEX_GRASS, .water_shallow = 0xff9ed2cc, .water_deep = 0xff2e6a74, .wet = {52, 92, 98},
         .boulder = {0xff9aa0a6, 0xff9aa0a6, 0xff9aa0a6}, .ledge = 0xff8c9298, .dust = 0,
-        .snow = true, .fireflies = true, .cloud_cap = true, .woods = 1.0f,
+        .snow = true, .fireflies = true, .cloud_cap = true, .cap_base = 108.0f, .cap_top = 129.0f, .cap_r = 115.0f, .cap_collar = true, .woods = 1.0f,
+        .near_m = 180.0f, .mid_m = 300.0f, .far_m = 620.0f, .tuft_tex = {TEX_TUFT0, TEX_TUFT1, TEX_TUFT2, TEX_TUFT3}, .out_tex = TEX_GRASS,
     },
     /* Red rock: a silt-green river, sandstone boulders, red dust off
        everything, and a quiet the forest never has. */
@@ -35,6 +38,7 @@ static const LvlLook looks[AREA_COUNT] = {
         .ground_tex = TEX_SANDSTONE, .water_shallow = 0xffb8b48c, .water_deep = 0xff5a6a48, .wet = {96, 100, 66},
         .boulder = {0xffc86c3e, 0xffb45a30, 0xffd27c4a}, .ledge = 0xffd07844, .dust = 0xffd8946a,
         .snow = false, .fireflies = false, .cloud_cap = false, .woods = 0.3f,
+        .near_m = 180.0f, .mid_m = 300.0f, .far_m = 1040.0f, .tuft_tex = {TEX_BRUSH0, TEX_BRUSH1, TEX_BRUSH2, TEX_BRUSH3}, .tuft_own = 15, .tuft_reach = 56.0f, .out_tex = TEX_SANDSTONE,
     },
     /* Grey basalt sand: a lake the sky's own blue, black rimrock, pale
        dust, and the wind for company. */
@@ -42,6 +46,18 @@ static const LvlLook looks[AREA_COUNT] = {
         .ground_tex = TEX_DUNE, .water_shallow = 0xff8cb0b4, .water_deep = 0xff2c5a72, .wet = {58, 84, 92},
         .boulder = {0xff4c4440, 0xff584c44, 0xff443e3c}, .ledge = 0xff4c4440, .dust = 0xffcfc4ae,
         .snow = false, .fireflies = false, .cloud_cap = false, .woods = 0.12f, .lake = true, .fit_split = true,
+        .near_m = 180.0f, .mid_m = 300.0f, .far_m = 1040.0f,
+        .tuft_tex = {TEX_BRUSH0, TEX_REED, TEX_BRUSH2, TEX_BRUSH3}, .tuft_own = 15, .tuft_reach = 56.0f, .out_tex = TEX_DUNE,
+    },
+    /* The Highlands: a loch the colour of the peat it drains, sandstone
+       boulders, cloud on the tops and mist on the water whatever the
+       hour, and wind where a forest would have birds. */
+    [AREA_LOWLAND] = {
+        .ground_tex = TEX_GRASS, .water_shallow = 0xff6a6248, .water_deep = 0xff26323e, .wet = {40, 56, 70},
+        .boulder = {0xff8e8880, 0xffa8a49c, 0xff7c6e6c}, .ledge = 0xff8e8880, .dust = 0,
+        .snow = false, .fireflies = false, .cloud_cap = true, .cap_base = 118.0f, .cap_top = 145.0f, .cap_r = 150.0f, .woods = 0.22f,
+        .mist_day = 0.3f, .near_m = 220.0f, .mid_m = 400.0f, .far_m = 1040.0f, .sheen = 0.8f, .lake = true,
+        .tuft_tex = {TEX_HEATH0, TEX_HEATH1, TEX_TUFT0, TEX_HEATH2}, .tuft_own = 1 | 2 | 8, .tuft_reach = 44.0f, .rain = 1.0f, .out_tex = TEX_GRASS_FAR,
     },
 };
 const LvlLook *look = &looks[AREA_CASCADE];
@@ -109,6 +125,7 @@ static int32_t u16_next(U16Grid *g) {
     if(g->j == 0) v = g->i ? r + g->left : r;
     else if(g->i == 0) v = r + g->up[0];
     else v = r + g->left + g->up[g->i] - g->upleft;
+    v &= 0xffff;   /* residuals wrap at 16 bits */
     g->upleft = g->up[g->i];
     g->up[g->i] = v;
     g->left = v;
