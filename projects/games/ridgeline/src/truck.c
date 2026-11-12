@@ -183,9 +183,9 @@ void truck_spec(TruckSpec *s, int model) {
     else if(model == 4) {
         /* TACO: a 2026 midsize double-cab pickup. A 2.4 L turbo four with
            its torque low down, an eight-speed automatic, independent front
-           suspension and traction control. The longest wheelbase of the
-           pickups (3.35 m): steady at speed, wide in the hairpins, and
-           quick to ground its belly on a sharp crest. */
+           suspension and traction control. A long wheelbase (3.35 m):
+           steady at speed, wide in the hairpins, and quick to ground its
+           belly on a sharp crest. */
         s->name = "TACO";
         s->mass = 2050.0f;
         s->inertia = v3(4900.0f, 5000.0f, 950.0f);
@@ -218,7 +218,7 @@ void truck_spec(TruckSpec *s, int model) {
     }
     else if(model == 5) {
         /* GOOSE: a four-seat sport side-by-side. Half the weight of the
-           trucks on the longest wheelbase here (3.43 m), a 900 cc turbo
+           trucks on a 3.43 m wheelbase, a 900 cc turbo
            triple behind the seats (~45% of the weight on the front) that
            revs to 8000, half a metre of wheel travel on long arms with
            dampers to match, and soft knobbly tyres that grip better than
@@ -256,7 +256,7 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 1.90f;
         s->brake_torque = 1300.0f;
     }
-    else {
+    else if(model == 6) {
         /* ONE TEN: a mid-80s British long-wheelbase station wagon. A 3.5 L
            carburettor V8 with its torque at 2500, out of breath past 4000
            (fade puts its 85 kW there) and the least power for its weight
@@ -295,6 +295,48 @@ void truck_spec(TruckSpec *s, int model) {
         s->low_range = 2.35f;
         s->brake_torque = 1850.0f;
     }
+    else {
+        /* EAGLE: a 2026 full-size desert-running crew cab, to its maker's
+           2026 figures. A high-output 3.5 L twin-turbo V6 (691 N m at
+           3500; fade puts its 336 kW near 5250) through a ten-speed
+           automatic, 14 and 15 inches of wheel travel with firmer dampers
+           than the other pickups, 35 inch tyres and traction control. The
+           biggest and heaviest thing here: 2.2 m across the flares on a
+           3.69 m wheelbase, so it is the steadiest at speed, the widest in
+           the hairpins, and a narrow trail is narrower for it. */
+        s->name = "EAGLE";
+        s->mass = 2600.0f;
+        s->inertia = v3(7500.0f, 7700.0f, 1500.0f);
+        s->cog_y = 0.90f;
+        s->cog_z = 0.24f;    /* ~56% front */
+        s->lsd = 150.0f;
+        s->radius = 0.437f;
+        s->width = 0.315f;
+        for(int i = 0; i < 4; i++)
+            s->wheel[i] = v3((i & 1) ? 0.94f : -0.94f, s->radius, (i < 2) ? 1.846f : -1.846f);
+        s->travel = 0.37f;
+        s->sag = 0.37f;
+        s->damp_bump = 0.32f;
+        s->damp_rebound = 0.52f;
+        s->wheel_inertia = 2.6f;
+        s->max_steer = 0.60f;
+        s->body_lo[0] = -1.10f; s->body_lo[1] = 0.55f; s->body_lo[2] = -3.12f;
+        s->body_hi[0] = 1.10f; s->body_hi[1] = 2.02f; s->body_hi[2] = 2.78f;
+        s->wade = 0.81f;
+        s->idle_rpm = 650.0f;
+        s->tcs = true;
+        s->redline_rpm = 6200.0f;
+        s->peak_torque = 691.0f;
+        s->peak_rpm = 3500.0f;
+        s->fade = 0.28f;
+        s->gears = 10;
+        static const float r[10] = {4.70f, 2.99f, 2.15f, 1.77f, 1.52f, 1.26f, 1.00f, 0.85f, 0.69f, 0.64f};
+        memcpy(s->ratio, r, sizeof(r));
+        s->reverse = 4.87f;
+        s->final_drive = 4.10f;
+        s->low_range = 2.64f;
+        s->brake_torque = 2800.0f;
+    }
 #ifdef HAVE_TRUCK_MODELS
     const rl_truck_info_t *ti = &rl_truck_info[model];
     s->radius = ti->wheel_radius;
@@ -324,8 +366,8 @@ void truck_spec(TruckSpec *s, int model) {
     /* Low range holds the automatic to the gears whose redline is under
        LOW_RANGE_TOP_MPS, as modern 4L modes do: 2nd in the pickup (~22 mph),
        4th in the Kestrel (~28 mph), 3rd in the Bobcat (~22 mph), 2nd in the
-       FFR and the Taco (~22 mph), 3rd in the Goose (~27 mph) and the One
-       Ten (~28 mph). */
+       FFR and the Taco (~22 mph), 3rd in the Goose (~27 mph), the One Ten
+       and the Eagle (~28 mph). */
     s->low_top_gear = 1;
     for(int g = 1; g <= s->gears; g++) {
         float v = s->redline_rpm / RPM_PER_RADS / (s->ratio[g - 1] * s->final_drive * s->low_range) * s->radius;
@@ -334,7 +376,7 @@ void truck_spec(TruckSpec *s, int model) {
     /* Springs: each corner's share of the weight (more on the front, with
        the centre of gravity ahead of mid-wheelbase) compresses sag of the
        travel, so the truck sits level. Dampers about a third and a half of
-       critical, more on the Goose. */
+       critical, more on the Eagle and the Goose. */
     float zf = s->wheel[WFL].z, zr = s->wheel[WRL].z;
     float front = clampf((s->cog_z - zr) / (zf - zr), 0.3f, 0.7f);
     for(int a = 0; a < 2; a++) {

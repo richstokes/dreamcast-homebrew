@@ -253,7 +253,7 @@ typedef struct {
 /* Play each loop at rate rpm / loop rpm. Each holds a whole number of
    four-stroke cycles starting at cylinder 1's firing, so channels
    started together stay in step. */
-static const rl_engine_sound_t rl_engine_sounds[7] __attribute__((unused)) = {
+static const rl_engine_sound_t rl_engine_sounds[8] __attribute__((unused)) = {
     { /* CASCADE 84 */
         { RL_SFX_CASCADE_ON_0, RL_SFX_CASCADE_ON_1, RL_SFX_CASCADE_ON_2, RL_SFX_CASCADE_ON_3 },
         { RL_SFX_CASCADE_OFF_0, RL_SFX_CASCADE_OFF_1, RL_SFX_CASCADE_OFF_2, RL_SFX_CASCADE_OFF_3 },
@@ -296,11 +296,17 @@ static const rl_engine_sound_t rl_engine_sounds[7] __attribute__((unused)) = {
         { 562.08f, 1064.65f, 2025.00f, 3824.75f },
         650.0f, 5000.0f
     },
+    { /* EAGLE */
+        { RL_SFX_KESTREL_ON_0, RL_SFX_KESTREL_ON_1, RL_SFX_KESTREL_ON_2, RL_SFX_KESTREL_ON_3 },
+        { RL_SFX_KESTREL_OFF_0, RL_SFX_KESTREL_OFF_1, RL_SFX_KESTREL_OFF_2, RL_SFX_KESTREL_OFF_3 },
+        { 748.01f, 1485.55f, 2951.25f, 5827.92f },
+        650.0f, 6200.0f
+    },
 };
 
 /* per truck: the horn loop, and the engine start one-shot */
-static const uint16_t rl_horn_sfx[7] __attribute__((unused)) = { RL_SFX_HORN_CASCADE, RL_SFX_HORN_KESTREL, RL_SFX_HORN_BOBCAT, RL_SFX_HORN_FFR, RL_SFX_HORN_KESTREL, RL_SFX_HORN_CASCADE, RL_SFX_HORN_CASCADE };
-static const uint16_t rl_start_sfx[7] __attribute__((unused)) = { RL_SFX_START_CASCADE, RL_SFX_START_KESTREL, RL_SFX_START_BOBCAT, RL_SFX_START_FFR, RL_SFX_START_KESTREL, RL_SFX_START_KESTREL, RL_SFX_START_FFR };
+static const uint16_t rl_horn_sfx[8] __attribute__((unused)) = { RL_SFX_HORN_CASCADE, RL_SFX_HORN_KESTREL, RL_SFX_HORN_BOBCAT, RL_SFX_HORN_FFR, RL_SFX_HORN_KESTREL, RL_SFX_HORN_CASCADE, RL_SFX_HORN_CASCADE, RL_SFX_HORN_FFR };
+static const uint16_t rl_start_sfx[8] __attribute__((unused)) = { RL_SFX_START_CASCADE, RL_SFX_START_KESTREL, RL_SFX_START_BOBCAT, RL_SFX_START_FFR, RL_SFX_START_KESTREL, RL_SFX_START_KESTREL, RL_SFX_START_FFR, RL_SFX_START_KESTREL };
 /* forest birds, one-shots the game plays now and then */
 #define RL_BIRDS 4
 static const uint16_t rl_bird_sfx[RL_BIRDS] __attribute__((unused)) = { RL_SFX_BIRD_TEEOO, RL_SFX_BIRD_WARBLE, RL_SFX_BIRD_TRILL, RL_SFX_BIRD_COO };

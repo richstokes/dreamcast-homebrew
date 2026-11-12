@@ -222,7 +222,7 @@ static void encode_truck(uint8_t *b, const NetTruck *t) {
     b[22] = (uint8_t)clampf(t->rpm / 32.0f, 0, 255);
     b[23] = (uint8_t)clampf(t->load * 255.0f, 0, 255);
     b[24] = (uint8_t)clampf(t->slip * 16.0f, 0, 255);
-    b[25] = (uint8_t)(int8_t)clampf((float)t->gear, -1, 9);
+    b[25] = (uint8_t)(int8_t)clampf((float)t->gear, -1, 10);
     put32(b + 26, (uint32_t)net_now());
 }
 

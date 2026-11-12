@@ -14,7 +14,7 @@ the biggest dune there is; or Loch Lowland, a Highland pass, from the bothy
 on the loch's shore up a corrie to the mast above the cloud. No race and
 no clock: how high you've been, and the viewpoints you've found.
 
-- Seven vehicles, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
+- Eight vehicles, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
   four, no traction control); KESTREL, a modern two-door 4x4 (twin-turbo V6,
   35 inch tyres, traction control, off when the lockers are in); BOBCAT, a
   short two-door with the top off and a roll cage (4.0 L straight six, no
@@ -24,11 +24,15 @@ no clock: how high you've been, and the viewpoints you've found.
   pickup (2.4 L turbo four, eight-speed automatic, traction control, a
   long 3.35 m wheelbase); GOOSE, a four-seat sport side-by-side at
   half the trucks' weight (900 cc turbo triple that revs to 8000, half a
-  metre of wheel travel, the grippiest tyres and the longest wheelbase
-  here); and ONE TEN, a mid-80s British long-wheelbase station wagon
+  metre of wheel travel, the grippiest tyres and a 3.43 m wheelbase);
+  ONE TEN, a mid-80s British long-wheelbase station wagon
   (3.5 L carburettor V8 and not much of it for two tonnes, coil-sprung
   live axles with long travel, tall on a narrow track, a wide turning
-  circle, right-hand drive)
+  circle, right-hand drive); and EAGLE, a 2026 full-size desert-running
+  crew cab (high-output twin-turbo V6, ten-speed automatic, 35 inch
+  tyres, traction control; the quickest, heaviest and biggest thing here
+  at 5.9 m by 2.2 m on a 3.69 m wheelbase, so narrow trails and hairpins
+  are tighter for it)
 - Cascade Ridge: three ways up from the fork, meeting at a lake before the
   summit trail: the logging road (long, gentle, gravel then muddy ruts and
   fallen logs), the creek bed (water crossings, mud, wet rock) and the
@@ -86,7 +90,7 @@ no clock: how high you've been, and the viewpoints you've found.
   Low range holds the automatic to the gears that redline under ~30 mph
   (2nd in the pickups, ~22 mph; 4th in the Kestrel, ~28 mph; 3rd in the
   Bobcat, ~22 mph; 2nd in the Taco, ~22 mph; 3rd in the Goose, ~27 mph; 3rd in the One
-  Ten, ~28 mph)
+  Ten and the Eagle, ~28 mph)
 - 2WD is the loose one: nose-heavy trucks (the pickup ~60% front) with a
   limited-slip rear, so the tail comes round under power and a spinning
   tyre gives up its cornering grip. Feed it on the progressive throttle and
@@ -244,8 +248,8 @@ make -C projects/games/ridgeline run
 | `make disc` | A self-booting CDI |
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour, `-DRL_AT_TOUR_ONLY` stops after the tour, `-DRL_AT_TOUR_ROUTE=2` makes the tour a drive up that route) |
 | `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
-| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-6> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande, `2` for Moses Lake, `3` for Loch Lowland |
-| `tools/hostsim/sim loop <minutes> <trucks 1-4>` | CPU trucks going up and down the mountain for hours of game time in about a minute: logs every arrival, stall, winch and recover, and counts how trucks meeting head on got past |
+| `make -C tools/hostsim && tools/hostsim/sim route <truck 0-7> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande, `2` for Moses Lake, `3` for Loch Lowland |
+| `tools/hostsim/sim loop <minutes> <trucks 1-4>` | CPU trucks going up and down the mountain for hours of game time in about a minute: logs every arrival, stall, winch and recover, and counts how trucks meeting head on got past (`SIM_TRUCK=7` starts the line-up at the Eagle) |
 
 Assets (generated output is committed):
 
@@ -563,6 +567,13 @@ of mesh data in the program and 135 KiB of built meshes on the heap. With
 any of the four areas loaded 0.39 MB of the heap is free, 0.21 MB in an
 online lobby, and sixteen area switches in a row leave it where it was.
 
+An eighth (the Eagle, 2026-11-11) did not fit: an online lobby ran out of
+heap. The trucks' vertex and index tables in the program (~720 KiB, read
+once at boot) now take the built meshes back in as each truck is built:
+692 KiB of heap returned, so with eight vehicles 0.81 MB is free at boot
+and 0.66 MB in an online lobby after an area switch (Flycast; the console
+has not run it).
+
 On the console (`make hwbench EXTRA_CFLAGS=-DRL_AT_AREA=3`, 180 s from
 17:00 into the night with three CPU trucks), Cascade Ridge on the same
 build beside it:
@@ -834,6 +845,11 @@ the engine's hot loops had moved. Linked last it was 13.70 again.
   room the textures were linked into, free once the PVR has them
   (`spent_alloc`): a third area's data left the heap too little for them.
   ~1.2 MB of heap and ~0.9 MB of that room are free with Moses Lake loaded
+- `trucks.h`'s vertex and index tables are overwritten at boot with the
+  meshes built from them (`truckdraw.c`): nothing may read them later. A
+  vehicle now costs ~90 KiB of program and ~50 KiB of heap
+- The same tables' offsets are 16-bit and 59,100 of 65,535 indices are
+  used: a ninth vehicle needs them widened (`build_trucks.py` asserts)
 
 ## Known limitations
 

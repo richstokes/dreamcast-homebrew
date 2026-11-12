@@ -59,13 +59,15 @@ static int run_route(int route, int model, int quiet) {
 
 /* CPU drivers going round and round: loop [minutes] [trucks]. Prints each
    arrival, stall, winch and recover (ai.c) and, at the end, how trucks
-   meeting head on got past each other. SIM_TRACE_T=<truck> follows one. */
+   meeting head on got past each other. SIM_TRACE_T=<truck> follows one,
+   SIM_TRUCK=<model> is the first truck's model (the rest follow on). */
 static int run_loop(int minutes, int n) {
     game.ntrucks = n;
     static const int slot[4] = {1, 2, 0, 3};
+    int first = getenv("SIM_TRUCK") ? atoi(getenv("SIM_TRUCK")) : 0;
     for(int i = 0; i < n; i++) {
         Truck *t = &trucks[i];
-        t->model = i % TRUCK_MODELS;
+        t->model = (first + i) % TRUCK_MODELS;
         t->cpu = true;
         truck_place(t, v3(lvl_spawns[slot[i]][0], 0, lvl_spawns[slot[i]][2]), lvl_spawns[slot[i]][3]);
         ai_start(i, 1 + i % 3);

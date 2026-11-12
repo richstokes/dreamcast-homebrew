@@ -28,7 +28,7 @@ typedef struct {
     /* Cascade Ridge's times. */
     uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none: Cascade 84, Kestrel */
     char name[12];                 /* the online name (version 2; version 1 saves end before it) */
-    /* The trucks after the first two (Bobcat, FFR, Taco, Goose, One Ten...), a row each in
+    /* The trucks after the first two (Bobcat, FFR, Taco, Goose, One Ten, Eagle...), a row each in
        model order. Appended to version 2 so older builds still read the
        rest; a save from a build with fewer trucks is shorter. */
     uint32_t best_more[REC_TRUCKS - 2][WAY_COUNT];

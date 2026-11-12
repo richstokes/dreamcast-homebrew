@@ -674,9 +674,12 @@ ENGINES = (CASCADE, KESTREL, BOBCAT, FFR, TACO)
 # quarters: eight firings a cycle for the V6's six, so a loop plays a third
 # faster at the same revs and the exhaust note lands where a V8's would.
 # The Cascade's horn, the FFR's start.
+# The Eagle's twin-turbo V6 is the Kestrel's, its rpm points stretched to a
+# 6200 redline (a touch deeper at the same revs), with the FFR's horn.
 # (truck, loops from, horn from, start from, idle, redline, rpm stretch)
 BORROWED = (("GOOSE", TACO, CASCADE, KESTREL, 1200, 8000, 8000 / TACO.redline),
-            ("ONE TEN", FFR, CASCADE, FFR, 650, 5000, 6 / 8))
+            ("ONE TEN", FFR, CASCADE, FFR, 650, 5000, 6 / 8),
+            ("EAGLE", KESTREL, FFR, KESTREL, 650, 6200, 6200 / KESTREL.redline))
 
 
 def loop_geometry(e: Engine, i: int):

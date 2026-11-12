@@ -83,6 +83,54 @@ static void build_part(PartMeshes *pm, const rl_mesh_t *src) {
         pm->n++;
     }
 }
+
+/* A mesh's rows of trucks.h's vertex and index tables, and every row before
+   them, are finished with once it is built, and the tables are two thirds
+   the size of what is built from them: each built mesh's arrays move into
+   that room as far as it goes and the heap gets its own back (~90 KiB a
+   truck, which is what stopped an eighth fitting). Truck by truck, so the
+   heap never holds them all at once either. The engine allocated each
+   array on its own (eng_mesh_free), so each moves on its own. Nothing may
+   read a table's rows after this. */
+static uint8_t *room_at[2], *room_end[2];
+
+static void *room_move(const void *array, size_t bytes, uint32_t *moved) {
+    size_t take = (bytes + 31) & ~(size_t)31;
+    for(int r = 0; r < 2; r++) {
+        if(!bytes || room_at[r] + take > room_end[r]) continue;
+        void *to = room_at[r];
+        memcpy(to, array, bytes);
+        free((void *)array);
+        room_at[r] += take;
+        *moved += bytes;
+        return to;
+    }
+    return (void *)array;
+}
+
+static void meshes_into_tables(PartMeshes *pm, const rl_mesh_t *src, uint32_t *moved) {
+    if(!room_at[0]) {
+        room_at[0] = (uint8_t *)(((uintptr_t)rl_truck_verts + 31) & ~(uintptr_t)31);
+        room_at[1] = (uint8_t *)(((uintptr_t)rl_truck_indices + 31) & ~(uintptr_t)31);
+    }
+    uint8_t *done[2] = {(uint8_t *)&rl_truck_verts[src->first_vert + src->vert_count],
+                        (uint8_t *)&rl_truck_indices[src->first_index + src->index_count]};
+    for(int r = 0; r < 2; r++)
+        if(done[r] > room_end[r]) room_end[r] = done[r];
+    for(int k = 0; k < pm->n; k++) {
+        EngMesh *m = &pm->m[k];
+        const uint16_t *s = m->km.strips;
+        while(*s) s += 1 + 2 * *s;
+        m->km.strips = room_move(m->km.strips, sizeof(uint16_t) * (size_t)(s + 1 - m->km.strips), moved);
+        m->km.pos = room_move(m->km.pos, sizeof(float[4]) * m->km.npos, moved);
+        m->km.idx = room_move(m->km.idx, sizeof(uint16_t) * m->km.ni, moved);
+        m->km.v = room_move(m->km.v, sizeof(KV) * m->km.nv, moved);
+        m->gvert = room_move(m->gvert, sizeof(uint16_t) * m->ngroups, moved);
+        m->gargb = room_move(m->gargb, sizeof(uint32_t) * m->ngroups, moved);
+        m->gpaint = room_move(m->gpaint, (size_t)m->ngroups, moved);
+        m->gnrm = room_move(m->gnrm, sizeof(float[3]) * m->ngroups, moved);
+    }
+}
 #endif
 
 void truckdraw_init(void) {
@@ -93,15 +141,6 @@ void truckdraw_init(void) {
     h_beam = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
 #ifdef HAVE_TRUCK_MODELS
     _Static_assert(sizeof(rl_mvert_t) == sizeof(eng_mvert_t), "model vertex layout");
-    int groups = 0, meshes = 0;
-    for(int i = 0; i < RL_TRUCK_MESH_COUNT; i++) {
-        const rl_mesh_t *m = &rl_truck_meshes[i];
-        if(m->lod >= LODS) continue;
-        PartMeshes *pm = &parts[m->truck][m->part][m->lod];
-        build_part(pm, m);
-        for(int k = 0; k < pm->n; k++) groups += pm->m[k].ngroups;
-        meshes += pm->n;
-    }
     for(int tr = 0; tr < RL_TRUCK_COUNT; tr++)
         for(int s = 0; s < RL_PAINT_COUNT; s++) {
             /* The slot's reference colour: its first vertex's in the body. */
@@ -116,6 +155,18 @@ void truckdraw_init(void) {
                     }
             }
         }
+    /* (The tables are read above: building overwrites them.) */
+    int groups = 0, meshes = 0;
+    uint32_t moved = 0;
+    for(int i = 0; i < RL_TRUCK_MESH_COUNT; i++) {
+        const rl_mesh_t *m = &rl_truck_meshes[i];
+        if(m->lod >= LODS) continue;
+        PartMeshes *pm = &parts[m->truck][m->part][m->lod];
+        build_part(pm, m);
+        meshes_into_tables(pm, m, &moved);
+        for(int k = 0; k < pm->n; k++) groups += pm->m[k].ngroups;
+        meshes += pm->n;
+    }
     /* Room for the biggest truck's groups at full detail, per truck. */
     int most = 0;
     for(int tr = 0; tr < RL_TRUCK_COUNT; tr++)
@@ -131,7 +182,8 @@ void truckdraw_init(void) {
         lit_cap = most;
         for(int i = 0; i < MAX_TRUCKS; i++) truck_lit[i].buf = all + i * most;
     }
-    printf("Ridgeline trucks: %d meshes, %d lighting groups, %d at most on a truck\n", meshes, groups, most);
+    printf("Ridgeline trucks: %d meshes, %d lighting groups, %d at most on a truck, %lu KiB of them in their tables' room\n",
+           meshes, groups, most, (unsigned long)moved / 1024);
 #endif
 }
 
@@ -447,9 +499,10 @@ void truckdraw_draw_op(void) {
         }
         /* Axles: a beam between each pair of wheel centres. */
         if(lod < 2) {
-            /* The Kestrel's and the Taco's front suspension is independent:
-               one beam. */
-            for(int a = (t->model == RL_TRUCK_KESTREL || t->model == RL_TRUCK_TACO ? 1 : 0); a < 2; a++) {
+            /* The Kestrel's, the Taco's and the Eagle's front suspension is
+               independent: one beam. */
+            bool ifs = t->model == RL_TRUCK_KESTREL || t->model == RL_TRUCK_TACO || t->model == RL_TRUCK_EAGLE;
+            for(int a = ifs ? 1 : 0; a < 2; a++) {
                 V3 cl = t->wh[a * 2].centre, cr = t->wh[a * 2 + 1].centre;
                 V3 x = vsub(cr, cl);
                 V3 xn = vnorm(x);
@@ -471,7 +524,7 @@ void truckdraw_draw_op(void) {
         static const int faces[6][4] = {{0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 4, 5}, {2, 3, 6, 7}, {0, 2, 4, 6}, {1, 3, 5, 7}};
         for(int f = 0; f < 6; f++) {
             static const uint32_t box_col[TRUCK_MODELS] = {0xffc8202a, 0xffe0601c, 0xff6a6862, 0xffc81a1e, 0xff2a8eb6,
-                                                            0xfff2be18, 0xff367868};
+                                                            0xfff2be18, 0xff367868, 0xffeceeec};
             uint32_t col = color_scale(box_col[t->model], 0.6f + 0.08f * f);
             RV q[4];
             for(int k = 0; k < 4; k++) q[k] = (RV){c[faces[f][k]].x, c[faces[f][k]].y, c[faces[f][k]].z, 0, 0, col};

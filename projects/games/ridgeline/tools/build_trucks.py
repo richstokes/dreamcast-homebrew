@@ -3,7 +3,8 @@
 # requires-python = ">=3.10"
 # dependencies = ["numpy>=1.26"]
 # ///
-"""Procedurally build Ridgeline's trucks (Cascade 84, Kestrel, Bobcat, FFR, Taco, Goose, One Ten).
+"""Procedurally build Ridgeline's trucks (Cascade 84, Kestrel, Bobcat, FFR, Taco, Goose, One Ten,
+Eagle).
 
 Usage:
     uv run tools/build_trucks.py                        # writes assets/generated/trucks.h
@@ -43,8 +44,8 @@ ROOT = Path(__file__).resolve().parent.parent
 HEADER = ROOT / "assets" / "generated" / "trucks.h"
 
 TRUCK_NAMES = ["RL_TRUCK_CASCADE", "RL_TRUCK_KESTREL", "RL_TRUCK_BOBCAT", "RL_TRUCK_FFR",
-               "RL_TRUCK_TACO", "RL_TRUCK_GOOSE", "RL_TRUCK_ONETEN"]
-CASCADE, KESTREL, BOBCAT, FFR, TACO, GOOSE, ONETEN = 0, 1, 2, 3, 4, 5, 6
+               "RL_TRUCK_TACO", "RL_TRUCK_GOOSE", "RL_TRUCK_ONETEN", "RL_TRUCK_EAGLE"]
+CASCADE, KESTREL, BOBCAT, FFR, TACO, GOOSE, ONETEN, EAGLE = 0, 1, 2, 3, 4, 5, 6, 7
 PART_NAMES = ["RL_PART_BODY", "RL_PART_WHEEL_L", "RL_PART_WHEEL_R", "RL_PART_AXLE"]
 BODY, WHEEL_L, WHEEL_R, AXLE = range(4)
 PAINT_NAMES = ["RL_PAINT_FIXED", "RL_PAINT_BODY", "RL_PAINT_ACCENT", "RL_PAINT_TRIM", "RL_PAINT_GLASS",
@@ -3200,6 +3201,417 @@ ONETEN_INFO = {
 
 
 # --------------------------------------------------------------------------
+# EAGLE: 2026 full-size desert-running crew-cab pickup. A 2 m body with
+# flares out to 2.2 m over 35 inch tyres, a tall blunt nose with C-shaped
+# lamps either side of a black grille and marker lamps along its top.
+# Sizes are the maker's published ones for the real thing (m).
+# --------------------------------------------------------------------------
+
+E_R, E_TW = 0.437, 0.315  # LT315/70R17: 873 mm across
+E_WX, E_WXR, E_WZ = 0.94, 0.9345, 1.8465  # 1.880 m front track, 1.869 m rear, 3.693 m wheelbase
+E_HW = 1.014              # 2.027 m body
+E_NOSE_Z = E_WZ + 0.932   # front bumper's face: the front overhang
+E_TAIL_Z = -E_WZ - 1.275  # rear bumper's face: the rear overhang (5.900 m overall)
+E_ROCK = 0.58
+E_BELT = 1.44             # cab beltline
+E_BED_TOP = 0.932 + 0.544  # load floor height and the bed's depth
+E_FRONT = E_NOSE_Z - 0.13  # grille face
+E_FACE = 1.39             # ...and its top edge
+E_COWL = 1.25             # hood's rear edge, windshield base
+E_CABB = E_NOSE_Z - 3.950  # front bumper to the back of the cab
+E_BEDF, E_BEDB = E_CABB - 0.03, E_TAIL_Z + 0.12
+E_BED_XI = 0.828          # bed wall inner face: 1.656 m inside
+E_ARCH = (0.545, 0.57)    # wheel arch half-length, height above the wheel centre
+E_SIDE_Z = [0.12, 0.02, -0.92]     # front door window end, B pillar end, rear door window end
+E_ROOF = 2.02             # 2.019 m cab height
+E_HOOD = (1.48, 1.44)     # hood height at the cowl and where it turns down into the nose
+E_NOSE = E_FRONT - 0.20   # ...which is here
+E_SILL, E_GLASS_TOP = 1.49, 1.955      # the windows' bottom and top edges
+E_WS = (1.17, 0.58)       # windshield base and top (z)
+E_FLARE = (0.086, 0.105)  # the flares: how far out (2.200 m across them), how wide a band
+E_MIRROR_X = 1.219        # 2.438 m across the mirrors
+
+E_BODY_RGB = rgb(0xEC, 0xEE, 0xEC)
+E_GRAPHIC_RGB = rgb(0x2A, 0x2C, 0x31)
+E_RIM_RGB = rgb(0x56, 0x59, 0x5E)
+
+E_BODY = Paint(E_BODY_RGB, S_BODY)
+E_GRAPHIC = Paint(E_GRAPHIC_RGB, S_ACCENT)
+E_RIM = Paint(E_RIM_RGB, S_TRIM)
+E_SHIRT = fixed(0x3A, 0x5A, 0x8A)
+E_HAT = fixed(0xC8, 0x3A, 0x22)
+E_SKID = fixed(0xA8, 0xAC, 0xB2)
+E_HOOK = fixed(0xF0, 0x5A, 0x14)
+E_BAR = fixed(0x52, 0x55, 0x5B)          # the grille's bar
+
+# forged wheels with a bead ring
+E_WHEEL = WheelStyle(E_R, E_TW, 8, 4, 0.05, 0.58, 0.60, 0.42, E_RIM, fixed(0x1C, 0x1C, 0x1F),
+                     fixed(0x1C, 0x1C, 0x1F), beadlock=True)
+
+E_HEAD_C = [(-0.73, E_FACE - 0.15, E_FRONT + 0.01), (0.73, E_FACE - 0.15, E_FRONT + 0.01)]
+E_TAIL_C = [(-0.935, E_BED_TOP - 0.22, E_BEDB - 0.03), (0.935, E_BED_TOP - 0.22, E_BEDB - 0.03)]
+E_AUX_C = [(-0.78, 0.83, E_NOSE_Z + 0.005), (0.78, 0.83, E_NOSE_Z + 0.005)]   # fog lamps in the bumper
+E_EXHAUST = (0.62, 0.51, E_TAIL_Z + 0.04)
+E_DRIVER = (-0.46, E_SILL + 0.09, 0.36)
+
+
+def e_arch(z, lod):
+    return arch_points(z, E_R, E_ARCH[0], E_ARCH[1], E_ROCK, n=(6, 3, 2)[lod], expo=4.2)
+
+
+def e_well(cz, hw):
+    def paint(c, n):
+        if n[1] < -0.7:
+            return UNDER
+        d = np.array([c[2] - cz, c[1] - E_R])
+        if c[1] < E_R + E_ARCH[1] + 0.03 and abs(c[2] - cz) < E_ARCH[0] + 0.08 and \
+                float(np.dot(n[[2, 1]], d)) < 0 and abs(c[0]) < hw:
+            return WELL
+        return None
+    return paint
+
+
+def e_hood_y(z):
+    """Hood top along the centre line: tall and flat."""
+    return E_HOOD[0] + (z - E_COWL) * (E_HOOD[1] - E_HOOD[0]) / (E_NOSE - E_COWL)
+
+
+E_HOOD_N = (0.0, E_NOSE - E_COWL, E_HOOD[0] - E_HOOD[1])     # the hood's normal, for decals on it
+
+
+def e_hood_quad(x0, x1, z0, z1, paint, lift=0.004, slant=0.0) -> Geo:
+    """Decal on the hood; slant shifts the outer (x1) edge in z."""
+    return decal([(x0, e_hood_y(z0), z0), (x1, e_hood_y(z0 + slant), z0 + slant),
+                  (x1, e_hood_y(z1 + slant), z1 + slant), (x0, e_hood_y(z1), z1)], E_HOOD_N, paint, lift)
+
+
+def e_grille(hw_top, hw_foot, y0, y_mid, y1, z):
+    """The grille's outline: square between the lamps, its lower corners cut."""
+    return [(-hw_foot, y0, z), (hw_foot, y0, z), (hw_top, y_mid, z), (hw_top, y1, z), (-hw_top, y1, z),
+            (-hw_top, y_mid, z)]
+
+
+E_GRILLE = (0.64, 0.50, E_FACE - 0.35, E_FACE - 0.24, E_FACE - 0.015)
+
+
+def eagle_lower(lod: int) -> Geo:
+    """Front clip and cab below the beltline, one rounded extrusion across X."""
+    outline = [(E_FRONT, 0.78), (E_FRONT, E_FACE), (E_FRONT - 0.05, E_FACE + 0.035), (E_NOSE, E_HOOD[1]),
+               (E_COWL, E_HOOD[0]), (E_CABB, E_BELT), (E_CABB, E_ROCK)] + e_arch(E_WZ, lod)
+    secs = [round_sections(-E_HW, E_HW, 0.06, 2), round_sections(-E_HW, E_HW, 0.06, 1),
+            [(-E_HW, 0.0), (E_HW, 0.0)]][lod]
+    g = extrude(outline, "x", secs, E_BODY, 50.0, edge_bevel=not_bottom(0.79))
+    g.recolour(e_well(E_WZ, E_HW - 0.02))
+    return g.recolour(lambda c, n: INTERIOR if n[1] > 0.9 and E_CABB < c[2] < E_COWL and abs(c[0]) < E_HW - 0.03
+                      else None)
+
+
+def eagle_cab(lod: int) -> Geo:
+    y_sill = E_SILL
+    zA, zB, zC = E_SIDE_Z
+    if lod == 2:
+        y0 = E_BELT - 0.04
+        rings = [[(-0.975, y0, E_COWL), (0.975, y0, E_COWL), (0.975, y0, E_CABB), (-0.975, y0, E_CABB)],
+                 [(-0.84, E_ROOF, 0.52), (0.84, E_ROOF, 0.52), (0.84, E_ROOF, E_CABB + 0.06),
+                  (-0.84, E_ROOF, E_CABB + 0.06)]]
+        g = loft(rings, E_BODY, 20.0, cap0=False, cap1=True).flat()
+        g.recolour(lambda c, n: GLASS if n[2] > 0.4 else None)
+        for sgn in (1.0, -1.0):
+            g.extend(decal([(sgn * 0.955, y_sill + 0.04, 1.10), (sgn * 0.955, y_sill + 0.04, zC - 0.02),
+                            (sgn * 0.87, 1.95, zC - 0.02), (sgn * 0.87, 1.95, 0.58)], (sgn, 0.2, 0.0), GLASS, 0.004))
+        return g
+    rings = [plan_ring(E_BELT - 0.06, 0.985, E_COWL, E_CABB, 0.06, E_SIDE_Z, 0.60),
+             plan_ring(y_sill, 0.975, E_WS[0], E_CABB + 0.002, 0.07, E_SIDE_Z, 0.60),
+             plan_ring(E_GLASS_TOP, 0.895, E_WS[1], E_CABB + 0.03, 0.10, E_SIDE_Z, 0.56),
+             plan_ring(E_ROOF, 0.84, 0.50, E_CABB + 0.07, 0.12, E_SIDE_Z, 0.52)]
+    if lod == 1:
+        rings = [rings[0], rings[1], plan_ring(2.005, 0.87, 0.53, E_CABB + 0.05, 0.11, E_SIDE_Z, 0.54)]
+    y_top = rings[2][0][1]
+
+    def paint(c, n):
+        if c[1] < y_sill - 0.005:
+            return E_BODY
+        if c[1] < y_top - 0.002 and n[2] > 0.4 and abs(n[0]) < 0.35:
+            return GLASS
+        if n[1] > 0.5 or c[1] > y_top - 0.002:
+            return E_BODY
+        if n[2] > 0.3:
+            return BLACK                      # windshield frame
+        if n[2] < -0.95 and abs(c[0]) < 0.56:
+            return GLASS
+        if abs(n[0]) > 0.95 and zC < c[2] < zB:
+            return GLASS                      # rear door window
+        if lod > 0 and abs(n[0]) > 0.95 and c[2] > zA:
+            return GLASS
+        if abs(n[0]) > 0.95 and zB <= c[2] <= zA:
+            return BLACK                      # B pillar
+        return E_BODY
+
+    def window(c, n):
+        return lod == 0 and abs(n[0]) > 0.95 and c[1] > y_sill and c[2] > zA
+
+    g = cab_glass(rings, paint, window)
+    g.repaint_corners(lambda p, n, old: glass_at(p[1], y_sill, y_top) if old.slot == S_GLASS else old)
+    if lod == 0:
+        inner = [shrink_ring(rings[1], 0.03, -0.12), shrink_ring(rings[2], 0.03, -0.03)]
+        g.extend(invert(loft(inner, INTERIOR, 20.0, cap0=False, cap1=True).flat()))
+    return g
+
+
+def eagle_bed(lod: int) -> Geo:
+    """1.71 m long inside, 1.656 m wide and 1.285 m between the wheel tubs, the floor 0.932 m up, behind
+    a 1.53 m gate."""
+    G = Geo()
+    hw, xi = E_HW, E_BED_XI
+    y_mid, y_h = 0.5 * (E_ROCK + E_BED_TOP), E_BED_TOP - E_ROCK
+    if lod == 2:
+        bed = rbox((0, y_mid, (E_BEDF + E_BEDB) / 2), (2 * hw, y_h, abs(E_BEDB - E_BEDF)), E_BODY, bottom=False)
+        bed.recolour(lambda c, n: BLACK if n[1] > 0.9 else None)
+        return G.extend(bed)
+    wall = [(E_BEDF, E_BED_TOP), (E_BEDB, E_BED_TOP), (E_BEDB, E_ROCK)] + e_arch(-E_WZ, lod) + [(E_BEDF, E_ROCK)]
+    secs = [(xi, 0.0)] + round_sections(xi, hw, 0.04, 2)[3:] if lod == 0 else [(xi, 0.0), (hw, 0.0)]
+    w = extrude(wall, "x", secs, E_BODY, 50.0, edge_bevel=not_bottom(0.59))
+    w.recolour(e_well(-E_WZ, hw - 0.01))
+    # black caps along the bed rails
+    w.recolour(lambda c, n: BLACK if n[1] > 0.9 and c[1] > E_BED_TOP - 0.01 else None)
+    # ...and a black liner inside: walls, bulkhead, tubs and the gate's inner face
+    w.recolour(lambda c, n: BLACK if n[0] < -0.9 and c[1] > E_R + E_ARCH[1] else None)
+    G.extend(mirror_pair(w))
+    head = rbox((0, y_mid, E_BEDF - 0.015), (2 * xi, y_h, 0.03), E_BODY, bottom=False)
+    G.extend(head.recolour(lambda c, n: BLACK if n[2] < -0.9 else None))
+    floor = rbox((0, 0.907, (E_BEDF + E_BEDB) / 2), (2 * xi, 0.05, abs(E_BEDB - E_BEDF) - 0.02), BLACK)
+    G.extend(drop(floor, lambda c, n: abs(n[0]) > 0.9 or abs(n[2]) > 0.9))
+    gate_hw = 0.766
+    post = drop(rbox((0.5 * (xi + gate_hw), y_mid, E_BEDB + 0.05), (xi - gate_hw, y_h, 0.10), E_BODY, bottom=False),
+                lambda c, n: n[0] > 0.9)
+    G.extend(mirror_pair(post))
+    gate = rbox((0, y_mid + 0.01, E_BEDB + 0.03), (2 * gate_hw, y_h - 0.04, 0.06), E_BODY,
+                bevel=0.02 if lod == 0 else 0.0)
+    G.extend(gate.recolour(lambda c, n: BLACK if n[2] > 0.9 else None))
+    if lod == 0:
+        # wheel tubs
+        tub = drop(rbox((xi - 0.093, 1.02, -E_WZ), (0.186, 0.176, 1.10), BLACK), lambda c, n: n[0] > 0.9)
+        G.extend(mirror_pair(tub.recolour(lambda c, n: WELL if n[1] < -0.9 else None)))
+    return G
+
+
+def eagle_body(lod: int) -> Geo:
+    G = Geo()
+    hw = E_HW
+    zf, zr = E_FRONT, E_BEDB
+    G.extend(eagle_lower(lod))
+    G.extend(eagle_cab(lod))
+    G.extend(eagle_bed(lod))
+    f = E_FACE                           # the nose's parts hang from its top edge
+    bt = E_BED_TOP                       # ...and the tail's from the bed rail
+
+    def fz(sgn, x0, x1, y0, y1, paint, lift=0.004, z=zf):
+        """A decal on the nose, mirrored to the side sgn."""
+        a, b = sorted((sgn * x0, sgn * x1))
+        return quad_z(z, a, b, y0, y1, paint, lift=lift)
+
+    # ---- a graphic sweeping up over the rear wheel, the hood's power dome with its vent, hood stripes
+    # and a vent on each front fender
+    if lod < 2:
+        y0, y1 = E_R + E_ARCH[1] + E_FLARE[1] + 0.03, bt - 0.07
+        za = -E_WZ - E_ARCH[0] - E_FLARE[1] - 0.03
+        zs = -E_WZ + 0.13                # where its leading edge starts to slant
+        for sgn in (1.0, -1.0):
+            x = sgn * hw
+            if lod == 0:
+                pts = [(x, 0.90, zr + 0.17), (x, 0.90, za), (x, y0, za), (x, y0, zs), (x, y1, zs + 0.18),
+                       (x, y1, zr + 0.17)]
+            else:
+                pts = [(x, y0, zr + 0.17), (x, y0, zs), (x, y1, zs + 0.18), (x, y1, zr + 0.17)]
+            G.extend(decal(pts, (sgn, 0, 0), E_GRAPHIC, 0.004))
+    if lod == 0:
+        z0, z1 = E_COWL + 0.12, E_NOSE - 0.06
+        top = e_hood_y(z0) + 0.022
+        dome = rbox((0, top - 0.03, 0.5 * (z0 + z1)), (0.88, 0.06, z1 - z0), E_BODY, bevel=0.03)
+        G.extend(drop(dome, lambda c, n: n[1] < -0.9))
+        G.extend(decal([(-0.25, top, z1 - 0.58), (0.25, top, z1 - 0.58), (0.21, top, z1 - 0.20),
+                        (-0.21, top, z1 - 0.20)], (0, 1, 0), BLACK, 0.004))
+        for sgn in (1.0, -1.0):
+            a, b = sgn * 0.52, sgn * 0.86
+            G.extend(e_hood_quad(a, b, E_COWL + 0.48, E_COWL + 0.66, E_GRAPHIC, slant=-0.22))
+            x, yv = sgn * hw, E_HOOD[0] - 0.155
+            G.extend(decal([(x, yv, 1.13), (x, yv + 0.07, 1.13), (x, yv + 0.07, 1.58), (x, yv, 1.42)], (sgn, 0, 0),
+                           BLACK, 0.004))
+
+    # ---- panel detail: doors, handles, cowl, wipers, mirrors, roof fin
+    if lod == 0:
+        for sgn in (1.0, -1.0):
+            for z in (E_COWL - 0.10, E_SIDE_Z[0] - 0.05, E_SIDE_Z[2] - 0.04):
+                G.extend(quad_x(sgn * hw, z - 0.005, z + 0.005, 0.64, E_BELT - 0.05, SEAM, sgn, lift=0.004))
+            for z in (0.20, -0.80):
+                G.extend(rbox((sgn * (hw + 0.012), E_BELT - 0.13, z), (0.024, 0.03, 0.16), BLACK))
+            # the lamps' ends round the corners, an amber marker in each
+            G.extend(quad_x(sgn * hw, zf - 0.24, zf - 0.07, f - 0.26, f - 0.025, BLACK, sgn, lift=0.004))
+            G.extend(quad_x(sgn * hw, zf - 0.125, zf - 0.07, f - 0.245, f - 0.04, REVERSE, sgn, lift=0.007))
+            G.extend(quad_x(sgn * hw, zf - 0.22, zf - 0.14, f - 0.15, f - 0.04, AMBER, sgn, lift=0.007))
+            head = rbox((sgn * (E_MIRROR_X - 0.065), E_SILL + 0.13, 1.05), (0.13, 0.21, 0.07), E_BODY)
+            G.extend(head.recolour(lambda c, n: GLASS if n[2] < -0.9 else None))
+            G.extend(tube([(sgn * 0.975, E_SILL + 0.04, 1.10), (sgn * 1.09, E_SILL + 0.10, 1.06)], [0.018, 0.018], 4,
+                          BLACK, up=(0, 0, 1), phase=math.pi / 4).flat())
+        G.extend(e_hood_quad(-0.86, 0.86, E_COWL, E_COWL + 0.08, BLACK, 0.003))
+        rake = (E_WS[1] - E_WS[0]) / (E_GLASS_TOP - E_SILL)     # the windshield's lean, z per y
+        for x0 in (-0.62, 0.04):
+            ya, yb = E_SILL + 0.025, E_SILL + 0.047
+            za, zb = E_WS[0] + 0.025 * rake, E_WS[0] + 0.047 * rake
+            G.extend(decal([(x0, ya, za), (x0 + 0.54, ya, za), (x0 + 0.54, yb, zb), (x0, yb, zb)],
+                           (0, -rake, 1.0), BLACK, 0.004))
+        G.extend(drop(rbox((0, E_ROOF + 0.03, -0.85), (0.05, 0.06, 0.18), BLACK), lambda c, n: n[1] < -0.9))
+
+    # ---- wide black flares and running boards
+    if lod < 2:
+        for cz in (E_WZ, -E_WZ):
+            G.extend(mirror_pair(flare(e_arch(cz, lod), (cz, E_R), hw, 1.0, E_FLARE[0], E_FLARE[1], BLACK,
+                                       wedge=lod > 0)))
+        z0, z1 = E_WZ - E_ARCH[0] - 0.10, -E_WZ + E_ARCH[0] + 0.10
+        if lod == 0:
+            board = sweep([(hw + 0.02, 0.52, z0), (hw + 0.02, 0.52, z1)],
+                          [(0.08, -0.035), (-0.05, -0.035), (-0.065, -0.01), (-0.065, 0.02), (0.08, 0.02)], SATIN,
+                          35.0, up=(0, 1, 0))
+            G.extend(mirror_pair(board))
+        else:
+            G.extend(mirror_pair(rbox((hw + 0.005, 0.52, 0.5 * (z0 + z1)), (0.16, 0.055, z0 - z1), SATIN,
+                                      bottom=False)))
+
+    # ---- front: a black grille the width of the nose between C-shaped lamps, three marker lamps along its
+    # top, and a steel bumper with fog lamps, a skid plate and tow hooks under it
+    if lod == 0:
+        G.extend(decal(e_grille(*E_GRILLE, zf), (0, 0, 1), BLACK, 0.012))
+        G.extend(decal(e_grille(0.61, 0.47, f - 0.32, f - 0.22, f - 0.06, zf), (0, 0, 1), fixed(0x16, 0x16, 0x19),
+                       0.015))
+        for y, w, h in ((f - 0.275, 0.88, 0.02), (f - 0.165, 1.06, 0.105)):
+            slat = rbox((0, y, zf + 0.022), (w, h, 0.014), E_BAR)
+            G.extend(drop(slat, lambda c, n: n[2] < -0.9 or abs(n[0]) > 0.9))
+        for x in (-0.14, 0.0, 0.14):
+            G.extend(quad_z(zf, x - 0.04, x + 0.04, f - 0.053, f - 0.025, AMBER, lift=0.016))
+        for sgn in (1.0, -1.0):
+            G.extend(fz(sgn, 0.64, 0.905, f - 0.28, f - 0.015, BLACK))
+            G.extend(fz(sgn, 0.68, 0.78, f - 0.20, f - 0.105, HEAD_LENS, 0.007))
+            G.extend(fz(sgn, 0.80, 0.835, f - 0.225, f - 0.075, AMBER, 0.007))
+            G.extend(fz(sgn, 0.85, 0.895, f - 0.265, f - 0.025, REVERSE, 0.007))       # running light: the C's back
+            G.extend(fz(sgn, 0.655, 0.85, f - 0.055, f - 0.025, REVERSE, 0.007))       # ...and its arms
+            G.extend(fz(sgn, 0.74, 0.85, f - 0.265, f - 0.24, REVERSE, 0.007))
+    else:
+        G.extend(decal(e_grille(*E_GRILLE, zf), (0, 0, 1), BLACK))
+        for sgn in (1.0, -1.0):
+            if lod == 1:
+                G.extend(fz(sgn, 0.64, 0.905, f - 0.28, f - 0.015, BLACK, 0.003))
+                G.extend(fz(sgn, 0.68, 0.78, f - 0.20, f - 0.105, HEAD_LENS, 0.006))
+                G.extend(fz(sgn, 0.85, 0.895, f - 0.265, f - 0.025, REVERSE, 0.006))
+            else:
+                G.extend(fz(sgn, 0.66, 0.895, f - 0.25, f - 0.04, HEAD_LENS, 0.003))
+        if lod == 1:
+            G.extend(quad_z(zf, -0.53, 0.53, f - 0.22, f - 0.11, E_BAR, lift=0.006))
+    zb = E_NOSE_Z                        # the bumper's face
+    if lod == 0:
+        bump = [(-1.06, 0.83, zb - 0.24), (-0.93, 0.83, zb - 0.05), (0.93, 0.83, zb - 0.05), (1.06, 0.83, zb - 0.24)]
+        prof = [(0.05, -0.11), (-0.035, -0.11), (-0.05, -0.08), (-0.05, 0.07), (-0.02, 0.11), (0.05, 0.11)]
+        G.extend(sweep(bump, prof, SATIN, 35.0))
+        G.extend(rbox((0, 0.675, zb - 0.16), (0.72, 0.07, 0.28), E_SKID, bottom=False))
+        for sgn in (1.0, -1.0):
+            x = sgn * 0.46
+            hook = tube([(x, 0.70, zb - 0.10), (x, 0.65, zb - 0.02), (x, 0.70, zb - 0.02)], [0.02] * 3, 4,
+                        E_HOOK, cap1=E_HOOK, up=(1, 0, 0), phase=math.pi / 4)
+            G.extend(hook.autosmooth(60.0))
+    else:
+        G.extend(rbox((0, 0.83, zb - 0.065), (2.12, 0.22, 0.13), SATIN, bottom=False))
+        if lod == 1:
+            G.extend(rbox((0, 0.675, zb - 0.16), (0.72, 0.07, 0.28), E_SKID, bottom=False))
+    if lod < 2:
+        G.extend(quad_z(zb, -0.52, 0.52, 0.79, 0.90, fixed(0x1A, 0x1A, 0x1D), lift=0.004))
+        for c in E_AUX_C:
+            G.extend(quad_z(zb, c[0] - 0.075, c[0] + 0.075, c[1] - 0.035, c[1] + 0.035, AUX_LENS, lift=0.004))
+
+    # ---- rear: tall taillights wrapping onto the bedsides, a black panel and a lip across the gate's top,
+    # a steel bumper with a step and an exhaust out under each end
+    zt = E_TAIL_Z                        # the bumper's face
+    for sgn in (1.0, -1.0):
+        tc = E_TAIL_C[0 if sgn < 0 else 1]
+        if lod == 0:
+            bezel = rbox((tc[0], tc[1], zr - 0.008), (0.14, 0.44, 0.016), BLACK)
+            G.extend(drop(bezel, lambda c, n: n[2] > 0.9))
+            lens = rbox((tc[0], tc[1] + 0.03, zr - 0.022), (0.11, 0.33, 0.014), TAIL_LENS)
+            G.extend(drop(lens, lambda c, n: n[2] > 0.9 or abs(n[0]) > 0.9))
+            G.extend(quad_z(zr - 0.029, tc[0] - 0.055, tc[0] + 0.055, tc[1] - 0.18, tc[1] - 0.14, REVERSE, side=-1.0,
+                            lift=0.002))
+        else:
+            G.extend(quad_z(zr, tc[0] - 0.065, tc[0] + 0.065, tc[1] - 0.20, tc[1] + 0.20, TAIL_LENS, side=-1.0))
+        if lod < 2:
+            G.extend(quad_x(sgn * hw, zr + 0.045, zr + 0.14, tc[1] - 0.15, tc[1] + 0.17, TAIL_LENS, sgn, lift=0.004))
+    rb = [(1.06, 0.72, zt + 0.19), (0.96, 0.72, zt + 0.05), (-0.96, 0.72, zt + 0.05), (-1.06, 0.72, zt + 0.19)]
+    if lod == 0:
+        G.extend(sweep(rb, [(0.05, -0.10), (-0.04, -0.10), (-0.05, -0.08), (-0.05, 0.10), (0.05, 0.10)], SATIN, 35.0))
+        G.extend(rbox((0, 0.826, zt + 0.06), (1.16, 0.012, 0.11), BLACK))
+        G.extend(rbox((0, bt - 0.02, zr - 0.014), (1.50, 0.05, 0.055), E_BODY, bevel=0.012))
+        G.extend(quad_z(zr, -0.75, 0.75, 0.90, 0.91, SEAM, side=-1.0))
+    else:
+        G.extend(rbox((0, 0.72, zt + 0.06), (2.12, 0.20, 0.12), SATIN, bottom=False))
+    if lod < 2:
+        G.extend(quad_z(zr, -0.75, 0.75, bt - 0.37, bt - 0.12, BLACK, side=-1.0, lift=0.004))
+        G.extend(quad_z(zt, -0.30, 0.30, 0.65, 0.79, fixed(0x1A, 0x1A, 0x1D), side=-1.0, lift=0.004))
+
+    # ---- underbody: frame rails, skid plates, tank, twin exhausts
+    if lod == 0:
+        for sgn in (1.0, -1.0):
+            G.extend(rbox((sgn * 0.50, 0.53, -0.15), (0.10, 0.15, 5.30), UNDER))
+        G.extend(rbox((0, 0.54, 0.60), (0.84, 0.12, 1.60), UNDER))
+        G.extend(rbox((-0.14, 0.56, -1.00), (0.66, 0.14, 0.70), STEEL))
+        G.extend(tube([(0.30, 0.50, 1.10), (0.34, 0.48, 0.0), (0.56, 0.48, -1.15), (0.60, 0.49, -2.40), E_EXHAUST],
+                      [0.036] * 5, 4, STEEL, cap1=SEAM, up=(0, 1, 0), phase=math.pi / 4).autosmooth(50.0))
+        G.extend(tube([(-0.60, 0.49, -2.50), (-E_EXHAUST[0], E_EXHAUST[1], E_EXHAUST[2])], [0.036] * 2, 4, STEEL,
+                      cap1=SEAM, up=(0, 1, 0), phase=math.pi / 4).autosmooth(50.0))
+    elif lod == 1:
+        G.extend(rbox((0, 0.54, -0.15), (1.00, 0.12, 5.2), UNDER, bottom=False))
+
+    # ---- driver and dash
+    if lod == 0:
+        G.extend(rbox((0, E_SILL - 0.05, 0.97), (1.84, 0.16, 0.28), INTERIOR, bottom=False))
+        G.extend(driver(E_DRIVER[0], E_DRIVER[1], E_DRIVER[2], E_SHIRT, E_HAT, 0.86, E_SILL + 0.12))
+    elif lod == 1:
+        G.extend(ellipsoid((E_DRIVER[0], E_DRIVER[1] + 0.18, E_DRIVER[2]), (0.10, 0.12, 0.11), 4, [0, 90, 180],
+                           SKIN, phase=math.pi / 4))
+    return G
+
+
+def eagle_parts(lod: int) -> dict[int, Geo]:
+    if lod == 0:
+        w, a = wheel_lod0(E_WHEEL), axle_lod0(2 * E_WX, E_WX - 0.5 * E_TW)
+    elif lod == 1:
+        w, a = wheel_lod1(E_WHEEL), axle_lod1(2 * E_WX)
+    else:
+        w, a = wheel_lod2(E_WHEEL), None
+    body = eagle_body(lod)
+    if lod == 0:
+        shade_low(body, S_BODY, E_ROCK, 1.06, 0.82)
+    parts = {BODY: body, WHEEL_R: w, WHEEL_L: w.mirrored_x()}
+    if a is not None:
+        parts[AXLE] = a
+    return parts
+
+
+EAGLE_INFO = {
+    "name": "EAGLE",
+    "wheel_pos": [(-E_WX, E_R, E_WZ), (E_WX, E_R, E_WZ), (-E_WXR, E_R, -E_WZ), (E_WXR, E_R, -E_WZ)],
+    "wheel_radius": E_R, "wheel_width": E_TW,
+    "headlight": E_HEAD_C, "headlight_r": 0.08,
+    "aux": E_AUX_C,
+    "taillight": E_TAIL_C,
+    "exhaust": E_EXHAUST,
+    "driver_eye": (E_DRIVER[0], E_DRIVER[1] + 0.20, E_DRIVER[2] + 0.10),
+    "liveries": [
+        ("SNOWCAP", E_BODY_RGB, E_GRAPHIC_RGB, E_RIM_RGB, 0),
+        ("STORM BLUE", rgb(0x1C, 0x4C, 0xB4), rgb(0x16, 0x18, 0x1C), rgb(0x30, 0x32, 0x36), 0),
+        ("SAGEBRUSH", rgb(0x6E, 0x78, 0x64), rgb(0x22, 0x24, 0x26), rgb(0x3A, 0x3C, 0x40), 0),
+        ("EMBER", rgb(0xE4, 0x52, 0x18), rgb(0x1E, 0x20, 0x24), rgb(0x8E, 0x92, 0x98), 0),
+    ],
+}
+
+
+# --------------------------------------------------------------------------
 # Assembly, welding, checks, output
 # --------------------------------------------------------------------------
 
@@ -3222,7 +3634,8 @@ def build_mesh(truck, part, lod, g: Geo) -> Mesh:
 
 TRUCKS = [(CASCADE, cascade_parts, CASCADE_INFO), (KESTREL, kestrel_parts, KESTREL_INFO),
           (BOBCAT, bobcat_parts, BOBCAT_INFO), (FFR, ffr_parts, FFR_INFO), (TACO, taco_parts, TACO_INFO),
-          (GOOSE, goose_parts, GOOSE_INFO), (ONETEN, oneten_parts, ONETEN_INFO)]
+          (GOOSE, goose_parts, GOOSE_INFO), (ONETEN, oneten_parts, ONETEN_INFO),
+          (EAGLE, eagle_parts, EAGLE_INFO)]
 
 
 def assemble() -> list[Mesh]:
@@ -3336,11 +3749,13 @@ def write_header(meshes: list[Mesh], infos: list[dict], path: Path) -> None:
     out.append(f"#define RL_TRUCK_VERT_COUNT {len(verts)}")
     out.append(f"#define RL_TRUCK_INDEX_COUNT {len(indices)}")
     out.append(f"#define RL_TRUCK_MESH_COUNT {len(descs)}")
-    out.append("static const rl_mvert_t rl_truck_verts[RL_TRUCK_VERT_COUNT] = {")
+    out.append("/* (The two big tables are not const: the game builds its meshes from them at boot, then keeps the "
+               "built meshes in their room.) */")
+    out.append("static rl_mvert_t rl_truck_verts[RL_TRUCK_VERT_COUNT] __attribute__((unused)) = {")
     out += vert_rows(verts, sig=5)
     out.append("};")
-    out.append("static const uint16_t rl_truck_indices[RL_TRUCK_INDEX_COUNT] = {   /* per mesh, relative to its "
-               "first_vert */")
+    out.append("static uint16_t rl_truck_indices[RL_TRUCK_INDEX_COUNT] __attribute__((unused)) = {   /* per mesh, "
+               "relative to its first_vert */")
     out += index_rows(indices, 20)
     out.append("};")
     out.append("static const rl_mesh_t rl_truck_meshes[RL_TRUCK_MESH_COUNT] = {     /* flags: 0 */")

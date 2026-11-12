@@ -34,7 +34,7 @@ typedef struct {
     float idle_rpm, redline_rpm, peak_torque, peak_rpm;
     float fade;            /* the share of the peak torque gone by the redline: 0.3, more for an engine out of breath */
     int gears;
-    float ratio[8], reverse, final_drive, low_range;
+    float ratio[10], reverse, final_drive, low_range;
     float brake_torque;
     int low_top_gear;      /* the highest gear low range uses */
     bool tcs;              /* fitted with traction control */
