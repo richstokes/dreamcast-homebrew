@@ -425,7 +425,12 @@ Worth another look if those windows get tighter: lighting only the
 player's truck should cut the peaks to about a third. Flycast showed the
 same shape but doesn't price `fsrra` against a divide. The grass and the
 other trucks taking the beams came later the same day: CPU 15.75 ->
-15.80 ms at night, PT up 0.04-0.10 ms.
+15.80 ms at night, PT up 0.04-0.10 ms. On 2026-11-12 each vertex's
+place in a beam became one `FTRV` through the lamp's matrix instead of
+three scalar dot products: that loop went 98 -> 83 us a frame over the
+night bench and 342 -> 285 us in its busiest window (both loops in one
+console run, swapping every two frames). About a quarter of the vertices
+it tests end up lit, and those cost far more than the test.
 
 Where a night frame went on the console that evening (2026-11-09,
 15.8 ms average, 17.1 on the forest climb, a tenth of the frames late):

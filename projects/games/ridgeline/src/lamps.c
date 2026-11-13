@@ -58,6 +58,9 @@ typedef struct {
     float ih2, iv2, irange, k;
     float fhx, fhz;         /* along, flat (unit) */
     int truck;              /* whose */
+    /* A world position (x, y, z, 1) through this is where it stands in
+       the beam: along, across, up, and along as a share of the range. */
+    shz_mat4x4_t beam;
 } Lamp;
 /* This frame's beams (lamps_begin), for the grass and the trucks too. */
 static Lamp lamps[LAMPS];
@@ -253,8 +256,10 @@ static bool obj_in(const LObj *o, const Lamp *l) {
 }
 
 /* Light object o's vertices with the lamps in mask, saving what they
-   were. Lamp by lamp, so each one's numbers stay in registers across the
-   vertices; most vertices are out of the beam and cost only the test. */
+   were. Lamp by lamp: one FTRV through the lamp's matrix puts a vertex in
+   its beam's space (console, night bench: 15% quicker than the three dot
+   products were), and the lamp's other numbers stay in registers across
+   the vertices. Leaves a lamp's matrix in XMTRX. */
 static void obj_light(const LObj *o, const Lamp *lamps, int mask) {
     static float sum[OBJ_VERTS];
     RV *pool = scenery.pool;
@@ -268,17 +273,16 @@ static void obj_light(const LObj *o, const Lamp *lamps, int mask) {
     for(int li = 0; li < LAMPS; li++) {
         if(!(mask & (1 << li))) continue;
         const Lamp *l = &lamps[li];
-        const float ox = l->o.x, oy = l->o.y, oz = l->o.z, fx = l->f.x, fy = l->f.y, fz = l->f.z;
-        const float rx = l->r.x, ry = l->r.y, rz = l->r.z, ux = l->u.x, uy = l->u.y, uz = l->u.z;
-        const float range = l->range, ih2 = l->ih2, iv2 = l->iv2, ir = l->irange, k = l->k;
+        shz_xmtrx_load_4x4(&l->beam);
+        const float ox = l->o.x, oy = l->o.y, oz = l->o.z;
+        const float range = l->range, ih2 = l->ih2, iv2 = l->iv2, k = l->k;
         for(int i = 0; i < n; i++) {
-            float dx = v[i].x - ox, dy = v[i].y - oy, dz = v[i].z - oz;
-            float a = dx * fx + dy * fy + dz * fz;
+            shz_vec4_t p = shz_xmtrx_transform_vec4(shz_vec4_init(v[i].x, v[i].y, v[i].z, 1.0f));
+            float a = p.x;
             if(a < 0.3f || a > range) continue;
-            float s = dx * rx + dy * ry + dz * rz;
-            float h = dx * ux + dy * uy + dz * uz;
+            float s2 = p.y * p.y, h2 = p.z * p.z;
             /* Below the axis the beam spreads on down to the ground. */
-            float e = s * s * ih2 + h * h * (h > 0 ? iv2 : iv2 * 0.25f);
+            float e = s2 * ih2 + h2 * (p.z > 0 ? iv2 : iv2 * 0.25f);
             float a2 = a * a;
             if(e >= a2) continue;
             LightRec lr = rec[first + i];
@@ -287,12 +291,15 @@ static void obj_light(const LObj *o, const Lamp *lamps, int mask) {
             float ny = ny2 * shz_inv_sqrtf_fsrra(ny2);
             if(lr.alb & 0x40) ny = -ny;
             /* Facing the lamp, wrapped a little round the sides (fsrra, not
-               a divide: a is at least 0.3 m, so nothing here is zero). */
-            float ndl = -(nx * dx + ny * dy + nz * dz) * shz_inv_sqrtf_fsrra(dx * dx + dy * dy + dz * dz);
+               a divide: a is at least 0.3 m, so nothing here is zero). The
+               beam's axes are unit and square to each other, so along,
+               across and up give the distance to the lamp too. */
+            float dx = v[i].x - ox, dy = v[i].y - oy, dz = v[i].z - oz;
+            float ndl = -(nx * dx + ny * dy + nz * dz) * shz_inv_sqrtf_fsrra(a2 + s2 + h2);
             float lam = 0.25f + 0.75f * ndl;
             if(lam <= 0) continue;
-            float ia = shz_inv_sqrtf_fsrra(a2), x = a * ir;
-            sum[i] += (1.0f - e * ia * ia) * (1.0f - x * x) * lam * k;
+            float ia = shz_inv_sqrtf_fsrra(a2);
+            sum[i] += (1.0f - e * ia * ia) * (1.0f - p.w * p.w) * lam * k;
             any = true;
         }
     }
@@ -372,6 +379,18 @@ void lamps_begin(bool on_screen) {
         l->fhx = l->f.x / fl;
         l->fhz = l->f.z / fl;
         l->truck = ti;
+        for(int j = 0; j < 3; j++) {
+            float fj = (&l->f.x)[j];
+            l->beam.elem2D[j][0] = fj;
+            l->beam.elem2D[j][1] = (&l->r.x)[j];
+            l->beam.elem2D[j][2] = (&l->u.x)[j];
+            l->beam.elem2D[j][3] = fj * l->irange;
+        }
+        float fo = vdot(l->f, l->o);
+        l->beam.elem2D[3][0] = -fo;
+        l->beam.elem2D[3][1] = -vdot(l->r, l->o);
+        l->beam.elem2D[3][2] = -vdot(l->u, l->o);
+        l->beam.elem2D[3][3] = -fo * l->irange;
         ldist[slot] = d;
     }
     /* The objects any beam might reach, each once, with the lamps on it. */
@@ -414,6 +433,8 @@ void lamps_begin(bool on_screen) {
         if(vdot(d, d) < fd * fd && r_sphere_visible(c, o->r)) obj_light(o, lamps, cand_mask[i]);
         cand_mask[i] = 0;
     }
+    /* The scenery is drawn next, through the view. */
+    if(nc) r_load_vp();
     PROF_LAP(PS_LAMPS, pl);
     lamps_us += timer_us_gettime64() - t0;
 }
