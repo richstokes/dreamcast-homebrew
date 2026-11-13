@@ -1101,6 +1101,244 @@ def set_pieces(h, water, f, routes, rng):
     return {"rocks": [], "spheres": spheres, "boxes": boxes, "prop_boxes": prop_boxes, "posts": posts,
             "capsules": capsules, "props": props, "views": views, "trees": trees}
 
+# ---------------------------------------------------------------------------
+# The extreme trail
+#
+# WITCH'S EYE: one line with the wind, over three dunes. It leaves the
+# razorback where that drops off ridge A for the bowl, carries on along
+# the crest, hooks round and goes over the brink: down A's slip face,
+# across the trough (past its pond) on what that gave it, through a belt
+# of soft sand and up the back of the big ridge beyond (the charge), over
+# its brink and down into the witch's eye, a hole the wind has scoured at
+# the foot of the face, deep and steep-sided, with nothing for it but to
+# stay on the pedal and come out the far side; then the flat of the bench,
+# under the powerline's wires, and Comp Hill, the king dune's back taken
+# straight up the middle, through the headwall of a blowout, on whatever
+# speed the flat gave; and along the king's crest to the top.
+#
+# Dune driving at its hardest is way on and commitment, not crawling. The
+# numbers that decide it (tools/hostsim, every truck, low range and
+# lockers): plain sand holds a truck on anything here, so a back is a
+# climb; deep sand holds one on about a third of that, so the belt is a
+# crawl for a truck that lost its speed, and the eye's far wall (45%) and
+# Comp Hill's face (46% for 20 m) are not climbed at all: they are carried,
+# the eye on what the drop into it gives, the face on about 20 mph off the
+# flat. Each has firm ground before it to take a run from and a rest to be
+# put back at. A slip face is only ever gone down, and nothing brakes on
+# one: a truck goes over the brink square or it goes down sideways.
+#
+# The line passes half way between two of the powerline's frames, which
+# is what fixes it; the CPU's driver only ever climbs it.
+
+X_VIA = np.array([-56.4, 260.3])       # the line passes here: half way between two of the powerline's frames
+X_WEST = 11.0                          # as far as the eye it runs this far north-west of that: clear of the trough's pond
+X_EYE = (44.0, 24.0, 6.5, 0.74)        # the eye: metres past the big ridge's brink, half-length, depth, how narrow
+X_FACE = (40, 20, 0.46)                # Comp Hill's face: how far up from the toe it starts, its length, its grade
+X_SCOOP = 20.0                         # how far out the blowout it stands at the head of runs into the dune's back
+X_BELT = 12                            # the belt of soft sand across the foot of the charge (m)
+
+
+def witchs_eye(h, water, surf, f, routes, trees, rng):
+    """Digs the eye, lays the trail and paints it. Returns the route for
+    the header (levelkit.xt_full) and what stands along it: props as (x,
+    z, yaw, kind, var), a viewpoint as (x, z, name)."""
+    appr, shore, razor, power, summit = routes
+    w, c = WIND, CREST
+
+    def L(t, west=None):
+        """The line, t metres along it from X_VIA: over the first two dunes
+        X_WEST to the north-west of where it climbs the king, coming
+        across on the flat between the eye and the hill."""
+        if west is None:
+            west = X_WEST * (1.0 - float(smoothstep(t_join[0], t_join[1], t)))
+        return X_VIA + c * west + w * t
+
+    def hit(crest, t_near, west):
+        """Where the line crosses a crest as it lies on the ground: the
+        distance along the line, and the crest's point."""
+        rel = crest - X_VIA - c * west
+        t = rel @ w
+        k = int(np.argmin(np.abs(rel @ c) + 1e3 * (np.abs(t - t_near) > 45)))
+        return float(t[k]), k
+    cA, cB, cK = f["crests"][1][0], f["crests"][2][0], f["crests"][-1][0]
+    (tA, kA), (tB, kB), (tK, kK) = hit(cA, -319.0, X_WEST), hit(cB, -205.0, X_WEST), hit(cK, 91.0, 0.0)
+    t_join = (tB + X_EYE[0] + X_EYE[1] + 8.0, tB + X_EYE[0] + X_EYE[1] + 52.0)
+
+    # The eye, at the foot of the big ridge's slip face, and its sand at rest.
+    te, er, ed, en = X_EYE
+    te += tB
+    q = hollow(h, *L(te), er, ed, en, math.atan2(w[1], w[0]))
+    eye = q > 0.02
+    near = np.hypot(X - L(te)[0], Z - L(te)[1]) < er + 30
+    h[:] = np.where(near, settle(h, near, iters=40), h)
+
+    # The line: from the razorback along A's crest (a tyre's width back
+    # from the brink, as the razorback runs), a hook down its back and
+    # round to meet the brink square, then straight with the wind to the
+    # king's crest, round on to that and along it to the top.
+    i1 = int(np.argmin(np.linalg.norm(cA - np.array(RAZOR_CREST[2], float), axis=1)))
+    k_in = xt_k(razor, *(cA[i1 - 12] - w * 2.2))
+    XA = cA[kA]
+    ctrl = [tuple(razor["pts"][k_in])] + [tuple(cA[j] - w * 2.2) for j in range(i1 + 2, kA - 44, 10)]
+    R = 8.0
+    cc = XA - w * 3.0 - c * R
+    ctrl += [tuple(XA - c * 40 - w * 2.2), tuple(XA - c * 28 - w * 4.5), tuple(XA - c * 17 - w * 9.0), tuple(cc - w * R),
+             tuple(cc + (c - w) * R * 0.7071), tuple(XA - w * 3.0)]
+    R = 9.0
+    ctrl += [tuple(L(t)) for t in np.arange(tA + 3.0, tK - R - 2.2 - 6.0, 10.0)]
+    XK = cK[kK]
+    cc = XK - w * (2.2 + R) - c * R
+    ctrl += [tuple(XK - w * (2.2 + R)), tuple(cc + (c + w) * R * 0.7071)]
+    k_sum = int(np.argmin(np.linalg.norm(cK - SUMMIT, axis=1)))
+    # (It comes off the crest for the last of it and on to the king dune
+    # trail's own top few metres, up the back: a truck that arrives along
+    # the crest and turns round on it for the way down goes over the edge.)
+    ctrl += [tuple(cK[j] - w * 2.2) for j in range(kK - int(R), k_sum + 30, -10)]
+    R = 8.0
+    cc = SUMMIT - w * 13.0 + c * R + w * R
+    ctrl += [tuple(SUMMIT + c * 20 - w * 6.5), tuple(SUMMIT + c * R - w * 13.0), tuple(cc - (w + c) * R * 0.7071),
+             tuple(SUMMIT - w * 5.0)]
+    r = xt_route(h, [(p_[0], p_[1], None) for p_ in ctrl], "WITCH'S EYE", "WITCH EYE", 3.0)
+    pts = r["pts"]
+    n = len(pts)
+
+    def at(t):
+        """The trail's point where the line is t along (it is the line there)."""
+        return xt_k(r, *L(t))
+    k_turn = xt_k(r, *(XA - w * 3.0))                  # square to the brink of A
+    k_a, k_b, k_k = at(tA), at(tB), at(tK - 11.0)      # A's brink, the big ridge's, the top of Comp Hill
+    k_foot_a = at(tA + float(sample(f["lift"], XA)[0]) / REPOSE + 4.0)
+    k_brink = at(tB - 9.0)
+    k_eye0, k_eye, k_eye1 = at(te - er), at(te), at(te + er)
+    k_line = at(te + er + 9.0)                         # level ground past the eye: where trucks line up
+    # The hill starts where the king's back does.
+    lift = sample(f["lift"], pts)
+    k_toe = k_line + int(np.argmax(lift[k_line:k_k] > 0.6))
+
+    # The charge is the big ridge's back as the wind left it: plain sand
+    # that low range will pull a truck up from a standing start, behind a
+    # belt of the deep stuff blown in off the trough across the foot of
+    # it, which is nothing to a truck that kept what the first drop gave
+    # it and a long job for one that braked.
+    y = r["y"]
+    k_low = k_foot_a + int(np.argmin(y[k_foot_a:k_b]))
+    k_belt = k_low + int(np.argmax(np.diff(gaussian_filter1d(y[k_low:k_b], 2.0)) > 0.16))
+
+    # Comp Hill. The king's back is a long even climb any truck will
+    # crawl; what makes the hill is a blowout the wind has scooped out of
+    # it half way up, whose headwall the line takes straight on: a face of
+    # deep sand steeper than tyres will pull a truck up, to be carried on
+    # what the flat below gave. Easy ground to the foot of it, the face,
+    # and the back's own slope again from its lip to the crest.
+    f0, fl, fg = X_FACE
+    k_f0, k_f1, k_ht = k_toe + f0, k_toe + f0 + fl, k_k - 6
+    y_f0 = y[k_toe] + 0.09 * f0
+    hill = np.interp(np.arange(k_toe, k_ht + 1), [k_toe, k_f0, k_f1, k_ht], [y[k_toe], y_f0, y_f0 + fg * fl, y[k_ht]])
+    top_grade = (y[k_ht] - (y_f0 + fg * fl)) / (k_ht - k_f1)
+    assert 0.04 < top_grade < 0.3, f"Comp Hill's face leaves {top_grade * 100:.0f}% above it"
+    y[k_toe:k_ht + 1] = hill
+    y[k_toe - 10:k_f0 + 13] = gaussian_filter1d(y[k_toe - 26:k_f0 + 29], 5.0, mode="nearest")[16:-16]
+    y[k_f1 - 8:k_ht + 5] = gaussian_filter1d(y[k_f1 - 20:k_ht + 17], 3.0, mode="nearest")[12:-12]
+    # A hill everyone has a go at is as wide as a road is long, and a
+    # blowout has no banks: the scoop runs out into the dune's back over
+    # three times its own width.
+    r["halfs"][k_toe - 4:k_ht] = 6.5
+    d_, i_ = cKDTree(pts[k_toe - 8:k_ht + 4]).query(FLAT, distance_upper_bound=6.5 + X_SCOOP)
+    ok_ = np.isfinite(d_)
+    jj, ii = np.unravel_index(np.nonzero(ok_)[0], h.shape)
+    h[jj, ii] += (y[k_toe - 8:k_ht + 4][i_[ok_]] - h[jj, ii]) * (1.0 - smoothstep(6.5, 6.5 + X_SCOOP, d_[ok_]))
+
+    # The ground under it: only the strip the tyres have packed, the
+    # sand beside it slumped back to rest, the strip trued up again.
+    lay_route(h, r, 2.0)
+    band = cKDTree(pts).query(FLAT, distance_upper_bound=30.0)[0]
+    band = np.isfinite(band).reshape(N, N) & (f["dshore"] > 8)
+    # (Not the other routes' ground: where the razorback comes down off
+    # the crest beside the gate its ramp is cut steeper than sand lies,
+    # and slumping it left trucks coming back up it to be winched.)
+    others = cKDTree(np.vstack([q_["pts"] for q_ in routes])).query(FLAT, distance_upper_bound=14.0)[0]
+    band &= ~np.isfinite(others).reshape(N, N)
+    h[:] = np.where(band, settle(h, band, iters=40), h)
+    lay_route(h, r, 1.5)
+    xt_settle(h, razor, max(0, k_in - 30), k_in + 60)
+    xt_settle(h, summit, len(summit["pts"]) - 22, len(summit["pts"]))
+    r["y"] = sample(h, pts)
+
+    # What it is made of. As on the other tracks over the dunes: deep
+    # where the dune is, beaten down to plain sand on anything steep
+    # (which is what makes a climb a climb and not a wall). Then the
+    # trail's own: the eye deep from rim to rim, the flat packed hard,
+    # and the middle of Comp Hill, its steepest part, left as deep as the
+    # wind laid it.
+    jj, ii, idx, d, lat = xt_band(r, float(np.max(r["halfs"])) + 0.8)
+    on = d < r["halfs"][idx] + 0.6
+    jj, ii, idx = jj[on], ii[on], idx[on]
+    g = np.abs(np.gradient(gaussian_filter1d(r["y"], 2.0)))
+    cur = surf[jj, ii]
+    v = np.where((cur == S["HARDPACK"]) | (cur == S["GRASS"]), S["SAND"], cur)
+    v = np.where((cur == S["DEEPSAND"]) & (g[idx] > 0.13), S["SAND"], v)
+    surf[jj, ii] = np.where(water[jj, ii] > -999, cur, v)
+    surf[eye] = S["DEEPSAND"]
+    xt_surface(surf, r, k_eye1 + 3, k_toe + 6, S["HARDPACK"], extra=2.5)
+    xt_surface(surf, r, k_toe + 6, k_f0 - 3, S["SAND"], extra=1.0)
+    xt_surface(surf, r, k_f0 - 3, k_f1 + 3, S["DEEPSAND"], extra=4.0)
+    xt_surface(surf, r, k_f1 + 3, k_ht, S["SAND"], extra=1.0)
+    # And the belt across the foot of the charge.
+    xt_surface(surf, r, k_belt, k_belt + X_BELT, S["DEEPSAND"], extra=3.0)
+
+    # Nothing grows in it.
+    tr = cKDTree(pts)
+    trees[:] = [t_ for t_ in trees if tr.query((t_[0], t_[2]))[0] > 7.0]
+
+    # What the CPU's driver knows about it: square to each brink and no
+    # faster than a truck should leave one, flat out wherever a climb is
+    # coming, and steady along the crests.
+    pace = r["pace"]
+    pace[:] = 4.5
+    pace[:6] = 2.5
+    pace[k_turn - 14:k_a + 2] = 3.0
+    pace[k_a + 2:k_foot_a] = 9.0
+    pace[k_foot_a:k_brink - 12] = 12.0
+    pace[k_brink - 12:k_brink - 4] = 6.0
+    pace[k_brink - 4:k_b + 2] = 3.0
+    pace[k_b + 2:k_eye1 + 4] = 12.0
+    pace[k_eye1 + 4:k_k - 26] = 14.0
+    pace[k_k - 26:k_k - 8] = 8.0
+    pace[k_k - 8:] = 4.5
+    r["spots"] = [(5, "WITCH'S EYE", 1), (k_turn - 8, "THE HOOK", 0), (k_a + 2, "FIRST DROP", 0),
+                  (k_foot_a + 12, "THE CHARGE", 0), (k_brink - 3, "THE BRINK", 1), (k_eye0 + 4, "THE EYE", 0),
+                  (k_line, "THE LINE-UP", 1), (k_toe + 8, "COMP HILL", 0), (k_k + 6, "THE BLADE", 1)]
+
+    # Whips: a pair either side of each brink, where to go over; one at
+    # the line-up and one at the top of the hill to aim for.
+    props = []
+    for k in (k_a, k_b):
+        for side in (-1, 1):
+            q_ = pts[k] - w * 3.0 + c * side * 5.5
+            props.append((q_[0], q_[1], rng.uniform(0, 6.28), PROP["FLAG"], 0))
+    for k, off in ((k_line, 6.0), (k_k - 2, -6.5)):
+        q_ = pts[k] + c * off
+        props.append((q_[0], q_[1], rng.uniform(0, 6.28), PROP["FLAG"], 0))
+    p_, tg_, nm_ = frame(r, 9)
+    yaw0 = math.atan2(tg_[0], tg_[1])
+    props.append(tuple(p_ - nm_ * 4.2) + (yaw0, PROP["PLATE"], 3))
+    props.append(tuple(pts[14] - nm_ * 4.6) + (yaw0, PROP["SIGN"], 0))
+    view = (L(te)[0] + c[0] * (er * en + 9.0), L(te)[1] + c[1] * (er * en + 9.0), "WITCH'S EYE")
+
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    grade = np.diff(r["y"]) / np.maximum(seg, 1e-3)
+    y = r["y"]
+    print(f"  WITCH'S EYE {seg.sum():.0f} m from the razorback at ({pts[0][0]:.0f},{pts[0][1]:.0f}): the line crosses A's crest "
+          f"at {tA:.0f} ({XA[0]:.0f},{XA[1]:.0f}), the big ridge's at {tB:.0f} ({cB[kB][0]:.0f},{cB[kB][1]:.0f}), the king's at "
+          f"{tK:.0f} ({XK[0]:.0f},{XK[1]:.0f})")
+    print(f"    first drop {y[k_a] - y[k_foot_a]:.1f} m, the charge {y[k_b] - y[k_foot_a:k_b].min():.1f} m at up to "
+          f"{grade[k_foot_a:k_b].max() * 100:.0f}%, the drop into the eye {y[k_b] - y[k_eye]:.1f} m, out of it "
+          f"{y[k_eye1] - y[k_eye]:.1f} m at up to {grade[k_eye:k_eye1 + 4].max() * 100:.0f}%, the flat {k_toe - k_eye1} m, "
+          f"Comp Hill {y[k_k] - y[k_toe]:.1f} m in {k_k - k_toe} m, its face {y[k_f1] - y[k_f0]:.1f} m at up to "
+          f"{grade[k_f0:k_f1].max() * 100:.0f}% (the back above it {top_grade * 100:.0f}%), the blade {n - k_k} m")
+    full = xt_full(r, before=[(razor, 0, k_in)], after=[(summit, len(summit["pts"]) - 5, len(summit["pts"]))])
+    return full, props, view
+
 
 # ---------------------------------------------------------------------------
 # The land beyond the map (outland.py): what the king dune looks out on.
@@ -1260,6 +1498,9 @@ def build(out, preview_path=None, raw=None):
     f["face"] &= (f["lift"] < 1.0) & ((f["cliff"] > 2.5) | f["knob"] | (gaussian_filter(f["knob"].astype(float), 1.5) > 0.05))
     surf = surfaces(h, water, f, routes)
     trees = place_trees(h, water, surf, f, routes, rng)
+    # The extreme trail, once everything that was here before it is placed
+    # (so none of that moves for it).
+    extreme, x_props, x_view = witchs_eye(h, water, surf, f, routes, trees, np.random.default_rng(1971))
 
     def gy(x, z):
         return float(sample(h, np.array([x, z]))[0])
@@ -1272,9 +1513,21 @@ def build(out, preview_path=None, raw=None):
     keep = cKDTree(np.array(stuff))
     trees = [(t[0], gy(t[0], t[2]) - t[6], t[2], t[3], t[4], t[5]) for t in trees if keep.query((t[0], t[2]))[0] > 4.5]
     trees += [(t[0], gy(t[0], t[2]) - t[6], t[2], t[3], t[4], t[5]) for t in sp["trees"]]
-    argb, rgb, alb_ao, nrm = colours(h, water, surf, f, routes)
+    # (the trail's own stretch is worn into the sand as the other tracks are)
+    worn = {"pts": extreme["pts"][extreme["own0"]:extreme["own1"] + 1], "half": extreme["half"]}
+    argb, rgb, alb_ao, nrm = colours(h, water, surf, f, routes + [worn])
     props = [(p[0], gy(p[0], p[1]) if p[4] is None else p[4], p[1], p[2], p[3]) for p in sp["props"]]
+    props += [(p[0], gy(p[0], p[1]), p[1], p[2], p[3], p[4]) for p in x_props]
     views = [(v[0], gy(v[0], v[1]), v[1], v[2]) for v in sp["views"]]
+    views.append((x_view[0], gy(x_view[0], x_view[1]), x_view[1], x_view[2]))
+    props.append((x_view[0] + 3.0, gy(x_view[0] + 3.0, x_view[1] + 2.5), x_view[1] + 2.5, 1.0, PROP["FLAG"]))
+    # The powerline's frames were stood without a thought for the trail:
+    # it must pass well clear of every one.
+    xt = cKDTree(extreme["pts"][extreme["own0"]:])
+    for p in props:
+        if p[4] == PROP["PYLON"]:
+            assert xt.query((p[0], p[2]))[0] > 14.0, f"a powerline frame at {p[0]:.0f},{p[2]:.0f} stands in the extreme trail"
+    routes = routes + [extreme]
     summit_y = gy(SUMMIT[0], SUMMIT[1])
     spawns = []
     for k in range(4):

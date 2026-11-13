@@ -33,6 +33,7 @@
 #include "desert.h"
 #include "dunes.h"
 #include "outland.h"
+#include "progress.h"
 #include <malloc.h>
 
 KOS_INIT_FLAGS(INIT_DEFAULT);
@@ -78,7 +79,10 @@ void game_start_drive(void) {
         const float *s = lvl_spawns[slot[i]];
         truck_place(t, v3(s[0], 0, s[2]), s[3]);
         t->lights = LIGHTS_OFF;
-        if(i > 0) ai_start(i, 1 + (i - 1) % 3);
+        /* Company takes a way up each; the third of them the extreme
+           trail, where the area has one (a line to follow, for a player
+           who wants to see it driven first). */
+        if(i > 0) ai_start(i, i == 3 && LVL_HAS_EXTREME ? LVL_ROUTE_EXTREME : 1 + (i - 1) % 3);
     }
     game.best_y = trucks[0].pos.y;
     game.summit_frac = 0;
@@ -87,6 +91,7 @@ void game_start_drive(void) {
     game.summit_reached = false;
     game.clock = 0;
     records_start();
+    progress_drive_start();
     deer_reset();
     game.paused = false;
     game.photo = false;
@@ -96,6 +101,7 @@ void game_start_drive(void) {
     audio_drive_start();
     game_set_state(ST_DRIVE);
     tod_set_hour(tod_hours[game.start_tod]);
+    hud_message_clear();
     hud_message(lvl->name, 0xfff8f0dc, 3.0f);
 }
 
@@ -138,7 +144,7 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
         if(!left_done && (left_hold += dt) >= 2.0f) {
             p->tcs_off = !p->tcs_off;
             left_done = true;
-            hud_message(p->tcs_off ? "TRACTION CONTROL OFF" : "TRACTION CONTROL ON", 0xffffd070, 1.6f);
+            hud_status(p->tcs_off ? "TRACTION CONTROL OFF" : "TRACTION CONTROL ON", 0xffffd070, 1.6f);
         }
     }
     else {
@@ -152,8 +158,8 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
             static const char *const names[DRIVE_COUNT] = {"2WD  REAR DRIVE", "4WD  CENTRE LOCKED",
                                                             "LOW RANGE + DIFF LOCKS"};
             int r = truck_set_mode(p, m);
-            if(r == MODE_CHANGED) hud_message(names[m], 0xffffd070, 1.6f);
-            else if(r == MODE_TOO_FAST) hud_message("SLOW DOWN TO CHANGE RANGE", 0xffff9050, 1.6f);
+            if(r == MODE_CHANGED) hud_status(names[m], 0xffffd070, 1.6f);
+            else if(r == MODE_TOO_FAST) hud_status("SLOW DOWN TO CHANGE RANGE", 0xffff9050, 1.6f);
         }
     }
     if(pad.pressed & BTN_B) game.cam_mode = (game.cam_mode + 1) % 3;
@@ -161,10 +167,13 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     if(pad.held & BTN_Y) {
         recover_hold += dt;
         if(recover_hold > 1.0f) {
-            truck_recover(p);
+            /* On the extreme trail that is back to the last rest (progress.c). */
+            if(!progress_recover()) {
+                truck_recover(p);
+                hud_status("RECOVERED", 0xfff8f0dc, 1.2f);
+            }
             camera_reset();
             recover_hold = 0;
-            hud_message("RECOVERED", 0xfff8f0dc, 1.2f);
         }
     }
     else recover_hold = 0;
@@ -181,7 +190,7 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
 
 _Static_assert(LVL_MAX_VIEWS <= sizeof(game.views_found) * 8, "a viewpoint without a bit is found again every frame");
 
-static void progress_update(void) {
+static void climb_update(void) {
     const Truck *p = &trucks[0];
     if(p->pos.y > game.best_y) game.best_y = p->pos.y;
     game.summit_frac = clampf((game.best_y - LEVEL_START_Y) / (LEVEL_SUMMIT_Y - 1.5f - LEVEL_START_Y), 0, 1);
@@ -192,22 +201,35 @@ static void progress_update(void) {
         if(dx * dx + dz * dz < 16.0f * 16.0f && fabsf(p->pos.y - v->y) < 10.0f) {
             game.views_found |= 1u << i;
             game.last_view = i;
-            char buf[48];
-            snprintf(buf, sizeof(buf), "VIEWPOINT: %s", v->name);
-            hud_message(buf, 0xff90f0b0, 3.0f);
-            audio_sfx(RL_SFX_CHIME, 220);
+            /* Found for good the first time (the save keeps it); on a
+               later drive it is a place come back to. */
+            bool fresh = progress_view(i);
+            /* (The viewpoint on the summit itself says nothing: the
+               summit's own banner is a moment away.) */
+            float sx = v->x - LEVEL_SUMMIT_X, sz = v->z - LEVEL_SUMMIT_Z;
+            if(sx * sx + sz * sz < 24.0f * 24.0f) continue;
+            /* The place's name, and under it what it is. */
+            hud_message(v->name, fresh ? 0xff90f0b0 : 0xfff8f0dc, 3.0f);
+            hud_message_sub(fresh ? "NEW VIEWPOINT" : "VIEWPOINT");
+            hud_message_sound(RL_SFX_CHIME, fresh ? 220 : 120);
         }
     }
     float dx = p->pos.x - LEVEL_SUMMIT_X, dz = p->pos.z - LEVEL_SUMMIT_Z;
     if(!game.summit_reached && dx * dx + dz * dz < 18.0f * 18.0f) {
         game.summit_reached = true;
         game.summit_frac = 1.0f;
-        char line[64];
+        char line[64], log[56];
+        int way = -1;
         snprintf(line, sizeof(line), "SUMMIT!  %s", lvl->name);
         hud_message(line, 0xffffe070, 7.0f);
-        records_summit(line, sizeof(line));
+        /* By the extreme trail the time is the trail's own, gate to gate;
+           otherwise from the start, by the way most of the climb was on. */
+        if(progress_summit_trail(line, sizeof(line))) way = WAY_EXTREME;
+        else records_summit(line, sizeof(line), &way);
         hud_message_sub(line);
-        audio_sfx(RL_SFX_SUMMIT, 240);
+        hud_message_sound(RL_SFX_SUMMIT, 240);
+        progress_summit(way, log, sizeof(log));
+        if(log[0]) hud_message_sub2(log);
         if(game.online) online_summit();
     }
 }
@@ -254,7 +276,8 @@ static void drive_update(float dt) {
     for(int i = 0; i < game.ntrucks; i++)
         if(!trucks[i].remote) truck_update(&trucks[i], dt);
     if(game.online) online_drive_step(dt);
-    progress_update();
+    climb_update();
+    progress_update(dt);
     records_update(dt);
     game.clock += dt;
     fx_update(dt);

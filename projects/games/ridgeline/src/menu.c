@@ -3,6 +3,7 @@
    parked at the area's start, and the pause menu. */
 #include "menu.h"
 #include "records.h"
+#include "progress.h"
 #include "tod.h"
 #include "hud.h"
 #include "engine/ui.h"
@@ -79,6 +80,12 @@ enum { T_SINGLE, T_ONLINE, T_SOUND, T_CONTROLS, T_COUNT };
 static bool title_menu, title_controls;
 static int title_sel;
 static float title_idle;
+/* The code, as on a certain blue hedgehog's title screen: up, down, left,
+   right on the D-pad at PRESS START, then Start with A held. Every truck
+   unlocked (and kept so on the VMU); again, and they are locked as they
+   were. */
+static int code_at;
+static float code_t;      /* seconds its message has left */
 
 /* The controls screen: a read-only list over the flyover. Keep it in step
    with player_controls() in main.c and the README's table. A row with no
@@ -133,6 +140,7 @@ static void controls_draw(void) {
 
 void menu_title_update(float dt) {
     camera_flyover(game.time);
+    if(code_t > 0) code_t -= dt;
     /* Left alone with no menu up, the demo starts (demo.h). */
     bool touched = pad.pressed || pad2.pressed || fabsf(pad.stick_x) > 0.6f || fabsf(pad.stick_y) > 0.6f;
     title_idle = touched ? 0 : title_idle + dt;
@@ -142,10 +150,25 @@ void menu_title_update(float dt) {
             demo_start();
             return;
         }
+        static const uint32_t code[4] = {BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT};
+        uint32_t dir = pad.pressed & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT);
+        if(dir && code_at < 4) code_at = dir == code[code_at] ? code_at + 1 : dir == code[0] ? 1 : 0;
+        else if(dir) code_at = dir == code[0] ? 1 : 0;
+        if(code_at == 4 && (pad.held & BTN_A)) {
+            /* A is held for the code: it opens nothing. */
+            if(pad.pressed & BTN_START) {
+                progress_cheat_toggle();
+                audio_sfx(RL_SFX_SUMMIT, 220);
+                code_at = 0;
+                code_t = 4.0f;
+            }
+            return;
+        }
         if(pad.pressed & (BTN_START | BTN_A)) {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
             title_menu = true;
             title_sel = T_SINGLE;
+            code_at = 0;
         }
         return;
     }
@@ -209,6 +232,9 @@ void menu_title_draw(void) {
         }
         ui_hint("A: OK   B: BACK");
     }
+    else if(code_t > 0)
+        hud_text_c(320, 380, 0.8f, ALIGN_CENTER, color_alpha(0xffffe070, clampf(code_t, 0, 1)),
+                   records_cheat() ? "EVERY TRUCK UNLOCKED" : "TRUCKS LOCKED AGAIN");
     else if(fmodf(game.time, 1.2f) < 0.8f)
         hud_text_c(320, 380, 0.9f, ALIGN_CENTER, color_alpha(0xffffffff, k), "PRESS START");
     hud_text_c(624, 462, 0.42f, ALIGN_RIGHT, 0xa0ffffff, RL_GIT_SHA);
@@ -248,6 +274,15 @@ void menu_select_begin(void) {
     sel_row = 0;
     sel_page = PG_AREA;
     area_pick = game.area;
+    /* Start on a truck that can be driven (the last one picked, unless
+       the code that unlocked it has been taken back). */
+    game.truck_model = progress_next_unlocked(game.truck_model, 0);
+}
+
+/* The truck on show is one still to be earned: it can be looked at, in
+   any of its paints, and no more. */
+static bool sel_locked(void) {
+    return !progress_unlocked(game.truck_model);
 }
 
 void menu_select_update(float dt) {
@@ -320,7 +355,10 @@ void menu_select_update(float dt) {
     }
     /* A on the truck page goes on to the drive page; Start drives (or
        joins) from either. */
-    if(!game.online && sel_page == PG_TRUCK && (pad.pressed & BTN_A) && !(pad.pressed & BTN_START)) {
+    if(sel_page == PG_TRUCK && sel_locked() && (pad.pressed & (BTN_A | BTN_START))) {
+        audio_sfx(RL_SFX_MENU_BACK, 200);
+    }
+    else if(!game.online && sel_page == PG_TRUCK && (pad.pressed & BTN_A) && !(pad.pressed & BTN_START)) {
         audio_sfx(RL_SFX_MENU_SELECT, 200);
         sel_page = PG_DRIVE;
         sel_row = 0;
@@ -365,19 +403,42 @@ void menu_area_card(int area, float y0) {
     hud_text_c(tx, y0 + 56, 0.42f, ALIGN_LEFT, ui_col(UI_LABEL), a->blurb);
     char buf[40];
     snprintf(buf, sizeof(buf), "SUMMIT %d FT", (int)((float)a->base_ft + a->summit_y * M_TO_FT));
-    hud_text_c(tx, y0 + 86, 0.5f, ALIGN_LEFT, ui_col(UI_TEXT), buf);
-    hud_text_c(tx, y0 + 116, 0.46f, ALIGN_LEFT, ui_col(UI_ACCENT), "WAYS UP");
-    /* Easiest first. */
-    static const char *const grade[3] = {"EASY", "HARDER", "HARDEST"};
-    static const int role[3] = {UI_GOOD, UI_ACCENT, UI_WARN};
-    float y = y0 + 140;
-    for(int d = 1; d <= 3; d++)
-        for(int r = 1; r <= 3; r++) {
-            if(a->routes[r].difficulty != d) continue;
-            hud_text_c(tx, y, 0.52f, ALIGN_LEFT, ui_col(UI_TEXT), a->routes[r].name);
-            hud_text_c(554, y, 0.46f, ALIGN_RIGHT, ui_col(role[d - 1]), grade[d - 1]);
-            y += 24;
+    hud_text_c(tx, y0 + 82, 0.5f, ALIGN_LEFT, ui_col(UI_TEXT), buf);
+    snprintf(buf, sizeof(buf), "VIEWS %d/%d", __builtin_popcount(records_views(area) & ((1u << a->nviews) - 1)), a->nviews);
+    hud_text_c(554, y0 + 82, 0.46f, ALIGN_RIGHT, ui_col(UI_LABEL), buf);
+    hud_text_c(tx, y0 + 108, 0.46f, ALIGN_LEFT, ui_col(UI_ACCENT), "WAYS UP");
+    snprintf(buf, sizeof(buf), "TRAIL LOG %d%%", progress_area_percent(area));
+    hud_text_c(554, y0 + 108, 0.46f, ALIGN_RIGHT, ui_col(UI_ACCENT), buf);
+    /* Easiest first, the extreme trail last; and against each the trail
+       log's three stamps: the top reached that way, a clean run of it,
+       and one after dark. */
+    static const char *const grade[4] = {"EASY", "HARDER", "HARDEST", "EXTREME"};
+    static const int role[4] = {UI_GOOD, UI_ACCENT, UI_WARN, UI_WARN};
+    static const uint32_t ink[STAMPS_A_WAY] = {0xffe8a030, 0xff90f0b0, 0xff8fb4ff};
+    uint16_t st = records_stamps(area);
+    float y = y0 + 130;
+    for(int d = 1; d <= 4; d++)
+        for(int r = 1; r < a->nroutes; r++) {
+            if(a->routes[r].difficulty != d || r == 4) continue;
+            int way = r == LVL_ROUTE_EXTREME ? LOG_EXTREME : r - 1;
+            hud_text_c(tx, y, 0.48f, ALIGN_LEFT, ui_col(d == 4 ? UI_WARN : UI_TEXT), a->routes[r].name);
+            hud_text_c(508, y, 0.4f, ALIGN_RIGHT, ui_col(role[d - 1]), grade[d - 1]);
+            for(int k = 0; k < STAMPS_A_WAY; k++) {
+                float x = 518 + k * 13;
+                bool got = st & STAMP_BIT(way, 1u << k);
+                hud_panel(x, y - 5, x + 10, y + 5, got ? ink[k] : 0xff3a4248);
+                if(!got) hud_panel(x + 1.5f, y - 3.5f, x + 8.5f, y + 3.5f, 0xff1c2228);
+            }
+            y += 21;
         }
+    /* What the three boxes are. */
+    static const char *const stamp[STAMPS_A_WAY] = {"TOP", "CLEAN", "AFTER DARK"};
+    float x = tx;
+    for(int k = 0; k < STAMPS_A_WAY; k++) {
+        hud_panel(x, y0 + 214, x + 8, y0 + 222, ink[k]);
+        hud_text_c(x + 12, y0 + 218, 0.36f, ALIGN_LEFT, ui_col(UI_LABEL), stamp[k]);
+        x += 20 + text_width(hud_font(), stamp[k], 0.36f) + 12;
+    }
 }
 
 /* The area page: the picked area's card over one row to change it and the
@@ -406,14 +467,35 @@ void menu_select_draw(void) {
     if(sel_page == PG_TRUCK) {
         char join[24];
         snprintf(join, sizeof(join), "JOIN LOBBY %d", online_lobby_pick() + 1);
+        bool locked = sel_locked();
         const char *const rows[3][2] = {
             {"TRUCK", menu_truck_name(game.truck_model)},
             {"PAINT", livery_name(game.truck_model, game.livery)},
-            {"", game.online ? join : "NEXT"},
+            {"", locked ? "LOCKED" : game.online ? join : "NEXT"},
         };
         select_rows(140, 500, 318, 432, rows);
         ui_heading(320, 40, "CHOOSE YOUR TRUCK");
-        if(game.online && online_joining()) ui_hint("JOINING...   B: CANCEL");
+        /* The line-up: a pip a truck, amber for the ones earned, the one
+           on show marked. */
+        for(int m = 0; m < TRUCK_MODELS; m++) {
+            float x = 320 + (m - (TRUCK_MODELS - 1) * 0.5f) * 20.0f, r = m == game.truck_model ? 6.0f : 4.0f;
+            uint32_t c = progress_unlocked(m) ? ui_col(UI_ACCENT) : 0xa0586068;
+            if(m == game.truck_model) hud_panel(x - r - 2, 74 - r - 2, x + r + 2, 74 + r + 2, 0xfff4ecd8);
+            hud_panel(x - r, 74 - r, x + r, 74 + r, c | 0xff000000);
+        }
+        if(locked) {
+            /* What it wants, and how far along that is. */
+            const char *need;
+            char count[16];
+            progress_need(game.truck_model, &need, count, sizeof(count));
+            /* (over the skyline, clear of the truck) */
+            ui_panel(96, 88, 544, 156);
+            hud_text_c(320, 108, 0.62f, ALIGN_CENTER, ui_col(UI_WARN), "LOCKED");
+            hud_text_c(320, 134, 0.52f, ALIGN_CENTER, ui_col(UI_TEXT), need);
+            if(count[0]) hud_text_c(528, 108, 0.5f, ALIGN_RIGHT, ui_col(UI_ACCENT), count);
+            ui_hint("LEFT/RIGHT: CHANGE   B: BACK");
+        }
+        else if(game.online && online_joining()) ui_hint("JOINING...   B: CANCEL");
         else if(game.online) ui_hint("LEFT/RIGHT: CHANGE   A: JOIN   B: BACK");
         else ui_hint("LEFT/RIGHT: CHANGE   A: NEXT   B: BACK");
         return;
@@ -428,12 +510,13 @@ void menu_select_draw(void) {
     ui_panel(446, 312, 610, 432);
     hud_text_c(528, 332, 0.5f, ALIGN_CENTER, ui_col(UI_LABEL), "BEST TIMES");
     for(int w = 0; w < WAY_COUNT; w++) {
-        float y = 356 + w * 22;
+        if(w == WAY_EXTREME && !LVL_HAS_EXTREME) continue;
+        float y = 353 + w * 18;
         char t[16] = "--:--";
         uint32_t b = records_best(game.truck_model, w);
         if(b) records_format(b, t, sizeof(t));
-        hud_text_c(458, y, 0.5f, ALIGN_LEFT, ui_col(UI_LABEL), records_way_short(w));
-        hud_text_c(598, y, 0.5f, ALIGN_RIGHT, ui_col(b ? UI_VALUE : UI_LABEL), t);
+        hud_text_c(458, y, 0.46f, ALIGN_LEFT, ui_col(w == WAY_EXTREME ? UI_WARN : UI_LABEL), records_way_short(w));
+        hud_text_c(598, y, 0.46f, ALIGN_RIGHT, ui_col(b ? UI_VALUE : UI_LABEL), t);
     }
     ui_heading(320, 40, "PLAN YOUR DRIVE");
     ui_hint("LEFT/RIGHT: CHANGE   A: DRIVE   B: BACK");
@@ -510,17 +593,22 @@ void menu_pause_update(float dt) {
         audio_sfx(RL_SFX_MENU_SELECT, 200);
         switch(game.pause_sel) {
             case P_CARRY_ON: game.paused = false; break;
-            case P_RECOVER: truck_recover(&trucks[0]); camera_reset(); game.paused = false; break;
+            case P_RECOVER:
+                if(!progress_recover()) truck_recover(&trucks[0]);
+                camera_reset();
+                game.paused = false;
+                break;
             case P_VIEW: {
                 const lvl_view_t *v = &lvl_views[game.view_sel];
                 char buf[48];
                 truck_recover_at(&trucks[0], v3(v->x, v->y, v->z));
                 records_jumped();
+                progress_jumped();
                 camera_reset();
                 fx_clear();
                 game.paused = false;
                 snprintf(buf, sizeof(buf), "BACK AT %s", v->name);
-                hud_message(buf, 0xff90f0b0, 2.0f);
+                hud_status(buf, 0xff90f0b0, 2.0f);
                 break;
             }
             case P_FPS: game.show_fps = !game.show_fps; break;

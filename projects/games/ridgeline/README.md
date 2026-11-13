@@ -12,7 +12,10 @@ slab of rock hung out over the drop at the top; Moses Lake, the sand
 dunes of the Columbia Basin, from a camp on the lake shore to the crest of
 the biggest dune there is; or Loch Lowland, a Highland pass, from the bothy
 on the loch's shore up a corrie to the mast above the cloud. No race and
-no clock: how high you've been, and the viewpoints you've found.
+no clock: how high you've been, the viewpoints you've found, a trail log
+to fill in for every way up, and in each area one extreme trail for when
+the rest has got easy. Two trucks come with the game; the other six are
+earned out there.
 
 - Eight vehicles, four liveries each: CASCADE 84, an early-80s pickup (2.4 L
   four, no traction control); KESTREL, a modern two-door 4x4 (twin-turbo V6,
@@ -33,6 +36,58 @@ no clock: how high you've been, and the viewpoints you've found.
   tyres, traction control; the quickest, heaviest and biggest thing here
   at 5.9 m by 2.2 m on a 3.69 m wheelbase, so narrow trails and hairpins
   are tighter for it)
+- The two old pickups, CASCADE 84 and FFR, are yours from the start. The
+  rest are earned: BOBCAT for reaching any summit, GOOSE for the top of
+  Moses Lake's king dune, ONE TEN for the mast above Loch Lowland, TACO
+  for finding 15 viewpoints, KESTREL for driving an extreme trail to its
+  end and EAGLE for driving all four. The truck select shows a locked
+  truck, what it wants and how far along that is. Kept on the VMU with
+  the times
+- The trail log: each of an area's ways up takes three stamps, for
+  reaching the top that way, doing it clean (no recover on the way) and
+  doing it after dark. Viewpoints stay found from one drive to the next.
+  The area select shows the stamps, the viewpoints and how much of the
+  log is filled in
+- An extreme trail in every area, signed at its gate with two black
+  diamonds: the hard way to the top. It is timed gate to gate on its own
+  clock, and a recover on it goes back to the last checkpoint you passed,
+  not to the nearest bit of trail.
+  The CPU's driver gets every vehicle up every one of them between the
+  gates with the player's physics and no help (`tools/hostsim`, below),
+  so none is impossible; the third CPU truck of a full company takes it,
+  for a line to follow
+- Cascade Ridge's is WIDOWMAKER (400 m): the old spur that carries on
+  where the logging road turns back at its far hairpin. Big timber to
+  thread, windfalls, a stair of bedrock ledges, the lip of a draw with
+  the ground leaning into it, the bog in the bottom and the bank out of
+  it, a rock garden, then 80 m of bare rock at 46% up the north face
+  through an old burn and into the cloud, across the summit trail and up
+  the last of the rock to the lookout
+- Mesa Grande's is THE HIGH WIRE (524 m), round the mesa's west end and
+  along its north rim: a weaving line between truck-sized blocks fallen
+  from the cliff, a slickrock whaleback, then the Dorsal, a fin 6 m wide
+  climbing 34 m at 48% on to the mesa; the Giant's Steps over its
+  terraces, a ledge on each level tread; the Catwalk, 44 m between the
+  great cliff and a 17 m crack; and round the bite in the rim to the
+  Diving Board
+- Moses Lake's is WITCH'S EYE (672 m), one straight line across the dune
+  field from the razorback to the king dune, and all of it momentum:
+  along a crest two metres from the brink, off a slip face, a charge up
+  the next dune through a belt of deep sand, a slide into the Eye (a
+  blowout only the speed of the slide gets a truck out of), a flat under
+  the powerline to line up on, Comp Hill (28 m of sand, 52% at its
+  steepest: about 10 m/s at its foot or back down for another run) and
+  the Blade, 129 m of the king's crest with the slip face beside it.
+  Whip flags mark the brinks, lit after dark
+- Loch Lowland's is THE BLACK RAKE (707 m), a stalker's path from the
+  corrie floor to the mast by the east crag: a lean across the brae, a
+  quarry bay to turn in, then the rake itself, a rock ledge 5.6 m wide
+  slanting 145 m up the crag at 37% with a turf lip and the corrie under
+  it (the Bad Step is a block to pass on the outside); over the shoulder
+  to the peat hags; the Causeway, a drowned bar across a lochan with a
+  dogleg in it, 0.3 m deep on the line the marker stones give and over
+  the old pickups' intakes four metres off it; wet slabs out of the
+  water, and boulders and ledges to thread on the moss
 - Cascade Ridge: three ways up from the fork, meeting at a lake before the
   summit trail: the logging road (long, gentle, gravel then muddy ruts and
   fallen logs), the creek bed (water crossings, mud, wet rock) and the
@@ -98,7 +153,8 @@ no clock: how high you've been, and the viewpoints you've found.
   (in 2WD and 4WD) until you hold D-pad left to switch it off
 - A spinning tyre flings a roostertail of whatever it's in (mud clods,
   dirt, stones, snow, spray), and the rear tyres leave tread tracks in soft
-  ground
+  ground, and on dry rock and slickrock a streak of rubber for as long as
+  they spin or slide
 - Things to find off the trail: on Cascade Ridge ten viewpoints, among them a boulder
   field, a stone arch across a deep ford the old pickup can't wade, an
   abandoned truck in the woods and a camp past the lake, where a fire
@@ -156,8 +212,9 @@ no clock: how high you've been, and the viewpoints you've found.
   headlights. It is heavier up at the pass, and inside the cloud on the
   tops there is always a drizzle
 - Best times to the summit per area, truck and way up (or your own way),
-  saved on the VMU and shown on the truck select. A viewpoint jump from
-  the pause menu means no time for that run
+  and each extreme trail's gate to gate, saved on the VMU and shown on
+  the truck select. A viewpoint jump from the pause menu means no time
+  and no stamps for that run
 - Deer in the meadows that graze, look up as you come near and bolt when
   you get close or sound the horn
 - Up to three CPU trucks for company, each taking its own route up, then
@@ -221,7 +278,7 @@ The same list is under CONTROLS on the main menu.
 | A | Handbrake |
 | B | Camera: chase, far chase, bumper |
 | X | Map: corner, large, off |
-| Y (hold) | Recover the truck to the nearest trail |
+| Y (hold) | Recover the truck to the nearest trail (on an extreme trail: to the last checkpoint passed) |
 | Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/off, quit |
 | Y (paused) | Photo mode: no HUD, the stick turns the camera round the truck, R/L zoom, D-pad left/right moves the clock, B back |
 | Start (online) | The menu, over a mountain that keeps going: recover, viewpoints, leave the lobby. The lobby keeps the clock |
@@ -238,8 +295,8 @@ make -C projects/games/ridgeline run
 | --- | --- |
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
-| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake, `=3` for Loch Lowland, and `-DRL_AT_RAIN=0.9f` for a shower the whole way (any test build takes them) |
-| `make vmutest` | The best-times save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, a slower time doesn't replace it, and each area keeps its own |
+| `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake, `=3` for Loch Lowland, and `-DRL_AT_RAIN=0.9f` for a shower the whole way (any test build takes them). `-DRL_AT_ROUTE=5` drives the extreme trail (the log's `Ridgeline progress` lines give its time and stamps), with `-DRL_AT_TRAIL=60` a recover 60 s into it |
+| `make vmutest` | The save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, a slower time doesn't replace it, each area keeps its own, and so do the viewpoints, the trail log's stamps (with the trucks they earn) and an extreme trail's time |
 | `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 3, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=5` joins a Mesa Grande lobby, `=8` a Moses Lake one, `=11` a Loch Lowland one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |
@@ -247,8 +304,12 @@ make -C projects/games/ridgeline run
 | `make hw` | Plays on the console |
 | `make disc` | A self-booting CDI |
 | `uv run tools/capture.py --out captures` | Capture build: title, select, a scenery tour, two views through the day and the drive as screenshots (`EXTRA_CFLAGS=-DRL_AT_TOD=TOD_NIGHT` starts the drive at another hour, `-DRL_AT_TOUR_ONLY` stops after the tour, `-DRL_AT_TOUR_ROUTE=2` makes the tour a drive up that route) |
+| `EXTRA_CFLAGS=-DRL_AT_LOCKS` on the capture build | The trucks locked as a player's are (test builds otherwise drive anything): the title's code, the truck select on a locked truck and the area card with stamps on it |
+| `make VARIANT=capture EXTRA_CFLAGS=-DRL_AT_FBDUMP=2` then `uv run tools/fbshots.py console.log out` | Screenshots when Flycast's window can't be photographed (the Mac's screen locked): each shot's frame goes out through the serial console and comes back as a PNG. Flycast needs `RL_FLYCAST_CONFIG=config:rend.EmulateFramebuffer=yes,config:rend.vsync=no`; about 18 s a picture at half size |
 | `make film` | Trailer footage: the scripted scenes in `src/film.c` (times of day, trucks, cameras, no HUD) recorded through OBS; `FILM_PICK=3,7` for some of them |
 | `make -C tools/hostsim && tools/hostsim/sim route <truck 0-7> <route 1-3>` | The truck physics and CPU driver natively on the Mac: a full route in about a second. `SIM_AREA=1` for Mesa Grande, `2` for Moses Lake, `3` for Loch Lowland |
+| `tools/hostsim/sim route <truck 0-7> 5` | The area's extreme trail, start to summit. Between its gates the CPU drives with the player's physics and nothing more, so `SUMMIT ..., helped 0 times` is the proof that truck can drive it. `sim xtrail <truck>` tries each named place from a standing start a little before it (for finding what is too hard while building one; `SIM_X_SPOT=<n>` traces one) |
+| `tools/hostsim/sim unlocks` | Plays the unlocks through with the CPU at the wheel, driving only trucks already earned: fails if a truck can't be earned |
 | `tools/hostsim/sim loop <minutes> <trucks 1-4>` | CPU trucks going up and down the mountain for hours of game time in about a minute: logs every arrival, stall, winch and recover, and counts how trucks meeting head on got past (`SIM_TRUCK=7` starts the line-up at the Eagle) |
 
 Assets (generated output is committed):
@@ -633,6 +694,38 @@ slower than the day before (13.70 to 14.13, all in the opaque list:
 terrain and trees), with no rain falling and none of its code running:
 the engine's hot loops had moved. Linked last it was 13.70 again.
 
+The extreme trails on the console (2026-11-12, `make hwbench
+EXTRA_CFLAGS="-DRL_AT_AREA=<n> -DRL_AT_ROUTE=5 -DRL_AT_SECONDS=<s>"`): the
+CPU up each from the start to the summit with three CPU trucks, and the
+logging road on the same build beside them.
+
+| | Widowmaker | The High Wire | Witch's Eye | The Black Rake | Logging road, 180 s |
+| --- | --- | --- | --- | --- | --- |
+| CPU, ms a frame | 13.19 | 12.92 | 11.86 | 14.05 | 12.92 |
+| Worst 10 s window on the trail | 14.69 | 14.87 | 13.21 | 15.05 | 14.64 |
+| Late frames | 149 of 17,043 | 157 of 24,242 | 90 of 16,446 | 235 of 23,324 | 122 of 11,048 |
+| ...of them in the menus | 92 | 83 | 6 | 164 | 92 |
+| PVR render | 13.4 | 10.1 | 10.2 | 11.9 | 12.8 |
+| Gate to gate | 2:07 | 3:05 | 1:57 | 4:12 | |
+| Flycast, CPU ms a frame | 8.61 | 8.75 | 8.21 | 9.54 | |
+
+About what each area's easy route costs, and 59-60 fps all the way up:
+past the menus a 10 s window has one to three late frames, which are the
+bench's own log lines. The Black Rake is the dearest, 14.4-15.0 ms along
+the rake itself with the corrie under it. The top of the King Dune had 42
+late frames in its last 10 s with the convoy parked on it. Cascade Ridge's
+scenery is at 249,224 of its 250,000 vertices with Widowmaker's timber in
+it, and 0.82 MB of the heap is free at boot (0.79 after an area switch).
+
+Each of those runs also had one frame of 38-133 ms at the trail's gate and
+one of 51-139 ms at its end: the lines the game logged there. Under
+dcload-ip a `printf` is a round trip to the Mac with interrupts off, so
+playing with `make hw` would have hitched at every gate, finish and
+summit. Widowmaker again with them silent: worst frame of the run 19.5 ms
+(in the menus), 16.8 at the gate and the summit. A game build no longer
+prints them (or the summit's time); test builds still do, so a bench that
+drives a trail shows those two frames.
+
 ## Gotchas
 
 - A console run under dcload that goes quiet and stays quiet is usually
@@ -861,8 +954,43 @@ the engine's hot loops had moved. Linked last it was 13.70 again.
 - The same tables' offsets are 16-bit and 59,100 of 65,535 indices are
   used: a ninth vehicle needs them widened (`build_trucks.py` asserts)
 
+- Building an extreme trail (`widowmaker` in `tools/build_level.py` is
+  the pattern, the `xt_` helpers in `levelkit.py` the kit): a tyre has
+  no purchase on a step from a standstill on a slope, so ledges and
+  windfalls go on level treads with ~6 m of run at them and stay under
+  ~0.28 m; a root 8 cm proud across a 45% bank stopped every truck. The
+  steep pitches are bare and ask only for grip: 46% of rock for 82 m is
+  what all eight vehicles climb with the CPU at the wheel, 53% beat the
+  old pickup
+- A slick band across a steep pitch (6 m of wet rock on 50%) is a wall:
+  no truck holds on it, and the CPU arrives too slowly to coast it. Keep
+  mud and wet rock to gentle ground, or give them a run and somewhere to
+  roll back to
+- The CPU used to floor it when held up, and a spinning tyre climbs
+  nothing. On an extreme trail it feeds a start in and eases off tyres
+  that spin at a crawl, but keeps its foot down with way on (`feather`
+  in `ai.c`); and it drops to a crawl at the gate for low range
+- Where a trail crosses another route it takes that route's heights
+  across its bed, and the other route's own ledges matter: Widowmaker's
+  first crossing of the summit trail landed on one of its ledges, and
+  nothing got past
+- A log laid across a trail takes the trail bed's height: set on the
+  ground under its two ends, where the banks are a metre up, it hung
+  across the trail as a bar and rolled trucks
+- Cascade Ridge's scenery is within a few thousand vertices of its pool
+  (250,000; the boot log says `FULL` and trees go missing). Widowmaker's
+  big timber and boulders had room for about forty trees more than the
+  ones it felled
+- Flycast stops drawing while the Mac's screen is locked: a test run
+  hangs at boot and window screenshots fail. With
+  `RL_FLYCAST_CONFIG=config:rend.vsync=no` it runs (slowly, with several
+  going), and `-DRL_AT_FBDUMP` gets pictures out through the serial log
+
 ## Known limitations
 
+- On the console the extreme trails, their stamps and the trucks they
+  earn have been driven by the CPU, not played by hand; the locked truck
+  select and the title code have only been run in Flycast
 - Mesa Grande has no console timings yet (Flycast only)
 - The cattle and sheep have no collision: a truck drives through one
   that hasn't got out of its way

@@ -11,31 +11,57 @@
 #include "../../../common/vmusave.h"
 #include "truck.h"
 #include "terrain.h"
+#include "unlocks.h"
 #include <kos/mutex.h>
 #include <kos/thread.h>
 #include <stddef.h>
 #include <string.h>
 
+/* A time's line in the log, for the tests. Not in a game build: these are
+   printed from the frame a summit is reached in, and a print there is a
+   stall (progress.c). */
+#ifdef RL_AUTOTEST
+#define LOG(...) printf(__VA_ARGS__)
+#else
+#define LOG(...) ((void)0)
+#endif
+
 #define FILENAME "RIDGELINE"
 #define NEAR_M 9.0f
 
 #define REC_TRUCKS 8   /* rows the file has room for */
+#define REC_WAYS 4     /* the ways up a row holds: three routes and your own (the extreme trail's times are apart) */
 _Static_assert(TRUCK_MODELS <= REC_TRUCKS, "the save has no row for this truck");
+_Static_assert(AREA_COUNT <= REC_AREAS, "the save has no row for this area");
+
+/* What the player has done (records.h), after the times. */
+typedef struct {
+    char tag[4];                                   /* "PRG1" */
+    uint16_t views[REC_AREAS];
+    uint16_t stamps[REC_AREAS];
+    uint32_t extreme_best[REC_AREAS][REC_TRUCKS];  /* the extreme trail gate to gate, tenths of a second */
+    uint8_t cheat, told;
+    uint8_t pad[2];
+} progress_t;
 
 typedef struct {
     char magic[8];
     int32_t version;
     /* Cascade Ridge's times. */
-    uint32_t best[2][WAY_COUNT];   /* tenths of a second, 0 for none: Cascade 84, Kestrel */
+    uint32_t best[2][REC_WAYS];    /* tenths of a second, 0 for none: Cascade 84, Kestrel */
     char name[12];                 /* the online name (version 2; version 1 saves end before it) */
     /* The trucks after the first two (Bobcat, FFR, Taco, Goose, One Ten, Eagle...), a row each in
        model order. Appended to version 2 so older builds still read the
        rest; a save from a build with fewer trucks is shorter. */
-    uint32_t best_more[REC_TRUCKS - 2][WAY_COUNT];
+    uint32_t best_more[REC_TRUCKS - 2][REC_WAYS];
     /* The areas after Cascade Ridge in order, a row a truck. Still
        version 2: an older build reads what it knows and writes a shorter
-       save, which forgets the rest. */
-    uint32_t area_best[AREA_COUNT - 1][REC_TRUCKS][WAY_COUNT];
+       save, which forgets the rest. There is room here for every area
+       the save will ever hold, so that what follows stays where it is
+       when an area is added. */
+    uint32_t area_best[REC_AREAS - 1][REC_TRUCKS][REC_WAYS];
+    /* Progress: a save from before it ends above, and reads as none. */
+    progress_t prog;
 } record_t;
 #define RECORD_V1_BYTES (int)offsetof(record_t, name)
 #define RECORD_V2_BYTES (int)offsetof(record_t, best_more)
@@ -45,6 +71,7 @@ typedef struct {
 #if !defined(RL_AUTOTEST) || defined(RL_AT_VMUTEST)
 #define RL_USE_VMU 1
 static const char magic[8] = {'R', 'I', 'D', 'G', 'E', 'S', 'V', '1'};
+static const char prog_tag[4] = {'P', 'R', 'G', '1'};
 static int card_port = -1, card_unit = -1;   /* the worker's, once it runs */
 
 /* The record waiting for the card, and whether a worker is on it. */
@@ -78,9 +105,22 @@ void records_load(void) {
     /* And the areas: a save from before the latest of them is that
        much shorter. */
     int areas = n < (int)offsetof(record_t, area_best) ? 0 : (n - (int)offsetof(record_t, area_best)) / (int)sizeof(r.area_best[0]);
-    for(int i = areas < 0 ? 0 : areas; i < AREA_COUNT - 1; i++) memset(r.area_best[i], 0, sizeof(r.area_best[i]));
+    for(int i = areas < 0 ? 0 : areas; i < REC_AREAS - 1; i++) memset(r.area_best[i], 0, sizeof(r.area_best[i]));
+    if(n < (int)sizeof(r) || memcmp(r.prog.tag, prog_tag, sizeof(prog_tag))) memset(&r.prog, 0, sizeof(r.prog));
     r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
+    /* A best time is a summit reached: a save from before there was a
+       trail log gets the stamps its times prove (the top by each way that
+       has one, and the summit), and with them the trucks those earn.
+       Nothing is written until something else saves. */
+    for(int a = 0; a < AREA_COUNT; a++)
+        for(int t = 0; t < REC_TRUCKS; t++)
+            for(int w = 0; w < REC_WAYS; w++) {
+                uint32_t b = a == AREA_CASCADE ? (t < 2 ? rec.best[t][w] : rec.best_more[t - 2][w]) : rec.area_best[a - 1][t][w];
+                if(!b) continue;
+                rec.prog.stamps[a] |= STAMP_SUMMIT;
+                if(w < WAY_OWN) rec.prog.stamps[a] |= STAMP_BIT(w, STAMP_TOP);
+            }
     printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);
 #endif
 }
@@ -132,7 +172,7 @@ static void write_card(const record_t *r) {
     }
     static uint8_t pixels[512];
     vmu_pkg_t pkg;
-    vmusave_header(&pkg, "RIDGELINE", "Ridgeline", "Ridgeline best times");
+    vmusave_header(&pkg, "RIDGELINE", "Ridgeline", "Ridgeline times and progress");
     /* Palette (ARGB4444): blank, snow, rock, forest, amber. */
     static const uint16_t palette[] = {0x0000, 0xffff, 0xf888, 0xf363, 0xfea3};
     vmusave_icon(&pkg, pixels, icon_art, ".SRGY", palette);
@@ -165,6 +205,7 @@ static void save(void) {
     mutex_lock(&lock);
     pending = rec;
     memcpy(pending.magic, magic, sizeof(magic));
+    memcpy(pending.prog.tag, prog_tag, sizeof(prog_tag));
     pending.version = 2;
     have_pending = true;
     if(!worker_on) worker_on = thd_create(true, worker, NULL) != NULL;
@@ -233,15 +274,19 @@ void records_update(float dt) {
             near = r;
         }
     }
-    if(near < 0) tally[WAY_OWN] += moved;
+    /* (The extreme trail's own stretch counts as your own way: its time
+       is taken between its gates, trail.c.) */
+    if(near < 0 || near == LVL_ROUTE_EXTREME) tally[WAY_OWN] += moved;
     else if(near >= 1 && near <= 3) tally[near - 1] += moved;
 }
 
 const char *records_way_name(int way) {
+    if(way == WAY_EXTREME) return LVL_HAS_EXTREME ? lvl_extreme->name : "";
     return way < WAY_OWN ? lvl_routes[1 + way].name : "YOUR OWN WAY";
 }
 
 const char *records_way_short(int way) {
+    if(way == WAY_EXTREME) return LVL_HAS_EXTREME ? lvl_extreme->short_name : "";
     return way < WAY_OWN ? lvl_routes[1 + way].short_name : "OWN WAY";
 }
 
@@ -263,6 +308,7 @@ void records_set_name(const char *name) {
 
 static uint32_t *best_slot(int truck, int way) {
     truck %= TRUCK_MODELS;
+    if(way == WAY_EXTREME) return &rec.prog.extreme_best[game.area][truck];
     if(game.area != AREA_CASCADE) return &rec.area_best[game.area - 1][truck][way];
     return truck < 2 ? &rec.best[truck][way] : &rec.best_more[truck - 2][way];
 }
@@ -271,10 +317,11 @@ uint32_t records_best(int truck, int way) {
     return *best_slot(truck, way);
 }
 
-bool records_summit(char *msg, int size) {
+bool records_summit(char *msg, int size, int *way_out) {
     char t[16];
     uint32_t tenths = (uint32_t)(game.clock * 10.0f + 0.5f);
     records_format(tenths, t, sizeof(t));
+    if(way_out) *way_out = -1;
     if(jumped) {
         snprintf(msg, size, "%s   NO RECORD AFTER A VIEWPOINT JUMP", t);
         return false;
@@ -283,6 +330,7 @@ bool records_summit(char *msg, int size) {
     for(int w = 1; w < 3; w++)
         if(tally[w] > tally[way]) way = w;
     if(tally[way] < tally[WAY_OWN]) way = WAY_OWN;
+    if(way_out) *way_out = way;
     uint32_t *b = best_slot(game.truck_model, way);
     bool better = *b == 0 || tenths < *b;
     /* "BY THE LOGGING ROAD", "BY THE FINS", "BY YOUR OWN WAY". */
@@ -298,7 +346,70 @@ bool records_summit(char *msg, int size) {
         records_format(*b, bt, sizeof(bt));
         snprintf(msg, size, "%s %s %s   BEST %s", t, by, wn, bt);
     }
-    printf("Ridgeline records: summit %s by way %d (tally %.0f %.0f %.0f own %.0f m)%s\n", t, way, (double)tally[0],
+    LOG("Ridgeline records: summit %s by way %d (tally %.0f %.0f %.0f own %.0f m)%s\n", t, way, (double)tally[0],
            (double)tally[1], (double)tally[2], (double)tally[3], better ? ", a new best" : "");
     return better;
+}
+
+bool records_extreme(uint32_t tenths, char *msg, int size) {
+    char t[16];
+    records_format(tenths, t, sizeof(t));
+    uint32_t *b = best_slot(game.truck_model, WAY_EXTREME);
+    bool better = *b == 0 || tenths < *b;
+    if(better) {
+        *b = tenths;
+        snprintf(msg, size, "%s   NEW BEST!", t);
+        save();
+    }
+    else {
+        char bt[16];
+        records_format(*b, bt, sizeof(bt));
+        snprintf(msg, size, "%s   BEST %s", t, bt);
+    }
+    LOG("Ridgeline records: %s in %s%s\n", records_way_name(WAY_EXTREME), t, better ? ", a new best" : "");
+    return better;
+}
+
+/* ---- Progress ---- */
+
+uint16_t records_views(int area) {
+    return rec.prog.views[area];
+}
+
+uint16_t records_stamps(int area) {
+    return rec.prog.stamps[area];
+}
+
+bool records_add_views(int area, uint16_t bits) {
+    if(!(bits & ~rec.prog.views[area])) return false;
+    rec.prog.views[area] |= bits;
+    save();
+    return true;
+}
+
+bool records_add_stamps(int area, uint16_t bits) {
+    if(!(bits & ~rec.prog.stamps[area])) return false;
+    rec.prog.stamps[area] |= bits;
+    save();
+    return true;
+}
+
+bool records_cheat(void) {
+    return rec.prog.cheat != 0;
+}
+
+void records_set_cheat(bool on) {
+    if((rec.prog.cheat != 0) == on) return;
+    rec.prog.cheat = on;
+    save();
+}
+
+uint8_t records_told(void) {
+    return rec.prog.told;
+}
+
+void records_set_told(uint8_t models) {
+    if(rec.prog.told == models) return;
+    rec.prog.told = models;
+    save();
 }

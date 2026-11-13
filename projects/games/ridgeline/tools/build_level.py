@@ -553,6 +553,286 @@ def set_pieces(h, water, surf, routes, trees, spheres, capsules, boxes, prop_box
 
 
 # ---------------------------------------------------------------------------
+# The extreme trail
+
+def widowmaker(h, water, surf, routes, trees, spheres, capsules, boxes, prop_boxes, rng):
+    """WIDOWMAKER: the old spur that carries on where the logging road
+    turns back at its far hairpin. Across the meadow into a tongue of big
+    timber the loggers never reached (trunks to thread between, windfalls
+    to climb over), up a stair of bedrock ledges, along the lip of a draw
+    with the ground leaning away into it, through the bog in the bottom
+    and up the bank beyond, through a rock garden, and then on a long
+    slant straight up the bare rock of the mountain's north face through
+    an old burn, across the summit trail and up the last of the rock to
+    the lookout.
+
+    Steps (ledges, windfalls) come on level ground with a run at them: a
+    tyre climbs one on momentum, not from a standstill on a slope. The
+    steep pitches are bare, and ask for grip.
+
+    Returns the route for the header (levelkit.xt_full), props as (x, z,
+    yaw, kind, y or None, var) and a mist."""
+    log, summit = routes[1], routes[4]
+    k_in = xt_k(log, 292.0, 152.0)
+    pa, ya = log["pts"][k_in], float(log["y"][k_in])
+    ctrl = [
+        (pa[0], pa[1], None),
+        # The old spur: over the meadow, into the timber.
+        (283, 166, None), (268, 181, None), (250, 195, None), (232, 208, None), (214, 217, None), (198, 222, None),
+        # The draw and its bog.
+        (186, 225, None), (176, 226, None), (166, 225, None),
+        # The bank.
+        (154, 222, None), (140, 222, None), (126, 224, None),
+        # The garden, the line weaving through it as it climbs.
+        (116, 224, None), (107, 228, None), (98, 225, None), (89, 229, None), (79, 227, None), (70, 230, None),
+        (61, 228, None),
+        # The landing at the foot of the hill, and the hill: a slant up
+        # the north face.
+        (54, 227, None), (48, 225, None), (39, 222, None), (25, 216, None), (11, 206, None), (1, 194, None),
+        (-5, 182, None), (-6, 171, None), (-5.5, 160, None),
+        # Over the summit trail (between a ledge of its own and a boulder)
+        # and up the crown to the lookout.
+        (-2, 154, None), (6, 149.5, None), (16, 145, None), (PEAK[0] - 5.0, PEAK[1] + 1.5, None),
+    ]
+    r = xt_route(h, ctrl, "WIDOWMAKER", "WIDOW", 2.5)
+    pts = r["pts"]
+    n = len(pts)
+
+    def at(x, z):
+        return xt_k(r, x, z)
+
+    def gnd(k):
+        return float(np.mean(sample(h, pts[max(0, k - 2):k + 3])))
+    k_tim = at(262, 186)                                   # where the timber begins
+    k_bog0, k_bog, k_bog1 = at(187, 225), at(177, 226), at(167, 225)
+    k_lad0, k_lad1 = at(160, 224), at(128, 224)
+    k_gar0, k_gar1 = at(122, 224), at(60, 228)
+    k_land = at(51, 226)
+    k_hill0 = at(43, 222)
+    # Where it crosses the summit trail, at the trail's own height.
+    k_cross = int(np.argmin(cKDTree(summit["pts"]).query(pts[at(-6, 172):])[0])) + at(-6, 172)
+    k_sum = int(cKDTree(summit["pts"]).query(pts[k_cross])[1])
+    y_cross = float(summit["y"][k_sum])
+    # Across the summit trail's bed it is the summit trail's ground, which
+    # climbs along its own line: this trail takes those heights from one
+    # edge of it to the other, so neither leaves a step in the other.
+    BED = 6
+    bed_y = [(k, float(summit["y"][int(cKDTree(summit["pts"]).query(pts[k])[1])])) for k in range(k_cross - BED, k_cross + BED + 1, 2)]
+    # Heights: the ground's own over the meadow; in the timber the stairs,
+    # three flights of a level tread, a ledge across it and a pitch; the
+    # bog level in the bottom of its draw; the bank and the hill each one
+    # pitch.
+    y_bog = gnd(k_bog) - 1.2
+    y_land = gnd(k_land) + 1.0
+    y_top = float(sample(h, PEAK)[0])
+    # The hill: one pitch of bare rock from the landing to the summit
+    # trail. (A seep across it, wet rock too slick to hold a truck on that
+    # grade, stopped every CPU driver that met it at less than a run.)
+    hill_grade = (bed_y[0][1] - (y_land + 1.0)) / (k_cross - BED - k_hill0)
+    marks = [(0, ya)] + [(k, gnd(k)) for k in range(14, k_tim - 6, 14)]
+    TREAD, BLOCK, PITCH = 6, 3, 5
+    k_st0 = k_tim + 2
+    k_st1 = k_st0 + 3 * (TREAD + BLOCK + PITCH)
+    k_side0, k_side1 = k_st1 + 3, k_bog0 - 9
+    assert k_side1 - k_side0 > 12, "no room for the lean between the stairs and the draw"
+    y0, y1 = gnd(k_st0), gnd(k_st1)
+    steps = [0.2, 0.24, 0.28]
+    rise = (y1 - y0 - sum(steps)) / 3.0                    # what each pitch climbs
+    ledges = []
+    yy, k = y0, k_st0
+    for sp in steps:
+        marks += [(k, yy), (k + TREAD, yy), (k + TREAD + 1, yy + sp), (k + TREAD + BLOCK, yy + sp)]
+        ledges.append((k + TREAD, yy + sp))
+        yy += sp + rise
+        k += TREAD + BLOCK + PITCH
+    marks += [(k_st1, y1), (k_side1, y_bog + 1.6), (k_bog0, y_bog), (k_bog1, y_bog + 0.1), (k_lad0, y_bog + 1.0),
+              (k_lad1, 63.0), (k_gar0, 63.8), (k_gar1, y_land - 1.6), (k_land - 3, y_land - 0.2), (k_land + 3, y_land),
+              (k_hill0, y_land + 1.0)] + bed_y + [(n - 5, y_top - 0.3), (n - 1, y_top)]
+    xt_ramp(r, marks, 1.0)
+    y = r["y"]
+    # Wider where a truck lines up for the hill; the rest is a truck and a half.
+    r["halfs"] = r["halfs"] + 1.6 * np.exp(-((np.arange(n) - k_land) / 7.0) ** 2)
+    carve_route(h, pts[6:n - 5], y[6:n - 5], r["halfs"][6:n - 5])
+    # The roads it leaves and crosses keep their own ground.
+    xt_settle(h, log, max(0, k_in - 40), k_in + 40)
+    xt_settle(h, summit, max(0, k_sum - 30), min(len(summit["pts"]), k_sum + 30))
+    xt_settle(h, summit, len(summit["pts"]) - 30, len(summit["pts"]))
+
+    flat = np.stack([X.ravel(), Z.ravel()], axis=1)
+    others = np.vstack([q["pts"] for q in routes])
+    off_roads = smoothstep(7.0, 13.0, cKDTree(others).query(flat)[0].reshape(N, N))
+
+    # The draw: a gully that follows the fall line down across the trail,
+    # as water would, a trickle in it, and where the trail crosses, ruts
+    # full of water in black mud.
+    hs = gaussian_filter(h, 2.5)
+    gz, gx = np.gradient(hs, D)
+
+    def run(p, sign, length):
+        out = [np.array(p, dtype=float)]
+        for _ in range(int(length / 2.0)):
+            g = np.array([float(sample(gx, out[-1])[0]), float(sample(gz, out[-1])[0])])
+            out.append(out[-1] + sign * g / (np.linalg.norm(g) + 1e-6) * 2.0)
+        return out
+    cb = pts[k_bog]
+    gully = np.array(run(cb, 1.0, 44.0)[::-1] + run(cb, -1.0, 70.0)[1:])
+    gd, gs, gp = line_dist(smooth_path(gully, 2))
+    taper = smoothstep(0.0, 16.0, gs) * smoothstep(float(gs.max()), float(gs.max()) - 26.0, gs)
+    W = 11.0
+    prof = np.where(gd < W, np.cos(np.pi * gd / (2 * W)) ** 2, 0.0) * taper * off_roads
+    td = cKDTree(pts).query(flat)[0].reshape(N, N)
+    away = smoothstep(r["half"] + 0.5, r["half"] + 6.0, td)             # the trail's own bed is already down there
+    h -= 2.1 * prof * away
+    bed = (gd < 1.5) & (td > r["half"] + 2.0) & (prof > 0.45)
+    water[bed] = np.maximum(water[bed], h[bed] + 0.16)
+    surf[(gd < 3.2) & (prof > 0.3)] = S["WETROCK"]
+    jj, ii, idx, d, lat = xt_band(r, r["half"] + 2.2, k_bog0 + 1, k_bog1 - 1)
+    rut = smoothstep(r["half"] + 2.2, r["half"] - 0.6, d)
+    h[jj, ii] -= 0.34 * rut
+    surf[jj[rut > 0.15], ii[rut > 0.15]] = S["MUD"]
+    pool = rut > 0.75
+    water[jj[pool], ii[pool]] = np.maximum(water[jj[pool], ii[pool]], h[jj[pool], ii[pool]] + 0.2)
+
+    # Surfaces along it: two ruts in the meadow's grass, forest duff worn
+    # to dirt, rock where it is steep.
+    xt_surface(surf, r, 6, k_bog0 + 1, S["DIRT"], extra=0.0)
+    xt_surface(surf, r, k_st0 + 2, k_st1, S["ROCK"], extra=0.4)
+    xt_surface(surf, r, k_bog1 - 1, k_hill0, S["DIRT"])
+    xt_surface(surf, r, k_bog1 - 1, k_lad0 + 3, S["MUD"], extra=0.2)      # dragged out of the bog and up the bank's foot
+    xt_surface(surf, r, k_hill0, n - 5, S["ROCK"], extra=1.6)
+
+    # The lean: along the draw's lip the bed tilts into it, downhill to
+    # the right of the way up.
+    xt_camber(h, r, k_side0, k_side1, 0.2, ease=5.0)
+
+    def across(k, L, rr, lift, skew=0.0):
+        """A log or a root across the trail at point k."""
+        p_, tg_, nm_ = frame(r, k)
+        ang = math.atan2(nm_[0], nm_[1]) + skew
+        e = np.array([math.sin(ang), math.cos(ang)]) * L / 2
+        a, b = p_ - e, p_ + e
+        # Lying on the trail's bed from bank to bank (the ground under
+        # its ends may be a cut bank a metre higher).
+        capsules.append((a[0], float(y[k]) + lift, a[1], b[0], float(y[k]) + lift, b[1], rr))
+    # Windfalls on the spur, where there is a run at them.
+    for k, rr in ((k_tim - 30, 0.18), (k_tim - 10, 0.22)):
+        across(k, 8.0 + rng.uniform(0, 2), rr, rr * 0.1, rng.uniform(-0.3, 0.3))
+    # Roots across the spur's level stretches: a judder, no more. (On a
+    # pitch a root is a wall to a tyre that has no run at it.)
+    for k in list(range(k_tim - 52, k_tim - 34, 5)) + list(range(k_tim - 24, k_tim - 13, 5)):
+        rr = rng.uniform(0.04, 0.055)
+        across(k, r["half"] * 2 + rng.uniform(0.5, 2.0), rr, rr * 0.2, rng.uniform(-0.4, 0.4))
+
+    # The garden: boulders either side of a line that weaves, more of
+    # them out in the trees.
+    on_trail = []
+    for k in range(k_gar0 + 2, k_gar1, 5):
+        p_, tg_, nm_ = frame(r, k)
+        for side in (-1, 1):
+            rr = rng.uniform(0.7, 1.25)
+            q = p_ + nm_ * side * (1.95 + rr + rng.uniform(0.0, 0.35)) + tg_ * rng.uniform(-1.2, 1.2)
+            on_trail.append((q[0], float(sample(h, q)[0]) - rr * 0.35, q[1], rr))
+        if k % 2:
+            rr = rng.uniform(0.5, 1.5)
+            q = p_ + nm_ * rng.choice([-1, 1]) * rng.uniform(5.0, 11.0) + tg_ * rng.uniform(-2.5, 2.5)
+            on_trail.append((q[0], float(sample(h, q)[0]) - rr * 0.4, q[1], rr))
+    # The stairs: a ledge of bedrock across each tread, taller each time,
+    # its top the foot of the pitch beyond.
+    for (k, y_led) in ledges:
+        p_, tg_, nm_ = frame(r, k)
+        yaw = math.atan2(tg_[0], tg_[1]) + rng.uniform(-0.12, 0.12)
+        c = p_ + tg_ * (BLOCK * 0.5 + 0.2)
+        boxes.append((c[0], y_led - 1.0, c[1], r["half"] + 1.6, 1.0, BLOCK * 0.5, yaw))
+    # The lean: rocks on the bank above that keep a truck out on it.
+    for k in range(k_side0 + 3, k_side1 - 2, 6):
+        p_, tg_, nm_ = frame(r, k)
+        rr = rng.uniform(0.6, 1.0)
+        q = p_ - nm_ * (r["half"] + rr * 0.55)
+        on_trail.append((q[0], float(sample(h, q)[0]) - rr * 0.3, q[1], rr))
+    # The hill and the crown: boulders along their edges.
+    for k in range(k_hill0 + 2, n - 12, 9):
+        if abs(k - k_cross) < 9:
+            continue
+        p_, tg_, nm_ = frame(r, k)
+        rr = rng.uniform(0.45, 1.0)
+        q = p_ + nm_ * rng.choice([-1, 1]) * (r["half"] + 0.9 + rr + rng.uniform(0, 1.6))
+        on_trail.append((q[0], float(sample(h, q)[0]) - rr * 0.4, q[1], rr))
+    rtree = cKDTree(others)
+    spheres += [q for q in on_trail if rtree.query((q[0], q[2]))[0] > 5.0 + q[3]]
+
+    # Timber. Nothing grows in the trail. From where the spur leaves the
+    # meadow the big trees stand close on both sides of it, and three
+    # pairs of them leave a gap to thread. The north face burned: snags
+    # there, and little else.
+    tr = cKDTree(pts)
+    keep = []
+    for t in trees:
+        d_, i_ = tr.query((t[0], t[2]))
+        if d_ > (4.4 if i_ < k_gar1 else 13.0):
+            keep.append(t)
+    trees[:] = keep
+    burn = np.array([14.0, 200.0])
+    trees[:] = [t for t in trees if np.hypot((t[0] - burn[0]) / 40.0, (t[2] - burn[1]) / 48.0) > 1.0 or rng.random() < 0.15]
+
+    def tree_at(q, kind, scale):
+        if rtree.query(q)[0] < 7.0 or water[tuple(np.round(to_grid(q)[::-1]).astype(int))] > -999:
+            return
+        trees.append((q[0], float(sample(h, q)[0]), q[1], kind, scale, rng.uniform(0, 2 * math.pi)))
+    squeeze = [k_tim - 20, k_side0 + 2, at(142, 222)]
+    # (The scenery has room for about a hundred more trees than the
+    # mountain had, the boot log's "FULL" when it runs out: the big ones
+    # go where the trail is, and few behind them.)
+    for k in range(k_tim - 44, k_gar1, 7):
+        if k_bog0 - 2 < k < k_bog1 + 2 or any(abs(k - q) < 5 for q in squeeze):
+            continue
+        p_, tg_, nm_ = frame(r, k)
+        side = 1 if (k // 7) % 2 else -1
+        near = 3.9 if k < k_gar0 else 6.0                  # the garden's boulders have the trail's edge
+        tree_at(p_ + nm_ * side * rng.uniform(near, near + 1.3) + tg_ * rng.uniform(-2, 2), 4, rng.uniform(1.25, 1.6))
+        if rng.random() < 0.4:
+            tree_at(p_ - nm_ * side * rng.uniform(near + 1.6, near + 5.0) + tg_ * rng.uniform(-3, 3), 4,
+                    rng.uniform(1.1, 1.5))
+    for k in squeeze:
+        p_, tg_, nm_ = frame(r, k)
+        for side in (-1, 1):
+            tree_at(p_ + nm_ * side * 2.12, 4, 1.4)
+    for _ in range(30):
+        q = burn + rng.normal(0, 1.0, 2) * np.array([20.0, 24.0])
+        if tr.query(q)[0] > r["half"] + 2.6:
+            tree_at(q, 3, rng.uniform(0.8, 1.5))
+
+    # What the CPU's driver knows about it: a run at each windfall and
+    # ledge, steady across the lean, and way on up the hill.
+    pace = r["pace"]
+    pace[:] = 4.0
+    pace[k_st0:k_st1] = 3.4
+    pace[k_side0 - 2:k_side1 + 1] = 2.4
+    pace[k_side1 + 1:k_lad1 + 4] = 3.6
+    pace[k_gar0:k_gar1] = 2.8
+    pace[k_land - 5:k_land + 4] = 2.6
+    pace[k_hill0:k_cross - 8] = 4.4
+    pace[k_cross - 6:k_cross + 5] = 3.4
+    pace[k_cross + 5:] = 3.8
+    pace[n - 10:] = 2.4
+    r["spots"] = [(5, "WIDOWMAKER", 1), (k_st0, "THE STAIRS", 0), (k_side0, "THE LEAN", 0), (k_bog0 - 3, "THE BOG", 1),
+                  (k_lad0, "THE BANK", 0), (k_gar0 + 2, "THE GARDEN", 1), (k_land, "LAST CHANCE", 1),
+                  (k_hill0 + 3, "THE WIDOW", 0), (k_cross + 3, "THE CROWN", 0)]
+
+    yaw0 = math.atan2(pts[8][0] - pts[0][0], pts[8][1] - pts[0][1])
+    p_, tg_, nm_ = frame(r, 11)
+    props = [tuple(p_ + nm_ * 3.6) + (yaw0, PROP["PLATE"], None, 3)]
+    props.append(tuple(p_ - nm_ * 3.8) + (yaw0, PROP["SIGN"], None, 0))
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    grade = np.diff(y) / np.maximum(seg, 1e-3)
+    print(f"  WIDOWMAKER {seg.sum():.0f} m from the logging road's far hairpin ({pa[0]:.0f},{pa[1]:.0f}) to the summit, "
+          f"climbs {y[-1] - y.min():.1f} m, steepest {grade.max() * 100:.0f}%, the hill "
+          f"{hill_grade * 100:.0f}% for {k_cross - BED - k_hill0} m, "
+          f"landing {y_land:.1f}, bog {y_bog:.1f}, crosses the summit trail at ({pts[k_cross][0]:.0f},{pts[k_cross][1]:.0f})")
+    full = xt_full(r, before=[(log, 0, k_in)])
+    return full, props, (pts[k_bog][0], pts[k_bog][1], 34)
+
+
+# ---------------------------------------------------------------------------
 # Surfaces and colours
 
 def surfaces(h, water, routes, mud_mask):
@@ -683,6 +963,11 @@ def build(out, preview=None, raw=None):
     prop_boxes = []
     extra_props, extra_views, tracks = set_pieces(h, water, surf, routes, trees, spheres, capsules, boxes, prop_boxes,
                                                   np.random.default_rng(77))
+    diffs = {"FOREST ROAD": 0, "LOGGING ROAD": 1, "CREEK BED": 2, "RIDGE LINE": 3, "SUMMIT TRAIL": 3}
+    for r in routes:
+        r["difficulty"] = diffs[r["name"]]
+    extreme, x_props, x_mist = widowmaker(h, water, surf, routes, trees, spheres, capsules, boxes, prop_boxes,
+                                          np.random.default_rng(1984))
     rock_boxes = len(boxes)
     boxes += prop_boxes
     water[water < h + 0.05] = -1000.0
@@ -703,6 +988,8 @@ def build(out, preview=None, raw=None):
     props.append((PEAK[0], summit_y, PEAK[1], 0.2, 4))
     for (px_, pz_, yaw_, kind_, y_) in extra_props:
         props.append((px_, gy(px_, pz_) if y_ is None else y_, pz_, yaw_, kind_))
+    for (px_, pz_, yaw_, kind_, y_, var_) in x_props:
+        props.append((px_, gy(px_, pz_) if y_ is None else y_, pz_, yaw_, kind_, var_))
     # The tower's legs: posts splayed from the deck's corners (1.8 m out)
     # to feet 2.7 m out, so a truck fits between them and can turn under
     # the deck. The trucks test posts against their whole hull (a box this
@@ -745,11 +1032,11 @@ def build(out, preview=None, raw=None):
     (out / "level_cascade.lvl").write_bytes(blob)
     if raw:
         raw.write_bytes(raw_level(h, argb, water, surf, light, hz))
-    diffs = {"FOREST ROAD": 0, "LOGGING ROAD": 1, "CREEK BED": 2, "RIDGE LINE": 3, "SUMMIT TRAIL": 3}
     short = {"FOREST ROAD": "FOREST", "LOGGING ROAD": "LOGGING", "CREEK BED": "CREEK", "RIDGE LINE": "RIDGE",
              "SUMMIT TRAIL": "SUMMIT"}
     for r in routes:
-        r["difficulty"], r["short"] = diffs[r["name"]], short[r["name"]]
+        r["short"] = short[r["name"]]
+    routes = routes + [extreme]
     write_header(out / "level_cascade.h", "cascade", {
         "name": "CASCADE RIDGE", "blurb": "A NORTHWEST MOUNTAIN IN AUTUMN", "base_ft": 2380,
         "lake_y": lake_level, "start_y": gy(SPAWN[0], SPAWN[1]), "summit": (PEAK[0], summit_y, PEAK[1]),
@@ -758,7 +1045,7 @@ def build(out, preview=None, raw=None):
         # Where mist lies at dawn: the meadow and the pond, the east meadow,
         # the boulder field, up the creek's valley and on the lake.
         "mists": [(-40, -255, 55), (20, -228, 55), (140, -210, 50), (-130, -250, 45), (-70, -180, 40), (-105, -100, 40),
-                  (-115, -20, 40), (-42, 66, 38)],
+                  (-115, -20, 40), (-42, 66, 38), x_mist],
         # Hawks over the meadow, Eagle Bluff and above Cedar Falls.
         "hawks": [(10, -235, 34, 42, 0.0, 1), (118, 36, 28, 38, 2.0, -1), (-80, 84, 40, 46, 4.0, 1)],
         "herds": [(150, -196), (-150, -172)],

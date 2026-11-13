@@ -1238,6 +1238,477 @@ def set_pieces(h, water, f, routes, trees, rng):
 
 
 # ---------------------------------------------------------------------------
+# The extreme trail: THE BLACK RAKE
+#
+# A stalker's path at its worst, up the whole of the corrie's east wall,
+# which no road dares more than the foot of. It leaves the Devil's
+# Staircase on the corrie's floor above the rock bar and takes the grass
+# of the wall on a long rising slant (THE BRAE), the ground leaning out
+# from under it, to the drove road's shelf at the old road-menders' quarry.
+# From the back of the quarry the rake itself goes south: a ledge across
+# the great crag, sandstone standing over it and nothing under it but the
+# corrie, the loch ahead all the way (THE BAD STEP where the wall is
+# sheerest, a bay to breathe in at EAGLE'S LEDGE). It comes out on the
+# hill's shoulder at CARN DUBH, turns north along the plateau's rim and
+# crosses the moss to the top: through the peat hags, over a lochan by a
+# causeway that lies just under the water (the rest of it is over any
+# truck's intake), up wet slabs that lean, through the frost-broken
+# stones and over two ledges of the top bed, and down on to the mast
+# track for the last of the climb.
+#
+# The rake's line is found, not drawn: at each step south it is put
+# where the wall already stands at the height it has climbed to, so the
+# ledge is cut into the face it crosses and not through it.
+#
+# It is laid over the finished hill (build): everything else on the hill
+# is where it was before there was a trail, to the centimetre, and the
+# three ways up drive as they did. What it took to get there: the routes
+# it touches get their own ground back from a copy, not from their
+# heights (the burn's ford is cut into the staircase after it is laid);
+# only its banks on the wall are smoothed; and it comes on to the mast
+# track well short of the top, so a CPU driver that arrives by it is
+# standing on the track it goes home by.
+
+RAKE_HALF = 2.8
+RAKE_GRADE = 0.345
+LOCHAN_RAKE = (217.0, 122.0, 19.0, 1.7)         # the lochan the causeway crosses: x, z, radius, depth
+CAUSEWAY_RAKE = [(213.0, 98.0), (211.0, 112.0), (214.0, 122.0), (223.0, 131.0), (224.0, 146.0)]
+CAUSEWAY_DEEP = 0.3                             # how far under the water it lies
+POOLS_RAKE = [(229.0, 33.0, 7.5, 0.8), (195.0, 61.0, 6.5, 0.7)]
+QUARRY = (140.0, 81.0, 11.5, 9.5)               # the bay at the road's bend: x, z, half its width and its depth
+QUARRY_FACE, QUARRY_FOOT, QUARRY_SPOIL = 2.4, 0.8, 2.0   # its back's pitch, the pitch of the spoil at its foot, how far out that reaches
+HAGS = [(214.0, 22.0, 8.0, 0.3), (212.0, 38.0, 8.5, 0.32), (209.0, 54.0, 8.0, 0.3), (210.0, 70.0, 7.0, 0.26)]
+
+
+RAKE_WALL = 1.5      # the wall over the ledge, metres up a metre in from its inner edge
+RAKE_DROP = 1.3      # the ground under it, metres down a metre out from its outer edge
+RAKE_PLANE = 10.0    # how far out from the ledge's edges those go
+
+
+def rake_planes(h, r, k0, k1):
+    """The wall over the rake's ledge and the ground under it as planes
+    from the ledge's two edges, the ledge between them.
+
+    A bench let into a crag with a sheer back and a sheer front is an
+    edge the ground's grid cannot draw: the ledge runs at a slant to it,
+    so along each edge every other vertex fell on the ledge and the next
+    on the wall, metres higher, and the game drew a saw of jutting
+    triangles down the length of the rake, ribs standing over them. A
+    plane comes out as a plane however the grid lies across it. So the
+    wall is laid back to RAKE_WALL from the ledge's inner edge wherever it
+    stood steeper than that (above, it is the crag as it was), and the
+    ground under the outer edge filled out to RAKE_DROP: a rake with a
+    foot to its wall and a shoulder to its drop, as the real ones have,
+    where it was a plank in a cliff. Eased in over the rake's ends."""
+    pts, y = r["pts"], r["y"]
+    half = float(np.max(r["halfs"][k0:k1]))
+    jj, ii, idx, d, lat = xt_band(r, half + RAKE_PLANE, k0, k1)
+    hw, yb = r["halfs"][idx], y[idx]
+    off = d - hw
+    # (a truck climbing the rake goes south: the wall is on its left)
+    ends = np.clip(np.minimum(idx - k0, k1 - 1 - idx) / 10.0, 0, 1)
+    fade = ends * smoothstep(RAKE_PLANE, RAKE_PLANE - 3.0, off)
+    cur = h[jj, ii]
+    wall = (lat < 0) & (off > 0)
+    drop = (lat > 0) & (off > 0)
+    to = np.where(wall, np.minimum(cur, yb + RAKE_WALL * off), np.where(drop, np.maximum(cur, yb - RAKE_DROP * off), cur))
+    h[jj, ii] = cur + (to - cur) * fade
+
+
+def black_rake(h, water, f, routes):
+    """The trail's line and its ground. Returns what the later steps need:
+    the route (levelkit.xt_route), its places as point indices, and the
+    peat to lay with the rest."""
+    appr, drove, stair, peat, summit = routes
+    x = {}
+    h_was = h.copy()
+    k_in = at(stair, 27, -26)
+    p_in = stair["pts"][k_in]
+    k_road = at(drove, 129, 80)
+    p_road = drove["pts"][k_road]
+    y_road = float(drove["y"][k_road])
+    hs = gaussian_filter(h, 0.8)
+
+    # The rake: south from the quarry's back, each point where the wall
+    # stands at the height the ledge has reached.
+    z0, x0, y0 = 70.0, 146.0, y_road + 1.2
+    zs = np.arange(z0, -65.0, -2.0)
+    xs_ = np.full(len(zs), x0)
+    cand = np.arange(x0, 216.0, 0.5)
+    for _ in range(5):
+        seg = np.hypot(np.diff(xs_), np.diff(zs))
+        yt = y0 + RAKE_GRADE * np.concatenate([[0], np.cumsum(seg)])
+        for i, z in enumerate(zs):
+            hh = sample(hs, np.stack([cand, np.full(len(cand), z)], axis=1))
+            j = int(np.argmax(hh >= yt[i])) if np.any(hh >= yt[i]) else len(cand) - 1
+            xs_[i] = cand[j]
+        xs_ = gaussian_filter1d(np.maximum.accumulate(xs_), 5.0, mode="nearest")
+        xs_[0] = x0
+    rake = [(float(a), float(b), None) for a, b in zip(xs_[::4], zs[::4])]
+    x_top, z_top = rake[-1][0], rake[-1][1]
+    # Where it comes on to the mast track, 26 m short of the top, and
+    # where its own stretch ends on it.
+    j0, j1 = len(summit["pts"]) - 26, len(summit["pts"]) - 19
+    pj0, pj1 = summit["pts"][j0], summit["pts"][j1]
+    x["j1"] = j1
+
+    ctrl = [
+        (p_in[0], p_in[1], None), (34, -19, None), (46, -11, None), (58, -4, None),
+        # The brae: one slant up the wall's grass to the road.
+        (70, 9, None), (84, 26, None), (98, 44, None), (111, 60, None), (121, 71, None), (p_road[0], p_road[1], None),
+        # Round the quarry's floor and out of the back of it.
+        (135.5, 86.5, None), (142.5, 87.5, None), (147.5, 83, None), (148, 76.5, None),
+    ] + rake + [
+        # Out on the shoulder, and round to the north.
+        (x_top + 8, z_top - 6, None), (x_top + 17, z_top - 4, None), (x_top + 22, z_top + 6, None),
+        (x_top + 21, z_top + 20, None), (220, -18, None),
+        # The moss: the hags, the causeway, the slabs.
+        (215, 4, None), (214, 22, None), (212, 38, None), (209, 54, None), (210, 70, None), (212, 84, None),
+    ] + [(a, b, None) for a, b in CAUSEWAY_RAKE] + [
+        (220, 160, None), (213, 174, None), (205, 188, None), (198, 202, None),
+        # The stones, and the top.
+        (190, 212, None), (181, 221, None), (174, 231, None), (166, 240, None), (159, 249, None), (154, 257, None),
+        (151.3, 262.5, None),
+        # Down on to the mast track for the last of it (a CPU driver that
+        # has arrived this way then stands on the track it goes home by).
+        (pj0[0], pj0[1], None), (pj1[0], pj1[1], None),
+    ]
+    r = xt_route(h, ctrl, "THE BLACK RAKE", "BLK RAKE", RAKE_HALF)
+    pts = r["pts"]
+    n = len(pts)
+
+    def k_at(px, pz):
+        return xt_k(r, px, pz)
+
+    def gnd(k):
+        return float(np.mean(sample(h, pts[max(0, k - 2):k + 3])))
+    k_edge = k_at(60, -3)                                   # where the floor ends and the wall begins
+    k_lean0, k_lean1 = k_at(82, 23), k_at(104, 52)
+    k_road_x = int(np.argmin(np.linalg.norm(pts[:k_at(148, 76.5)] - p_road, axis=1)))
+    k_q0, k_q1 = k_at(142.5, 87.5), k_at(148, 76.5)        # on the quarry's floor
+    k_rake0 = k_at(x0, z0)
+    k_top = k_at(x_top, z_top)
+    k_bad = k_at(float(np.interp(36.0, zs[::-1], xs_[::-1])), 36.0)
+    k_ledge = k_at(float(np.interp(8.0, zs[::-1], xs_[::-1])), 8.0)
+    k_carn = k_at(x_top + 20, z_top + 2)
+    k_hag0, k_hag1 = k_at(214, 14), k_at(210, 76)
+    k_ford0, k_ford1 = k_at(*CAUSEWAY_RAKE[0]), k_at(*CAUSEWAY_RAKE[-1])
+    k_slab0, k_slab1 = k_ford1 + 8, k_at(203, 192)
+    k_st0, k_st1 = k_at(196, 205), k_at(182, 220)
+    x.update(k_in=k_in, k_road=k_road, k_edge=k_edge, k_lean=(k_lean0, k_lean1), k_road_x=k_road_x, k_q=(k_q0, k_q1),
+             k_rake0=k_rake0, k_top=k_top, k_bad=k_bad, k_ledge=k_ledge, k_carn=k_carn, k_hag=(k_hag0, k_hag1),
+             k_ford=(k_ford0, k_ford1), k_slab=(k_slab0, k_slab1), k_st=(k_st0, k_st1))
+
+    # The lochan on the moss first (its level sets the causeway's), in a
+    # hollow of its own; then the causeway raised across its bed.
+    level = lochan(h, water, LOCHAN_RAKE, 655)
+    x["lochan_y"] = level
+    cw = resample(smooth_path(np.array(CAUSEWAY_RAKE, dtype=float), 3), 1.0)
+    dc = cKDTree(cw).query(FLAT)[0].reshape(N, N)
+    dl = np.hypot(X - LOCHAN_RAKE[0], Z - LOCHAN_RAKE[1])
+    bar = level - CAUSEWAY_DEEP - 0.55 * np.maximum(dc - 3.3, 0)
+    h[:] = np.where(dl < LOCHAN_RAKE[2] * 1.3, np.maximum(h, bar), h)
+    wet = (dl < LOCHAN_RAKE[2] * 1.25) & (h < level - 0.03) & (dc < 6.0)
+    water[wet] = np.maximum(water[wet], level)
+    # And two of the moss's black pools by the hags, to pass between.
+    for k, spec in enumerate(POOLS_RAKE):
+        lochan(h, water, spec, 656 + k)
+
+    # Heights. Where it meets the staircase and where it crosses the road
+    # it is their ground; the brae is one grade from the floor's edge to
+    # the road; the quarry's floor is the road's height; the rake one grade
+    # with a level bay in the middle of it; the moss as it lies, the hags
+    # sunk into it, the causeway level; the summit's stones in two steps.
+    BED = 6
+    road_tree = cKDTree(drove["pts"])
+    marks = [(0, float(stair["y"][k_in])), (k_edge, gnd(k_edge))]
+    marks += [(k, float(drove["y"][int(road_tree.query(pts[k])[1])])) for k in range(k_road_x - BED, k_road_x + BED + 1, 3)]
+    y_q = y_road + 0.9
+    y_rake0 = y_q + 0.3
+    y_top = gnd(k_top + 4)
+    LEDGE = 4                                               # half the bay's length
+    g = (y_top - y_rake0) / (k_top - k_rake0 - 2 * LEDGE)
+    y_ledge = y_rake0 + g * (k_ledge - LEDGE - k_rake0)
+    marks += [(k_q0, y_q), (k_q1, y_q + 0.1), (k_rake0, y_rake0), (k_ledge - LEDGE, y_ledge), (k_ledge + LEDGE, y_ledge + 0.15),
+              (k_top, y_top), (k_carn, gnd(k_carn))]
+    marks += [(k, gnd(k)) for k in range(k_carn + 12, k_hag0 - 4, 12)]
+    y_h0, y_h1 = gnd(k_hag0), gnd(k_hag1)
+    marks += [(k_hag0, y_h0), (k_hag0 + 5, y_h0 - 0.55), (k_hag1 - 5, y_h1 - 0.55), (k_hag1, y_h1),
+              (k_ford0 - 5, level + 0.5), (k_ford0, level - CAUSEWAY_DEEP), (k_ford1, level - CAUSEWAY_DEEP),
+              (k_ford1 + 5, level + 0.6), (k_slab1, gnd(k_slab1))]
+    # The stones: level ground to thread them on, then two ledges of the
+    # top bed, each across a level tread with a pitch behind it.
+    TREAD, BLOCK = 6, 3
+    k_j0 = k_at(pj0[0], pj0[1])
+    y_j0, y_j1 = float(summit["y"][j0]), float(summit["y"][j1])
+    y_s0 = gnd(k_st0)
+    k_l1 = k_st1 + 2
+    k_l2 = k_l1 + TREAD + BLOCK + 6
+    rise = 0.5                                              # what the pitch between them climbs
+    y_a = gnd(k_st1)
+    marks += [(k_st0, y_s0), (k_st1, y_a), (k_l1 + TREAD, y_a), (k_l1 + TREAD + 1, y_a + 0.2), (k_l1 + TREAD + BLOCK, y_a + 0.2),
+              (k_l2, y_a + 0.2 + rise), (k_l2 + TREAD, y_a + 0.2 + rise), (k_l2 + TREAD + 1, y_a + 0.44 + rise),
+              (k_l2 + TREAD + BLOCK + 2, y_a + 0.44 + rise), (k_j0 - 3, y_j0 + 0.1), (k_j0, y_j0), (n - 1, y_j1)]
+    assert k_l2 + TREAD + BLOCK < k_j0 - 9, "no room for the top's ledges"
+    x["ledges"] = [(k_l1 + TREAD, y_a + 0.2), (k_l2 + TREAD, y_a + 0.44 + rise)]
+    marks.sort()
+    xt_ramp(r, marks, 1.0)
+    y = r["y"]
+    x["grades"] = (float((y[k_road_x - BED] - y[k_edge]) / (k_road_x - BED - k_edge)), float(g))
+
+    # Widths: room to turn on the quarry's floor and on the shoulder, a
+    # bay at the ledge; the rake itself no wider than it must be.
+    kk = np.arange(n)
+    r["halfs"] = np.full(n, RAKE_HALF) + 0.5 * r["turn"]
+    # (A ledge 0.3 m narrower fell between the ground's vertices, 3 m
+    # apart, with no level bed left on it in places: every CPU truck went
+    # over the edge. The bad step is made by a block and a lean instead.)
+    r["halfs"] += 1.7 * np.exp(-((kk - k_ledge) / 5.0) ** 2) + 1.2 * np.exp(-((kk - k_carn) / 8.0) ** 2)
+
+    # The ground to it: a narrow bench on the wall (a cut would take the
+    # crag back to a bank), an easier one on the moss.
+    def lay(k0, k1, shoulder):
+        lay_route(h, {"pts": pts[k0:k1], "y": y[k0:k1], "halfs": r["halfs"][k0:k1]}, shoulder)
+    lay(6, k_edge + 2, 3.0)
+    lay(k_edge, k_road_x - 2, 5.0)
+    lay(k_rake0 - 2, k_top + 2, 3.0)
+    lay(k_top, k_ford0 - 4, 4.0)
+    # The slabs leave the lochan up through the bank it lies under, four
+    # metres of it: a gully with its sides laid back, not a slot.
+    lay(k_slab0 - 2, k_slab1 + 2, 9.0)
+    lay(k_ford1 + 4, n, 3.0)
+    # The quarry: a floor at the road's height let into the slope east of
+    # it, its back a face.
+    qx, qz, qa, qb = QUARRY
+    e = np.hypot((X - qx) / qa, (Z - qz) / qb)
+    floor = y_q + 0.02 * (X - qx)
+    # (the face stands on a foot of spoil, QUARRY_FOOT up a metre at the
+    # floor and the face's own pitch a few metres out: where face met floor
+    # square, the grid drew the corner as a row of teeth, as on the rake)
+    out = np.maximum(e - 1.0, 0) * qb
+    cut = floor + QUARRY_FACE * out - (QUARRY_FACE - QUARRY_FOOT) * QUARRY_SPOIL * (1 - np.exp(-out / QUARRY_SPOIL))
+    east = X > p_road[0] + 1.0
+    h[:] = np.where(east & (cut < h), cut, h)
+    x["quarry"] = east & (e < 1.25)
+    lay(k_q0 - 6, k_rake0 + 6, 2.5)
+    # Its banks on the wall smoothed along it, as the other tracks' are
+    # (not by the staircase or on the top: what stands there stays as it
+    # was, to the centimetre, and so does what the CPU makes of it).
+    smooth_banks(h, [{"pts": pts[a:b], "halfs": r["halfs"][a:b]} for a, b in ((k_edge + 8, k_road_x - 12), (k_rake0 + 4, k_top + 6))])
+    lay(k_rake0 - 2, k_top + 2, 2.2)
+    rake_planes(h, r, k_rake0 + 2, k_top + 2)
+    # The staircase, the road and the mast track keep their own ground, as
+    # it was (the burn's ford through the first, the others' lumps and all).
+    for q, k0, k1 in ((stair, max(0, k_in - 40), k_in + 40), (drove, k_road - 40, k_road + 40),
+                      (summit, len(summit["pts"]) - 45, len(summit["pts"]))):
+        d, idx = cKDTree(q["pts"][k0:k1]).query(FLAT, distance_upper_bound=float(np.max(q["halfs"][k0:k1])))
+        ok = np.isfinite(d)
+        ok[ok] = d[ok] < q["halfs"][k0:k1][idx[ok]]
+        h.ravel()[ok] = h_was.ravel()[ok]
+    # The brae leans: its bed tilts out, downhill to the left of the way up.
+    # So does the bad step, a little, the other way (the drop is on the
+    # right of a truck going south), and the wet slabs on the top.
+    xt_camber(h, r, k_lean0, k_lean1, -0.19, ease=8.0)
+    xt_camber(h, r, k_bad - 2, k_bad + 13, 0.07, ease=5.0)
+    xt_camber(h, r, k_slab0 + 4, k_slab1 - 6, -0.11, ease=7.0)
+    # The hags: the track sunk between banks of peat that stand over it.
+    jj, ii, idx, d, lat = xt_band(r, 9.0, k_hag0, k_hag1)
+    along = np.minimum(idx - k_hag0, k_hag1 - 1 - idx)
+    bank = np.exp(-((d - 5.2) / 1.7) ** 2) * np.clip(along / 6.0, 0, 1)
+    lump = 0.5 + fbm(X, Z, 5.0, 2, 667)[jj, ii]
+    h[jj, ii] += 0.7 * bank * lump
+    x["r"] = r
+    x["peat"] = list(HAGS)
+    x["bed"] = cKDTree(pts).query(FLAT)[0].reshape(N, N)
+    return x
+
+
+def black_rake_surfaces(h, surf, f, x):
+    """Its surfaces: a path worn to earth on the brae and the moss, bare
+    rock on the rake's ledge, the slabs wet, peat in the hags."""
+    r = x["r"]
+    n = len(r["pts"])
+    k_slab0, k_slab1 = x["k_slab"]
+    k_st0, _ = x["k_st"]
+    xt_surface(surf, r, 4, x["k_road_x"] - 5, S["DIRT"], extra=0.2)
+    surf[x["quarry"]] = S["GRAVEL"]
+    # The rake is what its name says, a ledge the grass has, slanting
+    # green across the dark of the crag: turf along its lip, the path worn
+    # to earth under the wall. (All turf, the heaviest truck slid off it.)
+    xt_surface(surf, r, x["k_rake0"], x["k_top"], S["ROCK"], extra=0.4)
+    jj, ii, idx, d, lat = xt_band(r, RAKE_HALF + 0.6, x["k_rake0"] + 10, x["k_top"] - 2)
+    lip = lat > 0.9
+    surf[jj[lip], ii[lip]] = S["GRASS"]
+    xt_surface(surf, r, x["k_top"], x["k_hag"][0] + 2, S["DIRT"], extra=0.0)
+    xt_surface(surf, r, x["k_hag"][1] - 2, x["k_ford"][0] - 4, S["DIRT"], extra=0.0)
+    xt_surface(surf, r, x["k_ford"][1] + 4, k_slab0, S["DIRT"], extra=0.0)
+    xt_surface(surf, r, k_slab0, k_slab1, S["WETROCK"], extra=3.0)
+    xt_surface(surf, r, k_slab1, k_st0, S["ROCK"], extra=1.0)
+    xt_surface(surf, r, k_st0, n - 2, S["SCREE"], extra=0.3)
+    # The causeway: stones.
+    cw = resample(smooth_path(np.array(CAUSEWAY_RAKE, dtype=float), 3), 1.0)
+    dc = cKDTree(cw).query(FLAT)[0].reshape(N, N)
+    dl = np.hypot(X - LOCHAN_RAKE[0], Z - LOCHAN_RAKE[1])
+    surf[(dc < 4.0) & (dl < LOCHAN_RAKE[2] * 1.3)] = S["GRAVEL"]
+
+
+def black_rake_pieces(h, h0, water, f, x, sp, trees, routes, rng):
+    """What stands along it, what the CPU's driver knows of it and its
+    places. Adds to set_pieces' lists (sp) and to the trees; returns the
+    route for the header (levelkit.xt_full) and an eagle for the crag.
+    h0: the ground before the trail was laid."""
+    appr, drove, stair, peat, summit = routes
+    r = x["r"]
+    pts, y, n = r["pts"], r["y"], len(r["pts"])
+    k_lean0, k_lean1 = x["k_lean"]
+    k_q0, k_q1 = x["k_q"]
+    k_hag0, k_hag1 = x["k_hag"]
+    k_ford0, k_ford1 = x["k_ford"]
+    k_slab0, k_slab1 = x["k_slab"]
+    k_st0, k_st1 = x["k_st"]
+    k_edge, k_rake0, k_top, k_bad, k_ledge, k_carn = (x[q] for q in ("k_edge", "k_rake0", "k_top", "k_bad", "k_ledge", "k_carn"))
+
+    def gy(px, pz):
+        return float(sample(h, np.array([px, pz], dtype=float))[0])
+    # Nothing of the hill's own litter lies in the trail (the blocks under
+    # the crags, the stones about the top), past where it leaves the
+    # staircase with the staircase's own.
+    line = cKDTree(pts[10:])
+    keep = []
+    for s_ in sp["spheres"]:
+        d_, i_ = line.query((s_[0], s_[2]))
+        if d_ > float(r["halfs"][10 + i_]) + s_[3] + 1.3:
+            # (one beside it goes up or down with the bank it lies on)
+            moved = float(sample(h - h0, np.array([s_[0], s_[2]]))[0])
+            keep.append((s_[0], s_[1] + moved, s_[2], s_[3]))
+    sp["spheres"] = keep
+    trees[:] = [t for t in trees if line.query((t[0], t[2]))[0] > RAKE_HALF + 3.0]
+    spheres, boxes, props, posts, views = sp["spheres"], sp["boxes"], sp["props"], sp["posts"], sp["views"]
+
+    def stone(c, rr, sink=0.4):
+        spheres.append((c[0], gy(*c) - rr * sink, c[1], rr))
+
+    # The squeeze: a line of the ice's erratics across the corrie's floor,
+    # the path through the one gap in it.
+    p, tg, nm = frame(r, k_edge - 9)
+    stone(p + nm * (1.72 + 1.35), 1.35, 0.3)
+    stone(p - nm * (1.72 + 1.1) + tg * 1.0, 1.1, 0.3)
+    for off, along, rr in ((6.3, -0.6, 0.95), (8.9, 0.9, 1.2), (11.6, -0.3, 0.8), (-5.5, 0.2, 0.9), (-8.0, 1.4, 1.25), (-10.9, 0.4, 0.75)):
+        stone(p + nm * off + tg * along, rr, 0.32)
+    # The brae: stones on the bank above that keep a truck out on the lean.
+    for k in range(k_lean0 + 3, k_lean1 - 2, 7):
+        p, tg, nm = frame(r, k)
+        rr = rng.uniform(0.55, 0.95)
+        stone(p + nm * (float(r["halfs"][k]) + rr * 0.6), rr, 0.3)
+    # Blocks off the crag in the back of the ledge's bay, and one on the
+    # rake's inside edge at the bad step, to be passed on the outside.
+    p, tg, nm = frame(r, k_ledge)
+    for off, rr in ((-2.5, 0.9), (1.5, 0.6), (4.0, 1.2)):
+        stone(p - nm * (float(r["halfs"][k_ledge]) + rr * 0.5) + tg * off, rr, 0.35)
+    p, tg, nm = frame(r, k_bad + 5)
+    stone(p - nm * (float(r["halfs"][k_bad + 5]) + 1.0 * 0.6), 1.0, 0.35)
+    # Erratics the ice left out on the moss.
+    for (ex, ez, rr) in ((226.0, -4.0, 1.7), (200.0, 90.0, 1.3), (234.0, 152.0, 2.0), (190.0, 172.0, 1.4), (228.0, 76.0, 1.1)):
+        if line.query((ex, ez))[0] > RAKE_HALF + rr + 4.0:
+            stone(np.array([ex, ez]), rr, 0.3)
+    # The stones of the top: pairs of them either side of a line that
+    # weaves, as the frost left them.
+    for k in range(k_st0 + 3, k_st1 - 1, 6):
+        p, tg, nm = frame(r, k)
+        for side in (-1, 1):
+            rr = rng.uniform(0.6, 1.15)
+            stone(p + nm * side * (1.95 + rr + rng.uniform(0.0, 0.3)) + tg * rng.uniform(-1.0, 1.0), rr)
+            # (and the field of them it is the way through)
+            rr = rng.uniform(0.5, 1.3)
+            stone(p + nm * side * rng.uniform(5.4, 10.5) + tg * rng.uniform(-2.5, 2.5), rr)
+    # The top bed's two ledges, each across its level tread and no wider
+    # (the hill falls away to the side of it, and a ledge standing out
+    # over open ground is a plank), a boulder bedded at either end.
+    for n_, (k, y_top) in enumerate(x["ledges"]):
+        p, tg, nm = frame(r, k)
+        c = p + tg * 1.7
+        half = RAKE_HALF + 0.5
+        boxes.append((c[0], y_top - 1.0, c[1], half, 1.0, 1.5, math.atan2(tg[0], tg[1]) + rng.uniform(-0.1, 0.1)))
+        for side, rr, along in ((-1, 1.25, 0.9), (1, 1.0, 1.9)) if n_ == 0 else ((-1, 1.05, 2.0), (1, 1.3, 1.1)):
+            q = p + nm * side * (half + rr * 0.55) + tg * along
+            spheres.append((q[0], y_top - rr * 0.3, q[1], rr))
+
+    # Its rating at the gate (two black diamonds) and a fingerpost; a post
+    # where it leaves the road by the quarry.
+    p, tg, nm = frame(r, 12)
+    q = p + nm * (RAKE_HALF + 2.4)
+    props.append((q[0], q[1], math.atan2(-tg[0], -tg[1]), PROP["PLATE"], None, 3))
+    posts.append((q[0], gy(*q) - 0.5, q[1], q[0], gy(*q) + 1.5, q[1], 0.12))
+    q = p - nm * (RAKE_HALF + 3.0)
+    props.append((q[0], q[1], math.atan2(tg[0], tg[1]) + 0.3, PROP["SIGN"], None))
+    p, tg, nm = frame(r, k_q1 + 3)
+    q = p + nm * (RAKE_HALF + 1.6)
+    props.append((q[0], q[1], math.atan2(-tg[0], -tg[1]), PROP["PLATE"], None, 3))
+    posts.append((q[0], gy(*q) - 0.5, q[1], q[0], gy(*q) + 1.5, q[1], 0.12))
+    # Carn Dubh: the cairn on the shoulder, where the loch is all below.
+    p, tg, nm = frame(r, k_carn)
+    c = p + nm * (float(r["halfs"][k_carn]) + 4.0)
+    props.append((c[0], c[1], 0.0, PROP["CAIRN"], None))
+    views.append((c[0] - nm[0] * 3.0, c[1] - nm[1] * 3.0, "CARN DUBH"))
+    # The causeway's stones: the tops of them break the water along both
+    # its edges, and are all there is to steer by (from a truck's seat the
+    # water is the sky's colour, shallow or deep).
+    level = x["lochan_y"]
+    for i, k in enumerate(range(k_ford0 + 2, k_ford1 - 1, 3)):
+        p, tg, nm = frame(r, k)
+        c = p + nm * (1 if i % 2 else -1) * 3.8
+        if water[tuple(np.round(to_grid(c)[::-1]).astype(int))] > -999 and gy(*c) < level - 0.2:
+            rr = rng.uniform(0.38, 0.58)
+            spheres.append((c[0], level + rng.uniform(0.14, 0.28) - rr, c[1], rr))
+    # A cairn at each end of the causeway, on the side the line bends to.
+    for k, side in ((k_ford0 - 4, -1), (k_ford1 + 4, 1)):
+        p, tg, nm = frame(r, k)
+        c = p + nm * side * (RAKE_HALF + 2.6)
+        props.append((c[0], c[1], 0.0, PROP["CAIRN"], None))
+    # A rowan by the quarry and one out of the crag at the ledge; a pine
+    # the wind has had its way with by the cairn.
+    p, tg, nm = frame(r, k_ledge)
+    q = p - nm * (float(r["halfs"][k_ledge]) + 1.1) - tg * 5.5
+    trees.append((q[0], 0.0, q[1], 2, 0.8, rng.uniform(0, 2 * math.pi)))
+    trees.append((137.0, 0.0, 96.5, 2, 0.95, rng.uniform(0, 2 * math.pi)))
+    p, tg, nm = frame(r, k_carn)
+    q = p + nm * (float(r["halfs"][k_carn]) + 7.5) + tg * 5.0
+    trees.append((q[0], 0.0, q[1], 0, 0.85, rng.uniform(0, 2 * math.pi)))
+
+    # What the CPU's driver knows of it: easy between the erratics and on
+    # the lean, slow on the ledge, a run at the peat, the causeway at a
+    # walk (the line is all there is to stand on), a run at each ledge.
+    pace = r["pace"]
+    pace[:] = 3.4
+    pace[k_edge - 14:k_edge - 2] = 2.6
+    pace[k_lean0 - 2:k_lean1 + 2] = 2.6
+    pace[x["k_road_x"] - 8:k_rake0 + 2] = 2.4
+    pace[k_rake0 + 2:k_top] = 3.2
+    pace[k_ledge - 6:k_ledge + 6] = 2.6
+    pace[k_top:k_carn + 10] = 2.8
+    pace[k_carn + 10:k_hag0 - 8] = 4.0
+    pace[k_hag0 - 8:k_hag1] = 5.0
+    pace[k_hag1:k_ford0 - 8] = 3.4
+    pace[k_ford0 - 8:k_ford1 + 4] = 2.4
+    pace[k_ford1 + 4:k_st0] = 3.4
+    pace[k_st0:k_st1] = 2.6
+    pace[k_st1:] = 3.4
+    pace[n - 8:] = 2.4
+    r["spots"] = [(5, "THE BLACK RAKE", 1), (k_edge + 4, "THE BRAE", 0), (k_q0 + 2, "THE QUARRY", 1),
+                  (k_bad - 8, "THE BAD STEP", 0), (k_ledge, "EAGLE'S LEDGE", 1), (k_carn, "CARN DUBH", 1),
+                  (k_hag0 - 2, "THE HAGS", 0), (k_ford0 - 10, "THE CAUSEWAY", 1), (k_slab0, "THE SLABS", 0),
+                  (k_st0 - 3, "THE STONES", 1)]
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    grade = np.diff(y) / np.maximum(seg, 1e-3)
+    print(f"  THE BLACK RAKE {seg.sum():.0f} m from the staircase at ({pts[0][0]:.0f},{pts[0][1]:.0f}) to the summit, climbs "
+          f"{y[-1] - y[0]:.1f} m, steepest {grade.max() * 100:.0f}%; the brae {x['grades'][0] * 100:.0f}%, the rake "
+          f"{x['grades'][1] * 100:.0f}% for {k_top - k_rake0} m from ({pts[k_rake0][0]:.0f},{pts[k_rake0][1]:.0f}) to "
+          f"({pts[k_top][0]:.0f},{pts[k_top][1]:.0f}); the lochan at {x['lochan_y']:.1f} m, its causeway {CAUSEWAY_DEEP:.2f} m under")
+    full = xt_full(r, before=[(stair, 0, x["k_in"])], after=[(summit, x["j1"] + 1, len(summit["pts"]))])
+    return full, (154.0, 12.0, 30.0, 30.0, 3.0, 1)
+
+
+# ---------------------------------------------------------------------------
 # The land beyond the map (outland.py): what the pass looks out on.
 #
 # The loch carries on: the map has only its north shore, and the far one
@@ -1404,7 +1875,6 @@ def build(out, preview_path=None, raw=None):
     finish_water(h, water, f, routes)
     peat = apply_mud(h, PEAT)
     water[water < h + 0.05] = -1000.0
-    rim_check(h, water)
     f["face"], f["face_x"], f["face_z"] = faces(h)
     surf = surfaces(h, water, f, routes, peat)
     trees = place_trees(h, water, surf, f, routes, rng)
@@ -1412,6 +1882,26 @@ def build(out, preview_path=None, raw=None):
     def gy(x, z):
         return float(sample(h, np.array([x, z]))[0])
     sp = set_pieces(h, water, f, routes, trees, np.random.default_rng(77))
+    # The extreme trail is laid over the finished hill, so that the hill
+    # is as it was everywhere else: its trees and its stones are dealt
+    # from one seeded pack each, and a face or a surface changed before
+    # they were would move every one of them.
+    h0, face0 = h.copy(), f["face"].copy()
+    xr = black_rake(h, water, f, routes)
+    hags = apply_mud(h, xr["peat"])
+    by_lochan = np.zeros((N, N), dtype=bool)
+    for (lx, lz, lr, _) in [LOCHAN_RAKE] + POOLS_RAKE:
+        by_lochan |= np.hypot(X - lx, Z - lz) < lr * 1.6
+    water[by_lochan & (water < h + 0.05)] = -1000.0
+    rim_check(h, water)
+    f["face"], f["face_x"], f["face_z"] = faces(h)
+    # The rake's ledge is ground a truck stands on: lit and coloured as
+    # ground, not as the wall it crosses. What it has cut is rock.
+    f["face"] &= xr["bed"] > RAKE_HALF + 0.3
+    surf[f["face"] & ~face0] = S["ROCK"]
+    surf[hags] = S["MUD"]
+    black_rake_surfaces(h, surf, f, xr)
+    extreme, eagle = black_rake_pieces(h, h0, water, f, xr, sp, trees, routes, np.random.default_rng(1689))
     rocks, spheres, capsules, posts = sp["rocks"], sp["spheres"], sp["capsules"], sp["posts"]
     boxes = sp["boxes"] + sp["prop_boxes"]
     rock_boxes = len(sp["boxes"])
@@ -1461,7 +1951,7 @@ def build(out, preview_path=None, raw=None):
     write_header(out / "level_lowland.h", "lowland", {
         "name": "LOCH LOWLAND", "blurb": "A HIGHLAND PASS OVER THE LOCH", "base_ft": 1687,
         "lake_y": LOCH_Y, "start_y": gy(SPAWN[0], SPAWN[1]), "summit": (SUMMIT[0], summit_y, SUMMIT[1]),
-        "routes": routes, "spheres": spheres, "capsules": capsules, "boxes": boxes, "rock_boxes": rock_boxes,
+        "routes": routes + [extreme], "spheres": spheres, "capsules": capsules, "boxes": boxes, "rock_boxes": rock_boxes,
         "posts": posts, "trees": trees, "props": props, "views": views, "spawns": spawns,
         # Mist: along the loch's shore, on each lochan, over the bog.
         # (the last three lie out on the loch beyond the map's edge)
@@ -1469,7 +1959,9 @@ def build(out, preview_path=None, raw=None):
                   (LOCHAN_CORRIE[0], LOCHAN_CORRIE[1], 36), (LOCHAN_PASS[0], LOCHAN_PASS[1], 38), (PEAT[0][0], PEAT[0][1], 34),
                   (LOCHANS_MOSS[0][0], LOCHANS_MOSS[0][1], 30), (-190, -500, 120), (40, -520, 120), (270, -490, 120)],
         # Eagles over the corrie, the loch's shore, the moss and the top.
-        "hawks": [(6, -40, 50, 70, 0.0, 1), (40, -280, 44, 50, 2.0, -1), (-190, 90, 40, 44, 4.0, 1), (150, 230, 44, 40, 1.0, -1)],
+        # (and one off the great crag, level with the rake's ledge)
+        "hawks": [(6, -40, 50, 70, 0.0, 1), (40, -280, 44, 50, 2.0, -1), (-190, 90, 40, 44, 4.0, 1), (150, 230, 44, 40, 1.0, -1),
+                  eagle],
         # Red deer among the hummocks and up the corrie; then (deer.c) the
         # cattle on the in-bye by the fank, the sheep at the corrie's mouth.
         "herds": [(170, -246), (-20, 22), (-62, -262), (48, -226)],
@@ -1477,7 +1969,7 @@ def build(out, preview_path=None, raw=None):
     })
     # The map shows the water as a map does.
     mrgb = np.where((water > -999)[..., None], np.array([92.0, 124.0, 148.0]), rgb * 1.08)
-    minimap(mrgb, water, routes, [], out / "level_map_lowland.png")
+    minimap(mrgb, water, routes + [extreme], [], out / "level_map_lowland.png")
     wet = int((water > -999).sum())
     print(f"  heights {h.min():.1f}..{h.max():.1f} m, pass {gy(MEET[0], MEET[1]):.1f} m, summit {summit_y:.1f} m, "
           f"start {gy(SPAWN[0], SPAWN[1]):.1f} m, {wet} wet vertices")
@@ -1487,7 +1979,7 @@ def build(out, preview_path=None, raw=None):
     print(f"  {len(spheres)} boulders, {len(boxes)} boxes ({rock_boxes} of rock), {len(trees)} trees, {len(props)} props, "
           f"{len(rocks)} formations, {len(views)} viewpoints, level_lowland.lvl {len(blob)} bytes")
     if preview_path:
-        preview_image(rgb, water, routes, spheres, capsules, boxes, trees, views, preview_path)
+        preview_image(rgb, water, routes + [extreme], spheres, capsules, boxes, trees, views, preview_path)
         az, el = math.degrees(math.atan2(SUN[0], SUN[2])) % 360, math.degrees(math.asin(SUN[1]))
         orgb = ol.lit(o["alb"], o["nrm"], o["hz"], az, el, (0.62, 0.66, 0.72), (0.62, 0.577, 0.496))
         land = [ol.mesh(o["h"], orgb)] + [ol.ribbon_mesh(r, WATER_RGB) for r in o["ribbons"]]

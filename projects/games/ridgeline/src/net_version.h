@@ -17,7 +17,7 @@
 #define RL_NET_VERSION_H
 
 #define RL_NET_PROTO      1
-#define RL_NET_BUILD      21
-#define RL_NET_MIN_BUILD  20
+#define RL_NET_BUILD      22
+#define RL_NET_MIN_BUILD  22
 
 #endif

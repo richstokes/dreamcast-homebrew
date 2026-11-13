@@ -44,7 +44,17 @@ static float emit_acc[MAX_TRUCKS][4], rooster_acc[MAX_TRUCKS][4];
    its age runs on the wind's clock (dunes_wear): it softens a notch in
    each gust and stands in a lull, and sooner on ground open to the wind
    than in the lee, so a line over a dune goes first off its windward
-   side and its crest. As it wears it spreads. */
+   side and its crest. As it wears it spreads.
+
+   Bare rock takes no print, but a tyre that spins or slides on it leaves
+   its rubber: the player's rear tyres lay a black streak on dry rock and
+   slickrock for as long as they slip, darker the harder they do. It is
+   the same strip with the tread's texture drawn out along it (its v
+   hardly moves), so the lugs read as streaks and not as prints. */
+#define RUBBER_ON 1.2f         /* m/s of slip at the contact that starts a streak */
+#define RUBBER_OFF 0.6f        /* ...and under which it ends */
+#define RUBBER_COL 0x00140f0d
+#define RUBBER_V 0.04f         /* how much of a print's length of texture a metre of streak uses */
 #define TRK_PLAYER 448
 #define TRK_CPU 128
 #define TRK_PLAYER_DUNES 1536
@@ -95,6 +105,7 @@ typedef struct {
     float tip_v;
     uint32_t tip_col;
     uint16_t wear;
+    bool rubber;               /* the run being laid is rubber on rock, not a print */
 } TrkSlot;
 
 static TrkPt trk_pool[TRK_PLAYER * 2 + TRK_CPU * 2 * (MAX_TRUCKS - 1)];
@@ -349,13 +360,25 @@ static void tracks_update(int ti, const Truck *t) {
         if(ti != 0 && w->surf != SURF_MUD && w->surf != SURF_SNOW &&
            !(trk_sand && (w->surf == SURF_SAND || w->surf == SURF_DEEPSAND)))
             col = 0;
+        bool rubber = false;
+        if(!col && ti == 0 && w->contact && w->water < 0.08f && (w->surf == SURF_ROCK || w->surf == SURF_SLICKROCK) &&
+           w->slip > (s->live && s->rubber ? RUBBER_OFF : RUBBER_ON)) {
+            rubber = true;
+            col = RUBBER_COL | (uint32_t)(255.0f * clampf(0.3f + (w->slip - RUBBER_OFF) * 0.14f, 0.3f, 0.85f)) << 24;
+        }
         if(!col) {
             s->live = s->tip_on = false;
             continue;
         }
-        /* Dug in: a spinning tyre leaves a darker print. */
-        float dig = clampf((w->slip - 1.5f) / 5.0f, 0, 1);
-        col = color_alpha(col, fminf(1.0f, (float)(col >> 24) / 255.0f * (1.0f + 0.5f * dig)));
+        /* From a print to a streak or back is a new run. */
+        if(rubber != s->rubber) s->live = false;
+        s->rubber = rubber;
+        if(!rubber) {
+            /* Dug in: a spinning tyre leaves a darker print. */
+            float dig = clampf((w->slip - 1.5f) / 5.0f, 0, 1);
+            col = color_alpha(col, fminf(1.0f, (float)(col >> 24) / 255.0f * (1.0f + 0.5f * dig)));
+        }
+        float vk = rubber ? RUBBER_V : 1.0f;
         V3 p = w->cp, d = vsub(p, s->last);
         d.y = 0;
         float dist = vlen(d);
@@ -377,7 +400,7 @@ static void tracks_update(int ti, const Truck *t) {
             int da = (int)(col >> 24) - (int)(s->col >> 24);
             bool recol = (col & 0xffffff) != (s->col & 0xffffff) || da > 24 || da < -24;
             if(dist >= TRK_LONG || vdot(dn, s->dir) < 0.9986f || he > 0.02f || recol) {
-                s->v += dist;
+                s->v += dist * vk;
                 track_add(s, p, dn, half, col);
             }
         }
@@ -392,7 +415,7 @@ static void tracks_update(int ti, const Truck *t) {
             s->tip_r = vadd(p, side);
             s->tip_l.y = terrain_height(s->tip_l.x, s->tip_l.z) + 0.035f;
             s->tip_r.y = terrain_height(s->tip_r.x, s->tip_r.z) + 0.035f;
-            s->tip_v = s->v + dist;
+            s->tip_v = s->v + dist * vk;
             s->tip_col = col;
         }
     }

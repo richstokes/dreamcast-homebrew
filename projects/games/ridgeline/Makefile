@@ -9,7 +9,7 @@ GAME_PREFIX = RL
 # (A new file goes at the end: rain.c added in the middle moved the
 # engine's hot loops and cost the console 0.4 ms a frame, dry.)
 SOURCES = main.c level.c terrain.c world.c outland.c lamps.c air.c desert.c dunes.c water.c tod.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c film.c vmuscreen.c campfire.c glow.c \
-	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c rain.c
+	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c rain.c progress.c
 # Shared with DreamKarts from projects/common: the network link (Broadband
 # adapter, W5500, modem), the dialler and the VMU screens.
 COMMON_SOURCES = netlink.c dialup.c vmulcd.c

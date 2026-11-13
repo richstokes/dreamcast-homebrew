@@ -50,7 +50,7 @@ void demo_start(void) {
         t->tcs_off = false;
         const float *s = lvl_spawns[slot[i]];
         truck_place(t, v3(s[0], 0, s[2]), s[3]);
-        ai_start(i, 1 + i % 3);
+        ai_start(i, i == 3 && LVL_HAS_EXTREME ? LVL_ROUTE_EXTREME : 1 + i % 3);
     }
     game.best_y = trucks[0].pos.y;
     game.summit_frac = 0;

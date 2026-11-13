@@ -1,5 +1,7 @@
 /* Ridgeline test builds (autotest.h). */
 #include "autotest.h"
+#include "progress.h"
+#include "records.h"
 #ifdef RL_AUTOTEST
 #include "truck.h"
 #include "ai.h"
@@ -180,43 +182,74 @@ static const int tod_views[2] = {0, 5}, tod_views_lowland[2] = {0, 7};
 /* make vmutest, on blank cards: a summit time saves and reads back, a
    slower one doesn't replace it, the last truck's time keeps its own
    slot, apart from the Bobcat's, and the desert's and the dunes' times
-   keep theirs. */
+   keep theirs. And the progress kept with them: viewpoints found, the
+   trail log's stamps (and the trucks those earn), an extreme trail's
+   time and the unlock code's flag. */
 static void vmu_test(void) {
     char line[64];
     records_load();
     game.truck_model = 1;
     records_start();
     game.clock = 581.34f;
-    bool first = records_summit(line, sizeof(line));
+    bool first = records_summit(line, sizeof(line), NULL);
     printf("RL AT vmu: %s\n", line);
     records_start();
     game.clock = 640.0f;
-    bool second = records_summit(line, sizeof(line));
+    bool second = records_summit(line, sizeof(line), NULL);
     printf("RL AT vmu: %s\n", line);
     game.truck_model = TRUCK_MODELS - 1;   /* times past the first two trucks' sit in best_more */
     records_start();
     game.clock = 702.5f;
-    bool third = records_summit(line, sizeof(line));
+    bool third = records_summit(line, sizeof(line), NULL);
     printf("RL AT vmu: %s\n", line);
     /* The other area's times are its own. */
     game.area = AREA_MOAB;
     game.truck_model = 1;
     records_start();
     game.clock = 333.3f;
-    bool fourth = records_summit(line, sizeof(line));
+    bool fourth = records_summit(line, sizeof(line), NULL);
     printf("RL AT vmu: %s\n", line);
     game.area = AREA_DUNES;
     records_start();
     game.clock = 444.4f;
-    bool fifth = records_summit(line, sizeof(line));
+    bool fifth = records_summit(line, sizeof(line), NULL);
     printf("RL AT vmu: %s\n", line);
     game.area = AREA_LOWLAND;
     records_start();
     game.clock = 555.5f;
-    bool sixth = records_summit(line, sizeof(line));
+    bool sixth = records_summit(line, sizeof(line), NULL);
     printf("RL AT vmu: %s\n", line);
     records_set_name("PEBBLES");   /* the online name, kept with the times */
+    records_add_views(AREA_MOAB, 0x8005);
+    records_add_stamps(AREA_LOWLAND, STAMP_SUMMIT | STAMP_BIT(LOG_EXTREME, STAMP_TOP | STAMP_NIGHT));
+    game.area = AREA_DUNES;
+    game.truck_model = TRUCK_MODELS - 1;
+    bool x_first = records_extreme(2345, line, sizeof(line)), x_slower = records_extreme(3000, line, sizeof(line));
+    records_set_cheat(true);
+    records_set_told(0x44);
     records_load();
+    Done d;
+    for(int a = 0; a < AREA_COUNT; a++) {
+        d.views[a] = records_views(a);
+        d.stamps[a] = records_stamps(a);
+    }
+    /* The Highlands' extreme trail earns the Kestrel. And every area
+       above has a best time, which is a summit reached: on loading, each
+       gets its summit and the top by that way (a save from before the
+       trail log is credited the same way), so the One Ten and the Goose
+       are earned too; the Eagle (all four trails) is not. */
+    bool prog = x_first && !x_slower && records_best(TRUCK_MODELS - 1, WAY_EXTREME) == 2345 &&
+                records_views(AREA_MOAB) == 0x8005 && records_views(AREA_CASCADE) == 0 &&
+                records_stamps(AREA_LOWLAND) ==
+                    (STAMP_SUMMIT | STAMP_BIT(WAY_LOGGING, STAMP_TOP) | STAMP_BIT(LOG_EXTREME, STAMP_TOP | STAMP_NIGHT)) &&
+                records_stamps(AREA_CASCADE) == (STAMP_SUMMIT | STAMP_BIT(WAY_LOGGING, STAMP_TOP)) &&
+                records_cheat() && records_told() == 0x44 && unlock_met(1, &d) && unlock_met(6, &d) && unlock_met(5, &d) &&
+                !unlock_met(7, &d) && unlock_met(2, &d) && done_views(&d) == 3;
+    printf("RL AT vmu: progress %s (views %04x, stamps %04x, extreme %lu, cheat %d, told %02x)\n", prog ? "ok" : "WRONG",
+           records_views(AREA_MOAB), records_stamps(AREA_LOWLAND), (unsigned long)records_best(TRUCK_MODELS - 1, WAY_EXTREME),
+           records_cheat(), records_told());
+    game.truck_model = 1;
+    game.area = AREA_LOWLAND;
     uint32_t loch = records_best(1, WAY_LOGGING);
     game.area = AREA_DUNES;
     uint32_t dunes = records_best(1, WAY_LOGGING);
@@ -227,7 +260,7 @@ static void vmu_test(void) {
     uint32_t last = records_best(TRUCK_MODELS - 1, WAY_LOGGING), bobcat = records_best(2, WAY_LOGGING);
     bool named = strcmp(records_name(), "PEBBLES") == 0;
     if(first && !second && third && fourth && fifth && got == 5813 && other == 0 && last == 7025 && bobcat == 0 && desert == 3333 &&
-       dunes == 4444 && sixth && loch == 5555 && named)
+       dunes == 4444 && sixth && loch == 5555 && named && prog)
         printf("RL AUTOTEST: PASS vmu save read back %lu, %lu, the desert's %lu, the dunes' %lu and the loch's %lu, name %s\n",
                (unsigned long)got, (unsigned long)last, (unsigned long)desert, (unsigned long)dunes, (unsigned long)loch,
                records_name());
@@ -372,6 +405,18 @@ bool autotest_controls(Truck *p, float dt) {
 #endif
     /* Each light setting for a third of every minute, so all are drawn and costed. */
     p->lights = (uint8_t)(fmodf(game.clock, 60.0f) / 20.0f);
+#ifdef RL_AT_TRAIL
+    /* -DRL_AT_TRAIL=150 (with -DRL_AT_ROUTE=5): that many seconds into
+       the extreme trail's run, one recover, as a player's: back to the
+       last rest, and the run no longer clean (the log's "Ridgeline
+       progress" lines say where it landed and what was stamped). */
+    static bool recovered;
+    if(!recovered && progress_trail_on() && progress_trail_clock() > (float)(RL_AT_TRAIL)) {
+        recovered = true;
+        progress_recover();
+        camera_reset();
+    }
+#endif
     return false;
 }
 
@@ -399,7 +444,56 @@ static void tour_done(void) {
 }
 #endif
 
+#ifdef RL_AT_FBDUMP
+/* -DRL_AT_FBDUMP=2: each shot's picture goes out through the serial
+   console as well (the frame the PVR is showing a few frames after the RL
+   SHOT line, RGB565, a base64 line a row; 2 is every other pixel of every
+   other row, 1 all of them), for a Mac whose screen is locked, where
+   Flycast's window can't be photographed. Flycast must run with
+   rend.EmulateFramebuffer=yes, so the picture is in the guest's video
+   memory, and rend.vsync=no, or it waits for a display that is off. Its
+   serial port keeps to its baud rate: a half-size picture takes ~18 s, a
+   whole one over a minute. tools/fbshots.py turns the log back into
+   pictures. */
+static char fb_name[20];
+static int fb_wait;
+
+static void fb_dump(void) {
+    static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const int step = RL_AT_FBDUMP + 0 > 1 ? 2 : 1, w = 640 / step, h = 480 / step;
+    uint32_t sof = *(volatile uint32_t *)0xa05f8050 & 0x00fffffc;
+    const uint16_t *fb = (const uint16_t *)(0xa5000000 + sof);
+    static uint8_t row[1280 + 2];
+    static char line[1720];
+    printf("RL FB %s %d %d\n", fb_name, w, h);
+    for(int y = 0; y < h; y++) {
+        const uint16_t *p = fb + y * step * 640;
+        for(int x = 0; x < w; x++) {
+            uint16_t v = p[x * step];
+            row[x * 2] = (uint8_t)v;
+            row[x * 2 + 1] = (uint8_t)(v >> 8);
+        }
+        row[w * 2] = row[w * 2 + 1] = 0;
+        int n = 0;
+        for(int i = 0; i < w * 2; i += 3) {
+            uint32_t v = (uint32_t)row[i] << 16 | (uint32_t)row[i + 1] << 8 | row[i + 2];
+            line[n++] = b64[v >> 18];
+            line[n++] = b64[(v >> 12) & 63];
+            line[n++] = b64[(v >> 6) & 63];
+            line[n++] = b64[v & 63];
+        }
+        line[n] = '\0';
+        printf("RL FB:%s\n", line);
+    }
+    printf("RL FB END\n");
+}
+#endif
+
 static void __attribute__((unused)) shot(const char *name) {
+#ifdef RL_AT_FBDUMP
+    snprintf(fb_name, sizeof(fb_name), "%s", name);
+    fb_wait = 8;
+#endif
 #ifdef RL_HW
     rl_wd.in_print = 1;
     qa_shot("%s", name);
@@ -411,6 +505,9 @@ static void __attribute__((unused)) shot(const char *name) {
 }
 
 void autotest_frame(float dt_real) {
+#ifdef RL_AT_FBDUMP
+    if(fb_wait > 0 && --fb_wait == 0) fb_dump();
+#endif
 #ifdef RL_HW
     rl_wd.frames++;
     rl_wd.where = rl_where;
@@ -438,6 +535,29 @@ void autotest_frame(float dt_real) {
             menus_done = true;
             frames = 200;
         }
+#ifdef RL_AT_LOCKS
+        /* -DRL_AT_LOCKS: the trucks locked as a player's are (test builds
+           otherwise drive anything), with a little done already so the
+           trail log has stamps to show. The title's code first: every
+           truck unlocked, then locked again. */
+        static const uint32_t code[5] = {BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A | BTN_START};
+        if(frames == 2 && !menus_done) {
+            /* (stamps for the card, but no summit and no extreme trail:
+               nothing earned yet but the Taco's first seven viewpoints) */
+            records_add_stamps(AREA_CASCADE, STAMP_BIT(0, STAMP_TOP | STAMP_CLEAN) | STAMP_BIT(2, STAMP_TOP | STAMP_NIGHT));
+            records_add_views(AREA_CASCADE, 0x2b);
+            records_add_views(AREA_MOAB, 0x7);
+        }
+        for(int k = 0; k < 5 && !menus_done; k++) {
+            if(frames == 20 + k * 8) input_film_tap(0, code[k]);
+            if(frames == 78 + k * 8) input_film_tap(0, code[k]);
+        }
+        if(frames == 70 && !menus_done) {
+            printf("RL AT locks: the code %s\n", records_cheat() ? "unlocked every truck" : "DID NOTHING");
+            shot("title-code");
+        }
+        if(frames == 116 && !menus_done) printf("RL AT locks: the code again %s\n", records_cheat() ? "DID NOTHING" : "locked them");
+#endif
         if(frames == 120 && !menus_done) input_film_tap(0, BTN_START);
         if(frames == 200 && !menus_done) shot("title");
         if(frames == 230 && !menus_done) input_film_tap(0, BTN_DOWN);
@@ -470,9 +590,29 @@ void autotest_frame(float dt_real) {
         if(frames == 150) input_film_tap(0, BTN_LEFT);
         if(frames == 170) input_film_tap(0, BTN_A);
         if(frames == 230) shot("select");
-        if(frames == 250) input_film_tap(0, BTN_A);
-        if(frames == 300) shot("select-drive");
-        if(frames == 330) {
+#ifdef RL_AT_LOCKS
+        /* On to a truck still to be earned, A (refused), the next one,
+           and back. */
+        if(frames == 244) input_film_tap(0, BTN_RIGHT);
+        if(frames == 256) {
+            printf("RL AT locks: the select is on a truck that is %s\n", progress_unlocked(game.truck_model) ? "NOT LOCKED" : "locked");
+            shot("select-locked");
+        }
+        if(frames == 270) input_film_tap(0, BTN_A);
+        if(frames == 276) input_film_tap(0, BTN_START);
+        if(frames == 282) input_film_tap(0, BTN_RIGHT);
+        if(frames == 294) shot("select-locked-2");
+        if(frames == 308 || frames == 314) input_film_tap(0, BTN_LEFT);
+        if(frames == 326)
+            printf("RL AT locks: A and Start on it %s, and back on a truck that is %s\n",
+                   game.state == ST_SELECT ? "were refused" : "STARTED A DRIVE", progress_unlocked(game.truck_model) ? "the player's" : "LOCKED");
+        const int later = 90;
+#else
+        const int later = 0;
+#endif
+        if(frames == 250 + later) input_film_tap(0, BTN_A);
+        if(frames == 300 + later) shot("select-drive");
+        if(frames == 330 + later) {
             game_start_drive();
             ai_start(0, RL_AT_ROUTE);
             game.paused = false;
@@ -485,7 +625,9 @@ void autotest_frame(float dt_real) {
         /* -DRL_AT_TOUR_ROUTE=2: the tour is a drive up that route instead,
            the views a chase camera's at even steps along it. */
         const lvl_route_t *rt = &lvl_routes[RL_AT_TOUR_ROUTE];
-        int k = (int)((at.tour + 0.5f) * rt->n / TOUR_N), k1 = k + 4 < rt->n ? k + 4 : rt->n - 1, k0 = k > 2 ? k - 2 : 0;
+        /* (Along its own stretch: the extreme trail's, between its gates.) */
+        int k = rt->own0 + (int)((at.tour + 0.5f) * (rt->own1 - rt->own0 + 1) / TOUR_N);
+        int k1 = k + 4 < rt->n ? k + 4 : rt->n - 1, k0 = k > 2 ? k - 2 : 0;
         V3 p = v3(rt->pts[k0].x, rt->pts[k0].y + 3.4f, rt->pts[k0].z);
         float tv[6] = {p.x, p.y, p.z, rt->pts[k1].x, rt->pts[k1].y + 1.0f, rt->pts[k1].z};
         const float *v = tv;

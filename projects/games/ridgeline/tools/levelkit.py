@@ -455,11 +455,12 @@ def preview_image(rgb, water, routes, spheres, capsules, boxes, trees, views, pa
 
     def px(x, z):
         return ((x - ORG) / D * 3, (N - 1 - (z - ORG) / D) * 3)
-    cols = [(255, 255, 255), (60, 140, 255), (255, 60, 60), (40, 220, 220), (255, 120, 0)]
+    cols = [(255, 255, 255), (60, 140, 255), (255, 60, 60), (40, 220, 220), (255, 120, 0), (255, 0, 255)]
     for k, r in enumerate(routes):
-        d.line([px(p[0], p[1]) for p in r["pts"][::2]], fill=cols[k % len(cols)], width=2)
+        own = r["pts"][r["own0"]:r["own1"] + 1] if "own0" in r else r["pts"]
+        d.line([px(p[0], p[1]) for p in own[::2]], fill=cols[k % len(cols)], width=2)
     for t in trees[::1]:
-        c = [(20, 80, 30), (250, 210, 40), (230, 90, 30)][t[3]]
+        c = [(20, 80, 30), (250, 210, 40), (230, 90, 30), (200, 200, 200), (10, 50, 20)][t[3] % 5]
         x, y = px(t[0], t[2])
         d.point((x, y), fill=c)
     for s in spheres:
@@ -489,8 +490,18 @@ def minimap(rgb, water, routes, tracks, path):
     def px(x, z):
         return ((x - ORG) / SIZE * 512, (1 - (z - ORG) / SIZE) * 512)
     for r in routes:
+        if "own0" in r:
+            continue
         d.line([px(p[0], p[1]) for p in r["pts"][::3]], fill=(90, 50, 30), width=6)
         d.line([px(p[0], p[1]) for p in r["pts"][::3]], fill=(250, 240, 210), width=2)
+    # The extreme trail's own stretch: a dark line, dashed in red.
+    for r in routes:
+        if "own0" not in r:
+            continue
+        own = [px(p[0], p[1]) for p in r["pts"][r["own0"]:r["own1"] + 1]]
+        d.line(own[::3] + own[-1:], fill=(60, 24, 20), width=6)
+        for k in range(0, len(own) - 6, 12):
+            d.line(own[k:k + 7], fill=(255, 96, 56), width=2)
     for t in tracks:
         d.line([px(p[0], p[1]) for p in t[::3]], fill=(110, 70, 40), width=3)
     img = img.resize((256, 256), Image.LANCZOS)
@@ -674,6 +685,123 @@ def faces(h, drop=4.6):
 
 
 # ---------------------------------------------------------------------------
+# The extreme trail: an area's sixth route, the hard way to the top. It is
+# drawn by hand like the routes above (route_line), leaves one of the other
+# routes at a gate and comes back to one (or reaches the summit) at
+# another; in the header it runs all the way from the fork to the summit,
+# over the routes it shares before and after its own stretch, so a CPU
+# driver follows it like any other.
+
+def xt_route(h, ctrl, name, short, half):
+    """The trail's own stretch from its control points (x, z, height or
+    None for the ground): a point a metre, heights, widths, and room for
+    its pace and its named places."""
+    r = route_line(h, ctrl, 1.0, name)
+    r.update(half=half, short=short, difficulty=4)
+    r["turn"] = turniness(r["pts"])
+    r["halfs"] = half * (1.0 + 0.6 * r["turn"])
+    r["pace"] = np.zeros(len(r["pts"]))
+    r["spots"] = []
+    return r
+
+
+def xt_ramp(r, marks, sigma=2.0):
+    """Set the trail's heights from a few of them: marks is [(point,
+    height)] in order, the grade even between one and the next, rounded
+    off where it changes."""
+    ks = np.array([k for k, _ in marks], dtype=float)
+    ys = np.array([v for _, v in marks], dtype=float)
+    seg = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(r["pts"], axis=0), axis=1))])
+    y = np.interp(seg, seg[ks.astype(int)], ys)
+    r["y"] = gaussian_filter1d(y, sigma, mode="nearest")
+    r["y"][0], r["y"][-1] = ys[0], ys[-1]
+
+
+def xt_k(r, x, z):
+    """The point of route r nearest (x, z)."""
+    return int(np.argmin(np.linalg.norm(r["pts"] - np.array([x, z], dtype=float), axis=1)))
+
+
+def xt_band(r, reach, k0=0, k1=None):
+    """The vertices within reach of route r's points k0..k1: their rows and
+    columns, each one's nearest point, its distance from the line and that
+    distance signed (positive right of the way the route runs)."""
+    k1 = len(r["pts"]) if k1 is None else k1
+    pts = r["pts"][k0:k1]
+    d, idx = cKDTree(pts).query(FLAT, distance_upper_bound=reach)
+    ok = np.isfinite(d)
+    jj, ii = np.unravel_index(np.nonzero(ok)[0], (N, N))
+    idx = idx[ok]
+    tg = np.gradient(pts, axis=0)
+    tg /= np.linalg.norm(tg, axis=1, keepdims=True) + 1e-9
+    rel = FLAT[ok] - pts[idx]
+    lat = rel[:, 0] * tg[idx, 1] - rel[:, 1] * tg[idx, 0]
+    return jj, ii, idx + k0, d[ok], lat
+
+
+def xt_camber(h, r, k0, k1, fall, ease=6.0):
+    """Tilt the trail's bed across itself between points k0 and k1: fall
+    metres of drop per metre to the right (negative: to the left), eased in
+    and out over ease metres. An off-camber traverse."""
+    half = float(np.max(r["halfs"][k0:k1]))
+    jj, ii, idx, d, lat = xt_band(r, half + 3.0, k0, k1)
+    along = np.minimum(idx - k0, k1 - 1 - idx)
+    w = smoothstep(half + 3.0, half, d) * np.clip(along / ease, 0, 1)
+    h[jj, ii] -= fall * lat * w
+
+
+def xt_surface(surf, r, k0, k1, kind, extra=0.8):
+    """Paint the trail's bed between points k0 and k1."""
+    half = float(np.max(r["halfs"][k0:k1]))
+    jj, ii, idx, d, lat = xt_band(r, half + extra, k0, k1)
+    on = d < r["halfs"][idx] + extra
+    surf[jj[on], ii[on]] = kind
+
+
+def xt_settle(h, r, k0=0, k1=None):
+    """A route's driving band back to its own heights between points k0
+    and k1, where a trail laid beside it or across it has moved it."""
+    k1 = len(r["pts"]) if k1 is None else k1
+    d, idx = cKDTree(r["pts"][k0:k1]).query(FLAT, distance_upper_bound=float(np.max(r["halfs"][k0:k1])))
+    ok = np.isfinite(d)
+    ok[ok] = d[ok] < r["halfs"][k0:k1][idx[ok]]
+    jj, ii = np.unravel_index(np.nonzero(ok)[0], h.shape)
+    h[jj, ii] = r["y"][k0:k1][idx[ok]]
+
+
+def xt_full(own, before=(), after=()):
+    """The whole route for the header: the stretches of other routes it
+    follows first ((route, k0, k1) at a point a metre, k0 > k1 for one
+    followed backwards), its own, and those after. Its pace and places
+    move along with its own points."""
+    def piece(r, k0, k1):
+        sl = slice(k0, k1) if k1 >= k0 else slice(k0, k1, -1)
+        return r["pts"][sl], r["y"][sl]
+    pts, ys = [], []
+    for (r, k0, k1) in before:
+        p, y = piece(r, k0, k1)
+        pts.append(p)
+        ys.append(y)
+    n0 = sum(len(p) for p in pts)
+    pts.append(own["pts"])
+    ys.append(own["y"])
+    for (r, k0, k1) in after:
+        p, y = piece(r, k0, k1)
+        pts.append(p)
+        ys.append(y)
+    full = dict(own)
+    full["pts"], full["y"] = np.vstack(pts), np.concatenate(ys)
+    full["own0"], full["own1"] = n0, n0 + len(own["pts"]) - 1
+    full["diff_in"] = max([q["difficulty"] for (q, _, _) in before], default=0)
+    full["diff_out"] = max([q["difficulty"] for (q, _, _) in after], default=0)
+    pace = np.zeros(len(full["pts"]))
+    pace[n0:n0 + len(own["pts"])] = own["pace"]
+    full["pace"] = pace
+    full["spots"] = [(k + n0, name, rest) for (k, name, rest) in own["spots"]]
+    return full
+
+
+# ---------------------------------------------------------------------------
 # Output: the packed grid and the generated header (src/level.h, src/level.c)
 
 H_BASE = -32.0           # heights are stored as u16 steps of H_STEP above this
@@ -761,7 +889,7 @@ def write_header(path, area, lv):
     w = L.append
     w("/* Generated by tools/build_level.py. Do not edit. */")
     routes = lv["routes"]
-    assert len(routes) == 5, "five routes: the approach, three ways up, the summit trail"
+    assert len(routes) in (5, 6), "the approach, three ways up, the summit trail, and the extreme trail if there is one"
     for k, r in enumerate(routes):
         pts = r["pts"][::4]
         ys = r["y"][::4]
@@ -769,10 +897,33 @@ def write_header(path, area, lv):
         for row in range(0, len(pts), 4):
             w("    " + " ".join(f"{{{p[0]:.1f}f, {y:.2f}f, {p[1]:.1f}f}}," for p, y in zip(pts[row:row + 4], ys[row:row + 4])))
         w("};")
+        if "pace" in r:
+            # The speed to carry at each point, in quarter metres a second
+            # (0: the driver's own choice).
+            pace = np.clip(np.round(np.asarray(r["pace"])[::4] * 4), 0, 255).astype(int)
+            w(f"static const uint8_t {a}_pace{k}[{len(pace)}] = {{")
+            for row in range(0, len(pace), 24):
+                w("    " + " ".join(f"{v}," for v in pace[row:row + 24]))
+            w("};")
     w(f"static const lvl_route_t {a}_routes[{len(routes)}] = {{")
     for k, r in enumerate(routes):
-        w(f'    {{"{r["name"]}", "{r["short"]}", {a}_route{k}, {len(r["pts"][::4])}, {r["difficulty"]}, {r["half"]:.2f}f}},')
+        n = len(r["pts"][::4])
+        own0 = (r.get("own0", 0) + 3) // 4
+        own1 = min(n - 1, r["own1"] // 4) if "own1" in r else n - 1
+        pace = f"{a}_pace{k}" if "pace" in r else "NULL"
+        w(f'    {{"{r["name"]}", "{r["short"]}", {a}_route{k}, {n}, {r["difficulty"]}, {r["half"]:.2f}f, {own0}, {own1}, '
+          f'{r.get("diff_in", 0)}, {r.get("diff_out", 0)}, {pace}}},')
     w("};\n")
+    # The extreme trail's places: (point at 1 m, name, kind) with kind 1 a
+    # rest (level ground a recover goes back to), 0 an obstacle with a name.
+    spots = routes[5].get("spots", []) if len(routes) == 6 else []
+    if spots:
+        w(f"static const lvl_spot_t {a}_spots[{len(spots)}] = {{")
+        for (k1, name, rest) in spots:
+            w(f'    {{{k1 // 4}, {int(rest)}, "{name}"}},')
+        w("};")
+    else:
+        w(f"#define {a}_spots NULL")
 
     def table(ctype, name, rows, fmt, limit=None):
         assert limit is None or len(rows) <= limit, f"{name}: {len(rows)} is over the game's {limit}"
@@ -793,7 +944,7 @@ def write_header(path, area, lv):
     table("lvl_tree_t", "trees", lv["trees"],
           lambda t: f"{{{t[0]:.1f}f, {t[1]:.2f}f, {t[2]:.1f}f, {t[3]}, {{0}}, {t[4]:.2f}f, {t[5]:.2f}f}}", 2048)
     table("lvl_prop_t", "props", lv["props"],
-          lambda p: f"{{{p[0]:.1f}f, {p[1]:.2f}f, {p[2]:.1f}f, {p[3]:.3f}f, {p[4]}, {p[5] if len(p) > 5 else 0}, {{0}}}}", 48)
+          lambda p: f"{{{p[0]:.1f}f, {p[1]:.2f}f, {p[2]:.1f}f, {p[3]:.3f}f, {p[4]}, {p[5] if len(p) > 5 else 0}, {{0}}}}", 56)
     table("lvl_view_t", "views", lv["views"], lambda v: f'{{{v[0]:.1f}f, {v[1]:.2f}f, {v[2]:.1f}f, "{v[3]}"}}', 16)
     w(f"static const float {a}_spawns[{len(lv['spawns'])}][4] = {{")
     for s_ in lv["spawns"]:
@@ -824,10 +975,10 @@ def write_header(path, area, lv):
     w(f"    .lake_y = {lv['lake_y']:.2f}f, .start_y = {lv['start_y']:.2f}f,")
     w(f"    .summit_x = {sx:.1f}f, .summit_y = {sy:.2f}f, .summit_z = {sz:.1f}f,")
     names = ["routes", "spheres", "capsules", "boxes", "posts", "trees", "props", "views", "spawns", "mists", "hawks",
-             "herds", "rings", "rocks"]
+             "herds", "rings", "rocks", "spots"]
     w("    " + " ".join(f".{n} = {a}_{n}," for n in names))
-    counts = {n: len(lv[n]) for n in names if n not in ("rings", "rocks")}
-    counts["rings"], counts["rocks"] = len(rings), len(rocks)
+    counts = {n: len(lv[n]) for n in names if n not in ("rings", "rocks", "spots")}
+    counts["rings"], counts["rocks"], counts["spots"] = len(rings), len(rocks), len(spots)
     w("    " + " ".join(f".n{n} = {counts[n]}," for n in names) + f" .nrock_boxes = {lv['rock_boxes']},")
     w("};")
     path.write_text("\n".join(L) + "\n")

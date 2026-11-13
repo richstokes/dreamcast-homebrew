@@ -61,7 +61,13 @@ enum {
 
 /* Routes: points every ~4 m with heights, for the CPU drivers, the map
    and progress. Route 0 runs from the start to the fork, 1 to 3 are the
-   ways up from there and 4 the last climb they share. */
+   ways up from there and 4 the last climb they share.
+
+   Route 5, where an area has one, is its extreme trail (difficulty 4):
+   the hard way to the top. It runs the whole way from the fork to the
+   summit, so a driver follows it like any other, over stretches of the
+   other routes before and after its own, which lies between points own0
+   and own1: the trail's two gates. */
 typedef struct { float x, y, z; } lvl_pt_t;
 typedef struct {
     const char *name, *short_name;
@@ -69,8 +75,15 @@ typedef struct {
     uint16_t n;
     uint8_t difficulty;
     float half;
+    uint16_t own0, own1;    /* the stretch that is this route's alone (all of it, but for the extreme trail) */
+    uint8_t diff_in, diff_out;   /* the extreme trail: how hard the routes it shares before and after are */
+    const uint8_t *pace;    /* the speed to carry at each point, quarter metres a second (0, or NULL: the driver's choice) */
 } lvl_route_t;
-#define LVL_ROUTE_SLOTS 5
+#define LVL_ROUTE_SLOTS 6
+#define LVL_ROUTE_EXTREME 5
+/* Places along the extreme trail: an obstacle with a name, or a rest,
+   level ground where a truck that is recovered on the trail is put back. */
+typedef struct { uint16_t pt; uint8_t rest; const char *name; } lvl_spot_t;
 
 /* Obstacles the trucks collide with. Spheres (boulders): centre, radius. */
 typedef struct { float x, y, z, r; } lvl_sphere_t;
@@ -135,8 +148,9 @@ typedef struct {
     const float (*herds)[2];        /* where the deer graze */
     const lvl_ring_t *rings;
     const lvl_rock_t *rocks;
+    const lvl_spot_t *spots;
     uint16_t nroutes, nspheres, ncapsules, nboxes, nrock_boxes, nposts, ntrees, nprops, nviews, nspawns, nmists,
-        nhawks, nherds, nrings, nrocks;
+        nhawks, nherds, nrings, nrocks, nspots;
 } RlLevel;
 
 /* How an area looks and sounds, beyond what its level lists: what the
@@ -175,6 +189,11 @@ extern const RlLevel *const rl_levels[AREA_COUNT];
 
 #define LVL_ROUTES (lvl->nroutes)
 #define lvl_routes (lvl->routes)
+/* Whether the loaded area has an extreme trail, and the trail. */
+#define LVL_HAS_EXTREME (lvl->nroutes > LVL_ROUTE_EXTREME)
+#define lvl_extreme (&lvl->routes[LVL_ROUTE_EXTREME])
+#define LVL_SPOTS (lvl->nspots)
+#define lvl_spots (lvl->spots)
 #define LVL_SPHERES (lvl->nspheres)
 #define lvl_spheres (lvl->spheres)
 #define LVL_CAPSULES (lvl->ncapsules)

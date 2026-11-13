@@ -7,7 +7,14 @@
    down by another of the three routes to the foot of the forest road,
    then turns again and climbs a different way, for as long as the drive
    lasts. A trip is one way up or down: three legs, the routes followed
-   backwards on the way down. Trucks meeting on a trail keep right. */
+   backwards on the way down. Trucks meeting on a trail keep right.
+
+   Now and then a climb is by the area's extreme trail instead (level.h:
+   one route from the fork to the summit, so two legs). There a driver
+   has what the trail's builder knew of it (the pace to carry into each
+   obstacle) and nothing else: no pull back to the line and no help
+   against a roll on the trail's own stretch, so what it does there the
+   player's truck can do. tools/hostsim counts on that. */
 #include "ai.h"
 #include "truck.h"
 #include "terrain.h"
@@ -16,6 +23,7 @@
 
 typedef struct {
     int mid, leg;           /* the route between the fork and the lake this trip; 0 to 2 along it */
+    int last;               /* the trip's final leg: 2, or 1 by the extreme trail */
     int dir;                /* 1 climbing, -1 coming down */
     int trips;              /* ends reached: the summit first */
     int route, pt;
@@ -23,6 +31,7 @@ typedef struct {
     int retries;
     float start_t, delay;   /* CPUs set off one after another */
     float wait_t, mode_t, push, lost_t, progress_t;
+    float feather;          /* the extreme trail: the most throttle the tyres are taking without spinning */
     int best_at;
     float shift;            /* metres right of the route's line: passing, pulling over */
     int turn, turn_side;    /* turning round: TURN_*, and the lock it noses in on (0: not chosen) */
@@ -32,6 +41,12 @@ typedef struct {
 enum { TURN_NONE, TURN_NOSE_IN, TURN_BACK_OUT };
 
 static Ai ai[MAX_TRUCKS];
+#ifdef RL_AI_TRACE
+int ai_helped;    /* winches and recovers so far (tools/hostsim) */
+#define HELPED() (ai_helped++)
+#else
+#define HELPED() ((void)0)
+#endif
 
 /* Test builds can give the player's CPU driver the same guide. */
 static inline bool getenv_assist(void) {
@@ -43,12 +58,18 @@ static inline bool getenv_assist(void) {
 }
 
 /* Route indices in level.h's order. */
-enum { R_FOREST, R_LOGGING, R_RIDGE, R_CREEK, R_SUMMIT };
+enum { R_FOREST, R_LOGGING, R_RIDGE, R_CREEK, R_SUMMIT, R_EXTREME };
 
 /* The route of the leg a driver is on. */
 static int leg_route(const Ai *a) {
+    if(a->mid == R_EXTREME) return (a->leg == 0) == (a->dir > 0) ? R_FOREST : R_EXTREME;
     if(a->leg == 1) return a->mid;
     return (a->leg == 0) == (a->dir > 0) ? R_FOREST : R_SUMMIT;
+}
+
+/* On the extreme trail's own stretch: between its gates. */
+static inline bool on_extreme(const Ai *a, const lvl_route_t *r) {
+    return a->route == R_EXTREME && a->pt >= r->own0 && a->pt <= r->own1;
 }
 
 /* Points still to go on this leg, and how far the driver has come since
@@ -72,20 +93,24 @@ static int pick(const Truck *t, int n) {
 void ai_start(int ti, int route) {
     Ai *a = &ai[ti];
     memset(a, 0, sizeof(*a));
+    if(route == R_EXTREME && !LVL_HAS_EXTREME) route = R_LOGGING;
     a->mid = route;
+    a->last = route == R_EXTREME ? 1 : 2;
     a->dir = 1;
     a->leg = 0;
     a->route = R_FOREST;
     a->pt = 0;
     a->delay = ti * 4.0f;
+    a->feather = 1.0f;
 }
 
-#ifdef RL_FILM
+#if defined(RL_FILM) || defined(RL_AI_TRACE)
 void ai_start_on(int ti, int route, int on, int pt, float delay) {
     ai_start(ti, route);
     Ai *a = &ai[ti];
     a->leg = on == R_FOREST ? 0 : on == R_SUMMIT ? 2 : 1;
     a->mid = on == R_FOREST || on == R_SUMMIT ? route : on;
+    a->last = a->mid == R_EXTREME ? 1 : 2;
     a->route = on;
     a->pt = pt;
     a->best_at = progress_at(a, &lvl_routes[on]);
@@ -190,7 +215,18 @@ static void arrive(Ai *a, const Truck *t, const lvl_route_t *r) {
     a->trips++;
     a->dir = -a->dir;
     a->leg = 0;
-    a->mid = 1 + (a->mid - 1 + 1 + pick(t, 2)) % 3;
+    /* Another of the three ways than the last; one climb in four is by
+       the extreme trail, which nobody comes down (it is one way: up). */
+    a->mid = a->mid == R_EXTREME ? 1 + pick(t, 3) : 1 + (a->mid - 1 + 1 + pick(t, 2)) % 3;
+    if(a->dir > 0 && LVL_HAS_EXTREME && pick(t, 4) == 0) a->mid = R_EXTREME;
+    a->last = a->mid == R_EXTREME ? 1 : 2;
+    /* The way back starts on its own first leg: from the top of the
+       extreme trail that is the summit trail, not the trail just climbed. */
+    if(a->route != leg_route(a)) {
+        a->route = leg_route(a);
+        r = &lvl_routes[a->route];
+        a->pt = nearest_pt(r, t->pos, 0, r->n - 1);
+    }
     a->start_t = 0;
     a->delay = (a->dir < 0 ? 8.0f : 5.0f) + (float)pick(t, 10);
     a->turn = TURN_NOSE_IN;
@@ -233,6 +269,7 @@ static bool turn_round(Ai *a, Truck *t, const lvl_route_t *r, float dt) {
         /* No room, or something in the way: the winch swings it round. */
         truck_place(t, v3(r->pts[a->pt].x, 0, r->pts[a->pt].z), atan2f(w.x, w.z));
         a->turn = TURN_NONE;
+        HELPED();
 #if (defined(RL_AUTOTEST) && !defined(RL_HW)) || defined(RL_AI_TRACE)
         printf("RL AI %d winched round on route %d pt %d\n", (int)(a - ai), a->route, a->pt);
 #endif
@@ -295,7 +332,7 @@ void ai_drive(int ti, float dt) {
     /* Never across a hairpin to its other leg. */
     if(a->dir > 0) a->pt = nearest_pt(r, t->pos, a->pt, a->pt + 4);
     else a->pt = nearest_pt(r, t->pos, a->pt - 4, a->pt);
-    if(a->leg < 2 && pts_left(a, r) <= 1) {
+    if(a->leg < a->last && pts_left(a, r) <= 1) {
         a->leg++;
         a->route = leg_route(a);
         r = &lvl_routes[a->route];
@@ -313,7 +350,7 @@ void ai_drive(int ti, float dt) {
             }
         }
     }
-    else if(a->leg == 2 && pts_left(a, r) == 0) arrive(a, t, r);
+    else if(a->leg == a->last && pts_left(a, r) == 0) arrive(a, t, r);
     /* Off the route (slid off a bend, fell down a bank): find it again,
        and if it is well above us, recover back on to it. */
     {
@@ -334,13 +371,16 @@ void ai_drive(int ti, float dt) {
 #endif
                 truck_recover_on(t, a->route);
                 face_route(a, t, r);
+                HELPED();
             }
         }
     }
     /* A guide on the trail, as racing games give their drivers: a gentle
        pull back toward the line when drifting past the edge, and help
-       against a roll. Companions only; the player drives unaided. */
-    if(ti != 0 || getenv_assist()) {
+       against a roll. Companions only; the player drives unaided, and so
+       does everyone between an extreme trail's gates. */
+    bool extreme = on_extreme(a, r);
+    if((ti != 0 || getenv_assist()) && !extreme) {
         int j = a->pt + a->dir >= 0 && a->pt + a->dir < r->n ? a->pt + a->dir : a->pt;
         V3 p0 = v3(r->pts[a->pt].x, 0, r->pts[a->pt].z), p1 = v3(r->pts[j].x, 0, r->pts[j].z);
         V3 seg = vsub(p1, p0);
@@ -378,9 +418,20 @@ void ai_drive(int ti, float dt) {
     V3 d1 = vnorm(vsub(p10, here)), d2 = vnorm(vsub(p20, p10));
     float bend = 1.0f - clampf(vdot(d1, d2), -1, 1);
     float grade = fabsf(p20.y - here.y) / 22.0f;
-    float base = r->difficulty == 0 ? 9.0f : r->difficulty == 1 ? 6.5f : r->difficulty == 2 ? 4.5f : 3.6f;
+    /* Off its own stretch the extreme trail is whichever route it shares. */
+    int diff = a->route != R_EXTREME || extreme ? r->difficulty : a->pt < r->own0 ? r->diff_in : r->diff_out;
+    float base = diff == 0 ? 9.0f : diff == 1 ? 6.5f : diff == 2 ? 4.5f : 3.6f;
     float want = base / (1.0f + bend * 6.0f) / (1.0f + grade * 2.5f);
     want = fmaxf(want, 1.6f);
+    /* The extreme trail's pace is its builder's: what each stretch wants
+       carried into it (the most of here and the next few metres, so a run
+       at something starts before it), eased only for a bend. */
+    if(extreme && r->pace) {
+        int p1 = a->pt + 2 < r->n ? a->pt + 2 : r->n - 1;
+        float pace = 0;
+        for(int i = a->pt; i <= p1; i++) pace = fmaxf(pace, r->pace[i] * 0.25f);
+        if(pace > 0) want = fmaxf(pace / (1.0f + bend * 2.5f), 1.6f);
+    }
     /* Coming down, a rock ledge that stands proud of the trail wants a run
        at it: at a crawl the front wheels just stop against its face. (The
        climb is left as it was tuned: there the winch gets them over.) */
@@ -398,7 +449,7 @@ void ai_drive(int ti, float dt) {
        the trail, slowly, the one coming down stopping for the one climbing
        if they would still touch. */
     bool queued = false;
-    float shift = a->leg == 2 && pts_left(a, r) < 6 ? r->half * 0.45f : 0;   /* pulling over to stop */
+    float shift = a->leg == a->last && pts_left(a, r) < 6 ? r->half * 0.45f : 0;   /* pulling over to stop */
     for(int o = 0; o < game.ntrucks; o++) {
         const Truck *u = &trucks[o];
         if(u->absent) continue;
@@ -425,7 +476,7 @@ void ai_drive(int ti, float dt) {
     a->shift += clampf(shift - a->shift, -1.5f * dt, 1.5f * dt);
     a->start_t += dt;
     /* The trip's end with a truck already stopped there: that will do. */
-    if(queued && a->leg == 2 && pts_left(a, r) < 6 && a->start_t >= a->delay) {
+    if(queued && a->leg == a->last && pts_left(a, r) < 6 && a->start_t >= a->delay) {
         arrive(a, t, r);
         r = &lvl_routes[a->route];
     }
@@ -442,13 +493,16 @@ void ai_drive(int ti, float dt) {
     /* Low range where it's rough or steep. */
     /* Low range where it's rough or steep, with hysteresis and a hold:
        each change is a shift with no drive for a moment. */
-    bool low = r->difficulty >= 2 || a->retries > 0 || grade > (t->mode == DRIVE_LOCK ? 0.10f : 0.17f);
+    bool low = diff >= 2 || a->retries > 0 || grade > (t->mode == DRIVE_LOCK ? 0.10f : 0.17f);
     int mode = low ? DRIVE_LOCK : DRIVE_4WD;
     a->mode_t += dt;
     if(t->mode != mode && fabsf(speed) < LOW_RANGE_SHIFT_MPS * 0.8f && a->mode_t > 3.0f) {
         truck_set_mode(t, mode);
         a->mode_t = 0;
     }
+    /* At an extreme trail's gate: down to a crawl for low range and the
+       lockers before anything else, as anyone would. */
+    if(extreme && t->mode != mode && want > 0) want = fminf(want, LOW_RANGE_SHIFT_MPS * 0.6f);
     if(want <= 0) {
         /* Waiting: hold still rather than creep into the truck ahead. */
         in->steer = resting && a->turn ? 0 : clampf(steer, -1, 1);
@@ -463,9 +517,42 @@ void ai_drive(int ti, float dt) {
        lasts, as a driver would. */
     if(speed < want * 0.5f) a->push = fminf(a->push + dt * 0.5f, 1.0f);
     else a->push = fmaxf(a->push - dt * 1.0f, 0.0f);
-    float throttle = clampf(err * 0.5f + 0.15f + a->push, 0, 1);
-    /* Nose rearing up: ease off before it goes over backwards. */
-    if(t->pitch > 30.0f) throttle *= clampf(1.0f - (t->pitch - 30.0f) / 12.0f, 0.15f, 1.0f);
+    /* (The extreme trail's pace is momentum something ahead needs: there
+       the pedal goes down for it.) */
+    float throttle = clampf(err * (extreme ? 1.2f : 0.5f) + 0.15f + a->push, 0, 1);
+    /* On the extreme trail, tyres that spin are eased back until they
+       bite: a spinning tyre has less to give than one that grips, and it
+       is grip that lifts a wheel up a ledge or holds a wet slab. */
+    if(extreme) {
+        float spin = 0;
+        int nc = 0, sand = 0;
+        for(int i = 0; i < 4; i++)
+            if(t->wh[i].contact) {
+                spin += t->wh[i].omega * t->spec.radius - speed;
+                sand += t->wh[i].surf == SURF_SAND || t->wh[i].surf == SURF_DEEPSAND;
+                nc++;
+            }
+        if(nc) spin /= (float)nc;
+        /* At a crawl, that is: a start is fed in, and a tyre polishing
+           the rock is let bite. With way on, the pedal stays down: across
+           wet rock too steep to hold a truck, what the tyres still give
+           and the speed it came in with are all there is. */
+        bool crawl = fabsf(speed) < 2.0f;
+        float most = 0.4f + 0.5f * clampf(fabsf(speed) * 0.5f, 0, 1);
+        if(fabsf(speed) < 0.6f) a->feather = fminf(a->feather, 0.4f);
+        if(crawl && spin > most) a->feather = fmaxf(a->feather - dt * 2.0f, 0.05f);
+        else if(!crawl || spin < most * 0.5f) a->feather = fminf(a->feather + dt * 1.5f, 1.0f);
+        /* In sand it is the other way about: turning tyres are what
+           keep a truck moving, and lifting off is what buries it. */
+        if(sand * 2 > nc) a->feather = 1.0f;
+        throttle = fminf(throttle, a->feather);
+    }
+    else a->feather = 1.0f;
+    /* Nose rearing up: ease off before it goes over backwards. (On the
+       extreme trail the ground itself is that steep: there it is the nose
+       coming up off the ground that counts.) */
+    float rear = extreme ? 30.0f + atanf(grade) * (180.0f / ENG_PI) * 0.7f : 30.0f;
+    if(t->pitch > rear) throttle *= clampf(1.0f - (t->pitch - rear) / 12.0f, 0.15f, 1.0f);
     float brake = clampf(-err * 0.35f, 0, 1);
     /* Stuck: back off a little with the wheel the other way, then go again. */
     if(a->reverse_t > 0) {
@@ -532,6 +619,7 @@ void ai_drive(int ti, float dt) {
                 truck_place(t, v3(r->pts[to].x, 0, r->pts[to].z), atan2f(w.x, w.z));
                 a->pt = to;
                 a->retries = 1;
+                HELPED();
 #if (defined(RL_AUTOTEST) && !defined(RL_HW)) || defined(RL_AI_TRACE)
                 printf("RL AI %d winched to route %d pt %d\n", ti, a->route, to);
 #endif
@@ -542,6 +630,7 @@ void ai_drive(int ti, float dt) {
     if(a->flip_t > 2.5f) {
         truck_recover_on(t, a->route);
         face_route(a, t, r);
+        HELPED();
         a->flip_t = 0;
     }
     if(fabsf(speed) > 2.0f && a->retries > 0 && a->stuck_t == 0) a->retries = a->retries > 1 ? a->retries - 1 : a->retries;
@@ -567,5 +656,6 @@ const char *ai_route_name(int ti) {
 float ai_progress(int ti) {
     const Ai *a = &ai[ti];
     if(a->trips > 0) return 3.0f;
-    return a->leg + (float)a->pt / (float)lvl_routes[a->route].n;
+    float f = (float)a->pt / (float)lvl_routes[a->route].n;
+    return a->route == R_EXTREME ? 1.0f + 2.0f * f : a->leg + f;
 }

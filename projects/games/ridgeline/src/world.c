@@ -195,7 +195,7 @@ static void cone(V3 base, float r0, float r1, float y0, float y1, int k, float y
 }
 
 static const uint32_t fir_col = 0xff2f6a3c, fir_col2 = 0xff3f7a44, larch_col = 0xffe4b23a, maple_col = 0xffd8642e,
-                      trunk_col = 0xff5a4030;
+                      trunk_col = 0xff5a4030, snag_col = 0xffb4aea2;
 
 /* One tree at a level of detail (0 near .. 3 far) into the open strip.
    Near, trunk and crown take the painted strokes (one texture, so a
@@ -452,6 +452,44 @@ static void tree(const lvl_tree_t *t, int lod, bool first) {
     cone_us = lod == 0 ? 1.0f : 0;   /* the trunk */
     cone_vs = lod == 0 ? 1.6f : 0;
     float crown_us = lod == 0 ? 2.0f : 0, crown_vs = lod == 0 ? 3.0f * s : 0;
+    if(t->kind == 3) {
+        /* A snag, where the mountain burned: a bare spar weathered
+           silver, black at the foot, broken off short or kinked where
+           its top went. */
+        float lean = 0.6f * s * (hrand(&seed) - 0.3f), top = (4.5f + 6.5f * hrand(&seed)) * s;
+        /* (the short ones snapped off: a blunt top, not a point) */
+        float tip = top < 7.0f * s ? 0.13f * s : 0.05f * s;
+        V3 b2 = v3(b.x + cosf(yaw) * lean, b.y, b.z + sinf(yaw) * lean);
+        int k = lod == 0 ? 5 : lod == 1 ? 4 : 3;
+        if(lod < 2) {
+            cone(b, 0.36f * s, 0.22f * s, 0, top * 0.55f, k, yaw, snag_col, 0.38f, 0.9f, j);
+            cone(b2, 0.22f * s, tip, top * 0.55f, top, k, yaw + 0.6f, snag_col, 0.9f, 1.1f, true);
+        }
+        else cone(b, 0.36f * s, tip, 0, top, 3, yaw, snag_col, 0.5f, 1.05f, j);
+        return;
+    }
+    if(t->kind == 4) {
+        /* Old growth: a trunk a truck wide and bare for three storeys,
+           the crown far overhead. What stands along the extreme trail,
+           where the trail runs between the trunks and under the boughs. */
+        static const float old[3][4] = {{3.5f, 6.4f, 12.4f, 0.42f}, {2.7f, 9.8f, 16.0f, 0.3f}, {1.8f, 13.6f, 19.6f, 0.12f}};
+        if(lod < 2) {
+            cone(b, 0.36f * s, 0.27f * s, 0, 7.4f * s, lod ? 4 : 5, yaw, trunk_col, 0.6f, 0.82f, j);
+            cone_us = crown_us;
+            cone_vs = crown_vs;
+            for(int i = 0; i < 3; i++) {
+                float ao = 0.58f + 0.15f * i;
+                cone(b, old[i][0] * s, old[i][3] * s, old[i][1] * s, old[i][2] * s, 5, yaw + i * 0.5f, col, ao, ao + 0.42f,
+                     true);
+            }
+        }
+        else if(lod == 2) {
+            cone(b, 0.36f * s, 0.3f * s, 0, 6.8f * s, 3, yaw, trunk_col, 0.6f, 0.78f, j);
+            cone(b, old[0][0] * s, old[2][3] * s, old[0][1] * s, old[2][2] * s, 5, yaw, col, 0.6f, 1.3f, true);
+        }
+        else cone(b, 3.2f * s, 0.05f * s, 5.6f * s, 19.4f * s, 3, yaw, col, 0.62f, 1.1f, j);
+        return;
+    }
     if(t->kind == 2) {
         /* A vine maple: a round crown in two cones on a short trunk. */
         int k = lod == 0 ? 6 : lod < 3 ? 5 : 4;
@@ -1329,26 +1367,30 @@ static void prop(const lvl_prop_t *p) {
         }
         case PROP_PLATE: {
             /* A trail's rating, as a ski run's: a shape on a pale board,
-               both sides. */
-            static const uint32_t shade[3] = {0xff2f9a48, 0xff2a5cc4, MARK_BLACK};
-            static const int sides[3] = {10, 4, 4};
-            static const float rad[3] = {0.23f, 0.3f, 0.27f}, rot[3] = {0, ENG_PI * 0.25f, 0};
-            int var = p->var < 3 ? p->var : 2;
+               both sides. Var 3 is the extreme trail's: two black
+               diamonds side by side on a wider board. */
+            static const uint32_t shade[4] = {0xff2f9a48, 0xff2a5cc4, MARK_BLACK, MARK_BLACK};
+            static const int sides[4] = {10, 4, 4, 4};
+            static const float rad[4] = {0.23f, 0.3f, 0.27f, 0.25f}, rot[4] = {0, ENG_PI * 0.25f, 0, 0};
+            int var = p->var < 4 ? p->var : 2, shapes = var == 3 ? 2 : 1;
             V3 f = v3(sy, 0, cy), r = v3(cy, 0, -sy), m = v3(c.x, c.y + 1.72f, c.z);
             box(h_bark, v3(c.x, c.y + 0.75f, c.z), 0.06f, 0.75f, 0.06f, p->yaw, 0xff6a4a30, 1.0f);
-            box(h_flat, m, 0.36f, 0.36f, 0.035f, p->yaw, 0xffeadfc0, 1.0f);
-            for(int face = -1; face <= 1; face += 2) {
-                V3 o = vadd(m, vscale(f, face * 0.045f)), rr = vscale(r, (float)-face), n = vscale(f, (float)face);
-                int ns = sides[var];
-                sc_strip_begin(&scenery, h_flat);
-                for(int k = 0; k < ns; k++) {
-                    /* Round the shape from both ends at once: a strip. */
-                    int idx = k & 1 ? ns - (k + 1) / 2 : k / 2;
-                    float a = rot[var] + ENG_TAU * idx / ns;
-                    lv(vadd(o, vadd(vscale(rr, sinf(a) * rad[var]), v3(0, cosf(a) * rad[var], 0))), 0, 0, shade[var], n, 1.0f);
+            box(h_flat, m, var == 3 ? 0.56f : 0.36f, 0.36f, 0.035f, p->yaw, 0xffeadfc0, 1.0f);
+            for(int face = -1; face <= 1; face += 2)
+                for(int sh = 0; sh < shapes; sh++) {
+                    V3 o = vadd(m, vscale(f, face * 0.045f)), rr = vscale(r, (float)-face), n = vscale(f, (float)face);
+                    if(shapes == 2) o = vadd(o, vscale(r, sh ? 0.27f : -0.27f));
+                    int ns = sides[var];
+                    sc_strip_begin(&scenery, h_flat);
+                    for(int k = 0; k < ns; k++) {
+                        /* Round the shape from both ends at once: a strip. */
+                        int idx = k & 1 ? ns - (k + 1) / 2 : k / 2;
+                        float a = rot[var] + ENG_TAU * idx / ns;
+                        lv(vadd(o, vadd(vscale(rr, sinf(a) * rad[var]), v3(0, cosf(a) * rad[var], 0))), 0, 0, shade[var], n,
+                           1.0f);
+                    }
+                    sc_strip_end(&scenery);
                 }
-                sc_strip_end(&scenery);
-            }
             break;
         }
         case PROP_TRACKS: break;   /* marks on the rock, no more (marks_build) */
@@ -1428,13 +1470,15 @@ static void marks_route(int r) {
     Step st[MARK_RUN + 1];
     int n = 0, count = 0;
     float s = 0, carry = 0;
-    for(int k = 0; k + 1 < rt->n; k++) {
+    /* A route's own stretch: the extreme trail shares the rest with
+       routes that have marked it already. */
+    for(int k = rt->own0; k < rt->own1; k++) {
         V3 a = v3(rt->pts[k].x, rt->pts[k].y, rt->pts[k].z), b = v3(rt->pts[k + 1].x, rt->pts[k + 1].y, rt->pts[k + 1].z);
         float dx = b.x - a.x, dz = b.z - a.z, len = sqrtf(dx * dx + dz * dz);
         if(len < 0.01f) continue;
         V3 dir = v3(dx / len, 0, dz / len);
         float grade = fabsf(b.y - a.y) / len;
-        bool last_seg = k + 2 >= rt->n;
+        bool last_seg = k + 1 >= rt->own1;
         float t = carry;
         for(;; t += MARK_STEP) {
             bool flush = t >= len;      /* past this stretch: at the route's end, what is left */

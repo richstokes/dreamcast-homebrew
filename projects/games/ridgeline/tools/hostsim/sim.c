@@ -5,6 +5,7 @@
 #include "truck.h"
 #include "terrain.h"
 #include "ai.h"
+#include "unlocks.h"
 #include <stdlib.h>
 
 extern Game game;
@@ -20,8 +21,12 @@ static void report(Truck *t, float time) {
     printf("ch %.0f\n", (double)t->dbg_chassis);
 }
 
-/* The CPU driver over a whole route, as fast as the host goes. */
+/* The CPU driver over a whole route, as fast as the host goes. Route 5 is
+   the area's extreme trail, which it drives between the gates with the
+   player's physics and nothing more (ai.c): a summit with no winch and no
+   recover in the log is the proof that the trail can be driven. */
 static int run_route(int route, int model, int quiet) {
+    ai_helped = 0;
     game.ntrucks = 1;
     Truck *t = &trucks[0];
     t->model = model;
@@ -47,14 +52,149 @@ static int run_route(int route, int model, int quiet) {
                    (double)t->pos.y, (double)t->pos.z, (double)t->speed, t->gear, t->mode, (double)ai_progress(0));
         float dx = t->pos.x - LEVEL_SUMMIT_X, dz = t->pos.z - LEVEL_SUMMIT_Z;
         if(dx * dx + dz * dz < 18.0f * 18.0f) {
-            printf("route %d truck %d: SUMMIT in %.0f s\n", route, model, f * dt);
+            if(quiet < 2) printf("route %d truck %d: SUMMIT in %.0f s, helped %d times\n", route, model, f * dt, ai_helped);
             return 1;
         }
     }
-    printf("route %d truck %d: no summit after 1200 s, best height %.0f of %.0f, prog %.2f, at %.0f %.0f %.0f\n", route,
-           model, (double)best, (double)LEVEL_SUMMIT_Y, (double)ai_progress(0), (double)t->pos.x, (double)t->pos.y,
-           (double)t->pos.z);
+    if(quiet < 2)
+        printf("route %d truck %d: no summit after 1200 s, best height %.0f of %.0f, prog %.2f, at %.0f %.0f %.0f\n", route,
+               model, (double)best, (double)LEVEL_SUMMIT_Y, (double)ai_progress(0), (double)t->pos.x, (double)t->pos.y,
+               (double)t->pos.z);
     return 0;
+}
+
+/* Can every truck be earned? unlocks.h says what each wants; this plays
+   it through with the CPU's driver at the wheel, driving only trucks
+   already earned, round after round until nothing more unlocks:
+
+     a summit counts when one of them reaches it by any of the three ways
+     an extreme trail counts when one of them drives it with no winch and
+       no recover (between its gates the CPU has the player's physics and
+       nothing more: ai.c)
+     a viewpoint counts when it lies within reach of a route one of them
+       has driven to the top (the game's own 16 m). There are more off
+       the trails; these are the ones nobody has to go looking for
+
+   Fails (exit 1) if a truck is left locked at the end. */
+static int run_unlocks(void *grid) {
+    static const char *const names[UNLOCK_TRUCKS] = {"CASCADE 84", "KESTREL", "BOBCAT", "FFR", "TACO", "GOOSE", "ONE TEN",
+                                                    "EAGLE"};
+    Done d = {{0}, {0}};
+    bool have[UNLOCK_TRUCKS], driven[AREA_COUNT][LVL_ROUTE_SLOTS] = {{false}};
+    int left = 0;
+    for(int m = 0; m < UNLOCK_TRUCKS; m++) {
+        have[m] = rl_unlocks[m].kind == UNLOCK_FREE;
+        if(have[m]) printf("start: %s\n", names[m]);
+    }
+    for(int round = 1; round <= UNLOCK_TRUCKS; round++) {
+        for(int area = 0; area < AREA_COUNT; area++) {
+            game.area = area;
+            if(!terrain_load(area, grid)) return 2;
+            for(int route = 1; route <= LVL_ROUTE_EXTREME; route++) {
+                if(route == 4 || driven[area][route] || (route == LVL_ROUTE_EXTREME && !LVL_HAS_EXTREME)) continue;
+                for(int m = 0; m < UNLOCK_TRUCKS && !driven[area][route]; m++) {
+                    if(!have[m] || !run_route(route, m, 2)) continue;
+                    if(route == LVL_ROUTE_EXTREME && ai_helped) continue;
+                    driven[area][route] = true;
+                    printf("round %d: %s, %s to the top in the %s%s\n", round, lvl->name, lvl_routes[route].name, names[m],
+                           route == LVL_ROUTE_EXTREME ? ", unaided" : "");
+                    d.stamps[area] |= STAMP_SUMMIT;
+                    if(route == LVL_ROUTE_EXTREME) d.stamps[area] |= STAMP_BIT(LOG_EXTREME, STAMP_TOP);
+                    else d.stamps[area] |= STAMP_BIT(route - 1, STAMP_TOP);
+                }
+            }
+            for(int v = 0; v < LVL_VIEWS; v++)
+                for(int route = 0; route < LVL_ROUTES && !(d.views[area] & (1u << v)); route++) {
+                    const lvl_route_t *r = &lvl_routes[route];
+                    bool on = route == 0 || route == 4 ? (d.stamps[area] & STAMP_SUMMIT) != 0 : driven[area][route];
+                    for(int k = r->own0; on && k <= r->own1; k++) {
+                        float dx = r->pts[k].x - lvl_views[v].x, dz = r->pts[k].z - lvl_views[v].z;
+                        if(dx * dx + dz * dz < 15.0f * 15.0f && fabsf(r->pts[k].y - lvl_views[v].y) < 9.0f) {
+                            d.views[area] |= (uint16_t)(1u << v);
+                            break;
+                        }
+                    }
+                }
+        }
+        int fresh = 0;
+        for(int m = 0; m < UNLOCK_TRUCKS; m++) {
+            int got, want;
+            unlock_progress(m, &d, &got, &want);
+            if(!have[m] && got >= want) {
+                have[m] = true;
+                fresh++;
+                printf("round %d: %s unlocked (%s)\n", round, names[m], rl_unlocks[m].need);
+            }
+        }
+        if(!fresh) break;
+    }
+    printf("done: %d summits, %d extreme trails, %d viewpoints on the routes\n", done_summits(&d), done_extremes(&d),
+           done_views(&d));
+    for(int m = 0; m < UNLOCK_TRUCKS; m++)
+        if(!have[m]) {
+            int got, want;
+            unlock_progress(m, &d, &got, &want);
+            printf("LOCKED: %s wants \"%s\" (%d of %d)\n", names[m], rl_unlocks[m].need, got, want);
+            left++;
+        }
+    printf(left ? "unlocks: FAIL, %d trucks cannot be earned\n" : "unlocks: PASS, every truck can be earned\n", left);
+    return left ? 1 : 0;
+}
+
+/* The extreme trail a stretch at a time: xtrail [truck]. The truck is set
+   down a little before each of the trail's named places in turn and has
+   90 s to reach the next (the last: the trail's top gate), so one
+   obstacle that beats it does not hide the ones after. For finding what
+   is too hard while a trail is being built; the proof is `route <truck>
+   5`, start to summit with no winch. */
+static int run_xtrail(int model) {
+    const lvl_route_t *r = lvl_extreme;
+    if(!LVL_HAS_EXTREME) {
+        printf("no extreme trail here\n");
+        return 1;
+    }
+    game.ntrucks = 1;
+    Truck *t = &trucks[0];
+    t->model = model;
+    t->cpu = true;
+    float dt = 1.0f / 60.0f;
+    int fails = 0;
+    printf("truck %d %-10s", model, t->spec.name ? t->spec.name : "");
+    int only = getenv("SIM_X_SPOT") ? atoi(getenv("SIM_X_SPOT")) : -1;   /* one stretch, traced */
+    for(int s = 0; s < LVL_SPOTS; s++) {
+        if(only >= 0 && s != only) continue;
+        int from = lvl_spots[s].pt > r->own0 + 2 ? lvl_spots[s].pt - 2 : r->own0;
+        int to = s + 1 < LVL_SPOTS ? lvl_spots[s + 1].pt : r->own1;
+        float hd = atan2f(r->pts[from + 1].x - r->pts[from].x, r->pts[from + 1].z - r->pts[from].z);
+        truck_place(t, v3(r->pts[from].x, 0, r->pts[from].z), hd);
+        truck_set_mode(t, DRIVE_LOCK);
+        ai_start_on(0, LVL_ROUTE_EXTREME, LVL_ROUTE_EXTREME, from, 0);
+        int f, moved = 0;
+        float low = 1e9f;
+        V3 was = t->pos;
+        for(f = 0; f < 60 * 90; f++) {
+            r_cam.pos = vsub(t->pos, vscale(t->ax[2], 8.0f));
+            ai_drive(0, dt);
+            truck_update(t, dt);
+            if(vlen(vsub(t->pos, was)) > 5.0f) moved++;   /* a winch or a recover: a jump */
+            if(only >= 0 && f % 30 == 0)
+                printf("\n  %4.1fs %6.1f %5.1f %6.1f v %4.1f thr %.2f brk %.2f st %+.2f pitch %+3.0f roll %+3.0f surf %d%d%d%d "
+                       "c %d%d%d%d spin %+.1f ch %.0f", f * dt, (double)t->pos.x, (double)t->pos.y, (double)t->pos.z,
+                       (double)t->speed, (double)t->in.throttle, (double)t->in.brake, (double)t->in.steer, (double)t->pitch,
+                       (double)t->roll, t->wh[0].surf % 10, t->wh[1].surf % 10, t->wh[2].surf % 10, t->wh[3].surf % 10,
+                       t->wh[0].contact, t->wh[1].contact, t->wh[2].contact, t->wh[3].contact,
+                       (double)(t->wh[2].omega * t->spec.radius - t->speed), (double)t->dbg_chassis);
+            was = t->pos;
+            if(f > 120) low = fminf(low, t->speed);
+            float dx = t->pos.x - r->pts[to].x, dz = t->pos.z - r->pts[to].z;
+            if(dx * dx + dz * dz < 4.0f * 4.0f && fabsf(t->pos.y - r->pts[to].y) < 4.0f) break;
+        }
+        bool ok = f < 60 * 90 && !moved;
+        if(!ok) fails++;
+        printf(" | %s %s %2.0fs", lvl_spots[s].name, ok ? "ok" : moved ? "WINCH" : "FAIL", f * dt);
+    }
+    printf("\n");
+    return fails;
 }
 
 /* CPU drivers going round and round: loop [minutes] [trucks]. Prints each
@@ -222,12 +362,18 @@ int main(int argc, char **argv) {
     int model = argc > 2 ? atoi(argv[2]) : 1;
     /* SIM_AREA=1 for the desert, 2 for the dunes, 3 for the Highlands. */
     game.area = getenv("SIM_AREA") ? atoi(getenv("SIM_AREA")) : 0;
-    if(!terrain_load(game.area, aligned_alloc(32, (LEVEL_GRID_BYTES + 31) & ~31))) return 2;
+    void *grid = aligned_alloc(32, (LEVEL_GRID_BYTES + 31) & ~31);
+    if(!terrain_load(game.area, grid)) return 2;
+    if(!strcmp(scen, "unlocks")) return run_unlocks(grid);
     if(getenv("SIM_THROTTLE")) turn_throttle = atof(getenv("SIM_THROTTLE"));
     turn_drift = getenv("SIM_DRIFT") != NULL;
     if(!strncmp(scen, "turn", 4))
         return run_turn(scen[4] - '0', model, argc > 3 ? atof(argv[3]) : 0.5f, argc > 4 ? atoi(argv[4]) : 0);
     if(!strncmp(scen, "crash", 5)) return run_crash(scen[5] - '0', model);
+    if(!strcmp(scen, "xtrail")) {
+        truck_spec(&trucks[0].spec, model);
+        return run_xtrail(model);
+    }
     if(!strcmp(scen, "loop")) return run_loop(argc > 2 ? atoi(argv[2]) : 60, argc > 3 ? atoi(argv[3]) : 4);
     if(!strcmp(scen, "route")) {
         int route = argc > 3 ? atoi(argv[3]) : 1;

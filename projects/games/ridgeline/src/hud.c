@@ -6,12 +6,32 @@
 #include "terrain.h"
 #include "engine/text.h"
 #include "font_metrics.h"
+#include "progress.h"
+#include "audio.h"
 
 static EngFont font;
 static const pvr_poly_hdr_t *h_dial, *h_icons, *h_map, *h_flat, *h_glow;
-static char msg[48], msg_sub[64];
-static float msg_t, msg_len;
-static uint32_t msg_col;
+/* Messages (hud.h): banners in a queue, the first of them showing, and
+   one status line. */
+#define BANNERS 6
+#define BANNER_BRISK 3.2f   /* the longest a banner stays once another is waiting behind it */
+#define MSG_Y 170.0f        /* under the corner map and the summit panel: a long line ran into both */
+#define MSG_W 560.0f        /* the widest a line may be */
+#define BANNER_IN 0.15f
+#define BANNER_OUT 0.4f
+typedef struct {
+    char text[48], sub[64], sub2[64];
+    uint32_t col;
+    float len;
+    int16_t sfx, vol;
+} Banner;
+static Banner banners[BANNERS];
+static int banner_n;
+static float banner_t, banner_end;   /* how long the first has been up, and when it goes */
+static bool banner_up;               /* the first has started (its sound played) */
+static char status[48];
+static uint32_t status_col;
+static float status_t, status_len;
 static float tcs_lamp; /* seconds the traction control lamp stays lit */
 float hud_hold_k;
 const char *hud_hold_label;
@@ -54,19 +74,105 @@ const EngFont *hud_font(void) {
     return &font;
 }
 
+/* The banner the lines and the sound that follow belong to: the newest.
+   (With the queue full a banner is dropped, and what follows it with it:
+   six things at once is more than anyone reads.) */
+static Banner *banner_new;
+
 void hud_message(const char *text, uint32_t col, float seconds) {
-    snprintf(msg, sizeof(msg), "%s", text);
-    msg_sub[0] = 0;
-    msg_col = col;
-    msg_t = msg_len = seconds;
+    banner_new = NULL;
+    if(banner_n == BANNERS) return;
+    Banner *b = banner_new = &banners[banner_n++];
+    memset(b, 0, sizeof(*b));
+    snprintf(b->text, sizeof(b->text), "%s", text);
+    b->col = col;
+    b->len = seconds;
+    b->sfx = -1;
 }
 
 void hud_message_sub(const char *text) {
-    snprintf(msg_sub, sizeof(msg_sub), "%s", text);
+    if(banner_new) snprintf(banner_new->sub, sizeof(banner_new->sub), "%s", text);
+}
+
+void hud_message_sub2(const char *text) {
+    if(banner_new) snprintf(banner_new->sub2, sizeof(banner_new->sub2), "%s", text);
+}
+
+void hud_message_sound(int sfx, int vol) {
+    if(!banner_new) return;
+    banner_new->sfx = (int16_t)sfx;
+    banner_new->vol = (int16_t)vol;
+}
+
+void hud_status(const char *text, uint32_t col, float seconds) {
+    snprintf(status, sizeof(status), "%s", text);
+    status_col = col;
+    status_t = status_len = seconds;
+}
+
+int hud_message_count(void) {
+    return banner_n;
+}
+
+int hud_message_room(void) {
+    return BANNERS - banner_n;
+}
+
+void hud_message_clear(void) {
+    banner_n = 0;
+    banner_up = false;
+    banner_new = NULL;
+    status_t = 0;
+}
+
+static void banners_update(float dt) {
+    if(status_t > 0) status_t -= dt;
+    if(!banner_n) return;
+    Banner *b = &banners[0];
+    if(!banner_up) {
+        banner_up = true;
+        banner_t = 0;
+        banner_end = b->len;
+        if(b->sfx >= 0) audio_sfx(b->sfx, b->vol);
+    }
+    banner_t += dt;
+    /* Another waiting: this one makes way, with time left to fade. */
+    if(banner_n > 1) banner_end = fminf(banner_end, fmaxf(banner_t + BANNER_OUT, BANNER_BRISK));
+    if(banner_t < banner_end) return;
+    banner_n--;
+    memmove(&banners[0], &banners[1], sizeof(Banner) * (size_t)banner_n);
+    if(banner_new) banner_new = banner_new > &banners[0] ? banner_new - 1 : NULL;
+    banner_up = false;
+}
+
+/* A message's line, centred, and never wider than the screen has room
+   for: a long one (a viewpoint's name, a way up's) is drawn smaller. */
+static void msg_line(float y, float scale, uint32_t col, const char *s) {
+    float w = text_width(&font, s, scale);
+    if(w > MSG_W) scale *= MSG_W / w;
+    hud_text_c(320, y, scale, ALIGN_CENTER, col, s);
+}
+
+static void banners_draw(void) {
+    bool up = banner_n && banner_up;
+    if(up) {
+        const Banner *b = &banners[0];
+        float a = clampf((banner_end - banner_t) / BANNER_OUT, 0, 1) * clampf(banner_t / BANNER_IN, 0, 1);
+        msg_line(MSG_Y, 1.0f, color_alpha(b->col, a), b->text);
+        if(b->sub[0]) msg_line(MSG_Y + 36, 0.62f, color_alpha(0xfff8f0dc, a), b->sub);
+        if(b->sub2[0]) msg_line(MSG_Y + 60, 0.62f, color_alpha(0xff90f0b0, a), b->sub2);
+    }
+    if(status_t > 0) {
+        /* In the banner's place when there is none; under one's three
+           lines when there is. */
+        float a = clampf(status_t / BANNER_OUT, 0, 1) * clampf((status_len - status_t) / BANNER_IN, 0, 1);
+        if(up) msg_line(MSG_Y + 94, 0.7f, color_alpha(status_col, a), status);
+        else msg_line(MSG_Y, 1.0f, color_alpha(status_col, a), status);
+    }
 }
 
 void hud_update(float dt) {
-    if(msg_t > 0) msg_t -= dt;
+    banners_update(dt);
     /* Hold the lamp briefly so short cuts don't flicker it. */
     if(trucks[0].tc < 0.9f) tcs_lamp = 0.4f;
     else if(tcs_lamp > 0) tcs_lamp -= dt;
@@ -240,7 +346,8 @@ static void drive_mode(const Truck *t) {
         r_tri2d(bx, y - 7, bx, y + 7, tx, y, c, c, c, Z + 0.2f);
     }
     if(t->mode == DRIVE_LOCK) hud_text_c(222, y, 0.48f, ALIGN_LEFT, 0xffe8c070, "LOW + LOCKERS");
-    if(t->stalled) hud_text_c(320, 160, 0.7f, ALIGN_CENTER, 0xffff7050, "STALLED - WATER IN THE INTAKE");
+    /* (between the summit panel and the map, over the messages) */
+    if(t->stalled) hud_text_c(320, 138, 0.6f, ALIGN_CENTER, 0xffff7050, "STALLED - WATER IN THE INTAKE");
 }
 
 static void inclinometer(const Truck *t) {
@@ -321,6 +428,14 @@ static void progress(const Truck *t) {
     hud_text_c(30, 76, 0.52f, ALIGN_LEFT, 0xffd8d0c0, buf);
     snprintf(buf, sizeof(buf), "VIEWS %d/%d", found, LVL_VIEWS);
     hud_text_c(224, 76, 0.52f, ALIGN_RIGHT, 0xffd8d0c0, buf);
+    /* On the extreme trail: its name and its clock. */
+    if(progress_trail_on()) {
+        char tm[16];
+        hud_panel(20, 96, 234, 122, 0x90182028);
+        hud_text_c(30, 109, 0.5f, ALIGN_LEFT, 0xffff9050, lvl_extreme->short_name);
+        snprintf(tm, sizeof(tm), "%d:%04.1f", (int)(progress_trail_clock() / 60.0f), (double)fmodf(progress_trail_clock(), 60.0f));
+        hud_text_c(224, 109, 0.52f, ALIGN_RIGHT, 0xfff4ecd8, tm);
+    }
 }
 
 void hud_draw_map(void) {
@@ -337,11 +452,7 @@ void hud_draw(void) {
     tcs_icon(t);
     drive_mode(t);
     if(game.map_mode != 1) inclinometer(t);
-    if(msg_t > 0) {
-        float a = clampf(msg_t / 0.4f, 0, 1) * clampf((msg_len - msg_t) / 0.15f, 0, 1);
-        hud_text_c(320, 124, 1.0f, ALIGN_CENTER, color_alpha(msg_col, a), msg);
-        if(msg_sub[0]) hud_text_c(320, 162, 0.62f, ALIGN_CENTER, color_alpha(0xfff8f0dc, a), msg_sub);
-    }
+    banners_draw();
     if(hud_hold_k > 0 && hud_hold_label) {
         hud_panel(240, 300, 400, 330, 0xa0182028);
         hud_panel(244, 322, 244 + 152 * hud_hold_k, 326, 0xffe8a030);

@@ -13,9 +13,27 @@ void hud_draw(void);                /* TR list */
 void hud_draw_map(void);            /* the map alone (demo mode) */
 /* The colour of truck index `truck` on the map. */
 uint32_t hud_map_color(int truck);
+/* Messages, of two kinds.
+
+   A banner (hud_message) is something that happened: a viewpoint found,
+   the summit, a trail driven, a truck unlocked. Banners wait their turn:
+   each is shown alone, in the order they came, and one that has others
+   waiting behind it keeps its time short. The lines and the sound set
+   after hud_message belong to that banner and come up with it.
+
+   A status (hud_status) is what the truck just did: the drive mode,
+   a recover, a checkpoint. Only the latest is kept, it never waits, and
+   while a banner is up it is a smaller line under it. */
 void hud_message(const char *text, uint32_t col, float seconds);
-/* A smaller second line under the message just set, gone with it. */
-void hud_message_sub(const char *text);
+void hud_message_sub(const char *text);      /* a smaller second line */
+void hud_message_sub2(const char *text);     /* and a third */
+void hud_message_sound(int sfx, int vol);    /* played as the banner comes up */
+void hud_status(const char *text, uint32_t col, float seconds);
+/* Banners showing or waiting, and room for how many more. */
+int hud_message_count(void);
+int hud_message_room(void);
+/* Nothing showing, nothing waiting (a drive begins). */
+void hud_message_clear(void);
 const EngFont *hud_font(void);
 void hud_text(float x, float y, float scale, int align, uint32_t col, const char *s);
 void hud_text_c(float x, float cy, float scale, int align, uint32_t col, const char *s);

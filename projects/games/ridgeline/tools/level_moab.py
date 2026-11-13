@@ -15,7 +15,9 @@ and meet under an arch on the high bench:
              that get taller toward its head (west)
 
 and one trail goes on from the arch: a shelf across the mesa's cliff,
-then ledges over its tilted top to the overlook.
+then ledges over its tilted top to the overlook. The area's extreme
+trail, the High Wire, is the other way there: round the mesa's west end,
+up a fin on to it and along its north rim (highwire_ground, further down).
 
 Every route is a line drawn here with its heights; the ground is built
 to it (a fin raised under the line, a canyon cut along it, a road bench
@@ -614,6 +616,8 @@ def colours(h, water, surf, f, routes):
     alb = alb * (1 - 0.27 * wear[..., None]) + np.array([84.0, 62.0, 54.0]) * 0.27 * wear[..., None]
     ao = np.clip(1.0 + (h - gaussian_filter(h, 4)) * 0.05, 0.74, 1.08)
     ao = np.where(face, np.clip(ao, 0.84, 0.96), ao)
+    # The crack behind the catwalk: little of the sky gets down it.
+    ao = ao * (1.0 - 0.34 * f["crack_shade"])
     lam = np.clip(np.einsum("jik,k->ji", nrm, SUN), 0, 1)
     sh = sun_shadow(h)
     sky = np.array([0.62, 0.66, 0.72])
@@ -925,13 +929,15 @@ def set_pieces(h, water, f, routes, rng):
         boulder(p + nm * off, rr, 0.45, trail=True)
         k += int(13 + rng.random() * 10)
     # Rockfall under the walls: boulders at the foot of every cliff.
-    face = f["face"]
-    foot = face & (np.roll(h, 1, 0) + np.roll(h, -1, 0) + np.roll(h, 1, 1) + np.roll(h, -1, 1) > 4 * h + 6)
+    # (The walls as they were before the extreme trail's fin and crack:
+    # new faces would deal every boulder here a new place.)
+    face, face_x, face_z, h0 = f["rockfall"]
+    foot = face & (np.roll(h0, 1, 0) + np.roll(h0, -1, 0) + np.roll(h0, 1, 1) + np.roll(h0, -1, 1) > 4 * h0 + 6)
     jj, ii = np.nonzero(foot & (np.abs(X) < 370) & (np.abs(Z) < 370))
     pick = rng.permutation(len(jj))[:150]
     d_route = cKDTree(np.vstack([r["pts"] for r in routes]))
     for q in pick:
-        c = np.array([X[jj[q], ii[q]], Z[jj[q], ii[q]]]) + np.array([-f["face_x"][jj[q], ii[q]], -f["face_z"][jj[q], ii[q]]]) * -rng.uniform(4, 14)
+        c = np.array([X[jj[q], ii[q]], Z[jj[q], ii[q]]]) + np.array([-face_x[jj[q], ii[q]], -face_z[jj[q], ii[q]]]) * -rng.uniform(4, 14)
         if d_route.query(c)[0] < 9 or water[jj[q], ii[q]] > -999:
             continue
         boulder(c + rng.normal(0, 1.5, 2), 0.6 + rng.random() ** 2 * 2.2, 0.35)
@@ -1040,6 +1046,296 @@ def set_pieces(h, water, f, routes, rng):
     spheres = [s_ for s_ in clear_roads(spheres, routes, on_trail) if ck.query((s_[0], s_[2]))[0] > 3.5 + s_[3]]
     return {"rocks": rocks, "spheres": spheres, "boxes": boxes, "prop_boxes": prop_boxes,
             "posts": posts, "capsules": capsules, "props": props, "views": views, "clear": clear}
+
+
+# ---------------------------------------------------------------------------
+# The extreme trail: THE HIGH WIRE, the hard way to the Diving Board, by
+# the mesa's west end and its north rim (levelkit's xt_ kit; the CPU's
+# drivers prove it in tools/hostsim).
+#
+# It leaves the summit trail at its first hairpin, under the mesa's south
+# cliff, and goes west through the blocks fallen from it, the canyon's rim
+# on the left. Round the mesa's corner the bench opens out: over the sand
+# to a slickrock whaleback, up its back, and from its top the dorsal, a
+# fin that leans on the mesa's west wall, 70 m of spine a truck and a
+# half wide with nothing either side. On top it climbs the terraces in
+# flights (a level tread, a ledge of the bed above, a ramp), then takes
+# to the rim: the catwalk is what is left between the great cliff and a
+# joint crack that has opened behind it. Round the bite the cliff has
+# taken out of the mesa, and the point is ahead.
+
+WIRE = [
+    # West from the hairpin.
+    (-38, 86),
+    # The rockfall: the line weaves between the blocks.
+    (-50, 83), (-62, 88), (-74, 84), (-86, 89), (-98, 85), (-110, 90), (-122, 88),
+    # Round the mesa's corner and out over the bench.
+    (-136, 92), (-154, 97), (-172, 100), (-188, 101),
+    # Up the whaleback's south end to its top.
+    (-202, 103.5), (-214, 108), (-221, 115), (-219.5, 122.5),
+    # The dorsal: straight from the dome to the mesa's rim.
+    (-211, 126.5), (-189, 133.9), (-166, 141.6), (-144, 149),
+    # Top out, and the giant's steps: north over the terraces, a dogleg a flight.
+    (-135, 153), (-123, 164), (-137, 176), (-125, 188), (-141, 199),
+    # On to the rim, and the catwalk along one row of the grid.
+    (-139, 206), (-132, 210), (-105, 210), (-80, 210),
+    # Round the bite and out to the point.
+    (-71, 207), (-63, 201.5), (-52, 198), (-36, 198), (-18, 200), (-2, 203), (12, 205), (19, 205.5),
+]
+# Cameras along it for the preview sheet (captures/level-moab-wire.png).
+WIRE_VIEWS = [
+    ((-20, 80, 88), (-70, 78, 86)), ((-60, 80, 86), (-110, 78, 89)), ((-128, 80, 92), (-190, 78, 104)),
+    ((-180, 80, 100), (-216, 86, 122)), ((-219, 88, 120), (-150, 115, 147)), ((-200, 82, 80), (-178, 100, 138)),
+    ((-240, 112, 190), (-176, 100, 138)), ((-139, 122, 151), (-210, 85, 126)), ((-136, 122, 154), (-130, 128, 190)),
+    ((-138, 134, 209.5), (-90, 131, 210)), ((-70, 152, 186), (-105, 126, 207)), ((-105, 150, 262), (-105, 122, 208)),
+    ((-68, 134, 207), (-30, 130, 199)), ((-12, 134, 201), (24, 132, 207)), ((-300, 150, 60), (-170, 100, 140)),
+    ((60, 150, 300), (-60, 110, 205)),
+]
+WIRE_FIN = ((-211, 126.5), (-144, 149))       # the dorsal's foot and top
+WIRE_CATWALK = (210.0, -128.0, -84.0, -70.0)   # its row (z), the crack beside it from x to x, and where the rim is left as it lies
+CRACK_DEPTH = 17.0
+
+
+def highwire_ground(h, f, routes):
+    """The trail's line and heights and the ground built to them: the fin
+    raised, the flights cut into the terraces, the crack opened behind the
+    catwalk and the rim trued along it. Before the faces, surfaces and set
+    pieces are worked out, which take it as they find it."""
+    summit = routes[4]
+    ks = xt_k(summit, -26.0, 87.0)
+    ps = summit["pts"][ks]
+    r = xt_route(h, [(ps[0], ps[1], None)] + [(x, z, None) for x, z in WIRE], "THE HIGH WIRE", "HIGHWIRE", 2.4)
+    pts, y = r["pts"], r["y"]
+    n = len(pts)
+    seg = np.concatenate([np.linalg.norm(np.diff(pts, axis=0), axis=1), [1.0]])
+
+    def at(x, z):
+        return xt_k(r, x, z)
+    k = {"gate": ks, "rock0": at(-46, 84), "rock1": at(-124, 88), "flat": at(-158, 98), "dome0": at(-196, 102),
+         "dome": at(-220, 119), "fin0": at(*WIRE_FIN[0]), "fin1": at(*WIRE_FIN[1]), "top": at(-137, 152),
+         "st0": at(-133, 155), "st1": at(-140, 198), "cat0": at(WIRE_CATWALK[1], WIRE_CATWALK[0]),
+         "cat1": at(WIRE_CATWALK[2], WIRE_CATWALK[0]), "bite": at(-60, 201), "end": n - 1}
+    r["k"] = k
+
+    def ease(k0, k1, gmax):
+        for _ in range(4):
+            for i in range(k0 + 1, k1):
+                y[i] = np.clip(y[i], y[i - 1] - gmax * seg[i - 1], y[i - 1] + gmax * seg[i - 1])
+            for i in range(k1 - 2, k0 - 1, -1):
+                y[i] = np.clip(y[i], y[i + 1] - gmax * seg[i], y[i + 1] + gmax * seg[i])
+    # The bench and the dome as they lie, only eased.
+    ease(0, k["fin0"], 0.26)
+    # The dorsal: one pitch from the whaleback to the mesa's top.
+    f0, f1 = k["fin0"], k["fin1"]
+    y_top = float(np.mean(sample(h, pts[k["top"]:k["top"] + 4])))
+    y[f0:f1 + 1] = np.interp(np.arange(f0, f1 + 1), [f0, f1], [y[f0], y_top])
+    y[f1:k["st0"] + 1] = y_top
+    # (A truck and a half wide along its spine, broader where it leaves
+    # the dome: a truck comes on to it out of a turn.)
+    fin_half = 3.2 + 2.8 * np.exp(-(np.arange(f1 + 4 - (f0 - 3)) / 13.0) ** 2)
+    slick = raise_fin(h, pts[f0 - 3:f1 + 4], y[f0 - 3:f1 + 4], fin_half, crown=0.9, side=3.2)
+    f["slick"] = np.maximum(f["slick"], slick)
+    # The giant's steps. The mesa's beds outcrop across its top as ledges
+    # running east and west; round the trail they are cut square: five
+    # risers, each as high as a truck, from the top-out's bed to the
+    # rim's, level treads between. The trail zigzags north over them,
+    # through each riser by a ramp of broken rock, and on three of the
+    # treads a ledge of the bed above lies across the foot of the ramp.
+    y_cat = float(np.median(sample(h, np.array([(x, WIRE_CATWALK[0]) for x in np.arange(WIRE_CATWALK[1], WIRE_CATWALK[2], 3.0)]))))
+    s0, s1 = k["st0"], k["st1"]
+    RISERS, BLOCK, RAMP = 5, 3, 5
+    steps = [0.2, 0.0, 0.24, 0.0, 0.26]
+    rise = (y_cat - y_top) / RISERS
+    z0, z1 = pts[s0][1] + 9.0, pts[s1][1] - 2.0
+    zr = [z0 + (z1 - z0) * i / (RISERS - 1) for i in range(RISERS)]
+
+    def stair(x, z):
+        return y_top + rise * sum(smoothstep(q - 0.9, q + 0.9, z - 1.8 * np.sin(x * 0.11 + i * 1.7)) for i, q in enumerate(zr))
+    d_st = cKDTree(pts[s0 - 6:s1 + 6]).query(FLAT)[0].reshape(N, N)
+    w = smoothstep(24.0, 13.0, d_st) * smoothstep(4.0, 12.0, f["d3"]) * smoothstep(4.0, 12.0, f["dn"])
+    h[:] = h * (1 - w) + stair(X, Z) * w
+    ys = stair(pts[s0:s1 + 1, 0], pts[s0:s1 + 1, 1])
+    marks, ledges = [(s0, y_top)], []
+    for i in range(RISERS):
+        ya = y_top + rise * i
+        a = s0 + int(np.argmax(ys > ya + rise * 0.5)) - RAMP // 2 - 1     # the foot of the ramp through this riser
+        if steps[i] > 0:
+            marks += [(a - BLOCK, ya), (a - BLOCK + 1, ya + steps[i]), (a, ya + steps[i])]
+            ledges.append((a - BLOCK, ya + steps[i]))
+        else:
+            marks += [(a, ya)]
+        marks += [(a + RAMP, ya + rise)]
+    marks += [(s1, y_cat)]
+    assert all(b[0] > a[0] for a, b in zip(marks[:-1], marks[1:])), f"the giant's steps' flights run into each other: {marks}"
+    ky = np.array([m[0] for m in marks], dtype=float)
+    y[s0:s1 + 1] = np.interp(np.arange(s0, s1 + 1), ky, [m[1] for m in marks])
+    y[s0:s1 + 1] = gaussian_filter1d(y[s0:s1 + 1], 0.8, mode="nearest")
+    r["ledges"] = ledges
+    # The catwalk and the rim round the bite level, then one even rise to
+    # the point.
+    kb = k["bite"] + 10
+    y[s1:kb + 1] = y_cat
+    y[kb:] = np.interp(np.arange(kb, n), [kb, n - 6, n - 1], [y_cat, y[n - 1], y[n - 1]])
+    r["halfs"] = np.minimum(r["halfs"], 3.4)
+    r["halfs"][k["cat0"] - 4:k["cat1"] + 5] = 2.3
+    lay_route(h, r, 2.6)
+    xt_settle(h, summit, max(0, ks - 30), ks + 30)
+    xt_settle(h, summit, len(summit["pts"]) - 26, len(summit["pts"]))
+
+    # The catwalk: three rows of the grid left standing at the rim's
+    # height (a level top 6 m across), the great cliff sheer from the row
+    # beyond, and behind them a joint crack, where a slab of the rim has
+    # begun to part from the mesa, tapering shut at both ends.
+    zc, xa, xb, xe = WIRE_CATWALK
+    along = smoothstep(xa - 9.0, xa + 4.0, X) * smoothstep(xe + 4.0, xe - 2.0, X)      # 1 beside the catwalk
+    top = (np.abs(Z - zc) < 4.4) & (along > 0.02)
+    h[top] = np.maximum(h[top], y_cat * along[top] + h[top] * (1 - along[top]))
+    # (The rim beyond them is left as it lies: where the cliff bulges out
+    # there is more of it, and nowhere less.)
+    south = (zc - 4.5) - Z
+    # (A lens in plan: widest in the middle, where it is deepest, and its
+    # far wall bowed, as a crack opens; a straight-sided slot is a pit.)
+    t = np.clip((X - xa) / (xb - xa), 0, 1)
+    open_ = np.sin(np.pi * t) ** 0.6 * ((X > xa) & (X < xb))                           # how far the crack has opened
+    width = 2.6 + 6.0 * open_ + 0.9 * np.sin(X * 0.21)
+    wall = np.clip(south / 3.0, 0, 1) * np.clip((width - south) / 3.0, 0, 1)
+    floor = h - CRACK_DEPTH * np.clip(open_ * 1.25, 0, 1) * np.clip(wall * 1.6, 0, 1)
+    crack = (south > 0) & (south < width) & (open_ > 0.02)
+    h[crack] = floor[crack]
+    f["crack"] = crack & (open_ > 0.4) & (wall > 0.5)
+    f["crack_shade"] = gaussian_filter((crack & (open_ > 0.15)).astype(float), 0.6)
+    r["y_cat"], r["y_top"] = y_cat, y_top
+    return r
+
+
+def highwire_dress(h, water, surf, f, routes, r, sp, trees, rng):
+    """What stands on the trail and beside it, once the area's own set
+    pieces are placed: its surfaces, the rockfall's blocks, the ledges on
+    the giant's steps, cairns, the gate, its named places and the pace
+    the CPU's drivers carry. Adds to sp's lists and trims the trees;
+    returns the route for the header (levelkit.xt_full)."""
+    fins, summit = routes[3], routes[4]
+    pts, y, k = r["pts"], r["y"], r["k"]
+    n = len(pts)
+
+    def gy(q):
+        return float(sample(h, np.asarray(q, dtype=float))[0])
+    # Surfaces: bare slickrock where it crosses rock, a dirt track through
+    # the scrub, sand where the bench's pockets lie across it; the crack's
+    # floor is sand blown in.
+    jj, ii, idx, d, lat = xt_band(r, 4.4, 6, n - 3)
+    on = d < r["halfs"][idx] + 0.8
+    jj, ii = jj[on], ii[on]
+    cur = surf[jj, ii]
+    surf[jj, ii] = np.where((cur == S["SLICKROCK"]) | (cur == S["ROCK"]) | (cur == S["SCREE"]), S["SLICKROCK"],
+                            np.where(cur == S["GRASS"], S["DIRT"], cur))
+    xt_surface(surf, r, k["fin0"] - 4, k["fin1"] + 3, S["SLICKROCK"], extra=1.4)
+    xt_surface(surf, r, k["st0"], k["cat1"] + 6, S["SLICKROCK"], extra=1.0)
+    surf[f["crack"]] = S["SAND"]
+
+    # Nothing of the area's own rockfall lies in the trail.
+    tr = cKDTree(pts)
+
+    def off_trail(s_):
+        d_, i_ = tr.query((s_[0], s_[2]))
+        return d_ > r["halfs"][i_] + s_[3] + 1.6
+    sp["spheres"][:] = [s_ for s_ in sp["spheres"] if off_trail(s_)]
+    blocks = []
+
+    def block(q, rr, sink=0.36):
+        blocks.append((q[0], gy(q) - rr * sink, q[1], rr))
+    # The rockfall: blocks as big as the truck either side of the line,
+    # which weaves to miss them, and the rest of what came down with them
+    # strewn from the cliff's foot to the canyon's rim.
+    squeeze = (k["rock0"] + k["rock1"]) // 2 + 2
+    for kk in range(k["rock0"] + 2, k["rock1"], 9):
+        p, tg, nm = frame(r, kk)
+        if abs(kk - squeeze) < 5:
+            # The squeeze: two of the biggest, a truck's width and a hand apart.
+            for side in (-1, 1):
+                block(p + nm * side * (1.6 + 2.3), 2.3, 0.3)
+            continue
+        for side in (-1, 1):
+            rr = rng.uniform(1.1, 2.0)
+            block(p + nm * side * (1.95 + rr + rng.uniform(0.0, 0.4)) + tg * rng.uniform(-1.5, 1.5), rr)
+        if kk % 2:
+            # And the giants that came down with them, in under the cliff.
+            rr = rng.uniform(2.4, 3.3)
+            q = p + nm * rng.uniform(9.0, 13.0) + tg * rng.uniform(-3, 3)
+            if gy(q) < gy(p) + 4.0:
+                block(q, rr, 0.42)
+        for _ in range(2):
+            rr = rng.uniform(0.6, 2.6)
+            q = p + nm * rng.choice([-1, 1]) * rng.uniform(6.5, 13.0) + tg * rng.uniform(-4, 4)
+            if gy(q) > gy(p) - 1.5 and gy(q) < gy(p) + 4.0:      # not down in the canyon, not up on the wall
+                block(q, rr, 0.4)
+    # Loose rock along the dorsal's foot and at the top-out, off the line.
+    for kk in (k["dome"] - 6, k["dome"] + 2, k["top"] + 3, k["cat0"] - 9, k["bite"] + 14):
+        p, tg, nm = frame(r, kk)
+        rr = rng.uniform(0.5, 0.9)
+        block(p + nm * rng.choice([-1, 1]) * (float(r["halfs"][kk]) + rr + 1.2), rr)
+    sp["spheres"] += blocks
+
+    # The giant's steps: the ledges, each the bed above showing through.
+    for (kk, y_top) in r["ledges"]:
+        p, tg, nm = frame(r, kk)
+        yaw = math.atan2(tg[0], tg[1]) + rng.uniform(-0.1, 0.1)
+        c = p + tg * 1.7
+        sp["boxes"].append((c[0], y_top - 1.0, c[1], float(r["halfs"][kk]) + 2.2, 1.0, 1.5, yaw))
+
+    # Cairns where the slickrock gives no other sign of the way, the gate's
+    # rating (two black diamonds) and a sign beside it.
+    def yaw_of(v):
+        return math.atan2(v[0], v[1])
+    for kk, side in ((k["flat"] + 14, 1), (k["dome"] - 3, -1), (k["top"] + 2, 1), (k["cat0"] - 7, -1), (k["bite"] + 8, -1)):
+        p, tg, nm = frame(r, kk)
+        q = p + nm * side * (float(r["halfs"][kk]) + 1.8)
+        sp["props"].append((q[0], q[1], 0.0, PROP["CAIRN"], None))
+        sp["clear"].append(q)
+    p, tg, nm = frame(r, 12)
+    q = p + nm * (float(r["halfs"][12]) + 1.5)
+    sp["props"].append((q[0], q[1], yaw_of(-tg), PROP["PLATE"], None, 3))
+    sp["posts"].append((q[0], gy(q) - 0.5, q[1], q[0], gy(q) + 1.5, q[1], 0.12))
+    q2 = p - nm * (float(r["halfs"][12]) + 1.9)
+    sp["props"].append((q2[0], q2[1], yaw_of(tg) + 0.3, PROP["SIGN"], None))
+    sp["clear"] += [q, q2]
+
+    # Nothing grows in the trail. Junipers and a pinyon stand round the
+    # flat where it rests, shade on the open bench.
+    trees[:] = [t for t in trees if tr.query((t[0], t[2]))[0] > 5.0]
+    p, tg, nm = frame(r, k["flat"])
+    for (a, b, kind, scale) in ((7.5, -3.0, 0, 1.25), (-8.5, 2.0, 0, 1.05), (9.5, 7.0, 2, 1.1), (-7.0, -9.0, 0, 0.9),
+                                (12.0, -12.0, 2, 0.95)):
+        q = p + nm * a + tg * b
+        if surf[tuple(np.round(to_grid(q)[::-1]).astype(int))] in (S["GRASS"], S["SAND"], S["DIRT"]):
+            trees.append((q[0], 0.0, q[1], kind, scale, rng.uniform(0, 2 * math.pi)))
+    # And three hold on along the crack's far lip, for the size of it.
+    zc, xa, xb, xe = WIRE_CATWALK
+    for (x, dz, kind, scale) in ((xa + 9.0, 19.0, 2, 0.9), ((xa + xb) / 2 + 3.0, 21.5, 0, 1.1), (xb - 5.0, 18.5, 2, 0.8)):
+        trees.append((x, 0.0, zc - dz, kind, scale, rng.uniform(0, 2 * math.pi)))
+
+    # What the CPU's driver knows of it: slowly between the blocks, way on
+    # for the dorsal and each flight of the steps, a walk along the catwalk.
+    pace = r["pace"]
+    pace[:] = 4.4
+    pace[k["rock0"] - 4:k["rock1"] + 2] = 2.8
+    pace[k["dome0"]:k["fin0"] + 14] = 3.0
+    pace[k["fin0"] + 14:k["fin1"] - 4] = 4.4
+    pace[k["fin1"] - 4:k["st0"] + 2] = 3.0
+    pace[k["st0"] + 2:k["st1"]] = 3.4
+    pace[k["st1"]:k["bite"] + 12] = 2.6
+    pace[k["bite"] + 12:] = 3.6
+    pace[n - 12:] = 2.4
+    r["spots"] = [(5, "THE HIGH WIRE", 1), (k["rock0"], "THE ROCKFALL", 0), (k["flat"], "JUNIPER FLAT", 1),
+                  (k["dome0"] + 2, "WHALEBACK", 0), (k["fin0"] + 1, "THE DORSAL", 0), (k["top"] + 2, "TOP OUT", 1),
+                  (k["st0"] + 3, "GIANT'S STEPS", 0), (k["cat0"] - 8, "THE CATWALK", 1), (k["bite"], "THE BITE", 0)]
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    grade = np.diff(y) / np.maximum(seg, 1e-3)
+    f0, f1 = k["fin0"], k["fin1"]
+    print(f"  THE HIGH WIRE {seg.sum():.0f} m from the summit trail's hairpin ({pts[0][0]:.0f},{pts[0][1]:.0f}) to the point, "
+          f"climbs {y[-1] - y[0]:.1f} m, steepest {grade.max() * 100:.0f}%, the dorsal {(y[f1] - y[f0]) / max(1, f1 - f0) * 100:.0f}% "
+          f"for {f1 - f0} m from {y[f0]:.1f} to {y[f1]:.1f} m, the catwalk at {r['y_cat']:.1f} m, {len(blocks)} blocks")
+    return xt_full(r, before=[(fins, 0, len(fins["pts"])), (summit, 1, k["gate"])])
 
 
 # ---------------------------------------------------------------------------
@@ -1220,16 +1516,29 @@ def build(out, preview_path=None, raw=None):
             level = float(h[m].min()) + wd
             water[m & (h < level - 0.03)] = level
     f["mine"] = mine_site(h)
+    # The walls as they stood before the extreme trail was built: the
+    # rockfall under them is strewn from these, so that it lies where it
+    # always did (set_pieces).
+    face0, fx0, fz0 = faces(h)
+    h0 = h.copy()
+    f0 = dict(f, face=face0 | (faces(h, 1.2)[0] & (f["d3"] > 5) & (f["dn"] > 3)), face_x=fx0, face_z=fz0)
+    f["rockfall"] = (f0["face"], fx0, fz0, h0)
+    # The trees too are sown on the ground as it was (one more or fewer
+    # where the trail goes would move every tree sown after it), and the
+    # trail then takes out the ones in its way.
+    trees = place_trees(h0, water, surfaces(h0, water, f0, routes), f0, routes, rng)
+    wire = highwire_ground(h, f, routes)
+    trees = [t for t in trees if abs(float(sample(h, np.array([t[0], t[2]]))[0]) - float(sample(h0, np.array([t[0], t[2]]))[0])) < 0.8]
     f["face"], f["face_x"], f["face_z"] = faces(h)
     # The mesa's ledges are faces too, small as they are: without their
     # own colour and light its top is a dune.
     f["face"] |= faces(h, 1.2)[0] & (f["d3"] > 5) & (f["dn"] > 3)
     surf = surfaces(h, water, f, routes)
-    trees = place_trees(h, water, surf, f, routes, rng)
 
     def gy(x, z):
         return float(sample(h, np.array([x, z]))[0])
     sp = set_pieces(h, water, f, routes, np.random.default_rng(77))
+    extreme = highwire_dress(h, water, surf, f, routes, wire, sp, trees, np.random.default_rng(1957))
     rocks, spheres, capsules, posts = sp["rocks"], sp["spheres"], sp["capsules"], sp["posts"]
     boxes = sp["boxes"] + sp["prop_boxes"]
     rock_boxes = len(sp["boxes"])
@@ -1238,7 +1547,7 @@ def build(out, preview_path=None, raw=None):
                             [(p[0], p[1]) for p in sp["props"]] + [((c[0] + c[3]) / 2, (c[2] + c[5]) / 2) for c in capsules] +
                             [tuple(c) for c in sp["clear"]]))
     trees = [(t[0], gy(t[0], t[2]), t[2], t[3], t[4], t[5]) for t in trees if keep.query((t[0], t[2]))[0] > 4.5]
-    argb, rgb, alb_ao, nrm = colours(h, water, surf, f, routes)
+    argb, rgb, alb_ao, nrm = colours(h, water, surf, f, routes + [wire])
     props = [(p[0], gy(p[0], p[1]) if p[4] is None else p[4], p[1], p[2], p[3], p[5] if len(p) > 5 else 0) for p in sp["props"]]
     views = [(v[0], gy(v[0], v[1]), v[1], v[2]) for v in sp["views"]]
     # A cairn by each thing to find, but the summit and the arch.
@@ -1266,7 +1575,7 @@ def build(out, preview_path=None, raw=None):
     write_header(out / "level_moab.h", "moab", {
         "name": "MESA GRANDE", "blurb": "RED ROCK CANYON COUNTRY", "base_ft": 3960,
         "lake_y": 0.0, "start_y": gy(SPAWN[0], SPAWN[1]), "summit": (SUMMIT[0], summit_y, SUMMIT[1]),
-        "routes": routes, "spheres": spheres, "capsules": capsules, "boxes": boxes, "rock_boxes": rock_boxes,
+        "routes": routes + [extreme], "spheres": spheres, "capsules": capsules, "boxes": boxes, "rock_boxes": rock_boxes,
         "posts": posts, "trees": trees, "props": props, "views": views, "spawns": spawns,
         "mists": [(0, -338, 60), (-170, -338, 60), (180, -336, 60)],
         # Hawks over the flats, the canyon, the mesa and the gooseneck.
@@ -1274,9 +1583,9 @@ def build(out, preview_path=None, raw=None):
         "herds": [(230, -236), (-250, -250)],
         "rocks": rocks,
     })
-    minimap(rgb, water, routes, [], out / "level_map_moab.png")
+    minimap(rgb, water, routes + [extreme], [], out / "level_map_moab.png")
     print(f"  heights {h.min():.1f}..{h.max():.1f} m, summit {summit_y:.1f} m, start {gy(SPAWN[0], SPAWN[1]):.1f} m")
-    report(h, routes)
+    report(h, routes + [extreme])
     print(f"  {len(spheres)} boulders, {len(boxes)} boxes, {len(trees)} trees, {len(rocks)} formations, "
           f"{len(views)} viewpoints, level_moab.lvl {len(blob)} bytes")
     if preview_path:
@@ -1292,6 +1601,14 @@ def build(out, preview_path=None, raw=None):
                  ("cabin", (236, 9, -240), (272, 10, -226)), ("wall-east", (150, 12, -230), (260, 40, -150))]
         preview(h, rgb, water, preview_path.with_name("level-moab-views.png"), extra=extra, land=land, rocks=rocks, spheres=spheres,
                 boxes=boxes, trees=trees, tree_rgb=((74, 96, 58), (122, 150, 62), (64, 88, 60)))
+        # The extreme trail, start to end, on a sheet of its own.
+        ims = []
+        for pos, tgt in WIRE_VIEWS:
+            p = list(pos)
+            p[1] = max(p[1], gy(p[0], p[2]) + 2.2)
+            ims.append(level_view.render(h, rgb, p, tgt, water=water, extra=land, far=1500.0, rocks=rocks, spheres=spheres,
+                                         boxes=boxes, trees=trees, tree_rgb=((74, 96, 58), (122, 150, 62), (64, 88, 60))))
+        level_view.sheet(ims, 4, preview_path.with_name("level-moab-wire.png"))
 
 
 if __name__ == "__main__":
