@@ -2369,17 +2369,7 @@ typedef struct {
     int16_t bi, bj;
 } TuftDraw;
 
-#define TUFT_BUF 192
-static RV tuft_v[4][TUFT_BUF + 6];
-static int tuft_n[4];
 static const pvr_poly_hdr_t *h_tufts[4];
-
-static void tuft_flush(int k) {
-    if(!tuft_n[k]) return;
-    r_hdr(h_tufts[k]);
-    r_strip(tuft_v[k], tuft_n[k]);
-    tuft_n[k] = 0;
-}
 
 void world_draw_pt(void) {
     for(int i = 0; i < game.ntrucks; i++) {
@@ -2391,6 +2381,10 @@ void world_draw_pt(void) {
     r_frustum_slopes(&tx, &ty);
     float sec = sqrtf(1.0f + tx * tx);
     V3 rt = vnorm(v3(r_cam.right.x, 0, r_cam.right.z));
+    /* A tuft is a quad across the view, standing up and leaning with the
+       wind: those three ways through the view-projection once, and each
+       tuft is then one FTRV of its foot (r_quad_edges). */
+    RClipVec d_rt = r_clip_vec(rt), d_up = r_clip_vec(v3(0, 1, 0)), d_wind = r_clip_vec(v3(WIND_X, 0, WIND_Z));
 
     /* The blocks in reach and in view, nearest first, so a full buffer
        drops the furthest tufts. */
@@ -2489,26 +2483,15 @@ void world_draw_pt(void) {
                               0.035f * sinf(sway_t * 3.1f + (float)(t->tint & 63)));
             if(desert ? t->var != 3 : own && t->var < 2) lean *= 0.3f;   /* woody: it barely stirs */
             float u0 = (t->flags & 1) ? 0.0f : 1.0f, u1 = 1.0f - u0;
-            V3 base = v3(t->x, t->y, t->z);
-            V3 l = vmad(base, rt, -w), r = vmad(base, rt, w);
-            V3 top = v3(WIND_X * lean, h, WIND_Z * lean);
-            int bk = t->var;
-            RV *o = tuft_v[bk] + tuft_n[bk];
-            if(tuft_n[bk]) {
-                o[0] = o[-1];
-                o[1] = (RV){l.x + top.x, l.y + top.y, l.z + top.z, u0, 0, col};
-                o += 2;
-            }
-            o[0] = (RV){l.x + top.x, l.y + top.y, l.z + top.z, u0, 0, col};
-            o[1] = (RV){r.x + top.x, r.y + top.y, r.z + top.z, u1, 0, col};
-            o[2] = (RV){l.x, l.y, l.z, u0, 1, root};
-            o[3] = (RV){r.x, r.y, r.z, u1, 1, root};
-            tuft_n[bk] = (int)(o + 4 - tuft_v[bk]);
+            RQuadE q = {v3(t->x, t->y, t->z),
+                        {d_rt.x * w, d_rt.y * w, d_rt.w * w},
+                        {d_up.x * h + d_wind.x * lean, d_up.y * h + d_wind.y * lean, d_up.w * h + d_wind.w * lean},
+                        u0, 0, u1, 1, col, root};
+            r_hdr(h_tufts[t->var]);
+            r_quad_edges(&q);
             count++;
-            if(tuft_n[bk] > TUFT_BUF) tuft_flush(bk);
         }
     }
-    for(int k = 0; k < 4; k++) tuft_flush(k);
     world_tufts = count;
 }
 

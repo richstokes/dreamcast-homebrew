@@ -109,6 +109,22 @@ void r_mesh_kv(const KMesh *m, const uint32_t *col);
 
 /* Camera-facing quad in world space (XMTRX must hold the view-projection). */
 void r_billboard(V3 c, float w, float h, float rot, float u0, float v0, float u1, float v1, uint32_t col);
+/* A quad from the middle of its foot and two edges: the foot runs from
+   base - a to base + a and the top edge is that moved by t, with (u0, v0)
+   at the top left and (u1, v1) at the bottom right. The edges are world
+   vectors as they move a point's clip coordinates (r_clip_vec; XMTRX must
+   hold the view-projection for both calls), so quads that stand the same
+   way, as grass tufts do, cost one FTRV each: work the edges out once and
+   scale them. A quad that crosses the near plane is clipped. */
+typedef struct { float x, y, w; } RClipVec;
+typedef struct {
+    V3 base;
+    RClipVec a, t;
+    float u0, v0, u1, v1;
+    uint32_t top, foot;
+} RQuadE;
+RClipVec r_clip_vec(V3 d);
+void r_quad_edges(const RQuadE *q);
 /* Upright billboard that only turns about Y (trees, signs). */
 void r_billboard_y(V3 base, float w, float h, float u0, float v0, float u1, float v1, uint32_t col);
 /* Screen-aligned streak from a to b (sparks). */

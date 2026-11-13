@@ -364,6 +364,7 @@ What each change saved on the console (ms a frame unless stated):
 | Kart LODs with hysteresis (`src/models.c`); far model for split-screen rivals | ~140 → 10 dropped frames a split race | |
 | `-ffast-math` (`Makefile`) | | Without it `sinf`/`cosf` stay libm calls despite `-mfsca` |
 | Kart matrices and lighting shared by both split views; less split-screen scenery; near smoke puffs skipped and capped; "GO!" glow removed | | Translucent fill is the console's bottleneck |
+| Billboards from one FTRV of their centre (engine `r_billboard`) | 0.05-0.1 | A camera-facing quad is at one depth, so its centre projected once gives the four corners: 510 -> 198 cycles each, ~30 a frame and 60 in a pack (Emerald Beach, 2026-11-13, both ways in one run). Upright ones (palms, `r_billboard_y`) went 492 -> 341 the same day, 10-15 a frame |
 
 Measured and not worth the code: TA DMA (the CPU waits on the TA only
 ~0.1 ms a frame), software-pipelining the assembly loops (under 0.1 ms),

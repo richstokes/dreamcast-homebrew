@@ -432,6 +432,21 @@ night bench and 342 -> 285 us in its busiest window (both loops in one
 console run, swapping every two frames). About a quarter of the vertices
 it tests end up lit, and those cost far more than the test.
 
+Billboards and grass from one `FTRV` a quad (2026-11-13, old and new in
+one console run, swapping every two frames): a camera-facing billboard
+went 495 -> 120 cycles (about 57 a frame at night: stars, dust, glows),
+and the grass 910 -> 801 us a frame, each tuft four vertices straight to
+the TA instead of six through a joined strip. Across separate runs the PT
+pass went 0.90 -> 0.68 ms and TR 1.29 -> 1.20; the whole frame read
+13.13 and 13.03 ms, a gain inside run-to-run drift. The grass is still
+~0.8 ms for ~75 tufts: nearly all of that is working each tuft out, not
+sending it. One thing to watch out for when timing that loop: it is ~5 KB
+of code in an 8 KB instruction cache, and the same quad routine read 5%
+apart from one build to the next (one variant 25% slower for nothing its
+code showed), so a difference under ~100 cycles a tuft is not a result.
+Batching the tufts' quads into one engine call was no quicker than a call
+each.
+
 Where a night frame went on the console that evening (2026-11-09,
 15.8 ms average, 17.1 on the forest climb, a tenth of the frames late):
 

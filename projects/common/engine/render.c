@@ -1036,33 +1036,107 @@ void r_mesh_kv(const KMesh *m, const uint32_t *col) {
     PROF_LAP(PS_MSUBMIT, pm);
 }
 
+/* A vertex already on the screen, straight to the TA. */
+static inline void emit2d(float x, float y, float z, float u, float v, uint32_t c, uint32_t flags) {
+    pvr_vertex_t *d = pvr_dr_target();
+    d->flags = flags;
+    d->x = x;
+    d->y = y;
+    d->z = z;
+    d->u = u;
+    d->v = v;
+    d->argb = c;
+    d->oargb = 0;
+    pvr_dr_commit(d);
+}
+
+/* A camera-facing quad lies at one depth, so one FTRV of its centre and
+   its size on screen at that depth give all four corners, straight to the
+   TA: no world-space corners, and one projection instead of four.
+   Console, 2026-11-13: 495 -> 120 cycles a billboard in Ridgeline and
+   510 -> 198 in DreamKarts, against four corners through r_strip. */
 void r_billboard(V3 c, float w, float h, float rot, float u0, float v0, float u1, float v1, uint32_t col) {
-    float s = 0, co = 1;
+    shz_vec4_t p = shz_xmtrx_transform_vec4(shz_vec4_init(c.x, c.y, c.z, 1.0f));
+    PROF_COUNT(PN_SVERTS, 4);
+    if(p.w < NEAR_W) {
+        PROF_COUNT(PN_SCULL, 1);
+        return;
+    }
+    float inv = shz_invf_fsrra(p.w), k = cam_f * inv;
+    float sx = p.x * inv, sy = p.y * inv;
+    /* Across the quad and up it, in pixels (screen y runs down). */
+    float ax = w * k, ay = 0, bx = 0, by = h * k;
     if(rot != 0) {
         shz_sincos_t sc = shz_sincosf(rot);
-        s = sc.sin;
-        co = sc.cos;
+        ay = ax * sc.sin;
+        ax *= sc.cos;
+        bx = -by * sc.sin;
+        by *= sc.cos;
     }
-    V3 rx = vadd(vscale(r_cam.right, co * w), vscale(r_cam.up, s * w));
-    V3 ry = vadd(vscale(r_cam.right, -s * h), vscale(r_cam.up, co * h));
-    RV q[4];
-    V3 p0 = vsub(vsub(c, rx), ry), p1 = vadd(vsub(c, rx), ry);
-    V3 p2 = vsub(vadd(c, rx), ry), p3 = vadd(vadd(c, rx), ry);
-    q[0] = (RV){p1.x, p1.y, p1.z, u0, v0, col};
-    q[1] = (RV){p3.x, p3.y, p3.z, u1, v0, col};
-    q[2] = (RV){p0.x, p0.y, p0.z, u0, v1, col};
-    q[3] = (RV){p2.x, p2.y, p2.z, u1, v1, col};
-    r_strip(q, 4);
+    float ex = fabsf(ax) + fabsf(bx), ey = fabsf(ay) + fabsf(by);
+    if(sx + ex < 0 || sx - ex > 640.0f || sy + ey < view_y0 || sy - ey > view_y1) {
+        PROF_COUNT(PN_SCULL, 1);
+        return;
+    }
+    flush_hdr();
+    emit2d(sx - ax + bx, sy + ay - by, inv, u0, v0, col, PVR_CMD_VERTEX);
+    emit2d(sx + ax + bx, sy - ay - by, inv, u1, v0, col, PVR_CMD_VERTEX);
+    emit2d(sx - ax - bx, sy + ay + by, inv, u0, v1, col, PVR_CMD_VERTEX);
+    emit2d(sx + ax - bx, sy - ay + by, inv, u1, v1, col, PVR_CMD_VERTEX_EOL);
+    rstats.tris += 2;
+    rstats.verts += 4;
+    PROF_COUNT(PN_SEMIT, 4);
+}
+
+RClipVec r_clip_vec(V3 d) {
+    shz_vec4_t p = shz_xmtrx_transform_vec4(shz_vec4_init(d.x, d.y, d.z, 0.0f));
+    return (RClipVec){p.x, p.y, p.w};
+}
+
+/* A quad across the near plane, or behind it: clipped as r_strip clips, a
+   triangle at a time. Rare, and kept out of the path the rest take. */
+static __attribute__((noinline, cold)) void quad_edges_near(float px, float py, float pw, const RQuadE *q) {
+    float xl = px - q->a.x, yl = py - q->a.y, wl = pw - q->a.w;
+    float xr = px + q->a.x, yr = py + q->a.y, wr = pw + q->a.w;
+    CV c[4] = {{xl + q->t.x, yl + q->t.y, wl + q->t.w, q->u0, q->v0, q->top, 0},
+               {xr + q->t.x, yr + q->t.y, wr + q->t.w, q->u1, q->v0, q->top, 0},
+               {xl, yl, wl, q->u0, q->v1, q->foot, 0},
+               {xr, yr, wr, q->u1, q->v1, q->foot, 0}};
+    PROF_COUNT(PN_SCLIP, 1);
+    clip_tri(&c[0], &c[1], &c[2]);
+    clip_tri(&c[1], &c[2], &c[3]);
+}
+
+/* Console, 2026-11-13: Ridgeline's grass 910 -> 801 us a frame against
+   joined strips through r_strip, and DreamKarts' palms 492 -> 341 cycles
+   each (r_billboard_y). Batching the quads was no quicker than a call
+   each. A quad off the screen is sent all the same and left to the TA. */
+void r_quad_edges(const RQuadE *q) {
+    shz_vec4_t p = shz_xmtrx_transform_vec4(shz_vec4_init(q->base.x, q->base.y, q->base.z, 1.0f));
+    float xl = p.x - q->a.x, yl = p.y - q->a.y, wl = p.w - q->a.w;
+    float xr = p.x + q->a.x, yr = p.y + q->a.y, wr = p.w + q->a.w;
+    float wtl = wl + q->t.w, wtr = wr + q->t.w;
+    PROF_COUNT(PN_SVERTS, 4);
+    if(wl < NEAR_W || wr < NEAR_W || wtl < NEAR_W || wtr < NEAR_W) {
+        quad_edges_near(p.x, p.y, p.w, q);
+        return;
+    }
+    float xtl = xl + q->t.x, ytl = yl + q->t.y, xtr = xr + q->t.x, ytr = yr + q->t.y;
+    float il = shz_invf_fsrra(wl), ir = shz_invf_fsrra(wr), itl = shz_invf_fsrra(wtl), itr = shz_invf_fsrra(wtr);
+    flush_hdr();
+    emit2d(xtl * itl, ytl * itl, itl, q->u0, q->v0, q->top, PVR_CMD_VERTEX);
+    emit2d(xtr * itr, ytr * itr, itr, q->u1, q->v0, q->top, PVR_CMD_VERTEX);
+    emit2d(xl * il, yl * il, il, q->u0, q->v1, q->foot, PVR_CMD_VERTEX);
+    emit2d(xr * ir, yr * ir, ir, q->u1, q->v1, q->foot, PVR_CMD_VERTEX_EOL);
+    rstats.tris += 2;
+    rstats.verts += 4;
+    PROF_COUNT(PN_SEMIT, 4);
 }
 
 void r_billboard_y(V3 b, float w, float h, float u0, float v0, float u1, float v1, uint32_t col) {
     V3 rt = vnorm(v3(r_cam.right.x, 0, r_cam.right.z));
-    V3 l = vmad(b, rt, -w), r = vmad(b, rt, w);
-    RV q[4] = {
-        {l.x, l.y + h, l.z, u0, v0, col}, {r.x, r.y + h, r.z, u1, v0, col},
-        {l.x, l.y, l.z, u0, v1, col}, {r.x, r.y, r.z, u1, v1, col}
-    };
-    r_strip(q, 4);
+    RQuadE q = {b, r_clip_vec(vscale(rt, w)), r_clip_vec(v3(0, h, 0)), u0, v0, u1, v1, col, col};
+    r_quad_edges(&q);
 }
 
 void r_streak_ex(V3 a, V3 b, float width_a, float width_b, uint32_t col_a, uint32_t col_b,
@@ -1101,19 +1175,6 @@ void r_streak_ex(V3 a, V3 b, float width_a, float width_b, uint32_t col_a, uint3
 
 void r_streak(V3 a, V3 b, float width, uint32_t col_a, uint32_t col_b) {
     r_streak_ex(a, b, width, width, col_a, col_b, 0.5f, 0.5f);
-}
-
-static inline void emit2d(float x, float y, float z, float u, float v, uint32_t c, uint32_t flags) {
-    pvr_vertex_t *d = pvr_dr_target();
-    d->flags = flags;
-    d->x = x;
-    d->y = y;
-    d->z = z;
-    d->u = u;
-    d->v = v;
-    d->argb = c;
-    d->oargb = 0;
-    pvr_dr_commit(d);
 }
 
 void r_quad2d(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1,
