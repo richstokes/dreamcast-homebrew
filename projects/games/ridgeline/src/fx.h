@@ -9,5 +9,7 @@ void fx_clear(void);
 void fx_update(float dt);
 void fx_draw(void);      /* TR list */
 void fx_splash(V3 p, float strength);
+/* How many prints a truck's tyres have laid that are still held. */
+int fx_track_points(int truck);
 
 #endif

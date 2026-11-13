@@ -83,7 +83,8 @@ from the area's packed level (`level_moab.lvl` for lobbies 4-6, `level_dunes.lvl
 `level_lowland.lvl` for 10-12), and logs
 the lobby and everyone else's truck.
 `-summit-after` claims the summit, `-leave-after` and `-away` drop out and
-back in. Two consoles: build the autotest twice with
+back in, `-spin 6` spins its rear tyres (a roostertail and dug-in prints on
+the consoles). Two consoles: build the autotest twice with
 `-DRL_AT_NAME=AT-RL1` / `AT-RL2`, copy each to its own ELF name and launch
 both (`RL_FLYCAST_CONFIG=window:left=760` keeps the windows apart).
 `-DRL_AT_LOBBY`, `-DRL_AT_SUMMIT_AFTER`, `-DRL_AT_ONLINE_SECONDS` and

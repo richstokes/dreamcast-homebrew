@@ -56,7 +56,7 @@ static float emit_acc[MAX_TRUCKS][4], rooster_acc[MAX_TRUCKS][4];
 #define RUBBER_COL 0x00140f0d
 #define RUBBER_V 0.04f         /* how much of a print's length of texture a metre of streak uses */
 #define TRK_PLAYER 448
-#define TRK_CPU 128
+#define TRK_CPU 256            /* the others': CPU trucks, and online the other players' */
 #define TRK_PLAYER_DUNES 1536
 #define TRK_CPU_DUNES 384
 #define TRK_STEP 0.5f          /* metres between points, at least */
@@ -288,6 +288,10 @@ void fx_splash(V3 p, float strength) {
              0.6f + 0.4f * frand(), 0.35f, 1.2f, 0xd8e8f4f8, 0.6f, 9.0f);
 }
 
+int fx_track_points(int truck) {
+    return trk[truck][0].count + trk[truck][1].count;
+}
+
 static void track_add(TrkSlot *s, V3 p, V3 dir, float half, uint32_t col) {
     V3 side = v3(dir.z * half, 0, -dir.x * half);
     TrkPt *q = &s->pt[s->head];
@@ -356,12 +360,14 @@ static void tracks_update(int ti, const Truck *t) {
         uint32_t col = w->contact && w->water < 0.08f ? track_col(w->surf) : 0;
         /* CPU trucks print only where it shows most: mud and snow, and
            the dunes' sand. On the trails they follow each other and
-           their prints pile up unseen. */
-        if(ti != 0 && w->surf != SURF_MUD && w->surf != SURF_SNOW &&
+           their prints pile up unseen. Another player's truck prints
+           and lays rubber as ours does: its tyres' slip comes with it. */
+        bool full = ti == 0 || t->remote;
+        if(!full && w->surf != SURF_MUD && w->surf != SURF_SNOW &&
            !(trk_sand && (w->surf == SURF_SAND || w->surf == SURF_DEEPSAND)))
             col = 0;
         bool rubber = false;
-        if(!col && ti == 0 && w->contact && w->water < 0.08f && (w->surf == SURF_ROCK || w->surf == SURF_SLICKROCK) &&
+        if(!col && full && w->contact && w->water < 0.08f && (w->surf == SURF_ROCK || w->surf == SURF_SLICKROCK) &&
            w->slip > (s->live && s->rubber ? RUBBER_OFF : RUBBER_ON)) {
             rubber = true;
             col = RUBBER_COL | (uint32_t)(255.0f * clampf(0.3f + (w->slip - RUBBER_OFF) * 0.14f, 0.3f, 0.85f)) << 24;
@@ -470,8 +476,11 @@ void fx_update(float dt) {
         Truck *t = &trucks[ti];
         if(t->absent) continue;
         float dcam = vlen(vsub(t->pos, r_cam.pos));
+        /* Another player's prints are laid wherever it is: we may drive
+           that way next. */
+        if(t->remote) tracks_update(ti, t);
         if(dcam > 90.0f) continue;
-        tracks_update(ti, t);
+        if(!t->remote) tracks_update(ti, t);
         for(int i = 0; i < 4; i++) {
             Wheel *w = &t->wh[i];
             if(!w->contact) continue;

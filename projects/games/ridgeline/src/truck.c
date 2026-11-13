@@ -1297,7 +1297,7 @@ void truck_update(Truck *t, float dt) {
 
 /* ---- Remote trucks ---- */
 
-void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, float dt) {
+void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, const float spin[4], float dt) {
     const TruckSpec *S = &t->spec;
     t->pos = pos;
     t->ax[0] = ax[0];
@@ -1326,7 +1326,7 @@ void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, float
         float wl = water_at(droop.x, droop.z);
         w->water = wl > -999.0f ? fmaxf(0, wl - g) : 0;
         w->steer = i < 2 ? steer : 0;
-        w->omega = fwd / S->radius;
+        w->omega = (fwd + spin[i]) / S->radius;
         w->spin += w->omega * dt;
     }
     t->speed = fwd;

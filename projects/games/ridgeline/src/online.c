@@ -92,6 +92,7 @@ static struct {
     V3 seen_at[NET_MAX_PLAYERS];
     bool seen_any[NET_MAX_PLAYERS];
     int steps, pops, came, went, trophies_seen;
+    int prints;       /* the most tyre prints a remote truck had laid here */
     float worst;
     V3 prev[MAX_TRUCKS];
     bool had[MAX_TRUCKS];
@@ -352,9 +353,11 @@ static void pack_truck(const Truck *t, NetTruck *n) {
     n->steer = 0.5f * (t->wh[WFL].steer + t->wh[WFR].steer);
     n->rpm = t->rpm;
     n->load = t->load;
-    float slip = 0;
-    for(int i = 0; i < 4; i++) slip = fmaxf(slip, t->wh[i].slip);
-    n->slip = slip;
+    float fwd = vdot(t->vel, t->ax[2]);
+    for(int i = 0; i < 4; i++) {
+        n->slip[i] = t->wh[i].slip;
+        n->spin[i] = t->wh[i].omega * t->spec.radius - fwd;
+    }
     n->gear = t->gear;
 }
 
@@ -392,7 +395,7 @@ void online_drive_step(float dt) {
             t->absent = false;
             for(int i = 0; i < 4; i++) t->wh[i].comp = t->wh[i].comp_prev = t->spec.sag * t->spec.travel;
         }
-        truck_set_pose(t, n.pos, ax, n.vel, n.steer, dt);
+        truck_set_pose(t, n.pos, ax, n.vel, n.steer, n.spin, dt);
         t->lights = (n.flags >> NTF_LIGHTS_SHIFT) & 3;
         t->horn = (n.flags & NTF_HORN) != 0;
         t->brake = (n.flags & NTF_BRAKE) ? 1.0f : 0.0f;
@@ -400,7 +403,7 @@ void online_drive_step(float dt) {
         t->rpm = n.rpm;
         t->load = n.load;
         t->gear = n.gear;
-        for(int i = 0; i < 4; i++) t->wh[i].slip = n.slip;
+        for(int i = 0; i < 4; i++) t->wh[i].slip = n.slip[i];
     }
     /* Arriving on top of a truck parked on our start place: move along. */
     Truck *me = &trucks[0];
@@ -821,6 +824,7 @@ void online_autotest(float dt) {
                        (double)t->spec.radius, (double)track, (double)base);
             at.unbuilt = true;
         }
+        if(fx_track_points(truck_of(s)) > at.prints) at.prints = fx_track_points(truck_of(s));
         if(at.seen_any[s]) at.seen_m[s] += vlen(vsub(t->pos, at.seen_at[s]));
         at.seen_at[s] = t->pos;
         at.seen_any[s] = true;
@@ -866,14 +870,17 @@ void online_autotest(float dt) {
         else if(trophies < RL_AT_EXPECT_TROPHIES) fail = "fewer trophies in the lobby than expected";
 #ifndef RL_AT_ONLINE_ALONE
         else if(remotes == 0 || moved < 10.0f) fail = "no remote truck seen driving";
+        /* (the test's bot drives on Cascade Ridge's meadow grass) */
+        else if(game.area == AREA_CASCADE && at.prints == 0) fail = "a remote truck left no tyre prints";
 #endif
         if(fail)
             printf("RL AUTOTEST: FAIL online: %s (%d trophies, %d remotes, moved %.0f m)\n", fail, trophies, remotes,
                    (double)moved);
         else
-            printf("RL AUTOTEST: PASS online: %d players, %d trophies, %d remotes seen moving %.0f m, joins %d leaves %d, "
-                   "motion %d steps %d pops worst %.2f m\n",
-                   l->count, trophies, remotes, (double)moved, at.came, at.went, at.steps, at.pops, (double)at.worst);
+            printf("RL AUTOTEST: PASS online: %d players, %d trophies, %d remotes seen moving %.0f m leaving %d prints, "
+                   "joins %d leaves %d, motion %d steps %d pops worst %.2f m\n",
+                   l->count, trophies, remotes, (double)moved, at.prints, at.came, at.went, at.steps, at.pops,
+                   (double)at.worst);
     }
 }
 #endif

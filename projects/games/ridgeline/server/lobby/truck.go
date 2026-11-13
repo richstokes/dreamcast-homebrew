@@ -15,7 +15,8 @@ type Truck struct {
 	Vel       [3]float64 // m/s
 	Steer     float64    // front wheels, radians
 	RPM, Load float64
-	Slip      float64 // the slipperiest tyre, m/s
+	Slip      [4]float64 // each tyre's sliding speed over the ground, m/s (FL, FR, RL, RR)
+	Spin      [4]float64 // each tyre's tread speed over the truck's forward speed, m/s
 	Gear      int
 	ClockMs   uint32 // the sender's clock when this was current
 }
@@ -56,9 +57,12 @@ func (t *Truck) Encode() []byte {
 	b[21] = byte(int8(clampInt(t.Steer*160, -127, 127)))
 	b[22] = byte(clampInt(t.RPM/32, 0, 255))
 	b[23] = byte(clampInt(t.Load*255, 0, 255))
-	b[24] = byte(clampInt(t.Slip*16, 0, 255))
-	b[25] = byte(int8(clampInt(float64(t.Gear), -1, 9)))
-	binary.LittleEndian.PutUint32(b[26:], t.ClockMs)
+	for i := 0; i < 4; i++ {
+		b[24+i] = byte(clampInt(t.Slip[i]*16, 0, 255))
+		b[28+i] = byte(int8(clampInt(t.Spin[i]*4, -127, 127)))
+	}
+	b[32] = byte(int8(clampInt(float64(t.Gear), -1, 9)))
+	binary.LittleEndian.PutUint32(b[33:], t.ClockMs)
 	return b
 }
 
@@ -76,9 +80,12 @@ func DecodeTruck(b []byte) Truck {
 	t.Steer = float64(int8(b[21])) / 160
 	t.RPM = float64(b[22]) * 32
 	t.Load = float64(b[23]) / 255
-	t.Slip = float64(b[24]) / 16
-	t.Gear = int(int8(b[25]))
-	t.ClockMs = binary.LittleEndian.Uint32(b[26:])
+	for i := 0; i < 4; i++ {
+		t.Slip[i] = float64(b[24+i]) / 16
+		t.Spin[i] = float64(int8(b[28+i])) / 4
+	}
+	t.Gear = int(int8(b[32]))
+	t.ClockMs = binary.LittleEndian.Uint32(b[33:])
 	return t
 }
 

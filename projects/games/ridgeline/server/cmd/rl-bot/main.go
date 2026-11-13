@@ -278,6 +278,7 @@ func main() {
 	speed := flag.Float64("speed", 4.5, "speed round the loop (m/s)")
 	model := flag.Int("model", 0, "truck model (0 Cascade 84, 1 Kestrel, 2 Bobcat, 3 FFR, 4 Taco, 5 Goose, 6 One Ten, 7 Eagle)")
 	livery := flag.Int("livery", 2, "livery 0-3")
+	spin := flag.Float64("spin", 0, "rear wheelspin, m/s: the consoles draw its roostertail and darker prints")
 	flag.Parse()
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
@@ -433,6 +434,8 @@ func main() {
 				Gear:    2,
 				ClockMs: uint32(now.Sub(b.start) / time.Millisecond),
 				Flags:   1 << lobby.TruckLightsShift,
+				Slip:    [4]float64{0, 0, *spin, *spin},
+				Spin:    [4]float64{0, 0, *spin, *spin},
 			}
 			if summit {
 				t.Flags |= lobby.TruckSummit

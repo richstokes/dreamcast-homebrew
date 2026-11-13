@@ -27,7 +27,7 @@
 #define NET_MAX_PLAYERS  4
 #define NET_NAME_LEN     11   /* 10 characters and a NUL */
 #define NET_PLAYER_BYTES 17   /* a LOBBY packet's player entry */
-#define NET_TRUCK_BYTES  30   /* a TRUCK body */
+#define NET_TRUCK_BYTES  37   /* a TRUCK body */
 
 enum { NET_OFF, NET_LINK, NET_HELLO, NET_BROWSE, NET_JOINING, NET_LOBBY, NET_REJECTED, NET_LOST };
 enum { NREJ_TOO_OLD = 1, NREJ_FULL, NREJ_LOBBY_FULL, NREJ_BAD_NAME, NREJ_SESSION,
@@ -62,7 +62,11 @@ typedef struct {
     uint8_t flags;
     V3 pos, vel;
     float q[4];           /* x, y, z, w: the body axes right, up, forward */
-    float steer, rpm, load, slip;
+    float steer, rpm, load;
+    /* Each tyre (WFL..WRR), for what it throws up and prints here: how
+       fast it slides over the ground, and how much faster its tread goes
+       round than the truck goes forward (m/s; under zero, braked). */
+    float slip[4], spin[4];
     int gear;
 } NetTruck;
 

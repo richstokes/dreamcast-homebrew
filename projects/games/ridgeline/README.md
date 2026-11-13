@@ -223,7 +223,9 @@ earned out there.
   W5500 or modem (a DreamPi or any dial-up server). Drop in and out
   whenever you like; there is no race. Everyone's name floats over their
   truck, horns carry, the lobby shares one time of day, and reaching the
-  summit puts a trophy by your name for the session. Ten minutes idle
+  summit puts a trophy by your name for the session. The others' tyres
+  throw their dust and roostertails and leave their tracks and rubber on
+  your screen as they do on theirs. Ten minutes idle
   (no driving, horn or lights) takes you out of the lobby
 - Birds: jays, juncos and ravens perched on logs, rocks, the cabin roof
   and the cairns burst away as a truck comes near (or at the horn), hawks
@@ -1003,6 +1005,9 @@ drives a trail shows those two frames.
 - Online has no chat. Trucks bump each other, but each console pushes only
   its own truck against the others as they were ~150 ms ago, so a shove
   lands a little late
+- Online, each console lays the others' tracks itself as it sees them
+  drive: the tracks someone left before you joined their lobby are not
+  there, and the others' are kept for a shorter way back than your own
 - Rock-ledge climbing is approximate: the tyre is sampled at seven points,
   not swept
 

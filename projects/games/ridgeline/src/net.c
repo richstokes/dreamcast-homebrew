@@ -27,6 +27,7 @@
 #define INTERP_MIN_MS 110    /* never draw remote trucks less than this far in the past */
 #define INTERP_MAX_MS 400
 #define INTERP_MARGIN_MS 25  /* on top of the latest sample arrival and one sample spacing */
+#define NET_CLOCK_AT (NET_TRUCK_BYTES - 4)   /* the sender's clock ends a TRUCK body */
 
 typedef struct {
     uint64_t t;      /* local ms the state was current */
@@ -221,9 +222,12 @@ static void encode_truck(uint8_t *b, const NetTruck *t) {
     b[21] = (uint8_t)(int8_t)clampf(t->steer * 160.0f, -127, 127);
     b[22] = (uint8_t)clampf(t->rpm / 32.0f, 0, 255);
     b[23] = (uint8_t)clampf(t->load * 255.0f, 0, 255);
-    b[24] = (uint8_t)clampf(t->slip * 16.0f, 0, 255);
-    b[25] = (uint8_t)(int8_t)clampf((float)t->gear, -1, 10);
-    put32(b + 26, (uint32_t)net_now());
+    for(int i = 0; i < 4; i++) {
+        b[24 + i] = (uint8_t)clampf(t->slip[i] * 16.0f, 0, 255);
+        b[28 + i] = (uint8_t)(int8_t)clampf(t->spin[i] * 4.0f, -127, 127);
+    }
+    b[32] = (uint8_t)(int8_t)clampf((float)t->gear, -1, 10);
+    put32(b + NET_CLOCK_AT, (uint32_t)net_now());
 }
 
 static void decode_truck(const uint8_t *b, NetTruck *t) {
@@ -241,8 +245,11 @@ static void decode_truck(const uint8_t *b, NetTruck *t) {
     t->steer = (float)(int8_t)b[21] / 160.0f;
     t->rpm = (float)b[22] * 32.0f;
     t->load = (float)b[23] / 255.0f;
-    t->slip = (float)b[24] / 16.0f;
-    t->gear = (int8_t)b[25];
+    for(int i = 0; i < 4; i++) {
+        t->slip[i] = (float)b[24 + i] / 16.0f;
+        t->spin[i] = (float)(int8_t)b[28 + i] / 4.0f;
+    }
+    t->gear = (int8_t)b[32];
 }
 
 static void copy_name(char *dst, const uint8_t *src) {
@@ -280,6 +287,7 @@ static void sample(int slot, uint64_t at_ms, NetTruck *out) {
             out->steer = lerpf(a->steer, b->steer, t);
             out->rpm = lerpf(a->rpm, b->rpm, t);
             out->load = lerpf(a->load, b->load, t);
+            for(int k = 0; k < 4; k++) out->spin[k] = lerpf(a->spin[k], b->spin[k], t);
             return;
         }
     }
@@ -313,7 +321,7 @@ static void take_truck(int slot, const uint8_t *e, uint64_t now) {
        offset: jitter averages out, drift is followed. */
     uint64_t age = get16(e + 1);
     uint64_t t = now - (age < now ? age : now);
-    uint32_t sc = get32(raw + 26);
+    uint32_t sc = get32(raw + NET_CLOCK_AT);
     int64_t off16 = ((int64_t)t - (int64_t)sc) * 16;
     if(!clk_known[slot] || off16 - clk_off16[slot] > 500 * 16 || clk_off16[slot] - off16 > 500 * 16) {
         clk_off16[slot] = off16;

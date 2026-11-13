@@ -11,16 +11,16 @@ import (
 
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
-	Proto    = 1
-	Build    = 22
-	MinBuild = 22
+	Proto    = 2
+	Build    = 23
+	MinBuild = 23
 )
 
 const (
 	MaxLobbies = 12 // three an area (the consoles work out which: src/online.h)
 	MaxPlayers = 4
 	NameLen    = 11 // 10 characters and a NUL
-	TruckLen   = 30 // TRUCK body bytes, relayed as they came in TRUCKS packets
+	TruckLen   = 37 // TRUCK body bytes, relayed as they came in TRUCKS packets
 	PlayerLen  = 17 // a LOBBY packet's player entry
 )
 

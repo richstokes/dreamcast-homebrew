@@ -1,8 +1,8 @@
 # Ridgeline online protocol
 
 One UDP socket per console talks to one server (default `dcvmu.com`, port
-7536). Sized for a 56k modem: a console sends ~0.6 KB/s and receives under
-1.5 KB/s with four trucks on the mountain.
+7536). Sized for a 56k modem: a console sends ~0.7 KB/s and receives
+~1.9 KB/s with four trucks on the mountain.
 
 ## Principles
 
@@ -35,7 +35,7 @@ Console to server, 18 bytes:
 | Offset | Type | Field |
 | --- | --- | --- |
 | 0 | u8[2] | magic `'R' 'L'` |
-| 2 | u8 | protocol (`RL_NET_PROTO`, currently 1) |
+| 2 | u8 | protocol (`RL_NET_PROTO`, currently 2) |
 | 3 | u8 | packet type |
 | 4 | u32 | session token (random, chosen by the console) |
 | 8 | u32 | echo: the newest `server_ms` received |
@@ -58,7 +58,7 @@ build can read it.
 | 2 | `LIST` | nothing | 2 Hz on the lobby browser |
 | 3 | `JOIN` | u8 lobby (0-11), u8 truck model (0-7), u8 livery (0-3) | every 500 ms until the lobby state names this console |
 | 4 | `LEAVE` | nothing | 3 times |
-| 5 | `TRUCK` | 30 bytes, below | 12 Hz on the mountain |
+| 5 | `TRUCK` | 37 bytes, below | 12 Hz on the mountain |
 | 7 | `PING` | nothing | 1 Hz when nothing else goes (keeps NAT open); answered with `LOBBIES` while in no lobby (the truck select), as the console gives up after 6 s of silence |
 
 `TRUCK`:
@@ -72,9 +72,15 @@ build can read it.
 | 21 | i8 | front wheel steer * 160 (radians) |
 | 22 | u8 | rpm / 32 |
 | 23 | u8 | engine load * 255 |
-| 24 | u8 | the slipperiest tyre's slip * 16 (m/s) |
-| 25 | i8 | gear (-1 reverse) |
-| 26 | u32 | sender's clock, ms; receivers space samples by it |
+| 24 | u8 x4 | each tyre's slip * 16 (m/s over the ground), front left, front right, rear left, rear right |
+| 28 | i8 x4 | each tyre's spin * 4: its tread speed less the truck's forward speed (m/s), same order |
+| 32 | i8 | gear (-1 reverse) |
+| 33 | u32 | sender's clock, ms; receivers space samples by it |
+
+The slip and spin are what the tyres throw up and print on the other
+consoles (dust, roostertails, tracks, rubber on rock), which each console
+makes for itself from them; none of that is sent. Protocol 1 (builds up to
+22) sent one slip for the whole truck and no spin, in 30 bytes.
 
 The summit bit earns the trophy: the server sets the player's summit flag
 the first time it sees it, and keeps it for the session (moving lobby
@@ -88,7 +94,7 @@ included).
 | 65 | `REJECT` | u8 reason, u16 latest build, u16 min build |
 | 66 | `LOBBIES` | u8 lobby count, then per lobby: u8 players n, u8 hour * 10, then n x (u8 flags, `char[11]` name) |
 | 67 | `LOBBY` | u8 lobby, u8 your slot, u16 hour * 2000, u8 players n, then n x 17-byte player |
-| 68 | `TRUCKS` | u8 count, then per truck: u8 slot, u16 age ms, the 30-byte `TRUCK` body as received |
+| 68 | `TRUCKS` | u8 count, then per truck: u8 slot, u16 age ms, the 37-byte `TRUCK` body as received |
 
 REJECT reasons: 1 console too old (or another protocol), 2 server full,
 3 lobby full, 4 bad name (the bad word filter, as DreamKarts), 5 unknown

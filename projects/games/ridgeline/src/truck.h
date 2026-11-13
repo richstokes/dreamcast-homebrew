@@ -127,8 +127,9 @@ float truck_overlap(const struct Truck *t, const struct Truck *u);
 V3 truck_to_world(const Truck *t, V3 m);
 /* A remote truck where the network says (centre of gravity, body axes,
    velocity, front wheel steer), its wheels set down on the ground here,
-   turning with its speed. */
-void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, float dt);
+   each turning with its speed and spin (how much faster its tread goes
+   round than the truck goes forward, m/s). */
+void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, const float spin[4], float dt);
 V3 truck_dir_to_world(const Truck *t, V3 d);
 
 #endif
