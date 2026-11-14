@@ -281,7 +281,7 @@ The same list is under CONTROLS on the main menu.
 | B | Camera: chase, far chase, bumper |
 | X | Map: corner, large, off |
 | Y (hold) | Recover the truck to the nearest trail (on an extreme trail: to the last checkpoint passed) |
-| Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/simple/off, quit |
+| Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/simple/off (kept on the VMU), quit |
 | Y (paused) | Photo mode: no HUD, the stick turns the camera round the truck, R/L zoom, D-pad left/right moves the clock, B back |
 | Start (online) | The menu, over a mountain that keeps going: recover, viewpoints, leave the lobby. The lobby keeps the clock |
 
@@ -298,7 +298,7 @@ make -C projects/games/ridgeline run
 | `make` | Builds `ridgeline.elf` |
 | `make run` | Builds and boots it in Flycast |
 | `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake, `=3` for Loch Lowland, and `-DRL_AT_RAIN=0.9f` for a shower the whole way (any test build takes them). `-DRL_AT_ROUTE=5` drives the extreme trail (the log's `Ridgeline progress` lines give its time and stamps), with `-DRL_AT_TRAIL=60` a recover 60 s into it |
-| `make vmutest` | The save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, a slower time doesn't replace it, each area keeps its own, and so do the viewpoints, the trail log's stamps (with the trucks they earn) and an extreme trail's time |
+| `make vmutest` | The save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, a slower time doesn't replace it, each area keeps its own, and so do the viewpoints, the trail log's stamps (with the trucks they earn), an extreme trail's time and the HUD choice |
 | `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 3, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=5` joins a Mesa Grande lobby, `=8` a Moses Lake one, `=11` a Loch Lowland one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |

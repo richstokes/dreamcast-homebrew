@@ -612,7 +612,10 @@ void menu_pause_update(float dt) {
                 break;
             }
             case P_FPS: game.show_fps = !game.show_fps; break;
-            case P_HUD: game.hud_mode = (game.hud_mode + 1) % HUD_MODES; break;
+            case P_HUD:
+                game.hud_mode = (game.hud_mode + 1) % HUD_MODES;
+                records_set_hud(game.hud_mode);
+                break;
             case P_QUIT:
                 if(game.online) online_leave_lobby();
                 else {

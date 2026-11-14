@@ -41,7 +41,8 @@ typedef struct {
     uint16_t stamps[REC_AREAS];
     uint32_t extreme_best[REC_AREAS][REC_TRUCKS];  /* the extreme trail gate to gate, tenths of a second */
     uint8_t cheat, told;
-    uint8_t pad[2];
+    uint8_t hud;                                   /* HUD_*: the pause menu's choice (0, all of it, in a save from before) */
+    uint8_t pad;
 } progress_t;
 
 typedef struct {
@@ -129,6 +130,7 @@ bool records_load(void) {
     r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
     from_card = true;
+    game.hud_mode = rec.prog.hud < HUD_MODES ? rec.prog.hud : HUD_FULL;
     /* A best time is a summit reached: a save from before there was a
        trail log gets the stamps its times prove (the top by each way that
        has one, and the summit), and with them the trucks those earn.
@@ -440,5 +442,11 @@ uint8_t records_told(void) {
 void records_set_told(uint8_t models) {
     if(rec.prog.told == models) return;
     rec.prog.told = models;
+    save();
+}
+
+void records_set_hud(int mode) {
+    if(rec.prog.hud == mode) return;
+    rec.prog.hud = (uint8_t)mode;
     save();
 }

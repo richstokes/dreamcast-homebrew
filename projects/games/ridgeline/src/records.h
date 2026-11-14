@@ -50,5 +50,8 @@ bool records_cheat(void);
 void records_set_cheat(bool on);
 uint8_t records_told(void);
 void records_set_told(uint8_t models);
+/* The pause menu's HUD choice (HUD_*), kept so the next game starts with
+   it: a card's goes into game.hud_mode when the card is read. */
+void records_set_hud(int mode);
 
 #endif

@@ -184,7 +184,7 @@ static const int tod_views[2] = {0, 5}, tod_views_lowland[2] = {0, 7};
    slot, apart from the Bobcat's, and the desert's and the dunes' times
    keep theirs. And the progress kept with them: viewpoints found, the
    trail log's stamps (and the trucks those earn), an extreme trail's
-   time and the unlock code's flag. */
+   time, the unlock code's flag and the HUD choice. */
 static void vmu_test(void) {
     char line[64];
     records_load();
@@ -227,6 +227,8 @@ static void vmu_test(void) {
     bool x_first = records_extreme(2345, line, sizeof(line)), x_slower = records_extreme(3000, line, sizeof(line));
     records_set_cheat(true);
     records_set_told(0x44);
+    records_set_hud(HUD_SIMPLE);
+    game.hud_mode = HUD_FULL;   /* the card's choice comes back with it */
     bool back = records_load();
     Done d;
     for(int a = 0; a < AREA_COUNT; a++) {
@@ -243,11 +245,11 @@ static void vmu_test(void) {
                 records_stamps(AREA_LOWLAND) ==
                     (STAMP_SUMMIT | STAMP_BIT(WAY_LOGGING, STAMP_TOP) | STAMP_BIT(LOG_EXTREME, STAMP_TOP | STAMP_NIGHT)) &&
                 records_stamps(AREA_CASCADE) == (STAMP_SUMMIT | STAMP_BIT(WAY_LOGGING, STAMP_TOP)) &&
-                records_cheat() && records_told() == 0x44 && unlock_met(1, &d) && unlock_met(6, &d) && unlock_met(5, &d) &&
+                records_cheat() && records_told() == 0x44 && game.hud_mode == HUD_SIMPLE && unlock_met(1, &d) && unlock_met(6, &d) && unlock_met(5, &d) &&
                 !unlock_met(7, &d) && unlock_met(2, &d) && done_views(&d) == 3;
-    printf("RL AT vmu: progress %s (views %04x, stamps %04x, extreme %lu, cheat %d, told %02x)\n", prog ? "ok" : "WRONG",
+    printf("RL AT vmu: progress %s (views %04x, stamps %04x, extreme %lu, cheat %d, told %02x, hud %d)\n", prog ? "ok" : "WRONG",
            records_views(AREA_MOAB), records_stamps(AREA_LOWLAND), (unsigned long)records_best(TRUCK_MODELS - 1, WAY_EXTREME),
-           records_cheat(), records_told());
+           records_cheat(), records_told(), game.hud_mode);
     game.truck_model = 1;
     game.area = AREA_LOWLAND;
     uint32_t loch = records_best(1, WAY_LOGGING);
