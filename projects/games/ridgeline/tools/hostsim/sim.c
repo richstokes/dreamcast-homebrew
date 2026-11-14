@@ -399,6 +399,41 @@ static int run_turn(int mode, int model, float steer, int hb) {
     return 0;
 }
 
+/* The handbrake at speed: hbrake<mode> [truck] [throttle]. Flat out across
+   the meadow for 8 s, then the handbrake for 2 s with the throttle held or
+   lifted. Out of LOCK the rear wheels should stop within half a second and
+   the front ones keep turning; in LOCK all four slow together. */
+static int run_hbrake(int mode, int model, float throttle) {
+    game.ntrucks = 1;
+    Truck *t = &trucks[0];
+    t->model = model;
+    truck_place(t, v3(0, 0, -240), ENG_PI / 2);
+    t->mode = mode;
+    float dt = 1.0f / 60.0f, v0 = 0, locked = -1, front = 0;
+    for(int f = 0; f < 60 * 10; f++) {
+        float tm = f * dt - 8.0f;
+        t->in.throttle = tm < 0 ? 1.0f : throttle;
+        t->in.handbrake = tm >= 0;
+        r_cam.pos = t->pos;
+        if(f == 60 * 8) v0 = t->speed;
+        truck_update(t, dt);
+        float r = t->spec.radius, rear = fmaxf(fabsf(t->wh[2].omega), fabsf(t->wh[3].omega)) * r;
+        if(tm >= 0 && locked < 0 && rear < 0.5f) {
+            locked = tm;
+            front = fminf(t->wh[0].omega, t->wh[1].omega) * r;
+        }
+        if(tm >= 0 && f % 15 == 0)
+            printf("  t=%.2f v %5.1f wheels front %5.1f %5.1f rear %5.1f %5.1f m/s g %d rpm %4.0f\n", (double)tm, (double)t->speed,
+                   (double)(t->wh[0].omega * r), (double)(t->wh[1].omega * r), (double)(t->wh[2].omega * r),
+                   (double)(t->wh[3].omega * r), t->gear, (double)t->rpm);
+    }
+    bool ok = mode == DRIVE_LOCK ? locked < 0 || front < 1.0f : locked >= 0 && locked < 0.5f && front > v0 * 0.5f;
+    if(locked < 0) printf("hbrake%d truck %d from %.1f m/s: rear wheels never stopped: %s\n", mode, model, (double)v0, ok ? "PASS" : "FAIL");
+    else printf("hbrake%d truck %d from %.1f m/s: rear wheels stopped in %.2f s, fronts at %.1f m/s: %s\n", mode, model, (double)v0,
+                (double)locked, (double)front, ok ? "PASS" : "FAIL");
+    return ok ? 0 : 1;
+}
+
 /* Two trucks meeting on the meadow: crash<case> <model>. The player's
    truck drives at a parked one (0 rear end, 1 its side at 90 degrees, 2 a
    corner at 45, 3 head on), or 4 rubs alongside a moving one, steering
@@ -463,6 +498,7 @@ int main(int argc, char **argv) {
     turn_drift = getenv("SIM_DRIFT") != NULL;
     if(!strncmp(scen, "turn", 4))
         return run_turn(scen[4] - '0', model, argc > 3 ? atof(argv[3]) : 0.5f, argc > 4 ? atoi(argv[4]) : 0);
+    if(!strncmp(scen, "hbrake", 6)) return run_hbrake(scen[6] - '0', model, argc > 3 ? atof(argv[3]) : 0);
     if(!strncmp(scen, "crash", 5)) return run_crash(scen[5] - '0', model);
     if(!strcmp(scen, "xtrail")) {
         truck_spec(&trucks[0].spec, model);

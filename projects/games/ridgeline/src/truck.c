@@ -20,7 +20,9 @@
       mode: 2WD drives the rear axle through an open diff; 4WD locks the
       front and rear shafts together with open diffs on each axle; LOCK
       adds low range and locks both axle diffs. The engine's inertia joins
-      the driven shaft once the torque converter couples it.
+      the driven shaft once the torque converter couples it. The handbrake
+      works the rear brakes and, out of LOCK, frees them from the engine
+      and the front axle while it is held.
    4. Chassis. Points round the body's box collide with the ground and the
       obstacles (spring-damper with friction); water gives buoyancy, drag
       and, over the air intake, a stall.
@@ -765,9 +767,17 @@ static void step(Truck *t, float dt) {
 
     /* 4. The driveline: wheel speeds, implicitly. */
     float Sm[4][4], shaft[4];
-    int nq = mode_coords(t->mode, Sm, shaft);
+    /* The handbrake is the hydraulic kind off a rally car: held, it takes
+       the drive off and in 4WD lets the front shaft go, so the rear brakes
+       have only the rear tyres to beat and lock them at any speed. Left
+       joined, the front tyres turn the rears through the transfer case
+       and the engine outpulls the brake. LOCK stays joined: crawling, it
+       holds all four. */
+    bool hb_free = t->in.handbrake && t->mode != DRIVE_LOCK;
+    int mode = hb_free ? DRIVE_2WD : t->mode;
+    int nq = mode_coords(mode, Sm, shaft);
     float G = total_ratio(t);
-    float shift_lock = t->shift_t > 0 ? 0.0f : 1.0f;
+    float shift_lock = t->shift_t > 0 || hb_free ? 0.0f : 1.0f;
     float throttle = t->stalled ? 0.0f : t->throttle * t->tc;
     if(t->rpm > S->redline_rpm) throttle = 0;
     /* Shaft speed now, from the wheels. */
@@ -850,7 +860,7 @@ static void step(Truck *t, float dt) {
            so a spinning inside wheel still sends drive to the outside one
            and the tail can be powered round. Its coordinate is the rear
            difference (wheels at shaft +- d, so the torque on d is 4 c d). */
-        int rear_d = t->mode == DRIVE_2WD ? 1 : t->mode == DRIVE_4WD ? 2 : -1;
+        int rear_d = mode == DRIVE_2WD ? 1 : mode == DRIVE_4WD ? 2 : -1;
         if(rear_d >= 0) A[rear_d][rear_d] += 4.0f * S->lsd;
         if(coupled) {
             /* The engine's inertia on the shaft, through the gearing. */
