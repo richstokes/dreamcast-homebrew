@@ -11,7 +11,9 @@
 
 enum { WAY_LOGGING, WAY_RIDGE, WAY_CREEK, WAY_OWN, WAY_EXTREME, WAY_COUNT };
 
-void records_load(void);              /* at boot, from the first VMU with a save */
+/* At boot, and again going online for a card put in since: the save on
+   the first VMU, unless one has been read already. True once one has. */
+bool records_load(void);
 void records_finish(void);            /* waits for a save still being written (before leaving) */
 void records_start(void);             /* a drive begins: the clock and the route tally reset */
 void records_update(float dt);        /* each driving frame */

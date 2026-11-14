@@ -80,23 +80,42 @@ static record_t pending;
 static bool have_pending, worker_on;
 #endif
 static record_t rec;
+static bool from_card;   /* rec began as a card's save */
 
 static float tally[WAY_COUNT];
 static V3 last_pos;
 static bool have_last, jumped;
 static int frame;
 
-void records_load(void) {
-    records_finish();
-    memset(&rec, 0, sizeof(rec));
+/* A card's save is read once. From then on what is in memory is that and
+   everything gained since, and the card may have less: a save can still
+   be on its way out, or have failed (a full card, or a write that timed
+   out). Read again when going online, it took the code's trucks back.
+   With no save to read, what is in memory stays as it is. */
+bool records_load(void) {
 #ifdef RL_USE_VMU
+    if(from_card) return true;
+    records_finish();
     maple_device_t *dev = vmusave_card(&card_port, &card_unit);
-    if(!dev) return;
+    if(!dev) return false;
+    /* Three tries at it, unless the card says it has no such file (-2): on
+       the console a block read now and then times out, which fails the
+       whole read and would pass for no save. */
+    void *file = NULL;
+    int size = 0, st = -1;
+    for(int tries = 0; tries < 3 && st < 0 && st != -2; tries++) {
+        if(tries) thd_sleep(50);
+        st = vmufs_read(dev, FILENAME, &file, &size);
+    }
+    if(st < 0) return false;
     record_t r;
     memset(&r, 0, sizeof(r));
-    int n = vmusave_read(dev, FILENAME, &r, sizeof(r));
-    if(n < RECORD_V1_BYTES || memcmp(r.magic, magic, sizeof(magic))) return;
-    if(!(r.version == 1 && n >= RECORD_V1_BYTES) && !(r.version == 2 && n >= RECORD_V2_BYTES)) return;
+    vmu_pkg_t in;
+    int n = vmu_pkg_parse(file, size, &in) < 0 ? -1 : in.data_len < (int)sizeof(r) ? in.data_len : (int)sizeof(r);
+    if(n > 0) memcpy(&r, in.data, (size_t)n);
+    free(file);
+    if(n < RECORD_V1_BYTES || memcmp(r.magic, magic, sizeof(magic))) return false;
+    if(!(r.version == 1 && n >= RECORD_V1_BYTES) && !(r.version == 2 && n >= RECORD_V2_BYTES)) return false;
     if(r.version == 1) memset(r.name, 0, sizeof(r.name));
     /* Rows a shorter save lacks stay as cleared above: no time yet. A row
        cut short is cleared too. */
@@ -109,6 +128,7 @@ void records_load(void) {
     if(n < (int)sizeof(r) || memcmp(r.prog.tag, prog_tag, sizeof(prog_tag))) memset(&r.prog, 0, sizeof(r.prog));
     r.name[sizeof(r.name) - 1] = '\0';
     rec = r;
+    from_card = true;
     /* A best time is a summit reached: a save from before there was a
        trail log gets the stamps its times prove (the top by each way that
        has one, and the summit), and with them the trucks those earn.
@@ -122,6 +142,9 @@ void records_load(void) {
                 if(w < WAY_OWN) rec.prog.stamps[a] |= STAMP_BIT(w, STAMP_TOP);
             }
     printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);
+    return true;
+#else
+    return false;
 #endif
 }
 
@@ -176,7 +199,13 @@ static void write_card(const record_t *r) {
     /* Palette (ARGB4444): blank, snow, rock, forest, amber. */
     static const uint16_t palette[] = {0x0000, 0xffff, 0xf888, 0xf363, 0xfea3};
     vmusave_icon(&pkg, pixels, icon_art, ".SRGY", palette);
-    if(vmusave_write(dev, FILENAME, &pkg, r, sizeof(*r)) < 0)
+    /* (a write that times out fails too: twice more before giving up) */
+    int rv = -1;
+    for(int tries = 0; tries < 3 && rv < 0; tries++) {
+        if(tries) thd_sleep(50);
+        rv = vmusave_write(dev, FILENAME, &pkg, r, sizeof(*r));
+    }
+    if(rv < 0)
         printf("Ridgeline records: save failed on VMU %c%d\n", 'A' + dev->port, dev->unit);
     else
         printf("Ridgeline records: saved on VMU %c%d\n", 'A' + dev->port, dev->unit);

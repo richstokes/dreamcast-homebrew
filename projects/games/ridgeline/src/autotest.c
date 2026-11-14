@@ -227,7 +227,7 @@ static void vmu_test(void) {
     bool x_first = records_extreme(2345, line, sizeof(line)), x_slower = records_extreme(3000, line, sizeof(line));
     records_set_cheat(true);
     records_set_told(0x44);
-    records_load();
+    bool back = records_load();
     Done d;
     for(int a = 0; a < AREA_COUNT; a++) {
         d.views[a] = records_views(a);
@@ -238,7 +238,7 @@ static void vmu_test(void) {
        gets its summit and the top by that way (a save from before the
        trail log is credited the same way), so the One Ten and the Goose
        are earned too; the Eagle (all four trails) is not. */
-    bool prog = x_first && !x_slower && records_best(TRUCK_MODELS - 1, WAY_EXTREME) == 2345 &&
+    bool prog = back && x_first && !x_slower && records_best(TRUCK_MODELS - 1, WAY_EXTREME) == 2345 &&
                 records_views(AREA_MOAB) == 0x8005 && records_views(AREA_CASCADE) == 0 &&
                 records_stamps(AREA_LOWLAND) ==
                     (STAMP_SUMMIT | STAMP_BIT(WAY_LOGGING, STAMP_TOP) | STAMP_BIT(LOG_EXTREME, STAMP_TOP | STAMP_NIGHT)) &&

@@ -117,7 +117,7 @@ void online_enter(void) {
     summited = false;
     joining = false;
     key_row = key_col = 0;
-    records_load();   /* again, for a card put in since boot */
+    records_load();   /* for a card put in since boot */
     if(records_name()[0]) snprintf(name, sizeof(name), "%s", records_name());
     to_screen(OS_NAME);
     netlink_set_server(RL_NET_HOST, RL_NET_FALLBACK_IP);
