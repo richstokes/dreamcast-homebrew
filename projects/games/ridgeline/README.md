@@ -246,7 +246,8 @@ earned out there.
   night); photo mode moves the clock with the D-pad. Headlights are yours
   to switch: off, low or high beam (which lights the Kestrel's roof bar),
   and the beams carry through the air at night and in the cloud and light
-  up the trees, rocks, cabins, grass and other trucks they reach. The low
+  up the trees, rocks, cabins, grass and other trucks they reach. A truck
+  upside down for two seconds flashes its hazard lights. The low
   sun glints off paint and glass
 - Synthesized engine sound from four rpm points on and off load, tyres,
   wind, the forest and the creek. No music

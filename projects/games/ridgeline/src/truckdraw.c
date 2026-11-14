@@ -403,6 +403,17 @@ static void ground_quad(V3 c, V3 ax, V3 az, float ymax, float lift, uint32_t col
 
 #define TAIL_REVERSE 0xfffff6e4 /* the tail lamps in reverse gear */
 
+/* The hazard lights: on by themselves once a truck has been upside down
+   for two seconds, amber at its four corners, flashing (lit first) until
+   it is back over. */
+#define HAZARD_AFTER 2.0f
+#define HAZARD_PERIOD 0.7f
+#define HAZARD_AMBER 0xffffa820
+static bool hazards_lit(const Truck *t) {
+    float on = t->flip_t - HAZARD_AFTER;
+    return on >= 0 && fmodf(on, HAZARD_PERIOD) < 0.5f * HAZARD_PERIOD;
+}
+
 /* Full detail is over three times a truck's vertices at the next level
    (~3,400 against ~1,000) and ~1.8 ms of a console's frame, so besides
    the player's only one other truck has it at a time: the nearest in
@@ -450,8 +461,10 @@ void truckdraw_draw_op(void) {
 #ifdef HAVE_TRUCK_MODELS
         TruckLit *tl = &truck_lit[ti];
         uint32_t *lit_b = tl->buf ? tl->buf : lit_buf;
+        bool hazard = hazards_lit(t);
         uint32_t key = (uint32_t)t->model | (uint32_t)lod << 8 | (uint32_t)(t->livery % RL_LIVERIES) << 12 |
-                       (uint32_t)t->lights << 16 | (t->brake > 0.2f ? 1u << 20 : 0) | (t->gear < 0 ? 1u << 21 : 0);
+                       (uint32_t)t->lights << 16 | (t->brake > 0.2f ? 1u << 20 : 0) | (t->gear < 0 ? 1u << 21 : 0) |
+                       (hazard ? 1u << 22 : 0);
         if(!tl->buf || eng_lit_due(&tl->age, key, draw_frame, (unsigned)ti)) {
             EngLight l;
             l.L = v3(vdot(sun_dir, R), vdot(sun_dir, U), vdot(sun_dir, F));
@@ -501,8 +514,9 @@ void truckdraw_draw_op(void) {
             }
             uint32_t unlit = 0;
             /* The tail lenses: white in reverse (the models have no lamp
-               of their own for it), bright red on the brakes. */
-            uint32_t tail = t->gear < 0 ? TAIL_REVERSE : t->brake > 0.2f ? 0xffff3020 : 0;
+               of their own for it), bright red on the brakes, amber on a
+               flash of the hazards. */
+            uint32_t tail = hazard ? HAZARD_AMBER : t->gear < 0 ? TAIL_REVERSE : t->brake > 0.2f ? 0xffff3020 : 0;
             if(t->lights) {
                 /* Full beam: whiter lenses, and the roof lights with them. */
                 bool full = t->lights == LIGHTS_FULL;
@@ -613,6 +627,23 @@ void truckdraw_draw_tr(void) {
             V3 sc = vadd(v3(c.x, 0, c.z), vscale(v3(-sun_dir.x, 0, -sun_dir.z), 0.6f));
             ground_quad(sc, vscale(rh, hx), vscale(fh, hz), c.y, 0.06f, color_alpha(0xff000000, 0.55f * k));
         }
+#ifdef HAVE_TRUCK_MODELS
+        if(hazards_lit(t)) {
+            /* A flash at each corner: outboard of the headlights, where a
+               truck's indicators are, and on the tail lenses. */
+            const rl_truck_info_t *hi = &rl_truck_info[t->model];
+            float sz = 0.45f * (1.0f + 0.5f * pal->dark);
+            uint32_t col = color_alpha(HAZARD_AMBER, 0.85f);
+            r_hdr(h_glow);
+            for(int i = 0; i < 2; i++) {
+                float out = hi->headlight[i][0] < 0 ? -hi->headlight_r : hi->headlight_r;
+                V3 hp = truck_to_world(t, v3(hi->headlight[i][0] + out, hi->headlight[i][1], hi->headlight[i][2]));
+                r_billboard(vmad(hp, F, 0.05f), sz, sz, 0, 0, 0, 1, 1, col);
+                V3 tp = truck_to_world(t, v3(hi->taillight[i][0], hi->taillight[i][1], hi->taillight[i][2]));
+                r_billboard(tp, sz, sz, 0, 0, 0, 1, 1, col);
+            }
+        }
+#endif
         if(!t->lights) continue;
         bool full = t->lights == LIGHTS_FULL;
         /* Where the beam lands: dipped is pitched down and short, full

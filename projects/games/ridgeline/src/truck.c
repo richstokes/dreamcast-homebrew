@@ -1199,6 +1199,14 @@ static void step(Truck *t, float dt) {
     (void)body_pts_dummy;
 }
 
+/* How long it has been upside down (past lying on its side), from its
+   pose alone: a remote truck's clock runs here as its driver's does there,
+   with nothing more on the wire. */
+static void flip_clock(Truck *t, float dt) {
+    if(t->ax[1].y < 0) t->flip_t += dt;
+    else t->flip_t = 0;
+}
+
 /* ---- The frame: controls, gearbox, steps ---- */
 
 void truck_update(Truck *t, float dt) {
@@ -1320,6 +1328,7 @@ void truck_update(Truck *t, float dt) {
     t->speed = vdot(t->vel, t->ax[2]);
     t->pitch = asinf(clampf(t->ax[2].y, -1, 1)) * (180.0f / ENG_PI);
     t->roll = asinf(clampf(t->ax[0].y, -1, 1)) * (180.0f / ENG_PI);
+    flip_clock(t, dt);
     t->water = 0;
     for(int i = 0; i < 4; i++) t->water = fmaxf(t->water, t->wh[i].water);
     if(t->stalled) t->rpm = approach(t->rpm, 0, dt * 3000.0f);
@@ -1362,6 +1371,7 @@ void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, const
     t->speed = fwd;
     t->pitch = asinf(clampf(ax[2].y, -1, 1)) * (180.0f / ENG_PI);
     t->roll = asinf(clampf(ax[0].y, -1, 1)) * (180.0f / ENG_PI);
+    flip_clock(t, dt);
     t->water = 0;
     for(int i = 0; i < 4; i++) t->water = fmaxf(t->water, t->wh[i].water);
 }

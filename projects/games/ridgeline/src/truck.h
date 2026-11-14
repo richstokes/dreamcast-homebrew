@@ -98,6 +98,7 @@ typedef struct Truck {
     float water;              /* deepest water at the wheels */
     float airborne_t;
     float stuck_t;
+    float flip_t;             /* seconds upside down: the hazard lights come on with it (truckdraw.c) */
     float dbg_chassis;        /* force the body itself carried last step, N */
     /* Previous frame's pose, for drawing between steps. */
 } Truck;
