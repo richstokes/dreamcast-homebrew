@@ -104,7 +104,7 @@ static const ControlRow controls[] = {
     {"D-PAD LEFT/RIGHT", NULL, "DRIVE MODE: 2WD, 4WD, LOCK"},
     {"HOLD D-PAD LEFT", NULL, "TRACTION CONTROL OFF/ON (KESTREL, TACO)"},
     {"D-PAD UP", NULL, "HORN"},
-    {"D-PAD DOWN", NULL, "LIGHTS: OFF, DIPPED, FULL BEAM"},
+    {"D-PAD DOWN", NULL, "LIGHTS: OFF, LOW BEAM, HIGH BEAM"},
     {"", "A", "HANDBRAKE"},
     {"", "B", "CAMERA: CHASE, FAR CHASE, BUMPER"},
     {"", "X", "MAP: CORNER, LARGE, OFF"},
@@ -524,7 +524,7 @@ void menu_select_draw(void) {
 
 /* ---- Pause ---- */
 
-enum { P_CARRY_ON, P_RECOVER, P_VIEW, P_FPS, P_HUD, P_QUIT, P_COUNT };
+enum { P_RESUME, P_RECOVER, P_VIEW, P_FPS, P_HUD, P_QUIT, P_COUNT };
 
 /* The viewpoint item is there once one has been found; left and right step
    through the ones found. */
@@ -592,7 +592,7 @@ void menu_pause_update(float dt) {
     if(pad.pressed & BTN_A) {
         audio_sfx(RL_SFX_MENU_SELECT, 200);
         switch(game.pause_sel) {
-            case P_CARRY_ON: game.paused = false; break;
+            case P_RESUME: game.paused = false; break;
             case P_RECOVER:
                 if(!progress_recover()) truck_recover(&trucks[0]);
                 camera_reset();
@@ -644,7 +644,7 @@ void menu_pause_draw(void) {
     }
     char view[32] = "";
     if(game.views_found) snprintf(view, sizeof(view), "TO %s", lvl_views[game.view_sel].name);
-    const char *items[P_COUNT] = {"CARRY ON", "RECOVER TRUCK", view, game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
+    const char *items[P_COUNT] = {"RESUME", "RECOVER TRUCK", view, game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
                                   game.hud_hidden ? "HUD: OFF" : "HUD: ON", game.online ? "LEAVE LOBBY" : "QUIT TO TITLE"};
     ui_dim();
     int n = 0;

@@ -244,7 +244,7 @@ earned out there.
   afternoon: the summit trail climbs through it and out above it. Pick
   when to set off on the truck select (dawn, morning, afternoon, dusk or
   night); photo mode moves the clock with the D-pad. Headlights are yours
-  to switch: off, dipped or full beam (which lights the Kestrel's roof bar),
+  to switch: off, low or high beam (which lights the Kestrel's roof bar),
   and the beams carry through the air at night and in the cloud and light
   up the trees, rocks, cabins, grass and other trucks they reach. The low
   sun glints off paint and glass
@@ -276,7 +276,7 @@ The same list is under CONTROLS on the main menu.
 | R / L trigger | Throttle / brake; hold L at a stop to reverse |
 | D-pad left / right | Drive mode: 2WD, 4WD, LOCK (low range goes in or out only below ~8 mph); hold left 2 s to switch traction control off or on (Kestrel, Taco) |
 | D-pad up | Horn |
-| D-pad down | Lights: off, dipped, full beam |
+| D-pad down | Lights: off, low beam, high beam |
 | A | Handbrake |
 | B | Camera: chase, far chase, bumper |
 | X | Map: corner, large, off |

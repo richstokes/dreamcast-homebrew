@@ -155,7 +155,7 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
     if(step) {
         int m = p->mode + step;
         if(m >= 0 && m < DRIVE_COUNT) {
-            static const char *const names[DRIVE_COUNT] = {"2WD  REAR DRIVE", "4WD  CENTRE LOCKED",
+            static const char *const names[DRIVE_COUNT] = {"2WD  REAR DRIVE", "4WD  CENTER LOCKED",
                                                             "LOW RANGE + DIFF LOCKS"};
             int r = truck_set_mode(p, m);
             if(r == MODE_CHANGED) hud_status(names[m], 0xffffd070, 1.6f);

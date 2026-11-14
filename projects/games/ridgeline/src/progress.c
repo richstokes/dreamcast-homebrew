@@ -286,7 +286,7 @@ void progress_update(float dt) {
             trail.on = false;
             if(!out) {
                 hud_message("OFF THE TRAIL", 0xffff9050, 3.5f);
-                hud_message_sub("DRIVE BACK TO ITS GATE TO START AGAIN");
+                hud_message_sub("DRIVE BACK TO ITS GATE TO START OVER");
             }
             LOG("Ridgeline progress: left %s at point %d\n", r->name, trail.reached);
         }
