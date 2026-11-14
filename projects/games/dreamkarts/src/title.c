@@ -8,6 +8,7 @@
    screen, where the player paints a kart of their own and watches it
    change. */
 #include "title.h"
+#include "engine/cardpick.h"
 #include "engine/qa.h"
 #include "flappy.h"
 #include "audio.h"
@@ -557,12 +558,34 @@ void title_init(void) {
 }
 
 void title_enter(void) {
+    save_title();
     code_n = 0;
     logo_in = 0;
     menu_slide = 0;
     menu_row = 0;
     chao_call_t = 1.2f;
     for(int i = 0; i < 8; i++) sparkle_t[i] = -(float)i * 0.4f;
+}
+
+/* The memory card question, when the save has one (save.h): up over the
+   title until it is answered. */
+static bool card_question(void) {
+    if(save_looking()) return true;   /* the cards are being read: nothing starts until they have been */
+    if(!cardpick_up()) {
+        const vmusave_slot_t *slots;
+        const char *const *notes;
+        int count, need, kind = save_card_ask(&slots, &notes, &count, &need);
+        if(kind < 0) return false;
+        cardpick_open(kind, slots, notes, count, need);
+        return true;
+    }
+    int r = cardpick_update();
+    if(r == CARDPICK_MOVED) audio_sfx(DK_SFX_MENU_MOVE, 180, 128);
+    else if(r != CARDPICK_WAIT) {
+        audio_sfx(DK_SFX_MENU_SELECT, 220, 128);
+        save_card_pick(r);
+    }
+    return true;
 }
 
 void title_update(float dt) {
@@ -573,6 +596,7 @@ void title_update(float dt) {
     }
     if(game.state == ST_TITLE) {
         menu_slide = fmaxf(0.0f, menu_slide - dt * 4.0f);
+        if(card_question()) return;
         /* Hidden: the triggers cycle the background track. */
         uint32_t trig = (pad.pressed | pad2.pressed) & (BTN_L | BTN_R);
         if(trig && trig != (BTN_L | BTN_R)) {
@@ -1252,7 +1276,7 @@ void title_draw(void) {
         r_quad2d(320 - 260, 118 - 100, 320 + 260, 118 + 100, 0, 0, 1, 1, color_alpha(argb(255, 255, 230, 160), 0.35f * burst_a), 11.0f);
         draw_logo(320, 118, 0.66f);
         draw_sparkles(0);
-        if(logo_in >= 1.0f) {
+        if(logo_in >= 1.0f && !cardpick_up()) {
             float pulse = 0.5f + 0.5f * sinf(game.title_t * 4.5f);
             float s = 1.0f + 0.06f * pulse;
             hud_text(320, 352, s, ALIGN_CENTER, color_lerp(argb(255, 255, 255, 255), argb(255, 255, 210, 60), pulse),
@@ -1265,6 +1289,7 @@ void title_draw(void) {
         if(!game.ios) hud_text(320, 440, 0.45f, ALIGN_CENTER, argb(200, 230, 240, 255), "github.com/richstokes");
         /* Build id for bug reports: the commit this was built from. */
         hud_text(604, 446, 0.32f, ALIGN_RIGHT, argb(150, 230, 240, 255), DK_GIT_SHA);
+        cardpick_draw();
     }
     else if(game.state == ST_TRACKS) {
         draw_tracks();

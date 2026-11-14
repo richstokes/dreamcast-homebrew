@@ -11,9 +11,31 @@
 
 enum { WAY_LOGGING, WAY_RIDGE, WAY_CREEK, WAY_OWN, WAY_EXTREME, WAY_COUNT };
 
-/* At boot, and again going online for a card put in since: the save on
-   the first VMU, unless one has been read already. True once one has. */
-bool records_load(void);
+/* The memory card. At boot, back at the title and going online: unless
+   the card to save to is settled and still in, starts a look at every
+   card, in the background. The title holds while it runs
+   (records_looking, which lands what it found when it is done). One card
+   with a save is read and is the card from then on; with no save
+   anywhere it is the first card, if that has room. Otherwise the player
+   is asked (records_card_ask) and nothing is written until they answer.
+   A save read once is never read again: what is in memory stands. */
+#include "../../../common/vmusave.h"
+void records_cards(void);
+bool records_looking(void);
+/* The question waiting for the player, if there is one: CARDPICK_WHICH
+   or CARDPICK_ROOM (engine/cardpick.h) with what to show it, else -1. */
+int records_card_ask(const vmusave_slot_t **slots, const char *const **notes, int *count, int *need);
+/* Their answer: one of those slots, or less than 0 to play without saving. */
+void records_card_pick(int slot);
+/* Something for the player to be told, once each: a save did not reach
+   the card (full, or pulled; the next one tries again), or there is no
+   card for saves to go to. 0 for nothing. */
+enum { REC_NOTICE_FAILED = 1, REC_NOTICE_NO_CARD };
+int records_notice(void);
+#ifdef RL_AT_VMUTEST
+bool records_cards_wait(void);        /* the save tests: the look, waited for; true once a save has been read */
+void records_forget(void);            /* ...and as at boot, nothing read and no card */
+#endif
 void records_finish(void);            /* waits for a save still being written (before leaving) */
 void records_start(void);             /* a drive begins: the clock and the route tally reset */
 void records_update(float dt);        /* each driving frame */

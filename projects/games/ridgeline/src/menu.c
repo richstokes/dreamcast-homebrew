@@ -7,6 +7,7 @@
 #include "tod.h"
 #include "hud.h"
 #include "engine/ui.h"
+#include "engine/cardpick.h"
 #include "truck.h"
 #include "camera.h"
 #include "terrain.h"
@@ -78,6 +79,7 @@ const char *menu_truck_name(int model) {
    back from the truck select or the sound test. */
 enum { T_SINGLE, T_ONLINE, T_SOUND, T_CONTROLS, T_COUNT };
 static bool title_menu, title_controls;
+static bool title_to_online;   /* ONLINE was chosen: on the way there */
 static int title_sel;
 static float title_idle;
 /* The code, as on a certain blue hedgehog's title screen: up, down, left,
@@ -138,9 +140,39 @@ static void controls_draw(void) {
     ui_hint("B: BACK");
 }
 
+/* The memory card (records.h): the title holds while the cards are
+   looked at, and a question about them is up over it until answered. */
+static bool card_question(void) {
+    if(records_looking()) return true;   /* the cards are being read: nothing starts until they have been */
+    if(!cardpick_up()) {
+        const vmusave_slot_t *slots;
+        const char *const *notes;
+        int count, need, kind = records_card_ask(&slots, &notes, &count, &need);
+        if(kind < 0) return false;
+        cardpick_open(kind, slots, notes, count, need);
+        return true;
+    }
+    int r = cardpick_update();
+    if(r == CARDPICK_MOVED) audio_sfx(RL_SFX_MENU_MOVE, 160);
+    else if(r != CARDPICK_WAIT) {
+        audio_sfx(RL_SFX_MENU_SELECT, 200);
+        records_card_pick(r);
+    }
+    return true;
+}
+
 void menu_title_update(float dt) {
     camera_flyover(game.time);
     if(code_t > 0) code_t -= dt;
+    if(card_question()) {
+        title_idle = 0;
+        return;
+    }
+    if(title_to_online) {
+        title_to_online = false;
+        online_enter();
+        return;
+    }
     /* Left alone with no menu up, the demo starts (demo.h). */
     bool touched = pad.pressed || pad2.pressed || fabsf(pad.stick_x) > 0.6f || fabsf(pad.stick_y) > 0.6f;
     title_idle = touched ? 0 : title_idle + dt;
@@ -207,13 +239,14 @@ void menu_title_update(float dt) {
         }
         else {
             audio_sfx(RL_SFX_MENU_SELECT, 200);
-            online_enter();
+            records_cards();          /* for a card put in since boot */
+            title_to_online = true;   /* once any question about it is answered */
         }
     }
 }
 
 void menu_title_draw(void) {
-    if(title_menu && title_controls) {
+    if(title_menu && title_controls && !cardpick_up()) {
         controls_draw();
         return;
     }
@@ -221,6 +254,10 @@ void menu_title_draw(void) {
     r_hdr(h_logo);
     float w = 256 * (0.9f + 0.1f * k), h = 64 * (0.9f + 0.1f * k);
     r_quad2d(320 - w, 96 - h, 320 + w, 96 + h, 0, 0, 1, 1, color_alpha(0xffffffff, k), 12.0f);
+    if(cardpick_up()) {
+        cardpick_draw();
+        return;
+    }
     if(title_menu) {
         static const char *const items[T_COUNT] = {"SINGLE PLAYER", "ONLINE", "SOUND TEST", "CONTROLS"};
         ui_panel(200, 252, 440, 415);

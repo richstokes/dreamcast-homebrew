@@ -42,6 +42,7 @@ typedef struct {
 /* The font the chrome letters with, and its colours. */
 void ui_init(const EngFont *font, const EngUiTheme *theme);
 uint32_t ui_col(int role);
+const EngFont *ui_font(void);
 /* The clock the breathing pill and bobbing arrows run on; the game sets
    it each frame (seconds on the current screen, say). */
 extern float ui_time;

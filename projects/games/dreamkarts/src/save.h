@@ -42,4 +42,22 @@ void save_store(void);
 /* Leaving the game: wait up to 3 s for a card read or write to finish. */
 void save_finish(void);
 
+/* The memory card (see save.c). At the title: looks at the cards again
+   after a write that failed, or with none settled once one has come or
+   gone. The title waits while a read is under way (save_looking), so a
+   question about the cards comes up there and not later. */
+void save_title(void);
+bool save_looking(void);
+/* The question waiting for the player, if there is one: CARDPICK_WHICH or
+   CARDPICK_ROOM (engine/cardpick.h) with what to show it, else -1. */
+#include "vmusave.h"
+int save_card_ask(const vmusave_slot_t **slots, const char *const **notes, int *count, int *need);
+/* Their answer: one of those slots, or less than 0 to play without saving. */
+void save_card_pick(int slot);
+/* True once after a write the card did not take (full, or pulled). */
+bool save_failed(void);
+#ifdef DK_AT_CARDS
+void save_forget(void);   /* the card test: as at boot, nothing read and no card */
+#endif
+
 #endif

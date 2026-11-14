@@ -1210,6 +1210,7 @@ int main(int argc, char **argv) {
             audio_music_enable(save.music);
             audio_music_volume(save.volume);
         }
+        if(save_failed()) hud_toast("COULD NOT SAVE TO THE MEMORY CARD");
         if(game.online) online_tick();
 #if defined(DK_HW) && defined(DK_CAPTURE)
         if(probe_step(prof_phase_last)) {

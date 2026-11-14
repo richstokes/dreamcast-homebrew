@@ -19,6 +19,7 @@ build on it, so a fix or speed-up here reaches both.
 | `bird.h` | A low-poly flapping bird for scenery life, held in the drawing file (`ENG_BIRD_IMPL`) so it inlines as before | DreamKarts, Ridgeline |
 | `qa.h`, `qa.c` | Test builds: the shot line for `tools/capture.py`, a log window's frame statistics | DreamKarts, Ridgeline |
 | `ui.h`, `ui.c` | Menu chrome: panels, heading plaques, selection pills, controller button glyphs, hints, keys, dots; colours from the game's theme | DreamKarts, Ridgeline |
+| `cardpick.h`, `cardpick.c` | The memory card prompt: which card's save to use when two hold one, and where to save when the first card is full | DreamKarts, Ridgeline |
 
 `game.mk` holds the build: variants, object directories, the link stamp,
 the version header and the engine's rules (each game's Makefile sets a few

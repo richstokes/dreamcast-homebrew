@@ -188,6 +188,37 @@ int main(void) {
     assert(vmusave_read(a1, "VMUSAVE_T", back, sizeof(back)) == (int)sizeof(small));
     assert(!memcmp(back, small, sizeof(small)));
 
+    /* Which card: every card's room and its file of a name, and what
+       that means for a save. */
+    {
+        vmusave_slot_t slots[VMUSAVE_SLOTS];
+        const uint8_t *payload;
+        int pick = -1, count = vmusave_survey("VMUSAVE_T", slots, VMUSAVE_SLOTS);
+
+        assert(count == 2 && slots[0].port == 0 && slots[0].unit == 1 && slots[1].unit == 2);
+        assert(slots[0].save && slots[0].file_blocks == 2 && !slots[1].save && !slots[1].file);
+        assert(slots[0].free_blocks == vmufs_free_blocks(a1) && slots[1].free_blocks == vmufs_free_blocks(a2));
+        assert(vmusave_slot_payload(&slots[0], &payload) == (int)sizeof(small) && !memcmp(payload, small, sizeof(small)));
+        assert(vmusave_slot_payload(&slots[1], &payload) == -1);
+        assert(vmusave_decide(slots, count, 2, &pick) == VMUSAVE_USE && pick == 0);
+        /* The file on both is the player's to choose between. */
+        slots[1].save = true;
+        assert(vmusave_decide(slots, count, 2, &pick) == VMUSAVE_ASK_WHICH);
+        vmusave_survey_free(slots, count);
+        /* On neither: the first card, while it has room. */
+        count = vmusave_survey("VMUSAVE_NONE", slots, VMUSAVE_SLOTS);
+        assert(count == 2 && !slots[0].save && !slots[1].save);
+        pick = -1;
+        assert(vmusave_decide(slots, count, 4, &pick) == VMUSAVE_USE && pick == 0);
+        pick = -1;
+        assert(vmusave_decide(slots, count, slots[0].free_blocks + 1, &pick) == VMUSAVE_ASK_ROOM && pick == 0);
+        assert(vmusave_fits(&slots[1], slots[1].free_blocks) && !vmusave_fits(&slots[1], slots[1].free_blocks + 1));
+        slots[0].free_blocks = -1;   /* a card that would not read is passed over */
+        assert(vmusave_decide(slots, count, 4, &pick) == VMUSAVE_USE && pick == 1);
+        assert(vmusave_decide(slots, 0, 4, &pick) == VMUSAVE_NO_CARD);
+        assert(vmusave_blocks(1, 100) == 2 && vmusave_blocks(0, 384) == 1 && vmusave_blocks(3, 384) == 4);
+    }
+
     printf("VMUSAVE CHECKS PASSED\n");
     while(1)
         thd_sleep(1000);

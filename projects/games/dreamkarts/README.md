@@ -131,8 +131,9 @@ is plugged in (DHCP);
 otherwise the modem dials with the saved PlanetWeb or DreamPassport settings,
 falling back to `555` with login `dream` / `cast`, which a
 [DreamPi](https://github.com/Kazade/dreampi) accepts. The name is saved to
-the first VMU found, alongside the music switch, its volume and the custom kart (the
-Settings menu edits all three).
+a VMU, alongside the music switch, its volume and the custom kart (the
+Settings menu edits all three). With a save on two cards, or a first card
+with no room (3 blocks), the title asks which to use.
 
 - Ten lobbies of six at `dcvmu.com`, UDP 7535. The first player in leads: picks the track, laps, class and whether power-ups are on, and starts the race, alone if nobody else has turned up yet (a bell rings when someone joins; they race from the next one)
 - Start mid-race opens a small menu over the race (it cannot pause): the music switch, NEXT SONG and LEAVE, which goes back to the lobby room, not the browser, so a practice lap ends the moment company arrives
@@ -179,6 +180,7 @@ The `hw` targets run on a real console and need the
 | `make hw` | Plays the game on the console and leaves it on (`tools/dc-hw.sh power off` afterwards). The music is silent over dcload; `make hw MUSIC=1` plays the CD audio of a DreamKarts disc left in the tray |
 | `make -C ../../common/engine/tools/microbench run` | Cycles per vertex or triangle for each `engine/xform.S` routine on the console, about a minute |
 | `go test ./...` in `server/` | Server, protocol and version-header agreement; `go test ./demo` loads every demo recording |
+| `make cardtest` | The memory card question on blank Flycast cards in A1 and A2: a full first card (asks where to save, the save lands on the second), then a save on each (asks which, reads the one picked); screenshots in `captures/cardtest/` |
 | `make online-qa` | Every online scenario against a local lobby server, each in its own Flycast with the bots it needs: race and chat (the bot's skid marks must show), custom karts, practice, spectating (the demo lobby, and two braking bots whose skid marks must show), a server on a newer protocol (the too-old screen must come up) and a server restart mid-race (the console must get into the next race); `DK_QA_LIVE=1` runs the first four against dcvmu.com, `QA="race restart"` picks scenarios, logs in `captures/online-qa/` |
 
 `EXTRA_CFLAGS` for the autotest, capture and hwbench builds:

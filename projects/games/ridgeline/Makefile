@@ -9,7 +9,7 @@ GAME_PREFIX = RL
 # (A new file goes at the end: rain.c added in the middle moved the
 # engine's hot loops and cost the console 0.4 ms a frame, dry.)
 SOURCES = main.c level.c terrain.c world.c outland.c lamps.c air.c desert.c dunes.c water.c tod.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c film.c vmuscreen.c campfire.c glow.c \
-	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c rain.c progress.c recover.c
+	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c rain.c progress.c recover.c cardpick.c
 # Shared with DreamKarts from projects/common: the network link (Broadband
 # adapter, W5500, modem), the dialler and the VMU screens.
 COMMON_SOURCES = netlink.c dialup.c vmulcd.c
@@ -71,6 +71,18 @@ vmutest:
 		RL_FLYCAST_CONFIG="config:Dreamcast.VMUPath=$(CURDIR)/build/vmutest-cards" ./run-flycast.sh --skip-build
 	rm -f ridgeline-autotest.elf
 
+# The memory card question, with blank Flycast cards in A1 and A2: a full
+# first card, then two saves (screenshots in captures/cardtest).
+cardtest:
+	rm -f ridgeline-autotest.elf
+	$(MAKE) VARIANT=autotest EXTRA_CFLAGS="-DRL_AT_VMUTEST -DRL_AT_CARDTEST" ridgeline-autotest.elf
+	rm -rf build/vmutest-cards
+	python3 -c 'import sys, pathlib; sys.path.insert(0, "../../dcvmu.com/client/tests"); \
+		import isolated_cards; isolated_cards.blank_cards(pathlib.Path("build/vmutest-cards"))'
+	RL_FLYCAST_CONFIG="config:Dreamcast.VMUPath=$(CURDIR)/build/vmutest-cards,input:device1=0,input:device1.1=1,input:device1.2=1" \
+		uv run tools/capture.py --elf ridgeline-autotest.elf --out captures/cardtest
+	rm -f ridgeline-autotest.elf
+
 # Online play in Flycast against a server and bot on this Mac (RL_NET=modem
 # dials in instead, RL_QA_LIVE=1 uses dcvmu.com): tools/online-test.sh.
 online-test:
@@ -119,6 +131,6 @@ disc: $(TARGET)
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 ridgeline.elf -- -m $(CURDIR)
 
-.PHONY: run level textures trucks audio assets autotest vmutest online-test hwbench hwreport fxbench film disc hw
+.PHONY: run level textures trucks audio assets autotest vmutest cardtest online-test hwbench hwreport fxbench film disc hw
 
 endif

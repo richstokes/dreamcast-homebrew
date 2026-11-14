@@ -253,6 +253,9 @@ earned out there.
   wind, the forest and the creek. No music
 - Sound test from the main menu: every effect by name, loops toggle on A,
   left/right changes the pitch
+- One save, on whichever memory card has it. With a save on two cards,
+  or a first card with no room (4 blocks), the title asks which to use.
+  A save that fails says so on screen
 - The VMU screen: the mountain in the menus; while driving an
   inclinometer (side and rear views of the truck in degrees) over the
   altitude and drive mode, and a screen for each viewpoint and the summit
@@ -300,6 +303,7 @@ make -C projects/games/ridgeline run
 | `make run` | Builds and boots it in Flycast |
 | `make autotest` | The CPU drives the player up the logging road with three companions, logging frame times every 10 s; passes at the summit, fails after 120 s without progress or 900 s in all. `EXTRA_CFLAGS=-DRL_AT_AREA=1` for Mesa Grande, `=2` for Moses Lake, `=3` for Loch Lowland, and `-DRL_AT_RAIN=0.9f` for a shower the whole way (any test build takes them). `-DRL_AT_ROUTE=5` drives the extreme trail (the log's `Ridgeline progress` lines give its time and stamps), with `-DRL_AT_TRAIL=60` a recover 60 s into it |
 | `make vmutest` | The save on eight blank Flycast cards (never the real ones): a time and the online name save and read back, a slower time doesn't replace it, each area keeps its own, and so do the viewpoints, the trail log's stamps (with the trucks they earn), an extreme trail's time and the HUD choice |
+| `make cardtest` | The memory card question on blank Flycast cards in A1 and A2: a full first card (asks where to save, the save lands on the second), a save on each (asks which, reads the one picked), then the save's card filling up (the save fails and says so, the title asks where it goes instead); screenshots in `captures/cardtest/` |
 | `make online-test` | Online in Flycast against a server and bot on this Mac: joins lobby 3, sees the bot's truck, both claim the summit, the bot leaves and comes back. `RL_NET=modem` dials in instead, `RL_QA_LIVE=1` uses dcvmu.com, `RL_QA_LOBBY=5` joins a Mesa Grande lobby, `=8` a Moses Lake one, `=11` a Loch Lowland one, `RL_BOT_TRUCK=3` puts the bot in an FFR ([server/README.md](server/README.md)) |
 | `make hwbench` | 180 s of the same on the console, as a bench ([real hardware](../../../README.md#real-hardware)) |
 | `make hwbench HW_OFF=` then `make hwreport` | When a console bench goes quiet: reads where it stopped out of the console's memory (then `tools/dc-hw.sh power off`) |

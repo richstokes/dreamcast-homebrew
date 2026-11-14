@@ -12,7 +12,7 @@ project with that project's own flags through [common.mk](common.mk).
 | `gameserver/` | Go packages for the game servers: the bad word filter for names and chat (`wordfilter`), the UDP socket with a pretend WAN for tests (`udpio`), Discord/Bark lobby alerts (`alerts`) and the loopback lobby status JSON dcvmu.com/lobbies reads (`status`). The servers' `go.mod` points at it with a `replace` | DreamKarts' and Ridgeline's servers |
 | `https.h`, `https.c` | curl's TLS options for HTTPS, and the certificate date check the kos-ports Mbed TLS leaves out | Browser, DCVMU, PICO-8 Player |
 | `cacert.pem` | Mozilla's CA roots as curl exports them; `update-cacert.sh` refreshes it, and builds copy it into the romdisk (`CACERT` in `common.mk`) | Browser, DCVMU, PICO-8 Player |
-| `vmusave.h` | One small packaged save on a VMU: picking the card, header text, an ASCII-art icon, writing and reading it back | IRC, Browser, BASIC, LemonPlay, DCVMU's login |
+| `vmusave.h` | One small packaged save on a VMU: picking the card, header text, an ASCII-art icon, writing and reading it back. For games, a look at every card (which hold the save, which have room) and what that means: use one, or ask the player | IRC, Browser, BASIC, LemonPlay, DCVMU's login, DreamKarts, Ridgeline |
 | `vmulcd.h`, `vmulcd.c` | The 48x32 screens of VMUs in controllers: lines, 1-bit sprites, a 3x5 font, and each VMU sent its screen only when it changes, at a rate the game picks | DreamKarts, Ridgeline |
 | `engine/` | Shared game engine: renderer, input, profiler, meshes, scenery, effects, text and asset tools ([its README](engine/README.md)) | DreamKarts, Ridgeline |
 | `common.mk` | Finds the `.c` modules a project lists in `OBJS`, and copies the CA bundle in | Projects on KOS's default rules, HTTPS projects |
@@ -27,7 +27,7 @@ module's name so it can't clash with a game's own helpers.
 | `python3 projects/common/tests/run_dialup_checks.py --log-dir /tmp/dialup-checks` | The dialer on SH-4 with the modem and PPP faked: ISP profiles, every failure, cancel before and during a dial, the worker thread, drops and redial |
 | `uv run projects/common/tests/run_https_checks.py --log-dir /tmp/https-checks` | Real curl and Mbed TLS on SH-4 against local servers: expired, not-yet-valid, untrusted, wrong-host and expired-intermediate certificates, the time zone leeway, an unset clock, connection reuse |
 | `cd projects/common/gameserver && go test ./...` | The word filter's matching rules (`-short` skips downloading the real list) and the alerts' config, throttles, mutes and payloads |
-| `python3 projects/common/tests/run_vmusave_checks.py --log-dir /tmp/vmusave-checks` | Saves on blank Flycast cards: card choice, header text limits, icon, exact read-back, saves made the old fs_vmu way, overwrite, a full card; then the card images through DCVMU's VMU parser |
+| `python3 projects/common/tests/run_vmusave_checks.py --log-dir /tmp/vmusave-checks` | Saves on blank Flycast cards: card choice, header text limits, icon, exact read-back, saves made the old fs_vmu way, overwrite, a full card, the look at every card; then the card images through DCVMU's VMU parser |
 
 ## Gotchas
 

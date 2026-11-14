@@ -6,9 +6,18 @@
 
    A save rewrites the file and the card's directory and FAT, a maple
    frame or more per block, so it runs on a worker thread: written inline
-   it froze the summit message for about half a second on the console. */
+   it froze the summit message for about half a second on the console.
+
+   Which card: every card is looked at (records_cards, on a thread, the
+   title waiting for it: records_looking). A save on one of
+   them is read and that card is the save's from then on; with none, it is
+   the first card. Two saves, or a first card with no room, are the
+   player's to settle (the title asks, engine/cardpick.h), and until they
+   have nothing is written. A save that fails says so, and the next one
+   tries again; back at the title the cards are looked at again, and if
+   the save's card has gone or filled the player says where it goes. */
 #include "records.h"
-#include "../../../common/vmusave.h"
+#include "engine/cardpick.h"
 #include "truck.h"
 #include "terrain.h"
 #include "unlocks.h"
@@ -66,6 +75,7 @@ typedef struct {
 } record_t;
 #define RECORD_V1_BYTES (int)offsetof(record_t, name)
 #define RECORD_V2_BYTES (int)offsetof(record_t, best_more)
+#define SAVE_BLOCKS vmusave_blocks(1, sizeof(record_t))   /* with its icon */
 
 /* Test builds never touch a VMU, except the save test, which runs on
    blank cards (see the README). */
@@ -73,7 +83,19 @@ typedef struct {
 #define RL_USE_VMU 1
 static const char magic[8] = {'R', 'I', 'D', 'G', 'E', 'S', 'V', '1'};
 static const char prog_tag[4] = {'P', 'R', 'G', '1'};
-static int card_port = -1, card_unit = -1;   /* the worker's, once it runs */
+/* The card: none that will do yet, the cards being looked at, the player
+   being asked which, settled (card_port and card_unit, which the worker
+   reads), or the player would rather not save. */
+enum { CARD_NONE, CARD_LOOKING, CARD_ASK, CARD_SET, CARD_OFF };
+static int card_state, card_port = -1, card_unit = -1;
+static vmusave_slot_t slots[VMUSAVE_SLOTS];   /* the last look; their files are kept only while asking */
+static char notes[VMUSAVE_SLOTS][12];         /* each save's online name, for the question */
+static int nslots, ask_kind;
+static bool unsaved;                 /* something changed with no card to write it to */
+static volatile bool write_failed;   /* the worker's: the last save did not reach the card */
+static bool fail_told, drop_told;    /* the player has been told: of that, and of saves with no card to go to */
+static uint32_t looked_mask;         /* the cards in at the last look (vmusave_plugged) */
+static bool looked;
 
 /* The record waiting for the card, and whether a worker is on it. */
 static mutex_t lock = MUTEX_INITIALIZER;
@@ -82,39 +104,28 @@ static bool have_pending, worker_on;
 #endif
 static record_t rec;
 static bool from_card;   /* rec began as a card's save */
+/* What is in memory is the save: a card's has been read, or one has been
+   started on a card. From then on no card's copy replaces it (the card's
+   may be older: a write can fail), and the cards are only somewhere to
+   write it. */
+static bool stands;
 
 static float tally[WAY_COUNT];
 static V3 last_pos;
 static bool have_last, jumped;
 static int frame;
 
-/* A card's save is read once. From then on what is in memory is that and
-   everything gained since, and the card may have less: a save can still
-   be on its way out, or have failed (a full card, or a write that timed
-   out). Read again when going online, it took the code's trucks back.
-   With no save to read, what is in memory stays as it is. */
-bool records_load(void) {
+static void save(void);
+
 #ifdef RL_USE_VMU
-    if(from_card) return true;
-    records_finish();
-    maple_device_t *dev = vmusave_card(&card_port, &card_unit);
-    if(!dev) return false;
-    /* Three tries at it, unless the card says it has no such file (-2): on
-       the console a block read now and then times out, which fails the
-       whole read and would pass for no save. */
-    void *file = NULL;
-    int size = 0, st = -1;
-    for(int tries = 0; tries < 3 && st < 0 && st != -2; tries++) {
-        if(tries) thd_sleep(50);
-        st = vmufs_read(dev, FILENAME, &file, &size);
-    }
-    if(st < 0) return false;
+/* A card's file as a record; false if it is not a save of ours. */
+static bool parse(const vmusave_slot_t *slot, record_t *out) {
+    const uint8_t *data;
     record_t r;
     memset(&r, 0, sizeof(r));
-    vmu_pkg_t in;
-    int n = vmu_pkg_parse(file, size, &in) < 0 ? -1 : in.data_len < (int)sizeof(r) ? in.data_len : (int)sizeof(r);
-    if(n > 0) memcpy(&r, in.data, (size_t)n);
-    free(file);
+    int n = vmusave_slot_payload(slot, &data);
+    if(n > (int)sizeof(r)) n = (int)sizeof(r);
+    if(n > 0) memcpy(&r, data, (size_t)n);
     if(n < RECORD_V1_BYTES || memcmp(r.magic, magic, sizeof(magic))) return false;
     if(!(r.version == 1 && n >= RECORD_V1_BYTES) && !(r.version == 2 && n >= RECORD_V2_BYTES)) return false;
     if(r.version == 1) memset(r.name, 0, sizeof(r.name));
@@ -128,7 +139,41 @@ bool records_load(void) {
     for(int i = areas < 0 ? 0 : areas; i < REC_AREAS - 1; i++) memset(r.area_best[i], 0, sizeof(r.area_best[i]));
     if(n < (int)sizeof(r) || memcmp(r.prog.tag, prog_tag, sizeof(prog_tag))) memset(&r.prog, 0, sizeof(r.prog));
     r.name[sizeof(r.name) - 1] = '\0';
-    rec = r;
+    *out = r;
+    return true;
+}
+
+/* A card's save is read once. From then on what is in memory is that and
+   everything gained since, and the card may have less: a save can still
+   be on its way out, or have failed (a full card, or a write that timed
+   out). Read again when going online, it took the code's trucks back. */
+/* Lower of two times, 0 being none. */
+static uint32_t best_of(uint32_t a, uint32_t b) {
+    return !a ? b : !b ? a : a < b ? a : b;
+}
+
+static void take(const record_t *r) {
+    /* With whatever this session has earned before the card turned up
+       (played with none in, say): the better of each time, everything
+       either has found, the name and HUD choice made here if any. */
+    record_t was = rec;
+    rec = *r;
+    uint32_t *t = rec.best[0], *w = was.best[0];
+    for(size_t i = 0; i < sizeof(rec.best) / sizeof(uint32_t); i++) t[i] = best_of(t[i], w[i]);
+    t = rec.best_more[0], w = was.best_more[0];
+    for(size_t i = 0; i < sizeof(rec.best_more) / sizeof(uint32_t); i++) t[i] = best_of(t[i], w[i]);
+    t = rec.area_best[0][0], w = was.area_best[0][0];
+    for(size_t i = 0; i < sizeof(rec.area_best) / sizeof(uint32_t); i++) t[i] = best_of(t[i], w[i]);
+    t = rec.prog.extreme_best[0], w = was.prog.extreme_best[0];
+    for(size_t i = 0; i < sizeof(rec.prog.extreme_best) / sizeof(uint32_t); i++) t[i] = best_of(t[i], w[i]);
+    for(int a = 0; a < REC_AREAS; a++) {
+        rec.prog.views[a] |= was.prog.views[a];
+        rec.prog.stamps[a] |= was.prog.stamps[a];
+    }
+    rec.prog.cheat |= was.prog.cheat;
+    rec.prog.told |= was.prog.told;
+    if(was.name[0]) memcpy(rec.name, was.name, sizeof(rec.name));
+    if(was.prog.hud) rec.prog.hud = was.prog.hud;
     from_card = true;
     game.hud_mode = rec.prog.hud < HUD_MODES ? rec.prog.hud : HUD_FULL;
     /* A best time is a summit reached: a save from before there was a
@@ -143,12 +188,188 @@ bool records_load(void) {
                 rec.prog.stamps[a] |= STAMP_SUMMIT;
                 if(w < WAY_OWN) rec.prog.stamps[a] |= STAMP_BIT(w, STAMP_TOP);
             }
-    printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + dev->port, dev->unit);
-    return true;
-#else
-    return false;
+}
+
+/* slots[i] is the card from here on: its save is read, unless what is in
+   memory stands already, and anything that changed with no card to go to
+   is written. */
+static void use_card(int i) {
+    record_t r;
+    card_port = slots[i].port;
+    card_unit = slots[i].unit;
+    card_state = CARD_SET;
+    if(!stands && slots[i].save && parse(&slots[i], &r)) {
+        take(&r);
+        printf("Ridgeline records: loaded from VMU %c%d\n", 'A' + card_port, card_unit);
+    }
+    stands = true;
+    drop_told = false;
+    vmusave_survey_free(slots, nslots);
+    /* Whatever changed with no card to go to is written now (a card's
+       save just read has it merged in). */
+    bool write = unsaved;
+    unsaved = false;
+    if(write) save();
+}
+#endif
+
+#ifdef RL_USE_VMU
+/* The look at the cards runs on a thread of its own (two cards are 0.6 s
+   of block reads): it fills slots and says when it is done. */
+static kthread_t *look_thd;
+static volatile bool look_done;
+static uint64_t look_t0;
+
+static void *look_main(void *arg) {
+    (void)arg;
+    nslots = vmusave_survey(FILENAME, slots, VMUSAVE_SLOTS);
+    look_done = true;
+    return NULL;
+}
+
+/* What the look found, settled or made a question of (the main thread). */
+static void look_landed(void) {
+    int home = -1, readable = 0;
+    looked = true;
+    card_state = CARD_NONE;
+    if(nslots)
+        printf("Ridgeline records: looked at %d cards in %lu ms\n", nslots, (unsigned long)(timer_ms_gettime64() - look_t0));
+    for(int i = 0; i < nslots; i++) {
+        record_t r;
+        notes[i][0] = '\0';
+        if(slots[i].free_blocks >= 0) readable++;
+        if(slots[i].save && !parse(&slots[i], &r)) slots[i].save = false;
+        else if(slots[i].save) snprintf(notes[i], sizeof(notes[i]), "%s", r.name[0] ? r.name : "NO NAME");
+        if(slots[i].port == card_port && slots[i].unit == card_unit) home = i;
+    }
+    if(stands) {
+        /* What is in memory is the save and only wants somewhere to go:
+           the card it is on, while that is in and has room. Failing that
+           the player says where, as it would be written over any save
+           another card holds. */
+        if(home >= 0 && vmusave_fits(&slots[home], SAVE_BLOCKS)) use_card(home);
+        else if(readable) {
+            card_state = CARD_ASK;
+            ask_kind = CARDPICK_WHERE;
+        }
+        else vmusave_survey_free(slots, nslots);
+        return;
+    }
+    int pick = 0;
+    switch(vmusave_decide(slots, nslots, SAVE_BLOCKS, &pick)) {
+        case VMUSAVE_USE: use_card(pick); break;
+        case VMUSAVE_ASK_WHICH:
+            card_state = CARD_ASK;
+            ask_kind = CARDPICK_WHICH;
+            break;
+        case VMUSAVE_ASK_ROOM:
+            card_state = CARD_ASK;
+            ask_kind = CARDPICK_ROOM;
+            printf("Ridgeline records: no room on VMU %c%d (%d blocks free, the save is %d)\n", 'A' + slots[pick].port,
+                   slots[pick].unit, slots[pick].free_blocks, SAVE_BLOCKS);
+            break;
+        default: vmusave_survey_free(slots, nslots); break;
+    }
+}
+#endif
+
+void records_cards(void) {
+#ifdef RL_USE_VMU
+    if(card_state == CARD_LOOKING || card_state == CARD_ASK) return;
+    uint32_t plugged = vmusave_plugged();
+    bool same = looked && plugged == looked_mask;
+    if(card_state == CARD_SET && !write_failed && maple_enum_dev(card_port, card_unit)) return;
+    /* Declined, or no card that would do: nothing to learn until one
+       comes or goes. (A card that will not read costs its three tries
+       each look, and the boot and the title that follows both ask.) */
+    if((card_state == CARD_OFF || card_state == CARD_NONE) && same) return;
+    records_finish();
+    if(write_failed) unsaved = true;   /* what the card missed goes to the next one */
+    write_failed = fail_told = false;
+    vmusave_survey_free(slots, nslots);
+    nslots = 0;
+    looked_mask = plugged;
+    look_t0 = timer_ms_gettime64();
+    look_done = false;
+    card_state = CARD_LOOKING;
+    look_thd = thd_create(false, look_main, NULL);
+    if(!look_thd) look_main(NULL);   /* no thread to be had: the slow way */
 #endif
 }
+
+bool records_looking(void) {
+#ifdef RL_USE_VMU
+    if(card_state != CARD_LOOKING) return false;
+    if(!look_done) return true;
+    if(look_thd) thd_join(look_thd, NULL);
+    look_thd = NULL;
+    look_landed();
+#endif
+    return false;
+}
+
+int records_card_ask(const vmusave_slot_t **out, const char *const **out_notes, int *count, int *need) {
+#ifdef RL_USE_VMU
+    static const char *note_ptr[VMUSAVE_SLOTS];
+    if(card_state != CARD_ASK) return -1;
+    for(int i = 0; i < nslots; i++) note_ptr[i] = notes[i];
+    *out = slots;
+    *out_notes = note_ptr;
+    *count = nslots;
+    *need = SAVE_BLOCKS;
+    return ask_kind;
+#else
+    return -1;
+#endif
+}
+
+void records_card_pick(int slot) {
+#ifdef RL_USE_VMU
+    if(card_state != CARD_ASK) return;
+    if(slot >= 0 && slot < nslots) {
+        use_card(slot);
+        return;
+    }
+    card_state = CARD_OFF;
+    vmusave_survey_free(slots, nslots);
+    printf("Ridgeline records: playing without saving\n");
+#endif
+}
+
+int records_notice(void) {
+#ifdef RL_USE_VMU
+    if(!write_failed) fail_told = false;
+    else if(!fail_told) {
+        fail_told = true;
+        return REC_NOTICE_FAILED;
+    }
+    if(unsaved && card_state == CARD_NONE && !drop_told) {
+        drop_told = true;
+        return REC_NOTICE_NO_CARD;
+    }
+#endif
+    return 0;
+}
+
+#ifdef RL_AT_VMUTEST
+bool records_cards_wait(void) {
+    records_cards();
+    while(records_looking()) thd_sleep(10);
+    return from_card;
+}
+
+void records_forget(void) {
+    while(records_looking()) thd_sleep(10);
+    records_finish();
+    vmusave_survey_free(slots, nslots);
+    memset(&rec, 0, sizeof(rec));
+    from_card = stands = unsaved = fail_told = drop_told = looked = false;
+    write_failed = false;
+    card_state = CARD_NONE;
+    card_port = card_unit = -1;
+    nslots = 0;
+}
+#endif
 
 #ifdef RL_USE_VMU
 /* A mountain for the VMU file manager. */
@@ -190,9 +411,10 @@ static const char *const icon_art[32] = {
 
 #ifdef RL_USE_VMU
 static void write_card(const record_t *r) {
-    maple_device_t *dev = vmusave_card(&card_port, &card_unit);
-    if(!dev) {
-        printf("Ridgeline records: no VMU to save to\n");
+    maple_device_t *dev = maple_enum_dev(card_port, card_unit);
+    if(!dev || !(dev->info.functions & MAPLE_FUNC_MEMCARD)) {
+        printf("Ridgeline records: VMU %c%d has gone\n", 'A' + card_port, card_unit);
+        write_failed = true;
         return;
     }
     static uint8_t pixels[512];
@@ -207,6 +429,7 @@ static void write_card(const record_t *r) {
         if(tries) thd_sleep(50);
         rv = vmusave_write(dev, FILENAME, &pkg, r, sizeof(*r));
     }
+    write_failed = rv < 0;
     if(rv < 0)
         printf("Ridgeline records: save failed on VMU %c%d\n", 'A' + dev->port, dev->unit);
     else
@@ -233,6 +456,12 @@ static void *worker(void *arg) {
 
 static void save(void) {
 #ifdef RL_USE_VMU
+    /* No card settled on: kept for the one the next look at them
+       (records_cards, at the title) turns up. */
+    if(card_state != CARD_SET) {
+        unsaved = true;
+        return;
+    }
     mutex_lock(&lock);
     pending = rec;
     memcpy(pending.magic, magic, sizeof(magic));
@@ -256,7 +485,7 @@ void records_finish(void) {
 #ifdef RL_USE_VMU
     for(int i = 0; i < 300; i++) {   /* 3 s at most, for a card that never answers */
         mutex_lock(&lock);
-        bool busy = worker_on || have_pending;
+        bool busy = worker_on || have_pending || (card_state == CARD_LOOKING && !look_done);
         mutex_unlock(&lock);
         if(!busy) return;
         thd_sleep(10);

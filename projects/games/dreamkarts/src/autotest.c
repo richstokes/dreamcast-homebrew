@@ -96,7 +96,83 @@ void take_shot(const char *name) {
 
 /* Scripted presses so a capture run walks title -> menu -> race on its own;
    "DK SHOT <name>" lines tell the capture tool when to grab the window. */
+#ifdef DK_AT_CARDS
+#include "save.h"
+#include "engine/cardpick.h"
+#include <dc/vmufs.h>
+/* make cardtest, on blank cards in A1 and A2, at the title. A1 is filled:
+   the title asks where to save instead, A2 is picked and the save lands
+   there. Then A1 is given a save of its own: the title asks which, the
+   second is picked and it is the one read. */
+static void cards_autotest(void) {
+    static int f;
+    static bool ok = true;
+    static uint8_t junk[20 * 512];
+    const vmusave_slot_t *slots;
+    const char *const *notes;
+    int count = 0, need;
+    maple_device_t *a1 = maple_enum_type(0, MAPLE_FUNC_MEMCARD);
+    f++;
+    if(f == 120) {
+        char fn[13];
+        int free_blocks, i = 0;
+        save_finish();
+        while(a1 && (free_blocks = vmufs_free_blocks(a1)) > 0 && i < 40) {
+            snprintf(fn, sizeof(fn), "JUNK%02d", i++);
+            vmufs_write(a1, fn, junk, (free_blocks < 20 ? free_blocks : 20) * 512, VMUFS_OVERWRITE);
+        }
+        save_forget();
+        save_finish();
+        int kind = save_card_ask(&slots, &notes, &count, &need);
+        printf("DK AT cards: %d cards, A1 filled with %d files, asked %d (room is %d)\n", count, i, kind, CARDPICK_ROOM);
+        ok = ok && kind == CARDPICK_ROOM && count == 2;
+    }
+    if(f == 170) take_shot("card-full");
+    if(f == 250) input_film_tap(0, BTN_A);   /* the first row: SAVE TO CARD A2 */
+    if(f == 270) {
+        ok = ok && !cardpick_up() && save_card_ask(&slots, &notes, &count, &need) < 0;
+        snprintf(save.name, sizeof(save.name), "PEBBLES");
+        save_store();
+        save_finish();
+        /* It is on A2; a copy of it goes to A1 in the junk's place, and
+           A2's gets another name. */
+        vmusave_slot_t now[VMUSAVE_SLOTS];
+        int n = vmusave_survey("DREAMKARTS", now, VMUSAVE_SLOTS);
+        bool landed = n == 2 && !now[0].save && now[1].save;
+        printf("DK AT cards: the save %s on A2\n", landed ? "landed" : "IS NOT");
+        ok = ok && landed;
+        for(int i = 0; i < 40; i++) {
+            char fn[13];
+            snprintf(fn, sizeof(fn), "JUNK%02d", i);
+            vmufs_delete(a1, fn);
+        }
+        if(landed) vmufs_write(a1, "DREAMKARTS", now[1].file, now[1].file_blocks * 512, VMUFS_OVERWRITE);
+        vmusave_survey_free(now, n);
+        snprintf(save.name, sizeof(save.name), "BAMBAM");
+        save.volume = 6;
+        save_store();
+        save_forget();
+        save_finish();
+        int kind = save_card_ask(&slots, &notes, &count, &need);
+        printf("DK AT cards: two saves, asked %d (which is %d): %s and %s\n", kind, CARDPICK_WHICH, kind < 0 ? "" : notes[0],
+               kind < 0 ? "" : notes[1]);
+        ok = ok && kind == CARDPICK_WHICH && !strcmp(notes[0], "PEBBLES") && !strcmp(notes[1], "BAMBAM");
+    }
+    if(f == 320) take_shot("card-which");
+    if(f == 400) input_film_tap(0, BTN_DOWN);
+    if(f == 420) input_film_tap(0, BTN_A);
+    if(f == 450) {
+        ok = ok && !cardpick_up() && !strcmp(save.name, "BAMBAM") && save.volume == 6;
+        printf("DK AUTOTEST: %s cards: read %s, volume %d\n", ok ? "PASS" : "FAIL", save.name, save.volume);
+    }
+}
+#endif
+
 void capture_script(void) {
+#ifdef DK_AT_CARDS
+    cards_autotest();   /* the memory card question at the title instead */
+    return;
+#endif
 #ifdef DK_AT_SETTINGS
     title_settings_autotest(DK_DT);   /* title.c walks the menus instead */
     return;

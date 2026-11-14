@@ -185,9 +185,9 @@ static const int tod_views[2] = {0, 5}, tod_views_lowland[2] = {0, 7};
    keep theirs. And the progress kept with them: viewpoints found, the
    trail log's stamps (and the trucks those earn), an extreme trail's
    time, the unlock code's flag and the HUD choice. */
-static void vmu_test(void) {
+static void __attribute__((unused)) vmu_test(void) {
     char line[64];
-    records_load();
+    records_cards_wait();
     game.truck_model = 1;
     records_start();
     game.clock = 581.34f;
@@ -229,7 +229,8 @@ static void vmu_test(void) {
     records_set_told(0x44);
     records_set_hud(HUD_SIMPLE);
     game.hud_mode = HUD_FULL;   /* the card's choice comes back with it */
-    bool back = records_load();
+    records_forget();
+    bool back = records_cards_wait();
     Done d;
     for(int a = 0; a < AREA_COUNT; a++) {
         d.views[a] = records_views(a);
@@ -272,6 +273,105 @@ static void vmu_test(void) {
                (unsigned long)other, (unsigned long)last, (unsigned long)bobcat, (unsigned long)desert, (unsigned long)dunes,
                (unsigned long)loch,
                records_name());
+}
+#endif
+
+#ifdef RL_AT_CARDTEST
+#include "engine/cardpick.h"
+/* make cardtest, on blank cards in A1 and A2, at the title. A1 is filled:
+   the title asks where to save instead, A2 is picked and the save lands
+   there. Then A1 is given a save of its own: the title asks which, the
+   second is picked and it is the one read. Then that card fills: the
+   save fails, the title asks where it should go and it lands on A1. */
+static void card_test(void) {
+    static int f;
+    static bool ok = true;
+    static uint8_t junk[20 * 512];
+    const vmusave_slot_t *slots;
+    const char *const *notes;
+    int count, need;
+    maple_device_t *a1 = maple_enum_type(0, MAPLE_FUNC_MEMCARD);
+    f++;
+    if(f == 30) {
+        char fn[13];
+        int free_blocks, i = 0;
+        while(a1 && (free_blocks = vmufs_free_blocks(a1)) > 0 && i < 40) {
+            snprintf(fn, sizeof(fn), "JUNK%02d", i++);
+            vmufs_write(a1, fn, junk, (free_blocks < 20 ? free_blocks : 20) * 512, VMUFS_OVERWRITE);
+        }
+        records_forget();
+        records_cards_wait();
+        int kind = records_card_ask(&slots, &notes, &count, &need);
+        printf("RL AT cards: %d cards, A1 filled with %d files, asked %d (room is %d)\n", count, i, kind, CARDPICK_ROOM);
+        ok = ok && kind == CARDPICK_ROOM && count == 2;
+    }
+    if(f == 70) qa_shot("card-full");
+    if(f == 150) input_film_tap(0, BTN_A);   /* the first row: SAVE TO CARD A2 */
+    if(f == 170) {
+        ok = ok && !cardpick_up() && records_card_ask(&slots, &notes, &count, &need) < 0;
+        records_set_name("PEBBLES");
+        records_finish();
+        /* It is on A2; a copy of it goes to A1 in the junk's place, and
+           A2's gets another name. */
+        vmusave_slot_t now[VMUSAVE_SLOTS];
+        int n = vmusave_survey("RIDGELINE", now, VMUSAVE_SLOTS);
+        bool landed = n == 2 && !now[0].save && now[1].save;
+        printf("RL AT cards: the save %s on A2\n", landed ? "landed" : "IS NOT");
+        ok = ok && landed;
+        for(int i = 0; i < 40; i++) {
+            char fn[13];
+            snprintf(fn, sizeof(fn), "JUNK%02d", i);
+            vmufs_delete(a1, fn);
+        }
+        if(landed) vmufs_write(a1, "RIDGELINE", now[1].file, now[1].file_blocks * 512, VMUFS_OVERWRITE);
+        vmusave_survey_free(now, n);
+        records_set_name("BAMBAM");
+        records_set_hud(HUD_SIMPLE);
+        records_forget();
+        game.hud_mode = HUD_FULL;
+        records_cards_wait();
+        int kind = records_card_ask(&slots, &notes, &count, &need);
+        printf("RL AT cards: two saves, asked %d (which is %d): %s and %s\n", kind, CARDPICK_WHICH, kind < 0 ? "" : notes[0],
+               kind < 0 ? "" : notes[1]);
+        ok = ok && kind == CARDPICK_WHICH && !strcmp(notes[0], "PEBBLES") && !strcmp(notes[1], "BAMBAM");
+    }
+    if(f == 210) qa_shot("card-which");
+    if(f == 290) input_film_tap(0, BTN_DOWN);
+    if(f == 310) input_film_tap(0, BTN_A);
+    if(f == 330) {
+        ok = ok && !cardpick_up() && !strcmp(records_name(), "BAMBAM") && game.hud_mode == HUD_SIMPLE;
+        printf("RL AT cards: read %s, hud %d\n", records_name(), game.hud_mode);
+        /* Its card (A2) loses the file and fills up: the next save fails
+           and says so, and the look that follows asks where it should go,
+           as A1's save would be written over. */
+        maple_device_t *a2 = maple_enum_dev(0, 2);
+        char fn[13];
+        int free_blocks, i = 0;
+        records_finish();
+        vmufs_delete(a2, "RIDGELINE");
+        while(a2 && (free_blocks = vmufs_free_blocks(a2)) > 0 && i < 40) {
+            snprintf(fn, sizeof(fn), "JUNK%02d", i++);
+            vmufs_write(a2, fn, junk, (free_blocks < 20 ? free_blocks : 20) * 512, VMUFS_OVERWRITE);
+        }
+        records_set_name("WILMA");
+        records_finish();
+        int notice = records_notice();
+        records_cards_wait();
+        int kind = records_card_ask(&slots, &notes, &count, &need);
+        printf("RL AT cards: A2 filled, notice %d, asked %d (where is %d), A1 holds %s\n", notice, kind, CARDPICK_WHERE,
+               kind < 0 ? "" : notes[0]);
+        ok = ok && notice == REC_NOTICE_FAILED && kind == CARDPICK_WHERE && slots[0].save && !strcmp(notes[0], "PEBBLES");
+    }
+    if(f == 370) qa_shot("card-where");
+    if(f == 450) input_film_tap(0, BTN_A);   /* the first row: SAVE TO CARD A1, over PEBBLES */
+    if(f == 470) {
+        /* A1's is now this session's, and the one a fresh boot reads. */
+        ok = ok && !cardpick_up();
+        records_forget();
+        records_cards_wait();
+        ok = ok && !strcmp(records_name(), "WILMA") && records_card_ask(&slots, &notes, &count, &need) < 0;
+        printf("RL AUTOTEST: %s cards: read %s after the move\n", ok ? "PASS" : "FAIL", records_name());
+    }
 }
 #endif
 
@@ -365,7 +465,10 @@ void autotest_boot(void) {
     wd_main = thd_get_current();
     thd_create(true, watchdog, NULL);
 #endif
-#ifdef RL_AT_VMUTEST
+#ifdef RL_AT_CARDTEST
+    printf("RL AT cards: at the title\n");
+    return;
+#elif defined(RL_AT_VMUTEST)
     vmu_test();
 #endif
 #ifdef RL_AT_AREA
@@ -507,6 +610,10 @@ static void __attribute__((unused)) shot(const char *name) {
 }
 
 void autotest_frame(float dt_real) {
+#ifdef RL_AT_CARDTEST
+    card_test();
+    return;
+#endif
 #ifdef RL_AT_FBDUMP
     if(fb_wait > 0 && --fb_wait == 0) fb_dump();
 #endif

@@ -12,7 +12,7 @@ GAME_PREFIX = DK
 SOURCES = main.c input.c track.c kart.c render.c world.c models.c mesh.c fx.c hud.c text.c theme.c ui.c title.c audio.c sfx.c rumble.c dolphins.c biplane.c \
 	net.c netlink.c online.c save.c vmuscreen.c vmulcd.c spectate.c film.c items.c gp.c chat.c perfhud.c flappy.c roam.c \
 	world_mesh.c world_road.c world_props.c world_beach.c world_coral.c world_harbour.c world_temple.c world_skyway.c \
-	world_canyon.c world_tsudoken.c world_apple.c world_lot.c world_sf.c tide.c cablecar.c birds.c skylife.c autotest.c prof.c frame.c qa.c sky.c track_tex.c
+	world_canyon.c world_tsudoken.c world_apple.c world_lot.c world_sf.c tide.c cablecar.c birds.c skylife.c autotest.c prof.c frame.c qa.c sky.c track_tex.c cardpick.c
 # Shared with other projects, from projects/common (netlink.c and vmulcd.c,
 # in SOURCES above, are too: listed there to keep their place in the link order).
 COMMON_SOURCES = dialup.c
@@ -124,6 +124,18 @@ autotest:
 	DK_ELF=dreamkarts-autotest.elf DK_EXIT_ON_LOG='DK AUTOTEST: PASS' \
 		DK_FAIL_ON_LOG='DK AUTOTEST: FAIL' ./run-flycast.sh --skip-build
 
+# The memory card question, with blank Flycast cards in A1 and A2: a full
+# first card, then two saves (screenshots in captures/cardtest).
+cardtest:
+	rm -f dreamkarts-capture.elf
+	$(MAKE) VARIANT=capture EXTRA_CFLAGS=-DDK_AT_CARDS dreamkarts-capture.elf
+	rm -rf build/cardtest-cards
+	python3 -c 'import sys, pathlib; sys.path.insert(0, "../../dcvmu.com/client/tests"); \
+		import isolated_cards; isolated_cards.blank_cards(pathlib.Path("build/cardtest-cards"))'
+	DK_VMU_DIR=$(CURDIR)/build/cardtest-cards DK_FLYCAST_CONFIG="input:device1=0,input:device1.1=1,input:device1.2=1" \
+		uv run tools/capture.py --out captures/cardtest
+	rm -f dreamkarts-capture.elf
+
 # Every online scenario (race, custom kart, practice, spectate, old
 # protocol, server restart) against a local lobby server, each in its own
 # Flycast with the bots it needs; DK_QA_LIVE=1 runs the first four against
@@ -154,6 +166,6 @@ disc: $(TARGET) music
 hw: $(TARGET)
 	$(DC_HW) run -c -T 86400 dreamkarts.elf -- -m $(CURDIR)
 
-.PHONY: canyon-rock tsudoken-props apple-valley-props sf-props biplane run textures models audio music vmu assets autotest hwbench hw disc
+.PHONY: cardtest canyon-rock tsudoken-props apple-valley-props sf-props biplane run textures models audio music vmu assets autotest hwbench hw disc
 
 endif

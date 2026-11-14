@@ -6,7 +6,7 @@
 #define ENG_QA_TAG "RL"
 #define ENG_DT   (1.0f / 60.0f)
 
-#ifdef RL_CAPTURE
+#if defined(RL_CAPTURE) || defined(RL_AT_CARDTEST)
 #define ENG_INPUT_TAPS 1
 #endif
 #ifdef RL_AUTOTEST

@@ -49,6 +49,9 @@ void game_set_state(int state) {
     if(game.state == ST_SOUND && state != ST_SOUND) soundtest_stop();
     game.state = state;
     game.time = 0;
+    /* Back at the title the cards are looked at again if the save has no
+       card, or its last write failed (records.h). */
+    if(state == ST_TITLE) records_cards();
     /* The truck select shows the hour the drive will start at. */
     if(state == ST_SELECT) {
         tod_set_hour(tod_hours[game.start_tod]);
@@ -318,6 +321,10 @@ static void update(float dt) {
     campfire_update(dt);
     glow_update(dt);
     if(!game_frozen()) deer_update_all(dt);
+    switch(records_notice()) {
+        case REC_NOTICE_FAILED: hud_status("COULD NOT SAVE TO THE MEMORY CARD", 0xffff9050, 4.0f); break;
+        case REC_NOTICE_NO_CARD: hud_status("NOT SAVED: NO MEMORY CARD", 0xffff9050, 4.0f); break;
+    }
     hud_update(dt);
 }
 
@@ -503,7 +510,7 @@ int main(int argc, char **argv) {
     truckdraw_init();
     fx_init();
     area_world();
-    records_load();
+    records_cards();
     printf("Ridgeline boot: %lu ms, %lu KiB VRAM free\n", (unsigned long)((timer_us_gettime64() - boot_t0) / 1000),
            (unsigned long)(pvr_mem_available() / 1024));
     memory_report();

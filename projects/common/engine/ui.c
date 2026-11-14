@@ -15,6 +15,10 @@ uint32_t ui_col(int role) {
     return th.roles[role];
 }
 
+const EngFont *ui_font(void) {
+    return font;
+}
+
 /* A quarter arc in ARC_N segments, as unit vectors; small corners take
    every other one. */
 #define ARC_N 6
