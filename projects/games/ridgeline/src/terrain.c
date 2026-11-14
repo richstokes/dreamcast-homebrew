@@ -1040,6 +1040,113 @@ int terrain_draw_near(void) {
     return drawn;
 }
 
+/* A vertex of the grid a near tile was drawn on: tile (a0, b0)'s, with
+   the edges it shares with 6 m tiles folded as near_tile_stitched folds
+   them. */
+static inline void decal_fold(int *i, int *j, int a0, int b0, int edges) {
+    if((*i == a0 && (edges & 8)) || (*i == a0 + TILE_CELLS && (edges & 2))) *j &= ~1;
+    if((*j == b0 && (edges & 1)) || (*j == b0 + TILE_CELLS && (edges & 4))) *i &= ~1;
+}
+
+int terrain_decal(const TerDecal *d) {
+    const float (*quad)[2] = d->quad;
+    const float alpha = (float)(d->col >> 24);
+    const uint32_t rgb = d->col & 0xffffffu;
+    float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+    for(int e = 0; e < 4; e++) {
+        x0 = fminf(x0, quad[e][0]);
+        x1 = fmaxf(x1, quad[e][0]);
+        z0 = fminf(z0, quad[e][1]);
+        z1 = fmaxf(z1, quad[e][1]);
+    }
+    const float inv = 1.0f / (LEVEL_D * TILE_CELLS);
+    int tx0 = (int)floorf((x0 - LEVEL_ORG) * inv), tx1 = (int)floorf((x1 - LEVEL_ORG) * inv);
+    int tz0 = (int)floorf((z0 - LEVEL_ORG) * inv), tz1 = (int)floorf((z1 - LEVEL_ORG) * inv);
+    if(tx0 < 0) tx0 = 0;
+    if(tz0 < 0) tz0 = 0;
+    if(tx1 > TILES - 1) tx1 = TILES - 1;
+    if(tz1 > TILES - 1) tz1 = TILES - 1;
+    int sent = 0;
+    for(int tz = tz0; tz <= tz1; tz++)
+        for(int tx = tx0; tx <= tx1; tx++) {
+            int lod = tile_lod[tz][tx];
+            if(lod < 0) continue;
+            int step = 1 << lod, a0 = tx * TILE_CELLS, b0 = tz * TILE_CELLS, edges = 0;
+            if(lod == 0)
+                for(int e = 0; e < 4; e++)
+                    if(lod_at(tx + nb[e][0], tz + nb[e][1]) == 1) edges |= 1 << e;
+            for(int j = b0; j < b0 + TILE_CELLS; j += step) {
+                /* The quad's reach across this row of cells. */
+                float za = LEVEL_ORG + j * LEVEL_D, zb = za + step * LEVEL_D;
+                if(zb < z0 || za > z1) continue;
+                float xa = 1e9f, xb = -1e9f;
+                for(int e = 0; e < 4; e++) {
+                    const float *q = quad[e], *n = quad[(e + 1) & 3];
+                    if(q[1] >= za && q[1] <= zb) {
+                        xa = fminf(xa, q[0]);
+                        xb = fmaxf(xb, q[0]);
+                    }
+                    for(int s = 0; s < 2; s++) {
+                        float zc = s ? zb : za;
+                        if((q[1] - zc) * (n[1] - zc) >= 0) continue;
+                        float x = q[0] + (n[0] - q[0]) * (zc - q[1]) / (n[1] - q[1]);
+                        xa = fminf(xa, x);
+                        xb = fmaxf(xb, x);
+                    }
+                }
+                if(xa > xb) continue;
+                /* (a folded edge's triangles reach a cell further) */
+                int pad = edges ? 1 : 0;
+                int ia = ((int)floorf((xa - LEVEL_ORG) * (1.0f / LEVEL_D)) - pad) & ~(step - 1);
+                int ib = ((int)floorf((xb - LEVEL_ORG) * (1.0f / LEVEL_D)) + pad) & ~(step - 1);
+                if(ia < a0) ia = a0;
+                if(ib > a0 + TILE_CELLS - step) ib = a0 + TILE_CELLS - step;
+                if(ia > ib) continue;
+                /* The cells' splits, as near_cells_fit lays them. */
+                unsigned bits = cross_bits(a0, j, TILE_CELLS / step, step) >> ((ia - a0) / step);
+                int low = bits & 1;
+                RV *p = near_buf;
+                float lo = 1e9f, hi = -1e9f, lit = 0;
+                for(int i = ia; i <= ib + step; i += step) {
+                    if(i > ia) {
+                        if((int)(bits & 1) != low) {
+                            *p = p[-2];
+                            p++;
+                            low ^= 1;
+                        }
+                        bits >>= 1;
+                    }
+                    for(int s = 0; s < 2; s++) {
+                        int vi = i, vj = s ? j : j + step;
+                        if(edges) decal_fold(&vi, &vj, a0, b0, edges);
+                        float x = LEVEL_ORG + vi * LEVEL_D, z = LEVEL_ORG + vj * LEVEL_D;
+                        float h = lvl_ground[lvl_clampi(vj) * LEVEL_N + lvl_clampi(vi)].h;
+                        lo = fminf(lo, h);
+                        hi = fmaxf(hi, h);
+                        /* (1 / sqrt squared: the SH-4 has that in one instruction, and no quick divide) */
+                        float off = fabsf(h - (d->axis[0] + d->axis[1] * x + d->axis[2] * z));
+                        float rs = 1.0f / sqrtf(fmaxf(d->reach[0] + d->reach[1] * x + d->reach[2] * z, 0.5f));
+                        float k = clampf(2.0f - off * rs * rs, 0, 1);
+                        lit += k;
+                        p[s ^ low] = (RV){x, h + d->lift, z, d->u[0] + d->u[1] * x + d->u[2] * z, d->v[0] + d->v[1] * x + d->v[2] * z,
+                                          rgb | (uint32_t)(alpha * k) << 24};
+                    }
+                    p += 2;
+                }
+                if(lit <= 0) continue;
+                /* A strip a row, each with a sphere of its own: all but
+                   the rows under the camera are then wholly in front of
+                   it, and go the renderer's quick way. */
+                int k = (int)(p - near_buf);
+                float hx = (ib + step - ia) * LEVEL_D * 0.5f, hz = step * LEVEL_D * 0.5f, hy = (hi - lo) * 0.5f;
+                r_strip_bounded(near_buf, k, v3(LEVEL_ORG + ia * LEVEL_D + hx, (lo + hi) * 0.5f + d->lift, za + hz),
+                                sqrtf(hx * hx + hy * hy + hz * hz) + (edges ? LEVEL_D : 0.01f));
+                sent += k;
+            }
+        }
+    return sent;
+}
+
 /* The far blocks, each at its distance's grid, and their skirts, only on
    edges whose neighbour block has another grid: between two blocks at one
    grid the edge vertices match exactly, and those skirts were half of a

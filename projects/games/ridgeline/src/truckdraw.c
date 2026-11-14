@@ -48,7 +48,7 @@ typedef struct {
 static TruckLit truck_lit[MAX_TRUCKS];
 static int lit_cap = LIT_MAX;
 static uint32_t draw_frame;
-static const pvr_poly_hdr_t *h_model, *h_shadow, *h_glow, *h_flat, *h_beam;
+static const pvr_poly_hdr_t *h_model, *h_shadow, *h_glow, *h_flat, *h_beam, *h_pool;
 
 #ifdef HAVE_TRUCK_MODELS
 /* Split a mesh's triangles into pieces of at most ~1000 vertices. */
@@ -139,6 +139,7 @@ void truckdraw_init(void) {
     h_shadow = r_header(TEX_SHADOW, HF_TR);
     h_glow = r_header(TEX_GLOW, HF_TR | HF_ADD);
     h_beam = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
+    h_pool = r_header(TEX_BEAM, HF_TR | HF_ADD | HF_CLAMP);
 #ifdef HAVE_TRUCK_MODELS
     _Static_assert(sizeof(rl_mvert_t) == sizeof(eng_mvert_t), "model vertex layout");
     for(int tr = 0; tr < RL_TRUCK_COUNT; tr++)
@@ -246,11 +247,42 @@ static void draw_part(const PartMeshes *pm, const float *mat, const uint32_t *li
 }
 #endif
 
-/* The headlights on the ground: one beam from the nose to where it lands,
-   a cone footprint widening with distance, drawn as a strip of rows laid
-   on the terrain (each row sampled, so a slope bends it rather than
-   kinking it), the glow texture across for soft sides. Brightest a third
-   of the way out, gone a little past the landing. */
+/* The headlights on the ground: one beam from the nose (flat, fh ahead
+   and rh across) to where it lands, the beam texture (a cone from above,
+   brightest a third of the way out: tools/build_textures.py's tex_beam)
+   laid over the ground's own triangles from start to end ahead, w across
+   each way at its far end. The beam's axis climbs slope a metre: ground
+   well above or below it is out of the light. */
+#define BEAM_TEX_NEAR 0.35f             /* its width at the truck, of that at the far end */
+#define BEAM_TEX_U (15.0f / 32.0f)      /* u from the middle to the cone's edge at the far end */
+#define BEAM_TEX_V0 (1.0f / 64.0f)      /* v at the start, */
+#define BEAM_TEX_DV (62.0f / 64.0f)     /* and from there to the end */
+static void beam_pool(V3 nose, V3 fh, V3 rh, float slope, float start, float end, float w, uint32_t col, float alpha) {
+    V3 mid = vmad(nose, fh, (start + end) * 0.5f);
+    if(!r_sphere_visible(mid, end - start + w)) return;
+    float ku = BEAM_TEX_U / w, kv = BEAM_TEX_DV / (end - start);
+    float across = rh.x * nose.x + rh.z * nose.z, along = fh.x * nose.x + fh.z * nose.z;
+    /* Whole within 1.5 m of the axis and 0.15 m more a metre out. */
+    const float spread = 0.15f;
+    TerDecal d = {.u = {0.5f - ku * across, ku * rh.x, ku * rh.z},
+                  .v = {BEAM_TEX_V0 - kv * (along + start), kv * fh.x, kv * fh.z},
+                  .axis = {nose.y - slope * along, slope * fh.x, slope * fh.z},
+                  .reach = {1.5f - spread * along, spread * fh.x, spread * fh.z},
+                  .lift = 0.06f,
+                  .col = color_alpha(col, alpha)};
+    for(int k = 0; k < 4; k++) {
+        float a = k < 2 ? start : end, l = (k == 0 || k == 3 ? -w : w) * (k < 2 ? BEAM_TEX_NEAR : 1.0f);
+        d.quad[k][0] = nose.x + fh.x * a + rh.x * l;
+        d.quad[k][1] = nose.z + fh.z * a + rh.z * l;
+    }
+    r_hdr(h_pool);
+    terrain_decal(&d);
+}
+
+/* The same from a deck or a rock's top, which are not the terrain's
+   triangles: a strip of rows laid on whatever the truck could stand on
+   (each row sampled, so a slope bends it rather than kinking it), the
+   glow texture across for soft sides. */
 #define BEAM_ROWS 9
 #define BEAM_COLS 3
 static void beam_patch(V3 nose, V3 fh, V3 rh, float ymax, float start, float end, float w0, float w1, uint32_t col,
@@ -601,7 +633,16 @@ void truckdraw_draw_tr(void) {
         /* The beam on the ground, from the nose to where it lands. Over
            a crest it lands nowhere and only a faint trace is left. */
         float a = (full ? 0.34f + 0.5f * pal->dark : 0.3f + 0.45f * pal->dark) * (hit ? 1.0f : 0.45f);
-        V3 nose_h = v3(nose.x, 0, nose.z);
-        beam_patch(nose_h, fh, rh, nose.y + 1.5f, 1.0f, land * 1.25f, 1.6f, full ? 7.0f : 4.5f, full ? 0xfffff4d8 : 0xffffe8b0, a);
+        uint32_t col = full ? 0xfffff4d8 : 0xffffe8b0;
+        /* (a deck's or a tall rock's top is not the terrain the pool is laid on) */
+        if(g > terrain_height(c.x, c.z) + 1.5f) {
+            r_hdr(h_glow);
+            beam_patch(v3(nose.x, 0, nose.z), fh, rh, nose.y + 1.5f, 1.0f, land * 1.25f, 1.6f, full ? 7.0f : 4.5f, col, a);
+        }
+        else {
+            V3 bd = vsub(vscale(F, cosf(pitch)), vscale(t->ax[1], sinf(pitch)));
+            float slope = clampf(bd.y / sqrtf(fmaxf(1.0f - bd.y * bd.y, 0.01f)), -1.0f, 1.0f);
+            beam_pool(nose, fh, rh, slope, 0.4f, land * 1.25f, full ? 8.0f : 5.2f, col, a);
+        }
     }
 }

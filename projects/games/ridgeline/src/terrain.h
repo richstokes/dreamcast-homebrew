@@ -54,6 +54,22 @@ void terrain_build(Scenery *sc);
 /* The near terrain (within ~210 m), built from the heightmap as it is
    drawn. */
 int terrain_draw_near(void);
+/* A texture laid straight down on the near terrain, as a pool of light
+   is: the triangles terrain_draw_near last drew, lift above them, under
+   the convex quad of (x, z) corners. Being the ground's own triangles it
+   bends at every crease the ground has (a patch with vertices of its own
+   cuts under the ground between them). u, v, the height of the light's
+   axis and how far from it the light is whole are each {at the origin,
+   per metre of x, per metre of z}: ground further from the axis fades,
+   and is dark at twice that, so a beam is a spot on a cliff and not a
+   stripe up it. The header is the caller's. Returns the vertices sent. */
+typedef struct {
+    float quad[4][2];
+    float u[3], v[3], axis[3], reach[3];
+    float lift;
+    uint32_t col;
+} TerDecal;
+int terrain_decal(const TerDecal *d);
 /* The prebuilt far terrain, and its skirts where a neighbour's grid
    differs: the blocks' vertices sent, the skirts' in *skirts. */
 int terrain_draw_far(const Scenery *sc, int *skirts);

@@ -276,6 +276,30 @@ def tex_glow():
     return to_image(rgb, a * 255)
 
 
+BEAM_W, BEAM_H, BEAM_NEAR = 32, 64, 0.35
+
+
+def tex_beam():
+    """A headlight's pool on the ground from above: the truck at the top
+    row, the beam widening down the picture from BEAM_NEAR of its far width,
+    brightest a third of the way out and gone by the end, soft at the
+    sides. It is laid over the ground with its edges clamped, so
+    the outermost texels are black (truckdraw.c maps the rest). Added to
+    the ground as a colour, not through an alpha: ARGB4444's sixteen
+    levels showed as bands down the beam, and these are grey in 5 bits so
+    RGB565 gives them no tint."""
+    yy, xx = np.mgrid[0:BEAM_H, 0:BEAM_W]
+    t = (yy - 0.5) / (BEAM_H - 2)
+    across = (xx - (BEAM_W - 1) / 2) / (BEAM_W / 2 - 1)
+    along = np.where(t < 0.3, 0.55 + 0.45 * t / 0.3, 1 - (t - 0.3) / 0.7) * np.clip(t / 0.06, 0, 1)
+    half = BEAM_NEAR + (1 - BEAM_NEAR) * np.clip(t, 0, 1)
+    a = np.clip(along, 0, 1) * np.clip(1 - np.abs(across) / half, 0, 1) ** 1.5
+    a[(t < 0) | (t > 1)] = 0
+    g = np.round(a * 31).astype(int)
+    g = (g << 3) | (g >> 2)
+    return to_image(np.dstack([g, g, g]).astype(float))
+
+
 def tex_ring():
     """Lens flare elements: a soft ring (left half) and a hexagon (right)."""
     n = 64
@@ -904,6 +928,7 @@ def build(out: Path):
         (TexSpec("moon", "ARGB4444", False, False), tex_moon()),
         (TexSpec("stars", "ARGB4444", False, False), tex_stars()),
         (TexSpec("glow", "ARGB4444", True, False), tex_glow()),
+        (TexSpec("beam", "RGB565", False, False), tex_beam()),
         (TexSpec("ring", "ARGB4444", False, False), tex_ring()),
         (TexSpec("puff", "ARGB4444", True, False), tex_puff()),
         (TexSpec("shadow", "ARGB4444", True, False), tex_shadow()),

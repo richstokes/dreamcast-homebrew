@@ -447,6 +447,19 @@ code showed), so a difference under ~100 cycles a tuft is not a result.
 Batching the tufts' quads into one engine call was no quicker than a call
 each.
 
+The headlights' pool on the ground (2026-11-13) is the ground's own
+triangles drawn again with a beam texture, where it used to be a 9 x 3
+patch that cut under the ground between its vertices and showed as dark
+bites out of the beam on anything rough. On the console (Mesa Grande at
+night, four lit trucks, old and new in one run swapping every 64 frames)
+it costs 0.13 ms more CPU and 0.4 ms more PVR render. Whole runs of each
+put the render at 10.4 -> 11.1 ms, both at 59.7 fps, with 19 and 22 late
+frames after the start. Most of the render time is fill: the pool is all
+on show now, and the cells along its edge are drawn whole (clipping them
+to the beam would win some of that back for more CPU; not tried). An
+ARGB4444 beam texture banded, 16 levels down a 40 m beam; RGB565 added as
+a colour does not.
+
 Where a night frame went on the console that evening (2026-11-09,
 15.8 ms average, 17.1 on the forest climb, a tenth of the frames late):
 
