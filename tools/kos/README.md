@@ -30,9 +30,9 @@ make -C "$KOS_PORTS/stb_image" install
 | `kos/kos-tcp-upload-window.patch` | Send-window bugs: a shrinking peer window wrapped unsigned maths, retransmits moved SND.NXT backwards, and pure window updates were dropped | Not filed: needs a standalone repro first |
 | `kos-ports/kos-ports-kos23.patch` | mbedTLS had its platform entropy source disabled though KOS 2.3 has `/dev/urandom`; stb_image only built with G++ | Not filed |
 
-Two more upstream fixes have no patch here, because `projects/common/vmusave.h`
-works around them: `vmufs_write` padding from past the buffer (issue
-[#1568](https://github.com/KallistiOS/KallistiOS/issues/1568), PR [#1574](https://github.com/KallistiOS/KallistiOS/pull/1574)) and fs_vmu's packaged-file sizes (issue [#1569](https://github.com/KallistiOS/KallistiOS/issues/1569), PR [#1575](https://github.com/KallistiOS/KallistiOS/pull/1575)).
+One more upstream fix has no patch here, because `projects/common/vmusave.h`
+works around it: `vmufs_write` padding from past the buffer (issue
+[#1568](https://github.com/KallistiOS/KallistiOS/issues/1568), PR [#1574](https://github.com/KallistiOS/KallistiOS/pull/1574)). fs_vmu's packaged-file sizes (issue [#1569](https://github.com/KallistiOS/KallistiOS/issues/1569), PR [#1575](https://github.com/KallistiOS/KallistiOS/pull/1575)) are fixed upstream from `6b1248c`.
 
 Patches apply in name order. Drop one once the pinned SDK has its fix; the
 keyboard attach, TCP orphan reset and TCP poll-lock fixes went upstream
@@ -67,7 +67,7 @@ KOS_Test takes it as `make <target> KOS=<ref>` (`KOS_PATCHED=1` for
 ## Moving the pin
 
 CI builds against the KallistiOS commit in `.github/workflows/release.yml`
-(`KOS_COMMIT`), currently master `d81aa3f`. The weekly
+(`KOS_COMMIT`), currently master `6b1248c`. The weekly
 [KOS canary](../../.github/workflows/kos-canary.yml) builds every project
 against the newest master with these patches and fails when one has gone
 upstream (drop it), no longer applies, or a build breaks; its summary says

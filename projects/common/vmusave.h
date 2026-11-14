@@ -16,9 +16,10 @@
    This avoids fs_vmu (fs_open on /vmu/a1/NAME) for packaged files. In KOS
    2.3 vmufs_write rounds a file up to whole 512-byte blocks by reading past
    the end of its buffer, and fs_vmu's packages always end 128 bytes into a
-   block, so every fs_vmu save carried 384 bytes of stray heap. fs_vmu's
-   reads also run past the end of the file by the header's size. Anything
-   else handing vmufs_write a package should pad it with vmusave_build. */
+   block, so every fs_vmu save carried 384 bytes of stray heap
+   (KallistiOS#1574, still open). Anything else handing vmufs_write a package
+   should pad it with vmusave_build. fs_vmu's reads ran past the end of the
+   file by the header's size too, fixed upstream (#1575) from 6b1248c. */
 #ifndef DC_VMUSAVE_H
 #define DC_VMUSAVE_H
 

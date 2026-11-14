@@ -1,0 +1,147 @@
+KOS_Test results
+
+Date        2026-11-14 11:47
+Target      console (200.00 MHz)
+KOS         2.3.0 6b1248c (local changes c8c2b1f3)
+GCC         15.2.0
+KOS_Test    5f35c88, built Nov 14 2026 11:45:34
+Loader      dcload-ip
+Video       VGA 640x480
+Hot-plug    none
+Summary     61 pass, 1 fail, 0 skip in 65.1 s
+
+Tests
+INFO  RAM allocate                   12.78 MB at 8c2654a0 of 16 MB
+PASS  RAM data bus                   walking 1s and 0s on 32 bits
+PASS  RAM address bus                23 address lines
+PASS  RAM 00/FF fill                 25.57 MB, 45 MB/s
+PASS  RAM checkerboard               25.57 MB, 45 MB/s
+PASS  RAM own address                25.57 MB, 43 MB/s
+PASS  RAM March C-                   127.89 MB, 114 MB/s
+PASS  RAM release                    13096 KB returned to heap
+INFO  VRAM area                      3.93 MB of 8 MB at a440c360
+PASS  VRAM patterns                  39.37 MB, 12 MB/s
+INFO  Sound RAM area                 1.81 MB of 2 MB at +030000
+PASS  Sound RAM patterns             18.12 MB, 3 MB/s
+PASS  malloc stress                  1453 blocks, 6150 KB, 62 ms
+PASS  Heap after free                0 bytes leaked
+PASS  memalign                       0 of 64 misaligned (32-256)
+PASS  realloc                        grow to 100000 and shrink keep the data
+PASS  calloc                         16 KB zeroed
+INFO  BIOS ROM CRC32                 89f2b1a1 (2 MB, 1101 ms)
+INFO  Flash ROM CRC32                8bd7c9be (128 KB)
+PASS  BIOS present                   boot vector 4328e3ff
+PASS  Flash partitions               5 of 5 found (factory to block 2)
+PASS  RTC date                       2026-11-17 12:36:10
+PASS  RTC vs TMU                     one RTC second = 999 ms of TMU time
+PASS  Vertical blank                 59.940 Hz
+PASS  Timer monotonic                0 steps back in 100000 reads
+PASS  thd_sleep(50)                  55.1 ms
+PASS  CPU clock                      200.00 MHz (perf counter vs TMU)
+PASS  Drive status                   paused, CD-ROM XA
+PASS  TOC                            tracks 1-2, leadout FAD 11893
+PASS  Sector read                    16 sectors at FAD 11852, 4019 KB/s
+INFO  A0 Dreamcast C                 Controller, 50.0mA max
+INFO  A1 Visual Memo                 Clock, LCD, MemoryCard, 13.0mA max
+INFO  A2 Puru Puru P                 JumpPack, 160.0mA max
+INFO  B0 Dreamcast C                 Controller, 50.0mA max
+INFO  B1 Visual Memo                 Clock, LCD, MemoryCard, 13.0mA max
+INFO  B2 Puru Puru P                 JumpPack, 160.0mA max
+PASS  Maple devices                  6 found
+PASS  Integer ALU and shifts         46 checks
+PASS  Multiply, MAC, divide          47 checks
+PASS  General registers              520 checks
+PASS  Banked registers, GBR          17 checks
+PASS  Control registers              7 checks
+INFO  SR / VBR                       SR 40000100 VBR 8c0600d8 SPC 8c042336
+PASS  FPU single and double          20 checks
+PASS  FPU register banks             16 checks
+INFO  FSRRA error                    worst 7.45e-08 relative
+INFO  FSCA error                     worst 3.73e-07 absolute
+PASS  FSRRA, FSCA, FIPR, FTRV        75 checks
+PASS  TRAPA #0x42                    handler ran 1 time(s), r0=600d
+PASS  Illegal instruction            0xfffd trapped 1 time(s), resumed
+PASS  Address error                  misaligned read trapped and resumed
+PASS  Operand cache copy-back        4 checks
+PASS  Self-modifying code            3 checks
+PASS  Store queues                   4 checks
+PASS  PVR DMA to VRAM                8 KB verified
+PASS  G2 DMA to sound RAM            8 KB verified
+FAIL  pcm16 split                    left and right swapped (KallistiOS#1557)
+PASS  pcm16 split to sound RAM       512 frames, channels in place
+PASS  Maple DMA vs cache             0 of 60 reads hit (0 failed, 0 wrong data), 0 of 6 delays
+PASS  Mutex counter                  20000 of 20000 in 16 ms
+PASS  Atomic add (gUSA)              20000 of 20000
+PASS  thd_join values                4 of 4 threads returned theirs
+PASS  Thread-local storage           each thread kept its own
+PASS  Semaphore ping-pong            500 of 500 rounds, 11 us each
+PASS  Condition variable             consumer took 50 of 50
+PASS  pthreads                       create and join ok
+PASS  FPSCR in a new thread          0004306c (main 00040064), denormal 00000000 (main 00000000)
+PASS  C library                      717 checks
+PASS  Math library                   16 checks
+PASS  Data layout                    5 checks
+PASS  Romdisk data                   524288 bytes, CRC a9a64dfb (want a9a64dfb)
+PASS  Romdisk readdir                64 of 64 entries
+PASS  Ramdisk data                   524288 bytes read back, CRC matches
+PASS  GD-ROM reads                   41 sectors from FAD 11852, 0 errors
+PASS  Maple round trips              VMU A1, 0 errors
+PASS  Sound stream rate              43999 Hz from 23 callbacks (44100 wanted)
+INFO  3D scene                       2304 tris, CPU 1.41 ms, GPU 4.19 ms
+INFO  3D scene                       2304 tris, CPU 1.41 ms, GPU 4.19 ms
+INFO  3D scene                       2304 tris, CPU 1.41 ms, GPU 4.19 ms
+INFO  Baseline                       none: save one from the benchmarks menu
+
+Benchmarks (median of 3 passes, spread between passes)
+crc32               17.805 MB/s       +/-0.1%   CRC32 (table) [17.84,17.81,17.8]
+sieve                4.250 runs/s     +/-0.0%   Sieve to 1M [4.253,4.25,4.25]
+qsort               25.268 sorts/s    +/-0.0%   qsort 20k ints [25.27,25.27,25.26]
+snprintf            31.748 k calls/s  +/-0.0%   snprintf [31.75,31.75,31.75]
+fmadd              109.894 MFLOPS     +/-0.0%   Float multiply-add [109.9,110,109.9]
+fdiv                16.653 M/s        +/-0.0%   Float divide chain [16.65,16.65,16.65]
+fsqrt                4.628 M/s        +/-0.0%   Float sqrt chain [4.628,4.627,4.631]
+ftrv                 5.196 M verts/s  +/-0.0%   mat_transform (FTRV) [5.196,5.196,5.195]
+fipr                13.264 M/s        +/-0.0%   FIPR dot product [13.26,13.26,13.26]
+sinf                 0.991 M calls/s  +/-0.0%   libm sinf [0.9913,0.9912,0.9912]
+fsca                 9.315 M/s        +/-0.0%   FSCA sin/cos [9.315,9.315,9.315]
+dmadd               44.211 MFLOPS     +/-0.0%   Double multiply-add [44.21,44.21,44.21]
+memcpy              63.452 MB/s       +/-0.3%   memcpy RAM [63.11,63.5,63.45]
+memset             118.217 MB/s       +/-0.2%   memset RAM [117.8,118.2,118.2]
+memread            187.644 MB/s       +/-0.0%   Read RAM (sum) [187.6,187.6,187.5]
+sqcpy              180.668 MB/s       +/-1.6%   sq_cpy RAM [175.4,181.2,180.7]
+p2write             75.552 MB/s       +/-0.0%   Uncached write [75.55,75.55,75.55]
+vram_sq            214.638 MB/s       +/-0.0%   Texture load (SQ) [214.7,214.6,214.6]
+vram_dma           552.181 MB/s       +/-0.6%   Texture load (DMA) [558.7,552.2,551.6]
+aram_write           5.545 MB/s       +/-0.0%   Sound RAM write [5.547,5.545,5.545]
+aram_dma             5.504 MB/s       +/-0.0%   Sound RAM DMA [5.504,5.504,5.505]
+thd_switch         168.549 k/s        +/-0.0%   Thread switch [168.6,168.4,168.5]
+malloc             208.355 k pairs/s  +/-0.1%   malloc + free [207.9,208.4,208.4]
+mutex                1.344 M/s        +/-0.0%   Mutex lock/unlock [1.343,1.344,1.344]
+timer                1.660 M calls/s  +/-0.0%   timer_us_gettime64 [1.66,1.661,1.66]
+gpu_fill_op       1451.110 Mpix/s     +/-0.0%   GPU opaque overdraw [1451,1451,1451]
+gpu_fill_tr         87.387 Mpix/s     +/-0.0%   GPU blended fill [87.39,87.39,87.39]
+gpu_fill_tex        86.826 Mpix/s     +/-0.0%   GPU textured fill [86.82,86.83,86.83]
+gpu_tri_flat         1.770 M tris/s   +/-0.0%   GPU flat triangles [1.77,1.77,1.769]
+gpu_tri_tex          1.544 M tris/s   +/-0.0%   GPU textured tris [1.545,1.545,1.544]
+gpu_sprite           0.964 M/s        +/-0.0%   GPU sprites [0.9636,0.9636,0.9634]
+ta_prim              3.821 M verts/s  +/-0.1%   TA submit pvr_prim [3.821,3.821,3.828]
+ta_dr                7.488 M verts/s  +/-0.0%   TA submit direct [7.488,7.488,7.491]
+gpu_scene          238.846 fps        +/-0.0%   GPU 3D scene [238.8,238.8,238.8]
+vmu_block           19.965 ms         +/-0.0%   VMU block read (lower is better) [19.97,19.97,19.97]
+vmu_clock           19.966 ms         +/-0.0%   VMU clock read (lower is better) [19.97,19.97,19.97]
+vmu_dir            239.596 ms         +/-9.9%   VMU directory read (lower is better) [229.6,239.6,277]
+rom_read            64.472 MB/s       +/-0.1%   Romdisk read [64.47,64.48,64.35]
+rom_open            14.774 k/s        +/-0.1%   Romdisk open + close [14.76,14.77,14.78]
+rom_stat            19.099 k/s        +/-0.0%   Romdisk stat [19.1,19.11,19.1]
+rom_dir           6329.114 dirs/s     +/-0.3%   Romdisk directory (64) [6289,6329,6329]
+ram_write           63.053 MB/s       +/-0.0%   Ramdisk write [63.06,63.05,63.05]
+ram_read            63.984 MB/s       +/-0.0%   Ramdisk read [63.98,63.98,63.98]
+gd_read           1183.091 KB/s       +/-1.1%   GD-ROM sequential read [1208,1183,1183]
+gd_seek              6.240 ms         +/-0.0%   GD-ROM random read (lower is better) [6.24,6.238,6.242]
+memcpy16             3.921 M calls/s  +/-0.0%   memcpy 16 B [3.921,3.922,3.921]
+memcpy64             2.018 M calls/s  +/-0.0%   memcpy 64 B [2.018,2.018,2.018]
+memcpy256            0.685 M calls/s  +/-0.1%   memcpy 256 B [0.685,0.6843,0.6848]
+memcpy64u            1.584 M calls/s  +/-0.0%   memcpy 64 B misaligned [1.584,1.584,1.584]
+memset64             2.631 M calls/s  +/-0.1%   memset 64 B [2.631,2.631,2.628]
+strlen64             1.800 M calls/s  +/-0.0%   strlen 63 chars [1.8,1.8,1.8]
+stream_cpu           0.799 %          +/-0.2%   Sound stream CPU (lower is better) [0.799,0.7982,0.8022]
