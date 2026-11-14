@@ -612,7 +612,7 @@ void menu_pause_update(float dt) {
                 break;
             }
             case P_FPS: game.show_fps = !game.show_fps; break;
-            case P_HUD: game.hud_hidden = !game.hud_hidden; break;
+            case P_HUD: game.hud_mode = (game.hud_mode + 1) % HUD_MODES; break;
             case P_QUIT:
                 if(game.online) online_leave_lobby();
                 else {
@@ -644,8 +644,9 @@ void menu_pause_draw(void) {
     }
     char view[32] = "";
     if(game.views_found) snprintf(view, sizeof(view), "TO %s", lvl_views[game.view_sel].name);
+    static const char *const hud[HUD_MODES] = {"HUD: ON", "HUD: SIMPLE", "HUD: OFF"};
     const char *items[P_COUNT] = {"RESUME", "RECOVER TRUCK", view, game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
-                                  game.hud_hidden ? "HUD: OFF" : "HUD: ON", game.online ? "LEAVE LOBBY" : "QUIT TO TITLE"};
+                                  hud[game.hud_mode], game.online ? "LEAVE LOBBY" : "QUIT TO TITLE"};
     ui_dim();
     int n = 0;
     for(int i = 0; i < P_COUNT; i++) n += pause_item_on(i);

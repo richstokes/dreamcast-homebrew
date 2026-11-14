@@ -775,12 +775,18 @@ void autotest_frame(float dt_real) {
     if(pf == 545) shot("pause-again");
     if(pf == 555) input_film_tap(0, BTN_START);
     if(pf == 600) shot("resumed-fps");
-    /* The large map and no map (X). */
+    /* The large map and no map (X), then the simple HUD (pause menu) and
+       the large map over it. Each holds a second past its shot: the
+       screenshot is taken that long after the line is printed. */
     if(pf == 610) game.map_mode = 1;
     if(pf == 630) shot("map-large");
-    if(pf == 640) game.map_mode = 2;
-    if(pf == 660) shot("map-off");
-    if(pf == 670) game.map_mode = 0;
+    if(pf == 690) game.map_mode = 2;
+    if(pf == 710) shot("map-off");
+    if(pf == 770) game.map_mode = 0, game.hud_mode = HUD_SIMPLE;
+    if(pf == 790) shot("hud-simple");
+    if(pf == 850) game.map_mode = 1;
+    if(pf == 870) shot("hud-simple-map");
+    if(pf == 930) game.map_mode = 0, game.hud_mode = HUD_FULL;
     if(game.clock >= at.next_shot) {
         char name[24];
         snprintf(name, sizeof(name), "drive-%03d", (int)game.clock);

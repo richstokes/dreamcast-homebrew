@@ -163,7 +163,8 @@ static void __attribute__((unused)) player_controls(Truck *p, float dt) {
         }
     }
     if(pad.pressed & BTN_B) game.cam_mode = (game.cam_mode + 1) % 3;
-    if(pad.pressed & BTN_X) game.map_mode = (game.map_mode + 1) % 3;
+    /* (the simple HUD has no corner map: X is the large one or none) */
+    if(pad.pressed & BTN_X) game.map_mode = (game.map_mode + 1) % (game.hud_mode == HUD_SIMPLE ? 2 : 3);
     if(pad.held & BTN_Y) {
         recover_hold += dt;
         if(recover_hold > 1.0f) {

@@ -36,6 +36,10 @@ enum {
    diffs locked as well. */
 enum { DRIVE_2WD, DRIVE_4WD, DRIVE_LOCK, DRIVE_COUNT };
 
+/* How much HUD (pause menu): all of it; the dial, its lamps and the drive
+   mode; or none. Messages show with either of the first two. */
+enum { HUD_FULL, HUD_SIMPLE, HUD_OFF, HUD_MODES };
+
 typedef struct {
     int state;
     float time;           /* seconds in this state */
@@ -58,7 +62,7 @@ typedef struct {
     float clock;          /* seconds driving */
     int cam_mode;
     int map_mode;         /* X: 0 corner map, 1 large map, 2 no map */
-    bool hud_hidden;
+    int hud_mode;         /* pause menu: HUD_FULL, HUD_SIMPLE or HUD_OFF */
     bool show_fps;        /* the frame rate counter (pause menu) */
     bool photo;           /* photo mode: paused, no HUD, the camera orbits */
     float photo_t;        /* seconds in photo mode, for its hint */

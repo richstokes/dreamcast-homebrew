@@ -281,7 +281,7 @@ The same list is under CONTROLS on the main menu.
 | B | Camera: chase, far chase, bumper |
 | X | Map: corner, large, off |
 | Y (hold) | Recover the truck to the nearest trail (on an extreme trail: to the last checkpoint passed) |
-| Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/off, quit |
+| Start | Pause: recover, back to a viewpoint you've found (left/right picks which), FPS counter, HUD on/simple/off, quit |
 | Y (paused) | Photo mode: no HUD, the stick turns the camera round the truck, R/L zoom, D-pad left/right moves the clock, B back |
 | Start (online) | The menu, over a mountain that keeps going: recover, viewpoints, leave the lobby. The lobby keeps the clock |
 

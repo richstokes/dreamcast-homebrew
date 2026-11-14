@@ -443,15 +443,18 @@ void hud_draw_map(void) {
 }
 
 void hud_draw(void) {
-    if(game.hud_hidden) return;
+    if(game.hud_mode == HUD_OFF) return;
     const Truck *t = &trucks[0];
-    progress(t);
-    map();
+    /* The simple HUD is the dashboard alone: the dial, its lamps and the
+       drive mode. The large map still comes up when asked for (X). */
+    bool full = game.hud_mode == HUD_FULL;
+    if(full) progress(t);
+    if(full || game.map_mode == 1) map();
     dial(t);
     lights_icon(t);
     tcs_icon(t);
     drive_mode(t);
-    if(game.map_mode != 1) inclinometer(t);
+    if(full && game.map_mode != 1) inclinometer(t);
     banners_draw();
     if(hud_hold_k > 0 && hud_hold_label) {
         hud_panel(240, 300, 400, 330, 0xa0182028);

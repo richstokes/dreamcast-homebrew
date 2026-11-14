@@ -704,7 +704,7 @@ static uint32_t ping_col(int ms) {
 void online_draw_hud(void) {
     if(game.photo) return;
     draw_toast();
-    if(game.hud_hidden || net_state() != NET_LOBBY) return;
+    if(game.hud_mode == HUD_OFF || net_state() != NET_LOBBY) return;
     const NetLobby *l = net_lobby();
     /* Name tags over the others' trucks, fading with distance. */
     for(int i = 0; i < l->count; i++) {
@@ -722,6 +722,7 @@ void online_draw_hud(void) {
         hud_text_c(sx, sy, sc, ALIGN_CENTER, color_alpha(0xfff8f0dc, a), p->name);
         if(p->flags & NPF_SUMMIT) hud_trophy(sx + w * 0.5f + TROPHY_GAP + 0.6f * 30 * sc, sy, 30 * sc, a);
     }
+    if(game.hud_mode == HUD_SIMPLE) return;
     /* The roster, on the right under the corner map (clear of the
        messages across the middle, and of the large map). */
     float x0 = 420, x1 = 622, y0 = game.map_mode == 0 ? 152 : 20, h = 18 + l->count * 20;
