@@ -400,37 +400,51 @@ static int run_turn(int mode, int model, float steer, int hb) {
 }
 
 /* The handbrake at speed: hbrake<mode> [truck] [throttle]. Flat out across
-   the meadow for 8 s, then the handbrake for 2 s with the throttle held or
-   lifted. Out of LOCK the rear wheels should stop within half a second and
-   the front ones keep turning; in LOCK all four slow together. */
+   the meadow for 8 s, then the handbrake until the truck stops, steering
+   to hold its line, with the throttle held or lifted. In 2WD the rear
+   wheels should stop within half a second; in 4WD they should be dragged
+   down but keep turning at first and stop once the truck has slowed; in
+   LOCK all four slow together. */
 static int run_hbrake(int mode, int model, float throttle) {
     game.ntrucks = 1;
     Truck *t = &trucks[0];
     t->model = model;
     truck_place(t, v3(0, 0, -240), ENG_PI / 2);
     t->mode = mode;
-    float dt = 1.0f / 60.0f, v0 = 0, locked = -1, front = 0;
-    for(int f = 0; f < 60 * 10; f++) {
+    float dt = 1.0f / 60.0f, v0 = 0, locked = -1, lock_v = 0, front = 0, drag = 1, held = 0;
+    for(int f = 0; f < 60 * 16; f++) {
         float tm = f * dt - 8.0f;
         t->in.throttle = tm < 0 ? 1.0f : throttle;
         t->in.handbrake = tm >= 0;
+        /* East along x: steer against the heading error and the yaw. */
+        t->in.steer = clampf((3.0f * t->ax[2].z + 0.5f * vdot(t->w, t->ax[1])), -1, 1);
         r_cam.pos = t->pos;
-        if(f == 60 * 8) v0 = t->speed;
+        float v = vlen(t->vel);
+        if(f == 60 * 8) v0 = v;
         truck_update(t, dt);
         float r = t->spec.radius, rear = fmaxf(fabsf(t->wh[2].omega), fabsf(t->wh[3].omega)) * r;
-        if(tm >= 0 && locked < 0 && rear < 0.5f) {
-            locked = tm;
+        /* Stopped means for a tenth of a second, not a wheel in the air. */
+        held = tm >= 0 && rear < 0.5f ? held + dt : 0;
+        if(locked < 0 && held >= 0.1f) {
+            locked = tm - held;
+            lock_v = v;
             front = fminf(t->wh[0].omega, t->wh[1].omega) * r;
         }
-        if(tm >= 0 && f % 15 == 0)
-            printf("  t=%.2f v %5.1f wheels front %5.1f %5.1f rear %5.1f %5.1f m/s g %d rpm %4.0f\n", (double)tm, (double)t->speed,
+        /* How far the rears were dragged down half a second in. */
+        if(f == 60 * 8 + 30) drag = rear / fmaxf(v, 0.1f);
+        if(tm >= 0 && tm < 4 && f % 15 == 0 && getenv("SIM_TRACE"))
+            printf("  t=%.2f v %5.1f wheels front %5.1f %5.1f rear %5.1f %5.1f m/s g %d rpm %4.0f\n", (double)tm, (double)v,
                    (double)(t->wh[0].omega * r), (double)(t->wh[1].omega * r), (double)(t->wh[2].omega * r),
                    (double)(t->wh[3].omega * r), t->gear, (double)t->rpm);
+        if(tm > 0.5f && v < 0.5f) break;
     }
-    bool ok = mode == DRIVE_LOCK ? locked < 0 || front < 1.0f : locked >= 0 && locked < 0.5f && front > v0 * 0.5f;
-    if(locked < 0) printf("hbrake%d truck %d from %.1f m/s: rear wheels never stopped: %s\n", mode, model, (double)v0, ok ? "PASS" : "FAIL");
-    else printf("hbrake%d truck %d from %.1f m/s: rear wheels stopped in %.2f s, fronts at %.1f m/s: %s\n", mode, model, (double)v0,
-                (double)locked, (double)front, ok ? "PASS" : "FAIL");
+    bool ok;
+    if(mode == DRIVE_2WD) ok = locked >= 0 && locked < 0.5f && front > v0 * 0.5f;
+    else if(mode == DRIVE_4WD) ok = locked > 0.5f && lock_v > 6.0f && lock_v < 19.0f && drag > 0.1f && drag < 0.9f;
+    else ok = locked < 0 || front < 1.0f;
+    printf("hbrake%d truck %d from %.1f m/s: rears at %.0f%% of road speed after 0.5 s, ", mode, model, (double)v0, (double)(drag * 100));
+    if(locked < 0) printf("never stopped: %s\n", ok ? "PASS" : "FAIL");
+    else printf("stopped at %.2f s and %.1f m/s (fronts %.1f): %s\n", (double)locked, (double)lock_v, (double)front, ok ? "PASS" : "FAIL");
     return ok ? 0 : 1;
 }
 

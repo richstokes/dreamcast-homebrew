@@ -21,8 +21,8 @@
       front and rear shafts together with open diffs on each axle; LOCK
       adds low range and locks both axle diffs. The engine's inertia joins
       the driven shaft once the torque converter couples it. The handbrake
-      works the rear brakes and, out of LOCK, frees them from the engine
-      and the front axle while it is held.
+      works the rear brakes and, out of LOCK, takes the drive off while it
+      is held; in 4WD the transfer case slips under it.
    4. Chassis. Points round the body's box collide with the ground and the
       obstacles (spring-damper with friction); water gives buoyancy, drag
       and, over the air intake, a stall.
@@ -40,6 +40,12 @@ Truck trucks[MAX_TRUCKS];
 
 #define SUBSTEPS 4
 #define RPM_PER_RADS 9.5492966f   /* 60 / 2 pi */
+/* The handbrake: its torque holds the rear axle against tyres gripping at
+   HB_MU times the axle's standing load, and in 4WD the transfer case slips
+   under it at HB_CENTRE (see the driveline): on grass the rears
+   lock below 9-17 m/s, depending on the truck. */
+#define HB_MU 1.0f
+#define HB_CENTRE 0.045f
 
 /* ---- Specs ---- */
 
@@ -767,13 +773,21 @@ static void step(Truck *t, float dt) {
 
     /* 4. The driveline: wheel speeds, implicitly. */
     float Sm[4][4], shaft[4];
-    /* The handbrake is the hydraulic kind off a rally car: held, it takes
-       the drive off and in 4WD lets the front shaft go, so the rear brakes
-       have only the rear tyres to beat and lock them at any speed. Left
-       joined, the front tyres turn the rears through the transfer case
-       and the engine outpulls the brake. LOCK stays joined: crawling, it
-       holds all four. */
+    /* The handbrake works the rear brakes and, held, takes the drive off
+       (the engine would outpull it). In 4WD it also lets the transfer
+       case slip, as a viscous coupling between the shafts: the front tyres
+       still pull the rear ones round through it, the harder the faster the
+       truck is going, so the rears lock below a speed the ground sets
+       (about (HB_MU - its sliding grip) / HB_CENTRE m/s, more as the
+       weight comes off the rear axle) and above it are dragged down but
+       keep turning, the front axle sharing the braking. LOCK stays rigid,
+       as a real transfer case is: there the handbrake slows all four and
+       locks nothing. */
     bool hb_free = t->in.handbrake && t->mode != DRIVE_LOCK;
+    bool hb_slip = hb_free && t->mode == DRIVE_4WD;
+    float hb_arm = 0;   /* the rear axle's standing load x the tyre's radius */
+    if(t->in.handbrake)
+        hb_arm = S->mass * GRAVITY * (S->wheel[WFL].z - S->cog_z) / (S->wheel[WFL].z - S->wheel[WRL].z) * S->radius;
     int mode = hb_free ? DRIVE_2WD : t->mode;
     int nq = mode_coords(mode, Sm, shaft);
     float G = total_ratio(t);
@@ -826,9 +840,8 @@ static void step(Truck *t, float dt) {
             Contact *k = &ct[i];
             a[i] = 0.2f;   /* bearings */
             b[i] = 0;
-            float brake = t->brake;
-            if(t->in.handbrake && i >= 2) brake = fmaxf(brake, 1.0f);
-            float tb = brake * S->brake_torque * (i < 2 ? 1.15f : 0.85f);
+            float tb = t->brake * S->brake_torque * (i < 2 ? 1.15f : 0.85f);
+            if(i >= 2) tb = fmaxf(tb, 0.5f * HB_MU * hb_arm);
             /* Implicit, as a damper that reaches full torque at 0.01 rad/s,
                so a held brake stops the wheel rather than letting it turn
                slowly against any torque. */
@@ -862,6 +875,13 @@ static void step(Truck *t, float dt) {
            difference (wheels at shaft +- d, so the torque on d is 4 c d). */
         int rear_d = mode == DRIVE_2WD ? 1 : mode == DRIVE_4WD ? 2 : -1;
         if(rear_d >= 0) A[rear_d][rear_d] += 4.0f * S->lsd;
+        if(hb_slip) {
+            /* Rear shaft less the front one = g . q in 2WD's coordinates. */
+            static const float g[4] = {1.0f, 0.0f, -0.5f, -0.5f};
+            float cc = HB_CENTRE * hb_arm * S->radius;
+            for(int r = 0; r < 4; r++)
+                for(int c = 0; c < 4; c++) A[r][c] += cc * g[r] * g[c];
+        }
         if(coupled) {
             /* The engine's inertia on the shaft, through the gearing. */
             float Ie = I_e * G * G;
