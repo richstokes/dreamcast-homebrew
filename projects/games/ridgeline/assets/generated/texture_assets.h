@@ -34,6 +34,7 @@ enum {
     TEX_STARS,
     TEX_GLOW,
     TEX_BEAM,
+    TEX_SHAFT,
     TEX_RING,
     TEX_PUFF,
     TEX_SHADOW,
@@ -82,25 +83,26 @@ static const rl_tex_asset_t rl_tex_assets[TEX_COUNT] = {
     {1218304u, 131072u, 256, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* stars */
     {1349376u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glow */
     {1360320u, 4096u, 32, 64, RL_TEXFMT_RGB565, 0, {0, 0}},  /* beam */
-    {1364416u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
-    {1380800u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
-    {1391744u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
-    {1402688u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
-    {1405440u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
-    {1416384u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* slide */
-    {1427328u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* marks */
-    {1438272u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glyphs */
-    {1449216u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
-    {1460160u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
-    {1471104u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {1536640u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
-    {1711424u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
-    {1886208u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_dunes */
-    {2060992u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_lowland */
-    {2235776u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
-    {2268544u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
-    {2334080u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {2465152u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {1364416u, 512u, 32, 8, RL_TEXFMT_RGB565, 0, {0, 0}},  /* shaft */
+    {1364928u, 16384u, 128, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* ring */
+    {1381312u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
+    {1392256u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* shadow */
+    {1403200u, 2752u, 32, 32, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* clod */
+    {1405952u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tread */
+    {1416896u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* slide */
+    {1427840u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* marks */
+    {1438784u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* glyphs */
+    {1449728u, 10944u, 64, 64, RL_TEXFMT_RGB565, 1, {0, 0}},  /* ripple */
+    {1460672u, 10944u, 64, 64, RL_TEXFMT_ARGB4444, 1, {0, 0}},  /* mist */
+    {1471616u, 65536u, 512, 64, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {1537152u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map */
+    {1711936u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_moab */
+    {1886720u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_dunes */
+    {2061504u, 174784u, 256, 256, RL_TEXFMT_RGB565, 1, {0, 0}},  /* map_lowland */
+    {2236288u, 32768u, 128, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* dial */
+    {2269056u, 65536u, 256, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* icons */
+    {2334592u, 131072u, 512, 128, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {2465664u, 262144u, 512, 256, RL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

@@ -300,6 +300,18 @@ def tex_beam():
     return to_image(np.dstack([g, g, g]).astype(float))
 
 
+def tex_shaft():
+    """Across a headlight's beam in the air: how much lit air a look through
+    it from the side passes, most through the middle and none at the rim.
+    The glow's sharp peak made the beam a bright line with a faint ribbon
+    either side. Grey in 5 bits and added as a colour, as the pool is."""
+    n = 32
+    s = np.abs((np.arange(n) - (n - 1) / 2) / (n / 2 - 1))
+    g = np.round(np.clip(1 - s * s, 0, 1) ** 1.2 * 31).astype(int)
+    g = np.tile((g << 3) | (g >> 2), (8, 1))
+    return to_image(np.dstack([g, g, g]).astype(float))
+
+
 def tex_ring():
     """Lens flare elements: a soft ring (left half) and a hexagon (right)."""
     n = 64
@@ -929,6 +941,7 @@ def build(out: Path):
         (TexSpec("stars", "ARGB4444", False, False), tex_stars()),
         (TexSpec("glow", "ARGB4444", True, False), tex_glow()),
         (TexSpec("beam", "RGB565", False, False), tex_beam()),
+        (TexSpec("shaft", "RGB565", False, False), tex_shaft()),
         (TexSpec("ring", "ARGB4444", False, False), tex_ring()),
         (TexSpec("puff", "ARGB4444", True, False), tex_puff()),
         (TexSpec("shadow", "ARGB4444", True, False), tex_shadow()),

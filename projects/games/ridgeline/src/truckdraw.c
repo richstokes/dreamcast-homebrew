@@ -138,7 +138,7 @@ void truckdraw_init(void) {
     h_flat = h_model;
     h_shadow = r_header(TEX_SHADOW, HF_TR);
     h_glow = r_header(TEX_GLOW, HF_TR | HF_ADD);
-    h_beam = r_header(TEX_GLOW, HF_TR | HF_ADD | HF_NOFOG);
+    h_beam = r_header(TEX_SHAFT, HF_TR | HF_ADD | HF_NOFOG | HF_CLAMP);
     h_pool = r_header(TEX_BEAM, HF_TR | HF_ADD | HF_CLAMP);
 #ifdef HAVE_TRUCK_MODELS
     _Static_assert(sizeof(rl_mvert_t) == sizeof(eng_mvert_t), "model vertex layout");
@@ -315,13 +315,20 @@ static void beam_patch(V3 nose, V3 fh, V3 rh, float ymax, float start, float end
     }
 }
 
-/* A headlight's beam through the air: a soft wedge along it, turned about
-   its axis to face the camera, brightest just out from the lamp and gone
-   by its end (the glow texture across it gives the soft sides). Seen
-   along its length it would fold into a smear, so it fades out there. */
+/* A headlight's beam through the air: a soft cone along it, turned about
+   its axis to face the camera, brightest at the lamp and gone by its end
+   (the shaft texture across it: lit air, thickest through the middle).
+   Seen along its length it would fold into a smear, so it fades out
+   there. It never goes into the ground, which would cut a hard line
+   across it wherever the two met: it ends, dark, where its middle comes
+   down, and an edge that would go under before that is lifted to lie on
+   the ground, where the texture is dark anyway. */
+#define AIR_N 5         /* points along it */
+#define AIR_MARCH 12    /* looks at the ground under its middle */
 static void beam_air(V3 lamp, V3 dir, float len, float w1, uint32_t col, float alpha) {
-    V3 end = vmad(lamp, dir, len);
-    V3 mid = vscale(vadd(lamp, end), 0.5f);
+    static const float at[AIR_N] = {0, 0.12f, 0.3f, 0.55f, 1.0f}, lit[AIR_N] = {1.0f, 0.85f, 0.55f, 0.25f, 0};
+    const float w0 = 0.18f, clear = 0.08f;
+    V3 mid = vmad(lamp, dir, len * 0.5f);
     V3 to = vsub(r_cam.pos, mid);
     float tl = vlen(to);
     if(tl < 0.01f) return;
@@ -330,16 +337,34 @@ static void beam_air(V3 lamp, V3 dir, float len, float w1, uint32_t col, float a
     alpha *= clampf((sl - 0.4f) * (1.0f / 0.4f), 0, 1);
     if(alpha < 0.01f) return;
     side = vscale(side, 1.0f / sl);
-    V3 q = vmad(lamp, dir, len * 0.25f);
-    float wq = 0.1f + (w1 - 0.1f) * 0.25f;
-    uint32_t c0 = color_alpha(col, alpha * 0.5f), c1 = color_alpha(col, alpha), c2 = col & 0xffffffu;
-    RV v[6] = {{lamp.x - side.x * 0.1f, lamp.y - side.y * 0.1f, lamp.z - side.z * 0.1f, 0, 0.5f, c0},
-               {lamp.x + side.x * 0.1f, lamp.y + side.y * 0.1f, lamp.z + side.z * 0.1f, 1, 0.5f, c0},
-               {q.x - side.x * wq, q.y - side.y * wq, q.z - side.z * wq, 0, 0.5f, c1},
-               {q.x + side.x * wq, q.y + side.y * wq, q.z + side.z * wq, 1, 0.5f, c1},
-               {end.x - side.x * w1, end.y - side.y * w1, end.z - side.z * w1, 0, 0.5f, c2},
-               {end.x + side.x * w1, end.y + side.y * w1, end.z + side.z * w1, 1, 0.5f, c2}};
-    r_strip(v, 6);
+    /* How far it gets before the ground. */
+    float reach = len, up0 = lamp.y - terrain_height(lamp.x, lamp.z) - clear;
+    if(up0 <= 0) return;
+    for(int m = 1; m <= AIR_MARCH; m++) {
+        V3 p = vmad(lamp, dir, len * m * (1.0f / AIR_MARCH));
+        float up = p.y - terrain_height(p.x, p.z) - clear;
+        if(up <= 0) {
+            reach = len * (m - 1 + up0 / (up0 - up)) * (1.0f / AIR_MARCH);
+            break;
+        }
+        up0 = up;
+    }
+    if(reach < 1.0f) return;
+    RV a[2 * AIR_N], b[2 * AIR_N];
+    for(int k = 0; k < AIR_N; k++) {
+        float d = reach * at[k], w = w0 + (w1 - w0) * d / len;
+        V3 p = vmad(lamp, dir, d);
+        uint32_t c = color_alpha(col, alpha * lit[k]);
+        for(int e = 0; e < 3; e++) {
+            V3 q = vmad(p, side, (e - 1) * w);
+            if(e != 1) q.y = fmaxf(q.y, terrain_height(q.x, q.z) + clear * 0.5f);
+            RV v = {q.x, q.y, q.z, e * 0.5f, 0.5f, c};
+            if(e < 2) a[2 * k + e] = v;
+            if(e > 0) b[2 * k + e - 1] = v;
+        }
+    }
+    r_strip(a, 2 * AIR_N);
+    r_strip(b, 2 * AIR_N);
 }
 
 /* Where a beam from the headlights, pitched down a little from the nose,
@@ -605,12 +630,12 @@ void truckdraw_draw_tr(void) {
         /* The beams through the air: faint by day, carrying at night and
            in the summit's cloud. */
         V3 bdir = vsub(vscale(F, cosf(pitch)), vscale(t->ax[1], sinf(pitch)));
-        float blen = fminf(full ? 26.0f : 15.0f, land / cosf(pitch) + 1.0f);
-        float air_a = (0.05f + 0.3f * pal->dark + 0.3f * world_mist()) * (full ? 1.0f : 0.8f);
+        float blen = full ? 22.0f : 13.0f;
+        float air_a = (0.03f + 0.18f * pal->dark + 0.18f * world_mist()) * (full ? 1.0f : 0.8f);
         r_hdr(h_beam);
         for(int i = 0; i < 2; i++) {
             V3 p = truck_to_world(t, v3(info->headlight[i][0], info->headlight[i][1], info->headlight[i][2]));
-            beam_air(vmad(p, F, 0.1f), bdir, blen, full ? 2.6f : 1.8f, full ? 0xfffff8ec : 0xfffff0d0, air_a);
+            beam_air(vmad(p, F, 0.1f), bdir, blen, full ? 2.2f : 1.6f, full ? 0xfffff8ec : 0xfffff0d0, air_a);
         }
         r_hdr(h_glow);
         for(int i = 0; i < 2; i++) {
