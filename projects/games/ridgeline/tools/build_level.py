@@ -971,7 +971,34 @@ def build(out, preview=None, raw=None):
     rock_boxes = len(boxes)
     boxes += prop_boxes
     water[water < h + 0.05] = -1000.0
+    # Mirror Lake's west bank: the creek's channel was cut out through the
+    # lake's lip and took the lip with it, which left the lake standing
+    # metres over the creek bed trail like a wall. A sill of rock holds it
+    # in now, the creek coming over a notch in it and down its face, and
+    # what stood on the ground there stands on the sill.
+    lake = (np.hypot(X - LAKE_C[0], Z - LAKE_C[1]) < LAKE_R + 2) & (water > lake_level - 0.01)
+    lift, d_lake = bank_up(h, water, lake, lake_level, tracks=routes + [extreme])
+    sill = lift > 0.05
+    chan = (cKDTree(resample(CREEK, 1.0)).query(FLAT)[0].reshape(N, N) < 5.8) & sill
+    notch = chan & (d_lake <= 4.5)
+    h[notch] = lake_level - 0.25
+    water[notch] = lake_level
+    water[chan & ~notch] = h[chan & ~notch] + 0.3
+    water[sill & ~chan] = -1000.0
+    surf[lift > 0.4] = S["ROCK"]
+    surf[chan] = S["WETROCK"]
+
+    def up(x, z):
+        return float(sample(lift, np.array([x, z]))[0])
+    spheres = [(q[0], q[1] + up(q[0], q[2]), q[2]) + tuple(q[3:]) for q in spheres]
+    boxes = [(q[0], q[1] + up(q[0], q[2]), q[2]) + tuple(q[3:]) for q in boxes]
+    capsules = [(q[0], q[1] + up(q[0], q[2]), q[2], q[3], q[4] + up(q[3], q[5]), q[5]) + tuple(q[6:]) for q in capsules]
+    for r in routes + [extreme]:
+        assert not (sample(lift, r["pts"]) > 0.05).any(), f"{r['name']}: under the lake's sill"
+    print(f"  the lake's sill: {int(sill.sum())} vertices raised, {lift.max():.1f} m at most, "
+          f"{int((lake & (water < -999)).sum())} of the lake's given up to it")
     trees = [(t[0], float(sample(h, np.array([t[0], t[2]]))[0]), t[2], t[3], t[4], t[5]) for t in trees]
+    settle_report(h, water)
     argb, rgb, alb_ao, nrm = colours(h, water, surf)
 
     def gy(x, z):
@@ -1026,7 +1053,8 @@ def build(out, preview=None, raw=None):
         spawns.append((sx, gy(sx, sz), sz, 0.0))
 
     out.mkdir(parents=True, exist_ok=True)
-    light = light_inputs(alb_ao, nrm, h, water)
+    safe = recover_spots(h, water, routes + [extreme], spheres, capsules, boxes, posts, trees)
+    light = light_inputs(alb_ao, nrm, h, water, flags=vertex_flags(None, safe))
     hz = horizon_map(h)
     blob = pack_level(h, water, surf, light, hz)
     (out / "level_cascade.lvl").write_bytes(blob)

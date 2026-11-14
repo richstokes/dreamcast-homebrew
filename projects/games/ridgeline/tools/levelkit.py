@@ -15,7 +15,7 @@ from pathlib import Path
 import lz4.block
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy.ndimage import gaussian_filter, gaussian_filter1d, map_coordinates
+from scipy.ndimage import distance_transform_edt, gaussian_filter, gaussian_filter1d, map_coordinates, maximum_filter
 from scipy.spatial import cKDTree
 
 N = 257                  # vertices per side
@@ -436,8 +436,9 @@ def horizon_map(h):
 def light_inputs(alb_ao, nrm, h, water, flags=None):
     """Per vertex, 8 bytes: albedo with the ambient occlusion folded in
     (u8 rgb), the normal's x and z (s8, y is recovered), how far under
-    water it lies (u8, 0..1 over 2.5 m), flags (1: on a cliff's face, so
-    the far ground's coarser grids take their colour from it), one spare."""
+    water it lies (u8, 0..1 over 2.5 m), flags (LVL_FACE: on a cliff's face,
+    so the far ground's coarser grids take their colour from it; LVL_SAFE:
+    recover_spots), one spare."""
     rec = np.zeros((N * N, 8), dtype=np.uint8)
     rec[:, 0:3] = np.clip(alb_ao, 0, 255).reshape(-1, 3).astype(np.uint8)
     rec[:, 3] = np.clip(np.round(nrm[..., 0] * 127), -127, 127).astype(np.int8).ravel().view(np.uint8)
@@ -447,6 +448,139 @@ def light_inputs(alb_ao, nrm, h, water, flags=None):
     if flags is not None:
         rec[:, 6] = flags.ravel()
     return rec.tobytes()
+
+
+def bank_up(h, water, body, level, slope=2.0, tracks=()):
+    """A bank round a body of still water wherever the ground beside it is
+    lower than its surface (a lake whose lip a creek's channel was cut
+    through): raised to just over the water for a vertex out from it, then
+    falling away at slope until it meets the ground. The tracks stay as
+    they were laid: the bank rises from their edges, and water with no
+    room for one between it and a track goes (its bed becomes the bank).
+    Changes h and water; returns how far each vertex rose and how far each
+    is from the water left."""
+    room = np.full((N, N), 1e9)
+    for r in tracks:
+        d, _ = cKDTree(r["pts"]).query(FLAT)
+        room = np.minimum(room, d.reshape(N, N) - r["half"] - 0.8)
+    keep = body & (room > 8.0)
+    water[body & ~keep] = -1000.0
+    d = distance_transform_edt(~keep) * D
+    lift = np.clip(level + 0.15 - slope * np.clip(d - 4.5, 0, None) - h, 0, None)
+    lift = np.where(keep, 0.0, np.minimum(lift, 2.5 * np.clip(room, 0, None)))
+    h += lift
+    return lift, d
+
+
+def settle_water(h, water, deep=0.5):
+    """Deep water stands no higher than the ground beside it: where a pond
+    or a pool lies over a bank lower than its surface (a lip a burn has
+    cut through), the water at that edge is drawn down to the bank, a
+    wade deep at least, and what is behind falls to it, as water does,
+    instead of standing over dry ground like a hill. Shallow water (a
+    creek going down its bed) is left alone. Changes water in place and
+    returns where it did, with how far each came down: a long way is a
+    rim that wants building (bank_up)."""
+    wet = water > h + 0.02
+    hp = np.pad(h, 1, mode="edge")
+    dp = np.pad(~wet, 1, mode="constant", constant_values=False)
+    low = np.full((N, N), 1e9)
+    for dj, di in NEIGH[:8]:
+        g = hp[1 + dj:N + 1 + dj, 1 + di:N + 1 + di]
+        dry = dp[1 + dj:N + 1 + dj, 1 + di:N + 1 + di]
+        low = np.minimum(low, np.where(dry, g, 1e9))
+    bad = wet & (water - h > deep) & (water > low + 0.1)
+    to = np.maximum(low + 0.05, h + 0.3)
+    drop = np.where(bad, water - to, 0.0)
+    water[bad] = to[bad]
+    return [(float(X[j, i]), float(Z[j, i]), float(drop[j, i])) for j, i in zip(*np.nonzero(bad))]
+
+
+def settle_report(h, water):
+    """settle_water, saying what it did."""
+    done = settle_water(h, water)
+    if done:
+        x, z, drop = max(done, key=lambda q: q[2])
+        print(f"  water drawn down to its bank at {len(done)} vertices, {drop:.1f} m at most at ({x:.0f}, {z:.0f})")
+
+
+def recover_spots(h, water, routes, spheres=(), capsules=(), boxes=(), posts=(), trees=(), rocks=()):
+    """Where a truck that is recovered away from the trails may be stood
+    (the vertices the game flags LVL_SAFE): level, dry ground with room
+    round it, on the mainland. That is
+
+      dry for 9 m around, so nothing rolls straight back in
+      no steeper than 1 in 4 there or a vertex either side
+      clear of every boulder, log, ledge, wall, post, tree and rock
+      joined to a trail by ground a truck can drive and no water at all:
+        not an island, a sandbar, a ledge under a cliff or a bank cut off
+        by one
+
+    Returns the mask."""
+    wet = water > h + 0.02
+    # The mainland: out from the trails over dry ground, by steps no
+    # steeper than a truck climbs (31 degrees).
+    land = np.zeros((N, N), dtype=bool)
+    for r in routes:
+        g = np.round(to_grid(r["pts"])).astype(int)
+        land[np.clip(g[:, 1], 0, N - 1), np.clip(g[:, 0], 0, N - 1)] = True
+    land &= ~wet
+    steps = []
+    for dj, di in NEIGH[:8]:
+        b = np.roll(np.roll(h, -dj, axis=0), -di, axis=1)
+        ok = (np.abs(b - h) <= 0.6 * D * math.hypot(dj, di)) & ~wet
+        # (nothing wraps round the map's edge)
+        ok[N - dj if dj > 0 else N:, :] = False
+        ok[:max(-dj, 0), :] = False
+        ok[:, N - di if di > 0 else N:] = False
+        ok[:, :max(-di, 0)] = False
+        steps.append((dj, di, ok))
+    while True:
+        grown = land.copy()
+        for dj, di, ok in steps:
+            # a vertex joins from its neighbour (dj, di) on, if that is land
+            grown |= ok & np.roll(np.roll(land, -dj, axis=0), -di, axis=1) & ~wet
+        if (grown == land).all():
+            break
+        land = grown
+    # Level: here and a vertex either side.
+    steep = np.zeros((N, N))
+    for dj, di in NEIGH[:8]:
+        b = np.roll(np.roll(h, -dj, axis=0), -di, axis=1)
+        steep = np.maximum(steep, np.abs(b - h) / (D * math.hypot(dj, di)))
+    steep = maximum_filter(steep, size=3)
+    safe = land & (steep <= 0.25)
+    # Dry all round.
+    if wet.any():
+        d, _ = cKDTree(FLAT[wet.ravel()]).query(FLAT, distance_upper_bound=9.0)
+        safe &= ~np.isfinite(d).reshape(N, N)
+    # Clear of what stands on it.
+    def clear(pts, reach):
+        nonlocal safe
+        for (x, z), r in zip(pts, reach):
+            safe &= np.hypot(X - x, Z - z) > r
+    clear([(s_[0], s_[2]) for s_ in spheres], [s_[3] + 3.5 for s_ in spheres])
+    clear([(b[0], b[2]) for b in boxes], [math.hypot(b[3], b[5]) + 3.5 for b in boxes])
+    clear([(q[0], q[2]) for q in posts], [q[6] + 3.5 for q in posts])
+    clear([(t[0], t[2]) for t in trees], [3.0] * len(trees))
+    for c in capsules:
+        a, b = np.array([c[0], c[2]]), np.array([c[3], c[5]])
+        e = b - a
+        t = np.clip(((X - a[0]) * e[0] + (Z - a[1]) * e[1]) / max(float(e @ e), 1e-6), 0, 1)
+        safe &= np.hypot(X - (a[0] + e[0] * t), Z - (a[1] + e[1] * t)) > c[6] + 3.5
+    for rk in rocks:
+        clear([(q[0], q[2]) for q in rk["rings"]], [max(q[3], q[4]) + 3.0 for q in rk["rings"]])
+    # Not on the map's last few metres.
+    safe[:3, :] = safe[-3:, :] = safe[:, :3] = safe[:, -3:] = False
+    return safe
+
+
+LVL_FACE, LVL_SAFE = 1, 2      # the flags a vertex carries (level.h)
+
+
+def vertex_flags(face, safe):
+    f = np.zeros((N, N), dtype=np.uint8) if face is None else face.astype(np.uint8) * LVL_FACE
+    return f | (safe.astype(np.uint8) * LVL_SAFE)
 
 
 def preview_image(rgb, water, routes, spheres, capsules, boxes, trees, views, path):

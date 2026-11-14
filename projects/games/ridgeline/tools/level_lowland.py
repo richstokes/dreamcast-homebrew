@@ -1909,6 +1909,7 @@ def build(out, preview_path=None, raw=None):
     keep = cKDTree(np.array([(s_[0], s_[2]) for s_ in spheres] + [(b[0], b[2]) for b in boxes] + [(q[0], q[2]) for q in posts] +
                             [(p[0], p[1]) for p in sp["props"]] + [((c[0] + c[3]) / 2, (c[2] + c[5]) / 2) for c in capsules]))
     trees = [(t[0], gy(t[0], t[2]), t[2], t[3], t[4], t[5]) for t in trees if keep.query((t[0], t[2]))[0] > 4.5]
+    settle_report(h, water)
     argb, rgb, alb_ao, nrm = colours(h, water, surf, f, routes)
     props = [(p[0], gy(p[0], p[1]) if p[4] is None else p[4], p[1], p[2], p[3], p[5] if len(p) > 5 else 0) for p in sp["props"]]
     views = [(v[0], gy(v[0], v[1]), v[1], v[2]) for v in sp["views"]]
@@ -1939,7 +1940,8 @@ def build(out, preview_path=None, raw=None):
     # small ones too and a hillside with a band of crag across it turns
     # to rock from top to bottom.
     great = f["face"] & (maximum_filter(h, 5) - minimum_filter(h, 5) > 21.0)
-    light = light_inputs(alb_ao, nrm, h, water, flags=great.astype(np.uint8))
+    safe = recover_spots(h, water, routes + [extreme], spheres, capsules, boxes, posts, trees, rocks)
+    light = light_inputs(alb_ao, nrm, h, water, flags=vertex_flags(great, safe))
     hz = horizon_map(h)
     blob = pack_level(h, water, surf, light, hz)
     (out / "level_lowland.lvl").write_bytes(blob)

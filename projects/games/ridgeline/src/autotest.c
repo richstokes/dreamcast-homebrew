@@ -128,7 +128,7 @@ static const float tour_dunes[][6] = {
     {-50, 38, 92, 80, 60, 230},         /* the king dune from the meet */
     {102, 77, 243, 20, 0, -300},        /* from the top, south over the field and the lake */
     {86, 76, 226, 260, 20, 360},        /* from the top, north-east down the slip face */
-    {130, 5, -196, 160, 3, -186},       /* the cattail pond */
+    {132, 7, -214, 132, 3, -180},       /* the cattail pond */
     {-70, 5, -300, -64, 2, -352},       /* the bar to Pelican Island */
     {-150, 7, -262, -200, 2, -278},     /* the mud flats' wallow */
     {90, 8, -230, 60, 16, -100},        /* under the wires */

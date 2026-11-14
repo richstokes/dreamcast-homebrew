@@ -220,7 +220,9 @@ extern const RlLevel *const rl_levels[AREA_COUNT];
 /* The loaded area's grid, unpacked: heights beside the ground's colours
    (terrain.h), the water's surface (-1000: none), the surface ids, the
    relighting inputs and the horizon map. */
-#define LVL_FACE 1   /* LvlLight.flags: on a cliff's face */
+/* LvlLight.flags */
+#define LVL_FACE 1   /* on a cliff's face */
+#define LVL_SAFE 2   /* somewhere to stand a recovered truck (tools/levelkit.py recover_spots) */
 typedef struct { uint8_t r, g, b; int8_t nx, nz; uint8_t deep, flags, pad; } LvlLight;
 typedef struct {
     void *ground;            /* GroundVert[N * N] */

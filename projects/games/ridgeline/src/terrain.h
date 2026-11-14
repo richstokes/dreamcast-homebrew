@@ -85,6 +85,7 @@ extern const GroundVert *lvl_ground;
 
 extern const float *lvl_water;
 extern const uint8_t *lvl_surf;
+extern const LvlLight *lvl_light;
 
 /* Relighting (tod.c): a pass colours grid vertices [from, to) for the
    palette and light given to setup (from the level's albedo, normals and

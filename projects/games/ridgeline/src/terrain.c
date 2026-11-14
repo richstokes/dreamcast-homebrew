@@ -11,7 +11,7 @@ const uint8_t *lvl_surf;
    colours in place (terrain_relight) from each vertex's albedo, normal
    and depth under water, and the horizon map. */
 static GroundVert *ground_ram;
-static const LvlLight *lvl_light;
+const LvlLight *lvl_light;
 static const uint8_t *lvl_hz;
 /* Friction from the usual off-road figures: dry rock grips best, mud and
    snow worst; mud also drags the tyres and swallows them. A sliding tyre

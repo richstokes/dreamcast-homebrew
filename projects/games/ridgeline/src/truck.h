@@ -115,10 +115,13 @@ enum { MODE_SAME, MODE_CHANGED, MODE_TOO_FAST };
 int truck_set_mode(Truck *t, int mode);
 /* The highest gear the automatic will use now (fewer in low range). */
 int truck_top_gear(const Truck *t);
-/* Back on its wheels at the nearest point of a route behind it. */
+/* Back on its wheels (recover.c): at the nearest point of a route behind
+   it, or away from the routes where it is, or on the nearest safe ground
+   if that is water or the top of something. */
 void truck_recover(Truck *t);
 /* The same on one route (-1: any). */
 void truck_recover_on(Truck *t, int route);
+/* Stood at a place: a viewpoint gone back to. */
 void truck_recover_at(Truck *t, V3 at);
 float truck_heading(const Truck *t);
 /* A point in model space (origin on the ground at ride height) to world. */

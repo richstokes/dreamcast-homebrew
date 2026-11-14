@@ -350,6 +350,54 @@ def hollow(h, x, z, r, depth, squash=1.0, ang=0.0):
     return q
 
 
+POND_RIM = 1.6
+
+
+def pond_site(h, x, z, r, tracks, f):
+    """Where a pond wanted at (x, z) can lie: the nearest ground whose
+    rim would stand no more than POND_RIM over its water anywhere, clear of
+    the tracks, the lake and the slip faces; failing that, the levellest
+    within 30 m. A pond wants a floor to sit on, and the sand has moved
+    since its place was picked."""
+    best, at = 1e9, (x, z)
+    ring = (np.hypot(X, Z) > r - 1.5) & (np.hypot(X, Z) < r + 4.5)
+    oj, oi = np.nonzero(ring)
+    oj, oi = oj - (N - 1) // 2, oi - (N - 1) // 2
+    c = np.round(to_grid(np.array([x, z]))).astype(int)
+    for dj in range(-10, 11):
+        for di in range(-10, 11):
+            i, j = c[0] + di, c[1] + dj
+            jj, ii = j + oj, i + oi
+            if jj.min() < 2 or ii.min() < 2 or jj.max() > N - 3 or ii.max() > N - 3:
+                continue
+            px, pz = ORG + i * D, ORG + j * D
+            off = math.hypot(px - x, pz - z)
+            if off > 30.0 or tracks.query((px, pz))[0] < r + 9.0 or f["dshore"][j, i] < r + 12.0:
+                continue
+            if f["slip"][jj, ii].any() or f["drag"][jj, ii].any():
+                continue
+            ys = h[jj, ii]
+            rim = float(ys.max() - ys.min())
+            cost = off if rim <= POND_RIM else 100.0 + rim
+            if cost < best:
+                best, at = cost, (px, pz)
+    return at
+
+
+def seat_pond(h, x, z, r, depth):
+    """A pond in a hollow of its own at (x, z): its water a hand below the
+    lowest ground around it, so no bank is under water, and its bed cut
+    down from there; the banks above the water keep their heights at the
+    rim and come down to it inside. Returns the footprint and the level."""
+    d = np.hypot(X - x, Z - z)
+    q = np.clip(1 - (d / r) ** 2, 0, 1)
+    level = float(h[(d >= r) & (d < r + 4.5)].min()) - 0.12
+    bed = level - depth * q ** 1.5
+    t = smoothstep(0.0, 0.4, q)
+    h[:] = np.minimum(h, h * (1 - t) + bed * t)
+    return q, level
+
+
 def carve_lake(h, f):
     """The reservoir along the south and up the east side as an inlet:
     shelving sand, islands that were dunes, a bar to wade to the nearest.
@@ -566,12 +614,29 @@ def build_ground():
     k1 = int(np.argmin(np.linalg.norm(power["pts"] - np.array([2.0, -82.0]), axis=1)))
     f["rollers"] = rollers(h, power, k0, k1, 0.34, 10.0)
     h, water = carve_lake(h, f)
-    for q, level in ponds:
+    # The ponds are seated now the ground is done. (Their hollows were
+    # scoured out before the sand settled, each with its water at the
+    # height of its upper lip: on a dune's flank that stood the pond out of
+    # the hillside like a hill of its own.)
+    n_ponds = 1 + len(PONDS) + len(POTHOLES)
+    tracks = cKDTree(np.vstack([r["pts"] for r in routes]))
+    f["pond"] = np.zeros((N, N), dtype=bool)
+    f["ponds"] = []
+    for (x, z, r, depth) in [POND] + PONDS + holes:
+        x, z = pond_site(h, x, z, r, tracks, f)
+        q, level = seat_pond(h, x, z, r, depth)
+        water[(q > 0) & (h < level - 0.04)] = level
+        f["pond"] |= q > 0
+        f["ponds"].append((x, z, r, depth))
+    f["potholes"] = f["ponds"][1 + len(PONDS):]
+    for q, level in ponds[n_ponds:]:
         wet = (q > 0) & (h < level - 0.04)
         water[wet] = level
-    f["pond"] = np.zeros((N, N), dtype=bool)
-    for q, level in ponds[:1 + len(PONDS) + len(POTHOLES)]:
-        f["pond"] |= q > 0
+    settle_report(h, water)
+    for (x, z, r, depth), was in zip(f["ponds"], [POND] + PONDS + holes):
+        wet = (np.hypot(X - x, Z - z) < r) & (water > -999)
+        print(f"  pond at ({x:.0f}, {z:.0f}) (asked for at ({was[0]:.0f}, {was[1]:.0f})): {int(wet.sum())} wet vertices, "
+              f"{float((water - h)[wet].max()) if wet.any() else 0:.1f} m deep")
     return h, water, f, routes
 
 
@@ -947,7 +1012,8 @@ def set_pieces(h, water, f, routes, rng):
     view(ISLANDS[0][0] + 2, ISLANDS[0][1] + 5, "PELICAN ISLAND")
     view(MUD_BOG[0] + 32, MUD_BOG[1] + 6, "MUD FLATS")
     view(DRAG[1][0] + 12, DRAG[1][1], "SAND DRAGS")
-    view(POND[0] - 22, POND[1] - 10, "CATTAIL POND")
+    pond = f["ponds"][0]
+    view(pond[0] - pond[2] - 5, pond[1] - 10, "CATTAIL POND")
     view(PLAY_BOWL[0], PLAY_BOWL[1], "PUNCH BOWL", (-7.0, 6.0))
     k = at(power, 14, -112)
     view(power["pts"][k][0] + 7, power["pts"][k][1], "THE ROLLERS")
@@ -1536,7 +1602,8 @@ def build(out, preview_path=None, raw=None):
         spawns.append((sx, gy(sx, sz), sz, 0.0))
 
     out.mkdir(parents=True, exist_ok=True)
-    light = light_inputs(alb_ao, nrm, h, water, flags=f["face"].astype(np.uint8))
+    safe = recover_spots(h, water, routes, spheres, capsules, boxes, posts, trees)
+    light = light_inputs(alb_ao, nrm, h, water, flags=vertex_flags(f["face"], safe))
     hz = horizon_map(h)
     blob = pack_level(h, water, surf, light, hz)
     (out / "level_dunes.lvl").write_bytes(blob)
@@ -1550,7 +1617,7 @@ def build(out, preview_path=None, raw=None):
         "lake_y": LAKE_Y, "start_y": gy(SPAWN[0], SPAWN[1]), "summit": (SUMMIT[0], summit_y, SUMMIT[1]),
         "routes": routes, "spheres": spheres, "capsules": capsules, "boxes": boxes, "rock_boxes": rock_boxes,
         "posts": posts, "trees": trees, "props": props, "views": views, "spawns": spawns,
-        "mists": [(-60, -340, 60), (130, -344, 60), (300, -150, 55), (158, -188, 34), (-196, -276, 40)],
+        "mists": [(-60, -340, 60), (130, -344, 60), (300, -150, 55), (f["ponds"][0][0], f["ponds"][0][1], 34), (-196, -276, 40)],
         "hawks": [(20, -236, 40, 40, 0.0, 1), (290, -110, 34, 36, 2.0, -1), (60, 190, 44, 30, 4.0, 1)],
         "herds": [(226, -84), (150, 110)],
         "rocks": [],

@@ -261,6 +261,100 @@ static int run_loop(int minutes, int n) {
     return 0;
 }
 
+/* Where a recover puts a truck that has drowned: recover [step]. A truck
+   is stood in every stretch of water deep enough to stall it (every
+   step'th vertex), recovered as the player's is and left alone for a few
+   seconds. A recover is bad if the truck ends up
+
+     WET     back in the water (it rolled or fell in, or never left)
+     TUMBLE  on its side, or thrown: put down on ground too steep to stand on
+     PERCH   on top of a wall, a boulder or a bridge
+     ISLAND  on land with no dry way to a trail
+
+   and far if it is put more than 150 m from where it went in. Fails
+   (exit 1) on any bad one. SIM_RECOVER_LIST=1 prints each. */
+static uint8_t *mainland;
+
+static void mainland_fill(void) {
+    static int *queue;
+    if(!mainland) mainland = malloc(LEVEL_N * LEVEL_N);
+    if(!queue) queue = malloc(sizeof(int) * LEVEL_N * LEVEL_N);
+    memset(mainland, 0, LEVEL_N * LEVEL_N);
+    int qn = 0;
+    for(int r = 0; r < LVL_ROUTES; r++)
+        for(int p = 0; p < lvl_routes[r].n; p++) {
+            int i = lvl_clampi((int)((lvl_routes[r].pts[p].x - LEVEL_ORG) / LEVEL_D + 0.5f));
+            int j = lvl_clampi((int)((lvl_routes[r].pts[p].z - LEVEL_ORG) / LEVEL_D + 0.5f));
+            if(!mainland[j * LEVEL_N + i]) {
+                mainland[j * LEVEL_N + i] = 1;
+                queue[qn++] = j * LEVEL_N + i;
+            }
+        }
+    for(int q = 0; q < qn; q++) {
+        int i = queue[q] % LEVEL_N, j = queue[q] / LEVEL_N;
+        for(int b = j - 1; b <= j + 1; b++)
+            for(int a = i - 1; a <= i + 1; a++) {
+                if(a < 0 || b < 0 || a >= LEVEL_N || b >= LEVEL_N || mainland[b * LEVEL_N + a]) continue;
+                float w = lvl_water[b * LEVEL_N + a];
+                if(w > lvl_h(a, b) + 0.02f) continue;                      /* any water: a causeway under it is no way back */
+                float run = (a != i && b != j) ? LEVEL_D * 1.4142f : LEVEL_D;
+                if(fabsf(lvl_h(a, b) - lvl_h(i, j)) > 0.7f * run) continue;   /* 35 degrees: no truck's way */
+                mainland[b * LEVEL_N + a] = 1;
+                queue[qn++] = b * LEVEL_N + a;
+            }
+    }
+}
+
+static int run_recover(int model, int step) {
+    game.ntrucks = 1;
+    Truck *t = &trucks[0];
+    t->model = model;
+    t->cpu = false;
+    mainland_fill();
+    float dt = 1.0f / 60.0f;
+    int n = 0, bad[4] = {0}, far = 0, list = getenv("SIM_RECOVER_LIST") != NULL;
+    float worst = 0, sum = 0;
+    static const char *const what[4] = {"WET", "TUMBLE", "PERCH", "ISLAND"};
+    for(int j = 0; j < LEVEL_N; j += step)
+        for(int i = 0; i < LEVEL_N; i += step) {
+            float w = lvl_water[j * LEVEL_N + i];
+            if(w < lvl_h(i, j) + 1.0f) continue;
+            float x = LEVEL_ORG + i * LEVEL_D, z = LEVEL_ORG + j * LEVEL_D;
+            truck_place(t, v3(x, 0, z), (float)((i * 7 + j * 13) % 63) * 0.1f);
+            truck_recover(t);
+            V3 at = t->pos;
+            int fail = -1;
+            if(ground_at(at.x, at.z, NULL, NULL) > terrain_height(at.x, at.z) + 0.5f) fail = 2;
+            int gi = lvl_clampi((int)((at.x - LEVEL_ORG) / LEVEL_D + 0.5f)), gj = lvl_clampi((int)((at.z - LEVEL_ORG) / LEVEL_D + 0.5f));
+            if(fail < 0 && !mainland[gj * LEVEL_N + gi]) fail = 3;
+            for(int f = 0; f < 60 * 5 && fail < 0; f++) {
+                r_cam.pos = t->pos;
+                truck_update(t, dt);
+                if(isnan(t->pos.x)) fail = 1;
+            }
+            if(fail < 0) {
+                float dx = t->pos.x - at.x, dz = t->pos.z - at.z;
+                if(t->stalled || t->water > 0.6f) fail = 0;
+                else if(t->ax[1].y < 0.6f || dx * dx + dz * dz > 8.0f * 8.0f) fail = 1;
+            }
+            float d = sqrtf((at.x - x) * (at.x - x) + (at.z - z) * (at.z - z));
+            n++;
+            sum += d;
+            if(d > worst) worst = d;
+            if(d > 150.0f) far++;
+            if(fail >= 0) bad[fail]++;
+            if(list && (fail >= 0 || d > 150.0f))
+                printf("  %-6s in at %6.0f %6.0f, put at %6.1f %5.1f %6.1f (%3.0f m), after 5 s at %6.1f %5.1f %6.1f\n",
+                       fail >= 0 ? what[fail] : "far", (double)x, (double)z, (double)at.x, (double)at.y, (double)at.z, (double)d,
+                       (double)t->pos.x, (double)t->pos.y, (double)t->pos.z);
+        }
+    int bads = bad[0] + bad[1] + bad[2] + bad[3];
+    printf("recover: %s, %d drownings: %d wet, %d tumbled, %d perched, %d on islands; put back %.0f m away on average, "
+           "%.0f at most, %d over 150 m: %s\n", lvl->name, n, bad[0], bad[1], bad[2], bad[3], n ? (double)(sum / n) : 0.0,
+           (double)worst, far, bads ? "FAIL" : "PASS");
+    return bads ? 1 : 0;
+}
+
 /* Power on through a turn from rest: turn<mode> [truck] [steer] [handbrake 0/1].
    Prints the body's slide angle (beta), yaw rate and the rear tyres' spin. */
 static float turn_throttle = 1.0f;
@@ -374,6 +468,7 @@ int main(int argc, char **argv) {
         truck_spec(&trucks[0].spec, model);
         return run_xtrail(model);
     }
+    if(!strcmp(scen, "recover")) return run_recover(getenv("SIM_TRUCK") ? atoi(getenv("SIM_TRUCK")) : 0, argc > 2 ? atoi(argv[2]) : 2);
     if(!strcmp(scen, "loop")) return run_loop(argc > 2 ? atoi(argv[2]) : 60, argc > 3 ? atoi(argv[3]) : 4);
     if(!strcmp(scen, "route")) {
         int route = argc > 3 ? atoi(argv[3]) : 1;
