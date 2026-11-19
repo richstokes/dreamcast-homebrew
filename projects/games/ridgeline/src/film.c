@@ -39,6 +39,8 @@ enum { SH_CHASE, SH_FAR, SH_BUMPER, SH_HELI, SH_POST, SH_STATIC, SH_LEAD, SH_SID
 enum { G_NONE, G_RAIN, G_TUMBLE, G_LEMMINGS, G_HORNS, G_ROCKET, G_MOON, G_LOWG, G_DONUTS, G_LANDING, G_BREAK, G_BALLOON, G_FLIP,
        G_HOT,  /* its route trucks take their trail at the scene's path speed, far faster than a driver with any
                   sense; one with a delay under zero comes down the trail the other way */
+       G_SLOPE, /* truck 0 (PARKED: x, z) is taken to the steepest long slope within 130 m of there and driven
+                   across it at the scene's path speed: a sidehill no driver should try at that pace */
        G_TREE  /* truck 0 (PARKED: x, z, heading) is put 45 m short of the tree nearest the point 45 m ahead of
                   it and drives at it; the camera (SH_GAG) stands by the tree: a[0] m to the side, a[1] up, a[2]
                   back toward the truck */ };
@@ -77,6 +79,10 @@ typedef struct {
     float path_speed;
     int path_mode;
     int gag;            /* G_* */
+    /* Slow motion: the world runs at this rate (0.22, say) for a moment
+       each time a truck in the shot loses something, the camera carrying
+       on at its own pace. 0: none. */
+    float slow;
 } Scene;
 
 /* ---- Paths off the routes ---- */
@@ -807,6 +813,43 @@ static const Scene scenes[] = {
       {T_FFR, 2, ON_PATH, LIGHTS_OFF, 0, 0, 32, 0}}, PATH(p_tbone), 17, DRIVE_4WD, 0},
     {"k-whoops-side", AREA_DUNES, 17.6f, 0, 1, 10, SH_HELI, 0, 1.15f, {11, 3.5f, 0.3f, 2.0f}, 1,
      {{T_GOOSE, 2, 3, LIGHTS_OFF, 25, -110, 40, 0}}, NULL, 0, 20, DRIVE_4WD, G_HOT},
+    /* ---- Damage, second go: closer, and slowed as things come off ---- */
+    {"q-sidehill-c", AREA_CASCADE, 10.5f, 0, 1, 14, SH_HELI, 0, 1.1f, {10, 3.5f, 0.35f, 2.2f}, 1,
+     {{T_KESTREL, 0, PARKED, LIGHTS_OFF, 60, 40, 0, 0}}, NULL, 0, 14, DRIVE_4WD, G_SLOPE, 0.22f},
+    {"q-sidehill-c2", AREA_CASCADE, 16.5f, 0, 1, 14, SH_HELI, 0, 1.1f, {9, 2.5f, -0.3f, -2.0f}, 1,
+     {{T_ONETEN, 0, PARKED, LIGHTS_OFF, -120, -80, 0, 0}}, NULL, 0, 14, DRIVE_4WD, G_SLOPE, 0.22f},
+    {"q-sidehill-l", AREA_LOWLAND, 13.4f, 0, 1, 14, SH_HELI, 0, 1.1f, {10, 3.5f, 0.35f, 2.2f}, 1,
+     {{T_BOBCAT, 3, PARKED, LIGHTS_OFF, 60, 40, 0, 0}}, NULL, 0, 14, DRIVE_4WD, G_SLOPE, 0.22f},
+    {"q-sidehill-m", AREA_MOAB, 17.2f, 0, 1, 14, SH_HELI, 0, 1.1f, {10, 3.5f, -0.3f, -2.2f}, 1,
+     {{T_TACO, 0, PARKED, LIGHTS_OFF, -60, 60, 0, 0}}, NULL, 0, 14, DRIVE_4WD, G_SLOPE, 0.22f},
+    {"q-sidehill-d", AREA_DUNES, 17.9f, 0, 1, 14, SH_HELI, 0, 1.1f, {10, 3.5f, 0.3f, 2.4f}, 1,
+     {{T_EAGLE, 3, PARKED, LIGHTS_OFF, -100, 60, 0, 0}}, NULL, 0, 15, DRIVE_4WD, G_SLOPE, 0.22f},
+    {"q-whoops", AREA_DUNES, 17.6f, 0, 1, 9, SH_HELI, 0, 1.1f, {9, 2.5f, 0.3f, 2.0f}, 1,
+     {{T_GOOSE, 2, 3, LIGHTS_OFF, 25, -110, 40, 0}}, NULL, 0, 20, DRIVE_4WD, G_HOT, 0.22f},
+    {"q-convoy", AREA_CASCADE, 9, 0, 1, 12, SH_HELI, 4, 1.1f, {11, 3.5f, 0.3f, 2.6f}, 5,
+     {{T_ONETEN, 0, 1, -1, 160, -70, 0, 0},
+      {T_GOOSE, 2, 1, -1, 160, -70, 12, 0},
+      {T_BOBCAT, 3, 1, -1, 160, -70, 24, 0},
+      {T_FFR, 2, 1, -1, 160, -70, 36, 0},
+      {T_EAGLE, 3, 1, LIGHTS_OFF, 160, -70, -120, -1}}, NULL, 0, 16, DRIVE_4WD, G_HOT, 0.22f},
+    {"q-convoy-lead", AREA_CASCADE, 9, 0, 1, 12, SH_LEAD, 0, 1.1f, {-9, 3, 2.2f}, 5,
+     {{T_ONETEN, 0, 1, -1, 160, -70, 0, 0},
+      {T_GOOSE, 2, 1, -1, 160, -70, 12, 0},
+      {T_BOBCAT, 3, 1, -1, 160, -70, 24, 0},
+      {T_FFR, 2, 1, -1, 160, -70, 36, 0},
+      {T_EAGLE, 3, 1, LIGHTS_OFF, 160, -70, -120, -1}}, NULL, 0, 16, DRIVE_4WD, G_HOT, 0.22f},
+    {"q-rearend", AREA_LOWLAND, 13.4f, 0, 1, 17, SH_HELI, 0, 1.1f, {10, 3, 0.3f, 1.2f}, 4,
+     {{T_CASCADE, 0, 1, -1, 90, -66, 0, 0},
+      {T_KESTREL, 0, 1, -1, 90, -66, -14, 0},
+      {T_TACO, 0, 1, -1, 90, -66, -28, 0},
+      {T_EAGLE, 3, 1, LIGHTS_DIPPED, 90, -66, 70, 0}}, NULL, 0, 15, DRIVE_4WD, G_HOT, 0.22f},
+    {"q-tree-night", AREA_CASCADE, 21.5f, 0, 1, 8, SH_GAG, 0, 1.05f, {3.5f, 1.2f, -11}, 1,
+     {{T_TACO, 0, PARKED, LIGHTS_DIPPED, 100, -210, 60, 0}}, NULL, 0, 18, DRIVE_4WD, G_TREE, 0.22f},
+    {"q-tree-day", AREA_CASCADE, 16.5f, 0, 1, 8, SH_GAG, 0, 1.05f, {-3.5f, 1.2f, -11}, 1,
+     {{T_ONETEN, 0, PARKED, LIGHTS_OFF, 100, -210, 60, 0}}, NULL, 0, 18, DRIVE_4WD, G_TREE, 0.22f},
+    {"q-headon", AREA_CASCADE, 9, 0, 1, 9, SH_HELI, 0, 1.1f, {9, 2.8f, -0.35f, -2.2f}, 2,
+     {{T_CASCADE, 0, 1, LIGHTS_OFF, 160, -70, 0, 0},
+      {T_KESTREL, 0, 1, LIGHTS_OFF, 160, -70, -150, -1}}, NULL, 0, 16, DRIVE_4WD, G_HOT, 0.22f},
 };
 #define NSCENES (int)(sizeof(scenes) / sizeof(scenes[0]))
 
@@ -819,6 +862,8 @@ static struct {
     int pk[MAX_TRUCKS]; /* path trucks: the point each is heading for */
     const lvl_route_t *hot[MAX_TRUCKS];   /* G_HOT: the route each is tearing along, */
     int hot_dir[MAX_TRUCKS];              /* ...and which way */
+    float scale, slow_t, slow_cool;       /* slow motion: the world's rate now, what is left of this one, and before the next */
+    int lost;                             /* pieces and lamps gone, all trucks: one more is a moment to slow for */
     V3 eye, post;
     bool eye_set;
     float yaw, heli_a;
@@ -921,7 +966,7 @@ static void gag_begin(const Scene *s) {
             for(int i = 0; i < s->n; i++) {
                 const FilmTruck *f = &s->t[i];
                 fm.hot[i] = NULL;
-                if(f->route < 0) continue;
+                if(f->route < 0 || f->lights < 0) continue;   /* (lights -1: a CPU driver, minding the trail) */
                 const lvl_route_t *r = &lvl_routes[f->route >= 10 ? 0 : f->route];
                 int at;
                 route_walk(r, nearest_pt(r, f->x, f->z), -f->back, &at);
@@ -937,6 +982,46 @@ static void gag_begin(const Scene *s) {
                 trucks[i].cpu = false;
             }
             break;
+        case G_SLOPE: {
+            Truck *t = &trucks[0];
+            const FilmTruck *f = &s->t[0];
+            /* The spot whose fall line drops furthest over 40 m without
+               being a cliff or ending in water. */
+            V3 best = v3(f->x, 0, f->z), bdn = v3(1, 0, 0);
+            float bdrop = 0;
+            for(float x = f->x - 130; x <= f->x + 130; x += 6)
+                for(float z = f->z - 130; z <= f->z + 130; z += 6) {
+                    if(fabsf(x) > 0.46f * LEVEL_SIZE || fabsf(z) > 0.46f * LEVEL_SIZE) continue;
+                    float h = terrain_height(x, z);
+                    V3 g = v3(terrain_height(x + 3, z) - terrain_height(x - 3, z), 0, terrain_height(x, z + 3) - terrain_height(x, z - 3));
+                    float gl = vlen(g);
+                    if(gl < 2.4f || gl > 4.8f) continue;       /* 0.4 to 0.8 of a metre down a metre */
+                    V3 dn = vscale(g, -1.0f / gl);
+                    float drop = 0, last = h;
+                    bool ok = true;
+                    for(int k = 1; k <= 4 && ok; k++) {
+                        V3 q = vmad(v3(x, 0, z), dn, 10.0f * k);
+                        float hq = terrain_height(q.x, q.z);
+                        if(hq > last - 2.5f || hq < last - 9.5f || water_at(q.x, q.z) > hq) ok = false;
+                        last = hq;
+                    }
+                    /* (and as steep for the run-in, 30 m back along the hill) */
+                    V3 c = v3(dn.z, 0, -dn.x), back = vmad(v3(x, 0, z), c, -30.0f);
+                    if(terrain_height(back.x, back.z) - terrain_height(back.x + dn.x * 10, back.z + dn.z * 10) < 3.0f) ok = false;
+                    if(water_at(back.x, back.z) > terrain_height(back.x, back.z)) ok = false;
+                    drop = h - last;
+                    if(ok && drop > bdrop) bdrop = drop, best = v3(x, 0, z), bdn = dn;
+                }
+            V3 c = v3(bdn.z, 0, -bdn.x);
+            uint8_t lights = t->lights;
+            truck_place(t, vmad(best, c, -30.0f), atan2f(c.x, c.z));
+            t->lights = lights;
+            t->mode = s->path_mode;
+            t->cpu = false;
+            gg.dir = vmad(best, c, 300.0f);
+            printf("RL FILM slope at %.0f, %.0f drops %.0f m in 40\n", (double)best.x, (double)best.z, (double)bdrop);
+            break;
+        }
         case G_TREE: {
             Truck *t = &trucks[0];
             const FilmTruck *f = &s->t[0];
@@ -1149,6 +1234,9 @@ static void scene_begin(int n) {
     fm.t = 0;
     fm.go = false;
     fm.late = 0;
+    fm.scale = 1.0f;
+    fm.slow_t = fm.slow_cool = 0;
+    fm.lost = 0;
     fm.eye_set = false;
     game.ntrucks = s->n;
     film_g = 1.0f;
@@ -1410,8 +1498,21 @@ static void film_camera(float dt) {
 void film_update(float dt) {
     const Scene *s = fm.s;
     if(fm.scene >= NSCENES) return;
+    /* Slow motion for a moment when something comes off a truck. */
+    float real = dt;
+    if(s->slow > 0) {
+        int lost = 0;
+        for(int i = 0; i < game.ntrucks; i++)
+            lost += __builtin_popcount(damage_look(i)->pieces) + __builtin_popcount(damage_look(i)->lamps);
+        fm.slow_cool -= real;
+        if(fm.go && lost > fm.lost && fm.slow_cool <= 0) fm.slow_t = 1.5f, fm.slow_cool = 3.5f;
+        fm.lost = lost;
+        fm.slow_t -= real;
+        fm.scale += ((fm.slow_t > 0 ? s->slow : 1.0f) - fm.scale) * smooth_k(fm.slow_t > 0 ? 30.0f : 6.0f, real);
+        dt *= fm.scale;
+    }
     for(int i = 0; i < game.ntrucks; i++) {
-        if(s->gag == G_TREE && i == 0) tree_drive();
+        if((s->gag == G_TREE || s->gag == G_SLOPE) && i == 0) tree_drive();
         else if(s->t[i].route == PARKED) {
             TruckInput *in = &trucks[i].in;
             /* (the handbrake: the footbrake held at a standstill selects reverse) */
@@ -1448,8 +1549,8 @@ void film_update(float dt) {
 #endif
     /* A time-lapse runs the clock on (tod_update relights as it can). */
     if(s->rate > 0 && fm.go) tod.hour = fmodf(tod.hour + s->rate * dt, 24.0f);
-    fm.t += dt;
-    film_camera(dt);
+    fm.t += real;
+    film_camera(real);
     if(!fm.go && fm.t >= s->pre) {
         fm.go = true;
         printf("RL FILM go %d %s\n", fm.scene, s->name);
