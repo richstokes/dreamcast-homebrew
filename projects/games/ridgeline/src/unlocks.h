@@ -18,7 +18,7 @@
    for the summit reached by any way at all. */
 enum {
     STAMP_TOP = 1,      /* reached the summit that way (the extreme trail: drove it gate to gate) */
-    STAMP_CLEAN = 2,    /* ...without a recover */
+    STAMP_CLEAN = 2,    /* ...without a recover or a repair, and all but undamaged (progress.c) */
     STAMP_NIGHT = 4,    /* ...after dark */
     STAMPS_A_WAY = 3,
     LOG_WAYS = 4,

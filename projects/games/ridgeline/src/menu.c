@@ -652,6 +652,7 @@ void menu_pause_update(float dt) {
                 break;
             case P_REPAIR:
                 damage_repair(0);
+                progress_repaired();
                 game.paused = false;
                 hud_status("TRUCK REPAIRED", 0xff90f0b0, 2.0f);
                 break;

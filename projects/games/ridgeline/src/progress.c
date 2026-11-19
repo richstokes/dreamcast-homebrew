@@ -2,8 +2,9 @@
 
    The trail log: an area's three ways up and its extreme trail each take
    three stamps, for reaching the top that way, doing it clean (not one
-   recover from the start of the drive; on the extreme trail, from its
-   bottom gate) and doing it after dark. Viewpoints stay found from drive
+   recover or repair from the start of the drive, or on the extreme trail
+   from its bottom gate, and the truck at the top with damage on and under
+   DMG_CLEAN_MAX on its meter) and doing it after dark. Viewpoints stay found from drive
    to drive. Both live in the save (records.h), and unlocks.h says which
    trucks they have earned.
 
@@ -18,6 +19,7 @@
 #include "records.h"
 #include "truck.h"
 #include "world.h"
+#include "damage.h"
 #include "hud.h"
 #include "audio.h"
 #include "menu.h"
@@ -156,8 +158,19 @@ void progress_drive_start(void) {
     to_tell = 0;
 }
 
+/* The truck fit for a clean stamp: damage counts (a run with it switched
+   off proves nothing) and there is next to none of it. */
+static bool unmarked(void) {
+    return !game.damage_off && damage_look(0)->percent < DMG_CLEAN_MAX;
+}
+
 bool progress_clean(void) {
-    return clean;
+    return clean && unmarked();
+}
+
+void progress_repaired(void) {
+    clean = false;
+    trail.clean = false;
 }
 
 bool progress_trail_on(void) {
@@ -196,7 +209,7 @@ static void trail_finish(bool quiet) {
     trail.on = false;
     trail.done = true;
     uint16_t bits = STAMP_TOP;
-    if(trail.clean) bits |= STAMP_CLEAN;
+    if(trail.clean && unmarked()) bits |= STAMP_CLEAN;
     if(pal->dark > NIGHT_DARK) bits |= STAMP_NIGHT;
     trail_new = (uint16_t)(((STAMP_BIT(LOG_EXTREME, bits) & ~records_stamps(game.area)) >> (LOG_EXTREME * STAMPS_A_WAY)) & 7);
     records_add_stamps(game.area, STAMP_BIT(LOG_EXTREME, bits));
@@ -335,7 +348,7 @@ void progress_summit(int way, char *msg, int size) {
     }
     else if(way >= WAY_LOGGING && way <= WAY_CREEK) {
         uint16_t st = STAMP_TOP;
-        if(clean) st |= STAMP_CLEAN;
+        if(clean && unmarked()) st |= STAMP_CLEAN;
         if(pal->dark > NIGHT_DARK) st |= STAMP_NIGHT;
         bits |= STAMP_BIT(way, st);
     }

@@ -17,6 +17,8 @@
 /* The body's faces, each scuffed 0..DMG_LEVELS - 1. */
 enum { DMG_FRONT, DMG_REAR, DMG_LEFT, DMG_RIGHT, DMG_TOP, DMG_FACES };
 #define DMG_LEVELS 4
+/* The most on the meter a clean run may reach the top with (progress.c). */
+#define DMG_CLEAN_MAX 10
 /* The lamps a knock can put out, as bits. */
 enum { DMG_HEAD_L = 1, DMG_HEAD_R = 2, DMG_TAIL_L = 4, DMG_TAIL_R = 8 };
 #define DMG_PIECES 10         /* RL_PIECE_COUNT (damage.c checks) */

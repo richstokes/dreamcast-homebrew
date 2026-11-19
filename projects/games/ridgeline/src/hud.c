@@ -396,7 +396,7 @@ static void damage_panel(float y0) {
     }
     char buf[24];
     snprintf(buf, sizeof(buf), "DMG %d%%", d->percent);
-    hud_text_c(cx, y0 + 64, 0.45f, ALIGN_CENTER, d->percent >= 60 ? lv[3] : d->percent >= 25 ? lv[2] : 0xfff4ecd8, buf);
+    hud_text_c(cx, y0 + 64, 0.45f, ALIGN_CENTER, d->percent >= 60 ? lv[3] : d->percent >= DMG_CLEAN_MAX ? lv[2] : 0xfff4ecd8, buf);   /* (orange: too much for a clean run) */
     /* What is left of the engine, once it has lost any. */
     if(power < 100) {
         snprintf(buf, sizeof(buf), "PWR %d%%", power);

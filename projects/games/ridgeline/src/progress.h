@@ -35,8 +35,12 @@ bool progress_trail_on(void);
 float progress_trail_clock(void);
 /* Driven to its end this drive (the summit is then by it). */
 bool progress_trail_done(void);
-/* Still clean: no recover this drive. */
+/* Still clean: no recover or repair this drive, and the truck all but
+   unmarked with damage on (damage.h's DMG_CLEAN_MAX). */
 bool progress_clean(void);
+/* The truck was mended (the pause menu): no longer a clean drive, nor a
+   clean run of the extreme trail if it is on it. */
+void progress_repaired(void);
 
 /* ---- What has been done ---- */
 

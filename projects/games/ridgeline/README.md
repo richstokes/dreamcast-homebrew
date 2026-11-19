@@ -44,7 +44,8 @@ earned out there.
   truck, what it wants and how far along that is. Kept on the VMU with
   the times
 - The trail log: each of an area's ways up takes three stamps, for
-  reaching the top that way, doing it clean (no recover on the way) and
+  reaching the top that way, doing it clean (no recover or repair on the
+  way, and under 10% on the damage meter at the top, with damage on) and
   doing it after dark. Viewpoints stay found from one drive to the next.
   The area select shows the stamps, the viewpoints and how much of the
   log is filled in
