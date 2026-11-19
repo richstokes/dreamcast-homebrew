@@ -37,10 +37,12 @@ _Static_assert(RL_PIECE_COUNT == DMG_PIECES, "DMG_PIECES in damage.h");
 #define FULL 45.0f            /* the meter reads 100% at this much */
 #define SCRAPE_MIN 3.0f       /* m/s: sliding on the body slower than this only polishes it */
 #define LAMP_TOUGH 3.5f
-#define WHEEL_MIN 5.0f        /* m/s: a wheel meeting a trunk or a ledge's side slower than this shrugs it off */
-#define WHEEL_TOUGH 4.0f      /* what a wheel takes over that before it comes off: one blow at 9 m/s, or a few lesser */
+/* A wheel comes off only in a real smash: a log or a trunk met at a pace
+   a driver might plausibly be doing (20 mph, say) bends nothing. */
+#define WHEEL_MIN 9.0f        /* m/s: a wheel meeting a trunk, a log or a ledge's side slower than this shrugs it off */
+#define WHEEL_TOUGH 6.0f      /* what a wheel takes over that before it comes off: one blow at 15 m/s (34 mph), or two near it */
 #define WHEEL_NEAR 0.9f       /* a blow to the body this close to a wheel reaches it too, */
-#define WHEEL_BODY_MIN 7.0f   /* ...if it is this hard */
+#define WHEEL_BODY_MIN 12.0f  /* ...if it is this hard: 18 m/s (40 mph) in one go */
 static const float face_at[DMG_LEVELS - 1] = {1.5f, 5.0f, 11.0f};
 /* What each piece takes before it lets go (m/s over FIX_MIN, summed). */
 static const float tough[DMG_PIECES] = {
