@@ -924,7 +924,9 @@ def open_panels(g: Geo, lod: int, hw: float, arch_top: float = 0.0, doors=None, 
 
         def lid(c, n, paint):
             y = top(c[2])
-            return abs(c[0]) < xh + 0.02 and ((n[1] > 0.5 and c[1] > y - 0.05) or y + 0.004 < c[1] < y + 0.30)
+            # (what faces up from the hood's line, and anything standing on it, its undersides and
+            # edges too: a power dome's skirt was left hanging over the bay)
+            return abs(c[0]) < xh + 0.02 and ((n[1] > 0.5 and c[1] > y - 0.05) or y - 0.03 < c[1] < y + 0.30)
 
         cut_panel(g, tags, HOOD, lid, {0: (-xh, xh), 2: (z0, z1)})
         e, floor = 0.004, min(ya, yb) - 0.30
@@ -2355,14 +2357,14 @@ def ffr_body(lod: int) -> Geo:
     # ---- driver and dash
     if lod == 0:
         G.extend(rbox((0, 1.25, 0.76), (1.50, 0.16, 0.28), INTERIOR, bottom=False))
-        G.extend(driver(D_DRIVER[0], D_DRIVER[1], D_DRIVER[2], D_SHIRT, D_HAT, 0.66, 1.42, floor_y=D_ROCK + 0.04))
+        G.extend(driver(D_DRIVER[0], D_DRIVER[1], D_DRIVER[2], D_SHIRT, D_HAT, 0.43, 1.42, floor_y=D_ROCK + 0.04))
     elif lod == 1:
         G.extend(ellipsoid((D_DRIVER[0], D_DRIVER[1] + 0.18, D_DRIVER[2]), (0.10, 0.12, 0.11), 4, [0, 90, 180],
                            SKIN, phase=math.pi / 4))
     return open_panels(G, lod, D_HW, D_R + D_ARCH[1], doors=(D_SIDE_Z[0] + 0.005, D_COWL - 0.04, D_ROCK + 0.04, D_BELT),
                        hood=(D_COWL + 0.02, D_FRONT - 0.24, 0.72, d_hood_y(D_COWL + 0.02), d_hood_y(D_FRONT - 0.24)),
                        gate=(D_HW - 0.155, 0.665, 1.215, D_BEDB - 0.04, D_BEDB + 0.055),
-                       seat=(abs(D_DRIVER[0]), D_DRIVER[1], D_DRIVER[2], 0.66), sill=1.30)
+                       seat=(abs(D_DRIVER[0]), D_DRIVER[1], D_DRIVER[2], 0.43), sill=1.30)
 
 
 def ffr_parts(lod: int) -> dict[int, Geo]:
@@ -2727,14 +2729,14 @@ def taco_body(lod: int) -> Geo:
     # ---- driver and dash
     if lod == 0:
         G.extend(rbox((0, 1.39, 0.94), (1.70, 0.16, 0.28), INTERIOR, bottom=False))
-        G.extend(driver(T_DRIVER[0], T_DRIVER[1], T_DRIVER[2], T_SHIRT, T_HAT, 0.80, 1.55, floor_y=T_ROCK + 0.04))
+        G.extend(driver(T_DRIVER[0], T_DRIVER[1], T_DRIVER[2], T_SHIRT, T_HAT, 0.59, 1.55, floor_y=T_ROCK + 0.04))
     elif lod == 1:
         G.extend(ellipsoid((T_DRIVER[0], T_DRIVER[1] + 0.18, T_DRIVER[2]), (0.10, 0.12, 0.11), 4, [0, 90, 180],
                            SKIN, phase=math.pi / 4))
     return open_panels(G, lod, T_HW, T_R + T_ARCH[1], doors=(T_SIDE_Z[0] - 0.04, T_COWL - 0.06, T_ROCK + 0.04, T_BELT),
                        hood=(T_COWL + 0.02, T_NOSE, 0.80, t_hood_y(T_COWL + 0.02), T_HOOD[1]),
                        gate=(T_HW - 0.165, T_ROCK + 0.02, T_BED_TOP + 0.005, T_BEDB - 0.04, T_BEDB + 0.055),
-                       seat=(abs(T_DRIVER[0]), T_DRIVER[1], T_DRIVER[2], 0.80), sill=T_SILL)
+                       seat=(abs(T_DRIVER[0]), T_DRIVER[1], T_DRIVER[2], 0.59), sill=T_SILL)
 
 
 def taco_parts(lod: int) -> dict[int, Geo]:
@@ -3915,7 +3917,7 @@ def eagle_body(lod: int) -> Geo:
     # ---- driver and dash
     if lod == 0:
         G.extend(rbox((0, E_SILL - 0.05, 0.97), (1.84, 0.16, 0.28), INTERIOR, bottom=False))
-        G.extend(driver(E_DRIVER[0], E_DRIVER[1], E_DRIVER[2], E_SHIRT, E_HAT, 0.86, E_SILL + 0.12,
+        G.extend(driver(E_DRIVER[0], E_DRIVER[1], E_DRIVER[2], E_SHIRT, E_HAT, 0.64, E_SILL + 0.12,
                         floor_y=E_ROCK + 0.04))
     elif lod == 1:
         G.extend(ellipsoid((E_DRIVER[0], E_DRIVER[1] + 0.18, E_DRIVER[2]), (0.10, 0.12, 0.11), 4, [0, 90, 180],
@@ -3923,7 +3925,7 @@ def eagle_body(lod: int) -> Geo:
     return open_panels(G, lod, E_HW, E_R + E_ARCH[1], doors=(E_SIDE_Z[0] - 0.05, E_COWL - 0.10, E_ROCK + 0.04, E_BELT),
                        hood=(E_COWL + 0.02, E_NOSE, 0.88, e_hood_y(E_COWL + 0.02), E_HOOD[1]),
                        gate=(0.771, E_ROCK + 0.02, E_BED_TOP + 0.005, E_BEDB - 0.04, E_BEDB + 0.065),
-                       seat=(abs(E_DRIVER[0]), E_DRIVER[1], E_DRIVER[2], 0.86), sill=E_SILL)
+                       seat=(abs(E_DRIVER[0]), E_DRIVER[1], E_DRIVER[2], 0.64), sill=E_SILL)
 
 
 def eagle_parts(lod: int) -> dict[int, Geo]:
