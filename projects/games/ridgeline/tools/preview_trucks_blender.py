@@ -72,6 +72,10 @@ def add_truck(data, truck, lod, collection, origin=(0.0, 0.0, 0.0), livery=None)
     objs = []
     o = origin
     objs.append(mesh_object(meshes[BODY], collection, o, livery=livery, ref=ref))
+    # The pieces that come off it (bumpers, doors, the hood...): parts past the axle, in the body's space.
+    for part in sorted(meshes):
+        if part > AXLE:
+            objs.append(mesh_object(meshes[part], collection, o, livery=livery, ref=ref))
     wp = info["wheel_pos"]
     for i, p in enumerate(wp):
         part = WHEEL_L if p[0] < 0 else WHEEL_R

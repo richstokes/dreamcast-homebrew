@@ -9,7 +9,7 @@ GAME_PREFIX = RL
 # (A new file goes at the end: rain.c added in the middle moved the
 # engine's hot loops and cost the console 0.4 ms a frame, dry.)
 SOURCES = main.c level.c terrain.c world.c outland.c lamps.c air.c desert.c dunes.c water.c tod.c truck.c truckdraw.c camera.c hud.c audio.c ai.c fx.c menu.c demo.c records.c deer.c soundtest.c autotest.c birds.c film.c vmuscreen.c campfire.c glow.c \
-	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c rain.c progress.c recover.c cardpick.c
+	input.c rand.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c net.c online.c rain.c progress.c recover.c cardpick.c damage.c
 # Shared with DreamKarts from projects/common: the network link (Broadband
 # adapter, W5500, modem), the dialler and the VMU screens.
 COMMON_SOURCES = netlink.c dialup.c vmulcd.c
@@ -70,6 +70,19 @@ vmutest:
 	RL_ELF=ridgeline-autotest.elf RL_EXIT_ON_LOG='RL AUTOTEST: PASS' RL_FAIL_ON_LOG='RL AUTOTEST: FAIL' \
 		RL_FLYCAST_CONFIG="config:Dreamcast.VMUPath=$(CURDIR)/build/vmutest-cards" ./run-flycast.sh --skip-build
 	rm -f ridgeline-autotest.elf
+
+# Damage: the player's truck dropped on each end, each side and its roof,
+# its pieces knocked off and the truck mended (screenshots in
+# captures/damage). TRUCK=0..7 picks the truck; STRIP=1 takes everything
+# off it at once for a look at what is left; WHEEL=4 knocks wheels off (a
+# bit each) and drives on what is left.
+TRUCK ?= 1
+damagetest:
+	rm -f ridgeline-autotest.elf
+	$(MAKE) VARIANT=autotest EXTRA_CFLAGS="-DRL_AT_DAMAGE -DRL_AT_COMPANIONS=0 -DRL_AT_TRUCK=$(TRUCK) $(if $(STRIP),-DRL_AT_STRIP) $(if $(WHEEL),-DRL_AT_WHEEL=$(WHEEL))" ridgeline-autotest.elf
+	mv ridgeline-autotest.elf ridgeline-damagetest.elf
+	uv run tools/capture.py --elf ridgeline-damagetest.elf --out captures/damage
+	rm -f ridgeline-damagetest.elf
 
 # The memory card question, with blank Flycast cards in A1 and A2: a full
 # first card, then two saves (screenshots in captures/cardtest).

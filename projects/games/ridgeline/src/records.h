@@ -75,5 +75,7 @@ void records_set_told(uint8_t models);
 /* The pause menu's HUD choice (HUD_*), kept so the next game starts with
    it: a card's goes into game.hud_mode when the card is read. */
 void records_set_hud(int mode);
+/* And its damage choice (game.damage_off), kept the same way. */
+void records_set_damage_off(bool off);
 
 #endif

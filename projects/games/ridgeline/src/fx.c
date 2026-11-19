@@ -288,6 +288,19 @@ void fx_splash(V3 p, float strength) {
              0.6f + 0.4f * frand(), 0.35f, 1.2f, 0xd8e8f4f8, 0.6f, 9.0f);
 }
 
+void fx_steam(V3 p, V3 v) {
+    puff(p, vadd(v, v3(frand_s() * 0.3f, 1.4f, frand_s() * 0.3f)), 1.1f + 0.4f * frand(), 0.22f, 1.5f, 0x90eef0f2, 1.2f, 0.0f);
+}
+
+void fx_burst(V3 p, V3 v, uint32_t col, float size, int n) {
+    for(int i = 0; i < n; i++) {
+        Part *q = spawn();
+        *q = (Part){.p = p, .v = vadd(v, v3(frand_s() * 2.5f, 1.0f + 2.5f * frand(), frand_s() * 2.5f)),
+                    .max = 0.8f + 0.5f * frand(), .size = size * (0.6f + 0.8f * frand()), .spin = frand_s() * 12.0f,
+                    .col = col, .drag = 0.1f, .gravity = 9.8f, .kind = P_CLOD, .bounce = 1};
+    }
+}
+
 int fx_track_points(int truck) {
     return trk[truck][0].count + trk[truck][1].count;
 }

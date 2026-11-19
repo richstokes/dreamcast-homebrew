@@ -5,7 +5,9 @@
 # reach 127.0.0.1) and boots it. The console joins lobby 3, where the bot
 # drives a loop in the meadow, claims the summit, leaves and comes back;
 # the CPU drives the console's truck, which jumps to the summit 25 s in.
-# Passes when each has seen the other's truck and both trophies show.
+# The bot's truck turns up damaged 15 s in (a bumper and a mirror off).
+# Passes when each has seen the other's truck, both trophies show and the
+# console has seen the bot's damage.
 #
 #   RL_NET=modem      dial in through Flycast's emulated modem instead
 #   RL_QA_LIVE=1      against the live server at dcvmu.com:7536
@@ -52,7 +54,7 @@ make -C "${GAME}" VARIANT=autotest ridgeline-autotest.elf EXTRA_CFLAGS="-DRL_AT_
 # Its own name, so captures and other sessions' Flycasts never mix it up.
 cp "${GAME}/ridgeline-autotest.elf" "${GAME}/ridgeline-online.elf"
 
-"${OUT}/rl-bot" -addr "${ADDR}" -name AT-BOT -lobby "${LOBBY}" -model "${RL_BOT_TRUCK:-0}" -summit-after 5s -leave-after 40s -away 6s -for 180s \
+"${OUT}/rl-bot" -addr "${ADDR}" -name AT-BOT -lobby "${LOBBY}" -model "${RL_BOT_TRUCK:-0}" -summit-after 5s -damage-after 15s -leave-after 40s -away 6s -for 180s \
     -level "${GAME}/assets/generated/level_${AREA}.lvl" > "${OUT}/bot.log" 2>&1 &
 pids+=($!)
 

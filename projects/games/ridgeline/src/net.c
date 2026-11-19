@@ -55,6 +55,13 @@ static Sample history[NET_MAX_PLAYERS][HISTORY];
 static int hist_n[NET_MAX_PLAYERS];
 static uint8_t last_raw[NET_MAX_PLAYERS][NET_TRUCK_BYTES];
 static bool have_raw[NET_MAX_PLAYERS];
+/* Each remote truck's damage: the newest to arrive, and the one in force.
+   The trucks are drawn a little in the past (interp_ms), so news of a
+   bumper lost waits that long too and it falls when the truck hits. */
+static uint8_t my_damage[NET_DAMAGE_BYTES];
+static uint8_t dmg_new[NET_MAX_PLAYERS][NET_DAMAGE_BYTES], dmg_now[NET_MAX_PLAYERS][NET_DAMAGE_BYTES];
+static uint64_t dmg_at[NET_MAX_PLAYERS];
+static bool dmg_have[NET_MAX_PLAYERS], dmg_wait[NET_MAX_PLAYERS];
 static int64_t clk_off16[NET_MAX_PLAYERS];   /* local ms of the sender's clock zero, x16, smoothed */
 static bool clk_known[NET_MAX_PLAYERS];
 static uint64_t last_at[NET_MAX_PLAYERS];    /* the time each truck was last drawn at */
@@ -130,6 +137,8 @@ static void open_socket(void) {
 static void forget_trucks(void) {
     memset(hist_n, 0, sizeof(hist_n));
     memset(have_raw, 0, sizeof(have_raw));
+    memset(dmg_have, 0, sizeof(dmg_have));
+    memset(dmg_wait, 0, sizeof(dmg_wait));
     memset(clk_known, 0, sizeof(clk_known));
     memset(last_at, 0, sizeof(last_at));
     memset(draw_err, 0, sizeof(draw_err));
@@ -139,6 +148,7 @@ void net_forget_slot(int slot) {
     if(slot < 0 || slot >= NET_MAX_PLAYERS) return;
     hist_n[slot] = 0;
     have_raw[slot] = clk_known[slot] = false;
+    dmg_have[slot] = dmg_wait[slot] = false;
     last_at[slot] = 0;
     draw_err[slot] = v3(0, 0, 0);
 }
@@ -208,6 +218,33 @@ void net_leave(void) {
 void net_set_truck(const NetTruck *t) {
     my_truck = *t;
     have_truck = true;
+}
+
+void net_set_damage(const uint8_t *b) {
+    memcpy(my_damage, b, NET_DAMAGE_BYTES);
+}
+
+static void take_damage(int slot, const uint8_t *b, uint64_t now) {
+    if(dmg_have[slot] && memcmp(b, dmg_wait[slot] ? dmg_new[slot] : dmg_now[slot], NET_DAMAGE_BYTES) == 0) return;
+    memcpy(dmg_new[slot], b, NET_DAMAGE_BYTES);
+    dmg_at[slot] = now;
+    dmg_wait[slot] = true;
+    if(!dmg_have[slot]) {
+        /* The first we hear of it is how it is. */
+        memcpy(dmg_now[slot], b, NET_DAMAGE_BYTES);
+        dmg_have[slot] = true;
+        dmg_wait[slot] = false;
+    }
+}
+
+bool net_remote_damage(int slot, uint8_t *b) {
+    if(slot < 0 || slot >= NET_MAX_PLAYERS || !dmg_have[slot]) return false;
+    if(dmg_wait[slot] && net_now() - dmg_at[slot] >= (uint64_t)interp_ms) {
+        memcpy(dmg_now[slot], dmg_new[slot], NET_DAMAGE_BYTES);
+        dmg_wait[slot] = false;
+    }
+    memcpy(b, dmg_now[slot], NET_DAMAGE_BYTES);
+    return true;
 }
 
 static void encode_truck(uint8_t *b, const NetTruck *t) {
@@ -458,6 +495,14 @@ static void handle(const uint8_t *b, int n, uint64_t now) {
                 int slot = e[0];
                 if(slot < NET_MAX_PLAYERS && slot != lobby.you) take_truck(slot, e, now);
             }
+            /* Their damage, truck for truck, after them all (a server from
+               build 27; an older one sends none). */
+            const int tail = 9 + b[8] * per;
+            if(n >= tail + b[8] * NET_DAMAGE_BYTES)
+                for(int i = 0; i < b[8]; i++) {
+                    int slot = b[9 + i * per];
+                    if(slot < NET_MAX_PLAYERS && slot != lobby.you) take_damage(slot, b + tail + i * NET_DAMAGE_BYTES, now);
+                }
             break;
         }
     }
@@ -532,8 +577,9 @@ void net_update(void) {
                receive path (a DreamKarts lesson: a send there sometimes
                double faulted KOS in Flycast). */
             if(have_truck && !received && now - last_send >= SEND_MS) {
-                uint8_t b[NET_TRUCK_BYTES];
+                uint8_t b[NET_TRUCK_BYTES + NET_DAMAGE_BYTES];
                 encode_truck(b, &my_truck);
+                memcpy(b + NET_TRUCK_BYTES, my_damage, NET_DAMAGE_BYTES);
                 send_packet(5, b, sizeof(b));
                 last_send = now;
                 last_ping = now;

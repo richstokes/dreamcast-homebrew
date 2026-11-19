@@ -58,7 +58,7 @@ build can read it.
 | 2 | `LIST` | nothing | 2 Hz on the lobby browser |
 | 3 | `JOIN` | u8 lobby (0-11), u8 truck model (0-7), u8 livery (0-3) | every 500 ms until the lobby state names this console |
 | 4 | `LEAVE` | nothing | 3 times |
-| 5 | `TRUCK` | 37 bytes, below | 12 Hz on the mountain |
+| 5 | `TRUCK` | 37 bytes, below, then 5 of damage from build 27 on | 12 Hz on the mountain |
 | 7 | `PING` | nothing | 1 Hz when nothing else goes (keeps NAT open); answered with `LOBBIES` while in no lobby (the truck select), as the console gives up after 6 s of silence |
 
 `TRUCK`:
@@ -82,6 +82,18 @@ consoles (dust, roostertails, tracks, rubber on rock), which each console
 makes for itself from them; none of that is sent. Protocol 1 (builds up to
 22) sent one slip for the whole truck and no spin, in 30 bytes.
 
+Damage (build 27 on), 5 bytes after the body: u16 how scuffed each face of
+the body is, 2 bits each from bit 0 (front, rear, left, right, top; 0-3),
+with the pieces past the eighth from bit 10; u8 the pieces knocked off, a
+bit each (front bumper, rear bumper, left mirror, right mirror, roof
+lights, spare, left door, right door; then in the u16 the hood, the
+tailgate and the four wheels, front left, front right, rear left, rear
+right); u8 smashed lamps (bit0 left
+head, bit1 right head, bit2 left tail, bit3 right tail); u8 the damage
+meter, 0-100. Each console works out its own truck's and the others show
+it; the pieces fall on each console by itself. A console that sends none
+reads as whole.
+
 The summit bit earns the trophy: the server sets the player's summit flag
 the first time it sees it, and keeps it for the session (moving lobby
 included).
@@ -94,7 +106,7 @@ included).
 | 65 | `REJECT` | u8 reason, u16 latest build, u16 min build |
 | 66 | `LOBBIES` | u8 lobby count, then per lobby: u8 players n, u8 hour * 10, then n x (u8 flags, `char[11]` name) |
 | 67 | `LOBBY` | u8 lobby, u8 your slot, u16 hour * 2000, u8 players n, then n x 17-byte player |
-| 68 | `TRUCKS` | u8 count, then per truck: u8 slot, u16 age ms, the 37-byte `TRUCK` body as received |
+| 68 | `TRUCKS` | u8 count, then per truck: u8 slot, u16 age ms, the 37-byte `TRUCK` body as received; then, after them all, each truck's 5 bytes of damage in the same order (older consoles stop at the count) |
 
 REJECT reasons: 1 console too old (or another protocol), 2 server full,
 3 lobby full, 4 bad name (the bad word filter, as DreamKarts), 5 unknown

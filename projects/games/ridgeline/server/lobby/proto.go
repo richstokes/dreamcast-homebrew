@@ -12,7 +12,7 @@ import (
 // Versions; version_test.go checks these match ../../src/net_version.h.
 const (
 	Proto    = 2
-	Build    = 26
+	Build    = 27
 	MinBuild = 24
 )
 
@@ -21,6 +21,7 @@ const (
 	MaxPlayers = 4
 	NameLen    = 11 // 10 characters and a NUL
 	TruckLen   = 37 // TRUCK body bytes, relayed as they came in TRUCKS packets
+	DamageLen  = 5  // a truck's damage: after a TRUCK body from build 27 on, and after a TRUCKS packet's trucks
 	PlayerLen  = 17 // a LOBBY packet's player entry
 )
 
@@ -30,7 +31,7 @@ const (
 	TypeList    = 2
 	TypeJoin    = 3 // u8 lobby, u8 truck model, u8 livery
 	TypeLeave   = 4
-	TypeTruck   = 5 // TruckLen bytes
+	TypeTruck   = 5 // TruckLen bytes, then DamageLen more from build 27 on
 	TypePing    = 7
 	TypeWelcome = 64
 	TypeReject  = 65

@@ -177,6 +177,7 @@ type bot struct {
 	roster        string
 	seen          map[int]time.Time
 	lastPos       map[int]lobby.Truck
+	damage        map[int]string // each slot's damage bytes as last seen
 	model, livery byte
 }
 
@@ -247,6 +248,13 @@ func (b *bot) logTrucks(p []byte) {
 		e := p[9+i*per:]
 		slot := int(e[0])
 		t := lobby.DecodeTruck(e[3 : 3+lobby.TruckLen])
+		// Its damage, after all the trucks: said when it changes.
+		if tail := 9 + int(p[8])*per + i*lobby.DamageLen; tail+lobby.DamageLen <= len(p) {
+			if d := string(p[tail : tail+lobby.DamageLen]); d != b.damage[slot] {
+				b.damage[slot] = d
+				log.Printf("slot %d damage % x", slot, d)
+			}
+		}
 		if last, ok := b.seen[slot]; !ok || time.Since(last) > 5*time.Second {
 			prev, had := b.lastPos[slot]
 			moved := 0.0
@@ -279,6 +287,7 @@ func main() {
 	model := flag.Int("model", 0, "truck model (0 Cascade 84, 1 Kestrel, 2 Bobcat, 3 FFR, 4 Taco, 5 Goose, 6 One Ten, 7 Eagle)")
 	livery := flag.Int("livery", 2, "livery 0-3")
 	spin := flag.Float64("spin", 0, "rear wheelspin, m/s: the consoles draw its roostertail and darker prints")
+	damageAfter := flag.Duration("damage-after", 0, "after this long in the lobby the truck is damaged: the front scuffed, its front bumper and left mirror knocked off, the left headlight smashed (0: never)")
 	flag.Parse()
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
@@ -291,7 +300,8 @@ func main() {
 		log.Fatal(err)
 	}
 	b := &bot{conn: conn, token: rand.Uint32() | 1, name: strings.ToUpper(*name), start: time.Now(),
-		seen: map[int]time.Time{}, lastPos: map[int]lobby.Truck{}, model: byte(*model), livery: byte(*livery)}
+		seen: map[int]time.Time{}, lastPos: map[int]lobby.Truck{}, damage: map[int]string{}, model: byte(*model),
+		livery: byte(*livery)}
 
 	// Hello until welcomed.
 	welcomed := false
@@ -440,7 +450,11 @@ func main() {
 			if summit {
 				t.Flags |= lobby.TruckSummit
 			}
-			b.send(lobby.TypeTruck, t.Encode())
+			body := append(t.Encode(), make([]byte, lobby.DamageLen)...)
+			if *damageAfter > 0 && now.Sub(joinedAt) >= *damageAfter {
+				copy(body[lobby.TruckLen:], []byte{0x02, 0x00, 0x05, 0x01, 23})
+			}
+			b.send(lobby.TypeTruck, body)
 		}
 		time.Sleep(4 * time.Millisecond)
 	}

@@ -11,6 +11,7 @@
 
    The network link (Broadband adapter, W5500 or modem) is
    projects/common/netlink.c, shared with DreamKarts. */
+#include "damage.h"
 #include "online.h"
 #include "net.h"
 #include "netlink.h"
@@ -96,6 +97,7 @@ static struct {
     float worst;
     V3 prev[MAX_TRUCKS];
     bool had[MAX_TRUCKS];
+    bool damage_seen;      /* a remote truck arrived with pieces off */
 } at;
 #endif
 
@@ -154,12 +156,15 @@ static void show_toast(const char *text) {
 
 /* The local truck index for a lobby slot: ours is trucks[0], the others
    fill 1-3 in slot order, so each keeps its index while it stays. */
+_Static_assert(DMG_WIRE_BYTES == NET_DAMAGE_BYTES, "damage on the wire");
+
 static int truck_of(int slot) {
     int you = net_lobby()->you;
     return slot == you ? 0 : slot < you ? slot + 1 : slot;
 }
 
 static void park(Truck *t) {
+    damage_repair((int)(t - trucks));   /* whoever takes the place next arrives as they are */
     t->absent = true;
     t->horn = false;
     t->pos = v3(0, -1000, 0);
@@ -381,6 +386,7 @@ void online_drive_step(float dt) {
            included, so comparing models alone left a Cascade 84 arriving
            there with every wheel at its centre and the body floating. */
         if(t->absent || t->model != p->model) {
+            if(!t->absent) damage_repair(truck_of(s));   /* another truck: nothing of the last one's */
             t->model = p->model;
             truck_spec(&t->spec, t->model);
         }
@@ -403,6 +409,18 @@ void online_drive_step(float dt) {
         t->load = n.load;
         t->gear = n.gear;
         for(int i = 0; i < 4; i++) t->wh[i].slip = n.slip[i];
+        uint8_t db[NET_DAMAGE_BYTES];
+        if(net_remote_damage(s, db)) {
+            DamageLook look;
+            damage_unpack(db, &look);
+            damage_set(truck_of(s), &look);
+#ifdef RL_AT_ONLINE
+            if(look.pieces && !at.damage_seen) {
+                at.damage_seen = true;
+                printf("RL ONLINE: slot %d damage %d%% pieces %02x lamps %x\n", s, look.percent, look.pieces, look.lamps);
+            }
+#endif
+        }
     }
     /* Arriving on top of a truck parked on our start place: move along. */
     Truck *me = &trucks[0];
@@ -416,6 +434,9 @@ void online_drive_step(float dt) {
     NetTruck n;
     pack_truck(me, &n);
     net_set_truck(&n);
+    uint8_t db[NET_DAMAGE_BYTES];
+    damage_pack(damage_look(0), db);
+    net_set_damage(db);
     /* Keep the lobby's time of day (it runs at the same pace here, so
        this only catches drift and the arrival). */
     float d = l->hour - tod.hour;
@@ -870,6 +891,7 @@ void online_autotest(float dt) {
         else if(trophies < RL_AT_EXPECT_TROPHIES) fail = "fewer trophies in the lobby than expected";
 #ifndef RL_AT_ONLINE_ALONE
         else if(remotes == 0 || moved < 10.0f) fail = "no remote truck seen driving";
+        else if(!at.damage_seen) fail = "no remote truck's damage seen";
         /* (the test's bot drives on Cascade Ridge's meadow grass) */
         else if(game.area == AREA_CASCADE && at.prints == 0) fail = "a remote truck left no tyre prints";
 #endif

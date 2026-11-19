@@ -28,6 +28,7 @@
 #define NET_NAME_LEN     11   /* 10 characters and a NUL */
 #define NET_PLAYER_BYTES 17   /* a LOBBY packet's player entry */
 #define NET_TRUCK_BYTES  37   /* a TRUCK body */
+#define NET_DAMAGE_BYTES 5    /* a truck's damage (damage.h), after a TRUCK body and after a TRUCKS packet's trucks (build 27) */
 
 enum { NET_OFF, NET_LINK, NET_HELLO, NET_BROWSE, NET_JOINING, NET_LOBBY, NET_REJECTED, NET_LOST };
 enum { NREJ_TOO_OLD = 1, NREJ_FULL, NREJ_LOBBY_FULL, NREJ_BAD_NAME, NREJ_SESSION,
@@ -93,11 +94,16 @@ const NetPlayer *net_player(int slot);
 
 /* Our truck for the next TRUCK packet (12 a second). */
 void net_set_truck(const NetTruck *t);
+/* ...and its damage, NET_DAMAGE_BYTES as damage_pack packs it, sent with it. */
+void net_set_damage(const uint8_t *b);
 /* Others' trucks as they were at local time at_ms. Call net_draw_time()
    once a step for the moment to draw them at: a little in the past, so
    the samples either side have arrived. */
 uint64_t net_draw_time(float dt);
 bool net_remote_truck(int slot, uint64_t at_ms, NetTruck *out);
+/* A remote truck's damage as it was when the truck is drawn, into b;
+   false if its console has sent none (an older build, an older server). */
+bool net_remote_damage(int slot, uint8_t *b);
 void net_forget_slot(int slot);
 int net_interp_ms(void);
 uint64_t net_now(void);

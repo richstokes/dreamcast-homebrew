@@ -1,4 +1,5 @@
 /* Ridgeline test builds (autotest.h). */
+#include "damage.h"
 #include "autotest.h"
 #include "progress.h"
 #include "records.h"
@@ -229,6 +230,8 @@ static void __attribute__((unused)) vmu_test(void) {
     records_set_told(0x44);
     records_set_hud(HUD_SIMPLE);
     game.hud_mode = HUD_FULL;   /* the card's choice comes back with it */
+    records_set_damage_off(true);
+    game.damage_off = false;    /* ...and the damage choice */
     records_forget();
     bool back = records_cards_wait();
     Done d;
@@ -246,11 +249,11 @@ static void __attribute__((unused)) vmu_test(void) {
                 records_stamps(AREA_LOWLAND) ==
                     (STAMP_SUMMIT | STAMP_BIT(WAY_LOGGING, STAMP_TOP) | STAMP_BIT(LOG_EXTREME, STAMP_TOP | STAMP_NIGHT)) &&
                 records_stamps(AREA_CASCADE) == (STAMP_SUMMIT | STAMP_BIT(WAY_LOGGING, STAMP_TOP)) &&
-                records_cheat() && records_told() == 0x44 && game.hud_mode == HUD_SIMPLE && unlock_met(1, &d) && unlock_met(6, &d) && unlock_met(5, &d) &&
+                records_cheat() && records_told() == 0x44 && game.hud_mode == HUD_SIMPLE && game.damage_off && unlock_met(1, &d) && unlock_met(6, &d) && unlock_met(5, &d) &&
                 !unlock_met(7, &d) && unlock_met(2, &d) && done_views(&d) == 3;
-    printf("RL AT vmu: progress %s (views %04x, stamps %04x, extreme %lu, cheat %d, told %02x, hud %d)\n", prog ? "ok" : "WRONG",
+    printf("RL AT vmu: progress %s (views %04x, stamps %04x, extreme %lu, cheat %d, told %02x, hud %d, damage off %d)\n", prog ? "ok" : "WRONG",
            records_views(AREA_MOAB), records_stamps(AREA_LOWLAND), (unsigned long)records_best(TRUCK_MODELS - 1, WAY_EXTREME),
-           records_cheat(), records_told(), game.hud_mode);
+           records_cheat(), records_told(), game.hud_mode, game.damage_off);
     game.truck_model = 1;
     game.area = AREA_LOWLAND;
     uint32_t loch = records_best(1, WAY_LOGGING);
@@ -495,6 +498,17 @@ void autotest_boot(void) {
 
 bool autotest_controls(Truck *p, float dt) {
     (void)dt;
+#ifdef RL_AT_WHEEL
+    /* -DRL_AT_WHEEL=4 (with -DRL_AT_DAMAGE; a bit a wheel, 4 the rear
+       left): flat out on what is left, 6 s in each drive mode. */
+    p->in = (TruckInput){.throttle = game.clock > 2.0f ? 1.0f : 0.0f};
+    p->mode = game.clock < 8.0f ? DRIVE_2WD : game.clock < 14.0f ? DRIVE_4WD : DRIVE_LOCK;
+    p->tcs_off = true;
+    return true;
+#elif defined(RL_AT_DAMAGE)
+    p->in = (TruckInput){.brake = 0.4f};
+    return true;
+#endif
 #ifdef RL_AT_FXBENCH
     /* Flat out in 2WD with traction control off, weaving, so all the
        tyres throw what they can. */
@@ -609,7 +623,138 @@ static void __attribute__((unused)) shot(const char *name) {
 #endif
 }
 
+#ifdef RL_AT_DAMAGE
+/* -DRL_AT_DAMAGE: the player's truck dropped on each end, each side and
+   its roof on the start line, its damage logged and pictured. */
+static void damage_test(void) {
+    static int frames, thrown;
+    static V3 home;
+    static float heading;
+    if(game.state != ST_DRIVE) {
+        game_start_drive();
+        return;
+    }
+    Truck *p = &trucks[0];
+    if(!frames++) {
+        home = p->pos;
+        heading = truck_heading(p);
+    }
+    p->lights = LIGHTS_DIPPED;
+#ifdef RL_AT_WHEEL
+    if(frames == 60 || frames == 61) {
+        DamageLook off = {.pieces = frames == 61 ? (RL_AT_WHEEL) << DMG_WHEEL0 : 0};
+        damage_set(0, &off);
+    }
+    if(frames % 60 == 0)
+        printf("RL AT wheel %d s: mode %d, %.1f mph, rpm %.0f, wheel speeds %.1f %.1f %.1f %.1f m/s, off %x\n", frames / 60, p->mode,
+               (double)(p->speed * MPS_TO_MPH), (double)p->rpm, (double)(p->wh[0].omega * p->spec.radius),
+               (double)(p->wh[1].omega * p->spec.radius), (double)(p->wh[2].omega * p->spec.radius),
+               (double)(p->wh[3].omega * p->spec.radius), p->wheel_off);
+    if(frames == 150 || frames == 420 || frames == 800 || frames == 1150) {
+        char name[16];
+        snprintf(name, sizeof(name), "wheel-%d", frames);
+        shot(name);
+    }
+    if(frames == 1200) printf("RL AUTOTEST: PASS\n");
+    return;
+#endif
+#ifdef RL_AT_STRIP
+    /* -DRL_AT_STRIP: everything that can come off this truck comes off at
+       once, and a look round what is left. */
+    if(frames == 60 || frames == 61) {
+        DamageLook all = {.pieces = frames == 61 ? (1u << DMG_PIECES) - 1 : 0, .lamps = frames == 61 ? 5 : 0};
+        damage_set(0, &all);
+    }
+    if(frames > 200 && frames <= 200 + 6 * 50) {
+        int v = (frames - 201) / 50;
+        float ang = heading + (float)v * (ENG_PI / 3.0f) + 0.5f;
+        camera_set(vadd(p->pos, v3(sinf(ang) * 5.0f, 1.9f, cosf(ang) * 5.0f)), vadd(p->pos, v3(0, 0.3f, 0)), 1.0f);
+        game.photo = game.cam_scripted = game.paused = true;
+        if((frames - 201) % 50 == 15) {
+            char name[16];
+            snprintf(name, sizeof(name), "strip%d-view%d", p->model, v);
+            shot(name);
+        }
+    }
+    if(frames == 200 + 6 * 50 + 20) printf("RL AUTOTEST: PASS\n");
+    return;
+#endif
+    /* Pitch (nose down) and roll (right side down) in degrees, the drop
+       and the speed down. */
+    static const struct { float pitch, roll, up, down, spin, side; } throws[] = {
+        {65, 0, 3.0f, 7.0f, 0, 0}, {-65, 0, 3.0f, 7.0f, 0, 0}, {0, 0, 1.0f, -3.0f, -4.5f, 5.0f}, {0, 0, 1.0f, -3.0f, 4.5f, -5.0f},
+        {0, 178, 2.5f, 5.0f, 0, 0}, {0, 0, 1.0f, -3.0f, -6.0f, 7.0f},
+    };
+    const int n_throws = sizeof(throws) / sizeof(throws[0]), every = 240;
+    if(thrown < n_throws && frames == 150 + thrown * every) {
+        truck_place(p, v3(home.x, 0, home.z), heading);
+        float a = throws[thrown].pitch * ENG_PI / 180.0f, b = throws[thrown].roll * ENG_PI / 180.0f;
+        V3 R = p->ax[0], U = p->ax[1], F = p->ax[2];
+        V3 F1 = vsub(vscale(F, cosf(a)), vscale(U, sinf(a))), U1 = vadd(vscale(U, cosf(a)), vscale(F, sinf(a)));
+        p->ax[2] = F1;
+        p->ax[0] = vsub(vscale(R, cosf(b)), vscale(U1, sinf(b)));
+        p->ax[1] = vadd(vscale(U1, cosf(b)), vscale(R, sinf(b)));
+        p->pos.y += throws[thrown].up;
+        p->vel = vmad(v3(0, -throws[thrown].down, 0), R, throws[thrown].side);
+        p->w = vscale(F, throws[thrown].spin);   /* (a roll: rolling over to the right goes with moving right) */
+        thrown++;
+        camera_reset();
+    }
+    if(frames % 30 == 0) {
+        const DamageLook *d = damage_look(0);
+        int loose = 0, moving = 0;
+        for(int i = 0; i < DMG_DEBRIS; i++) loose += damage_debris(i)->on, moving += damage_debris(i)->on && damage_debris(i)->moving;
+        printf("RL AT damage %d: %d%% faces %d%d%d%d%d pieces %03x lamps %x loose %d moving %d, power -%d%% pull %.3f, %.2f ms\n", frames / 30, d->percent,
+               d->face[0], d->face[1], d->face[2], d->face[3], d->face[4], d->pieces, d->lamps, loose, moving, (int)(p->power_loss * 100.0f), (double)p->steer_pull,
+               (double)game.cpu_ms);
+    }
+    for(int k = 0; k < n_throws; k++)
+        if(frames == 150 + k * every + 45 || frames == 150 + k * every + 200) {
+            char name[16];
+            snprintf(name, sizeof(name), "damage-%d%c", k, frames == 150 + k * every + 45 ? 'a' : 'b');
+            shot(name);
+        }
+    /* Back on its wheels, and round it for a look. */
+    const int look = 150 + n_throws * every;
+    if(frames == look) truck_place(p, v3(home.x, 0, home.z), heading);
+    /* (a screenshot lands a quarter of a second after it is asked for) */
+    if(frames == look + 2) game.hud_mode = HUD_SIMPLE;
+    if(frames == look + 6) shot("damage-hud-simple");
+    if(frames == look + 30) game.hud_mode = HUD_FULL;
+    if(frames == look + 34) shot("damage-hud");
+    if(frames > look + 60 && frames <= look + 60 + 6 * 60) {
+        int v = (frames - look - 61) / 60;
+        float ang = heading + (float)v * (ENG_PI / 3.0f) + 0.5f;
+        camera_set(vadd(p->pos, v3(sinf(ang) * 5.0f, 1.8f, cosf(ang) * 5.0f)), vadd(p->pos, v3(0, 0.3f, 0)), 1.0f);
+        game.photo = game.cam_scripted = game.paused = true;
+        if((frames - look - 61) % 60 == 20) {
+            char name[16];
+            snprintf(name, sizeof(name), "damage-view%d", v);
+            shot(name);
+        }
+    }
+    if(frames == look + 422) {
+        game.photo = game.cam_scripted = false;
+        shot("damage-menu");
+    }
+    if(frames == look + 450) {
+        game.paused = false;
+        damage_repair(0);
+        camera_reset();
+    }
+    if(frames == look + 500) {
+        shot("damage-repaired");
+        printf("RL AUTOTEST: %s\n", damage_look(0)->percent == 0 && !damage_look(0)->pieces ? "PASS" : "FAIL repair left damage");
+    }
+}
+#endif
+
 void autotest_frame(float dt_real) {
+#ifdef RL_AT_DAMAGE
+    (void)dt_real;
+    damage_test();
+    return;
+#endif
 #ifdef RL_AT_CARDTEST
     card_test();
     return;

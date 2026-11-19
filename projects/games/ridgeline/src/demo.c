@@ -3,6 +3,7 @@
    does; the camera cuts every few seconds to another truck that is on the
    move, rotating through a chase, a helicopter orbit, a trackside camera
    the truck drives past, and the far chase. */
+#include "damage.h"
 #include "demo.h"
 #include "truck.h"
 #include "ai.h"
@@ -65,6 +66,7 @@ void demo_start(void) {
     dm.shot = SHOT_FAR;   /* so the first cut is a chase */
     game.demo_truck = MAX_TRUCKS - 1;
     fx_clear();
+    damage_reset();
     audio_drive_start();
     game_set_state(ST_DRIVE);
     /* Any hour of the day, a different one each time; the CPU drivers
@@ -168,6 +170,7 @@ void demo_update(float dt) {
     }
     for(int i = 0; i < game.ntrucks; i++) ai_drive(i, dt);
     for(int i = 0; i < game.ntrucks; i++) truck_update(&trucks[i], dt);
+    damage_update(dt);
     game.clock += dt;
     fx_update(dt);
     dm.t += dt;

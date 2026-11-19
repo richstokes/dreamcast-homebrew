@@ -32,7 +32,7 @@ func TestSizesMatchHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int{"NET_TRUCK_BYTES": TruckLen, "NET_PLAYER_BYTES": PlayerLen, "NET_MAX_PLAYERS": MaxPlayers,
+	want := map[string]int{"NET_TRUCK_BYTES": TruckLen, "NET_DAMAGE_BYTES": DamageLen, "NET_PLAYER_BYTES": PlayerLen, "NET_MAX_PLAYERS": MaxPlayers,
 		"NET_LOBBIES": MaxLobbies, "NET_NAME_LEN": NameLen}
 	for name, got := range want {
 		m := regexp.MustCompile(`#define\s+` + name + `\s+(\d+)`).FindSubmatch(src)

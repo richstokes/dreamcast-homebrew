@@ -52,6 +52,7 @@ type Player struct {
 	Truck    [TruckLen]byte
 	TruckAt  time.Time
 	HasTruck bool
+	Damage   [DamageLen]byte // as its console last sent it; zeros (whole) from one that sends none
 
 	activeAt time.Time // last sign of someone at the controller
 	restPos  [3]int16  // where the truck was then (TRUCK units, 1/64 m)
@@ -169,6 +170,9 @@ func (s *Server) Handle(from netip.AddrPort, pkt []byte, now time.Time) {
 	case TypeTruck:
 		if len(body) >= TruckLen {
 			s.truck(p, body[:TruckLen], now)
+			if len(body) >= TruckLen+DamageLen {
+				copy(p.Damage[:], body[TruckLen:])
+			}
 		}
 	case TypePing:
 		// A console between lobbies (the truck select) only pings, and
@@ -305,6 +309,7 @@ func (s *Server) join(p *Player, id int, model, livery byte, now time.Time) {
 	l.Slots[slot] = p
 	p.Lobby, p.Slot = id, slot
 	p.HasTruck = false
+	p.Damage = [DamageLen]byte{}
 	p.activeAt, p.restSet = now, false
 	l.dirty = true
 	s.Logf("%q joined lobby %d slot %d (%d/%d)", p.Name, id+1, slot, l.Count(), MaxPlayers)
@@ -479,7 +484,9 @@ func (s *Server) sendLobbies(p *Player, now time.Time) {
 }
 
 // Relay sends every lobby member the other trucks' newest states, on the
-// server's own beat (every RelayInterval).
+// server's own beat (every RelayInterval), and after them each one's
+// damage in the same order. Consoles from before damage read the trucks
+// by the count and never look past them.
 func (s *Server) Relay(now time.Time) {
 	for _, l := range s.Lobbies {
 		for _, to := range l.Slots {
@@ -489,6 +496,7 @@ func (s *Server) Relay(now time.Time) {
 			b := serverHeader(nil, TypeTrucks, s.ms(now))
 			b = append(b, 0)
 			n := 0
+			var damage []byte
 			for i, p := range l.Slots {
 				if p == nil || p == to || !p.HasTruck {
 					continue
@@ -500,9 +508,11 @@ func (s *Server) Relay(now time.Time) {
 				b = append(b, byte(i))
 				b = binary.LittleEndian.AppendUint16(b, uint16(age))
 				b = append(b, p.Truck[:]...)
+				damage = append(damage, p.Damage[:]...)
 				n++
 			}
 			b[8] = byte(n)
+			b = append(b, damage...)
 			s.send(to.Addr, b)
 		}
 	}

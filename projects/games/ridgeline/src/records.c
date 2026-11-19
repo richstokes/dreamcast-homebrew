@@ -51,7 +51,7 @@ typedef struct {
     uint32_t extreme_best[REC_AREAS][REC_TRUCKS];  /* the extreme trail gate to gate, tenths of a second */
     uint8_t cheat, told;
     uint8_t hud;                                   /* HUD_*: the pause menu's choice (0, all of it, in a save from before) */
-    uint8_t pad;
+    uint8_t damage_off;                            /* the pause menu's DAMAGE: OFF (0, on, in a save from before) */
 } progress_t;
 
 typedef struct {
@@ -174,8 +174,10 @@ static void take(const record_t *r) {
     rec.prog.told |= was.prog.told;
     if(was.name[0]) memcpy(rec.name, was.name, sizeof(rec.name));
     if(was.prog.hud) rec.prog.hud = was.prog.hud;
+    if(was.prog.damage_off) rec.prog.damage_off = was.prog.damage_off;
     from_card = true;
     game.hud_mode = rec.prog.hud < HUD_MODES ? rec.prog.hud : HUD_FULL;
+    game.damage_off = rec.prog.damage_off == 1;
     /* A best time is a summit reached: a save from before there was a
        trail log gets the stamps its times prove (the top by each way that
        has one, and the summit), and with them the trucks those earn.
@@ -677,5 +679,11 @@ void records_set_told(uint8_t models) {
 void records_set_hud(int mode) {
     if(rec.prog.hud == mode) return;
     rec.prog.hud = (uint8_t)mode;
+    save();
+}
+
+void records_set_damage_off(bool off) {
+    if(rec.prog.damage_off == off) return;
+    rec.prog.damage_off = off;
     save();
 }

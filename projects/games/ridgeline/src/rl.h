@@ -64,6 +64,7 @@ typedef struct {
     int map_mode;         /* X: 0 corner map, 1 large map, 2 no map */
     int hud_mode;         /* pause menu: HUD_FULL, HUD_SIMPLE or HUD_OFF */
     bool show_fps;        /* the frame rate counter (pause menu) */
+    bool damage_off;      /* pause menu: knocks leave no mark (damage.h) */
     bool photo;           /* photo mode: paused, no HUD, the camera orbits */
     float photo_t;        /* seconds in photo mode, for its hint */
     bool cam_scripted;    /* test builds' scenery tour holds the camera */

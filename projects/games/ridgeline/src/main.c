@@ -11,6 +11,7 @@
 #include "audio.h"
 #include "ai.h"
 #include "fx.h"
+#include "damage.h"
 #include "records.h"
 #include "deer.h"
 #include "menu.h"
@@ -66,6 +67,7 @@ void game_set_state(int state) {
         truck_place(&trucks[0], v3(lvl_spawns[1][0] + 4.0f, 0, lvl_spawns[1][2] + 6.0f), 0.6f);
         trucks[0].mode = DRIVE_2WD;
         fx_clear();
+        damage_reset();
     }
 }
 
@@ -100,6 +102,7 @@ void game_start_drive(void) {
     game.photo = false;
     camera_reset();
     fx_clear();
+    damage_reset();
     birds_reset();
     audio_drive_start();
     game_set_state(ST_DRIVE);
@@ -280,6 +283,7 @@ static void drive_update(float dt) {
     for(int i = 0; i < game.ntrucks; i++)
         if(!trucks[i].remote) truck_update(&trucks[i], dt);
     if(game.online) online_drive_step(dt);
+    damage_update(dt);
     climb_update();
     progress_update(dt);
     records_update(dt);
@@ -445,6 +449,7 @@ static void area_world(void) {
     deer_reset();
     hud_area();
     fx_clear();
+    damage_reset();
 }
 
 /* While an area loads the world is rebuilt in one go, with nothing of it

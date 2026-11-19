@@ -455,6 +455,7 @@ void truck_place(Truck *t, V3 base, float heading) {
     t->mode = mode;
     t->tc = 1.0f;
     for(int i = 0; i < 4; i++) t->wh[i].comp = t->wh[i].comp_prev = t->spec.sag * t->spec.travel;
+    t->placed = true;
 }
 
 int truck_set_mode(Truck *t, int mode) {
@@ -687,6 +688,7 @@ static void step(Truck *t, float dt) {
                 best_d = d;
             }
         }
+        if(t->wheel_off & (1u << i)) best = -1.0f;   /* no tyre: nothing to stand on (the hub is the body's, below) */
         float c = 0;
         if(best > 0) c = best / fmaxf(U.y, 0.4f);
         float bump = 0;
@@ -731,6 +733,7 @@ static void step(Truck *t, float dt) {
         int l = a * 2, r = a * 2 + 1;
         float k = a ? S->arb_rear : (t->mode == DRIVE_LOCK ? 0.0f : S->arb_front);
         float f = k * (t->wh[l].comp - t->wh[r].comp);
+        if(t->wheel_off & (3u << l)) f = 0;   /* a bar with a wheel gone from one end twists nothing */
         if(ct[l].N > 0 || t->wh[l].contact) ct[l].N = fmaxf(0, ct[l].N + f);
         if(ct[r].N > 0 || t->wh[r].contact) ct[r].N = fmaxf(0, ct[r].N - f);
     }
@@ -812,7 +815,7 @@ static void step(Truck *t, float dt) {
     float I_e = S->peak_torque * 0.0006f;   /* ~0.12-0.32 kg m2 */
     float T_shaft;   /* torque at the wheels from the engine, summed */
     if(coupled) {
-        float Te = throttle * engine_torque(S, t->rpm) - engine_friction(S, t->rpm);
+        float Te = throttle * engine_torque(S, t->rpm) * (1.0f - t->power_loss) - engine_friction(S, t->rpm);
         T_shaft = Te * G;
     }
     else {
@@ -826,7 +829,7 @@ static void step(Truck *t, float dt) {
         t->rpm = approach(t->rpm, target, dt * 5000.0f);
         float sr = clampf(rpm_shaft / fmaxf(t->rpm, 1.0f), 0, 1);
         float creep = t->stalled ? 0.0f : 0.12f * S->peak_torque * (1 - throttle) * (1 - fminf(t->brake, 1.0f));
-        float Te = (throttle * engine_torque(S, t->rpm) + creep) * (1.0f + 0.9f * (1.0f - sr));
+        float Te = (throttle * engine_torque(S, t->rpm) * (1.0f - t->power_loss) + creep) * (1.0f + 0.9f * (1.0f - sr));
         T_shaft = Te * G * shift_lock;
     }
     float r_w = S->radius, Iw = S->wheel_inertia;
@@ -994,9 +997,17 @@ static void step(Truck *t, float dt) {
 
     /* 5. The chassis against the ground, obstacles and water. */
     float hit = 0, scrape = 0, chassis_n = 0;
+    /* The hardest knock the body took (a tyre takes its own), where it
+       landed and which way it pushed, for damage.c. */
+    float knock = 0;
+    V3 hit_p = t->pos, hit_n = U, scrape_n = U;
     V3 lo = v3(S->body_lo[0], S->body_lo[1], S->body_lo[2]), hi = v3(S->body_hi[0], S->body_hi[1], S->body_hi[2]);
-    V3 pts[14];
+    V3 pts[18];
     int np = 0;
+    /* A lost wheel's hub, hanging at full droop: it holds that corner up
+       and drags. */
+    for(int i = 0; i < 4; i++)
+        if(t->wheel_off & (1u << i)) pts[np++] = v3(S->wheel[i].x, S->wheel[i].y - S->sag * S->travel - 0.14f, S->wheel[i].z);
     for(int c = 0; c < 8; c++)
         pts[np++] = v3((c & 1) ? hi.x : lo.x, (c & 2) ? hi.y : lo.y, (c & 4) ? hi.z : lo.z);
     pts[np++] = v3(0, lo.y, lo.z);
@@ -1023,6 +1034,7 @@ static void step(Truck *t, float dt) {
             float fn = KC * depth - CC * fminf(vn, 0.0f);
             if(fn <= 0) continue;
             if(-vn > hit) hit = -vn;
+            if(-vn > knock) knock = -vn, hit_p = p, hit_n = n;
             chassis_n += fn;
             V3 vt = vsub(vp, vscale(n, vn));
             float vtl = vlen(vt);
@@ -1030,7 +1042,7 @@ static void step(Truck *t, float dt) {
             if(vtl > 0.01f) {
                 float ff = fminf(MUC * fn, vtl * 6000.0f);
                 f = vmad(f, vt, -ff / vtl);
-                scrape = fmaxf(scrape, vtl);
+                if(vtl > scrape) scrape = vtl, scrape_n = n;
             }
             force = vadd(force, f);
             torque = vadd(torque, vcross(vsub(p, t->pos), f));
@@ -1064,6 +1076,7 @@ static void step(Truck *t, float dt) {
         float fn = KT * fminf(ph.depth, 0.5f) - CT * fminf(vn, 0.0f);
         if(fn <= 0) continue;
         if(-vn > hit) hit = -vn;
+        if(-vn > knock) knock = -vn, hit_p = p, hit_n = n;
         V3 f = vscale(n, fn);
         V3 vt = vsub(vr, vscale(n, vn));
         vt.y = 0;
@@ -1128,13 +1141,14 @@ static void step(Truck *t, float dt) {
         float fn = KC * fminf(depth, 0.5f) - CC * fminf(vn, 0.0f);
         if(fn <= 0) continue;
         if(-vn > hit) hit = -vn;
+        if(-vn > knock) knock = -vn, hit_p = p, hit_n = n;
         V3 f = vscale(n, fn);
         V3 vt = vsub(vp, vscale(n, vn));
         vt.y = 0;
         float vtl = vlen(vt);
         if(vtl > 0.01f) {
             f = vmad(f, vt, -fminf(MUC * fn, vtl * 6000.0f) / vtl);
-            scrape = fmaxf(scrape, vtl);
+            if(vtl > scrape) scrape = vtl, scrape_n = n;
         }
         force = vadd(force, f);
         torque = vadd(torque, vcross(vsub(p, t->pos), f));
@@ -1142,6 +1156,7 @@ static void step(Truck *t, float dt) {
     /* Wheels against tree trunks and the sides of ledges. */
     for(int i = 0; i < 4; i++) {
         Wheel *w = &t->wh[i];
+        if(t->wheel_off & (1u << i)) continue;
         ObsContact oc[3];
         int nc = obstacle_contacts(w->centre, S->radius * 0.9f, oc, 3);
         for(int c = 0; c < nc; c++) {
@@ -1151,6 +1166,7 @@ static void step(Truck *t, float dt) {
             float fn = KC * fminf(oc[c].depth, 0.3f) - CC * fminf(vn, 0.0f);
             if(fn <= 0) continue;
             if(-vn > hit) hit = -vn;
+            if(-vn > t->wheel_hit[i]) t->wheel_hit[i] = -vn;
             V3 f = vscale(oc[c].n, fn);
             force = vadd(force, f);
             torque = vadd(torque, vcross(vsub(w->centre, t->pos), f));
@@ -1167,8 +1183,17 @@ static void step(Truck *t, float dt) {
     }
     else t->drown_t = fmaxf(0, t->drown_t - dt);
     if(hit > t->hit) t->hit = hit;
+    if(knock > t->knock) {
+        t->knock = knock;
+        V3 d = vsub(hit_p, t->pos);
+        t->knock_at = v3(vdot(d, R), vdot(d, U) + S->cog_y, vdot(d, F) + S->cog_z);
+        t->knock_n = v3(vdot(hit_n, R), vdot(hit_n, U), vdot(hit_n, F));
+    }
     t->dbg_chassis = chassis_n;
-    if(scrape > t->scrape) t->scrape = scrape;
+    if(scrape > t->scrape) {
+        t->scrape = scrape;
+        t->scrape_n = v3(vdot(scrape_n, R), vdot(scrape_n, U), vdot(scrape_n, F));
+    }
     /* A little air drag. */
     float v2 = vdot(t->vel, t->vel);
     if(v2 > 0.01f) force = vmad(force, t->vel, -0.95f * sqrtf(v2));
@@ -1281,7 +1306,7 @@ void truck_update(Truck *t, float dt) {
     int ti = (int)(t - trucks);
     if(ti < 0 || ti >= MAX_TRUCKS) ti = 0;
     steer_now[ti] = approach(steer_now[ti], steer_t, dt * 2.4f);
-    float st = steer_now[ti];
+    float st = steer_now[ti] + t->steer_pull;
     float wb = S->wheel[WFL].z - S->wheel[WRL].z, track = S->wheel[WFR].x - S->wheel[WFL].x;
     if(fabsf(st) > 1e-3f) {
         float Rt = wb / tanf(fabsf(st));
@@ -1318,7 +1343,8 @@ void truck_update(Truck *t, float dt) {
         if(tc_s[ti2] <= 0) tc_s[ti2] = 1.0f;
         t->tc = tc_s[ti2];
     }
-    t->hit = t->scrape = 0;
+    t->hit = t->knock = t->scrape = 0;
+    memset(t->wheel_hit, 0, sizeof(t->wheel_hit));
     PROF_BEGIN(pp);
     /* CPU trucks well away from the camera take half the steps. */
     int n = SUBSTEPS;
@@ -1367,6 +1393,7 @@ void truck_set_pose(Truck *t, V3 pos, const V3 ax[3], V3 vel, float steer, const
         w->steer = i < 2 ? steer : 0;
         w->omega = (fwd + spin[i]) / S->radius;
         w->spin += w->omega * dt;
+        if(t->wheel_off & (1u << i)) w->contact = false;
     }
     t->speed = fwd;
     t->pitch = asinf(clampf(ax[2].y, -1, 1)) * (180.0f / ENG_PI);

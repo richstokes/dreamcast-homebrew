@@ -1,6 +1,7 @@
 package lobby
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -237,8 +238,41 @@ func TestRelay(t *testing.T) {
 	if b == nil || b[8] != 1 || b[9] != 1 || binary.LittleEndian.Uint16(b[10:]) != 30 || b[12+1] != 2 {
 		t.Errorf("A1's relay % x", b)
 	}
-	if b = h.last("C3", TypeTrucks); b == nil || b[8] != 2 || len(b) != 9+2*(3+TruckLen) {
+	if b = h.last("C3", TypeTrucks); b == nil || b[8] != 2 || len(b) != 9+2*(3+TruckLen+DamageLen) {
 		t.Errorf("C3's relay % x", b)
+	}
+}
+
+// A truck's damage comes after its TRUCK body and goes out after all the
+// trucks, in their order; a console that sends none reads as whole.
+func TestRelayDamage(t *testing.T) {
+	h := newHarness(t)
+	for _, n := range []string{"A1", "B2", "C3"} {
+		h.hello(n)
+		h.join(n, 2)
+	}
+	h.truck("A1", 0) // as an older build sends it
+	body := make([]byte, TruckLen+DamageLen)
+	copy(body[TruckLen:], []byte{0x41, 0x02, 0x05, 0x03, 37})
+	h.packet("B2", TypeTruck, Build, body)
+	h.s.Relay(h.now)
+	b := h.last("C3", TypeTrucks)
+	tail := 9 + 2*(3+TruckLen)
+	if b == nil || len(b) != tail+2*DamageLen || b[9] != 0 || b[9+3+TruckLen] != 1 {
+		t.Fatalf("C3's relay % x", b)
+	}
+	if !bytes.Equal(b[tail:tail+DamageLen], make([]byte, DamageLen)) ||
+		!bytes.Equal(b[tail+DamageLen:], []byte{0x41, 0x02, 0x05, 0x03, 37}) {
+		t.Errorf("C3's damage % x", b[tail:])
+	}
+	// Back in after leaving: whole again until it says otherwise.
+	h.packet("B2", TypeLeave, Build, nil)
+	h.join("B2", 2)
+	h.truck("B2", 0)
+	h.s.Relay(h.now)
+	b = h.last("A1", TypeTrucks)
+	if n := int(b[8]); !bytes.Equal(b[9+n*(3+TruckLen):], make([]byte, n*DamageLen)) {
+		t.Errorf("A1's damage after B2 rejoined % x", b[9+n*(3+TruckLen):])
 	}
 }
 

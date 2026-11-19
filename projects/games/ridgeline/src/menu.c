@@ -1,6 +1,7 @@
 /* Ridgeline menus: the title and main menu over a flyover of the mountain,
    picking an area, then a truck, its paint and company with the truck
    parked at the area's start, and the pause menu. */
+#include "damage.h"
 #include "menu.h"
 #include "records.h"
 #include "progress.h"
@@ -294,7 +295,9 @@ static void select_scene(float dt) {
    off with the best times. Online it is one page, the truck, its paint
    and the lobby to join: the area and the company come with the lobby,
    and the lobby keeps the time of day. */
-#define SEL_LAST (sel_page == PG_AREA ? 1 : 2)   /* a page is its rows and a button */
+/* A page is its rows and a button. Online the truck page is the only one,
+   so the damage choice is a third row of it. */
+#define SEL_LAST (sel_page == PG_AREA ? 1 : sel_page == PG_DRIVE || game.online ? 3 : 2)
 
 static void select_back(void) {
     audio_sfx(RL_SFX_MENU_BACK, 200);
@@ -370,6 +373,7 @@ void menu_select_update(float dt) {
     if(d && sel_row < SEL_LAST) {
         audio_sfx(RL_SFX_MENU_MOVE, 160);
         int item = (sel_page - PG_TRUCK) * 2 + sel_row;
+        if(game.online && sel_row == 2) item = 4;   /* (the damage row) */
         if(item == 0) {
             game.truck_model = (game.truck_model + TRUCK_MODELS + d) % TRUCK_MODELS;
             trucks[0].model = game.truck_model;
@@ -381,9 +385,15 @@ void menu_select_update(float dt) {
             trucks[0].livery = game.livery;
         }
         else if(item == 2) game.companions = (game.companions + 4 + d) % 4;
-        else {
+        else if(item == 3) {
             game.start_tod = (game.start_tod + TOD_COUNT + d) % TOD_COUNT;
             tod_set_hour(tod_hours[game.start_tod]);
+        }
+        else {
+            /* Whether knocks mark the trucks (damage.h): kept with the save,
+               and what a drive online goes by too. */
+            game.damage_off = !game.damage_off;
+            records_set_damage_off(game.damage_off);
         }
     }
     if(pad.pressed & BTN_B) {
@@ -411,14 +421,14 @@ void menu_select_update(float dt) {
     select_scene(dt);
 }
 
-/* Two rows with arrows and a button under them, in a panel. */
-static void select_rows(float x0, float x1, float y0, float y1, const char *const rows[3][2]) {
-    float lx = x0 + 18, vx = x1 - 133, step = (y1 - y0 - 40) * 0.5f;
+/* n rows with arrows and a button under them, in a panel. */
+static void select_rows(float x0, float x1, float y0, float y1, const char *const rows[][2], int n) {
+    float lx = x0 + 18, vx = x1 - 133, step = (y1 - y0 - 40) / (float)n;
     ui_panel(x0, y0, x1, y1);
-    for(int r = 0; r < 3; r++) {
+    for(int r = 0; r <= n; r++) {
         float y = y0 + 20 + r * step;
         bool on = r == sel_row;
-        if(r < 2) {
+        if(r < n) {
             ui_row(x0 + 4, y - 15, x1 - 4, y + 15, on);
             uint32_t c = ui_col(on ? UI_VALUE_SEL : UI_VALUE);
             hud_text_c(lx, y, 0.66f, ALIGN_LEFT, ui_col(on ? UI_ITEM_SEL : UI_LABEL), rows[r][0]);
@@ -505,12 +515,14 @@ void menu_select_draw(void) {
         char join[24];
         snprintf(join, sizeof(join), "JOIN LOBBY %d", online_lobby_pick() + 1);
         bool locked = sel_locked();
-        const char *const rows[3][2] = {
+        const char *const rows[4][2] = {
             {"TRUCK", menu_truck_name(game.truck_model)},
             {"PAINT", livery_name(game.truck_model, game.livery)},
-            {"", locked ? "LOCKED" : game.online ? join : "NEXT"},
+            {game.online ? "DAMAGE" : "", game.online ? (game.damage_off ? "OFF" : "ON") : locked ? "LOCKED" : "NEXT"},
+            {"", locked ? "LOCKED" : join},
         };
-        select_rows(140, 500, 318, 432, rows);
+        if(game.online) select_rows(140, 500, 278, 432, rows, 3);
+        else select_rows(140, 500, 318, 432, rows, 2);
         ui_heading(320, 40, "CHOOSE YOUR TRUCK");
         /* The line-up: a pip a truck, amber for the ones earned, the one
            on show marked. */
@@ -537,12 +549,13 @@ void menu_select_draw(void) {
         else ui_hint("LEFT/RIGHT: CHANGE   A: NEXT   B: BACK");
         return;
     }
-    const char *const rows[3][2] = {
+    const char *const rows[4][2] = {
         {"COMPANY", company[game.companions]},
         {"START AT", tod_names[game.start_tod]},
+        {"DAMAGE", game.damage_off ? "OFF" : "ON"},
         {"", "DRIVE!"},
     };
-    select_rows(40, 430, 312, 432, rows);
+    select_rows(40, 430, 272, 432, rows, 3);
     /* This truck's best times to the summit, by the way up. */
     ui_panel(446, 312, 610, 432);
     hud_text_c(528, 332, 0.5f, ALIGN_CENTER, ui_col(UI_LABEL), "BEST TIMES");
@@ -561,11 +574,13 @@ void menu_select_draw(void) {
 
 /* ---- Pause ---- */
 
-enum { P_RESUME, P_RECOVER, P_VIEW, P_FPS, P_HUD, P_QUIT, P_COUNT };
+enum { P_RESUME, P_RECOVER, P_REPAIR, P_VIEW, P_FPS, P_HUD, P_QUIT, P_COUNT };
 
 /* The viewpoint item is there once one has been found; left and right step
-   through the ones found. */
+   through the ones found. The repair is there while the truck has a mark
+   on it. */
 static bool pause_item_on(int i) {
+    if(i == P_REPAIR) return damage_look(0)->percent || damage_look(0)->pieces || damage_look(0)->lamps;
     return i != P_VIEW || game.views_found;
 }
 
@@ -635,6 +650,11 @@ void menu_pause_update(float dt) {
                 camera_reset();
                 game.paused = false;
                 break;
+            case P_REPAIR:
+                damage_repair(0);
+                game.paused = false;
+                hud_status("TRUCK REPAIRED", 0xff90f0b0, 2.0f);
+                break;
             case P_VIEW: {
                 const lvl_view_t *v = &lvl_views[game.view_sel];
                 char buf[48];
@@ -685,18 +705,21 @@ void menu_pause_draw(void) {
     char view[32] = "";
     if(game.views_found) snprintf(view, sizeof(view), "TO %s", lvl_views[game.view_sel].name);
     static const char *const hud[HUD_MODES] = {"HUD: ON", "HUD: SIMPLE", "HUD: OFF"};
-    const char *items[P_COUNT] = {"RESUME", "RECOVER TRUCK", view, game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF",
-                                  hud[game.hud_mode], game.online ? "LEAVE LOBBY" : "QUIT TO TITLE"};
+    const char *items[P_COUNT] = {"RESUME", "RECOVER TRUCK", "REPAIR TRUCK", view,
+                                  game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF", hud[game.hud_mode],
+                                  game.online ? "LEAVE LOBBY" : "QUIT TO TITLE"};
     ui_dim();
     int n = 0;
     for(int i = 0; i < P_COUNT; i++) n += pause_item_on(i);
-    ui_panel(190, 150, 450, 204 + n * 32);
+    /* (six rows sit as they always did; more push the panel up to fit) */
+    const float top = 150 - (n > 6 ? (n - 6) * 16 : 0);
+    ui_panel(190, top, 450, top + 54 + n * 32);
     char title[24], t[8];
     tod_format(tod.hour, t, sizeof(t));
     /* Online nothing stops: it is a menu over the mountain. */
     snprintf(title, sizeof(title), "%s   %s", game.online ? "MENU" : "PAUSED", t);
-    ui_title(190, 150, 450, title);
-    float y = 204;
+    ui_title(190, top, 450, title);
+    float y = top + 54;
     for(int i = 0; i < P_COUNT; i++) {
         if(!pause_item_on(i)) continue;
         bool on = i == game.pause_sel;

@@ -26,6 +26,7 @@
    and adds it on. Near trees and rocks swap for far versions that keep
    their colours (world.c), so their firelight fades out before the swap. */
 #include "lamps.h"
+#include "damage.h"
 #include "glow.h"
 #include "world.h"
 #include "tod.h"
@@ -343,7 +344,8 @@ void lamps_begin(bool on_screen) {
     float ldist[LAMPS];
     for(int ti = 0; ti < game.ntrucks; ti++) {
         const Truck *t = &trucks[ti];
-        if(t->absent || !t->lights) continue;
+        float whole = damage_beam(ti);   /* less with a headlight smashed, none with both */
+        if(t->absent || !t->lights || whole <= 0) continue;
         /* The player's truck always; others near the camera, nearest first. */
         float d = ti == 0 ? 0 : vlen(vsub(t->pos, r_cam.pos));
         if(d > LAMP_NEAR) continue;
@@ -373,7 +375,7 @@ void lamps_begin(bool on_screen) {
         l->ih2 = 1.0f / (l->th * l->th);
         l->iv2 = 1.0f / (l->tv * l->tv);
         l->irange = 1.0f / l->range;
-        l->k = dark * (full ? 1.3f : 1.05f);
+        l->k = dark * (full ? 1.3f : 1.05f) * whole;
         float fl = sqrtf(l->f.x * l->f.x + l->f.z * l->f.z);
         if(fl < 0.1f) fl = 0.1f;
         l->fhx = l->f.x / fl;

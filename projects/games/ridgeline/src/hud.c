@@ -1,6 +1,7 @@
 /* Ridgeline HUD: a rev counter with the gear and speed, the drive mode,
    an inclinometer, the map, how far up the mountain, viewpoints found, and
    short messages. Everything in the translucent list, after the scene. */
+#include "damage.h"
 #include "hud.h"
 #include "truck.h"
 #include "terrain.h"
@@ -366,6 +367,43 @@ static void inclinometer(const Truck *t) {
     hud_text_c(168, y + 28, 0.5f, ALIGN_CENTER, cr, buf);
 }
 
+/* The truck from above, once it has a mark on it: each face of the body
+   by how scuffed it is (grey, then yellow to red), the four lamps at its
+   corners (dark once smashed), and the damage meter under it. */
+static void damage_panel(float y0) {
+    const DamageLook *d = damage_look(0);
+    if(!d->percent && !d->pieces && !d->lamps) return;
+    static const uint32_t lv[DMG_LEVELS] = {0xff7a8490, 0xffe8d040, 0xffff9030, 0xffff4030};
+    const float x0 = 28, cx = x0 + 34, cy = y0 + 31;
+    int power = 100 - (int)(damage_power_loss(0) * 100.0f + 0.5f);
+    hud_panel(x0, y0, x0 + 68, y0 + (power < 100 ? 88 : 74), 0x70182028);
+    r_hdr(h_flat);
+    r_quad2d(cx - 8, cy - 15, cx + 8, cy + 15, 0, 0, 1, 1, lv[d->face[DMG_TOP]], Z + 0.2f);
+    r_quad2d(cx - 12, cy - 22, cx + 12, cy - 17, 0, 0, 1, 1, lv[d->face[DMG_FRONT]], Z + 0.2f);
+    r_quad2d(cx - 12, cy + 17, cx + 12, cy + 22, 0, 0, 1, 1, lv[d->face[DMG_REAR]], Z + 0.2f);
+    r_quad2d(cx - 15, cy - 15, cx - 10, cy + 15, 0, 0, 1, 1, lv[d->face[DMG_LEFT]], Z + 0.2f);
+    r_quad2d(cx + 10, cy - 15, cx + 15, cy + 15, 0, 0, 1, 1, lv[d->face[DMG_RIGHT]], Z + 0.2f);
+    /* The wheels beside it: red where one has come off. */
+    for(int i = 0; i < 4; i++) {
+        float x = cx + ((i & 1) ? 19.5f : -19.5f), y = cy + (i < 2 ? -11.0f : 11.0f);
+        bool off = d->pieces & (1u << (DMG_WHEEL0 + i));
+        r_quad2d(x - 2.0f, y - 5.0f, x + 2.0f, y + 5.0f, 0, 0, 1, 1, off ? lv[3] : 0xff30363c, Z + 0.2f);
+    }
+    for(int i = 0; i < 4; i++) {
+        float x = cx + ((i & 1) ? 13.5f : -13.5f), y = cy + (i < 2 ? -20.5f : 20.5f);
+        uint32_t c = (d->lamps & (1u << i)) ? 0xff202428 : i < 2 ? 0xfffff4d0 : 0xffff3828;
+        r_quad2d(x - 2.5f, y - 2.5f, x + 2.5f, y + 2.5f, 0, 0, 1, 1, c, Z + 0.3f);
+    }
+    char buf[24];
+    snprintf(buf, sizeof(buf), "DMG %d%%", d->percent);
+    hud_text_c(cx, y0 + 64, 0.45f, ALIGN_CENTER, d->percent >= 60 ? lv[3] : d->percent >= 25 ? lv[2] : 0xfff4ecd8, buf);
+    /* What is left of the engine, once it has lost any. */
+    if(power < 100) {
+        snprintf(buf, sizeof(buf), "PWR %d%%", power);
+        hud_text_c(cx, y0 + 78, 0.45f, ALIGN_CENTER, power <= 70 ? lv[3] : power <= 85 ? lv[2] : 0xfff4ecd8, buf);
+    }
+}
+
 /* A truck's colour on the map: the player's white, each other truck its
    own, so they can be told apart (online, the roster repeats it). */
 uint32_t hud_map_color(int truck) {
@@ -454,7 +492,13 @@ void hud_draw(void) {
     lights_icon(t);
     tcs_icon(t);
     drive_mode(t);
-    if(full && game.map_mode != 1) inclinometer(t);
+    if(full && game.map_mode != 1) {
+        inclinometer(t);
+    }
+    /* The damage on the left, clear of the truck in the middle of the
+       screen: over the inclinometer, or, with that away (the simple HUD,
+       the large map), down over the drive mode. */
+    damage_panel(full && game.map_mode != 1 ? HUD_BOTTOM - 219 : HUD_BOTTOM - 126);
     banners_draw();
     if(hud_hold_k > 0 && hud_hold_label) {
         hud_panel(240, 300, 400, 330, 0xa0182028);

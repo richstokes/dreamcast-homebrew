@@ -94,10 +94,24 @@ typedef struct Truck {
     float speed;              /* forward speed, m/s */
     float pitch, roll;        /* degrees, nose up and right side up positive */
     float hit;                /* the hardest knock this frame, m/s */
+    float wheel_hit[4];       /* ...and each wheel's hardest against a trunk or a ledge's side */
+    float knock;              /* ...the hardest the body itself took (a tyre takes its own), */
+    V3 knock_at, knock_n;     /* where on the truck (model space) and the way it pushed the truck (body axes) */
     float scrape;             /* chassis sliding on ground or rock */
+    V3 scrape_n;              /* ...and the way that ground pushed (body axes) */
     float water;              /* deepest water at the wheels */
     float airborne_t;
     float stuck_t;
+    /* Wheels knocked off, a bit each (damage.c keeps it): that corner has
+       no tyre, its bare hub spins free on the driveline and drags on the
+       ground. placed: truck_place has just stood the truck somewhere. */
+    uint8_t wheel_off;
+    bool placed;
+    /* What the rest of its damage costs (damage.c sets both every frame):
+       the share of the engine's torque lost to a stoved-in nose, and how
+       far off straight a knocked front end leaves the steering (radians,
+       to the right positive). */
+    float power_loss, steer_pull;
     float flip_t;             /* seconds upside down: the hazard lights come on with it (truckdraw.c) */
     float dbg_chassis;        /* force the body itself carried last step, N */
     /* Previous frame's pose, for drawing between steps. */
