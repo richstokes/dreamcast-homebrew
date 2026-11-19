@@ -75,11 +75,12 @@ vmutest:
 # its pieces knocked off and the truck mended (screenshots in
 # captures/damage). TRUCK=0..7 picks the truck; STRIP=1 takes everything
 # off it at once for a look at what is left; WHEEL=4 knocks wheels off (a
-# bit each) and drives on what is left.
+# bit each) and drives on what is left. LOGS=1 drives over the thickest
+# logs at 9 to 22 mph, each blow logged: ordinary driving should cost nothing.
 TRUCK ?= 1
 damagetest:
 	rm -f ridgeline-autotest.elf
-	$(MAKE) VARIANT=autotest EXTRA_CFLAGS="-DRL_AT_DAMAGE -DRL_AT_COMPANIONS=0 -DRL_AT_TRUCK=$(TRUCK) $(if $(STRIP),-DRL_AT_STRIP) $(if $(WHEEL),-DRL_AT_WHEEL=$(WHEEL))" ridgeline-autotest.elf
+	$(MAKE) VARIANT=autotest EXTRA_CFLAGS="-DRL_AT_DAMAGE -DRL_AT_COMPANIONS=0 -DRL_AT_TRUCK=$(TRUCK) $(if $(LOGS),-DRL_AT_LOGS -DRL_AT_KNOCKS) $(if $(STRIP),-DRL_AT_STRIP) $(if $(WHEEL),-DRL_AT_WHEEL=$(WHEEL))" ridgeline-autotest.elf
 	mv ridgeline-autotest.elf ridgeline-damagetest.elf
 	uv run tools/capture.py --elf ridgeline-damagetest.elf --out captures/damage
 	rm -f ridgeline-damagetest.elf

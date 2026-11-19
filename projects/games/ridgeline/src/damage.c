@@ -4,7 +4,7 @@
    speed into the truck, where it landed and which way it pushed). It
    scuffs the face of the body it landed on, loosens whatever is bolted to
    that face and adds to the meter. Blows from below are the skid plate's
-   job: they count a little toward the meter and mark nothing. A piece that
+   job: they mark nothing, and only a hard landing counts toward the meter. A piece that
    has had enough comes off as a box with the truck's motion and a kick
    outward, and from there it is a rigid body of its own: gravity, its
    corners against the ground, a bounce and some rub, asleep once it lies
@@ -25,18 +25,24 @@ _Static_assert(RL_PIECE_COUNT == DMG_PIECES, "DMG_PIECES in damage.h");
 /* Test builds drive a truck up the mountain for timings that are compared
    with older builds': nothing takes damage there unless the test is of
    damage, or online (where it is on the wire). */
-#if defined(RL_AUTOTEST) && !defined(RL_AT_DAMAGE) && !defined(RL_AT_ONLINE)
+#if defined(RL_AUTOTEST) && !defined(RL_AT_DAMAGE) && !defined(RL_AT_ONLINE) && !defined(RL_AT_KNOCKS)
 #define NO_KNOCKS 1
 #else
 #define NO_KNOCKS 0
 #endif
 
-#define BODY_MIN 3.0f         /* m/s: a knock under this leaves no mark on the body, */
-#define FIX_MIN 1.5f          /* ...and under this nothing bolted to it feels it */
-#define BELLY 0.35f           /* a blow from below, on the meter */
+/* Ordinary driving costs nothing: over a log or a rock step at a sensible
+   pace (make damagetest LOGS=1 drives the thickest logs at 9 to 22 mph)
+   the body's underside takes blows of 3 to 6 m/s, and none of them should
+   show. */
+#define BODY_MIN 4.0f         /* m/s (9 mph): a knock under this leaves no mark on the body, */
+#define FIX_MIN 2.5f          /* ...and under this nothing bolted to it feels it */
+#define BELLY 0.35f           /* a blow from below, on the meter, */
+#define BELLY_MIN 7.0f        /* ...once it is this hard (a landing off something tall) */
+#define BELLY_UP 0.45f        /* how much of a blow on the body's bottom edge must push upward to be from below */
 #define FULL 45.0f            /* the meter reads 100% at this much */
-#define SCRAPE_MIN 3.0f       /* m/s: sliding on the body slower than this only polishes it */
-#define LAMP_TOUGH 3.5f
+#define SCRAPE_MIN 4.0f       /* m/s: sliding on the body slower than this only polishes it */
+#define LAMP_TOUGH 4.5f
 /* A wheel comes off only in a real smash: a log or a trunk met at a pace
    a driver might plausibly be doing (20 mph, say) bends nothing. */
 #define WHEEL_MIN 9.0f        /* m/s: a wheel meeting a trunk, a log or a ledge's side slower than this shrugs it off */
@@ -284,9 +290,15 @@ static void blow(int ti, float body, float fix, V3 at, V3 n) {
     const Truck *t = &trucks[ti];
     Dmg *d = &dmg[ti];
     V3 from = vscale(n, -1.0f);   /* out of the face it landed on */
-    if(from.y < -0.6f) {
-        d->total += body * BELLY;
-        relook(d);
+    /* From below: straight up, or on the body's bottom edge and mostly up
+       (the nose riding up a log, a sill coming down on a rock). The skid
+       plates' business: nothing shows, and only a hard one counts. */
+    if(from.y < -0.6f || (at.y < t->spec.body_lo[1] + 0.1f && n.y > BELLY_UP)) {
+        float over = body + BODY_MIN - BELLY_MIN;
+        if(over > 0) {
+            d->total += over * BELLY;
+            relook(d);
+        }
         return;
     }
     d->total += body;
@@ -496,6 +508,13 @@ void damage_update(float dt) {
         }
         d->cool -= dt;
         if(t->knock > FIX_MIN && (d->cool <= 0 || t->knock > d->last * 1.5f)) {
+#ifdef RL_AT_KNOCKS
+            /* -DRL_AT_KNOCKS: an ordinary test drive with damage on, each
+               blow to a body logged, for tuning what ordinary driving costs. */
+            printf("RL AT knock: truck %d %.1f m/s (going %.1f) at %.2f %.2f %.2f pushing %.2f %.2f %.2f, meter %d%% pieces %03x\n", ti,
+                   (double)t->knock, (double)vlen(t->vel), (double)t->knock_at.x, (double)t->knock_at.y, (double)t->knock_at.z,
+                   (double)t->knock_n.x, (double)t->knock_n.y, (double)t->knock_n.z, d->look.percent, d->look.pieces);
+#endif
             blow(ti, fmaxf(t->knock - BODY_MIN, 0), t->knock - FIX_MIN, t->knock_at, t->knock_n);
             d->last = t->knock;
             d->cool = 0.3f;

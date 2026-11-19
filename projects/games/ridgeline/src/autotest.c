@@ -498,7 +498,11 @@ void autotest_boot(void) {
 
 bool autotest_controls(Truck *p, float dt) {
     (void)dt;
-#ifdef RL_AT_WHEEL
+#ifdef RL_AT_LOGS
+    p->in = (TruckInput){.throttle = 0.25f};
+    p->mode = DRIVE_4WD;
+    return true;
+#elif defined(RL_AT_WHEEL)
     /* -DRL_AT_WHEEL=4 (with -DRL_AT_DAMAGE; a bit a wheel, 4 the rear
        left): flat out on what is left, 6 s in each drive mode. */
     p->in = (TruckInput){.throttle = game.clock > 2.0f ? 1.0f : 0.0f};
@@ -640,6 +644,56 @@ static void damage_test(void) {
         heading = truck_heading(p);
     }
     p->lights = LIGHTS_DIPPED;
+#ifdef RL_AT_LOGS
+    /* -DRL_AT_LOGS (with -DRL_AT_DAMAGE and -DRL_AT_KNOCKS for each blow):
+       straight over the area's four thickest fallen logs at 9, 13, 18 and 22
+       mph, the truck mended between, and what each crossing cost. Driving
+       over a log at a sensible pace should cost nothing. */
+    {
+        static const float speeds[] = {4.0f, 6.0f, 8.0f, 10.0f};
+        static int logs[4], nlogs = -1, worst_slow;
+        if(nlogs < 0) {
+            nlogs = 0;
+            /* (the four thickest that lie about level) */
+            for(int k = 0; k < 4; k++) {
+                int best = -1;
+                for(int i = 0; i < LVL_CAPSULES; i++) {
+                    const lvl_capsule_t *c = &lvl_capsules[i];
+                    bool had = false;
+                    for(int j = 0; j < nlogs; j++) had |= logs[j] == i;
+                    if(!had && fabsf(c->ay - c->by) < 0.6f && (best < 0 || c->r > lvl_capsules[best].r)) best = i;
+                }
+                if(best >= 0) logs[nlogs++] = best;
+            }
+        }
+        const int per = 200, runs = nlogs * 4, run = (frames - 1) / per, at = (frames - 1) % per;
+        if(run < runs) {
+            const lvl_capsule_t *c = &lvl_capsules[logs[run / 4]];
+            float sp = speeds[run % 4];
+            if(at == 0) {
+                V3 along = vnorm(v3(c->bx - c->ax, 0, c->bz - c->az)), n = v3(along.z, 0, -along.x);
+                V3 mid = v3(0.5f * (c->ax + c->bx), 0, 0.5f * (c->az + c->bz));
+                damage_repair(0);
+                truck_place(p, vmad(mid, n, -7.0f), atan2f(n.x, n.z));
+                camera_reset();
+            }
+            if(at == 20) {
+                p->vel = vscale(p->ax[2], sp);
+                for(int i = 0; i < 4; i++) p->wh[i].omega = sp / p->spec.radius;
+            }
+            if(at == per - 1) {
+                const DamageLook *d = damage_look(0);
+                printf("RL AT log %d (r %.2f) at %.0f mph: meter %d%% faces %d%d%d%d%d pieces %03x lamps %x\n", logs[run / 4], (double)c->r,
+                       (double)(sp * MPS_TO_MPH), d->percent, d->face[0], d->face[1], d->face[2], d->face[3], d->face[4], d->pieces,
+                       d->lamps);
+                if(sp <= 6.0f && (d->percent || d->pieces || d->lamps)) worst_slow++;
+            }
+        }
+        else if(frames == runs * per + 1)
+            printf("RL AUTOTEST: %s (%d crossings at 13 mph or under left a mark)\n", worst_slow ? "FAIL" : "PASS", worst_slow);
+        return;
+    }
+#endif
 #ifdef RL_AT_WHEEL
     if(frames == 60 || frames == 61) {
         DamageLook off = {.pieces = frames == 61 ? (RL_AT_WHEEL) << DMG_WHEEL0 : 0};
