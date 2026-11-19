@@ -17,9 +17,18 @@
 #include "level.h"
 
 #define RL_DT ENG_DT
+#ifdef RL_FILM
+#define MAX_TRUCKS 8    /* a film build can put every vehicle in one shot (Flycast has the time and the room) */
+#else
 #define MAX_TRUCKS 4
+#endif
 #define TRUCK_MODELS 8   /* RL_TRUCK_COUNT in trucks.h (truckdraw.c checks) */
+#ifdef RL_FILM
+extern float film_g;    /* a film build's stunts can lighten gravity (film.c) */
+#define GRAVITY (9.81f * film_g)
+#else
 #define GRAVITY 9.81f
+#endif
 #define MPS_TO_MPH 2.23694f
 #define M_TO_FT 3.28084f
 

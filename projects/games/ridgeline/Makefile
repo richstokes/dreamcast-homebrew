@@ -127,7 +127,8 @@ fxbench:
 	@/usr/bin/grep -a 'RL A' captures/hw/fxbench.log
 
 # Trailer footage through OBS (its websocket password in OBS_WS_PASSWORD):
-# every scene in src/film.c, or FILM_PICK=3,7 for some. Cut on the
+# every scene in src/film.c (all four areas, ~18 minutes), or FILM_PICK=3,7
+# for some. Cut on the
 # "RL FILM go/cut" lines in captures/film/runs/<take>.log.
 FILM_PICK ?=
 TAKE ?= take
@@ -136,7 +137,7 @@ film:
 	$(MAKE) VARIANT=film $(if $(FILM_PICK),EXTRA_CFLAGS=-DRL_FILM_PICK=$(FILM_PICK)) ridgeline-film.elf
 	uv run ../dreamkarts/tools/film/record.py ridgeline-film.elf $(TAKE) --prefix 'RL FILM' \
 		--flycast tools/film/flycast-film.sh --footage "$(HOME)/Movies/Ridgeline Footage" --work captures/film \
-		--stop-on 'RL FILM done' --stop-after 1
+		--stop-on 'RL FILM done' --stop-after 1 --max-secs 1500
 
 disc: $(TARGET)
 	../../../tools/flycast/elf-to-cdi.sh $(TARGET) ridgeline.cdi

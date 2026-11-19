@@ -145,7 +145,12 @@ static void place(V3 p, float range, int *pan, float *gain) {
    a horn carries further than an engine. t NULL: that truck is gone. */
 static void remote_horn(int i, const Truck *t, bool paused) {
     SfxVoice *v = &rhorn_v[i];
-    if(!t || !t->remote || !t->horn || paused) {
+#ifdef RL_FILM
+    bool sounds = t && t->horn;   /* a film's trucks all have horns */
+#else
+    bool sounds = t && t->remote && t->horn;
+#endif
+    if(!sounds || paused) {
         if(v->channel >= 0) sfx_voice_stop(v);
         return;
     }
