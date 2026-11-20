@@ -222,23 +222,38 @@ float ui_glyph(float x, float cy, const char *key, bool draw) {
         }
         return w;
     }
-    if(!strcmp(key, "L+R")) {
-        float w = 48;
+    /* One d-pad direction: a key cap with a single arrow. */
+    int dir = !strcmp(key, "UP") ? 0 : !strcmp(key, "DOWN") ? 1 : !strcmp(key, "LEFT") ? 2 : !strcmp(key, "RIGHT") ? 3 : -1;
+    if(dir >= 0) {
+        float w = 24, mx = x + w * 0.5f;
         if(draw) {
-            for(int i = 0; i < 2; i++) {
+            ui_rrect(x - 2, cy - 11, x + w + 2, cy + 11, 7, th.outline, th.outline);
+            ui_rrect(x, cy - 9, x + w, cy + 9, 5, body, GLYPH_BODY_LO);
+            if(dir == 0) tri(mx - 6, cy + 4, mx, cy - 5, mx + 6, cy + 4, ink);
+            else if(dir == 1) tri(mx - 6, cy - 4, mx + 6, cy - 4, mx, cy + 5, ink);
+            else if(dir == 2) tri(mx - 5, cy, mx + 4, cy - 6, mx + 4, cy + 6, ink);
+            else tri(mx + 5, cy, mx - 4, cy - 6, mx - 4, cy + 6, ink);
+        }
+        return w;
+    }
+    bool lr = !strcmp(key, "L+R");
+    if(lr || !strcmp(key, "L") || !strcmp(key, "R")) {
+        int n = lr ? 2 : 1;
+        if(draw) {
+            for(int i = 0; i < n; i++) {
                 float gx = x + i * 26;
                 ui_rrect(gx - 2, cy - 11, gx + 24, cy + 11, 7, th.outline, th.outline);
                 ui_rrect(gx, cy - 9, gx + 22, cy + 9, 5, body, GLYPH_BODY_LO);
-                text_letter_c(font, gx + 11, cy, 0.34f, ink, i ? 'R' : 'L');
+                text_letter_c(font, gx + 11, cy, 0.34f, ink, lr ? (i ? 'R' : 'L') : key[0]);
             }
         }
-        return w;
+        return lr ? 48 : 22;
     }
     return 0;
 }
 
 static bool glyph_key(const char *key) {
-    static const char *const keys[] = {"A", "B", "X", "Y", "START", "LEFT/RIGHT", "UP/DOWN", "L+R"};
+    static const char *const keys[] = {"A", "B", "X", "Y", "START", "LEFT/RIGHT", "UP/DOWN", "L+R", "L", "R", "UP", "DOWN", "LEFT", "RIGHT"};
     for(size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
         if(!strcmp(key, keys[i])) return true;
     return false;

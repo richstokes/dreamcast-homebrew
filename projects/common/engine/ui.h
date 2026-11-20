@@ -64,12 +64,13 @@ void ui_button(float cx, float cy, float w, const char *text, bool sel);
 void ui_arrows(float xl, float xr, float cy, float scale, uint32_t col);
 /* The controls strip along the bottom of the screen: "A: OK   B: BACK"
    drawn with controller button glyphs for A, B, X, Y, START, LEFT/RIGHT,
-   UP/DOWN and L+R. */
+   UP/DOWN, L+R, L, R and single d-pad directions (UP, DOWN, LEFT, RIGHT). */
 void ui_hint(const char *text);
 /* The same line centred elsewhere (a split-screen half). */
 void ui_hint_at(float cx, float cy, const char *text);
 /* A controller button glyph: key is "A", "B", "X", "Y", "START", "LEFT/RIGHT",
-   "UP/DOWN" or "L+R". Returns its width. */
+   "UP/DOWN", "L+R", "L", "R", "UP", "DOWN", "LEFT" or "RIGHT". Returns its
+   width. */
 float ui_glyph(float x, float cy, const char *key, bool draw);
 /* An on-screen keyboard key (name entry, chat). */
 void ui_key(float x0, float y0, float x1, float y1, bool sel);
