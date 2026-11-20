@@ -284,6 +284,7 @@ def render():
         voice("WELCOME", "welcome"),
         voice("GOBBLE", "gobble"),
         voice("PRAISE", "praise"),
+        voice("TRYHARDER", "tryharder"),
         ("BEAM", beam_loop(), True, SR),
         ("HELI", heli_loop(), True, SR),
         ("SIREN", siren_loop(), True, SR),
