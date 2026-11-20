@@ -19,6 +19,7 @@
 #include "camera.h"
 #include "hud.h"
 #include "audio.h"
+#include "progress.h"
 #include "records.h"
 #include "menu.h"
 #include "fx.h"
@@ -71,6 +72,13 @@ static char name[NET_NAME_LEN] = "DRIVER";
 static int key_row, key_col;
 static int browse_sel;
 static bool joining;
+/* On the truck select from the menu, still in the lobby: where the truck
+   stood, to put the one picked there. */
+static bool swapping;
+static V3 swap_pos;
+static float swap_heading;
+static uint8_t swap_lights;
+static int swap_model, swap_livery;
 static bool summited;          /* reached the summit since going online */
 static float spawn_t;          /* seconds since arriving on the mountain */
 static const char *error_line1 = "", *error_line2 = "";
@@ -98,6 +106,9 @@ static struct {
     V3 prev[MAX_TRUCKS];
     bool had[MAX_TRUCKS];
     bool damage_seen;      /* a remote truck arrived with pieces off */
+    bool swapped;          /* changed truck from the menu */
+    float swap_t;
+    int swap_to;           /* the truck changed to */
 } at;
 #endif
 
@@ -118,6 +129,7 @@ void online_enter(void) {
     game.online = true;
     summited = false;
     joining = false;
+    swapping = false;
     key_row = key_col = 0;
     if(records_name()[0]) snprintf(name, sizeof(name), "%s", records_name());
     to_screen(OS_NAME);
@@ -129,6 +141,7 @@ void online_quit(void) {
     net_end();
     game.online = false;
     joining = false;
+    swapping = false;
     audio_drive_stop();
     game.paused = false;
     game_set_state(ST_TITLE);
@@ -142,6 +155,7 @@ static void show_error(const char *l1, const char *l2) {
         game.paused = false;
     }
     joining = false;
+    swapping = false;
     to_screen(OS_ERROR);
     audio_sfx(RL_SFX_MENU_BACK, 200);
 }
@@ -277,9 +291,10 @@ void online_tick(void) {
     }
     if(game.state == ST_DRIVE && st == NET_LOBBY) follow_roster();
     /* The server restarted, or forgot us: back to the browser. */
-    if(game.state == ST_DRIVE && st != NET_LOBBY) {
+    if((game.state == ST_DRIVE || swapping) && st != NET_LOBBY) {
         audio_drive_stop();
         game.paused = false;
+        swapping = false;
         to_screen(OS_BROWSER);
         show_toast("BACK TO THE LOBBIES");
     }
@@ -300,12 +315,14 @@ bool online_joining(void) {
 }
 
 void online_back_to_browser(void) {
+    swapping = false;
     if(net_state() == NET_JOINING || net_state() == NET_LOBBY) net_leave();
     joining = false;
     to_screen(OS_BROWSER);
 }
 
 void online_leave_lobby(void) {
+    swapping = false;
     net_leave();
     audio_drive_stop();
     game.paused = false;
@@ -363,6 +380,77 @@ static void pack_truck(const Truck *t, NetTruck *n) {
         n->spin[i] = t->wh[i].omega * t->spec.radius - fwd;
     }
     n->gear = t->gear;
+}
+
+/* The menu's CHANGE TRUCK: the truck select, staying in the lobby. The
+   others see ours stand where it was, engine off, until we are back. */
+void online_change_truck(void) {
+    if(net_state() != NET_LOBBY || game.state != ST_DRIVE) return;
+    Truck *me = &trucks[0];
+    swap_pos = me->pos;
+    swap_heading = truck_heading(me);
+    swap_lights = me->lights;
+    swap_model = game.truck_model;
+    swap_livery = game.livery;
+    NetTruck n;
+    pack_truck(me, &n);
+    n.flags = (uint8_t)((n.flags & ~(NTF_HORN | NTF_BRAKE)) | NTF_STALLED);
+    n.vel = v3(0, 0, 0);
+    n.rpm = n.load = 0;
+    for(int i = 0; i < 4; i++) n.slip[i] = n.spin[i] = 0;
+    net_set_truck(&n);
+    audio_drive_stop();
+    game.paused = false;
+    game.photo = false;
+    swapping = true;
+    game_set_state(ST_SELECT);
+    tod_set_hour(net_lobby()->hour);
+    printf("RL ONLINE: changing truck (was model %d)\n", swap_model);
+}
+
+bool online_changing_truck(void) {
+    return swapping;
+}
+
+/* Back on the mountain where the old truck stood, in the one picked (or
+   the one before, whole again, after B). */
+void online_change_truck_done(bool keep) {
+    if(!swapping) return;
+    swapping = false;
+    if(!keep) {
+        game.truck_model = swap_model;
+        game.livery = swap_livery;
+    }
+    if(net_state() != NET_LOBBY) return;
+    bool changed = game.truck_model != swap_model || game.livery != swap_livery;
+    if(changed) net_change_truck(game.truck_model, game.livery);
+    game.ntrucks = MAX_TRUCKS;
+    for(int i = 1; i < MAX_TRUCKS; i++) {
+        Truck *t = &trucks[i];
+        t->cpu = false;
+        t->remote = true;
+        t->lights = LIGHTS_OFF;
+        park(t);   /* (back from the network next step) */
+    }
+    Truck *p = &trucks[0];
+    p->model = game.truck_model;
+    p->livery = game.livery;
+    p->cpu = false;
+    p->lights = swap_lights;
+    truck_place(p, swap_pos, swap_heading);
+    /* The truck select left it whole: a repair, and in another truck the
+       climb no longer counts for a time or a stamp. */
+    progress_repaired();
+    if(game.truck_model != swap_model) {
+        records_jumped();
+        progress_jumped();
+    }
+    game_set_state(ST_DRIVE);
+    tod_set_hour(net_lobby()->hour);
+    camera_reset();
+    audio_drive_start();
+    spawn_t = 0;   /* clear of anyone parked on the spot */
+    printf("RL ONLINE: back on the mountain in model %d livery %d\n", game.truck_model, game.livery);
 }
 
 void online_drive_step(float dt) {
@@ -758,10 +846,8 @@ void online_draw_hud(void) {
         hud_panel(x0 + 9, cy - 4, x0 + 17, cy + 4, hud_map_color(truck_of(p->slot)));
         hud_text_c(x0 + 23, cy, 0.5f, ALIGN_LEFT, me ? 0xffffd070 : 0xfff4ecd8, p->name);
         if(p->flags & NPF_SUMMIT) hud_trophy(x0 + 23 + text_width(hud_font(), p->name, 0.5f) + TROPHY_GAP + 0.6f * 15, cy, 15, 1.0f);
-        if(!me) {
-            snprintf(buf, sizeof(buf), "%d MS", p->ping);
-            hud_text_c(x1 - 10, cy, 0.4f, ALIGN_RIGHT, ping_col(p->ping), buf);
-        }
+        snprintf(buf, sizeof(buf), "%d MS", p->ping);
+        hud_text_c(x1 - 10, cy, 0.4f, ALIGN_RIGHT, ping_col(p->ping), buf);
     }
 }
 
@@ -803,6 +889,16 @@ void online_autotest(float dt) {
         if(screen_t > 1.8f) to_truck_select();
         return;
     }
+    /* The menu's CHANGE TRUCK, 18 s on the mountain: the next truck. */
+    if(game.state == ST_SELECT && online_changing_truck()) {
+        at.swap_t += dt;
+        at_shot(8, at.swap_t > 0.8f, "online-change-truck");
+        if(at.swap_t > 1.5f) {
+            at.swap_to = game.truck_model = progress_next_unlocked((game.truck_model + 1) % TRUCK_MODELS, 1);
+            online_change_truck_done(true);
+        }
+        return;
+    }
     if(game.state == ST_SELECT && !joining) {
         at_shot(3, game.time > 0.6f, "online-select");
         /* Long enough on the truck select that a server ignoring the
@@ -831,6 +927,11 @@ void online_autotest(float dt) {
     }
     at_shot(6, at.drive_t > 15.7f, "online-menu");
     if(at.menu_open && at.drive_t > 16.5f) game.paused = false;
+    if(!at.swapped && at.drive_t > 18.0f) {
+        at.swapped = true;
+        online_change_truck();
+        return;
+    }
     at_shot(7, at.drive_t > RL_AT_SUMMIT_AFTER + 5.0f, "online-summit");
     const NetLobby *l = net_lobby();
     for(int i = 0; i < l->count; i++) {
@@ -888,6 +989,8 @@ void online_autotest(float dt) {
         const char *fail = NULL;
         if(at.unbuilt) fail = "a remote truck was drawn without its build";
         else if(!mine) fail = "the server never showed our trophy";
+        else if(!net_player(l->you) || net_player(l->you)->model != at.swap_to || trucks[0].model != at.swap_to)
+            fail = "the lobby never showed the truck we changed to";
         else if(trophies < RL_AT_EXPECT_TROPHIES) fail = "fewer trophies in the lobby than expected";
 #ifndef RL_AT_ONLINE_ALONE
         else if(remotes == 0 || moved < 10.0f) fail = "no remote truck seen driving";

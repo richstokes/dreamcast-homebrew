@@ -48,6 +48,18 @@ static const char *message = "";
 static NetLobbyInfo lobbies[NET_LOBBIES];
 static NetLobby lobby;
 static int join_id = -1, join_model, join_livery;
+static bool swap_pending;   /* a truck change the lobby state has not shown yet */
+/* Each slot's ping as shown: the server's figures for it averaged over a
+   second, so the roster changes once a second rather than with every
+   LOBBY packet. A new name in the slot starts again. */
+static struct {
+    char name[NET_NAME_LEN];
+    uint32_t sum;
+    int n;
+    uint16_t shown;
+    bool have;
+} pings[NET_MAX_PLAYERS];
+static uint64_t ping_at;
 static NetTruck my_truck;
 static bool have_truck;
 static bool received;       /* a packet arrived in this net_update */
@@ -166,6 +178,8 @@ void net_begin(const char *name) {
     lag_peak = 0;
     interp_ms = 150.0f;
     have_truck = false;
+    swap_pending = false;
+    memset(pings, 0, sizeof(pings));
     forget_trucks();
     state = NET_LINK;
     netlink_set_server(RL_NET_HOST, RL_NET_FALLBACK_IP);
@@ -178,6 +192,7 @@ void net_end(void) {
     state = NET_OFF;
     lobby.id = -1;
     join_id = -1;
+    swap_pending = false;
 }
 
 int net_state(void) { return state; }
@@ -212,7 +227,18 @@ void net_leave(void) {
     join_id = -1;
     last_list = 0;
     have_truck = false;
+    swap_pending = false;
     forget_trucks();
+}
+
+/* Another truck without leaving: the server takes a JOIN for the lobby we
+   are in as the truck we now drive. Resent until the lobby state shows it. */
+void net_change_truck(int model, int livery) {
+    if(state != NET_LOBBY) return;
+    join_model = model;
+    join_livery = livery;
+    swap_pending = true;
+    last_join = 0;
 }
 
 void net_set_truck(const NetTruck *t) {
@@ -400,6 +426,9 @@ static void take_lobby(const uint8_t *b, int n, uint64_t now) {
     l->hour = (float)get16(b + 10) / 2000.0f;
     int count = b[12];
     l->count = 0;
+    bool here[NET_MAX_PLAYERS] = {false};
+    bool tick = now - ping_at >= 1000;
+    if(tick) ping_at = now;
     for(int i = 0; i < count && i < NET_MAX_PLAYERS && 13 + (i + 1) * NET_PLAYER_BYTES <= n; i++) {
         const uint8_t *e = b + 13 + i * NET_PLAYER_BYTES;
         NetPlayer *p = &l->players[l->count++];
@@ -408,9 +437,27 @@ static void take_lobby(const uint8_t *b, int n, uint64_t now) {
         p->model = e[12] % TRUCK_MODELS;
         p->livery = e[13] & 3;
         p->flags = e[14];
-        p->ping = get16(e + 15);
+        int ms = (int)get16(e + 15);
+        here[p->slot] = true;
+        if(!pings[p->slot].have || strcmp(pings[p->slot].name, p->name)) {
+            memset(&pings[p->slot], 0, sizeof(pings[0]));
+            snprintf(pings[p->slot].name, NET_NAME_LEN, "%s", p->name);
+            pings[p->slot].have = true;
+            pings[p->slot].shown = (uint16_t)ms;
+        }
+        pings[p->slot].sum += (uint32_t)ms;
+        pings[p->slot].n++;
+        if(tick) {
+            pings[p->slot].shown = (uint16_t)((pings[p->slot].sum + pings[p->slot].n / 2) / pings[p->slot].n);
+            pings[p->slot].sum = 0;
+            pings[p->slot].n = 0;
+        }
+        p->ping = pings[p->slot].shown;
+        if(p->slot == l->you && swap_pending && p->model == join_model % TRUCK_MODELS && p->livery == (join_livery & 3))
+            swap_pending = false;
     }
-    (void)now;
+    for(int s = 0; s < NET_MAX_PLAYERS; s++)
+        if(!here[s]) pings[s].have = false;
     state = NET_LOBBY;
     message = "";
 }
@@ -583,6 +630,11 @@ void net_update(void) {
                 send_packet(5, b, sizeof(b));
                 last_send = now;
                 last_ping = now;
+            }
+            else if(swap_pending && !received && now - last_join >= 500) {
+                uint8_t b[3] = {(uint8_t)lobby.id, (uint8_t)join_model, (uint8_t)join_livery};
+                send_packet(3, b, 3);
+                last_join = now;
             }
             break;
     }

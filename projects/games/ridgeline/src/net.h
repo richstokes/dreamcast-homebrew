@@ -48,7 +48,7 @@ typedef struct {
     uint8_t slot;
     char name[NET_NAME_LEN];
     uint8_t model, livery, flags;
-    uint16_t ping;
+    uint16_t ping;        /* ms, the server's figures averaged over a second */
 } NetPlayer;
 
 typedef struct {
@@ -91,6 +91,8 @@ void net_leave(void);
 /* Inside a lobby. */
 const NetLobby *net_lobby(void);
 const NetPlayer *net_player(int slot);
+/* Drive another truck (or paint) without leaving the lobby. */
+void net_change_truck(int model, int livery);
 
 /* Our truck for the next TRUCK packet (12 a second). */
 void net_set_truck(const NetTruck *t);

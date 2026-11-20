@@ -42,6 +42,12 @@ void online_summit(void);
 void online_draw_hud(void);
 /* The pause menu's LEAVE LOBBY: back to the browser. */
 void online_leave_lobby(void);
+/* The pause menu's CHANGE TRUCK: the truck select without leaving the
+   lobby; done puts the one picked (or, not keeping it, the one before)
+   where the old one stood. */
+void online_change_truck(void);
+bool online_changing_truck(void);
+void online_change_truck_done(bool keep);
 /* Offline, back to the title (soft reset). */
 void online_quit(void);
 

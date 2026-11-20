@@ -301,7 +301,8 @@ static void select_scene(float dt) {
 
 static void select_back(void) {
     audio_sfx(RL_SFX_MENU_BACK, 200);
-    if(game.online) online_back_to_browser();
+    if(game.online && online_changing_truck()) online_change_truck_done(false);
+    else if(game.online) online_back_to_browser();
     else if(sel_page == PG_AREA) game_set_state(ST_TITLE);
     else {
         sel_page--;
@@ -412,6 +413,10 @@ void menu_select_update(float dt) {
     }
     else if((pad.pressed & BTN_START) || ((pad.pressed & BTN_A) && sel_row == SEL_LAST)) {
         audio_sfx(RL_SFX_MENU_SELECT, 220);
+        if(game.online && online_changing_truck()) {
+            online_change_truck_done(true);
+            return;
+        }
         if(game.online) online_join();
         else {
             game_start_drive();
@@ -513,7 +518,8 @@ void menu_select_draw(void) {
     }
     if(sel_page == PG_TRUCK) {
         char join[24];
-        snprintf(join, sizeof(join), "JOIN LOBBY %d", online_lobby_pick() + 1);
+        if(game.online && online_changing_truck()) snprintf(join, sizeof(join), "DRIVE ON");
+        else snprintf(join, sizeof(join), "JOIN LOBBY %d", online_lobby_pick() + 1);
         bool locked = sel_locked();
         const char *const rows[4][2] = {
             {"TRUCK", menu_truck_name(game.truck_model)},
@@ -545,6 +551,7 @@ void menu_select_draw(void) {
             ui_hint("LEFT/RIGHT: CHANGE   B: BACK");
         }
         else if(game.online && online_joining()) ui_hint("JOINING...   B: CANCEL");
+        else if(game.online && online_changing_truck()) ui_hint("LEFT/RIGHT: CHANGE   A: DRIVE   B: KEEP THE LAST ONE");
         else if(game.online) ui_hint("LEFT/RIGHT: CHANGE   A: JOIN   B: BACK");
         else ui_hint("LEFT/RIGHT: CHANGE   A: NEXT   B: BACK");
         return;
@@ -574,13 +581,14 @@ void menu_select_draw(void) {
 
 /* ---- Pause ---- */
 
-enum { P_RESUME, P_RECOVER, P_REPAIR, P_VIEW, P_FPS, P_HUD, P_QUIT, P_COUNT };
+enum { P_RESUME, P_RECOVER, P_REPAIR, P_VIEW, P_TRUCK, P_FPS, P_HUD, P_QUIT, P_COUNT };
 
 /* The viewpoint item is there once one has been found; left and right step
    through the ones found. The repair is there while the truck has a mark
    on it. */
 static bool pause_item_on(int i) {
     if(i == P_REPAIR) return damage_look(0)->percent || damage_look(0)->pieces || damage_look(0)->lamps;
+    if(i == P_TRUCK) return game.online;
     return i != P_VIEW || game.views_found;
 }
 
@@ -669,6 +677,7 @@ void menu_pause_update(float dt) {
                 hud_status(buf, 0xff90f0b0, 2.0f);
                 break;
             }
+            case P_TRUCK: online_change_truck(); break;
             case P_FPS: game.show_fps = !game.show_fps; break;
             case P_HUD:
                 game.hud_mode = (game.hud_mode + 1) % HUD_MODES;
@@ -706,7 +715,7 @@ void menu_pause_draw(void) {
     char view[32] = "";
     if(game.views_found) snprintf(view, sizeof(view), "TO %s", lvl_views[game.view_sel].name);
     static const char *const hud[HUD_MODES] = {"HUD: ON", "HUD: SIMPLE", "HUD: OFF"};
-    const char *items[P_COUNT] = {"RESUME", "RECOVER TRUCK", "REPAIR TRUCK", view,
+    const char *items[P_COUNT] = {"RESUME", "RECOVER TRUCK", "REPAIR TRUCK", view, "CHANGE TRUCK",
                                   game.show_fps ? "FPS COUNTER: ON" : "FPS COUNTER: OFF", hud[game.hud_mode],
                                   game.online ? "LEAVE LOBBY" : "QUIT TO TITLE"};
     ui_dim();
