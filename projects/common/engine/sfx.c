@@ -34,7 +34,7 @@ bool sfx_init(const uint8_t *pak, const eng_sfx_asset_t *assets, int n) {
     long left = 2 * 1024 * 1024 - 0x30000;
     for(int i = 0; i < n; i++) {
         const eng_sfx_asset_t *a = &assets[i];
-        handles[i] = snd_sfx_load_raw_buf((char *)(pak + a->offset), a->bytes, a->rate, a->loop == 2 ? 4 : 16, 1);
+        handles[i] = snd_sfx_load_raw_buf((char *)(pak + a->offset), a->bytes, a->rate, 16, 1);
         if(handles[i] == SFXHND_INVALID) printf(ENG_NAME " sfx: effect %d failed to load\n", i);
         else {
             loaded++;

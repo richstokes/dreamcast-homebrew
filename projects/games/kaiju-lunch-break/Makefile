@@ -6,7 +6,7 @@ TARGET = kaiju-lunch-break.elf
 GAME_PREFIX = KL
 # The game's sources (src/), then the shared engine's, in link order.
 SOURCES = main.c city.c cel.c kaiju.c life.c fx.c score.c hud.c audio.c save.c autotest.c film.c \
-	input.c render.c prof.c frame.c mesh.c scenery.c sfx.c text.c ui.c qa.c sky.c cardpick.c
+	input.c render.c prof.c frame.c mesh.c scenery.c sfx.c voice.c text.c ui.c qa.c sky.c cardpick.c
 LIBS = -lm
 GEN = assets/generated
 BLOBS = $(GEN)/textures.pak $(GEN)/sfx.pak

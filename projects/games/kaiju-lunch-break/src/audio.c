@@ -7,12 +7,14 @@
    console, so never from the frame loop); the main thread only fades the
    AICA's CD volume. Under dcload there is normally no disc, so the drive
    is left alone and there is no music (-DKL_DCLOAD_MUSIC plays whatever
-   Kaiju Lunch Break disc is in the tray). Effects live in AICA RAM. */
+   Kaiju Lunch Break disc is in the tray). Effects live in AICA RAM; the
+   voice lines are streamed from the pak in main memory, one at a time. */
 #include "audio.h"
 #include "score.h"
 #include "save.h"
 #include "music_tracks.h"
 #include "engine/sfx.h"
+#include "engine/voice.h"
 #include <dc/cdrom.h>
 #include <dc/fs_dcload.h>
 #include <dc/spu.h>
@@ -197,8 +199,9 @@ static void music_update(float dt) {
 }
 
 void audio_init(void) {
-    ready = sfx_init(kl_sfx_pak, (const eng_sfx_asset_t *)kl_sfx_assets, KL_SFX_COUNT);
+    ready = sfx_init(kl_sfx_pak, (const eng_sfx_asset_t *)kl_sfx_assets, KL_SFX_VOICE_FIRST);
     if(!ready) return;
+    voice_init();
     music_init();
     sfx_voice_start(&v_beam, KL_SFX_BEAM);
     sfx_voice_start(&v_heli, KL_SFX_HELI);
@@ -213,6 +216,7 @@ void audio_music_state(int *status, int *volume, int *song) {
 }
 
 void audio_shutdown(void) {
+    voice_shutdown();
     if(!jukebox) return;
     jb_quit = true;
     thd_join(jukebox, NULL);
@@ -227,7 +231,9 @@ static bool muted(int id) {
 }
 
 void audio_sfx_rate(int id, int vol, float rate) {
-    if(ready && !muted(id)) sfx_play(id, vol, 128, rate);
+    if(!ready || muted(id)) return;
+    if(id >= KL_SFX_VOICE_FIRST) voice_say(kl_sfx_pak + kl_sfx_assets[id].offset, kl_sfx_assets[id].bytes, kl_sfx_assets[id].rate, vol);
+    else sfx_play(id, vol, 128, rate);
 }
 
 void audio_sfx(int id, int vol) {
@@ -249,6 +255,7 @@ static void ease(float *level, float to, float dt, float rate) {
 void audio_update(float dt) {
     if(!ready) return;
     music_update(dt);
+    voice_update();
     bool play = game.state == ST_PLAY && !game.paused && game.intro <= 0 && game.outro <= 0;
     ease(&l_beam, play ? audio_beam : 0, dt, 12);
     ease(&l_heli, play ? audio_heli : 0, dt, 3);

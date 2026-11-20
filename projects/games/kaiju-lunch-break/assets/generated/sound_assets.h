@@ -6,7 +6,7 @@
 
 #define KL_SFX_RATE 22050
 
-/* offset/bytes into sfx.pak (32-byte aligned entries), loop=1 for seamless loops and 2 for a 4-bit ADPCM one-shot, sample rate */
+/* offset/bytes into sfx.pak (32-byte aligned entries), loop=1 for seamless loops, sample rate */
 typedef struct { uint32_t offset, bytes, loop, rate; } kl_sfx_asset_t;
 
 typedef enum {
@@ -34,16 +34,16 @@ typedef enum {
     KL_SFX_OK,
     KL_SFX_BELL,
     KL_SFX_BEEP,
+    KL_SFX_BEAM,
+    KL_SFX_HELI,
+    KL_SFX_SIREN,
+    KL_SFX_CROWD,
     KL_SFX_WELCOME,
     KL_SFX_GOBBLE,
     KL_SFX_PRAISE,
     KL_SFX_TRYHARDER,
     KL_SFX_WOW,
     KL_SFX_INSURANCE,
-    KL_SFX_BEAM,
-    KL_SFX_HELI,
-    KL_SFX_SIREN,
-    KL_SFX_CROWD,
     KL_SFX_COUNT
 } kl_sfx_id_t;
 
@@ -72,16 +72,16 @@ static const kl_sfx_asset_t kl_sfx_assets[KL_SFX_COUNT] __attribute__((unused)) 
     { 796736u, 9728u, 0u, 22050u }, /* OK         0.22 s */
     { 806464u, 70560u, 0u, 22050u }, /* BELL       1.60 s */
     { 877024u, 7968u, 0u, 22050u }, /* BEEP       0.18 s */
-    { 884992u, 29560u, 2u, 22050u }, /* WELCOME    2.68 s */
-    { 914560u, 26928u, 2u, 22050u }, /* GOBBLE     2.44 s */
-    { 941504u, 32384u, 2u, 16500u }, /* PRAISE     3.93 s */
-    { 973888u, 26240u, 2u, 22050u }, /* TRYHARDER  2.38 s */
-    { 1000128u, 14512u, 2u, 22050u }, /* WOW        1.32 s */
-    { 1014656u, 16624u, 2u, 22050u }, /* INSURANCE  1.51 s */
-    { 1031296u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
-    { 1064096u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
-    { 1080512u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
-    { 1146080u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
+    { 884992u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
+    { 917792u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
+    { 934208u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
+    { 999776u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
+    { 1065344u, 236608u, 0u, 44100u }, /* WELCOME    2.68 s */
+    { 1301952u, 215424u, 0u, 44100u }, /* GOBBLE     2.44 s */
+    { 1517376u, 347328u, 0u, 44100u }, /* PRAISE     3.94 s */
+    { 1864704u, 209952u, 0u, 44100u }, /* TRYHARDER  2.38 s */
+    { 2074656u, 116128u, 0u, 44100u }, /* WOW        1.32 s */
+    { 2190784u, 133024u, 0u, 44100u }, /* INSURANCE  1.51 s */
 };
 
 /* display names */
@@ -110,16 +110,19 @@ static const char *const kl_sfx_names[KL_SFX_COUNT] __attribute__((unused)) = {
     "OK",
     "BELL",
     "BEEP",
+    "BEAM",
+    "HELI",
+    "SIREN",
+    "CROWD",
     "WELCOME",
     "GOBBLE",
     "PRAISE",
     "TRYHARDER",
     "WOW",
     "INSURANCE",
-    "BEAM",
-    "HELI",
-    "SIREN",
-    "CROWD",
 };
+
+/* From here on the effects are voice lines, streamed from the pak (engine/voice.h). */
+#define KL_SFX_VOICE_FIRST KL_SFX_WELCOME
 
 #endif /* KL_SOUND_ASSETS_H */
