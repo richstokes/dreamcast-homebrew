@@ -14,7 +14,7 @@ void aim_update(V3 p, V3 fwd, float g, float dt);
 void aim_off(void);
 /* The velocity to throw at (valid after aim_update). */
 V3 aim_velocity(void);
-/* What is locked on, for the HUD ("A HELICOPTER"), or NULL. */
+/* What is locked on ("A HELICOPTER"), or NULL. */
 const char *aim_locked(void);
 void aim_draw_pt(void);
 void aim_draw_tr(void);
