@@ -38,13 +38,6 @@ typedef enum {
     KL_SFX_HELI,
     KL_SFX_SIREN,
     KL_SFX_CROWD,
-    KL_SFX_WELCOME,
-    KL_SFX_GOBBLE,
-    KL_SFX_PRAISE,
-    KL_SFX_TRYHARDER,
-    KL_SFX_WOW,
-    KL_SFX_INSURANCE,
-    KL_SFX_MONSTERKILL,
     KL_SFX_COUNT
 } kl_sfx_id_t;
 
@@ -77,13 +70,6 @@ static const kl_sfx_asset_t kl_sfx_assets[KL_SFX_COUNT] __attribute__((unused)) 
     { 917792u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
     { 934208u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
     { 999776u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
-    { 1065344u, 236608u, 0u, 44100u }, /* WELCOME    2.68 s */
-    { 1301952u, 215424u, 0u, 44100u }, /* GOBBLE     2.44 s */
-    { 1517376u, 347328u, 0u, 44100u }, /* PRAISE     3.94 s */
-    { 1864704u, 209952u, 0u, 44100u }, /* TRYHARDER  2.38 s */
-    { 2074656u, 116128u, 0u, 44100u }, /* WOW        1.32 s */
-    { 2190784u, 133024u, 0u, 44100u }, /* INSURANCE  1.51 s */
-    { 2323808u, 279424u, 0u, 44100u }, /* MONSTERKILL 3.17 s */
 };
 
 /* display names */
@@ -116,16 +102,6 @@ static const char *const kl_sfx_names[KL_SFX_COUNT] __attribute__((unused)) = {
     "HELI",
     "SIREN",
     "CROWD",
-    "WELCOME",
-    "GOBBLE",
-    "PRAISE",
-    "TRYHARDER",
-    "WOW",
-    "INSURANCE",
-    "MONSTERKILL",
 };
-
-/* From here on the effects are voice lines, streamed from the pak (engine/voice.h). */
-#define KL_SFX_VOICE_FIRST KL_SFX_WELCOME
 
 #endif /* KL_SOUND_ASSETS_H */

@@ -7,14 +7,12 @@
    console, so never from the frame loop); the main thread only fades the
    AICA's CD volume. Under dcload there is normally no disc, so the drive
    is left alone and there is no music (-DKL_DCLOAD_MUSIC plays whatever
-   Kaiju Lunch Break disc is in the tray). Effects live in AICA RAM; the
-   voice lines are streamed from the pak in main memory, one at a time. */
+   Kaiju Lunch Break disc is in the tray). Effects live in AICA RAM. */
 #include "audio.h"
 #include "score.h"
 #include "save.h"
 #include "music_tracks.h"
 #include "engine/sfx.h"
-#include "engine/voice.h"
 #include <dc/cdrom.h>
 #include <dc/fs_dcload.h>
 #include <dc/spu.h>
@@ -192,16 +190,16 @@ static void music_update(float dt) {
     /* The register is four bits, 15 = full and 3 dB a step down, so the
        level is turned into decibels: 0.5 is -6 dB, two steps. Written when
        it changes. */
-    int reg = music_level < 0.02f ? 0 : 15 - (int)(-20.0f * log10f(music_level) / 3.0f + 0.5f);    if(reg != music_reg) {
+    int reg = music_level < 0.02f ? 0 : 15 - (int)(-20.0f * log10f(music_level) / 3.0f + 0.5f);
+    if(reg != music_reg) {
         music_reg = reg;
         spu_cdda_volume(reg, reg);
     }
 }
 
 void audio_init(void) {
-    ready = sfx_init(kl_sfx_pak, (const eng_sfx_asset_t *)kl_sfx_assets, KL_SFX_VOICE_FIRST);
+    ready = sfx_init(kl_sfx_pak, (const eng_sfx_asset_t *)kl_sfx_assets, KL_SFX_COUNT);
     if(!ready) return;
-    voice_init();
     music_init();
     sfx_voice_start(&v_beam, KL_SFX_BEAM);
     sfx_voice_start(&v_heli, KL_SFX_HELI);
@@ -216,7 +214,6 @@ void audio_music_state(int *status, int *volume, int *song) {
 }
 
 void audio_shutdown(void) {
-    voice_shutdown();
     if(!jukebox) return;
     jb_quit = true;
     thd_join(jukebox, NULL);
@@ -225,15 +222,13 @@ void audio_shutdown(void) {
     if(jb_playing) cdrom_cdda_pause();
 }
 
-/* Only the menus and the welcome make a sound outside a lunch (the title's kaiju is the bot's). */
+/* Only the menus make a sound outside a lunch (the title's kaiju is the bot's). */
 static bool muted(int id) {
-    return game.state == ST_TITLE && id != KL_SFX_MOVE && id != KL_SFX_OK && id != KL_SFX_WELCOME;
+    return game.state == ST_TITLE && id != KL_SFX_MOVE && id != KL_SFX_OK;
 }
 
 void audio_sfx_rate(int id, int vol, float rate) {
-    if(!ready || muted(id)) return;
-    if(id >= KL_SFX_VOICE_FIRST) voice_say(kl_sfx_pak + kl_sfx_assets[id].offset, kl_sfx_assets[id].bytes, kl_sfx_assets[id].rate, vol);
-    else sfx_play(id, vol, 128, rate);
+    if(ready && !muted(id)) sfx_play(id, vol, 128, rate);
 }
 
 void audio_sfx(int id, int vol) {
@@ -255,7 +250,6 @@ static void ease(float *level, float to, float dt, float rate) {
 void audio_update(float dt) {
     if(!ready) return;
     music_update(dt);
-    voice_update();
     bool play = game.state == ST_PLAY && !game.paused && game.intro <= 0 && game.outro <= 0;
     ease(&l_beam, play ? audio_beam : 0, dt, 12);
     ease(&l_heli, play ? audio_heli : 0, dt, 3);

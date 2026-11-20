@@ -12,15 +12,11 @@ original and reproducible. Outputs:
     assets/generated/sound_assets.h  the effect table
     captures/audio-previews/*.wav    listening copies (git-ignored)
 
-The voice lines are recordings (assets/voice/*.mp3), which need ffmpeg to
-decode.
-
 The music is not here: it is CD audio on the disc (tools/build_music.py).
 """
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from functools import partial
 from pathlib import Path
@@ -232,24 +228,6 @@ def bell():
     return x * np.where(t < 0.9, trem, 1.0)
 
 
-VOICE_RATE = 44100   # the recordings' own
-VOICES = []
-
-
-def voice(key, name):
-    """A voice line: the recording, cut to the speech. The game streams
-    these from main memory (engine/voice.h), so they keep their full rate
-    and length."""
-    sr = VOICE_RATE
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(ROOT / "assets" / "voice" / f"{name}.mp3"),
-                          "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"], check=True, capture_output=True).stdout
-    x = np.frombuffer(raw, dtype="<f4").astype(float)
-    loud = np.nonzero(np.abs(x) > np.max(np.abs(x)) * 10 ** (-45 / 20))[0]
-    x = x[max(0, loud[0] - int(0.01 * sr)):loud[-1] + int(0.05 * sr)]
-    VOICES.append(key)
-    return key, finish_oneshot(x, sr), False, sr
-
-
 # ---------------------------------------------------------------------------
 
 def one(x, sr=SR):
@@ -287,14 +265,6 @@ def render():
         ("HELI", heli_loop(), True, SR),
         ("SIREN", siren_loop(), True, SR),
         ("CROWD", crowd_loop(), True, SR),
-        # The voice lines, last: the AICA is loaded with the effects before them.
-        voice("WELCOME", "welcome"),
-        voice("GOBBLE", "gobble"),
-        voice("PRAISE", "praise"),
-        voice("TRYHARDER", "tryharder"),
-        voice("WOW", "wow"),
-        voice("INSURANCE", "insurance"),
-        voice("MONSTERKILL", "monsterkill"),
     ]
 
 
@@ -303,16 +273,13 @@ def main():
     previews = ROOT / "captures" / "audio-previews"
     out.mkdir(parents=True, exist_ok=True)
     previews.mkdir(parents=True, exist_ok=True)
-    sounds = render()
-    entries = write_sfx_pak(out, previews, sounds, max_bytes=1_900_544, streamed=VOICES)
+    entries = write_sfx_pak(out, previews, render(), max_bytes=1_900_544)
     write_sound_header(
         out, "KL", entries,
-        notes=[f"{name:10s} {len(x) / rate:.2f} s" for (name, x, _, rate) in sounds],
+        notes=[f"{name:10s} {size / 2 / rate:.2f} s" for name, _, size, _, rate in entries],
         names=[name.replace("_", " ") for name, *_ in entries],
         struct_comment="offset/bytes into sfx.pak (32-byte aligned entries), loop=1 for seamless loops, sample rate",
-        names_symbol="kl_sfx_names", names_comment="display names",
-        tail=["/* From here on the effects are voice lines, streamed from the pak (engine/voice.h). */",
-              f"#define KL_SFX_VOICE_FIRST KL_SFX_{VOICES[0]}", ""])
+        names_symbol="kl_sfx_names", names_comment="display names")
 
 
 if __name__ == "__main__":
