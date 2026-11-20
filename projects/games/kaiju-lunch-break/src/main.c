@@ -68,6 +68,7 @@ void game_start(void) {
     game_set_state(ST_PLAY);
     audio_music_next();
     audio_sfx(KL_SFX_ROAR, 230);
+    audio_sfx(KL_SFX_GOBBLE, 255);
 }
 
 static void title_start(void) {

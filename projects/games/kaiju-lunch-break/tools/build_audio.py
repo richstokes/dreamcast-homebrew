@@ -12,8 +12,8 @@ original and reproducible. Outputs:
     assets/generated/sound_assets.h  the effect table
     captures/audio-previews/*.wav    listening copies (git-ignored)
 
-The one recording is the title's welcome (assets/voice/welcome.mp3), which
-needs ffmpeg to decode.
+The voice lines are recordings (assets/voice/*.mp3), which need ffmpeg to
+decode.
 
 The music is not here: it is CD audio on the disc (tools/build_music.py).
 """
@@ -232,9 +232,9 @@ def bell():
     return x * np.where(t < 0.9, trem, 1.0)
 
 
-def welcome():
-    """The voice over the title: the recording, cut to the speech."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(ROOT / "assets" / "voice" / "welcome.mp3"),
+def voice(name):
+    """A voice line: the recording, cut to the speech."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(ROOT / "assets" / "voice" / f"{name}.mp3"),
                           "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"], check=True, capture_output=True).stdout
     x = np.frombuffer(raw, dtype="<f4").astype(float)
     loud = np.nonzero(np.abs(x) > np.max(np.abs(x)) * 10 ** (-45 / 20))[0]
@@ -274,7 +274,8 @@ def render():
         ("OK", one(blip([79, 86], 0.05, 0.12)), False, SR),
         ("BELL", one(bell()), False, SR),
         ("BEEP", one(blip([81], 0.08, 0.1, "sq")), False, SR),
-        ("WELCOME", one(welcome()), False, SR),
+        ("WELCOME", one(voice("welcome")), False, SR),
+        ("GOBBLE", one(voice("gobble")), False, SR),
         ("BEAM", beam_loop(), True, SR),
         ("HELI", heli_loop(), True, SR),
         ("SIREN", siren_loop(), True, SR),
