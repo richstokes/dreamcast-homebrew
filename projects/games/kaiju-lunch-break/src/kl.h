@@ -20,7 +20,7 @@ enum { PAUSE_RESUME, PAUSE_RESTART, PAUSE_MUSIC, PAUSE_FPS, PAUSE_QUIT, PAUSE_IT
 /* Overtime: a bill this big (thousands of dollars, the running combo
    counted) when the bell goes buys OVERTIME_SECONDS more, once. */
 #ifndef OVERTIME_BILL
-#define OVERTIME_BILL 20000000ull
+#define OVERTIME_BILL 100000ull
 #endif
 #define OVERTIME_SECONDS 120.0f
 

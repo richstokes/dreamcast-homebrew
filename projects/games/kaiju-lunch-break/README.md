@@ -24,7 +24,7 @@ what is left topples like a tree and takes whatever it lands on with it.
 - Traffic, crowds that run for it, a news helicopter, then the army, which
   goes by the damage done: a tank at $250 million, gunships from $1.5
   billion, jets at $8 billion
-- Overtime: a $20 billion bill (the running combo counts) when the bell
+- Overtime: a $100 million bill (the running combo counts) when the bell
   goes buys two more minutes, once a lunch
 - The bill is in dollars and your best one is kept on the VMU; with two
   saves, or a full first card, it asks which card on the title
