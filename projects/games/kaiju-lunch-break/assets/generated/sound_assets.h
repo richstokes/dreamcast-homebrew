@@ -38,6 +38,7 @@ typedef enum {
     KL_SFX_GOBBLE,
     KL_SFX_PRAISE,
     KL_SFX_TRYHARDER,
+    KL_SFX_WOW,
     KL_SFX_BEAM,
     KL_SFX_HELI,
     KL_SFX_SIREN,
@@ -74,10 +75,11 @@ static const kl_sfx_asset_t kl_sfx_assets[KL_SFX_COUNT] __attribute__((unused)) 
     { 1003232u, 107712u, 0u, 22050u }, /* GOBBLE     2.44 s */
     { 1110944u, 129536u, 0u, 16500u }, /* PRAISE     3.93 s */
     { 1240480u, 104960u, 0u, 22050u }, /* TRYHARDER  2.38 s */
-    { 1345440u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
-    { 1378240u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
-    { 1394656u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
-    { 1460224u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
+    { 1345440u, 58048u, 0u, 22050u }, /* WOW        1.32 s */
+    { 1403488u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
+    { 1436288u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
+    { 1452704u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
+    { 1518272u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
 };
 
 /* display names */
@@ -110,6 +112,7 @@ static const char *const kl_sfx_names[KL_SFX_COUNT] __attribute__((unused)) = {
     "GOBBLE",
     "PRAISE",
     "TRYHARDER",
+    "WOW",
     "BEAM",
     "HELI",
     "SIREN",
