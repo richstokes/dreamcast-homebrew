@@ -342,36 +342,94 @@ static void beam_pool(V3 nose, V3 fh, V3 rh, float slope, float start, float end
 /* The same from a deck or a rock's top, which are not the terrain's
    triangles: a strip of rows laid on whatever the truck could stand on
    (each row sampled, so a slope bends it rather than kinking it), the
-   glow texture across for soft sides. */
-#define BEAM_ROWS 9
-#define BEAM_COLS 3
+   glow texture across for soft sides. It stops at the deck's sides and
+   end: a point sampled past them would find the water or the loch's bed
+   and pull the strip down into a lit wall. */
+#define BEAM_ROWS 13
+#define BEAM_COLS 5
+#define BEAM_MID (BEAM_COLS / 2)
+#define BEAM_EDGE_STEPS 4
+/* What a point of the patch lies on, and whether that carries on from the
+   last point (href): anything standing up off the terrain does, ground or
+   water only if level with it. */
+static bool patch_ground(float x, float z, float ymax, float href, float *h) {
+    float g = ground_below(x, z, ymax, NULL, NULL), under = fmaxf(terrain_height(x, z), water_at(x, z));
+    *h = fmaxf(g, under);
+    return g > under + 0.05f || fabsf(*h - href) < 0.3f;
+}
+/* Where the patch runs out between p (on it, at height *h) and q (off
+   it): a few halvings. Leaves the height there in *h. */
+static V3 patch_edge(V3 p, V3 q, float ymax, float *h) {
+    for(int k = 0; k < BEAM_EDGE_STEPS; k++) {
+        V3 m = vscale(vadd(p, q), 0.5f);
+        float hm;
+        if(patch_ground(m.x, m.z, ymax, *h, &hm)) p = m, *h = hm;
+        else q = m;
+    }
+    return p;
+}
 static void beam_patch(V3 nose, V3 fh, V3 rh, float ymax, float start, float end, float w0, float w1, uint32_t col,
                        float alpha) {
     RV v[BEAM_ROWS][BEAM_COLS];
+    bool dup[BEAM_ROWS][BEAM_COLS];   /* a copy of the point inside it: the deck's side came first */
+    int rows = 0;
+    float hmid = 0;
+    V3 mprev = nose;
     for(int k = 0; k < BEAM_ROWS; k++) {
         float t = (float)k / (BEAM_ROWS - 1);
-        float d = start + (end - start) * t;
+        V3 m = vmad(nose, fh, start + (end - start) * t);
+        float h;
+        bool last = false;
+        if(!patch_ground(m.x, m.z, ymax, hmid, &h) && k > 0) {
+            /* Off the end: this row is the last, where the deck stops. */
+            h = hmid;
+            m = patch_edge(mprev, m, ymax, &h);
+            t = (fh.x * (m.x - nose.x) + fh.z * (m.z - nose.z) - start) / (end - start);
+            last = true;
+        }
+        hmid = h;
+        mprev = m;
         float w = w0 + (w1 - w0) * t;
         float a = alpha * (t < 0.3f ? 0.55f + 0.45f * t / 0.3f : 1.0f - (t - 0.3f) / 0.7f);
         uint32_t c = color_alpha(col, a);
-        V3 m = vmad(nose, fh, d);
-        for(int i = 0; i < BEAM_COLS; i++) {
-            float u = (float)i / (BEAM_COLS - 1);
-            V3 q = vmad(m, rh, (2.0f * u - 1.0f) * w);
-            q.y = ground_below(q.x, q.z, ymax, NULL, NULL) + 0.08f;
-            /* The middle of the glow across it: a broad pool with soft
-               edges rather than a bright stripe down the centre. */
-            v[k][i] = (RV){q.x, q.y, q.z, 0.18f + 0.64f * u, 0.5f, c};
+        /* The middle of the glow across it: a broad pool with soft edges
+           rather than a bright stripe down the centre. */
+        m.y = h + 0.08f;
+        v[k][BEAM_MID] = (RV){m.x, m.y, m.z, 0.5f, 0.5f, c};
+        dup[k][BEAM_MID] = false;
+        for(int side = -1; side <= 1; side += 2) {
+            V3 p = m;
+            float hp = h;
+            bool off = false;
+            for(int i = BEAM_MID + side; i >= 0 && i < BEAM_COLS; i += side) {
+                dup[k][i] = off;
+                if(!off) {
+                    V3 q = vmad(m, rh, (float)(i - BEAM_MID) / BEAM_MID * w);
+                    float hq;
+                    if(patch_ground(q.x, q.z, ymax, hp, &hq)) p = q, hp = hq;
+                    else p = patch_edge(p, q, ymax, &hp), off = true;
+                }
+                float o = rh.x * (p.x - m.x) + rh.z * (p.z - m.z);
+                v[k][i] = (RV){p.x, hp + 0.08f, p.z, 0.5f + 0.32f * o / w, 0.5f, c};
+            }
         }
+        rows = k + 1;
+        if(last) break;
     }
-    /* A strip down each pair of columns. */
+    /* A strip down each pair of columns, broken where the pair has closed
+       up to nothing past the deck's side. */
     for(int i = 0; i + 1 < BEAM_COLS; i++) {
         RV st[2 * BEAM_ROWS];
-        for(int k = 0; k < BEAM_ROWS; k++) {
-            st[2 * k] = v[k][i];
-            st[2 * k + 1] = v[k][i + 1];
+        int n = 0;
+        for(int k = 0; k <= rows; k++) {
+            if(k < rows && !dup[k][i] && !dup[k][i + 1]) {
+                st[n++] = v[k][i];
+                st[n++] = v[k][i + 1];
+                continue;
+            }
+            if(n >= 4) r_strip(st, n);
+            n = 0;
         }
-        r_strip(st, 2 * BEAM_ROWS);
     }
 }
 
@@ -385,7 +443,13 @@ static void beam_patch(V3 nose, V3 fh, V3 rh, float ymax, float start, float end
    the ground, where the texture is dark anyway. */
 #define AIR_N 5         /* points along it */
 #define AIR_MARCH 12    /* looks at the ground under its middle */
-static void beam_air(V3 lamp, V3 dir, float len, float w1, uint32_t col, float alpha) {
+/* What the cone comes down on: the terrain, or on a deck (ymax the
+   height it stands on) the deck, or the water off its side. */
+static float air_floor(float x, float z, float ymax) {
+    if(ymax <= -1000.0f) return terrain_height(x, z);
+    return fmaxf(ground_below(x, z, ymax, NULL, NULL), water_at(x, z));
+}
+static void beam_air(V3 lamp, V3 dir, float len, float w1, uint32_t col, float alpha, float deck) {
     static const float at[AIR_N] = {0, 0.12f, 0.3f, 0.55f, 1.0f}, lit[AIR_N] = {1.0f, 0.85f, 0.55f, 0.25f, 0};
     const float w0 = 0.18f, clear = 0.08f;
     V3 mid = vmad(lamp, dir, len * 0.5f);
@@ -398,11 +462,11 @@ static void beam_air(V3 lamp, V3 dir, float len, float w1, uint32_t col, float a
     if(alpha < 0.01f) return;
     side = vscale(side, 1.0f / sl);
     /* How far it gets before the ground. */
-    float reach = len, up0 = lamp.y - terrain_height(lamp.x, lamp.z) - clear;
+    float reach = len, up0 = lamp.y - air_floor(lamp.x, lamp.z, deck) - clear;
     if(up0 <= 0) return;
     for(int m = 1; m <= AIR_MARCH; m++) {
         V3 p = vmad(lamp, dir, len * m * (1.0f / AIR_MARCH));
-        float up = p.y - terrain_height(p.x, p.z) - clear;
+        float up = p.y - air_floor(p.x, p.z, deck) - clear;
         if(up <= 0) {
             reach = len * (m - 1 + up0 / (up0 - up)) * (1.0f / AIR_MARCH);
             break;
@@ -417,7 +481,7 @@ static void beam_air(V3 lamp, V3 dir, float len, float w1, uint32_t col, float a
         uint32_t c = color_alpha(col, alpha * lit[k]);
         for(int e = 0; e < 3; e++) {
             V3 q = vmad(p, side, (e - 1) * w);
-            if(e != 1) q.y = fmaxf(q.y, terrain_height(q.x, q.z) + clear * 0.5f);
+            if(e != 1) q.y = fmaxf(q.y, air_floor(q.x, q.z, deck) + clear * 0.5f);
             RV v = {q.x, q.y, q.z, e * 0.5f, 0.5f, c};
             if(e < 2) a[2 * k + e] = v;
             if(e > 0) b[2 * k + e - 1] = v;
@@ -807,6 +871,9 @@ void truckdraw_draw_tr(void) {
 #endif
         if(!t->lights) continue;
         bool full = t->lights == LIGHTS_FULL;
+        /* Up on a deck or a tall rock, or a jetty's planks over the water */
+        float th = terrain_height(c.x, c.z), wy = water_at(c.x, c.z);
+        bool on_deck = g > th + 1.5f || (wy > th && g > wy + 0.3f);
         /* Smashed lamps: no glow and no beam from that one, and less light
            on the ground (none with both gone). */
         const DamageLook *dl = damage_look(ti);
@@ -829,10 +896,11 @@ void truckdraw_draw_tr(void) {
         float blen = full ? 22.0f : 13.0f;
         float air_a = (0.03f + 0.18f * pal->dark + 0.18f * world_mist()) * (full ? 1.0f : 0.8f);
         r_hdr(h_beam);
+        float deck = on_deck ? c.y : -1e9f;
         for(int i = 0; i < 2; i++) {
             if(dl->lamps & (DMG_HEAD_L << i)) continue;
             V3 p = truck_to_world(t, v3(info->headlight[i][0], info->headlight[i][1], info->headlight[i][2]));
-            beam_air(vmad(p, F, 0.1f), bdir, blen, full ? 2.2f : 1.6f, full ? 0xfffff8ec : 0xfffff0d0, air_a);
+            beam_air(vmad(p, F, 0.1f), bdir, blen, full ? 2.2f : 1.6f, full ? 0xfffff8ec : 0xfffff0d0, air_a, deck);
         }
         r_hdr(h_glow);
         for(int i = 0; i < 2; i++) {
@@ -861,7 +929,7 @@ void truckdraw_draw_tr(void) {
         float a = (full ? 0.34f + 0.5f * pal->dark : 0.3f + 0.45f * pal->dark) * (hit ? 1.0f : 0.45f) * beam_k;
         uint32_t col = full ? 0xfffff4d8 : 0xffffe8b0;
         /* (a deck's or a tall rock's top is not the terrain the pool is laid on) */
-        if(g > terrain_height(c.x, c.z) + 1.5f) {
+        if(on_deck) {
             r_hdr(h_glow);
             beam_patch(v3(nose.x, 0, nose.z), fh, rh, nose.y + 1.5f, 1.0f, land * 1.25f, 1.6f, full ? 7.0f : 4.5f, col, a);
         }
