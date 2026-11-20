@@ -181,15 +181,16 @@ static void music_update(float dt) {
     }
     /* Under the pause menu it drops back; switched off it fades right out,
        and only then is the drive paused. */
-    float to = !want || changing || !jb_playing || music_paused ? 0 : game.paused ? 0.6f : 0.85f;
+    float to = !want || changing || !jb_playing || music_paused ? 0 : game.paused ? 0.5f : 1.0f;
     music_level = approach(music_level, to, dt * 2.5f);
     if(!want && jb_playing && !music_paused && music_level <= 0 && jb_order == JB_NONE) {
         jb_order = JB_PAUSE;
         music_paused = true;
     }
-    /* The register is four bits, in 3 dB steps: written when it changes. */
-    int reg = (int)(music_level * 15.0f + 0.5f);
-    if(reg != music_reg) {
+    /* The register is four bits, 15 = full and 3 dB a step down, so the
+       level is turned into decibels: 0.5 is -6 dB, two steps. Written when
+       it changes. */
+    int reg = music_level < 0.02f ? 0 : 15 - (int)(-20.0f * log10f(music_level) / 3.0f + 0.5f);    if(reg != music_reg) {
         music_reg = reg;
         spu_cdda_volume(reg, reg);
     }
