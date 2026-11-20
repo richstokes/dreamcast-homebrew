@@ -53,8 +53,33 @@ def loop_seam(x):
             seam2, np.percentile(np.abs(np.diff(x, 2)), 99.9))
 
 
+_ADPCM_DIFF = (1, 3, 5, 7, 9, 11, 13, 15)
+_ADPCM_SCALE = (230, 230, 230, 230, 307, 409, 512, 614)
+
+
+def adpcm_encode(pcm) -> tuple[bytes, np.ndarray]:
+    """16-bit mono samples as the AICA's 4-bit Yamaha ADPCM, the first sample
+    of each pair in the low nibble. Returns the bytes and what they decode
+    to (the AICA starts a voice at signal 0, step 127, as here)."""
+    pcm = [int(v) for v in pcm]
+    if len(pcm) % 2:
+        pcm.append(0)
+    out = bytearray(len(pcm) // 2)
+    heard = np.zeros(len(pcm), dtype=np.int16)
+    signal, step = 0, 127
+    for i, v in enumerate(pcm):
+        d = v - signal
+        n = min(7, abs(d) * 4 // step)
+        move = step * _ADPCM_DIFF[n] // 8
+        signal = max(-32768, min(32767, signal - move if d < 0 else signal + move))
+        step = max(127, min(24576, step * _ADPCM_SCALE[n] >> 8))
+        out[i >> 1] |= (n | (8 if d < 0 else 0)) << (4 * (i & 1))
+        heard[i] = signal
+    return bytes(out), heard
+
+
 def write_sfx_pak(out: Path, previews: Path, sounds, *, max_bytes: int | None = None,
-                  curvature: bool = False) -> list[tuple[str, int, int, int, int]]:
+                  curvature: bool = False, adpcm=()) -> list[tuple[str, int, int, int, int]]:
     """Pack finished effects into out/sfx.pak and write a listening copy of each.
 
     sounds: (name, x, loop, rate) per effect, x being float samples in [-1, 1]
@@ -66,6 +91,10 @@ def write_sfx_pak(out: Path, previews: Path, sounds, *, max_bytes: int | None = 
     loop's own motion; `curvature` also checks the second difference). Prints
     a row per effect; raises SystemExit on a failed check or a pak over
     `max_bytes`. Returns (name, offset, bytes, loop, rate) per effect.
+
+    adpcm: names of one-shots to pack as 4-bit ADPCM instead, a quarter of
+    the size and a little noisier (speech takes it well). Their loop field is
+    2 (sfx.h), and their listening copy is the decoded ADPCM.
     """
     from synthkit import MAX_SFX_SAMPLES, to_pcm16
     pak = bytearray()
@@ -80,10 +109,19 @@ def write_sfx_pak(out: Path, previews: Path, sounds, *, max_bytes: int | None = 
         pcm = to_pcm16(x)
         _align(pak)
         off = len(pak)
-        pak += pcm.tobytes()
+        packed = name in adpcm
+        if packed and loop:
+            raise SystemExit(f"{name}: a loop cannot be ADPCM")
+        if packed:
+            data, heard = adpcm_encode(pcm)
+            pak += data
+            size = len(data)
+        else:
+            pak += pcm.tobytes()
+            size = len(pcm) * 2
         if loop:
             pak += pcm[:LOOP_GUARD].tobytes()
-        entries.append((name, off, len(pcm) * 2, int(loop), rate))
+        entries.append((name, off, size, 2 if packed else int(loop), rate))
         peak = 20 * np.log10(np.max(np.abs(x)))
         rms = 20 * np.log10(np.sqrt(np.mean(x ** 2)) + 1e-12)
         if loop:
@@ -97,7 +135,11 @@ def write_sfx_pak(out: Path, previews: Path, sounds, *, max_bytes: int | None = 
         else:
             note = f"edges {abs(x[0]):.4f}/{np.max(np.abs(x[-32:])):.4f}"
             preview = x
-        print(f"{name:16s} {len(x) / rate:5.2f} {rate:5d} {len(pcm) * 2 / 1024:5.1f} {peak:6.1f} "
+            if packed:
+                preview = heard / 32768.0
+                err = preview[:len(x)] - x
+                note += f", ADPCM {10 * np.log10(np.mean(x ** 2) / (np.mean(err ** 2) + 1e-12)):.0f} dB SNR"
+        print(f"{name:16s} {len(x) / rate:5.2f} {rate:5d} {size / 1024:5.1f} {peak:6.1f} "
               f"{rms:6.1f} {np.mean(x):+8.5f}  {note}")
         write_wav(previews / f"{name.lower()}.wav", preview, rate)
     _align(pak)

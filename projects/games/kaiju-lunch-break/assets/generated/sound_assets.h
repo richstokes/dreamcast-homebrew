@@ -6,7 +6,7 @@
 
 #define KL_SFX_RATE 22050
 
-/* offset/bytes into sfx.pak (32-byte aligned entries), loop=1 for seamless loops, sample rate */
+/* offset/bytes into sfx.pak (32-byte aligned entries), loop=1 for seamless loops and 2 for a 4-bit ADPCM one-shot, sample rate */
 typedef struct { uint32_t offset, bytes, loop, rate; } kl_sfx_asset_t;
 
 typedef enum {
@@ -71,15 +71,15 @@ static const kl_sfx_asset_t kl_sfx_assets[KL_SFX_COUNT] __attribute__((unused)) 
     { 796736u, 9728u, 0u, 22050u }, /* OK         0.22 s */
     { 806464u, 70560u, 0u, 22050u }, /* BELL       1.60 s */
     { 877024u, 7968u, 0u, 22050u }, /* BEEP       0.18 s */
-    { 884992u, 118240u, 0u, 22050u }, /* WELCOME    2.68 s */
-    { 1003232u, 107712u, 0u, 22050u }, /* GOBBLE     2.44 s */
-    { 1110944u, 129536u, 0u, 16500u }, /* PRAISE     3.93 s */
-    { 1240480u, 104960u, 0u, 22050u }, /* TRYHARDER  2.38 s */
-    { 1345440u, 58048u, 0u, 22050u }, /* WOW        1.32 s */
-    { 1403488u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
-    { 1436288u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
-    { 1452704u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
-    { 1518272u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
+    { 884992u, 29560u, 2u, 22050u }, /* WELCOME    2.68 s */
+    { 914560u, 26928u, 2u, 22050u }, /* GOBBLE     2.44 s */
+    { 941504u, 32384u, 2u, 16500u }, /* PRAISE     3.93 s */
+    { 973888u, 26240u, 2u, 22050u }, /* TRYHARDER  2.38 s */
+    { 1000128u, 14512u, 2u, 22050u }, /* WOW        1.32 s */
+    { 1014656u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
+    { 1047456u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
+    { 1063872u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
+    { 1129440u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
 };
 
 /* display names */

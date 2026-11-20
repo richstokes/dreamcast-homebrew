@@ -232,6 +232,9 @@ def bell():
     return x * np.where(t < 0.9, trem, 1.0)
 
 
+VOICES = set()   # packed as ADPCM
+
+
 def voice(key, name):
     """A voice line: the recording, cut to the speech. A line too long for
     one AICA sample at the effects' rate is packed at a lower one."""
@@ -245,6 +248,7 @@ def voice(key, name):
     if len(x) > 65000:
         sr = int(SR * 65000 / len(x)) // 50 * 50
         x = cut(sr)
+    VOICES.add(key)
     return key, one(x, sr), False, sr
 
 
@@ -298,12 +302,14 @@ def main():
     previews = ROOT / "captures" / "audio-previews"
     out.mkdir(parents=True, exist_ok=True)
     previews.mkdir(parents=True, exist_ok=True)
-    entries = write_sfx_pak(out, previews, render(), max_bytes=1_900_544)
+    sounds = render()
+    entries = write_sfx_pak(out, previews, sounds, max_bytes=1_900_544, adpcm=VOICES)
     write_sound_header(
         out, "KL", entries,
-        notes=[f"{name:10s} {size / 2 / rate:.2f} s" for name, _, size, _, rate in entries],
+        notes=[f"{name:10s} {len(x) / rate:.2f} s" for (name, x, _, rate) in sounds],
         names=[name.replace("_", " ") for name, *_ in entries],
-        struct_comment="offset/bytes into sfx.pak (32-byte aligned entries), loop=1 for seamless loops, sample rate",
+        struct_comment="offset/bytes into sfx.pak (32-byte aligned entries), loop=1 for seamless loops and 2 for a 4-bit ADPCM "
+                       "one-shot, sample rate",
         names_symbol="kl_sfx_names", names_comment="display names")
 
 

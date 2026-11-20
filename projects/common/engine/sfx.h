@@ -2,7 +2,8 @@
 
    Effects are 16-bit mono PCM from a pak the game links in, with a table
    of {offset, bytes, loop, rate} (the layout every game's build_audio.py
-   writes). One-shots go through KOS's sfx manager. Looping sounds whose
+   writes). A loop of 2 is a one-shot stored as 4-bit ADPCM, a quarter of
+   the AICA RAM for a little noise: voice lines. One-shots go through KOS's sfx manager. Looping sounds whose
    pitch and volume follow the game (engines, tyres, wind) are voices:
    each owns a channel reserved with snd_sfx_chn_alloc(), since
    snd_sfx_play() hands channels out round-robin and skips only reserved
