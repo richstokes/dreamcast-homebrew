@@ -165,7 +165,7 @@ void hud_draw(void) {
     else if(game.ot_card > 0) {
         float u = 2.6f - game.ot_card, k = u < 0.2f ? u / 0.2f * 1.2f : u < 0.3f ? 1.2f - (u - 0.2f) * 2.0f : 1.0f;
         text(320, 200, 1.5f * k, ALIGN_CENTER, 0xffffd650, "OVERTIME!");
-        text(320, 252, 0.6f, ALIGN_CENTER, 0xffffffff, "THE BOSS CAN WAIT");
+        text(320, 252, 0.6f, ALIGN_CENTER, 0xffffffff, "KEEP ON SMASHIN'");
     }
     else if(game.outro > 0) {
         float u = game.outro, k = u < 0.2f ? u / 0.2f * 1.2f : u < 0.3f ? 1.2f - (u - 0.2f) * 2.0f : 1.0f;
