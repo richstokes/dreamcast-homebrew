@@ -133,6 +133,34 @@ def wall_glass():
     return c.done()
 
 
+def wall_ware():
+    """Warehouses and shipping containers: corrugated sheet, near white
+    for the tint. The corner texel is plain sheet (the far strips use it)."""
+    c = Canvas(64, 64, (240, 240, 236))
+    for x in range(2, 64, 4):
+        c.line([(x + 0.5, 0), (x + 0.5, 64)], col=(200, 200, 204), w=1.1)
+        c.line([(x + 1.6, 0), (x + 1.6, 64)], col=(255, 255, 255), w=0.6)
+    c.line([(0, 31.5), (64, 31.5)], col=(170, 170, 176), w=1.2)
+    c.line([(0, 63.5), (64, 63.5)], col=(170, 170, 176), w=1.2)
+    return c.done()
+
+
+def wall_deco():
+    """Old stone offices: piers, tall windows, carved spandrels."""
+    c = Canvas(64, 64, (248, 238, 214))
+    for fy in range(2):
+        for bx in range(2):
+            x, y = bx * 32, fy * 32
+            window(c, x + 8, y + 5, x + 24, y + 25, fill=LIT if (bx + fy) == 1 else GLASS_DK, shine=False)
+            c.line([(x + 16, y + 5), (x + 16, y + 25)], w=0.8)
+            c.line([(x + 8, y + 15), (x + 24, y + 15)], w=0.6)
+            c.rect(x + 9, y + 27, x + 23, y + 30, fill=(214, 194, 158), ink=0.6)        # spandrel
+        c.line([(0, y + 0.5), (64, y + 0.5)], col=(222, 206, 172), w=1.0)
+    for x in (2.5, 29.5, 34.5, 61.5):
+        c.line([(x, 0), (x, 64)], col=(226, 210, 178), w=1.4)
+    return c.done()
+
+
 def shopfront():
     """Street level: two shops a tile, awnings over glass."""
     c = Canvas(64, 64, (236, 230, 222))
@@ -449,6 +477,8 @@ def build(out: Path):
         (TexSpec("wall_brick", O, True, True), wall_brick()),
         (TexSpec("wall_ribbon", O, True, True), wall_ribbon()),
         (TexSpec("wall_glass", O, True, True), wall_glass()),
+        (TexSpec("wall_ware", O, True, True), wall_ware()),
+        (TexSpec("wall_deco", O, True, True), wall_deco()),
         (TexSpec("shop", O, True, True), shopfront()),
         (TexSpec("roof", O, True, False), roof()),
         (TexSpec("road", O, True, True), road()),

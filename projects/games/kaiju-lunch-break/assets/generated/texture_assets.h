@@ -15,6 +15,8 @@ enum {
     TEX_WALL_BRICK,
     TEX_WALL_RIBBON,
     TEX_WALL_GLASS,
+    TEX_WALL_WARE,
+    TEX_WALL_DECO,
     TEX_SHOP,
     TEX_ROOF,
     TEX_ROAD,
@@ -49,30 +51,32 @@ static const kl_tex_asset_t kl_tex_assets[TEX_COUNT] = {
     {22912u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* wall_brick */
     {33856u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* wall_ribbon */
     {44800u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* wall_glass */
-    {55744u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* shop */
-    {66688u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* roof */
-    {77632u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* road */
-    {88576u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* cross */
-    {99520u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* pave */
-    {110464u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* grass */
-    {121408u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* water */
-    {132352u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* sand */
-    {143296u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* rubble */
-    {154240u, 2752u, 32, 32, KL_TEXFMT_RGB565, 1, {0, 0}},  /* halftone */
-    {156992u, 43712u, 128, 128, KL_TEXFMT_RGB565, 1, {0, 0}},  /* ads */
-    {200704u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
-    {211648u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* boom */
-    {222592u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* pow */
-    {233536u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* fire */
-    {244480u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* ring */
-    {255424u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tree */
-    {266368u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* blobshadow */
-    {277312u, 2048u, 32, 32, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* glow */
-    {279360u, 512u, 32, 8, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* beam */
-    {279872u, 1024u, 16, 32, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* person */
-    {280896u, 16384u, 128, 64, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
-    {297280u, 262144u, 512, 256, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
-    {559424u, 262144u, 512, 256, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
+    {55744u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* wall_ware */
+    {66688u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* wall_deco */
+    {77632u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* shop */
+    {88576u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* roof */
+    {99520u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* road */
+    {110464u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* cross */
+    {121408u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* pave */
+    {132352u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* grass */
+    {143296u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* water */
+    {154240u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* sand */
+    {165184u, 10944u, 64, 64, KL_TEXFMT_RGB565, 1, {0, 0}},  /* rubble */
+    {176128u, 2752u, 32, 32, KL_TEXFMT_RGB565, 1, {0, 0}},  /* halftone */
+    {178880u, 43712u, 128, 128, KL_TEXFMT_RGB565, 1, {0, 0}},  /* ads */
+    {222592u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* puff */
+    {233536u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* boom */
+    {244480u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* pow */
+    {255424u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* fire */
+    {266368u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* ring */
+    {277312u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* tree */
+    {288256u, 10944u, 64, 64, KL_TEXFMT_ARGB4444, 1, {0, 0}},  /* blobshadow */
+    {299200u, 2048u, 32, 32, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* glow */
+    {301248u, 512u, 32, 8, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* beam */
+    {301760u, 1024u, 16, 32, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* person */
+    {302784u, 16384u, 128, 64, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* cloud */
+    {319168u, 262144u, 512, 256, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* logo */
+    {581312u, 262144u, 512, 256, KL_TEXFMT_ARGB4444, 0, {0, 0}},  /* font */
 };
 
 #endif

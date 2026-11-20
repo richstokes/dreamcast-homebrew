@@ -12,11 +12,13 @@
 enum { K_CAR, K_BUS, K_TANK };
 enum { V_DRIVE, V_FLAT, V_FLY, V_GONE, V_HELD };
 /* Traffic and crowd for the city's size: the numbers are for nine blocks a side. */
-#define CARS (96 * CITY_N * CITY_N / 81)
-#define BUSES (14 * CITY_N * CITY_N / 81)
+/* By the city's width, not its area: a big city is busy where the
+   kaiju is, and every one of them is moved every frame. */
+#define CARS (96 * 11 * CITY_N / 81)
+#define BUSES (14 * 11 * CITY_N / 81)
 #define TANKS 4
 #define VEHICLES (CARS + BUSES + TANKS)
-#define PEOPLE (280 * CITY_N * CITY_N / 81)
+#define PEOPLE (280 * 11 * CITY_N / 81)
 #define HELIS 3
 #define JETS 2
 #define MISSILES 14
@@ -70,12 +72,22 @@ static V3 road_pos(int axis, int road, float s, float lane) {
     return axis ? v3(city_road(road) + lane, 0, s) : v3(s, 0, city_road(road) - lane);
 }
 
+/* A spot on a road of this axis within a few blocks of the kaiju, so the
+   streets it is walking down stay busy however big the city is. */
+static void road_near_kaiju(int axis, uint8_t *road, float *s) {
+    float across = axis ? kj.pos.x : kj.pos.z;
+    int r = (int)floorf((across + CITY_HALF - CITY_ROAD * 0.5f) / CITY_PITCH + 0.5f) + rndi(13) - 6;
+    *road = (uint8_t)(r < 0 ? 0 : r >= CITY_ROADS ? CITY_ROADS - 1 : r);
+    *s = clampf(along(kj.pos, axis) + rnd(-520, 520), -CITY_HALF + 6, CITY_HALF - 6);
+}
+
 static void place_vehicle(Vehicle *v, bool far) {
     for(int tries = 0; tries < 8; tries++) {
         v->axis = (uint8_t)rndi(2);
         v->road = (uint8_t)rndi(CITY_ROADS);
         v->dir = rndi(2) ? 1 : -1;
         v->s = rnd(-CITY_HALF, CITY_HALF);
+        if(far) road_near_kaiju(v->axis, &v->road, &v->s);
         v->p = road_pos(v->axis, v->road, v->s, LANE * (float)v->dir);
         if(!far || dist2_xz(v->p, kj.pos) > 220.0f * 220.0f) break;
     }
@@ -582,10 +594,7 @@ void life_update(float dt) {
     for(int i = 0; i < PEOPLE; i++) {
         Person *q = &people[i];
         if(q->away > 0) {
-            if((q->away -= dt) <= 0) {
-                q->road = (uint8_t)rndi(CITY_ROADS);
-                q->s = rnd(-CITY_HALF, CITY_HALF);
-            }
+            if((q->away -= dt) <= 0) road_near_kaiju(q->axis, &q->road, &q->s);
             continue;
         }
         V3 pp = road_pos(q->axis, q->road, q->s, 12.5f * (float)q->side);

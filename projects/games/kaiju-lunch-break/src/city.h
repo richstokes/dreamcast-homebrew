@@ -13,7 +13,7 @@
 #include "kl.h"
 
 #ifndef CITY_N
-#define CITY_N 11                 /* blocks a side: odd, 15 at most (a building keeps its block in a byte) */
+#define CITY_N 21                 /* blocks a side: odd */
 #endif
 #define CITY_BLOCK 64.0f
 #define CITY_ROAD 20.0f
@@ -25,7 +25,11 @@
 static inline float city_road(int i) { return -CITY_HALF + CITY_ROAD * 0.5f + (float)i * CITY_PITCH; }
 
 enum { B_INTACT, B_TOPPLE, B_CRUMBLE, B_RUBBLE };
-enum { BF_EXPLOSIVE = 1, BF_LANDMARK = 2, BF_BURN = 4, BF_DONUT = 8, BF_NOSHADOW = 16 };
+/* BF_FAR1: one far strip of every wall, not one for each quarter the
+   camera can be in (low buildings, and the odd shapes). BF_ONE: that
+   strip close up as well, the walls and roofs kept no other way.
+   BF_AWAKE: on city.c's list of buildings with something going on. */
+enum { BF_EXPLOSIVE = 1, BF_LANDMARK = 2, BF_BURN = 4, BF_DONUT = 8, BF_NOSHADOW = 16, BF_FAR1 = 32, BF_AWAKE = 64, BF_ONE = 128 };
 enum { PROP_NONE, PROP_WTANK, PROP_DONUT };
 
 #define B_STRIPS 26
@@ -36,7 +40,8 @@ typedef struct {
     uint32_t value;             /* thousands of dollars */
     uint32_t tint;
     uint8_t state, style, flags, prop;
-    uint8_t block, depth, src, nstrips;
+    uint16_t block;
+    uint8_t depth, src, nstrips;
     uint32_t v0;                /* its vertices in the pool */
     uint16_t nv, vcap;
     struct { uint16_t off; uint8_t n, kind; } strip[B_STRIPS];

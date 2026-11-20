@@ -10,14 +10,16 @@
 
 enum { SK_WALL, SK_SHOP, SK_ROOF, SK_FLAT, SK_AD, SK_INK, SK_SHADOW, SK_RUBBLE, SK_PROP, SK_FAR /* and three more */ };
 #define SK_BOX 0x80   /* the strip is a box's four walls, a face every four vertices */
-enum { ST_OFFICE, ST_APT, ST_BRICK, ST_RIBBON, ST_GLASS, ST_TANK, ST_HOUSE, ST_COUNT };
-enum { M_PLAIN, M_SETBACK, M_CROWN, M_HOUSE, M_TANK, M_TV };
+enum { ST_OFFICE, ST_APT, ST_BRICK, ST_RIBBON, ST_GLASS, ST_TANK, ST_HOUSE, ST_WARE, ST_DECO, ST_COUNT };
+enum { M_PLAIN, M_SETBACK, M_CROWN, M_SPIRE, M_HOUSE, M_TANK, M_TV, M_WARE, M_SAW, M_STACK, M_CONT, M_CRANE, M_STADIUM, M_PAGODA, M_TORII };
 
-/* Room for the city at its size: a block averages six buildings, and a
-   building 200 vertices with its far strips. */
+/* Room for the city at its size: a block averages seven buildings, and a
+   building about 105 vertices with its far strips. Twelve seeds took
+   315,000 to 340,000; a city that runs out is missing its last few
+   buildings, and says so in the log. */
 #define MAX_B (CITY_N * CITY_N * 8)
-#define POOL_VERTS (MAX_B * 210)
-#define MAX_TREES 420
+#define POOL_VERTS (CITY_N * CITY_N * 820)
+#define MAX_TREES 1800
 #define INK_W 0.42f
 #define INK_RANGE 330.0f
 #define DRAW_RANGE 1100.0f
@@ -31,8 +33,19 @@ int city_nb;
 static RV *pool;
 static uint32_t pool_n;
 static int standing;
-static struct { uint16_t first, count; float max_h; uint8_t kind; } blocks[CITY_N * CITY_N];
-enum { BK_NORMAL, BK_PARK };
+/* reach: how far from the block's middle its buildings stand. */
+static struct { uint16_t first, count; float max_h, reach; uint8_t kind; } blocks[CITY_N * CITY_N];
+enum { BK_NORMAL, BK_PARK, BK_GREEN };
+/* The buildings with something going on (shaking, burning, a fuse lit,
+   falling): all city_update looks at. */
+static uint16_t awake[MAX_B];
+static int nawake;
+static inline void wake(int i) {
+    if(!(city_b[i].flags & BF_AWAKE)) {
+        city_b[i].flags |= BF_AWAKE;
+        awake[nawake++] = (uint16_t)i;
+    }
+}
 typedef struct { float x, z, s; bool alive; } Tree;
 /* Trees pulled up: in the jaws, or in the air. */
 #define UPROOTED 4
@@ -169,63 +182,268 @@ static const uint32_t palette[ST_COUNT][5] = {
     {0xffffffff, 0xffd8f8ff, 0xffe8e0ff, 0xffc8ffe8, 0xffffe8d8},
     {0xfff4f4f4, 0xfff4f4f4, 0xfff4f4f4, 0xfff4f4f4, 0xfff4f4f4},
     {0xfffaf0dc, 0xfff8dcc0, 0xffe0ecf4, 0xfff4e0e8, 0xffe8f0d0},
+    {0xffe4eef2, 0xfff2e8d4, 0xffd4e2ee, 0xffe2ecd4, 0xfff4ecec},
+    {0xfffcf2dc, 0xfff2e2c4, 0xffece2da, 0xfffce6cc, 0xffe6e8ea},
 };
+/* Shipping containers, and the cranes that stack them. */
+static const uint32_t box_cols[8] = {0xffd8503c, 0xff3c7cc8, 0xfff0b43c, 0xff48a068, 0xffe87c34, 0xff8c5cb4, 0xffd8d8dc, 0xff40a8b8};
+static const uint32_t crane_cols[3] = {0xff3c78c8, 0xffd84840, 0xfff0c040};
+
+/* Another piece on the end of the strip under way, joined by repeating a
+   vertex either side (zero-area triangles, which the PowerVR drops). */
+static void s_join(float x, float y, float z) {
+    if(cb->nstrips < B_STRIPS && cb->strip[cb->nstrips].n) {
+        RV last = pool[cb->v0 + cb->nv - 1];
+        s_v(last.x, last.y, last.z, last.u, last.v, last.c);
+        s_v(x, y, z, 0, 0, last.c);
+    }
+}
+/* A flat quad on the strip under way: a and b along one edge, c and d the other. */
+static void jquad(V3 a, V3 b, V3 c, V3 d, uint32_t col) {
+    s_join(a.x, a.y, a.z);
+    s_v(a.x, a.y, a.z, 0, 0, col);
+    s_v(b.x, b.y, b.z, 0, 0, col);
+    s_v(c.x, c.y, c.z, 0, 0, col);
+    s_v(d.x, d.y, d.z, 0, 0, col);
+}
+static void jtri(V3 a, V3 b, V3 c, uint32_t col) {
+    s_join(a.x, a.y, a.z);
+    s_v(a.x, a.y, a.z, 0, 0, col);
+    s_v(b.x, b.y, b.z, 0, 0, col);
+    s_v(c.x, c.y, c.z, 0, 0, col);
+}
+
+/* A pitched roof over (x, z), ridge along the longer side, rh high, its
+   eaves o past the walls; the gable ends under it in the wall's tint. */
+static void gable(float x, float z, float hw, float hd, float h, float rh, float o, uint32_t rc, uint32_t tint) {
+    bool along_x = hw >= hd;
+    float inv = 1.0f / sqrtf(rh * rh + (along_x ? hd * hd : hw * hw));
+    float ny = (along_x ? hd : hw) * inv, ns = rh * inv;
+    for(int side = -1; side <= 1; side += 2) {
+        float d = along_x ? ny * cel_sun.y + side * ns * cel_sun.z : ny * cel_sun.y + side * ns * cel_sun.x;
+        uint32_t c = cel_band(rc, d);
+        s_begin(SK_FLAT);
+        for(int k = 0; k < 4; k++) {
+            float along = (k & 1) ? 1.0f : -1.0f, up = (k & 2) ? 1.0f : 0.0f;
+            float ax = along_x ? along * (hw + o) : side * (hw + o) * (1 - up);
+            float az = along_x ? side * (hd + o) * (1 - up) : along * (hd + o);
+            s_v(x + ax, h + up * rh - (1 - up) * 0.5f, z + az, 0, 0, c);
+        }
+        s_end();
+        c = cel_band(tint, along_x ? side * cel_sun.x : side * cel_sun.z);
+        s_begin(SK_FLAT);
+        if(along_x) {
+            s_v(x + side * hw, h, z - hd, 0, 0, c);
+            s_v(x + side * hw, h, z + hd, 0, 0, c);
+            s_v(x + side * hw, h + rh, z, 0, 0, c);
+        }
+        else {
+            s_v(x - hw, h, z + side * hd, 0, 0, c);
+            s_v(x + hw, h, z + side * hd, 0, 0, c);
+            s_v(x, h + rh, z + side * hd, 0, 0, c);
+        }
+        s_end();
+    }
+}
+
+/* The way the next crane's jib points: a face_n index, out to sea. */
+static int gen_face;
 
 static Building *add_building(int block, float x, float z, float hw, float hd, float h, int style, int massing, int flags) {
-    if(city_nb >= MAX_B || pool_n + 520 > POOL_VERTS) return NULL;
+    if(city_nb >= MAX_B || pool_n + 700 > POOL_VERTS) {
+        overflow = true;
+        return NULL;
+    }
     Building *b = cb = &city_b[city_nb];
     memset(b, 0, sizeof(*b));
     b->x = x; b->z = z; b->hw = hw; b->hd = hd; b->h = b->h0 = h;
     b->style = (uint8_t)style;
-    b->flags = (uint8_t)flags;
-    b->block = (uint8_t)block;
+    b->block = (uint16_t)block;
     b->tint = palette[style][ci(5)];
     b->v0 = pool_n;
-    b->vcap = 520;
+    b->vcap = 700;
     uint32_t tint = b->tint, rooftint = color_lerp(tint, 0xffe6e6ee, 0.6f);
     float top = h;      /* where the roof props stand */
     float thw = hw, thd = hd;
+    float shw = hw, shd = hd, sh_h = h;   /* what casts the shadow */
     switch(massing) {
         case M_HOUSE: {
+            flags |= BF_ONE;
             walls(SK_WALL, x, z, hw, hd, 0, h, 1, tint, WALL_TILE);
             ink(x, z, hw, hd, 0, h);
-            /* A gable roof, ridge along the longer side. */
-            static const uint32_t tiles[3] = {0xffd8644c, 0xffa85c50, 0xff7c8cac};
-            uint32_t rc = tiles[ci(3)];
-            bool along_x = hw >= hd;
-            float rh = (along_x ? hd : hw) * 0.75f, o = 0.8f;
-            float inv = 1.0f / sqrtf(rh * rh + (along_x ? hd * hd : hw * hw));
-            float ny = (along_x ? hd : hw) * inv, ns = rh * inv;
-            for(int side = -1; side <= 1; side += 2) {
-                float d = along_x ? ny * cel_sun.y + side * ns * cel_sun.z : ny * cel_sun.y + side * ns * cel_sun.x;
-                uint32_t c = cel_band(rc, d);
-                s_begin(SK_FLAT);
-                for(int k = 0; k < 4; k++) {
-                    float along = (k & 1) ? 1.0f : -1.0f, up = (k & 2) ? 1.0f : 0.0f;
-                    float ax = along_x ? along * (hw + o) : side * (hw + o) * (1 - up);
-                    float az = along_x ? side * (hd + o) * (1 - up) : along * (hd + o);
-                    s_v(x + ax, h + up * rh - (1 - up) * 0.5f, z + az, 0, 0, c);
-                }
-                s_end();
-                /* The gable end under it. */
-                c = cel_band(tint, along_x ? side * cel_sun.x : side * cel_sun.z);
-                s_begin(SK_FLAT);
-                if(along_x) {
-                    s_v(x + side * hw, h, z - hd, 0, 0, c);
-                    s_v(x + side * hw, h, z + hd, 0, 0, c);
-                    s_v(x + side * hw, h + rh, z, 0, 0, c);
-                }
-                else {
-                    s_v(x - hw, h, z + side * hd, 0, 0, c);
-                    s_v(x + hw, h, z + side * hd, 0, 0, c);
-                    s_v(x, h + rh, z + side * hd, 0, 0, c);
-                }
-                s_end();
+            static const uint32_t tiles[4] = {0xffd8644c, 0xffa85c50, 0xff7c8cac, 0xff6c9c74};
+            gable(x, z, hw, hd, h, fminf(hw, hd) * 0.75f, 0.8f, tiles[ci(4)], tint);
+            top = -1;
+            break;
+        }
+        case M_WARE: {
+            flags |= BF_ONE;
+            /* A shed: corrugated walls, a shallow pitch. */
+            static const uint32_t tins[4] = {0xff8c9cb0, 0xff98b098, 0xffc4c8d0, 0xffb87c64};
+            walls(SK_WALL, x, z, hw, hd, 0, h, 1, tint, WALL_TILE);
+            ink(x, z, hw, hd, 0, h);
+            gable(x, z, hw, hd, h, fminf(hw, hd) * 0.24f, 0.6f, tins[ci(4)], tint);
+            top = -1;
+            break;
+        }
+        case M_SAW: {
+            flags |= BF_ONE;
+            /* A factory: a saw-tooth roof, its glass facing north. */
+            walls(SK_WALL, x, z, hw, hd, 0, h, 1, tint, WALL_TILE);
+            ink(x, z, hw, hd, 0, h);
+            int n = (int)(hd * 2.0f / 8.0f);
+            n = n < 2 ? 2 : n > 8 ? 8 : n;
+            float tw = hd * 2.0f / (float)n, t = 4.2f, l = sqrtf(t * t + tw * tw);
+            uint32_t slope = cel_band(0xffb4b8c4, (tw * cel_sun.y - t * cel_sun.z) / l);
+            uint32_t glass = cel_band(0xff5c88c4, cel_sun.z), end_e = cel_band(tint, cel_sun.x), end_w = cel_band(tint, -cel_sun.x);
+            s_begin(SK_FLAT);
+            for(int k = 0; k < n; k++) {
+                float z0 = z - hd + tw * (float)k, z1 = z0 + tw;
+                jquad(v3(x - hw, h, z0), v3(x + hw, h, z0), v3(x - hw, h + t, z1), v3(x + hw, h + t, z1), slope);
             }
+            s_end();
+            s_begin(SK_FLAT);
+            for(int k = 0; k < n; k++) {
+                float z1 = z - hd + tw * (float)(k + 1);
+                jquad(v3(x - hw, h + t, z1), v3(x + hw, h + t, z1), v3(x - hw, h, z1), v3(x + hw, h, z1), glass);
+            }
+            s_end();
+            s_begin(SK_FLAT);
+            for(int k = 0; k < n; k++) {
+                float z0 = z - hd + tw * (float)k, z1 = z0 + tw;
+                jtri(v3(x - hw, h, z0), v3(x - hw, h, z1), v3(x - hw, h + t, z1), end_w);
+                jtri(v3(x + hw, h, z0), v3(x + hw, h, z1), v3(x + hw, h + t, z1), end_e);
+            }
+            s_end();
+            top = -1;
+            break;
+        }
+        case M_STACK: {
+            /* A chimney on a brick plinth, in red and white bands. */
+            walls(SK_WALL, x, z, hw, hd, 0, 7, 1, tint, WALL_TILE);
+            roof(SK_ROOF, x, z, hw, hd, 7, rooftint, 1);
+            ink(x, z, hw, hd, 0, 7);
+            float s = fminf(hw, hd) * 0.42f;
+            for(int k = 0; k < 4; k++) {
+                float y0 = 7 + (h - 7) * (float)k / 4.0f, y1 = 7 + (h - 7) * (float)(k + 1) / 4.0f;
+                walls(SK_FLAT, x, z, s, s, y0, y1, 1, (k & 1) ? 0xffe85048 : 0xfff2eeea, 0);
+            }
+            roof(SK_FLAT, x, z, s, s, h, 0xff3c3848, 1);
+            ink(x, z, s, s, 7, h);
+            shw = shd = s;
+            top = -1;
+            break;
+        }
+        case M_CONT: {
+            flags |= BF_ONE;
+            /* A stack of shipping containers, each its own colour. */
+            int layers = (int)(h / 2.6f + 0.5f);
+            for(int k = 0; k < layers; k++)
+                walls(SK_WALL, x, z, hw, hd, 2.6f * (float)k, 2.6f * (float)(k + 1), 1, box_cols[ci(8)], 6.0f);
+            roof(SK_FLAT, x, z, hw, hd, h, cel_band(0xffc8ccd4, cel_sun.y), 1);
+            ink(x, z, hw, hd, 0, h);
+            top = -1;
+            break;
+        }
+        case M_CRANE: {
+            flags |= BF_ONE;
+            /* A container crane on the quay: four legs, a deck, the cab
+               house and a jib out over the water. */
+            uint32_t col = crane_cols[ci(3)];
+            float fx = face_n[gen_face][0], fz = face_n[gen_face][1];
+            float ext = fabsf(fx) * hw + fabsf(fz) * hd;      /* the footprint along the jib */
+            for(int k = 0; k < 4; k++)
+                walls(SK_FLAT, x + corner[k][0] * (hw - 1.1f), z + corner[k][1] * (hd - 1.1f), 1.1f, 1.1f, 0, h - 6, 1, col, 0);
+            box(SK_FLAT, x, z, hw, hd, h - 6, h - 3, col);
+            ink(x, z, hw, hd, h - 6, h - 3);
+            box(SK_FLAT, x - fx * ext * 0.4f, z - fz * ext * 0.4f, hw * 0.5f, hd * 0.5f, h - 3, h + 2, 0xfff2f0ee);
+            float front = ext + 24.0f, back = ext + 9.0f, along = (front + back) * 0.5f, off = (front - back) * 0.5f;
+            float jw = fabsf(fx) * along + fabsf(fz) * 1.4f, jd = fabsf(fz) * along + fabsf(fx) * 1.4f;
+            box(SK_FLAT, x + fx * off, z + fz * off, jw, jd, h - 1, h + 1.2f, col);
+            ink(x + fx * off, z + fz * off, jw, jd, h - 1, h + 1.2f);
+            for(int k = 0; k < 4; k++) shadow(x + corner[k][0] * (hw - 1.1f), z + corner[k][1] * (hd - 1.1f), 1.1f, 1.1f, h - 6);
+            flags |= BF_NOSHADOW | BF_FAR1;
+            top = -1;
+            break;
+        }
+        case M_STADIUM: {
+            flags |= BF_ONE;
+            /* A bowl: the outside, terraces down to the pitch, floodlights. */
+            static const uint32_t team[4] = {0xffe85048, 0xff3c7cc8, 0xfff0b43c, 0xff48a068};
+            uint32_t tc = team[ci(4)];
+            walls(SK_WALL, x, z, hw, hd, 0, h - 3, 1, 0xfff0eef4, WALL_TILE);
+            walls(SK_FLAT, x, z, hw, hd, h - 3, h, 1, tc, 0);
+            ink(x, z, hw, hd, 0, h);
+            #define SP(e, in, y) v3(x + corner[e][0] * (hw - (in)), (y), z + corner[e][1] * (hd - (in)))
+            /* The terraces: rows of seats in two shades of the team's colour. */
+            uint32_t dark = color_lerp(tc, 0xff303048, 0.35f), pale = color_lerp(tc, 0xffffffff, 0.45f);
+            s_begin(SK_FLAT);
+            for(int f = 0; f < 4; f++) {
+                int a = f, c = (f + 1) & 3;
+                float lit = -face_n[f][0] * cel_sun.x - face_n[f][1] * cel_sun.z;
+                jquad(SP(a, 0, h), SP(c, 0, h), SP(a, 1.4f, h), SP(c, 1.4f, h), cel_band(0xffe0e0e8, cel_sun.y));
+                for(int row = 0; row < 5; row++) {
+                    float i0 = 1.4f + 1.5f * (float)row, i1 = i0 + 1.5f, y0 = h - (h - 2.5f) * (float)row / 5.0f, y1 = h - (h - 2.5f) * (float)(row + 1) / 5.0f;
+                    jquad(SP(a, i0, y0), SP(c, i0, y0), SP(a, i1, y1), SP(c, i1, y1), cel_band((row & 1) ? dark : pale, 0.55f * cel_sun.y + 0.8f * lit));
+                }
+            }
+            s_end();
+            /* The pitch, mown in stripes, a line across the middle. */
+            s_begin(SK_FLAT);
+            float px = hw - 8.9f, pz = hd - 8.9f;
+            for(int k = 0; k < 6; k++) {
+                float x0 = x - px + 2 * px * (float)k / 6.0f, x1 = x - px + 2 * px * (float)(k + 1) / 6.0f;
+                jquad(v3(x0, 2.5f, z - pz), v3(x1, 2.5f, z - pz), v3(x0, 2.5f, z + pz), v3(x1, 2.5f, z + pz), (k & 1) ? 0xff84d070 : 0xff64b058);
+            }
+            jquad(v3(x - 0.35f, 2.56f, z - pz), v3(x + 0.35f, 2.56f, z - pz), v3(x - 0.35f, 2.56f, z + pz), v3(x + 0.35f, 2.56f, z + pz), 0xfff8f8f8);
+            s_end();
+            #undef SP
+            for(int k = 0; k < 4; k++) {
+                float lx = x + corner[k][0] * (hw - 1.0f), lz = z + corner[k][1] * (hd - 1.0f);
+                /* (props: close up only, and not in the far strip) */
+                walls(SK_PROP, lx, lz, 0.6f, 0.6f, h, h + 15, 1, 0xff9ca0b0, 0);
+                walls(SK_PROP, lx, lz, 2.6f, 2.6f, h + 15, h + 18, 1, 0xfffff4c0, 0);
+            }
+            flags |= BF_FAR1;
+            top = -1;
+            break;
+        }
+        case M_PAGODA: {
+            flags |= BF_ONE;
+            /* Four storeys under swept roofs, a gilt spire on top. */
+            box(SK_FLAT, x, z, hw, hd, 0, 2.5f, 0xffd8d0c4);
+            ink(x, z, hw, hd, 0, 2.5f);
+            float y = 2.5f, w = fminf(hw, hd) * 0.6f;
+            for(int k = 0; k < 4; k++) {
+                float bh = 5.4f - 0.4f * (float)k, nw = w * 0.84f, eave = w + 3.2f;
+                walls(SK_FLAT, x, z, w, w, y, y + bh, 1, k ? 0xffd84838 : 0xfff4ece0, 0);
+                ink(x, z, w, w, y, y + bh);
+                walls(SK_FLAT, x, z, eave, eave, y + bh, y + bh + 2.6f, k == 3 ? 0.12f : (nw + 0.2f) / eave, 0xff3c6c78, 0);
+                y += bh + 2.6f;
+                w = nw;
+            }
+            walls(SK_FLAT, x, z, 0.45f, 0.45f, y - 1, y + 9, 1, 0xffe8c050, 0);
+            h = b->h = b->h0 = y + 9;
+            shw = shd = fminf(hw, hd) * 0.7f;
+            sh_h = h * 0.8f;
+            flags |= BF_FAR1;
+            top = -1;
+            break;
+        }
+        case M_TORII: {
+            flags |= BF_ONE;
+            /* The gate: two posts, a tie beam, the lintel over. */
+            float px = hw - 1.2f;
+            walls(SK_FLAT, x - px, z, 0.8f, 0.8f, 0, h - 1.4f, 1, 0xffe0482c, 0);
+            walls(SK_FLAT, x + px, z, 0.8f, 0.8f, 0, h - 1.4f, 1, 0xffe0482c, 0);
+            box(SK_FLAT, x, z, hw - 0.6f, 0.6f, h * 0.72f, h * 0.72f + 1, 0xffe0482c);
+            box(SK_FLAT, x, z, hw + 1.0f, 0.9f, h - 1.4f, h, 0xff302830);
+            flags |= BF_NOSHADOW;
             top = -1;
             break;
         }
         case M_TANK:
+            flags |= BF_ONE;
             walls(SK_FLAT, x, z, hw, hd, 0, h * 0.3f, 1, 0xffe85048, 0);
             walls(SK_FLAT, x, z, hw, hd, h * 0.3f, h, 1, tint, 0);
             roof(SK_FLAT, x, z, hw, hd, h, 0xffe0e0e8, 1);
@@ -242,17 +460,21 @@ static Building *add_building(int block, float x, float z, float hw, float hd, f
             box(SK_WALL, x, z, hw * 2.4f, hd * 2.4f, h * 0.66f, h * 0.76f, 0xffffffff);
             ink(x, z, hw * 2.4f, hd * 2.4f, h * 0.66f, h * 0.76f);
             box(SK_FLAT, x, z, hw * 0.25f, hd * 0.25f, h * 0.76f, h, 0xffe85048);
+            sh_h = h * 0.7f;
             top = -1;
             break;
         }
         default: {
-            int tiers = massing == M_SETBACK ? 3 : massing == M_CROWN ? 2 : 1;
+            int tiers = massing == M_SETBACK || massing == M_SPIRE ? 3 : massing == M_CROWN ? 2 : 1;
             static const float set_y[3] = {0.62f, 0.86f, 1.0f}, set_k[3] = {1.0f, 0.78f, 0.56f};
+            static const float spire_y[3] = {0.7f, 0.9f, 1.0f}, spire_k[3] = {1.0f, 0.84f, 0.68f};
             static const float crown_y[2] = {0.9f, 1.0f}, crown_k[2] = {1.0f, 0.62f};
+            const float *ty = massing == M_SETBACK ? set_y : massing == M_SPIRE ? spire_y : crown_y;
+            const float *tk = massing == M_SETBACK ? set_k : massing == M_SPIRE ? spire_k : crown_k;
             float y0 = 0;
             for(int t = 0; t < tiers; t++) {
-                float k = massing == M_SETBACK ? set_k[t] : massing == M_CROWN ? crown_k[t] : 1.0f;
-                float y1 = h * (massing == M_SETBACK ? set_y[t] : massing == M_CROWN ? crown_y[t] : 1.0f);
+                float k = tiers > 1 ? tk[t] : 1.0f;
+                float y1 = h * (tiers > 1 ? ty[t] : 1.0f);
                 y1 = floorf(y1 * 0.25f + 0.5f) * 4.0f;   /* whole floors */
                 if(t == tiers - 1) y1 = h;
                 float wy0 = y0;
@@ -290,9 +512,18 @@ static Building *add_building(int block, float x, float z, float hw, float hd, f
                 box(SK_FLAT, x, z, 0.9f, 0.9f, h, h * 1.16f, 0xffe85048);
                 top = -1;
             }
+            else if(massing == M_SPIRE) {
+                /* A pointed cap in copper, gold or steel, and a needle. */
+                static const uint32_t caps[3] = {0xff78b0a0, 0xffe8c060, 0xffd0d8e8};
+                float ch = fminf(thw, thd) * 1.6f;
+                walls(SK_FLAT, x, z, thw, thd, h, h + ch, 0.06f, caps[ci(3)], 0);
+                walls(SK_FLAT, x, z, 0.5f, 0.5f, h + ch * 0.9f, h + ch + h * 0.08f, 1, 0xffd0d8e8, 0);
+                top = -1;
+            }
             break;
         }
     }
+    b->flags = (uint8_t)flags;
     /* On the roof. */
     if(top > 0 && thw > 5 && thd > 5) {
         int prop = ci(6);
@@ -336,36 +567,80 @@ static Building *add_building(int block, float x, float z, float hw, float hd, f
             default: break;
         }
     }
-    if(!(flags & BF_NOSHADOW)) shadow(x, z, hw, hd, massing == M_TV ? h * 0.7f : h);
+    if(!(flags & BF_NOSHADOW)) shadow(x, z, shw, shd, sh_h);
     /* From far off: the walls and roofs again as one strip under the wall's
-       texture, once for each quarter the camera can be in, with only the
-       two walls of each box that face that way. Whatever is not wall takes
-       a texel of plain wall, which at that distance is the texture's
-       average anyway. */
-    int parts = b->nstrips;
-    for(int quarter = 0; quarter < 4; quarter++) {
+       texture. A tall building has one for each quarter the camera can be
+       in, with only the two walls of each box that face that way; a low one
+       (drawn far off only as far as SMALL_RANGE) has one of all its walls,
+       which costs a few vertices more to draw and a lot less to keep.
+       Whatever is not wall takes a texel of plain wall, which at that
+       distance is the texture's average anyway. */
+    if(h < 36.0f || (flags & BF_ONE)) flags |= BF_FAR1;
+    b->flags = (uint8_t)flags;
+    int parts = b->nstrips, quarters = (flags & BF_FAR1) ? 1 : 4;
+    bool shops = false;
+    for(int quarter = 0; quarter < quarters; quarter++) {
         /* The pair of walls: east or west (bit 0), north or south (bit 1). */
         static const uint8_t pair_at[4] = {12, 0, 8, 4};
         s_begin(SK_FAR + quarter);
         for(int s = 0; s < parts; s++) {
             int kind = b->strip[s].kind & ~SK_BOX, n = b->strip[s].n;
             if(kind != SK_WALL && kind != SK_ROOF && kind != SK_FLAT && kind != SK_SHOP) continue;
+            if(kind == SK_SHOP) {
+                /* The shops' band goes in with the wall over it. */
+                shops = true;
+                continue;
+            }
             const RV *v = &pool[b->v0 + b->strip[s].off];
-            if((b->strip[s].kind & SK_BOX) && n == 20) {
-                v += pair_at[quarter];
+            int first = 0;
+            if(quarters == 4 && (b->strip[s].kind & SK_BOX) && n == 20) {
+                first = pair_at[quarter];
                 n = 8;
             }
-            bool plain = kind != SK_WALL && kind != SK_SHOP;
-            if(cb->nstrips < B_STRIPS && cb->strip[cb->nstrips].n) {
-                RV last = pool[b->v0 + b->nv - 1];
-                s_v(last.x, last.y, last.z, last.u, last.v, last.c);
-                s_v(v[0].x, v[0].y, v[0].z, plain ? 0.03f : v[0].u, plain ? 0.03f : v[0].v, v[0].c);
+            bool plain = kind != SK_WALL;
+            bool down = shops && kind == SK_WALL;   /* the wall over the shops: down to the street */
+            for(int q = -1; q < n; q++) {
+                RV w = v[first + (q < 0 ? 0 : q)];
+                if(plain) w.u = w.v = 0.03f;
+                if(down && !((first + (q < 0 ? 0 : q)) & 1)) {
+                    w.v += w.y * (1.0f / WALL_TILE);
+                    w.y = 0;
+                }
+                if(q < 0) {
+                    /* Joined to the last piece. */
+                    if(cb->nstrips < B_STRIPS && cb->strip[cb->nstrips].n) {
+                        RV last = pool[b->v0 + b->nv - 1];
+                        s_v(last.x, last.y, last.z, last.u, last.v, last.c);
+                        s_v(w.x, w.y, w.z, w.u, w.v, w.c);
+                    }
+                    continue;
+                }
+                s_v(w.x, w.y, w.z, w.u, w.v, w.c);
             }
-            for(int q = 0; q < n; q++) s_v(v[q].x, v[q].y, v[q].z, plain ? 0.03f : v[q].u, plain ? 0.03f : v[q].v, v[q].c);
+            if(down) shops = false;
         }
         s_end();
+        shops = false;
     }
-    b->vcap = b->nv < 60 ? 60 : b->nv;
+    if(flags & BF_ONE) {
+        /* Close up too it is the far strip, with its ink, shadow and
+           props: the walls and roofs on their own go. */
+        int keep = 0;
+        uint16_t at = 0;
+        for(int s = 0; s < b->nstrips; s++) {
+            int kind = b->strip[s].kind & ~SK_BOX, n = b->strip[s].n;
+            if(kind == SK_WALL || kind == SK_ROOF || kind == SK_FLAT || kind == SK_SHOP) continue;
+            memmove(&pool[b->v0 + at], &pool[b->v0 + b->strip[s].off], (size_t)n * sizeof(RV));
+            b->strip[keep] = b->strip[s];
+            b->strip[keep].off = at;
+            keep++;
+            at = (uint16_t)(at + n);
+        }
+        b->nstrips = (uint8_t)keep;
+        b->nv = at;
+    }
+    /* (room for the rubble it turns into: a mound, and a slab if it falls) */
+    b->vcap = b->nv < 44 ? 44 : b->nv;
     pool_n += b->vcap;
     b->hp = b->hp_max = (30.0f + h * 3.0f + (hw + hd) * 1.5f) * (b->bands ? 1.5f : 1.0f);
     b->value = (uint32_t)(hw * hd * 4.0f * h * 1.2f) * ((flags & BF_LANDMARK) ? 3 : 1);
@@ -373,7 +648,14 @@ static Building *add_building(int block, float x, float z, float hw, float hd, f
     city_nb++;
     blocks[block].count++;
     if(h > blocks[block].max_h) blocks[block].max_h = h;
+    float bx = city_road(block % CITY_N) + CITY_PITCH * 0.5f, bz = city_road(block / CITY_N) + CITY_PITCH * 0.5f;
+    float reach = sqrtf((x - bx) * (x - bx) + (z - bz) * (z - bz)) + fmaxf(hw, hd) + (massing == M_CRANE ? 26.0f : 0.0f);
+    if(reach > blocks[block].reach) blocks[block].reach = reach;
     return b;
+}
+
+static void plant(float x, float z, float s) {
+    if(ntrees < MAX_TREES) trees[ntrees++] = (Tree){x, z, s, true};
 }
 
 /* An nx by nz grid of lots in a block. */
@@ -385,8 +667,7 @@ static void lots(int block, float cx, float cz, int nx, int nz, float h0, float 
             float x = cx - 28.0f + cw * ((float)i + 0.5f), z = cz - 28.0f + cd * ((float)j + 0.5f);
             if(cf() < gap_p) {
                 /* An empty lot: a couple of trees. */
-                for(int t = 0; t < 2 && ntrees < MAX_TREES; t++)
-                    trees[ntrees++] = (Tree){x + cfr(-0.3f, 0.3f) * cw, z + cfr(-0.3f, 0.3f) * cd, cfr(11, 16), true};
+                for(int t = 0; t < 2; t++) plant(x + cfr(-0.3f, 0.3f) * cw, z + cfr(-0.3f, 0.3f) * cd, cfr(11, 16));
                 continue;
             }
             float hw = cw * 0.5f - cfr(1.4f, 3.0f), hd = cd * 0.5f - cfr(1.4f, 3.0f);
@@ -399,11 +680,135 @@ static void lots(int block, float cx, float cz, int nx, int nz, float h0, float 
             }
             else if(h > 40) {
                 float r = cf();
-                massing = r < setback_p ? M_SETBACK : r < setback_p + crown_p ? M_CROWN : M_PLAIN;
+                massing = r < setback_p ? M_SETBACK : r < setback_p + crown_p ? M_CROWN : r < setback_p + crown_p + 0.12f ? M_SPIRE : M_PLAIN;
             }
             add_building(block, x, z, hw, hd, h, style, massing, 0);
         }
     }
+}
+
+/* Houses on their own plots, a tree in most gardens. */
+static void houses(int block, float cx, float cz, int n) {
+    float cw = 56.0f / (float)n;
+    static const uint8_t st[] = {ST_HOUSE, ST_HOUSE, ST_HOUSE, ST_BRICK};
+    for(int j = 0; j < n; j++) {
+        for(int i = 0; i < n; i++) {
+            float x = cx - 28.0f + cw * ((float)i + 0.5f), z = cz - 28.0f + cw * ((float)j + 0.5f);
+            if(cf() < 0.14f) {
+                plant(x + cfr(-0.2f, 0.2f) * cw, z, cfr(11, 16));
+                continue;
+            }
+            float hw = cw * cfr(0.26f, 0.34f), hd = cw * cfr(0.24f, 0.32f);
+            float ox = cfr(-0.1f, 0.1f) * cw, oz = cfr(-0.1f, 0.1f) * cw;
+            add_building(block, x + ox, z + oz, hw, hd, cfr(6.5f, 9.5f), st[ci(4)] == ST_BRICK ? ST_BRICK : ST_HOUSE,
+                         M_HOUSE, 0);
+            if(cf() < 0.55f) {
+                float tx = x + (ox > 0 ? -1.0f : 1.0f) * cw * 0.38f, tz = z + (oz > 0 ? -1.0f : 1.0f) * cw * 0.38f;
+                plant(tx, tz, cfr(10, 14));
+            }
+        }
+    }
+}
+
+/* Joined rows round the block's edge, shops under them, a yard of trees
+   in the middle. */
+static void terraces(int block, float cx, float cz, float h0, float h1, const uint8_t *styles, int nstyles) {
+    const float half = 28.0f;
+    float depth = cfr(9.5f, 12.5f);
+    for(int side = 0; side < 4; side++) {
+        float len = (side & 1) ? 2 * (half - depth) : 2 * half;
+        int n = 2 + ci(2);
+        float seg = len / (float)n;
+        for(int k = 0; k < n; k++) {
+            float a = -len * 0.5f + seg * ((float)k + 0.5f), off = half - depth * 0.5f;
+            float h = floorf(cfr(h0, h1) * 0.25f + 0.5f) * 4.0f;
+            float along = seg * 0.5f - 0.25f, across = depth * 0.5f;
+            float x = cx, z = cz, hw, hd;
+            switch(side) {
+                case 0: x += a; z -= off; hw = along; hd = across; break;
+                case 1: x += off; z += a; hw = across; hd = along; break;
+                case 2: x -= a; z += off; hw = along; hd = across; break;
+                default: x -= off; z -= a; hw = across; hd = along; break;
+            }
+            add_building(block, x, z, hw, hd, h, styles[ci(nstyles)], h > 30 && cf() < 0.3f ? M_CROWN : M_PLAIN, 0);
+        }
+    }
+    int t = 2 + ci(3);
+    for(int k = 0; k < t; k++) plant(cx + cfr(-1, 1) * (half - depth - 4), cz + cfr(-1, 1) * (half - depth - 4), cfr(11, 15));
+}
+
+/* Shipping containers in rows, x0..x1 by z0..z1. */
+static void containers(int block, float x0, float x1, float z0, float z1, bool along_x) {
+    float lx = along_x ? 6.1f : 2.5f, lz = along_x ? 2.5f : 6.1f;
+    float sx = lx * 2 + (along_x ? 3.0f : 1.6f), sz = lz * 2 + (along_x ? 1.6f : 3.0f);
+    int nx = (int)((x1 - x0) / sx), nz = (int)((z1 - z0) / sz);
+    float mx = (x0 + x1) * 0.5f - (float)(nx - 1) * sx * 0.5f, mz = (z0 + z1) * 0.5f - (float)(nz - 1) * sz * 0.5f;
+    for(int j = 0; j < nz; j++)
+        for(int i = 0; i < nx; i++)
+            if(cf() > 0.3f) add_building(block, mx + sx * (float)i, mz + sz * (float)j, lx, lz, 2.6f * (float)(1 + ci(3)), ST_WARE, M_CONT, 0);
+}
+
+/* ---- Districts ---- */
+enum { D_CORE, D_MID, D_UPTOWN, D_OLDTOWN, D_SUBURB, D_INDUSTRY, D_MIXED };
+static uint8_t district[CITY_N * CITY_N];
+/* The shore with the docks (a face_n index), and the blocks along it that have them. */
+static int harbor_side;
+static bool harbor[CITY_N * CITY_N];
+#define C_MID (CITY_N / 2)
+
+static inline int block_side(int i, int j) {
+    return j == 0 ? 0 : i == CITY_N - 1 ? 1 : j == CITY_N - 1 ? 2 : i == 0 ? 3 : -1;
+}
+
+static void industry(int bi, float cx, float cz) {
+    float r = cf();
+    if(r < 0.38f) {
+        /* Two sheds. */
+        bool ax = ci(2);
+        for(int k = -1; k <= 1; k += 2) {
+            float hw = cfr(10.5f, 12.5f), hd = cfr(20, 25.5f);
+            add_building(bi, cx + (ax ? k * 14.0f : 0), cz + (ax ? 0 : k * 14.0f), ax ? hw : hd, ax ? hd : hw, floorf(cfr(9, 14)),
+                         ST_WARE, cf() < 0.5f ? M_SAW : M_WARE, 0);
+        }
+    }
+    else if(r < 0.62f) {
+        /* A works: one long shed, an office, a chimney or two. */
+        add_building(bi, cx - 4, cz + 6, 22, 15.5f, floorf(cfr(10, 13)), ST_WARE, M_SAW, 0);
+        add_building(bi, cx + 16, cz - 19, 10, 6.5f, 12, ci(2) ? ST_BRICK : ST_APT, M_PLAIN, 0);
+        add_building(bi, cx - 19, cz - 19, 5.5f, 5.5f, floorf(cfr(46, 72)), ST_BRICK, M_STACK, 0);
+        if(cf() < 0.4f) add_building(bi, cx - 7, cz - 21, 4.5f, 4.5f, floorf(cfr(36, 52)), ST_BRICK, M_STACK, 0);
+    }
+    else if(r < 0.84f) containers(bi, cx - 28, cx + 28, cz - 28, cz + 28, ci(2));
+    else {
+        /* Fuel: four tanks, and they go up. */
+        for(int k = 0; k < 4; k++)
+            add_building(bi, cx + ((k & 1) ? 14.0f : -14.0f), cz + ((k & 2) ? 14.0f : -14.0f), 9, 9, 15, ST_TANK, M_TANK, BF_EXPLOSIVE);
+    }
+}
+
+/* The quay in front of an edge block: a crane at the water and boxes
+   stacked behind it. Its buildings stand on the beach, outside the block,
+   but belong to it. */
+static void docks(int bi, int i, int j) {
+    float b0 = city_road(harbor_side & 1 ? j : i) + CITY_ROAD * 0.5f + 2, b1 = b0 + CITY_BLOCK - 4;
+    float in = CITY_HALF + 3, out = CITY_SHORE - 2;
+    float fx = face_n[harbor_side][0], fz = face_n[harbor_side][1];
+    /* Along the shore u, out to sea w: to x and z. */
+    #define DX(u, w) (fx != 0 ? fx * (w) : (u))
+    #define DZ(u, w) (fz != 0 ? fz * (w) : (u))
+    gen_face = harbor_side;
+    if(cf() < 0.7f) {
+        float u = cfr(b0 + 10, b1 - 10), w = out - 7.5f;
+        add_building(bi, DX(u, w), DZ(u, w), fx != 0 ? 7.0f : 9.0f, fx != 0 ? 9.0f : 7.0f, floorf(cfr(36, 44)), ST_WARE, M_CRANE, 0);
+    }
+    /* Two rows of stacks between the road and the crane's legs. */
+    for(int row = 0; row < 2; row++) {
+        float w = in + 3.0f + (float)row * 7.0f;
+        for(float u = b0 + 7; u < b1 - 6; u += 15.0f)
+            if(cf() > 0.25f) add_building(bi, DX(u, w), DZ(u, w), fx != 0 ? 2.5f : 6.1f, fx != 0 ? 6.1f : 2.5f, 2.6f * (float)(1 + ci(3)), ST_WARE, M_CONT, 0);
+    }
+    #undef DX
+    #undef DZ
 }
 
 static void build_ground(void) {
@@ -412,52 +817,66 @@ static void build_ground(void) {
         *h_water = r_header(TEX_WATER, HF_OP);
     const uint32_t w = 0xffffffffu;
     sc_clear(&ground);
-    for(int j = 0; j < CITY_ROADS; j++) {
-        for(int i = 0; i < CITY_ROADS; i++) {
-            float x = city_road(i), z = city_road(j), r = CITY_ROAD * 0.5f;
+    /* The streets in squares of GROUND_G crossings, each its own chunk with
+       one joined strip a texture: a strip is worth a few vertices to send,
+       and a chunk a crossing was two thousand of them. */
+    #define GROUND_G 3
+    for(int cj = 0; cj < CITY_ROADS; cj += GROUND_G) {
+        for(int ci0 = 0; ci0 < CITY_ROADS; ci0 += GROUND_G) {
+            int j1 = cj + GROUND_G < CITY_ROADS ? cj + GROUND_G : CITY_ROADS, i1 = ci0 + GROUND_G < CITY_ROADS ? ci0 + GROUND_G : CITY_ROADS;
             sc_chunk_begin(&ground, HF_OP, 0, 2200.0f, 0);
-            sc_strip_begin(&ground, h_cross);
-            sc_vert(&ground, v3(x - r, 0, z - r), 0, 0, w);
-            sc_vert(&ground, v3(x + r, 0, z - r), 1, 0, w);
-            sc_vert(&ground, v3(x - r, 0, z + r), 0, 1, w);
-            sc_vert(&ground, v3(x + r, 0, z + r), 1, 1, w);
-            sc_strip_end(&ground);
-            if(i < CITY_N) {
-                /* The road east of the crossing: u across it, v along. */
-                sc_strip_begin(&ground, h_road);
-                sc_vert(&ground, v3(x + r, 0, z - r), 0, 0, w);
-                sc_vert(&ground, v3(x + r + CITY_BLOCK, 0, z - r), 0, 4, w);
-                sc_vert(&ground, v3(x + r, 0, z + r), 1, 0, w);
-                sc_vert(&ground, v3(x + r + CITY_BLOCK, 0, z + r), 1, 4, w);
-                sc_strip_end(&ground);
-            }
-            if(j < CITY_N) {
-                sc_strip_begin(&ground, h_road);
-                sc_vert(&ground, v3(x - r, 0, z + r), 0, 0, w);
-                sc_vert(&ground, v3(x + r, 0, z + r), 1, 0, w);
-                sc_vert(&ground, v3(x - r, 0, z + r + CITY_BLOCK), 0, 4, w);
-                sc_vert(&ground, v3(x + r, 0, z + r + CITY_BLOCK), 1, 4, w);
-                sc_strip_end(&ground);
-            }
-            if(i < CITY_N && j < CITY_N) {
-                bool park = blocks[j * CITY_N + i].kind == BK_PARK;
-                float uv = park ? 4.0f : 8.0f;
-                sc_strip_begin(&ground, park ? h_grass : h_pave);
-                sc_vert(&ground, v3(x + r, 0, z + r), 0, 0, w);
-                sc_vert(&ground, v3(x + r + CITY_BLOCK, 0, z + r), uv, 0, w);
-                sc_vert(&ground, v3(x + r, 0, z + r + CITY_BLOCK), 0, uv, w);
-                sc_vert(&ground, v3(x + r + CITY_BLOCK, 0, z + r + CITY_BLOCK), uv, uv, w);
-                sc_strip_end(&ground);
-                if(park) {
-                    /* A pond. */
-                    float px = x + r + 32, pz = z + r + 30;
-                    sc_strip_begin(&ground, h_water);
-                    sc_vert(&ground, v3(px - 13, 0.08f, pz - 9), 0, 0, w);
-                    sc_vert(&ground, v3(px + 13, 0.08f, pz - 9), 1, 0, w);
-                    sc_vert(&ground, v3(px - 13, 0.08f, pz + 9), 0, 0.7f, w);
-                    sc_vert(&ground, v3(px + 13, 0.08f, pz + 9), 1, 0.7f, w);
-                    sc_strip_end(&ground);
+            for(int pass = 0; pass < 7; pass++) {
+                const pvr_poly_hdr_t *hp = pass == 0 ? h_cross : pass == 1 ? h_road : pass == 2 ? h_pave : pass == 3 ? h_grass : pass == 4 ? h_water : pass == 5 ? h_pave : h_road;
+                sc_strip_begin(&ground, hp);
+                for(int j = cj; j < j1; j++) {
+                    for(int i = ci0; i < i1; i++) {
+                        float x = city_road(i), z = city_road(j), r = CITY_ROAD * 0.5f;
+                        /* A quad: corners p0..p3 in strip order, with their uvs. */
+                        #define GQ(x0, z0, u0, v0, x1, z1, u1, v1, x2, z2, u2, v2, x3, z3, u3, v3_, y, col) do { \
+                            sc_join(&ground, v3(x0, y, z0), u0, v0, col);                                     \
+                            sc_vert(&ground, v3(x1, y, z1), u1, v1, col);                                     \
+                            sc_vert(&ground, v3(x2, y, z2), u2, v2, col);                                     \
+                            sc_vert(&ground, v3(x3, y, z3), u3, v3_, col);                                    \
+                        } while(0)
+                        if(pass == 0) GQ(x - r, z - r, 0, 0, x + r, z - r, 1, 0, x - r, z + r, 0, 1, x + r, z + r, 1, 1, 0, w);
+                        if(pass == 1 && i < CITY_N)
+                            /* The road east of the crossing: u across it, v along. */
+                            GQ(x + r, z - r, 0, 0, x + r + CITY_BLOCK, z - r, 0, 4, x + r, z + r, 1, 0, x + r + CITY_BLOCK, z + r, 1, 4, 0, w);
+                        if(pass == 1 && j < CITY_N)
+                            GQ(x - r, z + r, 0, 0, x + r, z + r, 1, 0, x - r, z + r + CITY_BLOCK, 0, 4, x + r, z + r + CITY_BLOCK, 1, 4, 0, w);
+                        if(i >= CITY_N || j >= CITY_N) continue;
+                        int bi = j * CITY_N + i, kind = blocks[bi].kind;
+                        bool green = kind != BK_NORMAL;
+                        if((pass == 2 && !green) || (pass == 3 && green)) {
+                            float uv = green ? 4.0f : 8.0f;
+                            GQ(x + r, z + r, 0, 0, x + r + CITY_BLOCK, z + r, uv, 0, x + r, z + r + CITY_BLOCK, 0, uv, x + r + CITY_BLOCK, z + r + CITY_BLOCK,
+                               uv, uv, 0, w);
+                        }
+                        if(pass == 4 && kind == BK_PARK) {
+                            /* A pond. */
+                            float px = x + r + 32, pz = z + r + 30;
+                            GQ(px - 13, pz - 9, 0, 0, px + 13, pz - 9, 1, 0, px - 13, pz + 9, 0, 0.7f, px + 13, pz + 9, 1, 0.7f, 0.08f, w);
+                        }
+                        if(pass >= 5 && harbor[bi]) {
+                            /* The quay out in front: paving to the water, a dark edge. */
+                            float b0 = (harbor_side & 1 ? z : x) + r - 1, b1 = b0 + CITY_BLOCK + 2;
+                            float fx = face_n[harbor_side][0], fz = face_n[harbor_side][1];
+                            int part = pass - 5;
+                            float w0 = part ? CITY_SHORE - 1.4f : CITY_HALF - 0.5f, w1 = part ? CITY_SHORE + 1.0f : CITY_SHORE - 1.4f;
+                            float y = 0.05f + 0.01f * (float)part;
+                            RV q[4];
+                            for(int k = 0; k < 4; k++) {
+                                float u = (k & 1) ? b1 : b0, ww = (k & 2) ? w1 : w0;
+                                q[k] = (RV){fx != 0 ? fx * ww : u, y, fz != 0 ? fz * ww : u, part ? 0.05f : ((k & 1) ? 8.0f : 0.0f),
+                                            part ? ((k & 1) ? 4.0f : 0.0f) : ((k & 2) ? 4.5f : 0.0f), part ? 0xff8890a0u : w};
+                            }
+                            GQ(q[0].x, q[0].z, q[0].u, q[0].v, q[1].x, q[1].z, q[1].u, q[1].v, q[2].x, q[2].z, q[2].u, q[2].v, q[3].x, q[3].z, q[3].u,
+                               q[3].v, y, q[0].c);
+                        }
+                        #undef GQ
+                    }
                 }
+                sc_strip_end(&ground);
             }
             sc_chunk_end(&ground);
         }
@@ -494,6 +913,59 @@ static void build_ground(void) {
     if(ground.full) printf("KL city: the ground did not fit\n");
 }
 
+/* The districts round the middle: eight wedges, turned a different way
+   every lunch, with ragged edges. */
+static void plan_districts(void) {
+    static const uint8_t wedge[8] = {D_UPTOWN, D_OLDTOWN, D_SUBURB, D_INDUSTRY, D_MIXED, D_SUBURB, D_OLDTOWN, D_INDUSTRY};
+    float turn = cf() * ENG_TAU;
+    for(int j = 0; j < CITY_N; j++) {
+        for(int i = 0; i < CITY_N; i++) {
+            int di = i - C_MID, dj = j - C_MID, d = abs(di) > abs(dj) ? abs(di) : abs(dj);
+            uint8_t *k = &district[j * CITY_N + i];
+            if(d <= 2) *k = D_CORE;
+            else if(d <= 4) *k = D_MID;
+            else {
+                float a = atan2f((float)dj, (float)di) - turn + cfr(-0.22f, 0.22f);
+                int s = (int)floorf(a / (ENG_TAU / 8.0f));
+                *k = wedge[((s % 8) + 8) % 8];
+            }
+            harbor[j * CITY_N + i] = false;
+        }
+    }
+    /* The docks: on the shore the first industrial wedge faces. */
+    float a = turn + 3.5f * (ENG_TAU / 8.0f);
+    float sx = cosf(a), sz = sinf(a);
+    harbor_side = fabsf(sx) > fabsf(sz) ? (sx > 0 ? 1 : 3) : (sz > 0 ? 2 : 0);
+    for(int j = 0; j < CITY_N; j++)
+        for(int i = 0; i < CITY_N; i++)
+            if(block_side(i, j) == harbor_side && district[j * CITY_N + i] == D_INDUSTRY) harbor[j * CITY_N + i] = true;
+}
+
+/* The block of kind k nearest the middle of its wedge at ring d. */
+static int pick_block(int k, int d) {
+    int best = -1;
+    float bd = 1e9f;
+    for(int j = 0; j < CITY_N; j++) {
+        for(int i = 0; i < CITY_N; i++) {
+            int di = i - C_MID, dj = j - C_MID;
+            if(district[j * CITY_N + i] != k || (abs(di) > abs(dj) ? abs(di) : abs(dj)) != d) continue;
+            /* (how many of its neighbours are the same: the wedge's middle) */
+            int same = 0;
+            for(int y = -1; y <= 1; y++)
+                for(int x = -1; x <= 1; x++) {
+                    int ni = i + x, nj = j + y;
+                    if(ni >= 0 && nj >= 0 && ni < CITY_N && nj < CITY_N && district[nj * CITY_N + ni] == k) same++;
+                }
+            float score = -(float)same + cf() * 0.5f;
+            if(score < bd) {
+                bd = score;
+                best = j * CITY_N + i;
+            }
+        }
+    }
+    return best;
+}
+
 void city_build(uint32_t seed) {
     cr = seed * 2654435761u + 12345u;
     city_nb = 0;
@@ -501,19 +973,27 @@ void city_build(uint32_t seed) {
     ntrees = 0;
     overflow = false;
     blast_depth = 0;
-    static const uint8_t core[] = {ST_GLASS, ST_GLASS, ST_OFFICE, ST_RIBBON};
-    static const uint8_t mid[] = {ST_OFFICE, ST_RIBBON, ST_APT, ST_GLASS, ST_BRICK};
+    nawake = 0;
+    static const uint8_t core[] = {ST_GLASS, ST_GLASS, ST_OFFICE, ST_RIBBON, ST_DECO};
+    static const uint8_t mid[] = {ST_OFFICE, ST_RIBBON, ST_APT, ST_GLASS, ST_BRICK, ST_DECO};
     static const uint8_t low[] = {ST_APT, ST_BRICK, ST_APT, ST_OFFICE};
+    static const uint8_t old[] = {ST_BRICK, ST_DECO, ST_APT, ST_BRICK, ST_DECO};
+    static const uint8_t up[] = {ST_DECO, ST_GLASS, ST_RIBBON, ST_OFFICE, ST_DECO};
     static const uint8_t edge[] = {ST_HOUSE, ST_HOUSE, ST_BRICK, ST_APT};
+    plan_districts();
+    int uptown = pick_block(D_UPTOWN, 7), stadium = pick_block(D_SUBURB, 6), temple = pick_block(D_OLDTOWN, 6);
+    int ui = uptown % CITY_N, uj = uptown / CITY_N;
     for(int j = 0; j < CITY_N; j++) {
         for(int i = 0; i < CITY_N; i++) {
             int bi = j * CITY_N + i;
             float cx = city_road(i) + CITY_PITCH * 0.5f, cz = city_road(j) + CITY_PITCH * 0.5f;
-            const int C = CITY_N / 2;   /* the middle block */
+            const int C = C_MID;   /* the middle block */
             int dx = abs(i - C), dz = abs(j - C), d = dx > dz ? dx : dz;
+            int dist = district[bi];
             blocks[bi].first = (uint16_t)city_nb;
             blocks[bi].count = 0;
             blocks[bi].max_h = 0;
+            blocks[bi].reach = 48.0f;
             blocks[bi].kind = BK_NORMAL;
             if(i == C && j == C) {
                 /* The tallest thing in town. */
@@ -521,17 +1001,18 @@ void city_build(uint32_t seed) {
             }
             else if(i == C - 2 && (j == C + 1 || j == C + 2)) {
                 blocks[bi].kind = BK_PARK;
-                for(int t = 0; t < 18 && ntrees < MAX_TREES; t++) {
+                for(int t = 0; t < 18; t++) {
                     float tx = cx + cfr(-29, 29), tz = cz + cfr(-29, 29);
                     if(fabsf(tx - cx) < 15 && fabsf(tz - cz + 2) < 11) continue;   /* the pond */
-                    trees[ntrees++] = (Tree){tx, tz, cfr(12, 18), true};
+                    plant(tx, tz, cfr(12, 18));
                 }
             }
             else if(i == C + 2 && j == C - 2) {
                 add_building(bi, cx, cz, 4.5f, 4.5f, 176, ST_OFFICE, M_TV, BF_LANDMARK);
             }
             else if(i == C + 1 && j == C + 2) {
-                add_building(bi, cx - 12, cz, 13, 16, 12, ST_BRICK, M_PLAIN, BF_DONUT | BF_LANDMARK)->tint = 0xffffc0d8;
+                Building *b = add_building(bi, cx - 12, cz, 13, 16, 12, ST_BRICK, M_PLAIN, BF_DONUT | BF_LANDMARK);
+                if(b) b->tint = 0xffffc0d8;
                 lots(bi, cx + 14, cz, 1, 2, 16, 28, low, 4, 0, 0, 0);
             }
             else if(i == C - 1 && j == C - 1) {
@@ -539,37 +1020,97 @@ void city_build(uint32_t seed) {
                 add_building(bi, cx - 15, cz - 12, 12, 12, 172, ST_RIBBON, M_CROWN, 0);
                 add_building(bi, cx + 15, cz + 12, 12, 12, 160, ST_RIBBON, M_CROWN, 0);
             }
-            else if((i < 2 && j < 2 && i + j < 2) || (i == CITY_N - 1 && j == CITY_N - 1)) {
+            else if((i - C <= -4 && j - C <= -4 && i - C + j - C <= -9 && d == 5) || (i == C + 5 && j == C + 5)) {
                 /* The tank farm: one spark and the lot goes. */
                 for(int tz = 0; tz < 3; tz++)
                     for(int tx = 0; tx < 3; tx++)
                         add_building(bi, cx - 19 + tx * 19, cz - 19 + tz * 19, 7, 7, 13, ST_TANK, M_TANK, BF_EXPLOSIVE);
             }
+            else if(bi == stadium) {
+                add_building(bi, cx, cz, 28, 24, 16, ST_DECO, M_STADIUM, BF_LANDMARK);
+            }
+            else if(bi == temple) {
+                /* A pagoda in a garden, its gate on the street. */
+                blocks[bi].kind = BK_GREEN;
+                add_building(bi, cx, cz + 4, 13, 13, 40, ST_BRICK, M_PAGODA, BF_LANDMARK);
+                add_building(bi, cx, cz - 22, 8, 1, 11, ST_BRICK, M_TORII, 0);
+                for(int t = 0; t < 12; t++) {
+                    float tx = cx + cfr(-28, 28), tz = cz + cfr(-28, 28);
+                    if(fabsf(tx - cx) < 19 && tz > cz - 26) continue;
+                    plant(tx, tz, cfr(10, 15));
+                }
+            }
             else if(d <= 1) {
                 if(cf() < 0.4f) {
                     float hw = cfr(17, 22);
-                    add_building(bi, cx, cz, hw, hw, cfr(120, 178), core[ci(4)], cf() < 0.6f ? M_SETBACK : M_CROWN, 0);
+                    float r = cf();
+                    add_building(bi, cx, cz, hw, hw, cfr(120, 178), core[ci(5)], r < 0.5f ? M_SETBACK : r < 0.8f ? M_CROWN : M_SPIRE, 0);
                 }
-                else lots(bi, cx, cz, 2, 2, 64, 140, core, 4, 0.4f, 0.3f, 0);
+                else lots(bi, cx, cz, 2, 2, 64, 140, core, 5, 0.4f, 0.3f, 0);
             }
-            else if(d == 2) lots(bi, cx, cz, 2, ci(2) ? 2 : 3, 40, 96, mid, 5, 0.35f, 0.2f, 0);
-            else if(d <= (C - 2 > 3 ? C - 2 : 3)) lots(bi, cx, cz, 3, ci(2) ? 2 : 3, 20, 52, mid, 5, 0.3f, 0.1f, 0.04f);
+            else if(d == 2) lots(bi, cx, cz, 2, ci(2) ? 2 : 3, 40, 96, mid, 6, 0.35f, 0.2f, 0);
+            else if(cf() < 0.05f) {
+                /* A green: some with a pond. */
+                blocks[bi].kind = ci(2) ? BK_PARK : BK_GREEN;
+                for(int t = 0; t < 14; t++) {
+                    float tx = cx + cfr(-29, 29), tz = cz + cfr(-29, 29);
+                    if(blocks[bi].kind == BK_PARK && fabsf(tx - cx) < 15 && fabsf(tz - cz + 2) < 11) continue;
+                    plant(tx, tz, cfr(12, 18));
+                }
+            }
+            else if(dist == D_MID) lots(bi, cx, cz, 3, ci(2) ? 2 : 3, 20, 52, mid, 6, 0.3f, 0.1f, 0.04f);
+            else if(dist == D_UPTOWN) {
+                int ud = abs(i - ui) > abs(j - uj) ? abs(i - ui) : abs(j - uj);
+                if(ud == 0) {
+                    float hw = cfr(16, 19);
+                    add_building(bi, cx, cz, hw, hw, cfr(150, 185), up[ci(5)], M_SPIRE, 0);
+                }
+                else if(ud == 1) {
+                    if(cf() < 0.35f) {
+                        /* A slab. */
+                        bool ax = ci(2);
+                        add_building(bi, cx, cz, ax ? 22 : 9, ax ? 9 : 22, cfr(70, 110), up[ci(5)], M_PLAIN, 0);
+                    }
+                    else lots(bi, cx, cz, 2, 2, 48, 116, up, 5, 0.3f, 0.2f, 0);
+                }
+                else lots(bi, cx, cz, 3, 2, 22, 56, up, 5, 0.2f, 0.15f, 0.06f);
+            }
+            else if(dist == D_OLDTOWN) {
+                if(cf() < 0.75f) terraces(bi, cx, cz, d >= 9 ? 10 : 14, d >= 9 ? 20 : 30, old, 5);
+                else lots(bi, cx, cz, 3, 3, 10, 26, old, 5, 0, 0, 0.12f);
+            }
+            else if(dist == D_SUBURB) {
+                float r = cf();
+                blocks[bi].kind = BK_GREEN;
+                if(r < 0.12f) {
+                    /* A parade of shops and flats over them. */
+                    blocks[bi].kind = BK_NORMAL;
+                    lots(bi, cx, cz, 2, 2, 8, 16, low, 4, 0, 0, 0.1f);
+                }
+                else houses(bi, cx, cz, r < 0.85f ? 3 : 4);
+            }
+            else if(dist == D_INDUSTRY) industry(bi, cx, cz);
             else if((i + j) & 1) lots(bi, cx, cz, 3, 3, 9, 24, low, 4, 0, 0, 0.1f);
             else lots(bi, cx, cz, 3, 3, 7, 14, edge, 4, 0, 0, 0.2f);
+            if(harbor[bi]) docks(bi, i, j);
         }
     }
-    /* Palms along the beach. */
-    for(int t = 0; t < 44 && ntrees < MAX_TREES; t++) {
+    /* Palms along the beach, where there is no quay. */
+    for(int t = 0; t < 44 * CITY_N / 11; t++) {
         float a = cfr(-CITY_HALF, CITY_HALF), e = CITY_HALF + cfr(10, 30);
         int side = ci(4);
-        trees[ntrees++] = (Tree){side == 0 ? a : side == 1 ? e : side == 2 ? a : -e, side == 0 ? -e : side == 1 ? a : side == 2 ? e : a,
-                                 cfr(12, 17), true};
+        if(side == harbor_side) {
+            int k = (int)floorf((a + CITY_HALF) / CITY_PITCH);
+            k = k < 0 ? 0 : k >= CITY_N ? CITY_N - 1 : k;
+            if(harbor[harbor_side & 1 ? (k * CITY_N + (harbor_side == 1 ? CITY_N - 1 : 0)) : ((harbor_side == 2 ? CITY_N - 1 : 0) * CITY_N + k)]) continue;
+        }
+        plant(side == 0 ? a : side == 1 ? e : side == 2 ? a : -e, side == 0 ? -e : side == 1 ? a : side == 2 ? e : a, cfr(12, 17));
     }
     standing = city_nb;
     memset(bodies, 0, sizeof(bodies));
     memset(uprooted, 0, sizeof(uprooted));
     build_ground();
-    if(overflow) printf("KL city: a building ran out of vertices or strips\n");
+    if(overflow) printf("KL city: out of room for buildings or their vertices\n");
     printf("KL city: %d buildings, %lu vertices, %d trees, %lu ground vertices\n", city_nb, (unsigned long)pool_n, ntrees,
            (unsigned long)ground.pool_n);
 }
@@ -579,6 +1120,18 @@ static inline int block_of(float v) {
     int i = (int)floorf((v + CITY_HALF) / CITY_PITCH);
     return i < 0 ? 0 : i >= CITY_N ? CITY_N - 1 : i;
 }
+
+/* The blocks that can hold a building reaching into x0..x1 by z0..z1
+   (one stands in the block its middle is in, and none reaches more than
+   30 m out of it). Iterate with for(int j = r.j0; j <= r.j1; j++) and so on. */
+typedef struct { int i0, i1, j0, j1; } BlockRange;
+static inline BlockRange block_range(float x0, float x1, float z0, float z1) {
+    return (BlockRange){block_of(x0 - 30), block_of(x1 + 30), block_of(z0 - 30), block_of(z1 + 30)};
+}
+#define FOR_BLOCK_RANGE(r, idx)                                    \
+    for(int bj_ = (r).j0; bj_ <= (r).j1; bj_++)                    \
+        for(int bi_ = (r).i0; bi_ <= (r).i1; bi_++)                \
+            for(int bk_ = 0, idx; bk_ < blocks[bj_ * CITY_N + bi_].count && ((idx = blocks[bj_ * CITY_N + bi_].first + bk_), 1); bk_++)
 
 /* Distance from (x, z) to b's footprint (0 inside), and the way out. */
 static inline float rect_dist(const Building *b, float x, float z, float *nx, float *nz) {
@@ -658,6 +1211,7 @@ static void make_rubble(Building *b, bool fallen) {
         quad_flat(SK_RUBBLE, b0, b1, jn0, jn1, v, 0.4f, md);
     }
     b->state = B_RUBBLE;
+    b->flags &= (uint8_t)~(BF_ONE | BF_FAR1);
     b->h = hr;
 }
 
@@ -672,6 +1226,7 @@ static void bring_down(int i, V3 dir, int src, int depth) {
         dir = v3(sinf(a), 0, cosf(a));
         dl = 1;
     }
+    wake(i);
     b->dx = dir.x / dl;
     b->dz = dir.z / dl;
     b->src = (uint8_t)src;
@@ -861,6 +1416,7 @@ static void bodies_update(float dt) {
 void city_damage_at(int i, float dmg, V3 dir, int src, V3 at) {
     Building *b = &city_b[i];
     if(b->state != B_INTACT) return;
+    wake(i);
     b->hp -= dmg;
     b->shake = 0.3f;
     if(b->hp <= 0) {
@@ -925,7 +1481,9 @@ int city_damage_beam(V3 o, V3 d, float len, float dmg, int src, float *first) {
     int n = 0;
     float nearest = len;
     float ix = fabsf(d.x) > 1e-5f ? 1.0f / d.x : 1e5f, iz = fabsf(d.z) > 1e-5f ? 1.0f / d.z : 1e5f;
-    for(int i = 0; i < city_nb; i++) {
+    float ex = o.x + d.x * len, ez = o.z + d.z * len;
+    BlockRange r = block_range(fminf(o.x, ex), fmaxf(o.x, ex), fminf(o.z, ez), fmaxf(o.z, ez));
+    FOR_BLOCK_RANGE(r, i) {
         Building *b = &city_b[i];
         if(b->state != B_INTACT) continue;
         float t0 = (b->x - b->hw - o.x) * ix, t1 = (b->x + b->hw - o.x) * ix;
@@ -975,7 +1533,8 @@ bool city_collide(V3 *pos, float radius, float y, V3 move, float ram, float plou
 int city_rip(V3 at, float reach) {
     int best = -1;
     float bd = reach;
-    for(int i = 0; i < city_nb; i++) {
+    BlockRange r = block_range(at.x - reach, at.x + reach, at.z - reach, at.z + reach);
+    FOR_BLOCK_RANGE(r, i) {
         const Building *b = &city_b[i];
         if(b->state != B_INTACT || !b->bands) continue;
         float nx, nz, d = rect_dist(b, at.x, at.z, &nx, &nz);
@@ -1015,7 +1574,8 @@ void city_chunk_throw(int handle, V3 v) {
 }
 
 void city_damage_ring(V3 c, float r0, float r1, float dmg, int src) {
-    for(int i = 0; i < city_nb; i++) {
+    BlockRange r = block_range(c.x - r1, c.x + r1, c.z - r1, c.z + r1);
+    FOR_BLOCK_RANGE(r, i) {
         Building *b = &city_b[i];
         if(b->state != B_INTACT) continue;
         float nx, nz, d = rect_dist(b, c.x, c.z, &nx, &nz);
@@ -1026,7 +1586,8 @@ void city_damage_ring(V3 c, float r0, float r1, float dmg, int src) {
 }
 
 bool city_eat(V3 p, float r) {
-    for(int i = 0; i < city_nb; i++) {
+    BlockRange br = block_range(p.x - r, p.x + r, p.z - r, p.z + r);
+    FOR_BLOCK_RANGE(br, i) {
         Building *b = &city_b[i];
         if(b->state != B_INTACT || b->prop != PROP_DONUT) continue;
         float dx = b->prop_x - p.x, dz = b->prop_z - p.z;
@@ -1111,7 +1672,9 @@ static void topple_step(int i, float dt) {
     float sn = sinf(b->ang), cs = cosf(b->ang), reach = b->len * sn;
     float halfw = fabsf(b->dz) * b->hw + fabsf(b->dx) * b->hd;
     /* What it lands on goes with it. */
-    for(int j = 0; j < city_nb; j++) {
+    float ex = b->px + b->dx * reach, ez = b->pz + b->dz * reach;
+    BlockRange r = block_range(fminf(b->px, ex) - halfw, fmaxf(b->px, ex) + halfw, fminf(b->pz, ez) - halfw, fmaxf(b->pz, ez) + halfw);
+    FOR_BLOCK_RANGE(r, j) {
         Building *o = &city_b[j];
         if(o->state != B_INTACT) continue;
         float rx = o->x - b->px, rz = o->z - b->pz;
@@ -1144,7 +1707,9 @@ static void topple_step(int i, float dt) {
 void city_update(float dt) {
     bodies_update(dt);
     uprooted_update(dt);
-    for(int i = 0; i < city_nb; i++) {
+    /* (the list grows as this goes: what falls brings others down) */
+    for(int n = 0; n < nawake; n++) {
+        int i = awake[n];
         Building *b = &city_b[i];
         if(b->shake > 0) b->shake -= dt;
         if(b->fuse > 0 && (b->fuse -= dt) <= 0) {
@@ -1190,6 +1755,16 @@ void city_update(float dt) {
             default: break;
         }
     }
+    /* Back to sleep: whatever has settled. */
+    int kept = 0;
+    for(int n = 0; n < nawake; n++) {
+        Building *b = &city_b[awake[n]];
+        bool busy = b->shake > 0 || b->fuse > 0 || b->state == B_TOPPLE || b->state == B_CRUMBLE ||
+                    (b->state == B_INTACT && (b->flags & BF_BURN));
+        if(busy) awake[kept++] = awake[n];
+        else b->flags &= (uint8_t)~BF_AWAKE;
+    }
+    nawake = kept;
 }
 
 /* ---- Drawing ---- */
@@ -1402,9 +1977,10 @@ void city_draw_op(void) {
         /* Too far for anything in it to be drawn: the whole block goes
            before any of its buildings is looked at. (Its towers may lie
            well outside it, fallen.) */
-        float bd = sqrtf((cx - cp.x) * (cx - cp.x) + (cz - cp.z) * (cz - cp.z)) - 48.0f - mh;
+        float br = blocks[bi].reach;
+        float bd = sqrtf((cx - cp.x) * (cx - cp.x) + (cz - cp.z) * (cz - cp.z)) - br - mh;
         if(bd > DRAW_RANGE || (bd > SMALL_RANGE && mh < 36.0f)) continue;
-        if(!r_sphere_visible(v3(cx, mh * 0.5f, cz), 48.0f + mh)) continue;
+        if(!r_sphere_visible(v3(cx, mh * 0.5f, cz), br + mh)) continue;
         bool only_tall = bd > SMALL_RANGE;
         for(int k = 0; k < blocks[bi].count; k++) {
             int i = blocks[bi].first + k;
@@ -1428,7 +2004,7 @@ void city_draw_op(void) {
         if(d2 > DRAW_RANGE * DRAW_RANGE || (d2 > SMALL_RANGE * SMALL_RANGE && b->h < 36.0f && b->state != B_TOPPLE)) continue;
         bool inked = d2 < INK_RANGE * INK_RANGE, detail = d2 < DETAIL_RANGE * DETAIL_RANGE;
         bool lod = !inked && b->state != B_RUBBLE;
-        int far_kind = SK_FAR + (cp.x > b->x ? 1 : 0) + (cp.z > b->z ? 2 : 0);
+        int far_kind = SK_FAR + ((b->flags & BF_FAR1) ? 0 : (cp.x > b->x ? 1 : 0) + (cp.z > b->z ? 2 : 0));
         Xf x;
         float m[16] __attribute__((aligned(32)));
         bool moved = building_xf(b, &x);
@@ -1445,13 +2021,16 @@ void city_draw_op(void) {
         for(int s = 0; s < b->nstrips && !carved; s++) {
             int kind = b->strip[s].kind & ~SK_BOX, n = b->strip[s].n;
             const RV *v = pool + b->v0 + b->strip[s].off;
-            if(lod != (kind == far_kind) || kind >= SK_FAR + (lod ? 4 : 0) || kind == SK_SHADOW || ((kind == SK_PROP || kind == SK_AD) && !detail)) continue;
-            if(lod) {
+            if(kind >= SK_FAR) {
+                /* (a building in one piece draws it close up too) */
+                if(kind != far_kind || !(lod || (b->flags & BF_ONE))) continue;
                 r_hdr(h_wall[b->style]);
                 if(moved) r_strip(v, n);
                 else r_strip_bounded(v, n, bc, br);
-                break;
+                if(lod) break;
+                continue;
             }
+            if(lod || kind == SK_SHADOW || ((kind == SK_PROP || kind == SK_AD) && !detail)) continue;
             if(moved) {
                 r_hdr(strip_hdr(b, kind));
                 r_strip(v, kind == SK_INK ? 10 : (b->strip[s].kind & SK_BOX) ? 16 : n);
@@ -1508,7 +2087,8 @@ void city_draw_pt(void) {
         if(d2 > 700.0f * 700.0f || !r_sphere_visible(v3(t->x, t->s * 0.5f, t->z), t->s)) continue;
         r_billboard_y(v3(t->x, 0, t->z), t->s * 0.5f, t->s, 0, 0, 1, 1, 0xffffffff);
     }
-    for(int i = 0; i < city_nb; i++) {
+    for(int n = 0; n < nawake; n++) {
+        int i = awake[n];
         const Building *b = &city_b[i];
         if(b->state != B_INTACT || !(b->flags & BF_BURN)) continue;
         float d2 = (b->x - cp.x) * (b->x - cp.x) + (b->z - cp.z) * (b->z - cp.z);
@@ -1564,9 +2144,9 @@ void city_draw_sky_pt(void) { draw_sky_sprites(); }
 bool city_init(void) {
     city_b = malloc(sizeof(Building) * MAX_B);
     pool = memalign(32, sizeof(RV) * POOL_VERTS);
-    if(!city_b || !pool || !sc_init(&ground, CITY_ROADS * CITY_ROADS * 20 + 400, CITY_ROADS * CITY_ROADS * 5 + 200, CITY_ROADS * CITY_ROADS + 80)) return false;
+    if(!city_b || !pool || !sc_init(&ground, CITY_ROADS * CITY_ROADS * 22 + 1200, CITY_ROADS * CITY_ROADS * 6 + 300, CITY_ROADS * CITY_ROADS + 64 * CITY_N)) return false;
     static const int wall_tex[ST_COUNT] = {TEX_WALL_OFFICE, TEX_WALL_APT, TEX_WALL_BRICK, TEX_WALL_RIBBON, TEX_WALL_GLASS,
-                                           TEX_NONE, TEX_WALL_BRICK};
+                                           TEX_NONE, TEX_WALL_BRICK, TEX_WALL_WARE, TEX_WALL_DECO};
     for(int i = 0; i < ST_COUNT; i++) h_wall[i] = r_header(wall_tex[i], HF_OP);
     h_shop = r_header(TEX_SHOP, HF_OP);
     h_roof = r_header(TEX_ROOF, HF_OP | HF_CLAMP);

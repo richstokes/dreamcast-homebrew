@@ -14,9 +14,11 @@ get through. Everything comes down: houses crumple underfoot, office blocks
 sink into their own dust, and the towers come apart a chunk at a time until
 what is left topples like a tree and takes whatever it lands on with it.
 
-- A new city every lunch: 121 blocks, about 830 buildings, a 228 m tower in
-  the middle, a TV mast, a tank farm that goes up in one chain, a park and
-  a donut shop
+- A new city every lunch: 441 blocks and about 3,100 buildings. Downtown
+  has a 228 m tower, a TV mast and a donut shop; round it, districts that
+  turn a different way each time: an uptown of spires, an old town of
+  terraces with a pagoda, suburbs with a stadium, and industry with
+  factories, chimneys, tank farms and a container port with cranes
 - Comic-book look: hard two-tone shading, ink outlines on everything,
   halftone shadows and a KRAKOOM! over the big hits
 - Traffic, crowds that run for it, a news helicopter, then the army, which
@@ -118,9 +120,8 @@ Flycast only so far; not yet run on a console.
 
 | Scene | CPU a frame (Flycast) |
 | --- | --- |
-| The whole city from the beach | about 10 ms |
-| Mid-rampage | 8.5 to 10.5 ms |
-| The same at 9 blocks a side (`CITY_N` in `src/city.h`) | 5 to 9 ms |
+| Mid-rampage, 21 blocks a side | 7 to 10.5 ms |
+| The same at 11 blocks a side (`CITY_N` in `src/city.h`) | 7 to 9 ms |
 
 ## Lessons learned
 
@@ -130,6 +131,13 @@ Flycast only so far; not yet run on a console.
 - A box shows two walls at most, and its ink shell only matters on the
   walls facing away, so both halve by comparing the camera with the
   footprint. No back-face test per triangle
+- The street ground was 2,000 strips at 21 blocks a side, 3.8 ms on its
+  own. Squares of 3x3 crossings with one joined strip a texture halved it
+- The building vertex pool is most of the RAM: about 340,000 vertices,
+  8 MB. Low buildings keep one far strip of every wall instead of one
+  for each quarter, and houses, sheds, containers and the like draw that
+  strip close up too, with nothing else kept. That took ~100 vertices a
+  building and sends fewer strips
 - Smoke, impact stars and trees are punch-through, not translucent: they
   keep an inked edge, need no sorting and leave by shrinking
 
@@ -138,6 +146,8 @@ Flycast only so far; not yet run on a console.
 - Buildings are boxes, and what is left of a tower falls in one piece
 - The camera comes in close among the tallest towers, and inside 32 m a
   tower can still stand in the way
+- Buildings under 36 m are not drawn past 480 m, which shows as a bare
+  belt from high up (not from the game's camera)
 - Not benchmarked on real hardware
 
 ## Credits
