@@ -3,8 +3,8 @@
    or the moon crossing the sky with the game's clock and a truck crawling
    along the foot. Out on the mountain the VMU in the player's controller
    is an inclinometer (side and rear views tilting with the truck, in
-   degrees) over the altitude and the drive mode; a viewpoint, the summit,
-   the pause menu and photo mode get a screen of their own for a while.
+   degrees) over the altitude and the drive mode, the whole time, pause
+   and photo mode included.
    Drawn and sent through vmulcd.h. */
 #include "vmuscreen.h"
 #include "terrain.h"
@@ -13,10 +13,6 @@
 #include "vmulcd.h"
 
 static float lcd_t;
-static uint8_t seen_views;
-static bool seen_summit;
-static float view_t, summit_t;     /* seconds left on those screens */
-static int view_count;
 
 /* ------------------------------------------------------------------ */
 /* Drawing                                                             */
@@ -169,60 +165,11 @@ static void draw_drive(const Truck *t) {
     vmulcd_text(VMULCD_W - vmulcd_text_w(modes[t->mode]), 26, modes[t->mode]);
 }
 
-static void draw_view(void) {
-    char buf[16];
-    /* A pair of binoculars. */
-    for(int i = 0; i < 2; i++) {
-        int x = 14 + i * 12;
-        vmulcd_fill(x + 1, 2, x + 6, 3);
-        vmulcd_fill(x, 3, x + 8, 10);
-        vmulcd_blank(x + 2, 5, x + 6, 9);
-    }
-    vmulcd_fill(22, 4, 26, 7);
-    vmulcd_text_c(14, "VIEWPOINT");
-    snprintf(buf, sizeof(buf), "%d OF %d", view_count, LVL_VIEWS);
-    vmulcd_text_c(22, buf);
-}
-
-static void draw_summit(void) {
-    mountain(23);
-    /* A flag on the lookout. */
-    vmulcd_line(25, 0, 25, 3);
-    vmulcd_fill(26, 0, 30, 2);
-    if((int)(lcd_t * 2.0f) & 1) vmulcd_text_c(26, "SUMMIT!");
-    else {
-        char buf[16];
-        int s = (int)game.clock;
-        snprintf(buf, sizeof(buf), "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60);
-        vmulcd_text_c(26, buf);
-    }
-}
-
-static void draw_pause(void) {
-    vmulcd_fill(15, 3, 21, 19);
-    vmulcd_fill(27, 3, 33, 19);
-    vmulcd_text_c(24, "PAUSED");
-}
-
-static void draw_photo(void) {
-    /* A camera. */
-    vmulcd_fill(19, 3, 26, 5);
-    vmulcd_fill(12, 5, 36, 19);
-    vmulcd_blank(19, 7, 29, 17);
-    vmulcd_fill(21, 9, 27, 15);
-    vmulcd_blank(23, 11, 25, 13);
-    vmulcd_text_c(24, "PHOTO");
-}
-
 /* ------------------------------------------------------------------ */
 
 static void compose(int port) {
     bool mine = pad.connected && port == pad.port;
     if(!mine || game.state != ST_DRIVE || game.demo) draw_mountain(lcd_t);
-    else if(game.photo) draw_photo();
-    else if(game.paused) draw_pause();
-    else if(summit_t > 0) draw_summit();
-    else if(view_t > 0) draw_view();
     else draw_drive(&trucks[0]);
 }
 
@@ -232,17 +179,5 @@ static float gap(int port) {
 
 void vmuscreen_update(float dt) {
     lcd_t += dt;
-    /* A new viewpoint or the summit, since the last frame. */
-    if(game.state == ST_DRIVE && !game.demo) {
-        if(game.views_found & ~seen_views) {
-            view_t = 3.0f;
-            view_count = __builtin_popcount(game.views_found);
-        }
-        if(game.summit_reached && !seen_summit) summit_t = 7.0f;
-    }
-    seen_views = game.views_found;
-    seen_summit = game.summit_reached;
-    if(view_t > 0) view_t -= dt;
-    if(summit_t > 0) summit_t -= dt;
     vmulcd_update(dt, gap, compose);
 }

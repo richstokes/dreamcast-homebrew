@@ -1239,10 +1239,12 @@ void truck_update(Truck *t, float dt) {
     TruckInput *in = &t->in;
     float fwd_speed = vdot(t->vel, t->ax[2]);
     /* Auto reverse: hold the brake at a standstill to back up; in reverse
-       the pedals swap. */
+       the pedals swap. Already rolling the new way counts as stopped, so
+       a truck sliding backwards down a slope can take reverse (and one
+       rolling forwards in reverse can take drive) without stopping first. */
     float throttle = in->throttle, brake = in->brake;
     if(t->gear > 0) {
-        if(fabsf(fwd_speed) < 0.7f && brake > 0.5f && throttle < 0.1f) {
+        if(fwd_speed < 0.7f && brake > 0.5f && throttle < 0.1f) {
             t->rev_hold += dt;
             if(t->rev_hold > 0.35f) {
                 t->gear = -1;
@@ -1253,7 +1255,7 @@ void truck_update(Truck *t, float dt) {
         else t->rev_hold = 0;
     }
     else {
-        if(fabsf(fwd_speed) < 0.7f && throttle > 0.3f && brake < 0.1f) {
+        if(fwd_speed > -0.7f && throttle > 0.3f && brake < 0.1f) {
             t->gear = 1;
             t->shift_t = 0.25f;
         }
