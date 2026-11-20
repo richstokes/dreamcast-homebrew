@@ -241,6 +241,8 @@ static void update(float dt) {
             break;
         case ST_RESULTS:
             sim(&c, dt, 0);
+            /* A word of praise as an A or better is stamped on the bill (hud.c). */
+            if(game.time >= 2.2f && game.time - dt < 2.2f && score_grade(score.total) >= 3) audio_sfx(KL_SFX_PRAISE, 255);
             if(game.time > 2.6f) {
                 if(pad.pressed & (BTN_A | BTN_START)) game_start();
                 else if(pad.pressed & BTN_B) title_start();

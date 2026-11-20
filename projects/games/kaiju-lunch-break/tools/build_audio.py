@@ -232,13 +232,20 @@ def bell():
     return x * np.where(t < 0.9, trem, 1.0)
 
 
-def voice(name):
-    """A voice line: the recording, cut to the speech."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(ROOT / "assets" / "voice" / f"{name}.mp3"),
-                          "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"], check=True, capture_output=True).stdout
-    x = np.frombuffer(raw, dtype="<f4").astype(float)
-    loud = np.nonzero(np.abs(x) > np.max(np.abs(x)) * 10 ** (-45 / 20))[0]
-    return x[max(0, loud[0] - int(0.01 * SR)):loud[-1] + int(0.05 * SR)]
+def voice(key, name):
+    """A voice line: the recording, cut to the speech. A line too long for
+    one AICA sample at the effects' rate is packed at a lower one."""
+    def cut(sr):
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(ROOT / "assets" / "voice" / f"{name}.mp3"),
+                              "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"], check=True, capture_output=True).stdout
+        x = np.frombuffer(raw, dtype="<f4").astype(float)
+        loud = np.nonzero(np.abs(x) > np.max(np.abs(x)) * 10 ** (-45 / 20))[0]
+        return x[max(0, loud[0] - int(0.01 * sr)):loud[-1] + int(0.05 * sr)]
+    sr, x = SR, cut(SR)
+    if len(x) > 65000:
+        sr = int(SR * 65000 / len(x)) // 50 * 50
+        x = cut(sr)
+    return key, one(x, sr), False, sr
 
 
 # ---------------------------------------------------------------------------
@@ -274,8 +281,9 @@ def render():
         ("OK", one(blip([79, 86], 0.05, 0.12)), False, SR),
         ("BELL", one(bell()), False, SR),
         ("BEEP", one(blip([81], 0.08, 0.1, "sq")), False, SR),
-        ("WELCOME", one(voice("welcome")), False, SR),
-        ("GOBBLE", one(voice("gobble")), False, SR),
+        voice("WELCOME", "welcome"),
+        voice("GOBBLE", "gobble"),
+        voice("PRAISE", "praise"),
         ("BEAM", beam_loop(), True, SR),
         ("HELI", heli_loop(), True, SR),
         ("SIREN", siren_loop(), True, SR),
