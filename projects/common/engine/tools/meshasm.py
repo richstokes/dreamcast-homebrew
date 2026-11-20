@@ -138,6 +138,36 @@ def light_group_count(m: Mesh) -> int:
     return len({(v[1], v[2], v[3]) for v in m.verts})
 
 
+def ink_shell(m: Mesh, width: float, argb: int) -> Mesh:
+    """A toon outline for m: its surface pushed out by width along normals
+    smoothed across each position and wound the other way, in one colour
+    and one lighting group. Drawn with back faces culled, only the shell's
+    far side shows, as a line round the model's silhouette."""
+    P = np.array([v[0] for v in m.verts])
+    acc: dict[tuple, np.ndarray] = defaultdict(lambda: np.zeros(3))
+    for t in range(0, len(m.indices), 3):
+        a, b, c = m.indices[t:t + 3]
+        fn = np.cross(P[b] - P[a], P[c] - P[a])
+        for i in (a, b, c):
+            acc[_pkey(P[i])] += fn
+    lookup, verts, idx = {}, [], []
+    for i in m.indices:
+        k = _pkey(P[i])
+        if k not in lookup:
+            n = acc[k]
+            ln = float(np.linalg.norm(n))
+            n = n / ln if ln > 1e-9 else np.array([0.0, 1.0, 0.0])
+            lookup[k] = len(verts)
+            verts.append(([round(float(x), 5) for x in P[i] + n * width], (0, 127, 0), 0, argb, 0))
+        idx.append(lookup[k])
+    out = []
+    for t in range(0, len(idx), 3):
+        a, b, c = idx[t:t + 3]
+        if len({a, b, c}) == 3:
+            out += [a, c, b]
+    return Mesh(m.name + "_INK", verts, out)
+
+
 # --------------------------------------------------------------------------
 # Emit
 # --------------------------------------------------------------------------

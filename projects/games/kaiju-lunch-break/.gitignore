@@ -1,0 +1,18 @@
+# Rebuilt locally
+/build/
+/third_party/sh4zam/
+/assets/generated/previews/
+/captures/
+*.cdi
+*.elf
+*.elf.debug
+*.o
+*.d
+*.log
+*.blend
+*.blend[0-9]*
+# Music downloaded by tools/build_music.py and the CD-DA track cut from it
+/assets/music/cache/
+/cdda/
+/disc/
+*.iso

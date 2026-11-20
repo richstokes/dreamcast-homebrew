@@ -1,0 +1,11 @@
+# Kaiju Lunch Break's music: CD-DA tracks pressed from these mp3s, in disc
+# order. tools/build_music.py downloads each file from
+# https://dcvmu.com/kaiju-lunch-break/music/ (or copies it from the folder
+# KL_MUSIC_SOURCE names), checks its sha256 and converts it to
+# cdda/NN-*.wav for mkdcdisc. The mp3s are nickpanek's, from Pixabay (Pixabay
+# Content License); they are not kept in git.
+#
+# sha256                                                            file                                                                              title
+8fa92af7325d3b57a27b2291094f68a92062dfa0166fbfb8f346aaac4d280f21  nickpanek-intense-anime-metal-brostep-with-chiptune-elements-252513.mp3  Intense Anime Metal Brostep
+829c511f3a5feb63b057fec6b8d6ac84a567e8a66a9835ac8537cc1fafe4a451  nickpanek-sore-knuckles-heavy-funk-metal-slap-bass-565629.mp3  Sore Knuckles
+302728d282455904a16ca65188ec5bd4f9196f4d9bf9b88dfcceb2e4c78ee5ef  nickpanek-slaphammer-mayhem-high-energy-funk-thrash-metal-instrumental-593458.mp3  Slaphammer Mayhem

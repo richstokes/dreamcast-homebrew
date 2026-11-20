@@ -23,7 +23,7 @@ package() {
     elf="$directory/$slug.elf"
     # A project with a disc/ directory reads assets from the disc: those
     # files go in the image. One with a cdda/ directory plays its music as
-    # CD-DA (DreamKarts): each WAV there becomes an audio track, in name
+    # CD-DA (DreamKarts, Kaiju Lunch Break): each WAV there becomes an audio track, in name
     # order. Neither publishes an ELF, since the ELF alone would lack them.
     disc_elf="$elf"
     disc_args=""

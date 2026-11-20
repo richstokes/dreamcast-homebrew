@@ -1,36 +1,39 @@
 # Engine
 
-Shared game code for KallistiOS games in this repo. DreamKarts and Ridgeline
-build on it, so a fix or speed-up here reaches both.
+Shared game code for KallistiOS games in this repo. DreamKarts, Ridgeline and
+Kaiju Lunch Break build on it, so a fix or speed-up here reaches all three.
 
 | Module | What | Used by |
 | --- | --- | --- |
-| `vecmath.h` | Vectors, scalar helpers, packed colours, the camera and its look-at, lean and orbit helpers (all inline) | DreamKarts, Ridgeline |
-| `rand.h`, `rand.c` | The seeded generator; a game can hold it in its own file (`ENG_RAND_IMPL`) so calls inline | DreamKarts, Ridgeline |
-| `input.h`, `input.c` | Two pads with edge detection and menu repeat, triggers as buttons, the keyboard | DreamKarts, Ridgeline |
-| `render.h`, `render.c`, `xform.S` | PowerVR lists, header cache, texture pool, near-plane clipping, strips and rigid meshes sent through the store queues, SH-4 assembly vertex paths | DreamKarts, Ridgeline |
-| `prof.h`, `prof.c`, `prof_engine.h` | Frame phase timers for the autotests' log lines; per-section cycle and stall counters for console benchmarks; the renderer's own ids | DreamKarts, Ridgeline |
-| `frame.h`, `frame.c` | Frame pacing: the step follows the measured vblank period, missed vblanks run extra steps, FPS and CPU counters | DreamKarts, Ridgeline |
-| `mesh.h`, `mesh.c` | Builds rigid models (vehicles) into `r_mesh_kv` strips with per-group lighting, and `eng_lit_due` to light an instance every other frame | DreamKarts, Ridgeline |
-| `scenery.h`, `scenery.c` | Static scenery pool: strips and chunks with bounding spheres and distance LOD | Ridgeline |
-| `sfx.h`, `sfx.c` | Effect bank in AICA RAM, one-shots, looping voices on reserved channels, pan and distance of a sound for the listener | DreamKarts, Ridgeline |
-| `text.h`, `text.c` | Bitmap text from a font atlas | DreamKarts, Ridgeline |
-| `sky.h`, `sky.c` | Gradient sky dome about the camera, lens flare ghosts | DreamKarts, Ridgeline |
+| `vecmath.h` | Vectors, scalar helpers, packed colours, the camera and its look-at, lean and orbit helpers (all inline) | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `rand.h`, `rand.c` | The seeded generator; a game can hold it in its own file (`ENG_RAND_IMPL`) so calls inline | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `input.h`, `input.c` | Two pads with edge detection and menu repeat, triggers as buttons, the keyboard | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `render.h`, `render.c`, `xform.S` | PowerVR lists, header cache, texture pool, near-plane clipping, strips and rigid meshes sent through the store queues, SH-4 assembly vertex paths | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `prof.h`, `prof.c`, `prof_engine.h` | Frame phase timers for the autotests' log lines; per-section cycle and stall counters for console benchmarks; the renderer's own ids | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `frame.h`, `frame.c` | Frame pacing: the step follows the measured vblank period, missed vblanks run extra steps, FPS and CPU counters | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `mesh.h`, `mesh.c` | Builds rigid models (vehicles) into `r_mesh_kv` strips with per-group lighting, and `eng_lit_due` to light an instance every other frame | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `scenery.h`, `scenery.c` | Static scenery pool: strips and chunks with bounding spheres and distance LOD | Ridgeline, Kaiju Lunch Break |
+| `sfx.h`, `sfx.c` | Effect bank in AICA RAM, one-shots, looping voices on reserved channels, pan and distance of a sound for the listener | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `text.h`, `text.c` | Bitmap text from a font atlas | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `sky.h`, `sky.c` | Gradient sky dome about the camera, lens flare ghosts | DreamKarts, Ridgeline, Kaiju Lunch Break |
 | `bird.h` | A low-poly flapping bird for scenery life, held in the drawing file (`ENG_BIRD_IMPL`) so it inlines as before | DreamKarts, Ridgeline |
-| `qa.h`, `qa.c` | Test builds: the shot line for `tools/capture.py`, a log window's frame statistics | DreamKarts, Ridgeline |
-| `ui.h`, `ui.c` | Menu chrome: panels, heading plaques, selection pills, controller button glyphs, hints, keys, dots; colours from the game's theme | DreamKarts, Ridgeline |
-| `cardpick.h`, `cardpick.c` | The memory card prompt: which card's save to use when two hold one, and where to save when the first card is full | DreamKarts, Ridgeline |
+| `qa.h`, `qa.c` | Test builds: the shot line for `tools/capture.py`, a log window's frame statistics | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `ui.h`, `ui.c` | Menu chrome: panels, heading plaques, selection pills, controller button glyphs, hints, keys, dots; colours from the game's theme | DreamKarts, Ridgeline, Kaiju Lunch Break |
+| `cardpick.h`, `cardpick.c` | The memory card prompt: which card's save to use when two hold one, and where to save when the first card is full | DreamKarts, Ridgeline, Kaiju Lunch Break |
 
 `game.mk` holds the build: variants, object directories, the link stamp,
 the version header and the engine's rules (each game's Makefile sets a few
 variables and includes it).
 
 Tools (`tools/`): `pvr_texture.py` (twiddled RGB565/ARGB4444 with mips),
-`fontatlas.py` and `fonts/`, `meshkit.py` (procedural low-poly meshes) with
-`meshasm.py` (welding, checks and the model header emit) and
+`fontatlas.py` and `fonts/`, `inkdraw.py` (a supersampled canvas for
+flat-colour textures with ink lines), `meshkit.py` (procedural low-poly meshes) with
+`meshasm.py` (welding, checks, the model header emit and `ink_shell`, a
+toon outline for a mesh) and
 `blender_preview.py` (the model previews' Blender scene, ground and camera),
 `stripify.py`, `blender_props.py` (Blender prop baker), `synthkit.py` (the
-sound generators' filters, fades, reverb and PCM finishing), `assetpak.py`
+sound generators' filters, fades, reverb and PCM finishing), `cddamusic.py`
+(music as CD audio: pinned mp3s fetched and cut to the disc's tracks), `assetpak.py`
 (the sfx and texture paks and their generated headers), `capture.py`
 (screenshots at each `<PREFIX> SHOT` line of a capture build; the games'
 `tools/capture.py` call it with their names), `flycast-run.sh` (the core
