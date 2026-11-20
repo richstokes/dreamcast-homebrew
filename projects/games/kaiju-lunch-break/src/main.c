@@ -65,6 +65,7 @@ void game_start(void) {
     game.clock = LUNCH_SECONDS;
     game.intro = 2.4f;
     game.outro = 0;
+    game.extra = game.ot_card = 0;
     game_set_state(ST_PLAY);
     audio_music_next();
     audio_sfx(KL_SFX_ROAR, 230);
@@ -208,6 +209,16 @@ static void play_update(float dt) {
         float before = game.clock;
         game.clock -= dt;
         if(game.clock <= 10.0f && (int)before != (int)game.clock) audio_sfx(KL_SFX_BEEP, 170);
+        if(game.ot_card > 0) game.ot_card -= dt;
+        if(game.clock <= 0 && game.extra == 0 && score.total + score.pot * (uint64_t)score.mult >= OVERTIME_BILL) {
+            /* Overtime: the combo carries on through it. */
+            game.extra = OVERTIME_SECONDS;
+            game.clock += OVERTIME_SECONDS;
+            game.ot_card = 2.6f;
+            printf("KL overtime: %llu thousand dollars at the bell\n", (unsigned long long)(score.total + score.pot * (uint64_t)score.mult));
+            audio_sfx(KL_SFX_BELL, 255);
+            audio_sfx(KL_SFX_ROAR, 230);
+        }
         if(game.clock <= 0) {
             game.clock = 0;
             game.outro = 0.001f;

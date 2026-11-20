@@ -17,6 +17,12 @@ enum { ST_TITLE, ST_PLAY, ST_RESULTS };
 enum { PAUSE_RESUME, PAUSE_RESTART, PAUSE_MUSIC, PAUSE_FPS, PAUSE_QUIT, PAUSE_ITEMS };
 
 #define LUNCH_SECONDS 180.0f   /* the hour, 12:00 to 1:00, at twenty to one */
+/* Overtime: a bill this big (thousands of dollars, the running combo
+   counted) when the bell goes buys OVERTIME_SECONDS more, once. */
+#ifndef OVERTIME_BILL
+#define OVERTIME_BILL 20000000ull
+#endif
+#define OVERTIME_SECONDS 120.0f
 
 typedef struct {
     int state;
@@ -29,6 +35,8 @@ typedef struct {
     float clock;           /* seconds of lunch left */
     float intro;           /* counts down the "LUNCH TIME!" card */
     float outro;           /* counts up once the bell has gone */
+    float extra;           /* seconds of overtime added to this lunch */
+    float ot_card;         /* counts down the "OVERTIME!" card */
     uint32_t frame;        /* displayed frames, from 1 */
 } Game;
 extern Game game;

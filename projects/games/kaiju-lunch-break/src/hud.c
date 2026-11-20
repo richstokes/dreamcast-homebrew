@@ -58,11 +58,11 @@ static void bar(float x0, float y0, float x1, float y1, float k, uint32_t top, u
 }
 
 static void clock_text(char *out, size_t n) {
-    /* The hour, 12:00 to 1:00, over the lunch's three minutes. */
-    int mins = (int)((LUNCH_SECONDS - game.clock) * (60.0f / LUNCH_SECONDS));
+    /* The hour, 12:00 to 1:00, over the lunch's three minutes, and on
+       past one in overtime. */
+    int mins = (int)((LUNCH_SECONDS + game.extra - game.clock) * (60.0f / LUNCH_SECONDS));
     if(mins < 0) mins = 0;
-    if(mins >= 60) snprintf(out, n, "1:00");
-    else snprintf(out, n, "12:%02d", mins);
+    snprintf(out, n, "%d:%02d", mins >= 60 ? 1 : 12, mins % 60);
 }
 
 void hud_draw(void) {
@@ -73,9 +73,19 @@ void hud_draw(void) {
     clock_text(buf, sizeof(buf));
     ui_rrect(22, 22, 232, 84, 12, INK, INK);
     ui_rrect(25, 25, 229, 81, 10, late ? color_lerp(0xff6a2a4a, 0xffe84058, pulse) : 0xff4a4284, late ? 0xff4a1c38 : 0xff2e2858);
-    text(36, 43, 0.4f, ALIGN_LEFT, 0xffbec8e6, "LUNCH BREAK");
+    text(36, 43, 0.4f, ALIGN_LEFT, 0xffbec8e6, game.extra > 0 ? "OVERTIME" : "LUNCH BREAK");
     text(218, 43, 0.62f, ALIGN_RIGHT, 0xffffffff, buf);
-    bar(36, 62, 218, 72, game.clock / LUNCH_SECONDS, late ? 0xffff7060 : 0xff7ee878, late ? 0xffe04050 : 0xff48b860);
+    bar(36, 62, 218, 72, game.clock / (game.extra > 0 ? game.extra : LUNCH_SECONDS), late ? 0xffff7060 : 0xff7ee878,
+        late ? 0xffe04050 : 0xff48b860);
+    /* What overtime takes, until it is earned or the bell has gone. */
+    if(game.extra == 0 && game.outro <= 0) {
+        bool earned = score.total + score.pot * (uint64_t)score.mult >= OVERTIME_BILL;
+        char money[40];
+        score_money(money, sizeof(money), OVERTIME_BILL);
+        if(earned) snprintf(buf, sizeof(buf), "OVERTIME EARNED");
+        else snprintf(buf, sizeof(buf), "OVERTIME AT %s", money);
+        text(127, 100, 0.36f, ALIGN_CENTER, earned ? 0xff7ee878 : 0xffbec8e6, buf);
+    }
 
     /* The bill. */
     score_money(buf, sizeof(buf), score.total);
@@ -104,7 +114,7 @@ void hud_draw(void) {
         text(320, 50, 0.7f * (0.6f + 0.4f * k), ALIGN_CENTER, color_alpha(0xff7ee878, 2.0f * (1.8f - score.bank_age)), buf);
     }
     /* Tricks, newest first, down the left. */
-    float y = 116;
+    float y = 124;
     for(int i = 0; i < SCORE_FEED; i++) {
         if(score.feed[i].age > 2.6f || !score.feed[i].name) continue;
         float a = score.feed[i].age, in = a < 0.12f ? a / 0.12f : 1.0f;
@@ -151,6 +161,11 @@ void hud_draw(void) {
         float u = 2.4f - game.intro, k = u < 0.2f ? u / 0.2f * 1.2f : u < 0.3f ? 1.2f - (u - 0.2f) * 2.0f : 1.0f;
         text(320, 200, 1.6f * k, ALIGN_CENTER, 0xffffd650, game.intro > 0.7f ? "LUNCH TIME!" : "DIG IN!");
         if(game.intro > 0.7f) text(320, 256, 0.6f, ALIGN_CENTER, 0xffffffff, "ONE HOUR. ONE CITY.");
+    }
+    else if(game.ot_card > 0) {
+        float u = 2.6f - game.ot_card, k = u < 0.2f ? u / 0.2f * 1.2f : u < 0.3f ? 1.2f - (u - 0.2f) * 2.0f : 1.0f;
+        text(320, 200, 1.5f * k, ALIGN_CENTER, 0xffffd650, "OVERTIME!");
+        text(320, 252, 0.6f, ALIGN_CENTER, 0xffffffff, "THE BOSS CAN WAIT");
     }
     else if(game.outro > 0) {
         float u = game.outro, k = u < 0.2f ? u / 0.2f * 1.2f : u < 0.3f ? 1.2f - (u - 0.2f) * 2.0f : 1.0f;
