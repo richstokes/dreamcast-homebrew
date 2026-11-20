@@ -44,9 +44,10 @@ void score_reset(void) {
 static void recount(void) {
     /* Eight things in the chain a step; a trick's point is worth two. */
     int m = 1 + (score.chain + 2 * score.bonus) / 8, before = score.mult;
-    score.mult = m > 99 ? 99 : m;
-    /* The combo reaching ALL YOU CAN EAT gets a word, and so does 50x. */
-    if(before < 50 && score.mult >= 50) audio_sfx(KL_SFX_INSURANCE, 255);
+    score.mult = m > 100 ? 100 : m;
+    /* The combo reaching ALL YOU CAN EAT gets a word, and so do 50x and the top. */
+    if(before < 100 && score.mult >= 100) audio_sfx(KL_SFX_MONSTERKILL, 255);
+    else if(before < 50 && score.mult >= 50) audio_sfx(KL_SFX_INSURANCE, 255);
     else if(before < 25 && score.mult >= 25) audio_sfx(KL_SFX_WOW, 255);
     if(score.mult > score.best_mult) score.best_mult = score.mult;
     score.timer_max = 3.2f - fminf(1.5f, (float)score.mult * 0.04f);

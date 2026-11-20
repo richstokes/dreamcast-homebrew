@@ -294,6 +294,7 @@ def render():
         voice("TRYHARDER", "tryharder"),
         voice("WOW", "wow"),
         voice("INSURANCE", "insurance"),
+        voice("MONSTERKILL", "monsterkill"),
     ]
 
 

@@ -44,6 +44,7 @@ typedef enum {
     KL_SFX_TRYHARDER,
     KL_SFX_WOW,
     KL_SFX_INSURANCE,
+    KL_SFX_MONSTERKILL,
     KL_SFX_COUNT
 } kl_sfx_id_t;
 
@@ -82,6 +83,7 @@ static const kl_sfx_asset_t kl_sfx_assets[KL_SFX_COUNT] __attribute__((unused)) 
     { 1864704u, 209952u, 0u, 44100u }, /* TRYHARDER  2.38 s */
     { 2074656u, 116128u, 0u, 44100u }, /* WOW        1.32 s */
     { 2190784u, 133024u, 0u, 44100u }, /* INSURANCE  1.51 s */
+    { 2323808u, 279424u, 0u, 44100u }, /* MONSTERKILL 3.17 s */
 };
 
 /* display names */
@@ -120,6 +122,7 @@ static const char *const kl_sfx_names[KL_SFX_COUNT] __attribute__((unused)) = {
     "TRYHARDER",
     "WOW",
     "INSURANCE",
+    "MONSTERKILL",
 };
 
 /* From here on the effects are voice lines, streamed from the pak (engine/voice.h). */
