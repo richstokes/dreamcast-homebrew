@@ -73,6 +73,7 @@ void game_start(void) {
 static void title_start(void) {
     world_reset(7);
     game_set_state(ST_TITLE);
+    audio_sfx(KL_SFX_WELCOME, 255);
     save_cards();
 }
 

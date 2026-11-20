@@ -34,6 +34,7 @@ typedef enum {
     KL_SFX_OK,
     KL_SFX_BELL,
     KL_SFX_BEEP,
+    KL_SFX_WELCOME,
     KL_SFX_BEAM,
     KL_SFX_HELI,
     KL_SFX_SIREN,
@@ -66,10 +67,11 @@ static const kl_sfx_asset_t kl_sfx_assets[KL_SFX_COUNT] __attribute__((unused)) 
     { 796736u, 9728u, 0u, 22050u }, /* OK         0.22 s */
     { 806464u, 70560u, 0u, 22050u }, /* BELL       1.60 s */
     { 877024u, 7968u, 0u, 22050u }, /* BEEP       0.18 s */
-    { 884992u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
-    { 917792u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
-    { 934208u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
-    { 999776u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
+    { 884992u, 118240u, 0u, 22050u }, /* WELCOME    2.68 s */
+    { 1003232u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
+    { 1036032u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
+    { 1052448u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
+    { 1118016u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
 };
 
 /* display names */
@@ -98,6 +100,7 @@ static const char *const kl_sfx_names[KL_SFX_COUNT] __attribute__((unused)) = {
     "OK",
     "BELL",
     "BEEP",
+    "WELCOME",
     "BEAM",
     "HELI",
     "SIREN",

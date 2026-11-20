@@ -220,9 +220,9 @@ void audio_shutdown(void) {
     if(jb_playing) cdrom_cdda_pause();
 }
 
-/* Only the menus make a sound outside a lunch (the title's kaiju is the bot's). */
+/* Only the menus and the welcome make a sound outside a lunch (the title's kaiju is the bot's). */
 static bool muted(int id) {
-    return game.state == ST_TITLE && id != KL_SFX_MOVE && id != KL_SFX_OK;
+    return game.state == ST_TITLE && id != KL_SFX_MOVE && id != KL_SFX_OK && id != KL_SFX_WELCOME;
 }
 
 void audio_sfx_rate(int id, int vol, float rate) {
