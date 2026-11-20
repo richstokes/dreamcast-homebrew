@@ -39,6 +39,7 @@ typedef enum {
     KL_SFX_PRAISE,
     KL_SFX_TRYHARDER,
     KL_SFX_WOW,
+    KL_SFX_INSURANCE,
     KL_SFX_BEAM,
     KL_SFX_HELI,
     KL_SFX_SIREN,
@@ -76,10 +77,11 @@ static const kl_sfx_asset_t kl_sfx_assets[KL_SFX_COUNT] __attribute__((unused)) 
     { 941504u, 32384u, 2u, 16500u }, /* PRAISE     3.93 s */
     { 973888u, 26240u, 2u, 22050u }, /* TRYHARDER  2.38 s */
     { 1000128u, 14512u, 2u, 22050u }, /* WOW        1.32 s */
-    { 1014656u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
-    { 1047456u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
-    { 1063872u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
-    { 1129440u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
+    { 1014656u, 16624u, 2u, 22050u }, /* INSURANCE  1.51 s */
+    { 1031296u, 32768u, 1u, 22050u }, /* BEAM       0.74 s */
+    { 1064096u, 16384u, 1u, 22050u }, /* HELI       0.37 s */
+    { 1080512u, 65536u, 1u, 22050u }, /* SIREN      1.49 s */
+    { 1146080u, 65536u, 1u, 22050u }, /* CROWD      1.49 s */
 };
 
 /* display names */
@@ -113,6 +115,7 @@ static const char *const kl_sfx_names[KL_SFX_COUNT] __attribute__((unused)) = {
     "PRAISE",
     "TRYHARDER",
     "WOW",
+    "INSURANCE",
     "BEAM",
     "HELI",
     "SIREN",

@@ -290,6 +290,7 @@ def render():
         voice("PRAISE", "praise"),
         voice("TRYHARDER", "tryharder"),
         voice("WOW", "wow"),
+        voice("INSURANCE", "insurance"),
         ("BEAM", beam_loop(), True, SR),
         ("HELI", heli_loop(), True, SR),
         ("SIREN", siren_loop(), True, SR),
