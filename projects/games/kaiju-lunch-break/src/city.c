@@ -1177,6 +1177,27 @@ int city_nearest(V3 p, float min_h) {
     return best;
 }
 
+int city_aim(V3 p, V3 fwd, float dmin, float dmax, float cone, int prev) {
+    int best = -1;
+    float bs = 1e12f;
+    BlockRange r = block_range(p.x - dmax, p.x + dmax, p.z - dmax, p.z + dmax);
+    FOR_BLOCK_RANGE(r, i) {
+        const Building *b = &city_b[i];
+        if(b->state != B_INTACT) continue;
+        float dx = b->x - p.x, dz = b->z - p.z, d = sqrtf(dx * dx + dz * dz) + 1e-3f;
+        if(d < dmin || d > dmax) continue;
+        float c = (dx * fwd.x + dz * fwd.z) / d;
+        if(c < cone) continue;
+        /* (best about a block and a half out: nearer is hidden behind the kaiju) */
+        float s = (1.0f - c) * 900.0f + fabsf(d - 120.0f) * 0.2f - fminf(b->h, 120.0f) * 0.3f - (i == prev ? 25.0f : 0.0f);
+        if(s < bs) {
+            bs = s;
+            best = i;
+        }
+    }
+    return best;
+}
+
 /* ---- Coming down ---- */
 static void quad_flat(int kind, V3 a, V3 b, V3 c, V3 d, float u, float v, uint32_t col) {
     s_begin(kind);

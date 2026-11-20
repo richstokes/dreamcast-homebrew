@@ -1,4 +1,5 @@
 /* Kaiju Lunch Break: boot, the frame loop, the camera and the render order. */
+#include "aim.h"
 #include "kl.h"
 #include "cel.h"
 #include "city.h"
@@ -285,11 +286,13 @@ static void render(void) {
     city_draw_pt();
     life_draw_pt();
     fx_draw_pt();
+    if(game.state == ST_PLAY) aim_draw_pt();
     prof_phase_mark(PH_FX);
 
     r_list(PVR_LIST_TR_POLY);
     r_load_vp();
     fx_draw_tr();
+    if(game.state == ST_PLAY) aim_draw_tr();
     switch(game.state) {
         case ST_TITLE:
             hud_draw_title();
@@ -319,6 +322,7 @@ int main(int argc, char **argv) {
     cel_init();
     hud_init();
     fx_init();
+    aim_init();
     life_init();
     if(!city_init() || !kaiju_init()) {
         printf("KL: out of memory at boot\n");

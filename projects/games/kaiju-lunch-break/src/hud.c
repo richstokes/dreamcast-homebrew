@@ -1,4 +1,5 @@
 /* The HUD and the screens (hud.h). */
+#include "aim.h"
 #include "hud.h"
 #include "score.h"
 #include "kaiju.h"
@@ -146,9 +147,24 @@ void hud_draw(void) {
 
     /* What is in the jaws: from behind there is no seeing it. */
     if(kaiju_carrying()) {
+        const char *lock = aim_locked();
         snprintf(buf, sizeof(buf), "CARRYING %s", kaiju_carrying());
-        text(320, 414, 0.5f, ALIGN_CENTER, 0xffffffff, buf);
-        text(320, 436, 0.4f, ALIGN_CENTER, 0xffffd650, "LET GO OF R TO THROW");
+        text(320, 408, 0.5f, ALIGN_CENTER, 0xffffffff, buf);
+        if(lock) {
+            float pulse = 0.5f + 0.5f * sinf(game.time * 9.0f);
+            snprintf(buf, sizeof(buf), "LOCKED ON: %s", lock);
+            text(320, 432, 0.5f, ALIGN_CENTER, color_lerp(0xffff4858, 0xffffe060, pulse), buf);
+            text(320, 454, 0.36f, ALIGN_CENTER, 0xffffffff, "LET GO OF R TO THROW");
+        }
+        else text(320, 436, 0.4f, ALIGN_CENTER, 0xffffd650, "LET GO OF R TO THROW");
+        /* The shout as it is picked up. */
+        if(kj.grab_pop > 0) {
+            float u = 1.0f - kj.grab_pop, k = u < 0.12f ? u / 0.12f * 1.25f : u < 0.2f ? 1.25f - (u - 0.12f) * 3.0f : 1.0f;
+            const char *what = kaiju_carrying();
+            if(!strncmp(what, "A ", 2)) what += 2;
+            snprintf(buf, sizeof(buf), "GOT %s%s!", strcmp(what, "SOMEBODY") ? "A " : "", what);
+            text(320, 300, 0.95f * k, ALIGN_CENTER, color_alpha(0xffffd650, kj.grab_pop * 3.0f), buf);
+        }
     }
 
     /* How to play, at the start. */

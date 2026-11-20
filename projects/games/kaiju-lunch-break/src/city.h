@@ -105,5 +105,10 @@ int city_total(void);
 /* The tallest standing building's index within r of p that is at least
    min_h tall, or -1: the autotest's next target. */
 int city_nearest(V3 p, float min_h);
+/* What a throw from p facing fwd should go for: the best standing
+   building between dmin and dmax away within the cone (cos of its half
+   angle), favouring the one in line, near and tall, and prev if it is
+   still in it. -1 if none. */
+int city_aim(V3 p, V3 fwd, float dmin, float dmax, float cone, int prev);
 
 #endif

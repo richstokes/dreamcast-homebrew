@@ -47,7 +47,7 @@ audio on the disc.
 | B | Jump and stomp; land on a building to flatten it |
 | Y (hold) | Atomic breath, while the meter lasts |
 | R | Chomp: eats the nearest vehicle or helicopter, refills the breath |
-| R (hold) | Grab instead: a vehicle, a helicopter, a person, a tree, or a chunk out of a building; let go to throw it |
+| R (hold) | Grab instead: a vehicle, a helicopter, a person, a tree, or a chunk out of a building; let go to throw it. While you carry it, the arc shows where it will land, and it locks on to a helicopter or building ahead |
 | L (hold) | Charge: through anything under 26 m, head first into anything over |
 | D-pad up | Roar: refills the combo timer once a combo, backs the helicopters off |
 | D-pad left/right | Turn the camera |

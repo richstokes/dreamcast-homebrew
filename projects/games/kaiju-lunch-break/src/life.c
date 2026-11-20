@@ -301,6 +301,26 @@ int life_grab(V3 mouth, V3 ground, float r) {
     return PERSON_HANDLE + slot;
 }
 
+bool life_air_target(V3 p, V3 fwd, float dmax, float cone, V3 *at) {
+    float bd = dmax;
+    bool found = false;
+    for(int i = 0; i < HELIS; i++) {
+        const Heli *h = &heli[i];
+        if(!h->active || h->falling || h->held) continue;
+        V3 d = vsub(h->p, p);
+        float l = vlen(d) + 1e-3f, flat = sqrtf(d.x * d.x + d.z * d.z) + 1e-3f;
+        if(l > bd || (d.x * fwd.x + d.z * fwd.z) / flat < cone) continue;
+        bd = l;
+        *at = h->p;
+        found = true;
+    }
+    return found;
+}
+
+float life_handle_gravity(int handle) {
+    return handle >= PERSON_HANDLE ? 55.0f : handle >= HELI_HANDLE ? 45.0f : 62.0f;
+}
+
 const char *life_handle_name(int handle) {
     if(handle >= PERSON_HANDLE) return "SOMEBODY";
     if(handle >= HELI_HANDLE) return "A HELICOPTER";

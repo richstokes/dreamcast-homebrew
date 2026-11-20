@@ -7,6 +7,7 @@
 #include "audio.h"
 #include "life.h"
 #include "models.h"
+#include "aim.h"
 
 Kaiju kj;
 
@@ -51,6 +52,7 @@ void kaiju_reset(void) {
     kj.pos = v3(0, 0, -CITY_SHORE - 62.0f);
     kj.sink = sea_depth(kj.pos);
     kj.energy = 0.5f;
+    aim_off();
     for(int i = 0; i < 2; i++) {
         kj.foot[i].p = foot_home(i);
         kj.foot[i].planted = true;
@@ -266,13 +268,17 @@ void kaiju_update(const Ctl *c, float dt) {
         }
     }
     /* What is in the jaws goes where they go, and flies when they open. */
+    if(kj.grab_pop > 0) kj.grab_pop -= dt;
     if(kj.held) {
         V3 at = vmad(kj.mouth, f, 3.0f);
         if(kj.held > 0) life_hold(kj.held, at, kj.heading);
         else if(kj.held <= TREE_HANDLE) city_tree_hold(TREE_HANDLE - kj.held, at);
         else city_chunk_hold(-1 - kj.held, at);
+        aim_update(at, f, kj.held > 0 ? life_handle_gravity(kj.held) : 55.0f, dt);
         if((kj.hold_t += dt) > 0.25f && (!c->grab || kj.hold_t > 6.0f)) {
-            V3 v = vadd(vscale(f, 95.0f), v3(0, 22.0f, 0));
+            V3 v = aim_velocity();
+            if(aim_locked()) fx_shake(0.25f);
+            aim_off();
             if(kj.held > 0) life_throw(kj.held, v);
             else if(kj.held <= TREE_HANDLE) city_tree_throw(TREE_HANDLE - kj.held, v);
             else city_chunk_throw(-1 - kj.held, v);
@@ -367,8 +373,14 @@ void kaiju_update(const Ctl *c, float dt) {
                         if(chunk >= 0) h = -1 - chunk;
                     }
                     if(h) {
+                        /* Got it: a jolt, a puff, the HUD's shout. */
                         kj.held = h;
                         kj.hold_t = 0;
+                        kj.grab_pop = 1.0f;
+                        fx_ring(ground, 16.0f);
+                        fx_puffs(ground, 8.0f, 5, 7.0f);
+                        fx_shake(0.35f);
+                        audio_sfx(KL_SFX_TRICK, 210);
                     }
                 }
                 if(kj.held) audio_sfx(KL_SFX_GULP, 120);

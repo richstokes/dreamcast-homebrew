@@ -36,6 +36,7 @@ typedef struct {
     int held;
     bool want_grab;
     float hold_t, toss;
+    float grab_pop;          /* counts down the HUD's "GOT A BUS!" */
     /* A stomp in the sea sends a wave ashore. */
     V3 wave_c;
     float wave_r;

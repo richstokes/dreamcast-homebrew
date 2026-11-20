@@ -27,6 +27,11 @@ int life_eat(V3 mouth, V3 ground, float r);
 int life_grab(V3 mouth, V3 ground, float r);
 void life_hold(int handle, V3 p, float yaw);
 void life_throw(int handle, V3 v);
+/* A helicopter to throw at: the nearest within dmax of p and within the
+   cone (cos of its half angle) round fwd. */
+bool life_air_target(V3 p, V3 fwd, float dmax, float cone, V3 *at);
+/* How fast what a handle holds falls, once thrown. */
+float life_handle_gravity(int handle);
 /* What a handle is, for the HUD: "A BUS". */
 const char *life_handle_name(int handle);
 /* The breath from o along d. Returns how many things it burned. */
