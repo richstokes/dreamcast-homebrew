@@ -13,7 +13,7 @@
 set -eu
 
 SH4ZAM_URL="${SH4ZAM_URL:-https://github.com/gyrovorbis/sh4zam.git}"
-SH4ZAM_COMMIT="${SH4ZAM_COMMIT:-03101c01bb30fc253498d9999ef7f558cdc5d163}"   # master after v0.10.0: accurate asin/acos/atan2, matrix fixes, branchless inv_sqrtf
+SH4ZAM_COMMIT="${SH4ZAM_COMMIT:-e3a6f7c75d26f5b0da5f601924a6d5697a149409}"   # master after v0.10.0: accurate asin/acos/atan2, matrix fixes, branchless inv_sqrtf
 
 if [ "$#" -eq 0 ]; then
     echo "usage: $0 <checkout-dir>..." >&2
