@@ -13,7 +13,7 @@
 set -eu
 
 SH4ZAM_URL="${SH4ZAM_URL:-https://github.com/gyrovorbis/sh4zam.git}"
-SH4ZAM_COMMIT="${SH4ZAM_COMMIT:-5b7dfc22a91f7a21756f1e8f86b1ed3d99dd33bf}"   # master after v0.10.0: u16 rotations, full-range scalar math
+SH4ZAM_COMMIT="${SH4ZAM_COMMIT:-03101c01bb30fc253498d9999ef7f558cdc5d163}"   # master after v0.10.0: accurate asin/acos/atan2, matrix fixes, branchless inv_sqrtf
 
 if [ "$#" -eq 0 ]; then
     echo "usage: $0 <checkout-dir>..." >&2
